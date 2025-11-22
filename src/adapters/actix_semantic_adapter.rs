@@ -261,6 +261,7 @@ impl Handler<DetectCommunitiesMessage> for SemanticProcessorActor {
     }
 }
 
+#[cfg(feature = "gpu")]
 impl Handler<ComputeShortestPathsMessage> for SemanticProcessorActor {
     type Result = ResponseFuture<Result<PathfindingResult, String>>;
 

@@ -29,10 +29,12 @@ use crate::services::semantic_analyzer::{
 
 // Message types
 use crate::actors::messages::{
-    ComputeAllPairsShortestPaths, ComputeShortestPaths, GetConstraints,
+    ComputeAllPairsShortestPaths, GetConstraints,
     RegenerateSemanticConstraints, TriggerStressMajorization, UpdateAdvancedParams,
     UpdateConstraints,
 };
+#[cfg(feature = "gpu")]
+use crate::actors::messages::ComputeShortestPaths;
 
 // GPU semantic analyzer
 #[cfg(feature = "gpu")]
