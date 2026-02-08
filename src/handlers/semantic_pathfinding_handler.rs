@@ -1,17 +1,14 @@
 //! Semantic Pathfinding Handler - API endpoints for intelligent graph traversal
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, Responder};
 use log::{info, debug};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::services::semantic_pathfinding_service::{
-    SemanticPathfindingService, PathResult, PathfindingConfig
-};
+use crate::services::semantic_pathfinding_service::SemanticPathfindingService;
 use crate::actors::graph_state_actor::GraphStateActor;
 use actix::Addr;
 use crate::{ok_json, error_json};
-use crate::utils::handler_commons::HandlerResponse;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

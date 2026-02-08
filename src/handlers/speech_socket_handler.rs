@@ -2,7 +2,7 @@ use crate::actors::messages::GetSettings;
 use crate::app_state::AppState;
 use crate::types::speech::SpeechOptions;
 use actix::prelude::*;
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};

@@ -5,7 +5,6 @@
 //! through hexagonal architecture ports. Handles GPU-accelerated physics
 //! computations and event publishing.
 
-use chrono::Utc;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -138,7 +137,7 @@ impl PhysicsService {
         adapter.initialize(graph.clone(), params).await?;
 
         
-        let result = adapter.simulate_until_convergence().await?;
+        let _result = adapter.simulate_until_convergence().await?;
 
         
         let forces = adapter.compute_forces().await?;

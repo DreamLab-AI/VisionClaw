@@ -3,10 +3,10 @@
 use actix_web::{web, HttpResponse, Result};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::ok_json;
 
 use crate::actors::messages::{GetSettings, UpdateSettings};
-use crate::AppState;
+use crate:::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -740,3 +740,4 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/calibrate", web::post().to(calibrate_quest3)),
     );
 }
+

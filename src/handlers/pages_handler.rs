@@ -1,11 +1,11 @@
 use crate::actors::messages::{GetMetadata, GetSettings};
-use crate::models::metadata::Metadata;
-use crate::services::github::content_enhanced::ExtendedFileMetadata;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
-use crate::AppState;
+use crate::models::metadata:::Metadata;
+use crate::services::github::content_enhanced:::ExtendedFileMetadata;
+use crate::ok_json;
+use crate:::AppState;
 use actix_web::{web, HttpResponse, Result};
-use futures::future::join_all;
-use serde::Serialize;
+use futures::future:::join_all;
+use serde:::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,3 +147,4 @@ pub async fn get_pages(app_state: web::Data<AppState>) -> Result<HttpResponse> {
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("").route(web::get().to(get_pages)));
 }
+

@@ -2,7 +2,6 @@ use crate::models::graph::GraphData;
 use crate::models::graph_export::*;
 use crate::time;
 use anyhow::{anyhow, Result};
-use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use serde_json;

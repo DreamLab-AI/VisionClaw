@@ -44,7 +44,6 @@ use crate::actors::{
     ClientCoordinatorActor, GPUManagerActor, PhysicsOrchestratorActor, SemanticProcessorActor,
 };
 use crate::actors::graph_state_actor::GraphStateActor;
-use crate::actors::gpu::ForceComputeActor;
 // Removed unused import - we don't use graph_messages types for handlers
 use crate::actors::messages as msgs;
 // Removed graph_messages::GetGraphData import - not used

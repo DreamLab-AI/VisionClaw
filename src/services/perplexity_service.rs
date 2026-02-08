@@ -1,7 +1,6 @@
 use crate::config::AppFullSettings; 
 use crate::models::metadata::Metadata;
 use crate::services::file_service::ProcessedFile;
-use chrono::Utc;
 use log::{error, info};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

@@ -3,14 +3,14 @@
 //!
 //! REST API endpoints for ontology inference operations.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync:::Arc;
+use tokio::sync:::RwLock;
 use tracing::{info, warn};
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::ok_json;
 
-use crate::application::inference_service::InferenceService;
+use crate::application::inference_service:::InferenceService;
 
 #[derive(Debug, Deserialize)]
 pub struct RunInferenceRequest {
@@ -291,3 +291,4 @@ mod tests {
 
     
 }
+

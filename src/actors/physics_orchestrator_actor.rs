@@ -376,6 +376,7 @@ impl PhysicsOrchestratorActor {
     }
 
     
+    #[allow(dead_code)]
     fn handle_physics_step_completion(&mut self) {
         
         debug!("Physics step {} completed", self.current_iteration);
@@ -527,13 +528,13 @@ impl PhysicsOrchestratorActor {
         let config = &self.simulation_params.auto_pause_config;
 
         
-        let is_equilibrium = if let Some(ref stats) = self.physics_stats {
+        let _is_equilibrium = if let Some(ref stats) = self.physics_stats {
             stats.kinetic_energy < config.equilibrium_energy_threshold
         } else {
             false
         };
 
-        let is_equilibrium = false; 
+        let is_equilibrium = false;
 
         if is_equilibrium {
             self.simulation_params.equilibrium_stability_counter += 1;
@@ -604,11 +605,11 @@ impl PhysicsOrchestratorActor {
         };
 
         
-        if let Some(ref stats) = self.physics_stats {
-            
-            self.performance_metrics.gpu_utilization = 0.0; 
-            self.performance_metrics.gpu_memory_usage_mb = 0.0; 
-            self.performance_metrics.convergence_rate = 0.0; 
+        if let Some(ref _stats) = self.physics_stats {
+
+            self.performance_metrics.gpu_utilization = 0.0;
+            self.performance_metrics.gpu_memory_usage_mb = 0.0;
+            self.performance_metrics.convergence_rate = 0.0;
         }
     }
 
@@ -723,6 +724,7 @@ impl PhysicsOrchestratorActor {
     }
 
     
+    #[allow(unreachable_code)]
     fn upload_constraints_to_gpu(&self) {
         {
             if !self.gpu_initialized || self.gpu_compute_addr.is_none() {
@@ -986,7 +988,7 @@ impl Handler<UpdateNodePosition> for PhysicsOrchestratorActor {
 impl Handler<RequestPositionSnapshot> for PhysicsOrchestratorActor {
     type Result = Result<PositionSnapshot, String>;
 
-    fn handle(&mut self, msg: RequestPositionSnapshot, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: RequestPositionSnapshot, _ctx: &mut Self::Context) -> Self::Result {
         use crate::actors::messages::PositionSnapshot;
 
         
@@ -1056,7 +1058,7 @@ impl Handler<ForceResumePhysics> for PhysicsOrchestratorActor {
     fn handle(&mut self, _msg: ForceResumePhysics, _ctx: &mut Self::Context) -> Self::Result {
         info!("Force resume physics requested");
 
-        let was_paused = self.simulation_params.is_physics_paused;
+        let _was_paused = self.simulation_params.is_physics_paused;
         self.resume_physics();
 
         Ok(())
@@ -1085,7 +1087,7 @@ impl Handler<StoreGPUComputeAddress> for PhysicsOrchestratorActor {
 impl Handler<UpdateSimulationParams> for PhysicsOrchestratorActor {
     type Result = Result<(), String>;
 
-    fn handle(&mut self, msg: UpdateSimulationParams, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateSimulationParams, _ctx: &mut Self::Context) -> Self::Result {
         info!("Updating simulation parameters");
 
         

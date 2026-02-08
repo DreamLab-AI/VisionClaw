@@ -1,9 +1,8 @@
 use crate::config::feature_access::FeatureAccess;
 use crate::models::protected_settings::{ApiKeys, NostrUser};
 use crate::utils::nip98::{
-    parse_auth_header, validate_nip98_token, Nip98ValidationError, Nip98ValidationResult,
+    parse_auth_header, validate_nip98_token, Nip98ValidationResult,
 };
-use chrono::Utc;
 use log::{debug, error, info, warn};
 use nostr_sdk::{event::Error as EventError, prelude::*};
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use crate::utils::time;
-use crate::utils::json::{from_json, to_json};
+use crate::utils::json::to_json;
 
 #[cfg(feature = "redis")]
 use redis::{AsyncCommands, Client as RedisClient};
@@ -468,7 +467,7 @@ impl NostrService {
             let new_token = Uuid::new_v4().to_string();
             user.session_token = Some(new_token.clone());
             user.last_seen = now;
-            let updated_user = user.clone();
+            let _updated_user = user.clone();
             drop(users);
 
             // Persist refreshed session to Redis
@@ -478,7 +477,7 @@ impl NostrService {
                 if let Some(ref old) = old_token {
                     self.remove_session_from_redis(pubkey, Some(old)).await;
                 }
-                self.persist_session(&updated_user).await;
+                self.persist_session(&_updated_user).await;
             }
 
             Ok(new_token)
@@ -491,14 +490,14 @@ impl NostrService {
         let mut users = self.users.write().await;
 
         if let Some(user) = users.get_mut(pubkey) {
-            let old_token = user.session_token.clone();
+            let _old_token = user.session_token.clone();
             user.session_token = None;
             user.last_seen = time::timestamp_seconds();
             drop(users);
 
             // Remove session from Redis
             #[cfg(feature = "redis")]
-            self.remove_session_from_redis(pubkey, old_token.as_deref()).await;
+            self.remove_session_from_redis(pubkey, _old_token.as_deref()).await;
 
             Ok(())
         } else {
@@ -582,7 +581,7 @@ impl NostrService {
     /// Get existing user or create a new one from pubkey
     async fn get_or_create_user_from_pubkey(&self, pubkey: &str) -> Result<NostrUser, NostrError> {
         // Check if user exists
-        if let Some(user) = self.get_user(pubkey).await {
+        if let Some(_user) = self.get_user(pubkey).await {
             // Update last_seen
             let mut users = self.users.write().await;
             if let Some(user) = users.get_mut(pubkey) {

@@ -1,7 +1,7 @@
 use crate::actors::messages::{
     AddNodesFromMetadata, GetNodeData as GetGpuNodeData, GetSettings, UpdateMetadata,
 };
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::{ok_json, error_json};
 use actix_web::{web, Error as ActixError, HttpResponse, Responder, Result};
 use log::{debug, error, info};
 use serde_json::json;

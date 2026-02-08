@@ -3,8 +3,8 @@
 //! Provides comprehensive memory bounds checking and validation for GPU operations.
 //! Includes overflow protection, alignment validation, and safe memory access patterns.
 
-use log::{debug, error};
-use std::collections::HashMap;
+use log::debug;
+use std::collections:::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
@@ -599,3 +599,4 @@ mod tests {
         assert!(!bounds.is_properly_aligned(15));
     }
 }
+

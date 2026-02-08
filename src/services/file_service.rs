@@ -672,7 +672,6 @@ impl FileService {
 
     fn calculate_sha1(content: &str) -> String {
         use sha1::{Digest, Sha1};
-use crate::utils::json::{from_json, to_json};
         let mut hasher = Sha1::new();
         hasher.update(content.as_bytes());
         format!("{:x}", hasher.finalize())

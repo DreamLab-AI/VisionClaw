@@ -3,18 +3,18 @@
 //! This module provides comprehensive telemetry and structured logging for the WebXR
 //! graph visualization system, including agent lifecycle, GPU operations, and MCP bridge.
 
-use crate::time;
-use crate::{to_json, from_json};
+use crate:::time;
+use crate::to_json;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::HashMap;
+use std::collections:::HashMap;
 use std::fs::{create_dir_all, OpenOptions};
-use std::io::Write;
+use std::io:::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
+use uuid:::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CorrelationId(pub String);
@@ -610,29 +610,33 @@ impl AgentTelemetryLogger {
     }
 }
 
-static mut GLOBAL_TELEMETRY_LOGGER: Option<AgentTelemetryLogger> = None;
-static LOGGER_INIT: std::sync::Once = std::sync::Once::new();
+static GLOBAL_TELEMETRY_LOGGER: std::sync::OnceLock<AgentTelemetryLogger> = std::sync::OnceLock::new();
 
 pub fn init_telemetry_logger(log_dir: &str, buffer_size: usize) -> Result<(), std::io::Error> {
-    LOGGER_INIT.call_once(|| match AgentTelemetryLogger::new(log_dir, buffer_size) {
-        Ok(logger) => {
-            unsafe {
-                GLOBAL_TELEMETRY_LOGGER = Some(logger);
+    match GLOBAL_TELEMETRY_LOGGER.get() {
+        Some(_) => {
+            info!("Telemetry logger already initialized");
+        }
+        None => {
+            match AgentTelemetryLogger::new(log_dir, buffer_size) {
+                Ok(logger) => {
+                    let _ = GLOBAL_TELEMETRY_LOGGER.set(logger);
+                    info!(
+                        "Telemetry logger initialized with log directory: {}",
+                        log_dir
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to initialize telemetry logger: {}", e);
+                }
             }
-            info!(
-                "Telemetry logger initialized with log directory: {}",
-                log_dir
-            );
         }
-        Err(e) => {
-            error!("Failed to initialize telemetry logger: {}", e);
-        }
-    });
+    }
     Ok(())
 }
 
 pub fn get_telemetry_logger() -> Option<&'static AgentTelemetryLogger> {
-    unsafe { GLOBAL_TELEMETRY_LOGGER.as_ref() }
+    GLOBAL_TELEMETRY_LOGGER.get()
 }
 
 #[macro_export]
@@ -727,3 +731,4 @@ use crate::utils::json::{from_json, to_json};
         assert_eq!(event.component, "test_component");
     }
 }
+

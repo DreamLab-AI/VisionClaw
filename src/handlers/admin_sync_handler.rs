@@ -1,10 +1,10 @@
 // src/handlers/admin_sync_handler.rs
 //! Admin endpoint for triggering GitHub synchronization
 
-use actix_web::{web, HttpResponse, Responder, Result};
+use actix_web::{web, Responder, Result};
 use log::{error, info};
 use serde::Serialize;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::{ok_json, error_json};
 
 use crate::services::github_sync_service::{GitHubSyncService, SyncStatistics};
 use crate::AppState;

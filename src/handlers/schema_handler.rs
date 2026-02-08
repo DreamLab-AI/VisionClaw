@@ -6,16 +6,15 @@
 
 use actix_web::{web, HttpResponse, Responder};
 use log::{debug, info};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use serde::Serialize;
+use std::sync:::Arc;
 
 use crate::services::schema_service::{SchemaService, GraphSchema};
-use crate::actors::graph_state_actor::GraphStateActor;
-use actix::Addr;
+use crate::actors::graph_state_actor:::GraphStateActor;
+use actix:::Addr;
 
 // Response macros
 use crate::{ok_json, error_json};
-use crate::utils::handler_commons::HandlerResponse;
 
 /// Schema response
 #[derive(Debug, Serialize)]
@@ -265,3 +264,4 @@ pub fn configure_schema_routes(cfg: &mut web::ServiceConfig) {
             .route("/edge-types/{type}", web::get().to(get_edge_type_info))
     );
 }
+

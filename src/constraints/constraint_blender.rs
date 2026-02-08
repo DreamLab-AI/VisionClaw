@@ -2,7 +2,6 @@
 // Week 3 Deliverable: Advanced Blending Algorithms
 
 use super::physics_constraint::*;
-use super::priority_resolver::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlendingStrategy {

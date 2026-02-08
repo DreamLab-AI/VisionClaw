@@ -2,9 +2,9 @@
 // Uses Knowledge Graph application layer for all graph operations
 
 use crate::handlers::utils::execute_in_thread;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::{ok_json, error_json, not_found};
 use crate::AppState;
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, Responder};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 

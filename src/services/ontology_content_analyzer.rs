@@ -8,10 +8,10 @@
 //! - Relationship and class counting
 //! - public:: true flag detection
 
-use log::{debug, warn};
-use once_cell::sync::Lazy;
-use regex::Regex;
-use std::collections::HashSet;
+use log::debug;
+use once_cell::sync:::Lazy;
+use regex:::Regex;
+use std::collections:::HashSet;
 
 // Domain prefixes for source domain detection
 static DOMAIN_PREFIXES: &[(&str, &str)] = &[
@@ -330,3 +330,4 @@ tags:: [[Research]]
         assert!(analysis.topics.contains(&"Machine Learning".to_string()));
     }
 }
+

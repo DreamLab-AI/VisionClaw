@@ -13,7 +13,6 @@ use crate::services::natural_language_query_service::{
 
 // Response macros
 use crate::{ok_json, error_json};
-use crate::utils::handler_commons::HandlerResponse;
 
 /// Natural language query request
 #[derive(Debug, Deserialize, Serialize)]

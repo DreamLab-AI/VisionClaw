@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("mv:Technology", "Technology", "A technical tool or system", vec![]),
     ];
 
-    let mut total_classes = 0;
+    let mut _total_classes = 0;
 
     for (iri, label, desc, parents) in sample_classes {
         let class = OwlClass {
@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         ontology_repo.add_owl_class(&class).await?;
-        total_classes += 1;
+        _total_classes += 1;
         info!("Saved class: {} ({})", label, iri);
     }
 

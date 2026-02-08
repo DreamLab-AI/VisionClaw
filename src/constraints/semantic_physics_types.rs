@@ -1,7 +1,6 @@
 // Semantic Physics Types - Enhanced Constraint System
 // Semantic-aware physics constraints with axis alignment and bidirectional relationships
 
-use super::physics_constraint::NodeId;
 use serde::{Deserialize, Serialize};
 
 /// Axis types for alignment constraints

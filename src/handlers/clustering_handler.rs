@@ -1,8 +1,8 @@
 use crate::actors::messages::{GetSettings, UpdateSettings};
 use crate::app_state::AppState;
 use crate::config::ClusteringConfiguration;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+use crate::{ok_json, error_json, bad_request, service_unavailable};
+use actix_web::{web, HttpRequest, HttpResponse};
 use log::{debug, error, info, warn};
 use serde_json::{json, Value};
 use std::collections::HashMap;

@@ -318,7 +318,7 @@ macro_rules! too_many_requests {
             use crate::utils::handler_commons::StandardResponse;
 
             warn!("Too many requests: {}", $msg);
-            Ok::<HttpResponse, actix_web::Error>(HttpResponse::TooManyRequests().json(StandardResponse::<()> {
+            Ok::<HttpResponse, Error>(HttpResponse::TooManyRequests().json(StandardResponse::<()> {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),
@@ -344,7 +344,7 @@ macro_rules! service_unavailable {
             use crate::utils::handler_commons::StandardResponse;
 
             warn!("Service unavailable: {}", $msg);
-            Ok::<HttpResponse, actix_web::Error>(HttpResponse::ServiceUnavailable().json(StandardResponse::<()> {
+            Ok::<HttpResponse, Error>(HttpResponse::ServiceUnavailable().json(StandardResponse::<()> {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),

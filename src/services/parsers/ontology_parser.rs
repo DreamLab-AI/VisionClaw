@@ -11,8 +11,8 @@
 //!
 //! Based on canonical-ontology-block.md specification v1.0.0
 
-use crate::ports::ontology_repository::{AxiomType, OwlAxiom, OwlClass, OwlProperty, PropertyType};
-use log::{debug, info, warn};
+use crate::ports::ontology_repository::{AxiomType, OwlAxiom, OwlClass, OwlProperty};
+use log::{debug, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;

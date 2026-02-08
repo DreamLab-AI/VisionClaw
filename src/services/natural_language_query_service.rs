@@ -4,7 +4,7 @@
 
 use crate::services::schema_service::SchemaService;
 use crate::services::perplexity_service::PerplexityService;
-use log::{debug, info, warn, error};
+use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

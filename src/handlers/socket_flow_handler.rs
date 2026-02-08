@@ -1,5 +1,5 @@
 use actix::{prelude::*, Actor, Handler, Message};
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
@@ -768,7 +768,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for SocketFlowServer 
 
 
                                 let fut = async move {
-                                    use crate::actors::messages::RequestPositionSnapshot;
                                     // Log position snapshot request (GraphServiceSupervisor doesn't implement Handler<RequestPositionSnapshot>)
                                     debug!("RequestPositionSnapshot: include_knowledge={}, include_agent={}",
                                            include_knowledge, include_agent);

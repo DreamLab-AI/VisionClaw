@@ -811,24 +811,288 @@ export class AIInsights {
     return `${primaryType} cluster (${nodeCount} nodes)`;
   }
 
-  private calculateAveragePathLength(_graphData: GraphData): number {
-    return 3.5; // placeholder
+  private calculateAveragePathLength(graphData: GraphData): number {
+    const n = graphData.nodes.length;
+    if (n < 2) return 0;
+
+    // Build adjacency list
+    const adj = new Map<string, Set<string>>();
+    for (const node of graphData.nodes) {
+      adj.set(node.id, new Set());
+    }
+    for (const edge of graphData.edges) {
+      adj.get(edge.source)?.add(edge.target);
+      adj.get(edge.target)?.add(edge.source);
+    }
+
+    // Sample up to 50 source nodes for performance
+    const nodeIds = graphData.nodes.map(node => node.id);
+    const sampleSize = Math.min(50, n);
+    const sampledIds: string[] = [];
+    if (sampleSize >= n) {
+      sampledIds.push(...nodeIds);
+    } else {
+      const step = n / sampleSize;
+      for (let i = 0; i < sampleSize; i++) {
+        sampledIds.push(nodeIds[Math.floor(i * step)]);
+      }
+    }
+
+    let totalDist = 0;
+    let pairCount = 0;
+
+    // BFS from each sampled node
+    for (const sourceId of sampledIds) {
+      const dist = new Map<string, number>();
+      dist.set(sourceId, 0);
+      const queue: string[] = [sourceId];
+      let head = 0;
+
+      while (head < queue.length) {
+        const current = queue[head++];
+        const currentDist = dist.get(current)!;
+        const neighbors = adj.get(current);
+        if (!neighbors) continue;
+
+        for (const neighbor of neighbors) {
+          if (!dist.has(neighbor)) {
+            dist.set(neighbor, currentDist + 1);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      // Sum distances to all reachable nodes
+      for (const [nodeId, d] of dist) {
+        if (nodeId !== sourceId && d > 0) {
+          totalDist += d;
+          pairCount++;
+        }
+      }
+    }
+
+    return pairCount > 0 ? totalDist / pairCount : 0;
   }
 
-  private calculateClusteringCoefficient(_graphData: GraphData): number {
-    return 0.3; // placeholder
+  private calculateClusteringCoefficient(graphData: GraphData): number {
+    const n = graphData.nodes.length;
+    if (n < 3) return 0;
+
+    // Build adjacency list using Sets for O(1) lookup
+    const adj = new Map<string, Set<string>>();
+    for (const node of graphData.nodes) {
+      adj.set(node.id, new Set());
+    }
+    for (const edge of graphData.edges) {
+      adj.get(edge.source)?.add(edge.target);
+      adj.get(edge.target)?.add(edge.source);
+    }
+
+    let totalCoeff = 0;
+    let nodesWithNeighbors = 0;
+
+    for (const node of graphData.nodes) {
+      const neighbors = adj.get(node.id);
+      if (!neighbors || neighbors.size < 2) continue;
+
+      nodesWithNeighbors++;
+      const neighborArray = Array.from(neighbors);
+      let triangles = 0;
+      const possibleTriangles = neighborArray.length * (neighborArray.length - 1) / 2;
+
+      for (let i = 0; i < neighborArray.length; i++) {
+        const iNeighbors = adj.get(neighborArray[i]);
+        if (!iNeighbors) continue;
+        for (let j = i + 1; j < neighborArray.length; j++) {
+          if (iNeighbors.has(neighborArray[j])) {
+            triangles++;
+          }
+        }
+      }
+
+      totalCoeff += possibleTriangles > 0 ? triangles / possibleTriangles : 0;
+    }
+
+    return nodesWithNeighbors > 0 ? totalCoeff / nodesWithNeighbors : 0;
   }
 
-  private calculateCentralization(_graphData: GraphData): number {
-    return 0.4; // placeholder
+  private calculateCentralization(graphData: GraphData): number {
+    const n = graphData.nodes.length;
+    if (n < 3) return 0;
+
+    // Compute degree for each node
+    const degree = new Map<string, number>();
+    for (const node of graphData.nodes) {
+      degree.set(node.id, 0);
+    }
+    for (const edge of graphData.edges) {
+      degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+      degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+    }
+
+    const degrees = Array.from(degree.values());
+    const maxDegree = Math.max(...degrees);
+
+    // Freeman centralization: sum(maxDeg - deg_i) / ((n-1)(n-2))
+    const numerator = degrees.reduce((sum, d) => sum + (maxDegree - d), 0);
+    const denominator = (n - 1) * (n - 2);
+
+    return denominator > 0 ? numerator / denominator : 0;
   }
 
-  private calculateModularity(_graphData: GraphData): number {
-    return 0.5; // placeholder
+  private calculateModularity(graphData: GraphData): number {
+    const n = graphData.nodes.length;
+    const m = graphData.edges.length;
+    if (n < 2 || m === 0) return 0;
+
+    // Detect communities via connected components
+    const adj = new Map<string, Set<string>>();
+    for (const node of graphData.nodes) {
+      adj.set(node.id, new Set());
+    }
+    for (const edge of graphData.edges) {
+      adj.get(edge.source)?.add(edge.target);
+      adj.get(edge.target)?.add(edge.source);
+    }
+
+    // Assign each node to a community (connected component)
+    const community = new Map<string, number>();
+    let communityId = 0;
+    const visited = new Set<string>();
+
+    for (const node of graphData.nodes) {
+      if (visited.has(node.id)) continue;
+
+      const queue: string[] = [node.id];
+      let head = 0;
+      while (head < queue.length) {
+        const current = queue[head++];
+        if (visited.has(current)) continue;
+        visited.add(current);
+        community.set(current, communityId);
+        const neighbors = adj.get(current);
+        if (neighbors) {
+          for (const neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+              queue.push(neighbor);
+            }
+          }
+        }
+      }
+      communityId++;
+    }
+
+    // If only one community, modularity is 0
+    if (communityId <= 1) return 0;
+
+    // Compute degree per node
+    const degree = new Map<string, number>();
+    for (const node of graphData.nodes) {
+      degree.set(node.id, 0);
+    }
+    for (const edge of graphData.edges) {
+      degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+      degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+    }
+
+    // Newman modularity: Q = (1/2m) * sum_ij [ A_ij - k_i*k_j/(2m) ] * delta(c_i, c_j)
+    // Equivalent: Q = sum_c [ e_cc - a_c^2 ]
+    // where e_cc = fraction of edges within community c, a_c = fraction of edge endpoints in c
+    const twoM = 2 * m;
+    const communityInternalEdges = new Map<number, number>();
+    const communityDegreeSum = new Map<number, number>();
+
+    for (let c = 0; c < communityId; c++) {
+      communityInternalEdges.set(c, 0);
+      communityDegreeSum.set(c, 0);
+    }
+
+    for (const [nodeId, deg] of degree) {
+      const c = community.get(nodeId)!;
+      communityDegreeSum.set(c, communityDegreeSum.get(c)! + deg);
+    }
+
+    for (const edge of graphData.edges) {
+      const cSource = community.get(edge.source);
+      const cTarget = community.get(edge.target);
+      if (cSource !== undefined && cTarget !== undefined && cSource === cTarget) {
+        communityInternalEdges.set(cSource, communityInternalEdges.get(cSource)! + 1);
+      }
+    }
+
+    let q = 0;
+    for (let c = 0; c < communityId; c++) {
+      const ecc = communityInternalEdges.get(c)! / m; // fraction of edges within c
+      const ac = communityDegreeSum.get(c)! / twoM;   // fraction of edge endpoints in c
+      q += ecc - ac * ac;
+    }
+
+    return Math.max(0, Math.min(1, q));
   }
 
-  private calculateNetworkEfficiency(_graphData: GraphData): number {
-    return 0.6; // placeholder
+  private calculateNetworkEfficiency(graphData: GraphData): number {
+    const n = graphData.nodes.length;
+    if (n < 2) return 0;
+
+    // Build adjacency list
+    const adj = new Map<string, Set<string>>();
+    for (const node of graphData.nodes) {
+      adj.set(node.id, new Set());
+    }
+    for (const edge of graphData.edges) {
+      adj.get(edge.source)?.add(edge.target);
+      adj.get(edge.target)?.add(edge.source);
+    }
+
+    // Sample up to 50 source nodes for performance
+    const nodeIds = graphData.nodes.map(node => node.id);
+    const sampleSize = Math.min(50, n);
+    const sampledIds: string[] = [];
+    if (sampleSize >= n) {
+      sampledIds.push(...nodeIds);
+    } else {
+      const step = n / sampleSize;
+      for (let i = 0; i < sampleSize; i++) {
+        sampledIds.push(nodeIds[Math.floor(i * step)]);
+      }
+    }
+
+    let totalInverseDistance = 0;
+    let pairCount = 0;
+
+    // BFS from each sampled node, accumulate 1/d(i,j)
+    for (const sourceId of sampledIds) {
+      const dist = new Map<string, number>();
+      dist.set(sourceId, 0);
+      const queue: string[] = [sourceId];
+      let head = 0;
+
+      while (head < queue.length) {
+        const current = queue[head++];
+        const currentDist = dist.get(current)!;
+        const neighbors = adj.get(current);
+        if (!neighbors) continue;
+
+        for (const neighbor of neighbors) {
+          if (!dist.has(neighbor)) {
+            dist.set(neighbor, currentDist + 1);
+            queue.push(neighbor);
+          }
+        }
+      }
+
+      // For all other nodes: add 1/d if reachable, 0 if not (disconnected)
+      for (const targetId of nodeIds) {
+        if (targetId === sourceId) continue;
+        pairCount++;
+        const d = dist.get(targetId);
+        if (d !== undefined && d > 0) {
+          totalInverseDistance += 1 / d;
+        }
+      }
+    }
+
+    return pairCount > 0 ? totalInverseDistance / pairCount : 0;
   }
 
   private calculateSmallWorldness(clustering: number, pathLength: number): number {

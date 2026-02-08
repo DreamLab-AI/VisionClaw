@@ -24,7 +24,6 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use crate::utils::time;
 
 const BATCH_SIZE: usize = 50; // Save to database every 50 files
 

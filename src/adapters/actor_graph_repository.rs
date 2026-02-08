@@ -11,7 +11,6 @@ use std::sync::Arc;
 use crate::actors::graph_actor::{AutoBalanceNotification, PhysicsState};
 use crate::actors::graph_state_actor::GraphStateActor;
 use crate::actors::messages as actor_msgs;
-use crate::errors::VisionFlowError;
 use crate::models::constraints::ConstraintSet;
 use crate::models::edge::Edge;
 use crate::models::graph::GraphData;
@@ -89,7 +88,6 @@ impl GraphRepository for ActorGraphRepository {
         updates: Vec<(u32, crate::ports::graph_repository::BinaryNodeData)>,
     ) -> Result<()> {
         use crate::types::Vec3Data;
-        use crate::utils::socket_flow_messages::BinaryNodeDataClient;
 
         
         // GraphStateActor doesn't handle physics operations

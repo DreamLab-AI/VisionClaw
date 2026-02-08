@@ -13,7 +13,7 @@ use actix_web::{web, HttpResponse, Result as ActixResult};
 use log::{debug, error, info, warn};
 use serde_json::json;
 use validator::Validate;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::{ok_json, created_json};
 
 use crate::utils::actor_timeout::{send_with_default_timeout, ActorTimeoutError};
 

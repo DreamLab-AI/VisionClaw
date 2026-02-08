@@ -3,7 +3,7 @@ use crate::utils::validation::rate_limit::extract_client_id;
 use crate::utils::validation::sanitization::Sanitizer;
 use crate::utils::validation::schemas::{ApiSchemas, ValidationSchema};
 use crate::utils::validation::{ValidationContext, ValidationResult};
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
+use crate::{ok_json, bad_request};
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use log::{debug, info, warn};
 use serde_json::Value;

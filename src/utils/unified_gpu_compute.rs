@@ -717,8 +717,8 @@ impl UnifiedGPUCompute {
         _num_nodes: usize,
         _num_cells: usize,
     ) -> Result<DeviceBuffer<u8>> {
-        let mut sort_bytes = 0;
-        let mut scan_bytes = 0;
+        let sort_bytes;
+        let scan_bytes;
         let mut error;
 
         
@@ -2838,7 +2838,7 @@ impl UnifiedGPUCompute {
         &mut self,
         max_iterations: u32,
         resolution: f32,
-        seed: u32,
+        _seed: u32,
     ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
         info!("Running REAL Louvain community detection on GPU");
 

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use fastwebsockets::{
-    Frame, FragmentCollector, OpCode, Payload, Role, WebSocket, WebSocketError,
+    Frame, FragmentCollector, OpCode, Payload, WebSocket, WebSocketError,
 };
 use http_body_util::Empty;
 use hyper::body::Incoming;
@@ -34,7 +34,7 @@ use crate::utils::binary_protocol;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 
 use super::quic_transport_handler::{
-    ControlMessage, PostcardBatchUpdate, PostcardNodeUpdate, TopologyEdge, TopologyNode,
+    PostcardBatchUpdate, PostcardNodeUpdate,
 };
 
 // ============================================================================
@@ -147,11 +147,11 @@ impl FastWebSocketServer {
     /// Handle incoming TCP connection and upgrade to WebSocket
     async fn handle_connection(
         stream: tokio::net::TcpStream,
-        addr: SocketAddr,
-        sessions: Arc<RwLock<HashMap<String, Arc<RwLock<FastWsClientSession>>>>>,
-        app_state: Arc<AppState>,
-        position_broadcast: broadcast::Sender<PostcardBatchUpdate>,
-        max_message_size: usize,
+        _addr: SocketAddr,
+        _sessions: Arc<RwLock<HashMap<String, Arc<RwLock<FastWsClientSession>>>>>,
+        _app_state: Arc<AppState>,
+        _position_broadcast: broadcast::Sender<PostcardBatchUpdate>,
+        _max_message_size: usize,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Hyper service for HTTP upgrade
         let service = service_fn(|req: Request<Incoming>| async move {

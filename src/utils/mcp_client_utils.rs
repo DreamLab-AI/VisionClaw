@@ -17,13 +17,11 @@ use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
-use crate::utils::json::{from_json, to_json};
-use crate::utils::time;
 
 // ============================================================================
 // Core MCP Types

@@ -4,7 +4,7 @@ use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpStream;
 use uuid::Uuid;
-use webxr::utils::json::{from_json, to_json};
+use webxr::utils::json::to_json;
 
 
 #[tokio::main]

@@ -21,10 +21,10 @@
 //! Provides dynamic allocation and resizing of GPU buffers to handle
 //! variable graph sizes without hardcoded limits.
 
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::sync::{Arc, Mutex};
-use log::{info, warn, error, debug};
+use std::collections:::HashMap;
+use std::ffi:::c_void;
+use std::sync::Arc;
+use log::{info, warn, debug};
 use crate::utils::cuda_error_handling::{CudaErrorHandler, CudaMemoryGuard};
 
 #[derive(Debug, Clone)]
@@ -366,7 +366,7 @@ const cudaMemcpyDeviceToDevice: i32 = 3;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::cuda_error_handling::get_global_cuda_error_handler;
+    use crate::utils::cuda_error_handling:::get_global_cuda_error_handler;
 
     #[test]
     fn test_buffer_config_creation() {

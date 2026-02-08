@@ -2,7 +2,7 @@ use crate::app_state::AppState;
 use crate::config::feature_access::FeatureAccess;
 use crate::models::protected_settings::ApiKeys;
 use crate::services::nostr_service::{AuthEvent, NostrError, NostrService};
-use actix_web::{web, Error, HttpRequest, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use crate::{

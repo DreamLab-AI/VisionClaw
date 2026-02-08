@@ -52,15 +52,13 @@
 use actix::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use log::{debug, info, warn, error, trace};
+use log::{debug, info, warn, error};
 
 use crate::actors::messages::*;
-use crate::errors::VisionFlowError;
 use crate::models::node::Node;
 use crate::models::edge::Edge;
 use crate::models::metadata::{MetadataStore, FileMetadata};
 use crate::models::graph::GraphData;
-use crate::utils::socket_flow_messages::{BinaryNodeData, BinaryNodeDataClient, glam_to_vec3data};
 
 // Ports (hexagonal architecture)
 use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
@@ -388,7 +386,7 @@ impl GraphStateActor {
     }
 
     
-    fn generate_edges_from_metadata(&self, graph_data: &mut GraphData, metadata: &MetadataStore) {
+    fn generate_edges_from_metadata(&self, graph_data: &mut GraphData, _metadata: &MetadataStore) {
         
         let mut path_to_node: HashMap<std::path::PathBuf, u32> = HashMap::new();
 

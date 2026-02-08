@@ -3,7 +3,6 @@
 //! This module provides a TCP client for connecting to MCP (Model Context Protocol) servers
 //! and executing agent discovery queries. It replaces mock data with real TCP connections.
 
-use chrono::Utc;
 use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};

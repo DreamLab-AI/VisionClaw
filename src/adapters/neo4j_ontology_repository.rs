@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use neo4rs::{Graph, query, Node as Neo4jNode};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn, instrument, error};
+use tracing::{debug, info, warn, instrument};
 
 use crate::models::edge::Edge;
 use crate::models::graph::GraphData;
@@ -84,7 +84,7 @@ impl Default for Neo4jOntologyConfig {
 /// - Pathfinding cache
 pub struct Neo4jOntologyRepository {
     graph: Arc<Graph>,
-    config: Neo4jOntologyConfig,
+    _config: Neo4jOntologyConfig,
 }
 
 impl Neo4jOntologyRepository {
@@ -106,7 +106,7 @@ impl Neo4jOntologyRepository {
 
         let repo = Self {
             graph: Arc::new(graph),
-            config,
+            _config: config,
         };
 
         // Create schema
@@ -929,7 +929,7 @@ impl OntologyRepository for Neo4jOntologyRepository {
     async fn validate_ontology(&self) -> RepoResult<ValidationReport> {
         debug!("Validating ontology");
 
-        let mut errors = Vec::new();
+        let errors = Vec::new();
         let mut warnings = Vec::new();
 
         // Check for orphaned classes (no relationships)
@@ -1057,7 +1057,7 @@ impl OntologyRepository for Neo4jOntologyRepository {
 
         // Clear existing graph
         let clear_query = query("MATCH (n) DETACH DELETE n");
-        self.graph.execute(clear_query).await
+        let _ = self.graph.execute(clear_query).await
             .map_err(|e| OntologyRepositoryError::DatabaseError(e.to_string()))?;
 
         // Insert nodes
@@ -1065,7 +1065,7 @@ impl OntologyRepository for Neo4jOntologyRepository {
             let node_query = query("CREATE (n {id: $id, label: $label})")
                 .param("id", node.id as i64)
                 .param("label", node.label.clone());
-            self.graph.execute(node_query).await
+            let _ = self.graph.execute(node_query).await
                 .map_err(|e| OntologyRepositoryError::DatabaseError(e.to_string()))?;
         }
 
@@ -1080,7 +1080,7 @@ impl OntologyRepository for Neo4jOntologyRepository {
             .param("target", edge.target as i64)
             .param("rel_type", rel_type);
 
-            self.graph.execute(edge_query).await
+            let _ = self.graph.execute(edge_query).await
                 .map_err(|e| OntologyRepositoryError::DatabaseError(e.to_string()))?;
         }
 
@@ -1138,7 +1138,7 @@ impl OntologyRepository for Neo4jOntologyRepository {
 
         let mut axioms = Vec::new();
         while let Ok(Some(row)) = result.next().await {
-            if let (Ok(axiom_type_str), Ok(subject), Ok(predicate), Ok(object)) = (
+            if let (Ok(axiom_type_str), Ok(subject), Ok(_predicate), Ok(object)) = (
                 row.get::<String>("axiom_type"),
                 row.get::<String>("subject"),
                 row.get::<String>("predicate"),

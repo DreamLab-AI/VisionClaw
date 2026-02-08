@@ -469,7 +469,6 @@ impl ClaudeFlowClient {
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpStream;
-use crate::utils::json::{from_json, to_json};
 use crate::utils::time;
 
         let addr = format!("{}:{}", self.host, self.port);

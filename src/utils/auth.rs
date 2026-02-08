@@ -1,8 +1,8 @@
 use actix_web::{HttpRequest, HttpResponse};
-use log::{warn, error};
+use log::warn;
 use tracing::{debug, info};
-use uuid::Uuid;
-use crate::services::nostr_service::NostrService;
+use uuid:::Uuid;
+use crate::services::nostr_service:::NostrService;
 
 #[derive(Clone, Debug)]
 pub enum AccessLevel {

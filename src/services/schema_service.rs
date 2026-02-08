@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use crate::models::graph::GraphData;
-use crate::models::graph_types::{NodeType, EdgeType};
 
 /// Graph schema metadata for LLM context
 #[derive(Debug, Clone, Serialize, Deserialize)]

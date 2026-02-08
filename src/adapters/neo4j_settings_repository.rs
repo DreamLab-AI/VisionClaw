@@ -17,7 +17,7 @@ use neo4rs::{Graph, query, ConfigBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, instrument, error};
+use tracing::{debug, info, warn, instrument};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +27,7 @@ use crate::ports::settings_repository::{
     SettingsRepositoryError,
 };
 use crate::utils::json::{from_json, to_json};
-use crate::utils::neo4j_helpers::{json_to_bolt, string_ref_to_bolt};
+use crate::utils::neo4j_helpers::json_to_bolt;
 
 /// User node - Nostr pubkey-based user identity
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,7 +156,7 @@ impl SettingsCache {
 pub struct Neo4jSettingsRepository {
     graph: Arc<Graph>,
     cache: Arc<RwLock<SettingsCache>>,
-    config: Neo4jSettingsConfig,
+    _config: Neo4jSettingsConfig,
 }
 
 impl Neo4jSettingsRepository {
@@ -190,7 +190,7 @@ impl Neo4jSettingsRepository {
         let repository = Self {
             graph: Arc::new(graph),
             cache: Arc::new(RwLock::new(SettingsCache::new(300))), // 5 min TTL
-            config,
+            _config: config,
         };
 
         // Initialize schema
@@ -909,7 +909,7 @@ impl SettingsRepository for Neo4jSettingsRepository {
     }
 
     async fn list_settings(&self, prefix: Option<&str>) -> RepoResult<Vec<String>> {
-        let query_str = if let Some(p) = prefix {
+        let query_str = if let Some(_p) = prefix {
             "MATCH (s:Setting) WHERE s.key STARTS WITH $prefix RETURN s.key AS key ORDER BY s.key"
         } else {
             "MATCH (s:Setting) RETURN s.key AS key ORDER BY s.key"

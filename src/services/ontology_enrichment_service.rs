@@ -4,12 +4,12 @@
 //! Enriches parsed graph data with ontology information (owl_class_iri, owl_property_iri)
 //! AFTER parsing but BEFORE saving to database.
 
-use std::sync::Arc;
-use log::{info, debug, warn};
+use std::sync:::Arc;
+use log::{info, debug};
 
-use crate::models::graph::GraphData;
-use crate::services::ontology_reasoner::{OntologyReasoner, FileContext};
-use crate::services::edge_classifier::{EdgeClassifier, EdgeContext};
+use crate::models::graph:::GraphData;
+use crate::services::ontology_reasoner::OntologyReasoner;
+use crate::services::edge_classifier::EdgeClassifier;
 
 /// Service that enriches graph data with ontology classifications
 pub struct OntologyEnrichmentService {
@@ -308,3 +308,4 @@ impl OntologyEnrichmentService {
 //         assert_eq!(context, "Tim Cook is the CEO of [[Apple Inc]].");
 //     }
 // }
+

@@ -250,9 +250,9 @@ impl OntologyActor {
     }
 
     
+    #[allow(dead_code)]
     fn calculate_graph_signature(&self, graph: &PropertyGraph) -> String {
         use blake3::Hasher;
-use crate::utils::time;
         let mut hasher = Hasher::new();
 
         
@@ -276,6 +276,7 @@ use crate::utils::time;
     }
 
     
+    #[allow(dead_code)]
     fn can_perform_incremental_validation(&self, ontology_id: &str, graph: &PropertyGraph) -> bool {
         if !self.config.enable_incremental_validation {
             return false;
@@ -283,7 +284,7 @@ use crate::utils::time;
 
         let current_signature = self.calculate_graph_signature(graph);
 
-        if let Some((cached_graph, cached_signature, _)) = self.graph_cache.get(ontology_id) {
+        if let Some((_cached_graph, cached_signature, _)) = self.graph_cache.get(ontology_id) {
             
             let similarity = self.calculate_graph_similarity(&current_signature, cached_signature);
             similarity > 0.8 
@@ -293,6 +294,7 @@ use crate::utils::time;
     }
 
     
+    #[allow(dead_code)]
     fn calculate_graph_similarity(&self, sig1: &str, sig2: &str) -> f32 {
         
         if sig1.len() != sig2.len() {
@@ -574,7 +576,7 @@ use crate::utils::time;
 
     
     fn send_inferences_to_semantic(&self, inferred_triples: &[RdfTriple]) {
-        if let Some(addr) = &self.semantic_processor_addr {
+        if let Some(_addr) = &self.semantic_processor_addr {
             
             
             debug!(

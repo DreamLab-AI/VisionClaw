@@ -53,7 +53,7 @@ use tokio::time::Duration;
 use webxr::middleware::TimeoutMiddleware;
 use webxr::telemetry::agent_telemetry::init_telemetry_logger;
 use webxr::utils::advanced_logging::init_advanced_logging;
-use webxr::utils::json::{to_json, from_json};
+use webxr::utils::json::to_json;
 // REMOVED: use webxr::utils::logging::init_logging; - legacy logging superseded by advanced_logging
 
 // DEPRECATED: ErrorRecoveryMiddleware removed - NetworkRecoveryManager deleted

@@ -9,7 +9,6 @@
 use actix::prelude::*;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info};
-use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

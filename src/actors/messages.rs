@@ -1644,18 +1644,6 @@ pub struct ConfigureCollision {
     pub enabled: Option<bool>,
 }
 
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<crate::actors::gpu::semantic_forces_actor::SemanticConfig, String>")]
-pub struct GetSemanticConfig;
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<crate::actors::gpu::semantic_forces_actor::HierarchyLevels, String>")]
-pub struct GetHierarchyLevels;
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct RecalculateHierarchy;
-
 // =============================================================================
 // Broadcast Optimization Messages (Phase 7)
 // =============================================================================

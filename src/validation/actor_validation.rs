@@ -5,7 +5,6 @@
 //! at startup instead of runtime.
 
 use log::{error, info, warn};
-use std::collections::HashMap;
 
 /// Validation result for a single optional actor/service
 #[derive(Debug, Clone)]

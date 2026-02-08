@@ -6,7 +6,6 @@ use crate::models::metadata::MetadataStore;
 use crate::models::node::Node;
 use crate::services::bots_client::{Agent, BotsClient};
 use crate::utils::socket_flow_messages::BinaryNodeData;
-use crate::utils::response_macros::*;
 use crate::AppState;
 use actix_web::{web, HttpResponse, Responder, Result};
 use log::{error, info};

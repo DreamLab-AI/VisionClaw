@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error, instrument};
+use tracing::{debug, info, warn, instrument};
 
 use crate::actors::graph_actor::{AutoBalanceNotification, PhysicsState};
 use crate::models::constraints::ConstraintSet;
@@ -26,7 +26,6 @@ use crate::ports::graph_repository::{
 };
 use crate::ports::settings_repository::{SettingsRepository, SettingValue};
 use crate::settings::models::NodeFilterSettings;
-use crate::types::vec3::Vec3Data;
 use glam::Vec3;
 
 const CACHE_SIZE: usize = 10_000;

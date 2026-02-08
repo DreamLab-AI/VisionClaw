@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration as StdDuration;
 use uuid::Uuid;
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable, accepted};
+use crate::{ok_json, accepted};
 use crate::ports::ontology_repository::OntologyRepository;
 
 use crate::actors::messages::{
@@ -360,6 +360,7 @@ async fn check_feature_enabled() -> Result<(), ErrorResponse> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn actor_timeout() -> StdDuration {
     StdDuration::from_secs(30)
 }
@@ -442,7 +443,7 @@ pub async fn load_axioms(state: web::Data<AppState>, body: web::Bytes) -> impl R
 
     match ontology_addr.send(load_msg).await {
         Ok(Ok(ontology_id)) => {
-            let loading_time_ms = start_time.elapsed().as_millis() as u64;
+            let _loading_time_ms = start_time.elapsed().as_millis() as u64;
 
 
             let response = LoadOntologyResponse {
@@ -1195,17 +1196,17 @@ pub async fn get_report_by_id(
 // ============================================================================
 
 pub struct OntologyWebSocket {
-    
+
     client_id: String,
-    
-    ontology_addr: Addr<OntologyActor>,
+
+    _ontology_addr: Addr<OntologyActor>,
 }
 
 impl OntologyWebSocket {
     pub fn new(client_id: String, ontology_addr: Addr<OntologyActor>) -> Self {
         Self {
             client_id,
-            ontology_addr,
+            _ontology_addr: ontology_addr,
         }
     }
 }

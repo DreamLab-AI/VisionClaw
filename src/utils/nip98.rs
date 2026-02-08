@@ -7,11 +7,11 @@
 //! Authorization header format: "Nostr <base64-encoded-event>"
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use log::{debug, error};
+use log::debug;
 use nostr_sdk::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use thiserror::Error;
+use thiserror:::Error;
 
 /// NIP-98 HTTP Auth event kind (references RFC 7235)
 const HTTP_AUTH_KIND: u16 = 27235;
@@ -499,3 +499,4 @@ mod tests {
         assert!(matches!(result, Err(Nip98ValidationError::InvalidBase64)));
     }
 }
+

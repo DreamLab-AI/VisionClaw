@@ -32,7 +32,7 @@
 //! backpressure.acknowledge(clients_delivered);
 //! ```
 
-use log::{debug, info, trace, warn};
+use log::{debug, trace, warn};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 

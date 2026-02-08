@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::actors::gpu::semantic_forces_actor::{
     ConfigureCollision, ConfigureDAG, ConfigureTypeClustering, DAGConfig, DAGLayoutMode,
-    GetHierarchyLevels, GetSemanticConfig, RecalculateHierarchy, TypeClusterConfig, CollisionConfig,
+    TypeClusterConfig, CollisionConfig,
 };
 use crate::services::semantic_type_registry::{
     SEMANTIC_TYPE_REGISTRY, RelationshipForceConfig,
@@ -225,68 +225,38 @@ pub async fn configure_collision(
 
 /// Get hierarchy level assignments for all nodes
 /// GET /api/semantic-forces/hierarchy-levels
-pub async fn get_hierarchy_levels(state: web::Data<AppState>) -> impl Responder {
+pub async fn get_hierarchy_levels(_state: web::Data<AppState>) -> impl Responder {
     info!("Hierarchy levels request received");
 
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // GetHierarchyLevels has no Handler impl on any actor yet.
-    Ok(HttpResponse::NotImplemented().json(json!({
+    HttpResponse::NotImplemented().json(json!({
         "error": "Hierarchy level retrieval not yet implemented",
         "message": "SemanticForcesActor does not yet handle GetHierarchyLevels messages"
-    })))
+    }))
 }
 
 /// Get current semantic forces configuration
 /// GET /api/semantic-forces/config
-pub async fn get_semantic_config(state: web::Data<AppState>) -> impl Responder {
+pub async fn get_semantic_config(_state: web::Data<AppState>) -> impl Responder {
     info!("Semantic forces config request received");
 
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // GetSemanticConfig has no Handler impl on any actor yet.
-    Ok(HttpResponse::NotImplemented().json(json!({
+    HttpResponse::NotImplemented().json(json!({
         "error": "Semantic config retrieval not yet implemented",
         "message": "SemanticForcesActor does not yet handle GetSemanticConfig messages"
-    })))
+    }))
 }
 
 /// Recalculate hierarchy levels (useful after graph structure changes)
 /// POST /api/semantic-forces/hierarchy/recalculate
 pub async fn recalculate_hierarchy(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    state: web::Data<AppState>,
+    _state: web::Data<AppState>,
 ) -> impl Responder {
     info!("Hierarchy recalculation request received");
 
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // RecalculateHierarchy has no Handler impl on any actor yet.
-    Ok(HttpResponse::NotImplemented().json(json!({
+    HttpResponse::NotImplemented().json(json!({
         "error": "Hierarchy recalculation not yet implemented",
         "message": "SemanticForcesActor does not yet handle RecalculateHierarchy messages"
-    })))
+    }))
 }
 
 // =============================================================================

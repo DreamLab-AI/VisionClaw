@@ -3,8 +3,7 @@
 //! Intelligent graph traversal with query-aware and type-aware pathfinding
 
 use crate::models::graph::GraphData;
-use crate::models::graph_types::{NodeType, EdgeType};
-use log::{debug, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, BinaryHeap, VecDeque};
 use std::cmp::Ordering;
@@ -145,7 +144,7 @@ impl SemanticPathfindingService {
 
             // Explore neighbors
             if let Some(neighbors) = adjacency.get(&current.node_id) {
-                for &(neighbor_id, edge_weight, edge_type) in neighbors {
+                for &(neighbor_id, _edge_weight, edge_type) in neighbors {
                     if closed_set.contains(&neighbor_id) {
                         continue;
                     }
@@ -253,7 +252,7 @@ impl SemanticPathfindingService {
                 // Sort by relevance (descending)
                 neighbor_scores.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(Ordering::Equal));
 
-                for (neighbor_id, edge_weight, edge_type, neighbor_relevance) in neighbor_scores.iter().take(5) {
+                for (neighbor_id, _edge_weight, edge_type, neighbor_relevance) in neighbor_scores.iter().take(5) {
                     if visited.contains(neighbor_id) {
                         continue;
                     }
@@ -331,7 +330,7 @@ impl SemanticPathfindingService {
 
             // Explore neighbors
             if let Some(neighbors) = adjacency.get(&current.node_id) {
-                for &(neighbor_id, edge_weight, edge_type) in neighbors {
+                for &(neighbor_id, _edge_weight, _edge_type) in neighbors {
                     if visited.contains(&neighbor_id) {
                         continue;
                     }
@@ -390,7 +389,7 @@ impl SemanticPathfindingService {
         graph: &GraphData,
         from_id: u32,
         to_id: u32,
-        edge_type: i32,
+        _edge_type: i32,
         query: Option<&str>,
     ) -> f32 {
         let mut cost = 1.0;
@@ -467,7 +466,7 @@ impl SemanticPathfindingService {
     fn calculate_local_similarity(
         &self,
         graph: &GraphData,
-        ref_id: u32,
+        _ref_id: u32,
         node_id: u32,
         ref_node_type: Option<&str>,
     ) -> f32 {

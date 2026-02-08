@@ -57,37 +57,39 @@ pub trait QueryHandler<Q: Query>: Send + Sync {
 }
 
 #[async_trait]
+#[allow(unused_variables)]
 pub trait CommandMiddleware: Send + Sync {
     
-    async fn before_execute(&self, command_name: &str) -> Result<()> {
+    async fn before_execute(&self, _command_name: &str) -> Result<()> {
         Ok(())
     }
 
-    
-    async fn after_execute(&self, command_name: &str) -> Result<()> {
+
+    async fn after_execute(&self, _command_name: &str) -> Result<()> {
         Ok(())
     }
 
-    
-    async fn on_error(&self, command_name: &str, error: &anyhow::Error) -> Result<()> {
+
+    async fn on_error(&self, _command_name: &str, _error: &anyhow::Error) -> Result<()> {
         Ok(())
     }
 }
 
 #[async_trait]
+#[allow(unused_variables)]
 pub trait QueryMiddleware: Send + Sync {
-    
-    async fn before_execute(&self, query_name: &str) -> Result<()> {
+
+    async fn before_execute(&self, _query_name: &str) -> Result<()> {
         Ok(())
     }
 
-    
-    async fn after_execute(&self, query_name: &str) -> Result<()> {
+
+    async fn after_execute(&self, _query_name: &str) -> Result<()> {
         Ok(())
     }
 
-    
-    async fn on_error(&self, query_name: &str, error: &anyhow::Error) -> Result<()> {
+
+    async fn on_error(&self, _query_name: &str, _error: &anyhow::Error) -> Result<()> {
         Ok(())
     }
 }

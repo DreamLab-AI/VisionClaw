@@ -4,7 +4,6 @@
 //! Implements DAG layout, type clustering, collision detection, and attribute-weighted springs.
 
 use crate::models::graph::GraphData;
-use crate::models::graph_types::{NodeType, EdgeType};
 use crate::services::semantic_type_registry::{SemanticTypeRegistry, RelationshipForceConfig};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};

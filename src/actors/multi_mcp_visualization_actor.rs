@@ -269,12 +269,12 @@ impl Actor for MultiMcpVisualizationActor {
         });
 
         
-        ctx.run_interval(Duration::from_secs(10), |act, ctx| {
+        ctx.run_interval(Duration::from_secs(10), |act, _ctx| {
             act.analyze_topology();
         });
 
-        
-        ctx.run_interval(Duration::from_secs(5), |act, ctx| {
+
+        ctx.run_interval(Duration::from_secs(5), |act, _ctx| {
             act.collect_global_metrics();
         });
     }
@@ -291,7 +291,7 @@ impl Handler<MultiMcpVisualizationMessage> for MultiMcpVisualizationActor {
     fn handle(
         &mut self,
         msg: MultiMcpVisualizationMessage,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg {
             MultiMcpVisualizationMessage::Initialize {
@@ -339,7 +339,7 @@ impl Handler<MultiMcpVisualizationMessage> for MultiMcpVisualizationActor {
 
             MultiMcpVisualizationMessage::Subscribe { recipient } => self.subscribe(recipient),
 
-            MultiMcpVisualizationMessage::Unsubscribe { recipient } => {
+            MultiMcpVisualizationMessage::Unsubscribe { recipient: _recipient } => {
                 
                 warn!("Unsubscribe not fully implemented - requires subscriber identification");
                 Ok(())
@@ -355,7 +355,7 @@ impl Handler<MultiMcpVisualizationMessage> for MultiMcpVisualizationActor {
             }
 
             MultiMcpVisualizationMessage::GetVisualizationState => {
-                let response = MultiMcpVisualizationResponse::VisualizationState {
+                let _response = MultiMcpVisualizationResponse::VisualizationState {
                     agents: self.agents.clone(),
                     positions: self.agent_positions.clone(),
                     connections: self.connections.clone(),
@@ -420,9 +420,10 @@ impl MultiMcpVisualizationActor {
             LayoutAlgorithm::Hierarchical {
                 server_separation, ..
             } => {
+                #[allow(unused_assignments)]
                 let mut x_offset = 0.0;
                 for (i, server_id) in self.mcp_servers.keys().enumerate() {
-                    
+
                     x_offset = i as f32 * server_separation;
                     debug!("Positioning server {} at x_offset: {}", server_id, x_offset);
                 }
@@ -515,7 +516,7 @@ impl MultiMcpVisualizationActor {
         server_id: String,
         agent_id: String,
         status: AgentStatus,
-        metadata: HashMap<String, serde_json::Value>,
+        _metadata: HashMap<String, serde_json::Value>,
     ) -> Result<(), String> {
         let full_agent_id = format!("{}:{}", server_id, agent_id);
 
@@ -1092,7 +1093,7 @@ impl MultiMcpVisualizationActor {
         self.server_metrics
             .iter()
             .enumerate()
-            .map(|(i, (name, metrics))| LayerLoad {
+            .map(|(i, (_name, metrics))| LayerLoad {
                 layer_id: i as u32,
                 agent_count: 1, 
                 average_load: metrics.cpu_usage + metrics.memory_usage,

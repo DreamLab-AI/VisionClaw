@@ -3,7 +3,7 @@
 //! Provides comprehensive error checking and recovery for all CUDA operations.
 //! Implements proper error propagation, automatic cleanup, and fallback mechanisms.
 
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_void};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -460,10 +460,10 @@ impl CudaMemoryGuard {
         // 1. `self.ptr` is a valid device pointer allocated via cudaMalloc in Self::new()
         // 2. `host_data` validity is guaranteed by the caller (per function's safety contract)
         // 3. `size` has been verified to not exceed the allocated buffer size
-        // 4. cudaMemcpyHostToDevice is the correct direction enum for this operation
+        // 4. CUDA_MEMCPY_HOST_TO_DEVICE is the correct direction enum for this operation
         // 5. The copy is synchronous - host_data can be modified after this call returns
         unsafe {
-            let result = cudaMemcpy(self.ptr, host_data, size, cudaMemcpyHostToDevice);
+            let result = cudaMemcpy(self.ptr, host_data, size, CUDA_MEMCPY_HOST_TO_DEVICE);
             if result != 0 {
                 let cuda_error = CudaError::from(result);
                 error!("Failed to copy {} bytes to {}: {}", size, self.name, cuda_error);
@@ -493,10 +493,10 @@ impl CudaMemoryGuard {
         // 1. `host_data` validity is guaranteed by the caller (per function's safety contract)
         // 2. `self.ptr` is a valid device pointer allocated via cudaMalloc in Self::new()
         // 3. `size` has been verified to not exceed the allocated buffer size
-        // 4. cudaMemcpyDeviceToHost is the correct direction enum for this operation
+        // 4. CUDA_MEMCPY_DEVICE_TO_HOST is the correct direction enum for this operation
         // 5. The copy is synchronous - host_data contains valid data after this call returns
         unsafe {
-            let result = cudaMemcpy(host_data, self.ptr, size, cudaMemcpyDeviceToHost);
+            let result = cudaMemcpy(host_data, self.ptr, size, CUDA_MEMCPY_DEVICE_TO_HOST);
             if result != 0 {
                 let cuda_error = CudaError::from(result);
                 error!("Failed to copy {} bytes from {}: {}", size, self.name, cuda_error);
@@ -544,9 +544,9 @@ extern "C" {
 }
 
 // CUDA memory copy directions
-const cudaMemcpyHostToDevice: c_int = 1;
-const cudaMemcpyDeviceToHost: c_int = 2;
-const cudaMemcpyDeviceToDevice: c_int = 3;
+const CUDA_MEMCPY_HOST_TO_DEVICE: c_int = 1;
+const CUDA_MEMCPY_DEVICE_TO_HOST: c_int = 2;
+const CUDA_MEMCPY_DEVICE_TO_DEVICE: c_int = 3;
 
 #[macro_export]
 macro_rules! cuda_check {

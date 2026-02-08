@@ -1,16 +1,16 @@
 use actix::{Actor, ActorContext, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::{web, HttpResponse, Responder};
-use actix_web_actors::ws;
+use actix_web_actors:::ws;
 use log::{debug, info, warn};
-use serde::Deserialize;
-use serde_json::json;
+use serde:::Deserialize;
+use serde_json:::json;
 use std::time::{Duration, Instant};
 
 use crate::services::agent_visualization_protocol::{
     AgentStateUpdate, AgentVisualizationProtocol, PositionUpdate,
 };
-use crate::{ok_json, error_json, bad_request, not_found, created_json, service_unavailable};
-use crate::AppState;
+use crate::ok_json;
+use crate:::AppState;
 
 pub struct AgentVisualizationWs {
     _app_state: web::Data<AppState>,
@@ -382,3 +382,4 @@ async fn get_real_agents_from_app_state(
         },
     ]
 }
+
