@@ -419,6 +419,42 @@ pub struct ConfigureCollision {
     pub enabled: Option<bool>,
 }
 
+/// Configure physicality-based cluster forces (Phase A semantic forces).
+///
+/// All fields are optional; absent fields leave the current value unchanged,
+/// mirroring the `ConfigureTypeClustering` / `ConfigureCollision` pattern.
+#[derive(Message, Debug, Clone, Serialize, Deserialize)]
+#[rtype(result = "Result<(), String>")]
+pub struct ConfigurePhysicality {
+    pub enabled: Option<bool>,
+    pub cluster_attraction: Option<f32>,
+    pub inter_physicality_repulsion: Option<f32>,
+    pub cluster_radius: Option<f32>,
+}
+
+/// Configure role-based cluster forces (Phase A semantic forces).
+///
+/// All fields are optional; absent fields leave the current value unchanged.
+#[derive(Message, Debug, Clone, Serialize, Deserialize)]
+#[rtype(result = "Result<(), String>")]
+pub struct ConfigureRole {
+    pub enabled: Option<bool>,
+    pub cluster_attraction: Option<f32>,
+    pub inter_role_repulsion: Option<f32>,
+    pub cluster_radius: Option<f32>,
+}
+
+/// Configure maturity-based layout forces (Phase A semantic forces).
+///
+/// All fields are optional; absent fields leave the current value unchanged.
+#[derive(Message, Debug, Clone, Serialize, Deserialize)]
+#[rtype(result = "Result<(), String>")]
+pub struct ConfigureMaturity {
+    pub enabled: Option<bool>,
+    pub vertical_spacing: Option<f32>,
+    pub level_attraction: Option<f32>,
+}
+
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<crate::actors::gpu::semantic_forces_actor::SemanticConfig, String>")]
 pub struct GetSemanticConfig;

@@ -11,8 +11,8 @@ use super::shared::{GPUState, SharedGPUContext};
 
 // Re-export message types for handlers
 pub use crate::actors::messages::{
-    ConfigureCollision, ConfigureDAG, ConfigureTypeClustering,
-    GetHierarchyLevels, GetSemanticConfig, RecalculateHierarchy,
+    ConfigureCollision, ConfigureDAG, ConfigureMaturity, ConfigurePhysicality, ConfigureRole,
+    ConfigureTypeClustering, GetHierarchyLevels, GetSemanticConfig, RecalculateHierarchy,
     ReloadRelationshipBuffer, SetSharedGPUContext,
 };
 
@@ -429,6 +429,72 @@ impl Default for AttributeSpringConfig {
     }
 }
 
+/// Physicality-based cluster force configuration.
+///
+/// Controls attraction of nodes with the same `PhysicalityCode` and repulsion between
+/// nodes in different physicality buckets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhysicalityClusterConfig {
+    pub cluster_attraction: f32,
+    pub cluster_radius: f32,
+    pub inter_physicality_repulsion: f32,
+    pub enabled: bool,
+}
+
+impl Default for PhysicalityClusterConfig {
+    fn default() -> Self {
+        Self {
+            cluster_attraction: 0.40,
+            cluster_radius: 80.0,
+            inter_physicality_repulsion: 0.20,
+            enabled: false,
+        }
+    }
+}
+
+/// Role-based cluster force configuration.
+///
+/// Controls attraction of nodes with the same `RoleCode` and repulsion between nodes
+/// in different role buckets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleClusterConfig {
+    pub cluster_attraction: f32,
+    pub cluster_radius: f32,
+    pub inter_role_repulsion: f32,
+    pub enabled: bool,
+}
+
+impl Default for RoleClusterConfig {
+    fn default() -> Self {
+        Self {
+            cluster_attraction: 0.40,
+            cluster_radius: 80.0,
+            inter_role_repulsion: 0.20,
+            enabled: false,
+        }
+    }
+}
+
+/// Maturity-based layout force configuration.
+///
+/// Drives vertical stratification of nodes by `MaturityLevel`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaturityLayoutConfig {
+    pub vertical_spacing: f32,
+    pub level_attraction: f32,
+    pub enabled: bool,
+}
+
+impl Default for MaturityLayoutConfig {
+    fn default() -> Self {
+        Self {
+            vertical_spacing: 100.0,
+            level_attraction: 0.50,
+            enabled: false,
+        }
+    }
+}
+
 /// Combined semantic configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticConfig {
@@ -436,6 +502,9 @@ pub struct SemanticConfig {
     pub type_cluster: TypeClusterConfig,
     pub collision: CollisionConfig,
     pub attribute_spring: AttributeSpringConfig,
+    pub physicality: PhysicalityClusterConfig,
+    pub role: RoleClusterConfig,
+    pub maturity: MaturityLayoutConfig,
 }
 
 impl Default for SemanticConfig {
@@ -445,6 +514,9 @@ impl Default for SemanticConfig {
             type_cluster: TypeClusterConfig::default(),
             collision: CollisionConfig::default(),
             attribute_spring: AttributeSpringConfig::default(),
+            physicality: PhysicalityClusterConfig::default(),
+            role: RoleClusterConfig::default(),
+            maturity: MaturityLayoutConfig::default(),
         }
     }
 }
@@ -492,6 +564,30 @@ pub struct SemanticForcesActor {
     edge_targets: Vec<i32>,
     edge_weights: Vec<f32>,
     edge_types: Vec<i32>,
+
+    // ── Phase A semantic metadata (host-side mirrors of UnifiedGPUCompute buffers) ──
+
+    /// Per-node physicality codes (PhysicalityCode::as_i32()).
+    /// Populated via `upload_semantic_metadata` on the shared compute context.
+    node_physicality: Vec<i32>,
+
+    /// Per-node role codes (RoleCode::as_i32()).
+    node_role: Vec<i32>,
+
+    /// Per-node maturity levels (MaturityLevel::as_i32()).
+    node_maturity: Vec<i32>,
+
+    /// Centroid scratch buffer for physicality clustering (4 buckets × Float3).
+    physicality_centroids: Vec<kernel_bridge::Float3>,
+
+    /// Count scratch buffer for physicality clustering (4 buckets).
+    physicality_counts: Vec<i32>,
+
+    /// Centroid scratch buffer for role clustering (7 buckets × Float3).
+    role_centroids: Vec<kernel_bridge::Float3>,
+
+    /// Count scratch buffer for role clustering (7 buckets).
+    role_counts: Vec<i32>,
 }
 
 impl SemanticForcesActor {

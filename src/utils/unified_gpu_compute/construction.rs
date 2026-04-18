@@ -55,6 +55,18 @@ pub struct UnifiedGPUCompute {
     pub class_charge: DeviceBuffer<f32>,    // Class-specific charge modifiers
     pub class_mass: DeviceBuffer<f32>,      // Class-specific mass modifiers
 
+    // Semantic metadata per node — drives semantic_forces.cu kernels.
+    // All default to 0 (None/Unknown) so graphs without semantic data run kernels harmlessly.
+    pub physicality_code: DeviceBuffer<i32>,   // PhysicalityCode enum: 0=None,1=Abstract,2=Virtual,3=Conceptual,255=Unknown
+    pub role_code: DeviceBuffer<i32>,          // RoleCode enum: 0=None,1=Concept,2=Object,3=Process,4=Domain,5=Method,6=Agent,255=Unknown
+    pub maturity_level: DeviceBuffer<i32>,     // MaturityLevel enum: 0=None,1=Emerging,2=Mature,3=Declining,255=Unknown
+
+    // Centroid accumulator buffers written by semantic centroid kernels.
+    pub physicality_centroids: DeviceBuffer<f32>, // 4 entries × 3 components = 12 floats (float3 × 4)
+    pub physicality_counts: DeviceBuffer<i32>,    // 4 entries (one per physicality bucket)
+    pub role_centroids: DeviceBuffer<f32>,        // 7 entries × 3 components = 21 floats (float3 × 7)
+    pub role_counts: DeviceBuffer<i32>,           // 7 entries (one per role bucket)
+
 
     pub edge_row_offsets: DeviceBuffer<i32>,
     pub edge_col_indices: DeviceBuffer<i32>,
@@ -330,6 +342,17 @@ impl UnifiedGPUCompute {
         let class_charge = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?;  // Default charge = 1.0
         let class_mass = DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?;    // Default mass = 1.0
 
+        // Semantic metadata buffers — zeroed so absent metadata maps to None/Unknown (0)
+        let physicality_code = DeviceBuffer::zeroed(num_nodes)?;
+        let role_code = DeviceBuffer::zeroed(num_nodes)?;
+        let maturity_level = DeviceBuffer::zeroed(num_nodes)?;
+
+        // Centroid accumulators — zeroed; reset at the start of each physics tick
+        let physicality_centroids = DeviceBuffer::zeroed(12usize)?; // 4 × float3
+        let physicality_counts = DeviceBuffer::zeroed(4usize)?;
+        let role_centroids = DeviceBuffer::zeroed(21usize)?;        // 7 × float3
+        let role_counts = DeviceBuffer::zeroed(7usize)?;
+
         let edge_row_offsets = DeviceBuffer::zeroed(num_nodes + 1)?;
         let edge_col_indices = DeviceBuffer::zeroed(num_edges)?;
         let edge_weights = DeviceBuffer::zeroed(num_edges)?;
@@ -435,6 +458,13 @@ impl UnifiedGPUCompute {
             class_id,
             class_charge,
             class_mass,
+            physicality_code,
+            role_code,
+            maturity_level,
+            physicality_centroids,
+            physicality_counts,
+            role_centroids,
+            role_counts,
             edge_row_offsets,
             edge_col_indices,
             edge_weights,

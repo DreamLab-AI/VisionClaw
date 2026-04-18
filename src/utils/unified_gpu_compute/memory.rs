@@ -86,6 +86,62 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Upload per-node semantic metadata for the semantic_forces kernels.
+    ///
+    /// Each slice must contain exactly `num_nodes` entries in node-index order.
+    /// Values correspond to the enums defined in the semantic metadata module:
+    ///   - `physicality_codes`: PhysicalityCode (0=None, 1=Abstract, 2=Virtual, 3=Conceptual, 255=Unknown)
+    ///   - `role_codes`:        RoleCode (0=None, 1=Concept, 2=Object, 3=Process, 4=Domain, 5=Method, 6=Agent, 255=Unknown)
+    ///   - `maturity_levels`:   MaturityLevel (0=None, 1=Emerging, 2=Mature, 3=Declining, 255=Unknown)
+    ///
+    /// Pads to `allocated_nodes` with 0 (None) following the same pattern as
+    /// `upload_class_metadata`.
+    pub fn upload_semantic_metadata(
+        &mut self,
+        physicality_codes: &[i32],
+        role_codes: &[i32],
+        maturity_levels: &[i32],
+    ) -> Result<()> {
+        if physicality_codes.len() != self.num_nodes
+            || role_codes.len() != self.num_nodes
+            || maturity_levels.len() != self.num_nodes
+        {
+            return Err(anyhow!(
+                "upload_semantic_metadata: expected {} entries per array, got {}/{}/{}",
+                self.num_nodes,
+                physicality_codes.len(),
+                role_codes.len(),
+                maturity_levels.len()
+            ));
+        }
+
+        // Pad to allocated_nodes (same pattern as upload_class_metadata)
+        let alloc = self.physicality_code.len();
+        let mut padded_phys = physicality_codes.to_vec();
+        let mut padded_role = role_codes.to_vec();
+        let mut padded_mat  = maturity_levels.to_vec();
+        padded_phys.resize(alloc, 0);
+        padded_role.resize(alloc, 0);
+        padded_mat.resize(alloc, 0);
+
+        self.physicality_code.copy_from(&padded_phys)?;
+        self.role_code.copy_from(&padded_role)?;
+        self.maturity_level.copy_from(&padded_mat)?;
+        Ok(())
+    }
+
+    /// Zero all four centroid accumulator buffers ready for a fresh physics tick.
+    ///
+    /// Called at the start of each tick before the centroid-accumulation kernels
+    /// in semantic_forces.cu write their results.
+    pub fn zero_semantic_centroids_and_counts(&mut self) -> Result<()> {
+        self.physicality_centroids.copy_from(&vec![0.0f32; 12])?;
+        self.physicality_counts.copy_from(&vec![0i32; 4])?;
+        self.role_centroids.copy_from(&vec![0.0f32; 21])?;
+        self.role_counts.copy_from(&vec![0i32; 7])?;
+        Ok(())
+    }
+
     pub fn upload_edges_csr(
         &mut self,
         row_offsets: &[i32],
@@ -436,6 +492,16 @@ impl UnifiedGPUCompute {
         self.class_id = DeviceBuffer::zeroed(actual_new_nodes)?;
         self.class_charge = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
         self.class_mass = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;
+
+        // Semantic metadata per-node buffers — zeroed (0 = None/Unknown)
+        self.physicality_code = DeviceBuffer::zeroed(actual_new_nodes)?;
+        self.role_code = DeviceBuffer::zeroed(actual_new_nodes)?;
+        self.maturity_level = DeviceBuffer::zeroed(actual_new_nodes)?;
+        // Centroid accumulators have fixed sizes independent of node count — reallocate to reset
+        self.physicality_centroids = DeviceBuffer::zeroed(12usize)?;
+        self.physicality_counts = DeviceBuffer::zeroed(4usize)?;
+        self.role_centroids = DeviceBuffer::zeroed(21usize)?;
+        self.role_counts = DeviceBuffer::zeroed(7usize)?;
 
         // Degree weight buffer must be resized with positions
         self.degree_weight = DeviceBuffer::from_slice(&vec![1.0f32; actual_new_nodes])?;

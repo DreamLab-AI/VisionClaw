@@ -372,6 +372,15 @@ pub struct PhysicsSettingsDTO {
     /// X-axis separation between knowledge and ontology graph populations (default 0 = merged)
     #[serde(default)]
     pub graph_separation_x: f32,
+    /// Semantic force strength for physicality clustering (default 0.40)
+    #[serde(default)]
+    pub physicality_strength: f32,
+    /// Semantic force strength for role clustering (default 0.30)
+    #[serde(default)]
+    pub role_strength: f32,
+    /// Semantic force strength for maturity clustering (default 0.15)
+    #[serde(default)]
+    pub maturity_strength: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

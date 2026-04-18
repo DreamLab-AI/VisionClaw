@@ -239,6 +239,9 @@ impl From<&crate::config::PhysicsSettings> for PhysicsSettingsDTO {
             clustering_resolution: settings.clustering_resolution,
             clustering_iterations: settings.clustering_iterations,
             graph_separation_x: settings.graph_separation_x,
+            physicality_strength: settings.physicality_strength,
+            role_strength: settings.role_strength,
+            maturity_strength: settings.maturity_strength,
         }
     }
 }

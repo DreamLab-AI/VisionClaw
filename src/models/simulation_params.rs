@@ -273,6 +273,22 @@ pub struct SimulationParams {
     /// Dampens Z velocity and gently pulls Z positions toward zero.
     #[serde(default)]
     pub z_damping: f32,
+
+    /// Semantic force strength for physicality clustering (OWL physicality codes).
+    /// Nodes sharing the same physicality code attract; disparate codes repel.
+    /// Sourced from `PhysicsSettings::physicality_strength`. Default 0.40.
+    #[serde(default)]
+    pub physicality_strength: f32,
+
+    /// Semantic force strength for role clustering (OWL role codes).
+    /// Concept/Object/Process etc. nodes cluster by role. Default 0.30.
+    #[serde(default)]
+    pub role_strength: f32,
+
+    /// Semantic force strength for maturity clustering.
+    /// Emerging/Mature/Declining nodes experience mild clustering pressure. Default 0.15.
+    #[serde(default)]
+    pub maturity_strength: f32,
 }
 
 impl Default for SimulationParams {
@@ -553,6 +569,9 @@ impl SimParams {
             scaling_ratio: self.scaling_ratio,
             adaptive_speed: self.adaptive_speed != 0,
             z_damping: 0.0,
+            physicality_strength: 0.40,
+            role_strength: 0.30,
+            maturity_strength: 0.15,
         }
     }
 }
@@ -697,6 +716,9 @@ impl From<&PhysicsSettings> for SimulationParams {
             scaling_ratio: physics.scaling_ratio,
             adaptive_speed: physics.adaptive_speed,
             z_damping: physics.z_damping,
+            physicality_strength: physics.physicality_strength,
+            role_strength: physics.role_strength,
+            maturity_strength: physics.maturity_strength,
         }
     }
 }

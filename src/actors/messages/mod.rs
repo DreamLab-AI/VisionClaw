@@ -36,7 +36,8 @@ pub use graph_messages::{
 pub use physics_messages::{
     AddIsolationLayer, AdjustConstraintWeights, ApplyConstraintsToNodes,
     BroadcastPerformanceStats, ComputeForces, ConfigureBroadcastOptimization, ConfigureCollision,
-    ConfigureDAG, ConfigureStressMajorization, ConfigureTypeClustering, ForceResumePhysics,
+    ConfigureDAG, ConfigureMaturity, ConfigurePhysicality, ConfigureRole,
+    ConfigureStressMajorization, ConfigureTypeClustering, ForceResumePhysics,
     GPUInitFailed, GPUInitialized, GPUStatus, GetActiveConstraints, GetBroadcastStats, GetConstraintBuffer,
     GetConstraints, GetEquilibriumStatus, GetForceComputeActor, GetPhysicsOrchestratorActor, GetGPUMetrics, GetGPUStatus,
     GetHierarchyLevels, GetKernelMode, GetNodeData, GetPhysicsStats, GetSemanticConfig,

@@ -131,21 +131,9 @@ Permissions are enforced at API boundary. Role resolution comes from BC14 (Enter
 
 ## 6. Candidate scoring algorithm
 
-Candidates carry a scalar readiness score in `[0, 1]` combining five signals:
+Candidates carry a scalar confidence score in `[0, 1]` computed by the discovery engine (BC13) from eight signals: WikilinkToOntology (S1), SemanticCooccurrence (S2), ExplicitOwlDeclaration (S3), AgentProposal (S4), MaturityMarker (S5), CentralityInKG/PageRank (S6), AuthoringRecency (S7), and AuthorityScore (S8). Each signal is normalised before combining; the linear weighted sum is passed through a sigmoid (`sigmoid(12·(raw − 0.42))`) to produce the final confidence value. The surface threshold is **≥ 0.60**; the high-priority badge fires at **≥ 0.75**; the dismissed floor is **< 0.35** (below this a candidate is never re-surfaced, preventing broker fatigue). Agent confidence contributes as one signal (S4, weight 0.20) and does not bypass the threshold regardless of its value (D2). Weights and thresholds live in `config/insight-migration.yaml`, static per deployment in MVP; per-tenant learning is v2.
 
-| Signal | Definition | Weight |
-|---|---|---:|
-| **In-degree** `I` | Normalised wikilink in-degree: `log(1+deg_in) / log(1+deg_in_max)` | 0.25 |
-| **Semantic cohesion** `S` | Mean cosine similarity (MiniLM-L6-v2, 384-dim) between the page and its top-5 wikilink neighbours | 0.25 |
-| **Authoring maturity** `M` | Composite of `quality:: authoritative`, `word_count > 200`, `subclass-of` declared, `last-updated` within 90 days (0.25 each) | 0.20 |
-| **Explicit declaration** `E` | Binary — `owl:class::` already present in the page | 0.15 |
-| **Agent confidence** `A` | Max `agent_confidence` from `ontology_propose` in last 30 days (0 if none) | 0.15 |
-
-$$
-\mathrm{score} = 0.25 I + 0.25 S + 0.20 M + 0.15 E + 0.15 A
-$$
-
-**Surface threshold** ≥ 0.55 enters the inbox; **high-priority** ≥ 0.75 is highlighted; **dismissed floor** < 0.35 never surfaces (avoids broker fatigue). Weights and thresholds live in `config/insight-migration.yaml`, static per deployment in MVP; per-tenant learning is v2.
+Canonical formula and worked examples: see [05-candidate-scoring.md](design/2026-04-18-insight-migration-loop/05-candidate-scoring.md). This PRD's earlier formula has been superseded per master doc §11 D2.
 
 ## 7. Promotion lifecycle state machine
 
@@ -161,8 +149,8 @@ $$
                            (dropped, never                │
                             re-surfaced)                  │
                                                           │
-                               defer 14d    reject       approve
-                               ◀─────────── ──────▶       │
+                               defer      reject         approve
+                               ◀────────── ──────▶        │
                                                  ↓        ▼
                                            ┌─────────┐┌──────────┐
                                            │Rejected ││ Approved │
@@ -186,34 +174,29 @@ $$
                                           │ Promoted │   on next scan)
                                           └─────┬────┘
                                                 │
-                                         broker Revert
-                                                ▼
-                                          ┌──────────┐
-                                          │ Rollback │
-                                          └─────┬────┘
-                                                │
-                                         revert PR merged
+                                    opens rollback BrokerCase
                                                 ▼
                                           ┌──────────────┐
                                           │  Deprecated  │
                                           └──────────────┘
 ```
 
+Revocation (rollback of a Promoted class) is handled as a new BrokerCase with `category: migration_rollback` — see ADR-049 §Lifecycle. It is NOT a rewind of the original state machine.
+
 Transition rules:
 
 | From | To | Trigger | Side-effects |
 |---|---|---|---|
-| (none) | Candidate | Scoring sweep ≥ 0.55 or `ontology_propose` call | Inbox entry created; candidate record persisted |
+| (none) | Candidate | Scoring sweep ≥ 0.60 or `ontology_propose` call | Inbox entry created; candidate record persisted |
 | Candidate | UnderReview | Broker opens the candidate (any dwell > 5 s) | Telemetry event; lock held for 30 min to prevent double-work |
 | UnderReview | Approved | Broker clicks **Approve** | PR opens via GitHub App; candidate state = Approved; PR URL stored |
-| UnderReview | Deferred | Broker clicks **Defer** | Re-surfaces after cooldown; reason stored |
+| UnderReview | Deferred | Broker clicks **Defer** | Re-surfaces after per-role cooldown (D3); reason stored |
 | UnderReview | Rejected | Broker clicks **Reject** + reason | Candidate permanently closed for this page version |
 | Approved | PRAssigned | PR webhook confirms PR opened | State machine advances; waits on PR |
 | PRAssigned | PRMerged | GitHub PR merge webhook | Triggers re-ingest job |
 | PRAssigned | PRClosed | GitHub PR closed without merge | Candidate returns to Candidate state, eligible for re-surface |
 | PRMerged | Promoted | Re-ingest completes + OWL class appears in graph | Provenance record finalised; physics re-settles |
-| Promoted | Rollback | Broker clicks **Revert** | Revert PR opens; state moves to Rollback |
-| Rollback | Deprecated | Revert PR merged + re-ingest completes | OWL class removed; provenance record closed with rollback reason |
+| Promoted | Deprecated | Rollback BrokerCase approved + revert PR merged + re-ingest completes | OWL class removed; provenance record closed with rollback reason |
 
 Each transition emits a domain event consumed by BC15 (KPI Observability).
 
@@ -229,6 +212,7 @@ Existing README KPIs remain (Mesh Velocity, Augmentation Ratio, Trust Variance, 
 | **Ontology coherence** | `unsatisfiable_classes / total_classes` (from Whelk reasoner) | ≤ 1% |
 | **Candidate surface precision** | promoted ÷ (promoted + rejected) over last 90 days | ≥ 50% |
 | **Orphan coverage** | fraction of orphan KG notes for which a candidate has been surfaced at least once | ≥ 70% after 30 days |
+| **Rate-limited overflow** | Count of candidates suppressed by 10/broker/24h rate limit | < 20/week steady state |
 
 All metrics computed by BC15 from domain events. Dashboard surfaces them on the enterprise homepage with 30-/7-/1-day trend deltas.
 

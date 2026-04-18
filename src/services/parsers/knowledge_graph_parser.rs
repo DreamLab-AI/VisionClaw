@@ -8,7 +8,7 @@
 
 use crate::models::edge::Edge;
 use crate::models::graph::GraphData;
-use crate::models::metadata::MetadataStore;
+use crate::models::metadata::{MaturityLevel, MetadataStore, PhysicalityCode, RoleCode};
 use crate::models::node::Node;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use log::{debug, info};
@@ -137,6 +137,30 @@ impl KnowledgeGraphParser {
         if !tags.is_empty() {
             metadata.insert("tags".to_string(), tags.join(", "));
         }
+
+        // Derive integer OWL codes for the CUDA semantic-forces kernel.
+        // We read from the metadata HashMap we just populated so the property
+        // regex only runs once.  The `maturity` key is checked first, then
+        // `status` as a fallback (some older pages use `status::` instead).
+        let physicality = PhysicalityCode::from_logseq(
+            metadata.get("owl:physicality").map(|s| s.as_str()).unwrap_or(""),
+        );
+        let role = RoleCode::from_logseq(
+            metadata.get("owl:role").map(|s| s.as_str()).unwrap_or(""),
+        );
+        let maturity = MaturityLevel::from_logseq(
+            metadata
+                .get("maturity")
+                .or_else(|| metadata.get("status"))
+                .map(|s| s.as_str())
+                .unwrap_or(""),
+        );
+
+        // Persist the integer codes into the node metadata HashMap so they
+        // propagate to Neo4j node properties and are available to the kernel.
+        metadata.insert("physicality_code".into(), physicality.as_i32().to_string());
+        metadata.insert("role_code".into(), role.as_i32().to_string());
+        metadata.insert("maturity_level".into(), maturity.as_i32().to_string());
 
         let id = self.page_name_to_id(page_name);
 
