@@ -1,0 +1,35 @@
+solid-pod-rs
+============
+
+This crate is a Rust implementation of a Solid Pod server providing
+WAC (Web Access Control), LDP (Linked Data Platform) resource/container
+semantics, NIP-98 HTTP authentication, and Solid Notifications.
+
+Attribution
+-----------
+
+The initial WAC evaluator, LDP container logic, NIP-98 auth module,
+and pod provisioning flows were extracted from the `pod-worker` crate
+in the community-forum-rs project:
+
+    https://github.com/DreamLab-AI/dreamlab-ai-website
+    Path: community-forum-rs/crates/pod-worker
+
+The community-forum-rs pod-worker was itself authored by the DreamLab AI
+team as a Rust port of the original TypeScript `workers/pod-api/`.
+
+The project architecture and feature model draw heavily on the
+JavaScript Solid Server ("JSS") by Melvin Carvalho and contributors:
+
+    https://github.com/CommunitySolidServer/CommunitySolidServer
+
+JSS is vendored read-only under `references/community-solid-server/`
+for API parity reference during Rust porting. It is not built, executed,
+or linked into this crate.
+
+Licensing
+---------
+
+Dual-licensed under MIT OR Apache-2.0, at your option.
+
+See LICENSE-MIT and LICENSE-APACHE for the full texts.

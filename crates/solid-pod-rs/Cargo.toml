@@ -1,0 +1,48 @@
+[package]
+name = "solid-pod-rs"
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Rust implementation of Solid Pod server (WAC + LDP + Notifications)"
+authors = [
+    "VisionClaw contributors",
+    "community-forum-rs contributors",
+]
+repository = "https://github.com/DreamLab-AI/VisionClaw"
+keywords = ["solid", "pod", "wac", "ldp", "webid"]
+categories = ["web-programming::http-server"]
+readme = "README.md"
+
+[lib]
+name = "solid_pod_rs"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["fs", "io-util", "sync", "macros", "rt", "time"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+bytes = "1"
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+notify = "6"
+
+# Optional backends
+aws-sdk-s3 = { version = "1", optional = true }
+
+[features]
+default = ["fs-backend", "memory-backend"]
+fs-backend = []
+memory-backend = []
+s3-backend = ["dep:aws-sdk-s3"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"
+actix-web = "4"
