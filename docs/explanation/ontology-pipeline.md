@@ -3,7 +3,7 @@ title: VisionClaw Ontology Pipeline
 description: End-to-end guide to VisionClaw's OWL 2 ontology processing pipeline — from GitHub Markdown ingestion through Neo4j storage to Whelk-rs EL++ reasoning and GPU constraint application
 category: explanation
 tags: [ontology, owl, whelk, reasoning, pipeline, neo4j, knowledge-graph]
-updated-date: 2026-04-09
+updated-date: 2026-04-19
 ---
 
 # VisionClaw Ontology Pipeline
