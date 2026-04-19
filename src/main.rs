@@ -41,6 +41,7 @@ use webxr::{
     AppState,
 };
 
+use actix::Actor;
 use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
 use utoipa::OpenApi;
