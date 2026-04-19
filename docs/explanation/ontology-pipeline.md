@@ -3,7 +3,7 @@ title: VisionClaw Ontology Pipeline
 description: End-to-end guide to VisionClaw's OWL 2 ontology processing pipeline — from GitHub Markdown ingestion through Neo4j storage to Whelk-rs EL++ reasoning and GPU constraint application
 category: explanation
 tags: [ontology, owl, whelk, reasoning, pipeline, neo4j, knowledge-graph]
-updated-date: 2026-04-09
+updated-date: 2026-04-19
 ---
 
 # VisionClaw Ontology Pipeline
@@ -181,6 +181,176 @@ There are 623 `SUBCLASS_OF` relationships originating from `OwlClass` nodes in N
 ### Namespace edge generation
 
 Nodes whose `metadata_id` contains a `--` prefix (e.g., `ai--machine-learning`) automatically generate namespace grouping edges during `GraphStateActor` startup, placing them into the correct sub-graph cluster.
+
+---
+
+## 4.5. Two-pass Adjacency Signals
+
+The knowledge graph parser operates in two passes to extract and score ontology enrichment candidates.
+
+### Pass 1: Wikilink discovery
+
+During initial Markdown traversal, `Pass 1` scans all `[[wikilink]]` references and builds an undirected adjacency graph. This graph is independent of OWL class relationships and captures user-authored semantic proximity. Wikilink edges carry `last_seen_run_id` metadata for orphan detection.
+
+### Signal S1: WikilinkToOntology
+
+Wikilink proximity feeds the MigrationCandidate scoring pipeline. When a page with wikilinks is classified as a candidate for ontology enrichment:
+
+- **S1 WikilinkToOntology weight**: 0.20 (20%)
+- **Effect**: Pages that link to OWL classes or domain concepts receive stronger promotion scores
+- **Scoring**: 8-signal sigmoid aggregation with `a=12, bias=0.42`, threshold ≥ 0.60 for surface-to-broker
+- **Deferred surface**: Scores < 0.35 auto-expire after 3 days
+
+### Central-node discovery (S6 CentralityInKG)
+
+Pages with high wikilink degree (many inbound/outbound links) become graph centres. This feeds **S6 CentralityInKG** with weight 0.10 (10%), helping identify core domain concepts that should anchor the ontology.
+
+### Orphan detection and high-visibility zone
+
+Nodes with zero `BRIDGE_TO` targets are classified as orphans. Per the sovereign-mesh physics model, orphans in the high-visibility zone (public, non-embedded) are flagged for manual ontology review rather than auto-inferred classification.
+
+---
+
+## 4.6. Visibility-aware Reasoning
+
+Whelk-rs reasons over the complete node topology regardless of visibility settings. Visibility acts as an API-layer filter only, not a reasoning boundary.
+
+### Public vs. Private reasoning
+
+- **Visible to all**: Public nodes and their relationships feed unrestricted into EL++ completion
+- **Private nodes**: Participate fully in reasoning — they are first-class citizens in the transitive closure and disjointness propagation
+- **No reasoning partitioning**: There is no separate "private reasoning space" — all axioms compute over the unified topology
+
+### Private stubs and deferred class inference
+
+A private stub node has **no `owl_class_iri`** until its owner authors ontology metadata in their Pod. The Whelk reasoner processes the node's topological position (inbound/outbound edges) but cannot infer OWL classes until metadata is published.
+
+- **Before publication**: Private stub participates in clustering/repulsion via LINKS_TO edges
+- **After publication**: Owner's Pod enrichment adds `owl_class_iri` → Whelk re-runs → class inference completes
+
+### Opacification at the wire
+
+The `PRIVATE_OPAQUE_FLAG` (bit 29 on `node_id`) signals the client API layer to redact:
+- `label` and `metadata` fields
+- `owl_class_iri` (stub remains unclassified)
+- References in edge metadata
+
+The internal database stores full data; filtering happens at REST/GraphQL serialization time. Reasoning never sees the opaque flag.
+
+---
+
+## 4.7. Pod-first Sequencing
+
+Ontology enrichment is sequenced AFTER Pod write and Neo4j commit to ensure consistent reasoning over committed state.
+
+### Processing sequence
+
+```
+1. Parse → Classify visibility (Public | Private) → Pod write (public/private container)
+2. Neo4j commit (node + edges persisted)
+3. OntologyPipelineService::on_ontology_modified() async trigger
+4. Whelk-rs reasoning (reads COMMITTED node set from Neo4j)
+5. BRIDGE_TO candidacy scoring (8-signal sigmoid, threshold 0.60)
+6. MigrationCandidate promotion (if ≥ threshold)
+7. Server-signed kind 30100 Nostr event (server identity, requires broker approval)
+8. Broker placement (user's inbox for review/veto)
+```
+
+### Saga consistency model
+
+During the Pod write saga:
+- Parsed node state is buffered in-memory
+- Nodes are NOT visible to Whelk until the saga commits
+- Rollback discards the buffer; no reasoning restart
+- On commit, the atomic Neo4j transaction makes nodes visible to subsequent reasoning
+
+This prevents Whelk from reasoning over partial state and ensures all inferred axioms are based on a consistent snapshot.
+
+### Timing implications
+
+- Reasoning latency: **added** ~50 ms (cold) / < 1 ms (cache hit) to the enrichment pipeline
+- Broker latency: **not affected** — candidate submission is decoupled from reasoning completion
+- Orphan retraction: runs independently after 3 days if no BRIDGE_TO promotion occurs
+
+---
+
+## 4.8. BRIDGE_TO Promotion and Monotonic Confidence
+
+Once a MigrationCandidate exceeds the threshold, promotion to BRIDGE_TO edge is immutable — confidence scores strengthen but never weaken.
+
+### Scoring model
+
+| Signal | Name | Weight | Captures |
+|--------|------|--------|----------|
+| S1 | WikilinkToOntology | 0.20 | Semantic proximity via wikilinks |
+| S2 | SemanticSimilarity | 0.18 | ONNX embeddings (text) |
+| S3 | MetadataAlignment | 0.15 | Schema field overlap |
+| S4 | OwnerSignature | 0.12 | Pod owner's publication pattern |
+| S5 | GraphicProximity | 0.10 | Spatial clustering in 3D graph |
+| S6 | CentralityInKG | 0.10 | Degree/betweenness in wikilink net |
+| S7 | TemporalRecency | 0.08 | Last edit within 7 days |
+| S8 | OntologyDensity | 0.07 | OWL axioms per Markdown cell |
+
+### 8-signal sigmoid aggregation
+
+```
+score = sigmoid(a=12, bias=0.42, z=sum(weight_i * signal_i))
+
+if score ≥ 0.60:   surface to broker inbox (server-signed kind 30100)
+if score ∈ [0.35, 0.60):  pending review (no action)
+if score < 0.35:   auto-expire after 3 days
+```
+
+### Promotion invariant
+
+Once a MigrationCandidate is promoted to BRIDGE_TO (wire event issued), future scores can only increase:
+
+```
+confidence(t=new) ≥ confidence(t=old)  [monotonic strengthening]
+confidence NEVER decreases mid-review
+```
+
+This prevents reviewers from seeing oscillating confidence values during multi-signal updates.
+
+---
+
+## 4.9. Private Stubs and OWL Reasoning
+
+Private stubs are nodes with `visibility: Private` and `owner_pubkey` set. They participate in reasoning but have constrained class membership.
+
+### Key invariant
+
+A private stub has **no `owl_class_iri`** until its owner publishes ontology metadata in their Pod.
+
+### Pre-publication behavior
+
+- **Topology**: Participates in LINKS_TO, HAS_PART, DEPENDS_ON edges
+- **Clustering**: Subject to semantic force constraints from neighbouring public classes
+- **Reasoning**: Whelk processes wikilink adjacency but cannot assign class membership
+- **Visibility**: Label/metadata opacified via bit 29 flag to non-owners
+
+### Post-publication behavior
+
+Owner publishes OntologyBlock in their Pod → Pod enrichment adds `owl_class_iri` → Whelk re-enters completion:
+
+- **New inferences**: Class is now subject to SubClassOf transitivity, disjointness propagation, etc.
+- **Updated constraints**: GPU receives new HierarchicalAttraction forces linking stub to parent classes
+- **Signal update**: Topology changes may affect S6 CentralityInKG and BRIDGE_TO scores
+
+### Example
+
+```
+Private stub: { id: 1042, label: (opaque), owner_pubkey: alice, visibility: Private }
+
+Alice's Pod enrichment:
+  owl_class_iri: ex:PredatorPrey
+  is-subclass-of: [[Predation]]
+
+Whelk re-runs:
+  Infer: ex:PredatorPrey ⊑ ex:Predation
+  Infer: ex:PredatorPrey ⊥ ex:Mutualism
+  Update GPU: apply SubClassOf(PredatorPrey, Predation)
+```
 
 ---
 
