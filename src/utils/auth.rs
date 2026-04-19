@@ -26,6 +26,17 @@ pub enum AccessLevel {
     WriteSettings,
     /// Full administrative access (includes all permissions)
     Admin,
+    /// Caller may be unauthenticated; handler branches on presence.
+    ///
+    /// Unlike the other variants, `Optional` is not a permission gate. When
+    /// used with `RequireAuth::optional()`, the middleware accepts both
+    /// signed and anonymous callers: signed requests are verified normally
+    /// (providing a pubkey for caller-aware filtering), and unsigned
+    /// requests pass through with an empty-string pubkey marker. Handlers
+    /// inspect the pubkey and decide what to return. Malformed NIP-98
+    /// headers are still rejected (401) — `Optional` never bypasses
+    /// validation, only missing headers.
+    Optional,
 }
 
 impl AccessLevel {
@@ -41,6 +52,10 @@ impl AccessLevel {
     pub fn has_permission(&self, required: &AccessLevel) -> bool {
         use AccessLevel::*;
         match required {
+            // `Optional` is a special marker, not a gate: any level
+            // (including a hypothetical "no auth" caller) satisfies it.
+            // The presence-vs-absence branching happens in `verify_access`.
+            Optional => true,
             ReadOnly => true, // every authenticated level can read
             Authenticated => true, // same as ReadOnly for permission checks
             WriteGraph => matches!(self, WriteGraph | Admin | Authenticated | PowerUser),
@@ -51,17 +66,57 @@ impl AccessLevel {
     }
 }
 
+/// Returns true when the feature flag `NIP98_OPTIONAL_AUTH=true` is set.
+/// When false (default), `AccessLevel::Optional` is transparently promoted
+/// to `AccessLevel::Authenticated` so scopes wrapped with
+/// `RequireAuth::optional()` behave identically to `RequireAuth::authenticated()`.
+/// This is the sprint-level rollback lever.
+fn optional_auth_enabled() -> bool {
+    std::env::var("NIP98_OPTIONAL_AUTH")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
+}
+
 pub async fn verify_access(
     req: &HttpRequest,
     nostr_service: &NostrService,
     required_level: AccessLevel,
 ) -> Result<String, HttpResponse> {
+    // Feature-flag downgrade: when disabled, Optional behaves as Authenticated.
+    let required_level = match required_level {
+        AccessLevel::Optional if !optional_auth_enabled() => AccessLevel::Authenticated,
+        other => other,
+    };
+
     let request_id = req
         .headers()
         .get("X-Request-ID")
         .and_then(|v| v.to_str().ok())
         .unwrap_or(&Uuid::new_v4().to_string())
         .to_string();
+
+    // Detect whether any Authorization or legacy Nostr session header is
+    // present. Only used to decide whether `Optional` falls through to the
+    // anonymous branch (no headers at all) or runs normal verification (any
+    // auth attempt must succeed — we do not silently demote invalid
+    // signatures to anonymous).
+    let has_auth_header = req.headers().get("Authorization").is_some();
+    let has_legacy_pubkey = req.headers().get("X-Nostr-Pubkey").is_some();
+    let has_legacy_token = req.headers().get("X-Nostr-Token").is_some();
+    let any_auth_attempt = has_auth_header || has_legacy_pubkey || has_legacy_token;
+
+    // --- Optional auth: anonymous short-circuit ---
+    // Scope wrapped with `RequireAuth::optional()` + no auth headers at all
+    // → pass through with an empty pubkey. Handlers distinguish anonymous
+    // vs signed via `pubkey.is_empty()`. Any auth attempt (valid or
+    // malformed) must still go through verification below.
+    if required_level == AccessLevel::Optional && !any_auth_attempt {
+        debug!(
+            request_id = %request_id,
+            "Optional auth: no headers — passing through as anonymous"
+        );
+        return Ok(String::new());
+    }
 
     // --- Dev-mode session bypass ---
     // Mirrors `settings::auth_extractor` so enterprise panels behind
@@ -168,6 +223,25 @@ pub async fn verify_access(
     }
 
     // --- Legacy path: X-Nostr-Pubkey + X-Nostr-Token ---
+    //
+    // Retained for development ergonomics (browser extensions, fixture
+    // scripts) but is an unsigned bearer-style flow without NIP-98's
+    // Schnorr/body-hash/URL-binding guarantees. Rejected outright in
+    // production so no regression path can re-enable it.
+    {
+        let is_production = std::env::var("APP_ENV")
+            .map(|v| v == "production")
+            .unwrap_or(false);
+        if is_production {
+            warn!(
+                "[{}] Legacy X-Nostr-Pubkey auth rejected in production; use NIP-98",
+                request_id
+            );
+            return Err(HttpResponse::Unauthorized()
+                .body("Legacy session auth not available in production. Use NIP-98."));
+        }
+    }
+
     let pubkey = match req.headers().get("X-Nostr-Pubkey") {
         Some(value) => value.to_str().unwrap_or("").to_string(),
         None => {

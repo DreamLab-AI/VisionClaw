@@ -70,6 +70,26 @@ impl RequireAuth {
             level: AccessLevel::Admin,
         }
     }
+
+    /// Allow both signed and anonymous callers.
+    ///
+    /// Behaviour:
+    /// - Signed requests (valid NIP-98 `Authorization: Nostr …`): verified
+    ///   normally and the caller's pubkey is stored in request extensions.
+    /// - Anonymous requests (no auth headers at all): pass through with an
+    ///   empty-string pubkey marker. Handlers call
+    ///   `get_authenticated_user(&req)` and check `pubkey.is_empty()` to
+    ///   distinguish anonymous from signed.
+    /// - Malformed auth attempts (header present but invalid): rejected 401.
+    ///
+    /// Gated by the `NIP98_OPTIONAL_AUTH=true` env var. When the flag is
+    /// false/unset, this variant transparently behaves like
+    /// `RequireAuth::authenticated()` — the rollback lever for the sprint.
+    pub fn optional() -> Self {
+        Self {
+            level: AccessLevel::Optional,
+        }
+    }
 }
 
 impl<S, B> Transform<S, ServiceRequest> for RequireAuth

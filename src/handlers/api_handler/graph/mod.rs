@@ -97,14 +97,62 @@ pub struct GraphQuery {
     pub graph_type: Option<String>,
 }
 
+/// Returns true if `metadata` passes the ownership-aware visibility filter
+/// for the given caller.
+///
+/// Rules (ADR-028 extension, sovereign-mesh):
+/// - `visibility == "public"` (or the field is absent — legacy row treated
+///   as public for backwards compatibility) → visible to everyone.
+/// - `visibility == "private"` → visible only when `caller_pubkey` matches
+///   the node's `owner_pubkey` metadata. Anonymous callers (no pubkey)
+///   never see private nodes; signed callers see only their own.
+/// - Any other visibility value → default-deny (hidden unless owner matches)
+///   so future values fail closed.
+///
+/// Replicates the Cypher form `COALESCE(n.visibility, 'public')` planned for
+/// the sibling ADR-050 schema rollout; applying it here keeps the auth
+/// sprint deliverable self-contained while the schema lands.
+fn visibility_allows(
+    metadata: &HashMap<String, String>,
+    caller_pubkey: Option<&str>,
+) -> bool {
+    let visibility = metadata
+        .get("visibility")
+        .map(|s| s.as_str())
+        .unwrap_or("public");
+
+    match visibility {
+        "public" => true,
+        _ => {
+            // Private (or any non-public value): owner must match caller.
+            match (caller_pubkey, metadata.get("owner_pubkey")) {
+                (Some(caller), Some(owner)) if !caller.is_empty() => caller == owner,
+                _ => false,
+            }
+        }
+    }
+}
+
 pub async fn get_graph_data(
     state: web::Data<AppState>,
     query: web::Query<GraphQuery>,
-    _req: HttpRequest,
+    req: HttpRequest,
 ) -> impl Responder {
-    info!("Received request for graph data (CQRS Phase 1D), graph_type={:?}", query.graph_type);
+    // Caller identity derived from the `RequireAuth::optional()` middleware.
+    // Anonymous callers arrive with `pubkey == ""`; signed callers carry
+    // their NIP-98 pubkey. `filter(!p.is_empty())` normalises the former to
+    // `None` so downstream code only sees meaningful identities.
+    let caller_pubkey: Option<String> = crate::middleware::auth::get_authenticated_user(&req)
+        .map(|u| u.pubkey)
+        .filter(|p| !p.is_empty());
 
-    
+    info!(
+        "Received request for graph data (CQRS Phase 1D), graph_type={:?}, caller_authenticated={}",
+        query.graph_type,
+        caller_pubkey.is_some()
+    );
+
+
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
     let node_map_handler = state.graph_query_handlers.get_node_map.clone();
     let physics_handler = state.graph_query_handlers.get_physics_state.clone();
@@ -155,10 +203,20 @@ pub async fn get_graph_data(
                 })
                 .collect();
 
-            // ADR-036: Filter nodes using canonical classify_node_population
+            // ADR-036: Filter nodes using canonical classify_node_population.
+            // ADR-028-ext: Caller-aware visibility filter (sovereign-mesh).
+            // Anonymous callers see only `visibility=public`; signed callers
+            // additionally see their own private nodes. Legacy rows without a
+            // `visibility` field are treated as public (backwards compatible).
+            let caller_ref = caller_pubkey.as_deref();
             let filtered_nodes: Vec<NodeWithPosition> = nodes_with_positions
                 .into_iter()
                 .filter(|node| {
+                    // Visibility gate first — cheapest reject; never leaks
+                    // private nodes regardless of graph_type.
+                    if !visibility_allows(&node.metadata, caller_ref) {
+                        return false;
+                    }
                     match query.graph_type.as_deref() {
                         Some("knowledge") => {
                             classify_node_population(node.node_type.as_deref()) == NodePopulation::Knowledge
@@ -171,7 +229,7 @@ pub async fn get_graph_data(
                             classify_node_population(node.node_type.as_deref()) == NodePopulation::Agent
                                 || node.metadata.contains_key("agentType")
                         }
-                        _ => true, // No filter, return all
+                        _ => true, // No type filter; return all surviving visibility
                     }
                 })
                 .collect();
@@ -600,15 +658,27 @@ pub async fn get_graph_positions(
 }
 
 // Configure routes using snake_case
-/// SECURITY: Graph mutation operations require authentication
+/// SECURITY: Graph mutation operations require authentication.
+///
+/// `/graph/data` is wrapped with `RequireAuth::optional()` so anonymous
+/// callers see only `visibility=public` nodes while signed callers also see
+/// their own `visibility=private` nodes. Other reads remain fully public
+/// (rate-limited) because they expose positions/notifications, not
+/// ownership-scoped content. Writes continue to require `authenticated()`.
 pub fn config(cfg: &mut web::ServiceConfig) {
     use crate::middleware::{RateLimit, RequireAuth};
 
     cfg.service(
         web::scope("/graph")
-            .wrap(RateLimit::per_minute(600))  // Rate limit: 600 requests/min (10/sec) for public reads
-            // Read operations - public with rate limiting
-            .route("/data", web::get().to(get_graph_data))
+            .wrap(RateLimit::per_minute(600))  // 600 req/min for public reads
+            // Ownership-aware read — optional auth: anonymous gets public-only,
+            // signed gets public + own-private. Handler-side filter enforced.
+            .service(
+                web::scope("")
+                    .wrap(RequireAuth::optional())
+                    .route("/data", web::get().to(get_graph_data))
+            )
+            // Other reads are not ownership-scoped; leave public.
             .route("/data/paginated", web::get().to(get_paginated_graph_data))
             .route("/positions", web::get().to(get_graph_positions))
             .route(
@@ -619,7 +689,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(
         web::scope("/graph")
             .wrap(RequireAuth::authenticated())  // Write operations require auth
-            .wrap(RateLimit::per_minute(60))     // Rate limit: 60 requests/min for writes
+            .wrap(RateLimit::per_minute(60))     // 60 req/min for writes
             .route("/update", web::post().to(update_graph))
             .route("/refresh", web::post().to(refresh_graph))
     );

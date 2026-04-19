@@ -316,8 +316,15 @@ async fn build_traversal(
 // ---------- Route Configuration ----------
 
 pub fn configure_ontology_agent_routes(cfg: &mut web::ServiceConfig) {
+    use crate::middleware::RequireAuth;
+
     cfg.service(
         web::scope("/ontology-agent")
+            // Every ontology-agent route performs reads/mutations against the
+            // knowledge graph with side effects (proposals, validations,
+            // traversals that touch private nodes). Require authentication
+            // across the scope — anonymous callers get 401.
+            .wrap(RequireAuth::authenticated())
             .route("/discover", web::post().to(discover))
             .route("/read", web::post().to(read_note))
             .route("/query", web::post().to(query))

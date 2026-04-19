@@ -108,53 +108,76 @@ pub async fn get_community_statistics(
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
+    // Analytics splits into two auth bands to re-enable the protections that
+    // the "auth temporarily disabled for testing" comment had removed:
+    //
+    //   - Reads (GETs): `RequireAuth::optional()` so anonymous callers see
+    //     public-scoped results while signed callers receive the full view.
+    //     Handlers that traverse ownership-scoped data must inspect
+    //     `get_authenticated_user` to tailor output.
+    //   - Writes (POSTs that mutate analytics config, kernel mode, anomaly
+    //     toggles, clustering runs, feature flags, etc.) +
+    //     idempotent-but-expensive POSTs (sssp/compute, pagerank/compute,
+    //     pathfinding/*): `RequireAuth::authenticated()`.
+    //   - WebSocket: `authenticated()` as before.
+    //
+    // actix-web dispatches to the first matching scope; reads scope is
+    // declared first with a disjoint route list to avoid overlap.
     cfg.service(
         web::scope("/analytics")
-            // .wrap(RequireAuth::authenticated()) // auth temporarily disabled for testing
+            .wrap(RequireAuth::optional())
             .route("/params", web::get().to(get_analytics_params))
-            .route("/params", web::post().to(update_analytics_params))
             .route("/constraints", web::get().to(get_constraints))
-            .route("/constraints", web::post().to(update_constraints))
-            .route("/focus", web::post().to(set_focus))
             .route("/stats", web::get().to(get_performance_stats))
-
-            .route("/kernel-mode", web::post().to(set_kernel_mode))
             .route("/gpu-metrics", web::get().to(get_gpu_metrics))
             .route("/gpu-status", web::get().to(get_gpu_status))
             .route("/gpu-features", web::get().to(get_gpu_features))
-
-            .route("/clustering/run", web::post().to(run_clustering))
             .route("/clustering/status", web::get().to(get_clustering_status))
-            .route("/clustering/focus", web::post().to(focus_cluster))
-            .route("/clustering/cancel", web::post().to(cancel_clustering))
-            .route("/clustering/dbscan", web::post().to(run_dbscan_clustering))
-
-            .route("/community/detect", web::post().to(run_community_detection))
             .route(
                 "/community/statistics",
                 web::get().to(get_community_statistics),
             )
-
-            .route("/anomaly/toggle", web::post().to(toggle_anomaly_detection))
             .route("/anomaly/current", web::get().to(get_current_anomalies))
             .route("/anomaly/config", web::get().to(get_anomaly_config))
-
             .route("/insights", web::get().to(get_ai_insights))
             .route("/insights/realtime", web::get().to(get_realtime_insights))
-
             .route("/sssp/params", web::get().to(get_sssp_params))
-            .route("/sssp/params", web::post().to(update_sssp_params))
-            .route("/sssp/compute", web::post().to(compute_sssp))
-            .route("/sssp/toggle", web::post().to(toggle_sssp))
             .route("/sssp/status", web::get().to(get_sssp_status))
-
-            .route(
-                "/stress-majorization/trigger",
-                web::post().to(trigger_stress_majorization),
-            )
             .route(
                 "/stress-majorization/stats",
                 web::get().to(get_stress_majorization_stats),
+            )
+            .route(
+                "/stress-majorization/config",
+                web::get().to(get_stress_majorization_config),
+            )
+            .route("/dashboard-status", web::get().to(get_dashboard_status))
+            .route("/health-check", web::get().to(get_health_check))
+            .route("/feature-flags", web::get().to(get_feature_flags))
+            .route(
+                "/pagerank/result",
+                web::get().to(pagerank_handlers::get_pagerank_result),
+            ),
+    )
+    .service(
+        web::scope("/analytics")
+            .wrap(RequireAuth::authenticated())
+            .route("/params", web::post().to(update_analytics_params))
+            .route("/constraints", web::post().to(update_constraints))
+            .route("/focus", web::post().to(set_focus))
+            .route("/kernel-mode", web::post().to(set_kernel_mode))
+            .route("/clustering/run", web::post().to(run_clustering))
+            .route("/clustering/focus", web::post().to(focus_cluster))
+            .route("/clustering/cancel", web::post().to(cancel_clustering))
+            .route("/clustering/dbscan", web::post().to(run_dbscan_clustering))
+            .route("/community/detect", web::post().to(run_community_detection))
+            .route("/anomaly/toggle", web::post().to(toggle_anomaly_detection))
+            .route("/sssp/params", web::post().to(update_sssp_params))
+            .route("/sssp/compute", web::post().to(compute_sssp))
+            .route("/sssp/toggle", web::post().to(toggle_sssp))
+            .route(
+                "/stress-majorization/trigger",
+                web::post().to(trigger_stress_majorization),
             )
             .route(
                 "/stress-majorization/reset-safety",
@@ -164,34 +187,27 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 "/stress-majorization/params",
                 web::post().to(update_stress_majorization_params),
             )
-            // P1-1: Stress Majorization Configuration Endpoints
             .route(
                 "/stress-majorization/configure",
                 web::post().to(configure_stress_majorization),
             )
-            .route(
-                "/stress-majorization/config",
-                web::get().to(get_stress_majorization_config),
-            )
-
-            .route("/dashboard-status", web::get().to(get_dashboard_status))
-            .route("/health-check", web::get().to(get_health_check))
-            .route("/feature-flags", web::get().to(get_feature_flags))
             .route("/feature-flags", web::post().to(update_feature_flags))
-
-            // PageRank centrality routes (inside /analytics scope)
-            .route("/pagerank/compute", web::post().to(pagerank_handlers::compute_pagerank))
-            .route("/pagerank/result", web::get().to(pagerank_handlers::get_pagerank_result))
-            .route("/pagerank/clear", web::post().to(pagerank_handlers::clear_pagerank_cache))
-
-            // Pathfinding routes (inside /analytics scope)
+            .route(
+                "/pagerank/compute",
+                web::post().to(pagerank_handlers::compute_pagerank),
+            )
+            .route(
+                "/pagerank/clear",
+                web::post().to(pagerank_handlers::clear_pagerank_cache),
+            )
             .route("/pathfinding/sssp", web::post().to(pathfinding::compute_sssp))
             .route("/pathfinding/apsp", web::post().to(pathfinding::compute_apsp))
-            .route("/pathfinding/connected-components", web::post().to(pathfinding::compute_connected_components))
-
+            .route(
+                "/pathfinding/connected-components",
+                web::post().to(pathfinding::compute_connected_components),
+            )
             .service(
                 web::resource("/ws")
-                    .wrap(RequireAuth::authenticated())
                     .route(web::get().to(websocket_integration::gpu_analytics_websocket)),
             ),
     );

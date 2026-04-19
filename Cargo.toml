@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/solid-pod-rs"]
+resolver = "2"
+
 [package]
 name = "webxr"
 version = "0.1.0"
