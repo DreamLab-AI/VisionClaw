@@ -133,7 +133,7 @@ async fn check(
     };
     let resolver = StorageAclResolver::new(storage);
     let doc: Option<AclDocument> = resolver.find_effective_acl(resource).await?;
-    let allowed = wac::evaluate_access(doc.as_ref(), Some(agent), resource, mode_enum);
+    let allowed = wac::evaluate_access(doc.as_ref(), Some(agent), resource, mode_enum, None);
     println!(
         "{decision}: agent={agent} resource={resource} mode={mode}",
         decision = if allowed { "ALLOWED" } else { "DENIED" }

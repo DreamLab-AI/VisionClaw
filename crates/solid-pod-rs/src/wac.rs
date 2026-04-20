@@ -14,6 +14,14 @@ use serde::{Deserialize, Serialize};
 use crate::error::PodError;
 use crate::storage::Storage;
 
+// F4 — `acl:origin` enforcement (WAC §4.3). Gated on `acl-origin`
+// feature until the wider jss-v04 surface lands. Module is still
+// compiled unconditionally so the shared types are testable, but the
+// evaluator only calls into it when the feature is active.
+pub mod origin;
+
+pub use origin::{check_origin, extract_origin_patterns, Origin, OriginDecision, OriginPattern};
+
 /// Access modes defined by WAC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AccessMode {
@@ -218,17 +226,25 @@ impl GroupMembership for StaticGroupMembership {
 }
 
 /// Evaluate whether access should be granted.
+///
+/// The `request_origin` parameter carries the RFC 6454 origin from the
+/// HTTP `Origin:` header; pass `None` for request paths that have no
+/// origin context (e.g. server-to-server calls or tests). When the
+/// `acl-origin` feature is enabled, any ACL that declares `acl:origin`
+/// triples gates access on the request origin per WAC §4.3.
 pub fn evaluate_access(
     acl_doc: Option<&AclDocument>,
     agent_uri: Option<&str>,
     resource_path: &str,
     required_mode: AccessMode,
+    request_origin: Option<&origin::Origin>,
 ) -> bool {
     evaluate_access_with_groups(
         acl_doc,
         agent_uri,
         resource_path,
         required_mode,
+        request_origin,
         &NoGroupMembership,
     )
 }
@@ -239,12 +255,18 @@ pub fn evaluate_access_with_groups(
     agent_uri: Option<&str>,
     resource_path: &str,
     required_mode: AccessMode,
+    request_origin: Option<&origin::Origin>,
     groups: &dyn GroupMembership,
 ) -> bool {
-    let graph = match acl_doc.and_then(|d| d.graph.as_ref()) {
+    let doc = match acl_doc {
+        Some(d) => d,
+        None => return false,
+    };
+    let graph = match doc.graph.as_ref() {
         Some(g) => g,
         None => return false,
     };
+    let mut base_grant = false;
     for auth in graph {
         let granted = get_modes(auth);
         if !granted.contains(&required_mode) {
@@ -255,16 +277,65 @@ pub fn evaluate_access_with_groups(
         }
         for target in get_ids(&auth.access_to) {
             if path_matches(target, resource_path, false) {
-                return true;
+                base_grant = true;
+                break;
             }
         }
-        for target in get_ids(&auth.default) {
-            if path_matches(target, resource_path, true) {
-                return true;
+        if !base_grant {
+            for target in get_ids(&auth.default) {
+                if path_matches(target, resource_path, true) {
+                    base_grant = true;
+                    break;
+                }
+            }
+        }
+        if base_grant {
+            break;
+        }
+    }
+    if !base_grant {
+        return false;
+    }
+
+    // WAC §4.3 invariant 4: Control mode bypasses the origin gate so
+    // that an owner can always fix a mis-configured ACL from any
+    // origin.
+    if matches!(required_mode, AccessMode::Control) {
+        return true;
+    }
+
+    // F4 — origin gate. Only active behind the `acl-origin` feature;
+    // otherwise behave exactly as pre-F4 to preserve backward compat.
+    #[cfg(feature = "acl-origin")]
+    {
+        match origin::check_origin(doc, request_origin) {
+            origin::OriginDecision::NoPolicySet | origin::OriginDecision::Permitted => true,
+            origin::OriginDecision::RejectedMismatch | origin::OriginDecision::RejectedNoOrigin => {
+                metrics::ACL_ORIGIN_REJECTED_TOTAL
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                false
             }
         }
     }
-    false
+    #[cfg(not(feature = "acl-origin"))]
+    {
+        let _ = request_origin; // silence unused warning when feature off
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight metric counter for the acl-origin gate. When a proper
+// metrics facade lands (F1/F2) this module will be swapped for its
+// `Counter` type; for now we expose a minimal atomic compatible with
+// whichever facade arrives.
+// ---------------------------------------------------------------------------
+#[cfg(feature = "acl-origin")]
+pub mod metrics {
+    use std::sync::atomic::AtomicU64;
+
+    /// Total number of WAC evaluations denied by the `acl:origin` gate.
+    pub static ACL_ORIGIN_REJECTED_TOTAL: AtomicU64 = AtomicU64::new(0);
 }
 
 pub fn method_to_mode(method: &str) -> AccessMode {
@@ -293,10 +364,13 @@ pub fn wac_allow_header(
     let mut user_modes = Vec::new();
     let mut public_modes = Vec::new();
     for mode in ALL_MODES {
-        if evaluate_access(acl_doc, agent_uri, resource_path, *mode) {
+        // `WAC-Allow` advertises static capabilities; the origin gate
+        // is a per-request concern, so we evaluate without an origin
+        // and leave any origin-gated rules to reject at request time.
+        if evaluate_access(acl_doc, agent_uri, resource_path, *mode, None) {
             user_modes.push(mode_name(*mode));
         }
-        if evaluate_access(acl_doc, None, resource_path, *mode) {
+        if evaluate_access(acl_doc, None, resource_path, *mode, None) {
             public_modes.push(mode_name(*mode));
         }
     }
@@ -670,6 +744,7 @@ pub fn serialize_turtle_acl(doc: &AclDocument) -> String {
         emit_pairs(&mut out, "acl:agent", &auth.agent);
         emit_pairs(&mut out, "acl:agentClass", &auth.agent_class);
         emit_pairs(&mut out, "acl:agentGroup", &auth.agent_group);
+        emit_pairs(&mut out, "acl:origin", &auth.origin);
         emit_pairs(&mut out, "acl:accessTo", &auth.access_to);
         emit_pairs(&mut out, "acl:default", &auth.default);
         emit_pairs(&mut out, "acl:mode", &auth.mode);
@@ -711,13 +786,13 @@ mod tests {
 
     #[test]
     fn no_acl_denies_all() {
-        assert!(!evaluate_access(None, None, "/foo", AccessMode::Read));
+        assert!(!evaluate_access(None, None, "/foo", AccessMode::Read, None));
     }
 
     #[test]
     fn public_read_grants_anonymous() {
         let doc = make_doc(vec![public_read("/")]);
-        assert!(evaluate_access(Some(&doc), None, "/", AccessMode::Read));
+        assert!(evaluate_access(Some(&doc), None, "/", AccessMode::Read, None));
     }
 
     #[test]
@@ -740,7 +815,8 @@ mod tests {
             Some(&doc),
             Some("did:nostr:owner"),
             "/",
-            AccessMode::Append
+            AccessMode::Append,
+            None,
         ));
     }
 
@@ -770,8 +846,8 @@ mod tests {
                 acl:mode acl:Read .
         "#;
         let doc = parse_turtle_acl(ttl).unwrap();
-        assert!(evaluate_access(Some(&doc), None, "/", AccessMode::Read));
-        assert!(!evaluate_access(Some(&doc), None, "/", AccessMode::Write));
+        assert!(evaluate_access(Some(&doc), None, "/", AccessMode::Read, None));
+        assert!(!evaluate_access(Some(&doc), None, "/", AccessMode::Write, None));
     }
 
     #[test]
@@ -790,7 +866,8 @@ mod tests {
             Some(&doc),
             Some("did:nostr:owner"),
             "/foo",
-            AccessMode::Write
+            AccessMode::Write,
+            None,
         ));
     }
 

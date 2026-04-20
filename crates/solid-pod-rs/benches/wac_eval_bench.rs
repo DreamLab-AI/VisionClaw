@@ -84,7 +84,7 @@ fn bench_simple(c: &mut Criterion) {
                 black_box(Some("did:nostr:alice")),
                 black_box("/private/doc"),
                 black_box(AccessMode::Read),
-            );
+                None,);
             debug_assert!(allowed);
             black_box(allowed);
         });
@@ -102,7 +102,7 @@ fn bench_inherited(c: &mut Criterion) {
                 black_box(None),
                 black_box(deep_path),
                 black_box(AccessMode::Read),
-            );
+                None,);
             debug_assert!(allowed);
             black_box(allowed);
         });
@@ -129,8 +129,8 @@ fn bench_group(c: &mut Criterion) {
                 black_box(Some(agent)),
                 black_box("/team/roadmap"),
                 black_box(AccessMode::Read),
-                black_box(&membership),
-            );
+                None,
+                black_box(&membership),);
             debug_assert!(allowed);
             black_box(allowed);
         });

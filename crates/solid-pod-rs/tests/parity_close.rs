@@ -54,7 +54,7 @@ async fn turtle_acl_resolver_reads_ttl_sidecar() {
 
     let resolver = StorageAclResolver::new(pod.clone());
     let doc = resolver.find_effective_acl("/foo").await.unwrap().unwrap();
-    assert!(evaluate_access(Some(&doc), None, "/foo", AccessMode::Read));
+    assert!(evaluate_access(Some(&doc), None, "/foo", AccessMode::Read, None));
 }
 
 #[test]
@@ -73,13 +73,15 @@ fn turtle_acl_round_trip_preserves_modes() {
         Some("did:nostr:owner"),
         "/",
         AccessMode::Write
-    ));
+    ,
+        None));
     assert!(evaluate_access(
         Some(&doc),
         Some("did:nostr:owner"),
         "/",
         AccessMode::Control
-    ));
+    ,
+        None));
 
     // Re-serialise and re-parse: modes survive.
     let out = serialize_turtle_acl(&doc);
@@ -89,7 +91,8 @@ fn turtle_acl_round_trip_preserves_modes() {
         Some("did:nostr:owner"),
         "/",
         AccessMode::Write
-    ));
+    ,
+        None));
 }
 
 // ---------------------------------------------------------------------------

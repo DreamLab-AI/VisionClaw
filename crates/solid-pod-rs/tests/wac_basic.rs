@@ -24,6 +24,7 @@ fn specific_agent_read_grants_that_agent() {
         Some("did:nostr:alice"),
         "/private/note",
         AccessMode::Read,
+        None,
     ));
 }
 
@@ -43,6 +44,7 @@ fn agent_without_grant_is_denied() {
         Some("did:nostr:mallory"),
         "/private/note",
         AccessMode::Read,
+        None,
     ));
 }
 
@@ -62,6 +64,7 @@ fn public_foaf_agent_read_allows_anonymous() {
         None,
         "/public/index",
         AccessMode::Read,
+        None,
     ));
 }
 
@@ -81,12 +84,14 @@ fn container_default_inherits_to_children() {
         None,
         "/public/file.txt",
         AccessMode::Read,
+        None,
     ));
     assert!(evaluate_access(
         Some(&doc),
         None,
         "/public/nested/deep.txt",
         AccessMode::Read,
+        None,
     ));
 }
 
@@ -106,16 +111,24 @@ fn write_implies_append() {
         Some("did:nostr:owner"),
         "/inbox/",
         AccessMode::Append,
+        None,
     ));
 }
 
 #[test]
 fn no_acl_denies_by_default() {
-    assert!(!evaluate_access(None, None, "/whatever", AccessMode::Read));
+    assert!(!evaluate_access(
+        None,
+        None,
+        "/whatever",
+        AccessMode::Read,
+        None,
+    ));
     assert!(!evaluate_access(
         None,
         Some("did:nostr:anyone"),
         "/whatever",
         AccessMode::Write,
+        None,
     ));
 }

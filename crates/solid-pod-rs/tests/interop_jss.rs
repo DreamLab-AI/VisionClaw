@@ -129,10 +129,10 @@ async fn handle_request(
         .map(|(_, d)| d);
     let allowed = match required {
         AccessMode::Read => acl_doc
-            .map(|d| evaluate_access(Some(d), None, path, AccessMode::Read))
+            .map(|d| evaluate_access(Some(d), None, path, AccessMode::Read, None))
             .unwrap_or(true),
         AccessMode::Write | AccessMode::Append | AccessMode::Control => acl_doc
-            .map(|d| evaluate_access(Some(d), None, path, required))
+            .map(|d| evaluate_access(Some(d), None, path, required, None))
             .unwrap_or(true),
     };
     if !allowed {
@@ -731,7 +731,8 @@ async fn jss_turtle_acl_fallback_grants_public_read() {
         None,
         "/foo",
         AccessMode::Read
-    ));
+    ,
+        None));
 }
 
 #[tokio::test]
@@ -978,7 +979,8 @@ async fn jss_turtle_acl_control_grants_acl_rw() {
         Some("did:nostr:own"),
         "/",
         AccessMode::Control
-    ));
+    ,
+        None));
 }
 
 // Dev-session helper.
