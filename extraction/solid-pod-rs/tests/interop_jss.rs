@@ -1,4 +1,4 @@
-//! JSS (Community Solid Server) interop parity harness.
+//! JSS (JavaScriptSolidServer) interop parity harness.
 //!
 //! Thin harness that asserts solid-pod-rs response shapes match the
 //! reference JSS responses for common Solid Protocol requests.

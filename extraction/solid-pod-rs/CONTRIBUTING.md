@@ -60,7 +60,7 @@ Backends should:
 
 ## Parity checklist
 
-Any feature port from the Community Solid Server (JSS) reference
+Any feature port from the JavaScriptSolidServer (JSS) reference
 implementation must update `PARITY-CHECKLIST.md` to reflect its new
 status. The checklist is the contract between this crate and the
 wider Solid ecosystem — it is not a formality.
@@ -88,10 +88,24 @@ deferrals.
 
 ## Licence on contributions
 
-By contributing, you agree that your code is licensed under the dual
-MIT OR Apache-2.0 licence that covers this crate. This mirrors the
-Rust ecosystem norm and is compatible with the Community Solid
-Server's MIT licence.
+solid-pod-rs is licensed **AGPL-3.0-only**, inherited from the
+JavaScriptSolidServer (JSS) ecosystem covenant. By submitting a
+contribution (patch, PR, documentation change) you agree that your
+contribution is licensed under the same AGPL-3.0-only terms, and that
+you have the right to release it under those terms. There is no
+separate CLA; the licence on the file you edit is the licence on your
+change.
+
+Practical implications:
+
+- Contributions under a permissive licence (MIT / Apache-2.0 / BSD)
+  are accepted — permissive upstream code can be relicensed on inbound,
+  and the crate remains AGPL on outbound.
+- Contributions under an incompatible copyleft licence (e.g. GPL-2.0-
+  only, SSPL, BUSL) cannot be merged.
+- If your employer requires a DCO / CLA process, please sign your
+  commits with `git commit -s` and flag the PR so we can record the
+  trail.
 
 ## Security
 

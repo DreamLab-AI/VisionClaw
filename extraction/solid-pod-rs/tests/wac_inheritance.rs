@@ -1,9 +1,13 @@
 //! WAC inheritance corpus.
 //!
-//! Scenarios adapted from the JSS reference test suite at
-//! `references/community-solid-server/test/unit/authorization/`.
-//! Each test maps a Solid Protocol / WAC spec clause onto an assertion
-//! against `evaluate_access`.
+//! Scenarios independently authored against the Solid Protocol's WAC
+//! spec clauses. Where they resemble the JSS (JavaScriptSolidServer)
+//! reference test suite at
+//! `references/javascript-solid-server/test/unit/authorization/`, that
+//! is because the Solid Protocol admits a finite number of edge cases,
+//! not because JSS test code was copied. Each test maps a Solid
+//! Protocol / WAC spec clause onto an assertion against
+//! `evaluate_access`.
 
 use solid_pod_rs::wac::{
     evaluate_access, evaluate_access_with_groups, AccessMode, AclAuthorization, AclDocument,

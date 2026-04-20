@@ -1,83 +1,51 @@
-solid-pod-rs
-============
+NOTICE — solid-pod-rs
+=====================
 
-This crate is a Rust-native implementation of a Solid Pod server
-providing LDP-BASIC (Linked Data Platform), WAC (Web Access Control),
-NIP-98 HTTP authentication, Solid-OIDC (0.1), WebID profile
-documents, and Solid Notifications (0.2).
+Copyright (c) 2026 DreamLab-AI and contributors.
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, version 3.
+
+See LICENSE for full AGPL-3.0 terms.
 
 Provenance
 ----------
 
-solid-pod-rs was extracted from the VisionClaw repository:
+solid-pod-rs inherits its licence from the JavaScriptSolidServer (JSS)
+ecosystem covenant. JSS is an AGPL-3.0-only project maintained by the
+JavaScriptSolidServer organisation at
+https://github.com/JavaScriptSolidServer/JavaScriptSolidServer.
 
-    Source:    https://github.com/DreamLab-AI/VisionClaw
-    Path:      crates/solid-pod-rs/
-    Extracted: 2026-04-20
+The Rust implementation lineage:
 
-The extraction is a verbatim snapshot of the crate source; no
-VisionClaw-specific code lives in this repository. Extraction history
-is preserved in the `solid-pod-rs-history.bundle` distributed with the
-initial commit.
+1. JSS (JavaScript, AGPL-3.0-only) — reference implementation + ecosystem
+   covenant origin.
+2. community-forum-rs pod-worker (Rust, AGPL-3.0) — Cloudflare-Worker-
+   specific Rust implementation; original source of the LDP + WAC + NIP-98
+   modules that seeded this crate.
+3. VisionClaw crates/solid-pod-rs (Rust, AGPL-3.0) — extracted + extended
+   to a portable crate with FS/Memory/S3/R2 backends, Solid-OIDC, full
+   Solid Notifications, and 67/67 JSS parity.
+4. dreamlab-ai/solid-pod-rs (Rust, AGPL-3.0) — this standalone repo.
 
-Upstream lineage
-----------------
+We inherit AGPL-3.0 deliberately to preserve the network-service copyleft
+protection JSS established. Downstream consumers operating solid-pod-rs
+as a network-accessible service must make their corresponding source code
+available to their users per AGPL §13.
 
-1. The WAC evaluator, LDP container semantics, NIP-98 structural
-   checks, and pod provisioning flows originated in the `pod-worker`
-   crate of the community-forum-rs project (AGPL-3.0 in its original
-   context; re-licensed here under MIT OR Apache-2.0 by the copyright
-   holders for clean-room re-use):
+Solid Protocol
+--------------
 
-       https://github.com/DreamLab-AI/dreamlab-ai-website
-       Path: community-forum-rs/crates/pod-worker
+Implementation follows the W3C Solid Protocol 0.11. Protocol specifications
+themselves are not under any licence claim from this project.
 
-2. community-forum-rs's pod-worker was authored by the DreamLab AI
-   team as a Rust port of their earlier TypeScript `workers/pod-api/`.
+Attribution
+-----------
 
-3. The project architecture, LDP surface area, and WAC evaluation
-   model draw heavily on the JavaScript Community Solid Server ("JSS"
-   or "CSS") reference implementation by Melvin Pirera, Ruben Taelman,
-   Joachim Van Herwegen, and contributors, licensed MIT:
-
-       https://github.com/CommunitySolidServer/CommunitySolidServer
-
-   JSS served as the canonical parity reference during porting. We
-   gratefully acknowledge the CSS team's work in making the Solid
-   Protocol concretely buildable in JavaScript, which made this Rust
-   port tractable.
-
-4. The Solid Protocol specifications (LDP, WAC, Solid-OIDC, Solid
-   Notifications, WebID) are authored by the W3C Solid Community Group
-   and associated W3C working groups. solid-pod-rs tracks:
-
-       - Solid Protocol 0.11:    https://solidproject.org/TR/protocol
-       - WAC:                    https://solidproject.org/TR/wac
-       - Solid-OIDC 0.1:         https://solidproject.org/TR/oidc
-       - Solid Notifications 0.2: https://solidproject.org/TR/notifications-protocol
-       - W3C LDP:                https://www.w3.org/TR/ldp/
-
-5. NIP-98 (Nostr HTTP authentication) is specified by the Nostr
-   community:
-
-       https://github.com/nostr-protocol/nips/blob/master/98.md
-
-Third-party crates
-------------------
-
-solid-pod-rs depends on community Rust crates including tokio,
-serde, reqwest, spargebra, tokio-tungstenite, jsonwebtoken,
-openidconnect, aws-sdk-s3, and notify. Each retains its own licence;
-see `cargo-about` or `cargo-deny` output for full attribution.
-
-Licensing
----------
-
-Dual-licensed under MIT OR Apache-2.0, at your option. This choice
-matches Rust ecosystem convention and is compatible with the MIT
-licence of the Community Solid Server (JSS) reference.
-
-See `LICENSE-MIT` and `LICENSE-APACHE` for the full texts.
-
-Contributions unless explicitly marked otherwise are accepted under
-the same dual licence per the Apache 2.0 contribution clause.
+Our gratitude to:
+- the JavaScriptSolidServer contributors for the reference implementation
+  and the AGPL-3.0 covenant we inherit
+- the community-forum-rs contributors for the Rust-native pod-worker lineage
+- the W3C Solid Protocol editors for the specifications
+- the Rust ecosystem crates this work depends on (see Cargo.toml)

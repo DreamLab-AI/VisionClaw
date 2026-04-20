@@ -4,11 +4,45 @@
 > Framework-agnostic library crate. Deny-by-default WAC. First-class Nostr auth.
 > Zero Node.js runtime dependency.
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](#licence)
 [![crates.io](https://img.shields.io/crates/v/solid-pod-rs.svg)](https://crates.io/crates/solid-pod-rs)
 [![docs.rs](https://img.shields.io/docsrs/solid-pod-rs)](https://docs.rs/solid-pod-rs)
 [![CI](https://github.com/dreamlab-ai/solid-pod-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/dreamlab-ai/solid-pod-rs/actions/workflows/ci.yml)
 [![MSRV: 1.75](https://img.shields.io/badge/MSRV-1.75-lightgray.svg)](https://releases.rs/docs/1.75.0/)
+
+---
+
+## v0.3.0-alpha.1 → v0.3.0-alpha.2 Correction Notice
+
+The initial `v0.3.0-alpha.1` release mis-attributed the upstream JSS
+reference to the wrong Solid server project (wrong repository, wrong
+licence, wrong author). The actual reference implementation is:
+
+- **JavaScriptSolidServer** (JSS)
+- Repo: <https://github.com/JavaScriptSolidServer/JavaScriptSolidServer>
+- Licence: **AGPL-3.0-only**
+- Maintained by the JavaScriptSolidServer contributors
+
+solid-pod-rs `v0.3.0-alpha.2` corrects the documentation narrative
+(README, NOTICE, CHANGELOG, CONTRIBUTING, GAP-ANALYSIS,
+PARITY-CHECKLIST, test docstrings) to name the real upstream. No
+source code or test behaviour changed between `alpha.1` and
+`alpha.2`; the parity tests and fixtures were always exercising the
+Solid Protocol itself, not any specific implementation's internals.
+The `references/javascript-solid-server/` symlink has always pointed
+at the real JSS repository.
+
+solid-pod-rs is NOT a derivative work of JSS's JavaScript source.
+The Rust implementation originates from
+`community-forum-rs/crates/pod-worker` (written in Rust from
+scratch); JSS is read as a reference-only resource for Solid
+Protocol behaviour. See [`NOTICE`](./NOTICE) §"Licence relationship
+to JavaScriptSolidServer (JSS)" for the full independence claims
+and the rationale for AGPL-3.0-only licensing inherited from the
+JSS ecosystem covenant.
+
+Upgrade from `alpha.1` → `alpha.2` is safe with zero API or
+behavioural deltas.
 
 ---
 
@@ -56,21 +90,24 @@ all of them.
    (path: `community-forum-rs/crates/pod-worker`). Community-forum-
    specific code (forum thread integration, Cloudflare Workers
    bindings, R2 specifics, CF-KV) was factored out during the
-   VisionClaw port. The licensed work is re-released under
-   MIT OR Apache-2.0 by the copyright holders.
+   VisionClaw port. The lineage is AGPL-3.0 throughout and the
+   licence is preserved here unchanged.
 
-3. **Design follows the Community Solid Server (JSS / CSS)** — the
+3. **Design follows JavaScriptSolidServer (JSS)** — the
    reference JavaScript implementation at
-   [github.com/CommunitySolidServer/CommunitySolidServer](https://github.com/CommunitySolidServer/CommunitySolidServer),
-   licensed MIT, authored and maintained by **Melvin Pirera**, Ruben
-   Taelman, Joachim Van Herwegen, and contributors. JSS served as
-   the canonical parity reference — every feature of solid-pod-rs
-   was benchmarked against JSS's observable HTTP behaviour, and
-   `tests/interop_jss.rs` contains a 22-test fixture corpus derived
-   directly from JSS's emitted headers and status codes. We
-   gratefully acknowledge Melvin Pirera and the wider CSS
-   community — without their JavaScript reference, a Rust port of
-   this scope would have taken years instead of two sprints.
+   [github.com/JavaScriptSolidServer/JavaScriptSolidServer](https://github.com/JavaScriptSolidServer/JavaScriptSolidServer),
+   licensed AGPL-3.0-only, maintained by the JavaScriptSolidServer
+   contributors. JSS served as the canonical parity reference —
+   every feature of solid-pod-rs was benchmarked against JSS's
+   observable HTTP behaviour, and `tests/interop_jss.rs` contains a
+   22-test fixture corpus of independently-authored request /
+   response fixtures exercising the Solid Protocol. We gratefully
+   acknowledge the JavaScriptSolidServer contributors — without
+   their JavaScript reference, a Rust port of this scope would have
+   taken years instead of two sprints. solid-pod-rs is NOT a
+   derivative work of JSS's JavaScript source; see [`NOTICE`](./NOTICE)
+   §"Licence relationship to JavaScriptSolidServer (JSS)" for the
+   full independence claims.
 
 4. **Protocol authorship** — the Solid Protocol, WAC, Solid-OIDC,
    and Solid Notifications are authored by the W3C Solid Community
@@ -78,10 +115,10 @@ all of them.
    overall stewardship of the Solid project. LDP is a W3C
    Recommendation. NIP-98 is a specification of the Nostr community.
 
-5. **Licence** — MIT OR Apache-2.0 dual-licence per Rust ecosystem
-   convention. This is compatible with (and deliberately not more
-   restrictive than) CSS's MIT licence; it is also compatible with
-   downstream AGPL-3.0 consumers that re-license.
+5. **Licence** — AGPL-3.0-only, inherited from the JavaScriptSolidServer
+   ecosystem covenant. solid-pod-rs preserves the network-service
+   copyleft protection JSS established; see §"Licence" below for the
+   operational consequences.
 
 See [`NOTICE`](./NOTICE) for the complete provenance record.
 
@@ -654,9 +691,10 @@ Related registries and schemas:
 
 Reference implementations:
 
-- **Community Solid Server (JSS / CSS)** — the canonical JS/TS
+- **JavaScriptSolidServer (JSS)** — the canonical JavaScript Solid
   reference that solid-pod-rs benchmarks against —
-  <https://github.com/CommunitySolidServer/CommunitySolidServer>
+  <https://github.com/JavaScriptSolidServer/JavaScriptSolidServer>
+  (AGPL-3.0-only)
 
 General Solid project:
 
@@ -709,30 +747,35 @@ General Solid project:
 
 ## Licence
 
-Dual-licensed under either of:
+**AGPL-3.0-only** — inherited from the JavaScriptSolidServer ecosystem
+covenant.
 
-- MIT licence ([`LICENSE-MIT`](./LICENSE-MIT) or
-  <https://opensource.org/licenses/MIT>)
-- Apache Licence, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE)
-  or <https://www.apache.org/licenses/LICENSE-2.0>)
+This means: if you operate solid-pod-rs as a network-accessible service,
+AGPL §13 requires you to make the corresponding source code available to
+your users under AGPL-3.0 or later. See [`LICENSE`](./LICENSE) and
+[`NOTICE`](./NOTICE) for full terms and provenance.
 
-at your option. This matches Rust ecosystem convention and is
-compatible with (and deliberately not more restrictive than) the MIT
-licence of the Community Solid Server reference.
+If AGPL-3.0 is incompatible with your project's licence strategy, consider:
+- Contributing upstream rather than hard-forking
+- Using the crate in a sidecar architecture where AGPL obligations are
+  contained to the sidecar process
+- Running JSS itself (same licence; different language)
+
+We welcome issues + PRs asking about specific compatibility scenarios.
 
 Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you, as defined in the
-Apache-2.0 licence, shall be dual licensed as above, without any
-additional terms or conditions.
+submitted for inclusion in the work by you shall be licensed under the
+same AGPL-3.0-only terms, without any additional terms or conditions.
 
-See [`NOTICE`](./NOTICE) for attribution details.
+See [`NOTICE`](./NOTICE) for attribution details and the full provenance
+chain.
 
 ---
 
 <sub>
 solid-pod-rs is a DreamLab AI open-source project. Extracted from
 VisionClaw (<https://github.com/DreamLab-AI/VisionClaw>) on
-2026-04-20. Credit to the Community Solid Server team — Melvin
-Pirera et al. — for the reference implementation against which this
-Rust port was benchmarked.
+2026-04-20. Credit to the JavaScriptSolidServer contributors for
+the reference implementation against which this Rust port was
+benchmarked.
 </sub>

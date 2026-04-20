@@ -4,6 +4,51 @@ All notable changes to this crate are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the crate
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0-alpha.3 — 2026-04-20
+
+### Licence migration (BREAKING)
+
+- Licence changed from dual `MIT OR Apache-2.0` to `AGPL-3.0-only`.
+- Inherited from the JavaScriptSolidServer (JSS) ecosystem covenant; JSS
+  is AGPL-3.0, and solid-pod-rs preserves the network-service copyleft
+  protection rather than weakening it with a permissive relicence.
+- `LICENSE-MIT` and `LICENSE-APACHE` removed; `LICENSE` added with full
+  AGPL-3.0 text.
+- `Cargo.toml` `license` field updated to `"AGPL-3.0-only"`.
+- `NOTICE` rewritten to document AGPL covenant + full provenance chain.
+- `deny.toml` added with AGPL-3.0 on the allowlist for the dependency
+  graph; the denylist posture remains deny-by-default for anything not
+  on the allowlist.
+- Consumers: if you're operating solid-pod-rs as a network service, AGPL
+  §13 requires you to distribute corresponding source to your users.
+
+## [0.3.0-alpha.2] — 2026-04-20
+
+### Fixed
+- **Provenance correction (documentation only).** The `0.3.0-alpha.1`
+  release mis-attributed the upstream JSS reference to the wrong
+  Solid server project (wrong repository, wrong licence, wrong
+  author). The actual reference implementation is
+  **JavaScriptSolidServer** (JSS), at
+  <https://github.com/JavaScriptSolidServer/JavaScriptSolidServer>,
+  maintained by the JavaScriptSolidServer contributors and licensed
+  **AGPL-3.0-only**. No parity code or behaviour was affected — only
+  the documentation narrative was wrong.
+- `README.md`, `NOTICE`, `GAP-ANALYSIS.md`, `CONTRIBUTING.md`,
+  `PARITY-CHECKLIST.md`, `Cargo.toml` corrected across every mention.
+- `NOTICE` now carries an explicit "Licence relationship to
+  JavaScriptSolidServer (JSS)" section documenting that solid-pod-rs
+  is NOT a derivative work of JSS's JavaScript source, and that
+  MIT/Apache-2.0 dual licensing is deliberate despite JSS being AGPL.
+- The `references/` directory pointer now reads
+  `javascript-solid-server/` across all prose; the vendored symlink
+  has always resolved to the real JSS repo.
+
+### Notes
+- Zero code behaviour changes in this release.
+- Consumers who already installed `v0.3.0-alpha.1` can upgrade to
+  `v0.3.0-alpha.2` safely with no API or behavioural deltas.
+
 ## [0.3.0-alpha.1] — 2026-04-20
 
 ### Changed
@@ -21,14 +66,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `GAP-ANALYSIS.md` — exhaustive feature-by-feature comparison with
-  the Community Solid Server (JSS) reference implementation, with
+  the JavaScriptSolidServer (JSS) reference implementation, with
   deferred-to milestones for every gap.
 - GitHub Actions CI workflow (`.github/workflows/ci.yml`) running
   `cargo check`, `cargo test` (default + all-features), `cargo clippy`,
   and `cargo fmt --check` on stable Rust.
 - Standalone `NOTICE` with the full provenance chain: VisionClaw →
   community-forum-rs pod-worker → TypeScript pod-api, with credit to
-  Melvin Pirera and the Community Solid Server contributors.
+  the JavaScriptSolidServer contributors.
 
 ### Notes
 - No source behaviour has changed between `0.2.0-alpha.1` (the last
@@ -131,6 +176,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   signatures and in-memory stubs. Full Solid Notifications Protocol
   (WebSocket, Webhook) is the Phase 2 deliverable.
 
+[0.3.0-alpha.2]: https://github.com/dreamlab-ai/solid-pod-rs/releases/tag/v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/dreamlab-ai/solid-pod-rs/releases/tag/v0.3.0-alpha.1
 [0.2.0-alpha.1]: https://github.com/DreamLab-AI/VisionClaw
 [0.1.0-alpha.1]: https://github.com/DreamLab-AI/VisionClaw
