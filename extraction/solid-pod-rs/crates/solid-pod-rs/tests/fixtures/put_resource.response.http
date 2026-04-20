@@ -1,0 +1,6 @@
+HTTP/1.1 201 Created
+Location: /data/note.txt
+Link: <http://www.w3.org/ns/ldp#Resource>; rel="type"
+Link: </data/note.txt.acl>; rel="acl"
+Link: </data/note.txt.meta>; rel="describedby"
+

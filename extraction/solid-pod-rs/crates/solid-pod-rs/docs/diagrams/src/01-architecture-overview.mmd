@@ -1,0 +1,67 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','secondaryColor':'#0f172a','tertiaryColor':'#0f172a',
+  'background':'transparent','mainBkg':'#0f172a','clusterBkg':'#0f172a','clusterBorder':'#E8F4FC',
+  'edgeLabelBackground':'#0f172a','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+flowchart TB
+  %% ───── HTTP LAYER ─────
+  subgraph HTTP["HTTP Layer — actix-web handlers"]
+    direction LR
+    H_GET["GET /{path}"]:::svc
+    H_PUT["PUT /{path}"]:::svc
+    H_POST["POST /{container}/"]:::svc
+    H_PATCH["PATCH /{path}"]:::svc
+    H_DEL["DELETE /{path}"]:::svc
+    H_WS["GET /notifications&nbsp;(WS)"]:::svc
+  end
+
+  %% ───── AUTH GATE ─────
+  subgraph AUTH["Auth Gate (governance)"]
+    direction LR
+    NIP98["NIP-98 verify\n(auth::nip98)"]:::gov
+    OIDC["Solid-OIDC + DPoP\n(oidc)"]:::gov
+  end
+
+  %% ───── SERVICE LAYER ─────
+  subgraph SVC["Service Layer"]
+    direction LR
+    LDP["LdpService\n(ldp.rs)\ncontainers · RDF · PATCH"]:::svc
+    WAC["WacEvaluator\n(wac.rs)\nACL resolution"]:::gate
+    NOTIF["NotificationsManager\n(notifications.rs)\nWS + Webhook"]:::svc
+    WEBID["WebID profiles\n(webid.rs)"]:::svc
+  end
+
+  %% ───── STORAGE LAYER ─────
+  subgraph STORE["Storage Layer — trait Storage"]
+    direction LR
+    FS["FsBackend\n(storage::fs)"]:::store
+    MEM["MemoryBackend\n(storage::memory)"]:::store
+    S3["S3Backend\n(feature: s3-backend)"]:::storeOpt
+    R2["R2Backend\n(feature: r2-backend)\nS3-compatible"]:::storeOpt
+  end
+
+  %% ───── FLOW ─────
+  H_GET --> NIP98
+  H_PUT --> NIP98
+  H_POST --> NIP98
+  H_PATCH --> NIP98
+  H_DEL --> NIP98
+  H_WS --> NIP98
+  NIP98 -.alt.-> OIDC
+
+  AUTH --> WAC
+  WAC -->|allow| LDP
+  WAC -.deny.-> DENY[["403 Forbidden"]]:::deny
+
+  LDP --> WEBID
+  LDP --> STORE
+  LDP -->|StorageEvent| NOTIF
+  NOTIF --> H_WS
+
+  classDef gov fill:#8B5CF6,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC
+  classDef gate fill:#F59E0B,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef svc fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef store fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef storeOpt fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a,stroke-dasharray: 4 3
+  classDef deny fill:#EF4444,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC

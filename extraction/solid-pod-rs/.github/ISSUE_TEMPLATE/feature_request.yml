@@ -1,0 +1,57 @@
+name: Feature request
+description: Propose a new feature or enhancement
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in improving solid-pod-rs. Please describe the
+        problem you are trying to solve before suggesting a specific solution.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user-facing problem does this address? Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should solid-pod-rs behave? Include API sketches if useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you evaluated and why they were rejected.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - WAC (Web Access Control)
+        - LDP (Linked Data Platform)
+        - Notifications
+        - Solid-OIDC / auth
+        - Storage backend
+        - WebID
+        - Observability
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: breakage
+    attributes:
+      label: Compatibility
+      options:
+        - label: This is a breaking change
+        - label: I am willing to open a PR

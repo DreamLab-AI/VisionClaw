@@ -1,0 +1,12 @@
+[package]
+name = "solid-pod-rs-idp"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Solid-OIDC identity provider for solid-pod-rs — reserved for v0.5.0"
+repository = "https://github.com/dreamlab-ai/solid-pod-rs"
+readme = "README.md"
+publish = false
+
+[dependencies]
+# None yet — placeholder crate reserved for the v0.5.0 Solid-OIDC IDP surface.

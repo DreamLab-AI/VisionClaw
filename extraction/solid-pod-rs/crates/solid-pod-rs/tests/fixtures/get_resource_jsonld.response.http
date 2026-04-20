@@ -1,0 +1,7 @@
+HTTP/1.1 200 OK
+Content-Type: application/ld+json
+Link: <http://www.w3.org/ns/ldp#Resource>; rel="type"
+Link: </profile/card.acl>; rel="acl"
+Link: </profile/card.meta>; rel="describedby"
+
+{}

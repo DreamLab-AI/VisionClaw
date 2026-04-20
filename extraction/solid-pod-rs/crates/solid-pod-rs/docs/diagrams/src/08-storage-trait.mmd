@@ -1,0 +1,71 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'classText':'#E8F4FC','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+classDiagram
+  direction TB
+
+  class Storage {
+    <<trait>>
+    +async get(path) Result~(Bytes, ResourceMeta), PodError~
+    +async put(path, body, content_type) Result~ResourceMeta, PodError~
+    +async delete(path) Result~(), PodError~
+    +async list(container) Result~Vec~String~, PodError~
+    +async head(path) Result~ResourceMeta, PodError~
+    +async exists(path) Result~bool, PodError~
+    +async watch(path) Result~Receiver~StorageEvent~, PodError~
+  }
+
+  class ResourceMeta {
+    +path: String
+    +etag: String
+    +size: u64
+    +content_type: String
+    +mtime: SystemTime
+  }
+
+  class StorageEvent {
+    <<enum>>
+    Created(path)
+    Updated(path)
+    Deleted(path)
+  }
+
+  class FsBackend {
+    <<feature: fs-backend>>
+    -root: PathBuf
+    +new(root) Self
+  }
+
+  class MemoryBackend {
+    <<feature: memory-backend>>
+    -entries: RwLock~HashMap~
+    +new() Self
+  }
+
+  class S3Backend {
+    <<feature: s3-backend>>
+    -client: aws_sdk_s3::Client
+    -bucket: String
+    +new(client, bucket) Self
+  }
+
+  class R2Backend {
+    <<feature: r2-backend>>
+    -client: aws_sdk_s3::Client
+    -bucket: String
+    +new(cf_endpoint, bucket) Self
+  }
+
+  Storage <|.. FsBackend          : impl
+  Storage <|.. MemoryBackend      : impl
+  Storage <|.. S3Backend          : impl
+  Storage <|.. R2Backend          : impl
+
+  Storage ..> ResourceMeta        : returns
+  Storage ..> StorageEvent        : emits via watch()
+
+  note for R2Backend "Cloudflare R2 speaks the\nS3 protocol — reuses aws-sdk-s3\nwith a custom endpoint_url."
+  note for FsBackend "Uses notify(6) for watch();\natomic rename-on-put."
+  note for MemoryBackend "In-process RwLock store;\nintended for tests + examples."

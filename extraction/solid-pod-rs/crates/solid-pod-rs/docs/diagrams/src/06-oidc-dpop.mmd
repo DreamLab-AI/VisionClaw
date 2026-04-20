@@ -1,0 +1,53 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'actorBkg':'#0f172a','actorTextColor':'#E8F4FC','actorBorder':'#E8F4FC',
+  'signalColor':'#E8F4FC','signalTextColor':'#E8F4FC',
+  'labelBoxBkgColor':'#0f172a','labelBoxBorderColor':'#E8F4FC','labelTextColor':'#E8F4FC',
+  'noteBkgColor':'#0f172a','noteTextColor':'#E8F4FC','noteBorderColor':'#F59E0B',
+  'fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+sequenceDiagram
+  autonumber
+  actor App as Solid client app
+  participant IDP as Solid-OIDC IdP<br/>(openidconnect)
+  participant Reg as /register<br/>(RFC 7591)
+  participant Pod as solid-pod-rs<br/>Resource server
+
+  rect rgba(139,92,246,0.15)
+    Note over App,IDP: 1. Dynamic Client Registration (RFC 7591)
+    App->>Reg: POST /register { redirect_uris, token_endpoint_auth_method }
+    Reg-->>App: ClientRegistrationResponse { client_id }
+  end
+
+  rect rgba(0,212,255,0.15)
+    Note over App,IDP: 2. Discovery + authorisation
+    App->>IDP: GET /.well-known/openid-configuration
+    IDP-->>App: DiscoveryDocument { authorization_endpoint, token_endpoint, jwks_uri, dpop_signing_alg_values_supported }
+    App->>IDP: /authorize (code flow + PKCE)
+    IDP-->>App: authorization code
+  end
+
+  rect rgba(245,158,11,0.15)
+    Note over App,IDP: 3. DPoP-bound token request
+    App->>App: Generate JWK keypair → compute jkt = thumbprint(pk)
+    App->>App: Build DPoP proof JWT { htm:"POST", htu:"/token", jti, iat, jwk:pk }
+    App->>IDP: POST /token (code, DPoP: <proof>)
+    IDP->>IDP: Bind access_token.cnf.jkt = jkt
+    IDP-->>App: access_token (JWT, cnf.jkt=<thumbprint>)
+  end
+
+  rect rgba(16,185,129,0.15)
+    Note over App,Pod: 4. Resource request + DPoP verification
+    App->>App: Build NEW DPoP proof { htm:"PUT", htu:"<pod>/alice/notes/foo.ttl", ath:hash(access_token) }
+    App->>Pod: PUT /alice/notes/foo.ttl<br/>Authorization: DPoP <access_token><br/>DPoP: <proof>
+    Pod->>Pod: verify_dpop_proof(proof, method, url)
+    Pod->>Pod: verify_access_token(token) → claims.cnf.jkt
+    alt jkt mismatch
+      Pod-->>App: 401 invalid_dpop_proof
+    else ok
+      Pod->>Pod: extract_webid(claims) → WebID IRI
+      Pod->>Pod: WAC check against WebID
+      Pod-->>App: 201 Created
+    end
+  end

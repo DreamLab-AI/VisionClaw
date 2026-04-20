@@ -1,0 +1,36 @@
+# Clippy configuration for solid-pod-rs
+# Docs: https://rust-lang.github.io/rust-clippy/master/index.html
+
+# Minimum supported Rust version. Any lint that requires a newer feature will
+# be silenced below this version.
+msrv = "1.75"
+
+# Complexity thresholds — kept close to defaults but tightened where it makes
+# sense for a server-side library that favours small, auditable functions.
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 8
+type-complexity-threshold = 250
+too-many-lines-threshold = 150
+single-char-binding-names-threshold = 4
+trivial-copy-size-limit = 64
+
+# Prevent accidental panics in production paths. `expect`/`unwrap` should be
+# justified; tests and examples are exempted elsewhere.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+
+# Avoid shadowing that hides ownership transitions.
+allowed-scripts = ["Latin"]
+
+# Documentation hygiene — real-world acronyms we use that clippy flags as typos.
+doc-valid-idents = [
+    "WAC", "LDP", "WebID", "OIDC", "DPoP", "RDF", "OWL", "SPARQL", "Solid",
+    "Turtle", "N3", "JSON-LD", "WebSocket", "S3", "R2", "CORS", "HTTP",
+    "HTTPS", "URI", "URL", "URN", "UTF-8",
+]
+
+# Allow upper-case acronyms used as enum variants, struct names, etc.
+upper-case-acronyms-aggressive = false

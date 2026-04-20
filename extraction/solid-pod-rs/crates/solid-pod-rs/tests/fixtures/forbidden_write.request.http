@@ -1,0 +1,4 @@
+PUT /read-only/x.txt
+Content-Type: text/plain
+
+nope

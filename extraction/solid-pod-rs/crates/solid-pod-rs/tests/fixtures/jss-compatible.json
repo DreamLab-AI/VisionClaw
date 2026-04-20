@@ -1,0 +1,29 @@
+{
+  "host": "0.0.0.0",
+  "port": 3000,
+  "baseUrl": "https://pod.example.org",
+  "storage": {
+    "type": "fs",
+    "root": "./data"
+  },
+  "auth": {
+    "nip98_enabled": true,
+    "oidc_enabled": false,
+    "dpop_replay_ttl_seconds": 300
+  },
+  "notifications": {
+    "ws2023_enabled": true,
+    "webhook2023_enabled": false,
+    "legacy_solid_01_enabled": true
+  },
+  "security": {
+    "ssrf_allow_private": false,
+    "ssrf_allowlist": [],
+    "ssrf_denylist": [],
+    "dotfile_allowlist": [".acl", ".meta"],
+    "acl_origin_enabled": true
+  },
+  "multiuser": true,
+  "mashlib": false,
+  "idp": false
+}

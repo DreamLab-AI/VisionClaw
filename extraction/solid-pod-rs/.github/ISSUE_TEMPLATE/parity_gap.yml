@@ -1,0 +1,84 @@
+name: Parity gap (vs JSS)
+description: Report behaviour that differs from the reference Solid server implementation
+title: "[parity] "
+labels: ["parity", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when solid-pod-rs disagrees with a reference
+        implementation (typically JavaScriptSolidServer, JSS) on a
+        specification-level behaviour. See `PARITY-CHECKLIST.md` for the running
+        list of tracked items.
+
+  - type: input
+    id: spec
+    attributes:
+      label: Specification section
+      description: Which spec + section? (e.g. Solid Protocol §5.1, LDP §4.2)
+      placeholder: "Solid Protocol v0.10.0 §5.2 — WAC inheritance"
+    validations:
+      required: true
+
+  - type: input
+    id: reference
+    attributes:
+      label: Reference implementation
+      description: Which implementation + version was the behaviour compared against?
+      placeholder: "javascript-solid-server 0.0.86"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: The exact request(s) or operation(s) used to demonstrate the divergence.
+      render: http
+    validations:
+      required: true
+
+  - type: textarea
+    id: jss-behaviour
+    attributes:
+      label: JSS / reference behaviour
+      description: Response body, status codes, headers — include all observable effects.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: solid-pod-rs-behaviour
+    attributes:
+      label: solid-pod-rs behaviour
+      description: What solid-pod-rs actually does. Same level of detail as above.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Blocks interop with existing clients
+        - Spec non-conformance, workaround exists
+        - Edge case / clarification needed
+    validations:
+      required: true
+
+  - type: textarea
+    id: test-case
+    attributes:
+      label: Suggested regression test
+      description: If you have a pytest/cargo-test snippet or curl transcript, paste it here.
+      render: rust
+
+  - type: checkboxes
+    id: parity-checklist
+    attributes:
+      label: Parity checklist
+      options:
+        - label: I have searched `PARITY-CHECKLIST.md` and this gap is not already tracked
+        - label: I have confirmed the behaviour on the latest `main`
+        - label: I am willing to contribute a regression test

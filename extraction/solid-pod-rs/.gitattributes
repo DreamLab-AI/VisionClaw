@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.rs text eol=lf diff=rust
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.ttl text eol=lf
+*.jsonld text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+Cargo.lock text eol=lf

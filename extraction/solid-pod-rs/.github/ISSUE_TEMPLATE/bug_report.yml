@@ -1,0 +1,96 @@
+name: Bug report
+description: Report a defect in solid-pod-rs
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Before submitting, please
+        check the existing issues to avoid duplicates and make sure you are on
+        the latest release.
+
+  - type: input
+    id: version
+    attributes:
+      label: solid-pod-rs version
+      description: Output of `cargo tree -p solid-pod-rs --depth 0` or the git SHA.
+      placeholder: "0.2.0-alpha.1"
+    validations:
+      required: true
+
+  - type: input
+    id: rustc
+    attributes:
+      label: rustc version
+      description: Output of `rustc --version`.
+      placeholder: "rustc 1.81.0 (eeb90cda1 2024-09-04)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - WebAssembly / wasm32
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: features
+    attributes:
+      label: Active Cargo features
+      options:
+        - label: default (fs-backend + memory-backend)
+        - label: fs-backend
+        - label: memory-backend
+        - label: s3-backend
+        - label: oidc
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Short description of what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal reproducer. Include code, configuration, and the commands you ran.
+      placeholder: |
+        1. Create a pod with ...
+        2. Send request ...
+        3. Observe response ...
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include full error output, logs, and any stack traces.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that may help us diagnose the problem.

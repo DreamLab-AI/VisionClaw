@@ -1,0 +1,51 @@
+NOTICE — solid-pod-rs
+=====================
+
+Copyright (c) 2026 DreamLab-AI and contributors.
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, version 3.
+
+See LICENSE for full AGPL-3.0 terms.
+
+Provenance
+----------
+
+solid-pod-rs inherits its licence from the JavaScriptSolidServer (JSS)
+ecosystem covenant. JSS is an AGPL-3.0-only project maintained by the
+JavaScriptSolidServer organisation at
+https://github.com/JavaScriptSolidServer/JavaScriptSolidServer.
+
+The Rust implementation lineage:
+
+1. JSS (JavaScript, AGPL-3.0-only) — reference implementation + ecosystem
+   covenant origin.
+2. community-forum-rs pod-worker (Rust, AGPL-3.0) — Cloudflare-Worker-
+   specific Rust implementation; original source of the LDP + WAC + NIP-98
+   modules that seeded this crate.
+3. VisionClaw crates/solid-pod-rs (Rust, AGPL-3.0) — extracted + extended
+   to a portable crate with FS/Memory/S3/R2 backends, Solid-OIDC, full
+   Solid Notifications, and 67/67 JSS parity.
+4. dreamlab-ai/solid-pod-rs (Rust, AGPL-3.0) — this standalone repo.
+
+We inherit AGPL-3.0 deliberately to preserve the network-service copyleft
+protection JSS established. Downstream consumers operating solid-pod-rs
+as a network-accessible service must make their corresponding source code
+available to their users per AGPL §13.
+
+Solid Protocol
+--------------
+
+Implementation follows the W3C Solid Protocol 0.11. Protocol specifications
+themselves are not under any licence claim from this project.
+
+Attribution
+-----------
+
+Our gratitude to:
+- the JavaScriptSolidServer contributors for the reference implementation
+  and the AGPL-3.0 covenant we inherit
+- the community-forum-rs contributors for the Rust-native pod-worker lineage
+- the W3C Solid Protocol editors for the specifications
+- the Rust ecosystem crates this work depends on (see Cargo.toml)

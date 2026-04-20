@@ -1,0 +1,57 @@
+version: 2
+
+updates:
+  # Rust dependencies for the solid-pod-rs crate
+  - package-ecosystem: cargo
+    directory: "/crates/solid-pod-rs"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+      - solid-pod-rs
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      tokio-stack:
+        patterns:
+          - "tokio*"
+          - "futures*"
+          - "tokio-tungstenite"
+      serde-stack:
+        patterns:
+          - "serde"
+          - "serde_*"
+      tracing-stack:
+        patterns:
+          - "tracing"
+          - "tracing-*"
+      aws-sdk:
+        patterns:
+          - "aws-*"
+      openid-stack:
+        patterns:
+          - "openidconnect"
+          - "jsonwebtoken"
+
+  # GitHub Actions versions used by solid-pod-rs workflows
+  - package-ecosystem: github-actions
+    directory: "/crates/solid-pod-rs"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+      - solid-pod-rs
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope

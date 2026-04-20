@@ -1,0 +1,31 @@
+# solid-pod-rs project formatting
+# Run: cargo fmt --all
+
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+newline_style = "Unix"
+
+# Imports
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# Comments and docs
+wrap_comments = true
+comment_width = 100
+normalize_comments = true
+normalize_doc_attributes = true
+format_code_in_doc_comments = true
+
+# Strings and macros
+format_strings = false
+format_macro_matchers = true
+
+# Misc
+use_field_init_shorthand = true
+use_try_shorthand = true
+merge_derives = true
+condense_wildcard_suffixes = true

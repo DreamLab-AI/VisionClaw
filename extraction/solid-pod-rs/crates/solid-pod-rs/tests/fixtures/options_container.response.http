@@ -1,0 +1,5 @@
+HTTP/1.1 204 No Content
+Allow: GET, HEAD, POST, OPTIONS
+Accept-Post: text/turtle, application/ld+json, application/n-triples
+Link: <http://www.w3.org/ns/ldp#BasicContainer>; rel="type"
+

@@ -1,0 +1,44 @@
+[package]
+name = "solid-pod-rs-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Drop-in Solid Pod server binary. Wraps solid-pod-rs with actix-web and a JSS-compatible layered config loader."
+keywords = ["solid", "pod", "server", "nostr", "agpl"]
+categories = ["web-programming::http-server", "command-line-utilities"]
+readme = "README.md"
+
+[[bin]]
+name = "solid-pod-rs-server"
+path = "src/main.rs"
+
+[dependencies]
+# Library core — the binary's sole non-transport dependency.
+solid-pod-rs = { path = "../solid-pod-rs", features = ["fs-backend", "memory-backend", "config-loader", "legacy-notifications"] }
+
+# HTTP transport.
+actix-web = "4"
+
+# Async runtime.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync"] }
+
+# CLI parsing — clap derive.
+clap = { version = "4", features = ["derive", "env"] }
+
+# Request/response helpers.
+bytes = "1"
+
+# Tracing / logging.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error wiring.
+anyhow = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

@@ -1,0 +1,46 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'actorBkg':'#0f172a','actorTextColor':'#E8F4FC','actorBorder':'#E8F4FC',
+  'signalColor':'#E8F4FC','signalTextColor':'#E8F4FC',
+  'labelBoxBkgColor':'#0f172a','labelBoxBorderColor':'#E8F4FC','labelTextColor':'#E8F4FC',
+  'noteBkgColor':'#0f172a','noteTextColor':'#E8F4FC','noteBorderColor':'#F59E0B',
+  'sequenceNumberColor':'#0f172a',
+  'fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+sequenceDiagram
+  autonumber
+  actor C as Client
+  participant A as actix handler<br/>(PUT /{path})
+  participant N as NIP-98 verify<br/>(auth::nip98)
+  participant W as WacEvaluator<br/>(wac.rs)
+  participant L as LdpService<br/>(ldp.rs)
+  participant S as Storage backend<br/>(trait Storage)
+  participant M as Server-managed<br/>triples
+
+  C->>A: PUT /alice/notes/foo.ttl<br/>Authorization: Nostr <b64>
+  A->>N: verify(header, method, url, body_hash)
+  alt auth fails
+    N-->>A: PodError::Unauthorized
+    A-->>C: 401 Unauthorized
+  else auth ok
+    N-->>A: Nip98Verified { pubkey, webid }
+    A->>W: evaluate_access(path, mode=Write, webid)
+    W->>S: head(path.acl)  /* ACL lookup */
+    S-->>W: AclDocument | NotFound
+    alt denied
+      W-->>A: AccessMode::None
+      A-->>C: 403 Forbidden
+    else allowed
+      W-->>A: AccessMode::Write
+      A->>L: put(path, body, content_type)
+      L->>S: put(path, bytes, mime)
+      S-->>L: ResourceMeta { etag, size, mtime }
+      L->>M: add dc:modified, stat:size
+      M-->>L: extended meta
+      L-->>A: ok(meta)
+      A-->>C: 201 Created<br/>ETag, Link: rel=type
+    end
+  end
+
+  Note over A,S: Any storage IO error → PodError → 5xx<br/>Any RDF parse error → 400 Bad Request

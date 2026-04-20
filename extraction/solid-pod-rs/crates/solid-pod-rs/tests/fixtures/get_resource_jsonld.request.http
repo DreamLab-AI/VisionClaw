@@ -1,0 +1,3 @@
+GET /profile/card
+Accept: application/ld+json
+

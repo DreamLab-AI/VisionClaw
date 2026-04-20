@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+Content-Type: text/turtle
+Link: <http://www.w3.org/ns/ldp#BasicContainer>; rel="type"
+Link: <http://www.w3.org/ns/ldp#Container>; rel="type"
+Link: <http://www.w3.org/ns/ldp#Resource>; rel="type"
+Link: </container/.acl>; rel="acl"
+Link: </container/.meta>; rel="describedby"
+Accept-Post: text/turtle, application/ld+json, application/n-triples
+
+ldp:BasicContainer

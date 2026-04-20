@@ -1,0 +1,112 @@
+# cargo-deny configuration for solid-pod-rs
+#
+# Licence: solid-pod-rs is AGPL-3.0-only, inherited from the JSS ecosystem
+# covenant. The allowlist below permits AGPL-3.0 (the crate itself) plus the
+# standard Rust-ecosystem permissive licences its dependencies use. Other
+# restrictive / commercial licences remain denied via the "deny-by-default"
+# posture: anything not on the allowlist fails the licence check.
+#
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Check all targets we support, including wasm32 for the memory-backend feature.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "wasm32-unknown-unknown" },
+]
+all-features = true
+
+[output]
+feature-depth = 1
+
+# -----------------------------------------------------------------------------
+# Advisories (RustSec database)
+# -----------------------------------------------------------------------------
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Deny all advisories by default. Any ignore must carry a rationale as a
+# comment above the id. Unmaintained crates are also denied unless explicitly
+# ignored.
+yanked = "deny"
+ignore = [
+    # No active ignores. Add entries below with a dated rationale:
+    # "RUSTSEC-YYYY-NNNN", # <date> <reason> — reviewed by <handle>
+]
+
+# -----------------------------------------------------------------------------
+# Licences
+# -----------------------------------------------------------------------------
+[licenses]
+version = 2
+# Require every dependency to have a recognised licence.
+unused-allowed-license = "allow"
+confidence-threshold = 0.93
+allow = [
+    # solid-pod-rs itself
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    # Standard Rust-ecosystem permissive licences used by dependencies
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unlicense",
+    "CC0-1.0",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+]
+# AGPL is explicitly allowed (the crate inherits it from JSS). Other
+# copyleft / commercial / source-available licences (e.g. BUSL, SSPL,
+# Elastic-2.0, commercial-only) remain implicitly denied: anything not on
+# the allowlist fails the licence check.
+exceptions = []
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
+
+# -----------------------------------------------------------------------------
+# Bans
+# -----------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+# Specific crates we never want to pull in.
+deny = [
+    # openssl — we use rustls everywhere. If this shows up it's a dep regression.
+    { name = "openssl" },
+    { name = "openssl-sys" },
+    # native-tls — same reason; rustls-only policy.
+    { name = "native-tls" },
+]
+# Hyper ecosystem regularly ships multiple versions during migrations. Allow
+# duplicates we have audited.
+skip = []
+skip-tree = []
+
+# -----------------------------------------------------------------------------
+# Sources
+# -----------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []

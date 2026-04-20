@@ -1,0 +1,66 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'edgeLabelBackground':'#0f172a','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+flowchart TD
+  START(["Request: mode M on /alice/notes/foo.ttl"]):::entry
+  RACL{{"Does /alice/notes/foo.ttl.acl exist?"}}:::gate
+  RDOC["Load acl:accessTo → /alice/notes/foo.ttl\nMatch agent / agentClass / agentGroup\nagainst requested mode M"]:::gov
+  RDEC{{"acl authorises M?"}}:::gate
+
+  UP1["Walk up: container = /alice/notes/"]:::svc
+  C1ACL{{"Does /alice/notes/.acl exist?"}}:::gate
+  C1DEF["Load acl:default → applies to\ncontained resources (inheritance)\nMatch agent/class/group for M"]:::gov
+  C1DEC{{"acl:default authorises M?"}}:::gate
+
+  UP2["Walk up: container = /alice/"]:::svc
+  C2ACL{{"Does /alice/.acl exist?"}}:::gate
+  C2DEF["Load acl:default → check M"]:::gov
+  C2DEC{{"authorises M?"}}:::gate
+
+  UP3["Walk up: container = /"]:::svc
+  C3ACL{{"Does /.acl exist?"}}:::gate
+  C3DEF["Root acl:default → check M"]:::gov
+  C3DEC{{"authorises M?"}}:::gate
+
+  ALLOW(["Allow M\n→ forward to LdpService"]):::allow
+  DENY(["Deny → 403 Forbidden\n(or 401 if no auth)"]):::deny
+
+  START --> RACL
+  RACL -- yes --> RDOC --> RDEC
+  RACL -- no --> UP1
+  RDEC -- yes --> ALLOW
+  RDEC -- no --> UP1
+
+  UP1 --> C1ACL
+  C1ACL -- yes --> C1DEF --> C1DEC
+  C1ACL -- no --> UP2
+  C1DEC -- yes --> ALLOW
+  C1DEC -- no --> UP2
+
+  UP2 --> C2ACL
+  C2ACL -- yes --> C2DEF --> C2DEC
+  C2ACL -- no --> UP3
+  C2DEC -- yes --> ALLOW
+  C2DEC -- no --> UP3
+
+  UP3 --> C3ACL
+  C3ACL -- yes --> C3DEF --> C3DEC
+  C3ACL -- no --> DENY
+  C3DEC -- yes --> ALLOW
+  C3DEC -- no --> DENY
+
+  %% Legend
+  subgraph LEG["Legend"]
+    direction LR
+    L1["acl:accessTo\n= authorises THIS resource"]:::gov
+    L2["acl:default\n= inherits to CHILDREN\nof the container"]:::svc
+  end
+
+  classDef entry fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef gate fill:#F59E0B,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef gov fill:#8B5CF6,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC
+  classDef svc fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef allow fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef deny fill:#EF4444,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC

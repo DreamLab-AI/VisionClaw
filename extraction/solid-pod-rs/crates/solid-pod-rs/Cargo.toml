@@ -1,0 +1,162 @@
+[package]
+name = "solid-pod-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Rust-native Solid Pod server library — LDP, WAC, WebID, Solid-OIDC, Solid Notifications, NIP-98. Framework-agnostic."
+keywords = ["solid", "pod", "wac", "ldp", "webid"]
+categories = ["web-programming::http-server"]
+readme = "README.md"
+
+[lib]
+name = "solid_pod_rs"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["fs", "io-util", "sync", "macros", "rt", "time"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+bytes = "1"
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+notify = "6"
+
+# SPARQL-Update parsing for PATCH bodies
+spargebra = "0.3"
+
+# WebSocketChannel2023 (Solid Notifications 0.2)
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# HTTP client for WebhookChannel2023 delivery
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Optional backends
+aws-sdk-s3 = { version = "1", optional = true }
+
+# Solid-OIDC (0.1) — DPoP, dynamic client registration, discovery
+openidconnect = { version = "4", optional = true }
+jsonwebtoken = { version = "9", optional = true }
+
+# NIP-98 Schnorr verification (Phase 3 close)
+k256 = { version = "0.13", features = ["schnorr"], optional = true }
+
+# F5 (Sprint 4): DPoP jti replay cache — Solid-OIDC §5.2 / RFC 9449.
+# Gated behind `dpop-replay-cache` (which implies `oidc`).
+lru = { version = "0.12", optional = true }
+
+[features]
+default = ["fs-backend", "memory-backend"]
+fs-backend = []
+memory-backend = []
+s3-backend = ["dep:aws-sdk-s3"]
+oidc = ["dep:openidconnect", "dep:jsonwebtoken"]
+nip98-schnorr = ["dep:k256"]
+
+# ---------------------------------------------------------------------------
+# Sprint 4 / JSS parity umbrella (ADR-056 / PRD §F).
+# `jss-v04` is the parent flag. Sub-features enable one bounded
+# context each. Enabling `jss-v04` alone is a no-op.
+# ---------------------------------------------------------------------------
+jss-v04 = []
+
+# F1/F2: SSRF guard + dotfile allowlist (lightweight structs always
+# compiled; integration gated at call sites).
+security-primitives = ["jss-v04"]
+
+# F3: legacy `solid-0.1` WebSocket notifications adapter for SolidOS
+# data-browser compat.
+legacy-notifications = ["jss-v04"]
+
+# F4: WAC `acl:origin` enforcement per WAC §4.3. When off, the
+# evaluator ignores the Origin header for backward compat.
+acl-origin = ["jss-v04"]
+
+# F5: DPoP jti replay cache (Solid-OIDC §5.2 / RFC 9449).
+# Enables `oidc::replay` and pulls in `lru`.
+dpop-replay-cache = ["oidc", "jss-v04", "dep:lru"]
+
+# F6: JSS-compatible layered config loader. The `config` module is
+# always compiled (lightweight struct definitions); this feature flag
+# is the consumer-facing toggle for binary-layer wiring.
+config-loader = ["jss-v04"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"
+actix-web = "4"
+wiremock = "0.6"
+criterion = { version = "0.5", features = ["html_reports"] }
+axum = "0.7"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = { version = "0.8", features = ["small_rng"] }
+
+# ---------------------------------------------------------------------------
+# Examples — runnable via `cargo run --example <name>`.
+# ---------------------------------------------------------------------------
+
+[[example]]
+name = "embed_in_actix"
+path = "examples/embed_in_actix.rs"
+
+[[example]]
+name = "custom_storage"
+path = "examples/custom_storage.rs"
+
+[[example]]
+name = "nip98_client"
+path = "examples/nip98_client.rs"
+
+[[example]]
+name = "notifications_consumer"
+path = "examples/notifications_consumer.rs"
+
+[[example]]
+name = "webhook_receiver"
+path = "examples/webhook_receiver.rs"
+
+[[example]]
+name = "wac_admin"
+path = "examples/wac_admin.rs"
+
+[[example]]
+name = "oidc_client"
+path = "examples/oidc_client.rs"
+required-features = ["oidc"]
+
+# ---------------------------------------------------------------------------
+# Benchmarks — criterion-based, see `docs/benchmarks.md`.
+# ---------------------------------------------------------------------------
+
+[[bench]]
+name = "storage_backend_bench"
+harness = false
+
+[[bench]]
+name = "wac_eval_bench"
+harness = false
+
+[[bench]]
+name = "ldp_content_negotiation_bench"
+harness = false
+
+[[bench]]
+name = "nip98_verify_bench"
+harness = false
+
+[[bench]]
+name = "dpop_replay_bench"
+harness = false
+required-features = ["dpop-replay-cache"]

@@ -1,0 +1,53 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'edgeLabelBackground':'#0f172a','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+flowchart LR
+  %% ─── Source ───
+  subgraph SRC["Storage layer (trait Storage)"]
+    EV["StorageEvent::{Created | Updated | Deleted}(path)"]:::store
+  end
+
+  %% ─── Fan-out ───
+  BCAST{{"tokio::sync::broadcast\nChangeNotification channel"}}:::gate
+  EV --> |pump_from_storage| BCAST
+
+  %% ─── WebSocket side ───
+  subgraph WS["WebSocketChannelManager"]
+    direction TB
+    WSSUB1["Subscription #1\n(broadcast::Receiver)\ntopic = /alice/notes/"]:::svc
+    WSSUB2["Subscription #2\n(broadcast::Receiver)\ntopic = /alice/"]:::svc
+    WSHB["heartbeat: Duration\n(default 30 s)"]:::svc
+  end
+  BCAST -->|"fan-out recv()"| WSSUB1
+  BCAST -->|"fan-out recv()"| WSSUB2
+
+  %% ─── Webhook side ───
+  subgraph WH["WebhookChannelManager"]
+    direction TB
+    WHDISP["deliver_one / deliver_all\n(reqwest::Client)"]:::svc
+    WHRETRY["Retry ladder\n1s · 5s · 30s · give up"]:::gate
+  end
+  BCAST -->|pump_from_storage| WHDISP
+  WHDISP --> WHRETRY
+
+  %% ─── Consumers ───
+  WSC["WebSocket client\n(Authorization: DPoP / NIP-98)"]:::gov
+  WEBHOOK["Target URL\nPOST application/ld+json"]:::gov
+
+  WSSUB1 --> WSC
+  WSSUB2 --> WSC
+  WHRETRY -->|HTTP 2xx| WEBHOOK
+  WHRETRY -.4xx/5xx.-> WHDEAD[["Dead-letter / log"]]:::deny
+
+  %% ─── Payload envelope ───
+  ENV["AS 2.0 ChangeNotification envelope:\n{\n  '@context': ['https://www.w3.org/ns/activitystreams',\n               'https://www.w3.org/ns/solid/notification/v1'],\n  'id': 'urn:uuid:…',\n  'type': ['Update' | 'Create' | 'Delete'],\n  'object': { 'id': '&lt;pod-base&gt;/alice/notes/foo.ttl', 'type': 'Resource' },\n  'published': '2026-04-20T10:12:30Z'\n}"]:::gov
+
+  BCAST -.serialises as.-> ENV
+
+  classDef gov fill:#8B5CF6,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC
+  classDef gate fill:#F59E0B,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef svc fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef store fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef deny fill:#EF4444,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC

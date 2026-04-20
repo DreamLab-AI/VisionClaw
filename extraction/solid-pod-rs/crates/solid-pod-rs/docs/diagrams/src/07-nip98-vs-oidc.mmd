@@ -1,0 +1,55 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'edgeLabelBackground':'#0f172a','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+flowchart TB
+  REQ(["Incoming HTTP request\nGET/PUT/POST/PATCH/DELETE /{path}"]):::entry
+
+  PICK{{"Authorization scheme?"}}:::gate
+
+  %% ─── NIP-98 lane ───
+  subgraph NIP["NIP-98 (Nostr) lane — auth::nip98"]
+    direction TB
+    N1["Header: Authorization: Nostr &lt;b64(Nip98Event)&gt;"]:::gov
+    N2["Decode Nip98Event:\n  kind=27235\n  tags: [u, method, payload]\n  pubkey, sig"]:::svc
+    N3["Verify schnorr sig over serialised event"]:::gate
+    N4["Body-hash binding (B3):\n  sha256(body) == tag 'payload'"]:::gate
+    N5["Freshness window: |now − created_at| ≤ 60 s"]:::gate
+    N6["pubkey → WebID via webid::from_nostr_pubkey"]:::gov
+  end
+
+  %% ─── OIDC lane ───
+  subgraph OID["Solid-OIDC + DPoP lane — oidc.rs"]
+    direction TB
+    O1["Header: Authorization: DPoP &lt;access_token&gt;\n          DPoP: &lt;proof&gt;"]:::gov
+    O2["verify_dpop_proof(proof, htm, htu)"]:::gate
+    O3["verify_access_token(token) → SolidOidcClaims"]:::svc
+    O4["claims.cnf.jkt == thumbprint(proof.jwk)"]:::gate
+    O5["ath claim == SHA-256(access_token)"]:::gate
+    O6["extract_webid(claims) → WebID IRI"]:::gov
+  end
+
+  MERGE(["WebID established"]):::entry
+  WAC["WAC evaluation\n(wac::evaluate_access)"]:::gate
+  ALLOW(["→ LdpService"]):::allow
+  DENY(["401 / 403"]):::deny
+
+  REQ --> PICK
+  PICK -->|Nostr …| NIP
+  PICK -->|DPoP …| OID
+  PICK -.->|neither| DENY
+
+  N2 --> N3 --> N4 --> N5 --> N6 --> MERGE
+  O1 --> O2 --> O3 --> O4 --> O5 --> O6 --> MERGE
+
+  MERGE --> WAC
+  WAC -->|allow| ALLOW
+  WAC -.deny.-> DENY
+
+  classDef entry fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef gov fill:#8B5CF6,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC
+  classDef gate fill:#F59E0B,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef svc fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef allow fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef deny fill:#EF4444,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC

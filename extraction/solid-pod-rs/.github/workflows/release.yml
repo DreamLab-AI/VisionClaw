@@ -1,0 +1,188 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CRATE_DIR: crates/solid-pod-rs
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Verify the git tag matches the Cargo.toml version.
+  # Refuses to release if there is a mismatch.
+  # ---------------------------------------------------------------------------
+  verify-tag:
+    name: Verify tag == Cargo.toml version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      tag: ${{ steps.extract.outputs.tag }}
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract tag and Cargo.toml version
+        id: extract
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_NO_V="${TAG#v}"
+          CARGO_VERSION=$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -n1)
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${CARGO_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Tag (no v): ${TAG_NO_V}"
+          echo "Cargo.toml version: ${CARGO_VERSION}"
+          if [[ "${TAG_NO_V}" != "${CARGO_VERSION}" ]]; then
+            echo "::error::Tag ${TAG} does not match Cargo.toml version ${CARGO_VERSION}"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Dry-run publish to catch metadata/packaging errors before manual approval.
+  # ---------------------------------------------------------------------------
+  publish-dry-run:
+    name: cargo publish --dry-run
+    runs-on: ubuntu-latest
+    needs: verify-tag
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solid-pod-rs -> target
+          key: release-dryrun
+      - name: cargo publish --dry-run
+        run: cargo publish --dry-run --allow-dirty --all-features
+
+  # ---------------------------------------------------------------------------
+  # Generate a CHANGELOG excerpt for this tag from git log since the previous tag.
+  # ---------------------------------------------------------------------------
+  changelog:
+    name: Generate changelog excerpt
+    runs-on: ubuntu-latest
+    needs: verify-tag
+    outputs:
+      body-path: ${{ steps.write.outputs.path }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build changelog excerpt
+        id: write
+        shell: bash
+        run: |
+          TAG="${{ needs.verify-tag.outputs.tag }}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          BODY_FILE="${RUNNER_TEMP}/release-body.md"
+          {
+            echo "# solid-pod-rs ${TAG}"
+            echo
+            if [[ -n "${PREV_TAG}" ]]; then
+              echo "Changes since ${PREV_TAG}:"
+              echo
+              git log --no-merges --pretty='- %s (%h)' "${PREV_TAG}..${TAG}" -- crates/solid-pod-rs
+            else
+              echo "Initial tagged release."
+              echo
+              git log --no-merges --pretty='- %s (%h)' "${TAG}" -- crates/solid-pod-rs
+            fi
+            echo
+            echo "---"
+            echo
+            echo "Crate: \`solid-pod-rs\` — Solid Pod server (WAC + LDP + Notifications + Solid-OIDC)."
+            echo "Licence: AGPL-3.0-only (inherited from JSS ecosystem covenant)."
+          } > "${BODY_FILE}"
+          echo "path=${BODY_FILE}" >> "${GITHUB_OUTPUT}"
+          cat "${BODY_FILE}"
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-body
+          path: ${{ steps.write.outputs.path }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub release with the changelog body. Marked as draft=false,
+  # prerelease auto-detected from tag suffix (-alpha, -beta, -rc).
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: [verify-tag, publish-dry-run, changelog]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download changelog body
+        uses: actions/download-artifact@v4
+        with:
+          name: release-body
+          path: ./release-body
+
+      - name: Determine prerelease flag
+        id: pre
+        shell: bash
+        run: |
+          TAG="${{ needs.verify-tag.outputs.tag }}"
+          if [[ "${TAG}" =~ -(alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.verify-tag.outputs.tag }}
+          name: solid-pod-rs ${{ needs.verify-tag.outputs.tag }}
+          body_path: ./release-body/release-body.md
+          prerelease: ${{ steps.pre.outputs.prerelease }}
+          draft: false
+          fail_on_unmatched_files: false
+
+  # ---------------------------------------------------------------------------
+  # Manual approval gate for crates.io publish.
+  # The `crates-io-publish` environment must be configured in the repo with
+  # required reviewers. Without approval this job will not run.
+  # ---------------------------------------------------------------------------
+  cargo-publish:
+    name: cargo publish (crates.io)
+    runs-on: ubuntu-latest
+    needs: [verify-tag, publish-dry-run, github-release]
+    environment:
+      name: crates-io-publish
+      url: https://crates.io/crates/solid-pod-rs
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solid-pod-rs -> target
+          key: release-publish
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --all-features

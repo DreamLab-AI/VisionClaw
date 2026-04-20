@@ -1,0 +1,38 @@
+%%{init: {'theme':'base','themeVariables':{
+  'primaryColor':'#0f172a','primaryTextColor':'#E8F4FC','primaryBorderColor':'#E8F4FC',
+  'lineColor':'#E8F4FC','background':'transparent','mainBkg':'#0f172a',
+  'edgeLabelBackground':'#0f172a','fontFamily':'ui-sans-serif, system-ui, sans-serif'
+}}}%%
+flowchart LR
+  %% ─── Container resource ───
+  subgraph C["&lt;/alice/notes/&gt; — ldp:BasicContainer"]
+    direction TB
+    CTYPE["rdf:type\n  ldp:Resource\n  ldp:Container\n  ldp:BasicContainer"]:::gov
+    CSMT["Server-managed triples:\n  dc:modified  2026-04-20T10:12Z\n  stat:size    3\n  posix:mtime  1714...\n  &nbsp;&nbsp;(added by ldp::server_managed_triples)"]:::svc
+    CMEM["ldp:contains\n  &lt;foo.ttl&gt;\n  &lt;bar.ttl&gt;\n  &lt;pics/&gt;"]:::gate
+  end
+
+  %% ─── Members ───
+  M1["&lt;/alice/notes/foo.ttl&gt;\nldp:Resource, ldp:RDFSource\ncontent-type: text/turtle\netag: W/&quot;abc123&quot;\nsize: 842 B"]:::store
+  M2["&lt;/alice/notes/bar.ttl&gt;\nldp:Resource, ldp:RDFSource\netag: W/&quot;def456&quot;\nsize: 1.2 KiB"]:::store
+  M3["&lt;/alice/notes/pics/&gt;\nldp:BasicContainer\n(sub-container — trailing '/')"]:::storeAlt
+
+  %% ─── Containment edges ───
+  CMEM -- ldp:contains --> M1
+  CMEM -- ldp:contains --> M2
+  CMEM -- ldp:contains --> M3
+
+  %% ─── Link headers emitted on GET ───
+  LH["HTTP Link headers:\n  &lt;http://www.w3.org/ns/ldp#Resource&gt;; rel=type\n  &lt;http://www.w3.org/ns/ldp#Container&gt;; rel=type\n  &lt;http://www.w3.org/ns/ldp#BasicContainer&gt;; rel=type\n  &lt;foo.ttl.acl&gt;; rel=acl"]:::gov
+
+  C -. emitted on GET .-> LH
+
+  %% ─── Representation negotiation ───
+  REPR["ContainerRepresentation\n(serialised via ldp::negotiate_format)\n\n• text/turtle\n• application/ld+json\n• application/n-triples"]:::svc
+  C --> REPR
+
+  classDef gov fill:#8B5CF6,stroke:#E8F4FC,stroke-width:1px,color:#E8F4FC
+  classDef gate fill:#F59E0B,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef svc fill:#00D4FF,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef store fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a
+  classDef storeAlt fill:#10B981,stroke:#E8F4FC,stroke-width:1px,color:#0f172a,stroke-dasharray: 4 3

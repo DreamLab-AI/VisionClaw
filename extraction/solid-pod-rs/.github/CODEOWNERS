@@ -1,0 +1,20 @@
+# CODEOWNERS for solid-pod-rs
+#
+# Order matters: the last matching pattern takes precedence.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default — every file requires a maintainer review.
+*                               @dreamlab-ai/solid-pod-rs-maintainers
+
+# CI / release plumbing — require at least one maintainer sign-off.
+/.github/                       @dreamlab-ai/solid-pod-rs-maintainers
+/.github/workflows/             @dreamlab-ai/solid-pod-rs-maintainers
+/deny.toml                      @dreamlab-ai/solid-pod-rs-maintainers
+/rustfmt.toml                   @dreamlab-ai/solid-pod-rs-maintainers
+/clippy.toml                    @dreamlab-ai/solid-pod-rs-maintainers
+
+# Security-sensitive files.
+/SECURITY.md                    @dreamlab-ai/solid-pod-rs-maintainers
+/src/auth/                      @dreamlab-ai/solid-pod-rs-maintainers
+/src/oidc.rs                    @dreamlab-ai/solid-pod-rs-maintainers
+/src/wac.rs                     @dreamlab-ai/solid-pod-rs-maintainers
