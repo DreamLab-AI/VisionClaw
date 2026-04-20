@@ -6043,6 +6043,7 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "k256",
+ "lru 0.12.5",
  "notify",
  "openidconnect",
  "rand 0.8.5",

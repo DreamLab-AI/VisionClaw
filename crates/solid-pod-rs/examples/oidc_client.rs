@@ -96,6 +96,24 @@ mod run {
             "GET",
             now,
         )?;
+        // F5 (Sprint 4): when the `dpop-replay-cache` feature is
+        // enabled `verify_dpop_proof` is `async` and takes an optional
+        // replay cache. The example passes `None` to preserve the
+        // pre-F5 demo flow. When the feature is off, the sync form
+        // is used directly.
+        #[cfg(feature = "dpop-replay-cache")]
+        let verified_dpop = {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(verify_dpop_proof(
+                &dpop_proof,
+                "https://pod.example/resource",
+                "GET",
+                now,
+                60,
+                None,
+            ))?
+        };
+        #[cfg(not(feature = "dpop-replay-cache"))]
         let verified_dpop = verify_dpop_proof(
             &dpop_proof,
             "https://pod.example/resource",

@@ -30,6 +30,17 @@ use sha2::{Digest, Sha256};
 
 use crate::error::PodError;
 
+// F5 (Sprint 4): DPoP jti replay cache, gated behind
+// `dpop-replay-cache`. The module compiles to nothing without the
+// feature so pre-F5 consumers see zero surface change.
+#[cfg(feature = "dpop-replay-cache")]
+pub mod replay;
+
+#[cfg(feature = "dpop-replay-cache")]
+pub use replay::{
+    DpopReplayCache, ReplayError, ReplayRejectedCounter, DPOP_REPLAY_REJECTED_TOTAL,
+};
+
 // ---------------------------------------------------------------------------
 // Dynamic Client Registration (RFC 7591)
 // ---------------------------------------------------------------------------
@@ -275,7 +286,63 @@ pub struct DpopVerified {
 /// itself is HS256-signed by the caller's key for tests; real flows
 /// use ES256 or RS256 — the implementation dispatches on the `alg`
 /// header.
+///
+/// `replay_cache` is an optional jti-replay tracker (Solid-OIDC §5.2).
+/// Pass `None` to preserve pre-F5 behaviour (no replay detection).
+/// Pass `Some(&cache)` to reject a DPoP proof whose `jti` was already
+/// seen inside the cache's TTL window.
+///
+/// When the `dpop-replay-cache` feature is disabled, the cache type
+/// is unavailable and this function reduces to its historical form
+/// (callers pass `None::<&()>` is not required — they simply omit
+/// the argument via `None` of any `&DpopReplayCache`-shaped type they
+/// cannot construct).
+#[cfg(feature = "dpop-replay-cache")]
+pub async fn verify_dpop_proof(
+    proof: &str,
+    expected_htu: &str,
+    expected_htm: &str,
+    now: u64,
+    skew: u64,
+    replay_cache: Option<&DpopReplayCache>,
+) -> Result<DpopVerified, PodError> {
+    let verified = verify_dpop_proof_core(proof, expected_htu, expected_htm, now, skew)?;
+
+    // F5: replay check after signature/claim validation so we never
+    // admit a tampered proof into the cache.
+    if let Some(cache) = replay_cache {
+        if let Err(e) = cache.check_and_record(&verified.jti).await {
+            match e {
+                ReplayError::Replayed { .. } => {
+                    DPOP_REPLAY_REJECTED_TOTAL.increment();
+                    return Err(PodError::Nip98(format!(
+                        "DPoP jti replay detected: {e}"
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(verified)
+}
+
+/// Pre-F5 synchronous signature, retained when the replay-cache
+/// feature is disabled. Callers who were already on this path keep
+/// compiling without changes.
+#[cfg(not(feature = "dpop-replay-cache"))]
 pub fn verify_dpop_proof(
+    proof: &str,
+    expected_htu: &str,
+    expected_htm: &str,
+    now: u64,
+    skew: u64,
+) -> Result<DpopVerified, PodError> {
+    verify_dpop_proof_core(proof, expected_htu, expected_htm, now, skew)
+}
+
+/// Core DPoP proof verification — shared between the feature-gated
+/// async wrapper and the feature-off sync form above.
+fn verify_dpop_proof_core(
     proof: &str,
     expected_htu: &str,
     expected_htm: &str,

@@ -53,6 +53,10 @@ jsonwebtoken = { version = "9", optional = true }
 # NIP-98 Schnorr verification (Phase 3 close)
 k256 = { version = "0.13", features = ["schnorr"], optional = true }
 
+# F5 (Sprint 4): DPoP jti replay cache — Solid-OIDC §5.2 / RFC 9449.
+# Gated behind `dpop-replay-cache` (which implies `oidc`).
+lru = { version = "0.12", optional = true }
+
 [features]
 default = ["fs-backend", "memory-backend"]
 fs-backend = []
@@ -60,6 +64,23 @@ memory-backend = []
 s3-backend = ["dep:aws-sdk-s3"]
 oidc = ["dep:openidconnect", "dep:jsonwebtoken"]
 nip98-schnorr = ["dep:k256"]
+# F5: opt-in DPoP jti replay cache (Solid-OIDC §5.2).
+# Enabling this pulls in `lru` and activates the `oidc::replay` module.
+# Transitively enables `oidc` (for the DPoP primitives it extends) and
+# `jss-v04` (the parity umbrella this feature ships under).
+dpop-replay-cache = ["oidc", "jss-v04", "dep:lru"]
+
+# Sprint 4 — JSS parity umbrella. Individual parity features opt in via
+# this flag. Off by default until the full parity surface lands.
+jss-v04 = []
+# F4 — enable WAC `acl:origin` enforcement (docs/design/jss-parity/03).
+# Off by default; see also `tests/acl_origin_test.rs`.
+acl-origin = ["jss-v04"]
+# F6 — JSS-compatible layered config loader (docs/design/jss-parity/05).
+# The `config` module is always compiled; this feature is the
+# consumer-facing opt-in toggled by `solid-pod-rs-server` / `standalone`
+# to default onto the loader rather than hand-rolled setup.
+config-loader = ["jss-v04"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -127,3 +148,8 @@ harness = false
 [[bench]]
 name = "nip98_verify_bench"
 harness = false
+
+[[bench]]
+name = "dpop_replay_bench"
+harness = false
+required-features = ["dpop-replay-cache"]
