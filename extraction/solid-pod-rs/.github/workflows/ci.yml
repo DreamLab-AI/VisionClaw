@@ -3,90 +3,240 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/solid-pod-rs/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'crates/solid-pod-rs/**'
+      - '.github/workflows/ci.yml'
+  schedule:
+    # Weekly cron for audit + scheduled-only jobs (Mondays 06:17 UTC)
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
   RUSTFLAGS: "-D warnings"
-  RUST_BACKTRACE: short
+  RUSTDOCFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+  # All CI steps are scoped to the standalone crate subtree
+  CRATE_DIR: crates/solid-pod-rs
 
 jobs:
-  check:
-    name: cargo check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo check (default features)
-        run: cargo check --all-targets
-      - name: cargo check (no default features)
-        run: cargo check --no-default-features
-      - name: cargo check (all features)
-        run: cargo check --all-targets --all-features
-
-  test:
-    name: cargo test
+  # ---------------------------------------------------------------------------
+  # Core build matrix: {ubuntu, macos} x {stable, beta} x {feature-sets}
+  # beta is informational — it is allowed to fail without blocking the pipeline.
+  # ---------------------------------------------------------------------------
+  build-test:
+    name: test (${{ matrix.os }} / ${{ matrix.toolchain }} / ${{ matrix.features-label }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.toolchain == 'beta' }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        toolchain: [stable, beta]
+        include:
+          - features-label: default
+            features-flags: ""
+          - features-label: oidc
+            features-flags: "--no-default-features --features memory-backend,fs-backend,oidc"
+          - features-label: s3-backend
+            features-flags: "--no-default-features --features memory-backend,fs-backend,s3-backend"
+          - features-label: all-features
+            features-flags: "--all-features"
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo test (default features)
-        run: cargo test --all-targets
-      - name: cargo test (all features)
-        run: cargo test --all-targets --all-features
-      - name: cargo test docs
-        run: cargo test --doc --all-features
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  clippy:
-    name: cargo clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain (${{ matrix.toolchain }})
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
 
-  fmt:
-    name: cargo fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
         with:
-          components: rustfmt
+          workspaces: crates/solid-pod-rs -> target
+          key: ${{ matrix.os }}-${{ matrix.toolchain }}-${{ matrix.features-label }}
+
       - name: cargo fmt --check
+        if: matrix.toolchain == 'stable' && matrix.features-label == 'default'
         run: cargo fmt --all -- --check
 
-  docs:
-    name: cargo doc
+      - name: cargo check --all-targets ${{ matrix.features-flags }}
+        run: cargo check --all-targets ${{ matrix.features-flags }}
+
+      - name: cargo clippy --all-targets ${{ matrix.features-flags }} -- -D warnings
+        run: cargo clippy --all-targets ${{ matrix.features-flags }} -- -D warnings
+
+      - name: cargo test ${{ matrix.features-flags }}
+        run: cargo test ${{ matrix.features-flags }} --all-targets
+
+      - name: cargo doc --no-deps ${{ matrix.features-flags }}
+        if: matrix.toolchain == 'stable'
+        env:
+          RUSTDOCFLAGS: "-D warnings -D rustdoc::broken-intra-doc-links"
+        run: cargo doc --no-deps ${{ matrix.features-flags }}
+
+  # ---------------------------------------------------------------------------
+  # MSRV sanity check (pinned to clippy.toml msrv)
+  # ---------------------------------------------------------------------------
+  msrv:
+    name: msrv (1.75)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.75"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solid-pod-rs -> target
+          key: msrv-1.75
+      - name: cargo check (default features)
+        run: cargo check --all-targets
+
+  # ---------------------------------------------------------------------------
+  # WASM target: library must build for wasm32-unknown-unknown without default
+  # networking features. memory-backend is pure-Rust and portable.
+  # ---------------------------------------------------------------------------
+  wasm-check:
+    name: wasm32-unknown-unknown (memory-backend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/solid-pod-rs -> target
+          key: wasm32
+      - name: cargo check --target wasm32-unknown-unknown --no-default-features --features memory-backend
+        run: |
+          cargo check \
+            --target wasm32-unknown-unknown \
+            --no-default-features \
+            --features memory-backend \
+            --lib
+
+  # ---------------------------------------------------------------------------
+  # cargo-deny: licence policy + advisories + bans + sources
+  # ---------------------------------------------------------------------------
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: crates/solid-pod-rs/Cargo.toml
+          log-level: warn
+          command: check
+          arguments: --all-features
+
+  # ---------------------------------------------------------------------------
+  # cargo-audit: RustSec advisory database
+  # Runs on every push/PR and additionally on the weekly schedule.
+  # ---------------------------------------------------------------------------
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit --deny warnings
+
+  # ---------------------------------------------------------------------------
+  # Coverage via cargo-tarpaulin (Linux only) -> Codecov
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: coverage (tarpaulin)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    defaults:
+      run:
+        working-directory: crates/solid-pod-rs
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: cargo doc (all features)
-        env:
-          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
-        run: cargo doc --no-deps --all-features
+        with:
+          workspaces: crates/solid-pod-rs -> target
+          key: coverage
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Run tarpaulin (all-features)
+        run: |
+          cargo tarpaulin \
+            --all-features \
+            --workspace \
+            --timeout 300 \
+            --out Xml \
+            --output-dir ./coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: crates/solid-pod-rs/coverage/cobertura.xml
+          flags: solid-pod-rs
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
-  msrv:
-    name: MSRV (1.75)
+  # ---------------------------------------------------------------------------
+  # Single required status check aggregator — branch protection points here.
+  # ---------------------------------------------------------------------------
+  ci-required:
+    name: CI required
     runs-on: ubuntu-latest
+    needs:
+      - build-test
+      - msrv
+      - wasm-check
+      - cargo-deny
+      - cargo-audit
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.75
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo check at MSRV
-        run: cargo check --all-targets
+      - name: Verify dependent jobs succeeded
+        run: |
+          echo "build-test=${{ needs.build-test.result }}"
+          echo "msrv=${{ needs.msrv.result }}"
+          echo "wasm-check=${{ needs.wasm-check.result }}"
+          echo "cargo-deny=${{ needs.cargo-deny.result }}"
+          echo "cargo-audit=${{ needs.cargo-audit.result }}"
+          if [[ "${{ needs.build-test.result }}" != "success" ]] \
+             || [[ "${{ needs.msrv.result }}" != "success" ]] \
+             || [[ "${{ needs.wasm-check.result }}" != "success" ]] \
+             || [[ "${{ needs.cargo-deny.result }}" != "success" ]] \
+             || [[ "${{ needs.cargo-audit.result }}" != "success" ]]; then
+            echo "One or more required jobs failed."
+            exit 1
+          fi

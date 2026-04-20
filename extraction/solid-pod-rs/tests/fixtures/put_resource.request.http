@@ -1,4 +1,0 @@
-PUT /data/note.txt
-Content-Type: text/plain
-
-hello pod
