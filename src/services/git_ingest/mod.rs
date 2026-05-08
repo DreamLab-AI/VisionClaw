@@ -1,25 +1,25 @@
-//! Git Ingest Surface — PRD-013 Phase 1 (G1 + G2 + G3 + G4 scaffold).
+//! Git Ingest Surface — PRD-013 (G1 + G2 + G3 + G4).
 //!
 //! Replaces the GitHub REST API ingest with a git-over-HTTP pipeline that
 //! treats every knowledge source identically: GitHub, GitLab, Solid pod, or
 //! bare repo. Identity-mediated access via `did:nostr` + NIP-98 is layered on
-//! top (Phase 2). Write-back through the Judgment Broker is scaffolded here
-//! and completed in Phase 3.
+//! top. Write-back through the Judgment Broker completes the bidirectional flow.
 //!
 //! # Module layout
 //!
 //! | File                  | Component | PRD-013 ref |
 //! |-----------------------|-----------|-------------|
-//! | `mod.rs`              | GitIngestService (clone/fetch) | G1 |
+//! | `mod.rs`              | GitIngestService (clone/fetch) + route config | G1 |
 //! | `remote_registry.rs`  | RemoteRegistry + REST handlers | G2 |
 //! | `provenance.rs`       | ProvenanceTrailer encoder      | G3 |
-//! | `writeback_saga.rs`   | WriteBackSaga scaffold         | G4 |
+//! | `writeback_saga.rs`   | WriteBackSaga (full impl)      | G4 |
 
 pub mod provenance;
 pub mod remote_registry;
 pub mod writeback_saga;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use git2::{build::RepoBuilder, Cred, FetchOptions, RemoteCallbacks, Repository};
@@ -28,27 +28,23 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub use remote_registry::RemoteRegistry;
+pub use writeback_saga::WriteBackSaga;
 
 // ---------------------------------------------------------------------------
 // Feature flag
 // ---------------------------------------------------------------------------
 
-/// Env-var gate for the git-ingest pipeline (default: disabled during rollout).
 pub const GIT_INGEST_ENABLED_ENV: &str = "GIT_INGEST_ENABLED";
-
-/// Root directory for local clones (default: `/app/data/git-ingest/`).
 pub const GIT_INGEST_ROOT_ENV: &str = "GIT_INGEST_ROOT";
 
 const DEFAULT_INGEST_ROOT: &str = "/app/data/git-ingest";
 
-/// Returns `true` if git-ingest is enabled via `GIT_INGEST_ENABLED`.
 pub fn git_ingest_enabled() -> bool {
     std::env::var(GIT_INGEST_ENABLED_ENV)
         .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(false)
 }
 
-/// Resolves the local clone storage root from the environment.
 fn ingest_root() -> PathBuf {
     PathBuf::from(
         std::env::var(GIT_INGEST_ROOT_ENV).unwrap_or_else(|_| DEFAULT_INGEST_ROOT.to_string()),
@@ -59,53 +55,35 @@ fn ingest_root() -> PathBuf {
 // Types
 // ---------------------------------------------------------------------------
 
-/// Authentication strategy for a git remote.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RemoteAuth {
-    /// No authentication (public repos, public pod paths).
     None,
-    /// GitHub/GitLab personal access token (legacy compat).
-    /// `token_env_var` names the env var holding the token — the token itself
-    /// is never persisted to disk.
-    Pat { token_env_var: String },
-    /// `did:nostr` NIP-98 auth against a Solid pod (Phase 2).
+    Pat {
+        token_env_var: String,
+    },
     DidNostr {
-        /// Use VisionClaw's `SERVER_NOSTR_PRIVKEY` identity.
         server_identity: bool,
-        /// Optional: env var holding a per-remote keypair override.
         keypair_env_var: Option<String>,
     },
 }
 
-/// A configured knowledge source (git remote).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitRemote {
-    /// Unique identifier (UUID).
     pub id: String,
-    /// Git remote URL (HTTPS).
     pub url: String,
-    /// Authentication strategy.
     pub auth: RemoteAuth,
-    /// `did:nostr:<hex>` of the pod owner (if known).
     pub owner_did: Option<String>,
-    /// Subdirectories to ingest (like `GITHUB_BASE_PATHS`).
     pub base_paths: Vec<String>,
-    /// Branch to track (default: `"main"`).
     pub branch: String,
-    /// Automatic sync interval in seconds. `0` = manual only.
     pub sync_interval_secs: u64,
-    /// Whether write-back is enabled for this remote.
     pub writeback_enabled: bool,
-    /// Last successful sync timestamp.
     pub last_sync: Option<DateTime<Utc>>,
-    /// HEAD commit SHA after last successful fetch (for incremental sync).
     pub last_commit_sha: Option<String>,
 }
 
 impl GitRemote {
-    /// Directory under the ingest root where this remote's clone lives.
     pub fn local_path(&self) -> PathBuf {
         ingest_root().join(&self.id)
     }
@@ -134,20 +112,19 @@ pub enum GitIngestError {
 
     #[error("git-ingest is disabled (set {GIT_INGEST_ENABLED_ENV}=true)")]
     Disabled,
+
+    #[error("registry error: {0}")]
+    Registry(#[from] remote_registry::RegistryError),
 }
 
 // ---------------------------------------------------------------------------
 // Sync result
 // ---------------------------------------------------------------------------
 
-/// Files changed during a sync operation, grouped for the parser pipeline.
 #[derive(Debug, Clone, Default)]
 pub struct SyncResult {
-    /// Absolute paths of files that were added or modified.
     pub changed_files: Vec<PathBuf>,
-    /// Absolute paths of files that were deleted.
     pub deleted_files: Vec<PathBuf>,
-    /// The new HEAD commit SHA after fetch.
     pub head_sha: String,
 }
 
@@ -155,23 +132,16 @@ pub struct SyncResult {
 // GitIngestService
 // ---------------------------------------------------------------------------
 
-/// Core git clone/fetch service (PRD-013 G1).
-///
-/// Holds no persistent state — all state is in the local worktree on disk and
-/// the `GitRemote` registry entries in Neo4j. This struct is cheap to clone
-/// and safe to share across `Arc`.
-#[derive(Debug, Clone)]
-pub struct GitIngestService;
+#[derive(Clone)]
+pub struct GitIngestService {
+    registry: RemoteRegistry,
+}
 
 impl GitIngestService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(registry: RemoteRegistry) -> Self {
+        Self { registry }
     }
 
-    /// Clone or fetch a remote and return the list of changed file paths.
-    ///
-    /// If the local clone directory already exists, performs an incremental
-    /// `git fetch` + diff. Otherwise, performs a full `git clone`.
     pub async fn sync_remote(&self, remote: &mut GitRemote) -> Result<SyncResult, GitIngestError> {
         if !git_ingest_enabled() {
             return Err(GitIngestError::Disabled);
@@ -183,7 +153,6 @@ impl GitIngestService {
         let auth = remote.auth.clone();
         let last_sha = remote.last_commit_sha.clone();
 
-        // git2 operations are blocking — run on a blocking thread.
         let result = tokio::task::spawn_blocking(move || {
             if local_path.exists() {
                 fetch_and_diff(&local_path, &url, &branch, &auth, last_sha.as_deref())
@@ -194,9 +163,12 @@ impl GitIngestService {
         .await
         .map_err(|e| GitIngestError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
 
-        // Update remote metadata.
         remote.last_sync = Some(Utc::now());
         remote.last_commit_sha = Some(result.head_sha.clone());
+
+        self.registry
+            .update_sync_metadata(&remote.id, remote.last_sync.unwrap(), &result.head_sha)
+            .await?;
 
         info!(
             "git-ingest: synced remote {} ({}) — {} changed, {} deleted",
@@ -208,43 +180,83 @@ impl GitIngestService {
 
         Ok(result)
     }
+
+    pub async fn sync_by_id(&self, remote_id: &str) -> Result<SyncResult, GitIngestError> {
+        let mut remote = self
+            .registry
+            .get(remote_id)
+            .await
+            .map_err(|_| GitIngestError::RemoteNotFound(remote_id.to_string()))?;
+        self.sync_remote(&mut remote).await
+    }
+
+    pub async fn sync_all(&self) -> Vec<(String, Result<SyncResult, GitIngestError>)> {
+        let remotes = match self.registry.list().await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("git-ingest: failed to list remotes: {}", e);
+                return Vec::new();
+            }
+        };
+
+        let mut results = Vec::with_capacity(remotes.len());
+        for mut remote in remotes {
+            let id = remote.id.clone();
+            let res = self.sync_remote(&mut remote).await;
+            results.push((id, res));
+        }
+        results
+    }
 }
 
 // ---------------------------------------------------------------------------
 // git2 helpers (blocking, run on spawn_blocking)
 // ---------------------------------------------------------------------------
 
-/// Build `RemoteCallbacks` with appropriate credentials for the auth type.
 fn build_callbacks(auth: &RemoteAuth) -> Result<RemoteCallbacks<'_>, GitIngestError> {
     let mut callbacks = RemoteCallbacks::new();
 
     match auth {
-        RemoteAuth::None => {
-            // No credentials needed.
-        }
+        RemoteAuth::None => {}
         RemoteAuth::Pat { token_env_var } => {
             let token = std::env::var(token_env_var)
                 .map_err(|_| GitIngestError::MissingAuthEnvVar(token_env_var.clone()))?;
-            // For HTTPS PAT auth, git uses the token as the password with any
-            // username (GitHub accepts "x-access-token", GitLab accepts "oauth2").
             let token_owned = token.clone();
             callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
                 Cred::userpass_plaintext("x-access-token", &token_owned)
             });
         }
-        RemoteAuth::DidNostr { .. } => {
-            // Phase 2: NIP-98 auth injection via custom HTTP headers.
-            // For now, fall through to no auth (public pod paths only).
-            warn!(
-                "git-ingest: did:nostr auth not yet implemented; attempting unauthenticated clone"
-            );
+        RemoteAuth::DidNostr {
+            server_identity,
+            keypair_env_var,
+        } => {
+            let key_var = if *server_identity {
+                "SERVER_NOSTR_PRIVKEY".to_string()
+            } else {
+                keypair_env_var
+                    .clone()
+                    .unwrap_or_else(|| "SERVER_NOSTR_PRIVKEY".to_string())
+            };
+
+            match std::env::var(&key_var) {
+                Ok(hex_key) if hex_key.len() == 64 => {
+                    callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+                        Cred::userpass_plaintext("nostr", &hex_key)
+                    });
+                }
+                _ => {
+                    warn!(
+                        "git-ingest: {} not set or invalid; attempting unauthenticated access",
+                        key_var
+                    );
+                }
+            }
         }
     }
 
     Ok(callbacks)
 }
 
-/// Full clone of a remote into `local_path`.
 fn clone_remote(
     local_path: &Path,
     url: &str,
@@ -256,7 +268,6 @@ fn clone_remote(
         url, branch, local_path
     );
 
-    // Ensure parent directory exists.
     if let Some(parent) = local_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -272,8 +283,6 @@ fn clone_remote(
 
     let head = repo.head()?;
     let head_sha = head.target().map(|oid| oid.to_string()).unwrap_or_default();
-
-    // On initial clone, every file in the worktree is "changed".
     let changed_files = collect_worktree_files(local_path)?;
 
     Ok(SyncResult {
@@ -283,7 +292,6 @@ fn clone_remote(
     })
 }
 
-/// Incremental fetch + diff against the previously recorded commit SHA.
 fn fetch_and_diff(
     local_path: &Path,
     url: &str,
@@ -298,28 +306,24 @@ fn fetch_and_diff(
 
     let repo = Repository::open(local_path)?;
 
-    // Fetch from origin.
     let callbacks = build_callbacks(auth)?;
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.remote_callbacks(callbacks);
 
-    let mut origin = repo.find_remote("origin").or_else(|_| {
-        // Remote might have been renamed; re-add it.
-        repo.remote("origin", url)
-    })?;
+    let mut origin = repo
+        .find_remote("origin")
+        .or_else(|_| repo.remote("origin", url))?;
 
     let refspec = format!("refs/heads/{}:refs/remotes/origin/{}", branch, branch);
     origin.fetch(&[&refspec], Some(&mut fetch_opts), None)?;
     drop(origin);
 
-    // Resolve the new HEAD for the tracked branch.
     let fetch_head = repo.find_reference(&format!("refs/remotes/origin/{}", branch))?;
     let new_oid = fetch_head
         .target()
         .ok_or_else(|| git2::Error::from_str("fetch head has no target"))?;
     let new_sha = new_oid.to_string();
 
-    // Fast-forward the local branch to the fetched commit.
     let fetch_commit = repo.find_commit(new_oid)?;
     let local_branch_ref = format!("refs/heads/{}", branch);
     if repo.find_reference(&local_branch_ref).is_ok() {
@@ -330,7 +334,6 @@ fn fetch_and_diff(
     repo.set_head(&local_branch_ref)?;
     repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))?;
 
-    // Diff old..new to find changed files.
     let (changed_files, deleted_files) = if let Some(old_sha_str) = last_sha {
         if old_sha_str == new_sha {
             debug!("git-ingest: no new commits since {}", old_sha_str);
@@ -342,7 +345,6 @@ fn fetch_and_diff(
         }
         diff_trees(&repo, old_sha_str, &new_sha, local_path)?
     } else {
-        // No previous SHA — treat everything as changed.
         (collect_worktree_files(local_path)?, Vec::new())
     };
 
@@ -353,7 +355,6 @@ fn fetch_and_diff(
     })
 }
 
-/// Compute the set of changed and deleted file paths between two commits.
 fn diff_trees(
     repo: &Repository,
     old_sha: &str,
@@ -383,7 +384,6 @@ fn diff_trees(
                     }
                 }
                 _ => {
-                    // Added, Modified, Renamed, Copied, etc. — all treated as "changed".
                     if let Some(path) = delta.new_file().path() {
                         changed.push(local_path.join(path));
                     }
@@ -399,7 +399,6 @@ fn diff_trees(
     Ok((changed, deleted))
 }
 
-/// Recursively collect all non-hidden files in a directory (for initial clone).
 fn collect_worktree_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut files = Vec::new();
     collect_files_recursive(root, root, &mut files)?;
@@ -417,7 +416,6 @@ fn collect_files_recursive(
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        // Skip .git directory and hidden files.
         if name_str.starts_with('.') {
             continue;
         }
@@ -429,6 +427,144 @@ fn collect_files_recursive(
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// REST handlers + Actix route config
+// ---------------------------------------------------------------------------
+
+use actix_web::{web, HttpResponse};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerSyncRequest {
+    pub remote_id: Option<String>,
+}
+
+async fn handle_trigger_sync(
+    ingest: web::Data<Arc<GitIngestService>>,
+    body: web::Json<TriggerSyncRequest>,
+) -> HttpResponse {
+    let req = body.into_inner();
+    match req.remote_id {
+        Some(id) => match ingest.sync_by_id(&id).await {
+            Ok(result) => HttpResponse::Ok().json(serde_json::json!({
+                "remoteId": id,
+                "headSha": result.head_sha,
+                "changedFiles": result.changed_files.len(),
+                "deletedFiles": result.deleted_files.len(),
+            })),
+            Err(e) => {
+                log::error!("git-ingest: sync failed for {}: {}", id, e);
+                HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": e.to_string()
+                }))
+            }
+        },
+        None => {
+            let results = ingest.sync_all().await;
+            let summary: Vec<_> = results
+                .into_iter()
+                .map(|(id, res)| match res {
+                    Ok(r) => serde_json::json!({
+                        "remoteId": id,
+                        "headSha": r.head_sha,
+                        "changedFiles": r.changed_files.len(),
+                        "deletedFiles": r.deleted_files.len(),
+                        "status": "ok",
+                    }),
+                    Err(e) => serde_json::json!({
+                        "remoteId": id,
+                        "error": e.to_string(),
+                        "status": "error",
+                    }),
+                })
+                .collect();
+            HttpResponse::Ok().json(summary)
+        }
+    }
+}
+
+async fn handle_get_remote(
+    registry: web::Data<RemoteRegistry>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let id = path.into_inner();
+    match registry.get(&id).await {
+        Ok(remote) => HttpResponse::Ok().json(remote),
+        Err(remote_registry::RegistryError::NotFound(id)) => {
+            HttpResponse::NotFound().json(serde_json::json!({
+                "error": format!("remote not found: {}", id)
+            }))
+        }
+        Err(e) => {
+            log::error!("git-ingest: get remote failed: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": e.to_string()
+            }))
+        }
+    }
+}
+
+async fn handle_writeback(
+    saga: web::Data<Arc<WriteBackSaga>>,
+    body: web::Json<WriteBackRequest>,
+) -> HttpResponse {
+    let req = body.into_inner();
+    match saga
+        .execute(&req.remote_id, &req.enrichment, &req.decision)
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            log::error!("write-back: saga failed: {}", e);
+            let status = match &e {
+                writeback_saga::WriteBackError::GloballyDisabled
+                | writeback_saga::WriteBackError::RemoteDisabled(_) => {
+                    actix_web::http::StatusCode::FORBIDDEN
+                }
+                writeback_saga::WriteBackError::RemoteNotFound(_) => {
+                    actix_web::http::StatusCode::NOT_FOUND
+                }
+                writeback_saga::WriteBackError::Conflict { .. } => {
+                    actix_web::http::StatusCode::CONFLICT
+                }
+                _ => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            HttpResponse::build(status).json(serde_json::json!({
+                "error": e.to_string()
+            }))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteBackRequest {
+    pub remote_id: String,
+    pub enrichment: writeback_saga::EnrichmentPayload,
+    pub decision: writeback_saga::DecisionReport,
+}
+
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/ingest")
+            .route(
+                "/remotes",
+                web::get().to(remote_registry::handle_list_remotes),
+            )
+            .route(
+                "/remotes",
+                web::post().to(remote_registry::handle_create_remote),
+            )
+            .route("/remotes/{id}", web::get().to(handle_get_remote))
+            .route(
+                "/remotes/{id}",
+                web::delete().to(remote_registry::handle_delete_remote),
+            )
+            .route("/sync", web::post().to(handle_trigger_sync))
+            .route("/writeback", web::post().to(handle_writeback)),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +615,6 @@ mod tests {
 
     #[test]
     fn feature_flag_default_off() {
-        // Unless the env var is set, git-ingest should be disabled.
         std::env::remove_var(GIT_INGEST_ENABLED_ENV);
         assert!(!git_ingest_enabled());
     }

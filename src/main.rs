@@ -401,6 +401,31 @@ async fn main() -> std::io::Result<()> {
     let github_sync_service = Arc::new(github_sync_service_inner);
     info!("[main] GitHub Sync Service initialized");
 
+    // PRD-013: Git Ingest Surface — git-over-HTTP ingest pipeline.
+    let git_ingest_registry = webxr::services::git_ingest::RemoteRegistry::new(
+        app_state.neo4j_adapter.graph().clone(),
+    );
+    let git_ingest_service = Arc::new(
+        webxr::services::git_ingest::GitIngestService::new(git_ingest_registry.clone()),
+    );
+    let writeback_saga = Arc::new(
+        webxr::services::git_ingest::WriteBackSaga::new(
+            git_ingest_registry.clone(),
+            app_state.neo4j_adapter.graph().clone(),
+        ),
+    );
+    // Auto-register legacy GITHUB_* env vars as a PAT remote (idempotent).
+    if webxr::services::git_ingest::git_ingest_enabled() {
+        if let Err(e) = git_ingest_registry.legacy_github_shim().await {
+            warn!("[main] git-ingest legacy shim failed: {}", e);
+        }
+    }
+    let git_ingest_data = web::Data::new(git_ingest_service);
+    let git_ingest_registry_data = web::Data::new(git_ingest_registry);
+    let writeback_saga_data = web::Data::new(writeback_saga);
+    info!("[main] Git Ingest Service initialized (enabled={})",
+          webxr::services::git_ingest::git_ingest_enabled());
+
     // Initialize SchemaService for natural language query support
     info!("[main] Initializing Schema Service...");
     let schema_service = Arc::new(webxr::services::schema_service::SchemaService::new());
@@ -846,7 +871,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(briefing_service.clone())
             .app_data(bead_orchestrator.clone())
             .app_data(validation_service.clone())
-            .app_data(physics_service.clone());
+            .app_data(physics_service.clone())
+            .app_data(git_ingest_data.clone())
+            .app_data(git_ingest_registry_data.clone())
+            .app_data(writeback_saga_data.clone());
 
             // ADR-051: optional VisibilityTransitionService web::Data. When
             // absent (PodClient couldn't be constructed at startup), the
@@ -949,6 +977,9 @@ async fn main() -> std::io::Result<()> {
 
                     // Combined content + topology embedding discovery
                     .configure(webxr::handlers::configure_discovery_routes)
+
+                    // PRD-013: Git Ingest Surface — remote CRUD, sync trigger, write-back
+                    .configure(webxr::services::git_ingest::configure_routes)
 
                     // Server Nostr identity — third parties discover the
                     // server's signing pubkey via GET /api/server/identity.

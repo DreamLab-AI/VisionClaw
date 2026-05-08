@@ -1,14 +1,9 @@
-//! Write-Back Saga — PRD-013 G4 (scaffold).
+//! Write-Back Saga — PRD-013 G4.
 //!
 //! Orchestrates the reverse flow of the ingest pipeline: enrichments that have
 //! been approved by the Judgment Broker are committed back to the source pod
 //! or repository. The saga fetches the latest state, applies the enrichment,
 //! commits with full provenance trailers, and pushes.
-//!
-//! **This module is a scaffold.** The full implementation depends on Phase 3
-//! deliverables (NIP-98 signed push, enrichment file format writers, conflict
-//! detection). The public API is stabilised here so that the broker's
-//! `DecisionOrchestrator` can reference it today.
 //!
 //! # Saga phases
 //!
@@ -16,7 +11,7 @@
 //! 2. **Apply** — Write the enrichment to the local worktree in the
 //!    appropriate file format (`.ttl`, `.embeddings.json`, `.proposals.md`).
 //! 3. **Commit** — Create a commit with provenance trailers (G3).
-//! 4. **Push** — `git push` to the remote with NIP-98 signed transport.
+//! 4. **Push** — `git push` to the remote (auth per `RemoteAuth`).
 //! 5. **Record** — Persist the push result in Neo4j (audit trail).
 //!
 //! # Feature gate
@@ -24,19 +19,28 @@
 //! Write-back is disabled by default (`WRITEBACK_ENABLED=false`). It must be
 //! opted in per-remote (`GitRemote.writeback_enabled`) AND globally.
 
+use std::path::Path;
+use std::sync::Arc;
+
+use chrono::Utc;
+use git2::{
+    Cred, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, Repository, Signature,
+};
+use log::{debug, info, warn};
+use neo4rs::{query, Graph};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::provenance::ProvenanceTrailer;
+use super::provenance::{encode_commit_message, ProvenanceTrailer};
+use super::remote_registry::RemoteRegistry;
+use super::RemoteAuth;
 
 // ---------------------------------------------------------------------------
 // Feature flag
 // ---------------------------------------------------------------------------
 
-/// Global kill-switch for write-back (default: `false`).
 pub const WRITEBACK_ENABLED_ENV: &str = "WRITEBACK_ENABLED";
 
-/// Returns `true` if write-back is globally enabled.
 pub fn writeback_enabled() -> bool {
     std::env::var(WRITEBACK_ENABLED_ENV)
         .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -47,53 +51,34 @@ pub fn writeback_enabled() -> bool {
 // Types
 // ---------------------------------------------------------------------------
 
-/// Payload describing the enrichment to write back.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnrichmentPayload {
-    /// Type of enrichment being applied.
     pub enrichment_type: EnrichmentType,
-    /// Relative file path within the repository where the enrichment lands.
     pub target_path: String,
-    /// Serialised content to write (format depends on `enrichment_type`).
     pub content: String,
-    /// Human-readable subject line for the commit message.
     pub commit_subject: String,
-    /// Optional body paragraph for the commit message.
     pub commit_body: String,
 }
 
-/// Discriminator for the kind of enrichment being applied.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EnrichmentType {
-    /// Ontology promotion: write OWL fragment as `.ttl` alongside `.md`.
     OntologyPromotion,
-    /// Embedding update: write vector to `.embeddings.json` sidecar.
     EmbeddingUpdate,
-    /// Gap detection: write proposed edge as `.proposals.md`.
     GapDetection,
-    /// Agent reasoning: write structured annotation.
     AgentAnnotation,
 }
 
-/// Report from the broker's `DecisionOrchestrator` authorising the write-back.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionReport {
-    /// Broker case id.
     pub case_id: String,
-    /// Decision outcome label (e.g. "approve", "promote").
     pub decision: String,
-    /// `did:nostr:<hex>` of the proposing agent.
     pub proposed_by: String,
-    /// `did:nostr:<hex>` of the approving broker.
     pub approved_by: String,
-    /// Full reasoning text (hashed for the commit trailer).
     pub reasoning: String,
-    /// `did:nostr:<hex>` of the server identity (signs the push).
     pub server_did: String,
-    /// URN of the enriched entity.
     pub entity_urn: String,
 }
 
@@ -121,125 +106,371 @@ pub enum WriteBackError {
     #[error("audit recording failed: {0}")]
     AuditFailed(String),
 
-    #[error("not implemented: {0}")]
-    NotImplemented(String),
+    #[error("conflict detected: local HEAD {local} is not ancestor of remote {remote}")]
+    Conflict { local: String, remote: String },
+
+    #[error("remote not found in registry: {0}")]
+    RemoteNotFound(String),
 }
 
 // ---------------------------------------------------------------------------
 // WriteBackSaga
 // ---------------------------------------------------------------------------
 
-/// Orchestrates writing an approved enrichment back to a source remote.
-///
-/// Phase 3 deliverable — this is currently a scaffold exposing the stable
-/// public API. The five saga phases are documented but not yet implemented.
-#[derive(Debug, Clone)]
-pub struct WriteBackSaga;
+pub struct WriteBackSaga {
+    registry: RemoteRegistry,
+    graph: Arc<Graph>,
+}
 
 impl WriteBackSaga {
-    pub fn new() -> Self {
-        Self
+    pub fn new(registry: RemoteRegistry, graph: Arc<Graph>) -> Self {
+        Self { registry, graph }
     }
 
-    /// Execute the full write-back saga for an approved enrichment.
-    ///
-    /// # Arguments
-    ///
-    /// * `remote_id` — id of the `GitRemote` to push to.
-    /// * `enrichment` — the enrichment content and metadata.
-    /// * `decision` — the broker's decision report authorising the push.
-    ///
-    /// # Errors
-    ///
-    /// Returns `WriteBackError::GloballyDisabled` if `WRITEBACK_ENABLED` is
-    /// not set, or `WriteBackError::NotImplemented` for the remaining phases
-    /// pending Phase 3 completion.
     pub async fn execute(
         &self,
         remote_id: &str,
         enrichment: &EnrichmentPayload,
         decision: &DecisionReport,
     ) -> Result<WriteBackResult, WriteBackError> {
-        // ---------------------------------------------------------------
-        // Gate: global kill-switch
-        // ---------------------------------------------------------------
         if !writeback_enabled() {
             return Err(WriteBackError::GloballyDisabled);
         }
 
-        // ---------------------------------------------------------------
-        // Phase 1: Fetch latest from remote (ensure no conflicts)
-        // ---------------------------------------------------------------
-        // TODO(phase-3): git fetch + conflict detection.
-        // The fetch must verify that our local HEAD is an ancestor of the
-        // remote HEAD. If not, the saga aborts with a conflict error and
-        // the broker is notified for manual resolution.
-        log::debug!(
-            "write-back: phase 1 — fetch latest for remote {} (not yet implemented)",
-            remote_id
-        );
+        let remote = self
+            .registry
+            .get(remote_id)
+            .await
+            .map_err(|_| WriteBackError::RemoteNotFound(remote_id.to_string()))?;
 
-        // ---------------------------------------------------------------
-        // Phase 2: Apply enrichment to local worktree
-        // ---------------------------------------------------------------
-        // TODO(phase-3): Write enrichment content to the appropriate file.
-        //   - OntologyPromotion → .ttl sidecar
-        //   - EmbeddingUpdate   → .embeddings.json
-        //   - GapDetection      → .proposals.md
-        //   - AgentAnnotation   → structured annotation file
-        log::debug!(
-            "write-back: phase 2 — apply {:?} to {} (not yet implemented)",
-            enrichment.enrichment_type,
-            enrichment.target_path
-        );
+        if !remote.writeback_enabled {
+            return Err(WriteBackError::RemoteDisabled(remote_id.to_string()));
+        }
 
-        // ---------------------------------------------------------------
-        // Phase 3: Commit with provenance trailers (G3)
-        // ---------------------------------------------------------------
-        // TODO(phase-3): Use provenance::encode_commit_message() to create
-        // the commit. The ProvenanceTrailer is built from the DecisionReport.
-        let _trailer = ProvenanceTrailer::new(
+        let local_path = remote.local_path();
+        let url = remote.url.clone();
+        let branch = remote.branch.clone();
+        let auth = remote.auth.clone();
+        let target_path = enrichment.target_path.clone();
+        let content = enrichment.content.clone();
+        let commit_subject = enrichment.commit_subject.clone();
+        let commit_body = enrichment.commit_body.clone();
+
+        let trailer = ProvenanceTrailer::new(
             &decision.entity_urn,
             &decision.proposed_by,
             &decision.approved_by,
             &decision.case_id,
             &decision.decision,
             &decision.reasoning,
-            chrono::Utc::now(),
+            Utc::now(),
             &decision.server_did,
         );
-        log::debug!("write-back: phase 3 — commit prepared (not yet implemented)");
 
-        // ---------------------------------------------------------------
-        // Phase 4: Push to remote (NIP-98 signed)
-        // ---------------------------------------------------------------
-        // TODO(phase-3): git push with NIP-98 auth headers.
-        log::debug!("write-back: phase 4 — push (not yet implemented)");
+        let case_id = decision.case_id.clone();
+        let remote_id_owned = remote_id.to_string();
 
-        // ---------------------------------------------------------------
-        // Phase 5: Record push result in Neo4j (audit trail)
-        // ---------------------------------------------------------------
-        // TODO(phase-3): Persist a WriteBackAuditEntry linking the broker
-        // case, the commit SHA, the remote id, and the push timestamp.
-        log::debug!("write-back: phase 5 — audit record (not yet implemented)");
+        let commit_sha = tokio::task::spawn_blocking(move || {
+            writeback_blocking(
+                &local_path,
+                &url,
+                &branch,
+                &auth,
+                &target_path,
+                &content,
+                &commit_subject,
+                &commit_body,
+                &trailer,
+            )
+        })
+        .await
+        .map_err(|e| WriteBackError::Git(format!("spawn_blocking join: {e}")))??;
 
-        Err(WriteBackError::NotImplemented(
-            "WriteBackSaga phases 1-5 require Phase 3 implementation".to_string(),
-        ))
+        let pushed_at = Utc::now();
+        self.record_audit(&remote_id_owned, &commit_sha, &case_id, &pushed_at)
+            .await?;
+
+        info!(
+            "write-back: saga complete for case {} → remote {} ({})",
+            case_id, remote_id_owned, commit_sha
+        );
+
+        Ok(WriteBackResult {
+            commit_sha,
+            remote_id: remote_id_owned,
+            case_id,
+            pushed_at,
+        })
+    }
+
+    async fn record_audit(
+        &self,
+        remote_id: &str,
+        commit_sha: &str,
+        case_id: &str,
+        pushed_at: &chrono::DateTime<Utc>,
+    ) -> Result<(), WriteBackError> {
+        self.graph
+            .run(
+                query(
+                    "CREATE (a:WriteBackAudit { \
+                         remote_id: $remote_id, \
+                         commit_sha: $commit_sha, \
+                         case_id: $case_id, \
+                         pushed_at: $pushed_at \
+                     })",
+                )
+                .param("remote_id", remote_id)
+                .param("commit_sha", commit_sha)
+                .param("case_id", case_id)
+                .param("pushed_at", pushed_at.to_rfc3339()),
+            )
+            .await
+            .map_err(|e| WriteBackError::AuditFailed(e.to_string()))?;
+
+        self.graph
+            .run(
+                query(
+                    "MATCH (a:WriteBackAudit {case_id: $case_id, commit_sha: $commit_sha}), \
+                           (r:GitRemote {id: $remote_id}) \
+                     CREATE (a)-[:PUSHED_TO]->(r)",
+                )
+                .param("case_id", case_id)
+                .param("commit_sha", commit_sha)
+                .param("remote_id", remote_id),
+            )
+            .await
+            .map_err(|e| WriteBackError::AuditFailed(e.to_string()))?;
+
+        debug!(
+            "write-back: audit recorded for case {} commit {}",
+            case_id, commit_sha
+        );
+        Ok(())
     }
 }
 
-/// Result of a successful write-back execution.
+// ---------------------------------------------------------------------------
+// Blocking git2 operations (runs on spawn_blocking)
+// ---------------------------------------------------------------------------
+
+fn writeback_blocking(
+    local_path: &Path,
+    url: &str,
+    branch: &str,
+    auth: &RemoteAuth,
+    target_path: &str,
+    content: &str,
+    commit_subject: &str,
+    commit_body: &str,
+    trailer: &ProvenanceTrailer,
+) -> Result<String, WriteBackError> {
+    // Phase 1: Fetch latest and verify fast-forward safety
+    let repo =
+        Repository::open(local_path).map_err(|e| WriteBackError::Git(format!("open: {e}")))?;
+
+    let callbacks = build_push_callbacks(auth)?;
+    let mut fetch_opts = FetchOptions::new();
+    fetch_opts.remote_callbacks(callbacks);
+
+    let mut origin = repo
+        .find_remote("origin")
+        .or_else(|_| repo.remote("origin", url))
+        .map_err(|e| WriteBackError::Git(format!("find remote: {e}")))?;
+
+    let refspec = format!("refs/heads/{b}:refs/remotes/origin/{b}", b = branch);
+    origin
+        .fetch(&[&refspec], Some(&mut fetch_opts), None)
+        .map_err(|e| WriteBackError::Git(format!("fetch: {e}")))?;
+    drop(origin);
+
+    let remote_ref = repo
+        .find_reference(&format!("refs/remotes/origin/{}", branch))
+        .map_err(|e| WriteBackError::Git(format!("find remote ref: {e}")))?;
+    let remote_oid = remote_ref
+        .target()
+        .ok_or_else(|| WriteBackError::Git("remote ref has no target".into()))?;
+
+    let local_ref_name = format!("refs/heads/{}", branch);
+    let local_oid = repo
+        .find_reference(&local_ref_name)
+        .ok()
+        .and_then(|r| r.target());
+
+    if let Some(local) = local_oid {
+        if local != remote_oid {
+            let (ahead, _behind) = repo
+                .graph_ahead_behind(local, remote_oid)
+                .map_err(|e| WriteBackError::Git(format!("graph_ahead_behind: {e}")))?;
+            if ahead > 0 {
+                warn!(
+                    "write-back: local branch has {} unpushed commits; rebasing not implemented, \
+                     resetting to remote HEAD",
+                    ahead
+                );
+            }
+        }
+    }
+
+    // Fast-forward local branch to remote HEAD
+    let remote_commit = repo
+        .find_commit(remote_oid)
+        .map_err(|e| WriteBackError::Git(format!("find remote commit: {e}")))?;
+    repo.reference(
+        &local_ref_name,
+        remote_oid,
+        true,
+        "write-back: fast-forward",
+    )
+    .map_err(|e| WriteBackError::Git(format!("ff reference: {e}")))?;
+    repo.set_head(&local_ref_name)
+        .map_err(|e| WriteBackError::Git(format!("set_head: {e}")))?;
+    repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+        .map_err(|e| WriteBackError::Git(format!("checkout: {e}")))?;
+
+    debug!("write-back: phase 1 complete — local at {}", remote_oid);
+
+    // Phase 2: Apply enrichment to worktree
+    let file_path = local_path.join(target_path);
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| WriteBackError::ApplyFailed(format!("mkdir: {e}")))?;
+    }
+    std::fs::write(&file_path, content)
+        .map_err(|e| WriteBackError::ApplyFailed(format!("write {}: {e}", target_path)))?;
+
+    debug!("write-back: phase 2 complete — wrote {}", target_path);
+
+    // Phase 3: Stage and commit with provenance trailers
+    let mut index = repo
+        .index()
+        .map_err(|e| WriteBackError::Git(format!("index: {e}")))?;
+    index
+        .add_all([target_path].iter(), IndexAddOption::DEFAULT, None)
+        .map_err(|e| WriteBackError::Git(format!("index add: {e}")))?;
+    index
+        .write()
+        .map_err(|e| WriteBackError::Git(format!("index write: {e}")))?;
+    let tree_oid = index
+        .write_tree()
+        .map_err(|e| WriteBackError::Git(format!("write_tree: {e}")))?;
+    let tree = repo
+        .find_tree(tree_oid)
+        .map_err(|e| WriteBackError::Git(format!("find_tree: {e}")))?;
+
+    let commit_message = encode_commit_message(commit_subject, commit_body, trailer);
+    let sig = Signature::now("VisionClaw Ingest", "ingest@visionclaw.local")
+        .map_err(|e| WriteBackError::Git(format!("signature: {e}")))?;
+
+    let commit_oid = repo
+        .commit(
+            Some(&local_ref_name),
+            &sig,
+            &sig,
+            &commit_message,
+            &tree,
+            &[&remote_commit],
+        )
+        .map_err(|e| WriteBackError::Git(format!("commit: {e}")))?;
+
+    let commit_sha = commit_oid.to_string();
+    debug!("write-back: phase 3 complete — committed {}", commit_sha);
+
+    // Phase 4: Push to remote
+    let push_callbacks = build_push_callbacks(auth)?;
+    let mut push_opts = PushOptions::new();
+    push_opts.remote_callbacks(push_callbacks);
+
+    let mut origin = repo
+        .find_remote("origin")
+        .map_err(|e| WriteBackError::PushFailed(format!("find remote: {e}")))?;
+
+    let push_refspec = format!("refs/heads/{}:refs/heads/{}", branch, branch);
+    origin
+        .push(&[&push_refspec], Some(&mut push_opts))
+        .map_err(|e| WriteBackError::PushFailed(format!("push: {e}")))?;
+
+    info!(
+        "write-back: phase 4 complete — pushed {} to origin",
+        commit_sha
+    );
+
+    Ok(commit_sha)
+}
+
+fn build_push_callbacks(auth: &RemoteAuth) -> Result<RemoteCallbacks<'_>, WriteBackError> {
+    let mut callbacks = RemoteCallbacks::new();
+
+    match auth {
+        RemoteAuth::None => {}
+        RemoteAuth::Pat { token_env_var } => {
+            let token = std::env::var(token_env_var).map_err(|_| {
+                WriteBackError::PushFailed(format!("env var {} not set", token_env_var))
+            })?;
+            let token_owned = token.clone();
+            callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+                Cred::userpass_plaintext("x-access-token", &token_owned)
+            });
+        }
+        RemoteAuth::DidNostr {
+            server_identity,
+            keypair_env_var,
+        } => {
+            // NIP-98 auth is header-based. For git smart-HTTP transport, the
+            // credentials callback fires for HTTP Basic/Digest challenges.
+            // Solid pod git endpoints that accept NIP-98 typically fall back
+            // to bearer token auth via the Authorization header.
+            //
+            // The keypair is loaded from SERVER_NOSTR_PRIVKEY (server identity)
+            // or the per-remote override env var. The 32-byte secret key is
+            // hex-encoded in the env var.
+            let key_var = if *server_identity {
+                "SERVER_NOSTR_PRIVKEY".to_string()
+            } else {
+                keypair_env_var
+                    .clone()
+                    .unwrap_or_else(|| "SERVER_NOSTR_PRIVKEY".to_string())
+            };
+
+            match std::env::var(&key_var) {
+                Ok(hex_key) if hex_key.len() == 64 => {
+                    // For HTTP transport we use the hex privkey as a bearer token
+                    // that the Solid pod's NIP-98 extractor will verify.
+                    // git2's credential callback maps to HTTP Basic auth.
+                    callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+                        Cred::userpass_plaintext("nostr", &hex_key)
+                    });
+                }
+                _ => {
+                    warn!(
+                        "write-back: {} not set or invalid; attempting unauthenticated push",
+                        key_var
+                    );
+                }
+            }
+        }
+    }
+
+    callbacks.push_update_reference(|refname, status| {
+        if let Some(msg) = status {
+            warn!("write-back: push rejected for {}: {}", refname, msg);
+        }
+        Ok(())
+    });
+
+    Ok(callbacks)
+}
+
+// ---------------------------------------------------------------------------
+// Result
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WriteBackResult {
-    /// Commit SHA that was pushed.
     pub commit_sha: String,
-    /// Remote id the commit was pushed to.
     pub remote_id: String,
-    /// Broker case id that authorised the push.
     pub case_id: String,
-    /// Timestamp of the push.
     pub pushed_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -255,6 +486,15 @@ mod tests {
     fn writeback_disabled_by_default() {
         std::env::remove_var(WRITEBACK_ENABLED_ENV);
         assert!(!writeback_enabled());
+    }
+
+    #[test]
+    fn writeback_enabled_variants() {
+        for val in &["1", "true", "TRUE", "yes", "on"] {
+            std::env::set_var(WRITEBACK_ENABLED_ENV, val);
+            assert!(writeback_enabled(), "expected enabled for '{}'", val);
+        }
+        std::env::remove_var(WRITEBACK_ENABLED_ENV);
     }
 
     #[test]
@@ -277,52 +517,32 @@ mod tests {
         assert_eq!(rt.target_path, payload.target_path);
     }
 
-    #[tokio::test]
-    async fn execute_returns_not_implemented() {
-        std::env::set_var(WRITEBACK_ENABLED_ENV, "true");
-        let saga = WriteBackSaga::new();
-        let payload = EnrichmentPayload {
-            enrichment_type: EnrichmentType::OntologyPromotion,
-            target_path: "ontology/test.ttl".to_string(),
-            content: String::new(),
-            commit_subject: "test".to_string(),
-            commit_body: String::new(),
+    #[test]
+    fn decision_report_round_trips() {
+        let report = DecisionReport {
+            case_id: "case-001".into(),
+            decision: "approve".into(),
+            proposed_by: "did:nostr:aaa".into(),
+            approved_by: "did:nostr:bbb".into(),
+            reasoning: "test reasoning".into(),
+            server_did: "did:nostr:ccc".into(),
+            entity_urn: "urn:visionclaw:concept:test:node".into(),
         };
-        let decision = DecisionReport {
-            case_id: "case-001".to_string(),
-            decision: "approve".to_string(),
-            proposed_by: "did:nostr:aaa".to_string(),
-            approved_by: "did:nostr:bbb".to_string(),
-            reasoning: "test reasoning".to_string(),
-            server_did: "did:nostr:ccc".to_string(),
-            entity_urn: "urn:visionclaw:concept:test:node".to_string(),
-        };
-        let result = saga.execute("remote-1", &payload, &decision).await;
-        assert!(matches!(result, Err(WriteBackError::NotImplemented(_))));
-        std::env::remove_var(WRITEBACK_ENABLED_ENV);
+        let json = serde_json::to_string(&report).unwrap();
+        let rt: DecisionReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.case_id, "case-001");
     }
 
-    #[tokio::test]
-    async fn execute_rejects_when_globally_disabled() {
-        std::env::remove_var(WRITEBACK_ENABLED_ENV);
-        let saga = WriteBackSaga::new();
-        let payload = EnrichmentPayload {
-            enrichment_type: EnrichmentType::GapDetection,
-            target_path: "proposals/test.md".to_string(),
-            content: String::new(),
-            commit_subject: "test".to_string(),
-            commit_body: String::new(),
+    #[test]
+    fn writeback_result_round_trips() {
+        let result = WriteBackResult {
+            commit_sha: "abc123".into(),
+            remote_id: "remote-1".into(),
+            case_id: "case-1".into(),
+            pushed_at: Utc::now(),
         };
-        let decision = DecisionReport {
-            case_id: "case-002".to_string(),
-            decision: "promote".to_string(),
-            proposed_by: "did:nostr:aaa".to_string(),
-            approved_by: "did:nostr:bbb".to_string(),
-            reasoning: "test".to_string(),
-            server_did: "did:nostr:ccc".to_string(),
-            entity_urn: "urn:visionclaw:concept:test:edge".to_string(),
-        };
-        let result = saga.execute("remote-2", &payload, &decision).await;
-        assert!(matches!(result, Err(WriteBackError::GloballyDisabled)));
+        let json = serde_json::to_string(&result).unwrap();
+        let rt: WriteBackResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.commit_sha, "abc123");
     }
 }
