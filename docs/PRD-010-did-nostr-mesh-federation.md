@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Status | Draft (2026-05-07) |
+| Status | Phase 0-1 complete; Phase 2 kit extraction done; federation implementation in progress |
 | Authors | Multi-agent research swarm + synthesis (J. O'Hare) |
 | Predecessors | PRD-004, PRD-006, ADR-053, ADR-054, ADR-058, ADR-061 |
 | Companion ADRs | ADR-073, ADR-074, ADR-075, ADR-076 |

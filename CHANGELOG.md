@@ -5,6 +5,24 @@ All notable changes to VisionFlow will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026-05-08] Ecosystem Mega-Sprint (Phases 0-8)
+
+### Added
+- PRD-010/011/012: Federation, kit extraction, and consumer adoption specs
+- ADR-073 through ADR-085: 13 ecosystem architecture decisions
+- DDD mesh federation context map (V14, 5-substrate)
+- Cross-substrate test fixture corpus (13 reference vectors)
+- Anti-drift CI linting
+- Rust CI workflow
+
+### Changed
+- VisionClaw positioned as integration substrate in 5-project ecosystem
+- Identity unified: SERVER_NOSTR_PRIVKEY + VISIONCLAW_NOSTR_PRIVKEY merged
+
+### Fixed
+- C1: NIP-44 v2 conversation key HKDF-Extract semantics
+- F1: Identity key unification (single NOSTR_PRIVKEY)
+
 ## [Unreleased]
 
 ### Added

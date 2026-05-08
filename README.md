@@ -25,6 +25,35 @@ https://github.com/user-attachments/assets/0a4a84e5-b86f-4458-bba5-31b0565882a6
 
 ---
 
+## Ecosystem
+
+VisionClaw is the integration substrate of the DreamLab open-source ecosystem -- five repositories federated via `did:nostr` identity.
+
+```mermaid
+graph LR
+    SPR["solid-pod-rs<br/><i>Foundation</i>"] -->|dep| NRF["nostr-rust-forum<br/><i>Forum Kit</i>"]
+    SPR -->|dep| AB["agentbox<br/><i>Agent Container</i>"]
+    SPR -->|dep| VC["VisionClaw<br/><i>Integration Substrate</i>"]
+    NRF -->|kit| DW["dreamlab-ai-website<br/><i>Deployment</i>"]
+    AB <-.->|"relay mesh"| VC
+    AB <-.->|"relay mesh"| NRF
+    VC <-.->|"relay mesh"| NRF
+
+    style VC fill:#4a9eff,stroke:#2563eb,color:#fff
+```
+
+| Repository | Role | Key Technology |
+|---|---|---|
+| **[VisionClaw](https://github.com/DreamLab-AI/VisionClaw)** | **Integration substrate** | **Knowledge graph, GPU physics, XR** |
+| [solid-pod-rs](https://github.com/DreamLab-AI/solid-pod-rs) | Foundation library | Solid Protocol, DID:Nostr, WAC |
+| [nostr-rust-forum](https://github.com/DreamLab-AI/nostr-rust-forum) | Forum kit | 11 `nostr-bbs-*` Rust crates, CF Workers |
+| [agentbox](https://github.com/DreamLab-AI/agentbox) | Agent container | Nix, nostr-rs-relay, mesh peer |
+| [dreamlab-ai-website](https://github.com/DreamLab-AI/dreamlab-ai-website) | Branded deployment | React SPA, WASM forum, `forum-config/` |
+
+All five share `did:nostr:<hex-pubkey>` as the universal identity primitive and communicate via IS-Envelope messages over a private Nostr relay mesh. See [PRD-010](docs/PRD-010-did-nostr-mesh-federation.md) for the federation spec.
+
+---
+
 ## Your Best People Are Already Running the Future
 They just haven't told you yet.
 
@@ -385,6 +414,7 @@ See the [agents catalog](docs/reference/agents-catalog.md) for the full core ski
 | **3** KPI + Governance | 25–32 | Six mesh KPIs, policy engine, exportable audit reports | Thesis KPIs measurable from production data |
 | **4** Pilot | 33–44 | Consultancy pilot, connector hardening, success reporting | At least one paid pilot running |
 | **5** Contributor Stratum | 45–56 | `/studio` MVP shell, Skill Dojo, share-to-Mesh funnel, automations, proactive Sensei | Contributor activation rate ≥ target; first contributor-to-mesh promotion lands via broker |
+| **6** Ecosystem Federation | 57–68 | did:nostr mesh federation across 5 substrates (PRD-010), forum kit GA (PRD-011), website cutover (PRD-012), IS-Envelope relay mesh | All five substrates exchange authenticated messages; forum kit on crates.io; dreamlab-ai-website consumes kit |
 
 Key architecture decisions: [ADR-040](docs/adr/ADR-040-enterprise-identity-strategy.md) · [ADR-041](docs/adr/ADR-041-judgment-broker-workbench.md) · [ADR-042](docs/adr/ADR-042-workflow-proposal-object-model.md) · [ADR-043](docs/adr/ADR-043-kpi-lineage-model.md) · [ADR-044](docs/adr/ADR-044-connector-governance-privacy.md) · [ADR-045](docs/adr/ADR-045-policy-engine-approach.md) · [ADR-046](docs/adr/ADR-046-enterprise-ui-architecture.md) · [ADR-047](docs/adr/ADR-047-wasm-visualization-components.md) · [ADR-048](docs/adr/ADR-048-dual-tier-identity-model.md) · [ADR-049](docs/adr/ADR-049-insight-migration-broker-workflow.md) · [ADR-057](docs/adr/ADR-057-contributor-enablement-platform.md)
 

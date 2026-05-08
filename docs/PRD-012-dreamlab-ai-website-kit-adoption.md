@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Status | Draft (2026-05-07) |
+| Status | Phase 3 forum-config/ created; cutover pending (ADR-083) |
 | Authors | Mega-sprint synthesis (J. O'Hare) |
 | Predecessors | PRD-010, PRD-011, ADR-073-083 |
 | Companion ADRs | ADR-080 D7, ADR-083 (tactical cutover), ADR-084 (NEW; cloud infra mapping), ADR-085 (NEW; forum-config/ architecture) |

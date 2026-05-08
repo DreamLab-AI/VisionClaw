@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Status | Draft (2026-05-07) |
+| Status | Phase 2 complete; kit at nostr-rust-forum v3.0.0-rc4 on crates.io |
 | Authors | J. O'Hare + multi-agent synthesis |
 | Predecessors | PRD-010, ADR-073, ADR-074, ADR-075, ADR-076, ADR-077, ADR-078 |
 | Companion ADRs | ADR-079 (forum-setup skill), ADR-080 (kit deployment topology) |
