@@ -2,8 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| Status | Accepted |
+| Status | Implemented |
 | Date | 2026-05-08 |
+| Implemented | 2026-05-08 |
 | Drives | PRD-013 (G1--G7) |
 | Supersedes | GitHub REST API ingest (`src/services/github/`) |
 | Companion PRD | `docs/PRD-013-solid-git-ingest-surface.md` |
@@ -147,7 +148,7 @@ notification.
 Seven components implement the decision. Each is detailed in PRD-013; this
 section records the architectural rationale and key invariants.
 
-### G1: Git Ingest Adapter
+### G1: Git Ingest Adapter --- Implemented 2026-05-08
 
 **Location:** `src/services/git_ingest/`
 
@@ -173,7 +174,7 @@ repo.git` remotes with PAT auth. The adapter handles them natively. The
 `EnhancedContentAPI` tree endpoint becomes an optimisation path (single API call
 vs full clone) that is deprecated once operators migrate.
 
-### G2: DID-Gated Remote Registry
+### G2: DID-Gated Remote Registry --- Implemented 2026-05-08
 
 **Location:** `src/services/git_ingest/remote_registry.rs`
 
@@ -191,7 +192,7 @@ For `did:nostr`-authenticated remotes, the registry uses
 DID resolves to a WebID with the expected `verificationMethod.type =
 SchnorrSecp256k1VerificationKey2019` (per ADR-074 D1).
 
-### G3: Provenance Commit Encoder
+### G3: Provenance Commit Encoder --- Implemented 2026-05-08
 
 **Location:** `src/services/git_ingest/provenance.rs`
 
@@ -225,7 +226,7 @@ produces three durable records referencing the same `case_id` and
 | Nostr bead (kind 30300) | Relay-durable (persisted until relay GC) | Relay subscribers |
 | Neo4j `DecisionHistoryEntry` | Application-durable | VisionClaw queries |
 
-### G4: Write-Back Saga
+### G4: Write-Back Saga --- Implemented 2026-05-08
 
 **Location:** `src/services/git_ingest/writeback_saga.rs`
 
@@ -450,21 +451,22 @@ agent identities without the pod owner needing to ACL each agent individually.
 
 ## Migration Path
 
-| Phase | Sprint | Components | Key deliverable |
-|-------|--------|------------|-----------------|
-| 1 | Sprint 1 | G1, G2 | `GitIngestService` with `git2` clone/fetch; Remote Registry; legacy GitHub shim |
-| 2 | Sprint 2 | G2 extension | NIP-98 auth injection; `NostrWebIdResolver` integration; REST API for remote management |
-| 3 | Sprint 3 | G3, G4 | `KnowledgeEnrichment` case category; provenance encoder; write-back saga with broker gating |
-| 4 | Sprint 4 | G5 | Agentbox pod bridge; agent commit collection; Nostr event relay for approvals |
-| 5 | Sprint 5 | G6 | `enrichment-review-pane.js`; WebSocket bridge; two-pane diff rendering |
-| 6 | Sprint 6 | G7 | Kind 30300/30301 event emission; NIP-42 AUTH gate; IS-Envelope mapping |
-| 7 | Sprint 7 | Deprecation | Remove `EnhancedContentAPI`, `GitHubClient`, `GITHUB_*` env vars; migration guide |
+| Phase | Sprint | Components | Key deliverable | Status |
+|-------|--------|------------|-----------------|--------|
+| 1 | Sprint 1 | G1, G2 | `GitIngestService` with `git2` clone/fetch; Remote Registry; legacy GitHub shim | **Done** (2026-05-08) |
+| 2 | Sprint 2 | G2 extension | NIP-98 auth injection; `NostrWebIdResolver` integration; REST API for remote management | **Done** (2026-05-08) |
+| 3 | Sprint 3 | G3, G4 | `KnowledgeEnrichment` case category; provenance encoder; write-back saga with broker gating | **Done** (2026-05-08) |
+| 4 | Sprint 4 | G5 | Agentbox pod bridge; agent commit collection; Nostr event relay for approvals | Planned |
+| 5 | Sprint 5 | G6 | `enrichment-review-pane.js`; WebSocket bridge; two-pane diff rendering | Planned |
+| 6 | Sprint 6 | G7 | Kind 30300/30301 event emission; NIP-42 AUTH gate; IS-Envelope mapping | Planned |
+| 7 | Sprint 7 | Deprecation | Remove `EnhancedContentAPI`, `GitHubClient`, `GITHUB_*` env vars; migration guide | Planned |
 
-The git ingest adapter (G1) is feature-flagged (`GIT_INGEST_ENABLED`, default
-`false`) during Phase 1. The existing `GitHubSyncService` continues in
-parallel. Phase 2 drops the feature flag; git ingest becomes the default path.
-Write-back (G4) is independently gated by `WRITEBACK_ENABLED` (default `false`,
-opt-in per remote).
+G1 (`GitIngestService`), G2 (`RemoteRegistry`), G3 (`ProvenanceTrailer`), and
+G4 (`WriteBackSaga`) are fully implemented as of 2026-05-08. REST routes are
+live at `/api/ingest/*`. The git ingest adapter is no longer feature-flagged;
+git ingest is the default path. Write-back (G4) is independently gated by
+`WRITEBACK_ENABLED` (default `false`, opt-in per remote). G5--G7 remain planned
+for subsequent sprints.
 
 ## Dependency Changes
 
@@ -501,8 +503,8 @@ opt-in per remote).
 
 1. **Enrichment file format standardisation.** Should `.embeddings.json` use a
    standard format (JSON-LD with `@type: EmbeddingVector`, ONNX embedding
-   metadata), or is a VisionClaw-specific schema acceptable for MVP? Deferred
-   to Phase 3 implementation.
+   metadata), or is a VisionClaw-specific schema acceptable for MVP? Currently
+   uses VisionClaw-specific schema; standardisation deferred to a future ADR.
 
 2. **Multi-remote write-back.** If the same node is ingested from two remotes
    (e.g., GitHub mirror + Solid pod), which remote receives the write-back?

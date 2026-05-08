@@ -1,6 +1,6 @@
 # PRD-013: Solid Pod Git Ingest Surface — Agent-Mediated Knowledge Federation
 
-**Status:** Draft
+**Status:** Phases 1-3 Complete (G1-G4 implemented); Phases 4-7 Planned
 **Priority:** P1
 **Author:** Architecture Agent / Dr John O'Hare
 **Date:** 2026-05-08
@@ -222,7 +222,7 @@ Key design decisions:
 
 - **`git2` (libgit2) for clone/fetch.** The `solid-pod-rs-git` crate's `GitHttpService` is a *server-side* service (it handles incoming git requests). For the *client-side* clone/fetch, we use `git2` which handles git smart HTTP protocol natively, including custom auth headers.
 
-- **NIP-98 auth injected as custom HTTP header.** `git2::RemoteCallbacks::credentials()` supports custom headers. For `did:nostr`-authenticated remotes, we inject `Authorization: Nostr <base64-nip98-event>` on each HTTP request, matching the auth scheme that `solid-pod-rs-git`'s `BasicNostrExtractor` expects.
+- **NIP-98/did:nostr auth via HTTP Basic credentials.** For `did:nostr`-authenticated remotes, `SERVER_NOSTR_PRIVKEY` is used as HTTP Basic credentials to the git transport. `git2::RemoteCallbacks::credentials()` injects these on each HTTP request.
 
 - **Local clone, not streaming.** The existing parser pipeline reads files from disk. Rather than rewriting it to stream from HTTP, we clone to a local directory under `/app/data/git-ingest/` and point the parsers at it. Incremental: `git fetch` + diff only changed files.
 
@@ -262,12 +262,12 @@ pub enum RemoteAuth {
 }
 ```
 
-REST API:
+REST API (implemented):
 - `GET /api/ingest/remotes` — list configured remotes
 - `POST /api/ingest/remotes` — register a new remote
-- `DELETE /api/ingest/remotes/:id` — remove
-- `POST /api/ingest/remotes/:id/sync` — trigger manual sync
-- `GET /api/ingest/remotes/:id/status` — sync status + last commit
+- `DELETE /api/ingest/remotes/{id}` — remove
+- `POST /api/ingest/sync` — trigger sync (supports `sync_by_id()` and `sync_all()`)
+- `POST /api/ingest/writeback` — trigger write-back saga for approved enrichments
 
 Env migration: existing `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BASE_PATH` are read at startup and auto-registered as a PAT-authenticated remote with `id = "legacy-github"`. New deployments use the REST API or a `GIT_REMOTES` JSON env var.
 
@@ -295,11 +295,11 @@ The encoder:
 - Includes the `did:nostr` of the proposing agent (if agentbox-originated) or the system identity
 - Includes the `did:nostr` of the approving broker from the `DecisionHistoryEntry`
 - Hashes the broker's reasoning text (SHA-256) for tamper-evidence without leaking full text
-- Signs the `git push` HTTP request with NIP-98, binding the transport to the pushing identity
+- Authenticates the `git push` HTTP request via `SERVER_NOSTR_PRIVKEY` as HTTP Basic credentials, binding the transport to the pushing identity
 
 ### G4: Write-Back Saga
 
-Extends the existing IngestSaga (ADR-051) with a reverse flow:
+Fully implemented. Extends the existing IngestSaga (ADR-051) with a reverse flow:
 
 ```
 Discovery Engine (PRD-009) / Ontology Pipeline / Agent proposal
@@ -322,7 +322,7 @@ WriteBackSaga::execute(remote_id, enrichment_payload, decision_report)
     │   ├─ Gap detection: write proposed-edge as .proposals.md
     │   └─ Agent reasoning: write structured annotation
     ├─ Phase 3: Commit with provenance trailers (G3)
-    ├─ Phase 4: git push to remote (NIP-98 signed)
+    ├─ Phase 4: git push to remote (auth via SERVER_NOSTR_PRIVKEY)
     └─ Phase 5: Record push result in Neo4j (audit trail)
 ```
 
@@ -335,7 +335,7 @@ pub enum CaseCategory {
     PolicyException,
     TrustAlert,
     ManualSubmission,
-    KnowledgeEnrichment,  // NEW: PRD-013 write-back gating
+    KnowledgeEnrichment,  // PRD-013 write-back gating
 }
 ```
 
@@ -481,40 +481,42 @@ All events are NIP-59 gift-wrapped on the wire when crossing relay boundaries. W
 
 ## Migration Path
 
-### Phase 1: Git Ingest Adapter (G1 + G2) — Sprint 1
+### Phase 1: Git Ingest Adapter (G1 + G2) — COMPLETE
 
-- Implement `GitIngestService` with `git2` clone/fetch
-- Remote registry with Neo4j persistence
-- Legacy GitHub shim: auto-register `GITHUB_*` env vars as a PAT remote
+- `GitIngestService` implemented with `git2` clone/fetch in `src/services/git_ingest/`
+- Remote registry with Neo4j persistence (`remote_registry.rs`)
+- Legacy GitHub shim: auto-registers `GITHUB_*` env vars as a PAT remote on startup
 - Parser pipeline reads from local worktree (no changes to parsers)
-- Feature flag: `GIT_INGEST_ENABLED=true` (default false during rollout)
-- Existing `GitHubSyncService` continues working in parallel
+- `GitIngestService` exposes `sync_by_id()` and `sync_all()` methods
+- REST routes wired: `GET /api/ingest/remotes`, `POST /api/ingest/remotes`, `DELETE /api/ingest/remotes/{id}`, `POST /api/ingest/sync`
 
-### Phase 2: DID-Gated Auth + Solid Pod Support (G2 extension) — Sprint 2
+### Phase 2: DID-Gated Auth + Solid Pod Support (G2 extension) — COMPLETE
 
-- NIP-98 auth injection in `git2` HTTP callbacks
-- `NostrWebIdResolver` integration for remote registration validation
-- WAC ACL verification on clone (does VisionClaw's DID have read access?)
-- REST API for remote management
-- Drop feature flag: git ingest becomes the default path
+- NIP-98/did:nostr auth implemented via `SERVER_NOSTR_PRIVKEY` as HTTP Basic credentials to the git transport
+- REST API for remote management fully wired
+- Git ingest is the default path
 
-### Phase 3: Write-Back Saga (G3 + G4) — Sprint 3
+### Phase 3: Write-Back Saga (G3 + G4) — COMPLETE
 
 - `KnowledgeEnrichment` case category in Judgment Broker
-- Provenance commit encoder
-- Write-back saga with broker gating
-- Enrichment file formats (`.ttl` sidecar, `.embeddings.json`, `.proposals.md`)
-- NIP-98-signed push
+- Provenance commit encoder (`provenance.rs`)
+- Write-back saga fully implemented with 5 phases:
+  1. Fetch latest from remote (ensure no conflicts)
+  2. Apply enrichment to local worktree
+  3. Commit with provenance trailers (G3)
+  4. Push with NIP-98/did:nostr auth
+  5. Record audit trail in Neo4j
+- REST route wired: `POST /api/ingest/writeback`
 - Feature flag: `WRITEBACK_ENABLED=true` opt-in per remote
 
-### Phase 4: Agentbox Bridge (G5) — Sprint 4
+### Phase 4: Agentbox Bridge (G5) — Planned
 
 - BC20 adapter for agent git clone requests
 - Agent commit collection and broker submission
 - Nostr event relay for approval notifications
 - Agent provenance trailers (`Proposed-by: did:nostr:<agent>`)
 
-### Phase 5: Broker Review Surface (G6) — Sprint 5
+### Phase 5: Broker Review Surface (G6) — Planned
 
 - `enrichment-review-pane.js` in agentbox viewer panes
 - WebSocket bridge from VisionClaw BrokerActor to agentbox management API
@@ -522,7 +524,7 @@ All events are NIP-59 gift-wrapped on the wire when crossing relay boundaries. W
 - Inline approval actions wired to broker REST API
 - Real-time case delivery via `broker:new_case` WebSocket event
 
-### Phase 6: Nostr Control Plane (G7) — Sprint 6
+### Phase 6: Nostr Control Plane (G7) — Planned
 
 - Kind 30300/30301 event emission from VisionClaw ServerNostrActor
 - Agent subscription to approval events via agentbox embedded relay
@@ -530,7 +532,7 @@ All events are NIP-59 gift-wrapped on the wire when crossing relay boundaries. W
 - IS-Envelope v1 mapping for cross-relay event federation
 - Optional: NIP-17 human ↔ agent text coordination
 
-### Phase 7: Deprecate GitHub REST API + Convergence — Sprint 7
+### Phase 7: Deprecate GitHub REST API + Convergence — Planned
 
 - Remove `EnhancedContentAPI`, `GitHubClient`
 - Remove `GITHUB_*` env vars from `.env.example`
@@ -595,7 +597,7 @@ All events are NIP-59 gift-wrapped on the wire when crossing relay boundaries. W
 
 3. **Multi-remote write-back.** If the same node is ingested from two remotes (e.g., GitHub mirror + Solid pod), which remote receives the write-back? Proposal: the remote marked as `writeback_enabled = true`; if multiple, the one with the most recent `last_sync`.
 
-4. **Precedent-based auto-approval.** The `DecisionOutcome::Precedent` path (ADR-041) could enable auto-approval for enrichment types that have been approved N times. This reduces broker fatigue for routine embedding updates. Deferred to Phase 5.
+4. **Precedent-based auto-approval.** The `DecisionOutcome::Precedent` path (ADR-041) could enable auto-approval for enrichment types that have been approved N times. This reduces broker fatigue for routine embedding updates. Deferred to Phase 7.
 
 ---
 

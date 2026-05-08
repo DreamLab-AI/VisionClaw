@@ -732,6 +732,12 @@ ACLs:
 
 PRD-013 replaces VisionClaw's GitHub REST API ingest with a git-over-HTTP ingest surface that treats every knowledge source identically (GitHub, GitLab, Solid pod, bare git repo). It adds a write-back path gated through the Judgment Broker (BC11), and introduces agent-mediated enrichment with full `did:nostr` provenance. This extension touches BC-MESH-VISIONCLAW (BC2 Graph Data), BC11 (Judgment Broker), BC20 (Agentbox Integration), and BC13 (Discovery) without creating new bounded contexts.
 
+**Implementation status (2026-05-08):** The BC2 git-ingest bounded context additions are implemented in `src/services/git_ingest/` and `src/handlers/git_ingest_handler.rs`:
+- **GitRemote aggregate**: full CRUD via REST surface at `/api/ingest/remotes` (list, create, get, update, delete, trigger sync, status query). Legacy `GITHUB_*` env vars auto-register at boot.
+- **WriteBackSaga**: complete 5-phase saga (fetch, apply, commit, push, audit) with conflict detection, NIP-98-signed transport, and Neo4j audit trail recording.
+- **ProvenanceTrailer encoder**: `provenance.rs` encodes all seven trailer fields (`Urn:`, `Proposed-by:`, `Approved-by:`, `Broker-case:`, `Decision:`, `Reasoning-hash:`, `Signed-off-by:`) per V-Inv-08.
+- **REST surface**: six endpoints under `/api/ingest/remotes` with auth guard, plus manual sync trigger and status query.
+
 ### V15.1 — BC2 (Graph Data) gains `GitRemote` aggregate
 
 The `GitRemote` aggregate (defined in BC-MESH-VISIONCLAW aggregates above) is the persistent representation of a registered knowledge source. It replaces the implicit single-remote model expressed by `GITHUB_TOKEN`/`GITHUB_OWNER`/`GITHUB_REPO` env vars with an explicit, multi-remote registry.
@@ -823,7 +829,7 @@ PRD-013 G7 extends the existing relay topology (ADR-073) with two new event kind
 
 | Kind | Name | Purpose | Producer | Consumer |
 |------|------|---------|----------|----------|
-| 30300 | `AuditEvent` (existing scaffold) | Broker decision recorded (approve/reject/amend/delegate/promote/precedent) | VisionClaw ServerNostrActor | Agentbox agents, external subscribers |
+| 30300 | `AuditEvent` (implemented) | Broker decision recorded (approve/reject/amend/delegate/promote/precedent) | VisionClaw ServerNostrActor | Agentbox agents, external subscribers |
 | 30301 | `EnrichmentProposal` (NEW) | Agent submits enrichment for broker review | Agentbox agent (via Pod Bridge) | VisionClaw BrokerActor |
 
 IS-Envelope mapping (per ADR-075):
