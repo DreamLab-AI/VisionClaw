@@ -56,11 +56,11 @@ export const AgentTelemetryStream: React.FC = () => {
       }
     };
 
-    
-    pollTelemetry();
+    const startId = setTimeout(pollTelemetry, 3000);
     pollIntervalRef.current = setInterval(pollTelemetry, 5000);
 
     return () => {
+      clearTimeout(startId);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }

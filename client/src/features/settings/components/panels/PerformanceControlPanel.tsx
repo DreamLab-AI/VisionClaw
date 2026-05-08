@@ -95,9 +95,12 @@ export const PerformanceControlPanel: React.FC = () => {
       }
     };
 
-    const timer = setInterval(pollMetrics, 1000); 
-    pollMetrics(); 
-    return () => clearInterval(timer);
+    const delay = setTimeout(() => {
+      pollMetrics();
+      timer = setInterval(pollMetrics, 10000);
+    }, 3000);
+    let timer: ReturnType<typeof setInterval>;
+    return () => { clearTimeout(delay); clearInterval(timer); };
   }, []);
 
   const getFPSColor = (fps: number, target: number) => {

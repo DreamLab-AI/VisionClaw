@@ -18,7 +18,6 @@ import { DebugControlPanel } from '../components/DebugControlPanel';
 import { ConnectionWarning } from '../components/ConnectionWarning';
 import { useAutoBalanceNotifications } from '../hooks/useAutoBalanceNotifications';
 import ErrorBoundary from '../components/ErrorBoundary';
-import { remoteLogger } from '../services/remoteLogger';
 import { useNostrAuth } from '../hooks/useNostrAuth';
 import { OnboardingWizard } from '../components/OnboardingWizard';
 import { LoadingScreen } from '../components/LoadingScreen';
@@ -31,10 +30,6 @@ import { MigrationEventToast } from '../features/migration/MigrationEventToast';
 
 const logger = createLogger('App');
 
-// Initialize remote logging for Quest 3 debugging
-if (typeof window !== 'undefined') {
-  remoteLogger.logXRInfo();
-}
 
 function App() {
   const route = useHashRoute();

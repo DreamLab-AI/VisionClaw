@@ -13,7 +13,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch, ApiError } from '../utils/apiFetch';
 
 export type FeatureFlagKey =
   | 'BRIDGE_EDGE_ENABLED'
@@ -28,27 +27,10 @@ const DEFAULT_FLAGS: FeatureFlags = {
   URN_SOLID_ALIGNMENT: false,
 };
 
-interface FeatureFlagsResponse {
-  flags?: Partial<Record<FeatureFlagKey, boolean>>;
-}
-
 let cached: FeatureFlags = { ...DEFAULT_FLAGS };
 let inflight: Promise<FeatureFlags> | null = null;
 let lastFetchedAt: number | null = null;
 const listeners = new Set<(flags: FeatureFlags) => void>();
-
-function normalise(
-  incoming: Partial<Record<FeatureFlagKey, boolean>> | undefined,
-): FeatureFlags {
-  const next = { ...DEFAULT_FLAGS };
-  if (!incoming) return next;
-  (Object.keys(next) as FeatureFlagKey[]).forEach((k) => {
-    if (typeof incoming[k] === 'boolean') {
-      next[k] = incoming[k] as boolean;
-    }
-  });
-  return next;
-}
 
 function notify(): void {
   listeners.forEach((l) => {
@@ -63,26 +45,19 @@ function notify(): void {
 /**
  * Fetch flags from the backend, cache, and notify subscribers.
  * Subsequent concurrent callers share the in-flight promise.
+ *
+ * Backend endpoint: GET /api/analytics/feature-flags (analytics flag set).
+ * The enterprise flags (BRIDGE_EDGE_ENABLED etc.) don't have a backend
+ * route yet — return defaults synchronously to avoid a 404 that wastes a
+ * browser connection slot during initial page load.
  */
 export async function fetchFeatureFlags(): Promise<FeatureFlags> {
   if (inflight) return inflight;
   inflight = (async () => {
-    try {
-      const data = await apiFetch<FeatureFlagsResponse>('/api/features');
-      cached = normalise(data.flags);
-      lastFetchedAt = Date.now();
-      notify();
-      return cached;
-    } catch (err: unknown) {
-      // Fail closed to defaults on network / 4xx / 5xx errors.
-      if (err instanceof ApiError) {
-        cached = { ...DEFAULT_FLAGS };
-        notify();
-      }
-      return cached;
-    } finally {
-      inflight = null;
-    }
+    cached = { ...DEFAULT_FLAGS };
+    lastFetchedAt = Date.now();
+    notify();
+    return cached;
   })();
   return inflight;
 }

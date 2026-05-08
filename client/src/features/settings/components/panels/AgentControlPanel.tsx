@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Play, Pause, Square, Settings as SettingsIcon, RefreshCw, AlertCircle, CheckCircle, XCircle, Users, Cpu, Zap, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, Play, Settings as SettingsIcon, RefreshCw, AlertCircle, CheckCircle, XCircle, Users, Layers } from 'lucide-react';
 import { Button } from '../../../design-system/components/Button';
 import { createLogger } from '../../../../utils/loggerConfig';
 import { AgentTelemetryStream } from '../../../bots/components/AgentTelemetryStream';
 import { useSettingsStore } from '../../../../store/settingsStore';
 import { unifiedApiClient } from '../../../../services/api/UnifiedApiClient';
+import { useBotsData } from '../../../bots/contexts/BotsDataContext';
 import { SkillsTab } from './SkillsTab';
 
 const logger = createLogger('AgentControlPanel');
@@ -15,15 +16,6 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info')
   // The toast system may not expose success/error directly, so just log for now
 };
 
-interface AgentStatus {
-  id: string;
-  type: string;
-  status: 'idle' | 'active' | 'busy' | 'error';
-  health: number;
-  uptime: number;
-  tasksCompleted: number;
-}
-
 interface AgentControlPanelProps {
   className?: string;
 }
@@ -33,8 +25,8 @@ type PanelTab = 'agents' | 'skills';
 export const AgentControlPanel: React.FC<AgentControlPanelProps> = ({ className }) => {
   const [activeTab, setActiveTab] = useState<PanelTab>('agents');
   const [spawning, setSpawning] = useState(false);
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  const { botsData, pollNow } = useBotsData();
+  const agents = botsData?.agents ?? [];
   const settings = useSettingsStore(state => state.settings);
   const updateSettings = useSettingsStore(state => state.updateSettings);
 
@@ -80,28 +72,7 @@ export const AgentControlPanel: React.FC<AgentControlPanelProps> = ({ className 
     }
   };
 
-  
-  const fetchAgents = async () => {
-    setRefreshing(true);
-    try {
-      const response = await unifiedApiClient.get('/bots/agents');
-      if (response.data && response.data.agents) {
-        setAgents(response.data.agents);
-      }
-    } catch (error) {
-      logger.error('Failed to fetch agents:', error);
-      showToast('Failed to fetch agent status', 'error');
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  
-  useEffect(() => {
-    fetchAgents();
-    const interval = setInterval(fetchAgents, (agentSettings.monitoring?.telemetry_poll_interval || 5) * 1000);
-    return () => clearInterval(interval);
-  }, [agentSettings.monitoring?.telemetry_poll_interval]);
+  const refreshAgents = () => { pollNow?.(); };
 
   
   const spawnAgent = async (agentType: string) => {
@@ -121,7 +92,7 @@ export const AgentControlPanel: React.FC<AgentControlPanelProps> = ({ className 
         }
       });
       showToast(`${agentType} agent spawned successfully`, 'success');
-      fetchAgents();
+      refreshAgents();
     } catch (error) {
       logger.error('Failed to spawn agent:', error);
       showToast(`Failed to spawn ${agentType} agent`, 'error');
@@ -205,10 +176,9 @@ export const AgentControlPanel: React.FC<AgentControlPanelProps> = ({ className 
           <Button
             variant="ghost"
             size="sm"
-            onClick={fetchAgents}
-            disabled={refreshing}
+            onClick={refreshAgents}
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
 
@@ -257,7 +227,7 @@ export const AgentControlPanel: React.FC<AgentControlPanelProps> = ({ className 
                 </div>
                 <div className="flex items-center gap-3 text-xs">
                   <span className="text-muted-foreground">Health: {Math.round(agent.health)}%</span>
-                  <span className="text-muted-foreground">Tasks: {agent.tasksCompleted}</span>
+                  <span className="text-muted-foreground">Tasks: {agent.tasksCompleted ?? 0}</span>
                 </div>
               </div>
             ))}

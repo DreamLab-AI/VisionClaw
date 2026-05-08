@@ -81,10 +81,12 @@ export const DashboardControlPanel: React.FC = () => {
     };
 
     if (settings?.dashboard?.autoRefresh) {
-      const interval = (settings?.dashboard?.refreshInterval || 2) * 1000;
-      const timer = setInterval(pollStatus, interval);
-      pollStatus(); 
-      return () => clearInterval(timer);
+      let timer: ReturnType<typeof setInterval>;
+      const delay = setTimeout(() => {
+        pollStatus();
+        timer = setInterval(pollStatus, 10000);
+      }, 3000);
+      return () => { clearTimeout(delay); clearInterval(timer); };
     }
   }, [settings?.dashboard?.autoRefresh, settings?.dashboard?.refreshInterval]);
 

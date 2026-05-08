@@ -20,6 +20,7 @@ interface ImportMetaEnv {
   readonly VITE_DEV_MODE_AUTH?: string;
   readonly VITE_DEV_POWER_USER_PUBKEY?: string;
   readonly VITE_REMOTE_LOGGING_DISABLED?: string;
+  readonly VITE_EMBEDDING_CLOUD_URL?: string;
   readonly LOG_LEVEL?: string;
   readonly MODE: string;
   readonly DEV: boolean;
@@ -29,4 +30,9 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
+  readonly hot?: {
+    dispose(cb: (data: Record<string, unknown>) => void): void;
+    accept(cb?: (mod: unknown) => void): void;
+    data: Record<string, unknown>;
+  };
 }

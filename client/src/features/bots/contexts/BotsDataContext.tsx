@@ -295,13 +295,13 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
 
-    // Check immediately
-    checkMcpStatus();
+    // Defer first check so bot status doesn't compete with critical-path
+    // requests (graph data, WebSocket) for browser connection slots.
+    const startId = setTimeout(checkMcpStatus, 3000);
 
-    // Then poll every 5 seconds
     const interval = setInterval(checkMcpStatus, 5000);
 
-    return () => clearInterval(interval);
+    return () => { clearTimeout(startId); clearInterval(interval); };
   }, []);
 
   const contextValue = useMemo(() => ({

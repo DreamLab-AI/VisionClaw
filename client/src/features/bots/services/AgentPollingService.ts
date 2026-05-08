@@ -67,7 +67,8 @@ type ErrorCallback = (error: Error) => void;
 
 export class AgentPollingService {
   private static instance: AgentPollingService;
-  private pollingTimer: NodeJS.Timeout | null = null;
+  private pollingTimer: ReturnType<typeof setTimeout> | null = null;
+  private startDelayTimer: ReturnType<typeof setTimeout> | null = null;
   private config: PollingConfig;
   private callbacks: Set<PollingCallback> = new Set();
   private errorCallbacks: Set<ErrorCallback> = new Set();
@@ -121,7 +122,10 @@ export class AgentPollingService {
       }
       logger.debug('Starting agent swarm polling');
       this.isPolling = true;
-      this.poll();
+      this.startDelayTimer = setTimeout(() => {
+        this.startDelayTimer = null;
+        if (this.isPolling) this.poll();
+      }, 5000);
     } else {
       logger.debug(`Polling subscriber added (count: ${this.subscriberCount})`);
     }
@@ -130,6 +134,10 @@ export class AgentPollingService {
   public stop(): void {
     this.subscriberCount = Math.max(0, this.subscriberCount - 1);
     if (this.subscriberCount === 0) {
+      if (this.startDelayTimer) {
+        clearTimeout(this.startDelayTimer);
+        this.startDelayTimer = null;
+      }
       if (this.pollingTimer) {
         clearTimeout(this.pollingTimer);
         this.pollingTimer = null;

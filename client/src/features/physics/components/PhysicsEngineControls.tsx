@@ -135,13 +135,16 @@ export function PhysicsEngineControls() {
         const response = await unifiedApiClient.get('/api/analytics/gpu-metrics');
         setGpuMetrics(response.data);
       } catch (error) {
-        
+
       }
     };
 
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 2000);
-    return () => clearInterval(interval);
+    const delay = setTimeout(() => {
+      fetchMetrics();
+      interval = setInterval(fetchMetrics, 10000);
+    }, 3000);
+    let interval: ReturnType<typeof setInterval>;
+    return () => { clearTimeout(delay); clearInterval(interval); };
   }, []);
 
   

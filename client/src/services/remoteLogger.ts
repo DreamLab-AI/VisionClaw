@@ -21,6 +21,8 @@ class RemoteLogger {
   private consecutiveFailures: number = 0;
   private maxConsecutiveFailures: number = 3; // Auto-disable after 3 failures
 
+  private initialized: boolean = false;
+
   constructor() {
     // Check if remote logging is disabled via environment
     const remoteLoggingDisabled = import.meta?.env?.VITE_REMOTE_LOGGING_DISABLED === 'true';
@@ -32,7 +34,21 @@ class RemoteLogger {
 
     this.serverEndpoint = `${apiUrl}/api/client-logs`;
 
-    if (this.enabled) {
+    // Defer console interception and flush timer until after initial page load
+    // to avoid competing with Vite chunk loading for browser connections.
+    if (this.enabled && typeof window !== 'undefined') {
+      const init = () => {
+        if (this.initialized) return;
+        this.initialized = true;
+        this.startFlushTimer();
+        this.interceptConsole();
+      };
+      if (document.readyState === 'complete') {
+        setTimeout(init, 2000);
+      } else {
+        window.addEventListener('load', () => setTimeout(init, 2000));
+      }
+    } else if (this.enabled) {
       this.startFlushTimer();
       this.interceptConsole();
     }
@@ -330,10 +346,11 @@ export const remoteLogger = new RemoteLogger();
 // Export for convenience
 export const createRemoteLogger = (namespace: string) => remoteLogger.createLogger(namespace);
 
-// Log XR info on load
+// Log XR info after app is fully loaded
 if (typeof window !== 'undefined') {
-  
-  setTimeout(() => {
-    remoteLogger.logXRInfo();
-  }, 1000);
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      remoteLogger.logXRInfo();
+    }, 5000);
+  });
 }

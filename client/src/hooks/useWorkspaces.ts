@@ -58,6 +58,7 @@ export const useWorkspaces = (options: UseWorkspacesOptions = {}) => {
   const cacheRef = useRef<WorkspaceCache | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const hasFetchedRef = useRef(false);
+  const wsReconnectAttemptsRef = useRef(0);
 
   
   const isValidCache = useCallback((cache: WorkspaceCache | null): boolean => {
@@ -368,6 +369,7 @@ export const useWorkspaces = (options: UseWorkspacesOptions = {}) => {
 
         wsRef.current.onopen = () => {
           logger.info('Workspace WebSocket connected');
+          wsReconnectAttemptsRef.current = 0;
         };
 
         wsRef.current.onmessage = (event) => {
@@ -404,9 +406,12 @@ export const useWorkspaces = (options: UseWorkspacesOptions = {}) => {
         wsRef.current.onclose = (event) => {
           logger.info('Workspace WebSocket disconnected', { code: event.code, reason: event.reason });
 
-
-          if (event.code !== 1000) {
-            setTimeout(connectWebSocket, 5000);
+          const maxRetries = 5;
+          if (event.code !== 1000 && wsReconnectAttemptsRef.current < maxRetries) {
+            const attempt = wsReconnectAttemptsRef.current;
+            wsReconnectAttemptsRef.current = attempt + 1;
+            const delay = Math.min(5000 * Math.pow(2, attempt), 40000);
+            setTimeout(connectWebSocket, delay);
           }
         };
 

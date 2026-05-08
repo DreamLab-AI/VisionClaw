@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { createLogger } from '../utils/loggerConfig';
 
 const logger = createLogger('ApplicationModeContext');
@@ -67,11 +67,11 @@ export const ApplicationModeProvider: React.FC<ApplicationModeProviderProps> = (
     };
   }, [mode]);
 
-  const handleModeChange = (newMode: ApplicationMode) => {
+  const handleModeChange = useCallback((newMode: ApplicationMode) => {
     logger.info(`Changing mode: ${mode} -> ${newMode}`);
     setPreviousMode(mode);
     setMode(newMode);
-  };
+  }, [mode]);
     
   const getLayoutSettings = (): LayoutSettings => {
     switch (mode) {
@@ -104,14 +104,14 @@ export const ApplicationModeProvider: React.FC<ApplicationModeProviderProps> = (
 
   const layoutSettings = useMemo(() => getLayoutSettings(), [mode]);
 
-  const contextValue: ApplicationModeContextValue = {
+  const contextValue = useMemo<ApplicationModeContextValue>(() => ({
     mode,
     previousMode,
     isXRMode: mode === 'xr',
     isMobileView,
     setMode: handleModeChange,
     layoutSettings
-  };
+  }), [mode, previousMode, isMobileView, handleModeChange, layoutSettings]);
 
   return (
     <ApplicationModeContext.Provider value={contextValue}>

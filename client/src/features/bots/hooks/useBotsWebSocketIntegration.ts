@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { botsWebSocketIntegration } from '../services/BotsWebSocketIntegration';
 import { createLogger } from '../../../utils/loggerConfig';
 import { agentTelemetry } from '../../../telemetry/AgentTelemetry';
@@ -14,8 +14,10 @@ export function useBotsWebSocketIntegration() {
     logseq: false,
     overall: false
   });
+  const prevStatusRef = useRef({ mcp: false, logseq: false, overall: false });
 
   useEffect(() => {
+    agentTelemetry.enable();
     logger.info('Initializing bots WebSocket integration (binary position updates only)');
 
     
@@ -36,11 +38,11 @@ export function useBotsWebSocketIntegration() {
     
     const updateOverall = setInterval(() => {
       const status = botsWebSocketIntegration.getConnectionStatus();
-      setConnectionStatus({
-        mcp: status.mcp,
-        logseq: status.logseq,
-        overall: status.overall
-      });
+      const prev = prevStatusRef.current;
+      if (prev.mcp !== status.mcp || prev.logseq !== status.logseq || prev.overall !== status.overall) {
+        prevStatusRef.current = { mcp: status.mcp, logseq: status.logseq, overall: status.overall };
+        setConnectionStatus({ mcp: status.mcp, logseq: status.logseq, overall: status.overall });
+      }
     }, 2000);
 
     

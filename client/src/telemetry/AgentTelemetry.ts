@@ -45,9 +45,16 @@ export class AgentTelemetryService {
   private errorHandler = () => { this.metrics.errorCount++; };
   private rejectionHandler = () => { this.metrics.errorCount++; };
 
+  private enabled = false;
+
   private constructor() {
     this.sessionId = this.generateSessionId();
     this.metrics = this.initializeMetrics();
+  }
+
+  enable() {
+    if (this.enabled) return;
+    this.enabled = true;
     this.setupPerformanceObserver();
     this.startAutoUpload();
   }
@@ -330,6 +337,7 @@ export class AgentTelemetryService {
     }
     window.removeEventListener('error', this.errorHandler);
     window.removeEventListener('unhandledrejection', this.rejectionHandler);
+    this.enabled = false;
   }
 }
 

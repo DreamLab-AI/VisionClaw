@@ -53,20 +53,15 @@ export function setupFilterSubscription(
     'nodeFilter.filterMode',
   ] as const;
 
-  filterPaths.forEach(path => {
-    const store = useSettingsStore.getState();
-    if (store.subscribe) {
-      const unsub = store.subscribe(path as Parameters<typeof store.subscribe>[0], () => {
-        handleFilterChange(get);
-      });
-      filterUnsubscribers.push(unsub);
-    }
-  });
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const zustandUnsub = useSettingsStore.subscribe((state) => {
-    const nodeFilter = state.settings?.nodeFilter;
-    const wsState = get();
-    if (nodeFilter && wsState.isConnected) {
+  const debouncedFilterChange = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
+      const wsState = get();
+      if (!nodeFilter || !wsState.isConnected) return;
       const prev = lastFilterSnapshot;
       if (
         !prev ||
@@ -87,31 +82,23 @@ export function setupFilterSubscription(
         };
         wsState.sendFilterUpdate(lastFilterSnapshot);
       }
+    }, 50);
+  };
+
+  filterPaths.forEach(path => {
+    const store = useSettingsStore.getState();
+    if (store.subscribe) {
+      const unsub = store.subscribe(path as Parameters<typeof store.subscribe>[0], debouncedFilterChange);
+      filterUnsubscribers.push(unsub);
     }
   });
+
+  const zustandUnsub = useSettingsStore.subscribe(debouncedFilterChange);
   filterUnsubscribers.push(zustandUnsub);
 
   logger.info('Filter subscription set up - changes will sync to server');
 }
 
-function handleFilterChange(
-  get: () => { isConnected: boolean; sendFilterUpdate: (filter: FilterUpdateParams) => void },
-) {
-  const state = get();
-  if (!state.isConnected) return;
-
-  const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
-  if (nodeFilter) {
-    state.sendFilterUpdate({
-      enabled: nodeFilter.enabled,
-      qualityThreshold: nodeFilter.qualityThreshold,
-      authorityThreshold: nodeFilter.authorityThreshold,
-      filterByQuality: nodeFilter.filterByQuality,
-      filterByAuthority: nodeFilter.filterByAuthority,
-      filterMode: nodeFilter.filterMode,
-    });
-  }
-}
 
 // ── Force refresh ──────────────────────────────────────────────────────
 

@@ -99,6 +99,8 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
   const wsRef = useRef<WebSocket | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const initializeWebSocketRef = useRef<() => void>(() => {});
 
   
   const fetchStatus = useCallback(async (): Promise<HybridSystemStatus | null> => {
@@ -122,7 +124,7 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
     }
   }, []);
 
-  
+
   const initializeWebSocket = useCallback(() => {
     if (!opts.enableWebSocket) return;
 
@@ -136,9 +138,10 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
       ws.onopen = () => {
         logger.info('WebSocket connected successfully');
         setError(null);
+        reconnectAttemptsRef.current = 0;
         setReconnectAttempts(0);
 
-        
+
         ws.send(JSON.stringify({ type: 'request_status' }));
       };
 
@@ -192,13 +195,17 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
         logger.warn('WebSocket closed', { code: event.code, reason: event.reason });
         wsRef.current = null;
 
-        if (opts.autoReconnect && reconnectAttempts < (opts.maxReconnectAttempts || 5)) {
-          setReconnectAttempts(prev => prev + 1);
+        const maxAttempts = opts.maxReconnectAttempts || 3;
+        if (opts.autoReconnect && reconnectAttemptsRef.current < maxAttempts) {
+          const attempt = reconnectAttemptsRef.current;
+          reconnectAttemptsRef.current = attempt + 1;
+          setReconnectAttempts(attempt + 1);
+          const delay = Math.min(2000 * Math.pow(2, attempt), 8000);
 
           reconnectTimeoutRef.current = setTimeout(() => {
-            logger.info(`Attempting WebSocket reconnection`, { attempt: reconnectAttempts + 1, maxAttempts: opts.maxReconnectAttempts });
-            initializeWebSocket();
-          }, opts.reconnectDelay || 5000);
+            logger.info(`Attempting WebSocket reconnection`, { attempt: attempt + 1, maxAttempts });
+            initializeWebSocketRef.current();
+          }, delay);
         } else {
           setError('WebSocket connection lost and max reconnect attempts reached');
         }
@@ -208,7 +215,9 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
       logger.error('Failed to initialize WebSocket:', err);
       setError('Failed to initialize WebSocket connection');
     }
-  }, [opts.enableWebSocket, opts.autoReconnect, opts.reconnectDelay, opts.maxReconnectAttempts, reconnectAttempts]);
+  }, [opts.enableWebSocket, opts.autoReconnect, opts.maxReconnectAttempts]);
+
+  initializeWebSocketRef.current = initializeWebSocket;
 
   
   const startPolling = useCallback(() => {
@@ -265,15 +274,16 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
   
   const reconnect = useCallback(() => {
     cleanup();
+    reconnectAttemptsRef.current = 0;
     setReconnectAttempts(0);
     setError(null);
 
     if (opts.enableWebSocket) {
-      initializeWebSocket();
+      initializeWebSocketRef.current();
     } else {
       startPolling();
     }
-  }, [cleanup, opts.enableWebSocket, initializeWebSocket, startPolling]);
+  }, [cleanup, opts.enableWebSocket, startPolling]);
 
   
   const spawnSwarm = useCallback(async (
@@ -330,16 +340,17 @@ export const useHybridSystemStatus = (options: UseHybridSystemStatusOptions = {}
     }
   }, []);
 
-  
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (opts.enableWebSocket) {
-      initializeWebSocket();
+      initializeWebSocketRef.current();
     } else {
       startPolling();
     }
 
     return cleanup;
-  }, [opts.enableWebSocket, initializeWebSocket, startPolling, cleanup]);
+  }, [opts.enableWebSocket, startPolling, cleanup]);
 
   
   const isSystemHealthy = status.systemStatus === 'healthy';

@@ -464,18 +464,22 @@ export const useAgentNodes = () => {
       }
     };
 
-    // Poll at the configured interval
+    // Defer first poll so agent fetches don't compete with critical-path
+    // requests (graph data, WebSocket upgrade) for browser connection slots.
     const interval = pollInterval * 1000;
+    const deferMs = 3000;
+
+    const startId = setTimeout(() => {
+      pollAgents();
+      pollConnections();
+    }, deferMs);
 
     const timer = setInterval(() => {
       pollAgents();
       pollConnections();
     }, interval);
 
-    pollAgents();
-    pollConnections();
-
-    return () => clearInterval(timer);
+    return () => { clearTimeout(startId); clearInterval(timer); };
   }, [pollInterval]);
 
   return { agents, connections };

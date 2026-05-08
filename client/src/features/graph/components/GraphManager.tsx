@@ -529,6 +529,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     (s.settings as unknown as Record<string, Record<string, unknown>>)?.qualityGates?.layoutMode as string | undefined
   );
   const prevLayoutModeRef = useRef<string | undefined>(undefined);
+  const mountedRef = useRef(false);
   useEffect(() => {
     if (!layoutMode || layoutMode === prevLayoutModeRef.current) return;
     prevLayoutModeRef.current = layoutMode;
@@ -538,21 +539,27 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     activeLayoutModeRef.current = layoutMode;
     setLayoutTransitioning(true);
 
-    layoutApi.setMode(layoutMode, TRANSITION_MS).then(response => {
-      const { data } = response;
-      if (data.success && data.positions && data.positions.length > 0) {
-        startLayoutTransition(data.positions, data.transitionMs ?? TRANSITION_MS);
-      } else {
-        // API succeeded but no positions returned (forceDirected path).
-        // Null nodePositionsRef so the next useFrame tick repopulates it from the SAB,
-        // restoring physics worker ownership of positions.
-        nodePositionsRef.current = null;
+    const fire = () => {
+      layoutApi.setMode(layoutMode, TRANSITION_MS).then(response => {
+        const { data } = response;
+        if (data.success && data.positions && data.positions.length > 0) {
+          startLayoutTransition(data.positions, data.transitionMs ?? TRANSITION_MS);
+        } else {
+          nodePositionsRef.current = null;
+          setLayoutTransitioning(false);
+        }
+      }).catch(err => {
+        logger.warn('[GraphManager] layoutApi.setMode failed:', err);
         setLayoutTransitioning(false);
-      }
-    }).catch(err => {
-      logger.warn('[GraphManager] layoutApi.setMode failed:', err);
-      setLayoutTransitioning(false);
-    });
+      });
+    };
+
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      setTimeout(fire, 2000);
+    } else {
+      fire();
+    }
   }, [layoutMode, startLayoutTransition]);
 
 

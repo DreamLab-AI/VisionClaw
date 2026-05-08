@@ -87,10 +87,10 @@ function handleInitialGraphLoad(message: WebSocketMessage) {
   logger.info(`[WebSocket] Received initialGraphLoad with ${nodes.length} nodes, ${edges.length} edges`);
 
   const existingNodeCount = graphDataManager.nodeIdMap.size;
-  if (existingNodeCount > 0 && nodes.length < existingNodeCount) {
+  if (existingNodeCount > 0) {
     logger.info(
-      `[WebSocket] Skipping initialGraphLoad setGraphData: REST already loaded ${existingNodeCount} nodes, ` +
-      `WS only has ${nodes.length}. Positions will arrive via binary stream.`
+      `[WebSocket] Skipping initialGraphLoad setGraphData: REST already loaded ${existingNodeCount} nodes ` +
+      `(WS sent ${nodes.length} unfiltered). Positions will arrive via binary stream.`
     );
     emit('graphDataUpdated', {
       nodeCount: existingNodeCount,
