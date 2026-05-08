@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-08
 **Author:** Dr John O'Hare / Architecture Agent
-**Status:** G1-G7 Implemented — Phase 7 (convergence) and 5 structural items remain
+**Status:** G1-G7 + R1-R5 Implemented — only Phase 7 (GitHub REST deprecation) remains
 **Parent:** PRD-013-solid-git-ingest-surface.md
 
 ---
@@ -147,18 +147,16 @@ Remove the legacy GitHub REST API ingest path and require all knowledge sources 
 
 ---
 
-## Priority Order
+## Implementation Status
 
-| # | Item | Effort | Impact | Dependency |
-|---|------|--------|--------|------------|
-| 1 | R1: Broadcast wiring | 2h | Enables real-time broker UX | None |
-| 2 | R2: Type unification + persistence | 4h | Broker state survives restart | None |
-| 3 | R4: Push conflict notification | 3h | Operator visibility on write-back failures | None |
-| 4 | R3: Precedent auto-approval | 6h | Reduces broker fatigue at scale | R2 (needs persistence) |
-| 5 | Phase 7: GitHub REST deprecation | 2-3d | Eliminates ~3,000 lines of legacy code | None (parallel) |
-| 6 | R5: NIP-17 messaging | 4h | Nostr-native broker dialogue | Low priority |
-
-R1-R3 can ship in a single sprint. Phase 7 is a parallel track. R5 is nice-to-have.
+| # | Item | Status | Commit |
+|---|------|--------|--------|
+| R1 | Broadcast wiring | **Done** | `with_client_coordinator()` wired in main.rs |
+| R2 | Type unification + persistence | **Done** | `broker_case_projection.rs` + `with_repository()` wired |
+| R3 | Precedent auto-approval | **Done** | `PrecedentRegistry` in domain, auto-approve in BrokerActor |
+| R4 | Push conflict notification | **Done** | `is_conflict()` + classified errors in writeback_saga |
+| R5 | NIP-17 messaging | **Done** | `SignSealedDM` (kind 14) on ServerNostrActor |
+| Phase 7 | GitHub REST deprecation | **Planned** | ~2-3 days, not blocked by R1-R5 |
 
 ---
 
@@ -179,10 +177,10 @@ From PRD-013 §Open Questions, updated with current status:
 
 PRD-013 is fully closed when:
 
-- [ ] R1: Broker broadcasts reach clients in real-time
-- [ ] R2: Broker cases persist across restarts
-- [ ] R4: Push conflicts produce structured notifications
+- [x] R1: Broker broadcasts reach clients in real-time
+- [x] R2: Broker cases persist across restarts
+- [x] R3: Precedent auto-approval for qualifying enrichments
+- [x] R4: Push conflicts produce structured notifications
+- [x] R5: NIP-17 sealed DM capability for broker ↔ agent dialogue
 - [ ] Phase 7: `src/services/github/` directory deleted, all remotes use git-over-HTTP
 - [ ] All success metrics from PRD-013 §Success Metrics are measurable (dashboards or log queries exist)
-
-R3 and R5 are enhancements, not close-out blockers.
