@@ -1,77 +1,30 @@
 use crate::config::AppFullSettings;
+use crate::errors::{NetworkError, ParseError, VisionFlowError};
 use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
 use log::{error, info};
 use reqwest::{Client, StatusCode};
 use serde::Serialize;
-use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::utils::json::to_json;
 
-#[derive(Debug)]
-pub enum RAGFlowError {
-    ReqwestError(reqwest::Error),
-    StatusError(StatusCode, String),
-    ParseError(String),
-    IoError(std::io::Error),
+/// Helper to construct a `VisionFlowError::Network(HTTPError { .. })` from a status + message.
+fn ragflow_status_error(status: StatusCode, msg: String) -> VisionFlowError {
+    VisionFlowError::Network(NetworkError::HTTPError {
+        url: "ragflow".to_string(),
+        status: Some(status.as_u16()),
+        reason: msg,
+    })
 }
 
-impl Serialize for RAGFlowError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("RAGFlowError", 2)?;
-        match self {
-            RAGFlowError::ReqwestError(e) => {
-                state.serialize_field("type", "ReqwestError")?;
-                state.serialize_field("message", &e.to_string())?;
-            }
-            RAGFlowError::StatusError(status, msg) => {
-                state.serialize_field("type", "StatusError")?;
-                state.serialize_field("message", &format!("Status {}: {}", status, msg))?;
-            }
-            RAGFlowError::ParseError(msg) => {
-                state.serialize_field("type", "ParseError")?;
-                state.serialize_field("message", msg)?;
-            }
-            RAGFlowError::IoError(e) => {
-                state.serialize_field("type", "IoError")?;
-                state.serialize_field("message", &e.to_string())?;
-            }
-        }
-        state.end()
-    }
-}
-
-impl fmt::Display for RAGFlowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RAGFlowError::ReqwestError(e) => write!(f, "Reqwest error: {}", e),
-            RAGFlowError::StatusError(status, msg) => {
-                write!(f, "Status error ({}): {}", status, msg)
-            }
-            RAGFlowError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            RAGFlowError::IoError(e) => write!(f, "IO error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for RAGFlowError {}
-
-impl From<reqwest::Error> for RAGFlowError {
-    fn from(err: reqwest::Error) -> Self {
-        RAGFlowError::ReqwestError(err)
-    }
-}
-
-impl From<std::io::Error> for RAGFlowError {
-    fn from(err: std::io::Error) -> Self {
-        RAGFlowError::IoError(err)
-    }
+/// Helper to construct a `VisionFlowError::Parse(JSON { .. })` from a message string.
+fn ragflow_parse_error(msg: String) -> VisionFlowError {
+    VisionFlowError::Parse(ParseError::JSON {
+        input: "ragflow".to_string(),
+        reason: msg,
+    })
 }
 
 /// Result type for `send_chat_message`: either a buffered answer or a byte stream.
@@ -100,7 +53,7 @@ pub struct RAGFlowService {
 
 impl RAGFlowService {
     
-    pub async fn new(_settings: Arc<RwLock<AppFullSettings>>) -> Result<Self, RAGFlowError> {
+    pub async fn new(_settings: Arc<RwLock<AppFullSettings>>) -> Result<Self, VisionFlowError> {
         
         let client = Client::new();
         
@@ -112,7 +65,7 @@ impl RAGFlowService {
                 "[RAGFlowService::new] Failed to read RAGFLOW_API_KEY: {}",
                 e
             );
-            RAGFlowError::ParseError(format!(
+            ragflow_parse_error(format!(
                 "RAGFLOW_API_KEY environment variable not found or invalid: {}",
                 e
             ))
@@ -123,7 +76,7 @@ impl RAGFlowService {
                 "[RAGFlowService::new] Failed to read RAGFLOW_API_BASE_URL: {}",
                 e
             );
-            RAGFlowError::ParseError(format!(
+            ragflow_parse_error(format!(
                 "RAGFLOW_API_BASE_URL environment variable not found or invalid: {}",
                 e
             ))
@@ -134,7 +87,7 @@ impl RAGFlowService {
                 "[RAGFlowService::new] Failed to read RAGFLOW_AGENT_ID: {}",
                 e
             );
-            RAGFlowError::ParseError(format!(
+            ragflow_parse_error(format!(
                 "RAGFLOW_AGENT_ID environment variable not found or invalid: {}",
                 e
             ))
@@ -149,13 +102,13 @@ impl RAGFlowService {
             error!(
                 "[RAGFlowService::new] RAGFLOW_API_KEY is empty after loading from environment."
             );
-            return Err(RAGFlowError::ParseError(
+            return Err(ragflow_parse_error(
                 "RAGFLOW_API_KEY environment variable is empty".to_string(),
             ));
         }
         if base_url.is_empty() {
             error!("[RAGFlowService::new] RAGFLOW_API_BASE_URL is empty after loading from environment.");
-            return Err(RAGFlowError::ParseError(
+            return Err(ragflow_parse_error(
                 "RAGFLOW_API_BASE_URL environment variable is empty".to_string(),
             ));
         }
@@ -163,7 +116,7 @@ impl RAGFlowService {
             error!(
                 "[RAGFlowService::new] RAGFLOW_AGENT_ID is empty after loading from environment."
             );
-            return Err(RAGFlowError::ParseError(
+            return Err(ragflow_parse_error(
                 "RAGFLOW_AGENT_ID environment variable is empty".to_string(),
             ));
         }
@@ -178,7 +131,7 @@ impl RAGFlowService {
         })
     }
 
-    pub async fn create_session(&self, user_id: String) -> Result<String, RAGFlowError> {
+    pub async fn create_session(&self, user_id: String) -> Result<String, VisionFlowError> {
         info!("Creating session for user: {}", user_id);
         let url = format!(
             "{}/api/v1/agents/{}/sessions?user_id={}",
@@ -209,7 +162,7 @@ impl RAGFlowService {
                 Some(id) => Ok(id.to_string()),
                 None => {
                     error!("Failed to parse session ID from response: {:?}", result);
-                    Err(RAGFlowError::ParseError(
+                    Err(ragflow_parse_error(
                         "Failed to parse session ID".to_string(),
                     ))
                 }
@@ -220,7 +173,7 @@ impl RAGFlowService {
                 "Failed to create session. Status: {}, Error: {}",
                 status, error_message
             );
-            Err(RAGFlowError::StatusError(status, error_message))
+            Err(ragflow_status_error(status, error_message))
         }
     }
 
@@ -232,8 +185,8 @@ impl RAGFlowService {
         _doc_ids: Option<Vec<String>>, 
         stream: bool,
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<String, RAGFlowError>> + Send + 'static>>,
-        RAGFlowError,
+        Pin<Box<dyn Stream<Item = Result<String, VisionFlowError>> + Send + 'static>>,
+        VisionFlowError,
     > {
         info!("Sending message to session: {}", session_id);
         let url = format!(
@@ -289,24 +242,24 @@ impl RAGFlowService {
                                         {
                                             Ok(answer.to_string())
                                         } else {
-                                            Err(RAGFlowError::ParseError(
+                                            Err(ragflow_parse_error(
                                                 "No answer found in response".to_string(),
                                             ))
                                         }
                                     }
-                                    Err(e) => Err(RAGFlowError::ParseError(format!(
+                                    Err(e) => Err(ragflow_parse_error(format!(
                                         "Failed to parse JSON: {}, content: {}",
                                         e, json_str
                                     ))),
                                 }
                             } else {
-                                Err(RAGFlowError::ParseError(format!(
+                                Err(ragflow_parse_error(format!(
                                     "Invalid SSE format: {}",
                                     chunk_str
                                 )))
                             }
                         }
-                        Err(e) => Err(RAGFlowError::ReqwestError(e)),
+                        Err(e) => Err(VisionFlowError::from(e)),
                     }
                 });
 
@@ -320,7 +273,7 @@ impl RAGFlowService {
                     let stream = futures::stream::once(futures::future::ok(answer.to_string()));
                     Ok(Box::pin(stream))
                 } else {
-                    Err(RAGFlowError::ParseError(
+                    Err(ragflow_parse_error(
                         "No answer found in response".to_string(),
                     ))
                 }
@@ -331,14 +284,14 @@ impl RAGFlowService {
                 "Failed to send message. Status: {}, Error: {}",
                 status, error_message
             );
-            Err(RAGFlowError::StatusError(status, error_message))
+            Err(ragflow_status_error(status, error_message))
         }
     }
 
     pub async fn get_session_history(
         &self,
         session_id: String,
-    ) -> Result<serde_json::Value, RAGFlowError> {
+    ) -> Result<serde_json::Value, VisionFlowError> {
         let url = format!(
             "{}/api/v1/agents/{}/sessions?id={}",
             self.base_url.trim_end_matches('/'),
@@ -363,7 +316,7 @@ impl RAGFlowService {
                 "Failed to get session history. Status: {}, Error: {}",
                 status, error_message
             );
-            Err(RAGFlowError::StatusError(status, error_message))
+            Err(ragflow_status_error(status, error_message))
         }
     }
 
@@ -372,7 +325,7 @@ impl RAGFlowService {
         session_id: String,
         message: String,
         stream_preference: bool,
-    ) -> Result<ChatResponse, RAGFlowError> {
+    ) -> Result<ChatResponse, VisionFlowError> {
         info!(
             "Sending chat message to RAGFlow session: {}, stream_preference: {}",
             session_id, stream_preference
@@ -407,12 +360,12 @@ impl RAGFlowService {
                 "RAGFlow chat API error. Status: {}, Error: {}",
                 status, error_message
             );
-            return Err(RAGFlowError::StatusError(status, error_message));
+            return Err(ragflow_status_error(status, error_message));
         }
 
         if !stream_preference {
             let result: serde_json::Value = response.json().await.map_err(|e| {
-                RAGFlowError::ParseError(format!(
+                ragflow_parse_error(format!(
                     "Failed to parse non-streamed JSON response: {}",
                     e
                 ))
@@ -426,7 +379,7 @@ impl RAGFlowService {
                 .and_then(|ans| ans.as_str())
                 .map(|s| s.to_string())
                 .ok_or_else(|| {
-                    RAGFlowError::ParseError(
+                    ragflow_parse_error(
                         "Answer not found in non-streamed RAGFlow response".to_string(),
                     )
                 })?;

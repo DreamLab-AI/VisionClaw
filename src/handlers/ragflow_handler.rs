@@ -1,6 +1,6 @@
 use crate::handlers::validation_handler::ValidationService;
 use crate::models::ragflow_chat::{RagflowChatRequest, RagflowChatResponse};
-use crate::services::ragflow_service::{ChatResponse, RAGFlowError};
+use crate::services::ragflow_service::ChatResponse;
 use crate::types::speech::SpeechOptions;
 use crate::utils::validation::errors::DetailedValidationError;
 use crate::utils::validation::rate_limit::{extract_client_id, EndpointRateLimits, RateLimiter};
@@ -10,7 +10,7 @@ use crate::AppState;
 use actix_web::web::Bytes;
 use actix_web::web::ServiceConfig;
 use actix_web::HttpRequest;
-use actix_web::{web, HttpResponse, Responder, ResponseError, Result};
+use actix_web::{web, HttpResponse, Responder, Result};
 use futures::StreamExt;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -43,13 +43,6 @@ pub struct SendMessageRequest {
     pub stream: Option<bool>,
     pub session_id: Option<String>,
     pub enable_tts: Option<bool>,
-}
-
-// Implement ResponseError for RAGFlowError
-impl ResponseError for RAGFlowError {
-    fn error_response(&self) -> HttpResponse {
-        HttpResponse::InternalServerError().json(json!({"error": self.to_string()}))
-    }
 }
 
 pub async fn send_message(
