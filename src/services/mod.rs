@@ -29,7 +29,6 @@ pub mod edge_classifier;
 pub mod edge_type_physics;
 pub mod ontology_reasoner;
 pub mod ontology_enrichment_service;
-pub mod ontology_reasoning_service;
 pub mod ontology_pipeline_service;
 pub mod ontology_content_analyzer;
 pub mod ontology_file_cache;

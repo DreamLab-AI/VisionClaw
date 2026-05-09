@@ -5,5 +5,4 @@
 
 pub mod actors;
 pub mod physics;
-pub mod services;
 pub mod parser;

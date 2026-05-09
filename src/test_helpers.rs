@@ -288,13 +288,6 @@ pub fn create_test_enrichment_service() -> crate::services::ontology_enrichment_
     crate::services::ontology_enrichment_service::OntologyEnrichmentService::new(reasoner, classifier)
 }
 
-/// Create an `OntologyReasoningService` backed by a mock repository for unit testing.
-pub fn create_test_reasoning_service() -> crate::services::ontology_reasoning_service::OntologyReasoningService {
-    let engine = Arc::new(crate::adapters::whelk_inference_engine::WhelkInferenceEngine::new());
-    let repo = create_test_ontology_repo();
-    crate::services::ontology_reasoning_service::OntologyReasoningService::new(engine, repo)
-}
-
 // ---------------------------------------------------------------------------
 // Graph fixture factories
 // ---------------------------------------------------------------------------
