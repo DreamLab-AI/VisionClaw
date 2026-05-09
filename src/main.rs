@@ -49,7 +49,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use webxr::middleware::{RateLimit, TimeoutMiddleware};
+use webxr::middleware::{RateLimit, RateLimitConfig, TimeoutMiddleware};
 use webxr::utils::validation::middleware::SecurityHeaders;
 use webxr::telemetry::agent_telemetry::init_telemetry_logger;
 use webxr::utils::advanced_logging::init_advanced_logging;
@@ -911,12 +911,12 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api")
                     // H02: Global API rate limit — 120 req/min per client across all endpoints
-                    .wrap(RateLimit::per_minute(120))
+                    .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 120, burst_size: 20, ..Default::default() }))
                     // Client logs route - registered early to avoid scope conflicts
                     .route("/client-logs", web::post().to(client_log_handler::handle_client_logs))
                     .service(
                         web::scope("/settings")
-                            .wrap(RateLimit::per_minute(60))
+                            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 60, burst_size: 10, ..Default::default() }))
                             .configure(webxr::settings::api::configure_routes)
                     )
                     .configure(api_handler::config)

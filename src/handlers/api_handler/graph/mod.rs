@@ -869,11 +869,11 @@ pub async fn get_graph_positions(
 /// (rate-limited) because they expose positions/notifications, not
 /// ownership-scoped content. Writes continue to require `authenticated()`.
 pub fn config(cfg: &mut web::ServiceConfig) {
-    use crate::middleware::{RateLimit, RequireAuth};
+    use crate::middleware::{RateLimit, RateLimitConfig, RequireAuth};
 
     cfg.service(
         web::scope("/graph")
-            .wrap(RateLimit::per_minute(600))  // 600 req/min for public reads
+            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 600, burst_size: 100, ..Default::default() }))  // 600 req/min for public reads
             // Ownership-aware read — optional auth: anonymous gets public-only,
             // signed gets public + own-private. Handler-side filter enforced.
             .service(
@@ -892,7 +892,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(
         web::scope("/graph")
             .wrap(RequireAuth::authenticated())  // Write operations require auth
-            .wrap(RateLimit::per_minute(60))     // 60 req/min for writes
+            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 60, burst_size: 10, ..Default::default() }))     // 60 req/min for writes
             .route("/update", web::post().to(update_graph))
             .route("/refresh", web::post().to(refresh_graph))
     );

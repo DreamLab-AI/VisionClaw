@@ -13,7 +13,7 @@ use actix_web::{web, HttpResponse, Result as ActixResult};
 use log::{debug, error, info, warn};
 use serde_json::json;
 use validator::Validate;
-use crate::middleware::{RequireAuth, RateLimit};
+use crate::middleware::{RequireAuth, RateLimit, RateLimitConfig};
 use crate::{ok_json, created_json};
 
 use crate::utils::actor_timeout::{send_with_default_timeout, ActorTimeoutError};
@@ -33,7 +33,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/workspace")
             .wrap(RequireAuth::authenticated())
-            .wrap(RateLimit::per_minute(60))
+            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 60, burst_size: 10, ..Default::default() }))
             .route("/list", web::get().to(list_workspaces))
             .route("/create", web::post().to(create_workspace))
             .route("/count", web::get().to(get_workspace_count))

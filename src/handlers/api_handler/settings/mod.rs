@@ -366,11 +366,11 @@ pub async fn load_profile(
 
 /// SECURITY: Settings endpoints require authentication (read-only public, write requires auth)
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    use crate::middleware::{RateLimit, RequireAuth};
+    use crate::middleware::{RateLimit, RateLimitConfig, RequireAuth};
 
     cfg.service(
         web::scope("/settings")
-            .wrap(RateLimit::per_minute(100))  // Rate limit: 100 requests/min for public reads
+            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 100, burst_size: 17, ..Default::default() }))  // Rate limit: 100 requests/min for public reads
             // Read operations - public with rate limiting
             .route("/physics", web::get().to(get_physics_settings))
             .route("/constraints", web::get().to(get_constraint_settings))
@@ -381,7 +381,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     .service(
         web::scope("/settings")
             .wrap(RequireAuth::authenticated())  // Write operations require auth
-            .wrap(RateLimit::per_minute(30))     // Rate limit: 30 requests/min for writes
+            .wrap(RateLimit::new(RateLimitConfig { requests_per_minute: 30, burst_size: 5, ..Default::default() }))     // Rate limit: 30 requests/min for writes
             .route("/physics", web::put().to(update_physics_settings))
             .route("/constraints", web::put().to(update_constraint_settings))
             .route("/rendering", web::put().to(update_rendering_settings))
