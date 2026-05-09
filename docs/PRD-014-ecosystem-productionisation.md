@@ -264,18 +264,17 @@ PRD-014 is complete when:
 | Dimension | Before | After | Delta | Evidence |
 |-----------|--------|-------|-------|----------|
 | **Security** | 7 CRITICAL, 11 HIGH | 0 CRITICAL, 3 HIGH | +22% | Auth guards on ALL mutating POST endpoints (`6969527`), SecurityHeaders, SOPS, CORS lockdown, WebAuthn fix, CSP, rate limiting |
-| **Testing** | 1,002 Rust tests, ~31 client test files | 1,199 Rust tests (+197), 59 client test files (+28) | +12% | 225+ new tests; 14 new client test files covering websocket, hooks, services, settings, bots |
-| **Code hygiene** | ~6,200 dead lines, 18 parallel impls | ~0 dead lines, 8 parallel impls, 3,972 lines tagged dormant | +12% | CQRS (-3,959), rate limit (-423), ontology (-1,220), error (-554), fastwebsockets (-606), D1 helpers extracted, forum todo!() fixed |
+| **Testing** | 1,002 Rust tests, ~31 client test files | 1,199 Rust tests (+197), 65 client test files (+34) | +12% | 225+ new tests; 20 new client test files covering websocket, hooks, services, settings, bots, graph, physics, telemetry |
+| **Code hygiene** | ~6,200 dead lines, 18 parallel impls | ~0 active dead lines, 8 parallel impls, 4,383 lines quarantined in innovations-dormant/ | +14% | CQRS (-3,959), rate limit (-423), ontology (-1,220), error (-554), fastwebsockets (-606), D1 helpers extracted, forum todo!() fixed, InnovationManager removed from startup (`0dd57c8`) |
 | **CI/CD** | 3/5 substrates | 5/5 substrates, 13 fixture validations | +5% | Forum 7-job CI, website 8-job CI, VisionClaw expanded to client-test + audit |
 | **Documentation** | 2 PRDs, 60 ADRs | 3 PRDs, 68 ADRs, 1 DDD context, 5 architecture maps, 5 runbooks | +5% | PRD-014/015, ADR-086-091, DDD code-hygiene, substrate maps, 4 new ops runbooks |
 | **Cross-substrate** | 0/3 fixtures synced, 0 shared crates | 3/3 synced, 2 shared crates (rate-limit, d1-helpers) | +5% | Fixture sync enforced, nostr-bbs-rate-limit + d1_helpers extracted |
 | **Observability** | No ecosystem health | GET /api/ecosystem/health aggregator live | +3% | Polls 4 substrates concurrently, healthy/degraded/unhealthy status (`6969527`) |
 | **Error handling** | 3 error types, no unified ResponseError | 1 unified type with HTTP status mapping | +2% | VisionFlowError implements ResponseError (15 variants) |
 
-**Estimated current readiness: ~86%.** The remaining 14% is:
+**Estimated current readiness: ~88%.** The remaining 12% is:
 - ADR-088 deeper auth refactor (CompositeAuthService trait): ~3%
 - Remaining parallel impls (PAR-06 WS consolidation, O1 NIP-98, O5 WAC): ~4%
-- Client dormant code removal (~3,972 lines tagged, awaiting UI impact verification): ~2%
 - MCP contributor tool async wiring (ToolDispatcher → async): ~2%
 - OpenTelemetry distributed tracing: ~2%
 - Web vitals / bundle optimization: ~1%
