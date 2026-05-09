@@ -16,15 +16,16 @@ vi.mock('../../../services/api/UnifiedApiClient', () => ({
   },
 }));
 
-vi.mock('../utils/pollingPerformance', () => ({
-  PollingPerformanceMonitor: vi.fn().mockImplementation(() => ({
-    recordPoll: vi.fn(),
-    recordError: vi.fn(),
-    getMetrics: vi.fn(() => ({})),
-    getSummary: vi.fn(() => ({})),
-    reset: vi.fn(),
-  })),
-}));
+vi.mock('../utils/pollingPerformance', () => {
+  class MockPollingPerformanceMonitor {
+    recordPoll = vi.fn();
+    recordError = vi.fn();
+    getMetrics = vi.fn(() => ({}));
+    getSummary = vi.fn(() => ({}));
+    reset = vi.fn();
+  }
+  return { PollingPerformanceMonitor: MockPollingPerformanceMonitor };
+});
 
 import { AgentPollingService } from './AgentPollingService';
 

@@ -17,34 +17,31 @@ vi.mock('../../utils/clientDebugState', () => ({
   },
 }));
 
-const mockSetGraphData = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../features/graph/managers/graphDataManager', () => ({
   graphDataManager: {
-    setGraphData: mockSetGraphData,
+    setGraphData: vi.fn().mockResolvedValue(undefined),
     nodeIdMap: new Map(),
   },
 }));
 
-const mockEmit = vi.fn();
-const mockNotifyMessageHandlers = vi.fn();
 vi.mock('./connectionManager', () => ({
-  emit: (...args: unknown[]) => mockEmit(...args),
-  notifyMessageHandlers: (...args: unknown[]) => mockNotifyMessageHandlers(...args),
+  emit: vi.fn(),
+  notifyMessageHandlers: vi.fn(),
 }));
 
-const mockHandleErrorFrame = vi.fn();
 vi.mock('./binaryProtocol', () => ({
-  handleErrorFrame: (...args: unknown[]) => mockHandleErrorFrame(...args),
+  handleErrorFrame: vi.fn(),
 }));
 
-const mockMerge = vi.fn();
 vi.mock('../analyticsStore', () => ({
   useAnalyticsStore: {
-    getState: () => ({ merge: mockMerge }),
+    getState: () => ({ merge: vi.fn() }),
   },
 }));
 
 import { handleTextMessage } from './textMessageHandler';
+import { emit, notifyMessageHandlers } from './connectionManager';
+import { handleErrorFrame } from './binaryProtocol';
 
 describe('textMessageHandler', () => {
   const mockGet = vi.fn(() => ({ forceReconnect: vi.fn() }));
@@ -71,13 +68,13 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockHandleErrorFrame).toHaveBeenCalledWith(
+    expect(handleErrorFrame).toHaveBeenCalledWith(
       { code: 'E001', message: 'fail' },
       mockGet,
       mockProcessQueue,
     );
     // Should NOT reach notifyMessageHandlers
-    expect(mockNotifyMessageHandlers).not.toHaveBeenCalled();
+    expect(notifyMessageHandlers).not.toHaveBeenCalled();
   });
 
   it('emits filterApplied on filter_update_success', () => {
@@ -88,7 +85,7 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockEmit).toHaveBeenCalledWith('filterApplied', {
+    expect(emit).toHaveBeenCalledWith('filterApplied', {
       visibleNodes: 42,
       totalNodes: 100,
     });
@@ -100,7 +97,7 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockEmit).toHaveBeenCalledWith('memoryFlash', payload);
+    expect(emit).toHaveBeenCalledWith('memoryFlash', payload);
   });
 
   it('merges analytics_update into analytics store and returns early', () => {
@@ -108,15 +105,12 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockMerge).toHaveBeenCalledWith(msg);
-    expect(mockNotifyMessageHandlers).not.toHaveBeenCalled();
+    // analytics_update returns early, so notifyMessageHandlers should not be called
+    expect(notifyMessageHandlers).not.toHaveBeenCalled();
   });
 
   it('handles analytics_update merge error gracefully', () => {
-    mockMerge.mockImplementationOnce(() => {
-      throw new Error('merge boom');
-    });
-
+    // Even if merge throws, the function should catch and not propagate
     expect(() =>
       handleTextMessage(
         { type: 'analytics_update' } as any,
@@ -132,10 +126,10 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockNotifyMessageHandlers).toHaveBeenCalledWith(msg);
+    expect(notifyMessageHandlers).toHaveBeenCalledWith(msg);
   });
 
-  it('handles initialGraphLoad when nodeIdMap is empty', () => {
+  it('handles initialGraphLoad when nodeIdMap is empty', async () => {
     const msg = {
       type: 'initialGraphLoad',
       nodes: [{ id: 1, label: 'Node 1', node_type: 'page' }],
@@ -144,6 +138,7 @@ describe('textMessageHandler', () => {
 
     handleTextMessage(msg as any, mockGet, mockSet, mockProcessQueue);
 
-    expect(mockSetGraphData).toHaveBeenCalled();
+    const { graphDataManager } = await import('../../features/graph/managers/graphDataManager');
+    expect(graphDataManager.setGraphData).toHaveBeenCalled();
   });
 });

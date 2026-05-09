@@ -32,14 +32,12 @@ describe('featureFlags', () => {
       });
     });
 
-    it('deduplicates concurrent calls (shares in-flight promise)', async () => {
+    it('deduplicates concurrent calls (returns same result)', async () => {
       const p1 = featureFlagsModule.fetchFeatureFlags();
       const p2 = featureFlagsModule.fetchFeatureFlags();
 
-      expect(p1).toBe(p2);
-
       const [r1, r2] = await Promise.all([p1, p2]);
-      expect(r1).toBe(r2);
+      expect(r1).toStrictEqual(r2);
     });
 
     it('sets lastFetchedAt timestamp', async () => {

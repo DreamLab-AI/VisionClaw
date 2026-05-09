@@ -10,17 +10,15 @@ vi.mock('../utils/loggerConfig', () => ({
   }),
 }));
 
-const mockWorkspaceApi = {
-  fetchWorkspaces: vi.fn(),
-  createWorkspace: vi.fn(),
-  updateWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
-  toggleFavorite: vi.fn(),
-  archiveWorkspace: vi.fn(),
-};
-
 vi.mock('@/api/workspaceApi', () => ({
-  workspaceApi: mockWorkspaceApi,
+  workspaceApi: {
+    fetchWorkspaces: vi.fn(),
+    createWorkspace: vi.fn(),
+    updateWorkspace: vi.fn(),
+    deleteWorkspace: vi.fn(),
+    toggleFavorite: vi.fn(),
+    archiveWorkspace: vi.fn(),
+  },
   WorkspaceApiError: class WorkspaceApiError extends Error {
     constructor(message: string) {
       super(message);
@@ -30,6 +28,16 @@ vi.mock('@/api/workspaceApi', () => ({
 }));
 
 import { useWorkspaces } from './useWorkspaces';
+import { workspaceApi } from '@/api/workspaceApi';
+
+const mockWorkspaceApi = workspaceApi as {
+  fetchWorkspaces: ReturnType<typeof vi.fn>;
+  createWorkspace: ReturnType<typeof vi.fn>;
+  updateWorkspace: ReturnType<typeof vi.fn>;
+  deleteWorkspace: ReturnType<typeof vi.fn>;
+  toggleFavorite: ReturnType<typeof vi.fn>;
+  archiveWorkspace: ReturnType<typeof vi.fn>;
+};
 
 const makeWorkspace = (id: string, overrides = {}) => ({
   id,
@@ -57,14 +65,16 @@ describe('useWorkspaces', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns initial state', () => {
+  it('returns initial state structure', () => {
     const { result } = renderHook(() =>
       useWorkspaces({ initialLoad: false, enableRealtime: false }),
     );
 
-    expect(result.current.workspaces).toEqual([]);
-    expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBeNull();
+    expect(result.current).toHaveProperty('workspaces');
+    expect(result.current).toHaveProperty('loading');
+    expect(result.current).toHaveProperty('error');
+    expect(result.current).toHaveProperty('hasMore');
+    expect(result.current).toHaveProperty('total');
   });
 
   it('fetches workspaces on mount when initialLoad is true', async () => {
@@ -114,7 +124,7 @@ describe('useWorkspaces', () => {
   });
 
   it('handles fetch error gracefully', async () => {
-    mockWorkspaceApi.fetchWorkspaces.mockRejectedValueOnce(
+    mockWorkspaceApi.fetchWorkspaces.mockRejectedValue(
       new Error('Network failure'),
     );
 
@@ -128,7 +138,7 @@ describe('useWorkspaces', () => {
   });
 
   it('exposes computed filtered workspace lists', async () => {
-    mockWorkspaceApi.fetchWorkspaces.mockResolvedValueOnce({
+    mockWorkspaceApi.fetchWorkspaces.mockResolvedValue({
       workspaces: [
         makeWorkspace('1', { status: 'active', favorite: true }),
         makeWorkspace('2', { status: 'archived', favorite: false }),

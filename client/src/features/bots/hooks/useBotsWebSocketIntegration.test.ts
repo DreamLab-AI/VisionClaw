@@ -24,12 +24,10 @@ vi.mock('../services/BotsWebSocketIntegration', () => ({
   },
 }));
 
-const mockLogAgentAction = vi.fn();
-const mockEnable = vi.fn();
 vi.mock('../../../telemetry/AgentTelemetry', () => ({
   agentTelemetry: {
-    enable: mockEnable,
-    logAgentAction: (...args: unknown[]) => mockLogAgentAction(...args),
+    enable: vi.fn(),
+    logAgentAction: vi.fn(),
   },
 }));
 
@@ -41,6 +39,7 @@ vi.mock('../../../telemetry/useTelemetry', () => ({
 }));
 
 import { useBotsWebSocketIntegration } from './useBotsWebSocketIntegration';
+import { agentTelemetry } from '../../../telemetry/AgentTelemetry';
 
 describe('useBotsWebSocketIntegration', () => {
   beforeEach(() => {
@@ -65,7 +64,7 @@ describe('useBotsWebSocketIntegration', () => {
   it('enables agent telemetry on mount', () => {
     renderHook(() => useBotsWebSocketIntegration());
 
-    expect(mockEnable).toHaveBeenCalled();
+    expect(agentTelemetry.enable).toHaveBeenCalled();
   });
 
   it('subscribes to mcp-connected and logseq-connected events', () => {
@@ -78,7 +77,7 @@ describe('useBotsWebSocketIntegration', () => {
   it('logs initialization telemetry action', () => {
     renderHook(() => useBotsWebSocketIntegration());
 
-    expect(mockLogAgentAction).toHaveBeenCalledWith(
+    expect(agentTelemetry.logAgentAction).toHaveBeenCalledWith(
       'websocket',
       'hook',
       'initialized_position_updates',
@@ -96,7 +95,7 @@ describe('useBotsWebSocketIntegration', () => {
 
     expect(unsubMcp).toHaveBeenCalled();
     expect(unsubLogseq).toHaveBeenCalled();
-    expect(mockLogAgentAction).toHaveBeenCalledWith('websocket', 'hook', 'cleanup');
+    expect(agentTelemetry.logAgentAction).toHaveBeenCalledWith('websocket', 'hook', 'cleanup');
   });
 
   it('polls connection status every 2 seconds', () => {

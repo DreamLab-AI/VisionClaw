@@ -6,60 +6,6 @@ import { useWorkerErrorStore } from '../store/workerErrorStore';
 import { webSocketService } from '../store/websocketStore';
 import { graphWorkerProxy } from '../features/graph/managers/graphWorkerProxy';
 import { graphDataManager } from '../features/graph/managers/graphDataManager';
-import { innovationManager } from '../features/graph/innovations/index';
-
-// Load and initialize all non-critical services via Promise.allSettled
-const loadServices = async (): Promise<void> => {
-  if (debugState.isEnabled()) {
-    logger.info('Initializing services...');
-  }
-
-  if (debugState.isEnabled()) {
-    logger.info('Using Nostr authentication system');
-  }
-
-  const serviceLoaders: Array<{ name: string; loader: () => Promise<void> }> = [
-    {
-      name: 'InnovationManager',
-      loader: async () => {
-        logger.info('Starting Innovation Manager initialization...');
-        const initPromise = innovationManager.initialize({
-          enableSync: true,
-          enableComparison: true,
-          enableAnimations: true,
-          enableAI: true,
-          enableAdvancedInteractions: true,
-          performanceMode: 'balanced',
-        });
-
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Innovation Manager initialization timeout')), 5000)
-        );
-
-        await Promise.race([initPromise, timeoutPromise]);
-
-        logger.info('Innovation Manager initialized successfully');
-        if (debugState.isEnabled()) {
-          const status = innovationManager.getStatus();
-          logger.debug('Innovation Manager status:', status);
-        }
-      },
-    },
-  ];
-
-  const results = await Promise.allSettled(
-    serviceLoaders.map((s) => s.loader())
-  );
-
-  results.forEach((result, i) => {
-    if (result.status === 'rejected') {
-      logger.warn(
-        `Non-critical service "${serviceLoaders[i].name}" failed:`,
-        result.reason
-      );
-    }
-  });
-}
 
 const logger = createLogger('AppInitializer');
 
@@ -74,11 +20,6 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ onInitialized, onError 
   useEffect(() => {
     const initApp = async () => {
       const t0 = performance.now();
-
-      // Innovation Manager is non-critical — fire and forget
-      loadServices().catch(e => logger.warn('loadServices background error:', e));
-
-      logger.debug(`+${((performance.now() - t0) / 1000).toFixed(1)}s  loadServices kicked off (non-blocking)`);
 
       // Set up retry handler for worker initialization
       const initializeWorker = async (): Promise<boolean> => {

@@ -23,7 +23,14 @@ vi.mock('lucide-react', () => ({
 }));
 
 vi.mock('../../../../rendering/rendererFactory', () => ({
-  rendererCapabilities: { webgpu: false, webgl2: true },
+  rendererCapabilities: {
+    webgpu: false,
+    webgl2: true,
+    backend: 'webgl2',
+    pixelRatio: 1.0,
+    maxTextureSize: 4096,
+    maxViewportDims: [4096, 4096],
+  },
   isWebGPURenderer: () => false,
 }));
 
@@ -43,42 +50,41 @@ vi.mock('../../../../store/settingsStore', () => ({
   },
 }));
 
-// Mock all design system components
-const createMockComponent = (name: string) => (props: any) =>
-  React.createElement('div', { 'data-testid': name, ...props }, props.children);
-
-vi.mock('@/features/design-system/components/Button', () => ({
-  Button: createMockComponent('button'),
-}));
-vi.mock('@/features/design-system/components/Card', () => ({
-  Card: createMockComponent('card'),
-  CardContent: createMockComponent('card-content'),
-  CardDescription: createMockComponent('card-desc'),
-  CardHeader: createMockComponent('card-header'),
-  CardTitle: createMockComponent('card-title'),
-}));
-vi.mock('@/features/design-system/components/Switch', () => ({
-  Switch: createMockComponent('switch'),
-}));
-vi.mock('@/features/design-system/components/Select', () => ({
-  Select: createMockComponent('select'),
-  SelectContent: createMockComponent('select-content'),
-  SelectItem: createMockComponent('select-item'),
-  SelectTrigger: createMockComponent('select-trigger'),
-  SelectValue: createMockComponent('select-value'),
-}));
-vi.mock('@/features/design-system/components/Slider', () => ({
-  Slider: createMockComponent('slider'),
-}));
-vi.mock('@/features/design-system/components/Badge', () => ({
-  Badge: createMockComponent('badge'),
-}));
-vi.mock('@/features/design-system/components/Separator', () => ({
-  Separator: createMockComponent('separator'),
-}));
-vi.mock('@/features/design-system/components/Label', () => ({
-  Label: createMockComponent('label'),
-}));
+// Mock all design system components - inline to avoid hoisting issues
+vi.mock('@/features/design-system/components/Button', () => {
+  const React = require('react');
+  return { Button: (props: any) => React.createElement('div', null, props.children) };
+});
+vi.mock('@/features/design-system/components/Card', () => {
+  const React = require('react');
+  const mc = (props: any) => React.createElement('div', null, props.children);
+  return { Card: mc, CardContent: mc, CardDescription: mc, CardHeader: mc, CardTitle: mc };
+});
+vi.mock('@/features/design-system/components/Switch', () => {
+  const React = require('react');
+  return { Switch: (props: any) => React.createElement('div', null) };
+});
+vi.mock('@/features/design-system/components/Select', () => {
+  const React = require('react');
+  const mc = (props: any) => React.createElement('div', null, props.children);
+  return { Select: mc, SelectContent: mc, SelectItem: mc, SelectTrigger: mc, SelectValue: mc };
+});
+vi.mock('@/features/design-system/components/Slider', () => {
+  const React = require('react');
+  return { Slider: (props: any) => React.createElement('div', null) };
+});
+vi.mock('@/features/design-system/components/Badge', () => {
+  const React = require('react');
+  return { Badge: (props: any) => React.createElement('span', null, props.children) };
+});
+vi.mock('@/features/design-system/components/Separator', () => {
+  const React = require('react');
+  return { Separator: () => React.createElement('hr') };
+});
+vi.mock('@/features/design-system/components/Label', () => {
+  const React = require('react');
+  return { Label: (props: any) => React.createElement('label', null, props.children) };
+});
 
 import { DashboardControlPanel } from './DashboardControlPanel';
 
