@@ -39,11 +39,8 @@ impl FromRequest for AuthenticatedUser {
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
         // Dev mode bypass: allow unauthenticated settings writes when explicitly enabled
         // SECURITY: Requires SETTINGS_AUTH_BYPASS=true in environment (only set in dev compose)
-        // SECURITY: Also triggers when DOCKER_ENV=1 + NODE_ENV=development (dev container)
         // SECURITY: Bypass is IGNORED when APP_ENV=production or RUST_ENV=production
-        let bypass_enabled = std::env::var("SETTINGS_AUTH_BYPASS").unwrap_or_default() == "true"
-            || (std::env::var("DOCKER_ENV").is_ok()
-                && std::env::var("NODE_ENV").unwrap_or_default() == "development");
+        let bypass_enabled = std::env::var("SETTINGS_AUTH_BYPASS").unwrap_or_default() == "true";
         if bypass_enabled {
             let is_production = std::env::var("APP_ENV").map(|v| v == "production").unwrap_or(false)
                 || std::env::var("RUST_ENV").map(|v| v == "production").unwrap_or(false);

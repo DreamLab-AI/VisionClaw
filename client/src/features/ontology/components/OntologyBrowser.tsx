@@ -172,7 +172,7 @@ function EntityDetails({
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0"
-                onClick={() => window.open(cls.iri, '_blank')}
+                onClick={() => window.open(cls.iri, '_blank', 'noopener,noreferrer')}
               >
                 <ExternalLink className="h-4 w-4" />
               </Button>

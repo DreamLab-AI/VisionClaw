@@ -8,6 +8,7 @@ import { SpaceMouseStatus } from '../components/SpaceMouseStatus';
 import { AudioInputService } from '../services/AudioInputService';
 import { graphDataManager, type GraphData } from '../features/graph/managers/graphDataManager';
 import { NodeDetailPanel } from '../features/graph/components/NodeDetailPanel';
+import FeatureErrorBoundary from '../components/FeatureErrorBoundary';
 import { createLogger } from '../utils/loggerConfig';
 
 const logger = createLogger('MainLayout');
@@ -69,22 +70,27 @@ const MainLayoutContent: React.FC = () => {
       </a>
 
       <section aria-label="Graph visualization canvas">
-        <GraphCanvasWrapper />
+        <FeatureErrorBoundary feature="Graph Canvas">
+          <GraphCanvasWrapper />
+        </FeatureErrorBoundary>
       </section>
 
       <nav id="control-panel" aria-label="Visualization controls">
-        <IntegratedControlPanel
-          showStats={showStats}
-          enableBloom={enableBloom}
-          onOrbitControlsToggle={() => {}}
-          botsData={botsData ?? undefined}
-          graphData={graphData}
-          otherGraphData={otherGraphData}
-        />
+        <FeatureErrorBoundary feature="Control Panel">
+          <IntegratedControlPanel
+            showStats={showStats}
+            enableBloom={enableBloom}
+            onOrbitControlsToggle={() => {}}
+            botsData={botsData ?? undefined}
+            graphData={graphData}
+            otherGraphData={otherGraphData}
+          />
+        </FeatureErrorBoundary>
       </nav>
 
-      {/* Node detail slide-in panel — driven by visionflow:node-selected events */}
-      <NodeDetailPanel />
+      <FeatureErrorBoundary feature="Node Detail Panel">
+        <NodeDetailPanel />
+      </FeatureErrorBoundary>
 
       {/* OntologyPanel is accessed via the control panel's ontology tab, not rendered as overlay */}
 

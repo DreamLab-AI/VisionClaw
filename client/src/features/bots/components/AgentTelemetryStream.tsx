@@ -140,7 +140,7 @@ export const AgentTelemetryStream: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('goap')}
-            onDoubleClick={() => window.open('https://goal.ruv.io/', '_blank')}
+            onDoubleClick={() => window.open('https://goal.ruv.io/', '_blank', 'noopener,noreferrer')}
             style={{
               background: activeTab === 'goap' ? '#ff8800' : 'transparent',
               color: activeTab === 'goap' ? '#000000' : '#fbbf24',

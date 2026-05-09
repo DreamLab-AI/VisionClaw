@@ -288,7 +288,7 @@ export const PodSettings: React.FC<PodSettingsProps> = ({ className }) => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => window.open(podInfo.podUrl, '_blank')}
+                    onClick={() => window.open(podInfo.podUrl, '_blank', 'noopener,noreferrer')}
                   >
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Open

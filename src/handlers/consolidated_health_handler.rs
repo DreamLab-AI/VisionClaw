@@ -1,5 +1,6 @@
 use crate::actors::messages::{GetGPUStatus, GetGraphData, GetMetadata, GetSettings};
 use crate::services::mcp_relay_manager::McpRelayManager;
+use crate::settings::auth_extractor::AuthenticatedUser;
 use crate::ok_json;
 use crate::AppState;
 use actix_web::{web, Error, HttpResponse, Result};
@@ -449,7 +450,7 @@ async fn check_physics_parameters(app_state: &web::Data<AppState>) -> String {
     }
 }
 
-pub async fn start_mcp_relay() -> Result<HttpResponse> {
+pub async fn start_mcp_relay(_user: AuthenticatedUser) -> Result<HttpResponse> {
     let manager = McpRelayManager::new();
     match manager.ensure_relay_running().await {
         Ok(_) => ok_json!(serde_json::json!({

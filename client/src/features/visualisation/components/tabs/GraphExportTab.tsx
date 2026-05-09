@@ -425,7 +425,7 @@ export const GraphExportTab: React.FC<GraphExportTabProps> = ({
                 <Button 
                   size="sm" 
                   variant="ghost"
-                  onClick={() => window.open(apiEndpoint, '_blank')}
+                  onClick={() => window.open(apiEndpoint, '_blank', 'noopener,noreferrer')}
                 >
                   <ExternalLink className="h-3 w-3" />
                 </Button>

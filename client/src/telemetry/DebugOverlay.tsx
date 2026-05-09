@@ -270,7 +270,7 @@ export const DebugOverlay: React.FC<DebugOverlayProps> = ({ visible, onToggle })
         </button>
         <button
           onClick={() => {
-            window.open('data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(agentTelemetry.getDebugOverlayData(), null, 2)));
+            window.open('data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(agentTelemetry.getDebugOverlayData(), null, 2)), '_blank', 'noopener,noreferrer');
           }}
           style={{
             padding: '5px 10px',

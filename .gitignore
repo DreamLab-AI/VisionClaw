@@ -126,8 +126,17 @@ docs/*.png
 .env.*
 !.env.example
 !.env_template
+secrets.env
+dotenv
 settings.local.toml
 certs
+
+# SOPS — encrypted file IS tracked, plaintext and binaries are NOT
+!secrets.enc.yaml
+scripts/sops
+scripts/age-bin
+scripts/age-keygen-bin
+scripts/age/
 
 # TypeScript
 *.tsbuildinfo

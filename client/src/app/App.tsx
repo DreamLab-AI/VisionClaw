@@ -18,6 +18,7 @@ import { DebugControlPanel } from '../components/DebugControlPanel';
 import { ConnectionWarning } from '../components/ConnectionWarning';
 import { useAutoBalanceNotifications } from '../hooks/useAutoBalanceNotifications';
 import ErrorBoundary from '../components/ErrorBoundary';
+import FeatureErrorBoundary from '../components/FeatureErrorBoundary';
 import { useNostrAuth } from '../hooks/useNostrAuth';
 import { OnboardingWizard } from '../components/OnboardingWizard';
 import { LoadingScreen } from '../components/LoadingScreen';
@@ -145,8 +146,7 @@ function App() {
   }
 
   // Allow bypass for visual testing via URL parameter (DEVELOPMENT ONLY)
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  const skipAuth = isDevelopment && (
+  const skipAuth = import.meta.env.DEV && (
     window.location.search.includes('skipAuth=true') ||
     window.location.search.includes('test=visual')
   );
@@ -209,14 +209,28 @@ function App() {
                 {initializationState === 'initialized' && (
                   <>
                     <ConnectionWarning />
-                    <CommandPalette />
-                    <DebugControlPanel />
+                    <FeatureErrorBoundary feature="Command Palette">
+                      <CommandPalette />
+                    </FeatureErrorBoundary>
+                    <FeatureErrorBoundary feature="Debug Panel">
+                      <DebugControlPanel />
+                    </FeatureErrorBoundary>
                     <WorkerErrorModal />
-                    {!route.startsWith('/enterprise') && <EnterpriseDrawerMount />}
-                    {/* Sprint 3: Judgment Broker inbox + migration event toast
-                        (ADR-048 / ADR-051). Feature-flag gated internally. */}
-                    {!route.startsWith('/enterprise') && <BrokerInbox compact />}
-                    {!route.startsWith('/enterprise') && <MigrationEventToast />}
+                    {!route.startsWith('/enterprise') && (
+                      <FeatureErrorBoundary feature="Enterprise Drawer">
+                        <EnterpriseDrawerMount />
+                      </FeatureErrorBoundary>
+                    )}
+                    {!route.startsWith('/enterprise') && (
+                      <FeatureErrorBoundary feature="Broker Inbox">
+                        <BrokerInbox compact />
+                      </FeatureErrorBoundary>
+                    )}
+                    {!route.startsWith('/enterprise') && (
+                      <FeatureErrorBoundary feature="Migration Toast">
+                        <MigrationEventToast />
+                      </FeatureErrorBoundary>
+                    )}
                   </>
                 )}
               </ApplicationModeProvider>

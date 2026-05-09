@@ -445,6 +445,7 @@ pub async fn handle_list_remotes(
 
 /// `POST /api/ingest/remotes` — register a new remote.
 pub async fn handle_create_remote(
+    _user: crate::settings::auth_extractor::AuthenticatedUser,
     registry: actix_web::web::Data<RemoteRegistry>,
     body: actix_web::web::Json<CreateRemoteRequest>,
 ) -> actix_web::HttpResponse {
@@ -486,6 +487,7 @@ pub async fn handle_create_remote(
 
 /// `DELETE /api/ingest/remotes/{id}` — remove a remote.
 pub async fn handle_delete_remote(
+    _user: crate::settings::auth_extractor::AuthenticatedUser,
     registry: actix_web::web::Data<RemoteRegistry>,
     path: actix_web::web::Path<String>,
 ) -> actix_web::HttpResponse {

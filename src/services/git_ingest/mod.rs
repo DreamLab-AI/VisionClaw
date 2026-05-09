@@ -461,6 +461,7 @@ fn collect_files_recursive(
 // ---------------------------------------------------------------------------
 
 use actix_web::{web, HttpResponse};
+use crate::settings::auth_extractor::AuthenticatedUser;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -469,6 +470,7 @@ pub struct TriggerSyncRequest {
 }
 
 async fn handle_trigger_sync(
+    _user: AuthenticatedUser,
     ingest: web::Data<Arc<GitIngestService>>,
     body: web::Json<TriggerSyncRequest>,
 ) -> HttpResponse {
@@ -534,6 +536,7 @@ async fn handle_get_remote(
 }
 
 async fn handle_writeback(
+    _user: AuthenticatedUser,
     saga: web::Data<Arc<WriteBackSaga>>,
     body: web::Json<WriteBackRequest>,
 ) -> HttpResponse {

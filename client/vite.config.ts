@@ -59,6 +59,8 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    // C06: Disable source maps in production to prevent source code exposure
+    sourcemap: mode !== 'production',
     // Target modern browsers for smaller bundles
     target: 'esnext',
     // Report compressed sizes

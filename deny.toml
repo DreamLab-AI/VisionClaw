@@ -1,0 +1,103 @@
+# cargo-deny configuration for VisionClaw
+#
+# Licence: VisionClaw workspace is MIT. The allowlist below permits MIT plus
+# standard Rust-ecosystem permissive licences. AGPL-3.0 is allowed via
+# exceptions for solid-pod-rs crates (owned by DreamLab). Other restrictive /
+# commercial licences remain denied via the "deny-by-default" posture: anything
+# not on the allowlist fails the licence check.
+#
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# VisionClaw targets Linux x86_64 natively; WASM is a secondary target for
+# the SSSP compute path. No macOS/Windows CI runners at present.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "wasm32-unknown-unknown" },
+]
+all-features = true
+
+[output]
+feature-depth = 1
+
+# -----------------------------------------------------------------------------
+# Advisories (RustSec database)
+# -----------------------------------------------------------------------------
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Deny all advisories by default. Any ignore must carry a rationale as a
+# comment above the id.
+yanked = "warn"
+ignore = [
+    # No active ignores. Add entries below with a dated rationale:
+    # "RUSTSEC-YYYY-NNNN", # <date> <reason> — reviewed by <handle>
+]
+
+# -----------------------------------------------------------------------------
+# Licences
+# -----------------------------------------------------------------------------
+[licenses]
+version = 2
+# Require every dependency to have a recognised licence.
+unused-allowed-license = "allow"
+confidence-threshold = 0.93
+allow = [
+    # VisionClaw itself
+    "MIT",
+    # Standard Rust-ecosystem permissive licences used by dependencies
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unlicense",
+    "CC0-1.0",
+    "Zlib",
+    "BSL-1.0",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "OpenSSL",
+]
+# AGPL-3.0 is allowed only for solid-pod-rs crates (DreamLab-owned).
+exceptions = [
+    { allow = ["AGPL-3.0-only"], crate = "solid-pod-rs" },
+    { allow = ["AGPL-3.0-only"], crate = "solid-pod-rs-nostr" },
+    { allow = ["AGPL-3.0-only"], crate = "solid-pod-rs-idp" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
+
+# -----------------------------------------------------------------------------
+# Bans
+# -----------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+# No blanket bans for VisionClaw — it legitimately uses openssl via
+# reqwest/native-tls for TLS termination and neo4rs.
+deny = []
+skip = []
+skip-tree = []
+
+# -----------------------------------------------------------------------------
+# Sources
+# -----------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []

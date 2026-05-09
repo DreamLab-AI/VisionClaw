@@ -161,6 +161,7 @@ const TOKEN_MAX_AGE_SECONDS: i64 = 60;
 /// Result of NIP-98 token validation
 #[derive(Debug, Clone)]
 pub struct Nip98ValidationResult {
+    pub event_id: String,
     pub pubkey: String,
     pub url: String,
     pub method: String,
@@ -193,6 +194,8 @@ pub enum Nip98ValidationError {
     InvalidSignature,
     #[error("Failed to verify event: {0}")]
     VerificationFailed(String),
+    #[error("NIP-98 token already used (event {0})")]
+    TokenReplayed(String),
 }
 
 /// Validate a NIP-98 token from an Authorization header
@@ -307,6 +310,7 @@ pub fn validate_nip98_token(
     );
 
     Ok(Nip98ValidationResult {
+        event_id: nip98_event.id,
         pubkey: nip98_event.pubkey,
         url,
         method,

@@ -251,7 +251,7 @@ export const ShareLinkManager: React.FC<ShareLinkManagerProps> = ({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => window.open(graph.shareUrl, '_blank')}
+                          onClick={() => window.open(graph.shareUrl, '_blank', 'noopener,noreferrer')}
                         >
                           <ExternalLink className="h-3 w-3 mr-1" />
                           View

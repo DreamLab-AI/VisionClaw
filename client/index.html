@@ -11,9 +11,9 @@
     <meta property="og:description" content="Advanced AI-powered multi-agent visualization platform for real-time graph analysis and intelligent data visualization" />
     <meta property="og:type" content="website" />
     <title>VisionFlow - AI Multi Agent Visualisation</title>
-    <!-- CSP for production only — dev mode needs unsafe-eval for Vite HMR.
-         Production CSP is enforced by nginx headers, not this meta tag. -->
-    <!--<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: ws: https://dl.polyhaven.org https://*.polyhaven.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dl.polyhaven.org; worker-src 'self' blob:; font-src 'self' data:;">-->
+    <!-- CSP: defense-in-depth alongside nginx headers. Vite dev server adds its own
+         permissive CSP via plugin, so this tag only affects production builds. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: ws: https://dl.polyhaven.org https://*.polyhaven.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dl.polyhaven.org; worker-src 'self' blob:; font-src 'self' data:;">
     <!-- Preconnect to API for faster initial requests -->
     <link rel="preconnect" href="/api" />
     <!-- DNS prefetch for external resources -->

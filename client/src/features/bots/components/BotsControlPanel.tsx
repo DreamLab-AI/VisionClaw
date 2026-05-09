@@ -135,14 +135,18 @@ export const BotsControlPanel: React.FC<BotsControlPanelProps> = ({
     swarmWsRef.current = ws;
 
     ws.onmessage = (event) => {
-      const statusUpdate = JSON.parse(event.data);
-      logger.info('Swarm status update:', statusUpdate);
+      try {
+        const statusUpdate = JSON.parse(event.data);
+        logger.info('Swarm status update:', statusUpdate);
 
-      if (statusUpdate.status === 'active') {
-        logger.info(`Swarm ${swarmId} is now active with ${statusUpdate.activeWorkers} workers`);
-      } else if (statusUpdate.status === 'failed') {
-        logger.error(`Swarm ${swarmId} failed:`, statusUpdate.error);
-        showSpawnError('swarm', statusUpdate.error);
+        if (statusUpdate.status === 'active') {
+          logger.info(`Swarm ${swarmId} is now active with ${statusUpdate.activeWorkers} workers`);
+        } else if (statusUpdate.status === 'failed') {
+          logger.error(`Swarm ${swarmId} failed:`, statusUpdate.error);
+          showSpawnError('swarm', statusUpdate.error);
+        }
+      } catch {
+        logger.warn('Failed to parse swarm status message');
       }
     };
 

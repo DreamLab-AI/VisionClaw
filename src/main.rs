@@ -50,6 +50,7 @@ use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use webxr::middleware::{RateLimit, TimeoutMiddleware};
+use webxr::utils::validation::middleware::SecurityHeaders;
 use webxr::telemetry::agent_telemetry::init_telemetry_logger;
 use webxr::utils::advanced_logging::init_advanced_logging;
 use webxr::utils::json::to_json;
@@ -81,7 +82,7 @@ fn validate_required_env_vars() -> Result<(), String> {
         .unwrap_or(false);
     if is_production {
         if std::env::var("ALLOW_INSECURE_DEFAULTS").is_ok() {
-            log::error!("ALLOW_INSECURE_DEFAULTS is set in production — this is a security risk");
+            return Err("ALLOW_INSECURE_DEFAULTS is not allowed in production".to_string());
         }
         if std::env::var("SETTINGS_AUTH_BYPASS")
             .map(|v| v == "true")
@@ -766,9 +767,9 @@ async fn main() -> std::io::Result<()> {
                             // Development mode: allow common local origins
                             "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://localhost:5173".to_string()
                         } else {
-                            // Production: require explicit configuration
-                            log::warn!("⚠️  CORS_ALLOWED_ORIGINS not set - using restrictive defaults");
-                            "http://localhost:3000".to_string()
+                            // H04: Production requires explicit CORS_ALLOWED_ORIGINS
+                            log::warn!("CORS_ALLOWED_ORIGINS not set — no cross-origin requests will be accepted");
+                            String::new()
                         }
                     });
 
@@ -824,7 +825,11 @@ async fn main() -> std::io::Result<()> {
             };
 
             let app = App::new()
+            // NEW-S5: Payload size limits to prevent memory-exhaustion attacks
+            .app_data(web::JsonConfig::default().limit(65_536))   // 64 KB JSON limit
+            .app_data(web::PayloadConfig::default().limit(65_536)) // 64 KB payload limit
             .wrap(middleware::Logger::default())
+            .wrap(SecurityHeaders)
             .wrap(cors)
             .wrap(middleware::Compress::default())
             .wrap(TimeoutMiddleware::new(Duration::from_secs(30)))
@@ -888,17 +893,25 @@ async fn main() -> std::io::Result<()> {
             .route("/ws/client-messages", web::get().to(client_messages_handler::websocket_client_messages))
             // PRD-008 §5.3: XR presence WebSocket — Quest 3 native APK multi-user sync
             .route("/ws/presence", web::get().to(ws_presence))
-            // OpenAPI/Swagger documentation
-            .service(
-                SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", webxr::openapi::ApiDoc::openapi())
-            )
+            // H03: Swagger UI gated to non-production environments
+            ;
+            let is_prod = std::env::var("APP_ENV").map(|v| v == "production").unwrap_or(false);
+            let app = if !is_prod {
+                app.service(
+                    SwaggerUi::new("/swagger-ui/{_:.*}")
+                        .url("/api-docs/openapi.json", webxr::openapi::ApiDoc::openapi())
+                )
+            } else {
+                app
+            }
             // Prometheus scrape endpoint at the server root (task #18).
             // Intentionally outside the /api scope so scrapers hit /metrics
             // by convention, with no auth or rate-limit wrapper.
             .configure(metrics_handler::configure_metrics_routes)
             .service(
                 web::scope("/api")
+                    // H02: Global API rate limit — 120 req/min per client across all endpoints
+                    .wrap(RateLimit::per_minute(120))
                     // Client logs route - registered early to avoid scope conflicts
                     .route("/client-logs", web::post().to(client_log_handler::handle_client_logs))
                     .service(
