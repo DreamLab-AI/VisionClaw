@@ -2217,75 +2217,28 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
                 msg.client_id, msg.enabled, msg.quality_threshold, msg.max_nodes
             );
 
-            // Recompute filtered nodes with updated criteria and send filtered graph to client
+            // Recompute which nodes pass the filter so the binary position
+            // stream only sends updates for visible nodes. Graph data itself
+            // is served via REST /api/graph/data — never over WebSocket.
             if let Some(graph_addr) = self.graph_service_addr.clone() {
                 let client_id = msg.client_id;
                 let manager_arc = self.client_manager.clone();
 
                 ctx.spawn(actix::fut::wrap_future::<_, Self>(async move {
                     use crate::actors::messages::GetGraphData;
-                    use crate::utils::socket_flow_messages::{InitialNodeData, InitialEdgeData};
 
                     match graph_addr.send(GetGraphData).await {
                         Ok(Ok(graph_data)) => {
                             if let Ok(mut manager) = manager_arc.write() {
                                 if let Some(client) = manager.get_client_mut(client_id) {
-                                    // Recompute which nodes pass the filter
                                     crate::actors::client_filter::recompute_filtered_nodes(
                                         &mut client.filter,
                                         &graph_data
                                     );
 
                                     let filtered_count = client.filter.filtered_node_ids.len();
-                                    info!("Recomputed filter for client {}: {} nodes visible",
+                                    info!("Recomputed filter for client {}: {} nodes visible (binary stream only)",
                                           client_id, filtered_count);
-
-                                    // Build filtered node data
-                                    let filtered_nodes: Vec<InitialNodeData> = graph_data
-                                        .nodes
-                                        .iter()
-                                        .filter(|n| client.filter.filtered_node_ids.contains(&n.id))
-                                        .map(|node| InitialNodeData {
-                                            id: node.id,
-                                            metadata_id: node.metadata_id.clone(),
-                                            label: node.label.clone(),
-                                            x: node.data.x,
-                                            y: node.data.y,
-                                            z: node.data.z,
-                                            vx: node.data.vx,
-                                            vy: node.data.vy,
-                                            vz: node.data.vz,
-                                            owl_class_iri: node.owl_class_iri.clone(),
-                                            node_type: node.node_type.clone(),
-                                            metadata: node.metadata.clone(),
-                                        })
-                                        .collect();
-
-                                    // Build filtered edge data (only edges where both endpoints pass filter)
-                                    let filtered_edges: Vec<InitialEdgeData> = graph_data
-                                        .edges
-                                        .iter()
-                                        .filter(|e| {
-                                            client.filter.filtered_node_ids.contains(&e.source) &&
-                                            client.filter.filtered_node_ids.contains(&e.target)
-                                        })
-                                        .map(|edge| InitialEdgeData {
-                                            id: edge.id.clone(),
-                                            source_id: edge.source,
-                                            target_id: edge.target,
-                                            weight: Some(edge.weight),
-                                            edge_type: edge.edge_type.clone(),
-                                        })
-                                        .collect();
-
-                                    info!("Sending filtered graph to client {}: {} nodes, {} edges",
-                                          client_id, filtered_nodes.len(), filtered_edges.len());
-
-                                    // Send filtered graph data to this specific client
-                                    client.addr.do_send(SendInitialGraphLoad {
-                                        nodes: filtered_nodes,
-                                        edges: filtered_edges,
-                                    });
                                 }
                             }
                         }
@@ -2294,7 +2247,6 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
                     }
                 }).map(|_, _, _| ()));
             } else {
-                // Clear filtered_node_ids if we can't fetch graph data
                 client.filter.filtered_node_ids.clear();
             }
 

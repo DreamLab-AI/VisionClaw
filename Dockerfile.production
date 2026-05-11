@@ -111,8 +111,11 @@ RUN mkdir -p /app/ptx && \
 FROM toolchain AS frontend
 
 WORKDIR /app/client
-ENV DOCKER_BUILD=1 \
-    VITE_JSS_WS_URL=wss://www.visionflow.info/solid/.notifications
+# ADR-053/056: JSS retired 2026-04-20. VITE_JSS_WS_URL removed — the
+# client falls back to null when the env var is absent, which disables
+# the legacy JSS WebSocket path. Solid Notifications are served by
+# solid-pod-rs natively once the Notifications Protocol endpoint is wired.
+ENV DOCKER_BUILD=1
 
 # Copy package manifests and scripts needed by preinstall hook
 COPY client/package.json client/package-lock.json ./

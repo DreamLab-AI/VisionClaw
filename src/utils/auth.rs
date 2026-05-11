@@ -6,12 +6,108 @@ use uuid::Uuid;
 use crate::services::metrics::MetricsRegistry;
 use crate::services::nostr_service::NostrService;
 
+use solid_pod_rs::auth::lws_cid::{LwsCidVerifier, ProfileFetcher};
+use solid_pod_rs::auth::self_signed::{ProofEnvelope, SelfSignedVerifier};
+
 /// Best-effort lookup of the shared metrics registry.
 /// Returns `None` if no registry is installed (e.g. unit tests) — call-sites
 /// should be tolerant of that and skip observation.
 fn metrics_of(req: &HttpRequest) -> Option<&Arc<MetricsRegistry>> {
     req.app_data::<web::Data<Arc<MetricsRegistry>>>()
         .map(|d| d.get_ref())
+}
+
+// ---------------------------------------------------------------------------
+// LWS-CID self-signed JWT support (W3C Controlled Identifier Document v1.0)
+// ---------------------------------------------------------------------------
+
+/// HTTP-based profile fetcher for LWS-CID JWT verification.
+///
+/// Resolves the signer's WebID profile document via HTTPS. The profile
+/// contains the `verificationMethod` public key used to validate the
+/// JWT signature. Uses `reqwest` with a 10-second timeout and 256 KiB
+/// size cap (matching solid-pod-rs's `MAX_PROFILE_SIZE`).
+struct HttpProfileFetcher {
+    client: reqwest::Client,
+}
+
+impl HttpProfileFetcher {
+    fn new() -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self { client }
+    }
+}
+
+#[async_trait::async_trait]
+impl ProfileFetcher for HttpProfileFetcher {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
+        let resp = self
+            .client
+            .get(url)
+            .header("Accept", "application/ld+json, application/json")
+            .send()
+            .await
+            .map_err(|e| format!("profile fetch failed: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!("profile fetch HTTP {}", resp.status()));
+        }
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| format!("profile body read: {e}"))?;
+        if bytes.len() > 256 * 1024 {
+            return Err("profile exceeds 256 KiB".into());
+        }
+        Ok(bytes.to_vec())
+    }
+}
+
+/// Build a singleton `LwsCidVerifier` backed by `HttpProfileFetcher`.
+///
+/// The verifier is constructed once per process (lazy static) and shared
+/// across all requests. It is `Send + Sync` and reference-counted.
+fn lws_cid_verifier() -> &'static LwsCidVerifier {
+    use std::sync::OnceLock;
+    static VERIFIER: OnceLock<LwsCidVerifier> = OnceLock::new();
+    VERIFIER.get_or_init(|| {
+        let fetcher = Arc::new(HttpProfileFetcher::new());
+        LwsCidVerifier::new(fetcher)
+    })
+}
+
+/// Attempt LWS-CID self-signed JWT verification on a Bearer token.
+///
+/// Returns `Ok(Some(did))` when the token is a valid LWS-CID JWT,
+/// `Ok(None)` when the token is not in LWS-CID format (so the caller
+/// should try the next auth method), or `Err(msg)` when the format
+/// matches but verification fails.
+async fn verify_lws_cid_bearer(
+    token: &str,
+    method: &str,
+    uri: &str,
+) -> Result<Option<String>, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let envelope = ProofEnvelope {
+        proof: token,
+        method,
+        uri,
+        now_unix: now,
+        expected_subject_hint: None,
+    };
+
+    match lws_cid_verifier().verify(&envelope).await {
+        Ok(Some(subject)) => Ok(Some(subject.did)),
+        Ok(None) => Ok(None),
+        Err(e) => Err(format!("LWS-CID verification failed: {e}")),
+    }
 }
 
 /// Fail-closed `APP_ENV` probe (ADR-055 H3).
@@ -200,6 +296,91 @@ pub async fn verify_access_with_body(
                     return Ok(pubkey);
                 }
                 // Somehow required level is higher than Admin — fall through.
+            }
+        }
+    }
+
+    // --- LWS-CID self-signed JWT auth (W3C Controlled Identifier) ---
+    //
+    // Accepts `Authorization: Bearer <JWT>` where the JWT is a compact
+    // JWS with a `kid` pointing to a URL#fragment (WebID profile
+    // verificationMethod). The LWS-CID verifier resolves the kid,
+    // fetches the profile, and validates the ES256K / ES256 / EdDSA
+    // signature.
+    //
+    // Returns Ok(None) for non-LWS-CID Bearer tokens (falls through to
+    // the legacy path below). Returns Err for tokens that look like
+    // LWS-CID but fail verification (fail-closed).
+    if let Some(auth_value) = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+    {
+        if let Some(bearer_token) = auth_value.strip_prefix("Bearer ") {
+            // Skip dev-session-token (handled above) and empty tokens.
+            if bearer_token != "dev-session-token" && !bearer_token.is_empty() {
+                let conn_info = req.connection_info();
+                let scheme = req.headers()
+                    .get("X-Forwarded-Proto")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_else(|| conn_info.scheme());
+                let host = req.headers()
+                    .get("X-Forwarded-Host")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_else(|| conn_info.host());
+                let uri = format!(
+                    "{}://{}{}",
+                    scheme,
+                    host,
+                    req.uri()
+                        .path_and_query()
+                        .map(|pq| pq.as_str())
+                        .unwrap_or("/")
+                );
+                let method = req.method().as_str();
+
+                match verify_lws_cid_bearer(bearer_token, method, &uri).await {
+                    Ok(Some(did)) => {
+                        info!(
+                            request_id = %request_id,
+                            did = %did,
+                            "LWS-CID JWT auth successful"
+                        );
+                        if let Some(m) = metrics_of(req) {
+                            m.auth_nip98_success_total.inc();
+                        }
+                        // LWS-CID authenticated users get Authenticated level;
+                        // power-user promotion requires NIP-98 or session.
+                        let user_level = AccessLevel::Authenticated;
+                        if user_level.has_permission(&required_level) {
+                            return Ok(did);
+                        } else {
+                            warn!(
+                                "LWS-CID user {} with level {:?} lacks required {:?}",
+                                did, user_level, required_level
+                            );
+                            return Err(HttpResponse::Forbidden()
+                                .body("Insufficient permissions for this operation"));
+                        }
+                    }
+                    Ok(None) => {
+                        // Not an LWS-CID token — fall through to NIP-98 / legacy.
+                        debug!(
+                            request_id = %request_id,
+                            "Bearer token is not LWS-CID format, trying other auth methods"
+                        );
+                    }
+                    Err(e) => {
+                        // Format matched but verification failed — reject.
+                        warn!("[{}] LWS-CID JWT verification failed: {}", request_id, e);
+                        if let Some(m) = metrics_of(req) {
+                            m.auth_nip98_failure_total.inc();
+                        }
+                        return Err(
+                            HttpResponse::Unauthorized().body(format!("LWS-CID auth failed: {e}"))
+                        );
+                    }
+                }
             }
         }
     }

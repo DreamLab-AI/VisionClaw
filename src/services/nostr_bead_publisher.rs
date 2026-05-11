@@ -232,7 +232,7 @@ impl NostrBeadPublisher {
         .param("event_id", event.id.to_string())
         .param("pubkey", event.pubkey.to_string())
         .param("kind", event.kind.as_u16() as i64)
-        .param("created_at", event.created_at.as_u64() as i64)
+        .param("created_at", event.created_at.as_secs() as i64)
         .param("bead_id", bead_id.to_string())
         .param("brief_id", brief_id.to_string())
         .param("debrief_path", debrief_path.to_string());

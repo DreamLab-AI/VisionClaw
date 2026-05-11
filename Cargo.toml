@@ -23,13 +23,16 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # ADR-053/056: solid-pod-rs — native Solid Pod library (JSS retired 2026-04-20).
 # Published to crates.io; consumed by src/handlers/solid_pod_handler.rs.
-solid-pod-rs = { version = "0.4.0-alpha.4", features = ["fs-backend", "memory-backend", "nip98-schnorr", "security-primitives", "did-nostr", "config-loader", "acl-origin", "webhook-signing"] }
+solid-pod-rs = { version = "0.4.0-alpha.7", features = ["fs-backend", "memory-backend", "nip98-schnorr", "security-primitives", "did-nostr", "config-loader", "acl-origin", "webhook-signing", "lws-cid"] }
 
 # PRD-013 G1: libgit2 bindings for git clone/fetch/push (Git Ingest Adapter)
 git2 = "0.19"
 
-# PRD-013 G2: DID resolver for did:nostr ↔ WebID resolution on remote registration
-solid-pod-rs-nostr = { version = "0.4.0-alpha.4", default-features = false }
+# PRD-013 G2: DID resolver — solid-pod-rs-nostr removed (zero Rust imports).
+# The DID document endpoint (/.well-known/did/nostr/{pubkey}.json) renders
+# Tier-1 documents inline via did_nostr_handler.rs. Re-add the dep if the
+# full resolver (relay probing, WebID bidirectional link verification) is
+# needed in the future.
 
 # Web framework and WebSocket
 actix-web = { version = "4.11.0", features = ["compress-zstd", "macros"] }
@@ -103,9 +106,9 @@ cust_core = { version = "0.1.1" }
 
 # HTTP client and API
 reqwest = { version = "0.12.23", features = ["json", "stream", "multipart"] }
-nostr-sdk = "0.43.0"
+nostr-sdk = "0.44"
 # PRD-008: direct secp256k1 access for the XR presence Schnorr challenge verifier.
-# Pinned to nostr-sdk 0.43's transitive version to avoid a duplicate compile.
+# Pinned to nostr-sdk 0.44's transitive secp256k1 version to avoid a duplicate compile.
 secp256k1 = { version = "0.29", features = ["rand", "global-context"] }
 
 # OpenAPI/Swagger documentation

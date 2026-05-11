@@ -482,7 +482,7 @@ impl CSPUtils {
             "Permissions-Policy",
             "geolocation=(), microphone=(), camera=()",
         );
-        headers.insert("Cross-Origin-Embedder-Policy", "require-corp");
+        headers.insert("Cross-Origin-Embedder-Policy", "credentialless");
         headers.insert("Cross-Origin-Opener-Policy", "same-origin");
 
         headers

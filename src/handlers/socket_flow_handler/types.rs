@@ -318,84 +318,18 @@ impl SocketFlowServer {
                         );
                     }
 
-                    // DEFAULT INITIAL LOAD SIZE - fresh clients receive sparse, metadata-rich dataset
-                    // Client can request more nodes later using filter settings
-                    const DEFAULT_INITIAL_NODE_LIMIT: usize = 200;
+                    // Graph data is served via REST /api/graph/data — NOT over WebSocket.
+                    // WebSocket carries only binary position/velocity frames and
+                    // lightweight JSON control messages (state_sync, filter_update_success,
+                    // analytics_update). Sending the full graph as JSON text over WS
+                    // caused ~2.3MB main-thread JSON parsing that locked the browser.
 
-                    // Send new InitialGraphLoad message with LIMITED node set for fast initial render
-                    if !graph_data.nodes.is_empty() || !graph_data.edges.is_empty() {
-                        use crate::utils::socket_flow_messages::{InitialNodeData, InitialEdgeData};
-                        use std::collections::HashSet;
-
-                        let mut sorted_nodes: Vec<&crate::models::node::Node> = graph_data
-                            .nodes
-                            .iter()
-                            .collect();
-
-                        // Sort by quality_score descending
-                        sorted_nodes.sort_by(|a, b| {
-                            let quality_a = graph_data.metadata.get(&a.metadata_id)
-                                .and_then(|m| m.quality_score)
-                                .unwrap_or(0.0);
-                            let quality_b = graph_data.metadata.get(&b.metadata_id)
-                                .and_then(|m| m.quality_score)
-                                .unwrap_or(0.0);
-                            quality_b.partial_cmp(&quality_a).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-
-                        let filtered_nodes: Vec<&crate::models::node::Node> = sorted_nodes
-                            .into_iter()
-                            .take(DEFAULT_INITIAL_NODE_LIMIT)
-                            .collect();
-
-                        let filtered_node_ids: HashSet<u32> = filtered_nodes.iter().map(|n| n.id).collect();
-
-                        let nodes: Vec<InitialNodeData> = filtered_nodes
-                            .iter()
-                            .map(|node| InitialNodeData {
-                                id: node.id,
-                                metadata_id: node.metadata_id.clone(),
-                                label: node.label.clone(),
-                                x: node.data.x,
-                                y: node.data.y,
-                                z: node.data.z,
-                                vx: node.data.vx,
-                                vy: node.data.vy,
-                                vz: node.data.vz,
-                                owl_class_iri: node.owl_class_iri.clone(),
-                                node_type: node.node_type.clone(),
-                                metadata: node.metadata.clone(),
-                            })
-                            .collect();
-
-                        // Only include edges where BOTH source and target are in filtered nodes
-                        let edges: Vec<InitialEdgeData> = graph_data
-                            .edges
-                            .iter()
-                            .filter(|edge| {
-                                filtered_node_ids.contains(&edge.source) && filtered_node_ids.contains(&edge.target)
-                            })
-                            .map(|edge| InitialEdgeData {
-                                id: edge.id.clone(),
-                                source_id: edge.source,
-                                target_id: edge.target,
-                                weight: Some(edge.weight),
-                                edge_type: edge.edge_type.clone(),
-                            })
-                            .collect();
-
-                        addr.do_send(crate::actors::messages::SendInitialGraphLoad { nodes: nodes.clone(), edges: edges.clone() });
-                        info!("Sent InitialGraphLoad: {} nodes (sparse from {} total), {} edges [limit: {}]",
-                              nodes.len(), graph_data.nodes.len(),
-                              edges.len(), DEFAULT_INITIAL_NODE_LIMIT);
-
-                        // Per ADR-061: raw u32 ids on the wire. Node-type
-                        // classification rides the JSON init payload above
-                        // (`SendInitialGraphLoad`), not flag bits.
+                    // Send an initial binary position snapshot so the client has
+                    // positions immediately after connecting (before the next GPU tick).
+                    if !graph_data.nodes.is_empty() {
                         let node_data: Vec<(u32, BinaryNodeData)> = graph_data
                             .nodes
                             .iter()
-                            .filter(|node| filtered_node_ids.contains(&node.id))
                             .map(|node| {
                                 (
                                     node.id,
@@ -413,7 +347,7 @@ impl SocketFlowServer {
                             .collect();
 
                         addr.do_send(super::actor_messages::BroadcastPositionUpdate(node_data.clone()));
-                        debug!("Sent initial node positions for {} limited nodes (binary)", node_data.len());
+                        info!("Sent initial binary position snapshot for {} nodes", node_data.len());
                     }
                 }
             }

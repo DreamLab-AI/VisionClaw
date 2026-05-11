@@ -17,6 +17,7 @@ use webxr::{
         socket_flow_handler::{socket_flow_handler, PreReadSocketSettings},
         speech_socket_handler::speech_socket_handler,
         validation_handler, workspace_handler,
+        pay_handler::{VcPayConfig, FsPaymentStore},
     },
     services::bead_lifecycle::BeadLifecycleOrchestrator,
     services::bead_store::NoopBeadStore,
@@ -754,6 +755,35 @@ async fn main() -> std::io::Result<()> {
     });
     info!("[ws-presence] XR presence registry + verifier initialised at /ws/presence");
 
+    // HTTP 402 Payment — Web Ledgers via solid-pod-rs payment types.
+    // Filesystem-backed ledger at PAY_LEDGER_DIR (default ./data/ledger).
+    let pay_config = VcPayConfig::from_env();
+    info!(
+        "[pay] Payment config: enabled={}, cost_sats={}, ledger_dir={}",
+        pay_config.enabled, pay_config.cost_sats, pay_config.ledger_dir.display()
+    );
+    let pay_store: Arc<FsPaymentStore> = match FsPaymentStore::new(&pay_config.ledger_dir) {
+        Ok(store) => Arc::new(store),
+        Err(e) => {
+            if pay_config.enabled {
+                error!("[pay] FsPaymentStore init failed with payments enabled: {e}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("payment store init failed: {e}"),
+                ));
+            } else {
+                warn!("[pay] FsPaymentStore init failed (payments disabled, continuing): {e}");
+                // Create a fallback store in a temp directory
+                Arc::new(
+                    FsPaymentStore::new(&std::env::temp_dir().join("vc-pay-fallback"))
+                        .expect("fallback payment store"),
+                )
+            }
+        }
+    };
+    let pay_config_data = web::Data::new(pay_config);
+    let pay_store_data = web::Data::new(pay_store);
+
     info!("Starting HTTP server on {}", bind_address);
 
     info!("main: All services and actors initialized. Configuring HTTP server.");
@@ -874,7 +904,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(git_ingest_data.clone())
             .app_data(git_ingest_registry_data.clone())
             .app_data(writeback_saga_data.clone())
-            .app_data(broker_actor_data.clone());
+            .app_data(broker_actor_data.clone())
+            // HTTP 402 payment gating (Web Ledgers / solid-pod-rs)
+            .app_data(pay_config_data.clone())
+            .app_data(pay_store_data.clone());
 
             // ADR-051: optional VisibilityTransitionService web::Data. When
             // absent (PodClient couldn't be constructed at startup), the
@@ -910,6 +943,12 @@ async fn main() -> std::io::Result<()> {
             // Intentionally outside the /api scope so scrapers hit /metrics
             // by convention, with no auth or rate-limit wrapper.
             .configure(metrics_handler::configure_metrics_routes)
+            // DID document endpoint at /.well-known/did/nostr/{pubkey}.json
+            // Outside /api scope — lives at the server root per W3C DID spec.
+            .configure(webxr::handlers::configure_did_nostr_routes)
+            // HTTP 402 payment gating at /pay/* — outside /api scope per
+            // Web Ledgers spec (webledgers.org). Gated by PAY_ENABLED env var.
+            .configure(webxr::handlers::configure_pay_routes)
             .service(
                 web::scope("/api")
                     // H02: Global API rate limit — 120 req/min per client across all endpoints

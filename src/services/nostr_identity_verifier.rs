@@ -2,7 +2,7 @@
 //!
 //! Implements the `(nonce || timestamp_us)` Schnorr verification path described
 //! in `docs/xr-godot-threat-model.md` §T-WS-1. Uses `secp256k1` directly (the
-//! same crate `nostr-sdk` 0.43 transitively depends on) so we share a single
+//! same crate `nostr-sdk` 0.44 transitively depends on) so we share a single
 //! global context and skip the extra layer of `nostr_sdk::Event` synthesis.
 
 use secp256k1::schnorr::Signature;

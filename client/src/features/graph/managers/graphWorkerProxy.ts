@@ -1,6 +1,6 @@
 
 
-import { wrap, Remote } from 'comlink';
+import { wrap, transfer, Remote } from 'comlink';
 import { GraphWorkerType, ForcePhysicsSettings } from '../workers/graph.worker';
 import type { NodeMetadata } from '../workers/graph.worker';
 import { createLogger } from '../../../utils/loggerConfig';
@@ -124,27 +124,32 @@ class GraphWorkerProxy {
       const maxNodes = 100000;
       const bufferSize = maxNodes * 4 * 4;
 
-      if (!self.crossOriginIsolated) {
-        logger.warn('Cross-origin isolation is NOT active. COOP/COEP headers may be missing or stripped. SharedArrayBuffer will be unavailable.');
+      const coiActive = typeof self !== 'undefined' && (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+      logger.info(`crossOriginIsolated: ${coiActive}, SharedArrayBuffer available: ${typeof SharedArrayBuffer !== 'undefined'}`);
+
+      if (!coiActive) {
+        logger.warn('Cross-origin isolation NOT active — COOP/COEP headers may be missing. ' +
+          'Falling back to Comlink message-passing (slower). ' +
+          'Check: nginx strips backend COEP, both sources emit credentialless, ' +
+          'and @vite_fallback named location repeats add_header COEP/COOP.');
       }
 
-      if (typeof SharedArrayBuffer !== 'undefined') {
+      // Gate SAB on both crossOriginIsolated AND constructor availability.
+      // Even when the constructor exists, it throws if isolation is not active.
+      if (coiActive && typeof SharedArrayBuffer !== 'undefined') {
         try {
-          logger.info('Setting up SharedArrayBuffer');
+          logger.info('Setting up SharedArrayBuffer (crossOriginIsolated=true)');
           this.sharedBuffer = new SharedArrayBuffer(bufferSize);
           this.sharedPositionView = new Float32Array(this.sharedBuffer);
           await this.workerApi.setupSharedPositions(this.sharedBuffer);
-          logger.info(`SharedArrayBuffer initialized: ${bufferSize} bytes`);
-          if (debugState.isEnabled()) {
-            logger.info(`Initialized SharedArrayBuffer: ${bufferSize} bytes for ${maxNodes} nodes`);
-          }
+          logger.info(`SharedArrayBuffer active: ${bufferSize} bytes for ${maxNodes} nodes`);
         } catch (sabError) {
-          logger.warn('SharedArrayBuffer construction failed, falling back to message passing:', sabError);
+          logger.warn('SharedArrayBuffer setup failed, falling back to message passing:', sabError);
           this.sharedBuffer = null;
           this.sharedPositionView = null;
         }
       } else {
-        logger.warn('SharedArrayBuffer not available, falling back to regular message passing');
+        logger.warn('SharedArrayBuffer skipped — using Comlink message-passing fallback');
       }
 
       this.isInitialized = true;
@@ -197,31 +202,24 @@ class GraphWorkerProxy {
 
   
   public async processBinaryData(data: ArrayBuffer): Promise<void> {
-    // All graph types process binary position data from the server.
-    // Server is the single source of truth for all node positions.
     if (!this.workerApi) {
       throw new Error('Worker not initialized');
     }
 
     try {
-      const positionArray = await this.workerApi.processBinaryData(data);
-      this.notifyPositionUpdateListeners(positionArray);
+      // Zero-copy transfer to worker. Worker writes positions to SAB (if active)
+      // and returns void — no Float32Array clone over the Comlink channel.
+      await this.workerApi.processBinaryData(transfer(data, [data]));
 
-      // When SharedArrayBuffer is unavailable, getPositionsSync() falls back to
-      // lastReceivedPositions. Fetch currentPositions (3-float-per-node format)
-      // from the worker so the renderer gets fresh positions without SAB.
+      // In non-SAB mode, fetch the latest positions as a fallback snapshot.
+      // SAB mode: renderer reads sharedPositionView directly — no extra round-trip.
       if (!this.sharedPositionView) {
         const currentPositions = await this.workerApi.getCurrentPositions();
         if (currentPositions && currentPositions.length > 0) {
           this.lastReceivedPositions = currentPositions;
         }
       }
-      // Reset consecutive errors on success
       this._consecutiveTickErrors = 0;
-
-      if (debugState.isDataDebugEnabled()) {
-        logger.debug(`Processed binary data: ${positionArray.length / 4} position updates`);
-      }
     } catch (error) {
       logger.error('Error processing binary data in worker:', error);
       throw error;
@@ -315,7 +313,7 @@ class GraphWorkerProxy {
     await this.workerApi.updateUserDrivenNodePosition(nodeId, position);
   }
 
-  public async tick(deltaTime: number): Promise<Float32Array> {
+  public async tick(deltaTime: number): Promise<void> {
     if (!this.workerApi) {
       throw new Error('Worker not initialized');
     }
@@ -324,16 +322,15 @@ class GraphWorkerProxy {
 
   /**
    * Fire-and-forget tick with concurrency guard.
-   * Only one tick RPC can be in flight at a time — subsequent calls are dropped.
-   * Tracks consecutive errors for worker health monitoring.
+   * Worker writes positions to SAB and returns void — no Float32Array clone.
+   * Renderer reads sharedPositionView directly.
    */
   public requestTick(deltaTime: number): void {
     if (!this.workerApi || this.tickInFlight) return;
     this.tickInFlight = true;
     this.workerApi.tick(deltaTime)
-      .then((positions) => {
+      .then(() => {
         this.tickInFlight = false;
-        this.lastReceivedPositions = positions;
         this._consecutiveTickErrors = 0;
       })
       .catch((err) => {

@@ -98,6 +98,14 @@ pub mod presence_handler;
 pub mod discovery_handler;
 pub use discovery_handler::configure_routes as configure_discovery_routes;
 
+// DID document endpoint: /.well-known/did/nostr/{pubkey}.json
+pub mod did_nostr_handler;
+pub use did_nostr_handler::configure_routes as configure_did_nostr_routes;
+
+// HTTP 402 payment gating via did:nostr pubkeys (Web Ledgers / solid-pod-rs)
+pub mod pay_handler;
+pub use pay_handler::configure_pay_routes;
+
 // Ecosystem health aggregator — concurrent substrate liveness checks
 pub mod ecosystem_health_handler;
 pub use ecosystem_health_handler::configure_routes as configure_ecosystem_health_routes;

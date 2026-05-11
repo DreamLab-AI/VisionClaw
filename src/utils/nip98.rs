@@ -89,7 +89,7 @@ pub fn generate_nip98_token(keys: &Keys, config: &Nip98Config) -> Result<String,
     let nip98_event = Nip98Event {
         id: event.id.to_hex(),
         pubkey: event.pubkey.to_hex(),
-        created_at: event.created_at.as_u64() as i64,
+        created_at: event.created_at.as_secs() as i64,
         kind: HTTP_AUTH_KIND,
         tags: event
             .tags

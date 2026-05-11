@@ -3472,9 +3472,9 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.43.1"
+version = "0.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62a97d745f1bd8d5e05a978632bbb87b0614567d5142906fe7c86fb2440faac6"
+checksum = "3aa5e3b6a278ed061835fe1ee293b71641e6bf8b401cfe4e1834bbf4ef0a34e1"
 dependencies = [
  "base64 0.22.1",
  "bech32",
@@ -3484,6 +3484,7 @@ dependencies = [
  "chacha20",
  "chacha20poly1305",
  "getrandom 0.2.16",
+ "hex",
  "instant",
  "scrypt",
  "secp256k1",
@@ -3495,9 +3496,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-database"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c75a8c2175d2785ba73cfddef21d1e30da5fbbdf158569b6808ba44973a15b"
+checksum = "7462c9d8ae5ef6a28d66a192d399ad2530f1f2130b13186296dbb11bdef5b3d1"
 dependencies = [
  "lru 0.16.0",
  "nostr",
@@ -3505,14 +3506,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-relay-pool"
-version = "0.43.0"
+name = "nostr-gossip"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "265d9b44771ed15db93b183a0c93dbb703b2b0d0b74dffb5c2a081be52373a5a"
+checksum = "ade30de16869618919c6b5efc8258f47b654a98b51541eb77f85e8ec5e3c83a6"
+dependencies = [
+ "nostr",
+]
+
+[[package]]
+name = "nostr-relay-pool"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b1073ccfbaea5549fb914a9d52c68dab2aecda61535e5143dd73e95445a804b"
 dependencies = [
  "async-utility",
  "async-wsocket",
  "atomic-destructor",
+ "hex",
  "lru 0.16.0",
  "negentropy",
  "nostr",
@@ -3523,15 +3534,17 @@ dependencies = [
 
 [[package]]
 name = "nostr-sdk"
-version = "0.43.0"
+version = "0.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "599f8963d6a1522a13b1a2b0ea6e168acfc367706606f1d33fa595e91fa22db0"
+checksum = "471732576710e779b64f04c55e3f8b5292f865fea228436daf19694f0bf70393"
 dependencies = [
  "async-utility",
  "nostr",
  "nostr-database",
+ "nostr-gossip",
  "nostr-relay-pool",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5207,9 +5220,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs"
-version = "0.4.0-alpha.4"
+version = "0.4.0-alpha.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d40b996ab55a5c365d587a349b10f9bd6bc55853052cd4be3eca9ad6bcedaa4"
+checksum = "7026f4f63f64cc99d3738589f998b1da10a0c3f0ce5263ce703403eace03d9d3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5235,28 +5248,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "solid-pod-rs-nostr"
-version = "0.4.0-alpha.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0268951d686f6c303a7721f861f5eeaa132678454b8602d5dd60140eedb268d9"
-dependencies = [
- "async-trait",
- "futures-util",
- "hex",
- "k256",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "solid-pod-rs",
- "thiserror 1.0.69",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tracing",
- "url",
 ]
 
 [[package]]
@@ -6623,7 +6614,6 @@ dependencies = [
  "sha2",
  "socket2 0.5.10",
  "solid-pod-rs",
- "solid-pod-rs-nostr",
  "specta",
  "specta-typescript",
  "static_assertions",

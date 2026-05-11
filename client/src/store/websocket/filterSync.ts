@@ -115,10 +115,7 @@ export async function forceRefreshFilter(
   if (nodeFilter) {
     lastFilterSnapshot = null;
 
-    logger.info('[Refresh] Clearing local graph and requesting fresh filtered data', nodeFilter);
-
-    await graphDataManager.setGraphData({ nodes: [], edges: [] });
-    logger.info('[Refresh] Local graph cleared, awaiting server response...');
+    logger.info('[Refresh] Sending filter update to server and re-fetching graph via REST', nodeFilter);
 
     state.sendFilterUpdate({
       enabled: nodeFilter.enabled,
@@ -128,6 +125,13 @@ export async function forceRefreshFilter(
       filterByAuthority: nodeFilter.filterByAuthority,
       filterMode: nodeFilter.filterMode,
     });
+
+    try {
+      await graphDataManager.fetchInitialData();
+      logger.info('[Refresh] Graph data re-fetched via REST');
+    } catch (err) {
+      logger.error('[Refresh] Failed to re-fetch graph data:', err);
+    }
   } else {
     logger.warn('No nodeFilter settings found in store');
   }

@@ -156,6 +156,40 @@ impl GraphStateActor {
         &self.compact_to_neo4j
     }
 
+    /// Strip empty kg_stub orphans from loaded graph data so the GPU binary
+    /// stream and REST /api/graph/data return the same node set. Empty stubs
+    /// (node_type="kg_stub", empty metadata_id, empty label) are MERGE-on-id
+    /// artefacts with no visual representation — computing their physics is
+    /// wasted GPU work and the client will never display them.
+    fn filter_empty_stubs(graph_data: Arc<GraphData>) -> Arc<GraphData> {
+        let before = graph_data.nodes.len();
+        let has_empty_stubs = graph_data.nodes.iter().any(|n| {
+            n.node_type.as_deref() == Some("kg_stub")
+                && n.metadata_id.is_empty()
+                && n.label.is_empty()
+        });
+        if !has_empty_stubs {
+            return graph_data;
+        }
+
+        let mut filtered = (*graph_data).clone();
+        filtered.nodes.retain(|n| {
+            !(n.node_type.as_deref() == Some("kg_stub")
+                && n.metadata_id.is_empty()
+                && n.label.is_empty())
+        });
+        let retained_ids: HashSet<u32> = filtered.nodes.iter().map(|n| n.id).collect();
+        filtered.edges.retain(|e| {
+            retained_ids.contains(&e.source) && retained_ids.contains(&e.target)
+        });
+        let after = filtered.nodes.len();
+        info!(
+            "GraphStateActor: Filtered {} empty kg_stub orphans ({} → {} nodes, {} edges)",
+            before - after, before, after, filtered.edges.len()
+        );
+        Arc::new(filtered)
+    }
+
     /// Remap all node IDs to compact sequential IDs (0..N-1) and translate
     /// edge source/target through the same mapping. After this call,
     /// `graph_data.nodes[i].id == i` and all edges reference compact IDs.
@@ -741,7 +775,7 @@ impl Actor for GraphStateActor {
             .into_actor(self)
             .map(|graph_opt, act, _ctx| {
                 if let Some(arc_graph_data) = graph_opt {
-                    // Update actor state with loaded graph (already Arc'd)
+                    let arc_graph_data = Self::filter_empty_stubs(arc_graph_data);
                     act.graph_data = arc_graph_data.clone();
 
                     // ADR-014: No fallback edge generation. Edges come from Neo4j.
@@ -1103,7 +1137,7 @@ impl Handler<ReloadGraphFromDatabase> for GraphStateActor {
             .map(|result, act, _ctx| {
                 match result {
                     Ok(arc_graph_data) => {
-                        // Update actor state with reloaded graph
+                        let arc_graph_data = Self::filter_empty_stubs(arc_graph_data);
                         act.graph_data = arc_graph_data.clone();
 
                         // ADR-014: No fallback edge generation. Edges come from Neo4j.

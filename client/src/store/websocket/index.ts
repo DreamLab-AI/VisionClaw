@@ -231,35 +231,39 @@ export const useWebSocketStore = create<WebSocketState>()(
             processMessageQueue(get, set);
           };
 
-          // --- Binary frame velocity management ---
+          // --- Binary frame in-flight coalescer ---
+          // Keeps only the latest frame while one async processBinaryData is in flight.
+          // Prevents Comlink pileup: queueMicrotask only deferred the START of an async
+          // call, not its completion, so multiple await chains could run concurrently.
           let _pendingBinaryFrame: ArrayBuffer | null = null;
-          let _binaryFrameScheduled = false;
+          let _binaryProcessing = false;
           let _binaryDropCount = 0;
 
           const scheduleBinaryProcessing = (buffer: ArrayBuffer) => {
             if (_pendingBinaryFrame !== null) {
               _binaryDropCount++;
               if (_binaryDropCount % 100 === 1) {
-                logger.debug(`[BinaryVelocity] Dropped ${_binaryDropCount} stale binary frames (keeping latest)`);
+                logger.debug(`[BinaryCoalesce] Dropped ${_binaryDropCount} stale frames (in-flight coalescer)`);
               }
             }
             _pendingBinaryFrame = buffer;
 
-            if (!_binaryFrameScheduled) {
-              _binaryFrameScheduled = true;
-              queueMicrotask(() => {
-                _binaryFrameScheduled = false;
-                const frame = _pendingBinaryFrame;
-                _pendingBinaryFrame = null;
-                if (frame) {
-                  try {
-                    processBinaryData(frame, get);
-                  } catch (err) {
-                    logger.error('Error in binary frame processing:', createErrorMetadata(err));
-                  }
+            if (_binaryProcessing) return; // drain loop will pick up the new frame
+            _binaryProcessing = true;
+
+            void (async () => {
+              try {
+                while (_pendingBinaryFrame) {
+                  const frame = _pendingBinaryFrame;
+                  _pendingBinaryFrame = null;
+                  await processBinaryData(frame, get);
                 }
-              });
-            }
+              } catch (err) {
+                logger.error('Error in binary frame processing:', createErrorMetadata(err));
+              } finally {
+                _binaryProcessing = false;
+              }
+            })();
           };
 
           socket.onmessage = (event: MessageEvent) => {
