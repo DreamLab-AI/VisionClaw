@@ -989,134 +989,73 @@ impl ForceComputeActor {
     }
 
     
+    /// Build a `PhysicsStats` snapshot.
+    ///
+    /// Delegates to `super::physics_metrics` for the pure computation.
     fn get_physics_stats(&self) -> PhysicsStats {
-        
         let (average_velocity, kinetic_energy, total_forces) = self.calculate_physics_metrics();
-
-        
-        let fps = if self.last_step_duration_ms > 0.0 {
-            1000.0 / self.last_step_duration_ms
-        } else {
-            0.0
-        };
-
-        PhysicsStats {
-            iteration_count: self.gpu_state.iteration_count,
-            gpu_failure_count: self.gpu_state.gpu_failure_count,
-            current_params: self.simulation_params.clone(),
-            compute_mode: self.compute_mode.clone(),
-            nodes_count: self.gpu_state.num_nodes,
-            edges_count: self.gpu_state.num_edges,
-
-            
+        super::physics_metrics::build_physics_stats(
+            &self.gpu_state,
+            &self.simulation_params,
+            &self.compute_mode,
+            self.last_step_duration_ms,
             average_velocity,
             kinetic_energy,
             total_forces,
-
-            
-            last_step_duration_ms: self.last_step_duration_ms,
-            fps,
-
-            
-            num_edges: self.gpu_state.num_edges,
-            total_force_calculations: self.gpu_state.iteration_count * self.gpu_state.num_nodes,
-        }
+        )
     }
 
-    /// Calculate physics metrics from GPU state
-    /// Uses try_lock() to avoid blocking Tokio threads - returns estimates if GPU is busy
+    /// Calculate physics metrics from GPU state.
+    ///
+    /// Uses `try_lock()` to avoid blocking Tokio threads -- returns estimates if
+    /// the GPU mutex is busy.  The heavy lifting is in `super::physics_metrics`.
     fn calculate_physics_metrics(&self) -> (f32, f32, f32) {
-        // Use try_lock() to avoid blocking - if GPU is busy, return estimates
         if let Some(ctx) = &self.shared_context {
             if let Ok(unified_compute) = ctx.unified_compute.try_lock() {
                 return self.extract_gpu_metrics(&*unified_compute);
             }
-            // GPU mutex busy, fall through to estimates
         }
-
-        // Return estimates when GPU access not available
-        let estimated_velocity = self.simulation_params.max_velocity * 0.3;
-        let estimated_kinetic_energy =
-            0.5 * (self.gpu_state.num_nodes as f32) * estimated_velocity.powi(2);
-        let estimated_total_forces =
-            self.simulation_params.spring_k * (self.gpu_state.num_edges as f32) * 0.5;
-
-        (
-            estimated_velocity,
-            estimated_kinetic_energy,
-            estimated_total_forces,
+        // GPU not available -- return estimates
+        super::physics_metrics::estimate_physics_metrics(
+            &self.simulation_params,
+            self.gpu_state.num_nodes,
+            self.gpu_state.num_edges,
         )
     }
 
-    
+    /// Download velocity buffers from GPU and compute metrics.
     fn extract_gpu_metrics(
         &self,
         unified_compute: &crate::utils::unified_gpu_compute::UnifiedGPUCompute,
     ) -> (f32, f32, f32) {
         let num_nodes = unified_compute.num_nodes;
 
-        
         let mut vel_x = vec![0.0f32; num_nodes];
         let mut vel_y = vec![0.0f32; num_nodes];
         let mut vel_z = vec![0.0f32; num_nodes];
 
-        
         if unified_compute
             .download_velocities(&mut vel_x, &mut vel_y, &mut vel_z)
             .is_ok()
         {
-            
-            let total_velocity: f32 = vel_x
-                .iter()
-                .zip(&vel_y)
-                .zip(&vel_z)
-                .map(|((vx, vy), vz)| (vx * vx + vy * vy + vz * vz).sqrt())
-                .sum();
-            let average_velocity = if num_nodes > 0 {
-                total_velocity / num_nodes as f32
-            } else {
-                0.0
-            };
-
-            
-            let kinetic_energy: f32 = vel_x
-                .iter()
-                .zip(&vel_y)
-                .zip(&vel_z)
-                .map(|((vx, vy), vz)| 0.5 * (vx * vx + vy * vy + vz * vz))
-                .sum();
-
-            
-            let estimated_total_forces =
-                total_velocity * self.simulation_params.damping * num_nodes as f32;
-
-            (average_velocity, kinetic_energy, estimated_total_forces)
+            super::physics_metrics::compute_velocity_metrics(
+                &vel_x,
+                &vel_y,
+                &vel_z,
+                self.simulation_params.damping,
+            )
         } else {
-            
-            let estimated_velocity = self.simulation_params.max_velocity * 0.3;
-            let estimated_kinetic_energy = 0.5 * (num_nodes as f32) * estimated_velocity.powi(2);
-            let estimated_total_forces =
-                self.simulation_params.spring_k * (self.gpu_state.num_edges as f32) * 0.5;
-
-            (
-                estimated_velocity,
-                estimated_kinetic_energy,
-                estimated_total_forces,
+            super::physics_metrics::estimate_physics_metrics(
+                &self.simulation_params,
+                self.gpu_state.num_nodes,
+                self.gpu_state.num_edges,
             )
         }
     }
 
-    
-
+    /// GPU utilization as a percentage of the 16.67 ms frame budget.
     fn calculate_gpu_utilization(&self, execution_time_ms: f64) -> f32 {
-
-        const TARGET_FRAME_TIME_MS: f64 = 16.67;
-
-
-        let utilization_percent = (execution_time_ms / TARGET_FRAME_TIME_MS * 100.0) as f32;
-
-
-        utilization_percent.min(100.0).max(0.0)
+        super::physics_metrics::calculate_gpu_utilization(execution_time_ms)
     }
 
     /// Apply ontology-derived constraint forces to the physics simulation

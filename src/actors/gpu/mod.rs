@@ -49,6 +49,9 @@ pub mod shared;
 pub mod stress_majorization_actor;
 pub mod semantic_forces_actor;
 
+// Physics metrics helpers (extracted from force_compute_actor.rs — P3-05 decomposition)
+pub mod physics_metrics;
+
 // Supervisor actors
 pub mod supervisor_messages;
 pub mod physics_supervisor;

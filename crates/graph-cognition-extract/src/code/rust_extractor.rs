@@ -24,6 +24,13 @@ use super::extractor::{mint_code_urn, CodeExtractor, ExtractionResult, Language}
 /// - Macros that generate items are invisible
 /// - Generic parameters are not fully parsed
 /// - Conditional compilation (`#[cfg(...)]`) is not evaluated
+///
+/// TODO(ADR-065 Phase 2): Migrate to tree-sitter for accurate AST-based
+/// extraction. The current 8-pass regex approach is fragile against edge cases
+/// (e.g. items inside macro_rules!, string literals containing `fn`, multi-line
+/// generics). tree-sitter-rust provides a correct parse tree that eliminates
+/// these failure modes and enables scope-aware extraction.
+/// Tracking: <https://github.com/nichetypes/VisionClaw/issues/tree-sitter-migration>
 pub struct RustExtractor {
     re_fn: Regex,
     re_mod: Regex,
@@ -184,7 +191,7 @@ impl CodeExtractor for RustExtractor {
         nodes.push(file_module);
         seen_nodes.insert(module_name.clone(), file_module_urn.clone());
 
-        // --- Functions ---
+        // --- Pass 1: Functions ---
         for cap in self.re_fn.captures_iter(source) {
             let name = cap[1].to_string();
             let urn = mint_code_urn(file_path, &name);
@@ -213,7 +220,7 @@ impl CodeExtractor for RustExtractor {
             ));
         }
 
-        // --- Modules ---
+        // --- Pass 2: Modules ---
         for cap in self.re_mod.captures_iter(source) {
             let name = cap[1].to_string();
             let urn = mint_code_urn(file_path, &format!("mod_{}", name));
@@ -233,47 +240,32 @@ impl CodeExtractor for RustExtractor {
             ));
         }
 
-        // --- Structs ---
-        for cap in self.re_struct.captures_iter(source) {
-            let name = cap[1].to_string();
-            let urn = mint_code_urn(file_path, &name);
+        // --- Pass 3 (consolidated): Structs + Enums -> Class nodes ---
+        // Both struct and enum definitions produce NodeKind::Class with identical
+        // extraction logic, so they share a single loop to avoid redundant passes.
+        let type_regexes: &[&Regex] = &[&self.re_struct, &self.re_enum];
+        for re in type_regexes {
+            for cap in re.captures_iter(source) {
+                let name = cap[1].to_string();
+                let urn = mint_code_urn(file_path, &name);
 
-            if seen_nodes.contains_key(&name) {
-                continue;
+                if seen_nodes.contains_key(&name) {
+                    continue;
+                }
+
+                let node = TypedNode::new(urn.clone(), NodeKind::Class, name.clone());
+                nodes.push(node);
+                seen_nodes.insert(name, urn.clone());
+
+                edges.push(TypedEdge::new(
+                    file_module_urn.clone(),
+                    urn,
+                    EdgeKind::Contains,
+                ));
             }
-
-            let node = TypedNode::new(urn.clone(), NodeKind::Class, name.clone());
-            nodes.push(node);
-            seen_nodes.insert(name, urn.clone());
-
-            edges.push(TypedEdge::new(
-                file_module_urn.clone(),
-                urn,
-                EdgeKind::Contains,
-            ));
         }
 
-        // --- Enums ---
-        for cap in self.re_enum.captures_iter(source) {
-            let name = cap[1].to_string();
-            let urn = mint_code_urn(file_path, &name);
-
-            if seen_nodes.contains_key(&name) {
-                continue;
-            }
-
-            let node = TypedNode::new(urn.clone(), NodeKind::Class, name.clone());
-            nodes.push(node);
-            seen_nodes.insert(name, urn.clone());
-
-            edges.push(TypedEdge::new(
-                file_module_urn.clone(),
-                urn,
-                EdgeKind::Contains,
-            ));
-        }
-
-        // --- Traits ---
+        // --- Pass 4: Traits -> Interface nodes ---
         for cap in self.re_trait.captures_iter(source) {
             let name = cap[1].to_string();
             let urn = mint_code_urn(file_path, &name);
@@ -293,11 +285,12 @@ impl CodeExtractor for RustExtractor {
             ));
         }
 
-        // --- Use statements -> Imports edges ---
+        // --- Pass 5: Use statements -> Imports edges ---
         for cap in self.re_use.captures_iter(source) {
             let use_path = cap[1].trim().to_string();
 
-            // Extract the final item name(s) from the use path
+            // Extract the final item name(s) from the use path.
+            // parse_use_path handles malformed brace groups gracefully.
             let imported_names = parse_use_path(&use_path);
 
             for import_name in imported_names {
@@ -314,7 +307,7 @@ impl CodeExtractor for RustExtractor {
             }
         }
 
-        // --- impl Trait for Type -> Implements edges ---
+        // --- Pass 6: impl Trait for Type -> Implements edges ---
         for cap in self.re_impl_trait.captures_iter(source) {
             let trait_name = cap[1].to_string();
             let type_name = cap[2].to_string();
@@ -332,22 +325,27 @@ impl CodeExtractor for RustExtractor {
             edges.push(TypedEdge::new(type_urn, trait_urn, EdgeKind::Implements));
         }
 
-        // --- impl Type { methods } -> Contains edges from type to methods ---
+        // --- Pass 7: impl Type { methods } -> Contains edges from type to methods ---
         for cap in self.re_impl_bare.captures_iter(source) {
             let type_name = cap[1].to_string();
 
+            // Guard: cap.get(0) should always be Some for a successful match,
+            // but defend against unexpected regex engine behaviour.
+            let match_start = match cap.get(0) {
+                Some(m) => m.start(),
+                None => {
+                    errors.push(format!(
+                        "regex anomaly: re_impl_bare matched but capture group 0 missing in {file_path}"
+                    ));
+                    continue;
+                }
+            };
+
             // Skip if this is actually a trait impl (the bare regex can match
             // the type name in "impl Trait for Type {" if Trait has no generics)
-            if self
-                .re_impl_trait
-                .is_match(&source[cap.get(0).unwrap().start()..])
-            {
-                // Check if the impl_trait match starts at the same position
-                if let Some(trait_cap) = self
-                    .re_impl_trait
-                    .captures(&source[cap.get(0).unwrap().start()..])
-                {
-                    if trait_cap.get(0).unwrap().start() == 0 {
+            if self.re_impl_trait.is_match(&source[match_start..]) {
+                if let Some(trait_cap) = self.re_impl_trait.captures(&source[match_start..]) {
+                    if trait_cap.get(0).map_or(false, |m| m.start() == 0) {
                         continue;
                     }
                 }
@@ -358,8 +356,7 @@ impl CodeExtractor for RustExtractor {
                 .cloned()
                 .unwrap_or_else(|| mint_code_urn(file_path, &type_name));
 
-            let impl_start = cap.get(0).unwrap().start();
-            let methods = self.extract_impl_methods(source, impl_start);
+            let methods = self.extract_impl_methods(source, match_start);
 
             for method_name in methods {
                 if let Some(method_urn) = seen_nodes.get(method_name) {
@@ -771,5 +768,68 @@ async fn fetch_remote_data(url: &str) -> Result<String, Box<dyn std::error::Erro
             .find(|n| n.kind == NodeKind::Interface)
             .expect("unsafe trait node");
         assert_eq!(trait_node.label, "Send");
+    }
+
+    // ── Error handling / edge case tests ──
+
+    #[test]
+    fn malformed_use_group_no_closing_brace() {
+        // Missing closing brace should not panic -- parse_use_path returns the
+        // raw path as-is when braces are unbalanced.
+        let names = parse_use_path("std::io::{Read, Write");
+        // The brace_start is found but brace_end is not, so the function falls
+        // through to the non-brace path and returns the raw string.
+        assert!(!names.is_empty());
+    }
+
+    #[test]
+    fn empty_use_group_braces() {
+        let names = parse_use_path("std::io::{}");
+        // Empty brace group produces no items
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn source_with_string_containing_fn_keyword() {
+        // Regression: a string literal containing `fn ` should not produce a
+        // false-positive function node.  The regex anchors to line-start
+        // indentation so `"fn foo"` inside a let binding will match — this is a
+        // known limitation documented in the module doc.  We verify no panic.
+        let source = r#"
+let msg = "fn fake_func() should not crash";
+pub fn real_func() {}
+"#;
+        let result = extractor().extract(source, "src/string_edge.rs");
+        // At minimum real_func should appear
+        let fn_names: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Function)
+            .map(|n| n.label.as_str())
+            .collect();
+        assert!(fn_names.contains(&"real_func"));
+    }
+
+    #[test]
+    fn consolidated_struct_enum_pass_produces_same_results() {
+        // Verify the consolidated struct+enum pass extracts both correctly
+        let source = r#"
+pub struct Alpha { x: u32 }
+pub enum Beta { A, B }
+struct Gamma;
+enum Delta { X }
+"#;
+        let result = extractor().extract(source, "src/types.rs");
+        let class_names: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Class)
+            .map(|n| n.label.as_str())
+            .collect();
+        assert!(class_names.contains(&"Alpha"), "missing struct Alpha");
+        assert!(class_names.contains(&"Beta"), "missing enum Beta");
+        assert!(class_names.contains(&"Gamma"), "missing struct Gamma");
+        assert!(class_names.contains(&"Delta"), "missing enum Delta");
+        assert_eq!(class_names.len(), 4);
     }
 }
