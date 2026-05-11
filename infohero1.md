@@ -50,8 +50,8 @@ Create a high-resolution portrait-orientation (2:3 aspect ratio, minimum 2400×3
   - Pill 1: Cyan border, gear icon, "5 SUBSTRATES"
   - Pill 2: Magenta border, fingerprint icon, "DID:NOSTR IDENTITY"
   - Pill 3: Green border, git-branch icon, "GIT-NATIVE INGEST"
-  - Pill 4: Amber border, code icon, "690K SLOC"
-  - Pill 5: Purple border, bot icon, "610 AGENT TEMPLATES"
+  - Pill 4: Amber border, coin icon, "HTTP 402 PAYMENTS"
+  - Pill 5: Purple border, bot icon, "AGENT JOB PRICING"
 
 **Thin horizontal cyan line** separating title from content below, with small diamond ornament at center.
 
@@ -83,60 +83,68 @@ Create a high-resolution portrait-orientation (2:3 aspect ratio, minimum 2400×3
 - Header: "SOLID-POD-RS" with shield/lock icon
 - Badge: "FOUNDATION LIBRARY"
 - Stats: "55K lines" | "Rust + JS"
-- Brief: "LDP / WAC / WebID / NIP-98 / DID Tier-3. Data sovereignty primitives consumed by all substrates."
+- Brief: "LDP / WAC / WebID / NIP-98 / DID Tier-3 / MRC20 tokens / HTTP 402 Web Ledgers. Data sovereignty + payment primitives consumed by all substrates."
 
 **Bottom card (connected by downward green line):**
 - Green border
 - Header: "NOSTR-RUST-FORUM" with chat/forum icon
 - Badge: "CONFIGURABLE KIT"
 - Stats: "69K lines" | "Rust"
-- Brief: "Generic forum kit extracted from production deployment. NIP-98 auth, username reservations, mesh scaffolding."
+- Brief: "Generic forum kit extracted from production. NIP-98 auth, D1 atomic payments, MRC20 token buy/withdraw, agent job estimation, username reservations, mesh scaffolding."
 
 **Left card (connected by leftward amber line):**
 - Amber border
 - Header: "DREAMLAB WEBSITE" with globe icon
 - Badge: "KIT CONSUMER"
 - Stats: "26K lines" | "TypeScript"
-- Brief: "DreamLab's branded forum deployment. First downstream consumer of the extracted kit. forum-config/ package."
+- Brief: "DreamLab's branded forum deployment. DREAM token, PaymentDashboard, CI pipeline, 24-table D1 migration, agent job invoicing via nostr-bridge."
 
 **Between cards:** Small label on each connector line showing the relationship:
 - Center→Top: "BC20 actor mesh"
-- Center→Right: "DID Tier-3 auth"
-- Center→Bottom: "kit extraction"
-- Center→Left: "consumer deploy"
+- Center→Right: "DID Tier-3 + payments"
+- Center→Bottom: "kit + payment routes"
+- Center→Left: "consumer + invoicing"
 
 ---
 
 #### ZONE C — IDENTITY FOUNDATION (next 22% of canvas)
 
-**Section header:** "DUAL-TIER IDENTITY — did:nostr AS UNIVERSAL PRIMITIVE" in magenta, ALL CAPS, with thin magenta underline.
+**Section header:** "IDENTITY + PAYMENTS — did:nostr AS UNIVERSAL PRIMITIVE" in magenta, ALL CAPS, with thin magenta underline.
 
 **Left half — Identity Architecture diagram:**
 
-A vertical stack of three rounded boxes connected by downward arrows:
+A vertical stack of four rounded boxes connected by downward arrows:
 
 **Box 1 (top, magenta border):**
-- "DID DOCUMENT" header
+- "DID DOCUMENT (CANONICAL)" header
 - Content showing (in monospace):
   ```
   did:nostr:<64-hex-pubkey>
   verificationMethod:
     SchnorrSecp256k1VerificationKey2019
+    z-form base58btc multibase
   ```
 - Small icon: key symbol
+- Small note: "W3C DID Core v1 context — solid-pod-rs canonical format"
 
-**Box 2 (middle, purple border):**
+**Box 2 (purple border):**
 - "NIP-26 DELEGATION" header
 - Content: "Cross-system trust pivot — agents delegate to substrates via Schnorr signatures. One identity, five systems."
 - Small icon: chain-link symbol
 
-**Box 3 (bottom, cyan border):**
+**Box 3 (cyan border):**
 - "THREE CUSTODY TIERS" header
 - Three horizontal pills inside:
   - "TIER 1 — Browser (NIP-07)" in green
-  - "TIER 2 — Server HSM" in amber
+  - "TIER 2 — CF Workers Secrets" in amber
   - "TIER 3 — Solid Pod + WAC" in magenta
 - Small note: "per ADR-081"
+
+**Box 4 (bottom, amber border):**
+- "HTTP 402 WEB LEDGERS" header
+- Content: "did:nostr identities carry sat balances. Agents and humans are indistinguishable — same DID, same debit/credit."
+- Three horizontal pills: "MRC20 Tokens" (amber), "BIP-341 Taproot" (cyan), "JCS State Chains" (green)
+- Small icon: coin/payment symbol
 
 **Right half — IS-Envelope Message Contract:**
 
@@ -149,7 +157,7 @@ A stylized envelope/packet diagram showing the message structure:
 - Middle layer label: "JCS CANONICALISED" (cyan border)
 - Inner content showing 7 envelope kinds as small colored pills arranged in two rows:
   - Row 1: "chat" (green), "tool_invoke" (purple), "tool_result" (purple), "knowledge_link" (cyan)
-  - Row 2: "moderation" (amber), "mesh_ping" (teal), "unknown" (gray)
+  - Row 2: "moderation" (amber), "mesh_ping" (teal), "job_estimate" (gold), "payment" (gold)
 
 **Below envelope:** Small flow arrow showing: "Nostr Wire → JCS Verify → AS2 LDN → Solid Pod Inbox"
 
@@ -184,10 +192,13 @@ A stylized envelope/packet diagram showing the message structure:
 
 **Below the flow:** A thin dashed feedback arrow curves from Circle 3 back to Circle 1, labeled "PRECEDENT LEARNING — 40% of routine enrichments auto-approved after N=3 approvals"
 
-**Bottom of zone:** Three small stat boxes in a row:
+**Second feedback arrow:** A thin amber dashed arrow curves from Circle 3 below the main arrow back to Circle 1, labeled "PAYMENT SETTLEMENT — agent jobs estimated, held, executed, settled via HTTP 402"
+
+**Bottom of zone:** Four small stat boxes in a row:
 - "7 GOALS DELIVERED" (green) — "G1-G7: Git ingest, DID registry, provenance, write-back, pod bridge, broker, Nostr control"
 - "5 HARDENING ITEMS" (amber) — "R1-R5: Broadcast wiring, persistence, precedent, conflict handling, NIP-17 DMs"
 - "13+9 QE FIXES" (magenta) — "13 Rust security items, 9 JS hardening items across agentbox bridge"
+- "PAYMENT SYSTEM" (gold) — "MRC20 tokens, per-endpoint GPU pricing, agent job invoicing, D1 atomic ledger"
 
 ---
 
@@ -222,7 +233,9 @@ A stylized envelope/packet diagram showing the message structure:
   - "nostr-core → rust-nostr upstream"
   - "solid-pod-rs → all 4 substrates"
   - "did:nostr → canonical 64-hex-lowercase"
-- Footer: "Eliminates 10K+ duplicate lines across ecosystem"
+  - "payments → solid-pod-rs::payments upstream"
+  - "mrc20 → solid-pod-rs::mrc20 (JCS + BIP-341)"
+- Footer: "Eliminates 10K+ duplicate lines, single payment model across ecosystem"
 
 ---
 

@@ -40,11 +40,12 @@ Create a high-resolution portrait-orientation (2:3 aspect ratio, minimum 2400×3
 - "THE ENGINE" in cyan bold condensed, 56pt, with teal outer glow
 - Below: "Runtime Architecture, Data Pipelines & Actor Mesh" in white at 60% opacity, 13pt
 
-**Right side:** Four pill badges:
+**Right side:** Five pill badges:
 - "19 BOUNDED CONTEXTS" (cyan border, hexagon icon)
 - "52 CUDA KERNELS" (green border, GPU chip icon)
 - "16 MCP TOOLS" (purple border, wrench icon)
 - "40 AGENT SKILLS" (amber border, lightning icon)
+- "HTTP 402 PAYMENTS" (gold border, coin icon)
 
 **Thin horizontal cyan line** with diamond ornament center.
 
@@ -88,12 +89,13 @@ Node 5 (amber border):
 - "7 Nostr event types. NIP-17 DMs."
 - Icon: relay/signal
 
-**Third level (4 more nodes, smaller, connected to relevant parents):**
+**Third level (5 more nodes, smaller, connected to relevant parents):**
 
 - "OntologyActor" (under GraphState) — "OWL class parsing, validation jobs"
 - "SemanticProcessorActor" (under GraphState) — "AI feature extraction, MiniLM-L6"
 - "ForceComputeActor" (under Physics) — "CUDA kernel dispatch, delta compression"
 - "ShareOrchestratorActor" (under Broker) — "Share state ladder, contributor promotion"
+- "PaymentGateActor" (under ClientCoordinator) — "HTTP 402 debit-or-reject. Per-endpoint cost table. Agent job estimation + settlement."
 
 **Between nodes:** Small label annotations on the connector lines showing message types:
 - Supervisor→GraphState: "GetGraphData, UpdateNodes"
@@ -248,19 +250,23 @@ Metrics   :9191
 
 **Right column — "SOLID-POD-RS" (magenta border, large container):**
 
-**Header:** "FOUNDATION LIBRARY — DATA SOVEREIGNTY PRIMITIVES" with shield icon
+**Header:** "FOUNDATION LIBRARY — DATA SOVEREIGNTY + PAYMENT PRIMITIVES" with shield icon
 
-**Internal layout — four small boxes stacked:**
+**Internal layout — six small boxes stacked:**
 
 Box 1: "LDP (Linked Data Platform)" — "Container/resource CRUD. RDF turtle serialisation. Hierarchical pod storage."
 
 Box 2: "WAC (Web Access Control)" — "ACL resources. Agent/group/public modes. Read/write/append/control."
 
-Box 3: "WebID / DID" — "WebID-TLS authentication. did:nostr binding. NIP-98 HTTP auth events."
+Box 3: "WebID / DID" — "did:nostr canonical format. SchnorrSecp256k1VerificationKey2019. z-form base58btc multibase. NIP-98 HTTP auth."
 
-Box 4: "TIER-3 KEY CUSTODY" — "HSM-backed private keys. WAC-gated key material. Rotation protocol (ADR-081)."
+Box 4: "HTTP 402 WEB LEDGERS" — "PayConfig, WebLedger, PaymentStore trait. Multi-chain TXO deposit verification. balance_response(), payment_required_body(). Agents and humans share the same DID-keyed ledger."
 
-**Connecting annotation between columns:** "solid-pod-rs is consumed by agentbox's CSS instance and by VisionClaw's solid_pod_handler.rs — single source of truth for all Solid operations"
+Box 5: "MRC20 TOKEN ENGINE" — "RFC 8785 JCS canonicalisation. SHA-256 hash chain state verification. BIP-341 taproot key chaining (feature-gated). Token buy/withdraw at operator-defined rate."
+
+Box 6: "TIER-3 KEY CUSTODY" — "HSM-backed private keys. WAC-gated key material. BIP-341 per-user deposit address derivation. Rotation protocol (ADR-081)."
+
+**Connecting annotation between columns:** "solid-pod-rs is consumed by agentbox's CSS instance, VisionClaw's pay_handler.rs, and nostr-rust-forum's pod-worker — single source of truth for all Solid + payment operations"
 
 ---
 

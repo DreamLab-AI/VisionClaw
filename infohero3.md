@@ -36,8 +36,8 @@ Create a high-resolution portrait-orientation (2:3 aspect ratio, minimum 2400×3
 **Right side:** Four pill badges:
 - "85 ADRs" (cyan border, document icon)
 - "13 PRDs" (magenta border, clipboard icon)
-- "$65M REPLACEMENT VALUE" (amber border, diamond icon)
-- "287 PERSON-YEARS" (green border, clock icon)
+- "$72M REPLACEMENT VALUE" (amber border, diamond icon)
+- "310 PERSON-YEARS" (green border, clock icon)
 
 **Thin horizontal amber line** with diamond ornament center.
 
@@ -94,14 +94,14 @@ Card 7 (green border):
 - Label: "target concurrent connections"
 
 Card 8 (cyan border):
-- Number: "19"
-- Unit: "bounded contexts"
-- Label: "DDD domain model coverage"
+- Number: "24"
+- Unit: "D1 tables"
+- Label: "atomic payment + auth schema"
 
 Card 9 (amber border):
-- Number: "16"
-- Unit: "MCP tools"
-- Label: "model context protocol integrations"
+- Number: "3"
+- Unit: "cost tiers"
+- Label: "inference 10× | image-gen 100× | analytics 5×"
 
 Card 10 (magenta border):
 - Number: "83×"
@@ -122,25 +122,26 @@ Card 10 (magenta border):
 
 **Header:** "ECOSYSTEM REPLACEMENT VALUE" with diamond/gem icon
 
-**Giant number centered:** "$65M" in amber, 96pt, with strong gold glow effect
-**Subtext:** "median estimate (defensible range: $55M — $75M)" in white at 70%
+**Giant number centered:** "$72M" in amber, 96pt, with strong gold glow effect
+**Subtext:** "median estimate (defensible range: $62M — $82M)" in white at 70%
 
 **Below the number — breakdown table in a grid:**
 
 | Substrate | SLOC | Share | Value |
 |-----------|------|-------|-------|
-| VisionClaw | 274K | 56.7% | $37M |
-| agentbox | 104K | 21.5% | $14M |
-| nostr-rust-forum | 49K | 10.1% | $6.5M |
-| solid-pod-rs | 39K | 8.0% | $5.2M |
-| dreamlab-ai-website | 18K | 3.7% | $2.4M |
-| Docs & specs | 126K lines | — | $2.5M |
+| VisionClaw | 280K | 55.2% | $39M |
+| agentbox | 104K | 20.5% | $14M |
+| nostr-rust-forum | 54K | 10.6% | $7.5M |
+| solid-pod-rs | 42K | 8.3% | $6M |
+| dreamlab-ai-website | 28K | 5.4% | $3.5M |
+| Docs & specs | 130K lines | — | $2M |
 
 Render this as a clean table with thin cyan row separators and amber header row.
 
-**Below table:** Two small stat pills:
-- "3,446 person-months of embedded effort"
-- "Equivalent: 82 FTEs × 3.5 years"
+**Below table:** Three small stat pills:
+- "3,720 person-months of embedded effort"
+- "Equivalent: 89 FTEs × 3.5 years"
+- "NEW: Payment system adds ~$7M replacement cost (MRC20, HTTP 402, BIP-341, agent invoicing)"
 
 **Right half (45%) — Language composition:**
 
@@ -156,8 +157,8 @@ Render this as a clean table with thin cyan row separators and amber header row.
 Actually render as a **horizontal stacked bar chart** — one bar per substrate, each bar segmented by language with color coding. This is cleaner than a donut for 6 languages × 5 substrates.
 
 **Below chart:**
-- "Total: 482,807 SLOC (logical source lines, 0.70× raw)"
-- Small callout box: "AI-ASSISTED DEVELOPMENT: 10-15× productivity multiplier. ~18 months wall-clock representing $65M replacement value."
+- "Total: 508K SLOC (logical source lines, 0.70× raw)"
+- Small callout box: "AI-ASSISTED DEVELOPMENT: 10-15× productivity multiplier. ~18 months wall-clock representing $72M replacement value."
 
 ---
 
@@ -169,14 +170,15 @@ Actually render as a **horizontal stacked bar chart** — one bar per substrate,
 
 **Column 1 — "BACKEND" (cyan header):**
 Vertical stack of rounded pill badges, each with a small icon:
-- "Rust 1.82+" (gear icon, cyan)
+- "Rust 1.90+" (gear icon, cyan)
 - "Actix-Web 4 / Actix 0.13" (server icon, cyan)
 - "Tokio async runtime" (lightning icon, green)
 - "Neo4j 5.x (bolt)" (database icon, amber)
 - "CUDA 13.2 / PTX 9.0" (GPU icon, green)
-- "git2 (libgit2)" (git icon, cyan)
+- "k256 secp256k1 (BIP-341)" (key icon, amber)
 - "nostr-sdk (rust-nostr)" (relay icon, purple)
-- "serde + JCS" (brackets icon, white)
+- "serde + RFC 8785 JCS" (brackets icon, white)
+- "solid-pod-rs payments" (coin icon, gold)
 
 **Column 2 — "FRONTEND" (magenta header):**
 - "TypeScript 5.x" (code icon, magenta)
@@ -191,12 +193,13 @@ Vertical stack of rounded pill badges, each with a small icon:
 **Column 3 — "INFRASTRUCTURE" (green header):**
 - "Docker + Compose" (container icon, green)
 - "Nix (agentbox)" (snowflake icon, purple)
-- "PostgreSQL + pgvector" (database icon, amber)
+- "Cloudflare D1 (SQLite)" (database icon, amber)
+- "Cloudflare Workers (5)" (cloud icon, cyan)
 - "RuVector AgentDB" (brain icon, purple)
-- "supervisord" (process icon, green)
 - "Community Solid Server" (shield icon, magenta)
 - "nostr-rs-relay" (relay icon, cyan)
 - "GitHub Actions CI" (workflow icon, white)
+- "Mempool API (multi-chain)" (chain icon, gold)
 
 ---
 
@@ -241,7 +244,7 @@ Vertical stack of rounded pill badges, each with a small icon:
 
 #### ZONE F — ENTERPRISE ROADMAP (next 18% of canvas)
 
-**Section header:** "ENTERPRISE ROADMAP — 7 PHASES TO PRODUCTION" in magenta, ALL CAPS, thin magenta underline.
+**Section header:** "ENTERPRISE ROADMAP — 8 PHASES TO PRODUCTION" in magenta, ALL CAPS, thin magenta underline.
 
 **Horizontal timeline** spanning full width, with 7 phase nodes connected by a thick gradient line (green → cyan → amber → magenta).
 
@@ -262,29 +265,34 @@ Each phase is a small rounded rectangle sitting above or below the timeline line
 - "Import fixes + canary + tests into nostr-rust-forum."
 - Badge: "COMPLETE" in green
 
-**Phase 3 (cyan, below):**
+**Phase 3 (green, below):**
 - "FEATURE ABSORPTION"
-- "NIP-98 replay, profiles backfill, username reservations, mesh scaffolding into kit."
+- "NIP-98 replay, profiles backfill, username reservations, D1 migration, mesh scaffolding."
+- Badge: "COMPLETE" in green
+
+**Phase 4 (green, above):**
+- "PAYMENT SYSTEM"
+- "HTTP 402 Web Ledgers, MRC20 DREAM token, BIP-341 taproot deposits, per-endpoint GPU pricing, agent job estimation + invoicing via nostr-bridge."
+- Badge: "COMPLETE" in green
+
+**Phase 5 (cyan, below):**
+- "KIT GA (v3.0.0)"
+- "crates.io publish. ADR-077 P1-P10 QE compliance. Full fixture suite green. 24-table D1 schema."
 - Badge: "IN PROGRESS" in cyan
 
-**Phase 4 (amber, above):**
-- "KIT GA (v3.0.0)"
-- "crates.io publish. ADR-077 P1-P10 QE compliance. Full fixture suite green."
-- Badge: "PLANNED" in amber
-
-**Phase 5 (amber, below):**
+**Phase 6 (amber, above):**
 - "CONSUMER PACKAGE"
-- "dreamlab-ai-website forum-config/ package. First downstream consumer."
-- Badge: "PLANNED" in amber
+- "dreamlab-ai-website forum-config/ package. PaymentDashboard. CI pipeline. First downstream consumer."
+- Badge: "IN PROGRESS" in cyan
 
-**Phase 6 (magenta, above):**
+**Phase 7 (magenta, below):**
 - "PRODUCTION CUTOVER"
 - "14-day window. Traffic split. Dual-deploy. Parity monitoring. ADR-083."
 - Badge: "PLANNED" in amber
 
-**Below timeline:** "Phase 7: GitHub REST API deprecation (PRD-013). ~1,747 lines removed. All remotes switch to git-over-HTTP ingest."
+**Below timeline:** "Phase 8: GitHub REST API deprecation (PRD-013). ~1,747 lines removed. All remotes switch to git-over-HTTP ingest."
 
-**Estimated completion annotation:** "~5 sprints @ 1 FTE post-Phase-2 to reach Phase 5 + cutover"
+**Estimated completion annotation:** "~3 sprints @ 1 FTE post-Phase-4 to reach Phase 6 + cutover"
 
 ---
 
@@ -301,9 +309,10 @@ Each gauge is a thin horizontal bar (full width of container) with a filled port
 | ADR Coverage | 95% | Cyan | "85 ADRs — every major decision documented" |
 | Domain Model | 90% | Magenta | "19 bounded contexts, DDD context map" |
 | Test Fixtures | 85% | Green | "13 cross-substrate reference vectors" |
-| Security Posture | 80% | Amber | "QE hardened: 13 Rust + 9 JS items. DID-gated." |
-| Federation Ready | 70% | Purple | "Mesh topology designed. NIP-42 AUTH. IS-Envelope v1." |
-| Production Parity | 60% | White | "Dev/prod build divergence narrowing. Phases 3-6 close gap." |
+| Payment System | 85% | Gold | "HTTP 402, MRC20, BIP-341, agent job pricing, D1 atomic ledger" |
+| Security Posture | 80% | Amber | "QE hardened: 13 Rust + 9 JS items. DID-gated. Replay-protected." |
+| Federation Ready | 75% | Purple | "Mesh topology designed. NIP-42 AUTH. IS-Envelope v1. Payment federation." |
+| Production Parity | 70% | White | "Phases 3-4 complete. Kit GA + consumer package in progress." |
 
 **Below gauges:** Small italic text: "Scores reflect architectural documentation and implementation completeness, not runtime SLAs."
 
@@ -316,22 +325,23 @@ Each gauge is a thin horizontal bar (full width of container) with a filled port
 **Three columns of closing statements:**
 
 **Column 1 — "WHAT EXISTS":**
-- "690K lines of production source code"
-- "126K lines of architectural documentation"
+- "508K+ SLOC of production source code"
+- "130K lines of architectural documentation"
 - "5 federated substrates sharing one identity"
 - "Real-time GPU-accelerated knowledge graph"
+- "Full payment system: HTTP 402, MRC20, BIP-341"
 
 **Column 2 — "WHAT IT'S WORTH":**
-- "$65M replacement value (COCOMO II)"
-- "287 person-years of embedded engineering"
-- "82 FTEs × 3.5 years equivalent"
+- "$72M replacement value (COCOMO II)"
+- "310 person-years of embedded engineering"
+- "89 FTEs × 3.5 years equivalent"
 - "10-15× AI-assisted productivity multiplier"
 
 **Column 3 — "WHAT'S NEXT":**
-- "Kit extraction GA (v3.0.0)"
+- "Kit GA (v3.0.0) + crates.io publish"
+- "Two-phase GPU metering middleware"
 - "Production cutover (14-day window)"
 - "Full mesh federation (5 substrates)"
-- "GitHub REST deprecation (Phase 7)"
 
 ---
 
