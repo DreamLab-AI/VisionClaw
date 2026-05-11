@@ -39,7 +39,10 @@ env:
   # Bump in lockstep when the floor moves.
   RUST_TOOLCHAIN: '1.75.0'
   # Skip CUDA / NVRTC build paths in CI; they require a GPU runner.
-  CARGO_FEATURE_FLAGS: '--no-default-features --features cpu-only'
+  # The root `webxr` crate requires CUDA (cudarc, cust, cust_core) and must
+  # be tested on a self-hosted GPU runner. CI excludes it and checks only the
+  # CUDA-free workspace members.
+  CARGO_EXCLUDE_ROOT: '--workspace --exclude webxr'
 
 jobs:
   fmt:
@@ -78,9 +81,9 @@ jobs:
           key: vc-rust-${{ env.RUST_TOOLCHAIN }}-clippy-${{ hashFiles('Cargo.lock') }}
           restore-keys: vc-rust-${{ env.RUST_TOOLCHAIN }}-clippy-
       - name: Clippy (warnings reported, baseline-soft)
-        # cpu-only feature avoids pulling CUDA paths; --workspace covers
-        # the WebXR server, vc-cli, and the visionclaw-xr-presence crates.
-        run: cargo clippy --workspace --all-targets ${{ env.CARGO_FEATURE_FLAGS }}
+        # Exclude root webxr crate (requires CUDA); check all other workspace
+        # members (graph-cognition-core, extract, physics-presets, xr-presence, whelk).
+        run: cargo clippy ${{ env.CARGO_EXCLUDE_ROOT }} --all-targets
 
   test:
     name: Test (native)
@@ -105,8 +108,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libssl-dev libudev-dev cmake
-      - name: Test (native, cpu-only feature set)
-        run: cargo test --workspace ${{ env.CARGO_FEATURE_FLAGS }} --no-fail-fast
+      - name: Test (native, CUDA-free crates)
+        run: cargo test ${{ env.CARGO_EXCLUDE_ROOT }} --no-fail-fast
 
   # ---------------------------------------------------------------------------
   # cargo-audit: RustSec advisory database

@@ -15,7 +15,7 @@ pub mod cache;
 pub mod client_message_extractor;
 pub mod cuda_error_handling;
 pub mod edge_data;
-#[cfg(test)]
+#[cfg(all(test, feature = "gpu"))]
 mod gpu_compute_tests;
 pub mod gpu_diagnostics;
 #[cfg(feature = "gpu")]
