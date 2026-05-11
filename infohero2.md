@@ -86,7 +86,7 @@ Node 4 (purple border):
 
 Node 5 (amber border):
 - "ServerNostrActor"
-- "7 Nostr event types. NIP-17 DMs."
+- "9 Nostr event types. NIP-17 DMs. Kind 38200/38201 job estimates + settlements."
 - Icon: relay/signal
 
 **Third level (5 more nodes, smaller, connected to relevant parents):**

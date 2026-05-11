@@ -1,5 +1,16 @@
 # Claude Code Configuration - Claude Flow V3
 
+## Security Audit Sprint (2026-05-11)
+
+A DreamLab ecosystem-wide security audit applied 14 fixes to VisionClaw.
+See CHANGELOG.md `[Security Audit Sprint] - 2026-05-11` for the full
+manifest. Key areas hardened: NIP-98 auth verification (P0-04, P0-05),
+supervisor restart storms and heartbeat reliability (P1-21, P1-22),
+dense-matrix OOM protection (P1-23), deterministic hashing via blake3
+(P1-24), supervision strategy (P2-04), payment validation (P2-05,
+P2-06), physics NaN/Inf rejection (P2-07), and CUDA grid lock
+thresholds (P2-08).
+
 ## Agent container subsystems (2026-04-26)
 
 VisionClaw's agent-container subsystem is in active migration:

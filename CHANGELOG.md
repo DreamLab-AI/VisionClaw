@@ -5,6 +5,55 @@ All notable changes to VisionFlow will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Security Audit Sprint] - 2026-05-11
+
+DreamLab ecosystem-wide security audit. 14 fixes applied to VisionClaw
+covering P0 critical, P1 high, P2 medium, and P3 housekeeping findings.
+
+### Security
+
+- **P0-04**: NIP-98 method extracted from the actual request instead of
+  hardcoded GET in pay_handler.rs, preventing auth bypass on POST/PUT
+  payment endpoints
+- **P0-05**: PAY_ENABLED=false now returns 403 Forbidden in pay_handler.rs
+  instead of silently processing payment requests when the feature gate
+  is off
+
+### Fixed
+
+- **P1-21**: Restart storm mitigation — supervisor.rs within_time_period
+  now wired to the restart strategy, preventing unbounded actor restarts
+  under sustained failure
+- **P1-22**: Heartbeat actor uses Addr::connected() instead of
+  self-messaging in supervisor.rs, eliminating false-positive liveness
+  when the mailbox is full
+- **P1-23**: Dense matrix OOM guard at 10K nodes in
+  stress_majorization.rs, returning an error instead of attempting
+  allocation of O(n^2) memory
+- **P1-24**: DefaultHasher replaced with blake3 across 10 files for URN
+  minting and checksums, providing deterministic cross-platform hashing
+- **P2-04**: Supervision strategy changed from OneForAll to OneForOne in
+  supervisor.rs, preserving WebSocket client actors when an unrelated
+  sibling crashes
+- **P2-05**: Tier costs exposed in pay_handler.rs and enforced
+  server-side, preventing clients from submitting arbitrary cost values
+- **P2-06**: FsPaymentStore uses flock() cross-process locking in
+  pay_handler.rs, preventing concurrent writes from corrupting the
+  payment ledger file
+- **P2-07**: NaN/Inf velocity gate check added in validate.rs, rejecting
+  non-finite physics values before they propagate through the simulation
+- **P2-08**: Adaptive grid lock threshold raised from 3 to 30 samples in
+  dynamic_grid.cu, reducing false lock-in on noisy early data
+- **P3-03**: 14 supervisor tests restored in supervisor.rs after prior
+  refactor had commented them out
+- **P3-04**: RustExtractor reduced from 8 to 7 passes with panic-safe
+  regex in rust_extractor.rs
+
+### Added
+
+- **P3-05**: ForceComputeActor physics_metrics extracted to dedicated
+  module physics_metrics.rs for cleaner separation of concerns
+
 ## [2026-05-08] Ecosystem Mega-Sprint (Phases 0-8)
 
 ### Added

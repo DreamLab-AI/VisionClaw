@@ -68,36 +68,36 @@ Create a high-resolution portrait-orientation (2:3 aspect ratio, minimum 2400×3
 - Header: "VISIONCLAW" in cyan bold with small hexagonal badge showing "INTEGRATION SUBSTRATE"
 - Icon: Stylized claw mark / eye symbol in cyan glow
 - Three stat pills inside: "236K Rust" | "112K TypeScript" | "7K CUDA"
-- Brief: "Knowledge graph + XR + actor mesh + GPU physics. Master fixture host. The integration spine connecting all substrates."
+- Brief: "Knowledge graph + XR + actor mesh + GPU physics + HTTP 402 pay handler. Per-endpoint GPU cost table (inference 10×, image-gen 100×, analytics 5×). Master fixture host. The integration spine connecting all substrates."
 - Small GitHub icon with "DreamLab-AI/VisionClaw"
 
 **Top card (connected to center by upward cyan line):**
 - Purple border
 - Header: "AGENTBOX" with container/box icon
 - Badge: "SOVEREIGN AGENT CONTAINER"
-- Stats: "148K lines" | "Python + JS + Nix"
-- Brief: "Nix-based v2 agent container. Pod bridge, nostr-rs-relay, skill provider. Mesh peer with pluggable adapter architecture."
+- Stats: "104K lines" | "Python + JS + Nix" | "101 skills"
+- Brief: "Nix-based v2 agent container. Pod bridge, nostr-rs-relay, skill provider (cost-estimation skill, 101 total). Payment routes (/v1/pay/*), HTTP 402 cost gate, kind 38200/38201 job events. Mesh peer with pluggable adapter architecture."
 
 **Right card (connected by rightward magenta line):**
 - Magenta border
 - Header: "SOLID-POD-RS" with shield/lock icon
 - Badge: "FOUNDATION LIBRARY"
-- Stats: "55K lines" | "Rust + JS"
+- Stats: "42K lines" | "Rust + JS"
 - Brief: "LDP / WAC / WebID / NIP-98 / DID Tier-3 / MRC20 tokens / HTTP 402 Web Ledgers. Data sovereignty + payment primitives consumed by all substrates."
 
 **Bottom card (connected by downward green line):**
 - Green border
 - Header: "NOSTR-RUST-FORUM" with chat/forum icon
 - Badge: "CONFIGURABLE KIT"
-- Stats: "69K lines" | "Rust"
-- Brief: "Generic forum kit extracted from production. NIP-98 auth, D1 atomic payments, MRC20 token buy/withdraw, agent job estimation, username reservations, mesh scaffolding."
+- Stats: "54K lines" | "Rust"
+- Brief: "Generic forum kit extracted from production. NIP-98 auth, D1 atomic payments, MRC20 token buy/withdraw, agent job CRUD (create/start/settle/cancel), per-endpoint GPU cost tiers, username reservations, mesh scaffolding."
 
 **Left card (connected by leftward amber line):**
 - Amber border
 - Header: "DREAMLAB WEBSITE" with globe icon
 - Badge: "KIT CONSUMER"
-- Stats: "26K lines" | "TypeScript"
-- Brief: "DreamLab's branded forum deployment. DREAM token, PaymentDashboard, CI pipeline, 24-table D1 migration, agent job invoicing via nostr-bridge."
+- Stats: "28K lines" | "TypeScript"
+- Brief: "DreamLab's branded forum deployment. DREAM token (10/sat), PaymentDashboard, CI pipeline, 24-table D1 migration (incl. agent_jobs), agent job invoicing via nostr-bridge."
 
 **Between cards:** Small label on each connector line showing the relationship:
 - Center→Top: "BC20 actor mesh"
@@ -198,7 +198,7 @@ A stylized envelope/packet diagram showing the message structure:
 - "7 GOALS DELIVERED" (green) — "G1-G7: Git ingest, DID registry, provenance, write-back, pod bridge, broker, Nostr control"
 - "5 HARDENING ITEMS" (amber) — "R1-R5: Broadcast wiring, persistence, precedent, conflict handling, NIP-17 DMs"
 - "13+9 QE FIXES" (magenta) — "13 Rust security items, 9 JS hardening items across agentbox bridge"
-- "PAYMENT SYSTEM" (gold) — "MRC20 tokens, per-endpoint GPU pricing, agent job invoicing, D1 atomic ledger"
+- "PAYMENT SYSTEM" (gold) — "MRC20 tokens, per-endpoint GPU pricing (10×/100×/5×), agent job CRUD lifecycle, D1 atomic ledger (24 tables), kind 38200/38201 settlement events, cost-estimation skill"
 
 ---
 
@@ -231,11 +231,13 @@ A stylized envelope/packet diagram showing the message structure:
 - Label: "ADR-078 convergence registry"
 - Small table:
   - "nostr-core → rust-nostr upstream"
-  - "solid-pod-rs → all 4 substrates"
+  - "solid-pod-rs → all 5 substrates (incl. agentbox)"
   - "did:nostr → canonical 64-hex-lowercase"
   - "payments → solid-pod-rs::payments upstream"
   - "mrc20 → solid-pod-rs::mrc20 (JCS + BIP-341)"
-- Footer: "Eliminates 10K+ duplicate lines, single payment model across ecosystem"
+  - "cost-estimation → agentbox skill (GPU tiers + job lifecycle)"
+  - "kind 38200/38201 → nostr relay job events"
+- Footer: "Eliminates 10K+ duplicate lines, single payment model + cost model across ecosystem"
 
 ---
 
