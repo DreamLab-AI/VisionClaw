@@ -37,19 +37,18 @@ fn main() {
     // Content-hash CUDA files to detect bind-mount overlay changes that cargo's
     // mtime-based rerun-if-changed misses (Docker image build vs host mount).
     // Export hashes so ptx.rs can verify PTX was built from current source.
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
+    // P1-24: Use BLAKE3 for stable cross-version CUDA source hashing.
+    // The runtime side (ptx.rs) uses blake3::hash() with the same 16-char hex format.
     use std::io::Read;
     for cuda_file in &cuda_files {
         if let Ok(mut f) = std::fs::File::open(cuda_file) {
             let mut contents = Vec::new();
             if f.read_to_end(&mut contents).is_ok() {
-                let mut hasher = DefaultHasher::new();
-                hasher.write(&contents);
-                let hash = hasher.finish();
+                let hash = blake3::hash(&contents);
+                let hex16 = &hash.to_hex()[..16];
                 let stem = Path::new(cuda_file).file_stem().unwrap().to_str().unwrap();
                 let env_var = format!("{}_CUDA_HASH", stem.to_uppercase());
-                println!("cargo:rustc-env={}={:016x}", env_var, hash);
+                println!("cargo:rustc-env={}={}", env_var, hex16);
             }
         }
     }

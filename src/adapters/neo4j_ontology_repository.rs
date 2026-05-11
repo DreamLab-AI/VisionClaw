@@ -1591,14 +1591,13 @@ impl Neo4jOntologyRepository {
     /// Node IDs are stable u32 hashes of the IRI so they are consistent across
     /// requests without relying on Neo4j internal IDs.
     pub async fn load_ontology_graph_data(&self) -> RepoResult<GraphData> {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        // Helper: stable u32 from IRI string
+        // Helper: stable u32 from IRI string.
+        // Uses BLAKE3 for cross-Rust-version stability (P1-24).
         let iri_to_id = |iri: &str| -> u32 {
-            let mut h = DefaultHasher::new();
-            iri.hash(&mut h);
-            (h.finish() & 0xFFFF_FFFE) as u32 + 1
+            let hash = blake3::hash(iri.as_bytes());
+            let bytes = hash.as_bytes();
+            let raw = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            (raw & 0xFFFF_FFFE) + 1
         };
 
         // --- Query nodes ---

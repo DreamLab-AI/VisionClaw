@@ -1120,14 +1120,13 @@ impl FileService {
 
         let mut graph_data = GraphData::new();
 
-        // Deterministic hash ID from page name — must match KGParser::page_name_to_id exactly
+        // Deterministic hash ID from page name — must match KGParser::page_name_to_id exactly.
+        // Uses BLAKE3 for cross-Rust-version stability (P1-24).
         let page_name_to_id = |page_name: &str| -> u32 {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            page_name.hash(&mut hasher);
-            let hash_val = hasher.finish();
-            (hash_val & 0xFFFF_FFFE) as u32 + 1
+            let hash = blake3::hash(page_name.as_bytes());
+            let bytes = hash.as_bytes();
+            let raw = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            (raw & 0xFFFF_FFFE) + 1
         };
 
         // Strip OntologyBlock section before wikilink extraction to avoid hub-node explosion

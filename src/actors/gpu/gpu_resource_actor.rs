@@ -2,9 +2,7 @@
 
 use actix::prelude::*;
 use log::{debug, error, info, trace, warn};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Instant;
@@ -395,36 +393,38 @@ impl GPUResourceActor {
         graph_ids
     }
 
+    /// Compute a stable graph structure hash using BLAKE3 (P1-24).
     fn calculate_graph_structure_hash(graph_data: &GraphData) -> u64 {
-        let mut hasher = DefaultHasher::new();
-
-        
-        graph_data.nodes.len().hash(&mut hasher);
-        graph_data.edges.len().hash(&mut hasher);
-
-        
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&graph_data.nodes.len().to_le_bytes());
+        hasher.update(&graph_data.edges.len().to_le_bytes());
         for edge in &graph_data.edges {
-            edge.source.hash(&mut hasher);
-            edge.target.hash(&mut hasher);
-            
-            edge.weight.to_bits().hash(&mut hasher);
+            hasher.update(&edge.source.to_le_bytes());
+            hasher.update(&edge.target.to_le_bytes());
+            hasher.update(&edge.weight.to_bits().to_le_bytes());
         }
-
-        hasher.finish()
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
     }
 
-    
+    /// Compute a stable positions hash using BLAKE3 (P1-24).
     fn calculate_positions_hash(graph_data: &GraphData) -> u64 {
-        let mut hasher = DefaultHasher::new();
-
+        let mut hasher = blake3::Hasher::new();
         for node in &graph_data.nodes {
-            
-            node.data.x.to_bits().hash(&mut hasher);
-            node.data.y.to_bits().hash(&mut hasher);
-            node.data.z.to_bits().hash(&mut hasher);
+            hasher.update(&node.data.x.to_bits().to_le_bytes());
+            hasher.update(&node.data.y.to_bits().to_le_bytes());
+            hasher.update(&node.data.z.to_bits().to_le_bytes());
         }
-
-        hasher.finish()
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
     }
 }
 

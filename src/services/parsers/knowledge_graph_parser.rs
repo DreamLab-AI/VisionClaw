@@ -1097,18 +1097,16 @@ impl KnowledgeGraphParser {
     }
 
     
+    /// Produce a stable u32 node ID from a page name.
+    ///
+    /// Uses BLAKE3 instead of `DefaultHasher` so the output is identical across
+    /// Rust versions (P1-24).
     pub fn page_name_to_id(&self, page_name: &str) -> u32 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        page_name.hash(&mut hasher);
-        let hash_val = hasher.finish();
-        
-        // Use full u32 range to minimize collision probability (birthday paradox)
-        // Reserve 0 as sentinel; map to [1, u32::MAX]
-        let id = (hash_val & 0xFFFF_FFFE) as u32 + 1;
-        id
+        let hash = blake3::hash(page_name.as_bytes());
+        let bytes = hash.as_bytes();
+        // Take the first 4 bytes as a little-endian u32, mask to [1, u32::MAX].
+        let raw = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        (raw & 0xFFFF_FFFE) + 1
     }
 }
 

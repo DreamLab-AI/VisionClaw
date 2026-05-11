@@ -226,21 +226,28 @@ impl LogseqBlockParser {
         }
     }
 
+    /// Mint a deterministic block URN using BLAKE3 for cross-Rust-version stability (P1-24).
     fn mint_block_uuid(&self, rel_path: &str, block_index: u32, content: &str) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        self.owner_hex.hash(&mut hasher);
-        rel_path.hash(&mut hasher);
-        block_index.hash(&mut hasher);
-        content.hash(&mut hasher);
-        let hash = hasher.finish();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(self.owner_hex.as_bytes());
+        hasher.update(b"|");
+        hasher.update(rel_path.as_bytes());
+        hasher.update(b"|");
+        hasher.update(&block_index.to_le_bytes());
+        hasher.update(b"|");
+        hasher.update(content.as_bytes());
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        // Take 8 bytes for a u64-width hex representation matching the old format.
+        let hash_u64 = u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ]);
 
         format!(
             "urn:visionclaw:concept:{}:block:{:016x}",
             &self.owner_hex[..self.owner_hex.len().min(16)],
-            hash
+            hash_u64
         )
     }
 

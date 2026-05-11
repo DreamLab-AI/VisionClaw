@@ -359,19 +359,17 @@ impl InferenceService {
     }
 
     
+    /// Compute a stable checksum using BLAKE3 (P1-24).
     fn compute_checksum(
         &self,
         classes: &[crate::ports::ontology_repository::OwlClass],
         axioms: &[crate::ports::ontology_repository::OwlAxiom],
     ) -> String {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        classes.len().hash(&mut hasher);
-        axioms.len().hash(&mut hasher);
-
-        format!("{:x}", hasher.finish())
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&classes.len().to_le_bytes());
+        hasher.update(&axioms.len().to_le_bytes());
+        let hash = hasher.finalize();
+        format!("{}", &hash.to_hex()[..16])
     }
 
     

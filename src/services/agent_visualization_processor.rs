@@ -4,9 +4,7 @@ use crate::types::claude_flow::{AgentStatus, Vec3};
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use sysinfo::{Pid, System};
 
@@ -405,9 +403,13 @@ impl AgentVisualizationProcessor {
             history.last().map(|(_, usage)| *usage).unwrap_or(0)
         } else {
             
-            let mut hasher = DefaultHasher::new();
-            agent_id.hash(&mut hasher);
-            (hasher.finish() % 10000) + 500
+            let hash = blake3::hash(agent_id.as_bytes());
+            let bytes = hash.as_bytes();
+            let val = u64::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5], bytes[6], bytes[7],
+            ]);
+            (val % 10000) + 500
         }
     }
 

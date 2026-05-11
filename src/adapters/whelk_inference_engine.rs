@@ -17,8 +17,6 @@ use horned_owl::model::{
     MutableOntology, SubClassOf,
 };
 use horned_owl::ontology::set::SetOntology;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 pub struct WhelkInferenceEngine {
     ontology: Option<SetOntology<ArcStr>>,
@@ -116,21 +114,24 @@ impl WhelkInferenceEngine {
     }
 
     
+    /// Compute a stable ontology checksum using BLAKE3 (P1-24).
     fn compute_ontology_checksum(ontology: &SetOntology<ArcStr>) -> u64 {
-        let mut hasher = DefaultHasher::new();
-
-        
         let mut axioms: Vec<String> = ontology
             .iter()
             .map(|ann| format!("{:?}", ann.component))
             .collect();
         axioms.sort();
 
+        let mut hasher = blake3::Hasher::new();
         for axiom in axioms {
-            axiom.hash(&mut hasher);
+            hasher.update(axiom.as_bytes());
         }
-
-        hasher.finish()
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
     }
 
     

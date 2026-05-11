@@ -110,23 +110,23 @@ impl RateLimiter {
         limiter
     }
 
-    /// Probabilistic cleanup to supplement the interval-based cleanup
-    /// Called on each request with low probability to amortize cleanup cost
+    /// Probabilistic cleanup to supplement the interval-based cleanup.
+    /// Called on each request with low probability to amortize cleanup cost.
     fn maybe_probabilistic_cleanup(&self) {
-        // 1% chance per request to trigger cleanup check
-        // This ensures cleanup happens even under sustained load between intervals
-        use std::hash::{Hash, Hasher};
-        use std::collections::hash_map::DefaultHasher;
-
-        let now = Instant::now();
-        let mut hasher = DefaultHasher::new();
-        now.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        // ~1% probability (hash % 100 == 0)
-        if hash % 100 == 0 {
-            self.cleanup_if_needed();
+        // ~1% probability using a cheap thread-local counter instead of hashing.
+        // The old DefaultHasher approach was replaced (P1-24) and this counter
+        // gives better distribution than hashing a near-zero Instant::elapsed().
+        use std::cell::Cell;
+        thread_local! {
+            static COUNTER: Cell<u64> = const { Cell::new(0) };
         }
+        COUNTER.with(|c| {
+            let val = c.get().wrapping_add(1);
+            c.set(val);
+            if val % 100 == 0 {
+                self.cleanup_if_needed();
+            }
+        });
     }
 
     /// Check if the client is allowed to make a request

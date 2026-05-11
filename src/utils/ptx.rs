@@ -274,10 +274,8 @@ pub static GPU_CLUSTERING_KERNELS_CUDA_HASH: Option<&'static str> = option_env!(
 
 /// Verify CUDA source hash matches the build-time hash. Returns true if hashes
 /// match or if verification is unavailable (no hash compiled in).
+/// Verify CUDA source hash using BLAKE3 for cross-Rust-version stability (P1-24).
 pub fn verify_cuda_source_hash(module: PTXModule) -> bool {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-
     let build_hash = match module {
         PTXModule::VisionflowUnified => VISIONFLOW_UNIFIED_CUDA_HASH,
         PTXModule::GpuClusteringKernels => GPU_CLUSTERING_KERNELS_CUDA_HASH,
@@ -292,9 +290,8 @@ pub fn verify_cuda_source_hash(module: PTXModule) -> bool {
 
     match std::fs::read(&source_path) {
         Ok(contents) => {
-            let mut hasher = DefaultHasher::new();
-            hasher.write(&contents);
-            let actual = format!("{:016x}", hasher.finish());
+            let hash = blake3::hash(&contents);
+            let actual = &hash.to_hex()[..16];
             if actual != expected {
                 warn!(
                     "CUDA source hash mismatch for {:?}: build={} runtime={}. PTX may be stale!",
