@@ -21,6 +21,16 @@
 //!
 //! @see <https://webledgers.org>
 //! @see `solid_pod_rs::payments` for upstream types
+//!
+//! ## Reference
+//!
+//! The HTTP 402 pattern and PaymentCondition ACL model originate from the
+//! JavaScript Solid Server. See Melvin Carvalho's *Practical Guide to Solid*
+//! for the reference walkthrough: <https://melvin.me/public/solid/>
+//!
+//! Parts 3-4 cover the 402 flow and per-read micropayments. Parts 6-7 cover
+//! blocktrails and MRC20 tokens. This handler extends the pattern with
+//! per-endpoint GPU cost tables for the VisionClaw actor mesh.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
