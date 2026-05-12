@@ -26,6 +26,53 @@ idempotency, and six-variant coverage. `ShareOrchestratorActor` (C4) owns
 actual share-state transition execution; `ShareIntentBrokerAdapter` only
 produces the intent case.
 
+## Implementation Notes (2026-05-12) — Agent Control Surface Integration
+
+The broker workbench now publishes governance events to the DreamLab forum
+relay via the Nostr Agent Control Surface Protocol (kinds 31400-31405),
+enabling human-in-the-loop governance through the forum's reactive UI.
+
+### Startup panel registration
+
+`BrokerActor::started()` publishes a `PanelDefinition` (kind 31400) with
+d-tag `visionclaw-broker` containing the broker's field schema (case_id,
+title, category, priority, state), action buttons (approve, reject,
+escalate), and table layout. The forum's `PanelRegistry` store discovers
+this panel via its relay subscription and renders it on the governance page.
+
+### Case submission → ActionRequest
+
+Every `SubmitBrokerCase` (all categories) now sends a `PublishActionRequest`
+(kind 31402) through `ServerNostrActor` to the forum relay. The relay-worker
+projects it into `broker_cases` in D1, and the forum UI displays it for
+human review with approve/reject buttons.
+
+### Decision event flow
+
+```
+BrokerActor.submit() → kind 31402 ActionRequest → forum relay
+                                                    ↓
+                                          forum governance UI
+                                          (human approves/rejects)
+                                                    ↓
+                                         kind 31403 ActionResponse
+                                                    ↓
+                                         agentbox relay-consumer
+                                         → orchestrator adapter
+                                         → BrokerActor.decide()
+```
+
+`SignBrokerDecision` (kind 30300) is now emitted for all case categories on
+`DecideBrokerCase`, broadened from the prior `KnowledgeEnrichment`-only gate.
+
+### Cross-repo alignment
+
+The governance event schema is defined in `nostr-bbs-core::governance` and
+shared across the forum kit (relay-worker, auth-worker, forum-client) and
+VisionClaw (server_nostr_actor local types wire-compatible with the core
+crate). BIP-340 Schnorr signing is compatible across all five repos
+(k256 `verify_raw`/`sign_raw` in Rust, `@noble/secp256k1` in JS).
+
 ## Context
 
 The Coordination Collapse thesis positions the Judgment Broker as the central human role in a governed agentic organisation. The broker reviews edge cases that the agentic mesh cannot safely resolve, validates or rejects discovered workflows, resolves cross-functional conflicts, and maintains trust in the automated layer.

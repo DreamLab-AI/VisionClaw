@@ -22,7 +22,10 @@ use crate::actors::messages::broker_messages::{
     SubmitBrokerCase, SubscribeBrokerChannel, UnsubscribeBrokerChannel,
 };
 use crate::actors::messages::BroadcastMessage;
-use crate::actors::server_nostr_actor::SignBrokerDecision;
+use crate::actors::server_nostr_actor::{
+    ActionDef, ActionPriority, FieldDef, FieldType, LayoutHint, PanelDefinitionPayload, PanelSchema,
+    PublishActionRequest, PublishGovernancePanel, SignBrokerDecision,
+};
 use crate::actors::ClientCoordinatorActor;
 use crate::actors::ServerNostrActor;
 use crate::adapters::broker_case_projection;
@@ -166,6 +169,36 @@ impl Actor for BrokerActor {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         info!("[BrokerActor] started");
+
+        // Publish initial PanelDefinition (kind 31400) so the forum governance
+        // UI discovers this agent's control surface on subscription.
+        if let Some(ref nostr) = self.nostr_actor {
+            nostr.do_send(PublishGovernancePanel {
+                panel_id: "visionclaw-broker".into(),
+                panel: PanelDefinitionPayload {
+                    title: "VisionClaw Broker".into(),
+                    description: "Knowledge enrichment and governance cases from the VisionClaw graph cognition engine.".into(),
+                    version: "1.0.0".into(),
+                    schema: PanelSchema::Table,
+                    fields: vec![
+                        FieldDef { name: "case_id".into(), field_type: FieldType::Text, label: "Case ID".into(), required: true, default_value: None },
+                        FieldDef { name: "title".into(), field_type: FieldType::Text, label: "Title".into(), required: true, default_value: None },
+                        FieldDef { name: "category".into(), field_type: FieldType::Text, label: "Category".into(), required: true, default_value: None },
+                        FieldDef { name: "priority".into(), field_type: FieldType::Number, label: "Priority".into(), required: true, default_value: None },
+                        FieldDef { name: "state".into(), field_type: FieldType::Text, label: "State".into(), required: true, default_value: None },
+                    ],
+                    actions: vec![
+                        ActionDef { name: "approve".into(), label: "Approve".into(), confirm: true, style: "primary".into() },
+                        ActionDef { name: "reject".into(), label: "Reject".into(), confirm: true, style: "danger".into() },
+                        ActionDef { name: "escalate".into(), label: "Escalate".into(), confirm: false, style: "secondary".into() },
+                    ],
+                    layout: LayoutHint::Table,
+                    capabilities: vec!["cases".into(), "decisions".into(), "precedents".into()],
+                    refresh_secs: 30,
+                },
+            });
+            info!("[BrokerActor] published initial PanelDefinition to forum relay");
+        }
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -193,6 +226,29 @@ impl Handler<SubmitBrokerCase> for BrokerActor {
             "new_case",
             json!({ "caseId": case.id, "title": case.title, "category": case.category }),
         );
+
+        // Publish an ActionRequest (kind 31402) to the forum relay so the
+        // governance UI shows this case for human review.
+        if let Some(ref nostr) = self.nostr_actor {
+            let priority = match case.priority {
+                p if p >= 90 => ActionPriority::Critical,
+                p if p >= 70 => ActionPriority::High,
+                p if p >= 40 => ActionPriority::Medium,
+                _ => ActionPriority::Low,
+            };
+            nostr.do_send(PublishActionRequest {
+                case_id: case.id.clone(),
+                title: case.title.clone(),
+                category: format!("{:?}", case.category),
+                priority,
+                fields: json!({
+                    "subject_kind": format!("{:?}", case.subject.kind),
+                    "subject_id": case.subject.id,
+                    "metadata": case.metadata,
+                }),
+                reasoning: case.summary.clone(),
+            });
+        }
 
         // R3: Auto-approve if a matching precedent scope exists.
         if let Some(scope) = self.check_auto_approve(&case) {
@@ -344,19 +400,17 @@ impl Handler<DecideBrokerCase> for BrokerActor {
                 }
             }
 
-            // PRD-013 G7: emit a kind 30300 Nostr event for the broker decision.
-            if case.category == CaseCategory::KnowledgeEnrichment {
-                if let Some(ref nostr) = self.nostr_actor {
-                    let entity_urn = case.metadata.get("entity_urn").cloned().unwrap_or_default();
-                    nostr.do_send(SignBrokerDecision {
-                        case_id: case.id.clone(),
-                        decision_id: report.entry.decision_id.clone(),
-                        outcome_action: msg.outcome.action_str().to_string(),
-                        broker_pubkey: msg.broker_pubkey.clone(),
-                        entity_urn,
-                        reasoning: msg.reasoning.clone(),
-                    });
-                }
+            // Emit a kind 30300 Nostr event for the broker decision (all categories).
+            if let Some(ref nostr) = self.nostr_actor {
+                let entity_urn = case.metadata.get("entity_urn").cloned().unwrap_or_default();
+                nostr.do_send(SignBrokerDecision {
+                    case_id: case.id.clone(),
+                    decision_id: report.entry.decision_id.clone(),
+                    outcome_action: msg.outcome.action_str().to_string(),
+                    broker_pubkey: msg.broker_pubkey.clone(),
+                    entity_urn,
+                    reasoning: msg.reasoning.clone(),
+                });
             }
         }
 

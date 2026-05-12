@@ -36,6 +36,7 @@ graph LR
     A --> J[/wss]
     A --> K[Enterprise]
     A --> L[/api/discovery/*]
+    A --> M[/api/broker/*]
 
     L --> L1[search]
     L --> L2[related/:iri]
@@ -1647,6 +1648,38 @@ WebSocket binary position updates are rate-limited to 60 frames/second per clien
 **Development**: `Access-Control-Allow-Origin: *`
 
 **Production**: Restricted to specific origins. Configure via reverse proxy.
+
+---
+
+## Broker / Governance Endpoints
+
+Broker endpoints serve the Judgment Broker Workbench (ADR-041). Cases submitted
+here are also published as kind-31402 ActionRequest events to the forum relay
+via the Agent Control Surface Protocol.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/broker/inbox` | NIP-98 / Enterprise | List open broker cases |
+| GET | `/api/broker/cases/:id` | NIP-98 / Enterprise | Get a single case |
+| GET | `/api/broker/cases/:id/history` | NIP-98 / Enterprise | Decision history for a case |
+| POST | `/api/broker/cases` | NIP-98 / Enterprise | Submit a new case |
+| POST | `/api/broker/cases/:id/decide` | NIP-98 / Enterprise (Broker role) | Record a decision |
+| GET | `/api/broker/subscribe` | WebSocket upgrade | Real-time broker inbox events |
+
+### Nostr Event Integration
+
+The `BrokerActor` publishes governance events alongside the REST API:
+
+| Event Kind | Direction | Trigger |
+|------------|-----------|---------|
+| 31400 (PanelDefinition) | Outbound | `BrokerActor::started()` — registers the panel on boot |
+| 31402 (ActionRequest) | Outbound | `POST /api/broker/cases` — every new case |
+| 31403 (ActionResponse) | Inbound | Human approves/rejects via forum governance UI |
+| 30300 (BrokerDecision) | Outbound | `POST /api/broker/cases/:id/decide` — every decision |
+
+The forum relay at `wss://dreamlab-nostr-relay...workers.dev` is the
+bidirectional transport. The agentbox relay-consumer bridges events between the
+embedded relay and the forum relay via `external_fanout = "bidirectional"`.
 
 ---
 

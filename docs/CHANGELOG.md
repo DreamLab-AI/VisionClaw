@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Governance panel publishing** (`src/actors/server_nostr_actor.rs`): `PublishGovernancePanel` message (kind 31400) — BrokerActor sends NIP-33 parameterized replaceable events to register/update control panels on the Nostr relay. Panel definitions include schema type (ActionInbox, Dashboard, ConfigForm, StatusBoard, ChatBridge), field definitions, action buttons, layout hints, and capabilities. Wire-compatible with `nostr-bbs-core::PanelDefinition`.
 - **Action request publishing** (`src/actors/server_nostr_actor.rs`): `PublishActionRequest` message (kind 31402) — BrokerActor sends when cases need human review. Carries case ID, title, category, priority, structured fields, and agent reasoning. Wire-compatible with `nostr-bbs-core::ActionRequest`.
+- **BrokerActor startup panel** (`src/actors/broker_actor.rs`): On `Actor::started()`, publishes a PanelDefinition (kind 31400, d-tag `visionclaw-broker`) to the forum relay with 5 fields (case_id, title, category, priority, state), 3 actions (approve, reject, escalate), table layout, and 30-second refresh interval. The forum governance UI discovers this panel via its relay subscription.
+- **BrokerActor → forum ActionRequest** (`src/actors/broker_actor.rs`): Every `SubmitBrokerCase` now publishes a kind-31402 ActionRequest to the forum relay (all case categories, not just KnowledgeEnrichment). Priority mapping: u8 90+ → Critical, 70+ → High, 40+ → Medium, else → Low.
+- **Broadened Nostr decision events**: `SignBrokerDecision` (kind 30300) is now emitted for all case categories on `DecideBrokerCase`, not just `KnowledgeEnrichment`.
 - **NIP-98 enterprise RBAC** (`src/middleware/enterprise_auth.rs`): `nip98-auth` feature gate adds a Nostr NIP-98 authentication path to the `RequireRole` middleware. When enabled, reads `Authorization: Nostr <base64>`, verifies the Schnorr signature, and resolves the signer's pubkey to an `EnterpriseRole` via the `Nip98RoleResolver` trait. `InMemoryRoleMap` provided for dev/test; `Nip98IdentityExt` request extension carries verified pubkey and role. The `X-Enterprise-Role` header path remains as the default when the feature is disabled.
 - **Prometheus counters**: `NostrKind::K31400` and `K31402` variants added to `src/services/metrics.rs` for governance event observability.
 - **Supported kinds extended**: `SUPPORTED_KINDS` in `src/services/server_identity.rs` now includes 31400 and 31402.
@@ -20,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `RequireRole` middleware now supports dual-path auth: NIP-98 Schnorr verification (when `nip98-auth` feature enabled and resolver attached) or `X-Enterprise-Role` header extraction (default).
 - `ServerNostrActor` module doc updated to list 9 message variants across 7 event kinds (was 7 variants across 5 kinds).
+- `BrokerActor` imports consolidated: all governance types (`PublishGovernancePanel`, `PublishActionRequest`, `ActionPriority`, `PanelDefinitionPayload`, etc.) imported at module level.
 
 ---
 
