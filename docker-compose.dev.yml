@@ -95,6 +95,11 @@ services:
       - ECOSYSTEM_HEALTH_FORUM_URL=https://dreamlab-nostr-relay.solitary-paper-764d.workers.dev/
       - ECOSYSTEM_HEALTH_AGENTBOX_URL=http://host.docker.internal:9090/health
       - ECOSYSTEM_HEALTH_SOLIDPOD_URL=http://host.docker.internal:8484/.well-known/solid
+      # Mesh federation (PRD-010 Phase 3 / ADR-073)
+      - MESH_MODE=standalone
+      - MESH_PEER_RELAYS=
+      - MESH_FEDERATED_KINDS=1,1059,30001,30050,30910
+      - MESH_ALLOWED_REMOTE_DIDS=
     deploy: # Indentation: 4 spaces
       resources:
         reservations:

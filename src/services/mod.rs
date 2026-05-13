@@ -23,6 +23,7 @@ pub mod migration_broker;
 pub mod multi_mcp_agent_discovery;
 pub mod natural_language_query_service;
 pub mod nostr_bead_publisher;
+pub mod mesh_bridge;
 pub mod nostr_bridge;
 pub mod nostr_service;
 pub mod ontology_content_analyzer;

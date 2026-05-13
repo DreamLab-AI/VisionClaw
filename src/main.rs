@@ -24,7 +24,7 @@ use webxr::{
     services::briefing_service::BriefingService,
     services::management_api_client::ManagementApiClient,
     services::nostr_bead_publisher::NostrBeadPublisher,
-    services::nostr_bridge::NostrBridge,
+    services::mesh_bridge::MeshBridge,
     services::speech_service::SpeechService,
     services::{
         github::{content_enhanced::EnhancedContentAPI, ContentAPI, GitHubClient, GitHubConfig},
@@ -574,13 +574,14 @@ async fn main() -> std::io::Result<()> {
         nostr_publisher,
     )));
 
-    // Spawn bridge as background task (no-op if FORUM_RELAY_URL is not set).
-    if let Some(bridge) = NostrBridge::from_env() {
+    // PRD-010 F22: Spawn MeshBridge as background task (no-op if FORUM_RELAY_URL is not set).
+    // Subscribes to all configured mesh peer relays with dedup + kind-based routing.
+    if let Some(bridge) = MeshBridge::from_env() {
         tokio::spawn(bridge.run());
-        info!("[main] NostrBridge spawned");
+        info!("[main] MeshBridge spawned");
     } else {
         info!(
-            "[main] NostrBridge not started (VISIONCLAW_NOSTR_PRIVKEY or FORUM_RELAY_URL not set)"
+            "[main] MeshBridge not started (VISIONCLAW_NOSTR_PRIVKEY or FORUM_RELAY_URL not set)"
         );
     }
 

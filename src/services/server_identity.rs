@@ -264,7 +264,7 @@ impl ServerIdentity {
 /// `SecretKey`. Trims surrounding whitespace. Returns `Err` for any other form.
 ///
 /// `pub(crate)` so the canonical privkey resolver and the cross-module
-/// consumers (`nostr_bridge`, `nostr_bead_publisher`) all parse keys
+/// consumers (`mesh_bridge`, `nostr_bridge`, `nostr_bead_publisher`) all parse keys
 /// identically — see PRD-010 F1.
 pub(crate) fn parse_secret_key(raw: &str) -> anyhow::Result<SecretKey> {
     let trimmed = raw.trim();
