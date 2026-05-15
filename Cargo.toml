@@ -177,7 +177,7 @@ visionclaw-xr-presence = { path = "crates/visionclaw-xr-presence" }
 
 # Ontology Reasoning — upstream OWL reasoner from balhoff/whelk-rs.
 # Not on crates.io, so consumed as a git dep (no rev pin yet — track main).
-whelk = { git = "https://github.com/balhoff/whelk-rs", branch = "master" }
+whelk = { git = "https://github.com/balhoff/whelk-rs", branch = "main" }
 
 # Ontology dependencies (always enabled)
 # Note: Using 1.2.0 for ArcStr support (thread-safe string type)
