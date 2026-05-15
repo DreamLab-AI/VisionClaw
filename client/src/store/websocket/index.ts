@@ -248,22 +248,30 @@ export const useWebSocketStore = create<WebSocketState>()(
             }
             _pendingBinaryFrame = buffer;
 
-            if (_binaryProcessing) return; // drain loop will pick up the new frame
+            if (_binaryProcessing) return;
             _binaryProcessing = true;
 
-            void (async () => {
+            const drainOne = async () => {
               try {
-                while (_pendingBinaryFrame) {
-                  const frame = _pendingBinaryFrame;
-                  _pendingBinaryFrame = null;
+                const frame = _pendingBinaryFrame;
+                _pendingBinaryFrame = null;
+                if (frame) {
                   await processBinaryData(frame, get);
                 }
               } catch (err) {
                 logger.error('Error in binary frame processing:', createErrorMetadata(err));
-              } finally {
+              }
+
+              if (_pendingBinaryFrame) {
+                // Yield to macrotask queue before processing next frame.
+                // This lets React renders, rAF, and user input execute.
+                setTimeout(drainOne, 0);
+              } else {
                 _binaryProcessing = false;
               }
-            })();
+            };
+
+            void drainOne();
           };
 
           socket.onmessage = (event: MessageEvent) => {
