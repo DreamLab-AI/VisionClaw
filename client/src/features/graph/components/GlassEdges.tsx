@@ -8,7 +8,7 @@ import {
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GemMaterialSettings, GlowSettings } from '../../settings/config/settings';
 
-const MAX_EDGES = 10_000;
+const MAX_EDGES = 16_000;
 
 interface GlassEdgesProps {
   points: number[];
