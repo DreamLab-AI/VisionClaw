@@ -23,7 +23,7 @@ use crate::actors::messages::broker_messages::{
 };
 use crate::actors::messages::BroadcastMessage;
 use crate::actors::server_nostr_actor::{
-    ActionDef, ActionPriority, FieldDef, FieldType, LayoutHint, PanelDefinitionPayload, PanelSchema,
+    ActionDef, ActionPriority, ActionStyle, FieldDef, FieldType, LayoutHint, PanelDefinitionPayload, PanelSchema,
     PublishActionRequest, PublishGovernancePanel, SignBrokerDecision,
 };
 use crate::actors::ClientCoordinatorActor;
@@ -179,20 +179,20 @@ impl Actor for BrokerActor {
                     title: "VisionClaw Broker".into(),
                     description: "Knowledge enrichment and governance cases from the VisionClaw graph cognition engine.".into(),
                     version: "1.0.0".into(),
-                    schema: PanelSchema::Table,
+                    schema: PanelSchema::StatusBoard,
                     fields: vec![
-                        FieldDef { name: "case_id".into(), field_type: FieldType::Text, label: "Case ID".into(), required: true, default_value: None },
-                        FieldDef { name: "title".into(), field_type: FieldType::Text, label: "Title".into(), required: true, default_value: None },
-                        FieldDef { name: "category".into(), field_type: FieldType::Text, label: "Category".into(), required: true, default_value: None },
-                        FieldDef { name: "priority".into(), field_type: FieldType::Number, label: "Priority".into(), required: true, default_value: None },
-                        FieldDef { name: "state".into(), field_type: FieldType::Text, label: "State".into(), required: true, default_value: None },
+                        FieldDef { name: "case_id".into(), field_type: FieldType::String, label: "Case ID".into() },
+                        FieldDef { name: "title".into(), field_type: FieldType::String, label: "Title".into() },
+                        FieldDef { name: "category".into(), field_type: FieldType::String, label: "Category".into() },
+                        FieldDef { name: "priority".into(), field_type: FieldType::Int, label: "Priority".into() },
+                        FieldDef { name: "state".into(), field_type: FieldType::String, label: "State".into() },
                     ],
                     actions: vec![
-                        ActionDef { name: "approve".into(), label: "Approve".into(), confirm: true, style: "primary".into() },
-                        ActionDef { name: "reject".into(), label: "Reject".into(), confirm: true, style: "danger".into() },
-                        ActionDef { name: "escalate".into(), label: "Escalate".into(), confirm: false, style: "secondary".into() },
+                        ActionDef { id: "approve".into(), label: "Approve".into(), style: ActionStyle::Primary },
+                        ActionDef { id: "reject".into(), label: "Reject".into(), style: ActionStyle::Destructive },
+                        ActionDef { id: "escalate".into(), label: "Escalate".into(), style: ActionStyle::Secondary },
                     ],
-                    layout: LayoutHint::Table,
+                    layout: LayoutHint::InboxTable,
                     capabilities: vec!["cases".into(), "decisions".into(), "precedents".into()],
                     refresh_secs: 30,
                 },

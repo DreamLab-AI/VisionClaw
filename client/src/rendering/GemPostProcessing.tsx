@@ -121,13 +121,8 @@ export const GemPostProcessing: React.FC<GemPostProcessingProps> = ({ enabled = 
 
         // Break the WebGPU read/write synchronization scope: bloom must not
         // read the scene output texture while it's still a render attachment.
-        // r183+: toTexture() is the standard API. rtt() (r170-r182) kept as fallback.
-        let bloomInput: unknown = scenePassColor;
-        if (typeof scenePassColor.toTexture === 'function') {
-          bloomInput = scenePassColor.toTexture();
-        } else if (typeof tslMod.rtt === 'function') {
-          bloomInput = tslMod.rtt(scenePassColor);
-        }
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- toTexture() always exists on r184+ TSL nodes
+        const bloomInput = scenePassColor.toTexture!();
 
         const { Node: NodeClass } = await import('three/webgpu');
         const bloomPass = bloom(bloomInput as InstanceType<typeof NodeClass>, strength, radius, threshold);

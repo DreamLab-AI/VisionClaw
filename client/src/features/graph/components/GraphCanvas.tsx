@@ -184,21 +184,11 @@ const GraphCanvas: React.FC = () => {
                 }}
                 onCreated={({ gl, camera, scene, invalidate, size }) => {
                     gl.setClearColor(0x000033, 1);
-                    // Force renderer to match current container size immediately
-                    // — WebGPU pipelines compile lazily on first draw, so the
-                    // renderer must have correct dimensions before that first draw.
                     if (size.width > 0 && size.height > 0) {
                         gl.setSize(size.width, size.height);
                     }
                     setCanvasReady(true);
-                    // Force initial render — Edge/WebGPU doesn't paint until
-                    // a resize event triggers the render pipeline compilation.
                     invalidate();
-                    // Single deferred kick to trigger WebGPU pipeline compilation.
-                    setTimeout(() => {
-                        invalidate();
-                        window.dispatchEvent(new Event('resize'));
-                    }, 200);
                 }}
             >
                 {/* Lighting tuned for gem refraction -- driven by settings */}

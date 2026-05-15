@@ -74,7 +74,7 @@ git clone --recursive https://github.com/your-org/VisionClaw.git
 cd VisionClaw
 
 # Create the shared network
-docker network create docker_ragflow
+docker network create visionclaw_network
 
 # Configure environment
 cp .env.example .env

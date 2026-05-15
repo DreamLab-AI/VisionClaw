@@ -3,12 +3,12 @@
 echo "=== Fixing Kokoro Network Configuration ==="
 
 # Add Kokoro container to the ragflow network
-echo "Adding Kokoro container to docker_ragflow network..."
-docker network connect docker_ragflow friendly_dewdney
+echo "Adding Kokoro container to visionclaw_network network..."
+docker network connect visionclaw_network friendly_dewdney
 
 # Verify the connection
 echo -e "\nVerifying network connection..."
-docker inspect friendly_dewdney | grep -A 10 "Networks" | grep -E "(docker_ragflow|IPAddress)"
+docker inspect friendly_dewdney | grep -A 10 "Networks" | grep -E "(visionclaw_network|IPAddress)"
 
 # Get the new IP address
 KOKORO_IP=$(docker inspect friendly_dewdney -f '{{range .NetworkSettings.Networks}}{{if eq .NetworkID "b0c38a1301451c0329969ef53fdedde5221b1b05b063ad94d66017a45d3ddaa3"}}{{.IPAddress}}{{end}}{{end}}')

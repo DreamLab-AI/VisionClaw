@@ -59,7 +59,7 @@ services:
       - "3001:3001"  # Nginx entry point for dev
       - "4000:4000"  # API port for direct access
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - webxr
     restart: unless-stopped
@@ -125,7 +125,7 @@ services:
   #   ports:
   #     - "4000:4000"  # API port for production
   #   networks:
-  #     - docker_ragflow
+  #     - visionclaw_network
   #   restart: unless-stopped
   #   healthcheck:
   #     test: ["CMD", "curl", "-f", "http://localhost:4000/"]
@@ -149,11 +149,11 @@ services:
         condition: service_started
         required: false
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes:

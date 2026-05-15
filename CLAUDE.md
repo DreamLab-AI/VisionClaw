@@ -98,7 +98,8 @@ Swarm (3+ agents)? --> /swarm-advanced or hive-mind
 GitHub ops (PR/release/CI)? --> github-* skills
 Docs/reports? --> /report-builder, /docs-alignment
 Media (image/video/3D)? --> /imagemagick, /ffmpeg, /blender, /comfyui
-Browser automation? --> /playwright, /browser-automation, /qe-browser (QE-grade: typed assertions, visual-diff, injection scan)
+Browser automation (GPU/WebGPU)? --> browsercontainer (agentbox/browsercontainer; `agentbox.sh browsercontainer up`; SSE at browsercontainer:8931, VNC :5903)
+Browser automation (simple)? --> /playwright, /browser-automation, /qe-browser (QE-grade: typed assertions, visual-diff, injection scan)
 AI/ML (PyTorch, CUDA, notebooks)? --> /pytorch-ml, /cuda, /jupyter-notebooks
 Memory/AgentDB? --> /agentdb-*, /lazy-fetch
 Wardley maps / strategic analysis? --> /wardley-maps, /report-builder

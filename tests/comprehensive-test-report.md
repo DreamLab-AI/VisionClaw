@@ -304,7 +304,7 @@ root   38493  0.9  0.1 7170124 668848 ?  Sl  19:12  0:04 /app/target/debug/webxr
 ```
 COMMAND   PID USER   FD   TYPE   DEVICE SIZE/OFF NODE NAME
 webxr   38493 root   44u  IPv4 55743870      0t0  TCP *:4000 (LISTEN)
-webxr   38493 root   93u  IPv4 55759315      0t0  TCP webxr:4000->agentic-workstation.docker_ragflow:39700 (ESTABLISHED)
+webxr   38493 root   93u  IPv4 55759315      0t0  TCP webxr:4000->agentic-workstation.visionclaw_network:39700 (ESTABLISHED)
 ```
 - ✅ Port 4000 bound successfully
 - ✅ Active connection to RAGFlow detected

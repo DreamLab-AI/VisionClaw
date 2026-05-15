@@ -17,7 +17,7 @@ services:
       - neo4j-conf:/conf
       - neo4j-plugins:/plugins
     networks:
-      - docker_ragflow
+      - visionclaw_network
     healthcheck:
       test: ["CMD-SHELL", "wget --spider --quiet http://localhost:7474 || exit 1"]
       interval: 10s
@@ -112,10 +112,10 @@ services:
       # Other services (Vite 5173, Rust 4000, HMR 24678) are accessed via Nginx proxy.
       - "3001:3001"  # Nginx entry point
     networks: # Indentation: 4 spaces
-      - docker_ragflow
+      - visionclaw_network
 
 networks: # Indentation: 2 spaces
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes: # Indentation: 2 spaces

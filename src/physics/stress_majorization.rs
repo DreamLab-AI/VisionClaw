@@ -23,7 +23,7 @@
 
 #[cfg(feature = "gpu")]
 use cudarc::driver::CudaDevice;
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use nalgebra::DMatrix;
 use std::collections::HashMap;
 use std::sync::Arc;

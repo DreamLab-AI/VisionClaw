@@ -100,11 +100,11 @@ curl -X POST http://localhost:9090/api/bots/spawn-agent-hybrid \
 
 ## Docker Multi-Container Setup
 
-VisionClaw uses three cooperating containers on a shared Docker network (`docker_ragflow`).
+VisionClaw uses three cooperating containers on a shared Docker network (`visionclaw_network`).
 
 ```mermaid
 graph LR
-    subgraph "docker_ragflow network"
+    subgraph "visionclaw_network network"
         VF["VisionClaw Container\n:9090 API\n:3001 Client\n16GB RAM / 4 CPUs / NVIDIA GPU"]
         AW["Agentic Workstation\n:9500 MCP TCP\n:3002 MCP WS\n16GB RAM / 4 CPUs"]
         GUI["GUI Tools Container\n:5901 VNC\n:9876-9878 MCP\n8GB RAM / 2 CPUs"]
@@ -482,7 +482,7 @@ RAGFlow provides document ingestion, vector storage, and semantic search for bui
 
 | Setting | Value |
 |---------|-------|
-| Docker network | `docker_ragflow` (external bridge) |
+| Docker network | `visionclaw_network` (external bridge) |
 | Hostname | `turbo-devpod.ragflow` |
 | Aliases | `turbo-devpod.ragflow`, `turbo-unified.local` |
 
@@ -505,7 +505,7 @@ RAGFlow provides document ingestion, vector storage, and semantic search for bui
 
 ```bash
 # Verify RAGFlow is reachable
-docker network inspect docker_ragflow
+docker network inspect visionclaw_network
 docker exec visionclaw_container ping turbo-devpod.ragflow -c 3
 ```
 
@@ -742,7 +742,7 @@ docker exec agentic-workstation nc -zv gui-tools-container 9876
 echo $PERPLEXITY_API_KEY
 
 # RAGFlow: verify network
-docker network inspect docker_ragflow
+docker network inspect visionclaw_network
 ping turbo-devpod.ragflow
 
 # Z.AI service

@@ -72,7 +72,7 @@ services:
       - neo4j-import:/var/lib/neo4j/import
       - neo4j-plugins:/plugins
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - neo4j
     restart: unless-stopped
@@ -130,7 +130,7 @@ services:
       - "${DEV_NGINX_PORT:-3001}:3001"
       - "${API_PORT:-4000}:4000"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ${NETWORK_ALIAS:-webxr}
     depends_on:
@@ -176,7 +176,7 @@ services:
       # Production: Only API port
       - "${PROD_API_PORT:-4000}:4000"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ${NETWORK_ALIAS:-webxr-prod}
     depends_on:
@@ -211,7 +211,7 @@ services:
         condition: service_started
         required: false
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
     logging:
       <<: *common-logging
@@ -222,9 +222,9 @@ services:
       - prod
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: ${EXTERNAL_NETWORK:-docker_ragflow}
+    name: ${EXTERNAL_NETWORK:-visionclaw_network}
 
 volumes:
   # Neo4j volumes

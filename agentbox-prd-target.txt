@@ -633,9 +633,9 @@ restart_agent_container() {
         warning "Container $AGENT_CONTAINER is not running"
     fi
 
-    # Ensure comfyui container is reachable from docker_ragflow network
+    # Ensure comfyui container is reachable from visionclaw_network network
     # (comfyui may live on a different network; connect it at runtime without build changes)
-    local RAGFLOW_NET="${EXTERNAL_NETWORK:-docker_ragflow}"
+    local RAGFLOW_NET="${EXTERNAL_NETWORK:-visionclaw_network}"
     if docker ps --format '{{.Names}}' | grep -q "^comfyui$"; then
         if ! docker inspect comfyui --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | grep -q "$RAGFLOW_NET"; then
             info "Connecting comfyui to $RAGFLOW_NET for agentic-workstation access..."
@@ -751,10 +751,10 @@ rebuild_agent_container() {
     echo ""
 
     # Check/create ragflow network
-    log "Checking docker_ragflow network..."
-    if ! docker network inspect docker_ragflow >/dev/null 2>&1; then
-        info "Creating docker_ragflow network..."
-        docker network create docker_ragflow
+    log "Checking visionclaw_network network..."
+    if ! docker network inspect visionclaw_network >/dev/null 2>&1; then
+        info "Creating visionclaw_network network..."
+        docker network create visionclaw_network
         success "Network created"
     else
         success "Network exists"
@@ -3420,7 +3420,7 @@ services:
       - ruvector-data:/var/lib/postgresql/data
 
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ruvector-postgres
 
@@ -3488,7 +3488,7 @@ services:
 
     # Network configuration - join ragflow network
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - agentic-workstation.ragflow
           - agentic-workstation.local
@@ -3718,9 +3718,9 @@ services:
 # ============================================================================
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: docker_ragflow
+    name: visionclaw_network
 
 # ============================================================================
 # Volumes
@@ -3802,7 +3802,7 @@ services:
               capabilities: [gpu, compute, utility]
 
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - comfyui.ragflow
           - comfyui.local
@@ -3874,7 +3874,7 @@ services:
           cpus: '1'
 
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - claude-zai.ragflow
           - claude-zai.local
@@ -3926,9 +3926,9 @@ services:
 # ============================================================================
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: docker_ragflow
+    name: visionclaw_network
 
 # ============================================================================
 # Volumes
@@ -3978,7 +3978,7 @@ services:
 
     # Network - join ragflow network
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - comfyui.ragflow
           - comfyui.local
@@ -4026,9 +4026,9 @@ services:
 
 # Networks
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: docker_ragflow
+    name: visionclaw_network
 
 # Volumes (models/input/output use host bind mounts)
 volumes:
@@ -4104,7 +4104,7 @@ services:
       - neo4j-conf:/conf
       - neo4j-plugins:/plugins
     networks:
-      - docker_ragflow
+      - visionclaw_network
     healthcheck:
       test: ["CMD-SHELL", "wget --spider --quiet http://localhost:7474 || exit 1"]
       interval: 10s
@@ -4218,7 +4218,7 @@ services:
       - "${DEV_NGINX_PORT:-3001}:3001"
       - "${API_PORT:-4000}:4000"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ${NETWORK_ALIAS:-webxr}
     deploy:
@@ -4286,7 +4286,7 @@ services:
       # Production: Only API port
       - "${PROD_API_PORT:-3001}:3001"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ${NETWORK_ALIAS:-webxr}
     deploy:
@@ -4329,7 +4329,7 @@ services:
         condition: service_started
         required: false
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
     logging:
       <<: *common-logging
@@ -4340,9 +4340,9 @@ services:
       - prod
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: ${EXTERNAL_NETWORK:-docker_ragflow}
+    name: ${EXTERNAL_NETWORK:-visionclaw_network}
 
 volumes:
   # Persistent data volumes
@@ -4402,7 +4402,7 @@ services:
       - neo4j-conf:/conf
       - neo4j-plugins:/plugins
     networks:
-      - docker_ragflow
+      - visionclaw_network
     healthcheck:
       test: ["CMD-SHELL", "wget --spider --quiet http://localhost:7474 || exit 1"]
       interval: 10s
@@ -4478,10 +4478,10 @@ services:
       # Other services (Vite 5173, Rust 4000, HMR 24678) are accessed via Nginx proxy.
       - "3001:3001"  # Nginx entry point
     networks: # Indentation: 4 spaces
-      - docker_ragflow
+      - visionclaw_network
 
 networks: # Indentation: 2 spaces
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes: # Indentation: 2 spaces
@@ -4533,7 +4533,7 @@ services:
     ports:
       - "4000:4000"  # Expose API port
     networks:
-      - docker_ragflow # Revert to simple network list item
+      - visionclaw_network # Revert to simple network list item
     restart: unless-stopped
     healthcheck:
       # Check root path which Nginx serves, indicating Nginx is up
@@ -4555,11 +4555,11 @@ services:
     depends_on:
       - webxr
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 # Removed duplicated cloudflared service definition
@@ -4629,7 +4629,7 @@ services:
       - "3001:3001"  # Nginx entry point for dev
       - "4000:4000"  # API port for direct access
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - webxr
     restart: unless-stopped
@@ -4695,7 +4695,7 @@ services:
   #   ports:
   #     - "4000:4000"  # API port for production
   #   networks:
-  #     - docker_ragflow
+  #     - visionclaw_network
   #   restart: unless-stopped
   #   healthcheck:
   #     test: ["CMD", "curl", "-f", "http://localhost:4000/"]
@@ -4719,11 +4719,11 @@ services:
         condition: service_started
         required: false
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes:
@@ -4766,7 +4766,7 @@ services:
     volumes:
       - ./config/livekit.yaml:/etc/livekit.yaml:ro
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - livekit
     healthcheck:
@@ -4800,7 +4800,7 @@ services:
     ports:
       - "8100:8000"   # OpenAI-compatible REST + WebSocket
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - turbo-whisper
     deploy:
@@ -4837,7 +4837,7 @@ services:
     ports:
       - "8880:8880"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - kokoro-tts
           - kokoro-tts-container
@@ -4855,7 +4855,7 @@ services:
       - prod
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes:
@@ -5073,7 +5073,7 @@ TZ=UTC
 # Network Configuration
 # ============================================================================
 #
-# Joins docker_ragflow network
+# Joins visionclaw_network network
 # Z.AI accessible only within ragflow network (port 9600)
 # External ports:
 #   - 2222 -> 22 (SSH)
@@ -5657,7 +5657,7 @@ export default {
     // RAGFlow integration
     ragflow: {
       enabled: true,
-      network: 'docker_ragflow',
+      network: 'visionclaw_network',
       xinferenceUrl: 'http://172.18.0.11:9997/v1'
     }
   },
@@ -6953,7 +6953,7 @@ _Add new experiments here with hypothesis and metrics_
 ### Container Environment
 - Container: turbo-flow-unified
 - External memory: ruvector-postgres:5432
-- Docker network: docker_ragflow
+- Docker network: visionclaw_network
 
 ### Known Issues
 - supervisorctl requires sudo in this container
@@ -8095,7 +8095,7 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 
 # ============================================================================
 # PostgreSQL Database (Port 5432) - RuVector Vector Storage
-# DISABLED: Using external ruvector-postgres on docker_ragflow network instead
+# DISABLED: Using external ruvector-postgres on visionclaw_network network instead
 # Start manually if needed: supervisorctl start postgresql
 # ============================================================================
 
@@ -16082,41 +16082,41 @@ FILE: multi-agent-docker/mcp-infrastructure/mcp.json
     "ragflow": {
       "url": "http://docker-ragflow-cpu-1:80",
       "api_url": "http://docker-ragflow-cpu-1:9380",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "RAGFlow knowledge management and semantic search"
     },
     "whisper": {
       "url": "http://whisper-webui:7860",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "Whisper STT speech-to-text transcription"
     },
     "comfyui": {
       "url": "http://comfyui:8188",
       "ws_url": "ws://comfyui:8188/ws",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "ComfyUI AI image generation"
     },
     "neo4j": {
       "bolt_url": "bolt://visionflow-neo4j:7687",
       "http_url": "http://visionflow-neo4j:7474",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "Neo4j graph database"
     },
     "jss": {
       "url": "http://visionflow-jss:3030",
       "ws_url": "ws://visionflow-jss:3030/.notifications",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "JavaScript Solid Server for Solid Protocol pods"
     },
     "qdrant": {
       "url": "http://qdrant:6333",
       "grpc_url": "grpc://qdrant:6334",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "Qdrant vector database"
     },
     "xinference": {
       "url": "http://xinference:9997",
-      "network": "docker_ragflow",
+      "network": "visionclaw_network",
       "description": "Xinference model inference server"
     }
   }
@@ -16263,7 +16263,7 @@ await import('./implementations/workflow-tools.js').catch(() => {
   }
 });
 
-// Initialize RAGFlow integration (docker_ragflow network)
+// Initialize RAGFlow integration (visionclaw_network network)
 await import('./implementations/ragflow-tools.js').catch(() => {
   // If ES module import fails, try require
   try {
@@ -16286,7 +16286,7 @@ const __dirname = path.dirname(__filename);
 // Legacy agent type mapping for backward compatibility
 const LEGACY_AGENT_MAPPING = {
   analyst: 'code-analyzer',
-  coordinator: 'task-orchestrator', 
+  coordinator: 'task-orchestrator',
   optimizer: 'perf-analyzer',
   documenter: 'api-docs',
   monitor: 'performance-benchmarker',
@@ -17175,7 +17175,7 @@ class ClaudeFlowMCPServer {
         inputSchema: { type: 'object', properties: { components: { type: 'array' } } },
       },
 
-      // RAGFlow Knowledge Base Tools (docker_ragflow network)
+      // RAGFlow Knowledge Base Tools (visionclaw_network network)
       ragflow_status: {
         name: 'ragflow_status',
         description: 'Check RAGFlow service health and connection status',
@@ -17574,7 +17574,7 @@ class ClaudeFlowMCPServer {
     switch (name) {
       case 'swarm_init':
         const swarmId = `swarm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         // Track swarm creation
         if (global.agentTracker) {
           global.agentTracker.trackSwarm(swarmId, {
@@ -17583,7 +17583,7 @@ class ClaudeFlowMCPServer {
             strategy: args.strategy || 'balanced',
           });
         }
-        
+
         const swarmData = {
           id: swarmId,
           name: `Swarm-${new Date().toISOString().split('T')[0]}`,
@@ -17686,7 +17686,7 @@ class ClaudeFlowMCPServer {
             `[${new Date().toISOString()}] INFO [claude-flow-mcp] Agent tracked: ${agentId} in swarm: ${activeSwarmId}`,
           );
         }
-        
+
         return {
           success: true,
           agentId: agentId,
@@ -17950,7 +17950,7 @@ class ClaudeFlowMCPServer {
         if (global.agentTracker) {
           const swarmId = args.swarmId || (await this.getActiveSwarmId());
           const trackedAgents = global.agentTracker.getAgents(swarmId);
-          
+
           if (trackedAgents.length > 0) {
             return {
               success: true,
@@ -17961,7 +17961,7 @@ class ClaudeFlowMCPServer {
             };
           }
         }
-        
+
         if (this.databaseManager) {
           try {
             const swarmId = args.swarmId || (await this.getActiveSwarmId());
@@ -18057,7 +18057,7 @@ class ClaudeFlowMCPServer {
               timestamp: new Date().toISOString(),
             };
           }
-          
+
           // Check agent tracker for real counts
           if (global.agentTracker) {
             const status = global.agentTracker.getSwarmStatus(swarmId);
@@ -18066,7 +18066,7 @@ class ClaudeFlowMCPServer {
                 namespace: 'swarms',
               });
               const swarm = swarmDataRaw ? (typeof swarmDataRaw === 'string' ? JSON.parse(swarmDataRaw) : swarmDataRaw) : {};
-              
+
               return {
                 success: true,
                 swarmId: swarmId,
@@ -18182,7 +18182,7 @@ class ClaudeFlowMCPServer {
 
       case 'task_orchestrate':
         const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         // Track task creation
         if (global.agentTracker) {
           global.agentTracker.trackTask(taskId, {
@@ -18256,7 +18256,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'daa_capability_match':
         if (global.daaManager) {
           return global.daaManager.daa_capability_match(args);
@@ -18266,7 +18266,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'daa_resource_alloc':
         if (global.daaManager) {
           return global.daaManager.daa_resource_alloc(args);
@@ -18276,7 +18276,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'daa_lifecycle_manage':
         if (global.daaManager) {
           return global.daaManager.daa_lifecycle_manage(args);
@@ -18286,7 +18286,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'daa_communication':
         if (global.daaManager) {
           return global.daaManager.daa_communication(args);
@@ -18296,7 +18296,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'daa_consensus':
         if (global.daaManager) {
           return global.daaManager.daa_consensus(args);
@@ -18306,7 +18306,7 @@ class ClaudeFlowMCPServer {
           error: 'DAA manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       // Workflow Tools Implementation
       case 'workflow_create':
         if (global.workflowManager) {
@@ -18317,7 +18317,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'workflow_execute':
         if (global.workflowManager) {
           return global.workflowManager.workflow_execute(args);
@@ -18327,7 +18327,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'parallel_execute':
         if (global.workflowManager) {
           return global.workflowManager.parallel_execute(args);
@@ -18337,7 +18337,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'batch_process':
         if (global.workflowManager) {
           return global.workflowManager.batch_process(args);
@@ -18347,7 +18347,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'workflow_export':
         if (global.workflowManager) {
           return global.workflowManager.workflow_export(args);
@@ -18357,7 +18357,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'workflow_template':
         if (global.workflowManager) {
           return global.workflowManager.workflow_template(args);
@@ -18367,7 +18367,7 @@ class ClaudeFlowMCPServer {
           error: 'Workflow manager not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       // Performance Tools Implementation
       case 'performance_report':
         if (global.performanceMonitor) {
@@ -18378,7 +18378,7 @@ class ClaudeFlowMCPServer {
           error: 'Performance monitor not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'bottleneck_analyze':
         if (global.performanceMonitor) {
           return global.performanceMonitor.bottleneck_analyze(args);
@@ -18388,7 +18388,7 @@ class ClaudeFlowMCPServer {
           error: 'Performance monitor not initialized',
           timestamp: new Date().toISOString(),
         };
-        
+
       case 'memory_analytics':
         if (global.performanceMonitor) {
           return global.performanceMonitor.memory_analytics(args);
@@ -18399,7 +18399,7 @@ class ClaudeFlowMCPServer {
           timestamp: new Date().toISOString(),
         };
 
-      // RAGFlow Tools Implementation (docker_ragflow network)
+      // RAGFlow Tools Implementation (visionclaw_network network)
       case 'ragflow_status':
         if (global.ragflowManager) {
           return global.ragflowManager.ragflow_status();
@@ -19653,7 +19653,7 @@ class PersistentMCPServer {
   async handleClient(socket) {
     const clientId = `${socket.remoteAddress}:${socket.remotePort}-${Date.now()}`;
     const clientIp = socket.remoteAddress;
-    
+
     // Check if IP is blocked (only if auto-blocking is enabled)
     if (process.env.AUTO_BLOCK_ENABLED === 'true' && this.auth.isIPBlocked(clientIp)) {
         this.auth.logSecurityEvent('tcp_blocked_connection', { ip: clientIp });
@@ -19661,7 +19661,7 @@ class PersistentMCPServer {
         socket.end();
         return;
     }
-    
+
     // Check connection limit
     if (this.clients.size >= MAX_CONNECTIONS) {
         this.auth.logSecurityEvent('tcp_connection_limit', { ip: clientIp });
@@ -19669,7 +19669,7 @@ class PersistentMCPServer {
         socket.end();
         return;
     }
-    
+
     // Check rate limiting (only if rate limiting is enabled)
     if (process.env.RATE_LIMIT_ENABLED === 'true' && !this.auth.checkRateLimit(clientIp)) {
         this.auth.logSecurityEvent('tcp_rate_limit_exceeded', { ip: clientIp });
@@ -19678,7 +19678,7 @@ class PersistentMCPServer {
         socket.end();
         return;
     }
-    
+
     this.log('info', `Client connected: ${clientId}`);
     this.auth.logSecurityEvent('tcp_connection_established', { clientId, ip: clientIp });
 
@@ -19726,7 +19726,7 @@ class PersistentMCPServer {
             }) + '\n');
             continue;
           }
-          
+
           // Rate limit check for individual messages (only if rate limiting is enabled)
           if (process.env.RATE_LIMIT_ENABLED === 'true' && !this.auth.checkRateLimit(clientIp)) {
             socket.write(JSON.stringify({
@@ -19738,11 +19738,11 @@ class PersistentMCPServer {
             }) + '\n');
             continue;
           }
-          
+
           const sanitizedInput = typeof validation.sanitized === 'string'
             ? validation.sanitized
             : JSON.stringify(validation.sanitized);
-          
+
           this.handleClientRequest(clientId, sanitizedInput);
         }
       }
@@ -19766,7 +19766,7 @@ class PersistentMCPServer {
       const request = JSON.parse(requestStr);
       const client = this.clients.get(clientId);
       if (!client) return;
-      
+
       // Handle authentication
       if (this.auth.config.authEnabled && !client.authenticated) {
         if (request.method === 'authenticate') {
@@ -19830,12 +19830,12 @@ class PersistentMCPServer {
 
   async start() {
     await this.startMCPProcess();
-    
+
     // Start connection cleanup interval
     setInterval(() => {
       const now = Date.now();
       const timeout = parseInt(process.env.TCP_CONNECTION_TIMEOUT || '300000');
-      
+
       for (const [clientId, client] of this.clients.entries()) {
         if (now - client.connectionTime > timeout) {
           this.log('info', `Closing idle TCP connection: ${clientId}`);
@@ -19845,7 +19845,7 @@ class PersistentMCPServer {
         }
       }
     }, 30000); // Check every 30 seconds
-    
+
     const server = net.createServer((socket) => this.handleClient(socket));
     server.listen(TCP_PORT, '0.0.0.0', () => {
       this.log('info', `Persistent MCP TCP server on port ${TCP_PORT}`);
@@ -19892,35 +19892,35 @@ const MAX_CONNECTIONS = parseInt(process.env.WS_MAX_CONNECTIONS || '100');
 const auth = new AuthMiddleware();
 const activeConnections = new Map();
 
-const wss = new WebSocket.Server({ 
-    host: HOST, 
+const wss = new WebSocket.Server({
+    host: HOST,
     port: PORT,
     verifyClient: (info, cb) => {
         // Extract client info
         const clientIp = info.req.socket.remoteAddress;
         const { token } = auth.extractAuth(info.req);
-        
+
         // Check if IP is blocked
         if (auth.isIPBlocked(clientIp)) {
             auth.logSecurityEvent('blocked_connection', { ip: clientIp });
             cb(false, 403, 'Forbidden');
             return;
         }
-        
+
         // Check authentication
         if (!auth.validateToken(token)) {
             auth.logSecurityEvent('invalid_auth', { ip: clientIp });
             cb(false, 401, 'Unauthorized');
             return;
         }
-        
+
         // Check connection limit
         if (activeConnections.size >= MAX_CONNECTIONS) {
             auth.logSecurityEvent('connection_limit', { ip: clientIp });
             cb(false, 503, 'Service Unavailable');
             return;
         }
-        
+
         cb(true);
     }
 });
@@ -19931,7 +19931,7 @@ console.log(`[MCP Bridge] Using global claude-flow installation at /usr/bin/clau
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     const clientId = `${clientIp}:${req.socket.remotePort}-${Date.now()}`;
-    
+
     // Check rate limiting
     if (!auth.checkRateLimit(clientIp)) {
         auth.logSecurityEvent('rate_limit_exceeded', { ip: clientIp });
@@ -19939,10 +19939,10 @@ wss.on('connection', (ws, req) => {
         ws.close(1008, 'Rate limit exceeded');
         return;
     }
-    
+
     console.log(`[MCP Bridge] New client connected from ${clientIp}`);
     auth.logSecurityEvent('connection_established', { clientId, ip: clientIp });
-    
+
     // Track active connection
     activeConnections.set(clientId, { ws, ip: clientIp, startTime: Date.now() });
 
@@ -19977,23 +19977,23 @@ wss.on('connection', (ws, req) => {
             auth.logSecurityEvent('invalid_input', { clientId, error: validation.error });
             return;
         }
-        
+
         // Rate limit check for individual messages
         if (!auth.checkRateLimit(clientId)) {
-            ws.send(JSON.stringify({ 
-                jsonrpc: '2.0', 
-                error: { 
-                    code: -32000, 
-                    message: 'Rate limit exceeded' 
+            ws.send(JSON.stringify({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32000,
+                    message: 'Rate limit exceeded'
                 }
             }));
             return;
         }
-        
-        const sanitizedMessage = typeof validation.sanitized === 'string' 
-            ? validation.sanitized 
+
+        const sanitizedMessage = typeof validation.sanitized === 'string'
+            ? validation.sanitized
             : JSON.stringify(validation.sanitized);
-        
+
         mcpProcess.stdin.write(sanitizedMessage + '\n');
     });
 
@@ -20039,13 +20039,13 @@ const healthServer = http.createServer((req, res) => {
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
+
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
         return;
     }
-    
+
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -20076,7 +20076,7 @@ wss.on('error', (error) => {
 setInterval(() => {
     const now = Date.now();
     const timeout = parseInt(process.env.WS_CONNECTION_TIMEOUT || '300000');
-    
+
     for (const [clientId, connection] of activeConnections.entries()) {
         if (now - connection.startTime > timeout) {
             console.log(`[MCP Bridge] Closing idle connection: ${clientId}`);
@@ -20091,12 +20091,12 @@ setInterval(() => {
 process.on('SIGINT', () => {
     console.log(`[MCP Bridge] Shutting down...`);
     auth.logSecurityEvent('server_shutdown', { activeConnections: activeConnections.size });
-    
+
     // Close all active connections
     for (const [clientId, connection] of activeConnections.entries()) {
         connection.ws.close(1001, 'Server shutting down');
     }
-    
+
     wss.close(() => {
         process.exit(0);
     });
@@ -20115,13 +20115,13 @@ FILE: multi-agent-docker/mcp-infrastructure/servers/implementations/ragflow-tool
 /**
  * RAGFlow MCP Tools Implementation
  * Provides knowledge base query, document ingestion, and semantic search
- * for the VisionFlow multi-agent system via docker_ragflow network.
+ * for the VisionFlow multi-agent system via visionclaw_network network.
  */
 
 const http = require('http');
 const https = require('https');
 
-// RAGFlow service configuration from docker_ragflow network
+// RAGFlow service configuration from visionclaw_network network
 const RAGFLOW_CONFIG = {
   host: process.env.RAGFLOW_HOST || 'docker-ragflow-cpu-1',
   port: parseInt(process.env.RAGFLOW_PORT || '80'),
@@ -20424,7 +20424,7 @@ class AuthMiddleware {
     this.authTokens = new Map();
     this.rateLimiter = new Map();
     this.blockedIPs = new Set();
-    
+
     // Configuration
     this.config = {
       authEnabled: process.env.WS_AUTH_ENABLED === 'true',
@@ -20475,7 +20475,7 @@ class AuthMiddleware {
     const requests = this.rateLimiter.get(clientId);
     // Remove old requests outside the window
     const recentRequests = requests.filter(time => time > windowStart);
-    
+
     if (recentRequests.length >= this.config.rateLimitMaxRequests) {
       return false; // Rate limit exceeded
     }
@@ -20494,7 +20494,7 @@ class AuthMiddleware {
     const authHeader = req.headers.authorization;
     const token = authHeader ? authHeader.replace('Bearer ', '') : null;
     const clientId = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
-    
+
     return { token, clientId };
   }
 
@@ -20576,7 +20576,7 @@ class AuthMiddleware {
         .replace(/javascript:/gi, '')
         .replace(/on\w+\s*=/gi, '');
     }
-    
+
     if (typeof content === 'object' && content !== null) {
       const sanitized = Array.isArray(content) ? [] : {};
       for (const key in content) {
@@ -20590,7 +20590,7 @@ class AuthMiddleware {
       }
       return sanitized;
     }
-    
+
     return content;
   }
 
@@ -20618,7 +20618,7 @@ class AuthMiddleware {
     // Clean up rate limiter
     const now = Date.now();
     const windowStart = now - this.config.rateLimitWindow;
-    
+
     for (const [clientId, requests] of this.rateLimiter.entries()) {
       const recentRequests = requests.filter(time => time > windowStart);
       if (recentRequests.length === 0) {
@@ -20641,7 +20641,7 @@ class AuthMiddleware {
       event,
       ...details
     };
-    
+
     console.log(`[SECURITY] ${JSON.stringify(logEntry)}`);
   }
 }
@@ -20686,7 +20686,7 @@ class SecureWebSocketClient {
   connect() {
     return new Promise((resolve, reject) => {
       console.log(`[WS] Connecting to ${this.url}...`);
-      
+
       // Connect with authentication header
       this.ws = new WebSocket(this.url, {
         headers: {
@@ -20800,7 +20800,7 @@ class SecureTCPClient {
   connect() {
     return new Promise((resolve, reject) => {
       console.log(`[TCP] Connecting to ${this.host}:${this.port}...`);
-      
+
       this.socket = net.createConnection(this.port, this.host);
 
       this.socket.on('connect', () => {
@@ -20840,7 +20840,7 @@ class SecureTCPClient {
     const response = await this.sendRequest('authenticate', {
       token: this.token
     });
-    
+
     if (response.result && response.result.authenticated) {
       this.authenticated = true;
       console.log('[TCP] Authentication successful');
@@ -20910,7 +20910,7 @@ async function main() {
   console.log('🔒 Secure MCP Client Example\n');
   console.log('Configuration:');
   console.log(`  Mode: ${mode}`);
-  
+
   try {
     if (mode === 'ws') {
       console.log(`  URL: ${config.wsUrl}`);
@@ -21359,20 +21359,20 @@ const services = [
 async function checkService(service) {
   return new Promise((resolve) => {
     const protocol = service.url.startsWith('ws') ? require('ws') : http;
-    
+
     if (service.url.startsWith('ws')) {
       const ws = new (require('ws'))(service.url);
       const timeout = setTimeout(() => {
         ws.close();
         resolve({ ...service, status: 'DOWN', error: 'Timeout' });
       }, 5000);
-      
+
       ws.on('open', () => {
         clearTimeout(timeout);
         ws.close();
         resolve({ ...service, status: 'UP' });
       });
-      
+
       ws.on('error', (err) => {
         clearTimeout(timeout);
         resolve({ ...service, status: 'DOWN', error: err.message });
@@ -21385,11 +21385,11 @@ async function checkService(service) {
           resolve({ ...service, status: 'DOWN', error: `HTTP ${res.statusCode}` });
         }
       });
-      
+
       req.on('error', (err) => {
         resolve({ ...service, status: 'DOWN', error: err.message });
       });
-      
+
       req.setTimeout(5000, () => {
         req.destroy();
         resolve({ ...service, status: 'DOWN', error: 'Timeout' });
@@ -21412,13 +21412,13 @@ async function checkSupervisorStatus() {
 
 async function runHealthCheck() {
   console.log(`[${new Date().toISOString()}] Running health check...`);
-  
+
   // Check services
   const results = await Promise.all(services.map(checkService));
-  
+
   // Check supervisor status
   const supervisorStatus = await checkSupervisorStatus();
-  
+
   // Report results
   console.log('\n=== Service Health Status ===');
   results.forEach(result => {
@@ -21426,14 +21426,14 @@ async function runHealthCheck() {
     const optional = result.optional ? ' (optional)' : '';
     console.log(`${status} ${result.name}${optional}: ${result.status} ${result.error ? `- ${result.error}` : ''}`);
   });
-  
+
   if (supervisorStatus.length > 0) {
     console.log('\n=== Supervisor Status ===');
     supervisorStatus.forEach(({ name, status }) => {
       console.log(`${name}: ${status}`);
     });
   }
-  
+
   // Return exit code based on required services
   const requiredDown = results.filter(r => !r.optional && r.status === 'DOWN');
   if (requiredDown.length > 0) {
@@ -21481,7 +21481,7 @@ echo "Time: $(date)"
 echo -n "TCP Server Health (9501): "
 if curl -sf --max-time $TIMEOUT "$HEALTH_ENDPOINT" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ HEALTHY${NC}"
-    
+
     # Get detailed status if available
     if STATUS=$(curl -sf --max-time $TIMEOUT "$HEALTH_ENDPOINT" 2>/dev/null); then
         echo "  Status: $(echo "$STATUS" | jq -r '.status // "unknown"' 2>/dev/null)"
@@ -21654,7 +21654,7 @@ echo ""
 echo "Quick Health Check:"
 if curl -sf http://localhost:9501/health 2>/dev/null | jq -r '.status' 2>/dev/null | grep -q healthy; then
     echo -e "${GREEN}✅ System is healthy${NC}"
-    
+
     # Show some stats
     HEALTH_DATA=$(curl -sf http://localhost:9501/health 2>/dev/null)
     if [ -n "$HEALTH_DATA" ]; then
@@ -21723,20 +21723,20 @@ check_claude_auth() {
 wait_for_claude_auth() {
     local max_attempts=10
     local attempt=1
-    
+
     log_info "Waiting for Claude authentication..."
-    
+
     while [ $attempt -le $max_attempts ]; do
         if check_claude_auth; then
             log_success "Claude is authenticated!"
             return 0
         fi
-        
+
         log_info "  Attempt $attempt/$max_attempts - waiting 2 seconds..."
         sleep 2
         attempt=$((attempt + 1))
     done
-    
+
     log_error "Claude authentication failed after $max_attempts attempts"
     return 1
 }
@@ -21744,20 +21744,20 @@ wait_for_claude_auth() {
 # Initialize Claude workspace configuration
 setup_claude_workspace() {
     log_section "Claude Workspace Configuration"
-    
+
     # Check if already configured
     if [ -f /workspace/.claude_configured ]; then
         log_info "Claude workspace already configured"
         return 0
     fi
-    
+
     # Configure Claude for the workspace
     cd /workspace
-    
+
     # Initialize claude in the workspace if needed
     if [ ! -f /workspace/claude_project.json ]; then
         log_info "Initializing Claude project configuration..."
-        
+
         # Create a claude_project.json for better context
         cat > /workspace/claude_project.json << 'EOF'
 {
@@ -21787,7 +21787,7 @@ setup_claude_workspace() {
 EOF
         log_success "Created Claude project configuration"
     fi
-    
+
     # Touch marker file
     touch /workspace/.claude_configured
 }
@@ -21795,18 +21795,18 @@ EOF
 # Align MCP tools configuration
 align_mcp_tools() {
     log_section "MCP Tools Alignment"
-    
+
     # Ensure MCP tools are properly linked
     local mcp_tools_dir="/app/core-assets/mcp-tools"
     local workspace_tools_dir="/workspace/mcp-tools"
-    
+
     if [ -d "$mcp_tools_dir" ]; then
         # Create symlinks for each MCP tool
         for tool in "$mcp_tools_dir"/*.py; do
             if [ -f "$tool" ]; then
                 local tool_name=$(basename "$tool")
                 local target="$workspace_tools_dir/$tool_name"
-                
+
                 if [ ! -e "$target" ]; then
                     ln -sf "$tool" "$target"
                     log_success "Linked MCP tool: $tool_name"
@@ -21814,16 +21814,16 @@ align_mcp_tools() {
             fi
         done
     fi
-    
+
     # Verify MCP servers are accessible
     log_info "Verifying MCP server configuration..."
-    
+
     # Check .mcp.json exists
     if [ ! -f /workspace/.mcp.json ]; then
         log_warning ".mcp.json not found, copying from template..."
         cp /app/core-assets/mcp.json /workspace/.mcp.json
     fi
-    
+
     # Update .mcp.json with current environment settings
     if command -v jq >/dev/null 2>&1; then
         # Add environment-specific configurations
@@ -21835,7 +21835,7 @@ align_mcp_tools() {
                 "initialized": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"
             }
         }' /workspace/.mcp.json > "$temp_mcp" && mv "$temp_mcp" /workspace/.mcp.json
-        
+
         log_success "Updated MCP configuration with environment details"
     fi
 }
@@ -21843,13 +21843,13 @@ align_mcp_tools() {
 # Initialize AI agents
 initialize_ai_agents() {
     log_section "AI Agents Initialization"
-    
+
     # Check if agents are already initialized
     if [ -f /workspace/.swarm/.agents_initialized ]; then
         log_info "AI agents already initialized"
         return 0
     fi
-    
+
     # Initialize Goal Planner agent
     log_info "Initializing Goal Planner agent..."
     if claude-flow goal init --force 2>&1 | grep -E "(initialized|already exists)"; then
@@ -21857,7 +21857,7 @@ initialize_ai_agents() {
     else
         log_warning "Goal Planner initialization had issues"
     fi
-    
+
     # Initialize SAFLA Neural agent
     log_info "Initializing SAFLA Neural agent..."
     if claude-flow neural init --force 2>&1 | grep -E "(initialized|already exists)"; then
@@ -21865,14 +21865,14 @@ initialize_ai_agents() {
     else
         log_warning "SAFLA Neural initialization had issues"
     fi
-    
+
     # Create initialization marker
     mkdir -p /workspace/.swarm
     touch /workspace/.swarm/.agents_initialized
-    
+
     # Set up agent communication channels
     log_info "Setting up agent communication channels..."
-    
+
     # Create agent configuration
     cat > /workspace/.swarm/agent-config.json << 'EOF'
 {
@@ -21896,23 +21896,23 @@ initialize_ai_agents() {
   }
 }
 EOF
-    
+
     log_success "Agent configuration created"
 }
 
 # Setup workspace projects
 setup_workspace_projects() {
     log_section "Workspace Projects Setup"
-    
+
     # Check if external directory is mounted
     if [ -d /workspace/ext ]; then
         log_info "External directory detected: /workspace/ext"
-        
+
         # Look for common project indicators
         for indicator in package.json Cargo.toml pyproject.toml requirements.txt go.mod; do
             if find /workspace/ext -name "$indicator" -maxdepth 3 2>/dev/null | head -1 | grep -q .; then
                 log_info "Found project indicator: $indicator"
-                
+
                 # Run appropriate setup based on project type
                 case "$indicator" in
                     package.json)
@@ -21937,11 +21937,11 @@ setup_workspace_projects() {
     else
         log_info "No external directory mounted"
     fi
-    
+
     # Create example projects directory
     if [ ! -d /workspace/examples ]; then
         mkdir -p /workspace/examples
-        
+
         # Create example MCP integration
         cat > /workspace/examples/mcp-example.js << 'EOF'
 // Example MCP TCP client
@@ -21949,7 +21949,7 @@ const net = require('net');
 
 const client = net.createConnection({ port: 9500 }, () => {
     console.log('Connected to MCP TCP server');
-    
+
     // Send a tool list request
     const request = {
         jsonrpc: '2.0',
@@ -21957,7 +21957,7 @@ const client = net.createConnection({ port: 9500 }, () => {
         method: 'tools/list',
         params: {}
     };
-    
+
     client.write(JSON.stringify(request) + '\n');
 });
 
@@ -21970,7 +21970,7 @@ client.on('end', () => {
     console.log('Disconnected from server');
 });
 EOF
-        
+
         log_success "Created example projects"
     fi
 }
@@ -21978,7 +21978,7 @@ EOF
 # Configure development environment
 configure_dev_environment() {
     log_section "Development Environment Configuration"
-    
+
     # Set up git configuration if not present
     if ! git config --global user.name >/dev/null 2>&1; then
         git config --global user.name "jjohare"
@@ -21986,7 +21986,7 @@ configure_dev_environment() {
         git config --global init.defaultBranch main
         log_success "Configured git defaults"
     fi
-    
+
     # Create useful workspace shortcuts
     if [ ! -f /workspace/.shortcuts ]; then
         cat > /workspace/.shortcuts << 'EOF'
@@ -22013,14 +22013,14 @@ alias nb='jupyter notebook --ip=0.0.0.0 --no-browser'
 
 echo "Workspace shortcuts loaded. Type 'alias' to see all available shortcuts."
 EOF
-        
+
         chmod +x /workspace/.shortcuts
-        
+
         # Add to bashrc if not already there
         if ! grep -q "source /workspace/.shortcuts" /home/dev/.bashrc; then
             echo "[ -f /workspace/.shortcuts ] && source /workspace/.shortcuts" >> /home/dev/.bashrc
         fi
-        
+
         log_success "Created workspace shortcuts"
     fi
 }
@@ -22028,55 +22028,55 @@ EOF
 # Start MCP services with retry logic
 start_mcp_services() {
     log_section "MCP Services Startup"
-    
+
     # Kill any existing processes
     pkill -f "mcp-tcp-server.js" 2>/dev/null || true
     pkill -f "mcp-ws-relay.js" 2>/dev/null || true
     sleep 2
-    
+
     # Start services via supervisor
     log_info "Starting MCP services via supervisor..."
-    
+
     supervisorctl -c /etc/supervisor/conf.d/supervisord.conf start mcp-core:* 2>/dev/null || {
         log_warning "Supervisor start failed, attempting manual start..."
-        
+
         # Manual start with proper environment
         cd /workspace
-        
+
         # Start TCP server
         CLAUDE_FLOW_DB_PATH=/workspace/.swarm/memory.db \
         NODE_ENV=production \
         nohup node /workspace/scripts/mcp-tcp-server.js > /app/mcp-logs/mcp-tcp-server.log 2>&1 &
-        
+
         # Start WebSocket relay
         NODE_ENV=production \
         nohup node /workspace/scripts/mcp-ws-relay.js > /app/mcp-logs/mcp-ws-bridge.log 2>&1 &
-        
+
         log_info "Started services manually"
     }
-    
+
     # Wait for services to be healthy
     log_info "Waiting for services to become healthy..."
     local max_attempts=15
     local attempt=1
-    
+
     while [ $attempt -le $max_attempts ]; do
         if curl -sf http://localhost:9501/health >/dev/null 2>&1; then
             log_success "MCP services are healthy!"
-            
+
             # Display service status
             if [ -x /app/core-assets/scripts/health-check.sh ]; then
                 /app/core-assets/scripts/health-check.sh || true
             fi
-            
+
             return 0
         fi
-        
+
         log_info "  Attempt $attempt/$max_attempts - waiting 3 seconds..."
         sleep 3
         attempt=$((attempt + 1))
     done
-    
+
     log_error "MCP services did not become healthy"
     return 1
 }
@@ -22084,9 +22084,9 @@ start_mcp_services() {
 # Run post-setup validations
 run_validations() {
     log_section "Post-Setup Validation"
-    
+
     local all_good=true
-    
+
     # Check Claude authentication
     echo -n "Claude authentication: "
     if check_claude_auth; then
@@ -22095,7 +22095,7 @@ run_validations() {
         echo -e "${RED}✗${NC}"
         all_good=false
     fi
-    
+
     # Check MCP services
     echo -n "MCP TCP Server: "
     if nc -zv localhost 9500 2>&1 | grep -q succeeded; then
@@ -22104,7 +22104,7 @@ run_validations() {
         echo -e "${RED}✗${NC}"
         all_good=false
     fi
-    
+
     echo -n "MCP WebSocket: "
     if nc -zv localhost 3002 2>&1 | grep -q succeeded; then
         echo -e "${GREEN}✓${NC}"
@@ -22112,7 +22112,7 @@ run_validations() {
         echo -e "${RED}✗${NC}"
         all_good=false
     fi
-    
+
     echo -n "Health Endpoint: "
     if curl -sf http://localhost:9501/health >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC}"
@@ -22120,7 +22120,7 @@ run_validations() {
         echo -e "${RED}✗${NC}"
         all_good=false
     fi
-    
+
     # Check AI agents
     echo -n "AI Agents: "
     if [ -f /workspace/.swarm/.agents_initialized ]; then
@@ -22128,7 +22128,7 @@ run_validations() {
     else
         echo -e "${YELLOW}⚠${NC} (not initialized)"
     fi
-    
+
     # Check workspace
     echo -n "Workspace Setup: "
     if [ -f /workspace/.claude_configured ]; then
@@ -22136,7 +22136,7 @@ run_validations() {
     else
         echo -e "${YELLOW}⚠${NC} (not configured)"
     fi
-    
+
     if [ "$all_good" = true ]; then
         log_success "All systems operational!"
         return 0
@@ -22153,18 +22153,18 @@ main() {
     echo "===================================="
     echo "Time: $(date)"
     echo ""
-    
+
     # Skip if already fully set up
     if [ -f /workspace/.full_setup_completed ]; then
         log_info "Full setup already completed"
-        
+
         # Just ensure services are running
         start_mcp_services
         run_validations
-        
+
         return 0
     fi
-    
+
     # Run setup steps in order
     if wait_for_claude_auth; then
         setup_claude_workspace
@@ -22173,19 +22173,19 @@ main() {
         setup_workspace_projects
         configure_dev_environment
         start_mcp_services
-        
+
         # Run validations
         echo ""
         if run_validations; then
             # Mark as fully set up
             touch /workspace/.full_setup_completed
-            
+
             echo ""
             log_success "🎉 Automated setup completed successfully!"
             echo ""
             echo "Quick Start Guide:"
             echo "  • MCP TCP Server: localhost:9500"
-            echo "  • WebSocket Bridge: localhost:3002" 
+            echo "  • WebSocket Bridge: localhost:3002"
             echo "  • Health Check: curl localhost:9501/health"
             echo "  • View shortcuts: source /workspace/.shortcuts"
             echo "  • Test MCP: mcp-test"
@@ -22213,10 +22213,10 @@ FILE: multi-agent-docker/mcp-infrastructure/scripts/claude-flow-tcp-proxy.js
 
 /**
  * Claude-Flow TCP Proxy
- * 
+ *
  * This proxy allows external TCP connections to access claude-flow
  * while keeping the local MCP instance separate for Claude Code.
- * 
+ *
  * External clients connect to port 9502 and get their own claude-flow instance.
  * Local Claude Code uses the standard MCP configuration.
  */
@@ -22260,7 +22260,7 @@ class ClaudeFlowTCPProxy {
       socket.write(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(status)}\n`);
       socket.end();
     });
-    
+
     healthServer.listen(TCP_PORT + 1, '127.0.0.1', () => {
       this.log('info', `Health endpoint on port ${TCP_PORT + 1}`);
     });
@@ -22359,14 +22359,14 @@ class ClaudeFlowTCPProxy {
       params: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: { listChanged: true }},
-        clientInfo: { 
-          name: "tcp-proxy", 
+        clientInfo: {
+          name: "tcp-proxy",
           version: "1.0.0",
-          sessionId: sessionId 
+          sessionId: sessionId
         }
       }
     };
-    
+
     cfProcess.stdin.write(JSON.stringify(initRequest) + '\n');
     this.log('info', 'Session initialized', sessionId);
   }
@@ -28172,7 +28172,7 @@ services:
 
     # Network - join ragflow network
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - comfyui.ragflow
           - comfyui.local
@@ -28220,9 +28220,9 @@ services:
 
 # Networks
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
-    name: docker_ragflow
+    name: visionclaw_network
 
 # Volumes (models/input/output use host bind mounts)
 volumes:
@@ -34692,21 +34692,21 @@ Learn and improve deployment workflows:
 async function adaptiveDeployment(jj, environment) {
     // Get AI suggestion based on past deployments
     const suggestion = JSON.parse(jj.getSuggestion(`Deploy to ${environment}`));
-    
+
     console.log(`Deploying with ${(suggestion.confidence * 100).toFixed(0)}% confidence`);
     console.log(`Expected duration: ${suggestion.estimatedDurationMs}ms`);
-    
+
     // Start tracking
     jj.startTrajectory(`Deploy to ${environment}`);
-    
+
     // Execute recommended operations
     for (const op of suggestion.recommendedOperations) {
         console.log(`Executing: ${op}`);
         await executeOperation(op);
     }
-    
+
     jj.addToTrajectory();
-    
+
     // Record outcome
     const success = await verifyDeployment();
     jj.finalizeTrajectory(
@@ -34724,26 +34724,26 @@ Coordinate review across multiple agents:
 async function coordinatedReview(agents) {
     const reviews = await Promise.all(agents.map(async (agent) => {
         const jj = new JjWrapper();
-        
+
         // Start review trajectory
         jj.startTrajectory(`Review by ${agent.name}`);
-        
+
         // Get AI suggestion for review approach
         const suggestion = JSON.parse(jj.getSuggestion('Code review'));
-        
+
         // Perform review
         const diff = await jj.diff('@', '@-');
         const issues = await agent.analyze(diff);
-        
+
         jj.addToTrajectory();
         jj.finalizeTrajectory(
             issues.length === 0 ? 0.9 : 0.6,
             `Found ${issues.length} issues`
         );
-        
+
         return { agent: agent.name, issues, suggestion };
     }));
-    
+
     // Aggregate learning from all agents
     return reviews;
 }
@@ -34757,10 +34757,10 @@ Learn from failures to prevent future issues:
 async function smartMerge(jj, branch) {
     // Query similar merge attempts
     const similar = JSON.parse(jj.queryTrajectories(`merge ${branch}`, 10));
-    
+
     // Analyze past failures
     const failures = similar.filter(t => t.successScore < 0.5);
-    
+
     if (failures.length > 0) {
         console.log('⚠️ Similar merges failed in the past:');
         failures.forEach(f => {
@@ -34769,15 +34769,15 @@ async function smartMerge(jj, branch) {
             }
         });
     }
-    
+
     // Get AI recommendation
     const suggestion = JSON.parse(jj.getSuggestion(`merge ${branch}`));
-    
+
     if (suggestion.confidence < 0.7) {
         console.log('⚠️ Low confidence. Recommended steps:');
         suggestion.recommendedOperations.forEach(op => console.log(`  - ${op}`));
     }
-    
+
     // Execute merge with tracking
     jj.startTrajectory(`Merge ${branch}`);
     try {
@@ -34801,22 +34801,22 @@ class SelfImprovingAgent {
     constructor() {
         this.jj = new JjWrapper();
     }
-    
+
     async performTask(taskDescription) {
         // Get AI suggestion
         const suggestion = JSON.parse(this.jj.getSuggestion(taskDescription));
-        
+
         console.log(`Task: ${taskDescription}`);
         console.log(`AI Confidence: ${(suggestion.confidence * 100).toFixed(1)}%`);
         console.log(`Expected Success: ${(suggestion.expectedSuccessRate * 100).toFixed(1)}%`);
-        
+
         // Start trajectory
         this.jj.startTrajectory(taskDescription);
-        
+
         // Execute with recommended approach
         const startTime = Date.now();
         let success = false;
-        
+
         try {
             for (const op of suggestion.recommendedOperations) {
                 await this.execute(op);
@@ -34825,25 +34825,25 @@ class SelfImprovingAgent {
         } catch (err) {
             console.error('Task failed:', err.message);
         }
-        
+
         const duration = Date.now() - startTime;
-        
+
         // Record learning
         this.jj.addToTrajectory();
         this.jj.finalizeTrajectory(
             success ? 0.9 : 0.4,
-            success 
+            success
                 ? `Completed in ${duration}ms using ${suggestion.recommendedOperations.length} operations`
                 : `Failed after ${duration}ms`
         );
-        
+
         // Check improvement
         const stats = JSON.parse(this.jj.getLearningStats());
         console.log(`Improvement rate: ${(stats.improvementRate * 100).toFixed(1)}%`);
-        
+
         return success;
     }
-    
+
     async execute(operation) {
         // Execute operation logic
     }
@@ -35015,7 +35015,7 @@ if (suggestion.confidence < 0.5) {
     // Not enough data - check learning stats
     const stats = JSON.parse(jj.getLearningStats());
     console.log(`Need more data. Current trajectories: ${stats.totalTrajectories}`);
-    
+
     // Recommend: Record 5-10 trajectories first
 }
 ```
@@ -35060,22 +35060,22 @@ const { JjWrapper } = require('agentic-jujutsu');
 
 async function learnFromWork() {
     const jj = new JjWrapper();
-    
+
     // Start tracking
     jj.startTrajectory('Add user profile feature');
-    
+
     // Do work
     await jj.branchCreate('feature/user-profile');
     await jj.newCommit('Add user profile model');
     await jj.newCommit('Add profile API endpoints');
     await jj.newCommit('Add profile UI');
-    
+
     // Record operations
     jj.addToTrajectory();
-    
+
     // Finalize with result
     jj.finalizeTrajectory(0.85, 'Feature complete, minor styling issues remain');
-    
+
     // Next time, get suggestions
     const suggestion = JSON.parse(jj.getSuggestion('Add settings page'));
     console.log('AI suggests:', suggestion.reasoning);
@@ -35091,23 +35091,23 @@ async function agentSwarm(taskList) {
         jj: new JjWrapper(),
         task
     }));
-    
+
     // All agents work concurrently (no conflicts!)
     const results = await Promise.all(agents.map(async (agent) => {
         agent.jj.startTrajectory(agent.task);
-        
+
         // Get AI suggestion
         const suggestion = JSON.parse(agent.jj.getSuggestion(agent.task));
-        
+
         // Execute task
         const success = await executeTask(agent, suggestion);
-        
+
         agent.jj.addToTrajectory();
         agent.jj.finalizeTrajectory(success ? 0.9 : 0.5);
-        
+
         return { agent: agent.name, success };
     }));
-    
+
     console.log('Results:', results);
 }
 ```
@@ -37043,7 +37043,7 @@ Choose a clear aesthetic direction and execute with precision:
     a design principle
   - Cinematic Noir - moody shadows, tight spotlighting, grain, suspenseful
     minimal palette
-  
+
   - Whimsical Storybook - soft illustration cues, charming type, warm palette,
     gentle narrative layout
   - Modern Skeuomorphic - tactile UI cues, soft shadows, realistic materials,
@@ -37207,7 +37207,7 @@ Before implementing, roll the dice on these dimensions:
 
 1. **Simplicity**
    - Identify the essential purpose and eliminate distractions
-   - Begin with complexity, 
+   - Begin with complexity,
    - Every element must justify its existence
 
 2. **Material Honesty**
@@ -63338,14 +63338,14 @@ class QuotesSpider(Spider):
     name = "quotes"
     start_urls = ["https://quotes.toscrape.com/"]
     concurrent_requests = 10
-    
+
     async def parse(self, response: Response):
         for quote in response.css('.quote'):
             yield {
                 "text": quote.css('.text::text').get(),
                 "author": quote.css('.author::text').get(),
             }
-            
+
         next_page = response.css('.next a')
         if next_page:
             yield response.follow(next_page[0].attrib['href'])
@@ -63362,11 +63362,11 @@ from scrapling.fetchers import FetcherSession, AsyncStealthySession
 class MultiSessionSpider(Spider):
     name = "multi"
     start_urls = ["https://example.com/"]
-    
+
     def configure_sessions(self, manager):
         manager.add("fast", FetcherSession(impersonate="chrome"))
         manager.add("stealth", AsyncStealthySession(headless=True), lazy=True)
-    
+
     async def parse(self, response: Response):
         for link in response.css('a::attr(href)').getall():
             # Route protected pages through the stealth session
@@ -71209,7 +71209,7 @@ ZAI_ANTHROPIC_API_KEY=sk-ant-xxxxx  # Separate key for Z.AI
 ## Architecture
 
 ### Network
-- **Docker network**: `docker_ragflow` (bridge)
+- **Docker network**: `visionclaw_network` (bridge)
 - **Hostname**: `agentic-workstation`
 - **Exposed ports**: 2222 (SSH), 5901 (VNC), 8080 (code-server), 9090 (Management API)
 - **Internal ports**: 9600 (Z.AI - not exposed)
@@ -72766,11 +72766,11 @@ Attach: `tmux attach -t workspace`
 
 ## Network Architecture
 
-All containers connect to the shared `docker_ragflow` network for inter-service communication.
+All containers connect to the shared `visionclaw_network` network for inter-service communication.
 
 | Network | Subnet | Purpose |
 |---------|--------|---------|
-| docker_ragflow | 172.19.0.0/16 | Shared container network |
+| visionclaw_network | 172.19.0.0/16 | Shared container network |
 
 Service discovery uses Docker DNS with container names as hostnames.
 
@@ -73045,7 +73045,7 @@ FILE: multi-agent-docker/docs/RUVECTOR-MEMORY.md
 
 ## Overview
 
-RuVector PostgreSQL is the centralized persistent memory for all agentic orchestration. It runs as a companion container (`ruvector-postgres`) alongside the agentic workstation, connected via the `docker_ragflow` network. All agents, swarms, and sessions share this single store. Data survives container rebuilds via an external Docker volume.
+RuVector PostgreSQL is the centralized persistent memory for all agentic orchestration. It runs as a companion container (`ruvector-postgres`) alongside the agentic workstation, connected via the `visionclaw_network` network. All agents, swarms, and sessions share this single store. Data survives container rebuilds via an external Docker volume.
 
 ## Architecture
 
@@ -73190,7 +73190,7 @@ services:
     volumes:
       - ruvector-data:/var/lib/postgresql/data
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - ruvector-postgres
     shm_size: 256m
@@ -74749,14 +74749,14 @@ async fn main() -> std::io::Result<()> {
         info!("Advanced logging system initialized successfully");
     }
 
-    
-    
+
+
     let log_dir = if std::path::Path::new("/app/logs").exists() {
         "/app/logs".to_string()
     } else if std::path::Path::new("/workspace/ext/logs").exists() {
         "/workspace/ext/logs".to_string()
     } else {
-        
+
         std::env::temp_dir()
             .join("webxr_telemetry")
             .to_string_lossy()
@@ -74771,7 +74771,7 @@ async fn main() -> std::io::Result<()> {
         info!("Telemetry logger initialized with directory: {}", log_dir);
     }
 
-    
+
     let settings = match AppFullSettings::new() {
         Ok(s) => {
             info!(
@@ -74780,7 +74780,7 @@ async fn main() -> std::io::Result<()> {
                     .unwrap_or_else(|_| "/app/settings.yaml".to_string())
             );
 
-            
+
             match to_json(&s.visualisation.rendering) {
                 Ok(json_output) => {
                     info!(
@@ -74788,14 +74788,14 @@ async fn main() -> std::io::Result<()> {
                         json_output
                     );
 
-                    
+
                     if json_output.contains("ambientLightIntensity")
                         && !json_output.contains("ambient_light_intensity")
                     {
                         info!("✅ CONFIRMED: JSON uses camelCase field names for REST API compatibility");
                     }
 
-                    
+
                     info!("✅ CONFIRMED: Values loaded from snake_case YAML:");
                     info!(
                         "   - ambient_light_intensity -> {}",
@@ -74816,7 +74816,7 @@ async fn main() -> std::io::Result<()> {
                 }
             }
 
-            Arc::new(RwLock::new(s)) 
+            Arc::new(RwLock::new(s))
         }
         Err(e) => {
             error!("❌ Failed to load AppFullSettings: {:?}", e);
@@ -74827,7 +74827,7 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    
+
     info!("GPU compute will be initialized by GPUComputeActor when needed");
 
     debug!("Successfully loaded AppFullSettings");
@@ -74857,7 +74857,7 @@ async fn main() -> std::io::Result<()> {
 
     let settings_data = web::Data::new(settings.clone());
 
-    
+
     let github_config = match GitHubConfig::from_env() {
         Ok(config) => {
             info!("[main] GitHub config loaded from environment");
@@ -74883,14 +74883,14 @@ async fn main() -> std::io::Result<()> {
 
     let content_api = Arc::new(ContentAPI::new(github_client.clone()));
 
-    
-    
+
+
     let speech_service = {
         let service = SpeechService::new(settings.clone());
         Some(Arc::new(service))
     };
 
-    
+
     info!("[main] Attempting to initialize RAGFlowService...");
     let ragflow_service_option = match RAGFlowService::new(settings.clone()).await {
         Ok(service) => {
@@ -74909,8 +74909,8 @@ async fn main() -> std::io::Result<()> {
         error!("[main] ragflow_service_option is None after RAGFlowService::new attempt. Chat functionality will be unavailable.");
     }
 
-    
-    
+
+
     let settings_value = {
         let settings_read = settings.read().await;
         settings_read.clone()
@@ -74920,10 +74920,10 @@ async fn main() -> std::io::Result<()> {
         settings_value,
         github_client.clone(),
         content_api.clone(),
-        None,                   
-        ragflow_service_option, 
+        None,
+        ragflow_service_option,
         speech_service,
-        "default_session".to_string(), 
+        "default_session".to_string(),
     )
     .await
     {
@@ -74943,7 +74943,7 @@ async fn main() -> std::io::Result<()> {
     nostr_handler::init_nostr_service(&mut app_state).await;
     info!("[main] Nostr service initialized");
 
-    
+
     info!("[main] Initializing GitHub Sync Service...");
     let enhanced_content_api = Arc::new(EnhancedContentAPI::new(github_client.clone()));
     let mut github_sync_service_inner = GitHubSyncService::new(
@@ -75107,16 +75107,16 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting HTTP server...");
 
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
     info!("Skipping redundant StartSimulation message to GraphServiceSupervisor for debugging stack overflow. Simulation should already be running from supervisor's started() method.");
 
-    
+
     // --- Briefing + Nostr services ---
     let management_api_client = ManagementApiClient::new(
         std::env::var("MANAGEMENT_API_HOST").unwrap_or_else(|_| "agentic-workstation".to_string()),
@@ -75245,9 +75245,9 @@ async fn main() -> std::io::Result<()> {
         let event_bus = Arc::new(tokio::sync::RwLock::new(EventBus::new()));
         web::Data::new(Arc::new(PhysicsService::new(adapter, event_bus)))
     };
-    
 
-    
+
+
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = std::env::var("SYSTEM_NETWORK_PORT")
         .ok()
@@ -75255,7 +75255,7 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(4000);
     let bind_address = format!("{}:{}", bind_address, port);
 
-    
+
     let pre_read_ws_settings = {
         let s = settings.read().await;
         PreReadSocketSettings {
@@ -75263,8 +75263,8 @@ async fn main() -> std::io::Result<()> {
             max_update_rate: s.system.websocket.max_update_rate,
             motion_threshold: s.system.websocket.motion_threshold,
             motion_damping: s.system.websocket.motion_damping,
-            heartbeat_interval_ms: s.system.websocket.heartbeat_interval, 
-            heartbeat_timeout_ms: s.system.websocket.heartbeat_timeout,   
+            heartbeat_interval_ms: s.system.websocket.heartbeat_interval,
+            heartbeat_timeout_ms: s.system.websocket.heartbeat_timeout,
         }
     };
     let pre_read_ws_settings_data = web::Data::new(pre_read_ws_settings);
@@ -75361,7 +75361,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .wrap(cors)
             .wrap(middleware::Compress::default())
-            .wrap(TimeoutMiddleware::new(Duration::from_secs(30))) 
+            .wrap(TimeoutMiddleware::new(Duration::from_secs(30)))
 
 
             .app_data(settings_data.clone())
@@ -75406,8 +75406,8 @@ async fn main() -> std::io::Result<()> {
             let app = app
                 .route("/wss", web::get().to(socket_flow_handler))
             .route("/ws/speech", web::get().to(speech_socket_handler))
-            .route("/ws/mcp-relay", web::get().to(mcp_relay_handler)) 
-            
+            .route("/ws/mcp-relay", web::get().to(mcp_relay_handler))
+
             .route("/ws/client-messages", web::get().to(client_messages_handler::websocket_client_messages))
             // OpenAPI/Swagger documentation
             .service(
@@ -75489,12 +75489,12 @@ async fn main() -> std::io::Result<()> {
             app
         })
         .bind(&bind_address)?
-        .workers(4) 
+        .workers(4)
         .run();
 
     let server_handle = server.handle();
 
-    
+
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
 
@@ -80740,21 +80740,21 @@ impl KnowledgeGraphParser {
         )
     }
 
-    
+
     pub fn parse(&self, content: &str, filename: &str) -> Result<GraphData, String> {
         info!("Parsing knowledge graph file: {}", filename);
 
-        
+
         let page_name = filename.strip_suffix(".md").unwrap_or(filename).to_string();
 
-        
+
         let mut nodes = vec![self.create_page_node(&page_name, content)];
         let mut id_to_metadata = HashMap::new();
         id_to_metadata.insert(nodes[0].id.to_string(), page_name.clone());
 
-        
-        
-        
+
+
+
         // Wikilink edges-only: create Edge objects for [[WikiLinks]] without
         // inflating the node count. Only edges are emitted; target nodes are NOT
         // created here. Edges whose target doesn't exist as a page node will
@@ -81072,11 +81072,11 @@ impl KnowledgeGraphParser {
         store
     }
 
-    
+
     fn extract_tags(&self, content: &str) -> Vec<String> {
         let mut tags = Vec::new();
 
-        
+
         let tag_pattern =
             regex::Regex::new(r"#([a-zA-Z0-9_-]+)|tag::\s*#?([a-zA-Z0-9_-]+)").expect("Invalid regex pattern");
 
@@ -81090,7 +81090,7 @@ impl KnowledgeGraphParser {
         tags
     }
 
-    
+
     pub fn page_name_to_id(&self, page_name: &str) -> u32 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -81098,7 +81098,7 @@ impl KnowledgeGraphParser {
         let mut hasher = DefaultHasher::new();
         page_name.hash(&mut hasher);
         let hash_val = hasher.finish();
-        
+
         // Use full u32 range to minimize collision probability (birthday paradox)
         // Reserve 0 as sentinel; map to [1, u32::MAX]
         let id = (hash_val & 0xFFFF_FFFE) as u32 + 1;
@@ -88101,17 +88101,17 @@ const IntegratedControlPanelInner: React.FC<ControlPanelProps> = ({
     return 4;
   }, [visibleTabs.length]);
 
-  
+
   const [webHidAvailable, setWebHidAvailable] = useState(false);
   const [spacePilotConnected, setSpacePilotConnected] = useState(false);
   const [spacePilotButtons, setSpacePilotButtons] = useState<string[]>([]);
 
-  
+
   useEffect(() => {
     setWebHidAvailable('hid' in navigator);
   }, []);
 
-  
+
   useEffect(() => {
     const handleConnect = () => {
       setSpacePilotConnected(true);
@@ -88144,7 +88144,7 @@ const IntegratedControlPanelInner: React.FC<ControlPanelProps> = ({
     try {
       await SpaceDriver.scan();
     } catch (error) {
-      
+
     }
   };
 
@@ -88182,7 +88182,7 @@ const IntegratedControlPanelInner: React.FC<ControlPanelProps> = ({
     );
   }
 
-  
+
   return (
     <div style={{
       position: 'fixed',
@@ -90746,4 +90746,3 @@ audit, F3 is promoted to default-on and the table lands at 95.9%.
   measurement.
 - **F-item**: one ticket in §3; groups one or more rows under a single
   acceptance test.
-

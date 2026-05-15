@@ -34,12 +34,12 @@ else
 fi
 
 # 4. Create Docker Network
-echo "Ensuring docker_ragflow network exists..."
-if ! docker network ls | grep -q "docker_ragflow"; then
-    docker network create docker_ragflow
-    echo "  Created docker_ragflow network."
+echo "Ensuring visionclaw_network network exists..."
+if ! docker network ls | grep -q "visionclaw_network"; then
+    docker network create visionclaw_network
+    echo "  Created visionclaw_network network."
 else
-    echo "  docker_ragflow network already exists."
+    echo "  visionclaw_network network already exists."
 fi
 
 # 5. Set up .env file

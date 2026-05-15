@@ -34,9 +34,9 @@ The table below lists every service defined across the compose files. The `profi
 | `turbo-whisper` | 8100 (HTTP/WS) | Speech-to-text — Whisper inference endpoint for voice transcription | dev, prod (voice overlay) | livekit |
 | `kokoro-tts` | 8880 (HTTP) | Text-to-speech — Kokoro inference endpoint for voice synthesis | dev, prod (voice overlay) | — |
 | `cloudflared` | — (outbound only) | Cloudflare Tunnel — exposes local dev stack to a public HTTPS URL without port forwarding | dev (optional) | nginx |
-| `ruvector-postgres` | 5432 (TCP, external network `docker_ragflow`) | External RuVector PostgreSQL instance — MiniLM-L6-v2 384-dim vector store for agent memory | all (external) | — |
+| `ruvector-postgres` | 5432 (TCP, external network `visionclaw_network`) | External RuVector PostgreSQL instance — MiniLM-L6-v2 384-dim vector store for agent memory | all (external) | — |
 
-> Note: `ruvector-postgres` is an **external** service on the `docker_ragflow` network. It is not started by VisionClaw's compose files — it must be running before the stack starts. The Rust backend and MCP agents connect to it via `$RUVECTOR_PG_CONNINFO`.
+> Note: `ruvector-postgres` is an **external** service on the `visionclaw_network` network. It is not started by VisionClaw's compose files — it must be running before the stack starts. The Rust backend and MCP agents connect to it via `$RUVECTOR_PG_CONNINFO`.
 
 ---
 
@@ -76,7 +76,7 @@ graph TB
         Kokoro["kokoro-tts\n:8880"]
     end
 
-    subgraph ExternalNetwork ["External (docker_ragflow network)"]
+    subgraph ExternalNetwork ["External (visionclaw_network network)"]
         RUV["ruvector-postgres\n:5432"]
     end
 

@@ -141,7 +141,7 @@ docker logs comfyui --tail 100
 
 ## Network
 
-- Joins `docker_ragflow` network
+- Joins `visionclaw_network` network
 - Aliases: `comfyui.ragflow`, `comfyui.local`
 - External access: `192.168.0.51:8188`
 

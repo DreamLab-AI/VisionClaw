@@ -90,7 +90,7 @@ git clone https://github.com/your-org/VisionClaw.git
 cd VisionClaw
 
 # Create the shared Docker network (one time only)
-docker network create docker_ragflow
+docker network create visionclaw_network
 
 # Copy and configure environment
 cp .env.example .env
@@ -541,10 +541,10 @@ Schedule daily backups:
 
 ## 8. Network Configuration
 
-All services join the external `docker_ragflow` network. Create it once:
+All services join the external `visionclaw_network` network. Create it once:
 
 ```bash
-docker network create docker_ragflow
+docker network create visionclaw_network
 ```
 
 Service hostnames on this network: `webxr`, `neo4j`, `livekit`, `turbo-whisper`, `kokoro-tts`, `jss`, `cloudflared-tunnel`.
@@ -561,7 +561,7 @@ graph LR
         Caddy["Caddy Auto-TLS\n(Option C)"]
     end
 
-    subgraph "docker_ragflow network"
+    subgraph "visionclaw_network network"
         Nginx_int["Internal Nginx\n:3001 (dev) / :4000 (prod)"]
         VF["VisionClaw\nActix-web :4000"]
         Neo4j["Neo4j\n:7687"]
@@ -702,7 +702,7 @@ The production profile enforces these constraints:
 
 - **No Docker socket mount** — code cannot interact with the host Docker daemon.
 - **Code baked into image** — no host source mounts at runtime.
-- **Network isolation** — only the Nginx port (3001) is exposed to the host; all other service communication is internal to `docker_ragflow`.
+- **Network isolation** — only the Nginx port (3001) is exposed to the host; all other service communication is internal to `visionclaw_network`.
 - **Content Security Policy** — configured in `nginx.production.conf`.
 
 Add further hardening in `docker-compose.prod.yml`:
@@ -861,10 +861,10 @@ docker logs visionclaw_container
 # Most common causes:
 # 1. Missing or invalid NEO4J_PASSWORD in .env
 # 2. Neo4j not healthy yet (wait for 40s start period)
-# 3. docker_ragflow network does not exist
+# 3. visionclaw_network network does not exist
 
 # Fix network
-docker network create docker_ragflow
+docker network create visionclaw_network
 docker compose -f docker-compose.unified.yml --profile dev up -d --force-recreate
 ```
 
@@ -920,14 +920,14 @@ docker compose -f docker-compose.unified.yml --profile dev up -d
 ### Service Communication Failures
 
 ```bash
-# Inspect the docker_ragflow network
-docker network inspect docker_ragflow
+# Inspect the visionclaw_network network
+docker network inspect visionclaw_network
 
 # Verify both containers are on the network
 # Look for "Containers" section in JSON output
 
 # Reconnect a container manually
-docker network connect docker_ragflow visionclaw_container
+docker network connect visionclaw_network visionclaw_container
 ```
 
 ### MCP Bridge Tool Connection Refused
@@ -948,10 +948,10 @@ docker logs gui-tools-container | tail -30
 ```bash
 # Check RAGFlow is running and on the shared network
 docker ps | grep ragflow
-docker network inspect docker_ragflow | grep ragflow
+docker network inspect visionclaw_network | grep ragflow
 
 # Reconnect if needed
-docker network connect docker_ragflow ragflow-server
+docker network connect visionclaw_network ragflow-server
 
 # Test from VisionClaw container
 docker exec visionclaw_container curl http://ragflow-server:9380/api/health

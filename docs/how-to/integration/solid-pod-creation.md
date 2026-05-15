@@ -280,7 +280,7 @@ jss:
     timeout: 10s
     retries: 3
   networks:
-    - docker_ragflow
+    - visionclaw_network
 ```
 
 ## Security Considerations

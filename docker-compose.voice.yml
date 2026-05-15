@@ -27,7 +27,7 @@ services:
     volumes:
       - ./config/livekit.yaml:/etc/livekit.yaml:ro
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - livekit
     healthcheck:
@@ -61,7 +61,7 @@ services:
     ports:
       - "8100:8000"   # OpenAI-compatible REST + WebSocket
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - turbo-whisper
     deploy:
@@ -98,7 +98,7 @@ services:
     ports:
       - "8880:8880"
     networks:
-      docker_ragflow:
+      visionclaw_network:
         aliases:
           - kokoro-tts
           - kokoro-tts-container
@@ -116,7 +116,7 @@ services:
       - prod
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 volumes:

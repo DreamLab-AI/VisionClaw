@@ -8,7 +8,7 @@
 | Ports (host-mapped) | 9090→9090 (mgmt API), 8080→8080 (code-server), 5901→5901 (VNC), 8484→8484 (Solid Pod), 8888→8888 (Jupyter), 9091→9091 (mgmt secondary), 9700→9700 (agent events) |
 | Internal-only | 7777 (nostr-relay, localhost bind), 9092 (opf-router), 9876 (blender-mcp), 9877 (qgis-mcp) |
 | Container name | agentbox |
-| Docker networks | agentbox_default, docker_ragflow |
+| Docker networks | agentbox_default, visionclaw_network |
 | Verified (2026-05-09) | 13 services RUNNING, management API healthy (uptime 4000s+), Solid Pod 3 npub-scoped pods, nostr-relay v0.9.0 (NIP-42) |
 
 ## Architecture

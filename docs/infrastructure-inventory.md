@@ -207,6 +207,6 @@
 | Network | Driver | Purpose |
 |---------|--------|---------|
 | bridge | bridge | Default Docker |
-| docker_ragflow | bridge | RuVector/ML platform |
+| visionclaw_network | bridge | RuVector/ML platform |
 | vircadia_internal_network | bridge | Virtual world (internal) |
 | vircadia_public_network | bridge | Virtual world (public) |

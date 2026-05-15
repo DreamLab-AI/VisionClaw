@@ -153,10 +153,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       inst.setColorAt(i, _col.set(0.5, 0.5, 0.5));
     }
     inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceMatrix.array) (inst.instanceMatrix as any).version++;
     if (inst.instanceColor) {
       inst.instanceColor.needsUpdate = true;
-      if ((inst.instanceColor as any).array) (inst.instanceColor as any).version++;
     }
 
     // Per-instance metadata texture for TSL (RGBA float: quality, authority, connections, recency)
@@ -501,19 +499,9 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     }
     inst.count = visCount;
     inst.instanceMatrix.needsUpdate = true;
-    // WebGPU backend requires explicit buffer version bump to trigger GPU upload.
-    // needsUpdate alone only works for WebGL. Bump version on every frame so the
-    // WebGPU StorageInstancedBufferAttribute detects the change.
-    if (inst.instanceMatrix.array) {
-      (inst.instanceMatrix as any).version++;
-    }
 
-    // Only upload instanceColor buffer when colors were actually written this frame
     if (inst.instanceColor && colorsDirty) {
       inst.instanceColor.needsUpdate = true;
-      if ((inst.instanceColor as any).array) {
-        (inst.instanceColor as any).version++;
-      }
     }
 
     // Dirty-flag metadata texture: only upload when inputs structurally change

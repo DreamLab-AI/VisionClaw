@@ -31,7 +31,7 @@ services:
     ports:
       - "4000:4000"  # Expose API port
     networks:
-      - docker_ragflow # Revert to simple network list item
+      - visionclaw_network # Revert to simple network list item
     restart: unless-stopped
     healthcheck:
       # Check root path which Nginx serves, indicating Nginx is up
@@ -53,11 +53,11 @@ services:
     depends_on:
       - webxr
     networks:
-      - docker_ragflow
+      - visionclaw_network
     restart: unless-stopped
 
 networks:
-  docker_ragflow:
+  visionclaw_network:
     external: true
 
 # Removed duplicated cloudflared service definition

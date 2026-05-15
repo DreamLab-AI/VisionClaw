@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html><head><title>VisionFlow Diagnostic</title>
+<style>body{font:14px monospace;background:#111;color:#eee;padding:20px}
+.ok{color:#0f0}.err{color:#f00}.warn{color:#ff0}pre{white-space:pre-wrap}
+#log{max-height:80vh;overflow:auto}canvas{display:none}</style></head>
+<body><h2>VisionFlow Diagnostic</h2><div id="log"></div>
+<script>
+const log = document.getElementById('log');
+function L(cls, msg) {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = `[${new Date().toISOString().substr(11,12)}] ${msg}`;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function run() {
+  L('ok', '=== Environment ===');
+  L('ok', 'URL: ' + location.href);
+  L('ok', 'Protocol: ' + location.protocol);
+  L(crossOriginIsolated ? 'ok' : 'warn', 'crossOriginIsolated: ' + crossOriginIsolated);
+  L(typeof SharedArrayBuffer !== 'undefined' ? 'ok' : 'warn', 'SharedArrayBuffer: ' + (typeof SharedArrayBuffer !== 'undefined'));
+  L('ok', 'navigator.gpu: ' + !!navigator.gpu);
+  L('ok', 'User-Agent: ' + navigator.userAgent.substr(0,80));
+
+  // COOP/COEP headers check
+  try {
+    const resp = await fetch(location.href);
+    const coep = resp.headers.get('Cross-Origin-Embedder-Policy');
+    const coop = resp.headers.get('Cross-Origin-Opener-Policy');
+    L(coep ? 'ok' : 'warn', 'COEP header: ' + (coep || 'MISSING'));
+    L(coop ? 'ok' : 'warn', 'COOP header: ' + (coop || 'MISSING'));
+  } catch(e) { L('warn', 'Header check failed: ' + e.message); }
+
+  if (navigator.gpu) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (adapter) {
+        const info = await adapter.requestAdapterInfo();
+        L('ok', 'WebGPU adapter: ' + (info.description || info.device || 'available'));
+        const features = [...adapter.features].join(', ');
+        L('ok', 'WebGPU features: ' + features.substr(0, 120));
+      } else {
+        L('warn', 'WebGPU: adapter request returned null');
+      }
+    } catch(e) { L('err', 'WebGPU adapter error: ' + e.message); }
+  }
+
+  // Test WebGL
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (gl) {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+      const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+      L('ok', 'WebGL renderer: ' + renderer);
+      L('ok', 'WebGL vendor: ' + vendor);
+      L('ok', 'WebGL version: ' + gl.getParameter(gl.VERSION));
+      L('ok', 'Max texture: ' + gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    } else {
+      L('err', 'WebGL: not available');
+    }
+  } catch(e) { L('err', 'WebGL error: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== Three.js Renderer Test ===');
+  try {
+    const THREE = await import('/src/three-test-shim.js').catch(() => null);
+    if (!THREE) {
+      L('warn', 'Three.js shim not available (expected in dev mode only)');
+    }
+  } catch(e) {
+    L('warn', 'Three.js test skipped: ' + e.message);
+  }
+
+  // Test canvas creation directly
+  try {
+    const c = document.createElement('canvas');
+    c.width = 100; c.height = 100;
+    document.body.appendChild(c);
+    const gl2 = c.getContext('webgl2', { antialias: true, alpha: true, powerPreference: 'high-performance' });
+    if (gl2) {
+      L('ok', 'WebGL2 context creation: OK');
+      gl2.clearColor(0, 0.5, 1, 1);
+      gl2.clear(gl2.COLOR_BUFFER_BIT);
+      L('ok', 'WebGL2 clear call: OK');
+    } else {
+      const gl1 = c.getContext('webgl');
+      L(gl1 ? 'warn' : 'err', 'WebGL2: failed, WebGL1: ' + (gl1 ? 'available' : 'also failed'));
+    }
+    c.remove();
+  } catch(e) { L('err', 'Canvas context test failed: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== REST API ===');
+  try {
+    const t0 = performance.now();
+    const resp = await fetch('/api/graph/data', {signal: AbortSignal.timeout(10000)});
+    const dt = (performance.now() - t0).toFixed(0);
+    L(resp.ok ? 'ok' : 'err', `GET /api/graph/data: ${resp.status} in ${dt}ms`);
+    if (resp.ok) {
+      const json = await resp.json();
+      const data = json.data || json;
+      const nodes = data.nodes || [];
+      const edges = data.edges || [];
+      L('ok', `  Nodes: ${nodes.length}, Edges: ${edges.length}`);
+      if (nodes.length > 0) {
+        L('ok', `  First node id: ${nodes[0].id} (type: ${typeof nodes[0].id})`);
+        const withPos = nodes.filter(n => n.position && (n.position.x||n.position.y||n.position.z));
+        L(withPos.length > 0 ? 'ok' : 'warn', `  Nodes with positions: ${withPos.length}/${nodes.length}`);
+        if (withPos.length > 0) {
+          const p = withPos[0].position;
+          L('ok', `  Sample pos: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})`);
+        }
+        // Check for NaN/Inf positions
+        const badPos = nodes.filter(n => {
+          if (!n.position) return false;
+          return !isFinite(n.position.x) || !isFinite(n.position.y) || !isFinite(n.position.z);
+        });
+        L(badPos.length === 0 ? 'ok' : 'err', `  Nodes with NaN/Inf positions: ${badPos.length}`);
+      }
+    }
+  } catch(e) { L('err', 'REST error: ' + e.message); }
+
+  // Also check settings endpoint
+  try {
+    const resp = await fetch('/api/settings', {signal: AbortSignal.timeout(5000)});
+    L(resp.ok ? 'ok' : 'warn', `GET /api/settings: ${resp.status}`);
+  } catch(e) { L('warn', 'Settings API: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== WebSocket ===');
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${proto}//${location.host}/wss`;
+    L('ok', 'Connecting: ' + wsUrl);
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    let textMsgs = [];
+    let binCount = 0, binBytes = 0, firstBinNodes = 0;
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { ws.close(); reject(new Error('timeout 8s')); }, 8000);
+
+      ws.onopen = () => {
+        L('ok', 'WebSocket connected');
+        ws.send(JSON.stringify({type:'subscribe_position_updates',data:{binary:true,interval:60}}));
+      };
+
+      ws.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer) {
+          binCount++;
+          binBytes += ev.data.byteLength;
+          if (binCount === 1) {
+            const view = new DataView(ev.data);
+            const preamble = view.getUint8(0);
+            firstBinNodes = Math.floor((ev.data.byteLength - 9) / 28);
+            L(preamble === 0x42 ? 'ok' : 'err',
+              `  First binary: ${ev.data.byteLength}B, preamble=0x${preamble.toString(16)}, nodes=${firstBinNodes}`);
+            if (firstBinNodes > 0 && preamble === 0x42) {
+              const id0 = view.getUint32(9, true);
+              const x0 = view.getFloat32(13, true);
+              const y0 = view.getFloat32(17, true);
+              const z0 = view.getFloat32(21, true);
+              L('ok', `  Sample node: id=${id0}, pos=(${x0.toFixed(2)}, ${y0.toFixed(2)}, ${z0.toFixed(2)})`);
+              // Check for NaN
+              if (!isFinite(x0) || !isFinite(y0) || !isFinite(z0)) {
+                L('err', '  WARNING: Binary position contains NaN/Inf!');
+              }
+            }
+          }
+          if (binCount >= 5) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        } else {
+          try {
+            const msg = JSON.parse(ev.data);
+            textMsgs.push(msg.type || 'unknown');
+            L('ok', `  Text: type=${msg.type || 'unknown'} (${ev.data.length}B)`);
+          } catch(e) {
+            L('warn', `  Text (unparsed): ${ev.data.substr(0,80)}`);
+          }
+        }
+      };
+
+      ws.onerror = () => { clearTimeout(timeout); reject(new Error('ws error')); };
+      ws.onclose = (e) => { clearTimeout(timeout);
+        if (binCount < 5) reject(new Error(`closed: ${e.code} ${e.reason}`));
+      };
+    });
+
+    L('ok', `  Binary frames: ${binCount}, total bytes: ${binBytes}`);
+    L('ok', `  Text messages: ${textMsgs.join(', ')}`);
+    ws.close();
+  } catch(e) { L('err', 'WebSocket: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== Worker Test ===');
+  try {
+    const workerCode = `self.onmessage = (e) => self.postMessage('ok');`;
+    const blob = new Blob([workerCode], {type:'text/javascript'});
+    const w = new Worker(URL.createObjectURL(blob));
+    await new Promise((resolve, reject) => {
+      w.onmessage = () => { L('ok', 'Worker: functional'); resolve(); };
+      w.onerror = (e) => { L('err', 'Worker error: ' + e.message); reject(e); };
+      w.postMessage('test');
+      setTimeout(() => reject(new Error('timeout')), 3000);
+    });
+    w.terminate();
+  } catch(e) { L('err', 'Worker: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== App State Probe ===');
+  L('ok', 'Checking if main app has loaded state...');
+  try {
+    // Check if Zustand stores are accessible
+    const hasReact = !!document.querySelector('[data-reactroot], #root');
+    L('ok', 'React root: ' + hasReact);
+
+    // Check localStorage for debug state
+    const consoleLogging = localStorage.getItem('debug.consoleLogging');
+    const forceWebGL = localStorage.getItem('visionflow-force-webgl');
+    L('ok', 'localStorage debug.consoleLogging: ' + (consoleLogging || 'null (default: false)'));
+    L('ok', 'localStorage visionflow-force-webgl: ' + (forceWebGL || 'null (default: false)'));
+
+    // Check for any error indicators in the DOM
+    const errorElements = document.querySelectorAll('[class*="error"], [class*="Error"]');
+    L(errorElements.length === 0 ? 'ok' : 'warn', 'Error elements in DOM: ' + errorElements.length);
+  } catch(e) { L('warn', 'App state probe: ' + e.message); }
+
+  L('ok', '');
+  L('ok', '=== DONE ===');
+  L('ok', 'Copy all text above and share with developer for diagnosis.');
+}
+
+run().catch(e => L('err', 'Fatal: ' + e.message));
+</script></body></html>

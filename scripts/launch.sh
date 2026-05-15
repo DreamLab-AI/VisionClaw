@@ -631,9 +631,9 @@ restart_agent_container() {
         warning "Container $AGENT_CONTAINER is not running"
     fi
 
-    # Ensure comfyui container is reachable from docker_ragflow network
+    # Ensure comfyui container is reachable from visionclaw_network network
     # (comfyui may live on a different network; connect it at runtime without build changes)
-    local RAGFLOW_NET="${EXTERNAL_NETWORK:-docker_ragflow}"
+    local RAGFLOW_NET="${EXTERNAL_NETWORK:-visionclaw_network}"
     if docker ps --format '{{.Names}}' | grep -q "^comfyui$"; then
         if ! docker inspect comfyui --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | grep -q "$RAGFLOW_NET"; then
             info "Connecting comfyui to $RAGFLOW_NET for agentbox access..."
@@ -754,10 +754,10 @@ rebuild_agent_container() {
     echo ""
 
     # Check/create ragflow network
-    log "Checking docker_ragflow network..."
-    if ! docker network inspect docker_ragflow >/dev/null 2>&1; then
-        info "Creating docker_ragflow network..."
-        docker network create docker_ragflow
+    log "Checking visionclaw_network network..."
+    if ! docker network inspect visionclaw_network >/dev/null 2>&1; then
+        info "Creating visionclaw_network network..."
+        docker network create visionclaw_network
         success "Network created"
     else
         success "Network exists"

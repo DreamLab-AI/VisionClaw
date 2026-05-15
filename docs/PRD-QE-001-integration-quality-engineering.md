@@ -136,7 +136,7 @@ The integration cannot ship without QE coverage that exercises the **actual data
 ### 5.2 Agentbox sibling fixture
 
 `tests/fixtures/agentbox.rs` brings up the agentbox container in `client` federation mode:
-- mounted shared docker network `docker_ragflow`
+- mounted shared docker network `visionclaw_network`
 - `/v1/meta` returns deterministic `image_hash` from build digest
 - adapter slots wired to mock VC `AdapterEndpoint`s with registered Ed25519 keys
 - p95 boot ≤30s on CI workers

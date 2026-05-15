@@ -162,7 +162,7 @@
 | Volume mounts | visionflow-data / -logs / npm-cache / cargo-cache | persistence |
 | HOST_PROJECT_ROOT | "." | DinD path translation |
 | GPU Resource | nvidia count:1 | NVIDIA_VISIBLE_DEVICES |
-| Network | docker_ragflow (external) | service discovery |
+| Network | visionclaw_network (external) | service discovery |
 | Restart policy | unless-stopped | |
 | Logging driver | json-file 10m × 3 | rotation |
 | Build target | development / production | image flavour |
