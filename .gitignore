@@ -25,7 +25,6 @@ workspace
 JavaScriptSolidServer
 webxr.long-type*
 qdrant_data/
-# whelk-rs/ — inlined into repo (was broken submodule)
 .swarm/
 
 # solid-pod-rs extracted to github.com/DreamLab-AI/solid-pod-rs (ADR-053/056).
