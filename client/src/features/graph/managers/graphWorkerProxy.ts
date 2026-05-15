@@ -201,12 +201,7 @@ class GraphWorkerProxy {
     }
   }
 
-  public async prepareForGraphDataUpdate(): Promise<void> {
-    if (!this.workerApi) return;
-    await this.workerApi.prepareForGraphDataUpdate();
-  }
-
-
+  
   public async processBinaryData(data: ArrayBuffer): Promise<void> {
     if (!this.workerApi) {
       throw new Error('Worker not initialized');
