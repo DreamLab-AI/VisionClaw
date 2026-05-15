@@ -13,7 +13,7 @@
     <title>VisionFlow - AI Multi Agent Visualisation</title>
     <!-- CSP: defense-in-depth alongside nginx headers. Vite dev server adds its own
          permissive CSP via plugin, so this tag only affects production builds. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: ws: https://dl.polyhaven.org https://*.polyhaven.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dl.polyhaven.org; worker-src 'self' blob:; font-src 'self' data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: ws: blob: https://dl.polyhaven.org https://*.polyhaven.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dl.polyhaven.org; worker-src 'self' blob:; font-src 'self' data:;">
     <!-- Preconnect to API for faster initial requests -->
     <link rel="preconnect" href="/api" />
     <!-- DNS prefetch for external resources -->
