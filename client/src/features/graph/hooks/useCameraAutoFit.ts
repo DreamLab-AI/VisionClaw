@@ -56,7 +56,7 @@ function fitCameraToBounds(
     controls.update();
   }
 
-  logger.info(
+  logger.debug(
     `Camera auto-fit: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)}), ` +
     `maxDim=${maxDim.toFixed(1)}, distance=${distance.toFixed(1)}, nodes=${count}`
   );

@@ -104,7 +104,7 @@ export function useGraphVisualState(graphData: GraphData): GraphVisualStateResul
       ? Math.max(...Array.from(hierarchy.values()).map(n => n.depth))
       : 0;
     const parentCount = Array.from(hierarchy.values()).filter(n => n.childIds.length > 0).length;
-    logger.info(`Hierarchy: ${hierarchy.size} nodes, ${parentCount} parents, max depth ${maxDepth}`);
+    logger.debug(`Hierarchy: ${hierarchy.size} nodes, ${parentCount} parents, max depth ${maxDepth}`);
     return hierarchy;
   }, [graphData.nodes, graphData.edges]);
 

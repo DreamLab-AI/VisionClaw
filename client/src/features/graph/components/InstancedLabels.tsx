@@ -732,17 +732,8 @@ const InstancedLabelsWebGL: React.FC<InstancedLabelsProps> = ({
 
     nodeGlyphMapRef.current = newNodeMap;
 
-    // Diagnostic log (once)
     if (!diagLoggedRef.current && glyphIdx > 0) {
       diagLoggedRef.current = true;
-      console.log('[InstancedLabels] first update:', {
-        totalNodes: nodes.length,
-        visibleNodes: visibleNodeCount,
-        glyphCount: glyphIdx,
-        labelPositionsLen: currentLabelPositions.length,
-        labelDistanceThreshold: LABEL_DISTANCE_THRESHOLD,
-        atlasChars: atlas.metrics.size,
-      });
     }
 
     // Update instance count and mark all buffers dirty

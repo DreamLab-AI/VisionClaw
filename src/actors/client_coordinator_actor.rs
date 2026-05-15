@@ -643,9 +643,15 @@ impl ClientCoordinatorActor {
         Self {
             client_manager: Arc::new(RwLock::new(ClientManager::new())),
             last_broadcast: Instant::now(),
-            broadcast_interval: Duration::from_millis(50),
-            active_broadcast_interval: Duration::from_millis(50),
-            stable_broadcast_interval: Duration::from_millis(1000),
+            // OMNIBUS-FIX-8: client is authoritative for layout (runs its own
+            // physics in graph.worker). Server broadcasts are a coordination
+            // signal, not a real-time feed. Down from 50ms (20 Hz) to 2000ms
+            // (0.5 Hz). User directive: "we don't want deltas and we don't
+            // want continuous, we want to send the nodes once the gpus settle,
+            // or whatever rate the backpressure can sustain".
+            broadcast_interval: Duration::from_millis(2000),
+            active_broadcast_interval: Duration::from_millis(2000),
+            stable_broadcast_interval: Duration::from_millis(5000),
             initial_positions_sent: false,
             graph_service_addr: None,
             gpu_compute_addr: None,

@@ -126,15 +126,6 @@ const GraphCanvas: React.FC = () => {
 
         const unsubscribe = graphDataManager.onGraphDataChange(handleGraphData);
 
-        graphDataManager.getGraphData().then((data) => {
-            if (mounted) {
-                setNodeCount(data.nodes.length);
-                setEdgeCount(data.edges.length);
-            }
-        }).catch((error) => {
-            logger.error('Failed to load initial graph data:', error);
-        });
-
         return () => {
             mounted = false;
             unsubscribe();

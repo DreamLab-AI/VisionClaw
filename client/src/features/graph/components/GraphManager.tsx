@@ -390,6 +390,9 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const labelPositionsRef = useRef<Array<{x: number, y: number, z: number}>>([])
   const edgeUpdatePendingRef = useRef<number[] | null>(null)
   const highlightEdgeUpdatePendingRef = useRef<number[] | null>(null);
+  // OMNIBUS-FIX-3: identity/shape guard to skip redundant deliveries
+  const lastProcessedGraphRef = useRef<GraphData | null>(null)
+  const lastShapeRef = useRef<{ n: number; e: number } | null>(null)
   // Pre-allocated buffers to eliminate per-frame array allocation GC pressure
   const edgeBufferRef = useRef<number[]>([]);
   const highlightBufferRef = useRef<number[]>([]);
@@ -999,6 +1002,41 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
     const handleGraphUpdate = (data: GraphData): GraphData | undefined => {
 
+      // OMNIBUS-FIX-3: skip redundant deliveries by reference identity, then by shape.
+      // Each branch is counted on window.__visionPerf so we can tell which fired.
+      if (typeof window !== 'undefined') {
+        (window as any).__visionPerf = (window as any).__visionPerf || {};
+        (window as any).__visionPerf.handleGraphUpdateCalls = ((window as any).__visionPerf.handleGraphUpdateCalls || 0) + 1;
+      }
+      if (lastProcessedGraphRef.current === data) {
+        if (typeof window !== 'undefined') {
+          (window as any).__visionPerf.skippedByIdentity = ((window as any).__visionPerf.skippedByIdentity || 0) + 1;
+        }
+        return undefined;
+      }
+      if (
+        data &&
+        lastShapeRef.current &&
+        Array.isArray(data.nodes) &&
+        Array.isArray(data.edges) &&
+        lastShapeRef.current.n === data.nodes.length &&
+        lastShapeRef.current.e === data.edges.length &&
+        data.nodes.length > 0
+      ) {
+        // Same shape and we've already processed at least one delivery of the same shape.
+        // Server is authoritative for positions via the binary stream; a duplicate REST/worker
+        // delivery of the same shape can't tell us anything new about topology.
+        if (typeof window !== 'undefined') {
+          (window as any).__visionPerf.skippedByShape = ((window as any).__visionPerf.skippedByShape || 0) + 1;
+        }
+        lastProcessedGraphRef.current = data;
+        return undefined;
+      }
+      lastProcessedGraphRef.current = data;
+      if (data && Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+        lastShapeRef.current = { n: data.nodes.length, e: data.edges.length };
+      }
+
       const debugSettings = settings?.system?.debug;
       if (debugSettings?.enableNodeDebug) {
         logger.debug('Graph data updated', {
@@ -1114,38 +1152,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     }
 
     const unsubscribe = graphDataManager.onGraphDataChange((data) => {
-      // Process data locally only — do NOT send back to graphWorkerProxy.setGraphData()
-      // as that triggers notifyGraphDataListeners → this callback → infinite loop.
-      // The worker already has the data from graphDataManager.fetchInitialData().
       handleGraphUpdate(data)
-    })
-
-
-    graphDataManager.getGraphData().then((data) => {
-
-      const debugSettings = settings?.system?.debug;
-      if (debugSettings?.enableNodeDebug) {
-        logger.debug('Initial graph data loaded', {
-          nodeCount: data.nodes.length,
-          edgeCount: data.edges.length
-        });
-      }
-      handleGraphUpdate(data)
-    }).then(() => {
-    }).catch((error) => {
-
-      const fallbackData = {
-        nodes: [
-          { id: 'fallback1', label: 'Test Node 1', position: { x: -5, y: 0, z: 0 } },
-          { id: 'fallback2', label: 'Test Node 2', position: { x: 5, y: 0, z: 0 } },
-          { id: 'fallback3', label: 'Test Node 3', position: { x: 0, y: 5, z: 0 } }
-        ],
-        edges: [
-          { id: 'fallback_edge1', source: 'fallback1', target: 'fallback2' },
-          { id: 'fallback_edge2', source: 'fallback2', target: 'fallback3' }
-        ]
-      };
-      handleGraphUpdate(fallbackData);
     })
 
     return () => {

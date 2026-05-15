@@ -64,8 +64,18 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const onPollingError = useCallback((error: Error) => {
     logger.error('Polling error:', error);
   }, []);
+  // OMNIBUS-FIX-6: AgentPollingService.poll() hits /graph/data every 2-15s.
+  // /graph/data returns the FULL 4,519-node + 11,811-edge KG, not just agents.
+  // Each poll: ~MB JSON parse + O(N) hashData (Array.map+join over node ids) +
+  // setBotsData triggering full BotsDataProvider tree re-render. Overlaps with
+  // binary-frame Comlink saturation → freeze. Disable until polling is gated
+  // on actual agent presence (metadata.total_agents > 0) or moved to a
+  // dedicated /api/bots/swarm endpoint.
+  // URL override: append ?enableBotsPolling=true to test.
+  const enableBotsPolling = typeof window !== 'undefined'
+    && window.location.search.includes('enableBotsPolling=true');
   const pollingData = useAgentPolling({
-    enabled: true,
+    enabled: enableBotsPolling,
     config: pollingConfig,
     onError: onPollingError,
   });

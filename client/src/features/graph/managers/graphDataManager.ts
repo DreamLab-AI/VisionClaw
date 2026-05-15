@@ -34,6 +34,9 @@ class GraphDataManager {
   public webSocketService: WebSocketAdapter | null = null;
   private graphDataListeners: GraphDataChangeListener[] = [];
   private positionUpdateListeners: PositionUpdateListener[] = [];
+  // OMNIBUS-FIX-2: Cache last graph data forwarded from worker so new subscribers
+  // receive it synchronously without re-fetching over Comlink.
+  private lastGraphData: GraphData | null = null;
   private lastBinaryUpdateTime: number = 0;
   private retryTimeout: number | null = null;
   public nodeIdMap: Map<string, number> = new Map();
@@ -103,6 +106,12 @@ class GraphDataManager {
     this.workerUnsubscribers = [];
 
     const unsubGraphData = graphWorkerProxy.onGraphDataChange((data) => {
+      // OMNIBUS-FIX-2: Cache for synchronous delivery to future subscribers.
+      this.lastGraphData = data;
+      if (typeof window !== 'undefined') {
+        (window as any).__visionPerf = (window as any).__visionPerf || {};
+        (window as any).__visionPerf.proxyForwardCalls = ((window as any).__visionPerf.proxyForwardCalls || 0) + 1;
+      }
       this.graphDataListeners.forEach(listener => {
         try {
           startTransition(() => {
@@ -400,7 +409,9 @@ class GraphDataManager {
 
       // Apply node count filtering if we exceed maxNodeCount
       if (nodesToUse.length > maxNodeCount) {
-        logger.info(`Filtering nodes: ${nodesToUse.length} exceeds maxNodeCount ${maxNodeCount}`);
+        if (debugState.isEnabled()) {
+          logger.debug(`Filtering nodes: ${nodesToUse.length} exceeds maxNodeCount ${maxNodeCount}`);
+        }
 
         // Sort by authority_score or quality_score (higher = more important)
         const scoredNodes = nodesToUse.map(node => ({
@@ -412,7 +423,9 @@ class GraphDataManager {
         scoredNodes.sort((a, b) => b.score - a.score);
         nodesToUse = scoredNodes.slice(0, maxNodeCount).map(s => s.node);
 
-        logger.info(`Filtered to ${nodesToUse.length} nodes (by authority/quality score)`);
+        if (debugState.isEnabled()) {
+          logger.debug(`Filtered to ${nodesToUse.length} nodes (by authority/quality score)`);
+        }
 
         // Filter edges to only include connections between kept nodes
         const keptNodeIds = new Set(nodesToUse.map(n => String(n.id)));
@@ -420,7 +433,9 @@ class GraphDataManager {
           edge => keptNodeIds.has(String(edge.source)) && keptNodeIds.has(String(edge.target))
         );
 
-        logger.info(`Filtered edges: ${data.edges?.length ?? 0} -> ${filteredEdges.length}`);
+        if (debugState.isEnabled()) {
+          logger.debug(`Filtered edges: ${data.edges?.length ?? 0} -> ${filteredEdges.length}`);
+        }
 
         validatedData = {
           nodes: nodesToUse.map(node => this.ensureNodeHasValidPosition(node)),
@@ -774,16 +789,30 @@ class GraphDataManager {
   public onGraphDataChange(listener: GraphDataChangeListener): () => void {
     this.graphDataListeners.push(listener);
 
-    // Provide initial data to new listener
-    graphWorkerProxy.getGraphData().then(data => {
-      if (debugState.isEnabled()) {
-        logger.debug(`Calling listener with current data: ${data.nodes.length} nodes`);
+    // OMNIBUS-FIX-2: Serve from cache when available (eliminates Comlink RPC on subscribe).
+    // If no data yet, the proxy forwarder (setupWorkerListeners) will deliver it when it arrives.
+    if (this.lastGraphData) {
+      const cached = this.lastGraphData;
+      if (typeof window !== 'undefined') {
+        (window as any).__visionPerf = (window as any).__visionPerf || {};
+        (window as any).__visionPerf.cacheServedSubscribes = ((window as any).__visionPerf.cacheServedSubscribes || 0) + 1;
       }
-      listener(data);
-    }).catch(error => {
-      logger.error('Error getting initial graph data for listener:', createErrorMetadata(error));
-      listener({ nodes: [], edges: [] });
-    });
+      queueMicrotask(() => listener(cached));
+    } else {
+      if (typeof window !== 'undefined') {
+        (window as any).__visionPerf = (window as any).__visionPerf || {};
+        (window as any).__visionPerf.cacheMissSubscribes = ((window as any).__visionPerf.cacheMissSubscribes || 0) + 1;
+      }
+      // First subscriber before data arrives: kick a one-time fetch as a backstop.
+      // This handles the case where data was set BEFORE setupWorkerListeners ran.
+      graphWorkerProxy.getGraphData().then(data => {
+        this.lastGraphData = data;
+        listener(data);
+      }).catch(error => {
+        logger.error('Error getting initial graph data for listener:', createErrorMetadata(error));
+        listener({ nodes: [], edges: [] });
+      });
+    }
 
     return () => {
       this.graphDataListeners = this.graphDataListeners.filter(l => l !== listener);

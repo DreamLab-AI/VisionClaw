@@ -529,9 +529,12 @@ impl PhysicsOrchestratorActor {
         positions: Vec<(u32, BinaryNodeData)>,
         _ctx: &mut Context<Self>,
     ) {
-        // Throttle broadcasts to 60 FPS max
+        // OMNIBUS-FIX-8: throttle broadcasts to 1 FPS. Client runs its own
+        // physics in graph.worker for fine-grained motion; server broadcasts
+        // are a periodic alignment signal, not a real-time feed. 60 FPS
+        // (16ms) saturates the client's Comlink IPC budget in non-SAB mode.
         let now = Instant::now();
-        let broadcast_interval = Duration::from_millis(16); // 60 FPS
+        let broadcast_interval = Duration::from_millis(1000); // 1 FPS
         if now.duration_since(self.last_broadcast_time) < broadcast_interval {
             return;
         }
@@ -1076,9 +1079,10 @@ impl Handler<UpdateNodePositions> for PhysicsOrchestratorActor {
         let node_count = msg.positions.len();
 
         if let Some(ref client_coord_addr) = self.client_coordinator_addr {
-            // Throttle broadcasts to 60 FPS max
+            // OMNIBUS-FIX-8: throttle to 1 FPS (was 16ms / 60 FPS).
+            // Client worker handles fine-grained motion locally.
             let now = std::time::Instant::now();
-            let broadcast_interval = std::time::Duration::from_millis(16); // 60 FPS
+            let broadcast_interval = std::time::Duration::from_millis(1000); // 1 FPS
             if now.duration_since(self.last_broadcast_time) >= broadcast_interval {
                 self.last_broadcast_time = now;
 

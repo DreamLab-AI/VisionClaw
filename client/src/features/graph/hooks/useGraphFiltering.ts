@@ -16,6 +16,7 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import { useExpansionState, type ExpansionState } from '../hooks/useExpansionState';
 import { createLogger } from '../../../utils/loggerConfig';
 import type { GraphData, Node as KGNode, Edge } from '../managers/graphDataManager';
+import { debugState } from '../../../utils/clientDebugState';
 import type { HierarchyNode } from '../utils/hierarchyDetector';
 
 const logger = createLogger('useGraphFiltering');
@@ -69,18 +70,16 @@ export function useGraphFiltering(
   // load before everything else.
   const hideStubs = storeNodeFilter?.hideStubs ?? false;
 
-  // Log filter settings changes for debugging
   useEffect(() => {
-    logger.info('[NodeFilter] Settings updated:', {
-      enabled: filterEnabled,
-      qualityThreshold,
-      authorityThreshold,
-      filterByQuality,
-      filterByAuthority,
-      filterMode,
-      tierDepth,
-      hasStoreFilter: !!storeNodeFilter,
-    });
+    if (debugState.isEnabled()) {
+      logger.debug('[NodeFilter] Settings updated:', {
+        enabled: filterEnabled,
+        qualityThreshold,
+        authorityThreshold,
+        filterMode,
+        tierDepth,
+      });
+    }
   }, [filterEnabled, qualityThreshold, authorityThreshold, filterByQuality, filterByAuthority, filterMode, tierDepth, storeNodeFilter]);
 
   // --- Tier-depth driven mass-collapse ---
@@ -167,9 +166,8 @@ export function useGraphFiltering(
       return true;
     });
 
-    // Always log when filtering is active
-    if (filterEnabled) {
-      logger.info(`[NodeFilter] Result: ${visible.length}/${graphData.nodes.length} nodes visible (quality>=${qualityThreshold}, authority>=${authorityThreshold}, mode=${filterMode})`);
+    if (filterEnabled && debugState.isEnabled()) {
+      logger.debug(`[NodeFilter] Result: ${visible.length}/${graphData.nodes.length} nodes visible`);
     }
 
     return visible;
