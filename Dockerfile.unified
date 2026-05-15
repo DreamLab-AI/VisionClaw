@@ -131,10 +131,10 @@ WORKDIR /app
 # =============================================================================
 FROM base AS rust-deps
 
-# Copy only dependency manifests first for better layer caching.
-# whelk is now a git dep (no vendored COPY needed).
+# Copy only dependency manifests first for better layer caching
 COPY Cargo.toml build.rs ./
 COPY Cargo.lock* ./
+COPY whelk-rs ./whelk-rs
 
 # Workspace path-dep crates (re-introduced by VisionClaw XR upgrade).
 # Cargo.toml `[workspace] members` lists these — cargo fetch fails without them.
@@ -260,12 +260,12 @@ RUN mkdir -p \
     /app/scripts \
     /app/target
 
-# Copy source code for hot-reload development.
-# whelk is now a git dep (no vendored COPY needed).
+# Copy source code for hot-reload development
 COPY Cargo.toml build.rs ./
 COPY Cargo.lock* ./
 COPY src ./src
 COPY data/schema ./data/schema
+COPY whelk-rs ./whelk-rs
 
 # Workspace path-dep crates (re-introduced by VisionClaw XR upgrade) —
 # graph-cognition-{core,extract,physics-presets}, visionclaw-xr-presence,
