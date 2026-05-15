@@ -15,10 +15,13 @@ const logger = createLogger('MainLayout');
 
 const MainLayoutContent: React.FC = () => {
   
-  const { settings } = useSettingsStore();
+  const showStats = useSettingsStore(
+    s => (s.settings as any)?.system?.debug?.enablePerformanceDebug ?? false
+  );
+  const enableBloom = useSettingsStore(
+    s => (s.settings as any)?.visualisation?.glow?.enabled ?? false
+  );
   const { botsData } = useBotsData();
-  const showStats = settings?.system?.debug?.enablePerformanceDebug ?? false;
-  const enableBloom = settings?.visualisation?.glow?.enabled ?? false;
   const [hasVoiceSupport, setHasVoiceSupport] = useState(true);
   
   

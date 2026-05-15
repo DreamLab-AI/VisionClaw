@@ -40,10 +40,10 @@ export const AgentActionVisualization: React.FC<AgentActionVisualizationProps> =
   const { isQuest3Detected } = useQuest3Integration({ enableAutoStart: false });
   const vrMode = forceVrMode ?? isQuest3Detected;
 
-  // Get settings for enabling visualization
-  const { settings } = useSettingsStore();
-  const agentViz = (settings as unknown as Record<string, Record<string, Record<string, unknown>>>)?.agents?.visualization;
-  const enabled = (agentViz?.show_action_connections as boolean | undefined) ?? true;
+  // Get settings for enabling visualization (narrow selector to avoid re-render cascade)
+  const enabled = useSettingsStore(
+    s => ((s.settings as any)?.agents?.visualization?.show_action_connections as boolean | undefined) ?? true
+  );
 
   // Adapt parameters for VR
   const adaptedParams = useMemo(() => ({

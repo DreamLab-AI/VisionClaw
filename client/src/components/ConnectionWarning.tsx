@@ -12,7 +12,7 @@ export const ConnectionWarning: React.FC = () => {
   const [settingsSource, setSettingsSource] = useState<'server' | 'local'>('server');
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
-  const { settings } = useSettingsStore();
+  const debugEnabled = useSettingsStore(s => (s.settings as any)?.system?.debug?.enabled ?? false);
 
   useEffect(() => {
 
@@ -138,7 +138,7 @@ export const ConnectionWarning: React.FC = () => {
       </div>
 
       {}
-      {settings?.system?.debug?.enabled && (
+      {debugEnabled && (
         <div className="max-w-7xl mx-auto mt-1 text-[10px] opacity-75 font-mono">
           <div>Settings Source: {settingsSource === 'local' ? 'localStorage' : 'server'} | WebSocket: {isConnected ? 'connected' : 'disconnected'}</div>
         </div>
