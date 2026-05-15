@@ -28,16 +28,18 @@ AGENT_DIR="$PROJECT_ROOT/agentbox"
 COMMAND="${1:-up}"
 ENVIRONMENT="${2:-dev}"
 WITH_AGENT=false
+WITH_ECOSYSTEM=false
 
-# Check for --with-agent flag in any position
+# Check for flags in any position
 for arg in "$@"; do
-    if [[ "$arg" == "--with-agent" ]]; then
-        WITH_AGENT=true
-    fi
+    case "$arg" in
+        --with-agent)    WITH_AGENT=true ;;
+        --with-ecosystem) WITH_ECOSYSTEM=true ;;
+    esac
 done
 
-# Adjust ENVIRONMENT if it was set to --with-agent
-if [[ "$ENVIRONMENT" == "--with-agent" ]]; then
+# Adjust ENVIRONMENT if it was set to a flag
+if [[ "$ENVIRONMENT" == "--with-agent" ]] || [[ "$ENVIRONMENT" == "--with-ecosystem" ]]; then
     ENVIRONMENT="dev"
 fi
 
@@ -85,6 +87,9 @@ ${YELLOW}Commands:${NC}
     ${GREEN}restart-agent${NC}  Restart the agentbox container
     ${GREEN}status${NC}         Show container status and URLs
     ${GREEN}clean${NC}          Clean all containers, volumes, and images
+    ${GREEN}ecosystem${NC}      Start ecosystem AI services (Kokoro TTS, Whisper, Xinference)
+    ${GREEN}ecosystem-down${NC} Stop ecosystem AI services
+    ${GREEN}ecosystem-status${NC} Show ecosystem AI service status
 
 ${YELLOW}Environments:${NC}
     ${GREEN}dev${NC}        Development environment (default)
@@ -101,6 +106,7 @@ ${YELLOW}Environments:${NC}
 
 ${YELLOW}Flags:${NC}
     ${GREEN}--with-agent${NC}   Also restart the agentbox container
+    ${GREEN}--with-ecosystem${NC} Also start ecosystem AI services
 
 ${YELLOW}Examples:${NC}
     ./launch.sh                    ${CYAN}# Start dev environment${NC}
@@ -116,6 +122,10 @@ ${YELLOW}Examples:${NC}
     ./launch.sh rebuild-agent --skip-comfyui  ${CYAN}# Skip ComfyUI check${NC}
     ./launch.sh rebuild-agent --comfyui-full  ${CYAN}# Build full open3d (30-60 min)${NC}
     ./launch.sh clean              ${CYAN}# Clean everything${NC}
+    ./launch.sh ecosystem          ${CYAN}# Start Kokoro + Whisper + Xinference${NC}
+    ./launch.sh ecosystem-down     ${CYAN}# Stop ecosystem services${NC}
+    ./launch.sh ecosystem-status   ${CYAN}# Check ecosystem service health${NC}
+    ./launch.sh up dev --with-ecosystem ${CYAN}# Start dev + ecosystem AI services${NC}
 
 ${YELLOW}Environment Files:${NC}
     .env.dev       Development configuration
@@ -131,7 +141,7 @@ EOF
 # Validate command
 validate_command() {
     case "$COMMAND" in
-        up|down|build|rebuild|rebuild-agent|logs|shell|restart|restart-agent|status|clean|help|-h|--help)
+        up|down|build|rebuild|rebuild-agent|logs|shell|restart|restart-agent|status|clean|ecosystem|ecosystem-down|ecosystem-status|help|-h|--help)
             if [[ "$COMMAND" == "help" ]] || [[ "$COMMAND" == "-h" ]] || [[ "$COMMAND" == "--help" ]]; then
                 show_help
                 exit 0
@@ -612,27 +622,32 @@ restart_environment() {
     start_environment
 }
 
-# Restart agent container (agentbox)
-restart_agent_container() {
-    log "Restarting agentbox container..."
+# Ensure agentbox is running (idempotent — only starts if not already up).
+# Delegates to agentbox.sh which handles preflight, health polling, and summary.
+ensure_agent_container() {
+    if docker ps --format '{{.Names}}' | grep -q "^${AGENT_CONTAINER}$"; then
+        success "Agentbox already running"
+        return 0
+    fi
 
-    # Check if agent compose file exists
+    log "Agentbox not running — starting via agentbox.sh..."
+    local agentbox_sh="$AGENT_DIR/agentbox.sh"
+    if [[ -x "$agentbox_sh" ]]; then
+        "$agentbox_sh" up
+    else
+        warning "agentbox.sh not found or not executable, falling back to docker compose..."
+        _agent_compose_up
+    fi
+}
+
+# Internal: start agentbox via docker compose directly (fallback path + used by restart)
+_agent_compose_up() {
     if [[ ! -f "$AGENT_COMPOSE_FILE" ]]; then
         error "Agent compose file not found: $AGENT_COMPOSE_FILE"
-        exit 1
+        return 1
     fi
 
-    # Check if container is running
-    if docker ps --format '{{.Names}}' | grep -q "^${AGENT_CONTAINER}$"; then
-        info "Stopping $AGENT_CONTAINER..."
-        docker stop "$AGENT_CONTAINER"
-        docker rm "$AGENT_CONTAINER"
-    else
-        warning "Container $AGENT_CONTAINER is not running"
-    fi
-
-    # Ensure comfyui container is reachable from visionclaw_network network
-    # (comfyui may live on a different network; connect it at runtime without build changes)
+    # Ensure comfyui is reachable on visionclaw_network
     local RAGFLOW_NET="${EXTERNAL_NETWORK:-visionclaw_network}"
     if docker ps --format '{{.Names}}' | grep -q "^comfyui$"; then
         if ! docker inspect comfyui --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | grep -q "$RAGFLOW_NET"; then
@@ -647,27 +662,20 @@ restart_agent_container() {
         warning "comfyui container not running - ComfyUI integration will be unavailable"
     fi
 
-    # Start the agent container (agentbox)
     info "Starting $AGENT_CONTAINER..."
     cd "$AGENT_DIR"
 
-    # Load .env from agentbox/
     if [[ -f ".env" ]]; then
         set -a
         source .env
         set +a
     fi
 
-    # docker-compose.yml + docker-compose.override.yml auto-merge.
-    # No explicit -f flag needed.
     docker compose up -d
-
-    # Wait for container to start
     sleep 3
 
-    # Check if container started successfully
     if docker ps --format '{{.Names}}' | grep -q "^${AGENT_CONTAINER}$"; then
-        success "Container $AGENT_CONTAINER restarted successfully"
+        success "Container $AGENT_CONTAINER started"
         echo ""
         info "Services available (agentbox ports per docker-compose.override.yml):"
         echo "  ${GREEN}SSH:${NC}            ssh devuser@localhost -p 2223"
@@ -683,8 +691,21 @@ restart_agent_container() {
     else
         error "Failed to start $AGENT_CONTAINER"
         docker compose logs --tail=50
-        exit 1
+        return 1
     fi
+}
+
+# Force-restart agent container (agentbox) — stops first, then starts
+restart_agent_container() {
+    log "Restarting agentbox container..."
+
+    if docker ps -a --format '{{.Names}}' | grep -q "^${AGENT_CONTAINER}$"; then
+        info "Stopping $AGENT_CONTAINER..."
+        docker stop "$AGENT_CONTAINER" 2>/dev/null || true
+        docker rm "$AGENT_CONTAINER" 2>/dev/null || true
+    fi
+
+    _agent_compose_up
 }
 
 # Rebuild agent container (agentbox) with no cache
@@ -969,6 +990,193 @@ else:
     echo ""
 }
 
+# ─────────────────────────────────────────────────────────────
+# Ecosystem AI Services (Kokoro TTS, Whisper WebUI, Xinference)
+# All services join visionclaw_network for inter-container routing.
+# ─────────────────────────────────────────────────────────────
+
+ECOSYSTEM_NETWORK="visionclaw_network"
+KOKORO_CONTAINER="kokoro-tts-container"
+WHISPER_CONTAINER="whisper-webui-backend"
+XINFERENCE_CONTAINER="xinference"
+WHISPER_COMPOSE="$PROJECT_ROOT/Whisper-WebUI/backend/docker-compose.yaml"
+XINFERENCE_COMPOSE="$PROJECT_ROOT/xinference/docker-compose.yml"
+
+ensure_network() {
+    if ! docker network inspect "$ECOSYSTEM_NETWORK" >/dev/null 2>&1; then
+        info "Creating $ECOSYSTEM_NETWORK network..."
+        docker network create "$ECOSYSTEM_NETWORK"
+        success "Network $ECOSYSTEM_NETWORK created"
+    fi
+}
+
+start_kokoro() {
+    log "Kokoro TTS (GPU:2, port 8880)..."
+    if docker ps --format '{{.Names}}' | grep -q "^${KOKORO_CONTAINER}$"; then
+        success "Kokoro TTS already running"
+        return 0
+    fi
+    if docker ps -a --format '{{.Names}}' | grep -q "^${KOKORO_CONTAINER}$"; then
+        info "Starting stopped Kokoro container..."
+        docker start "$KOKORO_CONTAINER"
+    else
+        info "Launching Kokoro TTS container..."
+        docker run \
+            --gpus="device=2" \
+            --network "$ECOSYSTEM_NETWORK" \
+            --name "$KOKORO_CONTAINER" \
+            --hostname kokoro-tts \
+            --restart unless-stopped \
+            -d -p 8880:8880 \
+            ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    fi
+    if docker ps --format '{{.Names}}' | grep -q "^${KOKORO_CONTAINER}$"; then
+        success "Kokoro TTS started (http://localhost:8880, internal: kokoro-tts:8880)"
+    else
+        error "Kokoro TTS failed to start"
+        docker logs --tail=20 "$KOKORO_CONTAINER" 2>/dev/null
+        return 1
+    fi
+}
+
+start_whisper() {
+    log "Whisper WebUI (GPU:1, port 8000)..."
+    if docker ps --format '{{.Names}}' | grep -q "^${WHISPER_CONTAINER}$"; then
+        success "Whisper WebUI already running"
+        return 0
+    fi
+    if [[ -f "$WHISPER_COMPOSE" ]]; then
+        info "Starting Whisper WebUI via docker compose..."
+        cd "$(dirname "$WHISPER_COMPOSE")"
+        docker compose -f "$(basename "$WHISPER_COMPOSE")" up -d
+        cd "$PROJECT_ROOT"
+    else
+        warning "Whisper-WebUI docker-compose not found at $WHISPER_COMPOSE"
+        info "Falling back to docker run..."
+        docker run -d \
+            --name whisper-webui \
+            --gpus "device=1" \
+            --restart unless-stopped \
+            --network "$ECOSYSTEM_NETWORK" \
+            --add-host=host.docker.internal:host-gateway \
+            -p 7860:7860 \
+            registry.gitlab.com/aadnk/whisper-webui:latest
+    fi
+    sleep 2
+    if docker ps --format '{{.Names}}' | grep -q "^${WHISPER_CONTAINER}$\|^whisper-webui$"; then
+        success "Whisper WebUI started (http://localhost:8000)"
+    else
+        error "Whisper WebUI failed to start"
+        return 1
+    fi
+}
+
+start_xinference() {
+    log "Xinference (all GPUs, port 9997)..."
+    if docker ps --format '{{.Names}}' | grep -q "^${XINFERENCE_CONTAINER}$"; then
+        success "Xinference already running"
+        return 0
+    fi
+    if [[ -f "$XINFERENCE_COMPOSE" ]]; then
+        info "Starting Xinference via docker compose..."
+        cd "$(dirname "$XINFERENCE_COMPOSE")"
+        docker compose -f "$(basename "$XINFERENCE_COMPOSE")" up -d
+        cd "$PROJECT_ROOT"
+    else
+        warning "Xinference docker-compose not found at $XINFERENCE_COMPOSE"
+        info "Falling back to docker run..."
+        docker run -d \
+            --name "$XINFERENCE_CONTAINER" \
+            --network "$ECOSYSTEM_NETWORK" \
+            --gpus all \
+            --restart unless-stopped \
+            -e XINFERENCE_HOME=/root/.xinference \
+            -e CUDA_DEVICE_ORDER=PCI_BUS_ID \
+            -v /mnt/nvme/githubs/xinference:/root/.xinference \
+            -p 9997:9997 \
+            xprobe/xinference:latest \
+            xinference-local -H 0.0.0.0 --log-level warning
+    fi
+    sleep 2
+    if docker ps --format '{{.Names}}' | grep -q "^${XINFERENCE_CONTAINER}$"; then
+        success "Xinference started (http://localhost:9997)"
+    else
+        error "Xinference failed to start"
+        return 1
+    fi
+}
+
+start_ecosystem() {
+    echo ""
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║       Ecosystem AI Services                              ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    ensure_network
+
+    local failed=0
+    start_kokoro    || ((failed++))
+    start_whisper   || ((failed++))
+    start_xinference || ((failed++))
+
+    echo ""
+    if [[ $failed -eq 0 ]]; then
+        success "All ecosystem services started"
+    else
+        warning "$failed ecosystem service(s) failed to start"
+    fi
+    echo ""
+    show_ecosystem_status
+}
+
+stop_ecosystem() {
+    log "Stopping ecosystem AI services..."
+
+    for container in "$KOKORO_CONTAINER" "$WHISPER_CONTAINER" "whisper-webui" "$XINFERENCE_CONTAINER"; do
+        if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+            info "Stopping $container..."
+            docker stop "$container" 2>/dev/null || true
+            docker rm "$container" 2>/dev/null || true
+            success "$container removed"
+        fi
+    done
+
+    success "Ecosystem services stopped"
+}
+
+show_ecosystem_status() {
+    log "Ecosystem AI Service Status:"
+    echo ""
+
+    printf "  %-24s %-12s %-30s\n" "SERVICE" "STATUS" "ENDPOINT"
+    printf "  %-24s %-12s %-30s\n" "───────────────────────" "──────────" "────────────────────────────"
+
+    for entry in \
+        "$KOKORO_CONTAINER|Kokoro TTS|http://localhost:8880|kokoro-tts:8880" \
+        "$WHISPER_CONTAINER|Whisper WebUI|http://localhost:8000|whisper-webui-backend:8000" \
+        "$XINFERENCE_CONTAINER|Xinference|http://localhost:9997|xinference:9997"; do
+
+        IFS='|' read -r cname label host_url internal_url <<< "$entry"
+
+        if docker ps --format '{{.Names}}' | grep -q "^${cname}$"; then
+            printf "  ${GREEN}%-24s${NC} %-12s %-30s\n" "$label" "running" "$host_url (internal: $internal_url)"
+        elif docker ps -a --format '{{.Names}}' | grep -q "^${cname}$"; then
+            printf "  ${YELLOW}%-24s${NC} %-12s %-30s\n" "$label" "stopped" "$host_url"
+        else
+            printf "  ${RED}%-24s${NC} %-12s %-30s\n" "$label" "not found" "—"
+        fi
+    done
+
+    echo ""
+
+    if docker network inspect "$ECOSYSTEM_NETWORK" >/dev/null 2>&1; then
+        local members
+        members=$(docker network inspect "$ECOSYSTEM_NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null)
+        info "Network $ECOSYSTEM_NETWORK members: $members"
+    fi
+}
+
 # Show logs
 show_logs() {
     log "Showing logs for $ENVIRONMENT environment..."
@@ -1099,9 +1307,11 @@ main() {
             check_prerequisites
             detect_dind
             detect_gpu
+            if [[ "$WITH_ECOSYSTEM" == "true" ]]; then
+                start_ecosystem
+            fi
             if [[ "$WITH_AGENT" == "true" ]]; then
-                info "Starting with --with-agent flag"
-                restart_agent_container
+                ensure_agent_container
                 echo ""
             fi
             start_environment
@@ -1133,9 +1343,11 @@ main() {
             check_prerequisites
             detect_dind
             detect_gpu
+            if [[ "$WITH_ECOSYSTEM" == "true" ]]; then
+                start_ecosystem
+            fi
             if [[ "$WITH_AGENT" == "true" ]]; then
-                info "Restarting with --with-agent flag"
-                restart_agent_container
+                ensure_agent_container
                 echo ""
             fi
             restart_environment
@@ -1151,6 +1363,17 @@ main() {
             ;;
         status)
             show_status
+            echo ""
+            show_ecosystem_status
+            ;;
+        ecosystem)
+            start_ecosystem
+            ;;
+        ecosystem-down)
+            stop_ecosystem
+            ;;
+        ecosystem-status)
+            show_ecosystem_status
             ;;
         clean)
             clean_all

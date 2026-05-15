@@ -254,3 +254,7 @@ multi-agent-docker/.env
 **/credentials.json
 **/.env.local
 client/public/embedding-cloud.json
+
+xinference
+Kokoros
+Whisper-WebUI

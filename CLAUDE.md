@@ -30,6 +30,20 @@ VisionClaw's agent-container subsystem is in active migration:
 | Agent Events | — | 9700 |
 | Metrics | — | 9191 |
 
+### Ecosystem AI Services (visionclaw_network)
+
+Shared Docker network: `visionclaw_network`. Managed via `./scripts/launch.sh ecosystem`.
+
+| Service | Container | GPU | Host Port | Internal Hostname |
+|---------|-----------|-----|-----------|-------------------|
+| Kokoro TTS | `kokoro-tts-container` | device=2 | 8880 | `kokoro-tts:8880` |
+| Whisper WebUI | `whisper-webui-backend` | device=1 | 8000 | `whisper-webui-backend:8000` |
+| Xinference | `xinference` | all | 9997 | `xinference:9997` |
+
+Symlinked repos (in `.gitignore`): `./Kokoros`, `./Whisper-WebUI`, `./xinference`.
+
+Launch commands: `./scripts/launch.sh ecosystem` (start all), `ecosystem-down` (stop all), `ecosystem-status` (health check). The `--with-ecosystem` flag on `up`/`restart` starts these alongside VisionFlow.
+
 Task-routing guidance: any task touching agent-container build, supervisord, or durable-state adapters belongs in `agentbox/`; any task consuming agentbox from the VisionClaw actor mesh is a BC20 concern and belongs in `src/actors/` with ACL wiring in this repo.
 
 ## MEMORY FIRST (Reinforced)
