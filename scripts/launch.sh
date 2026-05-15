@@ -39,7 +39,7 @@ for arg in "$@"; do
 done
 
 # Adjust ENVIRONMENT if it was set to a flag
-if [[ "$ENVIRONMENT" == "--with-agent" ]] || [[ "$ENVIRONMENT" == "--with-ecosystem" ]]; then
+if [[ "$ENVIRONMENT" == --* ]]; then
     ENVIRONMENT="dev"
 fi
 
@@ -1019,6 +1019,10 @@ start_kokoro() {
     if docker ps -a --format '{{.Names}}' | grep -q "^${KOKORO_CONTAINER}$"; then
         info "Starting stopped Kokoro container..."
         docker start "$KOKORO_CONTAINER"
+        # Stopped containers lose network membership; reconnect
+        if ! docker inspect "$KOKORO_CONTAINER" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | grep -q "$ECOSYSTEM_NETWORK"; then
+            docker network connect "$ECOSYSTEM_NETWORK" "$KOKORO_CONTAINER" 2>/dev/null || true
+        fi
     else
         info "Launching Kokoro TTS container..."
         docker run \
