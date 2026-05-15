@@ -25,7 +25,6 @@ import { LoadingScreen } from '../components/LoadingScreen';
 import { WorkerErrorModal } from '../components/WorkerErrorModal';
 import solidPodService from '../services/SolidPodService';
 import { useHashRoute } from '../hooks/useHashRoute';
-import { EnterpriseFullPage, EnterpriseDrawerMount } from '../features/enterprise';
 import { BrokerInbox } from '../features/broker/BrokerInbox';
 import { MigrationEventToast } from '../features/migration/MigrationEventToast';
 
@@ -172,11 +171,6 @@ function App() {
           </div>
         );
       case 'initialized':
-        // Enterprise route: full-viewport enterprise shell, no graph behind it
-        if (route.startsWith('/enterprise')) {
-          return <EnterpriseFullPage />;
-        }
-
         // PRD-008 / ADR-071: Immersive (XR) client now ships as a Godot APK.
         // The browser path always renders the desktop MainLayout. The Quest 3
         // detection helper is retained to surface a sideload prompt in a
@@ -216,21 +210,12 @@ function App() {
                       <DebugControlPanel />
                     </FeatureErrorBoundary>
                     <WorkerErrorModal />
-                    {!route.startsWith('/enterprise') && (
-                      <FeatureErrorBoundary feature="Enterprise Drawer">
-                        <EnterpriseDrawerMount />
-                      </FeatureErrorBoundary>
-                    )}
-                    {!route.startsWith('/enterprise') && (
-                      <FeatureErrorBoundary feature="Broker Inbox">
-                        <BrokerInbox compact />
-                      </FeatureErrorBoundary>
-                    )}
-                    {!route.startsWith('/enterprise') && (
-                      <FeatureErrorBoundary feature="Migration Toast">
-                        <MigrationEventToast />
-                      </FeatureErrorBoundary>
-                    )}
+                    <FeatureErrorBoundary feature="Broker Inbox">
+                      <BrokerInbox compact />
+                    </FeatureErrorBoundary>
+                    <FeatureErrorBoundary feature="Migration Toast">
+                      <MigrationEventToast />
+                    </FeatureErrorBoundary>
                   </>
                 )}
               </ApplicationModeProvider>

@@ -1,6 +1,0 @@
-# Local cargo artifacts
-target/
-Cargo.lock
-
-# wasm-pack output (emitted into features/enterprise/fx/wasm/)
-pkg/

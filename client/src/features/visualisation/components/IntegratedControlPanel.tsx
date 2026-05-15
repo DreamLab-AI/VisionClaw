@@ -26,7 +26,7 @@ import { UNIFIED_TABS, filterTabs } from './ControlPanel/unifiedSettingsConfig';
 import { SolidTabContent } from '../../solid/components/SolidTabContent';
 import { ControlPanelProvider, useControlPanelContext } from '../../settings/components/control-panel-context';
 import { useSettingsStore } from '../../../store/settingsStore';
-import { Lock, Star, ExternalLink } from 'lucide-react';
+import { Lock, Star } from 'lucide-react';
 import { CommandInput } from './CommandInput';
 
 
@@ -325,39 +325,6 @@ const IntegratedControlPanelInner: React.FC<ControlPanelProps> = ({
               );
             })}
           </TabsList>
-
-          {/* Enterprise Dashboard launch button */}
-          {/* Enterprise Dashboard link: click = same tab (hash route), ctrl/middle-click = new tab */}
-          <a
-            href="#/enterprise"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              background: 'rgba(16,185,129,0.1)',
-              color: '#10b981',
-              border: '1px solid rgba(16,185,129,0.2)',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: 500,
-              marginBottom: '8px',
-              transition: 'background 0.2s',
-              textDecoration: 'none'
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(16,185,129,0.2)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(16,185,129,0.1)')}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 21V9" />
-            </svg>
-            Enterprise Dashboard
-            <ExternalLink size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />
-          </a>
 
           {/* Tab Content - Using unified settings content */}
           <div style={{

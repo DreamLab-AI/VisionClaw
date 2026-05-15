@@ -1,18 +1,13 @@
 pub mod analytics;
 pub mod bots;
-pub mod broker;
-pub mod connectors;
 pub mod files;
 pub mod graph;
-pub mod mesh_metrics;
 pub mod ontology;
 pub mod ontology_physics;
-pub mod policy;
 pub mod quest3;
 // pub mod sessions;
 pub mod semantic_forces;
 pub mod visualisation;
-pub mod workflows;
 
 // Re-export specific types and functions
 // Re-export specific types and functions
@@ -145,10 +140,5 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .configure(ontology_physics::configure_routes)
         // Semantic forces routes (GPU feature)
         .configure(semantic_forces::config)
-        // Enterprise REST handlers (ADR-040..045)
-        .configure(broker::config)
-        .configure(workflows::config)
-        .configure(mesh_metrics::config)
-        .configure(connectors::config)
-        .configure(policy::config);
+        ;
 }
