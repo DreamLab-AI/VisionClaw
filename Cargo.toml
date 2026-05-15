@@ -175,9 +175,8 @@ graph-cognition-physics-presets = { path = "crates/graph-cognition-physics-prese
 # PRD-008: XR presence aggregate, pose validators, opcode 0x43 wire codec
 visionclaw-xr-presence = { path = "crates/visionclaw-xr-presence" }
 
-# Ontology Reasoning — upstream OWL reasoner from balhoff/whelk-rs.
-# Not on crates.io, so consumed as a git dep (no rev pin yet — track main).
-whelk = { git = "https://github.com/balhoff/whelk-rs", branch = "main" }
+# Ontology Reasoning - using local path dependency (always enabled)
+whelk = { path = "./whelk-rs" }
 
 # Ontology dependencies (always enabled)
 # Note: Using 1.2.0 for ArcStr support (thread-safe string type)

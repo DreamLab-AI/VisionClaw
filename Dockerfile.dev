@@ -82,8 +82,10 @@ COPY src ./src
 COPY schema ./schema
 COPY queries ./queries
 
+# Copy whelk-rs local dependency (required for cargo fetch)
+COPY whelk-rs ./whelk-rs
+
 # Copy workspace crates (graph-cognition-core, extract, physics-presets)
-# whelk is now a git dep — fetched by cargo, no COPY needed
 COPY crates ./crates
 
 # Copy client directory with all frontend files

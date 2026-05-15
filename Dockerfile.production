@@ -55,9 +55,11 @@ FROM toolchain AS deps
 
 WORKDIR /app
 
-# Copy ONLY dependency manifests. whelk is now a git dep (fetched by cargo,
-# not a path dep), and `crates/` was retired earlier. No path-dep copies needed.
+# Copy ONLY dependency manifests + path dependencies (whelk-rs + workspace crates)
 COPY Cargo.toml Cargo.lock ./
+COPY whelk-rs ./whelk-rs
+# NOTE: `COPY crates ./crates` removed — `crates/` no longer exists in the
+# repo. ADR-053 reference is stale; whelk-rs is the only path dep now.
 
 # Create stub sources so cargo can resolve and compile all dependencies.
 # The dummy lib/main must reference whelk so the path dep compiles too.
