@@ -247,6 +247,8 @@ class GraphWorker {
 
 
   private frameCount: number = 0;
+  private binaryUpdateCount: number = 0;
+  private lastBinaryUpdate: number = 0;
 
   // Retained for API compatibility — client-side force simulation is removed.
   // Physics settings are now sent to the server via REST API.
@@ -273,6 +275,10 @@ class GraphWorker {
   private edgeSourceMap: Map<string, string[]> = new Map();
   private edgeTargetMap: Map<string, string[]> = new Map();
 
+  // Pre-allocated buffer for binary position output (reused every processBinaryData call)
+  private binaryOutputBuffer: Float32Array | null = null;
+  private binaryOutputBufferSize: number = 0;
+
   // ADR-061: per-node analytics (cluster_id, community_id, anomaly_score) no
   // longer ride the per-frame binary stream. They arrive on the
   // `analytics_update` text-message channel and are merged into the main-thread
@@ -283,11 +289,11 @@ class GraphWorker {
   // communityId] per node.
   private analyticsBuffer: Float32Array | null = null;
 
-  // JSON/binary race guard — binary frame arriving before setGraphData() is
-  // stored here and replayed once graph data is loaded. Only the latest frame
-  // is kept; intermediate frames have no value (server re-broadcasts continuously).
+  // FIX 4: JSON/binary race guard — binary frames arriving before setGraphData()
+  // are queued here and replayed once graph data is loaded. Without this, binary
+  // position updates for unknown node IDs are silently dropped.
   private graphDataLoaded: boolean = false;
-  private pendingBinaryFrame: ArrayBuffer | null = null;
+  private pendingBinaryFrames: ArrayBuffer[] = [];
 
   // FIX 2: Track unknown node IDs from binary stream. If binary positions arrive
   // for nodes not in reverseNodeIdMap, it means the server added nodes (via graph
@@ -335,6 +341,8 @@ class GraphWorker {
         const nodeId = String(node.id);
         node.id = nodeId;
 
+        // Server sends compact IDs (0..N-1) as the node.id directly.
+        // No wireId indirection needed — node.id IS the compact wire ID.
         const numericId = parseInt(nodeId, 10);
 
         if (!isNaN(numericId) && numericId >= 0 && numericId <= 0xFFFFFFFF) {
@@ -455,12 +463,17 @@ class GraphWorker {
     // has real positions before the first tick() completes.
     this.syncToSharedBuffer();
 
+    // FIX 4: Mark graph data as loaded and replay any binary frames that
+    // arrived before setGraphData(). This prevents position data loss during
+    // the race between JSON graph load and binary position stream.
     this.graphDataLoaded = true;
-    if (this.pendingBinaryFrame !== null) {
-      workerLogger.info('Replaying pending binary frame (deferred until graph data loaded)');
-      const frame = this.pendingBinaryFrame;
-      this.pendingBinaryFrame = null;
-      await this.processBinaryData(frame);
+    if (this.pendingBinaryFrames.length > 0) {
+      workerLogger.info(`Replaying ${this.pendingBinaryFrames.length} queued binary frames`);
+      const queued = this.pendingBinaryFrames;
+      this.pendingBinaryFrames = [];
+      for (const frame of queued) {
+        await this.processBinaryData(frame);
+      }
     }
   }
 
@@ -519,18 +532,21 @@ class GraphWorker {
   }
 
   
-  async processBinaryData(data: ArrayBuffer): Promise<void> {
-    // If graph data hasn't been loaded yet, store the latest binary frame for
-    // replay once reverseNodeIdMap is populated. Intermediate frames are
-    // discarded — the server re-broadcasts continuously.
+  async processBinaryData(data: ArrayBuffer): Promise<Float32Array> {
+    // FIX 4: If graph data hasn't been loaded yet, queue binary frames for
+    // later replay. Without this guard, binary position updates arrive before
+    // reverseNodeIdMap is populated, causing all updates to be silently dropped.
     if (!this.graphDataLoaded) {
-      this.pendingBinaryFrame = data; // no copy needed — buffer is already worker-owned
-      workerLogger.info('Binary frame deferred (graphData not yet loaded)');
-      return;
+      this.pendingBinaryFrames.push(data.slice(0)); // defensive copy
+      workerLogger.info(`Binary frame queued (graphData not yet loaded), queue size: ${this.pendingBinaryFrames.length}`);
+      return new Float32Array(0);
     }
 
     // All graph types process binary position updates from the server.
     // Server is the single source of truth for positions.
+
+    this.binaryUpdateCount = (this.binaryUpdateCount || 0) + 1;
+    this.lastBinaryUpdate = Date.now();
 
     if (isZlibCompressed(data)) {
       data = await decompressZlib(data);
@@ -539,47 +555,70 @@ class GraphWorker {
     // ADR-061: single 28 B/node decoder. Frame := [u8 0x42][u64 seq][N × 28 B node].
     // No flag bits, no version dispatch, no per-frame analytics.
     const frame = decodePositionFrame(data);
-    if (!frame) return;
+    if (!frame) {
+      return new Float32Array(0);
+    }
+
+    const nodeCount = frame.nodes.size;
+
+    // Reuse binary output buffer, only reallocate if size changed
+    const requiredBinarySize = nodeCount * 4;
+    if (!this.binaryOutputBuffer || this.binaryOutputBufferSize !== requiredBinarySize) {
+      this.binaryOutputBuffer = new Float32Array(requiredBinarySize);
+      this.binaryOutputBufferSize = requiredBinarySize;
+    }
+    const positionArray = this.binaryOutputBuffer;
 
     let unknownCount = 0;
+    let outIdx = 0;
     for (const update of frame.nodes.values()) {
       const nodeId = update.nodeId;
       const stringNodeId = this.reverseNodeIdMap.get(nodeId);
       if (!stringNodeId) {
+        // FIX 2: Track unknown node IDs from binary stream for REST re-fetch
         this.unknownNodeIds.add(nodeId);
         unknownCount++;
       } else {
         const nodeIndex = this.nodeIndexMap.get(stringNodeId);
         if (nodeIndex !== undefined && !this.pinnedNodeIds.has(nodeId)) {
           const i3 = nodeIndex * 3;
-          // Server is authoritative — set both so SAB reflects server state
-          // immediately. tick() lerps are a no-op when current === target.
-          this.targetPositions![i3]     = update.position.x;
+          // Server is authoritative; SET both target and current so SAB
+          // immediately reflects server state. Tweening in tick() smooths
+          // subsequent micro-adjustments.
+          this.targetPositions![i3] = update.position.x;
           this.targetPositions![i3 + 1] = update.position.y;
           this.targetPositions![i3 + 2] = update.position.z;
-          this.currentPositions![i3]     = update.position.x;
+          this.currentPositions![i3] = update.position.x;
           this.currentPositions![i3 + 1] = update.position.y;
           this.currentPositions![i3 + 2] = update.position.z;
         }
       }
+
+      const arrayOffset = outIdx * 4;
+      positionArray[arrayOffset] = nodeId;
+      positionArray[arrayOffset + 1] = update.position.x;
+      positionArray[arrayOffset + 2] = update.position.y;
+      positionArray[arrayOffset + 3] = update.position.z;
+      outIdx++;
     }
 
+    // FIX 2: Log unknown nodes and signal need for REST re-fetch (throttled to once per 5s)
     if (unknownCount > 0) {
       const now = Date.now();
       if (now - this.lastUnknownNodeAlert > 5000) {
         this.lastUnknownNodeAlert = now;
         workerLogger.warn(
-          `Binary stream: ${unknownCount} unknown node IDs (total: ${this.unknownNodeIds.size}). ` +
-          `Server mutation — client should re-fetch /api/graph/data.`
+          `Binary stream contains ${unknownCount} unknown node IDs (total tracked: ${this.unknownNodeIds.size}). ` +
+          `Graph mutation likely occurred — client should re-fetch /api/graph/data.`
         );
       }
     }
 
-    // Write positions to SAB — main thread renderer reads this zero-copy.
+    // Push target positions to SAB immediately so main thread sees fresh data
+    // even if tick() is delayed or coalesced by the concurrency guard.
     this.syncToSharedBuffer();
-    // Return void: no Float32Array clone over the Comlink channel.
-    // In SAB mode the renderer reads sharedPositionView directly.
-    // In non-SAB mode graphWorkerProxy calls getCurrentPositions() separately.
+
+    return positionArray;
   }
 
   /**
@@ -982,9 +1021,9 @@ class GraphWorker {
   }
 
   
-  async tick(deltaTime: number): Promise<void> {
+  async tick(deltaTime: number): Promise<Float32Array> {
     if (!this.currentPositions || !this.targetPositions || !this.velocities) {
-      return;
+      return new Float32Array(0);
     }
     // Capture locals after null guard so TS narrows them as non-null
     const curPos = this.currentPositions;
@@ -1014,8 +1053,9 @@ class GraphWorker {
 
 
       if (!hasAnyMovement) {
+        // Performance: Removed per-frame logging
         this.syncToSharedBuffer();
-        return;
+        return curPos;
       }
       
 
@@ -1127,7 +1167,8 @@ class GraphWorker {
 
       // Always sync to SharedArrayBuffer so main thread reads latest positions
       this.syncToSharedBuffer();
-      // Return void: renderer reads sharedPositionView (SAB) directly.
+
+      return curPos;
     }
   }
 }

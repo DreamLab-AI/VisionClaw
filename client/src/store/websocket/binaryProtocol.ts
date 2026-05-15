@@ -249,17 +249,16 @@ export async function processBinaryData(
       });
     }
 
-    // Notify raw-binary listeners BEFORE transfer to worker (transfer neuters the buffer)
-    notifyBinaryMessageHandlers(data);
-
     // Forward the raw buffer to graphDataManager → worker for SAB writeback.
     // The worker does the full per-node decode via the canonical decoder.
-    // Buffer is transferred (zero-copy) — do not read `data` after this call.
     try {
       await graphDataManager.updateNodePositions(data);
     } catch (error) {
       logger.error('Error updating positions:', createErrorMetadata(error));
     }
+
+    // Notify any registered raw-binary listeners (BotsWebSocketIntegration etc.)
+    notifyBinaryMessageHandlers(data);
 
     // Backpressure ack — every Nth frame, ack the latest broadcast_sequence.
     positionUpdateSequence++;

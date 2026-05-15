@@ -671,6 +671,24 @@ class GraphDataManager {
         }).catch(() => { /* ignore polling errors */ });
       }
 
+      const settings = useSettingsStore.getState().settings;
+      const debugEnabled = settings?.system?.debug?.enabled;
+      const physicsDebugEnabled = settings?.system?.debug?.enablePhysicsDebug;
+      const nodeDebugEnabled = settings?.system?.debug?.enableNodeDebug;
+      
+      if (debugEnabled && (physicsDebugEnabled || nodeDebugEnabled)) {
+        const view = new DataView(positionData);
+        const payloadBytes = Math.max(0, positionData.byteLength - BINARY_FRAME_HEADER_SIZE);
+        const nodeCount = Math.min(3, Math.floor(payloadBytes / BINARY_NODE_SIZE));
+        for (let i = 0; i < nodeCount; i++) {
+          const offset = BINARY_FRAME_HEADER_SIZE + i * BINARY_NODE_SIZE;
+          const x = view.getFloat32(offset + 4, true);
+          const y = view.getFloat32(offset + 8, true);
+          const z = view.getFloat32(offset + 12, true);
+          logger.info(`[Physics Debug] Node ${i}: position(${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+        }
+      }
+      
       if (debugState.isDataDebugEnabled()) {
         logger.debug(`Processed binary data through worker`);
       }
@@ -679,6 +697,22 @@ class GraphDataManager {
       // Track transient errors — only escalate to red screen after sustained failures
       useWorkerErrorStore.getState().recordTransientError('updateNodePositions');
 
+      if (debugState.isEnabled()) {
+        try {
+          
+          const view = new DataView(positionData);
+          const byteArray = [];
+          const maxBytesToShow = Math.min(64, positionData.byteLength);
+          
+          for (let i = 0; i < maxBytesToShow; i++) {
+            byteArray.push(view.getUint8(i).toString(16).padStart(2, '0'));
+          }
+          
+          logger.debug(`First ${maxBytesToShow} bytes of binary data: ${byteArray.join(' ')}${positionData.byteLength > maxBytesToShow ? '...' : ''}`);
+        } catch (e) {
+          logger.debug('Could not display binary data preview:', e);
+        }
+      }
     }
   }
 
