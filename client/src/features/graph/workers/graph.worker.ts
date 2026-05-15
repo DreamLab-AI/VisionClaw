@@ -301,8 +301,13 @@ class GraphWorker {
     workerLogger.info('Initialize method called');
     return Promise.resolve();
   }
-  
-  
+
+  async prepareForGraphDataUpdate(): Promise<void> {
+    this.graphDataLoaded = false;
+    this.pendingBinaryFrame = null;
+  }
+
+
   async setGraphType(type: 'logseq' | 'visionflow'): Promise<void> {
     this.graphType = type;
     // All graph types use server-authoritative physics.

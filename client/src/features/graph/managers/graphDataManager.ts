@@ -443,11 +443,15 @@ class GraphDataManager {
       logger.warn('Initialized with empty graph data');
     }
     
-    
+    // Tell the worker to defer binary frames while we rebuild the ID maps.
+    // Without this, frames arriving during the async setGraphData() gap hit
+    // an empty reverseNodeIdMap and trigger a spurious REST re-fetch loop.
+    await graphWorkerProxy.prepareForGraphDataUpdate();
+
     this.nodeIdMap.clear();
     this.reverseNodeIdMap.clear();
-    
-    
+
+
     validatedData.nodes.forEach((node) => {
       const numericId = parseInt(node.id, 10);
       if (!isNaN(numericId) && numericId >= 0 && numericId <= 0xFFFFFFFF) {
