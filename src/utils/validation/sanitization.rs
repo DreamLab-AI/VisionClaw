@@ -391,17 +391,16 @@ impl CSPUtils {
     pub fn generate_csp_header_with_nonce(nonce: &str) -> String {
         vec![
             "default-src 'self'",
-            &format!("script-src 'self' 'nonce-{}'", nonce),
-            "style-src 'self' 'unsafe-inline'", // inline styles less dangerous than scripts
+            &format!("script-src 'self' 'nonce-{}' 'wasm-unsafe-eval'", nonce),
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "img-src 'self' data: blob:",
-            "font-src 'self'",
-            "connect-src 'self' ws: wss:",
+            "font-src 'self' https://fonts.gstatic.com",
+            "connect-src 'self' ws: wss: blob:",
             "media-src 'self'",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
             "frame-ancestors 'none'",
-            "upgrade-insecure-requests",
         ]
         .join("; ")
     }
