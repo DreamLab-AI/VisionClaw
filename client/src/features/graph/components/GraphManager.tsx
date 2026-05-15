@@ -401,7 +401,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   const [nodesAreAtOrigin, setNodesAreAtOrigin] = useState(false)
 
   const [forceUpdate, setForceUpdate] = useState(0)
-  const [labelUpdateTick, setLabelUpdateTick] = useState(0)
   const labelTickRef = useRef(0)
 
   // Frustum for label culling
@@ -618,7 +617,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       labelTickRef.current = 0;
       cameraViewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(cameraViewProjectionMatrix);
-      setLabelUpdateTick(prev => prev + 1);
     }
 
     // Position reading from SharedArrayBuffer (GemNodes reads from nodePositionsRef)
@@ -1328,8 +1326,6 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
 
   // OLD NodeLabels useMemo removed — replaced by <InstancedLabels> component which
   // performs its own frustum culling and layout inside useFrame (zero React re-renders).
-  // labelPositionsRef, labelTickRef, and labelUpdateTick are kept as InstancedLabels
-  // reads labelPositionsRef as a fallback when SAB positions are unavailable.
 
   
   useEffect(() => {

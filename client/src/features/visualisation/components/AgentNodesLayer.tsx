@@ -56,11 +56,12 @@ export const AgentNodesLayer: React.FC<AgentNodesLayerProps> = ({
   agents,
   connections = []
 }) => {
-  const { settings } = useSettingsStore();
   const groupRef = useRef<THREE.Group>(null);
 
-  // Type assertion for extended settings that may include agents
-  const agentViz = (settings as unknown as Record<string, Record<string, Record<string, unknown>>>)?.agents?.visualization;
+  // Narrow selectors: only re-render when agent visualization settings change
+  const agentViz = useSettingsStore(
+    s => (s.settings as unknown as Record<string, Record<string, Record<string, unknown>>>)?.agents?.visualization
+  );
   const showAgents = (agentViz?.show_in_graph as boolean | undefined) ?? true;
   const nodeSize = (agentViz?.node_size as number | undefined) ?? 1.5;
   const baseColor = (agentViz?.node_color as string | undefined) ?? '#ff8800';
@@ -433,11 +434,10 @@ const AgentConnection: React.FC<{
 export const useAgentNodes = () => {
   const [agents, setAgents] = React.useState<AgentNode[]>([]);
   const [connections, setConnections] = React.useState<AgentConnection[]>([]);
-  const { settings } = useSettingsStore();
-
-  // Type assertion for extended settings with agents
-  const agentMonitoring = (settings as unknown as Record<string, Record<string, Record<string, unknown>>>)?.agents?.monitoring;
-  const pollInterval = (agentMonitoring?.telemetry_poll_interval as number | undefined) || 5;
+  const pollInterval = useSettingsStore(
+    s => (s.settings as unknown as Record<string, Record<string, Record<string, unknown>>>)
+      ?.agents?.monitoring?.telemetry_poll_interval as number | undefined
+  ) ?? 5;
 
   useEffect(() => {
     const pollAgents = async () => {
