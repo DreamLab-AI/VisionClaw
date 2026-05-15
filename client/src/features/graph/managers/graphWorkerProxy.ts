@@ -59,7 +59,6 @@ class GraphWorkerProxy {
   private sharedPositionView: Float32Array | null = null;
   private lastReceivedPositions: Float32Array | null = null;
   private tickInFlight: boolean = false;
-  private _positionFetchScheduled: boolean = false;
   private _consecutiveTickErrors: number = 0;
   private static readonly MAX_CONSECUTIVE_ERRORS = 10;
 
@@ -208,25 +207,19 @@ class GraphWorkerProxy {
     }
 
     try {
+      // Zero-copy transfer to worker. Worker writes positions to SAB (if active)
+      // and returns void — no Float32Array clone over the Comlink channel.
       await this.workerApi.processBinaryData(transfer(data, [data]));
-      this._consecutiveTickErrors = 0;
 
-      // In non-SAB mode, schedule a throttled position fetch so the renderer
-      // has fresh data on next getPositionsSync() call. No extra round-trip
-      // inside the hot binary processing path.
-      if (!this.sharedPositionView && !this._positionFetchScheduled) {
-        this._positionFetchScheduled = true;
-        setTimeout(() => {
-          this._positionFetchScheduled = false;
-          if (this.workerApi && !this.sharedPositionView) {
-            this.workerApi.getCurrentPositions().then((positions) => {
-              if (positions && positions.length > 0) {
-                this.lastReceivedPositions = positions;
-              }
-            }).catch(() => {});
-          }
-        }, 32); // ~30fps throttle
+      // In non-SAB mode, fetch the latest positions as a fallback snapshot.
+      // SAB mode: renderer reads sharedPositionView directly — no extra round-trip.
+      if (!this.sharedPositionView) {
+        const currentPositions = await this.workerApi.getCurrentPositions();
+        if (currentPositions && currentPositions.length > 0) {
+          this.lastReceivedPositions = currentPositions;
+        }
       }
+      this._consecutiveTickErrors = 0;
     } catch (error) {
       logger.error('Error processing binary data in worker:', error);
       throw error;
@@ -492,7 +485,6 @@ class GraphWorkerProxy {
     this.sharedPositionView = null;
     this.lastReceivedPositions = null;
     this.tickInFlight = false;
-    this._positionFetchScheduled = false;
     this.isInitialized = false;
 
     if (debugState.isEnabled()) {
