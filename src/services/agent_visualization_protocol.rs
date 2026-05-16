@@ -203,6 +203,38 @@ pub struct EffectsConfig {
     pub shadows: bool,
 }
 
+/// Mass-derivation strategy (ADR-01 D6 / R3). `Log` is the recommended
+/// default; `Linear` and `Sqrt` are exposed so the empirical choice can be
+/// re-evaluated per graph topology without recompiling.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MassFunction {
+    /// `mass = 1.0 + log2(1 + degree)` — ADR-01 D6 default.
+    Log,
+    /// `mass = 1.0 + degree as f32`.
+    Linear,
+    /// `mass = 1.0 + (degree as f32).sqrt()`.
+    Sqrt,
+}
+
+impl Default for MassFunction {
+    fn default() -> Self {
+        MassFunction::Log
+    }
+}
+
+impl MassFunction {
+    /// Apply the mass function to a node degree.
+    pub fn apply(self, degree: u32) -> f32 {
+        let d = degree as f32;
+        match self {
+            MassFunction::Log => 1.0_f32 + (1.0_f32 + d).log2(),
+            MassFunction::Linear => 1.0_f32 + d,
+            MassFunction::Sqrt => 1.0_f32 + d.sqrt(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhysicsConfig {
     pub spring_k: f32,
@@ -211,6 +243,25 @@ pub struct PhysicsConfig {
     pub repel_k: f32,
     pub gravity_k: f32,
     pub max_velocity: f32,
+    /// Mass-derivation strategy (ADR-01 D6 / R3). Defaults to `Log`.
+    #[serde(default)]
+    pub mass_function: MassFunction,
+    /// Settlement hysteresis window in physics ticks (ADR-01 D9). Default 10.
+    #[serde(default = "PhysicsConfig::default_settlement_window")]
+    pub settlement_window: u32,
+    /// `PhysicsGpuBuffers::resize` emits a warning when capacity exceeds this
+    /// value. Not a hard limit. Default `INITIAL_CAPACITY_CEILING = 16384`.
+    #[serde(default = "PhysicsConfig::default_max_nodes_warning")]
+    pub max_nodes_warning: u32,
+}
+
+impl PhysicsConfig {
+    fn default_settlement_window() -> u32 {
+        10
+    }
+    fn default_max_nodes_warning() -> u32 {
+        16_384
+    }
 }
 
 impl Default for PhysicsConfig {
@@ -219,9 +270,12 @@ impl Default for PhysicsConfig {
             spring_k: 0.05,
             link_distance: 50.0,
             damping: 0.9,
-            repel_k: 5000.0, 
+            repel_k: 5000.0,
             gravity_k: 0.01,
             max_velocity: crate::config::CANONICAL_MAX_VELOCITY,
+            mass_function: MassFunction::default(),
+            settlement_window: Self::default_settlement_window(),
+            max_nodes_warning: Self::default_max_nodes_warning(),
         }
     }
 }

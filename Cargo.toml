@@ -218,6 +218,14 @@ gpu = []  # GPU acceleration with CUDA kernels
 ontology = []  # Ontology validation and reasoning
 redis = ["dep:redis"]  # Enable Redis distributed caching
 
+# Phase 5 GPU Physics rewrite (ADR-01). Gates the new `src/gpu/buffers.rs`
+# `PhysicsGpuBuffers` consolidation (D1), `LayoutEngine` trait + 5 engine
+# implementations (D5), and `PhysicsEvent` emission surface (D9). Disabled by
+# default — the legacy `UnifiedGPUCompute` buffer path remains the production
+# code path until every callsite enumerated in
+# `docs/migration-sprint/01-gpu-physics/WORKTREE-PLAN.md §2` is migrated.
+physics-v2 = []
+
 # --- Adapter-parity test harness (tests/adapter_parity/) ---
 # Enable to run the Neo4j-backed parity runner. Requires a reachable Neo4j
 # instance and the NEO4J_PASSWORD env var (or ALLOW_INSECURE_DEFAULTS=true).

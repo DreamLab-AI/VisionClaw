@@ -437,38 +437,26 @@ impl Handler<RestartAttempt> for SupervisorActor {
 
         if let Some(state) = self.supervised_actors.get_mut(&msg.actor_name) {
             if let Some(ref factory) = state.actor_factory {
-                // Call the factory to re-create the actor. The returned Any is
-                // opaque — what matters is that the factory ran without panicking.
-                // The factory itself is responsible for starting the new Actix
-                // actor (e.g. via `.start()`) and wiring it into the system.
+                // ADR-01 D4: panics in CUDA kernel launches and the actor
+                // factory must propagate to the actix runtime so the failure
+                // is surfaced at full backtrace fidelity. The previous
+                // `std::panic::catch_unwind` wrapper here swallowed those
+                // panics and reported "factory panicked: <message>" without a
+                // stack — that is the failure mode this commit fixes.
+                //
+                // The factory is expected to be infallible (it constructs and
+                // starts a new Actix actor). If construction can fail it must
+                // do so via a `Result`, not via a panic. The
+                // `should_allow_restart` time-window guard in
+                // `ActorFailed::handle` enforces the 3-per-60s ADR-01 D4
+                // restart budget before we ever reach this handler.
                 let factory_clone = Arc::clone(factory);
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    factory_clone()
-                })) {
-                    Ok(_new_actor) => {
-                        state.is_running = true;
-                        info!(
-                            "Actor '{}' restarted successfully via factory (attempt {})",
-                            msg.actor_name, state.restart_count
-                        );
-                    }
-                    Err(panic_payload) => {
-                        state.is_running = false;
-                        let panic_msg = panic_payload
-                            .downcast_ref::<&str>()
-                            .map(|s| s.to_string())
-                            .or_else(|| {
-                                panic_payload
-                                    .downcast_ref::<String>()
-                                    .cloned()
-                            })
-                            .unwrap_or_else(|| "unknown panic".to_string());
-                        error!(
-                            "Actor '{}' factory panicked during restart: {}",
-                            msg.actor_name, panic_msg
-                        );
-                    }
-                }
+                let _new_actor = factory_clone();
+                state.is_running = true;
+                info!(
+                    "Actor '{}' restarted successfully via factory (attempt {})",
+                    msg.actor_name, state.restart_count
+                );
             } else {
                 // No factory registered — cannot auto-restart.
                 state.is_running = false;

@@ -65,6 +65,12 @@ pub mod semantic_constraints;
 pub mod simd_forces;
 pub mod stress_majorization;
 
+// Phase 5 (ADR-01 D5): LayoutEngine trait + five engine implementations.
+// Feature-gated behind `physics-v2`; legacy dispatch via
+// `src/layout/engines.rs::compute_layout` remains the production path.
+#[cfg(feature = "physics-v2")]
+pub mod engines;
+
 #[cfg(test)]
 mod integration_tests;
 

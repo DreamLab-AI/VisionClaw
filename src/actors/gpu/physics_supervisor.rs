@@ -30,6 +30,11 @@ struct SupervisedActorState {
     has_context: bool,
     failure_count: u32,
     last_restart: Option<Instant>,
+    /// Timestamp of the first failure in the current restart window. Used by
+    /// `should_allow_restart` (ADR-01 D4) to enforce a per-actor budget rather
+    /// than a global supervisor-wide budget. Cleared after a successful run
+    /// outside the window.
+    first_failure_in_window: Option<Instant>,
     current_delay: Duration,
     last_error: Option<String>,
 }
@@ -42,8 +47,21 @@ impl SupervisedActorState {
             has_context: false,
             failure_count: 0,
             last_restart: None,
+            first_failure_in_window: None,
             current_delay: Duration::from_millis(500),
             last_error: None,
+        }
+    }
+
+    /// ADR-01 D4: returns `false` once `failure_count` reaches `max_restarts`
+    /// within `restart_window` of the first failure. Caller must call this
+    /// AFTER incrementing `failure_count` and stamping `first_failure_in_window`
+    /// for the current window.
+    fn should_allow_restart(&self, max_restarts: u32, window: Duration) -> bool {
+        match self.first_failure_in_window {
+            Some(start) if start.elapsed() < window => self.failure_count <= max_restarts,
+            // Outside the window or never failed — restart is always allowed.
+            _ => true,
         }
     }
 
@@ -285,20 +303,38 @@ impl PhysicsSupervisor {
 
         state.is_running = false;
         state.has_context = false;
-        state.failure_count += 1;
         state.last_error = Some(error.to_string());
 
-        // Check if within restart window
-        if self.window_start.elapsed() > self.policy.restart_window {
+        // ADR-01 D4: stamp `first_failure_in_window` if this is the first
+        // failure in a fresh budget window, or reset it if the previous
+        // window has expired.
+        let now = Instant::now();
+        let window = self.policy.restart_window;
+        let in_window = state
+            .first_failure_in_window
+            .map(|t| t.elapsed() < window)
+            .unwrap_or(false);
+        if !in_window {
+            state.first_failure_in_window = Some(now);
+            state.failure_count = 0;
+        }
+        state.failure_count += 1;
+
+        // Roll over the supervisor-wide window for backward compatibility
+        // with existing metrics that look at `restart_count`.
+        if self.window_start.elapsed() > window {
             self.restart_count = 0;
             self.window_start = Instant::now();
         }
 
-        // Check restart limit
-        if state.failure_count > self.policy.max_restarts {
+        // ADR-01 D4: enforce the per-actor 3-per-60s budget. Crossing this
+        // limit stops issuing `RestartAttempt` messages and surfaces a health
+        // alarm — the layout is broken, the system is not.
+        if !state.should_allow_restart(self.policy.max_restarts, window) {
             error!(
-                "PhysicsSupervisor: Actor '{}' exceeded max restarts ({}), marking as permanently failed",
-                actor_name, self.policy.max_restarts
+                "PhysicsSupervisor: Actor '{}' exceeded max restarts ({} within {:?}) — \
+                 stopping actor and surfacing SubsystemHealth::Failed alarm (ADR-01 D4)",
+                actor_name, self.policy.max_restarts, window
             );
             return;
         }

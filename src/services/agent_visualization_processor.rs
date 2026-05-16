@@ -536,9 +536,10 @@ impl AgentVisualizationProcessor {
                 spring_k: 0.05,
                 link_distance: 50.0,
                 damping: 0.9,
-                repel_k: 5000.0,    
-                gravity_k: 0.001,   
+                repel_k: 5000.0,
+                gravity_k: 0.001,
                 max_velocity: crate::config::CANONICAL_MAX_VELOCITY,
+                ..PhysicsConfig::default()
             },
             visual_config: self.create_visual_config(),
         }

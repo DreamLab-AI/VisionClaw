@@ -6,6 +6,12 @@
 // Canonical GPU type definitions (AUTHORITATIVE)
 pub mod types;
 
+// Phase 5 (ADR-01 D1): consolidated per-node GPU buffer ownership.
+// Feature-gated behind `physics-v2` until all callsites listed in
+// docs/migration-sprint/01-gpu-physics/WORKTREE-PLAN.md §2 are migrated.
+#[cfg(feature = "physics-v2")]
+pub mod buffers;
+
 // Primary safe implementations (formerly safe_*)
 pub mod semantic_forces;
 pub mod streaming_pipeline;

@@ -175,6 +175,22 @@ impl SupervisionPolicy {
             escalate_on_failure: false,
         }
     }
+
+    /// Phase 5 / ADR-01 D4 policy for `ForceComputeActor`: OneForOne
+    /// supervision with a strict 3-restarts-per-60-seconds budget. On exceed,
+    /// the actor is stopped and a `SubsystemHealth::Failed` alarm is surfaced.
+    /// Restart delay is short (250ms) because a cold CUDA context init is the
+    /// dominant cost; no exponential backoff is applied within the window.
+    pub fn physics_v2() -> Self {
+        Self {
+            max_restarts: 3,
+            restart_window: Duration::from_secs(60),
+            restart_delay: Duration::from_millis(250),
+            backoff_multiplier: 1.0, // ADR-01 D4: no backoff within the window
+            max_delay: Duration::from_millis(250),
+            escalate_on_failure: true,
+        }
+    }
 }
 
 // ============================================================================

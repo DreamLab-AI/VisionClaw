@@ -613,3 +613,73 @@ pub struct SetGpuComputeAddress {
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "Result<(), String>")]
 pub struct ResetPositions;
+
+// ---------------------------------------------------------------------------
+// Phase 5 (ADR-01 D9): event emission only
+// ---------------------------------------------------------------------------
+//
+// Per ADR-01 D9 and ADR-02 D2, `ForceComputeActor` emits state-transition
+// events only. Wall-clock heartbeat cadence is owned by the broadcast actor.
+// These four events are the complete physics-side output.
+
+/// Reason for a numerical-safety clamp (ADR-01 D8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClampKind {
+    /// Position component was NaN; replaced with the centroid coordinate.
+    NaN,
+    /// Position component was +/-Inf; replaced with the centroid coordinate.
+    Inf,
+    /// Velocity magnitude exceeded MAX_VELOCITY; scaled to the cap.
+    VelocityCap,
+}
+
+/// Complete set of events physics emits to the broadcast layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PhysicsEvent {
+    /// Emitted when the actor begins simulating a new graph (initial load,
+    /// `ResetPositions`, or engine switch).
+    LayoutStarted {
+        node_count: usize,
+        engine_name: &'static str,
+        params_hash: u64,
+    },
+    /// Emitted when RMS velocity has stayed below the settlement threshold
+    /// for `PhysicsConfig::settlement_window` consecutive ticks.
+    LayoutSettled {
+        iteration: u64,
+        rms_velocity: f32,
+    },
+    /// Emitted when RMS velocity crosses back above the settlement threshold
+    /// after a previous `LayoutSettled` — typically following parameter
+    /// changes, a `ResetPositions`, or an engine switch.
+    LayoutDestabilised {
+        iteration: u64,
+        rms_velocity: f32,
+    },
+    /// Emitted (at most once per kind per tick) when the `numerical_safety`
+    /// kernel clamps positions or velocities.
+    PhysicsClamped {
+        kind: ClampKind,
+        count: u32,
+    },
+}
+
+/// Actor message wrapping a `PhysicsEvent` for delivery to the broadcast
+/// orchestrator. Kept separate from the enum so the enum can be serialised
+/// and forwarded across process boundaries.
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "()")]
+pub struct EmitPhysicsEvent {
+    pub event: PhysicsEvent,
+}
+
+/// Switch the active layout engine on the physics actor. Resets velocities to
+/// zero, replaces `self.engine`, resets the convergence-hysteresis window,
+/// and emits `LayoutDestabilised` so clients enter ACTIVE mode. The handler
+/// does not touch positions (per WORKTREE-PLAN §3 — no teardown, no ghost
+/// positions).
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "Result<(), String>")]
+pub struct SetLayoutMode {
+    pub mode: crate::layout::types::LayoutMode,
+}

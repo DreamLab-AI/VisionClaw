@@ -61,6 +61,8 @@ pub use physics_messages::{
     BoundingBox, CurrentPositionsSnapshot, GetCurrentPositions,
     // Layout reset
     ResetPositions,
+    // Phase 5 (ADR-01 D9): event emission only
+    ClampKind, EmitPhysicsEvent, PhysicsEvent, SetLayoutMode,
 };
 
 // --- settings_messages ---
