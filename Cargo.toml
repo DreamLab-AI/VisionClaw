@@ -3,8 +3,8 @@ name = "webxr"
 version = "0.1.0"
 edition = "2021"
 description = "A WebXR graph visualisation server with GPU-accelerated physics"
-authors = ["Your Name <your.email@example.com>"]
-license = "MIT"
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -154,6 +154,32 @@ horned-functional = { version = "0.4.0" }
 # walkdir = { version = "2.4" }  # Unused - removed during cleanup
 clap = { version = "4.5", features = ["derive"] }
 
+# --- Solid Pod (ADR-032 M1) — embed solid-pod-rs as in-process library ---
+# Pinned to a single git rev (target: v0.4.0-alpha.7+sprint10 once JSS Phase 1
+# features land in solid-pod-rs). For M1 we use `rev = "main"` as a placeholder
+# so the dep graph compiles; M2 wires the consumer code and pins the rev.
+# AGPL-3.0-only — see ADR-032 §"Licence implications".
+#
+# Crates added (per ADR-032 §"Dependency surface"):
+#   - solid-pod-rs        (core LDP/WAC/NIP-98/fs-backend/Notifications)
+#   - solid-pod-rs-nostr  (did:nostr resolver, NIP-05 endpoint, Schnorr verify)
+#   - solid-pod-rs-idp    (pod + key provisioning — JSS Phase 1)
+#
+# Deferred (NOT added in M1):
+#   - solid-pod-rs-server      — reference only (HTTP route templates), never depended on directly
+#   - solid-pod-rs-activitypub — follow-up ADR (only if VisionClaw federates via AP)
+#   - solid-pod-rs-git         — separate graph-as-git workstream
+#
+# All three deps are `optional = true` and only pulled in when the
+# `solid-pod-embed` feature is enabled. M1 lands the dep graph entries;
+# M2 flips consumers on.
+#
+# TODO(M2): pin to actual rev when JSS Phase 1 features land in solid-pod-rs
+# (target `v0.4.0-alpha.7+sprint10`).
+solid-pod-rs = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["fs-backend", "nip98-schnorr"], optional = true }
+solid-pod-rs-nostr = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["did-nostr", "nip05-endpoint", "schnorr-verifier"], optional = true }
+solid-pod-rs-idp = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["pod-provisioning", "key-provisioning"], optional = true }
+
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -206,6 +232,16 @@ persistence-oxigraph = [
 # env-var path exists to re-enable it. `scripts/launch.sh up dev` enables this
 # feature; `up prod` and `cargo build --release` do not.
 dev-auth = []
+
+# `solid-pod-embed` — ADR-032 M1+ — pull in solid-pod-rs as a Rust library
+# (replaces JSS sidecar). Gated so the M1 PR can land without breaking the
+# default build until M2 wires consumers. Default-off through M4; flipped
+# default-on at M5 when the JSS sidecar is removed.
+solid-pod-embed = [
+    "dep:solid-pod-rs",
+    "dep:solid-pod-rs-nostr",
+    "dep:solid-pod-rs-idp",
+]
 
 [profile.release]
 opt-level = 3

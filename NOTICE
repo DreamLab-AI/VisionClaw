@@ -1,0 +1,35 @@
+VisionClaw / webxr — NOTICE
+============================
+
+This product is licensed under the GNU Affero General Public License,
+version 3.0 only (AGPL-3.0-only). See the LICENSE file for the full
+text of the licence.
+
+As of milestone M1 of ADR-032 ("Embed solid-pod-rs as Rust library"),
+the webxr workspace consumes the following AGPL-3.0-only Rust crates
+from the solid-pod-rs workspace (co-maintained with the upstream
+JavaScriptSolidServer project by DreamLab-AI):
+
+  * solid-pod-rs        — LDP resources, WAC, NIP-98, fs-backend,
+                          Solid Notifications 0.2
+  * solid-pod-rs-nostr  — did:nostr resolver, NIP-05 endpoint,
+                          Schnorr verifier
+  * solid-pod-rs-idp    — Pod and key provisioning
+
+Linking these crates makes the combined webxr binary AGPL-3.0-only.
+The webxr workspace itself is therefore AGPL-3.0-only as of M1.
+
+Pre-M1 history was distributed under the Mozilla Public License 2.0
+(retained at LICENSE.MPL for reference). The relicense is recorded
+in docs/adr/ADR-032-embed-solid-pod-rs-library.md.
+
+Network-corresponding-source obligation under AGPL §13 is satisfied
+by the public source repository URL exposed via the server-info HTTP
+header `X-Source-URL` and the `/.well-known/solid` document
+(wired in M2-M5).
+
+Upstream attribution
+--------------------
+  * solid-pod-rs     — https://github.com/DreamLab-AI/solid-pod-rs
+  * JavaScriptSolidServer (port source) —
+      https://github.com/JavaScriptSolidServer/JavaScriptSolidServer

@@ -63,8 +63,8 @@ All JSON responses use the `StandardResponse<T>` envelope:
             url = "https://github.com/visionflow"
         ),
         license(
-            name = "MIT",
-            url = "https://opensource.org/licenses/MIT"
+            name = "AGPL-3.0-only",
+            url = "https://www.gnu.org/licenses/agpl-3.0.txt"
         )
     ),
     servers(
