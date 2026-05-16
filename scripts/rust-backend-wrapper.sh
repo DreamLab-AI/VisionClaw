@@ -48,13 +48,13 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
     fi
 
     # Build release with GPU features (matches dev-entrypoint.sh)
-    if cargo build --release --features gpu 2>&1; then
+    if cargo build --release --features gpu,dev-auth 2>&1; then
         log "✓ Rust backend rebuilt successfully (release build with GPU)"
     else
         log "ERROR: Failed to rebuild Rust backend"
         log "Attempting clean build..."
         cargo clean 2>/dev/null || true
-        if cargo build --release --features gpu 2>&1; then
+        if cargo build --release --features gpu,dev-auth 2>&1; then
             log "✓ Clean rebuild succeeded"
         else
             log "FATAL: Clean rebuild also failed"

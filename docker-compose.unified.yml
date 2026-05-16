@@ -172,6 +172,8 @@ services:
       - ${HOST_PROJECT_ROOT:-.}/Cargo.toml:/app/Cargo.toml:ro
       - ${HOST_PROJECT_ROOT:-.}/Cargo.lock:/app/Cargo.lock:ro
       - ${HOST_PROJECT_ROOT:-.}/build.rs:/app/build.rs:ro
+      - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/docs:/app/docs:ro
       # whelk-rs is a git dep (9af9315a2) — fetched into cargo cache, no bind mount needed.
       - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
       - ${HOST_PROJECT_ROOT:-.}/client/public:/app/client/public:ro

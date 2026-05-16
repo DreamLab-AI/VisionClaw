@@ -131,6 +131,7 @@ FROM base AS rust-deps
 # pinned via Cargo.toml rev; no path-dep COPY needed since 9af9315a2.
 COPY Cargo.toml build.rs ./
 COPY Cargo.lock* ./
+COPY crates ./crates
 
 # Copy CUDA source files needed by build.rs for PTX compilation
 COPY src/utils/*.cu src/utils/
@@ -252,7 +253,9 @@ RUN mkdir -p \
 # whelk-rs is fetched as a git dep; no path-dep COPY needed.
 COPY Cargo.toml build.rs ./
 COPY Cargo.lock* ./
+COPY crates ./crates
 COPY src ./src
+COPY docs ./docs
 COPY data/schema ./data/schema
 
 # Copy client source (not built, will use dev server)
@@ -264,8 +267,9 @@ COPY --from=node-deps /app/client/node_modules ./node_modules
 
 WORKDIR /app
 
-# Pre-fetch Rust dependencies for faster rebuilds
-RUN cargo fetch
+# Pre-fetch Rust dependencies for faster rebuilds (non-fatal: git deps may
+# fail during image build if network is restricted; runtime cargo build retries)
+RUN cargo fetch || echo "WARN: cargo fetch failed (git dep network issue) — deps will be fetched at runtime"
 
 # Copy development configuration files
 COPY nginx.dev.conf /etc/nginx/nginx.conf

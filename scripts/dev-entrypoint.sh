@@ -105,7 +105,7 @@ start_rust_server() {
         cd /app
         
         # Build with GPU features - this ensures all code changes are compiled
-        if cargo build --release --features gpu 2>&1 | tee -a "${RUST_LOG_FILE}"; then
+        if cargo build --release --features gpu,dev-auth 2>&1 | tee -a "${RUST_LOG_FILE}"; then
             log "✓ Rust backend rebuilt successfully with latest code changes"
         else
             log "ERROR: Failed to rebuild Rust backend"
