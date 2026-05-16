@@ -1,0 +1,317 @@
+{
+  "$comment": "Per-file manifest for the valid/ fixture corpus. The seed loader writes the N-Quads in seed/expected-triples.nq; this manifest is what tests assert against after loading. expected_triple_count counts the N-Quads emitted from THIS file alone (not the cumulative corpus).",
+  "schema_version": 1,
+  "context_url": "https://narrativegoldmine.com/context/v1.jsonld",
+  "named_graphs": {
+    "knowledge": "urn:visionflow:graph:knowledge",
+    "ontology_assert": "urn:visionflow:graph:ontology:assert",
+    "ontology_inferred": "urn:visionflow:graph:ontology:inferred",
+    "agent": "urn:visionflow:graph:agent",
+    "default": null
+  },
+  "files": [
+    {
+      "filename": "pages/001-minimal-page.md",
+      "primary_entity_iri": "urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081",
+      "type": "Page",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 7,
+      "key_assertions": [
+        "Page entity exists in knowledge named graph",
+        "vc:slug=filippo-brunelleschi",
+        "outboundWikilinks references urn:visionflow:linked:florence-cathedral-dome",
+        "prov attribution to npub1alice"
+      ]
+    },
+    {
+      "filename": "pages/002-page-with-tags-and-links.md",
+      "primary_entity_iri": "urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001",
+      "type": "Page",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 13,
+      "key_assertions": [
+        "Three outbound wikilinks (filippo-brunelleschi, double-shell-construction, pantheon-rome)",
+        "Four tags",
+        "vc:slug=florence-cathedral-dome"
+      ]
+    },
+    {
+      "filename": "pages/003-page-with-wikilinks.md",
+      "primary_entity_iri": "urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02",
+      "type": "Page",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 14,
+      "key_assertions": [
+        "Nine outbound wikilinks",
+        "vc:slug=andrea-palladio"
+      ]
+    },
+    {
+      "filename": "pages/004-stub-page.md",
+      "primary_entity_iri": "urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+      "type": "Page",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 8,
+      "key_assertions": [
+        "vc:stub=true",
+        "Single wikilink to tempietto"
+      ]
+    },
+    {
+      "filename": "pages/005-page-with-embedded-ontology-block.md",
+      "primary_entity_iri": "urn:visionflow:owl:class:humanist-architect",
+      "type": "OntologyClass",
+      "host_page_public": false,
+      "expected_node_id_class_bit": "0x04000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 11,
+      "key_assertions": [
+        "Host page is public:: false but OntologyClass still emits (ADR-08 D3)",
+        "subClassOf urn:visionflow:owl:class:renaissance-architect",
+        "vc:definedIn references the host page"
+      ]
+    },
+    {
+      "filename": "ontology/010-class-renaissance-architecture.md",
+      "primary_entity_iri": "urn:visionflow:owl:class:renaissance-architecture",
+      "type": "OntologyClass",
+      "expected_node_id_class_bit": "0x04000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 19,
+      "key_assertions": [
+        "Has vc:hasPart, vc:relatesTo bridges",
+        "Emits a LinkResolved event (placeholder upgrade)"
+      ]
+    },
+    {
+      "filename": "ontology/011-class-with-bridges.md",
+      "primary_entity_iri": "urn:visionflow:owl:class:florentine-quattrocento",
+      "type": "OntologyClass",
+      "expected_node_id_class_bit": "0x04000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 15,
+      "key_assertions": [
+        "vc:bridgeTo to a Page IRI",
+        "Uses all six vc: relationship predicates (hasPart, requires, enables, relatesTo, bridgeTo, plus subClassOf)"
+      ]
+    },
+    {
+      "filename": "ontology/012-class-deep-hierarchy.md",
+      "primary_entity_iri": [
+        "urn:visionflow:owl:class:built-environment",
+        "urn:visionflow:owl:class:architecture",
+        "urn:visionflow:owl:class:architectural-period",
+        "urn:visionflow:owl:class:italian-renaissance"
+      ],
+      "type": "OntologyClass",
+      "expected_node_id_class_bit": "0x04000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 22,
+      "key_assertions": [
+        "Four classes forming a depth-3 subClassOf chain (built-env → architecture → architectural-period → italian-renaissance)",
+        "Built Environment is the declared root (no subClassOf)"
+      ]
+    },
+    {
+      "filename": "ontology/013-class-multi-domain.md",
+      "primary_entity_iri": "urn:visionflow:owl:class:dome-construction",
+      "type": "OntologyClass",
+      "expected_node_id_class_bit": "0x04000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 14,
+      "key_assertions": [
+        "vc:sourceDomain is multi-valued (architecture + engineering)",
+        "vc:belongsToDomain=architecture, vc:bridgesToDomain=engineering"
+      ]
+    },
+    {
+      "filename": "ontology/014-property-object-designed-by.md",
+      "primary_entity_iri": "urn:visionflow:owl:property:designed-by",
+      "type": "OntologyProperty",
+      "expected_node_id_class_bit": "0x10000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 9,
+      "key_assertions": [
+        "Object property",
+        "Functional, not inverse-functional",
+        "Has owl:inverseOf"
+      ]
+    },
+    {
+      "filename": "ontology/015-property-data-completion-date.md",
+      "primary_entity_iri": "urn:visionflow:owl:property:completion-date",
+      "type": "OntologyProperty",
+      "expected_node_id_class_bit": "0x10000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 7,
+      "key_assertions": [
+        "DataProperty (trait spelling); owl:DatatypeProperty wire form",
+        "Range is xsd:gYear"
+      ]
+    },
+    {
+      "filename": "ontology/016-property-annotation-folk-name.md",
+      "primary_entity_iri": "urn:visionflow:owl:property:folk-name",
+      "type": "OntologyProperty",
+      "expected_node_id_class_bit": "0x10000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 6,
+      "key_assertions": [
+        "AnnotationProperty",
+        "Range is rdfs:Literal"
+      ]
+    },
+    {
+      "filename": "ontology/017-axiom-subclass.md",
+      "primary_entity_iri": "urn:visionflow:owl:axiom:f2c4a91b6e80",
+      "type": "Axiom",
+      "expected_node_id_class_bit": "0x0C000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 7,
+      "key_assertions": [
+        "axiomType=SubClassOf",
+        "Source is Asserted with vc:definingPage"
+      ]
+    },
+    {
+      "filename": "ontology/018-axiom-equivalent.md",
+      "primary_entity_iri": "urn:visionflow:owl:axiom:9b3e7710d2af",
+      "type": "Axiom",
+      "expected_node_id_class_bit": "0x0C000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 6,
+      "key_assertions": [
+        "axiomType=EquivalentClass"
+      ]
+    },
+    {
+      "filename": "ontology/019-axiom-property-chain.md",
+      "primary_entity_iri": [
+        "urn:visionflow:owl:axiom:5d61e08acbd2",
+        "urn:visionflow:owl:axiom:a1f02b9c7e4d"
+      ],
+      "type": "Axiom",
+      "expected_node_id_class_bit": "0x0C000000",
+      "expected_named_graph": [
+        "urn:visionflow:graph:ontology:assert",
+        "urn:visionflow:graph:ontology:inferred"
+      ],
+      "expected_triple_count": 14,
+      "key_assertions": [
+        "PropertyChain axiom (OWL 2 EL feature) + an inferred ObjectPropertyAssertion",
+        "Inferred axiom routed to inferred named graph",
+        "Inference attributed to Whelk agent"
+      ]
+    },
+    {
+      "filename": "ontology/020-linked-page-stub.md",
+      "primary_entity_iri": "urn:visionflow:linked:vitruvian-tradition",
+      "type": "LinkedPage",
+      "expected_node_id_class_bit": "0x08000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 6,
+      "key_assertions": [
+        "vc:upgradedTo is null (dangling)",
+        "vc:firstSeenIn references the first-discovery page"
+      ]
+    },
+    {
+      "filename": "agents/030-agent-telemetry-snapshot.md",
+      "primary_entity_iri": [
+        "urn:visionflow:agent:run-2026-05-16-001:step-0",
+        "urn:visionflow:agent:run-2026-05-16-001:step-1"
+      ],
+      "type": "AgentTelemetry",
+      "expected_node_id_class_bit": "0x80000000",
+      "expected_named_graph": "urn:visionflow:graph:agent",
+      "expected_triple_count": 14,
+      "key_assertions": [
+        "Two-step inference run (started → materialised)",
+        "Step 1 relates to the inferred axiom from fixture 019"
+      ]
+    },
+    {
+      "filename": "agents/031-agent-with-comm-edges.md",
+      "primary_entity_iri": [
+        "urn:visionflow:agent:run-2026-05-16-002:step-0",
+        "urn:visionflow:agent:run-2026-05-16-002:step-1",
+        "urn:visionflow:agent:run-2026-05-16-002:step-2"
+      ],
+      "type": "AgentTelemetry",
+      "expected_node_id_class_bit": "0x80000000",
+      "expected_named_graph": "urn:visionflow:graph:agent",
+      "expected_triple_count": 19,
+      "key_assertions": [
+        "Three-agent chain Alice → Sync → Whelk via @graph multi-node block",
+        "MessageSent / MessageReceived events with vc:to / vc:from"
+      ]
+    },
+    {
+      "filename": "agents/032-swarm-with-parent-queen.md",
+      "primary_entity_iri": [
+        "urn:visionflow:agent:swarm-rebuild-7:step-0",
+        "urn:visionflow:agent:swarm-rebuild-7:step-1",
+        "urn:visionflow:agent:swarm-rebuild-7:step-2"
+      ],
+      "type": "AgentTelemetry",
+      "expected_node_id_class_bit": "0x80000000",
+      "expected_named_graph": "urn:visionflow:graph:agent",
+      "expected_triple_count": 22,
+      "key_assertions": [
+        "Queen + two workers; parent/child topology",
+        "vc:parent references the Queen telemetry IRI"
+      ]
+    },
+    {
+      "filename": "bridges/040-cross-graph-bridge.md",
+      "primary_entity_iri": "urn:visionflow:bridge:filippo-brunelleschi-page-to-class",
+      "type": "BridgeRecord",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": null,
+      "expected_triple_count": 8,
+      "key_assertions": [
+        "Goes into DEFAULT GRAPH (not a named graph)",
+        "Connects Page (knowledge graph) to OntologyClass (ontology graph)"
+      ]
+    },
+    {
+      "filename": "signed/050-page-with-nostr-signature.md",
+      "primary_entity_iri": "urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70",
+      "type": "NostrSignedPage",
+      "expected_node_id_class_bit": "0x40000000",
+      "expected_named_graph": "urn:visionflow:graph:knowledge",
+      "expected_triple_count": 13,
+      "key_assertions": [
+        "NIP-23 envelope with nostr signature",
+        "Inner vc:nip23Content carries the Page payload"
+      ]
+    },
+    {
+      "filename": "signed/051-axiom-with-prov.md",
+      "primary_entity_iri": "urn:visionflow:owl:axiom:4c8e2a1f9b73",
+      "type": "Axiom",
+      "expected_node_id_class_bit": "0x0C000000",
+      "expected_named_graph": "urn:visionflow:graph:ontology:assert",
+      "expected_triple_count": 15,
+      "key_assertions": [
+        "Uses JSON-LD 1.1 @included for embedded PROV Activity",
+        "Full PROV-O attribution chain (agent → activity → org)"
+      ]
+    }
+  ],
+  "total_files": 22,
+  "total_triples_expected": 258,
+  "coverage": {
+    "jsonld_1_1_features": ["@context", "@id", "@type", "@graph", "@included", "@version", "@list", "typed-value"],
+    "owl_2_el_constructs": ["subClassOf", "equivalentClass", "propertyChainAxiom", "domain", "range"],
+    "named_graphs_exercised": ["knowledge", "ontology_assert", "ontology_inferred", "agent", "default"],
+    "vc_predicates_used": ["bridgeTo", "hasPart", "requires", "enables", "relatesTo", "definition", "designedBy", "completionDate", "folkName", "definedIn", "sourceDomain", "qualityScore", "authorityScore", "bridgesToDomain"],
+    "node_classes": ["Page", "OntologyClass", "OntologyProperty", "LinkedPage", "Axiom", "AgentTelemetry", "BridgeRecord", "NostrSignedPage"],
+    "stub_upgrade_lifecycle": "exercised (020-linked-page-stub.md + LinkResolved event in 010-class-renaissance-architecture.md)",
+    "class_hierarchy_depths": [1, 2, 3]
+  }
+}

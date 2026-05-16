@@ -3,8 +3,8 @@ name = "webxr"
 version = "0.1.0"
 edition = "2021"
 description = "A WebXR graph visualisation server with GPU-accelerated physics"
-authors = ["Your Name <your.email@example.com>"]
-license = "MIT"
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -40,6 +40,13 @@ validator = { version = "0.18", features = ["derive"] }
 
 # Database - Neo4j (sole database)
 neo4rs = { version = "0.9.0-rc.8", features = ["unstable-serde-packstream-format"] }
+
+# Database - Oxigraph + SQLite (Phase 11 persistence migration, ADR-11)
+# Gated by `persistence-oxigraph` feature so the radical-rollback baseline
+# still compiles without these deps. Cutover lands in a later phase.
+oxigraph = { version = "0.4", optional = true }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+tokio-rusqlite = { version = "0.5", optional = true }
 
 # Redis (optional distributed caching)
 redis = { version = "0.27", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
@@ -132,8 +139,13 @@ rayon = "1.11.0"
 # Hexagonal Architecture
 hexser = { version = "0.4.7", features = ["full"] }
 
-# Ontology Reasoning - using local path dependency (always enabled)
-whelk = { path = "./whelk-rs" }
+# Ontology Reasoning — git dep on jjohare/whelk-rs fork (always enabled).
+# Pinned to commit 79a1ee2 ("Made compatible with latest horned-owl"). The
+# fork carries horned-owl 1.x compatibility patches that INCATools/whelk-rs
+# upstream may not yet have merged.
+# TODO: switch to git = "https://github.com/INCATools/whelk-rs" once upstream
+# lands the horned-owl 1.x compat (track via PR from the jjohare fork).
+whelk = { git = "https://github.com/jjohare/whelk-rs", rev = "79a1ee21789add5a66faa0ec1a830c32dba9b539" }
 
 # Ontology dependencies (always enabled)
 # Note: Using 1.2.0 for ArcStr support (thread-safe string type)
@@ -141,6 +153,32 @@ horned-owl = { version = "1.2.0", features = ["remote"] }
 horned-functional = { version = "0.4.0" }
 # walkdir = { version = "2.4" }  # Unused - removed during cleanup
 clap = { version = "4.5", features = ["derive"] }
+
+# --- Solid Pod (ADR-032 M1) — embed solid-pod-rs as in-process library ---
+# Pinned to a single git rev (target: v0.4.0-alpha.7+sprint10 once JSS Phase 1
+# features land in solid-pod-rs). For M1 we use `rev = "main"` as a placeholder
+# so the dep graph compiles; M2 wires the consumer code and pins the rev.
+# AGPL-3.0-only — see ADR-032 §"Licence implications".
+#
+# Crates added (per ADR-032 §"Dependency surface"):
+#   - solid-pod-rs        (core LDP/WAC/NIP-98/fs-backend/Notifications)
+#   - solid-pod-rs-nostr  (did:nostr resolver, NIP-05 endpoint, Schnorr verify)
+#   - solid-pod-rs-idp    (pod + key provisioning — JSS Phase 1)
+#
+# Deferred (NOT added in M1):
+#   - solid-pod-rs-server      — reference only (HTTP route templates), never depended on directly
+#   - solid-pod-rs-activitypub — follow-up ADR (only if VisionClaw federates via AP)
+#   - solid-pod-rs-git         — separate graph-as-git workstream
+#
+# All three deps are `optional = true` and only pulled in when the
+# `solid-pod-embed` feature is enabled. M1 lands the dep graph entries;
+# M2 flips consumers on.
+#
+# TODO(M2): pin to actual rev when JSS Phase 1 features land in solid-pod-rs
+# (target `v0.4.0-alpha.7+sprint10`).
+solid-pod-rs = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["fs-backend", "nip98-schnorr"], optional = true }
+solid-pod-rs-nostr = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["did-nostr", "nip05-endpoint", "schnorr-verifier"], optional = true }
+solid-pod-rs-idp = { git = "https://github.com/DreamLab-AI/solid-pod-rs", rev = "main", default-features = false, features = ["pod-provisioning", "key-provisioning"], optional = true }
 
 
 [dev-dependencies]
@@ -167,6 +205,43 @@ default = ["gpu", "ontology"]
 gpu = []  # GPU acceleration with CUDA kernels
 ontology = []  # Ontology validation and reasoning
 redis = ["dep:redis"]  # Enable Redis distributed caching
+
+# --- Adapter-parity test harness (tests/adapter_parity/) ---
+# Enable to run the Neo4j-backed parity runner. Requires a reachable Neo4j
+# instance and the NEO4J_PASSWORD env var (or ALLOW_INSECURE_DEFAULTS=true).
+test-neo4j = []
+
+# Phase 11 persistence migration (ADR-11): pulls in Oxigraph (SPARQL 1.1
+# triple/quad store) and SQLite via tokio-rusqlite for settings. Enabling
+# this feature compiles the new `oxigraph_*` and `sqlite_settings_repository`
+# adapters under `src/adapters/`. The legacy `neo4j_*` adapters remain
+# present and continue to compile; cutover is a separate phase.
+persistence-oxigraph = [
+    "dep:oxigraph",
+    "dep:rusqlite",
+    "dep:tokio-rusqlite",
+]
+
+# `dev-auth` — Compile-time gate for development auth bypass surface.
+# Per ADR-06 §D1+D2 and resolution T2 (docs/migration-sprint/_resolutions/T2-auth-gating.md),
+# every auth-bypass branch is wrapped in
+#     #[cfg(any(debug_assertions, feature = "dev-auth"))]
+# so release binaries built WITHOUT this feature physically cannot honour
+# `SETTINGS_AUTH_BYPASS`, `ALLOW_INSECURE_DEFAULTS`, `--allow-skip-auth`, or
+# `Bearer dev-session-token`. The bypass code is absent from the binary — no
+# env-var path exists to re-enable it. `scripts/launch.sh up dev` enables this
+# feature; `up prod` and `cargo build --release` do not.
+dev-auth = []
+
+# `solid-pod-embed` — ADR-032 M1+ — pull in solid-pod-rs as a Rust library
+# (replaces JSS sidecar). Gated so the M1 PR can land without breaking the
+# default build until M2 wires consumers. Default-off through M4; flipped
+# default-on at M5 when the JSS sidecar is removed.
+solid-pod-embed = [
+    "dep:solid-pod-rs",
+    "dep:solid-pod-rs-nostr",
+    "dep:solid-pod-rs-idp",
+]
 
 [profile.release]
 opt-level = 3

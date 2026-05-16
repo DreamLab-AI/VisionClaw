@@ -9,6 +9,35 @@ export function generateRequestId(): string {
   return uuidv4();
 }
 
+/**
+ * ADR-06 §D1 + resolution T2: skipAuth is INFORMATIONAL on the client side.
+ *
+ * The server decides whether to honour `Bearer dev-session-token`. In a release
+ * build (compiled without `--features dev-auth`) the token-acceptance branch
+ * is physically absent from the binary, so any request carrying the dev token
+ * will receive a `401 Unauthorized`. We surface that mismatch via console.warn
+ * so dev-mode users running against a production server see why their requests
+ * are failing.
+ *
+ * Detection heuristic: a 401 response on a request that carried the dev token
+ * with no other auth scheme. The actual decision is the server's; this warning
+ * does not affect the request.
+ */
+let releaseModeWarned = false;
+function warnIfServerInReleaseMode(status: number, sentDevToken: boolean): void {
+  if (releaseModeWarned) return;
+  if (status === 401 && sentDevToken) {
+    releaseModeWarned = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[AuthInterceptor] Server returned 401 on Bearer dev-session-token. ' +
+      'The server is likely a release build compiled WITHOUT `--features dev-auth` ' +
+      '(ADR-06 §D1). `?skipAuth=true` has no effect against a release build. ' +
+      'Rebuild the server with `./scripts/launch.sh up dev` to enable the dev-auth gate.'
+    );
+  }
+}
+
 export async function authRequestInterceptor(config: RequestConfig, url: string): Promise<RequestConfig> {
   const finalConfig = { ...config };
 
@@ -25,7 +54,9 @@ export async function authRequestInterceptor(config: RequestConfig, url: string)
     const user = nostrAuth.getCurrentUser();
 
     if (nostrAuth.isDevMode()) {
-      // Dev mode: Bearer token
+      // Dev mode: Bearer token. The server may or may not honour this —
+      // release builds (no `dev-auth` feature) will return 401. See
+      // `warnIfServerInReleaseMode` and `authResponseInterceptor` below.
       headers['Authorization'] = 'Bearer dev-session-token';
       if (user?.pubkey) {
         headers['X-Nostr-Pubkey'] = user.pubkey;
@@ -54,9 +85,24 @@ export async function authRequestInterceptor(config: RequestConfig, url: string)
   return finalConfig;
 }
 
+/**
+ * Response interceptor that detects a release-mode server rejecting the dev
+ * token, and emits a one-shot console.warn so dev users immediately understand
+ * why `?skipAuth=true` is not working.
+ */
+export async function authResponseInterceptor(
+  response: { status: number; headers?: Record<string, string> },
+  config: RequestConfig,
+): Promise<void> {
+  const headers = (config.headers || {}) as Record<string, string>;
+  const sentDevToken = headers['Authorization'] === 'Bearer dev-session-token';
+  warnIfServerInReleaseMode(response.status, sentDevToken);
+}
+
 export function initializeAuthInterceptor(apiClient: any): void {
   apiClient.setInterceptors({
     onRequest: authRequestInterceptor,
+    onResponse: authResponseInterceptor,
   });
 
   logger.info('Authentication interceptor initialized for UnifiedApiClient');

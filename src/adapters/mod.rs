@@ -49,6 +49,24 @@ pub mod neo4j_ontology_repository;
 pub use neo4j_settings_repository::{Neo4jSettingsRepository, Neo4jSettingsConfig};
 pub use neo4j_ontology_repository::{Neo4jOntologyRepository, Neo4jOntologyConfig};
 
+// Phase 11 persistence migration (ADR-11): Oxigraph + SQLite adapters.
+// Gated by `persistence-oxigraph` feature so the radical-rollback baseline
+// still compiles without these deps. Cutover (delete neo4j_* adapters)
+// happens in a later phase per ADR-11 §"Implementation order" step 8.
+#[cfg(feature = "persistence-oxigraph")]
+pub mod oxigraph_ontology_repository;
+#[cfg(feature = "persistence-oxigraph")]
+pub mod oxigraph_graph_repository;
+#[cfg(feature = "persistence-oxigraph")]
+pub mod sqlite_settings_repository;
+
+#[cfg(feature = "persistence-oxigraph")]
+pub use oxigraph_ontology_repository::OxigraphOntologyRepository;
+#[cfg(feature = "persistence-oxigraph")]
+pub use oxigraph_graph_repository::OxigraphGraphRepository;
+#[cfg(feature = "persistence-oxigraph")]
+pub use sqlite_settings_repository::SqliteSettingsRepository;
+
 // Inference engine exports
 pub use whelk_inference_engine::WhelkInferenceEngine;
 

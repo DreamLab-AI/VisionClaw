@@ -346,14 +346,26 @@ build_containers() {
     fi
 
     # Enable GPU and ontology features by default for both dev and prod
-    # These are the core VisionFlow features required for full functionality
+    # These are the core VisionFlow features required for full functionality.
+    #
+    # ADR-06 §D1 + resolution T2: `dev-auth` Cargo feature is added ONLY for
+    # dev environment. Release/production builds MUST NOT include it — the
+    # presence of `dev-auth` causes auth-bypass code to be compiled into the
+    # binary (Bearer dev-session-token acceptance, ALLOW_INSECURE_DEFAULTS
+    # honour, --allow-skip-auth argv flag).
+    local feature_list=""
     if [[ "${GPU_AVAILABLE:-false}" == "true" ]]; then
-        info "Building with GPU + Ontology features (GPU detected)"
-        build_args+=("--build-arg" "FEATURES=gpu,ontology")
+        feature_list="gpu,ontology"
     else
-        info "Building with Ontology features only (no GPU detected)"
-        build_args+=("--build-arg" "FEATURES=ontology")
+        feature_list="ontology"
     fi
+    if [[ "$ENVIRONMENT" == "dev" ]]; then
+        feature_list="${feature_list},dev-auth"
+        info "Building with features: ${feature_list} (dev-auth ENABLED — bypass code present)"
+    else
+        info "Building with features: ${feature_list} (dev-auth DISABLED — bypass code absent from binary)"
+    fi
+    build_args+=("--build-arg" "FEATURES=${feature_list}")
 
     docker_compose build "${build_args[@]}"
     success "Build complete for $ENVIRONMENT environment"

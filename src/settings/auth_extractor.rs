@@ -11,6 +11,41 @@ use std::pin::Pin;
 
 use crate::services::nostr_service::NostrService;
 
+/// Try the dev-mode unauthenticated bypass.
+///
+/// Per ADR-06 §D1 and resolution T2, this branch only exists in the binary
+/// when compiled with `debug_assertions` or `--features dev-auth`. The release
+/// build's `try_dev_bypass` is the no-op stub below; no env var, header, or
+/// argv can re-enable bypass at runtime.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+fn try_dev_bypass(req: &HttpRequest) -> Option<AuthenticatedUser> {
+    let auth = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())?;
+    if auth == "Bearer dev-session-token" {
+        debug!("dev-auth: Bearer dev-session-token accepted (dev build)");
+        let pubkey = req
+            .headers()
+            .get("X-Nostr-Pubkey")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "dev-user".to_string());
+        return Some(AuthenticatedUser {
+            pubkey,
+            is_power_user: true,
+        });
+    }
+    None
+}
+
+/// Release-build stub: dev bypass code is absent from the binary.
+#[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+#[inline(always)]
+fn try_dev_bypass(_req: &HttpRequest) -> Option<AuthenticatedUser> {
+    None
+}
+
 /// Authenticated user information extracted from NIP-98 or session token
 #[derive(Clone, Debug)]
 pub struct AuthenticatedUser {
@@ -37,28 +72,13 @@ impl FromRequest for AuthenticatedUser {
     type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        // Dev mode bypass: allow unauthenticated settings writes when explicitly enabled
-        // SECURITY: Requires SETTINGS_AUTH_BYPASS=true in environment (only set in dev compose)
-        // SECURITY: Also triggers when DOCKER_ENV=1 + NODE_ENV=development (dev container)
-        // SECURITY: Bypass is IGNORED when APP_ENV=production or RUST_ENV=production
-        let bypass_enabled = std::env::var("SETTINGS_AUTH_BYPASS").unwrap_or_default() == "true"
-            || (std::env::var("DOCKER_ENV").is_ok()
-                && std::env::var("NODE_ENV").unwrap_or_default() == "development");
-        if bypass_enabled {
-            let is_production = std::env::var("APP_ENV").map(|v| v == "production").unwrap_or(false)
-                || std::env::var("RUST_ENV").map(|v| v == "production").unwrap_or(false);
-            if is_production {
-                warn!("SETTINGS_AUTH_BYPASS is set but ignored in production mode");
-                // fall through to normal auth
-            } else {
-                debug!("Settings auth bypass enabled (SETTINGS_AUTH_BYPASS=true) - using dev user");
-                return Box::pin(async {
-                    Ok(AuthenticatedUser {
-                        pubkey: "dev-user".to_string(),
-                        is_power_user: true,
-                    })
-                });
-            }
+        // ADR-06 §D1 + resolution T2: dev-bypass is compile-time gated.
+        // In release builds (no `dev-auth` feature, no `debug_assertions`),
+        // `try_dev_bypass` is a `None`-returning stub stripped by the optimizer.
+        // No environment variable can reach this branch — case-sensitive
+        // `APP_ENV` / `RUST_ENV` runtime guards are intentionally absent.
+        if let Some(user) = try_dev_bypass(req) {
+            return Box::pin(async move { Ok(user) });
         }
 
         // Extract NostrService from app data
@@ -150,18 +170,12 @@ impl FromRequest for AuthenticatedUser {
             }
         };
 
-        // Dev-mode session bypass - requires SETTINGS_AUTH_BYPASS in environment
-        // SECURITY: Bypass is IGNORED when APP_ENV=production or RUST_ENV=production
-        if std::env::var("SETTINGS_AUTH_BYPASS").unwrap_or_default() == "true"
-            && token == "dev-session-token"
+        // ADR-06 §D1 + resolution T2: dev-mode session-token bypass is
+        // compile-time gated. The branch below is stripped from release builds.
+        #[cfg(any(debug_assertions, feature = "dev-auth"))]
         {
-            let is_production = std::env::var("APP_ENV").map(|v| v == "production").unwrap_or(false)
-                || std::env::var("RUST_ENV").map(|v| v == "production").unwrap_or(false);
-            if is_production {
-                warn!("SETTINGS_AUTH_BYPASS session bypass ignored in production mode");
-                // fall through to normal session validation
-            } else {
-                debug!("Dev-mode session token accepted for pubkey: {}", pubkey);
+            if token == "dev-session-token" {
+                debug!("dev-auth: Bearer dev-session-token accepted for pubkey: {} (dev build)", pubkey);
                 return Box::pin(async move {
                     Ok(AuthenticatedUser {
                         pubkey,
@@ -170,6 +184,8 @@ impl FromRequest for AuthenticatedUser {
                 });
             }
         }
+        // In release builds the above block compiles to nothing; the
+        // `dev-session-token` string literal is absent from the binary.
 
         Box::pin(async move {
             // Validate session

@@ -1,0 +1,40 @@
+{
+  "$comment": "Fake Nostr pubkeys for fixture provenance. All values are well-known-fake — npub1 form has 'alice'/'bob' etc. embedded so they are obviously NOT real pubkeys, but they are syntactically structured as a valid bech32-shaped string (64-char body). Use these in prov:wasAttributedTo. Real production code must reject any pubkey starting with 'npub1alice'/'npub1bob' etc. as test-only.",
+  "agents": [
+    {
+      "name": "Alice Florentine",
+      "role": "Corpus curator (Renaissance arch domain)",
+      "did": "did:nostr:npub1alice000000000000000000000000000000000000000000000000000",
+      "pubkey_hex": "alice000000000000000000000000000000000000000000000000000000000000",
+      "email_fake": "alice@example.invalid"
+    },
+    {
+      "name": "Bob Brunelleschi",
+      "role": "Ontology author",
+      "did": "did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000",
+      "pubkey_hex": "bob0000000000000000000000000000000000000000000000000000000000000",
+      "email_fake": "bob@example.invalid"
+    },
+    {
+      "name": "Carlo Albertini",
+      "role": "Reviewer / inference checker",
+      "did": "did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000",
+      "pubkey_hex": "carlo00000000000000000000000000000000000000000000000000000000000",
+      "email_fake": "carlo@example.invalid"
+    },
+    {
+      "name": "Whelk Inference Engine",
+      "role": "Automated reasoner (synthetic agent)",
+      "did": "did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000",
+      "pubkey_hex": "whelk00000000000000000000000000000000000000000000000000000000000",
+      "email_fake": "whelk@example.invalid"
+    },
+    {
+      "name": "VisionFlow Sync Service",
+      "role": "GitHub → Oxigraph synchroniser",
+      "did": "did:nostr:npub1sync000000000000000000000000000000000000000000000000000000",
+      "pubkey_hex": "sync0000000000000000000000000000000000000000000000000000000000000",
+      "email_fake": "sync@example.invalid"
+    }
+  ]
+}

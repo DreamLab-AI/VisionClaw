@@ -1,0 +1,343 @@
+# expected-triples.nq — ground-truth N-Quads for the data-model fixture corpus.
+#
+# Format: N-Quads (https://www.w3.org/TR/n-quads/). One quad per line:
+#   <subject> <predicate> <object> <graph> .
+# Triples in the default graph omit the graph term:
+#   <subject> <predicate> <object> .
+#
+# The IRIs and named graphs match exactly what the parser + ontology adapter
+# (src/adapters/oxigraph_ontology_repository.rs) and graph adapter
+# (src/adapters/oxigraph_graph_repository.rs) should emit when ingesting the
+# `valid/` corpus.
+#
+# Ordering rule: sorted lexicographically by (G, S, P, O) within each section.
+# Sections are separated by a blank line + comment header for human readers.
+#
+# Hash-prefixed comments are ignored by N-Quads parsers (Oxigraph,
+# rio_turtle/oxttl, sophia all skip them).
+#
+# Predicate aliases used below:
+#   rdf  : http://www.w3.org/1999/02/22-rdf-syntax-ns#
+#   rdfs : http://www.w3.org/2000/01/rdf-schema#
+#   owl  : http://www.w3.org/2002/07/owl#
+#   xsd  : http://www.w3.org/2001/XMLSchema#
+#   vc   : https://visionflow.dreamlab/ns/
+#   prov : http://www.w3.org/ns/prov#
+#
+# ============================================================================
+# 1. urn:visionflow:graph:knowledge — Pages, LinkedPages, NostrSignedPages
+# ============================================================================
+
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/Page> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/slug> "filippo-brunelleschi" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/title> "Filippo Brunelleschi" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/public> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/contentSha1> "9c1ab2cd3ef4567890abcdef1234567890abcdef" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:florence-cathedral-dome> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/Page> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/slug> "florence-cathedral-dome" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/title> "Florence Cathedral Dome" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/public> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/contentSha1> "a7b6c5d4e3f2010923456789abcdef0123456789" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/tag> "brunelleschi" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/tag> "dome" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/tag> "florence" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/tag> "quattrocento" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:filippo-brunelleschi> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:double-shell-construction> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:pantheon-rome> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:4d3c2b1a0f9e8d7c6b5a49382716540f1e2d3c4b5a69788796a5b4c3d2e1f001> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/Page> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/slug> "andrea-palladio" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/title> "Andrea Palladio" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/public> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/contentSha1> "0123456789abcdef0123456789abcdef01234567" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:i-quattro-libri-dell-architettura> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:classical-orders> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:villa-rotonda> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:basilica-palladiana> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:villa-foscari> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:villa-barbaro> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:san-giorgio-maggiore> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:il-redentore> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:palladianism> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/Page> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/slug> "donato-bramante" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/title> "Donato Bramante" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/public> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/stub> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/contentSha1> "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:tempietto> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:linked:vitruvian-tradition> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/LinkedPage> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:linked:vitruvian-tradition> <http://www.w3.org/2000/01/rdf-schema#label> "Vitruvian Tradition" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:linked:vitruvian-tradition> <https://visionflow.dreamlab/ns/slug> "vitruvian-tradition" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:linked:vitruvian-tradition> <https://visionflow.dreamlab/ns/firstSeenIn> <urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:linked:vitruvian-tradition> <https://visionflow.dreamlab/ns/status> "dangling" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:linked:vitruvian-tradition> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/NostrSignedPage> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70> <https://visionflow.dreamlab/ns/nostrEventKind> "30023"^^<http://www.w3.org/2001/XMLSchema#integer> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70> <https://visionflow.dreamlab/ns/nostrPubkey> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70> <https://visionflow.dreamlab/ns/nip23Content> <urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:nostr:event:50a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f70> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:knowledge> .
+
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/Page> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/slug> "tempio-malatestiano" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/title> "Tempio Malatestiano" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/public> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/contentSha1> "cafebabecafebabecafebabecafebabecafebabe" <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:leon-battista-alberti> <urn:visionflow:graph:knowledge> .
+<urn:visionflow:page:d04e1bf3c7a2589607f12b3c4d5e6f7081a2b3c4d5e6f7081a2b3c4d5e6f7081> <https://visionflow.dreamlab/ns/wikilink> <urn:visionflow:linked:sigismondo-malatesta> <urn:visionflow:graph:knowledge> .
+
+# ============================================================================
+# 2. urn:visionflow:graph:ontology:assert — Asserted ontology
+# ============================================================================
+
+<urn:visionflow:owl:class:humanist-architect> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <http://www.w3.org/2000/01/rdf-schema#label> "Humanist Architect" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/description> "An architect whose practice is grounded in humanist scholarship — typically literate in Latin, conversant with the surviving texts of Vitruvius, and active across multiple liberal arts. Distinguished from craft-trained architects of the Gothic guilds by theoretical rather than purely empirical formation." <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:renaissance-architect> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/sourceDomain> "architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/sourceDomain> "intellectual-history" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/qualityScore> "0.92"^^<http://www.w3.org/2001/XMLSchema#float> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <https://visionflow.dreamlab/ns/definedIn> <urn:visionflow:page:5566778899aabbccddeeff00112233445566778899aabbccddeeff0011223344> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:humanist-architect> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:renaissance-architecture> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <http://www.w3.org/2000/01/rdf-schema#label> "Renaissance Architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:architectural-period> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/termId> "REN-ARCH" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/preferredTerm> "Renaissance Architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/sourceDomain> "architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/sourceDomain> "art-history" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/version> "1.0.0" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/classType> "ArchitecturalPeriod" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/qualityScore> "0.95"^^<http://www.w3.org/2001/XMLSchema#float> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/authorityScore> "0.93"^^<http://www.w3.org/2001/XMLSchema#float> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/owlPhysicality> "abstract" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/owlRole> "category" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/belongsToDomain> "architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:italian-renaissance> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/relatesTo> <urn:visionflow:owl:class:vitruvian-tradition> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <https://visionflow.dreamlab/ns/relatesTo> <urn:visionflow:owl:class:classical-orders> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:renaissance-architecture> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:florentine-quattrocento> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <http://www.w3.org/2000/01/rdf-schema#label> "Florentine Quattrocento" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:italian-renaissance> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/termId> "FLOR-QUAT" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/bridgeTo> <urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:medici-patronage> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:florentine-guild-system> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/requires> <urn:visionflow:owl:class:vitruvian-tradition> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/enables> <urn:visionflow:owl:class:high-renaissance> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/relatesTo> <urn:visionflow:owl:class:roman-architecture> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <https://visionflow.dreamlab/ns/qualityScore> "0.91"^^<http://www.w3.org/2001/XMLSchema#float> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:florentine-quattrocento> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:built-environment> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:built-environment> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:built-environment> <http://www.w3.org/2000/01/rdf-schema#label> "Built Environment" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:built-environment> <https://visionflow.dreamlab/ns/description> "The human-made surroundings that provide the setting for human activity: buildings, infrastructure, and the arrangement of land. Distinct from natural environment." <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:built-environment> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:built-environment> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:architecture> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architecture> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architecture> <http://www.w3.org/2000/01/rdf-schema#label> "Architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architecture> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:built-environment> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architecture> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architecture> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:architectural-period> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architectural-period> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architectural-period> <http://www.w3.org/2000/01/rdf-schema#label> "Architectural Period" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architectural-period> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:architecture> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architectural-period> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:architectural-period> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:italian-renaissance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:italian-renaissance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:italian-renaissance> <http://www.w3.org/2000/01/rdf-schema#label> "Italian Renaissance" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:italian-renaissance> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:renaissance-architecture> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:italian-renaissance> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:italian-renaissance> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:class:dome-construction> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/OntologyClass> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <http://www.w3.org/2000/01/rdf-schema#label> "Dome Construction" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <urn:visionflow:owl:class:structural-typology> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/sourceDomain> "architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/sourceDomain> "engineering" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/belongsToDomain> "architecture" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/bridgesToDomain> "engineering" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:pendentive> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:squinch> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:oculus> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/hasPart> <urn:visionflow:owl:class:double-shell-construction> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <https://visionflow.dreamlab/ns/requires> <urn:visionflow:owl:class:compressive-thrust-resolution> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:class:dome-construction> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#FunctionalProperty> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/2000/01/rdf-schema#label> "designedBy" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/2000/01/rdf-schema#domain> <urn:visionflow:owl:class:architectural-work> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/2000/01/rdf-schema#range> <urn:visionflow:owl:class:architect> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/2002/07/owl#inverseOf> <urn:visionflow:owl:property:designed> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <https://visionflow.dreamlab/ns/propertyKind> "ObjectProperty" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:designed-by> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:property:completion-date> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#DatatypeProperty> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <http://www.w3.org/2000/01/rdf-schema#label> "completionDate" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <http://www.w3.org/2000/01/rdf-schema#domain> <urn:visionflow:owl:class:architectural-work> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <http://www.w3.org/2000/01/rdf-schema#range> <http://www.w3.org/2001/XMLSchema#gYear> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <https://visionflow.dreamlab/ns/propertyKind> "DataProperty" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <https://visionflow.dreamlab/ns/status> "active" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:completion-date> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:property:folk-name> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:folk-name> <http://www.w3.org/2000/01/rdf-schema#label> "folkName" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:folk-name> <http://www.w3.org/2000/01/rdf-schema#domain> <urn:visionflow:owl:class:architectural-work> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:folk-name> <http://www.w3.org/2000/01/rdf-schema#range> <http://www.w3.org/2000/01/rdf-schema#Literal> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:folk-name> <https://visionflow.dreamlab/ns/propertyKind> "AnnotationProperty" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:property:folk-name> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Axiom> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <https://visionflow.dreamlab/ns/axiomType> "SubClassOf" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <https://visionflow.dreamlab/ns/subject> <urn:visionflow:owl:class:renaissance-architecture> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <https://visionflow.dreamlab/ns/object> <urn:visionflow:owl:class:architectural-period> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <https://visionflow.dreamlab/ns/sourceKind> "Asserted" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <https://visionflow.dreamlab/ns/definingPage> <urn:visionflow:page:7e6f5d4c3b2a1908172635445362718e9f0a1b2c3d4e5f6071829a3b4c5d6e02> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:f2c4a91b6e80> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:axiom:9b3e7710d2af> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Axiom> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:9b3e7710d2af> <https://visionflow.dreamlab/ns/axiomType> "EquivalentClass" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:9b3e7710d2af> <https://visionflow.dreamlab/ns/subject> <urn:visionflow:owl:class:tempietto> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:9b3e7710d2af> <https://visionflow.dreamlab/ns/object> <urn:visionflow:owl:class:san-pietro-in-montorio-pavilion> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:9b3e7710d2af> <https://visionflow.dreamlab/ns/sourceKind> "Asserted" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:9b3e7710d2af> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:axiom:5d61e08acbd2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Axiom> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <https://visionflow.dreamlab/ns/axiomType> "PropertyChain" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <https://visionflow.dreamlab/ns/subject> <urn:visionflow:owl:property:influenced-by> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <http://www.w3.org/2002/07/owl#propertyChainAxiom> <urn:visionflow:owl:property:designed-by> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <http://www.w3.org/2002/07/owl#propertyChainAxiom> <urn:visionflow:owl:property:student-of> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <https://visionflow.dreamlab/ns/sourceKind> "Asserted" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <https://visionflow.dreamlab/ns/owlProfile> "EL" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:5d61e08acbd2> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Axiom> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <https://visionflow.dreamlab/ns/axiomType> "SubClassOf" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <https://visionflow.dreamlab/ns/subject> <urn:visionflow:owl:class:villa-rotonda> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <https://visionflow.dreamlab/ns/object> <urn:visionflow:owl:class:palladian-villa> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <https://visionflow.dreamlab/ns/sourceKind> "Asserted" <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:assert> .
+<urn:visionflow:owl:axiom:4c8e2a1f9b73> <http://www.w3.org/ns/prov#wasGeneratedBy> <urn:visionflow:activity:axiom-ingest:2026-05-16T10:30:00Z> <urn:visionflow:graph:ontology:assert> .
+
+# ============================================================================
+# 3. urn:visionflow:graph:ontology:inferred — Whelk-derived axioms
+# ============================================================================
+
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Axiom> <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/axiomType> "ObjectPropertyAssertion" <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/subject> <urn:visionflow:owl:class:villa-rotonda> <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/predicate> <urn:visionflow:owl:property:influenced-by> <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/object> <urn:visionflow:owl:class:trissino> <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/sourceKind> "Inferred" <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <https://visionflow.dreamlab/ns/fromAxiom> <urn:visionflow:owl:axiom:5d61e08acbd2> <urn:visionflow:graph:ontology:inferred> .
+<urn:visionflow:owl:axiom:a1f02b9c7e4d> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:ontology:inferred> .
+
+# ============================================================================
+# 4. urn:visionflow:graph:agent — AgentTelemetry events
+# ============================================================================
+
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <https://visionflow.dreamlab/ns/runId> "run-2026-05-16-001" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <https://visionflow.dreamlab/ns/step> "0"^^<http://www.w3.org/2001/XMLSchema#integer> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <https://visionflow.dreamlab/ns/eventKind> "InferenceStarted" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-0> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/runId> "run-2026-05-16-001" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/step> "1"^^<http://www.w3.org/2001/XMLSchema#integer> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/eventKind> "InferenceMaterialised" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/relatesTo> <urn:visionflow:owl:axiom:a1f02b9c7e4d> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <https://visionflow.dreamlab/ns/elapsedMs> "23"^^<http://www.w3.org/2001/XMLSchema#integer> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-001:step-1> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:run-2026-05-16-002:step-0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-0> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-0> <https://visionflow.dreamlab/ns/eventKind> "MessageSent" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-0> <https://visionflow.dreamlab/ns/to> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-0> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <https://visionflow.dreamlab/ns/eventKind> "MessageReceived" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <https://visionflow.dreamlab/ns/from> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <https://visionflow.dreamlab/ns/to> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-1> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:run-2026-05-16-002:step-2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-2> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-2> <https://visionflow.dreamlab/ns/eventKind> "MessageReceived" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-2> <https://visionflow.dreamlab/ns/from> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:run-2026-05-16-002:step-2> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1whelk00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/runId> "swarm-rebuild-7" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/eventKind> "SwarmSpawned" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/role> "Queen" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/childAgent> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/childAgent> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <https://visionflow.dreamlab/ns/childAgent> <did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-0> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <https://visionflow.dreamlab/ns/eventKind> "TaskAccepted" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <https://visionflow.dreamlab/ns/role> "Worker" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <https://visionflow.dreamlab/ns/parent> <urn:visionflow:agent:swarm-rebuild-7:step-0> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-1> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1alice000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/AgentTelemetry> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <https://visionflow.dreamlab/ns/agentDid> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <https://visionflow.dreamlab/ns/eventKind> "TaskAccepted" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <https://visionflow.dreamlab/ns/role> "Worker" <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <https://visionflow.dreamlab/ns/parent> <urn:visionflow:agent:swarm-rebuild-7:step-0> <urn:visionflow:graph:agent> .
+<urn:visionflow:agent:swarm-rebuild-7:step-2> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1bob00000000000000000000000000000000000000000000000000000000> <urn:visionflow:graph:agent> .
+
+# ============================================================================
+# 5. Default graph — BridgeRecord (cross-graph) + PROV-O Activity nodes
+# ============================================================================
+
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://visionflow.dreamlab/ns/BridgeRecord> .
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <https://visionflow.dreamlab/ns/bridgeFrom> <urn:visionflow:page:b1a2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7081> .
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <https://visionflow.dreamlab/ns/bridgeTo> <urn:visionflow:owl:class:filippo-brunelleschi-architect> .
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <https://visionflow.dreamlab/ns/bridgeKind> "PageToOntologyClass" .
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <https://visionflow.dreamlab/ns/matchedBy> "normalised-label" .
+<urn:visionflow:bridge:filippo-brunelleschi-page-to-class> <http://www.w3.org/ns/prov#wasAttributedTo> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> .
+
+<urn:visionflow:activity:axiom-ingest:2026-05-16T10:30:00Z> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/prov#Activity> .
+<urn:visionflow:activity:axiom-ingest:2026-05-16T10:30:00Z> <http://www.w3.org/ns/prov#wasAssociatedWith> <did:nostr:npub1sync000000000000000000000000000000000000000000000000000000> .
+<urn:visionflow:activity:axiom-ingest:2026-05-16T10:30:00Z> <http://www.w3.org/ns/prov#wasAssociatedWith> <did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> .
+<urn:visionflow:activity:axiom-ingest:2026-05-16T10:30:00Z> <https://visionflow.dreamlab/ns/activityKind> "AxiomIngest" .
+
+<did:nostr:npub1carlo00000000000000000000000000000000000000000000000000000> <http://www.w3.org/ns/prov#actedOnBehalfOf> <urn:visionflow:org:dreamlab-ai> .

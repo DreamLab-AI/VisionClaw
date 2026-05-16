@@ -74,7 +74,7 @@ segregate VisionFlow's three logical graphs by IRI:
 | Named graph                                       | Contents                                |
 |---------------------------------------------------|-----------------------------------------|
 | `<urn:visionflow:graph:knowledge>`                | KGNode entities + KG edges              |
-| `<urn:visionflow:graph:ontology>`                 | Asserted OntologyClass / OwlProperty / OwlAxiom |
+| `<urn:visionflow:graph:ontology:assert>`           | Asserted OntologyClass / OwlProperty / OwlAxiom |
 | `<urn:visionflow:graph:ontology:inferred>`        | Whelk-derived inferred axioms           |
 | `<urn:visionflow:graph:agent>`                    | Agent telemetry (Section 7)             |
 | default graph                                     | Cross-graph `BRIDGE_TO` quads + schema  |
@@ -326,7 +326,7 @@ INSERT DATA {
 The two statements run as a single SPARQL Update request which
 Oxigraph treats atomically. Clients querying without a `FROM` clause
 see the union of asserted and inferred (D2). Clients wanting only
-authored data add `FROM <urn:visionflow:graph:ontology>`.
+authored data add `FROM <urn:visionflow:graph:ontology:assert>`.
 
 Inference is **not triggered on the write path**. The
 `WhelkInferenceEngine` runs on demand from the
