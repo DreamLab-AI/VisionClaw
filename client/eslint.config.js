@@ -112,6 +112,53 @@ export default [
     },
   },
 
+  // Phase 6 (ADR-04 D10 / T5): Zero-allocation rendering rule.
+  //
+  // Banned constructors inside useFrame callbacks: new Float32Array(),
+  // new Uint32Array(), new THREE.Vector3(), new THREE.Quaternion(),
+  // new THREE.Matrix4(), new THREE.Color(). These are the historical
+  // breakage patterns: any per-frame heap allocation in a hot loop creates
+  // GC pressure and frame-time spikes.
+  //
+  // The AST selector targets `useFrame(<callback>)` where callback is an
+  // arrow- or function-expression. Any NewExpression matching the banned
+  // identifier list inside that callback is reported. The rule is narrow
+  // by design — pre-allocated temp objects at module scope satisfy the
+  // invariant without false positives.
+  //
+  // Files under client/src/features/graph/components/ and
+  // client/src/features/visualisation/components/ are the primary hot paths.
+  {
+    files: [
+      'src/features/graph/components/**/*.{ts,tsx}',
+      'src/features/visualisation/components/**/*.{ts,tsx}',
+      'src/rendering/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.name='useFrame'] :matches(ArrowFunctionExpression, FunctionExpression) NewExpression[callee.name=/^(Float32Array|Uint32Array|Uint8Array|Int32Array|Float64Array)$/]",
+          message:
+            'Zero-alloc rule (ADR-04 D10): no typed-array allocations inside useFrame callbacks. Pre-allocate at module scope.',
+        },
+        {
+          selector:
+            "CallExpression[callee.name='useFrame'] :matches(ArrowFunctionExpression, FunctionExpression) NewExpression[callee.object.name='THREE'][callee.property.name=/^(Vector3|Vector2|Vector4|Quaternion|Matrix4|Matrix3|Color|Euler|Frustum|Box3|Sphere)$/]",
+          message:
+            'Zero-alloc rule (ADR-04 D10): no THREE.* allocations inside useFrame callbacks. Pre-allocate at module scope.',
+        },
+        {
+          selector:
+            "CallExpression[callee.name='useFrame'] :matches(ArrowFunctionExpression, FunctionExpression) NewExpression[callee.name=/^(Vector3|Vector2|Vector4|Quaternion|Matrix4|Matrix3|Color|Euler|Frustum)$/]",
+          message:
+            'Zero-alloc rule (ADR-04 D10): no Vector/Quaternion/Matrix/Color allocations inside useFrame callbacks. Pre-allocate at module scope.',
+        },
+      ],
+    },
+  },
+
   // Test files
   {
     files: ['**/*.{test,spec}.{ts,tsx,js,jsx}', '**/__tests__/**/*.{ts,tsx,js,jsx}'],
