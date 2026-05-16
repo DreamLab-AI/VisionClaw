@@ -1,6 +1,6 @@
 
 
-import { expose } from 'comlink';
+import { expose, transfer } from 'comlink';
 import { BinaryNodeData, parseBinaryNodeData, parseBinaryFrameData, createBinaryNodeData, Vec3, getActualNodeId } from '../../../types/binaryProtocol';
 import { stringToU32 } from '../../../types/idMapping';
 
@@ -469,6 +469,31 @@ class GraphWorker {
     this.positionBuffer = buffer;
     this.positionView = new Float32Array(buffer);
     workerLogger.info(`SharedArrayBuffer set up with ${buffer.byteLength} bytes`);
+  }
+
+  /**
+   * D7 binary entry point — ADR-03 Phase 4.
+   *
+   * Parses a transferred binary frame and writes positions into the shared
+   * destination buffer. Return contract:
+   *   - SAB mode (positionView set): returns `undefined`; the renderer reads
+   *     the SAB view directly. Single round-trip.
+   *   - Comlink mode: returns a fresh ArrayBuffer (transferred back to main)
+   *     containing the position data. Caller wraps as Float32Array.
+   *
+   * Internally delegates to `processBinaryData`, which already implements V3
+   * parsing, tweening, and unknown-node tracking.
+   */
+  async processBinaryFrame(data: ArrayBuffer): Promise<ArrayBuffer | void> {
+    const positions = await this.processBinaryData(data);
+    if (this.positionView) {
+      // SAB mode: positions are already in the shared buffer via syncToSharedBuffer.
+      return;
+    }
+    // Comlink mode: copy positions into a fresh ArrayBuffer and transfer back.
+    const out = new ArrayBuffer(positions.byteLength);
+    new Float32Array(out).set(positions);
+    return transfer(out, [out]) as unknown as ArrayBuffer;
   }
 
   /** Copy currentPositions into the SharedArrayBuffer so the main thread can read synchronously. */
