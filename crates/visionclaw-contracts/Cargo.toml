@@ -1,11 +1,10 @@
-# An empty `[workspace]` table makes this crate its own workspace root when
-# built standalone (`cargo build --manifest-path crates/visionclaw-contracts/
-# Cargo.toml`). It is still listed under `[workspace.members]` in the root
-# `Cargo.toml`; both modes coexist because Cargo prefers the closest
-# `[workspace]` table when resolving. This sidesteps the pre-existing
-# `solid-pod-rs { rev = "main" }` resolution failure in the root webxr crate
-# (a baseline bug tracked separately under ADR-032 M1).
-[workspace]
+# Workspace member of the root webxr workspace at /Cargo.toml.
+# The pre-existing solid-pod-rs `rev = "main"` resolution failure was
+# fixed in ed940f9ea (changed to `branch = "main"`), so the root workspace
+# now resolves cleanly and this crate participates as a normal member.
+# For standalone build during isolated CI, use
+#   cargo build --manifest-path crates/visionclaw-contracts/Cargo.toml --offline
+# with a vendored registry.
 
 [package]
 name = "visionclaw-contracts"
