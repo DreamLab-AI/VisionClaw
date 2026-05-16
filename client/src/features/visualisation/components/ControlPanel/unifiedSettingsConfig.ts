@@ -168,6 +168,10 @@ export const UNIFIED_SETTINGS_CONFIG: Record<string, SectionConfig> = {
       { key: 'antialiasing', label: 'Antialiasing', type: 'toggle', path: 'visualisation.rendering.enableAntialiasing', description: 'Smooth edges', isAdvanced: true },
       { key: 'shadows', label: 'Shadows', type: 'toggle', path: 'visualisation.rendering.enableShadows', description: 'Enable shadows', isAdvanced: true },
       { key: 'ambientOcclusion', label: 'Ambient Occlusion', type: 'toggle', path: 'visualisation.rendering.enableAmbientOcclusion', description: 'SSAO effect', isAdvanced: true },
+      // Phase 6 (ADR-04): renderer-architectural controls
+      { key: 'maxEdgesCeiling', label: 'Max Edges Ceiling', type: 'slider', min: 1024, max: 262144, step: 1024, path: 'visualisation.rendering.maxEdgesCeiling', description: 'Hard cap on dynamically-grown edge instance capacity (Phase 6)', isAdvanced: true },
+      { key: 'softwareFallback', label: 'Software WebGL Fallback', type: 'select', options: ['auto', 'force-on', 'force-off'], path: 'visualisation.rendering.softwareFallback', description: 'Behaviour on software-rendered WebGL contexts (SwiftShader/llvmpipe)', isAdvanced: true },
+      { key: 'labelLayoutEvery', label: 'Label Layout Cadence (frames)', type: 'slider', min: 1, max: 10, step: 1, path: 'visualisation.rendering.labelLayoutEvery', description: 'Frames between full label re-layout passes', isAdvanced: true },
 
       // Selection Highlighting - Basic
       { key: 'selectionHighlightColor', label: 'Selection Color', type: 'color', path: 'visualisation.interaction.selectionHighlightColor', description: 'Edge color when node is selected' },

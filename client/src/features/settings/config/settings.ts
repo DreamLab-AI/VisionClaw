@@ -151,6 +151,26 @@ export interface RenderingSettings {
   shadowMapSize: string;
   shadowBias: number;
   context: 'desktop' | 'ar';
+  /**
+   * Phase 6 (ADR-04 D1): hard ceiling on dynamically-grown edge instance
+   * capacity in GlassEdges. Drawn edges beyond this count are skipped with a
+   * single structured warning — never silent truncation.
+   */
+  maxEdgesCeiling?: number;
+  /**
+   * Phase 6 (ADR-04 D5): behaviour when the WebGL context is detected as
+   * software-rendered (SwiftShader / llvmpipe / Microsoft Basic).
+   * - 'auto'       -> default: detect and use static-cube fallback
+   * - 'force-on'   -> always use the software fallback (no env map)
+   * - 'force-off'  -> always render <Environment> regardless of detection
+   */
+  softwareFallback?: 'auto' | 'force-on' | 'force-off';
+  /**
+   * Phase 6 (ADR-04 D6 / bug-flag): cadence (in frames) between full
+   * InstancedLabels layout rebuilds. Position patching still runs every
+   * still frame; only the glyph re-layout pass is throttled. Default 3.
+   */
+  labelLayoutEvery?: number;
 }
 
 // Animation settings

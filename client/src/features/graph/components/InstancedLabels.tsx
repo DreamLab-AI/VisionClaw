@@ -260,53 +260,49 @@ const WebGPUFallbackLabels: React.FC<{
 
 // ===== WebGL Instanced Labels =====
 
-export const InstancedLabels: React.FC<InstancedLabelsProps> = ({
-  nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
-  settings, graphMode, perNodeVisualModeMap, connectionCountMap,
-  hierarchyMap, graphTypeVisuals, ssspResult, isXRMode,
-}) => {
+/**
+ * Phase 6 (ADR-04 D7 / T4): the wrapper forwards through an intermediate
+ * `InstancedLabelsProps`-typed object literal. A missing field in the
+ * literal is a TypeScript compile error (the object literal is annotated
+ * with the full prop type, so any missing required field fails strict
+ * type-checking). This prevents the historical class of "forgot to forward
+ * nodePositionsRef" bugs that caused labels to lag behind SAB positions.
+ */
+export const InstancedLabels: React.FC<InstancedLabelsProps> = (props) => {
+  // Build a fully-typed forwarding object. TypeScript enforces that every
+  // required InstancedLabelsProps field is present on this literal.
+  const forwardedProps: InstancedLabelsProps = {
+    nodes: props.nodes,
+    nodeIdToIndexMap: props.nodeIdToIndexMap,
+    nodePositionsRef: props.nodePositionsRef,
+    labelPositionsRef: props.labelPositionsRef,
+    settings: props.settings,
+    graphMode: props.graphMode,
+    perNodeVisualModeMap: props.perNodeVisualModeMap,
+    connectionCountMap: props.connectionCountMap,
+    hierarchyMap: props.hierarchyMap,
+    graphTypeVisuals: props.graphTypeVisuals,
+    ssspResult: props.ssspResult,
+    isXRMode: props.isXRMode,
+  };
+
   // WebGPU path: use HTML fallback
   if (isWebGPURenderer) {
-    return (
-      <InstancedLabelsWebGPU
-        nodes={nodes}
-        nodeIdToIndexMap={nodeIdToIndexMap}
-        nodePositionsRef={nodePositionsRef}
-        labelPositionsRef={labelPositionsRef}
-        settings={settings}
-        graphMode={graphMode}
-        perNodeVisualModeMap={perNodeVisualModeMap}
-        connectionCountMap={connectionCountMap}
-        hierarchyMap={hierarchyMap}
-        graphTypeVisuals={graphTypeVisuals}
-        ssspResult={ssspResult}
-        isXRMode={isXRMode}
-      />
-    );
+    return <InstancedLabelsWebGPU {...forwardedProps} />;
   }
 
   // WebGL instanced path
-  return (
-    <InstancedLabelsWebGL
-      nodes={nodes}
-      nodeIdToIndexMap={nodeIdToIndexMap}
-      nodePositionsRef={nodePositionsRef}
-      labelPositionsRef={labelPositionsRef}
-      settings={settings}
-      graphMode={graphMode}
-      perNodeVisualModeMap={perNodeVisualModeMap}
-      connectionCountMap={connectionCountMap}
-      hierarchyMap={hierarchyMap}
-      graphTypeVisuals={graphTypeVisuals}
-      ssspResult={ssspResult}
-      isXRMode={isXRMode}
-    />
-  );
+  return <InstancedLabelsWebGL {...forwardedProps} />;
 };
 
 // ---------- WebGPU fallback implementation ----------
 
-const InstancedLabelsWebGPU: React.FC<InstancedLabelsProps> = ({
+// Phase 6 (ADR-04 D7): identical prop type as the parent wrapper, declared
+// as a type alias so any divergence is a TypeScript error, not a runtime
+// regression.
+type WebGPUProps = InstancedLabelsProps;
+
+const InstancedLabelsWebGPU: React.FC<WebGPUProps> = ({
   nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
   hierarchyMap, graphTypeVisuals, ssspResult, isXRMode,
@@ -349,8 +345,13 @@ const InstancedLabelsWebGPU: React.FC<InstancedLabelsProps> = ({
     // Debounce: wait 150ms of stillness before rebuilding labels
     if (now - motionStateRef.current.lastFastTime < 150) return;
 
-    // Rebuild label list every 3 still frames (was 15 — too laggy)
-    if (frameCountRef.current % 3 !== 0) return;
+    // Phase 6 (ADR-04 D6 / T4): cadence is configurable via
+    // settings.rendering.labelLayoutEvery. Default 3 — historical behaviour.
+    const labelLayoutEvery = Math.max(
+      1,
+      ((settings as any)?.visualisation?.rendering?.labelLayoutEvery as number | undefined) ?? 3
+    );
+    if (frameCountRef.current % labelLayoutEvery !== 0) return;
 
     const labelSettings = (settings as any)?.visualisation?.graphs?.logseq?.labels ?? (settings as any)?.visualisation?.labels;
     if (!labelSettings?.enableLabels || nodes.length === 0) {
@@ -462,7 +463,13 @@ const InstancedLabelsWebGPU: React.FC<InstancedLabelsProps> = ({
 
 // ---------- WebGL instanced implementation ----------
 
-const InstancedLabelsWebGL: React.FC<InstancedLabelsProps> = ({
+// Phase 6 (ADR-04 D7): same alias as the WebGPU path. The wrapper
+// `InstancedLabels` builds a typed forwarding object so missing props are
+// compile errors. The runtime guard below (for `nodePositionsRef` absent)
+// remains as a developer sanity check that emits a single warn.
+type WebGLProps = InstancedLabelsProps;
+
+const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
   nodes, nodeIdToIndexMap, nodePositionsRef, labelPositionsRef,
   settings, graphMode, perNodeVisualModeMap, connectionCountMap,
   hierarchyMap, graphTypeVisuals, ssspResult, isXRMode,
@@ -579,6 +586,17 @@ const InstancedLabelsWebGL: React.FC<InstancedLabelsProps> = ({
     const nodeMap = nodeGlyphMapRef.current;
 
     const rawPositions = nodePositionsRef?.current;
+    // Phase 6 (ADR-04 D7): single warn if the runtime fallback fires —
+    // means upstream forgot to forward nodePositionsRef. Should never happen
+    // in practice because the wrapper enforces it at compile time.
+    if (!rawPositions && !diagLoggedRef.current && nodeMap.length > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[InstancedLabelsWebGL] nodePositionsRef absent — falling back to labelPositionsRef. ' +
+        'This is a bug upstream: the parent should always forward nodePositionsRef.'
+      );
+      diagLoggedRef.current = true;
+    }
     if (nodeMap.length > 0 && rawPositions && rawPositions.length > 0) {
       for (const entry of nodeMap) {
         if (entry.physicsIndex < 0) continue;
@@ -615,8 +633,13 @@ const InstancedLabelsWebGL: React.FC<InstancedLabelsProps> = ({
       }
     }
 
-    // Layout rebuild: throttled to every 3 still frames
-    if (frameCountRef.current % 3 !== 0 && nodeGlyphMapRef.current.length > 0) return;
+    // Phase 6 (ADR-04 D6 / T4): cadence is configurable via
+    // settings.rendering.labelLayoutEvery. Default 3 — historical behaviour.
+    const labelLayoutEvery = Math.max(
+      1,
+      ((settings as any)?.visualisation?.rendering?.labelLayoutEvery as number | undefined) ?? 3
+    );
+    if (frameCountRef.current % labelLayoutEvery !== 0 && nodeGlyphMapRef.current.length > 0) return;
 
     // Reuse rawPositions captured above (same SAB snapshot for consistency)
     const rawPositionsForLayout = rawPositions;

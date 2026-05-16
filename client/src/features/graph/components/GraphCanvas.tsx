@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Stats, Environment } from '@react-three/drei';
+import * as THREE from 'three';
 import { createGemRenderer } from '../../../rendering/rendererFactory';
 import { createLogger } from '../../../utils/loggerConfig';
 
@@ -94,11 +95,63 @@ const LayoutModeIndicator: React.FC = () => {
   );
 };
 
+// ============================================================================
+// Phase 6 (ADR-04 D5 / T3) — Software-WebGL detection + Environment fallback
+// ============================================================================
+//
+// `<Environment resolution={256}>` triggers drei's PMREM generator which
+// renders 6 cube faces through the WebGL pipeline. On hardware GL that's
+// GPU-side and fast. On software GL (SwiftShader, llvmpipe, etc.) each draw
+// is CPU-rasterised, holding the JS thread for 2–4s on mount and producing
+// the headless-mode freeze.
+//
+// Detection uses WEBGL_debug_renderer_info / UNMASKED_RENDERER_WEBGL. If the
+// extension is absent (some browsers / privacy modes block it), we default
+// to the hardware path — failing graceful.
+//
+// Policy (settings.rendering.softwareFallback):
+//   - 'auto'       (default) — detect renderer; use fallback only on software
+//   - 'force-on'   — always use fallback (no <Environment>)
+//   - 'force-off'  — always render <Environment>, ignore detection
+// ============================================================================
+
+const SOFTWARE_RENDERER_PATTERNS = [
+  'swiftshader',
+  'llvmpipe',
+  'software',
+  'microsoft basic render driver',
+];
+
+function detectSoftwareRenderer(gl: THREE.WebGLRenderer): { isSoftware: boolean; rendererString: string | null } {
+  try {
+    const ctx = gl.getContext();
+    const ext = ctx.getExtension('WEBGL_debug_renderer_info');
+    if (!ext) {
+      // Extension blocked / unavailable — default to hardware
+      return { isSoftware: false, rendererString: null };
+    }
+    const renderer = ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL) as string;
+    if (typeof renderer !== 'string') return { isSoftware: false, rendererString: null };
+    const lower = renderer.toLowerCase();
+    const isSoftware = SOFTWARE_RENDERER_PATTERNS.some(p => lower.includes(p));
+    return { isSoftware, rendererString: renderer };
+  } catch {
+    return { isSoftware: false, rendererString: null };
+  }
+}
+
 // Main GraphCanvas component
 const GraphCanvas: React.FC = () => {
 
     const containerRef = useRef<HTMLDivElement>(null);
     const orbitControlsRef = useRef<any>(null);
+    // Phase 6 (ADR-04 D5): software-renderer detection result.
+    // null = not yet detected; true = software; false = hardware/unknown.
+    const [isSoftwareRenderer, setIsSoftwareRenderer] = useState<boolean | null>(null);
+    const softwareDetectedLoggedRef = useRef<boolean>(false);
+    const softwareFallbackPolicy = useSettingsStore(
+      s => s.settings?.visualisation?.rendering?.softwareFallback as ('auto' | 'force-on' | 'force-off' | undefined)
+    ) ?? 'auto';
     // Narrow selectors — prevent full Canvas tree re-render on unrelated settings changes.
     // Each selector returns a primitive or stable nested ref so Zustand's Object.is comparison
     // only triggers re-renders when that specific value actually changes.
@@ -184,6 +237,26 @@ const GraphCanvas: React.FC = () => {
                 }}
                 onCreated={({ gl, camera, scene, invalidate }) => {
                     gl.setClearColor(0x000033, 1);
+
+                    // Phase 6 (ADR-04 D5): one-shot software-renderer detection.
+                    // Only run if gl is a WebGLRenderer (skip WebGPU paths).
+                    if (gl instanceof THREE.WebGLRenderer) {
+                        const { isSoftware, rendererString } = detectSoftwareRenderer(gl);
+                        setIsSoftwareRenderer(isSoftware);
+                        if (!softwareDetectedLoggedRef.current) {
+                            softwareDetectedLoggedRef.current = true;
+                            const fallbackDecision = softwareFallbackPolicy === 'force-off'
+                                ? 'forced-environment'
+                                : (softwareFallbackPolicy === 'force-on' || isSoftware)
+                                    ? 'software-fallback'
+                                    : 'environment';
+                            logger.info(
+                                `[GraphCanvas] WebGL renderer: ${rendererString === null ? 'unknown (extension blocked)' : `"${rendererString}"`} ` +
+                                `→ software detected: ${isSoftware}, policy: ${softwareFallbackPolicy}, decision: ${fallbackDecision}`
+                            );
+                        }
+                    }
+
                     setCanvasReady(true);
                     // Force initial render — Edge/WebGPU doesn't paint until
                     // a resize event occurs (e.g. opening DevTools). Scheduling
@@ -206,10 +279,20 @@ const GraphCanvas: React.FC = () => {
 
                 {/* Environment map for PBR glass material reflections.
                     Uses a generated environment instead of CDN-hosted HDR to avoid
-                    network failures in Docker/LAN/offline environments. */}
-                <Environment background={false} resolution={256}>
-                  <color attach="background" args={['#111']} />
-                </Environment>
+                    network failures in Docker/LAN/offline environments.
+
+                    Phase 6 (ADR-04 D5): on software-rendered WebGL contexts the
+                    PMREM generation freezes the JS thread for 2-4s. Detection
+                    happens in `onCreated`; below we skip <Environment> on
+                    software, or honour the explicit policy override. The result
+                    is graceful: hardware retains the full PBR look; software
+                    gets a flat-but-fast scene. */}
+                {(softwareFallbackPolicy === 'force-off' ||
+                  (softwareFallbackPolicy === 'auto' && isSoftwareRenderer !== true)) && (
+                  <Environment background={false} resolution={256}>
+                    <color attach="background" args={['#111']} />
+                  </Environment>
+                )}
 
                 {/* Scene ambient effects (WASM particles, wisps, atmosphere) */}
                 <WasmSceneEffects

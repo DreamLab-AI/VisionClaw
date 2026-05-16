@@ -320,14 +320,22 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       void analyticsFrameRef;
     }
 
-    // Delayed diagnostic — fires at frame 60 when positions are loaded (dev only)
+    // Delayed diagnostic — fires at frame 60 when positions are loaded (dev only).
+    // Phase 6 (ADR-04 D10): one-shot diagnostic, guarded by diagLoggedRef so
+    // the allocations below execute exactly once per session. Disable the
+    // zero-alloc lint rule for this block — the alternative (module-scope
+    // temps just for a single diagnostic) is uglier than the deliberate
+    // exception.
     if (import.meta.env.DEV) {
       if (!diagLoggedRef.current && frameCountRef.current >= 60) {
         diagLoggedRef.current = true;
         const mat = inst.material as THREE.MeshPhysicalMaterial & { opacityNode?: unknown; emissiveNode?: unknown; colorNode?: unknown };
         // Sample first 3 instance matrices
+        // eslint-disable-next-line no-restricted-syntax
         const tempMat = new THREE.Matrix4();
+        // eslint-disable-next-line no-restricted-syntax
         const tempVec = new THREE.Vector3();
+        // eslint-disable-next-line no-restricted-syntax
         const tempScale = new THREE.Vector3();
         const matSamples: Array<{ i: number; pos: { x: number; y: number; z: number }; scale: number }> = [];
         for (let si = 0; si < Math.min(3, inst.count); si++) {
@@ -337,12 +345,14 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
           matSamples.push({ i: si, pos: { x: +tempVec.x.toFixed(1), y: +tempVec.y.toFixed(1), z: +tempVec.z.toFixed(1) }, scale: +tempScale.x.toFixed(2) });
         }
         // Compute bounding box from first 20 instances
+        // eslint-disable-next-line no-restricted-syntax
         const bbox = new THREE.Box3();
         for (let bi = 0; bi < Math.min(20, inst.count); bi++) {
           inst.getMatrixAt(bi, tempMat);
           tempVec.setFromMatrixPosition(tempMat);
           bbox.expandByPoint(tempVec);
         }
+        // eslint-disable-next-line no-restricted-syntax
         const bboxSize = new THREE.Vector3();
         bbox.getSize(bboxSize);
         logger.debug('[GemNodes] DIAG frame60:', {

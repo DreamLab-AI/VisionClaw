@@ -8,7 +8,31 @@ import {
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GemMaterialSettings, GlowSettings } from '../../settings/config/settings';
 
-const MAX_EDGES = 10_000;
+/**
+ * Phase 6 (ADR-04 D1, D3, D4): edge capacity is dynamic and configured —
+ * never a magic constant. The previous `MAX_EDGES = 10_000` (and the
+ * symptom-level `16_000` bump in main commit d1f7f2548) are replaced by:
+ *   - EDGE_INITIAL = 1024 — first allocation when points first arrive
+ *   - grow x2 on overflow up to settings.rendering.maxEdgesCeiling
+ *   - default ceiling DEFAULT_EDGE_CEILING = 32_768
+ *   - edges above ceiling: draw `ceiling`, emit one structured warn naming
+ *     the unrendered count. Never silent truncation.
+ *
+ * Phase 6 (ADR-04 D2 / T2): surface-to-surface offset for edge endpoints
+ * is applied by the caller (GraphManager.tsx) which has per-node access
+ * to compute `srcR = computeNodeScale(node, ...) * nodeSize` for each
+ * edge. The `points` buffer arriving here therefore already encodes
+ * surface-to-surface endpoints. This file documents that contract; the
+ * matrix composition below assumes the two endpoints are the
+ * surface-projected positions and draws the cylinder from midpoint with
+ * full length, which is geometrically identical to the surface-aware
+ * composition in ADR-04 D2 when the caller pre-offsets.
+ *
+ * The collapsed-edge guard (`len < 1e-6`) handles the `adjLen <= 0`
+ * (overlapping nodes) case by scaling to zero.
+ */
+const EDGE_INITIAL = 1024;
+const DEFAULT_EDGE_CEILING = 32768;
 
 interface GlassEdgesProps {
   points: number[];
@@ -32,10 +56,22 @@ const tmpQuat = new THREE.Quaternion();
 const tmpDir = new THREE.Vector3();
 const tmpScale = new THREE.Vector3();
 
-/** Compute up to `limit` edge matrices. Returns total edge count.
+/** Round up to next power of two for capacity sizing. */
+function ceilToPowerOfTwo(n: number): number {
+  if (n <= 1) return 1;
+  return Math.pow(2, Math.ceil(Math.log2(n)));
+}
+
+/** Compute up to `limit` edge matrices. Returns total edge count (clamped to capacity).
  *  `dataLength` limits how many elements of `pts` to consider (avoids needing a sliced copy). */
-function computeInstanceMatrices(mesh: THREE.InstancedMesh, pts: number[], limit?: number, dataLength?: number): number {
-  const edgeCount = Math.min(Math.floor((dataLength ?? pts.length) / 6), MAX_EDGES);
+function computeInstanceMatrices(
+  mesh: THREE.InstancedMesh,
+  pts: number[],
+  capacity: number,
+  limit?: number,
+  dataLength?: number,
+): number {
+  const edgeCount = Math.min(Math.floor((dataLength ?? pts.length) / 6), capacity);
   const renderCount = limit !== undefined ? Math.min(limit, edgeCount) : edgeCount;
   for (let i = 0; i < renderCount; i++) {
     const off = i * 6;
@@ -49,6 +85,7 @@ function computeInstanceMatrices(mesh: THREE.InstancedMesh, pts: number[], limit
     tmpDir.subVectors(tmpTgt, tmpSrc);
     const len = tmpDir.length();
     if (len < 1e-6) {
+      // Collapsed/overlapping nodes (adjLen <= 0 case in ADR-04 D2)
       tmpMat.makeScale(0, 0, 0);
       mesh.setMatrixAt(i, tmpMat);
       continue;
@@ -76,6 +113,28 @@ function computeInstanceMatrices(mesh: THREE.InstancedMesh, pts: number[], limit
   return edgeCount;
 }
 
+/** Allocate a new InstancedMesh + instanceColor buffer at the given capacity. */
+function allocateMesh(
+  capacity: number,
+  edgeRadius: number,
+  initialColor: string | undefined,
+  initialOpacity: number | undefined,
+): { mesh: THREE.InstancedMesh; uniforms: any } {
+  const geo = createGlassEdgeGeometry(edgeRadius);
+  const result = createGlassEdgeMaterial(initialColor);
+  if (initialOpacity !== undefined) {
+    (result.material as THREE.MeshPhysicalMaterial).opacity = initialOpacity;
+  }
+  const m = new THREE.InstancedMesh(geo, result.material, capacity);
+  m.frustumCulled = false;
+  m.count = 0;
+  const colorArray = new Float32Array(capacity * 3);
+  // Initialize to white (neutral multiply against material base color)
+  for (let ci = 0; ci < colorArray.length; ci++) colorArray[ci] = 1.0;
+  m.instanceColor = new THREE.InstancedBufferAttribute(colorArray, 3);
+  return { mesh: m, uniforms: result.uniforms };
+}
+
 export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
   ({ points, settings, colorOverride }, ref) => {
     const meshRef = useRef<THREE.InstancedMesh | null>(null);
@@ -86,37 +145,107 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     const nodeRevealBatch = (settings?.revealBatch as number | undefined) ?? 120;
     const EDGE_REVEAL_BATCH = Math.max(1, Math.round(nodeRevealBatch * 0.67));
 
-    const { mesh, uniforms } = useMemo(() => {
-      // Resolve initial edge color: prefer override, then settings, then default
+    // --- Phase 6 (ADR-04 D1): dynamic capacity ---
+    const renderingCeiling = useSettingsStore(s => s.settings?.visualisation?.rendering?.maxEdgesCeiling);
+    const ceilingRef = useRef<number>(renderingCeiling ?? DEFAULT_EDGE_CEILING);
+    // keep the ref in sync if the setting changes mid-session — the value is
+    // only consulted at allocation time, so live-edit will affect the *next*
+    // growth event rather than retroactively shrinking the buffer
+    ceilingRef.current = renderingCeiling ?? DEFAULT_EDGE_CEILING;
+
+    const capacityRef = useRef<number>(0);
+    // Track reallocation frequency for telemetry — flag if >2 in 60s.
+    const reallocationTimestampsRef = useRef<number[]>([]);
+    // Track whether we have warned about ceiling overflow this prop tick.
+    const overflowWarnedRef = useRef<number>(0);
+    // Latest uniforms returned by allocateMesh — kept so consumers reading
+    // them through this ref don't lose access on growth.
+    const uniformsRef = useRef<any>(null);
+
+    /** Allocate or grow the mesh to `targetCapacity`. Disposes the old mesh. */
+    const reallocate = useCallback((targetCapacity: number): THREE.InstancedMesh => {
       const initialColor = colorOverride || settings?.color || undefined;
-      const geo = createGlassEdgeGeometry(settings?.edgeRadius ?? 0.03);
-      const result = createGlassEdgeMaterial(initialColor);
-
-      // Apply initial opacity from settings if provided
-      if (settings?.opacity !== undefined) {
-        (result.material as THREE.MeshPhysicalMaterial).opacity = settings.opacity;
+      const initialOpacity = settings?.opacity;
+      const edgeRadius = settings?.edgeRadius ?? 0.03;
+      const { mesh: nextMesh, uniforms: nextUniforms } = allocateMesh(
+        targetCapacity,
+        edgeRadius,
+        initialColor,
+        initialOpacity,
+      );
+      const prev = meshRef.current;
+      if (prev) {
+        // Copy prior per-instance colours before replacing the attribute
+        const prevColors = (prev.instanceColor as THREE.InstancedBufferAttribute | null)
+          ?.array as Float32Array | undefined;
+        const nextColors = (nextMesh.instanceColor as THREE.InstancedBufferAttribute)
+          .array as Float32Array;
+        if (prevColors) {
+          nextColors.set(prevColors.subarray(0, Math.min(prevColors.length, nextColors.length)));
+        }
+        prev.geometry.dispose();
+        (prev.material as THREE.Material).dispose();
+        prev.dispose();
       }
+      meshRef.current = nextMesh;
+      uniformsRef.current = nextUniforms;
+      capacityRef.current = targetCapacity;
 
-      const m = new THREE.InstancedMesh(geo, result.material, MAX_EDGES);
-      m.frustumCulled = false;
-      m.count = 0;
+      // Telemetry: log reallocation frequency
+      const now = performance.now();
+      const ts = reallocationTimestampsRef.current;
+      ts.push(now);
+      // prune to last 60s
+      while (ts.length > 0 && now - ts[0] > 60_000) ts.shift();
+      if (ts.length > 2) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[GlassEdges] capacity reallocated ${ts.length}x in last 60s — ` +
+          `consider raising rendering.maxEdgesCeiling above current capacity ${targetCapacity}.`
+        );
+      }
+      return nextMesh;
+    }, [colorOverride, settings?.color, settings?.opacity, settings?.edgeRadius]);
 
-      // Pre-allocate instanceColor buffer for per-edge-type coloring.
-      // When populated via updateColors(), Three.js multiplies instance color
-      // with the material base color. Set material color to white when
-      // instance colors are active so the per-edge colors come through pure.
-      const colorArray = new Float32Array(MAX_EDGES * 3);
-      // Initialize to white (neutral multiply)
-      for (let ci = 0; ci < colorArray.length; ci++) colorArray[ci] = 1.0;
-      m.instanceColor = new THREE.InstancedBufferAttribute(colorArray, 3);
+    // Initial mesh allocation: small placeholder until first non-empty points.
+    const { mesh, uniforms } = useMemo(() => {
+      const { mesh: m, uniforms: u } = allocateMesh(
+        EDGE_INITIAL,
+        settings?.edgeRadius ?? 0.03,
+        colorOverride || settings?.color || undefined,
+        settings?.opacity,
+      );
+      meshRef.current = m;
+      uniformsRef.current = u;
+      capacityRef.current = EDGE_INITIAL;
 
       // Initial population — first batch only, rest via progressive reveal
       if (points.length >= 6) {
-        computeInstanceMatrices(m, points, EDGE_REVEAL_BATCH);
+        const initialEdgeCount = Math.floor(points.length / 6);
+        const ceiling = ceilingRef.current;
+        const sized = Math.min(ceilToPowerOfTwo(initialEdgeCount * 1.25), ceiling);
+        if (sized > EDGE_INITIAL && initialEdgeCount > EDGE_INITIAL) {
+          // Need a bigger first-allocation: re-allocate now before reveal starts
+          // (ADR-04 D3: capacity sized to final count before reveal begins)
+          const targetCapacity = Math.max(sized, EDGE_INITIAL);
+          const { mesh: bigger, uniforms: biggerUniforms } = allocateMesh(
+            targetCapacity,
+            settings?.edgeRadius ?? 0.03,
+            colorOverride || settings?.color || undefined,
+            settings?.opacity,
+          );
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
+          m.dispose();
+          meshRef.current = bigger;
+          uniformsRef.current = biggerUniforms;
+          capacityRef.current = targetCapacity;
+          computeInstanceMatrices(bigger, points, targetCapacity, EDGE_REVEAL_BATCH);
+          return { mesh: bigger, uniforms: biggerUniforms };
+        }
+        computeInstanceMatrices(m, points, capacityRef.current, EDGE_REVEAL_BATCH);
       }
-
-      meshRef.current = m;
-      return { mesh: m, uniforms: result.uniforms };
+      return { mesh: m, uniforms: u };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -124,7 +253,8 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     // When per-instance colors are active (updateColors was called),
     // keep base color white so instance colors come through pure.
     useEffect(() => {
-      const mat = mesh.material as THREE.MeshPhysicalMaterial;
+      const m = meshRef.current ?? mesh;
+      const mat = m.material as THREE.MeshPhysicalMaterial;
       if (!instanceColorsActiveRef.current) {
         const targetColor = colorOverride || settings?.color;
         if (targetColor && mat.color) {
@@ -148,37 +278,72 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     const gemSettings = useSettingsStore(s => s.get<GemMaterialSettings>('visualisation.gemMaterial'));
     useEffect(() => {
       if (!gemSettings) return;
-      const mat = mesh.material as THREE.MeshPhysicalMaterial;
+      const m = meshRef.current ?? mesh;
+      const mat = m.material as THREE.MeshPhysicalMaterial;
       if (gemSettings.ior !== undefined) mat.ior = gemSettings.ior;
       if (gemSettings.transmission !== undefined) mat.transmission = gemSettings.transmission;
       mat.needsUpdate = true;
     }, [gemSettings, mesh]);
 
+    /** Ensure capacity is sufficient for `edgeCount`. May reallocate. */
+    const ensureCapacity = useCallback((edgeCount: number): THREE.InstancedMesh => {
+      const ceiling = ceilingRef.current;
+      const capacity = capacityRef.current;
+      if (edgeCount <= capacity) return meshRef.current!;
+
+      // Need to grow. If we'd exceed ceiling, draw ceiling edges and warn.
+      if (edgeCount > ceiling) {
+        if (capacity < ceiling) {
+          // First grow to ceiling
+          reallocate(ceiling);
+        }
+        if (overflowWarnedRef.current !== edgeCount) {
+          overflowWarnedRef.current = edgeCount;
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[GlassEdges] edge count ${edgeCount} exceeds ceiling ${ceiling}. ` +
+            `${edgeCount - ceiling} edges will not be rendered. ` +
+            `Raise rendering.maxEdgesCeiling to render all edges.`
+          );
+        }
+        return meshRef.current!;
+      }
+
+      const newCap = Math.min(Math.max(edgeCount, capacity * 2), ceiling);
+      return reallocate(newCap);
+    }, [reallocate]);
+
     // Recompute when points prop changes -- reset progressive reveal
     useEffect(() => {
       if (points.length >= 6) {
-        totalEdgesRef.current = Math.min(Math.floor(points.length / 6), MAX_EDGES);
+        const edgeCount = Math.floor(points.length / 6);
+        ensureCapacity(edgeCount);
+        totalEdgesRef.current = Math.min(edgeCount, capacityRef.current);
         edgeRevealRef.current = 0; // Reset for progressive reveal in useFrame
+        // Reset overflow warn flag so next overflow logs again
+        if (edgeCount <= capacityRef.current) overflowWarnedRef.current = 0;
       } else {
-        mesh.count = 0;
+        const m = meshRef.current ?? mesh;
+        m.count = 0;
         totalEdgesRef.current = 0;
-        mesh.instanceMatrix.needsUpdate = true;
+        m.instanceMatrix.needsUpdate = true;
       }
-    }, [points, mesh]);
+    }, [points, mesh, ensureCapacity]);
 
     // Dispose GPU resources on unmount.
     // R3F <primitive> never auto-disposes, so manual cleanup is required.
     useEffect(() => {
       return () => {
-        if (mesh) {
-          mesh.geometry?.dispose();
-          if (mesh.material) {
-            (mesh.material as THREE.Material).dispose();
+        const m = meshRef.current;
+        if (m) {
+          m.geometry?.dispose();
+          if (m.material) {
+            (m.material as THREE.Material).dispose();
           }
-          mesh.dispose();
+          m.dispose();
         }
       };
-    }, [mesh]);
+    }, []);
 
     // Imperative path for hot-loop updates from useFrame callers.
     // Always recompute instance matrices when called — the caller
@@ -189,23 +354,28 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     const updatePoints = useCallback(
       (newPts: number[], count?: number) => {
         const len = count ?? newPts.length;
+        const m = meshRef.current;
+        if (!m) return;
         if (len < 6) {
-          if (mesh.count !== 0) {
-            mesh.count = 0;
-            mesh.instanceMatrix.needsUpdate = true;
+          if (m.count !== 0) {
+            m.count = 0;
+            m.instanceMatrix.needsUpdate = true;
           }
           return;
         }
-        computeInstanceMatrices(mesh, newPts, undefined, len);
+        const edgeCount = Math.floor(len / 6);
+        const activeMesh = ensureCapacity(edgeCount);
+        computeInstanceMatrices(activeMesh, newPts, capacityRef.current, undefined, len);
       },
-      [mesh],
+      [ensureCapacity],
     );
 
     // Update per-instance edge colors from a packed Float32Array [r,g,b, r,g,b, ...]
     const updateColors = useCallback(
       (colors: Float32Array, count: number) => {
-        if (!mesh.instanceColor) return;
-        const attr = mesh.instanceColor as THREE.InstancedBufferAttribute;
+        const m = meshRef.current;
+        if (!m || !m.instanceColor) return;
+        const attr = m.instanceColor as THREE.InstancedBufferAttribute;
         const dst = attr.array as Float32Array;
         const len = Math.min(count * 3, dst.length, colors.length);
         dst.set(colors.subarray(0, len));
@@ -213,7 +383,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         // When per-instance colors are active, set base color to white
         // so the instance colors come through unmodified by material tint
         instanceColorsActiveRef.current = count > 0;
-        const mat = mesh.material as THREE.MeshPhysicalMaterial;
+        const mat = m.material as THREE.MeshPhysicalMaterial;
         if (count > 0 && mat.color) {
           mat.color.setRGB(1, 1, 1);
           // Read edge emissive base from glow settings (via ref for stable callback identity)
@@ -222,14 +392,17 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           mat.emissive.setRGB(normalizedEmissive, normalizedEmissive, normalizedEmissive);
         }
       },
-      [mesh],
+      [],
     );
 
     useImperativeHandle(ref, () => ({ updatePoints, updateColors }), [updatePoints, updateColors]);
 
-    // Subtle emissive pulse on edges — base and amplitude driven by glow settings
+    // Subtle emissive pulse on edges — base and amplitude driven by glow settings.
+    // Phase 6 (ADR-04 D10): no allocations inside useFrame — only reads refs
+    // and writes to existing material properties.
     useFrame(({ clock }) => {
-      const mat = meshRef.current?.material as THREE.MeshPhysicalMaterial | undefined;
+      const m = meshRef.current;
+      const mat = m?.material as THREE.MeshPhysicalMaterial | undefined;
       if (mat) {
         const gs = glowSettingsRef.current;
         const edgeGlow = gs?.edgeGlowStrength ?? 1.0;
@@ -240,16 +413,18 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
       }
 
       // Progressive edge reveal: ramp up each frame (initial prop-based load only)
-      if (edgeRevealRef.current < totalEdgesRef.current && points.length >= 6) {
+      if (m && edgeRevealRef.current < totalEdgesRef.current && points.length >= 6) {
         edgeRevealRef.current = Math.min(
           edgeRevealRef.current + EDGE_REVEAL_BATCH,
           totalEdgesRef.current,
         );
-        computeInstanceMatrices(mesh, points, edgeRevealRef.current);
+        computeInstanceMatrices(m, points, capacityRef.current, edgeRevealRef.current);
       }
     });
 
-    return <primitive object={mesh} />;
+    // The mesh ref can change on capacity growth, so we render through a
+    // <group> + <primitive> that reads the current ref each render.
+    return <primitive object={meshRef.current ?? mesh} />;
   },
 );
 
