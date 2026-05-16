@@ -41,6 +41,13 @@ validator = { version = "0.18", features = ["derive"] }
 # Database - Neo4j (sole database)
 neo4rs = { version = "0.9.0-rc.8", features = ["unstable-serde-packstream-format"] }
 
+# Database - Oxigraph + SQLite (Phase 11 persistence migration, ADR-11)
+# Gated by `persistence-oxigraph` feature so the radical-rollback baseline
+# still compiles without these deps. Cutover lands in a later phase.
+oxigraph = { version = "0.4", optional = true }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+tokio-rusqlite = { version = "0.5", optional = true }
+
 # Redis (optional distributed caching)
 redis = { version = "0.27", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
 
@@ -167,6 +174,22 @@ default = ["gpu", "ontology"]
 gpu = []  # GPU acceleration with CUDA kernels
 ontology = []  # Ontology validation and reasoning
 redis = ["dep:redis"]  # Enable Redis distributed caching
+
+# --- Adapter-parity test harness (tests/adapter_parity/) ---
+# Enable to run the Neo4j-backed parity runner. Requires a reachable Neo4j
+# instance and the NEO4J_PASSWORD env var (or ALLOW_INSECURE_DEFAULTS=true).
+test-neo4j = []
+
+# Phase 11 persistence migration (ADR-11): pulls in Oxigraph (SPARQL 1.1
+# triple/quad store) and SQLite via tokio-rusqlite for settings. Enabling
+# this feature compiles the new `oxigraph_*` and `sqlite_settings_repository`
+# adapters under `src/adapters/`. The legacy `neo4j_*` adapters remain
+# present and continue to compile; cutover is a separate phase.
+persistence-oxigraph = [
+    "dep:oxigraph",
+    "dep:rusqlite",
+    "dep:tokio-rusqlite",
+]
 
 [profile.release]
 opt-level = 3
