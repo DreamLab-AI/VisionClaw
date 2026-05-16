@@ -105,6 +105,45 @@ pub struct UpdateNodePositions {
 pub struct GetNodePositions;
 
 // ---------------------------------------------------------------------------
+// Phase 3 (ADR-02 D4): Single-source-of-truth position snapshot.
+//
+// `GetPositionFrameSnapshot` is the only read path used by both:
+//   • `BroadcastActor` (every ACTIVE tick / SETTLED heartbeat / new-client connect)
+//   • `GET /api/graph/positions` REST handler
+// The snapshot is built from `GraphStateActor`'s current `graph_data` —
+// the same store that `UpdateNodePositions` (pushed from the GPU) mutates.
+// This eliminates the polling-vs-broadcast divergence (D4).
+// ---------------------------------------------------------------------------
+
+/// Snapshot of all node positions held by `GraphStateActor`.
+/// Returned in an `Arc` so multiple consumers (broadcast actor + REST handler)
+/// can share a single read without cloning.
+#[derive(Debug, Clone, Default)]
+pub struct PositionFrameSnapshot {
+    /// Monotonic source epoch — incremented every time `UpdateNodePositions`
+    /// is applied. Broadcast actor uses this to detect "new data available"
+    /// without polling positions in full.
+    pub epoch: u64,
+    pub node_count: u32,
+    pub rows: Vec<PositionRow>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PositionRow {
+    pub node_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub vz: f32,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<std::sync::Arc<PositionFrameSnapshot>, String>")]
+pub struct GetPositionFrameSnapshot;
+
+// ---------------------------------------------------------------------------
 // Edge CRUD
 // ---------------------------------------------------------------------------
 

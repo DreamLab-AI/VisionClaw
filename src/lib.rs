@@ -20,6 +20,7 @@ pub mod openapi;
 pub mod reasoning;
 pub mod physics;
 pub mod ports;
+pub mod protocol;
 pub mod repositories;
 pub mod services;
 pub mod settings;

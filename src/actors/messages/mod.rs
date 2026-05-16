@@ -6,6 +6,7 @@
 
 pub mod agent_messages;
 pub mod analytics_messages;
+pub mod broadcast_messages;
 pub mod client_messages;
 pub mod graph_messages;
 pub mod ontology_messages;
@@ -24,12 +25,13 @@ pub use graph_messages::{
     AddEdge, AddNode, AddNodesFromMetadata, ArchiveWorkspace, AutoBalanceNotification,
     BuildGraphFromMetadata, CreateWorkspace, DeleteWorkspace, GetAutoBalanceNotifications,
     GetGraphData, GetGraphStateActor, GetMetadata, GetNodeIdMapping, GetNodeMap, GetNodePositions,
-    GetNodeTypeArrays, NodeIdMapping, GetWorkspace, GetWorkspaceCount, GetWorkspaces, InitializeActor,
-    LoadWorkspaces, NodeTypeArrays, RefreshMetadata, ReloadGraphFromDatabase, RemoveEdge,
-    RemoveNode, RemoveNodeByMetadata, RequestGraphUpdate, SaveWorkspaces,
-    ToggleFavoriteWorkspace, UpdateGraphData, UpdateMetadata, UpdateNodeFromMetadata,
-    UpdateNodePosition, UpdateNodePositions, UpdateNodeTypeArrays, UpdateWorkspace,
-    WorkspaceChangeType, WorkspaceStateChanged,
+    GetNodeTypeArrays, GetPositionFrameSnapshot, NodeIdMapping, GetWorkspace, GetWorkspaceCount,
+    GetWorkspaces, InitializeActor, LoadWorkspaces, NodeTypeArrays, PositionFrameSnapshot,
+    PositionRow, RefreshMetadata, ReloadGraphFromDatabase, RemoveEdge, RemoveNode,
+    RemoveNodeByMetadata, RequestGraphUpdate, SaveWorkspaces, ToggleFavoriteWorkspace,
+    UpdateGraphData, UpdateMetadata, UpdateNodeFromMetadata, UpdateNodePosition,
+    UpdateNodePositions, UpdateNodeTypeArrays, UpdateWorkspace, WorkspaceChangeType,
+    WorkspaceStateChanged,
 };
 
 // --- physics_messages ---
@@ -111,4 +113,12 @@ pub use agent_messages::{
     SystemMetrics, TaskOrchestrate, TopologyOptimize, UpdateAgentCache, UpdateBotsGraph,
     // ADR-031: Orchestration improvements
     SetAgentMonitorAddr, TaskStatusChanged,
+};
+
+// --- broadcast_messages (Phase 3) ---
+pub use broadcast_messages::{
+    BroadcastActorStatus, BroadcastState, BroadcastTick, ClientId as BroadcastClientId,
+    GetBroadcastActorStatus, OnLayoutDestabilised, OnLayoutSettled, OnLayoutStarted,
+    OnPhysicsClamped, RegisterBroadcastClient, ShutdownBroadcastActor, TriggerHeartbeat,
+    UnregisterBroadcastClient,
 };

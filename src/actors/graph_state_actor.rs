@@ -89,6 +89,16 @@ pub struct GraphStateActor {
     /// After remapping, graph_data.nodes[i].id == i, so compact_to_neo4j[i] gives
     /// the original Neo4j ID needed when persisting changes back to the database.
     compact_to_neo4j: Vec<u32>,
+
+    /// Phase 3 (ADR-02 D4): canonical position snapshot. Updated atomically on
+    /// every `UpdateNodePositions` apply. Read by `BroadcastActor` and the
+    /// `GET /api/graph/positions` REST handler — the single source of truth
+    /// for "what positions does the client see right now".
+    position_snapshot: Arc<crate::actors::messages::PositionFrameSnapshot>,
+
+    /// Monotonic epoch incremented on every `UpdateNodePositions` apply.
+    /// Broadcast actor uses this to short-circuit redundant encodes.
+    position_epoch: u64,
 }
 
 impl GraphStateActor {
@@ -108,7 +118,41 @@ impl GraphStateActor {
             ontology_property_ids: HashSet::new(),
             agent_node_ids: HashSet::new(),
             compact_to_neo4j: Vec::new(),
+            position_snapshot: Arc::new(crate::actors::messages::PositionFrameSnapshot::default()),
+            position_epoch: 0,
         }
+    }
+
+    /// Rebuild the position snapshot from the current `graph_data`.
+    /// Called whenever positions change (apply of `UpdateNodePositions`,
+    /// graph reload, etc.). Per ADR-02 D4 this is the only writer.
+    fn rebuild_position_snapshot(&mut self) {
+        use crate::actors::messages::{PositionFrameSnapshot, PositionRow};
+        self.position_epoch = self.position_epoch.wrapping_add(1);
+        let rows: Vec<PositionRow> = self
+            .graph_data
+            .nodes
+            .iter()
+            .map(|n| PositionRow {
+                node_id: n.id,
+                x: n.data.x,
+                y: n.data.y,
+                z: n.data.z,
+                vx: n.data.vx,
+                vy: n.data.vy,
+                vz: n.data.vz,
+            })
+            .collect();
+        self.position_snapshot = Arc::new(PositionFrameSnapshot {
+            epoch: self.position_epoch,
+            node_count: rows.len() as u32,
+            rows,
+        });
+    }
+
+    /// ADR-02 D4 read API. Cheap clone of an `Arc` — no allocation, no copy.
+    pub fn current_snapshot(&self) -> Arc<crate::actors::messages::PositionFrameSnapshot> {
+        Arc::clone(&self.position_snapshot)
     }
 
     
@@ -427,6 +471,11 @@ impl GraphStateActor {
 
         // Classify all nodes into type sets (compact IDs)
         self.reclassify_all_nodes();
+
+        // Phase 3 (ADR-02 D4): refresh the canonical position snapshot for
+        // newly loaded graph so the broadcast actor and REST endpoint can
+        // serve positions immediately after reload.
+        self.rebuild_position_snapshot();
 
         // Persist edges to Neo4j so they survive restart
         if !self.graph_data.edges.is_empty() {
@@ -837,8 +886,26 @@ impl Handler<UpdateNodePositions> for GraphStateActor {
             }
         }
 
+        // Phase 3 (ADR-02 D4): rebuild the canonical snapshot atomically after
+        // every position apply. Broadcast actor and REST endpoint both read
+        // from this single source.
+        self.rebuild_position_snapshot();
+
         info!("GraphStateActor: Updated {} node positions from GPU", updated);
         Ok(())
+    }
+}
+
+/// Phase 3 (ADR-02 D4): canonical read path for position data.
+impl Handler<crate::actors::messages::GetPositionFrameSnapshot> for GraphStateActor {
+    type Result = Result<Arc<crate::actors::messages::PositionFrameSnapshot>, String>;
+
+    fn handle(
+        &mut self,
+        _msg: crate::actors::messages::GetPositionFrameSnapshot,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        Ok(self.current_snapshot())
     }
 }
 
@@ -945,6 +1012,10 @@ impl Handler<UpdateGraphData> for GraphStateActor {
 
         // Reclassify all nodes after graph data update
         self.reclassify_all_nodes();
+
+        // Phase 3 (ADR-02 D4): refresh the canonical position snapshot so a
+        // cold-connecting client immediately reads accurate positions.
+        self.rebuild_position_snapshot();
 
         info!("Graph data updated successfully");
         Ok(())
