@@ -196,6 +196,17 @@ persistence-oxigraph = [
     "dep:tokio-rusqlite",
 ]
 
+# `dev-auth` — Compile-time gate for development auth bypass surface.
+# Per ADR-06 §D1+D2 and resolution T2 (docs/migration-sprint/_resolutions/T2-auth-gating.md),
+# every auth-bypass branch is wrapped in
+#     #[cfg(any(debug_assertions, feature = "dev-auth"))]
+# so release binaries built WITHOUT this feature physically cannot honour
+# `SETTINGS_AUTH_BYPASS`, `ALLOW_INSECURE_DEFAULTS`, `--allow-skip-auth`, or
+# `Bearer dev-session-token`. The bypass code is absent from the binary — no
+# env-var path exists to re-enable it. `scripts/launch.sh up dev` enables this
+# feature; `up prod` and `cargo build --release` do not.
+dev-auth = []
+
 [profile.release]
 opt-level = 3
 lto = true

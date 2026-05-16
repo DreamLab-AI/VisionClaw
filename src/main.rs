@@ -89,16 +89,16 @@ fn validate_required_env_vars() -> Result<(), String> {
             log::warn!("Recommended env var {} is not set", var);
         }
     }
-    // Check ALLOW_INSECURE_DEFAULTS is not set in production
+    // NOTE: The runtime case-sensitive `APP_ENV=production` guard previously here
+    // (audited as a T2 anti-pattern — `APP_ENV=Production` defeated it) has been
+    // removed. Per ADR-06 §D1 and §D11, dev-bypass env vars are now handled at
+    // the binary level: the release build's `enforce_release_env_hygiene()` boot
+    // hook (see `main()`) refuses to start if any dev env var is present.
+    //
+    // `is_production` is still derived for the "missing required env vars" check
+    // below, but it is NOT a security toggle — it only controls whether missing
+    // required vars warn-and-default (dev) or hard-fail (prod).
     let is_production = std::env::var("APP_ENV").map(|v| v == "production").unwrap_or(false);
-    if is_production {
-        if std::env::var("ALLOW_INSECURE_DEFAULTS").is_ok() {
-            log::error!("ALLOW_INSECURE_DEFAULTS is set in production — this is a security risk");
-        }
-        if std::env::var("SETTINGS_AUTH_BYPASS").map(|v| v == "true").unwrap_or(false) {
-            return Err("SETTINGS_AUTH_BYPASS=true is not allowed in production".to_string());
-        }
-    }
     if missing.is_empty() {
         Ok(())
     } else {
@@ -113,6 +113,71 @@ fn validate_required_env_vars() -> Result<(), String> {
         }
     }
 }
+
+/// ADR-06 §D11 — Startup refusal of dev-mode env vars and argv flags in release.
+///
+/// In release builds (no `debug_assertions`, no `--features dev-auth`) the binary
+/// physically cannot honour `SETTINGS_AUTH_BYPASS`, `VISIONFLOW_DEV_MODE`,
+/// `ALLOW_INSECURE_DEFAULTS`, or `--allow-skip-auth` — the codepaths are
+/// `#[cfg]`-stripped. But the presence of those vars/flags at deploy time is a
+/// strong signal that someone promoted a dev configuration to production. This
+/// hook surfaces that as an immediate hard-fail at boot, with status code 2
+/// (V3 verification — see docs/migration-sprint/_resolutions/T2-auth-gating.md).
+///
+/// The dev-build counterpart is a no-op stub.
+#[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+fn enforce_release_env_hygiene() {
+    // 1) Argv refusal — `--allow-skip-auth` (ADR-02 §D8 + ADR-06 §D2 V2).
+    if std::env::args().any(|a| a == "--allow-skip-auth") {
+        eprintln!(
+            "FATAL: --allow-skip-auth is not available in release builds. \
+             Rebuild with `--features dev-auth` for development."
+        );
+        std::process::exit(1);
+    }
+
+    // 2) Env-var refusal — D11 SUSPECT_ENVS (V3).
+    const SUSPECT_ENVS: &[&str] = &[
+        "SETTINGS_AUTH_BYPASS",
+        "ALLOW_INSECURE_DEFAULTS",
+        "VISIONFLOW_DEV_MODE",
+    ];
+    let mut offending: Vec<&str> = Vec::new();
+    for var in SUSPECT_ENVS {
+        if std::env::var(var).is_ok() {
+            offending.push(var);
+        }
+    }
+    // Special case: NODE_ENV=development AND DOCKER_ENV both set (T2 §D11).
+    let node_env_dev = std::env::var("NODE_ENV")
+        .map(|v| v.eq_ignore_ascii_case("development"))
+        .unwrap_or(false);
+    let docker_env_set = std::env::var("DOCKER_ENV").is_ok();
+    if node_env_dev && docker_env_set {
+        offending.push("NODE_ENV=development+DOCKER_ENV");
+    }
+    if !offending.is_empty() {
+        for var in &offending {
+            eprintln!(
+                "FATAL: dev env var '{}' set in release build. \
+                 Refusing to start (ADR-06 §D11).",
+                var
+            );
+        }
+        eprintln!(
+            "These env vars cannot enable bypass (release binary has no \
+             corresponding codepath) but their presence indicates a dev \
+             configuration was promoted to production. Remove them and retry."
+        );
+        std::process::exit(2);
+    }
+}
+
+/// Dev-build stub — `enforce_release_env_hygiene` is a no-op when bypass code
+/// is actually present in the binary.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
+#[inline(always)]
+fn enforce_release_env_hygiene() {}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -133,6 +198,12 @@ async fn main() -> std::io::Result<()> {
     }));
 
     dotenv().ok();
+
+    // ADR-06 §D11 — Before any other startup work, in a release build, refuse
+    // to start if dev-mode env vars or argv flags are present. This runs BEFORE
+    // tracing/logging init so the message reaches stderr unconditionally even
+    // if logging fails. In dev builds this is a no-op.
+    enforce_release_env_hygiene();
 
     // Initialize tracing_subscriber for structured logging with distributed tracing support.
     // This replaces env_logger and bridges to the `log` crate, so existing log::info! etc. still work.
@@ -592,18 +663,25 @@ async fn main() -> std::io::Result<()> {
         HttpServer::new(move || {
             // CORS configuration with security-aware origin handling
             // Production: Uses CORS_ALLOWED_ORIGINS environment variable
-            // Development: Falls back to localhost origins with ALLOW_INSECURE_DEFAULTS
+            // Development: Falls back to localhost origins with ALLOW_INSECURE_DEFAULTS.
+            // ADR-06 §D1: the `ALLOW_INSECURE_DEFAULTS` env-var read is compile-time
+            // gated. Release binaries cannot widen CORS via env vars — they must set
+            // `CORS_ALLOWED_ORIGINS` explicitly. The fallback below produces the
+            // restrictive single-origin default.
             let cors = {
                 let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
                     .unwrap_or_else(|_| {
-                        if std::env::var("ALLOW_INSECURE_DEFAULTS").is_ok() {
-                            // Development mode: allow common local origins
-                            "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://localhost:5173".to_string()
-                        } else {
-                            // Production: require explicit configuration
-                            log::warn!("⚠️  CORS_ALLOWED_ORIGINS not set - using restrictive defaults");
-                            "http://localhost:3000".to_string()
+                        #[cfg(any(debug_assertions, feature = "dev-auth"))]
+                        {
+                            if std::env::var("ALLOW_INSECURE_DEFAULTS").is_ok() {
+                                // Dev mode: allow common local origins.
+                                return "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://localhost:5173".to_string();
+                            }
                         }
+                        // Release (or dev without ALLOW_INSECURE_DEFAULTS):
+                        // restrictive defaults; explicit configuration required.
+                        log::warn!("⚠️  CORS_ALLOWED_ORIGINS not set - using restrictive defaults");
+                        "http://localhost:3000".to_string()
                     });
 
                 let mut cors_builder = Cors::default();

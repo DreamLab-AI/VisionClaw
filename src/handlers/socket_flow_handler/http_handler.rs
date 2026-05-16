@@ -9,29 +9,30 @@ use super::types::{PreReadSocketSettings, SocketFlowServer, WEBSOCKET_RATE_LIMIT
 
 /// Check whether insecure defaults are allowed.
 ///
-/// Returns `true` ONLY when `ALLOW_INSECURE_DEFAULTS` is set AND the
-/// environment is NOT production. In production (`APP_ENV=production` or
-/// `RUST_ENV=production`), insecure defaults are NEVER honoured regardless
-/// of `ALLOW_INSECURE_DEFAULTS`.
+/// Per ADR-06 §D1 + resolution T2, this is a compile-time gate:
+/// - In `debug_assertions` or `--features dev-auth` builds, it returns `true`
+///   if the `ALLOW_INSECURE_DEFAULTS` env var is set.
+/// - In release builds (no `dev-auth` feature), the function is a const-`false`
+///   stub and the env-var read does not appear in the binary. There is no
+///   `APP_ENV`/`RUST_ENV` runtime production guard because there is no path
+///   by which `true` can be returned outside a dev build.
+#[cfg(any(debug_assertions, feature = "dev-auth"))]
 fn is_insecure_defaults_allowed() -> bool {
     if std::env::var("ALLOW_INSECURE_DEFAULTS").is_err() {
         return false;
     }
-
-    let is_production = std::env::var("APP_ENV")
-        .or_else(|_| std::env::var("RUST_ENV"))
-        .map(|v| v.eq_ignore_ascii_case("production"))
-        .unwrap_or(false);
-
-    if is_production {
-        warn!(
-            "SECURITY: ALLOW_INSECURE_DEFAULTS is set but APP_ENV/RUST_ENV is 'production' \
-             — ignoring insecure defaults. Remove ALLOW_INSECURE_DEFAULTS in production."
-        );
-        return false;
-    }
-
+    warn!(
+        "SECURITY: ALLOW_INSECURE_DEFAULTS honoured — dev build only. \
+         Release binaries cannot reach this branch."
+    );
     true
+}
+
+/// Release-build stub: insecure defaults are never honoured.
+#[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+#[inline(always)]
+fn is_insecure_defaults_allowed() -> bool {
+    false
 }
 
 /// HTTP upgrade handler for WebSocket connections at `/wss`.
@@ -50,15 +51,20 @@ pub async fn socket_flow_handler(
 
     let insecure_allowed = is_insecure_defaults_allowed();
 
-    // SECURITY: Validate Origin header to prevent cross-site WebSocket hijacking
+    // SECURITY: Validate Origin header to prevent cross-site WebSocket hijacking.
+    // The broadened localhost allowlist is gated behind the dev-auth compile flag
+    // (ADR-06 §D1). Release builds use the restrictive single-origin default unless
+    // CORS_ALLOWED_ORIGINS is explicitly configured.
     if let Some(origin_header) = req.headers().get("Origin") {
         let origin = origin_header.to_str().unwrap_or("");
         let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_else(|_| {
-            if insecure_allowed {
-                "http://localhost:3000,http://localhost:3001,https://localhost:3001,http://127.0.0.1:3000,https://127.0.0.1:3001,http://localhost:5173,https://localhost:5173".to_string()
-            } else {
-                "http://localhost:3000".to_string()
+            #[cfg(any(debug_assertions, feature = "dev-auth"))]
+            {
+                if insecure_allowed {
+                    return "http://localhost:3000,http://localhost:3001,https://localhost:3001,http://127.0.0.1:3000,https://127.0.0.1:3001,http://localhost:5173,https://localhost:5173".to_string();
+                }
             }
+            "http://localhost:3000".to_string()
         });
 
         // Check explicit allow-list first
@@ -97,14 +103,25 @@ pub async fn socket_flow_handler(
             return Ok(HttpResponse::Forbidden()
                 .body(format!("Origin '{}' not allowed for WebSocket connections", origin)));
         }
-    } else if !insecure_allowed {
-        warn!(
-            "WebSocket connection rejected - missing Origin header from {}",
-            client_ip
-        );
-        return Ok(
-            HttpResponse::BadRequest().body("Origin header required for WebSocket connections")
-        );
+    } else {
+        // No Origin header. Release builds reject; dev builds may permit when
+        // ALLOW_INSECURE_DEFAULTS is set (compile-gated via `insecure_allowed`).
+        #[cfg(any(debug_assertions, feature = "dev-auth"))]
+        let allow_missing_origin = insecure_allowed;
+        #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+        let allow_missing_origin = {
+            let _ = insecure_allowed;
+            false
+        };
+        if !allow_missing_origin {
+            warn!(
+                "WebSocket connection rejected - missing Origin header from {}",
+                client_ip
+            );
+            return Ok(
+                HttpResponse::BadRequest().body("Origin header required for WebSocket connections")
+            );
+        }
     }
 
     // SECURITY: WebSocket token validation at upgrade time.
@@ -132,13 +149,29 @@ pub async fn socket_flow_handler(
                     Some(ns) => {
                         let session = ns.get_session(t).await;
                         if session.is_none() {
-                            if insecure_allowed {
-                                warn!(
-                                    "SECURITY: WebSocket token validation failed for {} but \
-                                     ALLOW_INSECURE_DEFAULTS is set — allowing connection",
-                                    client_ip
-                                );
-                            } else {
+                            #[cfg(any(debug_assertions, feature = "dev-auth"))]
+                            {
+                                if insecure_allowed {
+                                    warn!(
+                                        "SECURITY: WebSocket token validation failed for {} but \
+                                         ALLOW_INSECURE_DEFAULTS is set — allowing connection (dev build)",
+                                        client_ip
+                                    );
+                                } else {
+                                    warn!(
+                                        "SECURITY: Rejecting WebSocket connection from {} — \
+                                         token failed cryptographic validation",
+                                        client_ip
+                                    );
+                                    return Ok(
+                                        HttpResponse::Unauthorized()
+                                            .body("Invalid or expired authentication token")
+                                    );
+                                }
+                            }
+                            #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+                            {
+                                let _ = insecure_allowed; // suppress unused warning
                                 warn!(
                                     "SECURITY: Rejecting WebSocket connection from {} — \
                                      token failed cryptographic validation",
@@ -158,7 +191,27 @@ pub async fn socket_flow_handler(
                     }
                     None => {
                         // NostrService not configured — cannot validate
-                        if !insecure_allowed {
+                        #[cfg(any(debug_assertions, feature = "dev-auth"))]
+                        {
+                            if !insecure_allowed {
+                                warn!(
+                                    "SECURITY: NostrService unavailable, rejecting WebSocket from {}",
+                                    client_ip
+                                );
+                                return Ok(
+                                    HttpResponse::Unauthorized()
+                                        .body("Authentication service unavailable")
+                                );
+                            }
+                            warn!(
+                                "SECURITY: NostrService unavailable but ALLOW_INSECURE_DEFAULTS set \
+                                 — allowing unauthenticated WebSocket from {} (dev build)",
+                                client_ip
+                            );
+                        }
+                        #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+                        {
+                            let _ = insecure_allowed;
                             warn!(
                                 "SECURITY: NostrService unavailable, rejecting WebSocket from {}",
                                 client_ip
@@ -168,17 +221,32 @@ pub async fn socket_flow_handler(
                                     .body("Authentication service unavailable")
                             );
                         }
-                        warn!(
-                            "SECURITY: NostrService unavailable but ALLOW_INSECURE_DEFAULTS set \
-                             — allowing unauthenticated WebSocket from {}",
-                            client_ip
-                        );
                     }
                 }
             }
             _ => {
                 // No token at all
-                if !insecure_allowed {
+                #[cfg(any(debug_assertions, feature = "dev-auth"))]
+                {
+                    if !insecure_allowed {
+                        warn!(
+                            "SECURITY: Rejecting unauthenticated WebSocket connection on /wss from {}",
+                            client_ip
+                        );
+                        return Ok(
+                            HttpResponse::Unauthorized()
+                                .body("Authentication required for WebSocket connections")
+                        );
+                    }
+                    warn!(
+                        "SECURITY: Unauthenticated WebSocket connection on /wss from {} \
+                         (ALLOW_INSECURE_DEFAULTS set, dev build)",
+                        client_ip
+                    );
+                }
+                #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
+                {
+                    let _ = insecure_allowed;
                     warn!(
                         "SECURITY: Rejecting unauthenticated WebSocket connection on /wss from {}",
                         client_ip
@@ -188,11 +256,6 @@ pub async fn socket_flow_handler(
                             .body("Authentication required for WebSocket connections")
                     );
                 }
-                warn!(
-                    "SECURITY: Unauthenticated WebSocket connection on /wss from {} \
-                     (ALLOW_INSECURE_DEFAULTS set, non-production)",
-                    client_ip
-                );
             }
         }
     }
