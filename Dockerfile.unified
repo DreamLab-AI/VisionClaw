@@ -53,8 +53,9 @@ RUN for attempt in 1 2 3; do \
             # Core build tools \
             curl \
             git \
-            # Compilers (CachyOS ships modern GCC, no version pinning needed) \
+            # Compilers — gcc16 is system default; gcc14 is the newest nvcc supports \
             gcc \
+            gcc14 \
             base-devel \
             # Libraries (openssl included in base, pkgconf in base-devel) \
             openssl \
