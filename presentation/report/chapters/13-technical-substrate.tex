@@ -1,0 +1,108 @@
+\chapter{The Technical Substrate: VisionClaw}
+\label{ch:technical-substrate}
+
+\epigraph{The honest version is more defensible and more credible.}{}
+
+\section{A Working Agentic Mesh}
+
+VisionClaw is not a prototype, a whitepaper, or a concept rendering. It is an operational agentic mesh serving a creative technology team at DreamLab, Fairfield, Eskdale. This chapter describes what the system is, what it does, and --- equally important --- what it does not yet do. The claims have been reconciled against the codebase as of April 2026.
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\vspace{3cm}\textbf{[FIGURE: VisionClaw Architecture Diagram]}\\\textit{OWL~2 Ontology Engine, Claude-Flow Orchestration, WebXR Visualisation, Nostr Identity, and RuVector Memory layers}\vspace{3cm}}}
+\caption{VisionClaw System Architecture}
+\label{fig:visionclaw-arch}
+\end{figure}
+
+\section{Architecture Stack}
+
+The system comprises five integrated subsystems, each verified against the production codebase.
+
+\subsection{OWL~2 Ontology Engine}
+
+The knowledge graph uses formal OWL~2 ontology via \texttt{horned-owl} (v1.2.0) and \texttt{whelk-rs} EL++ inference. The engine parses OWL/XML, Manchester, RDF/XML, and Turtle formats, with Neo4j providing persistence. This subsystem provides the shared semantics for agent skill routing: task decomposition uses ontological subsumption rather than keyword matching, meaning that the system understands that ``risk assessment'' is a sub-task of ``governance review'' and routes accordingly.
+
+The OWL~2 engine is the architectural feature that most clearly distinguishes VisionClaw from other agentic systems. Formal ontology provides two capabilities that informal knowledge representations lack: compositionality (new concepts can be constructed from existing ones with guaranteed semantic consistency) and inference (the system can derive relationships that were not explicitly stated). These properties make the governance and provenance mechanisms described in Chapter~\ref{ch:governance} possible.
+
+\subsection{Claude-Flow Orchestration}
+
+Task orchestration operates through Claude-Flow with RAFT consensus. The system integrates 83 agent skills across 12 domains. Agent routing operates through ontology-grounded skill decomposition: when a task arrives, the orchestration layer decomposes it into sub-tasks using the OWL~2 ontology and routes each sub-task to the appropriate specialist agent.
+
+\subsection{WebXR 3D Knowledge Visualisation}
+
+The visualisation layer provides a Rust/CUDA/WebXR backend with 92 CUDA kernels (6,750 lines of code) for GPU-accelerated graph physics. The system offers two rendering modes: Babylon.js for immersive and VR interaction, and React Three Fiber for desktop access. The visualisation is proven at approximately 1,000-node scale in production, with 100,000-node performance as a design target under active development.
+
+\subsection{Nostr Agent Identity}
+
+Agent identities use the Nostr protocol (NIP-98 HTTP authentication, \texttt{nostr-sdk} v0.43.0). This provides agent signing and cascading trust semantics through a self-sovereign identity layer for agent communication. The decentralised identity model avoids dependence on a central certificate authority and provides cryptographic verification of agent actions.
+
+\subsection{RuVector Memory}
+
+The persistent memory layer stores over 1.17 million vector embeddings in PostgreSQL with pgvector and HNSW indexing. This provides agents with persistent memory across sessions --- a capability that addresses one of the key limitations identified in Every's agent colony model, where memory gaps cause context loss between sessions \parencite{Shipper2026}.
+
+\section{What Is Real and Verified}
+
+The following capabilities have been verified against the production codebase as of April 2026:
+
+\begin{itemize}
+  \item OWL~2 reasoning with Whelk-rs EL++ inference --- genuine, functional, and unusual in the agentic AI space.
+  \item GPU-accelerated graph physics --- 92 CUDA kernels, proven at approximately 1,000-node scale.
+  \item Multi-user WebXR visualisation via Babylon.js --- working in production.
+  \item Nostr identity and signing (NIP-98) --- working.
+  \item Claude-Flow skill integration --- 83 skills in production across 12 domains.
+  \item RuVector memory --- 1.17 million embeddings with HNSW indexing.
+\end{itemize}
+
+\section{What Was Previously Overclaimed}
+
+\begin{cautionbox}[title={Corrected Claims}]
+A codebase audit identified several claims in earlier versions of this document that exceeded what the code supports. The corrections are:
+\begin{itemize}
+  \item ``101 specialist skills'' is corrected to 83 Claude Code skills across 12 domains. The previous count was inflated.
+  \item Multi-model orchestration via Jarvis, Gemini, and GLM-4 DAG pipelines does not exist. The system uses Claude-Flow only. The DAG struct in the codebase is for GPU physics layout, not multi-model orchestration.
+  \item W3C-compliant DID key rotation is not implemented. Nostr NIP-98 authentication works; no W3C DID implementation or key rotation code exists in the codebase.
+  \item ``100,000+ nodes at 60fps'' is a unit test case, not a validated production capability. Production screenshots show approximately 934 nodes.
+  \item ``4M+ tokens of live knowledge graph'' cannot be verified. The system contains 1.17 million vector memory entries; no token counting infrastructure exists.
+  \item The hardware specification of ``96GB VRAM --- Dual A6000 Ada'' appears only in skill examples. The README specifies RTX 4080+ (16GB) as the target hardware.
+  \item ``Stratified unidirectional links'' --- no code or documentation for this pattern was found.
+\end{itemize}
+\end{cautionbox}
+
+\section{The Corrected Story}
+
+The corrected story is still strong. A working OWL~2 + CUDA + WebXR + Nostr + Claude-Flow system with 83 integrated skills and 1.17 million vector embeddings, proven at small-to-medium scale with approximately 1,000-node graphs, is genuinely novel. It does not need inflation. The honest version is more defensible and more credible.
+
+\subsection{What This Proves}
+
+\begin{itemize}
+  \item Ontology-grounded agent orchestration works --- agents coordinate through formal semantics, not keyword matching.
+  \item GPU-accelerated knowledge visualisation is operationally feasible at production scale.
+  \item Nostr provides a viable decentralised identity layer for agent ecosystems.
+  \item The architecture is production-tested at small-to-medium scale.
+\end{itemize}
+
+\subsection{What This Does Not Yet Prove}
+
+\begin{itemize}
+  \item Scalability beyond approximately 50 people or 1,000 nodes in production.
+  \item Adoption by non-technical middle managers.
+  \item The judgment broker role when the broker is not the system architect.
+  \item The Insight Ingestion Loop in a regulated industry.
+  \item The proposed KPIs (Mesh Velocity, Augmentation Ratio, Trust Variance) at scale.
+  \item Multi-provider orchestration (only Claude-Flow is currently implemented).
+\end{itemize}
+
+\section{Positioning Guidance}
+
+In any external presentation, the following guidelines should govern how VisionClaw is described:
+
+\begin{enumerate}
+  \item Use ``VisionClaw'' consistently (the actual system name), not ``VisionFlow'' (used inconsistently in earlier documents).
+  \item Lead with what is verified. Frame the 100,000-node target and multi-provider orchestration as roadmap items, not current reality.
+  \item Position VisionClaw as an ``existence proof under favourable conditions'' rather than ``proof'' --- honest about the gap between a 15-person creative technology team and a 500-person manufacturing firm.
+  \item The audience for this document includes people who will check. Overclaiming undermines the genuine strengths of the system and the credibility of the broader argument.
+\end{enumerate}
+
+\begin{keyinsight}
+The value of VisionClaw to the coordination collapse argument is not that it is the largest or most powerful agentic system. It is that it demonstrates a specific architectural approach --- ontology-grounded orchestration with embedded governance --- that the theoretical argument requires. The existence of a working system, even at modest scale, transforms the argument from ``this could work in theory'' to ``this works in practice, and the question is how far it scales.''
+\end{keyinsight}

@@ -1,0 +1,60 @@
+# Frontend Graph-Loading Fix — Audit Report
+
+**Date:** 2026-04-17
+**Scope:** Session fixes for "Connecting to server..." blocker (module-worker COEP failure)
+**Auditor:** code-review-quality
+**Base:** `git diff HEAD~5 HEAD` + uncommitted changes on `main`
+
+---
+
+## Summary
+
+- **Root-cause fix is correct.** Adding per-location `add_header` COEP/COOP/CORP inside every Vite proxy block in `nginx.dev.conf` is the right nginx-semantics fix; without it, server-level `add_header` is shadowed and the module worker's main script ships without COEP, causing silent `ErrorEvent` under a `credentialless` parent. Vite's `credentialless` alignment and the verbose `worker.onerror` diagnostics are well targeted.
+- **Fallback path is sound but paid for twice.** The non-SAB `getCurrentPositions()` round-trip plus the new `syncToSharedBuffer()` at the end of `processBinaryData` means the SAB path now does an extra Comlink RPC *even when SAB is available is fine — the guard is correct*, but it adds latency on every binary frame in the non-SAB branch (laptops). Consider piggybacking currentPositions on the existing `processBinaryData` return value to halve the RPC cost.
+- **One real regression risk + several debt items.** Production nginx (`nginx.production.conf`) still uses `require-corp` and has **no per-location override** in its Vite-equivalent static-asset blocks — prod paths bypass the bug because there's no upstream proxy stripping headers, so prod is fine. However: (1) the commented-out CSP meta in `index.html` ships to prod bundles too (it's a static file), losing defence-in-depth if nginx CSP ever regresses; (2) the movement-threshold relaxation from `0.001` → `0.01` is a silent perceptual change, not a fix; (3) `GraphCanvas` now dispatches 5 synthetic `resize` events — this is a shotgun workaround likely to mask a real WebGPU pipeline bug.
+
+---
+
+## Findings
+
+| # | File:line | Issue | Severity | Recommendation |
+|---|-----------|-------|----------|----------------|
+| 1 | `nginx.dev.conf:264-320` | Per-location COEP/COOP re-declaration is correct for nginx header-inheritance semantics and resolves the module-worker blocker. `always` flag ensures headers ship on 304/error responses too. | info | Accept. Add a code comment pointing to nginx docs on `add_header` inheritance to prevent future regressions. |
+| 2 | `client/vite.config.ts:102` | `credentialless` is necessary because the dev bundle loads cross-origin assets from `dl.polyhaven.org` that do not send CORP. Prod still uses `require-corp`. | medium | Document the dev/prod COEP asymmetry in `docs/how-to/infrastructure/` and ensure prod assets all send CORP, otherwise production will hit the same worker-load failure. Test prod build with Chrome `chrome://flags/#cross-origin-embedder-policy-credentialless` disabled to confirm. |
+| 3 | `client/index.html:13-15` | CSP meta tag commented out for "dev needs unsafe-eval for HMR". But `index.html` is the **same file bundled into prod** — prod now relies solely on nginx CSP headers. If the nginx CSP `add_header` is ever shadowed by the same inheritance bug in a prod location block, there is zero client-side fallback. | medium | Either (a) split `index.html` into dev/prod variants via Vite transform, or (b) keep a prod-only CSP meta injected at build time. Do not ship a commented-out security control. |
+| 4 | `client/src/features/graph/managers/graphWorkerProxy.ts:208-216` | Non-SAB fallback issues a **second Comlink RPC** (`getCurrentPositions`) on every binary frame. At ~60fps this doubles worker↔main-thread round-trips for laptops. | high | Return `currentPositions` directly from `processBinaryData` as a tuple/object to eliminate the extra RPC. `processBinaryData` already calls `syncToSharedBuffer()` so the worker has the data ready — send it on the existing message. |
+| 5 | `client/src/features/graph/workers/graph.worker.ts:639-641` | `syncToSharedBuffer()` is now called **unconditionally** at end of `processBinaryData`, even when SAB is unavailable (no-op) and even when `tick()` would sync it anyway moments later. Adds a full-buffer memcpy per binary frame. | medium | Guard with `if (this.sharedPositionView)` or measure the overhead; benign but wasteful if SAB is null. |
+| 6 | `client/src/features/graph/workers/graph.worker.ts:1065` | Movement threshold raised `0.001` → `0.01` with no explanation in the commit. This is a **perceptual behaviour change**, not a loading-blocker fix. Micro-motion (thermal jitter, low-energy settling) will no longer trigger re-renders. | medium | Revert unless there is measured evidence of a render-storm. If kept, add a settings knob and document the threshold unit (world-space units). |
+| 7 | `client/src/features/graph/components/GraphCanvas.tsx:196-203` | Five staggered `setTimeout` + synthetic `resize` kicks at 50/150/300/600/1200ms is a shotgun workaround for a WebGPU-first-frame bug. No cancellation — all 5 fire even after the canvas unmounts. | high | (a) Guard with a `mounted` ref and clear timers on unmount. (b) Replace with a single `ResizeObserver` on the parent container that invalidates on real size change. (c) If WebGPU pipeline compile is the root issue, await `gl.compileAsync()` or similar. |
+| 8 | `client/src/features/graph/components/GraphManager.tsx:427-431` | `startLayoutTransition` now early-returns setting `setLayoutTransitioning(false)`, but the caller may have just set it to `true` in the same render — React state batching means the caller sees a stale "transitioning" state for one frame. | low | Consider hoisting the early-return check into the caller, or use a ref for transition state. |
+| 9 | `client/src/features/graph/components/GraphManager.tsx:585-588` | 2× duration safety timeout force-completes the transition but does **not** restore force-directed SAB binding the same way the normal completion branch does. Non-forceDirected modes are fine; forceDirected mode may end up frozen on lerp buffer. | high | Mirror the `isForceDirected ? nodePositionsRef = positions` branch inside the timeout path. |
+| 10 | `client/src/features/graph/components/GraphManager.tsx:604` | `connectionCountMap.get(String(graphData.nodes[i]?.id))` — the prior code used `String(i)` (array index). If `connectionCountMap` is actually keyed by index (as the old code assumed), this "fix" silently zeroes mass factors for all nodes. If it's keyed by node id, the old code was broken. Reviewer cannot tell which is correct without seeing `connectionCountMap` construction. | high | Verify the map's key semantics and add an integration test. Current commit message says "mass factor lookup fix" but offers no evidence. |
+| 11 | `client/src/features/graph/components/GemNodes.tsx:118-124` | New `liveSettingsRef` subscribes via `useSettingsStore.subscribe` — the unsubscribe is returned from `useEffect` correctly. However, initial value is captured at mount via `getState()` — if the store hydrates after mount, the ref holds stale data until the first update. | low | Initialise via a function: `useRef(() => useSettingsStore.getState().settings)` is fine, but verify hydration timing. |
+| 12 | `client/src/features/graph/components/GemNodes.tsx:155,517-524` | Direct `(instanceMatrix as any).version++` WebGPU workaround is **fragile** — the `version` field is an internal three.js detail, not public API, and typed-casts away the safety. Upgrading three.js may break this silently. | medium | Extract into a helper `markAttributeDirtyForWebGPU(attr)` with a version check. File an upstream three.js issue/PR to expose a proper dirty flag. |
+| 13 | `client/src/app/AppInitializer.tsx:199-204` | The duplicate `onBinaryMessage` handler removal is correct (binaryProtocol.ts already handles it). The replacement is a comment block — ensure no downstream code expected this handler to register side effects (e.g. debug hex logging). | info | Accept. The debug hex-dump capability is lost but was only gated by `debugState.isDataDebugEnabled()` — port it to binaryProtocol.ts if still wanted. |
+| 14 | `client/src/features/graph/managers/graphDataManager.ts:595` | Removal of the double-increment at the inner scope is correct — the outer `this.updateCount++` at line 595 remains, so `% 100` cadence is preserved. | info | Accept. Add a unit test asserting `updateCount` increments exactly once per `updateNodePositions` call. |
+| 15 | `client/src/features/graph/managers/graphWorkerProxy.ts:88-102` | Verbose `worker.onerror` handler is the right diagnostic. `messageerror` listener is a nice catch for structured-clone failures. | info | Accept. Consider posting these errors to `useWorkerErrorStore` so UI can show a fatal banner instead of only console logs. |
+| 16 | `client/src/features/graph/managers/graphWorkerProxy.ts:358-360` | `getPositionsSync()` fallback chain `sharedPositionView || lastReceivedPositions` — correct. But `lastReceivedPositions` is a `Float32Array` reference that the worker may mutate concurrently in the SAB-less path; the renderer may read a half-written buffer. | high | The worker currently returns `new Float32Array(currentPositions)` — that copy is safe. Verify that `getCurrentPositions()` in the worker returns a **fresh copy** (line 651 — `new Float32Array(this.currentPositions)` — yes, it does). Document this invariant. |
+| 17 | `nginx.production.conf:92,267,280` | Production still uses `require-corp` and **does not** have the per-location bug because it serves static files directly (no upstream `proxy_hide_header`). Prod unaffected by this fix. | info | No change required. But note: once `credentialless` graduates from origin-trial in Chrome stable, consider aligning prod to avoid surprises when external CDN assets lack CORP. |
+| 18 | Tests | No new or updated tests accompanying fixes across ~10 production files. `graphDataManager.test.ts` and `binaryProtocol.test.ts` exist but were not updated. | high | Add at minimum: (a) worker-proxy fallback test (mock `sharedPositionView = null`, assert `lastReceivedPositions` populated after `processBinaryData`); (b) transition 2x-duration safety-timeout test; (c) layout-transition mass-factor keying regression test (finding #10). |
+| 19 | Tech debt markers | `client/vite.config.ts:35` adds a second entry `enterprise` — unrelated to the graph-loading fix but bundled into the same series of commits. | low | Split unrelated changes into separate commits/PRs. |
+| 20 | Error suppression | No new try/catch swallowing. `consecutiveTickErrors` reset logic unchanged. Good. | info | — |
+
+---
+
+## Ship Checklist
+
+Before committing the currently-uncommitted changes to `graphWorkerProxy.ts` and `nginx.dev.conf`:
+
+- [ ] **Verify prod build** under Chrome with credentialless disabled — confirm `nginx.production.conf` is unaffected and SAB still works in prod
+- [ ] **Fix finding #4** — consolidate `getCurrentPositions()` into `processBinaryData` return value to eliminate double-RPC on every frame
+- [ ] **Fix finding #7** — add unmount guard + clearTimeout for the 5 staggered resize kicks in `GraphCanvas.tsx`
+- [ ] **Resolve finding #9** — add forceDirected SAB restore inside the 2×-duration safety timeout branch
+- [ ] **Resolve finding #10** — confirm `connectionCountMap` keying (index vs id) with an assertion or test; the "fix" may be a regression
+- [ ] **Revert or justify finding #6** — movement threshold `0.001` → `0.01` needs evidence or reverting
+- [ ] **Restore CSP meta for prod (finding #3)** — either build-time inject or split `index.html`
+- [ ] **Add regression tests** — worker non-SAB fallback, transition safety timeout, double-increment guard (finding #18)
+- [ ] **Document dev/prod COEP asymmetry (finding #2)** in `docs/how-to/infrastructure/`
+- [ ] **Verify cross-browser** — Safari does not support `credentialless` COEP; confirm graceful degradation path (worker falls back to `lastReceivedPositions`) works on Safari
+- [ ] **Run `npm run lint` + `npm test`** and confirm no new type-safety regressions from the `(attr as any).version++` casts in `GemNodes.tsx`
+- [ ] **Split the enterprise.html Vite entry** from this PR if not part of the graph-loading fix scope

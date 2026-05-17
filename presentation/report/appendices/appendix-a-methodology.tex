@@ -1,0 +1,135 @@
+\chapter{Research Methodology}
+\label{ch:methodology}
+
+This appendix documents the research methodology used to produce this report, including the multi-agent research architecture, source selection criteria, codebase audit procedures, and Wardley mapping approach.
+
+\section{Multi-Agent Research Architecture}
+
+The research was conducted using five parallel research agents, each assigned a distinct domain with defined source priorities and quality thresholds. The agents operated concurrently across a shared memory layer (RuVector, 1.17 million vector embeddings with HNSW indexing) that enabled cross-domain pattern detection and prevented duplication of effort.
+
+\begin{table}[H]
+\centering
+\caption{Research agent assignments and source priorities}
+\label{tab:research-agents}
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Agent} & \textbf{Domain} & \textbf{Primary Sources} \\
+\midrule
+Agent 1 & Mollick / BCG / Jagged Frontier & \textcite{DellAcqua2026}, \textcite{Randazzo2024}, \textcite{DellAcqua2023}, Mollick's ``One Useful Thing'' corpus, \textcite{BCGAIKPIs2025} \\
+\addlinespace
+Agent 2 & Block Critique & \textcite{DorseyBotha2026}, \textcite{Zamost2026}, \textcite{Spicer2026}, \textcite{Klarna2025}, \textcite{OrgvueForrester2025} \\
+\addlinespace
+Agent 3 & Agentic Organisations & \textcite{McKinseyAgenticOrg2026}, \textcite{McKinseySixShifts2026}, \textcite{BCGAgenticShift2025}, \textcite{BCGAgenticEnterprise2025}, \textcite{Deloitte2026} \\
+\addlinespace
+Agent 4 & Change Management & \textcite{WadeBonnet2025}, \textcite{Teece2025}, \textcite{MicrosoftDirectedAutonomy2025}, \textcite{Prosci2024}, \textcite{Capgemini2025} \\
+\addlinespace
+Agent 5 & Every / Compound Engineering & \textcite{Shipper2026}, \textcite{Klaassen2025}, \textcite{CyberArk2025}, \textcite{TDS2026} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Each agent maintained a source provenance log in the shared RuVector memory, recording the retrieval date, URL, and a confidence assessment for each source. Cross-referencing between agents was automated through semantic vector search: when Agent 2 (Block Critique) encountered a claim about AI productivity, the memory layer surfaced related findings from Agent 1 (Mollick / BCG) and Agent 5 (Every / Compound) for triangulation.
+
+\section{Source Selection and Quality Assessment}
+
+Sources were categorised into four tiers based on methodological rigour and evidentiary weight.
+
+\subsection{Tier 1: Peer-Reviewed and Pre-Registered Research}
+
+The highest evidentiary weight was assigned to peer-reviewed publications and pre-registered experiments. The primary load-bearing sources in this category are:
+
+\begin{itemize}
+  \item \textcite{DellAcqua2026}: pre-registered field experiment with 758 BCG consultants, published in \emph{Organization Science}. This is the evidential foundation for the jagged frontier concept.
+  \item \textcite{Randazzo2024}: follow-up study with 244 BCG consultants identifying the Centaur, Cyborg, and Self-Automator collaboration modes.
+  \item \textcite{DellAcqua2023}: field experiment with HR recruiters demonstrating the vigilance degradation problem.
+  \item \textcite{Acemoglu2019}: the task-based automation framework that grounds the economic analysis of AI and labour.
+  \item \textcite{Acemoglu2025}: the sceptical macroeconomic analysis of AI productivity, arguing for at most 0.66 per cent TFP gain over a decade.
+\end{itemize}
+
+\subsection{Tier 2: Institutional Research with Disclosed Methodology}
+
+Consultancy reports and institutional research with disclosed sample sizes and methodologies. These carry less evidentiary weight than peer-reviewed work but are treated as credible within stated limitations:
+
+\begin{itemize}
+  \item \textcite{BCGAIKPIs2025}: joint research with MIT Sloan, $n = 3{,}000+$ across 25 industries.
+  \item \textcite{MicrosoftWorkTrend2024}: large-scale survey with disclosed methodology.
+  \item \textcite{WEF2025}: the World Economic Forum's Future of Jobs Report.
+  \item \textcite{Capgemini2025}: middle manager resistance patterns with percentage-level findings.
+  \item \textcite{EdmondsonLei2025}: psychological safety and AI experimentation, grounded in the established literature on team effectiveness.
+\end{itemize}
+
+\textbf{Limitation:} Consultancy reports are produced by organisations with commercial interests in the phenomena they describe. Methodology sections are often absent or sparse. Sample composition and response biases are rarely disclosed. Statistics from these sources are used directionally --- to establish trends and orders of magnitude --- rather than as precise measurements.
+
+\subsection{Tier 3: Expert Commentary and Primary Accounts}
+
+Expert commentary, practitioner accounts, and journalistic reporting. These provide context and narrative but are not treated as primary evidence:
+
+\begin{itemize}
+  \item \textcite{DorseyBotha2026}: primary source for the Block Intelligence Layer model.
+  \item \textcite{Shipper2026} and \textcite{Klaassen2025}: primary accounts of the Every agent colony experiment.
+  \item \textcite{Mollick2025Management}: expert synthesis from a researcher with deep domain expertise.
+  \item \textcite{Spicer2026} and \textcite{Zamost2026}: expert and insider critique of Block.
+\end{itemize}
+
+\subsection{Tier 4: Community and Vendor Sources}
+
+Sources with limited editorial oversight or commercial incentives. Used cautiously and flagged where they appear:
+
+\begin{itemize}
+  \item \textcite{TDS2026}: the 17$\times$ error multiplication statistic. Flagged as non-peer-reviewed in Chapter~\ref{ch:open-questions}.
+  \item \textcite{IBM2025} and \textcite{Gartner2025}: vendor-funded research with commercial incentives. Treated as directionally correct, per the methodological note in Chapter~\ref{ch:open-questions}.
+\end{itemize}
+
+\section{Web Search and Academic Database Approach}
+
+Research was conducted through a combination of five source channels:
+
+\begin{enumerate}
+  \item \textbf{Academic databases}: Google Scholar, SSRN, NBER Working Papers, HBS Working Papers. Search terms included ``agentic organisation,'' ``AI coordination,'' ``human-AI collaboration,'' ``middle management AI,'' ``organisational design automation,'' and ``jagged technological frontier.''
+  \item \textbf{Consultancy publication portals}: McKinsey Insights, BCG Publications, Deloitte Insights, Gartner Research. Filtered to 2024--2026 publications on organisational AI.
+  \item \textbf{Practitioner platforms}: Substack (particularly Mollick's ``One Useful Thing'' and Every's ``Chain of Thought''), podcasts, and conference proceedings.
+  \item \textbf{News and analysis}: Financial Times, New York Times, Fortune, CNBC, VentureBeat. Used for event-driven reporting (Block restructuring, Klarna reversal) with cross-referencing against multiple outlets.
+  \item \textbf{Regulatory sources}: EUR-Lex for EU AI Act text, UK Legislation website for the Employment Rights Act, ICO guidance on workplace monitoring.
+\end{enumerate}
+
+\section{Codebase Audit Methodology}
+
+The VisionClaw codebase was audited in April 2026 to reconcile claims made in earlier versions of this document against the actual code. The audit procedure:
+
+\begin{enumerate}
+  \item \textbf{Claim extraction}: all factual claims about VisionClaw's capabilities were extracted from the document and catalogued.
+  \item \textbf{Code search}: each claim was tested against the codebase using structural code analysis (call graphs, dependency trees) and text search. The codebase-memory MCP tool (48,159 nodes, 95,766 edges) was used for structural queries.
+  \item \textbf{Verification categories}: each claim was classified as (a) verified and accurate, (b) partially accurate with caveats, or (c) not supported by the code.
+  \item \textbf{Correction}: claims in categories (b) and (c) were corrected in Chapter~\ref{ch:technical-substrate}. The corrections are presented transparently, with both the original claim and the corrected version visible.
+\end{enumerate}
+
+\begin{cautionbox}[title={Conflict of Interest}]
+The codebase audit was conducted by the system architect (Dr.~John O'Hare), who is also the report author and the founder of DreamLab AI Consulting. This introduces a conflict of interest: the auditor has a commercial interest in the system being described favourably. The audit found and corrected seven overclaims (documented in Chapter~\ref{ch:technical-substrate}), which provides some evidence of good faith. Independent code review by a third party would strengthen the credibility of the technical claims but was not available at the time of writing.
+\end{cautionbox}
+
+\section{Wardley Mapping Methodology}
+
+Five Wardley maps were produced for this report, each following Simon Wardley's standard mapping methodology:
+
+\begin{enumerate}
+  \item \textbf{Value chain identification}: for each map, the user need was identified and the value chain of components required to serve that need was enumerated.
+  \item \textbf{Evolution assessment}: each component was placed on the evolution axis (Genesis $\rightarrow$ Custom $\rightarrow$ Product $\rightarrow$ Commodity/Utility) based on its current maturity and market availability.
+  \item \textbf{Movement indication}: where components are expected to evolve (e.g., information routing moving from custom toward commodity), movement arrows indicate the direction and anticipated pace.
+  \item \textbf{Strategic interpretation}: each map was interpreted for strategic implications relevant to the report's argument.
+\end{enumerate}
+
+The maps are interpretive tools, not empirical measurements. The placement of components on the evolution axis reflects the author's assessment informed by the evidence assembled in this report. Different analysts may position components differently, particularly for novel concepts (judgment brokerage, mesh velocity) whose evolutionary stage is inherently uncertain.
+
+\section{Limitations of the Research Process}
+
+\begin{enumerate}
+  \item \textbf{Single-author synthesis}: while the research was conducted using multiple agents, the synthesis and editorial judgment are those of a single author. The report reflects one analytical perspective on a multi-faceted phenomenon.
+  \item \textbf{Temporal constraints}: the field is moving rapidly. Sources published after April 2026 are not included. The jagged frontier, in particular, has likely shifted since the foundational BCG study.
+  \item \textbf{English-language bias}: the research draws almost exclusively on English-language sources. Organisational innovations in non-Anglophone contexts --- particularly Haier's micro-enterprise model in China --- are discussed secondhand rather than from primary sources.
+  \item \textbf{Analyst-vendor conflict}: the author is the founder of DreamLab AI Consulting and the architect of VisionClaw. This conflict is acknowledged throughout the report and addressed directly in Chapter~\ref{ch:open-questions}.
+  \item \textbf{Sample bias in practitioner evidence}: the Every experiment ($\sim$20 people) and VisionClaw deployment ($\sim$15--50 people) are both small-scale, technically sophisticated organisations. The generalisability of findings from these contexts to larger, less technical organisations is an open question.
+\end{enumerate}
+
+\section{Disclosure}
+
+The author of this report, Dr.\ John O'Hare, is the founder and principal of DreamLab AI Consulting Ltd and the architect of the VisionClaw system described in Chapter~\ref{ch:technical-substrate}. The report simultaneously analyses the problem space, proposes a solution framework, and describes a commercial offering from the author's firm. This positioning conflict is acknowledged in Chapter~\ref{ch:open-questions} and is offered as context for the reader's own evaluation of the argument.

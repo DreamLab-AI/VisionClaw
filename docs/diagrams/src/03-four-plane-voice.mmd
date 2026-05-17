@@ -1,0 +1,38 @@
+flowchart TB
+    subgraph PRIVATE["  PRIVATE PLANES · 1:1 AGENT DIALOGUE  "]
+        direction LR
+        P1["<b>PLANE 1</b><br/>━━━━━━━━━━━<br/>User Mic ──▶ Whisper STT ──▶ Agent<br/><i>private thoughts · PTT held</i>"]:::p1
+        P2["<b>PLANE 2</b><br/>━━━━━━━━━━━<br/>Agent ──▶ Kokoro TTS ──▶ User Ear<br/><i>private replies · always-on</i>"]:::p2
+    end
+
+    subgraph PUBLIC["  PUBLIC PLANES · SHARED SPATIAL AUDIO  "]
+        direction LR
+        P3["<b>PLANE 3</b><br/>━━━━━━━━━━━<br/>User Mic ──▶ LiveKit SFU ──▶ All Users<br/><i>room voice · PTT released</i>"]:::p3
+        P4["<b>PLANE 4</b><br/>━━━━━━━━━━━<br/>Agent TTS ──▶ LiveKit ──▶ All Users<br/><i>announce · configured public</i>"]:::p4
+    end
+
+    USER(["<b>USER</b><br/>Browser · Quest 3"]):::user
+    AGENT(["<b>AGENT</b><br/>Nostr Identity<br/>Claude-Flow Skill"]):::agent
+    ROOM[/"<b>LIVEKIT SFU</b><br/>Opus 48kHz · HRTF Spatial"/]:::room
+
+    USER ==>|"mic"| P1
+    P1 ==>|"transcript"| AGENT
+    AGENT ==>|"response"| P2
+    P2 ==>|"audio"| USER
+
+    USER ==>|"mic"| P3
+    P3 ==>|"broadcast"| ROOM
+    AGENT ==>|"response"| P4
+    P4 ==>|"broadcast"| ROOM
+    ROOM ==>|"HRTF panned"| USER
+
+    classDef p1 fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef p2 fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef p3 fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef p4 fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef user fill:#141F3D,stroke:#5DADE2,stroke-width:2px,color:#E8F4FC
+    classDef agent fill:#141F3D,stroke:#F59E0B,stroke-width:2px,color:#FDE68A
+    classDef room fill:#141F3D,stroke:#00D4FF,stroke-width:3px,color:#D5F4FC
+
+    style PRIVATE fill:#081018,stroke:#1E3A2E,stroke-width:1px
+    style PUBLIC fill:#0F0818,stroke:#3A1E3A,stroke-width:1px

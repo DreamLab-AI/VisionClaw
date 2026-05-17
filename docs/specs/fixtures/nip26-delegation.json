@@ -1,0 +1,64 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "26.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-26 Delegated Event Signing",
+    "vector_count": 5,
+    "schema": "fields: case (description), delegator_pubkey_hex (32-byte hex)?, delegator_privkey_hex (32-byte hex)?, delegatee_pubkey_hex (32-byte hex), delegatee_privkey_hex (32-byte hex)?, conditions (string), delegation_string (string, canonical signing input), delegation_token_hex (128-char hex sig)?, delegation_tag (3-or-4-tuple), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "spec-canonical-test-vector",
+      "delegator_pubkey_hex": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+      "delegator_privkey_hex": "ee35e8bb71131c02c1d7e73231daa48e9953d329a4b701f7133c8f46dd21139c",
+      "delegatee_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "delegatee_privkey_hex": "777e4f60b4aa87937e13acc84f7abcc3c93cc035cb4c1e9f7a9086dd78fffce1",
+      "conditions": "kind=1&created_at>1674834236&created_at<1677426236",
+      "delegation_string": "nostr:delegation:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396:kind=1&created_at>1674834236&created_at<1677426236",
+      "delegation_token_hex": "6f44d7fe4f1c09f3954640fb58bd12bae8bb8ff4120853c4693106c82e920e2b898f1f9ba9bd65449a987c39c0423426ab7b53910c0c6abfb41b30bc16e5f524",
+      "delegation_tag": [
+        "delegation",
+        "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind=1&created_at>1674834236&created_at<1677426236",
+        "6f44d7fe4f1c09f3954640fb58bd12bae8bb8ff4120853c4693106c82e920e2b898f1f9ba9bd65449a987c39c0423426ab7b53910c0c6abfb41b30bc16e5f524"
+      ],
+      "valid": true,
+      "note": "Canonical NIP-26 example from spec; delegation_token verifies under delegator_pubkey via Schnorr/BIP-340 over sha256(delegation_string)."
+    },
+    {
+      "case": "conditions-kind1-pre-window",
+      "delegatee_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "conditions": "kind=1&created_at<1675721813",
+      "delegation_string": "nostr:delegation:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396:kind=1&created_at<1675721813",
+      "valid": true,
+      "note": "Spec example string; signing/verification not provided."
+    },
+    {
+      "case": "conditions-kind0-or-kind1-after-window",
+      "delegatee_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "conditions": "kind=0&kind=1&created_at>1675721813",
+      "delegation_string": "nostr:delegation:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396:kind=0&kind=1&created_at>1675721813",
+      "valid": true,
+      "note": "Spec example: multiple kind clauses are OR-combined; created_at is AND-combined."
+    },
+    {
+      "case": "conditions-bounded-time-window",
+      "delegatee_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "conditions": "kind=1&created_at>1674777689&created_at<1675721813",
+      "delegation_string": "nostr:delegation:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396:kind=1&created_at>1674777689&created_at<1675721813",
+      "valid": true,
+      "note": "Spec example: bounded time window via two created_at predicates."
+    },
+    {
+      "case": "negative-malformed-empty-conditions",
+      "delegatee_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "conditions": "",
+      "delegation_string": "nostr:delegation:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396:",
+      "valid": false,
+      "note": "DreamLab-internal negative case: empty conditions string is unbounded delegation; per ADR-074 D8 implementations SHOULD reject."
+    }
+  ]
+}

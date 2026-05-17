@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip04-dm.schema.json",
+  "title": "NIP-04 DM fixture (deprecated AES-256-CBC)",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "sender_privkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sender_pubkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "recipient_privkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "recipient_pubkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "plaintext": {"type": ["string", "null"]},
+          "content_format_regex": {"type": "string"},
+          "content_invalid": {"type": "string"},
+          "shared_secret_rule": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

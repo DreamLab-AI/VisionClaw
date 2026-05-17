@@ -1,0 +1,122 @@
+\chapter{New KPIs for a Fluid Organisation}
+\label{ch:new-kpis}
+
+\epigraph{What you measure is what you get. And what most organisations measure --- headcount, billable hours, task completion rate --- measures the wrong things entirely.}{}
+
+\section{Why the Existing KPI Landscape Is Inadequate}
+
+The transition from hierarchical coordination to agentic orchestration renders the standard performance measurement framework obsolete. Traditional KPIs --- total headcount, billable hours, task completion rate, dashboard views, reporting latency --- measure the efficiency of the information routing system. When that system is replaced by an agentic mesh, continuing to measure its efficiency is like measuring the speed of the postal service after the invention of email. The numbers may still move, but they no longer describe anything that matters.
+
+The evidence for this inadequacy is quantitative. A joint research programme by \textcite{BCGAIKPIs2025}, surveying over 3,000 respondents across 25 industries, found that companies that revise their KPIs to account for AI capabilities are three times more likely to see greater financial benefit from AI deployment. AI-enabled KPIs make organisations five times more likely to align incentive structures with actual objectives.
+
+The four KPIs proposed below measure the speed and fidelity of the compounding loop directly. They replace measures of hierarchical efficiency with measures of organisational learning --- how fast the organisation converts discoveries into capability, how reliably the agentic layer handles cognitive load, whether the automated systems are drifting, and whether human attention is directed to the right problems.
+
+\begin{keyinsight}
+No mainstream consultancy has published formal ``augmentation ratio'' or ``trust variance'' metrics. BCG's closest equivalent is ``AI acceleration rate'' (30--50 per cent process speedup). Deloitte measures deployment maturity (11 per cent with autonomous production deployment). The KPIs proposed below represent a genuine gap in the consulting literature --- and therefore a genuine positioning opportunity.
+\end{keyinsight}
+
+\section{Mesh Velocity}
+
+\begin{definitionbox}[title={Mesh Velocity (MV)}]
+\textbf{Target:} $< 48$ hours
+
+\[
+MV = \Delta t \left( \text{insight} \rightarrow \text{codified workflow} \right)
+\]
+
+The elapsed time from the moment a useful shortcut or process improvement is discovered by any member of the organisation to the moment it becomes a sanctioned, reusable Directed Acyclic Graph in the mesh.
+\end{definitionbox}
+
+Mesh Velocity is the primary indicator of organisational learning speed. A mesh with high velocity converts shadow workflows into institutional capability before they fragment or drift. A mesh with low velocity allows the gap between formal process and actual work to widen until the organisational chart is fiction --- the divergence documented in Chapter~\ref{ch:collapse-point}.
+
+The target of 48 hours is derived from the observation that shadow workflows begin to accumulate technical debt --- divergent versions, undocumented dependencies, single points of failure --- within days of their creation. An organisation that can codify a discovered workflow within 48 hours captures the insight at its freshest and most transferable.
+
+Measurement requires instrumentation of the Insight Ingestion Loop described in Chapter~\ref{ch:three-models}. The clock starts when the Discovery Engine detects a novel pattern and stops when the validated DAG is promoted to the production mesh with full service-level agreements.
+
+\section{Augmentation Ratio}
+
+\begin{definitionbox}[title={Augmentation Ratio (AR)}]
+\textbf{Target:} $> 65\%$
+
+\[
+AR = \frac{\text{Cognitive Load Offloaded}}{\text{Total Cognitive Load}}
+\]
+
+The proportion of decision-making volume that is successfully handled by agents without requiring human escalation.
+\end{definitionbox}
+
+The Augmentation Ratio tracks AI adoption depth --- not merely tool usage (how many people have accounts) but genuine cognitive offloading (how much decision-making has shifted to the agentic layer). This is a more informative measure than adoption rates because it captures the functional impact of AI deployment rather than its surface penetration.
+
+The target band matters as much as the target value. A ratio below 50 per cent suggests the mesh is not yet handling enough cognitive load to justify its infrastructure. But a ratio above 85 per cent is a warning sign: it indicates that humans may be falling asleep at the wheel, the vigilance problem documented in Chapter~\ref{ch:vigilance}. The 65 per cent target represents a balance point where the agentic layer handles the majority of routine cognitive load while preserving sufficient human engagement to maintain vigilance at the jagged frontier.
+
+\section{Trust Variance}
+
+\begin{definitionbox}[title={Trust Variance (TV)}]
+\textbf{Target:} $< 0.12\sigma$
+
+\[
+TV = \sigma \left( \text{Agent Decision Quality} \right) \quad \text{over a rolling 30-day window}
+\]
+
+Real-time monitoring of the standard deviation of agent decision quality, measuring drift or bias in the automated task layer.
+\end{definitionbox}
+
+Trust Variance is the early warning system for the vigilance problem. When the standard deviation of agent decision quality exceeds the threshold, the judgment broker is notified immediately. The metric catches degradation before it compounds into failure --- before a systematic bias in the agentic layer has had time to propagate through dozens of downstream decisions.
+
+The 30-day rolling window balances sensitivity against noise. A shorter window produces false positives from normal variation; a longer window delays detection of genuine drift. The threshold of $0.12\sigma$ is calibrated to the observation that decision quality degradation becomes operationally significant --- producing measurable downstream effects --- at approximately this level.
+
+Measurement requires a mechanism for evaluating agent decision quality, which in turn requires a ground truth or expert benchmark against which automated decisions can be scored. The judgment broker's review of escalated cases provides a sample-based assessment; statistical methods can extend this to estimate variance across the full decision volume.
+
+\section{HITL Precision}
+
+\begin{definitionbox}[title={Human-in-the-Loop Precision (HP)}]
+\textbf{Target:} $> 90\%$
+
+\[
+HP = \frac{\text{Correct Escalations}}{\text{Total Escalations}}
+\]
+
+The proportion of escalated cases that genuinely required human intervention, as judged by the outcome of the intervention.
+\end{definitionbox}
+
+HITL Precision measures how well the orchestration layer knows its own limits. A ``correct escalation'' is one where the human judgment broker's intervention materially changed the outcome --- where the automated decision would have been wrong, suboptimal, or in violation of governance constraints.
+
+Low precision means humans are being interrupted for non-issues. This produces alert fatigue --- the same dynamic that degrades the effectiveness of security operation centres, clinical alarm systems, and any other monitoring environment where false positives outnumber true positives. An alert-fatigued judgment broker is functionally equivalent to no judgment broker at all.
+
+High precision means the mesh has learned where the jagged frontier actually falls in its operational domain. The escalation system surfaces genuine edge cases --- the ambiguous decisions, the novel situations, the ethical dilemmas --- and handles routine decisions autonomously. This is the operational definition of a well-calibrated mesh.
+
+\section{The KPI Dashboard as a Narrative}
+
+\begin{table}[h]
+\centering
+\caption{Summary of agentic organisation KPIs}
+\label{tab:kpi-summary}
+\begin{tabularx}{\textwidth}{l c c X}
+\toprule
+\textbf{KPI} & \textbf{Symbol} & \textbf{Target} & \textbf{What It Measures} \\
+\midrule
+Mesh Velocity & $MV$ & $< 48\text{h}$ & How fast the organisation learns \\
+\addlinespace
+Augmentation Ratio & $AR$ & $> 65\%$ & How much cognitive load the mesh handles \\
+\addlinespace
+Trust Variance & $TV$ & $< 0.12\sigma$ & Whether the mesh is drifting \\
+\addlinespace
+HITL Precision & $HP$ & $> 90\%$ & Whether humans are engaged on the right things \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+These four metrics tell a coherent story when read together. Mesh Velocity measures the speed of the learning loop. Augmentation Ratio measures the depth of cognitive offloading. Trust Variance monitors whether the system is degrading. HITL Precision evaluates whether human attention is allocated efficiently.
+
+For the C-Suite audience, this is a dashboard that replaces ``how many people do we have'' with ``how fast is our organisation learning and how reliable is the learning.'' For the change manager, it provides measurable progress indicators for the continuous transformation described in Chapter~\ref{ch:change-problem}. For the judgment broker, it defines the parameters of their role: they succeed when Trust Variance stays low and HITL Precision stays high.
+
+\begin{keyinsight}[title={Abandoning Legacy KPIs}]
+The following metrics should be deprecated or substantially de-emphasised in agentic organisations:
+\begin{itemize}
+  \item \textbf{Total Headcount} --- measures the cost of the information routing system, not its effectiveness.
+  \item \textbf{Billable Hours} --- measures time spent, not value delivered; incentivises inefficiency.
+  \item \textbf{Task Completion Rate} --- measures throughput without distinguishing between routine tasks (which should be automated) and frontier tasks (which require judgment).
+  \item \textbf{Dashboard Views} --- measures information consumption, not decision quality.
+  \item \textbf{Reporting Latency} --- measures the speed of a system that the agentic mesh renders unnecessary.
+\end{itemize}
+\end{keyinsight}

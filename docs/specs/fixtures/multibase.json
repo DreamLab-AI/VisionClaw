@@ -1,0 +1,209 @@
+{
+  "_meta": {
+    "source": "https://github.com/multiformats/multibase",
+    "commit": "d7406cdea189b82a0b3937f5737b440f5fa92f92",
+    "upstream_path": "tests/basic.csv + tests/leading_zero.csv + tests/case_insensitivity.csv",
+    "fetched_at": "2026-05-07",
+    "license": "MIT",
+    "spec": "Multibase self-describing base encoding (https://github.com/multiformats/multibase)",
+    "vector_count": 27,
+    "schema": "fields: case, encoding (e.g., base16, base32, base58btc, base64url), input_utf8 (raw UTF-8 input)?, input_hex (hex-encoded raw bytes)?, encoded (multibase-prefixed encoded string), valid (bool), normalize_to (canonical form for case-insensitive bases)?, note?"
+  },
+  "vectors": [
+    {
+      "case": "basic-base2",
+      "encoding": "base2",
+      "input_utf8": "yes mani !",
+      "encoded": "001111001011001010111001100100000011011010110000101101110011010010010000000100001",
+      "valid": true
+    },
+    {
+      "case": "basic-base8",
+      "encoding": "base8",
+      "input_utf8": "yes mani !",
+      "encoded": "7362625631006654133464440102",
+      "valid": true
+    },
+    {
+      "case": "basic-base10",
+      "encoding": "base10",
+      "input_utf8": "yes mani !",
+      "encoded": "9573277761329450583662625",
+      "valid": true
+    },
+    {
+      "case": "basic-base16",
+      "encoding": "base16",
+      "input_utf8": "yes mani !",
+      "encoded": "f796573206d616e692021",
+      "valid": true
+    },
+    {
+      "case": "basic-base16upper",
+      "encoding": "base16upper",
+      "input_utf8": "yes mani !",
+      "encoded": "F796573206D616E692021",
+      "valid": true
+    },
+    {
+      "case": "basic-base32",
+      "encoding": "base32",
+      "input_utf8": "yes mani !",
+      "encoded": "bpfsxgidnmfxgsibb",
+      "valid": true
+    },
+    {
+      "case": "basic-base32upper",
+      "encoding": "base32upper",
+      "input_utf8": "yes mani !",
+      "encoded": "BPFSXGIDNMFXGSIBB",
+      "valid": true
+    },
+    {
+      "case": "basic-base32hex",
+      "encoding": "base32hex",
+      "input_utf8": "yes mani !",
+      "encoded": "vf5in683dc5n6i811",
+      "valid": true
+    },
+    {
+      "case": "basic-base32pad",
+      "encoding": "base32pad",
+      "input_utf8": "yes mani !",
+      "encoded": "cpfsxgidnmfxgsibb",
+      "valid": true
+    },
+    {
+      "case": "basic-base32hexpad",
+      "encoding": "base32hexpad",
+      "input_utf8": "yes mani !",
+      "encoded": "tf5in683dc5n6i811",
+      "valid": true
+    },
+    {
+      "case": "basic-base32z",
+      "encoding": "base32z",
+      "input_utf8": "yes mani !",
+      "encoded": "hxf1zgedpcfzg1ebb",
+      "valid": true
+    },
+    {
+      "case": "basic-base36",
+      "encoding": "base36",
+      "input_utf8": "yes mani !",
+      "encoded": "k2lcpzo5yikidynfl",
+      "valid": true
+    },
+    {
+      "case": "basic-base58btc",
+      "encoding": "base58btc",
+      "input_utf8": "yes mani !",
+      "encoded": "z7paNL19xttacUY",
+      "valid": true
+    },
+    {
+      "case": "basic-base58flickr",
+      "encoding": "base58flickr",
+      "input_utf8": "yes mani !",
+      "encoded": "Z7Pznk19XTTzBtx",
+      "valid": true
+    },
+    {
+      "case": "basic-base64",
+      "encoding": "base64",
+      "input_utf8": "yes mani !",
+      "encoded": "meWVzIG1hbmkgIQ",
+      "valid": true
+    },
+    {
+      "case": "basic-base64pad",
+      "encoding": "base64pad",
+      "input_utf8": "yes mani !",
+      "encoded": "MeWVzIG1hbmkgIQ==",
+      "valid": true
+    },
+    {
+      "case": "basic-base64url",
+      "encoding": "base64url",
+      "input_utf8": "yes mani !",
+      "encoded": "ueWVzIG1hbmkgIQ",
+      "valid": true
+    },
+    {
+      "case": "basic-base64urlpad",
+      "encoding": "base64urlpad",
+      "input_utf8": "yes mani !",
+      "encoded": "UeWVzIG1hbmkgIQ==",
+      "valid": true
+    },
+    {
+      "case": "leading-zero-base16",
+      "encoding": "base16",
+      "input_hex": "00796573206d616e692021",
+      "encoded": "f00796573206d616e692021",
+      "valid": true,
+      "note": "Leading 0x00 byte preserved in encoding."
+    },
+    {
+      "case": "leading-zero-base32",
+      "encoding": "base32",
+      "input_hex": "00796573206d616e692021",
+      "encoded": "bab4wk4zanvqw42jaee",
+      "valid": true
+    },
+    {
+      "case": "leading-zero-base58btc",
+      "encoding": "base58btc",
+      "input_hex": "00796573206d616e692021",
+      "encoded": "z17paNL19xttacUY",
+      "valid": true,
+      "note": "base58btc represents leading 0x00 byte as a leading '1' character."
+    },
+    {
+      "case": "leading-zero-base64",
+      "encoding": "base64",
+      "input_hex": "00796573206d616e692021",
+      "encoded": "mAHllcyBtYW5pICE",
+      "valid": true
+    },
+    {
+      "case": "case-insensitive-base16-mixed",
+      "encoding": "base16",
+      "input_utf8": "hello world",
+      "encoded": "f68656c6c6f20776F726C64",
+      "normalize_to": "f68656c6c6f20776f726c64",
+      "valid": true,
+      "note": "base16 (lowercase) is case-insensitive on decode but normalises to lowercase on encode."
+    },
+    {
+      "case": "case-insensitive-base32-mixed",
+      "encoding": "base32",
+      "input_utf8": "hello world",
+      "encoded": "bnbswy3dpeB3W64TMMQ",
+      "normalize_to": "bnbswy3dpeb3w64tmmq",
+      "valid": true,
+      "note": "base32 is case-insensitive on decode; encode produces lowercase."
+    },
+    {
+      "case": "negative-unknown-prefix",
+      "encoding": "unknown",
+      "encoded": "qABCDEF",
+      "valid": false,
+      "note": "Prefix 'q' is not a registered multibase code."
+    },
+    {
+      "case": "negative-empty-string",
+      "encoding": "unknown",
+      "encoded": "",
+      "valid": false,
+      "note": "Empty string has no prefix — must be rejected."
+    },
+    {
+      "case": "negative-base58btc-with-zero-char",
+      "encoding": "base58btc",
+      "encoded": "z0invalid",
+      "valid": false,
+      "note": "base58btc alphabet excludes '0' — decode must fail."
+    }
+  ]
+}

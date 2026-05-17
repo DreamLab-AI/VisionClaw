@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/is-envelope-v1.schema.json",
+  "title": "IS-Envelope v1 fixture (ADR-075 D1+D3)",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "kind", "envelope", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "kind": {"enum": ["chat", "tool_invoke", "tool_result", "knowledge_link", "moderation", "mesh_ping"]},
+          "envelope": {
+            "type": "object",
+            "properties": {
+              "v": {"type": "integer"},
+              "to": {"type": "string"},
+              "from": {"type": "string"},
+              "via": {"type": "array", "items": {"type": "string"}},
+              "subj": {"type": "string"},
+              "thread": {"type": "string"},
+              "ttl": {"type": "integer"},
+              "kind": {"type": "string"},
+              "lang": {"type": "string"},
+              "body": {},
+              "hint": {"type": "object"},
+              "delegation": {"type": "object"}
+            }
+          },
+          "expected_jcs": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "violation": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,317 @@
+% !TEX program = xelatex
+% The Coordination Collapse — Master Document
+% Dr. John O'Hare, DreamLab AI Consulting Ltd, April 2026
+%
+% Compile with: xelatex -> biber -> xelatex -> xelatex
+
+\documentclass[12pt,a4paper,openright]{book}
+
+% ─── Encoding & Fonts ───────────────────────────────────────────────────────
+\usepackage{fontspec}
+\setmainfont{FreeSerif}
+\setsansfont{FreeSans}
+\setmonofont{FreeMono}
+
+% ─── Page Geometry ───────────────────────────────────────────────────────────
+\usepackage[
+  a4paper,
+  top=30mm,
+  bottom=30mm,
+  left=30mm,
+  right=25mm,
+  headheight=15pt
+]{geometry}
+
+% ─── Colour Scheme ───────────────────────────────────────────────────────────
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+\definecolor{navyblue}{HTML}{1B2A4A}
+\definecolor{accentgold}{HTML}{C9A84C}
+\definecolor{lightgray}{HTML}{F5F5F5}
+\definecolor{medgray}{HTML}{E0E0E0}
+\definecolor{darktext}{HTML}{2C2C2C}
+
+% ─── Typography & Spacing ───────────────────────────────────────────────────
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{parskip}
+\setlength{\parskip}{0.5\baselineskip}
+\setlength{\parindent}{0pt}
+
+% ─── Headers & Footers ──────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\textcolor{navyblue}{\leftmark}}
+\fancyhead[RO]{\small\textcolor{navyblue}{\rightmark}}
+\fancyfoot[C]{\textcolor{navyblue}{\thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{%
+  \color{accentgold}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0pt}
+
+% ─── Chapter & Section Styling ───────────────────────────────────────────────
+\usepackage{titlesec}
+
+\titleformat{\chapter}[display]
+  {\normalfont\Huge\bfseries\color{navyblue}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-20pt}{30pt}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{navyblue}}
+  {\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{navyblue!80!black}}
+  {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{navyblue!60!black}}
+  {\thesubsubsection}{1em}{}
+
+% ─── Callout Boxes ───────────────────────────────────────────────────────────
+\usepackage[most]{tcolorbox}
+
+\newtcolorbox{keyinsight}[1][]{%
+  enhanced,
+  colback=navyblue!5!white,
+  colframe=navyblue,
+  coltitle=white,
+  fonttitle=\bfseries,
+  title={Key Insight},
+  left=4mm,
+  right=4mm,
+  top=2mm,
+  bottom=2mm,
+  arc=1mm,
+  boxrule=0.5pt,
+  #1
+}
+
+\newtcolorbox{evidencebox}[1][]{%
+  enhanced,
+  colback=accentgold!8!white,
+  colframe=accentgold!80!black,
+  coltitle=navyblue,
+  fonttitle=\bfseries,
+  title={Evidence},
+  left=4mm,
+  right=4mm,
+  top=2mm,
+  bottom=2mm,
+  arc=1mm,
+  boxrule=0.5pt,
+  #1
+}
+
+\newtcolorbox{cautionbox}[1][]{%
+  enhanced,
+  colback=red!5!white,
+  colframe=red!60!black,
+  coltitle=white,
+  fonttitle=\bfseries,
+  title={Caution},
+  left=4mm,
+  right=4mm,
+  top=2mm,
+  bottom=2mm,
+  arc=1mm,
+  boxrule=0.5pt,
+  #1
+}
+
+\newtcolorbox{definitionbox}[1][]{%
+  enhanced,
+  colback=lightgray,
+  colframe=navyblue!40!black,
+  coltitle=navyblue,
+  fonttitle=\bfseries,
+  title={Definition},
+  left=4mm,
+  right=4mm,
+  top=2mm,
+  bottom=2mm,
+  arc=1mm,
+  boxrule=0.5pt,
+  #1
+}
+
+% ─── Tables ──────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ─── Figures & Graphics ─────────────────────────────────────────────────────
+\usepackage{graphicx}
+\graphicspath{{images/}{diagrams/}{wardley/}}
+\usepackage{float}
+\usepackage{caption}
+\captionsetup{
+  font={small},
+  labelfont={bf,color=navyblue},
+  format=hang,
+  margin=10pt
+}
+
+% ─── TikZ for Diagrams ──────────────────────────────────────────────────────
+\usepackage{tikz}
+\usetikzlibrary{
+  arrows.meta,
+  positioning,
+  shapes.geometric,
+  shapes.misc,
+  calc,
+  fit,
+  backgrounds,
+  decorations.pathmorphing,
+  shadows
+}
+
+% ─── Mathematics ─────────────────────────────────────────────────────────────
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% ─── Lists ───────────────────────────────────────────────────────────────────
+\usepackage{enumitem}
+\setlist[itemize]{left=0pt..1.5em, itemsep=2pt, parsep=2pt}
+\setlist[enumerate]{left=0pt..1.5em, itemsep=2pt, parsep=2pt}
+
+% ─── Bibliography ────────────────────────────────────────────────────────────
+\usepackage[
+  backend=biber,
+  style=authoryear-comp,
+  sorting=nyt,
+  maxcitenames=3,
+  mincitenames=1,
+  maxbibnames=99,
+  uniquelist=false,
+  dashed=false,
+  url=true,
+  doi=false
+]{biblatex}
+\addbibresource{references.bib}
+
+% ─── Hyperlinks ──────────────────────────────────────────────────────────────
+\usepackage[
+  colorlinks=true,
+  linkcolor=navyblue,
+  citecolor=navyblue!70!black,
+  urlcolor=accentgold!80!black,
+  bookmarks=true,
+  bookmarksnumbered=true,
+  pdfauthor={Dr. John O'Hare},
+  pdftitle={The Coordination Collapse},
+  pdfsubject={AI and Organisational Transformation},
+  pdfkeywords={AI, organisational design, agentic mesh, middle management, coordination}
+]{hyperref}
+
+% ─── Epigraphs ───────────────────────────────────────────────────────────────
+\usepackage{epigraph}
+\setlength{\epigraphwidth}{0.75\textwidth}
+\setlength{\epigraphrule}{0pt}
+
+% ─── Custom Commands ─────────────────────────────────────────────────────────
+\newcommand{\meshterm}[1]{\textbf{\textcolor{navyblue}{#1}}}
+\newcommand{\foreign}[1]{\textit{#1}}
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  DOCUMENT BEGIN
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ─── Title Page ──────────────────────────────────────────────────────────────
+\begin{titlepage}
+\begin{center}
+
+\vspace*{2cm}
+
+{\color{accentgold}\rule{\textwidth}{2pt}}
+
+\vspace{1.5cm}
+
+{\fontsize{28}{34}\selectfont\bfseries\color{navyblue}
+The Coordination Collapse}
+
+\vspace{0.8cm}
+
+{\fontsize{16}{20}\selectfont\color{navyblue!80!black}
+How AI Is Dissolving the Information Tax\\
+That Created Hierarchy ---\\
+And What Replaces It}
+
+\vspace{1.2cm}
+
+{\color{accentgold}\rule{0.4\textwidth}{1pt}}
+
+\vspace{1.2cm}
+
+{\Large\bfseries Dr.\ John O'Hare}
+
+\vspace{0.4cm}
+
+{\large\color{navyblue!70!black}
+DreamLab AI Consulting Ltd\\
+DreamLab, Fairfield, Eskdale}
+
+\vspace{1.5cm}
+
+{\large April 2026}
+
+\vspace{2cm}
+
+{\color{accentgold}\rule{\textwidth}{2pt}}
+
+\vfill
+
+{\small\color{navyblue!50!black}
+A comprehensive research report on agentic organisational design,\\
+the jagged technological frontier, and the future of human--AI coordination.}
+
+\end{center}
+\end{titlepage}
+
+% ─── Front Matter ────────────────────────────────────────────────────────────
+\frontmatter
+\pagestyle{plain}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% ─── Main Matter ─────────────────────────────────────────────────────────────
+\mainmatter
+\pagestyle{fancy}
+
+\input{chapters/01-introduction}
+\input{chapters/02-historical-context}
+\input{chapters/03-collapse-point}
+\input{chapters/04-jagged-frontier}
+\input{chapters/05-vigilance-problem}
+\input{chapters/06-three-models}
+\input{chapters/07-compounding-org}
+\input{chapters/08-new-kpis}
+\input{chapters/09-governance}
+\input{chapters/10-change-problem}
+\input{chapters/11-industry-landscape}
+\input{chapters/12-role-transformation}
+\input{chapters/13-technical-substrate}
+\input{chapters/14-implementation}
+\input{chapters/15-open-questions}
+\input{chapters/16-conclusion}
+
+% ─── Back Matter ─────────────────────────────────────────────────────────────
+\backmatter
+
+% Bibliography
+\printbibliography[heading=bibintoc, title={References}]
+
+% Appendices
+\appendix
+\input{appendices/appendix-a-methodology}
+\input{appendices/appendix-b-competitor-matrix}
+\input{appendices/appendix-c-glossary}
+
+\end{document}

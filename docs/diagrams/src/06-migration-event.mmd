@@ -1,0 +1,38 @@
+flowchart LR
+    subgraph AUTHOR["  1 · AUTHORING  "]
+        NOTE["<b>Logseq note</b><br/>public:: true<br/>[[Smart Contract]] wikilink<br/>owl:class:: bc:SmartContract"]:::kg
+    end
+
+    subgraph DETECT["  2 · DETECTION  "]
+        SCORE["<b>Candidate scored</b><br/>8-signal sigmoid<br/>confidence ≥ 0.60"]:::detect
+    end
+
+    subgraph BROKER["  3 · REVIEW  "]
+        INBOX["<b>Broker Inbox</b><br/>MigrationCase surfaces<br/>DecisionCanvas diff"]:::review
+    end
+
+    subgraph APPROVE["  4 · APPROVAL  "]
+        PR["<b>GitHub PR</b><br/>ontology_propose<br/>Whelk consistency check"]:::approve
+    end
+
+    subgraph MERGE["  5 · MERGE  "]
+        CLASS["<b>OWL Class live</b><br/>vc:bc/smart-contract<br/>BRIDGE_TO.kind = promoted"]:::merged
+    end
+
+    subgraph PHYSICS["  6 · PHYSICS  "]
+        VIZ["<b>Graph re-settles</b><br/>Bridge filament<br/>Nostr provenance bead"]:::physics
+    end
+
+    NOTE ==>|"signals accrue"| SCORE
+    SCORE ==>|"surfaces"| INBOX
+    INBOX ==>|"approved"| PR
+    PR ==>|"merged"| CLASS
+    CLASS ==>|"re-sync"| VIZ
+    VIZ -.->|"new notes observe the canon"| NOTE
+
+    classDef kg fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef detect fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef review fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef approve fill:#141F3D,stroke:#F59E0B,stroke-width:2px,color:#FDE68A
+    classDef merged fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef physics fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8

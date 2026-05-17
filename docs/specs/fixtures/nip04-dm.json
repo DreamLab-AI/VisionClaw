@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "04.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-04 Encrypted Direct Message (deprecated, AES-256-CBC)",
+    "vector_count": 4,
+    "schema": "fields: case, sender_privkey_hex, sender_pubkey_hex, recipient_privkey_hex, recipient_pubkey_hex, plaintext, content_format ('<base64-ciphertext>?iv=<base64-iv>'), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "spec-content-format-shape",
+      "sender_pubkey_hex": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+      "recipient_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "plaintext": "hello world",
+      "content_format_regex": "^[A-Za-z0-9+/]+={0,2}\\?iv=[A-Za-z0-9+/]+={0,2}$",
+      "valid": true,
+      "note": "Spec only specifies the wire shape `<b64-ciphertext>?iv=<b64-iv>`. NIP-04 has no canonical test vectors; substrates SHOULD round-trip encrypt+decrypt and verify the shape regex."
+    },
+    {
+      "case": "ecdh-shared-secret-derivation",
+      "sender_privkey_hex": "ee35e8bb71131c02c1d7e73231daa48e9953d329a4b701f7133c8f46dd21139c",
+      "sender_pubkey_hex": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+      "recipient_privkey_hex": "777e4f60b4aa87937e13acc84f7abcc3c93cc035cb4c1e9f7a9086dd78fffce1",
+      "recipient_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "shared_secret_rule": "X-coordinate of secp256k1_ecdh(sender_priv, recipient_pub), 32 bytes, NOT hashed",
+      "valid": true,
+      "note": "NIP-04 explicitly mandates the X coordinate is used directly as AES-256-CBC key without SHA hashing. Substrates MUST round-trip: encrypt(alice→bob) then decrypt(bob←alice) MUST yield the original plaintext."
+    },
+    {
+      "case": "negative-missing-iv-suffix",
+      "sender_pubkey_hex": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+      "recipient_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "plaintext": null,
+      "content_invalid": "abc123",
+      "valid": false,
+      "note": "Content lacks the `?iv=` separator — must be rejected during parse."
+    },
+    {
+      "case": "negative-empty-iv",
+      "sender_pubkey_hex": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+      "recipient_pubkey_hex": "477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396",
+      "plaintext": null,
+      "content_invalid": "abc123?iv=",
+      "valid": false,
+      "note": "IV cannot be empty — AES-CBC requires 16-byte (24-char base64) IV."
+    }
+  ]
+}

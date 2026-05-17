@@ -1,0 +1,23 @@
+flowchart LR
+    D["<b>1 · DISCOVERY</b><br/>Passive agent monitoring<br/>detects shadow pattern"]:::discovery
+    C["<b>2 · CODIFICATION</b><br/>IRIS maps DAG<br/>OWL 2 formalisation<br/>Nostr provenance bead"]:::codify
+    V["<b>3 · VALIDATION</b><br/>Judgment Broker reviews<br/>strategic fit · bias check<br/>Decision Canvas"]:::validate
+    I["<b>4 · INTEGRATION</b><br/>Promoted to live mesh<br/>SLAs · ownership · quality"]:::integrate
+    A["<b>5 · AMPLIFICATION</b><br/>Pattern propagates<br/>across applicable teams"]:::amplify
+
+    D ==> C ==> V ==> I ==> A
+    A -.->|"new shadow patterns emerge"| D
+
+    MESH{{"<b>The Governed Mesh</b><br/>OWL 2 · Nostr · CUDA"}}:::mesh
+    D -.-> MESH
+    C -.-> MESH
+    V -.-> MESH
+    I -.-> MESH
+    A -.-> MESH
+
+    classDef discovery fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef codify fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef validate fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef integrate fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef amplify fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef mesh fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip19-bech32.schema.json",
+  "title": "NIP-19 bech32 entities fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "hrp", "bech32", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "hrp": {"enum": ["npub", "nsec", "note", "nprofile", "nevent", "naddr", "nrelay"]},
+          "bech32": {"type": "string"},
+          "decoded": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "properties": {
+                  "hex_pubkey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "hex_privkey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "hex_eventid": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "tlv": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["type", "length"],
+                      "properties": {
+                        "type": {"type": "integer", "minimum": 0, "maximum": 255},
+                        "length": {"type": "integer", "minimum": 0, "maximum": 255},
+                        "value_hex": {"type": "string"},
+                        "value_utf8": {"type": "string"},
+                        "name": {"type": "string"}
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

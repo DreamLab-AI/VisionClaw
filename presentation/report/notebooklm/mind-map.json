@@ -1,0 +1,179 @@
+{
+  "name": "VisionClaw AI and Organizational Transformation",
+  "children": [
+    {
+      "name": "Organizational Paradigms",
+      "children": [
+        {
+          "name": "Intelligence Layer (Block)",
+          "children": [
+            {
+              "name": "Eliminate middle management"
+            },
+            {
+              "name": "Company/Customer World Models"
+            },
+            {
+              "name": "Speed as competitive advantage"
+            }
+          ]
+        },
+        {
+          "name": "Agent Colony (Every)",
+          "children": [
+            {
+              "name": "Personalized AI agents for all"
+            },
+            {
+              "name": "Parallel organizational charts"
+            },
+            {
+              "name": "Cultural self-organization"
+            }
+          ]
+        },
+        {
+          "name": "Dynamic Agentic Mesh (DreamLab)",
+          "children": [
+            {
+              "name": "Middle managers as Judgment Brokers"
+            },
+            {
+              "name": "Discovery Engine for shadow workflows"
+            },
+            {
+              "name": "Orchestration via Agentic Mesh"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Core Concepts",
+      "children": [
+        {
+          "name": "Jagged Frontier",
+          "children": [
+            {
+              "name": "Unpredictable AI capabilities"
+            },
+            {
+              "name": "Skill leveling effect"
+            },
+            {
+              "name": "Centaurs vs Cyborgs modes"
+            }
+          ]
+        },
+        {
+          "name": "Coordination Collapse",
+          "children": [
+            {
+              "name": "Hierarchy as info routing protocol"
+            },
+            {
+              "name": "Dissolving the coordination tax"
+            },
+            {
+              "name": "Free context aggregation"
+            }
+          ]
+        },
+        {
+          "name": "Vigilance Problem",
+          "children": [
+            {
+              "name": "Falling asleep at the wheel"
+            },
+            {
+              "name": "Oversight degradation"
+            },
+            {
+              "name": "Active engagement requirements"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "VisionClaw Technical Stack",
+      "children": [
+        {
+          "name": "Knowledge Engine",
+          "children": [
+            {
+              "name": "OWL 2 Ontology Pipeline"
+            },
+            {
+              "name": "Whelk-rs EL++ Reasoning"
+            },
+            {
+              "name": "Neo4j Primary Graph Store"
+            }
+          ]
+        },
+        {
+          "name": "Physics & Rendering",
+          "children": [
+            {
+              "name": "CUDA GPU Physics Engine"
+            },
+            {
+              "name": "Babylon.js WebXR/VR"
+            },
+            {
+              "name": "Semantic force constraints"
+            }
+          ]
+        },
+        {
+          "name": "Agent Infrastructure",
+          "children": [
+            {
+              "name": "Claude-Flow Orchestration"
+            },
+            {
+              "name": "Nostr Decentralized Identity"
+            },
+            {
+              "name": "RuVector HNSW Memory"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Business Value & KPIs",
+      "children": [
+        {
+          "name": "Strategic Metrics",
+          "children": [
+            {
+              "name": "Mesh Velocity"
+            },
+            {
+              "name": "Augmentation Ratio"
+            },
+            {
+              "name": "Trust Variance"
+            }
+          ]
+        },
+        {
+          "name": "Industry TAM",
+          "children": [
+            {
+              "name": "Gaming P2P physics"
+            },
+            {
+              "name": "Scientific/HPC privacy"
+            },
+            {
+              "name": "Manufacturing Edge Twins"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

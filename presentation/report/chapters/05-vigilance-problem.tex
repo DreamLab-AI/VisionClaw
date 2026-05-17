@@ -1,0 +1,80 @@
+\chapter{The Vigilance Problem}
+\label{ch:vigilance}
+
+\epigraph{The better AI becomes, the harder it is to maintain vigilance. Errors from high-performing AI are especially dangerous because outputs are polished, fluent, and plausible --- making hallucinations and boundary failures nearly invisible to casual review.}{}
+
+\section{Why ``Human in the Loop'' Is Not Enough}
+
+The standard response to the jagged frontier is to keep a human in the loop. Every governance framework, every responsible AI policy, every enterprise deployment guide says it: humans will oversee the AI. The phrase has become a mantra --- a reassurance offered to boards, regulators, and employees alike that human judgment remains the final arbiter.
+
+The evidence says otherwise. Oversight degrades as AI quality improves, and it degrades in precisely the conditions where reliable oversight matters most.
+
+\section{Falling Asleep at the Wheel}
+
+\textcite{DellAcqua2023} conducted a field experiment with HR recruiters that produced a finding both counterintuitive and deeply consequential for organisational design. The study examined how the quality of AI assistance affected the quality of human decision-making.
+
+\begin{evidencebox}[title={The Counterintuitive Finding}]
+Recruiters given \textbf{high-quality} AI made \textbf{worse decisions} than those given low-quality AI or no AI at all.
+\begin{itemize}
+  \item Those with superior AI spent less time per resume, followed recommendations uncritically, failed to improve over time, and missed strong candidates.
+  \item Those with inferior AI stayed alert, developed better critical judgement, and improved their independent evaluation skills.
+\end{itemize}
+\end{evidencebox}
+
+The mechanism is straightforward once stated. When AI produces consistently excellent output, the human reviewer has little reason to scrutinise any individual output carefully. Each correct recommendation reinforces the habit of acceptance. The cognitive effort required for careful evaluation is substantial, and the reward for that effort --- occasionally catching a rare error --- is small and unpredictable. The rational response, at the level of moment-to-moment cognitive allocation, is to reduce scrutiny. The human falls asleep at the wheel.
+
+This is not a failure of individual discipline. It is a predictable response to the statistical structure of the task. The better the AI, the lower the base rate of errors, and the harder it becomes for a human monitor to maintain the vigilance required to catch the errors that do occur.
+
+\section{The Quality Paradox}
+
+The vigilance problem creates a perverse dynamic: the conditions under which AI most needs oversight are precisely the conditions under which oversight is least reliable.
+
+When AI output is mediocre or inconsistent, human reviewers remain engaged. They catch errors, develop independent judgment, and contribute genuine value to the process. The human-in-the-loop model works because the human is cognitively active.
+
+When AI output is excellent and consistent --- which is the goal of every AI deployment --- human reviewers disengage. They become rubber-stampers. The errors they miss are not the obvious ones (those were caught by the AI itself) but the subtle, contextual, boundary-case errors that only a cognitively engaged domain expert would detect. These are precisely the errors that matter most.
+
+\begin{keyinsight}
+The standard enterprise governance model --- deploy high-quality AI and overlay it with human review --- contains a self-defeating dynamic. The better the AI, the worse the review. This is not a solvable problem within the ``human in the loop'' paradigm. It requires a different architectural approach.
+\end{keyinsight}
+
+\section{Implications for Organisational Design}
+
+The vigilance problem has four direct implications for any organisation deploying AI at scale.
+
+\subsection{Passive Oversight Degrades}
+
+A governance model that relies on humans reviewing AI output after the fact --- the audit committee model, the quarterly review, the approval workflow --- will produce steadily declining oversight quality as AI quality improves. The humans in these roles will not be aware of their declining performance, because the visible output will appear consistently excellent. The errors will be invisible until they compound into a failure large enough to attract attention.
+
+\subsection{Active Engagement Is Required}
+
+The judgment broker must be \emph{actively engaged} with the AI system, not passively overseeing it. This means the role must include tasks that require genuine cognitive effort --- not merely confirming that an output ``looks right,'' but probing the reasoning, testing the boundaries, and deliberately seeking failure modes.
+
+\subsection{Deliberate Friction Is a Design Requirement}
+
+The mesh must be designed to keep humans cognitively active at the jagged frontier. This is counterintuitive: most system design aims to reduce friction and make workflows smoother. The vigilance problem demands the opposite. The system should surface genuine edge cases and ambiguous decisions. It should present the human with problems that require thought, not with confirmation dialogs that require a click. The human must be kept sharp, not comfortable.
+
+\subsection{Governance Must Be Continuous}
+
+Periodic review --- quarterly audits, annual risk assessments, monthly committee meetings --- is structurally inadequate. The vigilance problem operates at the level of individual decisions made in real time. Governance must be embedded in the flow of work, not bolted on at intervals. Chapter~\ref{ch:governance} develops this principle into the concept of declarative governance, where policy enforcement is architectural rather than procedural.
+
+\section{The Atrophy Prediction}
+
+\textcite{Gartner2025} predicts that by 2026, 50 per cent of organisations will require ``AI-free'' skills assessments --- evaluations of employee capability conducted without AI assistance --- specifically because of critical-thinking atrophy from generative AI dependency.
+
+This prediction reflects a growing awareness that the vigilance problem is not an edge case. It is the central challenge of human-AI governance. If human cognitive capability degrades as AI capability improves, and if that degradation is invisible to both the individual and the organisation until a significant failure occurs, then the standard model of AI deployment --- train the AI, deploy the AI, have humans oversee the AI --- is fundamentally unsafe at scale.
+
+\begin{cautionbox}[title={Design Implication for the Agentic Mesh}]
+The judgment broker role must include deliberate friction --- tasks that require active engagement, not merely approval. The mesh should surface genuine edge cases and ambiguous decisions, not filter them out. The human must be kept cognitively sharp, not merely present in the process.
+
+This is a design requirement, not a training problem. No amount of training in ``critical thinking'' will overcome the cognitive dynamics that cause vigilance to degrade. The system architecture must compensate for the predictable tendency of humans to disengage from high-quality automated output.
+\end{cautionbox}
+
+\section{What This Means for the Three Models}
+
+The vigilance problem is the lens through which the three organisational models in the next chapter should be evaluated.
+
+Block's intelligence layer model, which delegates coordination to an AI world model with human oversight, is maximally exposed to the vigilance problem. The better the world model works, the less likely humans are to catch the cases where it fails. The 95 per cent figure --- the proportion of AI-generated code at Block that still requires human modification --- suggests that the system is not yet good enough to trigger full vigilance decay. But that is a temporary reprieve. As the system improves, vigilance will decline, and the remaining 5 per cent of cases where human intervention is critical will receive less attention, not more.
+
+Every's agent colony model partially mitigates the problem through personal relationship: because the agent is ``mine,'' there is reputational incentive to monitor its output. But this mitigation weakens at scale. When every employee has an agent, and when agents interact with other agents, the reputational feedback loop becomes diffuse. The ant death spiral --- agents responding to agents in loops --- is a manifestation of vigilance failure at the system level.
+
+The Dynamic Agentic Mesh addresses the vigilance problem architecturally, through embedded governance, continuous trust variance monitoring, and a judgment broker role designed around active engagement rather than passive review. Whether this architectural approach succeeds at scale is an open question. That it addresses the right problem is supported by the evidence.

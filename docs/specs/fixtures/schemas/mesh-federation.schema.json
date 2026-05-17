@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/mesh-federation.schema.json",
+  "title": "Mesh federation fixture (ADR-073 D2/D6/D9 + ADR-074 D9)",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "scenario", "input", "expected_action", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "scenario": {"enum": ["fanout", "lru-dedup", "loop-avoidance", "service-list", "mode-config"]},
+          "input": {"type": "object"},
+          "expected_action": {"type": "object"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

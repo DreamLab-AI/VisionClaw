@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph TOP["  AUTHORITATIVE CORE (inner Z)  "]
+        direction LR
+        CANON["<b>Stable Canon</b><br/>maturity: authoritative<br/>high authority-score"]:::canon
+    end
+
+    subgraph MID_R["  ROLE BANDS (horizontal)  "]
+        direction LR
+        CONC["<b>Concepts</b><br/>role: concept<br/>cyan attract"]:::concept
+        PROC["<b>Processes</b><br/>role: process<br/>violet attract"]:::process
+        AGT["<b>Agents</b><br/>role: agent<br/>emerald attract"]:::agent
+    end
+
+    subgraph MID_P["  PHYSICALITY CLUSTERS  "]
+        direction LR
+        ABS["<b>Abstract</b><br/>owl:physicality<br/>= abstract"]:::abstract
+        CONC2["<b>Concrete</b><br/>owl:physicality<br/>= concrete"]:::concrete
+    end
+
+    subgraph BOT["  DRAFT ORBITAL (outer Z)  "]
+        direction LR
+        DRAFT["<b>Active Drafts</b><br/>maturity: draft<br/>drifting"]:::draft
+    end
+
+    subgraph ORPHAN["  UNCLAIMED ZONE (off-axis)  "]
+        ORPH["<b>Orphan Notes</b><br/>no BRIDGE_TO<br/>high visibility"]:::orphan
+    end
+
+    CANON -.->|"anchors the core"| CONC
+    CANON -.-> PROC
+    CANON -.-> AGT
+    CONC -.-> ABS
+    PROC -.-> CONC2
+    DRAFT -.->|"orbits outward"| CANON
+    ORPH -.->|"repels from all clusters"| CANON
+
+    classDef canon fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A
+    classDef concept fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef process fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef agent fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef abstract fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef concrete fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef draft fill:#1A1A2A,stroke:#5DADE2,stroke-width:2px,color:#E8F4FC
+    classDef orphan fill:#1A0F0F,stroke:#EF4444,stroke-width:2px,color:#FCD5D5

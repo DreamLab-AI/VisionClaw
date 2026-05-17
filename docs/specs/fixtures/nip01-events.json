@@ -1,0 +1,161 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "01.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-01 Basic protocol — event-id serialisation + Schnorr signing",
+    "vector_count": 11,
+    "schema": "fields: case, event (full event JSON: id, pubkey, created_at, kind, tags, content, sig), serialised (canonical [0,pubkey,created_at,kind,tags,content] string), expected_id (hex sha256 of serialised), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "basic-empty-tags-empty-content",
+      "event": {
+        "id": "expected-to-be-validated",
+        "pubkey": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "created_at": 1674834236,
+        "kind": 1,
+        "tags": [],
+        "content": "",
+        "sig": "expected-to-be-validated"
+      },
+      "serialised": "[0,\"8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd\",1674834236,1,[],\"\"]",
+      "expected_id_input": "[0,\"8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd\",1674834236,1,[],\"\"]",
+      "valid": true,
+      "note": "DreamLab-internal: smallest non-degenerate kind-1 event for serialisation validation. Substrates compute id = sha256(serialised) and verify."
+    },
+    {
+      "case": "with-p-tag-and-content",
+      "event": {
+        "id": "expected-to-be-validated",
+        "pubkey": "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "created_at": 1691518405,
+        "kind": 1,
+        "tags": [["p", "166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99"]],
+        "content": "Are you going to the party tonight?",
+        "sig": "expected-to-be-validated"
+      },
+      "serialised": "[0,\"611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9\",1691518405,1,[[\"p\",\"166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99\"]],\"Are you going to the party tonight?\"]",
+      "valid": true,
+      "note": "Derived from NIP-59 spec example (rumor layer); validates serialisation with single p-tag."
+    },
+    {
+      "case": "metadata-kind-0",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 0,
+        "tags": [],
+        "content": "{\"name\":\"alice\",\"about\":\"test\"}"
+      },
+      "serialised": "[0,\"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d\",1700000000,0,[],\"{\\\"name\\\":\\\"alice\\\",\\\"about\\\":\\\"test\\\"}\"]",
+      "valid": true,
+      "note": "Kind-0 metadata: content contains escaped JSON; substrates must escape \" → \\\" and {/} unescaped."
+    },
+    {
+      "case": "with-newline-in-content",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [],
+        "content": "line one\nline two"
+      },
+      "serialised": "[0,\"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d\",1700000000,1,[],\"line one\\nline two\"]",
+      "valid": true,
+      "note": "Newline in content must be escaped to \\\\n per NIP-01 escape rules."
+    },
+    {
+      "case": "with-tab-and-cr-and-quote",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [],
+        "content": "tab\there\rquote\"end"
+      },
+      "serialised": "[0,\"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d\",1700000000,1,[],\"tab\\there\\rquote\\\"end\"]",
+      "valid": true,
+      "note": "Tab → \\\\t, CR → \\\\r, double-quote → \\\\\\\" per NIP-01 escape rules."
+    },
+    {
+      "case": "with-backslash-in-content",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [],
+        "content": "path\\to\\file"
+      },
+      "serialised": "[0,\"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d\",1700000000,1,[],\"path\\\\to\\\\file\"]",
+      "valid": true,
+      "note": "Backslash → \\\\\\\\ per NIP-01 escape rules."
+    },
+    {
+      "case": "multiple-tags",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [
+          ["e", "166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99"],
+          ["p", "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9"],
+          ["t", "nostr"]
+        ],
+        "content": "hello"
+      },
+      "serialised": "[0,\"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d\",1700000000,1,[[\"e\",\"166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99\"],[\"p\",\"611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9\"],[\"t\",\"nostr\"]],\"hello\"]",
+      "valid": true,
+      "note": "Order of tags is preserved as-is in serialisation (no sorting)."
+    },
+    {
+      "case": "negative-missing-pubkey",
+      "event": {
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [],
+        "content": "x"
+      },
+      "valid": false,
+      "note": "Missing required pubkey field — substrates MUST reject."
+    },
+    {
+      "case": "negative-non-integer-created-at",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": "1700000000",
+        "kind": 1,
+        "tags": [],
+        "content": "x"
+      },
+      "valid": false,
+      "note": "created_at is a string, must be integer — substrates MUST reject."
+    },
+    {
+      "case": "negative-pubkey-too-short",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa4",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [],
+        "content": "x"
+      },
+      "valid": false,
+      "note": "pubkey is 60 hex chars (30 bytes) — must be 64 hex chars (32 bytes)."
+    },
+    {
+      "case": "negative-tag-not-array",
+      "event": {
+        "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "created_at": 1700000000,
+        "kind": 1,
+        "tags": [["p", "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9"], "not-an-array"],
+        "content": "x"
+      },
+      "valid": false,
+      "note": "tags must be array of arrays — substrates MUST reject scalar tag entries."
+    }
+  ]
+}

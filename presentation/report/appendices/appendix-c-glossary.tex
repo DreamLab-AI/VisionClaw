@@ -1,0 +1,108 @@
+\chapter{Glossary of Key Terms}
+\label{ch:glossary}
+
+\begin{description}[style=nextline, leftmargin=2em, font=\bfseries\color{navyblue}]
+
+\item[1-9-90 Pattern]
+The predictable adoption distribution identified by \textcite{BCGAgenticShift2025} in AI deployment: 1 per cent are natural innovators who adopt independently, 9 per cent become champions with organisational support (the judgment broker candidates), and 90 per cent follow once social proof exists. Strategic investment in the 9 per cent yields the highest return. See Chapter~\ref{ch:change-problem}.
+
+\item[Agent Colony]
+An organisational model (associated with Every.to) in which every employee is given a persistent, personalised AI agent. Coordination emerges from cultural norms and public visibility rather than architectural design. Proven at approximately 20-person scale; subject to the ant death spiral at larger scales. See Chapter~\ref{ch:three-models}.
+
+\item[Agentic Mesh]
+See \emph{Dynamic Agentic Mesh}.
+
+\item[Ant Death Spiral]
+A failure mode in multi-agent systems where agents respond to each other's outputs in an uncontrolled loop, consuming resources (tokens, compute, time) without producing useful outcomes. Named by analogy with army ant death spirals in entomology. Documented by \textcite{Shipper2026} in Every's agent colony experiments at 20-person scale. See Chapter~\ref{ch:three-models}.
+
+\item[Augmentation Ratio (AR)]
+A proposed KPI: $AR = \text{Cognitive Load Offloaded} \div \text{Total Cognitive Load}$. Measures the proportion of decision-making volume successfully handled by agents without requiring human escalation. Target: $>65\%$. Too low indicates the mesh is not yet effective; too high indicates potential vigilance degradation. See Chapter~\ref{ch:new-kpis}.
+
+\item[BYOAI]
+Bring Your Own AI --- the practice of employees using personal AI tools and accounts for work purposes, bypassing corporate-approved systems. \textcite{MicrosoftWorkTrend2024} reports 78 per cent of knowledge workers engage in BYOAI.
+
+\item[Centaur]
+A human--AI collaboration mode identified by \textcite{Randazzo2024} in which there is a clear division of labour between human and AI. The human performs tasks where human judgment is strongest; the AI handles tasks inside the frontier. Distinct handoff points separate the two. The Dynamic Agentic Mesh is designed to produce Centaur organisations. Contrast with \emph{Cyborg} and \emph{Self-Automator}. See Chapter~\ref{ch:jagged-frontier}.
+
+\item[Compound Engineering]
+A principle articulated by \textcite{Klaassen2025}: ``Each unit of engineering work should make subsequent units easier --- not harder.'' The 50/50 Rule prescribes spending half of one's time building features and half improving the system that builds features. Extended in this report from the individual level to the organisational level as the basis for the compounding organisation. See Chapter~\ref{ch:compounding-org}.
+
+\item[Compounding Organisation]
+An organisation in which each unit of organisational learning makes the next one easier. The flywheel proceeds: workforce discovers a shortcut, agents detect and codify it, the judgment broker validates it, the pattern propagates across the mesh, and the organisation's capability compounds. See Chapter~\ref{ch:compounding-org}.
+
+\item[Coordination Collapse]
+The central thesis of this report. For two thousand years, organisations have paid a ``coordination tax'' --- layers of humans whose primary function is routing information. AI collapses the cost of that coordination function to near-zero, dissolving the structural logic of hierarchical organisational design. Chapter~\ref{ch:open-questions} notes the qualification that ``information routing collapse'' may be a more precise term. See Chapter~\ref{ch:collapse-point}.
+
+\item[Coordination Tax]
+The cost --- in headcount, latency, distortion, and overhead --- of maintaining hierarchical layers whose primary function is routing information between organisational levels. See Chapter~\ref{ch:historical-context}.
+
+\item[Cyborg]
+A human--AI collaboration mode identified by \textcite{Randazzo2024} characterised by continuous interleaving: human and AI work on the same analysis, passing work back and forth across the frontier boundary without clean separation of responsibilities. One of the two high-performing modes alongside Centaur. Every's Agent Colony model produces Cyborg organisations. Contrast with \emph{Centaur} and \emph{Self-Automator}. See Chapter~\ref{ch:jagged-frontier}.
+
+\item[DAG (Directed Acyclic Graph)]
+A graph structure in which edges have direction and no cycles exist. In the Dynamic Agentic Mesh, DAGs represent formalised workflows: sequences of tasks with dependencies, ownership, governance constraints, and SLAs. Shadow workflows are codified as DAGs when promoted into the mesh via the Insight Ingestion Loop. See Chapter~\ref{ch:three-models}.
+
+\item[Declarative Governance]
+A governance model in which policies are expressed as code and enforced automatically at every system transition, rather than being applied through periodic human review. Bias thresholds, security protocols, access controls, and value-alignment checks are embedded in each DAG transition. Analogous to declarative infrastructure (Kubernetes, Terraform) in software engineering. See Chapter~\ref{ch:governance}.
+
+\item[Discovery Engine]
+The bottom-up layer of the Dynamic Agentic Mesh that captures organisational insights. Passive agent monitoring surfaces shadow workflows; natural-language Insight Portals allow anyone to propose improvements; tacit knowledge is codified into agentic instructions. The Discovery Engine is the input mechanism for the Insight Ingestion Loop. See Chapter~\ref{ch:three-models}.
+
+\item[Dynamic Agentic Mesh]
+The organisational architecture proposed in this report. Three layers (Discovery Engine, Orchestration Layer, Declarative Governance) retain human judgment at intersection points while agentic orchestration handles information routing. Middle managers evolve into judgment brokers who operate at the jagged frontier. See Chapter~\ref{ch:three-models}.
+
+\item[HITL (Human-in-the-Loop)]
+The practice of maintaining human oversight or decision-making authority within an automated system. This report argues that na\"{\i}ve HITL implementations degrade as AI quality improves (the vigilance problem) and that HITL must be architecturally supported through deliberate friction and active engagement. See Chapter~\ref{ch:vigilance}.
+
+\item[HITL Precision (HP)]
+A proposed KPI: $HP = \text{Correct Escalations} \div \text{Total Escalations}$. Measures whether the edge cases the mesh flags for human intervention genuinely require human judgment. Target: $>90\%$. Low precision produces alert fatigue; high precision indicates the mesh has learned where the jagged frontier falls. See Chapter~\ref{ch:new-kpis}.
+
+\item[Information Routing Protocol]
+This report's characterisation of hierarchy: a system designed to filter, aggregate, and relay information across organisational scales, constrained by the human cognitive limit of managing three to eight direct reports. See Chapters~\ref{ch:historical-context} and~\ref{ch:collapse-point}.
+
+\item[Insight Ingestion Loop]
+The five-stage process by which the Dynamic Agentic Mesh converts individual discoveries into organisational capability: (1)~Discovery --- an employee finds a shortcut; (2)~Codification --- the system maps it as a proposed DAG; (3)~Validation --- the judgment broker reviews for strategic fit and compliance; (4)~Integration --- the validated workflow enters the live mesh with SLAs; (5)~Amplification --- the pattern propagates to other teams. Mesh Velocity measures how fast this loop runs. See Chapters~\ref{ch:three-models} and~\ref{ch:compounding-org}.
+
+\item[Intelligence Layer]
+The organisational model proposed by \textcite{DorseyBotha2026} in which middle management is eliminated and coordination is handled by AI world models (Company World Model and Customer World Model) composed by an Intelligence Layer. Three roles remain: Individual Contributors, Directly Responsible Individuals, and Player-Coaches. See Chapter~\ref{ch:three-models}.
+
+\item[Jagged Frontier]
+The unpredictable boundary between tasks that AI performs well and tasks that AI performs poorly. Identified by \textcite{DellAcqua2026} based on a pre-registered experiment with 758 BCG consultants. The frontier is ``jagged'' because adjacent, similar-looking tasks can fall on opposite sides. This concept is the intellectual load-bearing wall of the report: it is the reason wholesale automation is reckless, change playbooks cannot be written once, and judgment brokers have a genuine future. See Chapter~\ref{ch:jagged-frontier}.
+
+\item[Judgment Broker]
+The evolved middle management role proposed in this report. The judgment broker operates at the jagged frontier, providing strategic direction, ethical adjudication, and relational intelligence that agentic systems cannot perform. Distinguished from the traditional information-routing role by its focus on edge cases, cross-functional coherence, and frontier navigation. See Chapter~\ref{ch:role-transformation}.
+
+\item[Mesh Velocity (MV)]
+A proposed KPI: $MV = \Delta t(\text{insight} \rightarrow \text{codified workflow})$. Measures the elapsed time from insight discovery to codified, sanctioned workflow in the mesh. Target: $<48$ hours. The primary indicator of organisational learning speed. See Chapter~\ref{ch:new-kpis}.
+
+\item[Ontological Provenance]
+The property of an agentic system in which every decision traces back through a formal knowledge graph (OWL~2 ontology), providing auditable reasoning chains from output to input, policy, and human decision. See Chapter~\ref{ch:governance}.
+
+\item[OWL~2]
+Web Ontology Language 2 --- a W3C standard for formal knowledge representation. In VisionClaw, OWL~2 provides shared semantics for agent skill routing through ontological subsumption (understanding that ``risk assessment'' is a sub-task of ``governance review'' and routing accordingly). The EL++ profile, supported by the Whelk-rs reasoner, enables tractable inference while maintaining semantic precision. See Chapter~\ref{ch:technical-substrate}.
+
+\item[Secret Cyborg]
+A term from \textcite{Mollick2023SecretCyborgs} describing workers who use AI tools without disclosing this use to their employer. The secrecy is driven by rational calculation: disclosure risks headcount reduction if the worker demonstrates they have automated significant portions of their role. Over half of generative AI users report using the technology covertly at least some of the time. See Chapter~\ref{ch:collapse-point}.
+
+\item[Self-Automator]
+A human--AI collaboration mode identified by \textcite{Randazzo2024} in which the human delegates wholesale to AI with minimal oversight. The lowest-performing mode of the three. Block's organisational model is characterised in this report as creating Self-Automator organisations. Contrast with \emph{Centaur} and \emph{Cyborg}. See Chapter~\ref{ch:jagged-frontier}.
+
+\item[Shadow AI]
+AI tools and applications used by employees without organisational awareness, approval, or governance. Shadow AI usage increased 156 per cent between 2023 and 2025; the average enterprise hosts approximately 1,200 unauthorised AI applications \parencite{Gartner2025}. See Chapter~\ref{ch:collapse-point}.
+
+\item[Shadow Workflow]
+An informal work process created by an employee using AI tools, which bypasses or replaces the officially documented workflow without management awareness. Shadow workflows represent both a risk (ungoverned, undocumented) and an asset (raw material for the Insight Ingestion Loop and the compounding flywheel). See Chapter~\ref{ch:collapse-point}.
+
+\item[Trust Variance (TV)]
+A proposed KPI: $TV = \sigma(\text{Agent Decision Quality})$ over a rolling 30-day window. Target: $<0.12\sigma$. Provides real-time monitoring of drift or bias in the automated task layer. The early warning system for vigilance degradation --- catching drift before it compounds into failure. See Chapter~\ref{ch:new-kpis}.
+
+\item[Vigilance Problem]
+The empirically demonstrated tendency of human oversight quality to degrade as AI quality improves. Identified by \textcite{DellAcqua2023}: HR recruiters given high-quality AI made worse decisions than those given low-quality AI because they stopped scrutinising outputs. The central challenge of human--AI governance. See Chapter~\ref{ch:vigilance}.
+
+\item[VisionClaw]
+The operational agentic mesh system built by DreamLab AI Consulting. Architecture: OWL~2 ontology engine (\texttt{horned-owl}, Whelk-rs EL++ inference), Claude-Flow orchestration (83 agent skills, RAFT consensus), WebXR 3D visualisation (Rust/CUDA, Babylon.js), Nostr agent identity (NIP-98), and RuVector memory (1.17M+ vector embeddings, HNSW indexing). Proven at 15-person scale in a creative technology context. See Chapter~\ref{ch:technical-substrate}.
+
+\item[World Model]
+In Block's Intelligence Layer thesis \parencite{DorseyBotha2026}, the Company World Model is an AI system continuously tracking what is being built, what is blocked, and where resources are allocated. The Customer World Model is constructed from transaction data. Together they replace the context-holding function of middle management. The concept is analytically sound but operationally unproven beyond Block's specific context of massive transaction data and remote-first culture. See Chapter~\ref{ch:three-models}.
+
+\end{description}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip44-v2.schema.json",
+  "title": "NIP-44 v2 DM fixture (nested vector structure)",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "object",
+      "required": ["valid"],
+      "properties": {
+        "valid": {
+          "type": "object",
+          "required": ["get_conversation_key"],
+          "properties": {
+            "get_conversation_key": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["sec1", "pub2", "conversation_key"],
+                "properties": {
+                  "sec1": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "pub2": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "conversation_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                  "note": {"type": "string"}
+                }
+              }
+            },
+            "get_message_keys": {"type": "array"},
+            "calc_padded_len": {"type": "array"},
+            "encrypt_decrypt": {"type": "array"},
+            "encrypt_decrypt_long_msg": {"type": "array"}
+          }
+        },
+        "invalid": {
+          "type": "object",
+          "properties": {
+            "encrypt_msg_lengths": {"type": "array"},
+            "get_conversation_key": {"type": "array"},
+            "decrypt": {"type": "array"}
+          }
+        }
+      }
+    }
+  }
+}

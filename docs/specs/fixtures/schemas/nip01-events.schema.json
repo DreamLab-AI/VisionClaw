@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip01-events.schema.json",
+  "title": "NIP-01 events fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "valid"],
+        "properties": {
+          "case": {"type": "string", "minLength": 1},
+          "event": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string"},
+              "pubkey": {"type": "string"},
+              "created_at": {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+              "kind": {"type": "integer"},
+              "tags": {"type": "array"},
+              "content": {"type": "string"},
+              "sig": {"type": "string"}
+            }
+          },
+          "serialised": {"type": "string"},
+          "expected_id_input": {"type": "string"},
+          "expected_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

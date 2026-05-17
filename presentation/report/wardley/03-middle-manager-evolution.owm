@@ -1,0 +1,49 @@
+title Middle Manager Evolution — OLD Role (Commodity) vs NEW Role (Genesis)
+style wardley
+
+// User need
+component Organisational Effectiveness [0.95, 0.40] label [-80, -15]
+
+// === OLD ROLE — moving to commodity ===
+component Information Routing [0.70, 0.72] label [-55, 15]
+component Status Reporting [0.62, 0.78] label [-50, 15]
+component Task Delegation [0.55, 0.75] label [-50, 15]
+component Meeting Facilitation [0.48, 0.82] label [-60, 15]
+component Performance Monitoring [0.42, 0.70] label [-65, 15]
+
+// === NEW ROLE — genesis/custom ===
+component Jagged Frontier Navigation [0.78, 0.15] label [-80, -15]
+component Mesh Coherence Management [0.72, 0.22] label [-85, -15]
+component Ethical Adjudication [0.65, 0.12] label [-70, -15]
+component Cross-Functional Judgment [0.58, 0.28] label [-75, -15]
+component Compound Loop Curation [0.50, 0.20] label [-70, -15]
+
+// AI layer
+component AI Agent Coordination [0.25, 0.65] label [-60, 15]
+
+// Dependencies - new role
+Organisational Effectiveness->Jagged Frontier Navigation
+Jagged Frontier Navigation->Mesh Coherence Management
+Mesh Coherence Management->Cross-Functional Judgment
+Ethical Adjudication->Cross-Functional Judgment
+Cross-Functional Judgment->Compound Loop Curation
+
+// Dependencies - old role being absorbed
+Organisational Effectiveness->Information Routing
+Information Routing->AI Agent Coordination
+Status Reporting->AI Agent Coordination
+Task Delegation->AI Agent Coordination
+Meeting Facilitation->AI Agent Coordination
+Performance Monitoring->AI Agent Coordination
+
+// Evolution arrows - old role moving to commodity
+evolve Information Routing 0.88 label [10, -5]
+evolve Status Reporting 0.90 label [10, -5]
+evolve Task Delegation 0.88 label [10, -5]
+evolve Meeting Facilitation 0.92 label [10, -5]
+evolve Performance Monitoring 0.85 label [10, -5]
+
+annotation 1 [0.75, 0.05] NEW ROLE: These capabilities remain in genesis/custom because they require human judgment at the jagged frontier. The conductor, not the musician.
+annotation 2 [0.55, 0.60] OLD ROLE: These capabilities are being commoditised by AI. The skill floor has risen — what was the middle manager's ceiling is now everyone's floor.
+
+note The 1-9-90 pattern (BCG 2025): 9% of current middle managers will become judgment brokers. The transition requires experimentation time (3.1x adoption) and psychological safety (2.6x integration). [0.08, 0.35]

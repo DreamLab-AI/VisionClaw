@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/bip340-schnorr.schema.json",
+  "title": "BIP-340 Schnorr signatures fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["index", "public_key_hex", "message_hex", "signature_hex", "verification_result"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "secret_key_hex": {"oneOf": [{"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}, {"type": "null"}]},
+          "public_key_hex": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "aux_rand_hex": {"oneOf": [{"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}, {"type": "null"}]},
+          "message_hex": {"type": "string", "pattern": "^[0-9a-fA-F]*$"},
+          "signature_hex": {"type": "string", "pattern": "^[0-9a-fA-F]{128}$"},
+          "verification_result": {"type": "boolean"},
+          "comment": {"type": "string"}
+        }
+      }
+    }
+  }
+}

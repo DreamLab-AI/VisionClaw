@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/rfc8785-jcs.schema.json",
+  "title": "RFC 8785 JCS fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["name", "input", "expected_output"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "input": {},
+          "input_raw": {"type": "string"},
+          "expected_output": {"type": "string"},
+          "expected_output_sha256_hex_first16": {"type": "string", "pattern": "^[0-9a-f]{16}$"}
+        }
+      }
+    }
+  }
+}

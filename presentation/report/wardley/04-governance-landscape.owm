@@ -1,0 +1,47 @@
+title The Governance Landscape — From Human Judgment to Embedded Policy
+style wardley
+
+// User need
+component Trustworthy AI Operations [0.95, 0.35] label [-70, -15]
+
+// Genesis - irreducible human governance
+component Edge Case Judgment [0.82, 0.12] label [-60, -15]
+component Trust Calibration [0.75, 0.18] label [-55, -15]
+component Value Vector Alignment [0.70, 0.22] label [-70, -15]
+
+// Product - structured governance tools
+component Bias Detection [0.62, 0.48] label [-40, 15]
+component Trust Variance Monitoring [0.55, 0.45] label [-75, 15]
+component HITL Precision Tracking [0.50, 0.50] label [-65, 15]
+
+// Product/moving to commodity - declarative governance
+component Declarative Policy Enforcement [0.42, 0.58] label [-85, 15]
+component Ontological Provenance [0.35, 0.40] label [-65, 15]
+
+// Commodity - infrastructure
+component Compliance Audit Trail [0.25, 0.82] label [-60, 15]
+component Access Control [0.18, 0.88] label [-40, 15]
+component Data Encryption [0.12, 0.92] label [-40, 15]
+
+// Dependencies
+Trustworthy AI Operations->Edge Case Judgment
+Trustworthy AI Operations->Trust Calibration
+Edge Case Judgment->Value Vector Alignment
+Trust Calibration->Bias Detection
+Trust Calibration->Trust Variance Monitoring
+Bias Detection->Declarative Policy Enforcement
+Trust Variance Monitoring->HITL Precision Tracking
+HITL Precision Tracking->Declarative Policy Enforcement
+Declarative Policy Enforcement->Ontological Provenance
+Declarative Policy Enforcement->Compliance Audit Trail
+Compliance Audit Trail->Access Control
+Access Control->Data Encryption
+
+// Evolution arrows
+evolve Declarative Policy Enforcement 0.72 label [5, -5]
+evolve Bias Detection 0.62 label [5, -5]
+
+annotation 1 [0.80, 0.05] THE RACING CAR PRINCIPLE: Governance at the top (genesis) is human judgment — irreducible. Governance at the bottom (commodity) is infrastructure. The Agentic Mesh embeds governance into the orchestration layer so it accelerates rather than constrains.
+annotation 2 [0.30, 0.50] DECLARATIVE GOVERNANCE: Policies as code, embedded in every DAG transition. The mesh doesn't need a separate governance review because governance is architecturally embedded. This is what moves governance from brake to accelerator.
+
+note The Vigilance Problem (Dell'Acqua 2023): humans given high-quality AI make WORSE oversight decisions. Governance must create deliberate friction, not passive checkboxes. [0.05, 0.20]

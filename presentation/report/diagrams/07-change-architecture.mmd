@@ -1,0 +1,39 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#4a6fa5', 'primaryTextColor': '#e0e0e0'}}}%%
+flowchart TB
+    subgraph LEGACY["<b>Legacy Change: Kotter 8-Step</b><br/><i>Linear — assumes end state</i>"]
+        direction LR
+        K1["1. Create<br/>Urgency"] --> K2["2. Form<br/>Coalition"] --> K3["3. Create<br/>Vision"] --> K4["4. Communicate<br/>Vision"]
+        K4 --> K5["5. Empower<br/>Action"] --> K6["6. Quick<br/>Wins"] --> K7["7. Build on<br/>Change"] --> K8["8. Anchor in<br/>Culture"]
+    end
+
+    subgraph CONTINUOUS["<b>Continuous Change: Perpetual Loop</b><br/><i>No end state — the frontier moves</i>"]
+        direction LR
+        P1["Sense<br/><i>Discover shadow<br/>workflows</i>"]
+        P2["Seize<br/><i>Codify into mesh</i>"]
+        P3["Reconfigure<br/><i>Validate and<br/>propagate</i>"]
+        P4["Compound<br/><i>Capability<br/>accumulates</i>"]
+        P1 --> P2 --> P3 --> P4 --> P1
+    end
+
+    K8 -.->|"Fails: nothing<br/>to refreeze"| PROBLEM["AI change has<br/><b>no end state</b><br/><i>70% stall rate</i>"]
+    P4 -.->|"Succeeds: perpetual<br/>adaptation"| SUCCESS["Organisation<br/><b>compounds</b><br/><i>Continuous learning</i>"]
+
+    style LEGACY fill:#1a1a2e,stroke:#e74c3c,color:#e0e0e0
+    style CONTINUOUS fill:#1a1a2e,stroke:#2ecc71,color:#e0e0e0
+
+    style K1 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K2 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K3 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K4 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K5 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K6 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K7 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+    style K8 fill:#2c1810,stroke:#c0392b,color:#e0e0e0
+
+    style P1 fill:#102c18,stroke:#27ae60,color:#e0e0e0
+    style P2 fill:#102c18,stroke:#27ae60,color:#e0e0e0
+    style P3 fill:#102c18,stroke:#27ae60,color:#e0e0e0
+    style P4 fill:#102c18,stroke:#27ae60,color:#e0e0e0
+
+    style PROBLEM fill:#3c1010,stroke:#e74c3c,color:#ffffff,stroke-width:2px
+    style SUCCESS fill:#103c10,stroke:#2ecc71,color:#ffffff,stroke-width:2px

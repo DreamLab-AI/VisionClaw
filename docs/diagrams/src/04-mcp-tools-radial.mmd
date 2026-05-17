@@ -1,0 +1,45 @@
+flowchart LR
+    subgraph AGENTS["  83 CLAUDE-FLOW AGENTS  "]
+        direction TB
+        A1["Research · Creative · Governance"]:::agent
+        A2["Identity · Spatial · Ops"]:::agent
+    end
+
+    CORE{{"<b>WHELK-RS</b><br/>━━━━━━━━━━━━━━<br/>OWL 2 EL Reasoner<br/>EL++ Subsumption<br/>Consistency Checking"}}:::core
+
+    T1["<b>ontology_discover</b><br/>Semantic search<br/>+ Whelk expansion"]:::tool
+    T2["<b>ontology_read</b><br/>Enriched note<br/>+ axioms · context"]:::tool
+    T3["<b>ontology_query</b><br/>Validated Cypher<br/>schema-aware"]:::tool
+    T4["<b>ontology_traverse</b><br/>BFS graph walk<br/>from IRI"]:::tool
+    T5["<b>ontology_propose</b><br/>Amend → check<br/>→ GitHub PR"]:::tool
+    T6["<b>ontology_validate</b><br/>Consistency check<br/>against reasoner"]:::tool
+    T7["<b>ontology_status</b><br/>Service health<br/>+ statistics"]:::tool
+
+    STORE[("<b>Neo4j</b><br/>+ in-mem repo")]:::store
+    GH[("<b>GitHub</b><br/>Logseq repo")]:::store
+
+    AGENTS ==>|"MCP"| T1
+    AGENTS ==>|"MCP"| T2
+    AGENTS ==>|"MCP"| T3
+    AGENTS ==>|"MCP"| T4
+    AGENTS ==>|"MCP"| T5
+    AGENTS ==>|"MCP"| T6
+    AGENTS ==>|"MCP"| T7
+
+    T1 --> CORE
+    T2 --> CORE
+    T3 --> CORE
+    T4 --> CORE
+    T5 --> CORE
+    T6 --> CORE
+    T7 --> CORE
+
+    CORE <==> STORE
+    T5 -.->|"PR on mutation"| GH
+
+    classDef core fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A
+    classDef tool fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef agent fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef store fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+
+    style AGENTS fill:#081810,stroke:#1E3A2E,stroke-width:1px

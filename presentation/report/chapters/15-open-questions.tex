@@ -1,0 +1,191 @@
+\chapter{Open Questions and Research Directions}
+\label{ch:open-questions}
+
+\epigraph{A working document that hides its weaknesses is less useful than one that maps them. These gaps are research directions, not admissions of failure.}{}
+
+This chapter is an exercise in intellectual honesty. The coordination collapse thesis, as presented in this report, is incomplete. The evidence base has specific weaknesses. The analysis contains blind spots visible to each of its three audiences. Several important topics are missing entirely. Mapping these gaps is not an admission of failure --- it is a research agenda.
+
+\section{The Core Thesis Is Incomplete}
+
+The report frames hierarchy as an information routing protocol and argues that AI collapses the cost of that routing to near-zero. This framing is analytically productive --- it generates the coordination collapse concept, the judgment broker role, and the compounding organisation model. But hierarchy performs at least five functions, of which information routing is only one.
+
+\subsection{Legitimation}
+
+Who has authority to commit resources? The mesh can route information and even recommend resource allocation, but it cannot \emph{authorise} a \pounds 2 million capital expenditure. Legitimation --- the organisational mechanism by which decisions acquire binding authority --- is a function of hierarchy that AI does not replace. A judgment broker who validates a shadow workflow is exercising legitimate authority derived from their position in the organisational structure. Remove the structure, and the authority evaporates.
+
+\subsection{Accountability}
+
+Who is fired when things go wrong? ``The mesh decided'' is not an answer a board of directors accepts. Accountability requires identifiable humans who bear consequences for outcomes. The judgment broker role addresses this partially --- the broker who validates a workflow bears accountability for that validation --- but the full accountability architecture for agentic systems is not worked out. When an agent in the mesh makes a decision that produces a regulatory violation, the chain of accountability must be traceable to a human. The declarative governance layer (Chapter~\ref{ch:governance}) provides audit trails, but audit trails are not the same as accountability structures.
+
+\subsection{Political Negotiation}
+
+Whose priorities win when budgets are finite? AI can optimise within constraints; it cannot set the constraints. The allocation of scarce resources across competing priorities is fundamentally a political act --- a negotiation among stakeholders with different interests, values, and power. The mesh can surface information that makes the negotiation more transparent, but it cannot replace the negotiation itself.
+
+\begin{cautionbox}[title={An Honest Reframing}]
+If three of hierarchy's five core functions persist --- legitimation, accountability, and political negotiation --- then ``coordination collapse'' may be an overstatement. A more honest framing: \textbf{information routing collapse} --- one function of hierarchy dissolves, forcing the others to restructure around different assumptions. The coordination tax shrinks dramatically; it does not reach zero. This report uses the more provocative framing because it captures the magnitude of the disruption, but the qualification belongs in the analysis.
+\end{cautionbox}
+
+\textbf{Research needed}: How do legitimation, accountability, and political negotiation operate in post-hierarchical structures? Haier's micro-enterprise model provides the best existing evidence but operates in a culturally specific context that may not generalise.
+
+\section{Evidence Base Weaknesses}
+
+The argument in this report rests on specific empirical findings. Several of these findings have limitations that deserve explicit acknowledgement.
+
+\subsection{The Jagged Frontier Map Is Outdated}
+
+The BCG experiment \parencite{DellAcqua2026} used GPT-4 --- now two model generations behind current frontier models. The specific task boundaries identified in that study --- the 18 tasks inside the frontier and the business judgment task outside it --- have almost certainly shifted. Models released since the study likely perform well on tasks that were outside GPT-4's frontier.
+
+This does not invalidate the concept. The jagged frontier is a structural feature of AI capability, not a fixed map. The principle --- that adjacent tasks can fall on opposite sides of the boundary, and that the boundary is unpredictable --- holds regardless of where the boundary currently sits. But any practitioner using this report to make operational decisions must retest the frontier with current models in their specific domain. The 2023 map is a historical reference, not a current navigation chart.
+
+\subsection{The 17$\times$ Error Source Is Weak}
+
+The 17-times error multiplication statistic \parencite{TDS2026} does heavy argumentative work throughout this report. It grounds the case against naive multi-agent deployment, it supports the judgment broker role, and it provides the quantitative punch behind the ant death spiral narrative. But the source is Towards Data Science --- a community-edited blogging platform, not a peer-reviewed journal.
+
+\begin{cautionbox}
+The 17$\times$ error multiplication statistic should be treated as indicative rather than definitive. The phenomenon it describes --- error propagation and amplification in multi-agent chains --- is real and documented in systems engineering literature. But the specific magnitude has not been independently validated. Future versions of this analysis should either locate the underlying peer-reviewed source or replace the statistic with more rigorous evidence.
+\end{cautionbox}
+
+\subsection{The Klarna Narrative Is Cherry-Picked}
+
+Klarna's 2025 financials showed improved margins alongside the customer satisfaction decline described in Chapter~\ref{ch:three-models}. The CEO's admission that ``cost unfortunately seems to have been a too predominant evaluation factor'' \parencite{Klarna2025} comes from a longer statement that also defended the AI strategy as a necessary evolution. Presenting only the quality degradation without the financial improvement is selective evidence --- the kind of rhetorical move that a hostile reader will identify and use to dismiss the broader argument.
+
+The honest presentation: Klarna achieved short-term cost reduction, experienced quality degradation, began rehiring humans, and the CEO acknowledged the trade-off. The lesson is not ``AI customer service fails'' but ``optimising for cost alone, without maintaining human oversight at quality-sensitive boundaries, produces predictable quality collapse.'' This is a more nuanced and more defensible claim.
+
+\subsection{The 89 Per Cent Reduction}
+
+The claim that providing approved AI tools reduces unauthorised use by 89 per cent is used repeatedly in this report. No primary source is cited. The statistic is plausible --- it aligns with shadow IT research showing that sanctioned alternatives reduce unsanctioned adoption --- but a claim used this frequently requires a traceable citation. This is an open research gap.
+
+\subsection{Vendor Report Methodology}
+
+The shadow AI statistics used throughout the report stack vendor-funded research --- Gartner, IBM, Capgemini --- that has methodological limitations and commercial incentives to inflate threat numbers. No error bars, confidence intervals, or methodological caveats are provided. A reader from an academic background will note this immediately. The statistics should be treated as directionally correct rather than precisely accurate.
+
+\section{Audience Blind Spots}
+
+\subsection{No Day-in-the-Life}
+
+Middle managers will ask: ``What does my Monday morning look like as a judgment broker? What am I literally doing at 9am?'' This report offers the conductor metaphor, the role transformation table, the three irreplaceable capacities --- but no concrete job specification, no competency framework, no salary benchmarking, no day-in-the-life narrative. The abstraction is intellectually satisfying but operationally insufficient for a middle manager trying to decide whether to invest in this transition.
+
+\textbf{Research direction}: develop detailed judgment broker role specifications for three to five industry verticals, including day-in-the-life scenarios, competency models, and compensation benchmarking.
+
+\subsection{No Total Cost of Ownership}
+
+AI leaders will ask: ``What does this cost for a 500-person organisation? What is the ROI timeline?'' Chapter~\ref{ch:implementation} provides an indicative cost tier model, but this falls short of a total cost of ownership analysis that includes ongoing compute, model API costs (which are volatile and trending downward), knowledge engineering maintenance, judgment broker training, and the opportunity cost of the transition period. Without financial modelling, the implementation roadmap is a strategic argument, not a business case.
+
+\textbf{Research direction}: develop a TCO calculator parameterised by organisation size, industry vertical, regulatory burden, and existing technology infrastructure.
+
+\subsection{The Roadmap Contradiction}
+
+Change managers will notice that this report attacks Kotter and ADKAR for being phased transformation models, then offers a phased 90-day roadmap. Chapter~\ref{ch:change-problem} addresses this contradiction explicitly --- framing the roadmap as a bootstrap sequence rather than a change plan --- but the resolution requires the reader to accept a distinction that may feel like sophistry. The tension is genuine and deserves continued intellectual engagement rather than a single paragraph of resolution.
+
+\subsection{The Analyst-Vendor Conflict}
+
+All three audiences will notice that DreamLab AI Consulting is simultaneously the analyst (producing this report), the framework creator (proposing the Dynamic Agentic Mesh), and the vendor (operating VisionClaw). This is a classic consulting positioning conflict. The report's credibility depends on acknowledging this conflict directly: ``We built this because we believe it. Here is the evidence for and against. Judge the framework on its merits, not its provenance.''
+
+\section{Engaging with Acemoglu}
+
+Daron Acemoglu's work on AI and productivity has been cited in this report's bibliography but not substantively engaged with in the main text. This is a significant omission because Acemoglu's thesis directly challenges the optimistic productivity assumptions underlying the coordination collapse argument.
+
+\begin{evidencebox}[title={The Acemoglu Sceptical Thesis}]
+In ``The Simple Macroeconomics of AI'' \parencite{Acemoglu2025}, Acemoglu argues that AI's impact on total factor productivity (TFP) will be modest --- at most \textbf{0.66 per cent over 10 years}. His reasoning:
+
+\begin{enumerate}
+  \item AI automates tasks, not jobs. The tasks most amenable to automation are not necessarily the tasks that contribute most to productivity.
+  \item The ``easy-to-learn, hard-to-verify'' problem: many tasks that AI can perform require costly human verification, limiting net productivity gains. This maps directly onto the vigilance problem described in Chapter~\ref{ch:vigilance}.
+  \item New task creation --- historically the mechanism by which automation generates employment growth --- may be slower with AI than with previous technologies.
+  \item AI may increase inequality rather than aggregate productivity, concentrating gains among capital owners and high-skill workers while displacing middle-skill employment.
+\end{enumerate}
+\end{evidencebox}
+
+The coordination collapse thesis should engage with Acemoglu on three fronts.
+
+\textbf{First}, the 0.66 per cent TFP estimate applies to the economy as a whole, not to individual organisations. An organisation that deploys an agentic mesh effectively may capture disproportionate productivity gains precisely because its competitors do not. The compounding organisation thesis does not require AI to transform the macroeconomy --- it requires AI to provide a competitive advantage to organisations that use it well. This is consistent with Acemoglu's framework: the gains are real but unevenly distributed.
+
+\textbf{Second}, the task-level analysis is compatible with the jagged frontier concept. Acemoglu's point that AI automates tasks, not jobs, aligns with the argument that the judgment broker's role is to determine which tasks sit inside the frontier and which require human judgment. The mesh architecture is explicitly designed around task decomposition, not wholesale job replacement. Where Acemoglu warns that the ``easy-to-learn, hard-to-verify'' problem limits productivity gains, the mesh responds with HITL Precision and Trust Variance monitoring --- architectural mechanisms for managing verification costs.
+
+\textbf{Third}, the equity concern is serious and currently unaddressed in this report. If the mesh concentrates productivity gains among organisations with the capital and technical expertise to deploy it, while displacing middle-skill workers in organisations that cannot, the net social effect may be increased inequality even as individual organisations benefit. This is a genuine tension that the coordination collapse thesis does not resolve.
+
+\section{Energy and Environmental Costs}
+
+The report proposes deploying agentic infrastructure at organisational scale without addressing the energy implications. This is an increasingly visible omission as the environmental costs of AI infrastructure become a matter of public and regulatory concern.
+
+\begin{evidencebox}[title={The Energy Cost of Agentic Systems}]
+\begin{itemize}
+  \item \textcite{Patterson2025} at Microsoft Research find that reasoning-intensive queries --- the kind that agentic orchestration relies on --- have a median energy cost of 4.32 Wh per query, compared to 0.34 Wh for standard queries. This represents a \textbf{43$\times$ increase} in energy consumption for the reasoning-heavy workloads that an agentic mesh generates continuously.
+  \item \textcite{NatureSustainability2025} projects that US AI server infrastructure will produce \textbf{24--44 Mt CO$_2$-equivalent annually} through 2030 --- a range that is growing as model sizes increase and inference demand scales.
+  \item An agentic mesh running continuous orchestration, discovery monitoring, and governance checks generates substantially more inference load than on-demand AI tool use. The compound flywheel, by design, \emph{increases} inference volume as the mesh becomes more active.
+\end{itemize}
+\end{evidencebox}
+
+The energy cost of the mesh is not merely a corporate social responsibility issue. It is a business cost that scales with mesh activity. Organisations deploying agentic infrastructure must account for compute costs that are qualitatively different from traditional IT expenditure --- costs that increase as the mesh becomes more capable, not less.
+
+\textbf{Research direction}: develop energy cost models for agentic mesh deployment at different organisational scales, including comparison with the energy cost of the human coordination infrastructure the mesh replaces (office buildings, commuting, business travel). The net energy equation is not obviously negative --- a 200-person management layer has its own carbon footprint --- but neither is it obviously positive.
+
+\section{Cybersecurity Attack Surface}
+
+The statistic that financial services organisations manage 96 machine identities per human \parencite{CyberArk2025} --- with only 31 per cent having controls in place --- is cited in Chapter~\ref{ch:industry-landscape} as a governance issue. It is also a security issue that the report does not adequately address. An agentic mesh creates a dramatically expanded attack surface:
+
+\begin{itemize}
+  \item Each agent skill is a potential vector for prompt injection --- an adversary who can manipulate an agent's input can redirect its behaviour within its authority boundary.
+  \item The OWL~2 ontology that provides shared semantics is a single point of corruption --- poisoning the ontology could redirect agent routing across the entire mesh.
+  \item The Nostr identity layer provides cryptographic verification but depends on key management practices that most organisations have not developed for non-human identities.
+  \item The Insight Ingestion Loop creates a pathway from frontline input to production workflows --- a supply chain vulnerability that adversaries could exploit by planting malicious ``shadow workflows.''
+\end{itemize}
+
+\textbf{Research direction}: systematic threat modelling for agentic mesh architectures, including adversarial analysis of the Insight Ingestion Loop and ontology poisoning scenarios.
+
+\section{Equity and Access}
+
+Who benefits from the mesh and who is structurally excluded? The report addresses middle managers --- a specific professional cohort --- but does not address:
+
+\begin{itemize}
+  \item Workers without AI literacy who cannot participate in the discovery layer.
+  \item Roles that do not lend themselves to agent augmentation --- physical labour, care work, creative work that resists decomposition into tasks.
+  \item Organisations in the Global South that lack the infrastructure and capital to deploy agentic systems.
+  \item The distributional effects within organisations: does the mesh flatten compensation as it flattens hierarchy, or does it concentrate value in the judgment broker tier?
+\end{itemize}
+
+Acemoglu's concern about AI increasing inequality rather than productivity is most acute here. If the Dynamic Agentic Mesh is a tool available primarily to well-capitalised organisations in knowledge-intensive industries, its net effect may be to widen the gap between those organisations and everyone else --- a dynamic that the \textcite{WEF2025} Future of Jobs Report anticipates when it projects 170 million new roles created alongside 92 million displaced.
+
+\section{Competing Frameworks Not Addressed}
+
+The report positions against Block and Every --- neither of which is a consulting framework the target audience is actively evaluating. It does not differentiate substantively from:
+
+\begin{itemize}
+  \item \textbf{SAFe 6.0} \parencite{SAFe2024}, which added AI-specific agile change patterns in 2024.
+  \item \textbf{Microsoft Copilot Studio} \parencite{MicrosoftCopilotStudio2025}, an enterprise organisational AI deployment framework with the largest existing footprint.
+  \item \textbf{Holacracy 5.0} \parencite{Holacracy2024}, which specifically addressed the scale failures attributed to earlier versions.
+  \item \textbf{Anthropic's constitutional AI governance}, directly relevant to the governance paradox in Chapter~\ref{ch:governance}.
+\end{itemize}
+
+A competitor comparison table is provided in Appendix~\ref{ch:competitor-matrix}, but the main text does not engage with these alternatives at the depth they deserve.
+
+\section{The VisionClaw Credibility Gap}
+
+Chapter~\ref{ch:technical-substrate} describes VisionClaw honestly, including both its genuine capabilities and its limitations. But the credibility gap between a 15-person creative technology team and a 500-person manufacturing firm has not been bridged. The favourable conditions under which VisionClaw operates --- high technical literacy, low process rigidity, flat power dynamics, intrinsic motivation, the system architect as the primary user --- are the most favourable possible environment.
+
+\begin{keyinsight}
+VisionClaw is an existence proof under ideal conditions, not a proof of general applicability. The coordination collapse thesis requires bridging evidence that the architecture works in less favourable environments: regulated industries, non-technical workforces, unionised labour, legacy ERP systems, and middle managers who did not choose the system.
+
+Four bridging strategies are available:
+\begin{enumerate}
+  \item Run a pilot in a genuinely different context (regulated industry, non-technical workforce).
+  \item Partner with an established consulting framework (Deloitte, BCG) for independent validation.
+  \item Publish the methodology as open-source and invite external testing.
+  \item Position VisionClaw explicitly as ``existence proof under favourable conditions'' and build the evidence base incrementally.
+\end{enumerate}
+The fourth strategy is the one this report adopts. The others represent the research agenda.
+\end{keyinsight}
+
+\section{Additional Failure Modes}
+
+The report documents two failure modes in detail: the ant death spiral (agents responding to agents in infinite loops) and the vigilance degradation problem (humans falling asleep at the wheel as AI quality improves). But an agentic mesh at organisational scale introduces additional failure modes that this analysis does not adequately address:
+
+\begin{itemize}
+  \item \textbf{Cascading errors}: a single incorrect agent output propagating through downstream agents before the judgment broker can intervene.
+  \item \textbf{Single point of failure in the judgment broker}: if the broker is unavailable, incapacitated, or overwhelmed, the mesh has no fallback governance mechanism.
+  \item \textbf{Ontology drift}: the OWL~2 ontology gradually diverging from the actual business domain as the organisation evolves, producing increasingly inaccurate agent routing.
+  \item \textbf{Metric gaming}: agents optimising for the four KPIs in ways that satisfy the metrics while degrading actual performance --- Goodhart's law applied to agentic governance.
+  \item \textbf{Cultural rejection}: the mesh may function technically while being socially rejected by the workforce, producing compliance without engagement.
+\end{itemize}
+
+\textbf{Research direction}: systematic failure mode analysis (FMEA) for agentic mesh architectures, with probability and severity estimates calibrated to organisational context.

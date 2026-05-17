@@ -1,0 +1,42 @@
+title VisionClaw Technology Stack — Verified Components (April 2026)
+style wardley
+
+// User need
+component Agentic Mesh Capability [0.95, 0.35] label [-70, -15]
+
+// Genesis/Custom - differentiating technology
+component OWL 2 Ontology (Whelk-rs EL++) [0.82, 0.25] label [-85, -15]
+component GPU Visualisation (92 CUDA kernels) [0.70, 0.30] label [-95, -15]
+component Nostr Identity (NIP-98) [0.60, 0.18] label [-70, -15]
+
+// Product - structured capabilities
+component Claude-Flow Orchestration [0.75, 0.55] label [-70, 15]
+component WebXR Frontend (Babylon.js) [0.65, 0.48] label [-75, 15]
+component RuVector Memory (1.17M embeddings) [0.50, 0.50] label [-90, 15]
+
+// Product/Commodity
+component 83+ Agent Skills [0.42, 0.65] label [-45, 15]
+component Neo4j Graph DB [0.30, 0.72] label [-40, 15]
+
+// Commodity infrastructure
+component PostgreSQL + pgvector [0.20, 0.85] label [-55, 15]
+component NVIDIA GPU Compute [0.12, 0.80] label [-55, 15]
+
+// Dependencies
+Agentic Mesh Capability->OWL 2 Ontology (Whelk-rs EL++)
+Agentic Mesh Capability->Claude-Flow Orchestration
+OWL 2 Ontology (Whelk-rs EL++)->Neo4j Graph DB
+OWL 2 Ontology (Whelk-rs EL++)->Claude-Flow Orchestration
+Claude-Flow Orchestration->83+ Agent Skills
+Claude-Flow Orchestration->RuVector Memory (1.17M embeddings)
+GPU Visualisation (92 CUDA kernels)->WebXR Frontend (Babylon.js)
+GPU Visualisation (92 CUDA kernels)->NVIDIA GPU Compute
+Nostr Identity (NIP-98)->OWL 2 Ontology (Whelk-rs EL++)
+RuVector Memory (1.17M embeddings)->PostgreSQL + pgvector
+WebXR Frontend (Babylon.js)->GPU Visualisation (92 CUDA kernels)
+
+annotation 1 [0.82, 0.08] DIFFERENTIATORS: OWL 2 ontology reasoning (rare in this space), GPU-accelerated graph physics, and Nostr-based decentralised identity. These are custom/genesis components that competitors lack.
+annotation 2 [0.45, 0.55] PRODUCT LAYER: Claude-Flow orchestration, WebXR frontend, and vector memory are structured capabilities built on commodity infrastructure. These could be replicated but the integration is the moat.
+annotation 3 [0.15, 0.70] COMMODITY: Standard infrastructure (PostgreSQL, NVIDIA GPUs, Neo4j) that anyone can procure. Not differentiating.
+
+note All components verified against codebase April 2026. Previous claims (101 skills, multi-provider orchestration, W3C DIDs, 100K nodes) have been corrected to verified reality. [0.05, 0.40]

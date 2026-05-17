@@ -1,0 +1,28 @@
+flowchart TD
+    CENTER{{"<b>SCORE</b><br/>━━━━━━━━<br/>sigmoid(a=12, bias=0.42)<br/>threshold ≥ 0.60"}}:::center
+
+    S1["<b>S1</b><br/>WikilinkToOntology<br/>w=0.20"]:::signal
+    S2["<b>S2</b><br/>SemanticCooccurrence<br/>w=0.15"]:::signal
+    S3["<b>S3</b><br/>ExplicitOwlDeclaration<br/>w=0.15"]:::signal
+    S4["<b>S4</b><br/>AgentProposal<br/>w=0.20"]:::signal
+    S5["<b>S5</b><br/>MaturityMarker<br/>w=0.10"]:::signal
+    S6["<b>S6</b><br/>CentralityInKG<br/>w=0.10"]:::signal
+    S7["<b>S7</b><br/>AuthoringRecency<br/>w=0.05"]:::signal
+    S8["<b>S8</b><br/>AuthorityScore<br/>w=0.05"]:::signal
+
+    S1 --> CENTER
+    S2 --> CENTER
+    S3 --> CENTER
+    S4 --> CENTER
+    S5 --> CENTER
+    S6 --> CENTER
+    S7 --> CENTER
+    S8 --> CENTER
+
+    CENTER ==>|"crosses 0.60"| SURFACE["<b>SURFACES TO<br/>BROKER INBOX</b>"]:::surface
+    CENTER -.->|"below 0.35<br/>after 3 days"| EXPIRE["<b>AUTO-EXPIRE</b>"]:::expire
+
+    classDef center fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A
+    classDef signal fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef surface fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef expire fill:#1A0F0F,stroke:#EF4444,stroke-width:2px,color:#FCD5D5

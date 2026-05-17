@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip59-gift-wrap.schema.json",
+  "title": "NIP-59 gift-wrap fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "layer", "event", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "layer": {"enum": ["rumor", "seal", "wrap"]},
+          "event": {"type": "object"},
+          "parent_layer": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

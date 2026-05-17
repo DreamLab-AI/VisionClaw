@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip26-delegation.schema.json",
+  "title": "NIP-26 delegation fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "delegatee_pubkey_hex", "conditions", "delegation_string", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "delegator_pubkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "delegator_privkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "delegatee_pubkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "delegatee_privkey_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "conditions": {"type": "string"},
+          "delegation_string": {"type": "string"},
+          "delegation_token_hex": {"type": "string", "pattern": "^[0-9a-f]{128}$"},
+          "delegation_tag": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "string"}
+          },
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

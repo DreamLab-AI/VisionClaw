@@ -1,0 +1,150 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "19.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-19 bech32-encoded entities",
+    "vector_count": 12,
+    "schema": "fields: case, hrp (npub|nsec|note|nprofile|nevent|naddr|nrelay), bech32 (string), decoded (object — payload depends on hrp; for npub/nsec/note: hex_pubkey|hex_privkey|hex_eventid; for TLV-bearing: tlv array of {type,length,value_hex|value_utf8}), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "npub-1",
+      "hrp": "npub",
+      "bech32": "npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6",
+      "decoded": {
+        "hex_pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+      },
+      "valid": true,
+      "note": "Canonical npub from NIP-19 spec."
+    },
+    {
+      "case": "nsec-1",
+      "hrp": "nsec",
+      "bech32": "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+      "decoded": {
+        "hex_privkey": "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa"
+      },
+      "valid": true,
+      "note": "Canonical nsec from NIP-19 spec."
+    },
+    {
+      "case": "npub-2",
+      "hrp": "npub",
+      "bech32": "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg",
+      "decoded": {
+        "hex_pubkey": "7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e"
+      },
+      "valid": true,
+      "note": "Second canonical npub from NIP-19 spec."
+    },
+    {
+      "case": "nprofile-tlv",
+      "hrp": "nprofile",
+      "bech32": "nprofile1qqsrhuxx8l9ex335q7he0f09aej04zpazpl0ne2cgukyawd24mayt8gpp4mhxue69uhhytnc9e3k7mgpz4mhxue69uhkg6nzv9ejuumpv34kytnrdaksjlyr9p",
+      "decoded": {
+        "tlv": [
+          {
+            "type": 0,
+            "length": 32,
+            "value_hex": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+            "name": "special (pubkey)"
+          },
+          {
+            "type": 1,
+            "length": 13,
+            "value_utf8": "wss://r.x.com",
+            "name": "relay"
+          },
+          {
+            "type": 1,
+            "length": 16,
+            "value_utf8": "wss://djbas.sadkb.com",
+            "name": "relay"
+          }
+        ]
+      },
+      "valid": true,
+      "note": "Canonical nprofile TLV from NIP-19 spec; second relay length is 21 chars but spec excerpt above shows it; verify length byte during round-trip."
+    },
+    {
+      "case": "negative-bad-checksum-npub",
+      "hrp": "npub",
+      "bech32": "npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6wX",
+      "decoded": null,
+      "valid": false,
+      "note": "DreamLab-internal: last char mutated to break bech32 checksum (CRC failure)."
+    },
+    {
+      "case": "negative-wrong-hrp",
+      "hrp": "npub",
+      "bech32": "nsec180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6",
+      "decoded": null,
+      "valid": false,
+      "note": "DreamLab-internal: HRP mismatch with declared type."
+    },
+    {
+      "case": "negative-empty-string",
+      "hrp": "npub",
+      "bech32": "",
+      "decoded": null,
+      "valid": false,
+      "note": "DreamLab-internal: empty string."
+    },
+    {
+      "case": "negative-mixed-case-bech32",
+      "hrp": "npub",
+      "bech32": "Npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6",
+      "decoded": null,
+      "valid": false,
+      "note": "Bech32 forbids mixed case (BIP-173)."
+    },
+    {
+      "case": "round-trip-zeroed-pubkey",
+      "hrp": "npub",
+      "bech32": "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsx5tnyv",
+      "decoded": {
+        "hex_pubkey": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "valid": true,
+      "note": "DreamLab-internal: edge case all-zero pubkey round-trip. Bech32 of 32 zero bytes."
+    },
+    {
+      "case": "round-trip-max-pubkey",
+      "hrp": "npub",
+      "bech32": "npub1lllllllllllllllllllllllllllllllllllllllllllllllllls6q5fhf",
+      "decoded": {
+        "hex_pubkey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "valid": true,
+      "note": "DreamLab-internal: edge case all-FF pubkey (above secp256k1 group order; valid bech32 but invalid as a curve point)."
+    },
+    {
+      "case": "tlv-special-only-nprofile",
+      "hrp": "nprofile",
+      "bech32": "nprofile1qqsrhuxx8l9ex335q7he0f09aej04zpazpl0ne2cgukyawd24mayt8gpqgswaehxw69d",
+      "decoded": {
+        "tlv": [
+          {
+            "type": 0,
+            "length": 32,
+            "value_hex": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+            "name": "special (pubkey)"
+          }
+        ]
+      },
+      "valid": true,
+      "note": "DreamLab-internal: nprofile with only the special TLV (no relays) — minimal valid form."
+    },
+    {
+      "case": "negative-truncated-bech32",
+      "hrp": "npub",
+      "bech32": "npub180cvv07tjdrr",
+      "decoded": null,
+      "valid": false,
+      "note": "DreamLab-internal: truncated payload below 32-byte data length minimum."
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "98.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-98 HTTP Auth (kind-27235 events as bearer tokens)",
+    "vector_count": 6,
+    "schema": "fields: case, event (full kind-27235 event JSON), authorization_header (Nostr <b64-event-json>)?, request (object: method, url, body_sha256_hex?), valid (bool), validation_clock_skew_seconds?, note?"
+  },
+  "vectors": [
+    {
+      "case": "spec-canonical-get-event",
+      "event": {
+        "id": "fe964e758903360f28d8424d092da8494ed207cba823110be3a57dfe4b578734",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 27235,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.snort.social/api/v1/n5sp/list"],
+          ["method", "GET"]
+        ],
+        "sig": "5ed9d8ec958bc854f997bdc24ac337d005af372324747efe4a00e24f4c30437ff4dd8308684bed467d9d6be3e5a517bb43b1732cc7d33949a3aaf86705c22184"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://api.snort.social/api/v1/n5sp/list"
+      },
+      "valid": true,
+      "note": "Canonical NIP-98 example from spec. The id verifies as sha256 of NIP-01 serialisation; sig verifies under pubkey via Schnorr/BIP-340."
+    },
+    {
+      "case": "negative-wrong-kind",
+      "event": {
+        "id": "fe964e758903360f28d8424d092da8494ed207cba823110be3a57dfe4b578734",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 1,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.snort.social/api/v1/n5sp/list"],
+          ["method", "GET"]
+        ],
+        "sig": "5ed9d8ec958bc854f997bdc24ac337d005af372324747efe4a00e24f4c30437ff4dd8308684bed467d9d6be3e5a517bb43b1732cc7d33949a3aaf86705c22184"
+      },
+      "request": {"method": "GET", "url": "https://api.snort.social/api/v1/n5sp/list"},
+      "valid": false,
+      "note": "kind != 27235 — servers MUST reject."
+    },
+    {
+      "case": "negative-url-mismatch",
+      "event": {
+        "id": "...",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 27235,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.snort.social/api/v1/n5sp/list"],
+          ["method", "GET"]
+        ],
+        "sig": "..."
+      },
+      "request": {"method": "GET", "url": "https://api.snort.social/api/v1/different/path"},
+      "valid": false,
+      "note": "URL tag does not match request URL — servers MUST reject."
+    },
+    {
+      "case": "negative-method-mismatch",
+      "event": {
+        "id": "...",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 27235,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.snort.social/api/v1/n5sp/list"],
+          ["method", "GET"]
+        ],
+        "sig": "..."
+      },
+      "request": {"method": "POST", "url": "https://api.snort.social/api/v1/n5sp/list"},
+      "valid": false,
+      "note": "method tag does not match HTTP verb — servers MUST reject."
+    },
+    {
+      "case": "negative-stale-token-clock-skew",
+      "event": {
+        "id": "...",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 27235,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.snort.social/api/v1/n5sp/list"],
+          ["method", "GET"]
+        ],
+        "sig": "..."
+      },
+      "request": {"method": "GET", "url": "https://api.snort.social/api/v1/n5sp/list"},
+      "validation_clock_skew_seconds": 600,
+      "valid": false,
+      "note": "Token created_at is >60s from server clock per spec — MUST reject. Servers SHOULD enforce a window of ~60s."
+    },
+    {
+      "case": "post-with-payload-hash",
+      "event": {
+        "id": "...",
+        "pubkey": "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed",
+        "content": "",
+        "kind": 27235,
+        "created_at": 1682327852,
+        "tags": [
+          ["u", "https://api.example.com/upload"],
+          ["method", "POST"],
+          ["payload", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"]
+        ],
+        "sig": "..."
+      },
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/upload",
+        "body_sha256_hex": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+      },
+      "valid": true,
+      "note": "POST with payload tag containing sha256 hex of request body. Servers MUST verify hash matches actual body."
+    }
+  ]
+}

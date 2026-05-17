@@ -1,0 +1,76 @@
+flowchart TB
+    subgraph CLIENT["  BROWSER CLIENT · React 19 + WebGPU  "]
+        R3F["<b>React Three Fiber</b><br/>Desktop graph<br/>InstancedMesh · TSL materials"]:::client
+        XR["<b>Babylon.js XR</b><br/>Immersive VR<br/>Quest 3 · hand tracking"]:::client
+        WASM["<b>WASM scene-effects</b><br/>drawer-fx · sparklines<br/>Zero-copy Float32Array"]:::client
+    end
+
+    subgraph WIRE["  TRANSPORT  "]
+        BIN["<b>Binary V5</b><br/>9-byte header<br/>+ 36 bytes/node"]:::wire
+        REST["<b>REST + NIP-98</b><br/>Nostr Schnorr auth<br/>+ Bearer session"]:::wire
+    end
+
+    subgraph SERVER["  RUST BACKEND · Hexagonal Architecture  "]
+        subgraph PORTS["Ports · Trait Boundaries"]
+            GP["GraphRepository"]:::port
+            IE["InferenceEngine"]:::port
+            GPA["GpuPhysicsAdapter"]:::port
+            SP["SolidPodRepository"]:::port
+            VR["VectorRepository"]:::port
+        end
+        subgraph ADAPT["Adapters · Implementations"]
+            NEO["Neo4jAdapter"]:::adapter
+            WHELK["WhelkAdapter"]:::adapter
+            CUDA["CUDA Physics"]:::adapter
+            JSS["JSS Pod"]:::adapter
+            RV["RuVectorAdapter"]:::adapter
+        end
+        ACT["<b>21 Actix Actors</b><br/>Supervised concurrency<br/>GraphSupervisor → PhysicsOrch → ForceCompute"]:::actors
+    end
+
+    subgraph DATA["  DATA PLANE  "]
+        NEO4J[("<b>Neo4j 5.13</b><br/>Graph · ontology")]:::data
+        RUVEC[("<b>RuVector pgvector</b><br/>1.17M · HNSW 384d")]:::data
+        POD[("<b>Solid Pods</b><br/>Per-user sovereign data")]:::data
+    end
+
+    subgraph GPU["  GPU · CUDA 13.1  "]
+        KER["<b>92 Kernel Functions</b><br/>Force · semantic · stress"]:::gpu
+        ANL["<b>Analytics</b><br/>K-Means · Louvain<br/>PageRank · LOF"]:::gpu
+    end
+
+    subgraph MESH["  AGENT MESH  "]
+        SK["<b>83 Skills</b><br/>Claude-Flow · RAFT"]:::agent
+        NID["<b>Nostr Identities</b><br/>NIP-98 · delegation"]:::agent
+    end
+
+    R3F <==> BIN
+    XR <==> BIN
+    WASM <==> BIN
+    R3F <==> REST
+    BIN <==> ACT
+    REST <==> ACT
+
+    ACT --> PORTS
+    PORTS -.->|"implements"| ADAPT
+    ADAPT --> DATA
+
+    ACT <==> GPU
+    SK <==>|"MCP · 7 tools"| ACT
+    SK -.->|"PR on mutation"| NEO4J
+
+    classDef client fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef wire fill:#141F3D,stroke:#F59E0B,stroke-width:2px,color:#FDE68A
+    classDef port fill:#0F1A30,stroke:#00D4FF,stroke-width:1px,color:#D5F4FC
+    classDef adapter fill:#1A0F30,stroke:#8B5CF6,stroke-width:1px,color:#E8D5FC
+    classDef actors fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef data fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef gpu fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef agent fill:#141F3D,stroke:#F59E0B,stroke-width:2px,color:#FDE68A
+
+    style CLIENT fill:#081810,stroke:#1E3A2E
+    style WIRE fill:#181510,stroke:#3A2E1E
+    style SERVER fill:#0A0F1A,stroke:#1E2A3A
+    style DATA fill:#180F18,stroke:#3A1E3A
+    style GPU fill:#081810,stroke:#1E3A2E
+    style MESH fill:#181510,stroke:#3A2E1E

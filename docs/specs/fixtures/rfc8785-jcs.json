@@ -1,0 +1,112 @@
+{
+  "_meta": {
+    "source": "https://github.com/cyberphone/json-canonicalization",
+    "commit": "19d51d7fe467d4706a3ff08adf8a748f29fc21e0",
+    "upstream_path": "testdata/",
+    "fetched_at": "2026-05-07",
+    "license": "Apache-2.0",
+    "spec": "RFC 8785 JSON Canonicalization Scheme",
+    "vector_count": 6,
+    "schema": "fields: name, input (parsed JSON), input_raw (UTF-8 source), expected_output (canonicalised UTF-8), expected_output_sha256_hex_first16"
+  },
+  "vectors": [
+    {
+      "name": "arrays",
+      "input": [
+        56,
+        {
+          "d": true,
+          "10": null,
+          "1": []
+        }
+      ],
+      "input_raw": "[\n  56,\n  {\n    \"d\": true,\n    \"10\": null,\n    \"1\": [ ]\n  }\n]\n",
+      "expected_output": "[56,{\"1\":[],\"10\":null,\"d\":true}]",
+      "expected_output_sha256_hex_first16": "099601b171cafed9"
+    },
+    {
+      "name": "french",
+      "input": {
+        "peach": "This sorting order",
+        "péché": "is wrong according to French",
+        "pêche": "but canonicalization MUST",
+        "sin": "ignore locale"
+      },
+      "input_raw": "{\n  \"peach\": \"This sorting order\",\n  \"péché\": \"is wrong according to French\",\n  \"pêche\": \"but canonicalization MUST\",\n  \"sin\":   \"ignore locale\"\n}\n",
+      "expected_output": "{\"peach\":\"This sorting order\",\"péché\":\"is wrong according to French\",\"pêche\":\"but canonicalization MUST\",\"sin\":\"ignore locale\"}",
+      "expected_output_sha256_hex_first16": "d99d0ebdcb0033cb"
+    },
+    {
+      "name": "structures",
+      "input": {
+        "1": {
+          "f": {
+            "f": "hi",
+            "F": 5
+          },
+          "\n": 56.0
+        },
+        "10": {},
+        "": "empty",
+        "a": {},
+        "111": [
+          {
+            "e": "yes",
+            "E": "no"
+          }
+        ],
+        "A": {}
+      },
+      "input_raw": "{\n  \"1\": {\"f\": {\"f\": \"hi\",\"F\": 5} ,\"\\n\": 56.0},\n  \"10\": { },\n  \"\": \"empty\",\n  \"a\": { },\n  \"111\": [ {\"e\": \"yes\",\"E\": \"no\" } ],\n  \"A\": { }\n}",
+      "expected_output": "{\"\":\"empty\",\"1\":{\"\\n\":56,\"f\":{\"F\":5,\"f\":\"hi\"}},\"10\":{},\"111\":[{\"E\":\"no\",\"e\":\"yes\"}],\"A\":{},\"a\":{}}",
+      "expected_output_sha256_hex_first16": "605f65004ec2db76"
+    },
+    {
+      "name": "unicode",
+      "input": {
+        "Unnormalized Unicode": "Å"
+      },
+      "input_raw": "{\n  \"Unnormalized Unicode\":\"A\\u030a\"\n}\n",
+      "expected_output": "{\"Unnormalized Unicode\":\"Å\"}",
+      "expected_output_sha256_hex_first16": "0d99aad92a125196"
+    },
+    {
+      "name": "values",
+      "input": {
+        "numbers": [
+          333333333.3333333,
+          1e+30,
+          4.5,
+          0.002,
+          1e-27
+        ],
+        "string": "€$\u000f\nA'B\"\\\\\"/",
+        "literals": [
+          null,
+          true,
+          false
+        ]
+      },
+      "input_raw": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}",
+      "expected_output": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "expected_output_sha256_hex_first16": "2d5e01a318d0f087"
+    },
+    {
+      "name": "weird",
+      "input": {
+        "€": "Euro Sign",
+        "\r": "Carriage Return",
+        "\n": "Newline",
+        "1": "One",
+        "": "Control",
+        "😂": "Smiley",
+        "ö": "Latin Small Letter O With Diaeresis",
+        "דּ": "Hebrew Letter Dalet With Dagesh",
+        "</script>": "Browser Challenge"
+      },
+      "input_raw": "{\n  \"\\u20ac\": \"Euro Sign\",\n  \"\\r\": \"Carriage Return\",\n  \"\\u000a\": \"Newline\",\n  \"1\": \"One\",\n  \"\\u0080\": \"Control\\u007f\",\n  \"\\ud83d\\ude02\": \"Smiley\",\n  \"\\u00f6\": \"Latin Small Letter O With Diaeresis\",\n  \"\\ufb33\": \"Hebrew Letter Dalet With Dagesh\",\n  \"</script>\": \"Browser Challenge\"\n}\n",
+      "expected_output": "{\"\\n\":\"Newline\",\"\\r\":\"Carriage Return\",\"1\":\"One\",\"</script>\":\"Browser Challenge\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😂\":\"Smiley\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "expected_output_sha256_hex_first16": "6af595a9aa80110b"
+    }
+  ]
+}

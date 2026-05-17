@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wardley Map</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .map-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            display: inline-block;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .component {
+            cursor: pointer;
+        }
+        .component:hover circle {
+            r: 10;
+            transition: r 0.2s;
+        }
+        .controls {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #357abd;
+        }
+    </style>
+</head>
+<body><h2 style="text-align:center;font-family:sans-serif;color:#1B2A4A">Map 2: Three Organisational Models — Block (Commodity) vs Every (Custom) vs Mesh (Structured Boundary)</h2>
+    <div class="map-container">
+        <h1>Wardley Map</h1>
+        <svg width="1200" height="800" 
+                      xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+        </marker>
+            </defs>
+            <rect x="50" y="50" width="165.0" height="700" fill="#f8f8f8" opacity="0.5"/><text x="132.5" y="780" text-anchor="middle" font-size="12" fill="#666">Genesis</text><rect x="215.0" y="50" width="385.0" height="700" fill="#f0f0f0" opacity="0.5"/><text x="407.5" y="780" text-anchor="middle" font-size="12" fill="#666">Custom</text><rect x="435.0" y="50" width="330.0" height="700" fill="#e8e8e8" opacity="0.5"/><text x="600.0" y="780" text-anchor="middle" font-size="12" fill="#666">Product</text><rect x="765.0" y="50" width="385.0" height="700" fill="#e0e0e0" opacity="0.5"/><text x="957.5" y="780" text-anchor="middle" font-size="12" fill="#666">Commodity</text>
+        <line x1="50" y1="750" 
+              x2="1150" y2="750" 
+              stroke="#333" stroke-width="2"/>
+        <text x="600.0" y="795" 
+              text-anchor="middle" font-size="14" font-weight="bold">
+            Evolution →
+        </text>
+        <line x1="50" y1="50" 
+              x2="50" y2="750" 
+              stroke="#333" stroke-width="2"/>
+        <text x="15" y="400.0" 
+              text-anchor="middle" font-size="14" font-weight="bold" 
+              transform="rotate(-90 15 400.0)">
+            Value Chain →
+        </text>
+        <text x="45" y="45" 
+              text-anchor="end" font-size="12" fill="#666">Visible</text>
+        <text x="45" y="765" 
+              text-anchor="end" font-size="12" fill="#666">Invisible</text>
+        <g class="component">
+            <circle cx="490.0" cy="85.00000000000003" r="8" fill="#e74c3c" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="490.0" y="73.00000000000003" text-anchor="middle" 
+                  font-size="11" fill="#333">Organisational
+Coordination</text>
+        </g>
+        <g class="component">
+            <circle cx="820.0" cy="260.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="820.0" y="248.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Block]
+World Model</text>
+        </g>
+        <g class="component">
+            <circle cx="765.0" cy="344.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="765.0" y="332.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Block]
+Intelligence Layer</text>
+        </g>
+        <g class="component">
+            <circle cx="930.0" cy="435.00000000000006" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="930.0" y="423.00000000000006" text-anchor="middle" 
+                  font-size="11" fill="#333">[Block]
+ICs / DRIs</text>
+        </g>
+        <g class="component">
+            <circle cx="545.0" cy="260.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="545.0" y="248.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Every]
+Personal Agents</text>
+        </g>
+        <g class="component">
+            <circle cx="325.0" cy="344.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="325.0" y="332.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Every]
+Cultural Norms</text>
+        </g>
+        <g class="component">
+            <circle cx="380.0" cy="435.00000000000006" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="380.0" y="423.00000000000006" text-anchor="middle" 
+                  font-size="11" fill="#333">[Every]
+Emergent
+Coordination</text>
+        </g>
+        <g class="component">
+            <circle cx="600.0" cy="225.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="600.0" y="213.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Mesh]
+Discovery Engine</text>
+        </g>
+        <g class="component">
+            <circle cx="435.0" cy="316.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="435.0" y="304.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Mesh]
+Judgment Broker</text>
+        </g>
+        <g class="component">
+            <circle cx="655.0" cy="400.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="655.0" y="388.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Mesh]
+Declarative
+Governance</text>
+        </g>
+        <g class="component">
+            <circle cx="765.0" cy="484.0" r="8" fill="#4a90e2" 
+                    stroke="#fff" stroke-width="2"/>
+            <text x="765.0" y="472.0" text-anchor="middle" 
+                  font-size="11" fill="#333">[Mesh]
+DAG Orchestration</text>
+        </g>
+        </svg>
+        <div class="controls">
+            <button onclick="exportSVG()">Export SVG</button>
+            <button onclick="exportPNG()">Export PNG</button>
+            <button onclick="toggleGrid()">Toggle Grid</button>
+        </div>
+    </div>
+    
+    <script>
+        function exportSVG() {
+            const svg = document.querySelector('svg');
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgData], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'wardley-map.svg';
+            a.click();
+        }
+        
+        function exportPNG() {
+            const svg = document.querySelector('svg');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            canvas.width = svg.getAttribute('width');
+            canvas.height = svg.getAttribute('height');
+            
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgData], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            
+            img.onload = function() {
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'wardley-map.png';
+                    a.click();
+                });
+            };
+            img.src = url;
+        }
+        
+        function toggleGrid() {
+            // Implementation for grid toggle
+            console.log('Grid toggle not yet implemented');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/nip98-tokens.schema.json",
+  "title": "NIP-98 HTTP Auth fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "event", "request", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "event": {"type": "object"},
+          "request": {
+            "type": "object",
+            "required": ["method", "url"],
+            "properties": {
+              "method": {"type": "string"},
+              "url": {"type": "string"},
+              "body_sha256_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          },
+          "authorization_header": {"type": "string"},
+          "validation_clock_skew_seconds": {"type": "integer"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

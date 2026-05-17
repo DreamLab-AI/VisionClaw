@@ -1,0 +1,201 @@
+{
+  "_meta": {
+    "source": "DreamLab-internal",
+    "commit": "in-tree",
+    "upstream_path": "docs/adr/ADR-075-is-envelope-message-contract.md#D1+D3",
+    "fetched_at": "2026-05-07",
+    "license": "internal",
+    "spec": "ADR-075 D1 + D3 — IS-Envelope v1 canonical JSON shape, per-kind body shapes",
+    "vector_count": 11,
+    "schema": "fields: case, kind (chat|tool_invoke|tool_result|knowledge_link|moderation|mesh_ping), envelope (full IS-Envelope JSON), expected_jcs? (the JCS-canonical UTF-8 string per ADR-075 D5), valid (bool), violation? (which D-rule from ADR-075), note?"
+  },
+  "vectors": [
+    {
+      "case": "chat-string-body",
+      "kind": "chat",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "chat",
+        "body": "Hello! Can you check the latest workshop config?"
+      },
+      "expected_jcs": "{\"body\":\"Hello! Can you check the latest workshop config?\",\"from\":\"did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd\",\"kind\":\"chat\",\"to\":\"did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9\",\"v\":1}",
+      "valid": true,
+      "note": "Minimal valid chat envelope (only required fields). JCS sorts keys alphabetically: body, from, kind, to, v."
+    },
+    {
+      "case": "chat-object-body-with-attachment",
+      "kind": "chat",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "chat",
+        "lang": "text/markdown",
+        "body": {
+          "text": "Hello!",
+          "attachments": [
+            {"url": "https://pod.example.com/path", "mime": "image/png", "alt": "screenshot"}
+          ]
+        }
+      },
+      "valid": true,
+      "note": "Chat with object body + attachment. Maps to AS2 Note with attachment array per ADR-075 D3."
+    },
+    {
+      "case": "tool-invoke",
+      "kind": "tool_invoke",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "tool_invoke",
+        "ttl": 1763000000,
+        "body": {
+          "tool": "urn:agentbox:skill:summarise-thread",
+          "args": {"thread_id": "abc123", "max_tokens": 500},
+          "reply_to": "fe964e758903360f28d8424d092da8494ed207cba823110be3a57dfe4b578734"
+        }
+      },
+      "valid": true,
+      "note": "tool_invoke with TTL. Maps to AS2 Offer per ADR-075 D3."
+    },
+    {
+      "case": "tool-result-ok",
+      "kind": "tool_result",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "from": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "kind": "tool_result",
+        "body": {
+          "tool": "urn:agentbox:skill:summarise-thread",
+          "status": "ok",
+          "result": {"summary": "..."},
+          "error": null,
+          "in_reply_to": "fe964e758903360f28d8424d092da8494ed207cba823110be3a57dfe4b578734"
+        }
+      },
+      "valid": true,
+      "note": "tool_result success path. Maps to AS2 Add per ADR-075 D3."
+    },
+    {
+      "case": "knowledge-link",
+      "kind": "knowledge_link",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "knowledge_link",
+        "subj": "urn:visionclaw:bead:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd:abc123def456",
+        "body": {
+          "subject_urn": "urn:visionclaw:bead:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd:abc123def456",
+          "claim": "indexed",
+          "context": {
+            "graph_uri": "neo4j://kg.example.com/visionclaw",
+            "labels": ["KGNode", "Bead"]
+          }
+        }
+      },
+      "valid": true,
+      "note": "knowledge_link with subj URN. Maps to AS2 Announce per ADR-075 D3."
+    },
+    {
+      "case": "moderation-ban",
+      "kind": "moderation",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "moderation",
+        "body": {
+          "action": "ban",
+          "target": "did:nostr:0000000000000000000000000000000000000000000000000000000000000001",
+          "reason": "spam",
+          "expires": 1763500000,
+          "kind_event_ref": "abc123def456"
+        }
+      },
+      "valid": true,
+      "note": "moderation sidecar; the actual 30910 event flows separately on the relay. Maps to AS2 Block per ADR-075 D3."
+    },
+    {
+      "case": "mesh-ping",
+      "kind": "mesh_ping",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "mesh_ping",
+        "body": {
+          "self_pubkey": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "peer_relays": ["wss://relay-a.example.com/", "wss://relay-b.example.com/"],
+          "uptime_s": 1284
+        }
+      },
+      "valid": true,
+      "note": "mesh_ping rides as content of kind-30050 (no NIP-59 wrap) per ADR-075 D4."
+    },
+    {
+      "case": "delegation-mirrored",
+      "kind": "chat",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "via": ["did:nostr:477318cfb5427b9cfc66a9fa376150c1ddbc62115ae27cef72417eb959691396"],
+        "kind": "chat",
+        "body": "Posting on behalf of delegator",
+        "delegation": {
+          "delegator": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "conditions": "kind=14&created_at<1763500000",
+          "sig": "6f44d7fe4f1c09f3954640fb58bd12bae8bb8ff4120853c4693106c82e920e2b898f1f9ba9bd65449a987c39c0423426ab7b53910c0c6abfb41b30bc16e5f524"
+        }
+      },
+      "valid": true,
+      "note": "Envelope's delegation field mirrors the seal's [\"delegation\", ...] tag (NIP-26). 'from' = delegator; 'via' lists delegatee chain. Per ADR-075 D6."
+    },
+    {
+      "case": "negative-missing-required-field-from",
+      "kind": "chat",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "kind": "chat",
+        "body": "test"
+      },
+      "valid": false,
+      "violation": "ADR-075 D2",
+      "note": "Missing required 'from'. Receivers MUST reject with `OK false \"envelope-malformed: from\"`."
+    },
+    {
+      "case": "negative-unknown-kind",
+      "kind": "chat",
+      "envelope": {
+        "v": 1,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "telekinesis",
+        "body": "x"
+      },
+      "valid": false,
+      "violation": "ADR-075 D1",
+      "note": "kind not in the seven-element enumeration. Receivers MUST reject."
+    },
+    {
+      "case": "negative-version-mismatch",
+      "kind": "chat",
+      "envelope": {
+        "v": 99,
+        "to": "did:nostr:611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "from": "did:nostr:8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+        "kind": "chat",
+        "body": "future"
+      },
+      "valid": false,
+      "violation": "ADR-075 D11",
+      "note": "v != 1; this fixture targets v1. Future versions MAY introduce a separate fixture."
+    }
+  ]
+}

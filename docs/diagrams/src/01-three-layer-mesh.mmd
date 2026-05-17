@@ -1,0 +1,40 @@
+flowchart TB
+    subgraph L3["  LAYER 3 · DECLARATIVE GOVERNANCE  "]
+        direction LR
+        JB["<b>Judgment Broker</b><br/>Human-in-the-Loop<br/>Strategic Direction · Ethical Adjudication"]
+        POL["<b>Policy Engine</b><br/>Allow · Deny · Escalate<br/>TOML Rules · Server-Evaluated"]
+        TR["<b>Cascading Trust</b><br/>Nostr NIP-98 · OIDC<br/>Signed Provenance"]
+    end
+
+    subgraph L2["  LAYER 2 · ORCHESTRATION  "]
+        direction LR
+        SK["<b>83 Agent Skills</b><br/>Claude-Flow · RAFT Hive-Mind"]
+        ON["<b>OWL 2 EL Reasoning</b><br/>Whelk-rs Inference Engine"]
+        MCP["<b>7 MCP Tools</b><br/>discover · read · query · traverse<br/>propose · validate · status"]
+        GPU["<b>GPU Compute</b><br/>92 CUDA Kernels<br/>55× CPU Speedup"]
+    end
+
+    subgraph L1["  LAYER 1 · DISCOVERY ENGINE  "]
+        direction LR
+        KG["<b>Knowledge Ingestion</b><br/>Logseq · GitHub · RSS<br/>SHA1 Delta Sync"]
+        NEO["<b>Neo4j + RuVector</b><br/>Graph Store · pgvector HNSW<br/>1.17M Memory Entries"]
+        VIZ["<b>3D Visualisation</b><br/>R3F · Babylon.js · WebXR<br/>Dual-Renderer"]
+        VOI["<b>4-Plane Voice</b><br/>LiveKit · Whisper · Kokoro<br/>Opus 48kHz HRTF"]
+    end
+
+    L1 ==>|"insights bubble up"| L2
+    L2 ==>|"exceptions surface"| L3
+    L3 -.->|"governance flows down"| L2
+    L2 -.->|"validated workflows deploy"| L1
+
+    classDef layer3 fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef layer2 fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef layer1 fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+
+    class L3 layer3
+    class L2 layer2
+    class L1 layer1
+
+    class JB,POL,TR layer3
+    class SK,ON,MCP,GPU layer2
+    class KG,NEO,VIZ,VOI layer1

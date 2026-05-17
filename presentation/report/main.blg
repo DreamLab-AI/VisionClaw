@@ -1,0 +1,17 @@
+[0] Config.pm:328> INFO - This is Biber 2.21
+[0] Config.pm:331> INFO - Logfile is 'main.blg'
+[55] biber:342> INFO - === Mon Apr 13, 2026, 14:25:29
+[68] Biber.pm:421> INFO - Reading 'main.bcf'
+[153] Biber.pm:1002> INFO - Found 43 citekeys in bib section 0
+[167] Biber.pm:4487> INFO - Processing section 0
+[174] Biber.pm:4678> INFO - Looking for bibtex file 'references.bib' for section 0
+[175] bibtex.pm:1713> INFO - LaTeX decoding ...
+[208] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
+[420] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[420] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[420] Biber.pm:4307> INFO - Sorting list 'nyt/global//global/global/global' of type 'entry' with template 'nyt' and locale 'en-US'
+[420] Biber.pm:4313> INFO - No sort tailoring available for locale 'en-US'
+[451] bbl.pm:676> INFO - Writing 'main.bbl' with encoding 'UTF-8'
+[464] bbl.pm:779> INFO - Output to main.bbl
+[464] Biber.pm:132> WARN - Duplicate entry key: 'NatureSustainability2025' in file 'references.bib', skipping ...
+[464] Biber.pm:134> INFO - WARNINGS: 1

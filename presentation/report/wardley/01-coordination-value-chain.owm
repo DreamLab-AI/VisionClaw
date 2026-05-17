@@ -1,0 +1,52 @@
+title The Coordination Value Chain — Where AI Commoditises and Where Judgment Remains
+style wardley
+
+// User need
+component Strategic Outcomes [0.95, 0.15] label [2, -10]
+
+// Genesis/Custom - irreducible human judgment
+component Strategic Direction [0.85, 0.20] label [-80, -10]
+component Value Alignment [0.78, 0.25] label [-90, -10]
+component Ethical Adjudication [0.72, 0.18] label [-120, -10]
+component Jagged Frontier Navigation [0.55, 0.22] label [-140, -10]
+
+// The boundary - the judgment broker
+component Judgment Broker [0.62, 0.35] label [-50, 15]
+
+// Moving to commodity via AI
+component Cross-Functional Coordination [0.58, 0.50] label [-80, 15]
+component Information Routing [0.45, 0.75] label [-60, 15]
+component Status Aggregation [0.38, 0.80] label [-60, 15]
+component Task Assignment [0.30, 0.72] label [-55, 15]
+component Context Synthesis [0.35, 0.70] label [-60, -10]
+
+// Commodity infrastructure
+component AI Agent Orchestration [0.20, 0.65] label [-65, 15]
+component Individual Execution [0.12, 0.85] label [-60, 15]
+
+// Dependencies
+Strategic Outcomes->Strategic Direction
+Strategic Direction->Value Alignment
+Value Alignment->Judgment Broker
+Ethical Adjudication->Judgment Broker
+Judgment Broker->Cross-Functional Coordination
+Judgment Broker->Jagged Frontier Navigation
+Cross-Functional Coordination->Information Routing
+Cross-Functional Coordination->Status Aggregation
+Information Routing->AI Agent Orchestration
+Status Aggregation->AI Agent Orchestration
+Task Assignment->AI Agent Orchestration
+Context Synthesis->AI Agent Orchestration
+AI Agent Orchestration->Individual Execution
+
+// Evolution arrows showing movement toward commodity
+evolve Information Routing 0.85 label [10, -10]
+evolve Status Aggregation 0.90 label [10, -10]
+evolve Task Assignment 0.85 label [10, -10]
+evolve Context Synthesis 0.82 label [10, -10]
+
+// Annotations
+annotation 1 [0.65, 0.10] The Judgment Broker sits at the boundary between what AI commoditises (below) and what requires irreducible human judgment (above). This is the evolved middle manager role.
+annotation 2 [0.40, 0.60] These components are rapidly moving toward commodity as AI agents take over information routing, status aggregation, and task assignment — the functions hierarchy was designed to perform.
+
+note Components with ➜ arrows are moving rightward (toward commodity) as AI takes over coordination functions [0.05, 0.55]

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dreamlab.ai/schemas/fixtures/multibase.schema.json",
+  "title": "Multibase encoding fixture",
+  "type": "object",
+  "required": ["_meta", "vectors"],
+  "additionalProperties": false,
+  "properties": {
+    "_meta": {"$ref": "_common-meta.schema.json"},
+    "vectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["case", "encoding", "encoded", "valid"],
+        "properties": {
+          "case": {"type": "string"},
+          "encoding": {"type": "string"},
+          "input_utf8": {"type": "string"},
+          "input_hex": {"type": "string", "pattern": "^[0-9a-fA-F]*$"},
+          "encoded": {"type": "string"},
+          "normalize_to": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+title Three Organisational Models — Block vs Every vs DreamLab Mesh
+style wardley
+
+// Shared user need
+component Organisational Coordination [0.95, 0.40] label [-80, -15]
+
+// === BLOCK MODEL (right side - commoditised) ===
+component [Block] World Model [0.72, 0.70] label [-40, -15]
+component [Block] Intelligence Layer [0.58, 0.65] label [-60, -15]
+component [Block] ICs / DRIs [0.45, 0.80] label [-35, -15]
+
+// === EVERY MODEL (left side - custom) ===
+component [Every] Personal Agents [0.72, 0.45] label [-70, -15]
+component [Every] Cultural Norms [0.58, 0.25] label [-55, -15]
+component [Every] Emergent Coordination [0.45, 0.30] label [-75, -15]
+
+// === DREAMLAB MESH (centre - structured boundary) ===
+component [Mesh] Discovery Engine [0.78, 0.50] label [-50, 15]
+component [Mesh] Judgment Broker [0.65, 0.35] label [-50, 15]
+component [Mesh] Declarative Governance [0.52, 0.55] label [-75, 15]
+component [Mesh] DAG Orchestration [0.40, 0.65] label [-55, 15]
+
+// Dependencies
+Organisational Coordination->[Block] World Model
+Organisational Coordination->[Every] Personal Agents
+Organisational Coordination->[Mesh] Discovery Engine
+
+[Block] World Model->[Block] Intelligence Layer
+[Block] Intelligence Layer->[Block] ICs / DRIs
+
+[Every] Personal Agents->[Every] Cultural Norms
+[Every] Cultural Norms->[Every] Emergent Coordination
+
+[Mesh] Discovery Engine->[Mesh] Judgment Broker
+[Mesh] Judgment Broker->[Mesh] Declarative Governance
+[Mesh] Declarative Governance->[Mesh] DAG Orchestration
+
+annotation 1 [0.50, 0.78] BLOCK: Pushes coordination fully to commodity. Risk: 95% of code still needs humans. Klarna reversed course.
+annotation 2 [0.50, 0.15] EVERY: Keeps coordination in custom/genesis via cultural norms. Risk: Ant death spiral at scale. 17x error multiplication.
+annotation 3 [0.85, 0.45] MESH: Places a structured boundary (judgment broker) between commodity orchestration and custom judgment. Risk: Unproven beyond 50 people.

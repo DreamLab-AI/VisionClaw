@@ -1,0 +1,149 @@
+\chapter{Three Models for What Comes Next}
+\label{ch:three-models}
+
+\epigraph{The conversation is no longer about whether organisations restructure around AI, but how.}{}
+
+\section{The Emerging Paradigms}
+
+The consultancy world has converged on the fact that a structural shift is underway. McKinsey has explicitly adopted ``agentic organisation'' as a named paradigm, publishing ``Six Shifts to Build the Agentic Organization of the Future'' \parencite{McKinseySixShifts2026}. BCG published ``Unlocking the AI-First Organization: An Agentic Shift'' \parencite{BCGAgenticShift2025} and ``The Emerging Agentic Enterprise'' \parencite{BCGAgenticEnterprise2025}. The question is no longer whether organisations restructure around AI, but how --- and specifically, how much human coordination remains in the system.
+
+Three distinct models have emerged. They are not competitors in the commercial sense. They describe different positions on a spectrum from full AI delegation to structured human-AI collaboration. Each carries different assumptions about the jagged frontier, the vigilance problem, and the irreducibility of human judgment.
+
+\section{Model A: The Intelligence Layer}
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\vspace{3cm}\textbf{[FIGURE: The Intelligence Layer Architecture]}\\\textit{Block's model: Company World Model, Customer World Model, and Intelligence Layer composing capabilities into solutions}\vspace{3cm}}}
+\caption{Block's Intelligence Layer Model}
+\label{fig:intelligence-layer}
+\end{figure}
+
+\subsection{Source and Core Thesis}
+
+``From Hierarchy to Intelligence,'' published by Jack Dorsey and Roelof Botha on 31 March 2026 \parencite{DorseyBotha2026}, proposes the most radical of the three models: replace middle management entirely. Build a ``Company World Model'' --- an AI system continuously tracking what is being built, what is blocked, and where resources are allocated --- alongside a ``Customer World Model'' constructed from transaction data. An ``Intelligence Layer'' composes capabilities into solutions proactively. Three roles remain: Individual Contributors (deep specialists), Directly Responsible Individuals (who own cross-cutting problems for fixed periods), and Player-Coaches (who build things while developing people).
+
+\subsection{The Case For}
+
+The diagnosis is correct. The analysis of hierarchy as an information routing protocol is historically sound and analytically precise. The backing of Sequoia Capital lends credibility; their thesis that ``speed is the best predictor of startup success'' aligns with the argument that hierarchical latency is a competitive disadvantage. Block's stock surged 24 per cent on the announcement, and the company launched ``Managerbot'' --- a proactive AI agent described by VentureBeat as ``the clearest proof point yet.''
+
+If an organisation possesses massive proprietary data (millions of transactions) and operates in a remote-first culture where work is already machine-readable, a world model is genuinely feasible as a coordination mechanism.
+
+\subsection{The Case Against}
+
+The paper was published one month after Block cut 4,000 of its 10,000-plus employees. A previous layoff memo from March 2025, eliminating 931 positions, \emph{explicitly stated} that the cuts were ``not about replacing people with AI.'' Eleven months later, AI was the entire thesis. \textcite{Zamost2026}, Block's former Head of Communications, observed that ``shrinking the policy team and eliminating diversity and inclusion roles looks like standard prioritisation, not an AI-driven reinvention.''
+
+The operational evidence is sobering: 95 per cent of AI-generated code at Block still requires human modification, according to current and former employees. The comparison Block draws with Haier is structurally backwards: Haier \emph{decentralises} authority to micro-enterprises with profit-and-loss accountability; Block \emph{centralises} authority in an AI system and a single decision-maker.
+
+\textcite{Spicer2026} observes that ``every wave of office technology produces delayering that subsequently reverses as complexity reasserts itself.'' The Klarna cautionary tale is instructive: the CEO claimed AI was performing the work of 700 customer service agents, but customer satisfaction dropped sharply. Klarna is now quietly rehiring humans, and the CEO admitted that ``cost unfortunately seems to have been a too predominant evaluation factor'' \parencite{Klarna2025}. An Orgvue/Forrester survey found that 55 per cent of companies that rushed to replace humans with AI now regret the decision \parencite{OrgvueForrester2025}.
+
+\begin{cautionbox}
+Block is right about the diagnosis and wrong about the prescription. The leap from ``information routing is automated'' to ``eliminate the humans who do coordination'' ignores the jagged frontier, the vigilance problem, the Klarna evidence, and the historical pattern of delayering reversal.
+\end{cautionbox}
+
+\section{Model B: The Agent Colony}
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\vspace{3cm}\textbf{[FIGURE: The Agent Colony]}\\\textit{Every's model: personal agents developing specialisation, memory, and personality alongside their human partners}\vspace{3cm}}}
+\caption{Every's Agent Colony Model}
+\label{fig:agent-colony}
+\end{figure}
+
+\subsection{Source and Core Thesis}
+
+The agent colony model emerges from the experiments at Every.to, documented by Dan Shipper in his ``Chain of Thought'' column and the podcast ``We Gave Every Employee an AI Agent'' \parencite{Shipper2026, Klaassen2025}. The core thesis: give every employee a persistent, personalised AI agent. The agents develop specialisation, memory, and personality that mirror their human partner. Organisational coordination emerges from cultural norms and public visibility rather than architectural redesign.
+
+\subsection{What Works}
+
+Several features of the Every experiment are genuinely instructive:
+
+\textbf{Personal ownership creates accountability.} Each agent inherits its human's specialisation and reputation, creating a parallel organisational chart of specialised agents. Trust in an agent is derivative of trust in its human owner. As Shipper puts it: ``When R2C2 makes a mistake, I'm embarrassed --- because he's mine.'' The distinction between a personal agent and a generic tool matters: ``Claude is everybody's. A Plus One is mine.''
+
+\textbf{Cultural norms do coordination work.} Public visibility in shared channels drives adoption and accountability. Agents share skills rapidly: ``They just write up a little document and send it. It's like in The Matrix when Neo says `I know kung fu.'\,''
+
+\textbf{Specialisation emerges organically.} Growth questions go to one agent, product questions to another. The system self-organises around demonstrated capability rather than assigned responsibility.
+
+\textbf{Management skill becomes universal.} If every employee has a personal agent, they must onboard, delegate to, evaluate, and coach it. The skill of management does not disappear; it democratises. This directly contradicts Block's thesis that management should be eliminated.
+
+\subsection{What Does Not Work}
+
+\textbf{The ant death spiral.} If one agent messages a channel monitored by other agents and the configurations are imprecise, the agents will respond to each other indefinitely --- ``burning millions of tokens'' until a human intervenes. This is a failure of coordination at the system level, precisely the function that hierarchy was designed to provide.
+
+\textbf{Error multiplication.} Naive multi-agent systems exhibit 17-times error multiplication \parencite{TDS2026}, where errors in one agent's output propagate and amplify through downstream agents.
+
+\textbf{Scale limitations.} Every's experiment involved approximately twenty people. Cultural self-organisation works at this scale. At two hundred people, you need structure. At two thousand, you need architecture. The experiment is an existence proof of a dynamic that has not yet been shown to generalise.
+
+\section{Model C: The Dynamic Agentic Mesh}
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\vspace{3cm}\textbf{[FIGURE: The Dynamic Agentic Mesh Architecture]}\\\textit{DreamLab's model: three-layer architecture with Discovery Engine, Orchestration Layer, and Declarative Governance}\vspace{3cm}}}
+\caption{DreamLab's Dynamic Agentic Mesh}
+\label{fig:agentic-mesh}
+\end{figure}
+
+\subsection{Core Thesis}
+
+The Dynamic Agentic Mesh retains human judgment at intersection points. Middle managers evolve from information routers to \meshterm{judgment brokers} --- federated guardians of a mesh where agentic orchestration handles information flow and humans handle what AI cannot: navigating the jagged frontier, maintaining vigilance, ethical adjudication, and cultural coherence.
+
+\subsection{Three Layers}
+
+The mesh operates through three integrated layers.
+
+\textbf{The Discovery Engine} captures bottom-up insight. Passive agent monitoring of communication channels surfaces shadow workflows --- the unofficial optimisations that staff have already invented. Natural-language Insight Portals allow anyone to propose cross-functional shortcuts. Tacit knowledge is automatically codified into agentic instructions.
+
+\textbf{The Orchestration Layer} provides agentic coordination. Directed Acyclic Graphs re-route tasks in real time based on human and agent availability. Data transforms from ``dashboard view'' to ``data product,'' carrying its own service-level agreements, readiness checks, and freshness guarantees. Specialist agents execute defined skill domains with ontological precision.
+
+\textbf{Declarative Governance} embeds governance as code. AI-enforced policies replace manual stewardship. Bias detection, security protocols, and value-alignment checks are woven into every task transition. The judgment broker reviews only genuine edge cases and strategic decisions that exceed agent authority.
+
+\subsection{The Insight Ingestion Loop}
+
+The mesh converts individual discoveries into organisational capability through a five-stage loop:
+
+\begin{enumerate}
+  \item \textbf{Discovery}: An employee finds a shortcut. The mesh detects the pattern.
+  \item \textbf{Codification}: The system maps the new path as a proposed DAG, formalised with provenance and dependency checks.
+  \item \textbf{Validation}: The judgment broker reviews for strategic fit, bias risk, and compliance.
+  \item \textbf{Integration}: The validated workflow is promoted into the live mesh with SLAs and ownership.
+  \item \textbf{Amplification}: The mesh propagates the pattern to other teams. Mesh velocity --- insight-to-integration time --- becomes a strategic KPI.
+\end{enumerate}
+
+\subsection{Honest Limitations}
+
+The DreamLab Mesh has been demonstrated at 15-person scale in a creative technology context, led by a founder who is also the system architect. The honest questions are:
+
+\begin{enumerate}
+  \item Does the judgment broker role work when the broker did not build the mesh?
+  \item Does the insight ingestion loop work in regulated industries where shadow workflows are compliance violations?
+  \item Does the OWL~2 ontology scale to organisations with thousands of concepts?
+  \item Can middle managers be trained in judgment brokerage fast enough to matter?
+\end{enumerate}
+
+These are genuine open questions. Presenting them honestly is more credible than concealing them.
+
+\section{Comparative Analysis}
+
+\begin{table}[h]
+\centering
+\caption{Comparative analysis of three post-hierarchical models}
+\label{tab:three-models}
+\begin{tabularx}{\textwidth}{l L{3cm} L{3cm} X}
+\toprule
+\textbf{Dimension} & \textbf{Block} & \textbf{Every} & \textbf{DreamLab Mesh} \\
+\midrule
+Coordination & AI world model & Cultural norms & Declarative governance + DAG orchestration \\
+\addlinespace
+Management & Eliminate & Everyone manages their agent & Judgment brokers at intersections \\
+\addlinespace
+Scale (proven) & 10,000+ (intended) & $\sim$20 & 15, designed for 50--500 \\
+\addlinespace
+Evidence & 95\% code needs humans; Klarna reversed & Works at small scale; ant death spiral & VisionClaw running; OWL~2 provenance \\
+\addlinespace
+Collaboration mode & Self-Automator org & Cyborg org & Centaur org \\
+\addlinespace
+Primary risk & Falling asleep at the wheel & 17x error multiplication at scale & Unproven beyond 15-person team \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The evidence from Chapter~\ref{ch:jagged-frontier} indicates that Self-Automator organisations --- those that delegate wholesale to AI --- produce the weakest outcomes. This is the empirical case against Block's model and for organisational designs that maintain active human engagement at the frontier boundary.

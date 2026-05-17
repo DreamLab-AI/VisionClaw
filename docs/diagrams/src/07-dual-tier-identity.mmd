@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph KG["  KG TIER · public:: true Logseq notes  "]
+        K1["<b>Smart Contract</b><br/>vc:bc/smart-contract<br/>wikilinks: 14"]:::kg
+        K2["<b>Policy</b><br/>vc:mv/policy<br/>maturity: mature"]:::kg
+        K3["<b>Orphan Note</b><br/>vc:ai/orphan<br/>no ontology anchor"]:::orphan
+        K4["<b>Agent Pattern</b><br/>vc:ai/agent-pattern<br/>authority: 0.82"]:::kg
+    end
+
+    subgraph ONTO["  ONTOLOGY TIER · OWL Classes  "]
+        O1["<b>SmartContract</b><br/>owl:class<br/>bc:SmartContract<br/>promoted"]:::onto
+        O2["<b>Policy</b><br/>owl:class<br/>bc:Policy<br/>colocated"]:::onto
+        O4["<b>AgentPattern</b><br/>owl:class<br/>ai:AgentPattern<br/>candidate"]:::onto
+        OROOT["<b>Thing</b><br/>owl:Thing<br/>root anchor"]:::root
+    end
+
+    K1 ==>|"BRIDGE_TO<br/>kind: promoted<br/>confidence: 0.94"| O1
+    K2 ==>|"BRIDGE_TO<br/>kind: colocated<br/>auto-confirmed"| O2
+    K4 -.->|"BRIDGE_TO<br/>kind: candidate<br/>confidence: 0.73"| O4
+    K3 -.->|"no bridge<br/>drifts to<br/>orphan zone"| OROOT
+
+    O1 --> OROOT
+    O2 --> OROOT
+    O4 --> OROOT
+
+    classDef kg fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef orphan fill:#1A0F0F,stroke:#EF4444,stroke-width:2px,color:#FCD5D5
+    classDef onto fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef root fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A
+
+    style KG fill:#081810,stroke:#1E3A2E
+    style ONTO fill:#18081A,stroke:#3A1E3A

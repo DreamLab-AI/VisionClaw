@@ -1,0 +1,43 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#4a6fa5', 'primaryTextColor': '#e0e0e0'}}}%%
+flowchart TB
+    subgraph CENTAUR["<b>Centaur Mode</b><br/>Clear division of labour"]
+        direction LR
+        C1["Human Domain<br/><i>Judgment, strategy,<br/>edge cases</i>"]
+        C2["AI Domain<br/><i>Tasks inside frontier</i>"]
+        C1 ---|"distinct handoff"| C2
+    end
+
+    subgraph CYBORG["<b>Cyborg Mode</b><br/>Continuous interleaving"]
+        direction LR
+        Y1["Human + AI<br/><i>Back and forth across</i><br/><i>frontier boundary</i>"]
+    end
+
+    subgraph AUTOMATE["<b>Self-Automator Mode</b><br/>Wholesale delegation"]
+        direction LR
+        S1["Human<br/><i>Minimal oversight</i>"]
+        S2["AI<br/><i>Does everything</i>"]
+        S1 -..->|"hands off"| S2
+    end
+
+    CENTAUR -->|"Maps to"| M1["<b>Agentic Mesh</b><br/><i>DreamLab</i>"]
+    CYBORG -->|"Maps to"| M2["<b>Agent Colony</b><br/><i>Every</i>"]
+    AUTOMATE -->|"Maps to"| M3["<b>Intelligence Layer</b><br/><i>Block</i>"]
+
+    M1 -->|"#1"| PERF["Performance<br/>Ranking"]
+    M2 -->|"#2"| PERF
+    M3 -->|"#3 Lowest"| PERF
+
+    style CENTAUR fill:#102c18,stroke:#2ecc71,color:#e0e0e0
+    style CYBORG fill:#2c2810,stroke:#f39c12,color:#e0e0e0
+    style AUTOMATE fill:#2c1810,stroke:#e74c3c,color:#e0e0e0
+
+    style C1 fill:#0d2312,stroke:#27ae60,color:#e0e0e0
+    style C2 fill:#0d2312,stroke:#27ae60,color:#e0e0e0
+    style Y1 fill:#231d0d,stroke:#d4a017,color:#e0e0e0
+    style S1 fill:#230d0d,stroke:#c0392b,color:#e0e0e0
+    style S2 fill:#230d0d,stroke:#c0392b,color:#e0e0e0
+
+    style M1 fill:#102c18,stroke:#2ecc71,color:#e0e0e0,stroke-width:2px
+    style M2 fill:#2c2810,stroke:#f39c12,color:#e0e0e0,stroke-width:2px
+    style M3 fill:#2c1810,stroke:#e74c3c,color:#e0e0e0,stroke-width:2px
+    style PERF fill:#1a1a2e,stroke:#8ab4f8,color:#e0e0e0,stroke-width:2px

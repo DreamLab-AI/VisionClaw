@@ -1,0 +1,201 @@
+{
+  "_meta": {
+    "source": "DreamLab-internal",
+    "commit": "in-tree",
+    "upstream_path": "docs/adr/ADR-073-private-nostr-relay-mesh-topology.md#D2+D6+D9 + ADR-074#D9",
+    "fetched_at": "2026-05-07",
+    "license": "internal",
+    "spec": "ADR-073 D2/D6/D9 — federation worker fan-out, LRU dedup, tag-injection loop avoidance, mesh service-list (kind-30033)",
+    "vector_count": 9,
+    "schema": "fields: case, scenario (fanout|lru-dedup|loop-avoidance|service-list|mode-config), input (the input event/config/sequence), expected_action (what the federation worker must do), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "fanout-kind14-direct",
+      "scenario": "fanout",
+      "input": {
+        "event": {
+          "kind": 14,
+          "pubkey": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "created_at": 1763000000,
+          "tags": [["p", "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9"]],
+          "content": "encrypted",
+          "id": "abc123",
+          "sig": "..."
+        },
+        "mesh_config": {
+          "mode": "federated",
+          "peer_relays": ["wss://relay-a.example.com/", "wss://relay-b.example.com/"],
+          "federated_kinds": [14, 1059, 30033, 30910, 30911, 30912, 30913, 30914, 30915, 30916],
+          "fanout_lru_size": 4096,
+          "fanout_lru_ttl_seconds": 600
+        }
+      },
+      "expected_action": {
+        "fan_out_to": ["wss://relay-a.example.com/", "wss://relay-b.example.com/"],
+        "tag_injection": ["x-mesh-from", "<local_relay_id>"],
+        "lru_record_id": "abc123"
+      },
+      "valid": true,
+      "note": "kind-14 ∈ federated_kinds → publish to each peer with x-mesh-from tag injected; record id in LRU."
+    },
+    {
+      "case": "fanout-kind1-not-federated-by-default",
+      "scenario": "fanout",
+      "input": {
+        "event": {
+          "kind": 1,
+          "pubkey": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "created_at": 1763000000,
+          "tags": [],
+          "content": "public note",
+          "id": "def456",
+          "sig": "..."
+        },
+        "mesh_config": {
+          "mode": "federated",
+          "federated_kinds": [14, 1059, 30033, 30910, 30911, 30912, 30913, 30914, 30915, 30916]
+        }
+      },
+      "expected_action": {"fan_out_to": []},
+      "valid": true,
+      "note": "kind-1 not in default federated_kinds → no fan-out. Operators may opt in by adding kind 1 to the allowlist (ADR-073 D9)."
+    },
+    {
+      "case": "loop-avoidance-x-mesh-from-self",
+      "scenario": "loop-avoidance",
+      "input": {
+        "event": {
+          "kind": 14,
+          "pubkey": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "created_at": 1763000000,
+          "tags": [
+            ["p", "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9"],
+            ["x-mesh-from", "<local_relay_id>"]
+          ],
+          "content": "encrypted",
+          "id": "abc123"
+        },
+        "local_relay_id": "<local_relay_id>"
+      },
+      "expected_action": {"fan_out_to": [], "reason": "x-mesh-from points back to self → drop to prevent A→B→A bounce"},
+      "valid": true,
+      "note": "Per ADR-073 D9.1: incoming event with x-mesh-from == self_id is dropped (federation already brought it home)."
+    },
+    {
+      "case": "loop-avoidance-x-mesh-from-peer",
+      "scenario": "loop-avoidance",
+      "input": {
+        "event": {
+          "kind": 14,
+          "tags": [
+            ["p", "..."],
+            ["x-mesh-from", "relay-a"]
+          ],
+          "id": "abc123"
+        },
+        "local_relay_id": "relay-b",
+        "peer_relays": ["wss://relay-a.example.com/", "wss://relay-c.example.com/"]
+      },
+      "expected_action": {
+        "fan_out_to": ["wss://relay-c.example.com/"],
+        "reason": "do not fan back to relay-a (x-mesh-from origin); fan-out to relay-c only"
+      },
+      "valid": true,
+      "note": "Federation worker tracks x-mesh-from tags and excludes the source peer from fan-out targets."
+    },
+    {
+      "case": "lru-dedup-prevents-republish",
+      "scenario": "lru-dedup",
+      "input": {
+        "sequence": [
+          {"event_id": "abc123", "from_peer": "relay-a"},
+          {"event_id": "abc123", "from_peer": "relay-b"}
+        ],
+        "lru_size": 4096,
+        "lru_ttl_seconds": 600
+      },
+      "expected_action": {
+        "first_event": {"fan_out": true, "lru_record_id": "abc123"},
+        "second_event": {"fan_out": false, "reason": "id abc123 already in LRU within TTL window"}
+      },
+      "valid": true,
+      "note": "Per ADR-073 D9.2: LRU dedup is per-peer (otherwise A→B and A→C race). Same id received from second peer within TTL → no re-publish."
+    },
+    {
+      "case": "service-list-kind30033",
+      "scenario": "service-list",
+      "input": {
+        "event": {
+          "kind": 30033,
+          "pubkey": "8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd",
+          "created_at": 1763000000,
+          "tags": [
+            ["d", "mesh-services"],
+            ["service", "solid-pod", "https://pod.example.com/8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd/"],
+            ["service", "nostr-relay", "wss://relay.example.com/"],
+            ["service", "mesh", "wss://relay-a.example.com/,wss://relay-b.example.com/"]
+          ],
+          "content": "",
+          "id": "...",
+          "sig": "..."
+        }
+      },
+      "expected_action": {
+        "store_with_key": ["8e0d3d3eb2881ec137a11debe736a9086715a8c8beeeda615780064d68bc25dd", 30033, "mesh-services"],
+        "supersedes_prior": true,
+        "fan_out_to_peers": true
+      },
+      "valid": true,
+      "note": "kind-30033 with d-tag mesh-services per ADR-074 D9. Replaceable: same (pubkey, kind, d) supersedes prior. Federated by default."
+    },
+    {
+      "case": "service-list-replaceable-supersession",
+      "scenario": "service-list",
+      "input": {
+        "sequence": [
+          {"event_id": "old1", "pubkey": "8e0d...25dd", "kind": 30033, "d_tag": "mesh-services", "created_at": 1762000000},
+          {"event_id": "new1", "pubkey": "8e0d...25dd", "kind": 30033, "d_tag": "mesh-services", "created_at": 1763000000}
+        ]
+      },
+      "expected_action": {
+        "after_first": {"latest_for_key": "old1"},
+        "after_second": {"latest_for_key": "new1", "old_event_dropped": "old1"}
+      },
+      "valid": true,
+      "note": "Replaceable parameterised events: receivers retain only latest by (pubkey, kind, d-tag) tuple. Older event is replaced (NIP-33 semantics)."
+    },
+    {
+      "case": "negative-mode-standalone-rejects-federation",
+      "scenario": "mode-config",
+      "input": {
+        "mesh_config": {"mode": "standalone", "peer_relays": []},
+        "incoming_federation_event": {"kind": 14, "id": "abc123", "from_peer": "relay-a"}
+      },
+      "expected_action": {
+        "accept": false,
+        "reason": "standalone mode runs no federation worker; inbound federation events are rejected"
+      },
+      "valid": false,
+      "note": "Per ADR-073 D6: standalone is the default; no peer_relays, no fan-out worker, no inbound federation."
+    },
+    {
+      "case": "fanout-storm-prevention-allowlist-deny",
+      "scenario": "fanout",
+      "input": {
+        "event": {
+          "kind": 7,
+          "tags": [["p", "..."]],
+          "id": "reaction1"
+        },
+        "mesh_config": {
+          "mode": "federated",
+          "federated_kinds": [14, 1059, 30033]
+        }
+      },
+      "expected_action": {"fan_out_to": [], "reason": "kind 7 not in federated_kinds → drop"},
+      "valid": true,
+      "note": "Per ADR-073 D9.3: federation kind allowlist is small and explicit. Reactions (kind 7) are not federated by default."
+    }
+  ]
+}

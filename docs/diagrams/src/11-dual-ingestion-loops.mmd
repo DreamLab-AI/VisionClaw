@@ -1,0 +1,34 @@
+flowchart LR
+    subgraph WF["  WORKFLOW INGESTION LOOP  "]
+        direction LR
+        WD["<b>1 · Discovery</b><br/>Agent monitoring<br/>shadow workflow"]:::discover
+        WC["<b>2 · Codification</b><br/>IRIS maps DAG<br/>provenance"]:::codify
+        WV["<b>3 · Validation</b><br/>Broker reviews<br/>bias + fit"]:::validate
+        WI["<b>4 · Integration</b><br/>Live mesh<br/>SLAs"]:::integrate
+        WA["<b>5 · Amplification</b><br/>Pattern propagates<br/>across teams"]:::amplify
+        WD ==> WC ==> WV ==> WI ==> WA
+        WA -.-> WD
+    end
+
+    subgraph KG_LOOP["  KNOWLEDGE MIGRATION LOOP  "]
+        direction LR
+        KD["<b>1 · Detection</b><br/>8-signal scoring<br/>≥ 0.60"]:::discover
+        KC["<b>2 · Codification</b><br/>Draft OWL delta<br/>ontology_propose"]:::codify
+        KV["<b>3 · Validation</b><br/>Broker inbox<br/>DecisionCanvas"]:::validate
+        KI["<b>4 · Integration</b><br/>PR merged<br/>BRIDGE_TO promoted"]:::integrate
+        KA["<b>5 · Amplification</b><br/>Physics re-settles<br/>canon expands"]:::amplify
+        KD ==> KC ==> KV ==> KI ==> KA
+        KA -.-> KD
+    end
+
+    MESH{{"<b>Mesh Pattern</b><br/>━━━━━━━━━━━<br/>Discover → Codify →<br/>Validate → Integrate →<br/>Amplify"}}:::mesh
+
+    WF -.-> MESH
+    KG_LOOP -.-> MESH
+
+    classDef discover fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef codify fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef validate fill:#1A0A2A,stroke:#8B5CF6,stroke-width:2px,color:#E8D5FC
+    classDef integrate fill:#0A1A2A,stroke:#00D4FF,stroke-width:2px,color:#D5F4FC
+    classDef amplify fill:#0A2A1A,stroke:#10B981,stroke-width:2px,color:#D5FCE8
+    classDef mesh fill:#141F3D,stroke:#F59E0B,stroke-width:3px,color:#FDE68A

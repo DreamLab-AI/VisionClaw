@@ -1,0 +1,92 @@
+{
+  "_meta": {
+    "source": "https://github.com/nostr-protocol/nips",
+    "commit": "05d3f198c61c2732ccf15ba8005299365dabb8e0",
+    "upstream_path": "59.md",
+    "fetched_at": "2026-05-07",
+    "license": "CC0-1.0",
+    "spec": "NIP-59 Gift Wrap (rumor → kind-13 seal → kind-1059 wrap)",
+    "vector_count": 6,
+    "schema": "fields: case, layer (rumor|seal|wrap), event (full event JSON or partial), parent_layer? (which event this wraps), valid (bool), note?"
+  },
+  "vectors": [
+    {
+      "case": "rumor-kind1-from-spec",
+      "layer": "rumor",
+      "event": {
+        "created_at": 1691518405,
+        "content": "Are you going to the party tonight?",
+        "kind": 1,
+        "pubkey": "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "tags": []
+      },
+      "valid": true,
+      "note": "Canonical NIP-59 spec rumor: unsigned (no id, no sig). Author pubkey identifies the originating party."
+    },
+    {
+      "case": "seal-kind13-shape",
+      "layer": "seal",
+      "event": {
+        "kind": 13,
+        "pubkey": "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "tags": [],
+        "content_is_encrypted_rumor": true,
+        "encryption": "NIP-44 v2"
+      },
+      "parent_layer": "rumor-kind1-from-spec",
+      "valid": true,
+      "note": "Seal kind-13: pubkey = author (NOT ephemeral); tags MUST be empty; content = NIP-44 v2 ciphertext of the rumor JSON."
+    },
+    {
+      "case": "wrap-kind1059-shape",
+      "layer": "wrap",
+      "event": {
+        "kind": 1059,
+        "pubkey": "18b1a75918f1f2c90c23da616bce317d36e348bcf5f7ba55e75949319210c87c",
+        "tags": [["p", "166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99"]],
+        "content_is_encrypted_seal": true,
+        "encryption": "NIP-44 v2",
+        "ephemeral_key_used": true
+      },
+      "parent_layer": "seal-kind13-shape",
+      "valid": true,
+      "note": "Gift wrap kind-1059: pubkey = ephemeral random (single-use); tags MUST contain exactly one [\"p\", recipient_pubkey]; content = NIP-44 v2 ciphertext of the seal JSON. created_at SHOULD be tweaked by ±2 days for metadata privacy per NIP-59."
+    },
+    {
+      "case": "negative-seal-with-non-empty-tags",
+      "layer": "seal",
+      "event": {
+        "kind": 13,
+        "pubkey": "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "tags": [["p", "166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99"]],
+        "content": "encrypted-bytes"
+      },
+      "valid": false,
+      "note": "Seal MUST have empty tags. Non-empty tags violate NIP-59 and may leak metadata."
+    },
+    {
+      "case": "negative-wrap-with-author-pubkey",
+      "layer": "wrap",
+      "event": {
+        "kind": 1059,
+        "pubkey": "611df01bfcf85c26ae65453b772d8f1dfd25c264621c0277e1fc1518686faef9",
+        "tags": [["p", "166bf3765ebd1fc55decfe395beff2ea3b2a4e0a8946e7eb578512b555737c99"]],
+        "content": "encrypted-bytes"
+      },
+      "valid": false,
+      "note": "Wrap MUST use an ephemeral key, not the author's public key. Reusing author key destroys the metadata-privacy property."
+    },
+    {
+      "case": "negative-wrap-without-p-tag",
+      "layer": "wrap",
+      "event": {
+        "kind": 1059,
+        "pubkey": "18b1a75918f1f2c90c23da616bce317d36e348bcf5f7ba55e75949319210c87c",
+        "tags": [],
+        "content": "encrypted-bytes"
+      },
+      "valid": false,
+      "note": "Wrap without the recipient p-tag cannot be routed by relays — substrates MUST reject."
+    }
+  ]
+}
