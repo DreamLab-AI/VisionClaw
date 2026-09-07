@@ -13,7 +13,8 @@
       "deep": "xr-presence-wire",
       "scan": [
         "wire-protocol",
-        "presence-messages"
+        "presence-messages",
+        "cargo-manifest"
       ]
     },
     {
@@ -46,13 +47,29 @@
   "evaluatorEntrypoints": {
     "scene-integrity": "bash scripts/dream-scene-integrity.sh",
     "cargo-manifest": "bash scripts/dream-cargo-manifest.sh",
-    "action-map": "bash scripts/dream-action-map.sh"
+    "action-map": "bash scripts/dream-action-map.sh",
+    "xr-presence-tests": {
+      "cmd": "bash scripts/dream-xr-presence-tests.sh",
+      "required": true,
+      "deeps": [
+        "xr-presence-wire"
+      ],
+      "timeoutSecs": 900
+    },
+    "protocol-tests": {
+      "cmd": "bash scripts/dream-protocol-tests.sh",
+      "required": true,
+      "deeps": [
+        "socket-flow-handlers"
+      ],
+      "timeoutSecs": 900
+    }
   },
   "competitors": [],
   "adrConvention": "3-digit",
   "extraDisciplines": [
     "xr-first: the promoted surfaces are the Godot xr-client (scenes, scripts, openxr action map) and the Rust XR crates (visionclaw-xr-presence wire protocol, gpu physics actors, socket_flow position updates). Weight these above general repo concerns.",
-    "no-heavy-builds: full cargo check/test of the workspace is too heavy for the annexe night — reason from the manifest, source, and the light evaluators above; propose (not run) targeted builds as HANDOFF notes.",
+    "no-heavy-builds: full-workspace `cargo check`/`cargo test` and any build of the root `visionclaw-server` package are too heavy for the annexe night. Targeted `cargo test -p <leaf crate>` IS permitted and expected — measured cold at 16.6s (visionclaw-xr-presence, 88 tests) and 22.0s (visionclaw-protocol, 31 tests), both well under 30s. Anything needing CUDA, a GPU, or the headset stays a HANDOFF note; heavier targeted builds are proposed (not run) as HANDOFF notes.",
     "agentbox-is-upstream: the agentbox/ submodule is owned by its own repo and dream roster history — fence it out; record cross-repo findings as 'HANDOFF (agentbox):' notes.",
     "on-device-validation: VIVE Pro desktop OpenXR is the live validation path (ADR-136); headset-dependent claims cannot be evidenced in the annexe — mark them 'HANDOFF (vive):'."
   ],
