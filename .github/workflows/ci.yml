@@ -62,9 +62,9 @@ jobs:
     name: Rust format (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Rust toolchain (rustfmt)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           components: rustfmt
       # rustfmt only parses source; it needs no CUDA and covers every crate,
@@ -89,9 +89,9 @@ jobs:
         -p visionclaw-analytics-oracle
         -p vault-migrate
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Rust toolchain (clippy)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           components: clippy
       - name: Install native build deps
@@ -99,7 +99,7 @@ jobs:
         # cmake; the rest are already present on ubuntu-latest.
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake pkg-config
       - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       - name: cargo build (CPU crates)
         run: cargo build ${{ env.CPU_CRATES }}
       - name: cargo clippy (CPU crates)
@@ -125,9 +125,9 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -149,7 +149,7 @@ jobs:
     # stubs `enforce_release_env_hygiene` in src/main.rs to a no-op); this job
     # is the CI assertion ADR-2037 was missing. Record: ADR-2086.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Assert dev-auth never reaches a production/release build path
         run: |
           set -euo pipefail
@@ -226,8 +226,8 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -258,8 +258,8 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm

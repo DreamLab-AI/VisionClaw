@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c9734a52494a0d46f199ff0d6344a13ec5916d92
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -147,3 +147,10 @@ Governed paths changed in the Wave 3 landing commit: docs/SECURITY-profiles.md: 
 ## Landing re-verification — 2026-09-06 (c9734a524)
 
 Governed paths changed in the doc-sync commit: docs/SECURITY-profiles.md — frontmatter `version`/`verified_commit` bump and changelog entry for the Remediation — 2026-09-05 section, plus narrative corrections; no code or citation this record depends on changed. `verified_commit` moved to the doc-sync commit.
+
+
+## Source closeout verification — 2026-09-07
+
+`admit_signed_in` now applies the per-pubkey quota after cryptographic verification and before the global claim under one mutex. Existing single-use TTL/capacity invariants remain; the signed WebSocket carrier enters the same validator. Fairness/expiry, replay and URL-binding tests pass. This remains process-local, not cross-replica replay protection.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

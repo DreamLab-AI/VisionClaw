@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2cf2224062a0bc0d71d72f1eb4f82e02809a9042
+verified_commit: e299114056c0bf3ff7ccc22f7a68efe65068e183
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -173,3 +173,8 @@ crates/visionclaw-actors/src`; `git diff --stat` on the same;
 ## Landing re-verification — 2026-09-06 (2cf222406)
 
 Governed paths changed in the Wave 3 landing commit: crates/visionclaw-actors messages: the never-sent `RefreshMetadata` message and its re-exports deleted (ADR-2097), plus `SupervisorActor` now the sole home of that type (ADR-2045 complete); the crate split and dependency direction are unchanged — ADR-2095 in fact relied on it, placing the typed ngm constructor in visionclaw-domain because adapters cannot depend on the server. Decision unaffected; `verified_commit` moved to the landing commit. Gates at that commit: cargo check --workspace --all-targets exit 0, 827 crate + 1600 root + 309 xr-client tests, vitest 809, fmt and lint clean.
+
+
+## EA-04 source qualification — 2026-09-07
+
+At `e299114056c0bf3ff7ccc22f7a68efe65068e183`, request journalling remains in `src/services/acsp/client.rs`; the decision actor delegates its conditional application claim through `DecisionElevationStore` to `SqliteEnrichmentRepository`. No actor was moved into a crate, no workspace member or Cargo dependency changed, and no dependency-boundary enforcement was introduced. The extraction decision and partial status remain unchanged. The new persistence does not prove independent responsibility or incremental build improvement. Validation: the shared root library suite with `--no-default-features --features solid-pod-embed` passed1,369 tests with six ignored; no release-profile or build-timing claim follows.

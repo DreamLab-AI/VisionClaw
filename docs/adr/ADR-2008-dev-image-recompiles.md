@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b00c28a0d766c8cf46cd00b100dab60ef2dd74a4
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -123,3 +123,10 @@ forbids docker builds in this container), so selected-binary identity in the
 actual image, skip-mode behaviour under the real supervisor, failure/retry, and
 the older individual-service branch remain unverified. Process readiness is
 still not inspected separately from compilation success.
+
+
+## Source closeout verification — 2026-09-07
+
+Compose now forwards explicit profile intent and a default-off session compatibility flag. Source mounts and the recompilation entrypoint are unchanged. A release/dev-auth entrypoint is now refused by the boot guard; development must use a debug build as recorded in SECURITY-profiles.md. This is a required migration, not a claim that hosted dev images have been rebuilt.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

@@ -96,7 +96,7 @@ identifier or a cross-store join key; where one is observed there, the durable
 `{domain}/{slug}` *subject* grammar of legacy ADR-100 is superseded by this
 document, which is why it has no kind-table row rather than a row marked
 unimplemented. Raised by diagram note VC-23.9
-(`docs/diagrams/visionclaw/23-identifiers-urn-did-sha12.md`), which read the
+(`docs/diagrams/visionclaw/23-identifiers-urn-did-sha12.md` in the VisionFlow estate tree (see `docs/diagrams/README.md`)), which read the
 absence of a row as an unreconciled gap.
 
 ### 3. Sovereign identity — `did:nostr:<hex-pubkey>` + display npub

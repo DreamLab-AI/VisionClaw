@@ -10,10 +10,10 @@ superseded_by: []
 verified_commit:
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
-review_trigger: the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed
+review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
 repo: visionclaw
 domain: VAULT-corpus-format
-lineage: ADR-2014 (GitHub `public:: true` gate; `owl:class::` bypass), legacy ADR-050/051 (publish arbiter), PRD-LCR-01 in the corpus repo (JSON-LD canonical blocks)
+lineage: "ADR-2014 (GitHub `public:: true` gate; `owl:class::` bypass), legacy ADR-050/051 (publish arbiter), PRD-LCR-01 in the corpus repo (JSON-LD canonical blocks)"
 ---
 
 # ADR-2040 — The authored corpus is an Obsidian vault; frontmatter gates inclusion

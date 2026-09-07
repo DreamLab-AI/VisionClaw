@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2cf2224062a0bc0d71d72f1eb4f82e02809a9042
-verified_paths: [src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
 repo: visionclaw
@@ -201,3 +201,10 @@ and there is still no PITR for Oxigraph/RocksDB.
 ## Landing re-verification — 2026-09-06 (2cf222406)
 
 Governed paths changed in the Wave 3 landing commit: src/services/github_sync_service.rs: the Whelk post-sync path now calls the shared inferred-edge materialiser (ADR-2071); the backup posture and write-master decision are unaffected. Decision unaffected; `verified_commit` moved to the landing commit. Gates at that commit: cargo check --workspace --all-targets exit 0, 827 crate + 1600 root + 309 xr-client tests, vitest 809, fmt and lint clean.
+
+
+## Source closeout verification — 2026-09-07
+
+The actual open Oxigraph writer can now create an opt-in ONTOLOGY_BACKUP_DIR checkpoint outside its active data tree. An on-disk fixture inserts authored provenance, checkpoints, removes the fixture source and reopens the checkpoint with the authored quad intact. This preserves authored data that GitHub re-sync cannot reconstruct. Scheduling, off-device retention, cross-store production adapters and deployed snapshot restore remain outstanding.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable
@@ -115,3 +115,10 @@ client/src/services/api/authInterceptor.ts`; `grep -n` over `auth.rs` for
 `X-Nostr-*`/`validate_session`/`verify_access` and over `nostr_service.rs` for
 `validate_session`/`last_seen`/`token_expiry`; `awk` line dumps of
 `rbac_gate.rs:259-274` and `auth.rs:270-315`.
+
+
+## Source closeout verification — 2026-09-07
+
+The React graph upgrade now signs its HTTP GET URL and fails before connection if signing is unavailable or declined. The server verifies the NIP-98 carrier before upgrading and never negotiates the credential subprotocol. REST already signed requests. Opaque session issuance, validation and refresh now default off; VISIONCLAW_LEGACY_SESSIONS=1/true explicitly restores compatibility for real unexpired tokens. The dual realm is conditional, superseding earlier claims of unconditional session acceptance. Remaining MCP clients and deployed proxy/reconnect acceptance remain outstanding.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

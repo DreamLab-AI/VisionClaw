@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2cf2224062a0bc0d71d72f1eb4f82e02809a9042
-verified_paths: [crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
 repo: visionclaw
@@ -199,3 +199,10 @@ re-checked — they lie outside `verified_paths`.
 ## Landing re-verification — 2026-09-06 (2cf222406)
 
 Governed paths changed in the Wave 3 landing commit: crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs: three `urn:ngm:class` mints routed through the typed constructor with byte-identical output (ADR-2095); the append-only provenance path is untouched. Decision unaffected; `verified_commit` moved to the landing commit. Gates at that commit: cargo check --workspace --all-targets exit 0, 827 crate + 1600 root + 309 xr-client tests, vitest 809, fmt and lint clean.
+
+
+## Source closeout verification — 2026-09-07
+
+The new durable reconciliation journal supplies operation IDs, selected membership and per-store receipts. No production provenance erase adapter is wired: ADR-2016 forbids DELETE/DROP/CLEAR against the append-only provenance graph, so a concrete redaction/crypto-shred authority and subject mapping must be agreed before such an adapter can truthfully implement erasure. Synthetic adapter tests establish retry/idempotency boundaries only; they do not satisfy provenance erasure.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

@@ -62,13 +62,12 @@ sudo sh get-docker.sh
 # Add your user to docker group
 sudo usermod -aG docker $USER
 
-# Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# Install the Docker Compose v2 plugin from the Docker apt repository
+sudo apt install docker-compose-plugin
 
 # Verify installation
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 **macOS:**
@@ -89,7 +88,7 @@ brew install --cask docker
 
 # Verify installation in PowerShell
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 #### NVIDIA GPU Support (Optional)

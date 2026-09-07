@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -270,3 +270,10 @@ before the listener binds) and its `implementation_status` was **downgraded**
 `complete` → `partial`, because the "production selector defaults to
 multi-user-locked" clause in its Decision is still unimplemented — the same gap
 this record's "What remains genuinely open" paragraph describes.
+
+
+## Source closeout verification — 2026-09-07
+
+Missing declared profile and unnamed effective flag sets now produce findings and prevent non-debug listener binding. Compose forwards intent without inventing a default; security documentation records migration. Named flag tables remain unchanged. Explicit intent is stricter than the original implicit production-selector proposal; no operator profile is selected by this audit.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -183,3 +183,10 @@ src/utils/unified_gpu_compute/execution.rs src/models/simulation_params.rs`;
 is_read_only|ENABLE_CONSTRAINTS|ENABLE_SSSP|to_sim_params|execute_physics_step`;
 `awk` dumps of `execution.rs:930-1000`; `cargo test --lib --no-default-features
 force_channels` → **19 passed, 0 failed** (1248 filtered out).
+
+
+## Source closeout verification — 2026-09-07
+
+Connected extent is a separate reduction consumed only by the unbounded isolated-shell radius. The all-node spatial-index extent and final force-channel flag derivation remain intact. Constraints ownership and the deferred array representation are unchanged; this fix does not certify every runtime force/residency combination.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

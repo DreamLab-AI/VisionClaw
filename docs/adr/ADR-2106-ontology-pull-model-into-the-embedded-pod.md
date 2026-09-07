@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4d1a698e70f60c19d8c83fa8c6caef193866978e
-verified_paths: [.github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
 repo: visionclaw
@@ -115,3 +115,10 @@ the public `SHA256SUMS` against the one it uploaded. Live: the server log line
 The pull direction and boot/interval wiring are source-supported. The earlier blanket failure guarantee was not: `src/services/ontology_pull.rs:345-373` mutates containers, ACL and content sequentially, and `exists(&acl_path).await.unwrap_or(false)` treats a failed ACL probe as absence. A later write error does not roll back earlier writes. The existing operator ACL is preserved only when its existence is successfully observed. The implementation axis is therefore partial for the full contract; the recorded live activation of pull delivery is retained as historical evidence, not re-observed here.
 
 Closeout: publish to an immutable generation and switch an authoritative pointer atomically, or implement a proven equivalent transaction/rollback boundary; abort on an indeterminate ACL check. Inject failure at every write and ACL probe, verify prior-generation readability and operator ACL preservation, restart, and demonstrate convergence without mixed resources. Bind the result to the tested storage backend and reader path. CP-02/04/08; owner remains the maintainer named above. See the [source audit](../../../VisionFlow/docs/estate-review/2026-09-07-visionclaw-audit.md), VC-A01/A02.
+
+
+## Source closeout verification — 2026-09-07
+
+Actual publication now uses PublishedStorage in ontology_generation.rs: stage five immutable resources and metadata, fsync, then atomically replace an active pointer. Canonical index advertises a generation; schemaParser pins JSON-LD/Turtle reads to it, including concurrent activation. Pinned resources inherit canonical resource ACLs. Eight injected pre-activation failure boundaries preserve the old generation after restart; a post-rename root-fsync failure can leave the new complete generation visible with durability unknown. Unpinned clients may straddle activation. Old generations are retained; no live rollout or reader-safe garbage collection is certified.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

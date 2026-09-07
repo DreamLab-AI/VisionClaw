@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -143,3 +143,10 @@ src/main.rs src/services/role_store.rs`; `awk` dumps of `main.rs:115-170` and
 `:856-896`, `role_store.rs:195-215` and `:355-395`; `grep -n -A10
 'fn public_reads_enabled' src/middleware/rbac_gate.rs`; `cargo test --lib
 --no-default-features security_profile` → **37 passed, 0 failed**.
+
+
+## Source closeout verification — 2026-09-07
+
+The pre-bind assertion now rejects every finding for non-debug builds, including release/dev-auth. main.rs additionally logs selected storage membership and supports opt-in writer checkpointing; neither bypasses the assertion. Actual default release artefact negative probes returned exit 2 for forbidden variables set to zero. The exact artefact receipt predates later storage implementation; no rebuilt deployment image is claimed.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

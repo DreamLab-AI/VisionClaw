@@ -249,7 +249,7 @@ by `AppState`'s readiness report to decide whether the service was expected to b
 constructed (`src/app_state.rs:1516`) — setting it configures nothing. The MCP
 skill layer is separate and genuinely does take `PERPLEXITY_API_KEY` from the
 environment; see [agents catalog](agents-catalog.md) §Skill Configuration. Raised by
-diagram note VC-28.3 (`docs/diagrams/visionclaw/28-external-services.md`).
+diagram note VC-28.3 (`docs/diagrams/visionclaw/28-external-services.md` in the VisionFlow estate tree (see `docs/diagrams/README.md`)).
 
 ---
 

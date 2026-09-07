@@ -37,6 +37,8 @@ build).
 
 The [historical closeout routing note](../adr-history-closeout.md) points each frozen archive record at the estate section-level review and the complete VisionClaw historical map; a lineage mention there does not supersede every section of a predecessor.
 
+The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
+
 _99 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |

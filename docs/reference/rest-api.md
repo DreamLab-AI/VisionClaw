@@ -1878,3 +1878,11 @@ The primary real-time communication channel is not a REST endpoint but a WebSock
 | `/ws/mcp-relay` | `mcp_relay_handler` | JSON (MCP protocol relay) |
 | `/ws/client-messages` | `client_messages_handler` | JSON (client-to-client messaging) |
 | `/solid/ws` | Solid notification handler | JSON (LDP resource notifications) |
+
+### 2026-09-07 route audit
+
+The master TODO's 34 broker/workflow mentions are not 34 phantom routes.
+`broker_inbox_handler::configure_routes` registers the inbox, case and decision
+routes documented above. `/api/workflows/*` remains explicitly design-stage and
+unregistered; it must not be used as a live API contract. Route existence does
+not certify the complete cross-system governance acknowledgement journey.

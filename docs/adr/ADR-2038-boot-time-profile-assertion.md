@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -245,3 +245,10 @@ digest). `assert_effective_profile_or_exit` is still not exercised end to end
 because it calls `process::exit`; only the pure evaluator it wraps is tested. No
 deployment has run the assertion, and the shipped `docker-compose.unified.yml`
 still declares no `VISIONCLAW_SECURITY_PROFILE` (ADR-2027).
+
+
+## Source closeout verification — 2026-09-07
+
+Missing intent, unnamed effective flags and release/dev-auth findings now refuse listener binding. Debug remains report-only. The default release artefact passes two pre-start exit-2 probes; its hash is in the execution evidence. Partial status remains because the original Decision requires implicit multi-user-locked selection whereas implemented migration requires explicit intent; this divergence requires owner ratification, and no deployment image/reconnect acceptance is claimed.
+
+Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.

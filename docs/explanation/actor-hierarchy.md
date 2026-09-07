@@ -8,7 +8,7 @@ updated-date: 2026-06-03
 
 # VisionClaw Actor System Hierarchy
 
-> **Superseded for the actor set (2026-09-05).** Commit 346fff7af trimmed the actor tree and ADR-2045/2046/2053/2097 removed the generic `SupervisorActor`, `ActorLifecycleManager`, the dead `SettingsActor`, the standalone analytics actors and `RefreshMetadata`. The authoritative picture is `docs/BASELINE-architecture.md` (actors section) and the sequence diagrams in `docs/diagrams/visionclaw/02-actor-supervision.md`; this explainer is kept as narrative history until it is rewritten against them.
+> **Superseded for the actor set (2026-09-05).** Commit 346fff7af trimmed the actor tree and ADR-2045/2046/2053/2097 removed the generic `SupervisorActor`, `ActorLifecycleManager`, the dead `SettingsActor`, the standalone analytics actors and `RefreshMetadata`. The authoritative picture is `docs/BASELINE-architecture.md` (actors section) and the sequence diagrams in `docs/diagrams/visionclaw/02-actor-supervision.md` in the VisionFlow estate tree (see `docs/diagrams/README.md`); this explainer is kept as narrative history until it is rewritten against them.
 
 > **Updated 2026-06-03.** Wire format corrected from 34 B (V1) to 52 B V3
 > (ADR-031). `ForceComputeActor` profile updated to describe display-only disc
@@ -198,7 +198,7 @@ Key messages: `AllocateStream` → `StreamHandle`, `ReleaseStream`, `GetMemorySt
 |---|---|
 | Supervisor | `PhysicsSupervisor` (AllForOne) |
 | Mailbox | Bounded (capacity 256) |
-| CUDA kernels | 37 |
+| CUDA kernels | See `crates/visionclaw-gpu/src/cuda_sources/` (source count varies by build) |
 | Typical latency | 4ms/step |
 
 Barnes-Hut O(n log n) force calculation with Verlet integration. Owns the primary node position CUDA buffers. Runs a warmup window (1800 steps stability-bypass) before the GPU stability kernel is allowed to suppress steps. Emits periodic full-broadcast (every 300 iterations) to prevent client position starvation after convergence.
@@ -600,7 +600,7 @@ graph TB
 
     subgraph "Zone 2 — Physics (AllForOne)"
         PS["PhysicsSupervisor"]
-        FCA["ForceComputeActor<br/>37 kernels, 4ms/step"]
+        FCA["ForceComputeActor<br/>CUDA kernel dispatch"]
         SMA["StressMajorizationActor<br/>4 kernels, 8ms/step"]
         CA["ConstraintActor<br/>5 kernels, 1ms/step"]
         OCA["OntologyConstraintActor<br/>5 kernels, 2.3ms/step"]
