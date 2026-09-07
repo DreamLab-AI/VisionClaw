@@ -3,12 +3,12 @@ id: ADR-2061
 title: Validate the GPU analytics kernels against the CPU reference oracle
 date: 2026-09-05
 decision_status: accepted
-implementation_status: partial
-activation_status: live
+implementation_status: complete
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
-verified_paths: []
+verified_commit: 81929f1f3c3688d08f0b2311ec19a7dbe158686f
+verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users
 repo: visionclaw
@@ -239,3 +239,22 @@ four entries is a failure, not that the suite is incomplete. The tolerances abov
 first contact unchanged: PageRank cleared its 1e-4 bar by seven orders of magnitude and
 Louvain its 0.05 allowance by 2.7×, so no adjustment is proposed. The 1e-3 LOF bar is
 deliberately left where it is; the kernel, not the number, is what needs to move.
+
+
+## Numerical closeout — 2026-09-07
+
+Implementation `1ad881cab` corrects neighbour k-distance and includes ties at the
+kth distance within the existing 32-slot bounded search. Actual A6000 execution
+passes all four governed oracle tests with zero skips. LOF max absolute delta is
+4.759e-7 against the unchanged 1e-3 bar, and the >95th-percentile set matches.
+The original 0.702 failing receipt and intermediate 0.071 failure are retained.
+Only the old diagnostic assertion requiring the broken formula was removed;
+the numerical acceptance tests were not weakened.
+
+Implementation is complete for the stated fixture conformance decision; activation
+is staged because the corrected kernel has not been verified in a rebuilt deployed
+service. Earlier BROKEN/partial observations are historical. The bounded neighbour
+buffer, radius/grid search and extra recomputation cost require separate broader
+coverage/performance qualification; this result is not an unrestricted LOF claim.
+See the [execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md)
+and `vc-analytics-green2.log` in its evidence directory.

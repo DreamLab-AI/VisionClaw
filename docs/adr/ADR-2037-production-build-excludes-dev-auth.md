@@ -3,12 +3,12 @@ id: ADR-2037
 title: "Production release images are built without the dev-auth cargo feature, asserted in CI"
 date: 2026-08-31
 decision_status: proposed
-implementation_status: none
-activation_status: inactive
+implementation_status: partial
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
-verified_paths: []
+verified_commit: 81929f1f3c3688d08f0b2311ec19a7dbe158686f
+verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
 repo: visionclaw
@@ -94,3 +94,17 @@ WebSocket paths, network reachability and sentinel attribution are unexercised.
 No image or listener ran. `implementation_status` is left `none`/`inactive`:
 the boot check exists, but the shipped-image assertion this record is about is
 not evidenced.
+
+
+## Executable implementation progress — 2026-09-07
+
+Decision remains proposed; this audit does not ratify image-promotion policy.
+Implementation is now partial/staged rather than none: the non-debug pre-bind
+profile guard rejects release/dev-auth findings, and the existing CI feature gate
+checks production build posture. A default-feature release artefact was actually
+built; its hash and two exit-2 forbidden-variable probes are recorded in the
+[execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md).
+Both probes were repeated with a fully matching explicit profile, so profile drift
+is not their refusal reason. The tested artefact predates later storage work.
+No claim is made that every produced Docker image has the tested feature closure
+or that a deployed image has passed authenticated negative-route probes.
