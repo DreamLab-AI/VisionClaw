@@ -8,23 +8,23 @@ render_mode blend_add, unshaded, cull_front, depth_draw_never, shadows_disabled,
 
 // Shell expansion in local mesh units (node sphere radius is 0.5). Scales with the
 // per-instance transform, so the halo stays proportional to node size.
-uniform float halo_width = 0.16;
+uniform float halo_width = 0.07;
 // Fresnel exponent — higher = tighter rim.
 uniform float fresnel_power = 2.5;
 // Additive brightness multiplier for the halo tint.
-uniform float halo_energy = 1.35;
+uniform float halo_energy = 0.65;
 
 // How much node centrality (INSTANCE_CUSTOM.r, 0..1) lifts halo intensity. The
 // halo brightness is multiplied by mix(1-cen_boost, 1+cen_boost, centrality), so
 // central nodes glow a little harder without low-centrality nodes going dark.
-uniform float cen_boost = 0.4;
+uniform float cen_boost = 0.25;
 
 // Fold badge (Wave 3): a node that is a fold representative carries a collapsed
 // member count in INSTANCE_CUSTOM.g (>0). It gets a wider, brighter halo ring so
 // an aggregate node reads as "denser than a leaf" at a glance — the visual half
 // of the "+N collapsed" badge (the proximity label carries the exact count).
-uniform float badge_width = 0.10;
-uniform float badge_boost = 0.9;
+uniform float badge_width = 0.04;
+uniform float badge_boost = 0.45;
 
 // Query variable (flagship visual query builder): a node marked as a query
 // variable carries a flag in INSTANCE_CUSTOM.b (>0, set in render_store.rs). Its
@@ -32,8 +32,8 @@ uniform float badge_boost = 0.9;
 // add a distinct animated PULSE + a slightly wider shell so a marked ?vN node
 // reads apart from both leaf nodes and fold representatives.
 uniform float query_width = 0.06;
-uniform float query_pulse_speed = 3.0;
-uniform float query_pulse_depth = 0.5; // 0..1 fraction the pulse swings energy
+uniform float query_pulse_speed = 1.2;
+uniform float query_pulse_depth = 0.12; // 0..1 fraction the pulse swings energy
 
 // INSTANCE_CUSTOM channel map (coordinate before repurposing a channel):
 //   .r = normalised centrality (base glow strength)

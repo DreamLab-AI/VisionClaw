@@ -28,7 +28,7 @@ func test_palette_cycles_and_indices_are_distinct_early():
 	assert_eq(qb.palette_index(1), 0)
 	assert_eq(qb.palette_index(2), 1)
 	# The (QUERY_PALETTE_LEN+1)-th variable wraps to palette 0.
-	for i in range(QueryBuilder.QUERY_PALETTE_LEN - 1):
+	for i in range(QueryBuilder.QUERY_PALETTE_LEN - 2):
 		qb.mark(100 + i)
 	var wrap_id := 500
 	qb.mark(wrap_id)

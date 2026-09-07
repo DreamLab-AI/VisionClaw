@@ -313,7 +313,7 @@ func test_graph_scene_avatar_join_adds_child():
 	add_child(scene)
 	await get_tree().process_frame
 
-	var spawner: Node3D = scene.get_node("AvatarSpawner")
+	var spawner: Node3D = scene.get_node("GraphRoot/AvatarSpawner")
 	var before_count: int = spawner.get_child_count()
 
 	scene._on_avatar_joined("did:nostr:abc123", "Alice", "avatar_001")
@@ -335,7 +335,7 @@ func test_graph_scene_avatar_leave_removes_child():
 	scene._on_avatar_joined("did:nostr:abc123", "Bob", "avatar_002")
 	await get_tree().process_frame
 
-	var spawner: Node3D = scene.get_node("AvatarSpawner")
+	var spawner: Node3D = scene.get_node("GraphRoot/AvatarSpawner")
 	var count_after_join: int = spawner.get_child_count()
 
 	scene._on_avatar_left("avatar_002")

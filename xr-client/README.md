@@ -18,6 +18,20 @@ Godot + godot-rust (gdext) + OpenXR client per
 > "4.3", read it as "the pinned editor of the day"; the *runtime* facts that
 > matter for a headset session are in the VIVE bring-up section.
 
+## Visual experience and comfort
+
+The shared instrument theme, spatial grid, restrained graph materials and reversible
+comfort controls are documented in [ADR-2107](../docs/adr/ADR-2107-compatible-xr-visual-experience.md).
+Reduced motion is on by default. Use the Help tab to change motion and low-cost
+rendering, or set `XR_REDUCED_MOTION=0` / `XR_VISUAL_QUALITY=low` before launch.
+These settings apply to the running scene; the desktop captures do not certify
+headset comfort or Quest frame budgets.
+
+Run the offline production-material fixture with
+`godot --path xr-client --rendering-method gl_compatibility --xr-mode off res://tests/spatial_visual_fixture.tscn`.
+Set `XR_VISUAL_CAPTURE` to choose its PNG output. Build the current native extension
+first; an old copied library can expose incompatible method signatures.
+
 ## Layout
 
 ```

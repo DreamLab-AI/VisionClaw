@@ -26,6 +26,9 @@ func _draw() -> void:
 	if _charge <= 0.0:
 		return
 	var centre := size * 0.5
+	# An opaque backing keeps charge legible over bright graph nodes.
+	draw_circle(centre, RADIUS + 6.0, Color(0.025, 0.05, 0.09, 0.94))
+	draw_circle(centre, 2.5, FILL_COLOR)
 	# Full track, then the charged arc from 12 o'clock clockwise.
 	draw_arc(centre, RADIUS, 0.0, TAU, 48, TRACK_COLOR, THICKNESS, true)
 	var start := -PI * 0.5

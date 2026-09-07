@@ -55,6 +55,7 @@ const DOC_SCROLL_STEP: int = 140
 var _doc_title: String = ""
 
 # --- Layout constants --------------------------------------------------------
+const XRTheme = preload("res://scripts/xr_theme.gd")
 const BTN_H: int = 56                       # min wand hit-target height
 const MARGIN: int = 24
 const HEADER_H: int = 48
@@ -118,6 +119,8 @@ var _fps_header: Label = null
 var _pages: Dictionary = {}          # tab id → page Control
 var _tab_buttons: Dictionary = {}    # tab id → Button
 var _active_tab: String = "graph"
+var _motion_toggle: CheckButton
+var _quality_toggle: CheckButton
 var _overflow_warned: Dictionary = {}
 var _scroll_regions: Array = []      # scroll-region wrapper HBoxes (▲▼ visibility)
 
@@ -200,9 +203,19 @@ func _ready() -> void:
 func _build_ui() -> void:
 	# One base font size for the whole panel so text is legible on the 1.4m quad in
 	# VR (default theme font is tuned for desktop and reads tiny at headset scale).
-	var theme := Theme.new()
-	theme.default_font_size = 28
-	hud_control.theme = theme
+	hud_control.theme = XRTheme.create()
+	var backdrop := Panel.new()
+	backdrop.name = "InstrumentSurface"
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_control.add_child(backdrop)
+	hud_control.move_child(backdrop, 0)
+	# Overlays remain above all programmatically constructed pages.
+	for overlay in [intervention_panel, document_panel, dwell_reticle]:
+		overlay.z_index = 10
+	$HudViewport/HudControl/AcspIndicator.z_index = 2
+	approve_button.add_theme_stylebox_override("normal", XRTheme.box(Color("163b36"), Color("6ce0bb")))
+	deny_button.add_theme_stylebox_override("normal", XRTheme.box(Color("402635"), Color("ef99a9")))
 
 	_root = VBoxContainer.new()
 	_root.name = "Root"
@@ -238,6 +251,13 @@ func _build_header() -> void:
 	header.add_child(_room_header)
 	header.add_child(spacer)
 	header.add_child(_fps_header)
+	# Reserve the overlay badge footprint; FPS and long room names must not
+	# render underneath the persistent ACSP indicator.
+	_room_header.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_room_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var badge_space := Control.new()
+	badge_space.custom_minimum_size = Vector2(272, 0)
+	header.add_child(badge_space)
 	_root.add_child(header)
 	_root.add_child(_hsep())
 
@@ -573,7 +593,23 @@ func _build_help_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 8)
 	page.add_child(_group_header("Vive Wand — Controls"))
-	var region := _scroll_region(500)
+	var comfort := HBoxContainer.new()
+	for entry in [["Reduce motion", "visual_motion", true], ["Low-cost visuals", "visual_quality", false]]:
+		var toggle := _press_fire(CheckButton.new()) as CheckButton
+		toggle.text = entry[0]
+		toggle.custom_minimum_size.y = BTN_H
+		toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		toggle.button_pressed = entry[2]
+		toggle.set_meta(HINT_META, "Keep the scene calm" if entry[1] == "visual_motion" else "Reduce visual cost for slower hardware")
+		var action: String = entry[1]
+		toggle.toggled.connect(func(on: bool) -> void: control_pressed.emit(action + (":1" if on else ":0")))
+		comfort.add_child(toggle)
+		if action == "visual_motion":
+			_motion_toggle = toggle
+		else:
+			_quality_toggle = toggle
+	page.add_child(comfort)
+	var region := _scroll_region(420)
 	var rt := RichTextLabel.new()
 	rt.bbcode_enabled = true
 	rt.fit_content = true
@@ -747,7 +783,7 @@ func _show_tab(id: String) -> void:
 		(_pages[pid] as Control).visible = pid == id
 	for tid: String in _tab_buttons:
 		var b: Button = _tab_buttons[tid]
-		b.add_theme_color_override("font_color", ACCENT if tid == id else IDLE)
+		XRTheme.apply_tab(b, tid == id)
 	call_deferred("_check_overflow", id)
 	call_deferred("_update_scroll_arrows")
 
@@ -1227,3 +1263,10 @@ func _on_decide_completed(
 	emit_signal("case_decided", decided_case, _last_outcome, accepted)
 	if accepted and _current_case_id == decided_case:
 		clear_case()
+
+
+func set_visual_comfort(reduced_motion: bool, low_cost: bool) -> void:
+	if _motion_toggle != null:
+		_motion_toggle.set_pressed_no_signal(reduced_motion)
+	if _quality_toggle != null:
+		_quality_toggle.set_pressed_no_signal(low_cost)

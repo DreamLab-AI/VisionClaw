@@ -45,10 +45,12 @@ uniform float inferred_dash_freq = 22.0;
 uniform float inferred_dim = 0.7;
 
 varying flat float v_style;
+varying flat float v_phase;
 
 void vertex() {
 	// Latch the per-instance style code once; fragment reads the flat varying.
 	v_style = INSTANCE_CUSTOM.a;
+	v_phase = fract(float(INSTANCE_ID) * 0.61803398875);
 }
 
 void fragment() {
@@ -56,10 +58,10 @@ void fragment() {
 	// stretches the edge but leaves UV in [0,1], so the pulse always sweeps the
 	// full length uniformly regardless of edge length.
 	float t = UV.y;
-	float head = fract(TIME * pulse_speed);
+	float head = fract(TIME * pulse_speed + v_phase);
 	float d = abs(t - head);
 	d = min(d, 1.0 - d); // wrap so the pulse loops seamlessly end-to-end
-	float pulse = smoothstep(pulse_width, 0.0, d);
+	float pulse = 1.0 - smoothstep(0.0, pulse_width, d);
 
 	bool is_inferred = v_style > 2.5;                     // code 3 (Wave 3)
 	bool is_subclass = v_style > 1.5 && v_style < 2.5;    // code 2
@@ -71,11 +73,15 @@ void fragment() {
 	float alpha = base_alpha + pulse * pulse_energy;
 	if (is_inferred) {
 		// Reasoner-entailed: amber, tightly dashed, gently dimmed.
-		float dash = step(inferred_dash_gap, fract(UV.y * inferred_dash_freq));
+		float phase = fract(UV.y * inferred_dash_freq);
+		float aa = max(fwidth(UV.y * inferred_dash_freq), 0.005);
+		float dash = smoothstep(inferred_dash_gap, inferred_dash_gap + aa, phase) * (1.0 - smoothstep(1.0 - aa, 1.0, phase));
 		alpha *= inferred_dim * dash;
 	} else if (is_subclass) {
 		// Asserted subclass: dashed + dimmer (lilac tint above).
-		float dash = step(subclass_dash_gap, fract(UV.y * subclass_dash_freq));
+		float phase = fract(UV.y * subclass_dash_freq);
+		float aa = max(fwidth(UV.y * subclass_dash_freq), 0.005);
+		float dash = smoothstep(subclass_dash_gap, subclass_dash_gap + aa, phase) * (1.0 - smoothstep(1.0 - aa, 1.0, phase));
 		alpha *= subclass_dim * dash;
 	} else if (is_untyped) {
 		alpha *= untyped_dim;

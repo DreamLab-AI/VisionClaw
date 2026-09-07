@@ -48,6 +48,7 @@ var _core_mat: StandardMaterial3D = null
 var _activity: int = ACT_IDLE
 var _feature_mask: int = FEAT_BADGE | FEAT_CONE | FEAT_CORE_MESH
 var _time: float = 0.0
+var _reduced_motion: bool = true
 
 var _display_name: String = ""
 var _did: String = ""
@@ -68,6 +69,11 @@ func _ready() -> void:
 			core.material_override = _core_mat
 			core_billboard.material_override = _core_mat
 
+	var comfort := get_tree().get_first_node_in_group("xr_visual_environment")
+	if comfort != null:
+		var state: Dictionary = comfort.call("get_visual_comfort")
+		_reduced_motion = bool(state.get("reduced_motion", true))
+		comfort.connect("visual_comfort_changed", _on_visual_comfort_changed)
 	_apply_state_visual()
 	_refresh_badge()
 
@@ -165,6 +171,10 @@ static func _basis_from_y(y_dir: Vector3) -> Basis:
 func _animate_motion() -> void:
 	if core == null:
 		return
+	if _reduced_motion:
+		core.position.y = 0.0
+		_set_emission(0.55 if _activity == ACT_AWAITING else 0.3)
+		return
 	match _activity:
 		ACT_IDLE:
 			core.position.y = sin(_time * 1.2) * 0.02
@@ -226,3 +236,7 @@ static func _short_did(did: String) -> String:
 	if pk.length() <= 8:
 		return "…" + pk
 	return "…" + pk.substr(pk.length() - 8)
+
+
+func _on_visual_comfort_changed(reduced_motion: bool, _low_cost: bool) -> void:
+	_reduced_motion = reduced_motion

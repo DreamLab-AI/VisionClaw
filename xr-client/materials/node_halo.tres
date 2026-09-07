@@ -5,7 +5,7 @@
 [resource]
 render_priority = 1
 shader = ExtResource("1_halo_sh")
-shader_parameter/halo_width = 0.16
+shader_parameter/halo_width = 0.07
 shader_parameter/fresnel_power = 2.5
-shader_parameter/halo_energy = 1.35
-shader_parameter/cen_boost = 0.4
+shader_parameter/halo_energy = 0.65
+shader_parameter/cen_boost = 0.25

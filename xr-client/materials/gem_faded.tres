@@ -12,12 +12,12 @@
 transparency = 1
 vertex_color_use_as_albedo = true
 albedo_color = Color(1, 1, 1, 1)
-metallic = 0.4
-roughness = 0.3
+metallic = 0.18
+roughness = 0.36
 emission_enabled = true
 emission = Color(0.5, 0.35, 0.8, 1)
-emission_energy_multiplier = 0.35
+emission_energy_multiplier = 0.08
 rim_enabled = true
-rim = 0.5
+rim = 0.28
 rim_tint = 0.4
 next_pass = ExtResource("1_halo")

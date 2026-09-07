@@ -6,8 +6,8 @@
 render_priority = 0
 shader = ExtResource("1_edge_sh")
 shader_parameter/flow_color = Color(0.3, 0.72, 1, 1)
-shader_parameter/base_alpha = 0.15
-shader_parameter/pulse_speed = 0.6
-shader_parameter/pulse_width = 0.22
-shader_parameter/pulse_energy = 0.85
-shader_parameter/pulse_gain = 1.6
+shader_parameter/base_alpha = 0.12
+shader_parameter/pulse_speed = 0.12
+shader_parameter/pulse_width = 0.16
+shader_parameter/pulse_energy = 0.20
+shader_parameter/pulse_gain = 1.12

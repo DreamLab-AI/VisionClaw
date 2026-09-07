@@ -35,6 +35,7 @@ var _buttons: Array[Button] = []
 var _rotation_offset: float = 0.0    # radians added to every item's base angle
 var _click_was_down: bool = false    # edge-detect for pointer_input clicks
 var _last_pointer_pos: Vector2 = Vector2.ZERO  # last viewport-space sample, for a clean release on close()
+var _backdrop: Control
 var _debug: bool = false             # set_debug() — mirrors graph_scene QB_DEBUG
 
 
@@ -45,6 +46,13 @@ func set_debug(on: bool) -> void:
 
 
 func _ready() -> void:
+	$MenuViewport/MenuControl.theme = preload("res://scripts/xr_theme.gd").create()
+	_backdrop = Control.new()
+	_backdrop.set_script(preload("res://scripts/radial_backdrop.gd"))
+	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$MenuViewport/MenuControl.add_child(_backdrop)
+	$MenuViewport/MenuControl.move_child(_backdrop, 0)
 	visible = false
 	if _slider != null and not _slider.value_changed.is_connected(_on_slider_changed):
 		_slider.value_changed.connect(_on_slider_changed)
@@ -55,6 +63,9 @@ func _ready() -> void:
 ## `count:int`), lay them out in a circle, and show the panel.
 func open(items: Array, world_pos: Vector3) -> void:
 	_items = items
+	if _backdrop != null:
+		_backdrop.item_count = items.size()
+		_backdrop.queue_redraw()
 	global_position = world_pos
 	_rotation_offset = 0.0
 	_click_was_down = false
@@ -122,6 +133,9 @@ func _build_buttons() -> void:
 		if item.has("count"):
 			label += " (%d)" % int(item["count"])
 		btn.text = label
+		btn.tooltip_text = label
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn.add_theme_font_size_override("font_size", 24)
 		btn.custom_minimum_size = Vector2(200, 72)
 		# Pivot at centre so scale-to-zero collapses symmetrically.
 		btn.pivot_offset = Vector2(100, 36)

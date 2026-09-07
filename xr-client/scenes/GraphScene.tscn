@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://b3xrgraph01vc"]
+[gd_scene load_steps=21 format=3 uid="uid://b3xrgraph01vc"]
 
 [ext_resource type="Script" path="res://scripts/graph_scene.gd" id="1_graph"]
 [ext_resource type="PackedScene" uid="uid://b3xravatar01vc" path="res://scenes/Avatar.tscn" id="2_avatar"]
@@ -9,6 +9,8 @@
 [ext_resource type="Material" path="res://materials/edge_flow.tres" id="7_edge"]
 [ext_resource type="Material" path="res://materials/agent_beam.tres" id="8_beam"]
 [ext_resource type="Material" path="res://materials/gem_faded.tres" id="9_gemf"]
+
+[ext_resource type="Script" path="res://scripts/spatial_environment.gd" id="10_spatial"]
 
 [sub_resource type="SphereMesh" id="SphereMesh_node"]
 radius = 0.5
@@ -56,26 +58,36 @@ use_custom_data = true
 mesh = SubResource("CylinderMesh_beam")
 instance_count = 0
 
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_observatory"]
+sky_top_color = Color(0.018, 0.027, 0.055, 1)
+sky_horizon_color = Color(0.105, 0.15, 0.205, 1)
+sky_curve = 0.18
+ground_bottom_color = Color(0.018, 0.027, 0.045, 1)
+ground_horizon_color = Color(0.105, 0.15, 0.205, 1)
+ground_curve = 0.22
+sun_disk_scale = 0.0
+
+[sub_resource type="Sky" id="Sky_observatory"]
+sky_material = SubResource("SkyMaterial_observatory")
+
 [sub_resource type="Environment" id="Environment_world"]
-background_mode = 1
-background_color = Color(0.02, 0.03, 0.06, 1)
+background_mode = 2
+sky = SubResource("Sky_observatory")
 ambient_light_source = 2
-ambient_light_color = Color(0.55, 0.6, 0.7, 1)
-ambient_light_energy = 0.5
+ambient_light_color = Color(0.62, 0.73, 0.86, 1)
+ambient_light_energy = 0.65
 tonemap_mode = 0
-tonemap_exposure = 1.1
+tonemap_exposure = 1.0
 glow_enabled = false
-glow_intensity = 0.8
-glow_strength = 1.0
-glow_bloom = 0.1
-glow_blend_mode = 1
-glow_hdr_threshold = 1.0
 
 [node name="GraphScene" type="Node3D"]
 script = ExtResource("1_graph")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_world")
+
+[node name="SpatialEnvironment" type="Node3D" parent="."]
+script = ExtResource("10_spatial")
 
 [node name="XROrigin3D" type="XROrigin3D" parent="."]
 
@@ -124,4 +136,12 @@ current = false
 
 [node name="AmbientLight" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.866, -0.5, 0, 0.5, 0.866, 0, 0, 0, 1, 0, 5, 0)
-light_energy = 1.0
+light_energy = 0.85
+light_color = Color(0.78, 0.87, 1.0, 1)
+shadow_enabled = false
+
+[node name="WarmFill" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-35, 135, 0)
+light_color = Color(1, 0.77, 0.56, 1)
+light_energy = 0.28
+shadow_enabled = false

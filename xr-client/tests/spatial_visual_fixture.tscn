@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/GraphScene.tscn" id="1_graph"]
+[ext_resource type="Script" path="res://tests/spatial_visual_fixture.gd" id="2_fixture"]
+
+[node name="SpatialVisualFixture" instance=ExtResource("1_graph")]
+script = ExtResource("2_fixture")

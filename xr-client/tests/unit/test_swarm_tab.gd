@@ -54,7 +54,7 @@ func test_roster_rows_render_and_teleport_on_tap() -> void:
 
 func _count_row_buttons(hud: Node3D) -> int:
 	var n := [0]
-	_walk_buttons(hud.get_node("%s/SwarmPage" % TABS), n)
+	_walk_buttons(hud._swarm_list, n)
 	return n[0]
 
 
