@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 5350edbb6d3bf3d8d696608f5a2fa959d06e8ad0
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -122,3 +122,6 @@ Closeout: publish to an immutable generation and switch an authoritative pointer
 Actual publication now uses PublishedStorage in ontology_generation.rs: stage five immutable resources and metadata, fsync, then atomically replace an active pointer. Canonical index advertises a generation; schemaParser pins JSON-LD/Turtle reads to it, including concurrent activation. Pinned resources inherit canonical resource ACLs. Eight injected pre-activation failure boundaries preserve the old generation after restart; a post-rename root-fsync failure can leave the new complete generation visible with durability unknown. Unpinned clients may straddle activation. Old generations are retained; no live rollout or reader-safe garbage collection is certified.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+
+Workflow provenance re-verification at `5350edbb6d3bf3d8d696608f5a2fa959d06e8ad0`: external actions in ontology-publish.yml are pinned to immutable SHAs. Release resource generation and pull direction are unchanged; YAML parsing passes. This verifies the workflow edit without claiming a new hosted publish run.
