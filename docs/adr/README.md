@@ -39,7 +39,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_99 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_100 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -142,3 +142,4 @@ _99 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2104](ADR-2104-sops-execute-or-withdraw.md) | Execute the SOPS rollout or formally withdraw ADR-109's acceptance — and document plaintext .env as the interim state either way | DATA-authority-erasure | 2026-09-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2105](ADR-2105-correlated-promotion-chain-end-to-end.md) | Carry one authoring correlation id through validation, PR, approval, merge and served corpus — VisionClaw echoes it | IDENTIFIER-taxonomy | 2026-09-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2106](ADR-2106-ontology-pull-model-into-the-embedded-pod.md) | The published ontology is pulled into the embedded pod, not pushed from CI | BASELINE-architecture | 2026-09-06 | accepted | partial | live | — | — | jjohare | visionclaw |
+| [ADR-2107](ADR-2107-compatible-xr-visual-experience.md) | A shared XR visual language with reversible comfort and rendering budgets | BASELINE-architecture | 2026-09-07 | accepted | partial | staged | — | — | jjohare | visionclaw |

@@ -9,7 +9,7 @@ name: XR Godot CI
 #     * xr-rust-tests  — gdext lib/integration/property tests (195 as of the
 #                        close-out) + visionclaw-xr-presence (adversarial +
 #                        property). Both CUDA-free; run anywhere Rust runs.
-#     * gut-headless   — GUT 9.3 GDScript suite under real Godot 4.3 headless,
+#     * gut-headless   — GUT 9.3 GDScript suite under Godot 4.3 GL on Xvfb,
 #                        using exactly the invocation proven on the HP rig
 #                        (51/51, first full pass in project history).
 #   NON-BLOCKING (never executed end-to-end yet):
@@ -75,7 +75,7 @@ jobs:
         run: cargo test -p visionclaw-xr-presence
 
   gut-headless:
-    name: GUT GDScript suite under Godot 4.3 headless (blocking)
+    name: GUT GDScript suite under Godot 4.3 GL (blocking)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -87,7 +87,9 @@ jobs:
       - name: Build gdextension cdylib (debug — path expected by .gdextension)
         working-directory: xr-client/rust
         run: cargo build -p visionclaw-xr-gdext
-      - name: Install Godot ${{ env.GODOT_VERSION }} headless
+      - name: Install GL display dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6
+      - name: Install Godot ${{ env.GODOT_VERSION }}
         run: |
           curl -fsSL -o /tmp/godot.zip \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
@@ -104,7 +106,12 @@ jobs:
       - name: Run GUT unit suite (canonical close-out invocation)
         run: |
           mkdir -p tests/report
-          godot --headless --path . -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
+          # Register GUT global classes before running scripts in a fresh checkout.
+          godot --headless --editor --path . --import --quit
+          # Actual GL font metrics are required for the world-space HUD fit gate.
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1440x1000x24" \
+            godot --path . --rendering-method gl_compatibility --audio-driver Dummy --xr-mode off \
+            -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
       - name: Upload JUnit report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
