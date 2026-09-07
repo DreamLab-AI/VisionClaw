@@ -252,3 +252,11 @@ still declares no `VISIONCLAW_SECURITY_PROFILE` (ADR-2027).
 Missing intent, unnamed effective flags and release/dev-auth findings now refuse listener binding. Debug remains report-only. The default release artefact passes two pre-start exit-2 probes; its hash is in the execution evidence. Partial status remains because the original Decision requires implicit multi-user-locked selection whereas implemented migration requires explicit intent; this divergence requires owner ratification, and no deployment image/reconnect acceptance is claimed.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## 2026-09-07 development launcher compatibility
+
+The host restart loop confirmed that a release artefact containing `dev-auth`
+is rejected before listener binding. ADR-2008 now uses an optimised
+`dev-runtime` profile with debug assertions enabled for local development.
+The release rejection, environment checks and production posture are unchanged.
+Host runtime acceptance remains pending the operator's rebuild/restart.

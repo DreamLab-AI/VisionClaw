@@ -28,16 +28,18 @@ divergence note (`project_dev_prod_build_sync.md`).
 
 ## Decision
 
-The original individual-service development branch rebuilds with
-`cargo build --release --features gpu,dev-auth`. The normal supervisor path now uses a timestamp-gated wrapper instead; see the
-closeout extension for its input coverage and failure handling. The pre-baked binary is opt-in via
+Both development entrypoints use `scripts/rust-backend-wrapper.sh`, which builds
+`cargo build --profile dev-runtime --features gpu,ontology,dev-auth`. The
+`dev-runtime` profile inherits release optimisation and explicitly enables debug
+assertions and overflow checks. Its binary and build stamp are separate from
+release outputs. See the closeout extension for input coverage and failure handling. The pre-baked binary is opt-in via
 `SKIP_RUST_REBUILD=true`. Production pre-compiles in the image build and does not
 recompile on start.
 
 ## Consequences
 
 - Edit-on-host, restart-container is the dev loop; no `docker build` per change.
-- Container start pays a full `--release` compile (minutes) unless
+- Container start pays an optimised development compile (minutes) unless
   `SKIP_RUST_REBUILD=true` — the cost of never running stale code by accident.
 - A broken tree fails the container loudly at boot instead of masking the error
   behind an old binary.
@@ -130,3 +132,28 @@ still not inspected separately from compilation success.
 Compose now forwards explicit profile intent and a default-off session compatibility flag. Source mounts and the recompilation entrypoint are unchanged. A release/dev-auth entrypoint is now refused by the boot guard; development must use a debug build as recorded in SECURITY-profiles.md. This is a required migration, not a claim that hosted dev images have been rebuilt.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## 2026-09-07 host startup correction
+
+The host entered a roughly 20-second restart loop: the old development wrapper
+built `release/dev-auth`, which ADR-2038 correctly refused before binding port
+4000. Six profile findings were captured by following stderr across retries;
+the wrapper had truncated that file on each launch.
+
+Development now uses `dev-runtime` (debug assertions enabled); the production
+profile assertion is unchanged. Supervisor retains and rotates stderr. The
+individual-service entrypoint delegates to the same wrapper, removing its stale
+`webxr` binary path. Input patterns are split into arrays before iteration so
+`*.rs` cannot expand against `build.rs` in the caller's working directory.
+
+Validation: 18 existing build-input tests pass when executed from the repository
+root; two launcher tests cover initial build, unchanged restart, failed rebuild,
+retained diagnostics and profile/entrypoint selection. A standalone Cargo probe
+compiled using the actual profile values confirms `cfg!(debug_assertions)` is
+true. Run `python3 scripts/tests/test_dev_launcher.py` for the launcher fixtures.
+The full host backend rebuild and graph-delivery acceptance remain pending the
+operator restart; these checks do not claim runtime recovery.
+
+Restart with `./scripts/launch.sh up dev` from the updated host checkout, with
+`SKIP_RUST_REBUILD` unset or false. A plain `docker restart` can retain the old
+image-copied launcher. Expect a first build in `target/dev-runtime`.

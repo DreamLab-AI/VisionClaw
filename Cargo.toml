@@ -292,6 +292,13 @@ codegen-units = 1
 panic = "unwind"
 strip = true
 
+# Optimised local runtime with an explicit development security identity.
+# Release artefacts with dev-auth are rejected by ADR-2038.
+[profile.dev-runtime]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+
 [profile.dev]
 opt-level = 1
 

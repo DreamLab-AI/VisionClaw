@@ -33,14 +33,17 @@ else
     log "WARNING: nvidia-smi failed, using sm_${CUDA_ARCH}"
 fi
 
-: > "${RUST_ERROR_LOG:-/app/logs/rust-error.log}" 2>/dev/null || true
+# Supervisor owns stderr rotation; retain fatal diagnostics across retries.
 
 APP_ROOT="${APP_ROOT:-/app}"
-RUST_BINARY="${RUST_BINARY:-$APP_ROOT/target/release/visionclaw-server}"
+RUST_BINARY="${RUST_BINARY:-$APP_ROOT/target/dev-runtime/visionclaw-server}"
 # The feature set is part of the binary's identity: a change here must rebuild
 # even when no file changed, so it feeds the stamp signature.
 BUILD_FEATURES="${BUILD_FEATURES:-gpu,ontology,dev-auth}"
-BUILD_STAMP="${BUILD_STAMP:-$APP_ROOT/target/.visionclaw-build-stamp}"
+# This is the development launcher. Keep optimisation without misidentifying
+# a dev-auth artefact as production (ADR-2038). Pin the assertion override too.
+export CARGO_PROFILE_DEV_RUNTIME_DEBUG_ASSERTIONS=true
+BUILD_STAMP="${BUILD_STAMP:-$APP_ROOT/target/.visionclaw-dev-runtime-build-stamp}"
 
 # ADR-2008: the authoritative build-input inventory.
 WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,7 +70,7 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
     else
         log "Rebuilding: $NEEDS_BUILD_REASON"
 
-        if cargo build --release --features "$BUILD_FEATURES" 2>&1; then
+        if cargo build --profile dev-runtime --features "$BUILD_FEATURES" 2>&1; then
             log "✓ Build succeeded"
             write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"
         else
@@ -76,7 +79,7 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
             # binary was produced for; drop it so the next start rebuilds.
             rm -f "$BUILD_STAMP"
             cargo clean 2>/dev/null || true
-            if cargo build --release --features "$BUILD_FEATURES" 2>&1; then
+            if cargo build --profile dev-runtime --features "$BUILD_FEATURES" 2>&1; then
                 log "✓ Clean rebuild succeeded"
                 write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"
             else
@@ -96,4 +99,4 @@ if [ ! -f "${RUST_BINARY}" ]; then
 fi
 
 log "Starting Rust backend from ${RUST_BINARY}..."
-exec ${RUST_BINARY}
+exec "${RUST_BINARY}"

@@ -2,7 +2,7 @@
 # build-inputs.sh — the authoritative build-input inventory for the dev-image
 # rebuild decision (ADR-2008).
 #
-# `rust-backend-wrapper.sh` skips cargo entirely when the release binary looks
+# `rust-backend-wrapper.sh` skips cargo entirely when the development binary looks
 # newer than the sources, which turns a no-change restart from ~30s into ~1s.
 # The estate-review probe reproduced two holes in the original heuristic:
 #
@@ -43,20 +43,24 @@ BUILD_INPUT_NAME_GLOBS="${BUILD_INPUT_NAME_GLOBS:-*.rs *.cu *.cuh *.ptx Cargo.to
 
 # Environment variables the build scripts declare as `rerun-if-env-changed`.
 # A change to any of these invalidates the binary without touching a file.
-BUILD_INPUT_ENV_VARS="${BUILD_INPUT_ENV_VARS:-CUDA_ARCH CUDA_PATH DOCKER_ENV CARGO_BUILD_FEATURES}"
+BUILD_INPUT_ENV_VARS="${BUILD_INPUT_ENV_VARS:-CUDA_ARCH CUDA_PATH DOCKER_ENV CARGO_BUILD_FEATURES CARGO_PROFILE_DEV_RUNTIME_DEBUG_ASSERTIONS}"
 
 # Emit every build-input path under $1 (default: the current directory).
 # Used directly by the fixture tests to assert coverage.
 list_build_inputs() {
     local root="${1:-.}"
-    local prune_expr=() name_expr=() d g first=1
+    local prune_expr=() name_expr=() prune_dirs=() name_globs=() d g first=1
+    # Split the configured words without expanding *.rs against the caller's
+    # cwd (the project root contains build.rs, which otherwise hides src/*.rs).
+    read -r -a prune_dirs <<< "$BUILD_INPUT_PRUNE_DIRS"
+    read -r -a name_globs <<< "$BUILD_INPUT_NAME_GLOBS"
 
-    for d in $BUILD_INPUT_PRUNE_DIRS; do
+    for d in "${prune_dirs[@]}"; do
         prune_expr+=(-name "$d" -o)
     done
     unset 'prune_expr[${#prune_expr[@]}-1]'   # drop the trailing -o
 
-    for g in $BUILD_INPUT_NAME_GLOBS; do
+    for g in "${name_globs[@]}"; do
         if (( first )); then
             name_expr+=(-name "$g"); first=0
         else
