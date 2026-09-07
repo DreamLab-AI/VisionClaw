@@ -4,4 +4,12 @@
 # quotes from inline entrypoints.
 set -u
 echo "openxr actions: $(grep -c OpenXRAction xr-client/openxr_action_map.tres)"
-test -s xr-client/openxr_action_map.tres && echo MAP-OK || echo MAP-MISSING
+# The failure branch MUST exit non-zero: the harness grades on exit code, and
+# the old `&& echo OK || echo MISSING` tail always returned 0 (the `||` echo
+# succeeds), so a deleted action map was recorded PASSED.
+if [ -s xr-client/openxr_action_map.tres ]; then
+  echo MAP-OK
+else
+  echo MAP-MISSING
+  exit 1
+fi

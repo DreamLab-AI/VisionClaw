@@ -10,4 +10,12 @@ for f in $(grep -rhoE 'path="res://[^"]+"' xr-client --include='*.tscn' --includ
   [ -e "xr-client/$f" ] || { miss=$((miss+1)); echo "MISSING: $f"; }
 done
 echo "refs: $total missing: $miss"
-[ "$miss" -eq 0 ] && echo SCENE-INTEGRITY-OK || echo SCENE-INTEGRITY-FAIL
+# The failure branch MUST exit non-zero: the harness grades on exit code, and
+# the old `&& echo OK || echo FAIL` tail always returned 0 (the `||` echo
+# succeeds), so a dangling res:// reference was recorded PASSED.
+if [ "$miss" -eq 0 ]; then
+  echo SCENE-INTEGRITY-OK
+else
+  echo SCENE-INTEGRITY-FAIL
+  exit 1
+fi
