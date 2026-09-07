@@ -172,8 +172,7 @@ processing and separately rebuilds asserted ontology, so no corpus-wide atomic
 activation is established. Runtime assertions not yet in the corpus can be lost
 on that rebuild even while their separate provenance survives.
 
-Provenance emission is insert-only but not record-atomic; ADR-2016 implementation
-is partial for its complete-triad guarantee. SQLite online backup recovers WAL
+Provenance emission is insert-only. The earlier record-atomicity gap is now closed locally: `reify_activity` validates its quad set and `commit_quads_with` commits it in one Oxigraph transaction (`crates/visionclaw-adapters/src/provenance_emitter.rs:282-310`). ADR-2016 remains partial for its wider integration acceptance; local record atomicity does not establish cross-store atomicity. SQLite online backup recovers WAL
 data in the tested fixture, but required-member coverage, failure-domain
 separation and coordinated application restore remain open. Existing statements
 of immutable history or off-volume durability must be read with these limits.
@@ -203,3 +202,9 @@ of immutable history or off-volume durability must be read with these limits.
   (a 43 MB gitignored `scripts/sops` binary dated to the acceptance day, none of the four
   deliverables). Plaintext `.env` is documented as the interim state under either branch.
 - **ADR-2097** — `MetadataActor::refresh_metadata` is deleted, not implemented. It logged one line and returned `Ok(())`, and `RefreshMetadata` had no senders anywhere in the workspace. It could not be implemented honestly either: `MetadataStore` is a `HashMap` type alias, the actor is constructed empty, and `metadata.json` is owned by `FileService`, which pushes rebuilt stores in via `UpdateMetadata`. Single-writer ownership is now documented on the actor so a future reload requirement lands on `FileService` rather than resurrecting the stub.
+
+## Estate audit — 2026-09-07
+
+The ownership table describes canonical stores, not a distributed transaction. The optional `redis` feature adds Nostr-session persistence (`src/services/nostr_service.rs:149-187,245-299`) beyond the default embedded graph and per-writer SQLite stores. Include it in erasure/restore membership when enabled; do not infer that it is deployed from this source path.
+
+Ontology pull publication is not generation-atomic: `src/services/ontology_pull.rs:345-373` writes resources sequentially and writes the manifest last. Storage failure can expose a mixed generation; an ACL existence error is currently treated as absence. ADR-2106 now records the limitation and failure-injection acceptance work. Neither manifest presence nor HTTP success substitutes for cross-store erasure, restore or generation acceptance.

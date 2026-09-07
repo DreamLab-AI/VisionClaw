@@ -233,7 +233,7 @@ deleting them.
 
 ## Estate closeout qualification — 2026-09-04
 
-The [rendered-state review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/rendered-state.md) records 218 passing Rust library tests and their limits: Godot-facing runtime classes are excluded by `cfg(test)`, and no headset/scene/shader test ran. Hover motion is implemented. Beam targets are fold-remapped and drawn-gated, while agent endpoints use local positions directly. Action timestamps are stored without freshness checks, and old actions can overwrite JSON done/idle with working. Closeout requires explicit state precedence/expiry, visible stale/error handling and authenticated action-to-render evidence on each intended target.
+The [rendered-state review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/rendered-state.md) records 218 passing Rust library tests and their limits: Godot-facing runtime classes are excluded by `cfg(test)`, and no headset/scene/shader test ran. Hover motion is implemented. Beam targets are fold-remapped and drawn-gated, while agent endpoints use local positions directly. This 2026-09-04 observation is superseded by the current freshness implementation: `xr-client/rust/src/render_store.rs:469,738-740,794-796,816-822` compares timestamps, rejects stale evidence and expires actions. Source-level precedence and expiry exist. Visible stale/error handling and authenticated action-to-render behaviour still require scene and headset evidence on each intended target (rechecked 2026-09-07).
 
 ## Renderer, HUD and hierarchy closeout — 2026-09-04
 

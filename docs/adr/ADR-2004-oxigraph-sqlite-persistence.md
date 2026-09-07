@@ -1,6 +1,6 @@
 ---
 id: ADR-2004
-title: Embedded Oxigraph plus per-writer SQLite is the sole persistence substrate
+title: Embedded Oxigraph plus per-writer SQLite owns canonical graph and local state
 date: 2026-08-31
 decision_status: accepted
 implementation_status: complete
@@ -16,7 +16,7 @@ domain: BASELINE-architecture
 lineage: Distils legacy ADR-132 (Neo4j removal, Oxigraph+SQLite adoption; cutover 2026-05-20) and its ADR-101 versioning regime / ADR-098-100 IRI-provenance migrations.
 ---
 
-# ADR-2004 — Embedded Oxigraph plus per-writer SQLite is the sole persistence substrate
+# ADR-2004 — Embedded Oxigraph plus per-writer SQLite owns canonical graph and local state
 
 ## Context
 
@@ -32,15 +32,14 @@ deployment does not need. Prior state carried both. Lineage: ADR-132 cutover
 The canonical graph/ontology store is **embedded Oxigraph** (RocksDB-backed,
 SPARQL 1.1), opened exactly once at `data/oxigraph` and shared: the graph
 repository is derived `from_store(...)` off the same handle the ontology
-repository opens. All non-triple state lives in **per-writer SQLite files** under
+repository opens. The settings, enrichment, liveness and KPI state lives in **per-writer SQLite files** under
 `DATA_DIR` (`settings`, `enrichment`, `liveness`, `kpi`.sqlite3), one file per
 single-writer to keep migration and lock posture isolated. Neo4j and any
 external or networked graph database are forbidden.
 
 ## Consequences
 
-- No network hop, no second query language, no clustering to operate; the whole
-  data plane is process-local and backs up as files.
+- The canonical graph and named local state stores are process-local and back up as files. This does not cover every optional session persistence path.
 - The store is bound to one node: horizontal scale-out is foreclosed without a
   new ADR. Oxigraph/RocksDB has no PITR (see ADR-2017 for backup posture).
 - Sharing one handle means a corrupt or locked store takes down both
@@ -171,3 +170,7 @@ paths; `grep -rn neo4rs` across the tree.
 ## Landing re-verification — 2026-09-06 (2cf222406)
 
 Governed paths changed in the Wave 3 landing commit: src/app_state.rs: `validate_security_env_vars` made `pub(crate)` so AgentMonitorActor reuses it (ADR-2094); no persistence, Oxigraph or SQLite path changed. Decision unaffected; `verified_commit` moved to the landing commit. Gates at that commit: cargo check --workspace --all-targets exit 0, 827 crate + 1600 root + 309 xr-client tests, vitest 809, fmt and lint clean.
+
+## Estate audit — 2026-09-07
+
+The default graph/local-state decision remains accepted. `Cargo.toml:253` exposes the non-default `redis` feature, and `src/services/nostr_service.rs:149-187,245-299` configures Redis, restores sessions and persists them with SETEX when that feature is enabled. Redis is not a networked graph database, so its presence does not undo the Oxigraph decision. It does invalidate the universal claim that all non-triple persistence is SQLite. No Redis deployment was observed in this audit. Backup, erasure and release-profile inventories must include session Redis if enabled. See [VC-A11](../../../VisionFlow/docs/estate-review/2026-09-07-visionclaw-audit.md).

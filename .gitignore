@@ -236,8 +236,6 @@ scripts/age-keygen-bin
 scripts/sops
 
 # Diagram render artifacts (generated outputs)
-docs/diagrams/rendered/
-docs/diagrams/upgraded/
 
 # Worktree / extraction scratch directories
 extraction/

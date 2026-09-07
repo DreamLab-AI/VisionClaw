@@ -3,19 +3,12 @@ id: ADR-2106
 title: The published ontology is pulled into the embedded pod, not pushed from CI
 date: 2026-09-06
 decision_status: accepted
-implementation_status: complete
+implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: pending
-verified_paths:
-  - .github/workflows/ontology-publish.yml
-  - src/services/ontology_pull.rs
-  - src/main.rs
-  - scripts/ontology/pack-pod-resources.py
-  - client/src/features/ontology/services/jss/contextLoader.ts
-  - client/src/features/ontology/services/jss/schemaParser.ts
-  - env.example
+verified_commit: 4d1a698e70f60c19d8c83fa8c6caef193866978e
+verified_paths: [.github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
 repo: visionclaw
@@ -63,10 +56,9 @@ initialised (`src/main.rs`): it fetches `index.jsonld`, compares
 `visionflow:buildSha` with the manifest already in the pod, and only if they
 differ fetches `SHA256SUMS` and every content file, verifies each digest, then
 writes through the `Storage` trait: containers, a public-read WAC ACL at
-`/public/ontology/.acl` (written only if absent, so an operator's edit
-survives), the four content files, and the manifest last. It repeats every
+`/public/ontology/.acl` (an observed existing ACL is preserved; an existence-probe error is currently treated as absence), the four content files, and the manifest last. It repeats every
 `ONTOLOGY_PULL_INTERVAL_SECS` (default one hour, one small GET when nothing
-changed). Every failure is logged and leaves the pod as it was.
+changed). Fetch and digest failures occur before resource writes. Storage failures are logged, but publication is sequential and can leave a partially updated generation; manifest-last ordering is a retry signal, not an atomic commit. The ACL absence check currently treats a storage error as absence.
 
 `deploy-jss` remains as the push path for a deployment whose pod a runner can
 reach, gated on `vars.SOLID_POD_URL`. `deploy-target-missing` states in the
@@ -84,7 +76,7 @@ Configuration: `ONTOLOGY_PULL_URL` (default the release download base),
 
 ## Consequences
 
-- The pod holds exactly the generation the public site is built from, identified
+- After a successful complete pull, the pod holds the selected release generation, identified
   by the vault source SHA and the workflow build SHA in `index.jsonld`. Nothing
   on the LAN accepts inbound traffic for it and no token is involved anywhere
   in the read path.
@@ -117,3 +109,9 @@ unreachable release write nothing; `ONTOLOGY_PULL_ENABLED=off` short-circuits.
 the public `SHA256SUMS` against the one it uploaded. Live: the server log line
 `ontology pull: /public/ontology/ updated to build <sha>` and
 `GET /solid/public/ontology/index.jsonld` returning that `visionflow:buildSha`.
+
+## Estate audit — 2026-09-07
+
+The pull direction and boot/interval wiring are source-supported. The earlier blanket failure guarantee was not: `src/services/ontology_pull.rs:345-373` mutates containers, ACL and content sequentially, and `exists(&acl_path).await.unwrap_or(false)` treats a failed ACL probe as absence. A later write error does not roll back earlier writes. The existing operator ACL is preserved only when its existence is successfully observed. The implementation axis is therefore partial for the full contract; the recorded live activation of pull delivery is retained as historical evidence, not re-observed here.
+
+Closeout: publish to an immutable generation and switch an authoritative pointer atomically, or implement a proven equivalent transaction/rollback boundary; abort on an indeterminate ACL check. Inject failure at every write and ACL probe, verify prior-generation readability and operator ACL preservation, restart, and demonstrate convergence without mixed resources. Bind the result to the tested storage backend and reader path. CP-02/04/08; owner remains the maintainer named above. See the [source audit](../../../VisionFlow/docs/estate-review/2026-09-07-visionclaw-audit.md), VC-A01/A02.

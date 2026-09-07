@@ -54,7 +54,7 @@ This shape has a name, **neurosymbolic**: probabilistic agents bounded by formal
 
 VisionClaw is the embodiment-and-observation layer of the **Dynamic Agentic Mesh**, the coordination substrate DreamLab AI builds on Nostr events. It was built last, on top of the identity, data sovereignty and signing surface that live in sibling repos; [VisionFlow](https://github.com/DreamLab-AI/VisionFlow) holds the cross-repository canon.
 
-![DreamLab AI ecosystem at a glance: the five substrates, the engine, and the scale](docs/diagrams/hero/linkedInEcosystem.png)
+![DreamLab AI ecosystem at a glance: the five substrates, the engine, and the scale](docs/assets/hero/linkedInEcosystem.png)
 
 *The August 2026 infographic. A few internals it shows predate the Obsidian migration; the tables below are current.*
 

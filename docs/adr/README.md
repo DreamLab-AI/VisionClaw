@@ -37,14 +37,14 @@ build).
 
 The [historical closeout routing note](../adr-history-closeout.md) points each frozen archive record at the estate section-level review and the complete VisionClaw historical map; a lineage mention there does not supersede every section of a predecessor.
 
-_98 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_99 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
 | [ADR-2001](ADR-2001-corpus-consolidation.md) | Consolidate the documentation corpus onto a thin living ADR series | — | 2026-08-31 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2002](ADR-2002-nip98-single-use-replay-cache.md) | NIP-98 replay protection is a two-layer scheme with a single-use cache | — | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2003](ADR-2003-visibility-filter-default-on.md) | The pubkey visibility filter defaults ON | — | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
-| [ADR-2004](ADR-2004-oxigraph-sqlite-persistence.md) | Embedded Oxigraph plus per-writer SQLite is the sole persistence substrate | BASELINE-architecture | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
+| [ADR-2004](ADR-2004-oxigraph-sqlite-persistence.md) | Embedded Oxigraph plus per-writer SQLite owns canonical graph and local state | BASELINE-architecture | 2026-08-31 | accepted | complete | live | — | — | jjohare | visionclaw |
 | [ADR-2005](ADR-2005-hexagonal-crate-split.md) | Hexagonal split of the webxr monolith into a thin root binary plus visionclaw crates | BASELINE-architecture | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
 | [ADR-2006](ADR-2006-acsp-human-approval.md) | Human-approval flows go through the stateless ACSP forum surface | BASELINE-architecture | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
 | [ADR-2007](ADR-2007-gpu-coordinator-supervisors.md) | GPUManagerActor is a coordinator over four subsystem supervisors on a context bus | BASELINE-architecture | 2026-08-31 | accepted | partial | live | — | — | jjohare | visionclaw |
@@ -139,4 +139,4 @@ _98 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2103](ADR-2103-oxigraph-point-in-time-backup.md) | Give Oxigraph a point-in-time backup with a declared RPO and RTO | DATA-authority-erasure | 2026-09-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2104](ADR-2104-sops-execute-or-withdraw.md) | Execute the SOPS rollout or formally withdraw ADR-109's acceptance — and document plaintext .env as the interim state either way | DATA-authority-erasure | 2026-09-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2105](ADR-2105-correlated-promotion-chain-end-to-end.md) | Carry one authoring correlation id through validation, PR, approval, merge and served corpus — VisionClaw echoes it | IDENTIFIER-taxonomy | 2026-09-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
-| [ADR-2106](ADR-2106-ontology-pull-model-into-the-embedded-pod.md) | The published ontology is pulled into the embedded pod, not pushed from CI | BASELINE-architecture | 2026-09-06 | accepted | complete | live | — | — | jjohare | visionclaw |
+| [ADR-2106](ADR-2106-ontology-pull-model-into-the-embedded-pod.md) | The published ontology is pulled into the embedded pod, not pushed from CI | BASELINE-architecture | 2026-09-06 | accepted | partial | live | — | — | jjohare | visionclaw |
