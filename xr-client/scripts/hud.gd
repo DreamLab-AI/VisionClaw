@@ -172,6 +172,8 @@ const SWARM_STATUS_COLORS: Dictionary = {
 
 
 func _ready() -> void:
+	# Bind after attachment: nested PackedScene textures have no viewport yet.
+	($HudPanel.material_override as StandardMaterial3D).albedo_texture = $HudViewport.get_texture()
 	_build_ui()
 	# Overlay wiring (nodes from HUD.tscn).
 	approve_button.pressed.connect(_on_approve_pressed)

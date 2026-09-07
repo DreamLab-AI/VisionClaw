@@ -1,19 +1,14 @@
-[gd_scene load_steps=5 format=3 uid="uid://b3xrradialmenu1"]
+[gd_scene load_steps=4 format=3 uid="uid://b3xrradialmenu1"]
 
 [ext_resource type="Script" path="res://scripts/radial_menu.gd" id="1_radial"]
 
 [sub_resource type="QuadMesh" id="QuadMesh_radial"]
 size = Vector2(0.6, 0.6)
 
-[sub_resource type="ViewportTexture" id="ViewportTexture_radial"]
-resource_local_to_scene = true
-viewport_path = NodePath("MenuViewport")
-
 [sub_resource type="StandardMaterial3D" id="Mat_radial"]
 resource_local_to_scene = true
 transparency = 1
 shading_mode = 0
-albedo_texture = SubResource("ViewportTexture_radial")
 
 [node name="RadialMenu" type="Node3D"]
 script = ExtResource("1_radial")

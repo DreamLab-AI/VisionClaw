@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://b3xrhud01vc"]
+[gd_scene load_steps=6 format=3 uid="uid://b3xrhud01vc"]
 
 [ext_resource type="Script" path="res://scripts/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/dwell_reticle.gd" id="2_reticle"]
@@ -6,16 +6,11 @@
 [sub_resource type="QuadMesh" id="QuadMesh_hud"]
 size = Vector2(1.4, 0.875)
 
-[sub_resource type="ViewportTexture" id="ViewportTexture_hud"]
-resource_local_to_scene = true
-viewport_path = NodePath("HudViewport")
-
 [sub_resource type="StandardMaterial3D" id="Mat_hud"]
 resource_local_to_scene = true
 shading_mode = 0
 transparency = 1
 texture_filter = 1
-albedo_texture = SubResource("ViewportTexture_hud")
 
 [node name="HUD" type="Node3D"]
 script = ExtResource("1_hud")

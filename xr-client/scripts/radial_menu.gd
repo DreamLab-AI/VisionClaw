@@ -46,6 +46,7 @@ func set_debug(on: bool) -> void:
 
 
 func _ready() -> void:
+	($MenuPanel.material_override as StandardMaterial3D).albedo_texture = _viewport.get_texture()
 	$MenuViewport/MenuControl.theme = preload("res://scripts/xr_theme.gd").create()
 	_backdrop = Control.new()
 	_backdrop.set_script(preload("res://scripts/radial_backdrop.gd"))
