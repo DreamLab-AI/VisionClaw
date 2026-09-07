@@ -14,6 +14,9 @@
 
 use log::{debug, info, warn};
 use nostr_sdk::prelude::*;
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::{fs, io::Write, path::PathBuf};
 
 use super::events::{ActionResponse, UnsignedAcspEvent, KIND_ACTION_RESPONSE};
 
@@ -66,6 +69,7 @@ impl CaseDecision {
 pub struct AcspClient {
     keys: Keys,
     client: Client,
+    request_dir: PathBuf,
 }
 
 impl AcspClient {
@@ -86,7 +90,21 @@ impl AcspClient {
             keys.public_key().to_hex(),
             forum_relay_url
         );
-        Ok(Self { keys, client })
+        let request_dir =
+            PathBuf::from(std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into()))
+                .join("acsp-requests");
+        let mut directory = fs::DirBuilder::new();
+        directory.recursive(true);
+        #[cfg(unix)]
+        directory.mode(0o700);
+        directory
+            .create(&request_dir)
+            .map_err(|e| format!("ACSP request journal: {e}"))?;
+        Ok(Self {
+            keys,
+            client,
+            request_dir,
+        })
     }
 
     /// x-only pubkey (hex) — must be registered in the relay's agent_registry.
@@ -109,6 +127,15 @@ impl AcspClient {
             .sign_with_keys(&self.keys)
             .map_err(|e| format!("ACSP sign failed: {e}"))?;
 
+        // Retain the exact signed payload before publication. A failed publish
+        // can leave an unacknowledged request, but never an unbound decision.
+        if ev.kind == super::events::KIND_ACTION_REQUEST {
+            persist_once(
+                &self.request_dir.join(format!("{}.json", event.id)),
+                event.as_json().as_bytes(),
+            )
+            .map_err(|e| format!("ACSP request journal: {e}"))?;
+        }
         let output = self
             .client
             .send_event(&event)
@@ -150,6 +177,35 @@ impl AcspClient {
             match notifications.recv().await {
                 Ok(RelayPoolNotification::Event { event, .. }) => {
                     if let Some(decision) = decision_from_event(&event, &case_prefix) {
+                        let Some(request_id) = request_reference(&event) else {
+                            continue;
+                        };
+                        let request =
+                            fs::read_to_string(self.request_dir.join(format!("{request_id}.json")))
+                                .ok()
+                                .and_then(|raw| Event::from_json(raw).ok());
+                        let Some(request) = request else {
+                            continue;
+                        };
+                        if request.pubkey != self.keys.public_key()
+                            || !response_matches_request(&event, &request)
+                        {
+                            warn!("[ACSP] refusing unbound decision {}", event.id);
+                            continue;
+                        }
+                        // Claim once before dispatch. A crash after this point requires
+                        // reconciliation; an uncertain mutation must never be replayed.
+                        if persist_once(
+                            &self
+                                .request_dir
+                                .join(format!("{request_id}.dispatched.json")),
+                            event.as_json().as_bytes(),
+                        )
+                        .is_err()
+                        {
+                            warn!("[ACSP] decision already dispatched or journal unavailable: {request_id}");
+                            continue;
+                        }
                         if sink.send(decision).is_err() {
                             info!("[ACSP] decision sink closed; subscription ending");
                             return;
@@ -170,10 +226,56 @@ impl AcspClient {
     }
 }
 
+/// Write an immutable, durable journal record. Interrupted partial writes are
+/// left present and rejected on read/retry, requiring operator reconciliation.
+fn persist_once(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::File::open(
+        path.parent()
+            .ok_or_else(|| std::io::Error::other("missing journal directory"))?,
+    )?
+    .sync_all()
+}
+
+fn request_reference(event: &Event) -> Option<String> {
+    let mut ids = std::collections::BTreeSet::new();
+    for tag in event.tags.iter() {
+        let parts = tag.as_slice();
+        if parts.first().map(String::as_str) == Some("e")
+            && (parts.len() < 4 || parts[3].is_empty() || parts[3] == "request")
+        {
+            let id = parts.get(1)?;
+            EventId::from_hex(id).ok()?;
+            ids.insert(id.clone());
+        }
+    }
+    if ids.len() == 1 {
+        ids.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn response_matches_request(response: &Event, request: &Event) -> bool {
+    response.verify().is_ok()
+        && request.verify().is_ok()
+        && request.kind == Kind::Custom(super::events::KIND_ACTION_REQUEST)
+        && response.kind == Kind::Custom(KIND_ACTION_RESPONSE)
+        && request_reference(response).as_deref() == Some(request.id.to_hex().as_str())
+        && response.tags.identifier().is_some()
+        && response.tags.identifier() == request.tags.identifier()
+}
+
 /// Convert a kind-31403 event into a [`CaseDecision`] when its d-tag falls in
 /// our case namespace.
 pub fn decision_from_event(event: &Event, case_prefix: &str) -> Option<CaseDecision> {
-    if event.kind != Kind::Custom(KIND_ACTION_RESPONSE) {
+    if event.kind != Kind::Custom(KIND_ACTION_RESPONSE) || event.verify().is_err() {
         return None;
     }
     let case_id = event
@@ -212,6 +314,67 @@ mod tests {
         .tags([Tag::identifier(case_id)])
         .sign_with_keys(&keys)
         .unwrap()
+    }
+
+    #[test]
+    fn exact_signed_request_binding_rejects_mismatch_ambiguity_and_tampering() {
+        let keys = Keys::generate();
+        let request = EventBuilder::new(
+            Kind::Custom(31402),
+            r#"{"fields":{"operation":{"draft":"exact bytes"}}}"#,
+        )
+        .tags([Tag::identifier("vc-elev-42")])
+        .sign_with_keys(&keys)
+        .unwrap();
+        let response = |id: EventId, case: &str, extra: bool| {
+            let mut tags = vec![Tag::identifier(case), Tag::event(id)];
+            if extra {
+                tags.push(Tag::event(EventId::all_zeros()));
+            }
+            EventBuilder::new(
+                Kind::Custom(31403),
+                r#"{"action":"approve","reasoning":"ok"}"#,
+            )
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap()
+        };
+        assert!(response_matches_request(
+            &response(request.id, "vc-elev-42", false),
+            &request
+        ));
+        assert!(!response_matches_request(
+            &response(EventId::all_zeros(), "vc-elev-42", false),
+            &request
+        ));
+        assert!(!response_matches_request(
+            &response(request.id, "vc-elev-other", false),
+            &request
+        ));
+        assert!(!response_matches_request(
+            &response(request.id, "vc-elev-42", true),
+            &request
+        ));
+        assert!(!response_matches_request(
+            &signed_response("vc-elev-42", "approve"),
+            &request
+        ));
+        let mut tampered = request.clone();
+        tampered.content = "changed operation".into();
+        assert!(!response_matches_request(
+            &response(request.id, "vc-elev-42", false),
+            &tampered
+        ));
+    }
+
+    #[test]
+    fn dispatch_journal_survives_restart_and_refuses_duplicate_or_unavailable_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("request.dispatched.json");
+        persist_once(&path, b"signed response").unwrap();
+        assert!(persist_once(&path, b"replay").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"signed response");
+        assert!(persist_once(&dir.path().join("missing/request.json"), b"x").is_err());
     }
 
     #[test]

@@ -521,6 +521,22 @@ impl SqliteEnrichmentRepository {
             .map_err(map_db_err)
     }
 
+    /// Atomically claim an approved case before an external operation. False
+    /// means another consumer claimed it or the case is not approved.
+    pub async fn claim_application(&self, case_id: &str) -> Result<bool> {
+        let case_id = case_id.to_owned();
+        self.conn
+            .call(move |c| {
+                Ok(c.execute(
+                    "UPDATE enrichment_proposals SET status = 'applying', updated_at = unixepoch()
+                 WHERE case_id = ?1 AND status = 'approved'",
+                    [case_id],
+                )? == 1)
+            })
+            .await
+            .map_err(map_db_err)
+    }
+
     /// Atomically record a decision and transition the parent proposal's status.
     /// ONE transaction — INSERT decision + UPDATE proposal — mirroring the
     /// `upsert_file_sha1s` tx pattern (sqlite_settings_repository.rs:296-310).

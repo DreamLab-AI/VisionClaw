@@ -32,9 +32,10 @@
 //! ## Lifecycle
 //!
 //! ```text
-//! pending ──broker approve──▶ approved ──PR opened──▶ elevating ──merged────▶ published
+//! pending ──broker approve──▶ approved ──claim──▶ applying ──PR recorded──▶ elevating ──merged──▶ published
 //!    │                            │                        └──closed unmerged▶ abandoned
-//!    │                            └──(crash before PR)──▶ resumed at boot
+//!    │                            └──(before claim)──▶ resumed at boot
+//!    │                               applying without PR URL requires manual reconciliation
 //!    ├──broker reject──▶ rejected            (terminal)
 //!    ├──amend/delegate─▶ reviewed            (terminal)
 //!    ├──31402 publish failed──▶ publish_failed (terminal)
@@ -68,8 +69,10 @@ pub const RECONCILE_SCAN_LIMIT: i64 = 500;
 pub mod status {
     /// Case published to the forum, awaiting a human decision.
     pub const PENDING: &str = "pending";
-    /// Broker approved; the corpus PR has not been confirmed open yet.
+    /// Broker approved; no application has been claimed yet.
     pub const APPROVED: &str = "approved";
+    /// Application claimed; upstream outcome may be unknown. Reconcile manually.
+    pub const APPLYING: &str = "applying";
     /// Corpus PR is open and being polled for a terminal git state (GOV-2).
     pub const ELEVATING: &str = "elevating";
     /// PR merged — the decision reached the corpus.
@@ -245,6 +248,12 @@ impl DecisionElevationStore {
         self.repo.record_decision(d).await
     }
 
+    /// Claim one approved operation. An `applying` row is an uncertain external
+    /// result until its PR URL is durably recorded; boot never retries it blindly.
+    pub async fn claim_application(&self, case_id: &str) -> Result<bool> {
+        self.repo.claim_application(case_id).await
+    }
+
     /// Stamp the opened corpus PR onto the case and move it to `elevating`.
     /// Re-reads the row so the draft body is preserved verbatim.
     pub async fn mark_elevating(&self, case_id: &str, pr_url: &str) -> Result<()> {
@@ -326,6 +335,28 @@ mod tests {
         for s in [status::PENDING, status::APPROVED, status::ELEVATING] {
             assert!(!status::is_terminal(s), "{s} must stay open");
         }
+    }
+
+    #[tokio::test]
+    async fn application_claim_is_conditional_and_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cases.sqlite3");
+        let store = DecisionElevationStore::open(&path).await.unwrap();
+        let mut c = case("claim", 1);
+        store.open_case(&c).await.unwrap();
+        assert!(!store.claim_application("claim").await.unwrap());
+        assert!(!store.claim_application("missing").await.unwrap());
+        c.status = status::APPROVED.into();
+        store.open_case(&c).await.unwrap();
+        assert!(store.claim_application("claim").await.unwrap());
+        assert!(!store.claim_application("claim").await.unwrap());
+        drop(store);
+        let reopened = DecisionElevationStore::open(&path).await.unwrap();
+        assert!(!reopened.claim_application("claim").await.unwrap());
+        assert_eq!(
+            reopened.get("claim").await.unwrap().unwrap().status,
+            "applying"
+        );
     }
 
     #[tokio::test]

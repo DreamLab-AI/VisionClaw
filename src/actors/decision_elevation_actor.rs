@@ -292,14 +292,29 @@ impl DecisionElevationActor {
                             "[DecisionElevation] decision row {id} persisted for {case_id} (outcome '{}', event {:?})",
                             record.outcome, record.decision_event_id
                         ),
-                        // Fail-open: the case row stays non-terminal, so boot
-                        // reconciliation picks it up again rather than losing it.
-                        Err(e) => error!(
-                            "[DecisionElevation] decision persist FAILED for {case_id}: {e}; case left open for reconciliation"
-                        ),
+                        Err(e) => {
+                            error!("[DecisionElevation] decision persist FAILED for {case_id}: {e}; external write refused, reconcile the open case");
+                            return None;
+                        },
                     }
                 }
+                if record.is_some() && store.is_none() {
+                    error!("[DecisionElevation] no durable store for {case_id}; external write refused");
+                    return None;
+                }
                 let case = elevate?;
+                let durable_store = store.as_ref()?;
+                match durable_store.claim_application(&case_id).await {
+                    Ok(true) => {},
+                    Ok(false) => {
+                        warn!("[DecisionElevation] case {case_id} is not an unclaimed approval; PR refused");
+                        return None;
+                    },
+                    Err(e) => {
+                        error!("[DecisionElevation] cannot persist application claim for {case_id}: {e}; PR refused");
+                        return None;
+                    }
+                }
                 let agent_id = format!(
                     "decision-{}",
                     decision_slug(&case.decision_urn, &case.summary)
@@ -344,7 +359,8 @@ impl DecisionElevationActor {
                         Some((case_id, case.decision_urn, url))
                     }
                     Err(e) => {
-                        // The case stays `approved`, so reconciliation retries.
+                        // Outcome may be unknown after an upstream timeout. Keep
+                        // `applying` for manual reconciliation, never blindly retry.
                         error!("[DecisionElevation] PR creation failed for {case_id}: {e}");
                         None
                     }
@@ -625,6 +641,7 @@ impl Handler<ElevateDecision> for DecisionElevationActor {
                     "decision_urn": dec.decision_urn,
                     "causal_edges": causal,
                     "file_path": file_path.clone(),
+                    "operation": { "kind": "corpus-pr", "file_path": file_path.clone(), "draft": draft.clone() },
                     "acsp_approved": dec.acsp_approved,
                 }),
                 reasoning: Some(reasoning),
@@ -658,8 +675,11 @@ impl Handler<ElevateDecision> for DecisionElevationActor {
             actix::fut::wrap_future::<_, Self>(async move {
                 if let Some(store) = store.as_ref() {
                     if let Err(e) = store.open_case(&record).await {
-                        warn!("[DecisionElevation] durable case persist failed for {persist_id}: {e}; case is in-process only and will not survive a restart");
+                        return Err(format!("durable case persist failed for {persist_id}: {e}; request refused"));
                     }
+                }
+                if store.is_none() {
+                    return Err("durable case store unavailable; request refused".into());
                 }
                 let published = acsp.publish(&build_action_request(&spec)).await.map(|_| ());
                 if published.is_err() {
@@ -802,6 +822,10 @@ fn plan_reconciliation(cases: Vec<DecisionCase>, now_s: i64, ttl_s: i64) -> Vec<
             let stale = now_s.saturating_sub(case.opened_at_s) > ttl_s;
             match case.status.as_str() {
                 _ if tracking => Some(ReconcileAction::ResumeTracking(case)),
+                case_status::APPLYING => {
+                    warn!("[DecisionElevation] case {} has an uncertain PR application; reconcile upstream before retry", case.case_id);
+                    None
+                }
                 _ if stale => Some(ReconcileAction::Expire(case)),
                 // `elevating` with no PR url can only be a partially written
                 // row; treat it like an approval whose PR never landed.
@@ -989,6 +1013,12 @@ impl DecisionElevationSink for ActorElevationSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uncertain_pr_application_never_replays_or_expires_as_if_unapplied() {
+        let c = case("uncertain", "applying", None, NOW - TTL - 1);
+        assert!(plan_reconciliation(vec![c], NOW, TTL).is_empty());
+    }
 
     #[test]
     fn production_gate_defaults_dev_on_prod_off() {
