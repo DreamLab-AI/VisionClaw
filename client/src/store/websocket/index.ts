@@ -10,6 +10,8 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { createLogger, createErrorMetadata } from '../../utils/loggerConfig';
 import { debugState } from '../../utils/clientDebugState';
 import { useSettingsStore } from '../settingsStore';
+import { nostrAuth } from '../../services/nostrAuthService';
+import { signedWebSocketProtocols } from '../../services/signedWebSocketProtocols';
 import { webSocketRegistry } from '../../services/WebSocketRegistry';
 import { webSocketEventBus } from '../../services/WebSocketEventBus';
 
@@ -159,7 +161,11 @@ export const useWebSocketStore = create<WebSocketState>()(
             logger.info(`Connecting to WebSocket at ${state.url}`);
           }
 
-          const socket = new WebSocket(state.url);
+          const signedUpgrade = !nostrAuth.isDevMode();
+          const protocols = signedUpgrade
+            ? await signedWebSocketProtocols(state.url, nostrAuth)
+            : [];
+          const socket = new WebSocket(state.url, protocols);
           socket.binaryType = 'arraybuffer';
 
           socket.onopen = () => {
@@ -175,7 +181,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               logger.info('WebSocket connection established');
             }
 
-            sendAuthOnConnect(socket, state.url);
+            if (!signedUpgrade) sendAuthOnConnect(socket, state.url);
 
             const currentFilter = useSettingsStore.getState().settings?.nodeFilter;
             if (currentFilter) {

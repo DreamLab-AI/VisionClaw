@@ -173,7 +173,7 @@ against that crate's CPU reference at fixed tolerances. Results below were measu
 | **PageRank** | **TRUSTED** | `adr_2061_pagerank_matches_oracle` | max per-node \|Δ\| **3.4e-11** vs `pagerank(g, 0.85, 100)` (bar: 1e-4); top-decile ranking order matches on all five fixtures incl. `canonical_live_scale` (n=10,676) |
 | **DBSCAN** | **TRUSTED** | `adr_2061_dbscan_matches_oracle` | labelling matches `dbscan` **exactly** up to cluster-id permutation, noise set included; the border point joins its core's cluster (the ADR-031 D7 contract) |
 | **Louvain / community detection** | **TRUSTED** | `adr_2061_louvain_matches_oracle` | `two_clique` → 2 communities, exactly `two_clique_optimal_partition` up to permutation, Q **0.4524** = optimal; `triangle`/`star` → 1; `canonical_live_scale` → **16** communities (the planted count), Q **0.8960** vs reference 0.9146, deficit **0.0186** (bar: 0.05) |
-| **LOF / anomaly** | **BROKEN** | `adr_2061_lof_matches_oracle` *(fails)* | max per-point \|Δ\| **0.702** vs `lof(points, 3)` — **702× the 1e-3 bar**. The >95th-percentile set still matches, so a gross outlier is still flagged, but inlier ordering is wrong. Root cause below. |
+| **LOF / anomaly** | **TRUSTED on the ADR-2061 fixture (2026-09-07)** | `adr_2061_lof_matches_oracle` | A6000, compiled CUDA 12.9 PTX: max per-point \|Δ\| **4.759e-7** vs `lof(points, 3)`, original **1e-3** bar and exact >95th-percentile set pass. Neighbour k-distance and kth-distance ties corrected. |
 | **Landmark APSP** | not covered — no live output | — | compile-quarantined (`gpu_landmark_apsp.cu:25` `#if 0`, `#endif` at `:65`), refused at `shortest_path_actor.rs:353-360` under NFR-7 |
 | **Node embeddings** (legacy ADR-072) | not applicable | — | no embedding kernels exist in the tree; the "random noise" hash bag-of-characters path is gone as a GPU concern |
 | **Ontology constraints** (legacy ADR-098) | not covered by this suite | — | fixed and live (keystone wiring above); the oracle crate carries no constraint reference to compare against |
@@ -183,19 +183,17 @@ the Louvain "D1 fix" (`gpu_clustering_kernels.cu:581`), the PageRank "D8 fix"
 (`pagerank.cu:263`), and DBSCAN's border handling (`gpu_clustering_kernels.cu:1079-1080`)
 each hold up against an independent CPU implementation.
 
-**LOF is the exception, and its previous "fixed and trustworthy" entry was wrong.**
-`lof_lrd_from_neighbors` (`gpu_clustering_kernels.cu:404-417`) floors every reachability
-distance at the *query's* k-distance rather than each *neighbour's*. Because the
-neighbour-distance buffer is sorted ascending, `fmaxf(nbr_dist[i], k_distance)` is
-`k_distance` for every term, so `lrd(p)` collapses to `1 / k_distance(p)` and the kernel
-computes `k_distance(p) * mean_o(1 / k_distance(o))` — a k-distance ratio, not Breunig
-LOF, which needs `reach-dist_k(p, o) = max(k_distance(o), d(p, o))`. The test verifies
-this closed form reproduces the kernel's output to **5.6e-7 on every point**, so the
-diagnosis is measured rather than inferred. `anomaly_score@40` therefore carries a
-statistic that ranks a gross outlier correctly but is not the documented metric.
-Correcting it needs a three-pass restructure (k-distance array → lrd array → ratio) plus
-a matching change to the server-side driver, which is why ADR-2061 records it as a
-failing entry rather than fixing it in place.
+**2026-09-07 LOF correction:** the old kernel used the query's k-distance;
+that failure was reproduced before editing. The kernel now recomputes each
+neighbour's k-distance using the same spatial grid and includes ties at the kth
+distance. All four actual GPU oracle tests pass, with no ignored or skipped
+cases. The launch ABI is unchanged. Evidence and exact commands are in
+[the execution report](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md).
+
+The neighbour buffer remains bounded at 32 and search remains grid/radius scoped;
+this fixture does not certify arbitrarily large tied neighbourhoods or performance
+at production scale. Recomputing neighbourhoods trades additional work for a
+race-free single launch. A three-pass implementation remains a performance option.
 
 ## Known divergences & open items
 
@@ -224,10 +222,11 @@ failing entry rather than fixing it in place.
   ADR-2061 (2026-09-05)*. The conformance suite exists and ran:
   `crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs` asserts each kernel against
   `crates/visionclaw-analytics-oracle`. PageRank, DBSCAN and Louvain **pass** and are now
-  output-verified (numbers in the trust table above). **LOF fails** its 1e-3 bar by 702×
-  and is recorded BROKEN, with the defect localised to
-  `gpu_clustering_kernels.cu:404-417`. The threshold was not loosened. **Open** only for
-  LOF: `anomaly_score@40` publishes a k-distance ratio, not Breunig LOF.
+  output-verified (numbers in the trust table above). LOF's original 0.702 failure
+  was reproduced and fixed on 2026-09-07; all four kernel tests pass without
+  loosening the threshold. Production-scale latency and neighbourhoods exceeding
+  the 32-entry tie buffer remain outside this fixture's acceptance scope.
+
 - **Registry cannot toggle Constraints**: enablement is residency-owned. Any UI that
   exposes a "constraints on/off" switch through the force-channel registry is inert by
   design (`is_read_only`). **Working as intended** — ADR-2029; retained here as a caution
@@ -304,8 +303,8 @@ One line per ADR from the Phase 2 remediation of the Phase 1 diagram findings (V
   `crates/visionclaw-analytics-oracle` landed as
   `crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs`, so the trust table above is a
   test result rather than an assertion: PageRank (max \|Δ\| 3.4e-11), DBSCAN (exact up to
-  permutation) and Louvain (16/16 communities, Q deficit 0.0186) are TRUSTED, while LOF is
-  recorded BROKEN at max \|Δ\| 0.702 against its 1e-3 bar — root-caused to the
-  query-vs-neighbour k-distance error at `gpu_clustering_kernels.cu:404-417` and left failing
-  rather than loosened. The analytics trust gap is closed for three of four kernels and stays
-  open for LOF.
+  permutation) and Louvain (16/16 communities, Q deficit 0.0186) are TRUSTED, while LOF was
+  recorded BROKEN at max \|Δ\| 0.702 against its 1e-3 bar (fixed and re-tested 2026-09-07) — root-caused to the
+  query-vs-neighbour k-distance and tie-neighbourhood errors. The 2026-09-07 fix passes
+  the unchanged 1e-3 bar at max delta 4.759e-7. All four governed fixtures now pass;
+  the 32-neighbour/radius search limits and production latency qualification remain.

@@ -1,5 +1,7 @@
 # Extension fields for DRY configuration
 x-common-environment: &common-environment
+  VISIONCLAW_SECURITY_PROFILE: "${VISIONCLAW_SECURITY_PROFILE:-}"
+  VISIONCLAW_LEGACY_SESSIONS: "${VISIONCLAW_LEGACY_SESSIONS:-0}"
   NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
   NVIDIA_DRIVER_CAPABILITIES: compute,utility
   CUDA_ARCH: ${CUDA_ARCH:-75}
@@ -90,6 +92,7 @@ services:
       #  - RBAC_ALLOW_OWNERLESS=1 permits startup with no Owner assigned (the
       #    POWER_USER_PUBKEYS→Admin fallback is the intended reality here). Once
       #    an Owner is bootstrapped via RBAC_OWNER_PUBKEY, set this to 0.
+      # Release startup requires explicit intent; no profile is inferred here.
       RBAC_PUBLIC_READS: "${RBAC_PUBLIC_READS:-1}"
       RBAC_ALLOW_OWNERLESS: "${RBAC_ALLOW_OWNERLESS:-1}"
       RBAC_OWNER_PUBKEY: "${RBAC_OWNER_PUBKEY:-}"

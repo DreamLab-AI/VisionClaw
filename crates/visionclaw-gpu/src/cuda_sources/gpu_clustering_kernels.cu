@@ -341,7 +341,9 @@ __device__ int lof_gather_neighbors(
     int* __restrict__ nbr_idx,       // [cap] out neighbour indices
     float* __restrict__ nbr_dist)    // [cap] out neighbour distances (sorted asc)
 {
-    const int cap = min(k_neighbors, min(max_k, LOF_MAX_K));
+    const int cap = LOF_MAX_K;
+    const int requested_k = min(k_neighbors, min(max_k, LOF_MAX_K));
+    if (requested_k <= 0) return 0;
     int count = 0;
 
     int3 cell = make_int3(
@@ -397,23 +399,42 @@ __device__ int lof_gather_neighbors(
             }
         }
     }
+    // Breunig N_k includes ties at the kth distance. Retain a bounded buffer
+    // larger than k, then include equal-distance neighbours (float rounding
+    // tolerance prevents a geometric tie being split by coordinate rounding).
+    if (count > requested_k) {
+        const float kth = nbr_dist[requested_k - 1];
+        int tied_count = requested_k;
+        while (tied_count < count && nbr_dist[tied_count] <= kth + 1e-6f * fmaxf(1.0f, kth))
+            tied_count++;
+        return tied_count;
+    }
     return count;
 }
 
-// Local reachability density of a point given its sorted neighbour distances:
-//   lrd(p) = count / Σ_o reach-dist_k(p,o),  reach-dist_k(p,o)=max(k_dist(o)? ...)
-// We approximate reach-dist with max(dist(p,o), k_distance(p)) — the standard
-// symmetric simplification used for grid LOF — so lrd is finite and > 0 for any
-// point with neighbours.
+// LOF reachability uses the neighbour's k-distance, not the query's.
+// Recompute from the same grid to avoid reading another thread's unfinished
+// local_densities output. This keeps the existing single-launch ABI.
 __device__ float lof_lrd_from_neighbors(
-    const int count,
-    const float* __restrict__ nbr_dist)
+    const int count, const int* nbr_idx, const float* nbr_dist,
+    const float* pos_x, const float* pos_y, const float* pos_z,
+    const int* sorted_indices, const int* cell_start, const int* cell_end,
+    const int3 grid_dims, const int k_neighbors, const float radius,
+    const float world_bounds_min, const float cell_size_lod, const int max_k)
 {
     if (count <= 0) return 0.0f;
-    float k_distance = nbr_dist[count - 1];
     float reach_sum = 0.0f;
     for (int i = 0; i < count; i++) {
-        reach_sum += fmaxf(nbr_dist[i], k_distance);
+        int o = nbr_idx[i];
+        int indices[LOF_MAX_K];
+        float distances[LOF_MAX_K];
+        int n = lof_gather_neighbors(
+            o, make_float3(pos_x[o], pos_y[o], pos_z[o]),
+            pos_x, pos_y, pos_z, sorted_indices, cell_start, cell_end,
+            grid_dims, k_neighbors, radius, world_bounds_min, cell_size_lod,
+            max_k, indices, distances);
+        float neighbor_k_distance = n > 0 ? distances[n - 1] : 0.0f;
+        reach_sum += fmaxf(nbr_dist[i], neighbor_k_distance);
     }
     return (reach_sum > 0.0f) ? (float)count / reach_sum : 0.0f;
 }
@@ -452,7 +473,9 @@ __global__ void compute_lof_kernel(
         grid_dims, k_neighbors, radius, world_bounds_min, cell_size_lod, max_k,
         self_nbr_idx, self_nbr_dist);
 
-    float lrd_self = lof_lrd_from_neighbors(self_count, self_nbr_dist);
+    float lrd_self = lof_lrd_from_neighbors(self_count, self_nbr_idx, self_nbr_dist,
+        pos_x, pos_y, pos_z, sorted_indices, cell_start, cell_end,
+        grid_dims, k_neighbors, radius, world_bounds_min, cell_size_lod, max_k);
     local_densities[idx] = lrd_self;
 
     // Isolated points have no meaningful outlier factor; emit LOF == 1 (inlier).
@@ -479,7 +502,9 @@ __global__ void compute_lof_kernel(
             grid_dims, k_neighbors, radius, world_bounds_min, cell_size_lod, max_k,
             o_nbr_idx, o_nbr_dist);
 
-        float lrd_o = lof_lrd_from_neighbors(o_count, o_nbr_dist);
+        float lrd_o = lof_lrd_from_neighbors(o_count, o_nbr_idx, o_nbr_dist,
+            pos_x, pos_y, pos_z, sorted_indices, cell_start, cell_end,
+            grid_dims, k_neighbors, radius, world_bounds_min, cell_size_lod, max_k);
         if (lrd_o > 0.0f) {
             lrd_neighbor_sum += lrd_o;
             lrd_neighbor_n++;

@@ -7,6 +7,8 @@ use crate::utils::validation::rate_limit::{create_rate_limit_response, extract_c
 
 use super::types::{PreReadSocketSettings, SocketFlowServer, WEBSOCKET_RATE_LIMITER};
 
+const PUBLIC_WS_PROTOCOLS: &[&str] = &["visionclaw", "permessage-deflate"];
+
 /// Check whether insecure defaults are allowed.
 ///
 /// Per ADR-06 §D1 + resolution T2, this is a compile-time gate:
@@ -33,6 +35,18 @@ fn is_insecure_defaults_allowed() -> bool {
 #[inline(always)]
 fn is_insecure_defaults_allowed() -> bool {
     false
+}
+
+/// Use the externally visible HTTP URL, matching REST NIP-98 validation.
+/// The edge must remove client-supplied forwarding headers before setting its own.
+fn signed_upgrade_url(req: &HttpRequest) -> String {
+    let connection = req.connection_info();
+    format!(
+        "{}://{}{}",
+        connection.scheme(),
+        connection.host(),
+        req.uri()
+    )
 }
 
 /// HTTP upgrade handler for WebSocket connections at `/wss`.
@@ -132,14 +146,41 @@ pub async fn socket_flow_handler(
         }
     }
 
+    // NIP-98 is verified before accepting a browser upgrade. The event's URL
+    // and method are checked by the same single-use validator as REST.
+    let protocol_header = req
+        .headers()
+        .get("Sec-WebSocket-Protocol")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let signed_header = match crate::utils::nip98::websocket_auth_header(protocol_header) {
+        Ok(value) => value,
+        Err(_) => return Ok(HttpResponse::Unauthorized().body("Invalid signed WebSocket protocol")),
+    };
+    let mut signed_user = None;
+    if let Some(header) = signed_header {
+        let url = signed_upgrade_url(&req);
+        let Some(service) = app_state_data.nostr_service.as_ref() else {
+            return Ok(HttpResponse::Unauthorized().finish());
+        };
+        match service.verify_nip98_auth(&header, &url, "GET", None).await {
+            Ok(user) => signed_user = Some(user),
+            Err(_) => {
+                return Ok(
+                    HttpResponse::Unauthorized().body("Invalid or replayed WebSocket signature")
+                )
+            }
+        }
+    }
+
     // SECURITY: WebSocket token validation at upgrade time.
-    // ADR-2058: the Authorization header is the ONLY accepted carrier in a release
+    // ADR-2058: Authorization carries legacy sessions; signed subprotocols carry NIP-98 in a release
     // build. The former `?token=` query-string fallback is fail-open in the log
     // sense — query strings land in access logs, proxy logs and Referer headers,
     // so a bearer token in the URL leaks to every hop. It contradicted legacy
     // ADR-011 and is now confined to dev builds behind the same gate as the other
     // auth relaxations, so a production deployment cannot accept it at all.
-    {
+    if signed_user.is_none() {
         let header_token = req
             .headers()
             .get("Authorization")
@@ -348,6 +389,10 @@ pub async fn socket_flow_handler(
     );
 
     ws_server.is_reconnection = is_reconnection;
+    if let Some(user) = signed_user {
+        ws_server.pubkey = Some(user.pubkey);
+        ws_server.is_power_user = user.is_power_user;
+    }
 
     // ADR-142 hardening: decide dev-token eligibility ONCE, here, from the real
     // peer address — the same single gate the REST paths use. Only compiled in
@@ -391,7 +436,7 @@ pub async fn socket_flow_handler(
     // removing this broke WebSocket connections through cloudflared/nginx proxy chains
     // that expect the server to echo back the Sec-WebSocket-Protocol header.
     match ws::WsResponseBuilder::new(ws_server, &req, stream)
-        .protocols(&["permessage-deflate"])
+        .protocols(PUBLIC_WS_PROTOCOLS)
         .start()
     {
         Ok(response) => {
@@ -405,5 +450,52 @@ pub async fn socket_flow_handler(
             );
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod signed_upgrade_tests {
+    use super::*;
+
+    #[test]
+    fn external_proxy_url_and_encoded_query_match_browser_http_upgrade() {
+        let req = actix_web::test::TestRequest::get()
+            .uri("/wss?room=a%2Fb")
+            .insert_header(("Host", "internal:3001"))
+            .insert_header(("Forwarded", "proto=https;host=public.example"))
+            .to_http_request();
+        assert_eq!(
+            signed_upgrade_url(&req),
+            "https://public.example/wss?room=a%2Fb"
+        );
+        assert_eq!(req.method(), actix_web::http::Method::GET);
+    }
+
+    #[test]
+    fn handshake_never_echoes_authentication_protocol() {
+        let req = actix_web::test::TestRequest::get()
+            .insert_header(("Upgrade", "websocket"))
+            .insert_header(("Connection", "upgrade"))
+            .insert_header(("Sec-WebSocket-Version", "13"))
+            .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .insert_header(("Sec-WebSocket-Protocol", "nostr.secret-event, visionclaw"))
+            .to_http_request();
+        let response = ws::handshake_with_protocols(&req, PUBLIC_WS_PROTOCOLS)
+            .unwrap()
+            .finish();
+        assert_eq!(
+            response.headers().get("Sec-WebSocket-Protocol").unwrap(),
+            "visionclaw"
+        );
+        assert!(!format!("{:?}", response.headers()).contains("secret-event"));
+    }
+
+    #[test]
+    fn direct_upgrade_uses_http_scheme_and_host() {
+        let req = actix_web::test::TestRequest::get()
+            .uri("/wss")
+            .insert_header(("Host", "localhost:8080"))
+            .to_http_request();
+        assert_eq!(signed_upgrade_url(&req), "http://localhost:8080/wss");
     }
 }

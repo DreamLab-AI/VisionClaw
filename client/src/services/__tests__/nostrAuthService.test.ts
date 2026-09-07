@@ -69,6 +69,7 @@ describe('NostrAuthService', () => {
 
     // Mock crypto.subtle for signRequest
     vi.stubGlobal('crypto', {
+      randomUUID: vi.fn().mockReturnValueOnce('nonce-one').mockReturnValueOnce('nonce-two').mockReturnValue('nonce-other'),
       subtle: {
         digest: vi.fn(async () => new ArrayBuffer(32)),
         importKey: vi.fn(async () => ({})),
@@ -446,6 +447,15 @@ describe('NostrAuthService', () => {
           ]),
         })
       );
+    });
+
+    it('gives same-second repeated requests distinct signed event tags', async () => {
+      window.nostr = { getPublicKey: vi.fn(), signEvent: vi.fn().mockResolvedValue({}) };
+      await nostrAuth.signRequest('https://example.com/api', 'GET');
+      await nostrAuth.signRequest('https://example.com/api', 'GET');
+      const calls = vi.mocked(window.nostr.signEvent).mock.calls;
+      expect(calls[0][0].tags).toContainEqual(['nonce', 'nonce-one']);
+      expect(calls[1][0].tags).toContainEqual(['nonce', 'nonce-two']);
     });
 
     it('should throw when no signing method available', async () => {

@@ -134,10 +134,7 @@ impl GitHubClient {
 
         let full_path = if raw_base.is_empty() {
             if debug_enabled {
-                log::debug!(
-                    "Base path is empty, using decoded path only: '{}'",
-                    raw_path
-                );
+                log::debug!("Base path is empty, using raw path only: '{}'", raw_path);
             }
             raw_path
         } else {
@@ -146,7 +143,7 @@ impl GitHubClient {
                     log::debug!("Path is empty, using base path only: '{}'", raw_base);
                 }
                 raw_base
-            } else if raw_path.starts_with(&raw_base) {
+            } else if (raw_path == raw_base || raw_path.starts_with(&format!("{raw_base}/"))) {
                 if debug_enabled {
                     log::debug!(
                         "Path already contains base path, using as-is: '{}'",
@@ -220,5 +217,33 @@ impl GitHubClient {
 
     pub(crate) fn branch(&self) -> &str {
         &self.branch
+    }
+}
+
+#[cfg(test)]
+mod closeout_path_tests {
+    use super::*;
+    #[tokio::test]
+    async fn base_prefix_requires_a_directory_boundary() {
+        let mut config = GitHubConfig::disabled();
+        config.base_path = "knowledge/pages".into();
+        let client = GitHubClient::new(config, Arc::new(RwLock::new(AppFullSettings::default())))
+            .await
+            .unwrap();
+        for (input, expected) in [
+            ("knowledge/pages/A.md", "knowledge/pages/A.md"),
+            (
+                "knowledge/pages-extra/A.md",
+                "knowledge/pages/knowledge/pages-extra/A.md",
+            ),
+            (
+                "Presentation%3A Conclusion.md",
+                "knowledge/pages/Presentation%3A Conclusion.md",
+            ),
+            ("/knowledge/pages/", "knowledge/pages"),
+            ("", "knowledge/pages"),
+        ] {
+            assert_eq!(client.get_full_path(input).await, expected);
+        }
     }
 }

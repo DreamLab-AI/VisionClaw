@@ -128,6 +128,47 @@ impl UnifiedGPUCompute {
         })
     }
 
+    /// Connected-node extent for layout consumers, separate from the all-node
+    /// spatial-index AABB. None means no finite connected population.
+    pub fn connected_extent(&self) -> Result<Option<AABB>> {
+        if self.num_nodes == 0 || !self.degree_weights_available {
+            return Ok(None);
+        }
+        let kernel = self
+            ._module
+            .get_function("compute_connected_aabb_reduction_kernel")?;
+        let stream = &self.stream;
+        // SAFETY: position/degree buffers contain num_nodes entries and the
+        // existing block-result buffer has one AABB per 256-thread block.
+        unsafe {
+            launch!(kernel<<<self.aabb_num_blocks as u32, 256u32, 6 * 256 * 4, stream>>>(
+                self.pos_in_x.as_device_ptr(), self.pos_in_y.as_device_ptr(),
+                self.pos_in_z.as_device_ptr(), self.degree_weight.as_device_ptr(),
+                self.aabb_block_results.as_device_ptr(), self.num_nodes as i32
+            ))?;
+        }
+        self.stream.synchronize()?;
+        let mut blocks = vec![AABB::default(); self.aabb_num_blocks];
+        self.aabb_block_results.copy_to(&mut blocks)?;
+        let mut extent = AABB {
+            min: [f32::MAX; 3],
+            max: [f32::MIN; 3],
+        };
+        for block in blocks {
+            for axis in 0..3 {
+                extent.min[axis] = extent.min[axis].min(block.min[axis]);
+                extent.max[axis] = extent.max[axis].max(block.max[axis]);
+            }
+        }
+        Ok((0..3)
+            .all(|axis| {
+                extent.min[axis].is_finite()
+                    && extent.max[axis].is_finite()
+                    && extent.min[axis] <= extent.max[axis]
+            })
+            .then_some(extent))
+    }
+
     pub fn execute(&mut self, mut params: SimParams) -> Result<()> {
         // Make CUDA context current for this thread (required when called from spawn_blocking threads)
         // Context::new() on the same device retains the primary context and makes it current
@@ -832,7 +873,15 @@ impl UnifiedGPUCompute {
                 // the live full-graph AABB: isolated nodes dominate that AABB once
                 // they drift, which makes the shell force self-referential and
                 // unbounded. See `peripheral_shell_radius`.
-                let peripheral_radius = peripheral_shell_radius(&aabb, params.viewport_bounds);
+                let extent = if params.viewport_bounds > 0.0 {
+                    aabb
+                } else {
+                    self.connected_extent()?.unwrap_or(AABB {
+                        min: [0.0; 3],
+                        max: [0.0; 3],
+                    })
+                };
+                let peripheral_radius = peripheral_shell_radius(&extent, params.viewport_bounds);
                 let isolated_spring_k = 0.01f32; // Gentle spring toward peripheral shell
 
                 let stream = &self.stream;

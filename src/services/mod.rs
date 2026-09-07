@@ -42,6 +42,8 @@ pub mod ontology_content_analyzer;
 pub mod ontology_converter;
 pub mod ontology_enrichment_service;
 pub mod ontology_file_cache;
+#[cfg(feature = "solid-pod-embed")]
+pub mod ontology_generation;
 pub mod ontology_mutation_service;
 pub mod ontology_pipeline_service;
 #[cfg(feature = "solid-pod-embed")]
@@ -114,3 +116,5 @@ pub mod jsonld_ingest;
 pub use semantic_type_registry::{
     DynamicForceConfigGPU, RelationshipForceConfig, SemanticTypeRegistry, SEMANTIC_TYPE_REGISTRY,
 };
+
+pub mod data_reconciliation;

@@ -7,7 +7,7 @@
 
 import { debugState } from '../../../../utils/clientDebugState';
 import { createErrorMetadata } from '../../../../utils/loggerConfig';
-import { fetchWithAuth, getOntologyJsonLdUrl, getOntologyTurtleUrl, logger } from './contextLoader';
+import { fetchWithAuth, getOntologyUrl, logger } from './contextLoader';
 
 export interface JsonLdContext {
   '@vocab'?: string;
@@ -44,6 +44,9 @@ export interface SchemaCache {
   turtle: string | null;
   timestamp: number;
   readonly ttlMs: number;
+  generation?: string;
+  generationPromise?: Promise<string>;
+  generationEpoch?: number;
 }
 
 export function makeSchemaCache(): SchemaCache {
@@ -59,6 +62,38 @@ export function invalidateCache(cache: SchemaCache): void {
   cache.jsonLd = null;
   cache.turtle = null;
   cache.timestamp = 0;
+  cache.generation = undefined;
+  cache.generationPromise = undefined;
+  cache.generationEpoch = (cache.generationEpoch ?? 0) + 1;
+}
+
+// Both representations share one immutable generation for the cache lifetime.
+// The publisher retains old versions, so a deployment between these GETs cannot
+// combine JSON-LD from one generation with Turtle from another.
+async function pinnedUrl(cache: SchemaCache, name: string, refresh: boolean, signal: AbortSignal): Promise<string> {
+  const base = getOntologyUrl().replace(/\/$/, '');
+  if (!cache.generationPromise) {
+    if (refresh || Date.now() - cache.timestamp >= cache.ttlMs) invalidateCache(cache);
+    if (!cache.generation) {
+      const epoch = cache.generationEpoch;
+      cache.generationPromise = (async () => {
+        const response = await fetchWithAuth(`${base}/index.jsonld`, { signal, headers: { Accept: 'application/ld+json' } });
+        if (!response.ok) throw new Error(`Ontology generation manifest failed: ${response.status}`);
+        const manifest = await response.json();
+        const generation = manifest['visionflow:generation'];
+        if (typeof generation !== 'string' || !/^[a-f0-9]{32}$/i.test(generation)) throw new Error('Ontology manifest has no valid atomic generation');
+        if (cache.generationEpoch !== epoch) throw new Error('Ontology generation invalidated during load');
+        cache.generation = generation;
+        cache.timestamp = Date.now();
+        return generation;
+      })();
+    }
+  }
+  let generation: string;
+  const pending = cache.generationPromise;
+  try { generation = pending ? await pending : cache.generation!; }
+  finally { if (cache.generationPromise === pending) cache.generationPromise = undefined; }
+  return `${base}/@${generation}/${name}`;
 }
 
 export async function fetchJsonLd(
@@ -75,11 +110,12 @@ export async function fetchJsonLd(
   }
 
   const startTime = performance.now();
-  const url = getOntologyJsonLdUrl();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    const url = await pinnedUrl(cache, "ontology.jsonld", skipCache, controller.signal);
     const response = await fetchWithAuth(url, {
       headers: { Accept: 'application/ld+json' },
       signal: controller.signal,
@@ -91,8 +127,10 @@ export async function fetchJsonLd(
     }
 
     const data: JsonLdOntology = await response.json();
-    cache.jsonLd = data;
-    cache.timestamp = Date.now();
+    if (url.includes(`/@${cache.generation}/`)) {
+      cache.jsonLd = data;
+      cache.timestamp = Date.now();
+    }
     metrics.lastFetchDurationMs = performance.now() - startTime;
     metrics.fetchCount++;
 
@@ -128,11 +166,12 @@ export async function fetchTurtle(
   }
 
   const startTime = performance.now();
-  const url = getOntologyTurtleUrl();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    const url = await pinnedUrl(cache, "visionflow.ttl", skipCache, controller.signal);
     const response = await fetchWithAuth(url, {
       headers: { Accept: 'text/turtle' },
       signal: controller.signal,
@@ -144,8 +183,10 @@ export async function fetchTurtle(
     }
 
     const data = await response.text();
-    cache.turtle = data;
-    cache.timestamp = Date.now();
+    if (url.includes(`/@${cache.generation}/`)) {
+      cache.turtle = data;
+      cache.timestamp = Date.now();
+    }
     metrics.lastFetchDurationMs = performance.now() - startTime;
     metrics.fetchCount++;
 

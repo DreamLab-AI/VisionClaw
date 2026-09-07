@@ -11,7 +11,7 @@ use log::debug;
 use nostr_sdk::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -212,10 +212,60 @@ const REPLAY_CACHE_MAX_ENTRIES: usize = 100_000;
 /// requires shared storage (e.g. Redis) or sticky routing so every presentation
 /// of a given token lands on the same process. See
 /// `docs/SECURITY-profiles.md` invariant 4.
-static REPLAY_CACHE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+const REPLAY_CACHE_MAX_PER_PUBKEY: usize = 1_000;
+#[derive(Default)]
+struct ReplayState {
+    events: HashMap<String, Instant>,
+    signers: HashMap<String, VecDeque<Instant>>,
+}
+static REPLAY_CACHE: OnceLock<Mutex<ReplayState>> = OnceLock::new();
+fn replay_cache() -> &'static Mutex<ReplayState> {
+    REPLAY_CACHE.get_or_init(|| Mutex::new(ReplayState::default()))
+}
 
-fn replay_cache() -> &'static Mutex<HashMap<String, Instant>> {
-    REPLAY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+// Called only after signature, freshness and request binding verification.
+fn claim_signed_id(event_id: &str, pubkey: &str, now: Instant) -> Result<(), Nip98ValidationError> {
+    let mut state = replay_cache().lock().unwrap_or_else(|p| p.into_inner());
+    admit_signed_in(
+        &mut state,
+        event_id,
+        pubkey,
+        now,
+        REPLAY_CACHE_MAX_PER_PUBKEY,
+    )
+}
+fn admit_signed_in(
+    state: &mut ReplayState,
+    event_id: &str,
+    pubkey: &str,
+    now: Instant,
+    limit: usize,
+) -> Result<(), Nip98ValidationError> {
+    // Expired signers must not accumulate indefinitely. Entries are created
+    // only after a successful global-cache claim, bounding this map as well.
+    state.signers.retain(|_, times| {
+        times
+            .back()
+            .is_some_and(|t| now.saturating_duration_since(*t) < REPLAY_CACHE_TTL)
+    });
+    if let Some(times) = state.signers.get_mut(pubkey) {
+        while times
+            .front()
+            .is_some_and(|t| now.saturating_duration_since(*t) >= REPLAY_CACHE_TTL)
+        {
+            times.pop_front();
+        }
+        if times.len() >= limit {
+            return Err(Nip98ValidationError::PubkeyAdmissionExceeded);
+        }
+    }
+    claim_in(&mut state.events, event_id, now, REPLAY_CACHE_MAX_ENTRIES)?;
+    state
+        .signers
+        .entry(pubkey.to_string())
+        .or_default()
+        .push_back(now);
+    Ok(())
 }
 
 /// Atomically claim an event id as spent.
@@ -231,11 +281,12 @@ fn replay_cache() -> &'static Mutex<HashMap<String, Instant>> {
 /// concurrent validations of the same token cannot both win. `now` is a
 /// monotonic reference instant (injected for testability); production passes
 /// `Instant::now()`.
+#[cfg(test)]
 fn claim_event_id(event_id: &str, now: Instant) -> Result<(), Nip98ValidationError> {
     let mut cache = replay_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    claim_in(&mut cache, event_id, now, REPLAY_CACHE_MAX_ENTRIES)
+    claim_in(&mut cache.events, event_id, now, REPLAY_CACHE_MAX_ENTRIES)
 }
 
 /// Lock-free inner claim logic operating on an explicit map and capacity so the
@@ -323,6 +374,8 @@ pub enum Nip98ValidationError {
     TokenReplayed,
     #[error("Replay cache at capacity: refusing new authentication (retry shortly)")]
     ReplayCacheFull,
+    #[error("NIP-98 per-pubkey admission limit exceeded; retry after the replay window")]
+    PubkeyAdmissionExceeded,
 }
 
 /// Validate a NIP-98 token from an Authorization header
@@ -517,7 +570,7 @@ fn validate_nip98_token_inner(
     // wall-clock `now` used for the freshness window) so a backward clock step
     // cannot extend entry lifetimes. This check-and-insert is atomic under the
     // cache lock, closing the replay gap the ±60s window leaves open.
-    claim_event_id(&nip98_event.id, Instant::now())?;
+    claim_signed_id(&nip98_event.id, &nip98_event.pubkey, Instant::now())?;
 
     debug!(
         "Validated NIP-98 token for {} {} (pubkey: {}...)",
@@ -578,6 +631,27 @@ fn normalize_url(url: &str) -> String {
     }
 
     normalized
+}
+
+/// Browser WebSocket upgrades cannot set Authorization. Carry the signed event
+/// as an unpadded URL-safe subprotocol token; only the neutral `visionclaw`
+/// protocol is selected in the response. Never put credentials in the URL.
+pub fn websocket_auth_header(protocols: &str) -> Result<Option<String>, Nip98ValidationError> {
+    let tokens: Vec<&str> = protocols
+        .split(',')
+        .map(str::trim)
+        .filter_map(|p| p.strip_prefix("nostr."))
+        .collect();
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    if tokens.len() != 1 || tokens[0].len() > 16_384 {
+        return Err(Nip98ValidationError::InvalidBase64);
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(tokens[0])
+        .map_err(|_| Nip98ValidationError::InvalidBase64)?;
+    Ok(Some(format!("Nostr {}", BASE64.encode(bytes))))
 }
 
 /// Extract host and path from a URL.  Returns `(Some(host), path)` for
@@ -654,6 +728,51 @@ fn urls_match(expected: &str, actual: &str) -> bool {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn websocket_signed_carrier_is_single_use_and_url_bound() {
+        let keys = Keys::generate();
+        let token = generate_nip98_token(
+            &keys,
+            &Nip98Config {
+                url: "https://example.test/wss".into(),
+                method: "GET".into(),
+                body: None,
+            },
+        )
+        .unwrap();
+        let carrier = token
+            .trim_end_matches('=')
+            .replace('+', "-")
+            .replace('/', "_");
+        let header = websocket_auth_header(&format!("visionclaw, nostr.{carrier}"))
+            .unwrap()
+            .unwrap();
+        let raw = parse_auth_header(&header).unwrap();
+        assert!(validate_nip98_token(raw, "https://other.test/wss", "GET", None).is_err());
+        assert!(validate_nip98_token(raw, "https://example.test/wss", "GET", None).is_ok());
+        assert!(matches!(
+            validate_nip98_token(raw, "https://example.test/wss", "GET", None),
+            Err(Nip98ValidationError::TokenReplayed)
+        ));
+        assert!(websocket_auth_header(&format!("nostr.{carrier},nostr.{carrier}")).is_err());
+    }
+
+    #[test]
+    fn signer_admission_preserves_other_signers_and_replay_entries() {
+        let mut state = ReplayState::default();
+        let now = Instant::now();
+        admit_signed_in(&mut state, "a1", "a", now, 2).unwrap();
+        admit_signed_in(&mut state, "a2", "a", now, 2).unwrap();
+        assert!(matches!(
+            admit_signed_in(&mut state, "a3", "a", now, 2),
+            Err(Nip98ValidationError::PubkeyAdmissionExceeded)
+        ));
+        admit_signed_in(&mut state, "b1", "b", now, 2).unwrap();
+        assert_eq!(state.events.len(), 3);
+        assert!(state.events.contains_key("a1"));
+        admit_signed_in(&mut state, "a3", "a", now + REPLAY_CACHE_TTL, 2).unwrap();
+    }
 
     #[test]
     fn test_generate_nip98_token() {

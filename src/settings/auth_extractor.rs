@@ -111,6 +111,22 @@ impl FromRequest for AuthenticatedUser {
             }
         };
 
+        // RbacGate/RequireAuth already consumed the single-use NIP-98 event.
+        // Only server-side request extensions carry this identity; headers
+        // cannot populate it. Reuse authentication, preserving user privileges.
+        if let Some(identity) = crate::middleware::auth::get_authenticated_user(req) {
+            return Box::pin(async move {
+                let user = nostr_service
+                    .get_user(&identity.pubkey)
+                    .await
+                    .ok_or_else(|| ErrorUnauthorized("Authenticated user unavailable"))?;
+                Ok(AuthenticatedUser {
+                    pubkey: user.pubkey,
+                    is_power_user: user.is_power_user,
+                })
+            });
+        }
+
         // Extract Authorization header
         let auth_header = match req.headers().get("Authorization") {
             Some(header) => match header.to_str() {
@@ -279,6 +295,51 @@ impl FromRequest for OptionalAuth {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[actix_web::test]
+    async fn middleware_identity_is_reused_but_token_cannot_cross_requests() {
+        use crate::utils::nip98::{generate_nip98_token, Nip98Config};
+        use actix_web::{test::TestRequest, HttpMessage};
+        let service = web::Data::new(NostrService::new());
+        let keys = nostr_sdk::prelude::Keys::generate();
+        let token = generate_nip98_token(
+            &keys,
+            &Nip98Config {
+                url: "http://localhost/api/bots/update".into(),
+                method: "POST".into(),
+                body: None,
+            },
+        )
+        .unwrap();
+        let header = format!("Nostr {token}");
+        let user = service
+            .verify_nip98_auth(&header, "http://localhost/api/bots/update", "POST", None)
+            .await
+            .unwrap();
+        let request = || {
+            TestRequest::post()
+                .uri("/api/bots/update")
+                .insert_header(("Host", "localhost"))
+                .insert_header(("Authorization", header.clone()))
+                .app_data(service.clone())
+                .to_http_request()
+        };
+        let req = request();
+        req.extensions_mut()
+            .insert(crate::middleware::auth::AuthenticatedUser {
+                pubkey: user.pubkey.clone(),
+            });
+        let extracted = AuthenticatedUser::from_request(&req, &mut actix_web::dev::Payload::None)
+            .await
+            .unwrap();
+        assert_eq!(extracted.pubkey, user.pubkey);
+        assert_eq!(extracted.is_power_user, user.is_power_user);
+        assert!(
+            AuthenticatedUser::from_request(&request(), &mut actix_web::dev::Payload::None)
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn test_authenticated_user_power_check() {

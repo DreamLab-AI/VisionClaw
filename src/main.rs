@@ -354,6 +354,12 @@ async fn main() -> std::io::Result<()> {
     // SettingsActor removed: OptimizedSettingsActor in AppState is the single source of truth.
     info!("Initializing SQLite settings repository for routes");
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+    let persistence_membership =
+        visionclaw_server::services::data_reconciliation::StoreManifest::from_process();
+    info!(
+        "Selected persistence membership: {}",
+        serde_json::to_string(&persistence_membership).expect("manifest serialises")
+    );
     let settings_db_path = std::path::Path::new(&data_dir).join("settings.sqlite3");
     let settings_repository = match visionclaw_server::adapters::SqliteSettingsRepository::open(
         &settings_db_path,
@@ -708,6 +714,29 @@ async fn main() -> std::io::Result<()> {
     }
 
     let app_state_data = web::Data::new(app_state);
+    // Opt-in checkpoint uses the open writer's consistent RocksDB snapshot.
+    // It never opens a second writer or copies live WAL/SST files by hand.
+    if let Ok(backup_root) = std::env::var("ONTOLOGY_BACKUP_DIR") {
+        let store = Arc::clone(app_state_data.ontology_repository.store());
+        let source = std::path::PathBuf::from(&data_dir);
+        let destination = std::path::PathBuf::from(backup_root);
+        match tokio::task::spawn_blocking(move || {
+            visionclaw_server::services::data_reconciliation::checkpoint_oxigraph(
+                &store,
+                &source,
+                &destination,
+            )
+        })
+        .await
+        {
+            Ok(Ok(path)) => info!("Ontology checkpoint created at {}", path.display()),
+            result => {
+                return Err(std::io::Error::other(format!(
+                    "configured ontology checkpoint failed: {result:?}"
+                )))
+            }
+        }
+    }
 
     // ADR-142 multi-user RBAC: build the pubkey→role store over the settings
     // SQLite connection, bootstrap the Owner from RBAC_OWNER_PUBKEY, and install

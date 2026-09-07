@@ -254,6 +254,7 @@ class NostrAuthService {
     const tags: string[][] = [
       ['u', url],
       ['method', method.toUpperCase()],
+      ['nonce', crypto.randomUUID()],
     ];
 
     if (body) {
@@ -288,6 +289,7 @@ class NostrAuthService {
     const tags: string[][] = [
       ['u', url],
       ['method', method.toUpperCase()],
+      ['nonce', crypto.randomUUID()],
     ];
 
     if (body) {

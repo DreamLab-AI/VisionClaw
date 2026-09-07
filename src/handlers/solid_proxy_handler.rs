@@ -45,6 +45,8 @@ use nostr_sdk::Keys;
 use nostr_sdk::{PublicKey, ToBech32};
 
 #[cfg(feature = "solid-pod-embed")]
+use crate::services::ontology_generation::PublishedStorage as FsBackend;
+#[cfg(feature = "solid-pod-embed")]
 use bytes::Bytes;
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::error::PodError;
@@ -57,8 +59,6 @@ use solid_pod_rs::ldp::{
 };
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::provision::{provision_pod, ProvisionPlan};
-#[cfg(feature = "solid-pod-embed")]
-use solid_pod_rs::storage::fs::FsBackend;
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::wac::{evaluate_access, method_to_mode, AccessMode};
 #[cfg(feature = "solid-pod-embed")]
@@ -336,13 +336,14 @@ pub async fn handle_solid_proxy(
 
     // Try to load the ACL for this resource.
     // WAC lookup: check for .acl sidecar, walk up to parent containers.
-    let acl_doc = load_acl_for_path(&state.storage, &storage_path).await;
+    let authorization_path = FsBackend::authorization_path(&storage_path);
+    let acl_doc = load_acl_for_path(&state.storage, &authorization_path).await;
 
     // Evaluate WAC access
     let allowed = evaluate_access(
         acl_doc.as_ref(),
         agent.as_deref(),
-        &storage_path,
+        &authorization_path,
         access_mode,
         None,
     );

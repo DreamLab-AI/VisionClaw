@@ -256,10 +256,70 @@ ADR-2012 is partial: report mode is reachable with acknowledgement in a non-debu
   finding in a production artefact. Note the implementation tracks **six**
   flags (`PROFILE_FLAGS`, `:68`), not the four ADR-2027 originally named — it
   adds `RBAC_OWNER_PUBKEY` and `RBAC_GATE_MODE`, both of which the table above
-  has always carried. ADR-2027 is corrected. Residual gap: an `Unnamed`
-  classification is not itself fatal, so an undeclared production deployment on
-  an unrecognised flag combination still binds — ADR-2038's "default to
-  multi-user-locked" is not implemented as an implicit default.
+  has always carried. ADR-2027 is corrected. The 2026-09-07 closeout now
+  rejects both a missing declaration and an unsupported combination in every
+  non-debug build, including a release build carrying `dev-auth`.
+
 - **ADR-2043 (vc-core, 2026-09-05)** — makes the full-disclosure pair a
   first-class unconditional rule rather than an indirect profile mismatch. See
   the "Illegal combinations" row and Invariant 5.
+
+## Required migration for 2026-09-07 profile admission
+
+Before starting an updated release binary, explicitly set
+`VISIONCLAW_SECURITY_PROFILE` to one of the three names in the table above and
+set all six matching flags. Compose forwards this variable without choosing a
+profile. The existing Compose defaults match `demo-open` only when no Owner key
+is configured; selecting that public-read posture must be intentional. For a
+private deployment, use the complete `single-tenant` or `multi-user-locked`
+column, including an operator-controlled Owner key. Missing/blank intent and
+unnamed combinations now fail before listener binding; they are not silently
+converted into a hardened profile.
+
+Release binaries built with `dev-auth` are refused even on an otherwise valid
+profile. Development sessions requiring that bypass must use a debug build;
+promoted release images must be rebuilt without `dev-auth`. Existing source
+checks alone do not certify every published image's feature configuration.
+
+
+### Signed browser upgrades and session migration (2026-09-07)
+
+Opaque session issuance, lookup and refresh default to disabled. An operator can
+explicitly set `VISIONCLAW_LEGACY_SESSIONS=1` (or `true`) during migration; this
+only restores validation of issued, unexpired sessions. It does not enable
+`dev-session-token`, unsigned identities or the query-token release bypass.
+The flag has the same strict parsing in debug and release and is captured when
+the service is constructed. Remove it after migrating remaining MCP/session clients.
+
+The graph browser signs each HTTP GET upgrade URL through its active NIP-07 or
+passkey signer. It offers `visionclaw` and `nostr.<base64url event>` subprotocols;
+the server verifies the latter before upgrading and negotiates only `visionclaw`
+(or the existing compatibility protocol), never the signed event. Signed events
+include a fresh nonce so requests within one second remain distinct. Missing or
+declined browser signers abort connection. The browser signs the public HTTP(S)
+URL corresponding to its WS(S) URL, including its query. The edge must strip
+untrusted forwarding headers and supply the public host/scheme consistently with
+REST verification. Do not log the authentication subprotocol header.
+
+Synthetic signing/replay tests do not prove a deployed proxy's forwarding policy
+or reconnect flow. Remaining session-based MCP clients require migration or the
+explicit compatibility setting; this change does not claim every transport has
+completed sunset.
+
+### Storage publication and recovery controls (2026-09-07)
+
+Ontology pulls now stage a complete immutable generation and activate it through
+an fsynced pointer replacement. The canonical index exposes `visionflow:generation`;
+readers pin subsequent resources under `/public/ontology/@<generation>/...`.
+The browser schema parser uses this pin for both JSON-LD and Turtle. Existing
+canonical URLs remain valid but separate unpinned requests can straddle activation.
+Pinned resources use the canonical resource's ACL. Private generation paths are
+not accessible through the Solid handler. Old generations are retained; capacity
+planning and a reader-safe retention policy remain required.
+
+Setting `ONTOLOGY_BACKUP_DIR` enables an Oxigraph checkpoint from the open writer
+at startup. Its destination must be outside the active data tree. A failed
+configured checkpoint fails startup. This is opt-in and does not schedule backups
+or certify an off-device recovery copy. The durable reconciliation journal records
+explicit erase/restore operation IDs, selected store membership and per-store
+receipts; destructive production adapters and subject selection remain outstanding.

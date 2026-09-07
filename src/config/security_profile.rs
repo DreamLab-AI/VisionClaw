@@ -49,9 +49,8 @@ use std::fmt;
 ///
 /// When set, the observed flags must match that profile exactly; a mismatch is
 /// configuration drift and is fatal in a production build. When unset, the
-/// observed flags are classified against the three profiles and the result is
-/// reported — an unrecognised combination is reported as `Unnamed`, which
-/// ADR-2027 calls unsupported.
+/// observed flags are still classified, but missing intent or an unrecognised
+/// combination is a finding and prevents release builds from binding.
 pub const SECURITY_PROFILE_ENV: &str = "VISIONCLAW_SECURITY_PROFILE";
 
 /// Development variables whose mere presence indicates a promoted dev config.
@@ -292,6 +291,10 @@ pub enum ProfileFinding {
     /// `VISIONCLAW_SECURITY_PROFILE` names something that is not a ratified
     /// profile.
     UnknownDeclaredProfile { declared: String },
+    /// Production deployments must name their intended security profile.
+    MissingDeclaredProfile,
+    /// Observed flags match none of the supported profiles.
+    UnnamedEffectiveProfile,
     /// ADR-2043: anonymous reads are enabled while the visibility filter is
     /// disabled — the full-disclosure pair. `RBAC_PUBLIC_READS=1` serves
     /// `/api` reads to unauthenticated callers, and `PUBKEY_VISIBILITY_FILTER=0`
@@ -346,6 +349,8 @@ instead of enforcing them and is never acceptable in a production profile"
                 "{SECURITY_PROFILE_ENV}={declared:?} is not a ratified profile \
 (expected demo-open, single-tenant or multi-user-locked)"
             ),
+            ProfileFinding::MissingDeclaredProfile => f.write_str("VISIONCLAW_SECURITY_PROFILE must name the intended profile"),
+            ProfileFinding::UnnamedEffectiveProfile => f.write_str("observed security flags match no supported profile"),
             ProfileFinding::FullDisclosureFlagPair {
                 public_reads,
                 visibility_filter,
@@ -378,10 +383,10 @@ pub struct EffectiveProfile {
 impl EffectiveProfile {
     /// Is the process allowed to bind its listener?
     ///
-    /// A production artefact must have no findings. A development build always
-    /// may — the findings are reported and the developer carries on.
+    /// Every non-debug artefact must have no findings, including release builds
+    /// carrying dev-auth. Debug builds report findings and continue.
     pub fn may_bind_listener(&self) -> bool {
-        !self.build.is_production_artefact() || self.findings.is_empty()
+        self.build.debug_assertions || self.findings.is_empty()
     }
 
     /// A stable one-line summary for logs and for the boot receipt.
@@ -587,6 +592,13 @@ pub fn evaluate_effective_profile(
             .all(|(flag, expectation)| flag_satisfied(flag, expectation, env.effective(flag)))
     });
 
+    if declared_raw.is_none() {
+        findings.push(ProfileFinding::MissingDeclaredProfile);
+    }
+    if classified.is_none() {
+        findings.push(ProfileFinding::UnnamedEffectiveProfile);
+    }
+
     let observed_flags = PROFILE_FLAGS
         .iter()
         .map(|f| ((*f).to_string(), env.effective(f).map(str::to_string)))
@@ -621,7 +633,7 @@ pub fn assert_effective_profile_or_exit(
         return profile;
     }
 
-    let fatal = build.is_production_artefact();
+    let fatal = !profile.may_bind_listener();
     for finding in &profile.findings {
         if fatal {
             eprintln!("FATAL: security profile violation: {finding}");
@@ -923,15 +935,13 @@ mod tests {
         );
     }
 
-    /// ...but a release dev-auth build is not itself a production artefact, so
-    /// it reports instead of exiting. Promotion is blocked by the artefact
-    /// gate in CI, not by refusing the developer's own dev-auth run.
+    /// A release dev-auth artefact is refused before binding.
     #[test]
-    fn release_dev_auth_build_reports_rather_than_refusing() {
+    fn release_dev_auth_build_cannot_bind() {
         let profile = evaluate_effective_profile(&clean_env(), RELEASE_DEV_AUTH, TODAY);
         assert!(!profile.findings.is_empty());
         assert!(!profile.build.is_production_artefact());
-        assert!(profile.may_bind_listener());
+        assert!(!profile.may_bind_listener());
     }
 
     #[test]
@@ -1027,13 +1037,16 @@ mod tests {
             .any(|f| matches!(f, ProfileFinding::UnknownDeclaredProfile { .. })));
     }
 
-    /// An undeclared but recognisable environment classifies cleanly and is not
-    /// a finding — declaring the profile is the opt-in to drift enforcement.
+    /// An undeclared but recognisable environment is classified but is not
+    /// allowed to bind in production: declaring intent is required.
     #[test]
-    fn undeclared_environment_classifies_without_findings() {
+    fn undeclared_environment_classifies_but_cannot_bind() {
         let env = without(&clean_env(), SECURITY_PROFILE_ENV);
         let profile = evaluate_effective_profile(&env, PRODUCTION, TODAY);
-        assert!(profile.findings.is_empty());
+        assert!(profile
+            .findings
+            .contains(&ProfileFinding::MissingDeclaredProfile));
+        assert!(!profile.may_bind_listener());
         assert_eq!(profile.declared, None);
         assert_eq!(profile.classified, Some(DeploymentProfile::SingleTenant));
     }
@@ -1051,6 +1064,10 @@ mod tests {
         let profile = evaluate_effective_profile(&env, PRODUCTION, TODAY);
         assert_eq!(profile.classified, None);
         assert!(profile.summary().contains("classified=<unnamed>"));
+        assert!(!profile.may_bind_listener());
+        assert!(profile
+            .findings
+            .contains(&ProfileFinding::UnnamedEffectiveProfile));
     }
 
     /// A profile flag left blank falls back to its code default rather than

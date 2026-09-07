@@ -108,12 +108,19 @@ mod redis_keys {
     pub const USER_SESSION: &str = "nostr:user:session:";
 }
 
+/// Legacy opaque sessions are an explicit migration escape hatch; NIP-98 is
+/// the default. Capture this once at service construction, not per request.
+fn legacy_sessions_enabled(value: Option<&str>) -> bool {
+    value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+}
+
 #[derive(Clone)]
 pub struct NostrService {
     /// In-memory user cache (always maintained for fast access)
     users: Arc<RwLock<HashMap<String, NostrUser>>>,
     power_user_pubkeys: Vec<String>,
     token_expiry: i64,
+    legacy_sessions_enabled: bool,
     feature_access: Arc<RwLock<FeatureAccess>>,
     /// Redis client for persistent session storage (optional)
     #[cfg(feature = "redis")]
@@ -162,6 +169,9 @@ impl NostrService {
             power_user_pubkeys: power_users,
             feature_access,
             token_expiry,
+            legacy_sessions_enabled: legacy_sessions_enabled(
+                std::env::var("VISIONCLAW_LEGACY_SESSIONS").ok().as_deref(),
+            ),
             #[cfg(feature = "redis")]
             redis_client,
         }
@@ -424,7 +434,7 @@ impl NostrService {
             is_power_user,
             api_keys: ApiKeys::default(),
             last_seen: now.timestamp(),
-            session_token: Some(session_token),
+            session_token: self.legacy_sessions_enabled.then_some(session_token),
         };
 
         info!(
@@ -476,7 +486,7 @@ impl NostrService {
     }
 
     pub async fn validate_session(&self, pubkey: &str, token: &str) -> bool {
-        if token.is_empty() {
+        if !self.legacy_sessions_enabled || token.is_empty() {
             return false;
         }
         if let Some(user) = self.get_user(pubkey).await {
@@ -492,6 +502,9 @@ impl NostrService {
     }
 
     pub async fn refresh_session(&self, pubkey: &str) -> Result<String, NostrError> {
+        if !self.legacy_sessions_enabled {
+            return Err(NostrError::SessionExpired);
+        }
         let mut users = self.users.write().await;
 
         if let Some(user) = users.get_mut(pubkey) {
@@ -572,7 +585,7 @@ impl NostrService {
     /// `agent_events::ingest`), so the check fails closed: an expired token
     /// resolves to `None` exactly as an unknown token does.
     pub async fn get_session(&self, token: &str) -> Option<NostrUser> {
-        if token.is_empty() {
+        if !self.legacy_sessions_enabled || token.is_empty() {
             return None;
         }
         let users = self.users.read().await;
@@ -692,7 +705,7 @@ impl NostrService {
             is_power_user,
             api_keys: ApiKeys::default(),
             last_seen: time::timestamp_seconds(),
-            session_token: Some(session_token),
+            session_token: self.legacy_sessions_enabled.then_some(session_token),
         };
 
         // Store the new user
@@ -790,5 +803,35 @@ mod session_expiry_tests {
     #[test]
     fn small_forward_skew_stays_inside_the_window() {
         assert!(NostrService::session_is_fresh(NOW + 1, NOW, EXPIRY));
+    }
+}
+
+#[cfg(test)]
+mod session_sunset_tests {
+    use super::*;
+    #[test]
+    fn compatibility_is_explicit_and_fail_closed() {
+        for value in [None, Some(""), Some("false"), Some("garbage")] {
+            assert!(!legacy_sessions_enabled(value));
+        }
+        assert!(legacy_sessions_enabled(Some("1")));
+    }
+    #[tokio::test]
+    async fn disabled_sessions_reject_even_known_fresh_tokens() {
+        let mut service = NostrService::new();
+        service.legacy_sessions_enabled = false;
+        let keys = Keys::generate();
+        let mut user = service
+            .get_or_create_user_from_pubkey(&keys.public_key().to_hex())
+            .await
+            .unwrap();
+        user.session_token = Some("old-token".into());
+        let pubkey = user.pubkey.clone();
+        service.users.write().await.insert(pubkey.clone(), user);
+        assert!(!service.validate_session(&pubkey, "old-token").await);
+        assert!(service.get_session("old-token").await.is_none());
+        assert!(service.refresh_session(&pubkey).await.is_err());
+        service.legacy_sessions_enabled = true;
+        assert!(service.validate_session(&pubkey, "old-token").await);
     }
 }

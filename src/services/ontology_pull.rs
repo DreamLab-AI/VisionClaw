@@ -14,7 +14,9 @@
 //! they match; any network or verification failure is logged and the pod
 //! keeps whatever it held. Every content file is verified against the
 //! release's `SHA256SUMS` before anything is written, and the manifest is
-//! written last so a partial pull never advertises a build it does not hold.
+//! included in an immutable generation activated by a durable pointer switch.
+//! Canonical single-resource reads are complete; multi-resource readers pin the
+//! manifest generation. Old unpinned clients can straddle activation.
 //!
 //! The network and storage layers are injected ([`Fetch`], [`Storage`]) so the
 //! whole sequence is unit-tested against an in-memory map and
@@ -25,6 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::ontology_generation::OntologyPublication;
 use async_trait::async_trait;
 use bytes::Bytes;
 use serde_json::Value;
@@ -294,7 +297,7 @@ pub async fn pull_once<F, S>(
 ) -> Result<PullOutcome, PullError>
 where
     F: Fetch + ?Sized,
-    S: Storage + ?Sized,
+    S: OntologyPublication + ?Sized,
 {
     if !cfg.enabled {
         return Ok(PullOutcome::Disabled);
@@ -304,7 +307,9 @@ where
     let manifest_bytes = fetch.get(&url(MANIFEST)).await?;
     let manifest = parse_manifest(&manifest_bytes)?;
 
-    if pod_build_sha(storage).await.as_deref() == Some(manifest.build_sha.as_str()) {
+    if pod_build_sha(storage).await.as_deref() == Some(manifest.build_sha.as_str())
+        && storage.has_atomic_generation().await?
+    {
         return Ok(PullOutcome::UpToDate {
             build_sha: manifest.build_sha,
         });
@@ -344,7 +349,7 @@ where
     // Everything verified; now touch the pod. Containers first, ACL only if
     // absent so an operator's edit survives, content, manifest last.
     for container in ["/public/", POD_CONTAINER] {
-        if !storage.exists(container).await.unwrap_or(false) {
+        if !storage.exists(container).await? {
             match storage.create_container(container).await {
                 Ok(_) | Err(PodError::AlreadyExists(_)) => {}
                 Err(e) => return Err(e.into()),
@@ -352,25 +357,23 @@ where
         }
     }
     let acl_path = format!("{POD_CONTAINER}.acl");
-    if !storage.exists(&acl_path).await.unwrap_or(false) {
+    if !storage.exists(&acl_path).await? {
         let acl = serde_json::to_vec(&public_read_acl())
             .map_err(|e| PullError::Manifest(format!("serialise ACL: {e}")))?;
         storage
             .put(&acl_path, Bytes::from(acl), "application/ld+json")
             .await?;
     }
-    for (name, content_type, body) in verified {
-        storage
-            .put(&format!("{POD_CONTAINER}{name}"), body, content_type)
-            .await?;
-    }
-    storage
-        .put(
-            &format!("{POD_CONTAINER}{MANIFEST}"),
-            manifest_bytes,
-            "application/ld+json",
-        )
-        .await?;
+    let mut files = verified
+        .into_iter()
+        .map(|(n, c, b)| (n.to_string(), c.to_string(), b))
+        .collect::<Vec<_>>();
+    files.push((
+        MANIFEST.into(),
+        "application/ld+json".into(),
+        manifest_bytes,
+    ));
+    storage.publish_ontology(files).await?;
 
     Ok(PullOutcome::Updated {
         build_sha: manifest.build_sha,
@@ -383,7 +386,7 @@ where
 /// blocks start-up and never fails the server: outcomes are logged.
 pub fn spawn_boot_pull<S>(storage: Arc<S>)
 where
-    S: Storage + ?Sized + 'static,
+    S: OntologyPublication + ?Sized + 'static,
 {
     let cfg = OntologyPullConfig::from_env();
     if !cfg.enabled {
@@ -423,7 +426,7 @@ fn log_outcome(result: Result<PullOutcome, PullError>, cfg: &OntologyPullConfig)
         }
         Ok(PullOutcome::Disabled) => {}
         Err(e) => warn!(
-            "ontology pull: {e}; {POD_CONTAINER} left as it was (source {})",
+            "ontology pull: {e}; {POD_CONTAINER} update failed; active generation remains complete; activation durability may require inspection (source {})",
             cfg.base_url
         ),
     }
@@ -454,6 +457,177 @@ mod tests {
                     reason: "HTTP 404".into(),
                 })
         }
+    }
+
+    // Sequence-only test backends retain the original fetch/check test fixtures;
+    // durable atomic visibility is tested on PublishedStorage's real filesystem.
+    #[async_trait]
+    impl OntologyPublication for MemoryBackend {
+        async fn publish_ontology(
+            &self,
+            files: Vec<super::super::ontology_generation::PublishedFile>,
+        ) -> Result<(), PodError> {
+            for (n, c, b) in files {
+                self.put(&format!("{POD_CONTAINER}{n}"), b, &c).await?;
+            }
+            Ok(())
+        }
+    }
+    #[async_trait]
+    impl OntologyPublication for FaultStorage {
+        async fn publish_ontology(
+            &self,
+            files: Vec<super::super::ontology_generation::PublishedFile>,
+        ) -> Result<(), PodError> {
+            self.inner.publish_ontology(files).await
+        }
+    }
+
+    struct FaultStorage {
+        inner: MemoryBackend,
+        fail_exists: String,
+    }
+
+    #[async_trait]
+    impl Storage for FaultStorage {
+        async fn get(
+            &self,
+            p: &str,
+        ) -> Result<(Bytes, solid_pod_rs::storage::ResourceMeta), PodError> {
+            self.inner.get(p).await
+        }
+        async fn put(
+            &self,
+            p: &str,
+            b: Bytes,
+            c: &str,
+        ) -> Result<solid_pod_rs::storage::ResourceMeta, PodError> {
+            self.inner.put(p, b, c).await
+        }
+        async fn delete(&self, p: &str) -> Result<(), PodError> {
+            self.inner.delete(p).await
+        }
+        async fn list(&self, p: &str) -> Result<Vec<String>, PodError> {
+            self.inner.list(p).await
+        }
+        async fn head(&self, p: &str) -> Result<solid_pod_rs::storage::ResourceMeta, PodError> {
+            self.inner.head(p).await
+        }
+        async fn exists(&self, p: &str) -> Result<bool, PodError> {
+            if p == self.fail_exists {
+                return Err(PodError::AlreadyExists("injected existence failure".into()));
+            }
+            self.inner.exists(p).await
+        }
+        async fn create_container(
+            &self,
+            p: &str,
+        ) -> Result<solid_pod_rs::storage::ResourceMeta, PodError> {
+            self.inner.create_container(p).await
+        }
+        async fn watch(
+            &self,
+            p: &str,
+        ) -> Result<tokio::sync::mpsc::Receiver<solid_pod_rs::storage::StorageEvent>, PodError>
+        {
+            self.inner.watch(p).await
+        }
+    }
+
+    #[tokio::test]
+    async fn acl_probe_failure_preserves_operator_acl_and_content() {
+        let acl_path = format!("{POD_CONTAINER}.acl");
+        let storage = FaultStorage {
+            inner: MemoryBackend::new(),
+            fail_exists: acl_path.clone(),
+        };
+        storage.inner.create_container("/public/").await.unwrap();
+        storage.inner.create_container(POD_CONTAINER).await.unwrap();
+        storage
+            .inner
+            .put(
+                &acl_path,
+                Bytes::from_static(b"operator-private-acl"),
+                "application/ld+json",
+            )
+            .await
+            .unwrap();
+        let fetch = MapFetch {
+            files: release("new"),
+            calls: Mutex::new(Vec::new()),
+        };
+        assert!(pull_once(&fetch, &storage, &cfg()).await.is_err());
+        assert_eq!(
+            storage.inner.get(&acl_path).await.unwrap().0,
+            Bytes::from_static(b"operator-private-acl")
+        );
+        assert!(!storage
+            .inner
+            .exists(&format!("{POD_CONTAINER}visionflow.ttl"))
+            .await
+            .unwrap());
+    }
+
+    #[actix_web::test]
+    async fn pinned_generation_obeys_canonical_resource_acl() {
+        use crate::handlers::solid_proxy_handler::{handle_solid_proxy, SolidPodState};
+        use crate::services::nostr_service::NostrService;
+        use crate::services::ontology_generation::PublishedStorage;
+        use actix_web::{test::TestRequest, web};
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Arc::new(PublishedStorage::new(dir.path()).await.unwrap());
+        pull_once(&fetcher(release("one")), storage.as_ref(), &cfg())
+            .await
+            .unwrap();
+        let manifest: Value = serde_json::from_slice(
+            &storage
+                .get(&format!("{POD_CONTAINER}{MANIFEST}"))
+                .await
+                .unwrap()
+                .0,
+        )
+        .unwrap();
+        let gen = manifest["visionflow:generation"].as_str().unwrap();
+        let state = web::Data::new(SolidPodState {
+            storage: storage.clone(),
+            data_root: dir.path().into(),
+            server_keys: None,
+            allow_anonymous: true,
+        });
+        let path = format!("public/ontology/@{gen}/ontology.jsonld");
+        let request = || {
+            TestRequest::get()
+                .uri(&format!("/solid/{path}"))
+                .to_http_request()
+        };
+        let first = handle_solid_proxy(
+            request(),
+            Bytes::new(),
+            web::Path::from(path.clone()),
+            state.clone(),
+            web::Data::new(NostrService::new()),
+        )
+        .await;
+        assert_eq!(first.status(), actix_web::http::StatusCode::OK);
+        let mut private = public_read_acl();
+        private.graph = Some(vec![]);
+        storage
+            .put(
+                &format!("{POD_CONTAINER}ontology.jsonld.acl"),
+                Bytes::from(serde_json::to_vec(&private).unwrap()),
+                "application/ld+json",
+            )
+            .await
+            .unwrap();
+        let denied = handle_solid_proxy(
+            request(),
+            Bytes::new(),
+            web::Path::from(path),
+            state,
+            web::Data::new(NostrService::new()),
+        )
+        .await;
+        assert_eq!(denied.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 
     fn cfg() -> OntologyPullConfig {

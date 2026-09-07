@@ -1043,7 +1043,7 @@ __global__ void integrate_pass_kernel(
     pos.y = fmaf(vel.y, c_params.dt, pos.y);
     pos.z = fmaf(vel.z, c_params.dt, pos.z);
 
-    // Soft boundary: progressive repulsion force, no hard position clamping.
+    // Soft boundary repulsion, followed by a hard finite-step overshoot clamp.
     // Nodes approaching the boundary get pushed back with increasing strength.
     float boundary_limit = c_params.viewport_bounds;
     if (boundary_limit > 0.0f) {
@@ -1081,6 +1081,18 @@ __global__ void integrate_pass_kernel(
             vel.z -= copysignf(bf * c_params.dt, pos.z);
             vel.z *= c_params.boundary_damping;
         }
+    }
+
+    // Soft repulsion cannot recover a finite-step overshoot. Bound free nodes
+    // at the configured viewport and remove only outward velocity; pinned
+    // nodes retain their explicit host position via the early return above.
+    if (boundary_limit > 0.0f) {
+        if (pos.x > boundary_limit) { pos.x = boundary_limit; vel.x = fminf(vel.x, 0.0f); }
+        if (pos.x < -boundary_limit) { pos.x = -boundary_limit; vel.x = fmaxf(vel.x, 0.0f); }
+        if (pos.y > boundary_limit) { pos.y = boundary_limit; vel.y = fminf(vel.y, 0.0f); }
+        if (pos.y < -boundary_limit) { pos.y = -boundary_limit; vel.y = fmaxf(vel.y, 0.0f); }
+        if (pos.z > boundary_limit) { pos.z = boundary_limit; vel.z = fminf(vel.z, 0.0f); }
+        if (pos.z < -boundary_limit) { pos.z = -boundary_limit; vel.z = fmaxf(vel.z, 0.0f); }
     }
 
     pos_out_x[idx] = pos.x;
@@ -2543,6 +2555,69 @@ __global__ void compute_aabb_reduction_kernel(
 
     // Grid-stride loop to handle more nodes than threads
     for (int i = gid; i < num_nodes; i += gridDim.x * blockDim.x) {
+        float x = pos_x[i], y = pos_y[i], z = pos_z[i];
+        local_min_x = fminf(local_min_x, x);
+        local_min_y = fminf(local_min_y, y);
+        local_min_z = fminf(local_min_z, z);
+        local_max_x = fmaxf(local_max_x, x);
+        local_max_y = fmaxf(local_max_y, y);
+        local_max_z = fmaxf(local_max_z, z);
+    }
+
+    s_min_x[tid] = local_min_x; s_min_y[tid] = local_min_y; s_min_z[tid] = local_min_z;
+    s_max_x[tid] = local_max_x; s_max_y[tid] = local_max_y; s_max_z[tid] = local_max_z;
+    __syncthreads();
+
+    // Tree reduction in shared memory
+    for (unsigned int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (tid < (int)stride) {
+            s_min_x[tid] = fminf(s_min_x[tid], s_min_x[tid + stride]);
+            s_min_y[tid] = fminf(s_min_y[tid], s_min_y[tid + stride]);
+            s_min_z[tid] = fminf(s_min_z[tid], s_min_z[tid + stride]);
+            s_max_x[tid] = fmaxf(s_max_x[tid], s_max_x[tid + stride]);
+            s_max_y[tid] = fmaxf(s_max_y[tid], s_max_y[tid + stride]);
+            s_max_z[tid] = fmaxf(s_max_z[tid], s_max_z[tid + stride]);
+        }
+        __syncthreads();
+    }
+
+    // Thread 0 writes the block result
+    if (tid == 0) {
+        AABB result;
+        result.min = make_float3(s_min_x[0], s_min_y[0], s_min_z[0]);
+        result.max = make_float3(s_max_x[0], s_max_y[0], s_max_z[0]);
+        block_results[blockIdx.x] = result;
+    }
+}
+
+// Consumer extent excludes isolated nodes; spatial indexing still uses all nodes.
+__global__ void compute_connected_aabb_reduction_kernel(
+    const float* __restrict__ pos_x,
+    const float* __restrict__ pos_y,
+    const float* __restrict__ pos_z,
+    const float* __restrict__ degree_weight,
+    AABB*        __restrict__ block_results,
+    const int    num_nodes)
+{
+    // Shared memory layout: [min_x, min_y, min_z, max_x, max_y, max_z] * blockDim.x
+    extern __shared__ float smem[];
+    float* s_min_x = smem;
+    float* s_min_y = smem + blockDim.x;
+    float* s_min_z = smem + 2 * blockDim.x;
+    float* s_max_x = smem + 3 * blockDim.x;
+    float* s_max_y = smem + 4 * blockDim.x;
+    float* s_max_z = smem + 5 * blockDim.x;
+
+    int tid = threadIdx.x;
+    int gid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Initialize with extreme values
+    float local_min_x = FLT_MAX, local_min_y = FLT_MAX, local_min_z = FLT_MAX;
+    float local_max_x = -FLT_MAX, local_max_y = -FLT_MAX, local_max_z = -FLT_MAX;
+
+    // Grid-stride loop to handle more nodes than threads
+    for (int i = gid; i < num_nodes; i += gridDim.x * blockDim.x) {
+        if (!(degree_weight[i] > 0.0f)) continue;
         float x = pos_x[i], y = pos_y[i], z = pos_z[i];
         local_min_x = fminf(local_min_x, x);
         local_min_y = fminf(local_min_y, y);

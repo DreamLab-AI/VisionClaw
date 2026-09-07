@@ -732,73 +732,12 @@ fn adr_2061_lof_matches_oracle() {
         t_gpu, t_cpu,
         "LOF >95th-percentile set differs: gpu={t_gpu:?} oracle={t_cpu:?}"
     );
-    // --- Localise any divergence before asserting the bar. ------------------
-    //
-    // `lof_lrd_from_neighbors` (gpu_clustering_kernels.cu:404-417) computes
-    //     reach_sum = Σ_o fmaxf(nbr_dist[o], k_distance)
-    // where `k_distance = nbr_dist[count - 1]` is the **query's own** k-distance
-    // and `nbr_dist` is sorted ascending — so that `fmaxf` is `k_distance` for
-    // every term, `reach_sum == count * k_distance`, and the whole expression
-    // collapses to `lrd(p) == 1 / k_distance(p)`.
-    //
-    // Breunig's definition needs the **neighbour's** k-distance:
-    // `reach-dist_k(p, o) = max(k_distance(o), d(p, o))`. The kernel therefore
-    // computes a different statistic — call it the k-distance ratio
-    //     LOF_kdist(p) = k_distance(p) * mean_o( 1 / k_distance(o) )
-    // — which tracks LOF loosely (it still separates a gross outlier) but is
-    // not it.
-    //
-    // Predicting the GPU output from that closed form and checking it holds is
-    // what turns "the numbers differ" into a located defect. It pins current
-    // behaviour deliberately: a real fix must break this check and satisfy the
-    // ADR bar below, and both must move together.
-    let kdist_model: Vec<f64> = {
-        let dist =
-            |a: oracle::Pt, b: oracle::Pt| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
-        let mut kd = vec![0.0f64; n];
-        let mut nbr: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for i in 0..n {
-            let mut d: Vec<(f64, usize)> = (0..n)
-                .filter(|&j| j != i)
-                .map(|j| (dist(pts[i], pts[j]), j))
-                .collect();
-            d.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            kd[i] = d[k - 1].0;
-            nbr[i] = d[..k].iter().map(|&(_, j)| j).collect();
-        }
-        (0..n)
-            .map(|i| {
-                let mean: f64 =
-                    nbr[i].iter().map(|&o| 1.0 / kd[o]).sum::<f64>() / nbr[i].len() as f64;
-                kd[i] * mean
-            })
-            .collect()
-    };
-    let model_worst = kdist_model
-        .iter()
-        .zip(got.iter())
-        .map(|(a, b)| (a - b).abs())
-        .fold(0.0f64, f64::max);
-    println!("    k-distance-ratio model vs gpu: max|Δ|={model_worst:.3e}");
-    assert!(
-        model_worst < 1e-5,
-        "the GPU LOF kernel no longer matches the k-distance-ratio closed form \
-         (max|Δ|={model_worst:.3e}). If the kernel was fixed to real Breunig LOF, delete \
-         this diagnostic — the ADR-2061 bar below is the assertion that matters."
-    );
-
     // ADR-2061: per-point absolute difference < 1e-3.
     assert!(
         worst < 1e-3,
         "LOF max|Δ|={worst:.6e} at point {worst_i} exceeds the ADR-2061 bar of 1e-3 \
          (gpu={:.6}, oracle={:.6}).\n\
-         Root cause (verified above to <1e-5 on every point): \
-         gpu_clustering_kernels.cu:404-417 `lof_lrd_from_neighbors` floors every \
-         reachability distance at the QUERY's k-distance rather than each NEIGHBOUR's, \
-         so lrd(p) collapses to 1/k_distance(p) and the kernel computes \
-         k_distance(p)*mean_o(1/k_distance(o)), not Breunig LOF. \
-         Per ADR-2061 the threshold is NOT to be loosened: the kernel is recorded BROKEN \
-         in the docs/GPU-wire-abi.md trust table.",
+         The kernel must implement neighbour k-distance reachability and include kth-distance ties.",
         got[worst_i],
         cpu[worst_i]
     );
