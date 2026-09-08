@@ -462,6 +462,16 @@ pub fn encode_node_data_extended_with_sssp(
             set_ontology_individual_flag(*node_id)
         } else if ontology_property_ids.contains(node_id) {
             set_ontology_property_flag(*node_id)
+        } else if get_node_type(*node_id) != NodeType::Unknown {
+            // Already stamped by the caller. `position_updates.rs` and
+            // `actor_messages.rs` apply the class flag themselves and pass empty
+            // class sets, so their ids arrive here with bits 26-31 set by
+            // contract. Compact raw ids (ADR-2024) never carry those bits, so a
+            // recognised class pattern means "stamped": forward unchanged.
+            // Running the bound check on a stamped id panicked every broadcast
+            // in debug builds (each XR client saw a 2 s "connection reset"
+            // loop, 2026-09-08) and would strip the class flag in release.
+            *node_id
         } else {
             // ADR-2024: the untyped branch previously only debug_assert!ed and
             // then forwarded the id unchanged, so a release build shipped an
@@ -1218,6 +1228,60 @@ mod tests {
         let wire_id = to_wire_id(large_id);
         assert_eq!(wire_id, 0x5432u32);
         assert_eq!(from_wire_id(wire_id), large_id);
+    }
+
+    #[test]
+    fn test_prestamped_ids_pass_through_untyped_branch() {
+        // `position_updates.rs` and `actor_messages.rs` stamp the class flag
+        // first and hand the encoder empty class sets. The encoder must forward
+        // those ids unchanged rather than treating the flag bits as a 26-bit
+        // overflow (regression from the 2026-09-05 untyped-branch guard: a
+        // debug_assert panic per broadcast, seen by every XR client as
+        // "Connection reset without closing handshake" every 2 s).
+        let mk = |id: u32| BinaryNodeData {
+            node_id: id,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            vx: 0.0,
+            vy: 0.0,
+            vz: 0.0,
+        };
+        let stamped = [
+            set_knowledge_flag(17),
+            set_agent_flag(5),
+            set_ontology_property_flag(0),
+            set_ontology_class_flag(9),
+            set_ontology_individual_flag(1234),
+        ];
+        let nodes: Vec<(u32, BinaryNodeData)> = stamped.iter().map(|&id| (id, mk(id))).collect();
+
+        let encoded =
+            encode_node_data_extended_with_sssp(&nodes, &[], &[], &[], &[], &[], None, None);
+        assert_eq!(encoded[0], PROTOCOL_V3);
+        assert_eq!(encoded.len(), 1 + stamped.len() * WIRE_V3_ITEM_SIZE);
+        // Read the id straight off the wire: the decoder is free to strip flags,
+        // the contract under test is what the encoder emits.
+        for (i, expected) in stamped.iter().enumerate() {
+            let at = 1 + i * WIRE_V3_ITEM_SIZE;
+            let wire_id = u32::from_le_bytes([
+                encoded[at],
+                encoded[at + 1],
+                encoded[at + 2],
+                encoded[at + 3],
+            ]);
+            assert_eq!(
+                wire_id, *expected,
+                "stamped id 0x{:08X} must reach the wire unchanged",
+                expected
+            );
+        }
+
+        // A raw id with a high bit that is not a class pattern is still an
+        // overflow for the untyped branch, not a stamped id.
+        let raw_overflow = 0x2000_0001u32; // bit 29 is no class flag
+        assert_eq!(get_node_type(raw_overflow), NodeType::Unknown);
+        assert!(remap_wire_id(raw_overflow).1);
     }
 
     #[test]

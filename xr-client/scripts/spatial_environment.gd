@@ -102,7 +102,13 @@ func set_visual_comfort(reduced_motion: bool, low_cost: bool) -> void:
     var floor_instance := get_node_or_null("SpatialFloor") as MeshInstance3D
     if floor_instance != null:
         floor_instance.visible = not low_cost
-    get_viewport().msaa_3d = Viewport.MSAA_DISABLED if low_cost else Viewport.MSAA_2X
+    # MSAA is desktop-only. Under the Compat renderer the OpenXR multiview
+    # swapchain cannot be multisampled: enabling it leaves the eye framebuffers
+    # incomplete (GL_INVALID_FRAMEBUFFER_OPERATION every frame) and the headset
+    # renders black. Verified on VIVE Pro / SteamVR 2.16.7 with Godot 4.6.1 and
+    # 4.7.2 (2026-09-08); XR_VISUAL_QUALITY=low was the workaround.
+    var viewport := get_viewport()
+    viewport.msaa_3d = Viewport.MSAA_DISABLED if low_cost or viewport.use_xr else Viewport.MSAA_2X
     for i: int in range(_node_meshes.size()):
         # Retain the original halo resource so toggling low-cost off is reversible.
         var base: Material = _node_materials[i]

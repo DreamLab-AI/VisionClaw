@@ -174,11 +174,17 @@ async fn main() -> std::io::Result<()> {
     // This fires before the default handler and ensures panics on any thread
     // are captured in container logs / journald.
     std::panic::set_hook(Box::new(|panic_info| {
-        let payload = panic_info
-            .payload()
-            .downcast_ref::<&str>()
-            .copied()
-            .unwrap_or("unknown");
+        // `panic!("literal")` carries a `&str`; `panic!("{}", x)` and
+        // `debug_assert!(cond, "{}", x)` carry a `String`. Handle both, or
+        // every formatted assertion prints as "unknown".
+        let payload_ref = panic_info.payload();
+        let payload: &str = if let Some(s) = payload_ref.downcast_ref::<&str>() {
+            s
+        } else if let Some(s) = payload_ref.downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "unknown"
+        };
         let location = panic_info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
