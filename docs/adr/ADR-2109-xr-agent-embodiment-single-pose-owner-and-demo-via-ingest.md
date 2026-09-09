@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 82cbaf88b594f881def9f1f6e84bacf31274efa9
-verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
+verified_commit: 3eb2ffae5b895d36957d5d4f1b7f4f3fc28ef826
+verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
 repo: visionclaw
@@ -31,7 +31,7 @@ The XR client had an agent avatar (orb + gaze cone + DID badge, ADR-130 D4) that
 - Live agents are embodied for the first time; the demo exercises exactly that path, so a demo regression is a production regression and vice versa.
 - Two narrowly named Rust `#[func]`s exist for lifecycle honesty: `set_agent_anchors` and `retire_agents`; `server_clock_ms` exposes the ADR-2034 clock anchor to producers.
 - The deleted paths (`_agent_nudge_targets`, idle radial drift, `_random_graph_point`, GDScript-only demo cycle) must not return; any new motion goes through the choreography.
-- The consultant-specified body redesign (role frames, pointer, world-size badges: plan §2.2) and edge packets are follow-ups; the pointer today is the existing cone aimed by `set_aim`.
+- Body (P1, shipped with this ADR's second verification): six procedural role frames + accent + two-letter badge (`agent_role.gd`, inferred from name then task), a 0.09 m pointer cone for work-layer avatars (the social gaze cone stays for the conversation layer), world-size badges with a gated task caption, hand-off packet beads along the real edge and a 600 ms arrival flash (both off under reduced motion). Remaining follow-ups: a travel trail ribbon, orbiting capability badges, and desktop parity of the loop grammar (plan §2.7a/2.8).
 - Reduced motion (default on) replaces travel with fade/relocate/fade and disables hover; judge the demo with the comfort toggle in mind.
 
 ## Verification

@@ -74,10 +74,15 @@ unit-scale `AgentsRoot` (never under `GraphRoot`, so avatars keep physical size
 while the graph is fitted). Exactly one writer owns a work-layer avatar's
 position and alpha: `scripts/agent_choreography.gd` (materialise at a rim slot →
 travel at ~0.32 m/s → work 0.32 m off the node → explicit complete → park to the
-rim at 0.3 alpha → rest → re-task). Work cues — the beam (`AgentMulti`, origin
-synchronised to the body via `set_agent_anchors`), a pulsing node ring and a
-completion burst (`scripts/agent_effects.gd` under `AgentEffectsRoot`) — follow
-the registry. The **conversation layer** (`spawn_agent`, did:nostr keyed) is the
+rim at 0.3 alpha → rest → re-task). The body is a faceted 0.14 m core inside a
+procedural role frame (`scripts/agent_role.gd`: Architect cage, Analyst ring,
+Coder chevrons, Reviewer diamond, Tester fins, Optimizer hoops, generic hoop;
+role inferred from name then task) with a 0.09 m pointer cone aimed at the
+target and a world-size badge "AR  Name" whose task caption shows only while
+announcing or selected. Work cues — the beam (`AgentMulti`, origin synchronised
+to the body via `set_agent_anchors`), a pulsing node ring, hand-off packet beads
+along the real edge, an arrival flash and a completion burst
+(`scripts/agent_effects.gd` under `AgentEffectsRoot`) — follow the registry. The **conversation layer** (`spawn_agent`, did:nostr keyed) is the
 only thing the proxemics arc places. **Demo mode** is `scripts/agent_demo_director.gd`
 alone: it produces real `0x23` frames into `ingest()` (wire ids
 `0x80000000|0xD001..`, payload `"demo":true`), reports completion via
