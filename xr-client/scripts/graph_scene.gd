@@ -16,13 +16,14 @@ const MUTUAL_GAZE_DOT: float = 0.9
 # base by scheme swap (ws→http, wss→https) unless XR_BACKEND_HTTP overrides.
 
 # Reconnect with exponential backoff, unbounded: a headset that goes to sleep
-# (SteamVR standby, a standalone HMD in its case) must rejoin when it wakes,
-# however long that takes.
+# (SteamVR standby on the Vive today; a Quest in its case once the standalone
+# build ships) must rejoin when it wakes, however long that takes.
 const RECONNECT_BASE_DELAY_SEC: float = 2.0
 const RECONNECT_MAX_DELAY_SEC: float = 60.0
 
-# Render budgets, sized for the lowest-spec headset we target (a standalone
-# HMD) and therefore comfortably safe on the deployed Vive/SteamVR desktop rig.
+# Render budgets, sized for the lowest-spec headset we intend to support
+# (Quest 3 standalone, a planned target) and therefore comfortably safe on the
+# currently deployed Vive/SteamVR desktop rig.
 # When the graph exceeds these, the most important nodes (by server-computed
 # centrality) and the heaviest edges (by weight) are kept — same importance
 # language as the desktop client.
