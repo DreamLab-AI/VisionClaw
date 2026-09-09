@@ -830,7 +830,7 @@ func _action_btn(text: String, action: String, hint: String) -> Button:
 
 
 # A stateful type show/hide toggle (Feature 3). Starts visible (accent tint). On
-# press it flips its tracked bool, restyles ("Knowledge ✓" / "Knowledge ✕"), and
+# press it flips its tracked bool, restyles ("Knowledge ☑" / "Knowledge ☐"), and
 # emits control_pressed "type_toggle:<key>:<1|0>" so GraphScene drives the store.
 func _type_toggle_btn(label: String, key: String) -> Button:
 	var b := _press_fire(Button.new()) as Button
