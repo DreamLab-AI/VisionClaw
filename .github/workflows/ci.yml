@@ -191,12 +191,27 @@ jobs:
           #    above would pass vacuously (the feature vanished everywhere
           #    rather than being correctly confined) — so failing to find it
           #    here is itself a failure, not a pass.
-          if ! grep -q 'dev-auth' scripts/dev-entrypoint.sh; then
-            echo "FAIL: expected dev-auth on the dev-only rebuild path (scripts/dev-entrypoint.sh)."
+          #    Since ADR-2008/ADR-2038 the dev rebuild is performed by
+          #    scripts/rust-backend-wrapper.sh (BUILD_FEATURES default), which
+          #    dev-entrypoint.sh backgrounds; dev-entrypoint.sh itself no longer
+          #    names the feature. Accept either file so the control follows the
+          #    launcher, not one particular filename.
+          if ! grep -q 'dev-auth' scripts/dev-entrypoint.sh scripts/rust-backend-wrapper.sh; then
+            echo "FAIL: expected dev-auth on the dev-only rebuild path"
+            echo "      (scripts/dev-entrypoint.sh or scripts/rust-backend-wrapper.sh)."
             echo "      Its absence means this gate can no longer tell a correctly-scoped dev-auth"
             echo "      from one that leaked into production — update this job's ADR-2037 review."
             FAIL=1
           fi
+
+          # 5) The dev rebuild wrapper that carries dev-auth must never be wired
+          #    into the production runtime path or the production image.
+          for f in scripts/prod-entrypoint.sh Dockerfile.production; do
+            if grep -q 'rust-backend-wrapper' "$f"; then
+              echo "FAIL: $f invokes scripts/rust-backend-wrapper.sh, whose default BUILD_FEATURES include dev-auth (ADR-2037)"
+              FAIL=1
+            fi
+          done
 
           if [ "$FAIL" -ne 0 ]; then
             echo ""
