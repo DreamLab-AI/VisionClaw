@@ -125,7 +125,11 @@ multimesh = SubResource("MultiMesh_edges")
 [node name="AvatarSpawner" type="Node3D" parent="GraphRoot"]
 metadata/avatar_template = ExtResource("2_avatar")
 
-[node name="AgentSpawner" type="Node3D" parent="GraphRoot"]
+[node name="AgentsRoot" type="Node3D" parent="."]
+
+[node name="AgentSpawner" type="Node3D" parent="AgentsRoot"]
+
+[node name="AgentEffectsRoot" type="Node3D" parent="."]
 
 [node name="HUD" parent="XROrigin3D/XRCamera3D" instance=ExtResource("6_hud")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, -0.8)

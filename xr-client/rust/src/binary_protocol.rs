@@ -1182,6 +1182,45 @@ impl BinaryProtocolClient {
         PackedFloat32Array::from(self.store.build_beam_buffer(radius_comp).as_slice())
     }
 
+    /// Publish embodiment anchors (server space) for agents the scene embodies:
+    /// `ids[i]` pairs with `positions[i]`. The work beam then starts at the
+    /// avatar the user sees instead of the agent's streamed node position (or at
+    /// all, for synthetic agents that have no node). Visual-only: node positions
+    /// and physics are never touched. Call once per frame for embodied agents.
+    #[func]
+    fn set_agent_anchors(&mut self, ids: PackedInt32Array, positions: PackedVector3Array) {
+        let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
+        let pos: Vec<[f32; 3]> = positions
+            .as_slice()
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect();
+        self.store.set_agent_anchors(&ids, &pos);
+    }
+
+    /// Remove agents from the registry outright (record + anchor). The explicit
+    /// lifecycle end for agents that will not return — the demo director retires
+    /// its synthetic ids on Stop so no demo state can outlive the demo. Returns
+    /// the number of records removed.
+    #[func]
+    fn retire_agents(&mut self, ids: PackedInt32Array) -> i64 {
+        let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
+        self.store.retire_agents(&ids) as i64
+    }
+
+    /// Estimated current server-clock milliseconds (ADR-2034 anchor + locally
+    /// elapsed time), or `-1` before any `0x23` action has anchored the clock.
+    /// A producer of synthetic actions (the demo director) stamps its frames
+    /// from this clock so its evidence orders and expires coherently alongside
+    /// live agents' evidence instead of on an unrelated local clock.
+    #[func]
+    fn server_clock_ms(&self) -> i64 {
+        match self.estimated_server_now_ms() {
+            Some(ms) => ms as i64,
+            None => -1,
+        }
+    }
+
     /// Refine an agent's status + task from the JSON `state` channel. The GDScript
     /// scene layer already receives text frames via `text_message`; when a real
     /// `agent:state` producer lands server-side (a `BroadcastMessage` text frame,

@@ -400,7 +400,12 @@ var _teleport_pulse_applied: bool = false
 # carrying one cylinder per active agent→target-node beam (agent_beam material).
 @onready var agent_multi: MultiMeshInstance3D = $GraphRoot/AgentMulti
 @onready var avatar_spawner: Node3D = $GraphRoot/AvatarSpawner
-@onready var agent_spawner: Node3D = $GraphRoot/AgentSpawner
+# Embodiments live under unit-scale roots, never under GraphRoot: an avatar must
+# keep its physical size while the graph is fitted/zoomed (the old GraphRoot
+# parenting shrank the 0.15 m orb to ~5 mm).
+@onready var agents_root: Node3D = $AgentsRoot
+@onready var agent_spawner: Node3D = $AgentsRoot/AgentSpawner
+@onready var agent_effects_root: Node3D = $AgentEffectsRoot
 @onready var left_controller: XRController3D = $XROrigin3D/LeftController
 @onready var right_controller: XRController3D = $XROrigin3D/RightController
 @onready var hud: Node3D = get_node_or_null("XROrigin3D/XRCamera3D/HUD")
@@ -807,10 +812,14 @@ func _apply_type_toggle(spec: String) -> void:
 		return
 	var visible: bool = parts[1] == "1"
 	_binary_client.set_type_visible(class_code, visible)
-	# Agent type (2): also toggle the AgentAvatar scene-tree embodiments so they
-	# hide alongside the Rust render store's MultiMesh spheres.
-	if class_code == 2 and agent_spawner != null:
-		agent_spawner.visible = visible
+	# Agent type (2): also toggle the embodiments and their work-cue effects so
+	# they hide alongside the Rust render store's MultiMesh spheres. Visual only:
+	# the choreography, registry and selection handles keep running untouched.
+	if class_code == 2:
+		if agents_root != null:
+			agents_root.visible = visible
+		if agent_effects_root != null:
+			agent_effects_root.visible = visible
 	# Force the draw domain to rebuild so hidden-class nodes drop immediately.
 	_selection_dirty = true
 
@@ -1326,10 +1335,12 @@ func _physics_process(delta: float) -> void:
 	# Work beams (ADR-140, Pillar 2 / P3) refresh every frame: the buffer is a short
 	# walk of the agent registry (tens of instances), not the node/edge domain, so it
 	# is not part of the 45 Hz alternation — the flowing stream stays crisp at 90 Hz.
+	# Embodiment poses (and their beam anchors) are settled BEFORE the beam
+	# buffer is built, so a beam always starts at the body the user sees.
+	_demo.tick(delta)
+	_update_agents(delta)
 	_update_beam_multimesh()
 	_update_interaction()
-	_update_agents(delta)
-	_tick_demo(delta)
 	_update_selection(delta)
 	_update_voice_listener()
 	_tick_reconnect(delta)
@@ -1339,8 +1350,8 @@ func _physics_process(delta: float) -> void:
 	if _label_accum >= LABEL_UPDATE_SEC:
 		_label_accum -= LABEL_UPDATE_SEC
 		_update_proximity_labels()
+		_reconcile_embodiment()
 		_update_swarm_roster()
-		_rebuild_nudge_targets()
 
 
 # Trackpad/stick locomotion: slide the XR rig through the graph. Either wand's
@@ -2073,6 +2084,7 @@ func spawn_agent(agent_id: String, display_name: String, did: String, verified: 
 	agent.set_meta("handle", handle)
 	agent.set_meta("did", did)
 	agent.set_meta("display_name", display_name)
+	agent.set_meta("layer", CONVERSATION_LAYER)
 	if agent.has_method("set_avatar_identity"):
 		agent.set_avatar_identity(display_name, did, verified)
 	_agents[agent_id] = agent
@@ -2095,6 +2107,7 @@ func despawn_agent(agent_id: String) -> void:
 	var idx: int = _agent_order.find(agent_id)
 	if idx != -1:
 		_agent_order.remove_at(idx)
+	_choreo.remove_agent(agent_id)
 	agent.queue_free()
 	_last_solve_count = -1
 	_resolve_agent_arc()
@@ -2172,13 +2185,31 @@ func _resolve_agent_arc() -> void:
 # signature diff avoids rebuilding the row UI every tick). Agent wire ids ARE node
 # ids, so each row's tap → "teleport:<id>" reuses the existing node-teleport glide.
 var _swarm_sig: String = ""
-# Per-agent last-active timestamp (ticks_msec) for fade-to-edge idle detection.
-var _agent_work_state: Dictionary = {}
-const _AGENT_IDLE_THRESHOLD_MS: int = 15_000
-# Per-copresence-agent nudge target (world-space). Built at ~4 Hz in
-# _update_swarm_roster by matching copresence display_names to binary-client
-# agent labels, then read every frame in _update_agents for the lerp.
-var _agent_nudge_targets: Dictionary = {}  # copresence agent_id -> Vector3
+
+# ── Work-layer embodiment (ADR-140 work layer; embodiment plan §2.6) ──────────
+# Every agent in the Rust registry (fed by 0x23 AGENT_ACTION frames — live or
+# synthetic) is embodied with the AgentAvatar template, keyed by its wire id.
+# Exactly ONE writer owns an embodiment's position and alpha: _choreo (the
+# presentation state machine in agent_choreography.gd). The proxemics arc only
+# ever places conversation-layer avatars (spawn_agent, keyed by did:nostr).
+# Server owns WHICH node / status / task; the client owns WHERE in the room.
+const AgentChoreography := preload("res://scripts/agent_choreography.gd")
+const AgentEffects := preload("res://scripts/agent_effects.gd")
+const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
+const WORK_LAYER := "work"
+const CONVERSATION_LAYER := "conversation"
+const RIM_PADDING_M: float = 0.3     # rim slots sit this far outside the fitted bounds
+const RIM_SLOTS: int = 8             # slots spread across the front-facing ±60° arc
+const RIM_FALLBACK_RADIUS_M: float = 1.5
+
+var _choreo: RefCounted = AgentChoreography.new()
+var _effects: Node3D = null
+var _demo: RefCounted = AgentDemoDirector.new()
+var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
+var _rim_slot_cursor: int = 0
+var _anchor_ids := PackedInt32Array()
+var _anchor_pos := PackedVector3Array()
+var _reduced_motion: bool = true     # comfort default (matches agent_avatar.gd)
 
 
 func _update_swarm_roster() -> void:
@@ -2196,15 +2227,18 @@ func _update_swarm_roster() -> void:
 			target_label = _binary_client.label_of(target_id)
 		var status: int = _binary_client.agent_status(id)
 		var task: String = _binary_client.agent_task(id)
+		var name_s: String = _work_agent_name(id)
+		var is_demo: bool = AgentDemoDirector.is_demo_id(id)
 		rows.append({
 			"id": id,
-			"name": _binary_client.label_of(id),
+			"name": name_s,
 			"status": status,
 			"target": target_label,
 			"task": task,
+			"demo": is_demo,
 		})
 		# Name is in the signature so a late-arriving label refreshes its row.
-		sig.append("%d:%s:%d:%s:%s" % [id, _binary_client.label_of(id), status, target_label, task])
+		sig.append("%d:%s:%d:%s:%s:%d" % [id, name_s, status, target_label, task, int(is_demo)])
 	var joined := "|".join(sig)
 	if joined == _swarm_sig:
 		return
@@ -2212,35 +2246,165 @@ func _update_swarm_roster() -> void:
 	hud.set_swarm_roster(rows)
 
 
-func _rebuild_nudge_targets() -> void:
-	_agent_nudge_targets.clear()
-	if _binary_client == null or not _binary_client.has_method("agent_target_node"):
+# Display name for a registry agent: its wire label, else the demo director's
+# label for a reserved demo id, else a plain id.
+func _work_agent_name(wire_id: int) -> String:
+	if _binary_client != null and _binary_client.has_method("label_of"):
+		var s: String = String(_binary_client.label_of(wire_id))
+		if s.length() > 0:
+			return s
+	var demo_name: String = AgentDemoDirector.display_name_for(wire_id)
+	if demo_name.length() > 0:
+		return demo_name
+	return "agent %d" % wire_id
+
+
+func _scene_id_for(wire_id: int) -> String:
+	if AgentDemoDirector.is_demo_id(wire_id):
+		return AgentDemoDirector.scene_id_for(wire_id)
+	return "agent_%d" % wire_id
+
+
+func _server_to_world(p: Vector3) -> Vector3:
+	return graph_root.to_global(p) if graph_root != null else p
+
+
+func _graph_centre_world() -> Vector3:
+	return _server_to_world(_fit_target_centre) if graph_root != null else GRAPH_ANCHOR
+
+
+# ~4 Hz: mirror the registry into embodiments. New ids materialise at a rim
+# slot, vanished ids (retired demo agents, or a cleared store) despawn, and
+# every embodied agent's registry view is handed to the choreography.
+func _reconcile_embodiment() -> void:
+	if _binary_client == null or not _binary_client.has_method("agent_ids") or graph_root == null:
 		return
-	if graph_root == null or _agents.is_empty():
-		return
-	var gxf: Transform3D = graph_root.global_transform
-	# Build label → copresence agent_id lookup (small N, fine at 4 Hz).
-	var label_to_id: Dictionary = {}
-	for aid: String in _agents:
-		var a: Node3D = _agents[aid]
-		var dname: String = a.get_meta("display_name", "")
-		if dname.length() > 0:
-			label_to_id[dname] = aid
+	_refresh_reduced_motion()
 	var ids: PackedInt32Array = _binary_client.agent_ids()
-	for wid: int in ids:
-		var target_id: int = _binary_client.agent_target_node(wid)
-		if target_id < 0:
+	var seen: Dictionary = {}
+	for id: int in ids:
+		var sid: String = _scene_id_for(id)
+		seen[id] = true
+		if not _embodied.has(id):
+			_spawn_work_agent(id, sid)
+		if not _agents.has(sid):
 			continue
-		var wire_label: String = _binary_client.label_of(wid)
-		if not label_to_id.has(wire_label):
-			continue
-		var server_pos: Vector3 = _binary_client.node_position(target_id)
-		_agent_nudge_targets[label_to_id[wire_label]] = gxf * server_pos
+		var status: int = _binary_client.agent_status(id)
+		var target: int = _binary_client.agent_target_node(id)
+		var has_target: bool = target >= 0
+		var target_world: Vector3 = _server_to_world(_binary_client.node_position(target)) if has_target else Vector3.ZERO
+		_choreo.update_registry(sid, status, has_target, target, target_world)
+		var agent: Node3D = _agents[sid]
+		if agent.has_method("set_task_caption"):
+			agent.set_task_caption(String(_binary_client.agent_task(id)))
+	for id: int in _embodied.keys():
+		if not seen.has(id):
+			_despawn_work_agent(id)
+
+
+func _spawn_work_agent(wire_id: int, sid: String) -> void:
+	if _agents.has(sid):
+		_embodied[wire_id] = sid
+		return
+	var template: PackedScene = load(AGENT_TEMPLATE_PATH)
+	if template == null:
+		push_warning("AgentAvatar template missing")
+		return
+	var agent: Node3D = template.instantiate()
+	agent_spawner.add_child(agent)
+	var handle: int = _next_handle
+	_next_handle += 1
+	var name_s: String = _work_agent_name(wire_id)
+	agent.set_meta("agent_id", sid)
+	agent.set_meta("handle", handle)
+	agent.set_meta("did", "")
+	agent.set_meta("display_name", name_s)
+	agent.set_meta("layer", WORK_LAYER)
+	agent.set_meta("wire_id", wire_id)
+	if agent.has_method("set_work_identity"):
+		agent.set_work_identity(name_s)
+	var rim: Vector3 = _rim_slot(_rim_slot_cursor)
+	_rim_slot_cursor += 1
+	agent.global_position = rim
+	if agent.has_method("set_alpha"):
+		agent.set_alpha(0.0)
+	_agents[sid] = agent
+	_agent_by_handle[handle] = sid
+	_embodied[wire_id] = sid
+	if _selection != null and _selection.has_method("register_identity"):
+		_selection.register_identity(handle, "wire:%d" % wire_id)
+	_choreo.add_agent(sid, rim, 0.0, rim)
+
+
+func _despawn_work_agent(wire_id: int) -> void:
+	var sid: String = _embodied.get(wire_id, "")
+	_embodied.erase(wire_id)
+	_choreo.remove_agent(sid)
+	if _effects != null:
+		_effects.clear_ring(sid)
+	if not _agents.has(sid):
+		return
+	var agent: Node3D = _agents[sid]
+	var handle: int = agent.get_meta("handle", 0)
+	_agent_by_handle.erase(handle)
+	_agents.erase(sid)
+	_agent_cases.erase(sid)
+	agent.queue_free()
+	_publish_case_count()
+
+
+# Rim slots: points on the front-facing perimeter of the fitted graph bounds
+# (padded), spread across ±60° of the head→centre axis with a little height
+# variation, at least 1 m from the head. Agents materialise here and park here.
+func _rim_slot(i: int) -> Vector3:
+	var centre: Vector3 = _graph_centre_world()
+	var radius: float = RIM_FALLBACK_RADIUS_M
+	if _binary_client != null and _binary_client.has_method("render_aabb") and graph_root != null:
+		var bb: PackedFloat32Array = _binary_client.render_aabb(0.05, 0.95, -1)
+		if bb.size() == 6:
+			var mn: Vector3 = _server_to_world(Vector3(bb[0], bb[1], bb[2]))
+			var mx: Vector3 = _server_to_world(Vector3(bb[3], bb[4], bb[5]))
+			centre = (mn + mx) * 0.5
+			radius = maxf(absf(mx.x - mn.x), absf(mx.z - mn.z)) * 0.5 + RIM_PADDING_M
+	var camera: XRCamera3D = _find_xr_camera()
+	var head: Vector3 = camera.global_position if camera != null else Vector3(0.0, 1.6, 0.0)
+	var front: Vector3 = head - centre
+	front.y = 0.0
+	if front.length_squared() < 0.0001:
+		front = Vector3.BACK
+	front = front.normalized()
+	var slot_i: int = i % RIM_SLOTS
+	var angle: float = deg_to_rad(-60.0 + 120.0 * float(slot_i) / float(RIM_SLOTS - 1))
+	var y_off: float = -0.15 + 0.3 * float((slot_i * 5) % RIM_SLOTS) / float(RIM_SLOTS)
+	var slot: Vector3 = centre + front.rotated(Vector3.UP, angle) * radius + Vector3.UP * y_off
+	var d: Vector3 = slot - head
+	if d.length() < 1.0:
+		slot = head + (d.normalized() if d.length() > 0.001 else -front) * 1.0
+	return slot
+
+
+func _refresh_reduced_motion() -> void:
+	var comfort := get_tree().get_first_node_in_group("xr_visual_environment")
+	if comfort != null and comfort.has_method("get_visual_comfort"):
+		var state: Dictionary = comfort.call("get_visual_comfort")
+		_reduced_motion = bool(state.get("reduced_motion", true))
+	_choreo.reduced_motion = _reduced_motion
+	if _effects != null:
+		_effects.reduced_motion = _reduced_motion
+
+
+func _ensure_effects() -> void:
+	if _effects != null or agent_effects_root == null:
+		return
+	_effects = AgentEffects.new()
+	_effects.name = "AgentEffects"
+	agent_effects_root.add_child(_effects)
 
 
 func _update_agents(delta: float) -> void:
 	if _agents.is_empty():
 		return
+	# Conversation-layer avatars (did:nostr) sit on the proxemics arc.
 	_resolve_agent_arc()
 	var camera: XRCamera3D = _find_xr_camera()
 	if camera == null:
@@ -2251,14 +2415,39 @@ func _update_agents(delta: float) -> void:
 	# Reuse _update_lod's once-per-frame recompute decision (never re-tick here).
 	var recompute_lod: bool = _lod_recompute and _lod_policy != null \
 		and _lod_policy.has_method("agent_feature_mask")
-	# Graph-root transform for server→world position conversion.
-	var has_targets: bool = _binary_client != null \
-		and _binary_client.has_method("agent_target_node") \
-		and graph_root != null
-	var gxf: Transform3D = graph_root.global_transform if has_targets else Transform3D.IDENTITY
+
+	# Work-layer poses: one tick of the single pose owner.
+	_ensure_effects()
+	_choreo.set_head(cam_pos)
+	_choreo.set_graph_centre(_graph_centre_world())
+	_choreo.tick(delta)
+	if _effects != null:
+		_effects.set_head(cam_pos)
+	_anchor_ids.clear()
+	_anchor_pos.clear()
+	var to_server: Transform3D = graph_root.global_transform.affine_inverse() if graph_root != null else Transform3D.IDENTITY
 
 	for agent_id: String in _agents:
 		var agent: Node3D = _agents[agent_id]
+		if String(agent.get_meta("layer", CONVERSATION_LAYER)) == WORK_LAYER:
+			var p: Dictionary = _choreo.pose(agent_id)
+			if not p.is_empty():
+				agent.global_position = p["pos"]
+				if agent.has_method("set_alpha"):
+					agent.set_alpha(float(p["alpha"]))
+				if agent.has_method("set_aim"):
+					agent.set_aim(p["aim"])
+				if agent.has_method("set_display_state"):
+					var phase: int = p["phase"]
+					var engaged: bool = bool(p["working"]) or (phase == AgentChoreography.PH_TRAVEL and bool(p["has_target"]))
+					agent.set_display_state(1 if engaged else (4 if bool(p["done"]) else 0))
+				if _effects != null:
+					if bool(p["working"]) and bool(p["has_target"]):
+						_effects.set_ring(agent_id, p["target_world"])
+					else:
+						_effects.clear_ring(agent_id)
+				_anchor_ids.append(int(agent.get_meta("wire_id", 0)))
+				_anchor_pos.append(to_server * (p["pos"] as Vector3))
 		var to_agent: Vector3 = agent.global_position - cam_pos
 		var dist: float = to_agent.length()
 		# Mutual-gaze test: is the user's head-gaze pointed at this agent?
@@ -2269,32 +2458,13 @@ func _update_agents(delta: float) -> void:
 		if recompute_lod and agent.has_method("set_feature_mask"):
 			var level: int = _lod_policy.classify_distance(dist)
 			agent.set_feature_mask(_lod_policy.agent_feature_mask(level))
-		# Momentum nudge + fade-to-edge. Working agents drift toward their
-		# target node; idle agents (no beam for >15 s) fade to 0.3 alpha and
-		# drift slowly outward from the graph centre, still selectable.
-		if _agent_nudge_targets.has(agent_id):
-			var target_world: Vector3 = _agent_nudge_targets[agent_id]
-			agent.global_position = agent.global_position.lerp(target_world, clampf(0.6 * delta, 0.0, 0.15))
-			_agent_work_state[agent_id] = Time.get_ticks_msec()
-			agent.set_meta("_cur_alpha", 1.0)
-			if agent.has_method("set_alpha"):
-				agent.set_alpha(1.0)
-		elif _agent_work_state.has(agent_id):
-			var elapsed: int = Time.get_ticks_msec() - int(_agent_work_state[agent_id])
-			if elapsed > _AGENT_IDLE_THRESHOLD_MS:
-				if agent.has_method("set_activity_done"):
-					agent.set_activity_done()
-				var cur_a: float = agent.get_meta("_cur_alpha", 1.0)
-				var new_a: float = lerpf(cur_a, 0.3, clampf(2.0 * delta, 0.0, 0.1))
-				agent.set_meta("_cur_alpha", new_a)
-				if agent.has_method("set_alpha"):
-					agent.set_alpha(new_a)
-				if has_targets:
-					var graph_centre: Vector3 = gxf.origin
-					var away: Vector3 = (agent.global_position - graph_centre).normalized()
-					if away.length_squared() < 0.001:
-						away = Vector3.RIGHT
-					agent.global_position += away * 0.15 * delta
+
+	for ev: Dictionary in _choreo.take_events():
+		if _effects != null and String(ev["type"]) == "complete":
+			_effects.burst(ev["pos"])
+	# Beam origins follow the bodies (visual-only; physics untouched).
+	if _anchor_ids.size() > 0 and _binary_client != null and _binary_client.has_method("set_agent_anchors"):
+		_binary_client.set_agent_anchors(_anchor_ids, _anchor_pos)
 
 
 # Feed the three-resolver arbiter this frame's controller rays, smoothed gaze,
@@ -3464,93 +3634,20 @@ func _plane_binding_label(binding: Dictionary) -> String:
 	return ""
 
 
-# ── Demo mode — synthetic agent injection ──────────────────────────────────
-# Spawns 6 demo agents that cycle work→idle so the avatar sprite, momentum-
-# nudge, and fade-to-edge features can be exercised without a live swarm.
-# Tagged `demo` so they are unambiguously non-production.
-
-const _DEMO_AGENTS: Array[Dictionary] = [
-	{"suffix": "D001", "label": "Demo-Architect", "type": "architect"},
-	{"suffix": "D002", "label": "Demo-Analyst",   "type": "analyst"},
-	{"suffix": "D003", "label": "Demo-Coder",     "type": "coder"},
-	{"suffix": "D004", "label": "Demo-Reviewer",  "type": "reviewer"},
-	{"suffix": "D005", "label": "Demo-Tester",    "type": "tester"},
-	{"suffix": "D006", "label": "Demo-Optimizer",  "type": "optimizer"},
-]
-const _DEMO_WORK_SEC: float = 12.0
-const _DEMO_IDLE_SEC: float = 8.0
-
-var _demo_running: bool = false
-var _demo_ids: Array[String] = []
-# Per demo agent: { "phase": "working"|"idle", "elapsed": float, "target": Vector3 }
-var _demo_state: Dictionary = {}
-
+# ── Demo mode ─────────────────────────────────────────────────────────────────
+# All demo code lives in agent_demo_director.gd. It produces synthetic 0x23
+# frames into the SAME Rust registry a live swarm feeds; the scene has no demo
+# branch — demo agents are embodied, beamed and listed exactly like live ones,
+# and are labelled "[demo]" wherever they appear.
 
 func _toggle_demo() -> void:
-	if _demo_running:
-		_stop_demo()
+	if _demo.is_running():
+		_demo.stop()
 	else:
-		_start_demo()
-
-
-func _start_demo() -> void:
-	if _demo_running:
-		return
-	_demo_running = true
-	for entry: Dictionary in _DEMO_AGENTS:
-		var aid: String = "demo_%s" % entry["suffix"]
-		spawn_agent(aid, String(entry["label"]), "", false)
-		_demo_ids.append(aid)
-		_demo_state[aid] = {"phase": "working", "elapsed": 0.0, "target": _random_graph_point()}
-		_agent_work_state[aid] = Time.get_ticks_msec()
+		var ok: bool = _demo.start(_binary_client, Callable(self, "_server_to_world"))
+		if not ok and hud != null and hud.has_method("flash_notice"):
+			hud.flash_notice("Demo needs a loaded graph", 2.5)
 	if hud != null and hud.has_method("set_demo_active"):
-		hud.set_demo_active(true)
-
-
-func _stop_demo() -> void:
-	if not _demo_running:
-		return
-	_demo_running = false
-	for aid: String in _demo_ids:
-		despawn_agent(aid)
-		_demo_state.erase(aid)
-		_agent_work_state.erase(aid)
-		_agent_nudge_targets.erase(aid)
-	_demo_ids.clear()
-	if hud != null and hud.has_method("set_demo_active"):
-		hud.set_demo_active(false)
-
-
-func _random_graph_point() -> Vector3:
-	if graph_root == null:
-		return Vector3(randf_range(-1.0, 1.0), randf_range(-0.5, 0.5), randf_range(-1.0, 1.0))
-	var gxf: Transform3D = graph_root.global_transform
-	return gxf * Vector3(
-		randf_range(-30.0, 30.0),
-		randf_range(-15.0, 15.0),
-		randf_range(-30.0, 30.0),
-	)
-
-
-func _tick_demo(delta: float) -> void:
-	if not _demo_running:
-		return
-	for aid: String in _demo_ids:
-		if not _demo_state.has(aid):
-			continue
-		var st: Dictionary = _demo_state[aid]
-		st["elapsed"] = float(st["elapsed"]) + delta
-		var phase: String = str(st["phase"])
-		if phase == "working":
-			_agent_nudge_targets[aid] = st["target"] as Vector3
-			_agent_work_state[aid] = Time.get_ticks_msec()
-			if float(st["elapsed"]) >= _DEMO_WORK_SEC:
-				st["phase"] = "idle"
-				st["elapsed"] = 0.0
-				_agent_nudge_targets.erase(aid)
-		elif phase == "idle":
-			if float(st["elapsed"]) >= _DEMO_IDLE_SEC:
-				st["phase"] = "working"
-				st["elapsed"] = 0.0
-				st["target"] = _random_graph_point()
-				_agent_work_state[aid] = Time.get_ticks_msec()
+		hud.set_demo_active(_demo.is_running())
+	# Reflect the registry change without waiting for the next 4 Hz tick.
+	_reconcile_embodiment()

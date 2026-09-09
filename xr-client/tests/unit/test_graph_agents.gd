@@ -18,7 +18,7 @@ func _make_scene() -> Node3D:
 
 func test_spawn_agent_adds_child_to_agent_spawner():
 	var scene: Node3D = await _make_scene()
-	var spawner: Node3D = scene.get_node("GraphRoot/AgentSpawner")
+	var spawner: Node3D = scene.get_node("AgentsRoot/AgentSpawner")
 	var before := spawner.get_child_count()
 	scene.spawn_agent("agent_1", "Planner", "did:nostr:" + "a".repeat(64), false)
 	await get_tree().process_frame
@@ -30,7 +30,7 @@ func test_spawn_agent_adds_child_to_agent_spawner():
 
 func test_spawn_agent_is_idempotent():
 	var scene: Node3D = await _make_scene()
-	var spawner: Node3D = scene.get_node("GraphRoot/AgentSpawner")
+	var spawner: Node3D = scene.get_node("AgentsRoot/AgentSpawner")
 	scene.spawn_agent("agent_dup", "A", "did:nostr:" + "b".repeat(64), false)
 	await get_tree().process_frame
 	var after_first := spawner.get_child_count()
@@ -43,7 +43,7 @@ func test_spawn_agent_is_idempotent():
 
 func test_despawn_agent_removes_child():
 	var scene: Node3D = await _make_scene()
-	var spawner: Node3D = scene.get_node("GraphRoot/AgentSpawner")
+	var spawner: Node3D = scene.get_node("AgentsRoot/AgentSpawner")
 	scene.spawn_agent("agent_2", "Coder", "did:nostr:" + "c".repeat(64), false)
 	await get_tree().process_frame
 	var count_after_join := spawner.get_child_count()

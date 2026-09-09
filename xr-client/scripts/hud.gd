@@ -557,6 +557,9 @@ func _mk_swarm_row(r: Dictionary) -> Control:
 	var name_s: String = str(r.get("name", ""))
 	if name_s == "":
 		name_s = "agent %d" % aid
+	# Synthetic demo agents are labelled as such wherever they appear.
+	if bool(r.get("demo", false)):
+		name_s = "[demo] " + name_s
 	var target_s: String = str(r.get("target", ""))
 	var btn := _press_fire(Button.new()) as Button
 	btn.text = "%s → %s" % [name_s, target_s if target_s != "" else "…"]

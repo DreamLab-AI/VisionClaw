@@ -554,6 +554,12 @@ pub struct RenderStore {
     // beam frame and refined by the JSON `state` channel. Read by the hover glide
     // (P2), the work beam (P3) and the Swarm roster (P5). Empty ⇒ no swarm.
     agent_registry: HashMap<u32, AgentRec>,
+    // Embodiment anchors (server space): where an agent's *avatar* currently is,
+    // published by the scene each frame for agents it embodies. A work beam
+    // starts at the anchor when one exists, else at the agent's streamed node
+    // position. Lets synthetic (demo) agents and embodied live agents beam from
+    // the body the user sees, without ever faking a position frame.
+    agent_anchors: HashMap<u32, [f32; 3]>,
     // Monotonic count of agent actions ever ingested — a liveness counter for the
     // P1 diagnostics surface (verifiable from the HP log before any visuals exist).
     agent_actions_total: u64,
@@ -612,6 +618,7 @@ impl RenderStore {
         self.type_hidden = [false; 4];
         self.degree.clear();
         self.agent_registry.clear();
+        self.agent_anchors.clear();
         self.agent_actions_total = 0;
         self.agent_actions_stale = 0;
         self.agent_states_stale = 0;
@@ -868,6 +875,46 @@ impl RenderStore {
     /// Read-only view of one agent's record (None if unknown).
     pub fn agent_rec(&self, agent_id: u32) -> Option<&AgentRec> {
         self.agent_registry.get(&(agent_id & NODE_ID_MASK))
+    }
+
+    /// Publish embodiment anchors (server space) for the given agents. Each
+    /// `ids[i]` pairs with `positions[i]`; extra entries on either side are
+    /// ignored. Ids may carry the agent flag bit. An anchor only matters for the
+    /// beam origin — it never touches node positions or physics.
+    pub fn set_agent_anchors(&mut self, ids: &[u32], positions: &[[f32; 3]]) {
+        for (&id, &pos) in ids.iter().zip(positions.iter()) {
+            if pos.iter().all(|c| c.is_finite()) {
+                self.agent_anchors.insert(id & NODE_ID_MASK, pos);
+            }
+        }
+    }
+
+    /// Drop the embodiment anchor for one agent (its beam falls back to the
+    /// streamed node position, or disappears if the agent has none).
+    pub fn clear_agent_anchor(&mut self, agent_id: u32) {
+        self.agent_anchors.remove(&(agent_id & NODE_ID_MASK));
+    }
+
+    /// Anchor for an agent, if the scene has published one.
+    pub fn agent_anchor(&self, agent_id: u32) -> Option<[f32; 3]> {
+        self.agent_anchors.get(&(agent_id & NODE_ID_MASK)).copied()
+    }
+
+    /// Remove agents from the registry outright (record + anchor). This is the
+    /// explicit lifecycle end for agents that will not come back — the demo
+    /// director retires its synthetic ids on Stop — as opposed to
+    /// [`expire_stale_agents`](Self::expire_stale_agents), which only demotes a
+    /// live status. Returns how many records were actually removed.
+    pub fn retire_agents(&mut self, ids: &[u32]) -> usize {
+        let mut removed = 0usize;
+        for &id in ids {
+            let key = id & NODE_ID_MASK;
+            if self.agent_registry.remove(&key).is_some() {
+                removed += 1;
+            }
+            self.agent_anchors.remove(&key);
+        }
+        removed
     }
 
     /// Show or hide a whole node class (Wave 2, Feature 3). Out-of-range codes are
@@ -1615,13 +1662,15 @@ impl RenderStore {
     /// (12 transform + 4 INSTANCE_CUSTOM: r/g/b reserved, **a = agent status code**
     /// so the beam shader tints working/blocked and animates the flowing stream).
     ///
-    /// Both endpoints live in the position store: agent nodes ride the binary wire
-    /// with `AGENT_NODE_FLAG` (upserted like any node), and `target_node_id` is a
-    /// plain graph node — so `id_index` resolves both, no DID mapping needed. The
+    /// The beam's source is the agent's embodiment anchor when the scene has
+    /// published one ([`set_agent_anchors`](Self::set_agent_anchors)), else the
+    /// agent's own streamed node position (agent nodes ride the binary wire with
+    /// `AGENT_NODE_FLAG`, upserted like any node). `target_node_id` is a plain
+    /// graph node, so `id_index` resolves it — no DID mapping needed. The
     /// cylinder's local Y runs agent→target, so the shader's pulse flows from the
-    /// agent toward the node it is working on. Agents whose position or target is
-    /// not yet known (either end absent from the store), or whose endpoints
-    /// coincide, are skipped. Pure/per-frame — GDScript does one buffer assignment.
+    /// agent toward the node it is working on. Agents whose source or target is
+    /// not yet known, or whose endpoints coincide, are skipped. Pure/per-frame —
+    /// GDScript does one buffer assignment.
     pub fn build_beam_buffer(&self, radius_comp: f32) -> Vec<f32> {
         let mut buf = Vec::new();
         for (&agent_id, rec) in &self.agent_registry {
@@ -1638,13 +1687,17 @@ impl RenderStore {
             if !self.drawn.contains(&target) {
                 continue;
             }
-            let (Some(&as_), Some(&ts)) =
-                (self.id_index.get(&agent_id), self.id_index.get(&target))
-            else {
+            let Some(&ts) = self.id_index.get(&target) else {
                 continue;
             };
-            if let Some(tf) = edge_transform12(self.positions[as_], self.positions[ts], radius_comp)
-            {
+            let source = match self.agent_anchors.get(&agent_id) {
+                Some(&anchor) => anchor,
+                None => match self.id_index.get(&agent_id) {
+                    Some(&as_) => self.positions[as_],
+                    None => continue,
+                },
+            };
+            if let Some(tf) = edge_transform12(source, self.positions[ts], radius_comp) {
                 buf.extend_from_slice(&tf);
                 buf.extend_from_slice(&[0.0, 0.0, 0.0, rec.status as f32]);
             }
@@ -1800,6 +1853,59 @@ mod tests {
         let blocked = s.build_beam_buffer(1.0);
         assert_eq!(blocked.len(), EDGE_STRIDE_TYPED, "blocked agent still beams");
         assert!(approx(blocked[15], AGENT_BLOCKED as f32));
+    }
+
+    #[test]
+    fn beam_starts_at_the_embodiment_anchor_when_one_is_published() {
+        let mut s = RenderStore::new();
+        // Target node 20 is on the wire and drawn; agent 0xD001 is a synthetic
+        // (demo) agent with NO streamed node position.
+        s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
+        s.record_agent_action(0x8000_D001, 20, 0, 100, "Reviewing: X");
+        s.build_node_buffer(&[20], 1.0, 0.7, 1.9);
+        assert!(s.build_beam_buffer(1.0).is_empty(), "no anchor, no node ⇒ no beam");
+
+        // Publishing an anchor (flag bit tolerated) gives the beam its origin.
+        s.set_agent_anchors(&[0x8000_D001], &[[2.0, 4.0, 0.0]]);
+        let buf = s.build_beam_buffer(1.0);
+        assert_eq!(buf.len(), EDGE_STRIDE_TYPED, "anchored synthetic agent beams");
+        // Translation column of the 3x4 transform (indices 3,7,11) is the segment
+        // midpoint: anchor (2,4,0) → target (0,4,0) ⇒ (1,4,0).
+        assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0) && approx(buf[11], 0.0));
+
+        // An anchor wins over a streamed node position for an embodied live agent.
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.record_agent_action(5, 20, 0, 100, "");
+        s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
+        s.set_agent_anchors(&[5], &[[0.0, 2.0, 0.0]]);
+        let buf = s.build_beam_buffer(1.0);
+        let n = buf.len() / EDGE_STRIDE_TYPED;
+        assert_eq!(n, 2, "both agents beam");
+        // Non-finite anchors are ignored; clearing falls back to the node position.
+        s.set_agent_anchors(&[5], &[[f32::NAN, 0.0, 0.0]]);
+        assert_eq!(s.agent_anchor(5), Some([0.0, 2.0, 0.0]));
+        s.clear_agent_anchor(5);
+        assert_eq!(s.agent_anchor(5), None);
+        assert_eq!(s.build_beam_buffer(1.0).len() / EDGE_STRIDE_TYPED, 2);
+    }
+
+    #[test]
+    fn retire_agents_removes_records_and_anchors_outright() {
+        let mut s = RenderStore::new();
+        s.record_agent_action(0x8000_D001, 20, 0, 100, "");
+        s.record_agent_action(0x8000_D002, 21, 0, 100, "");
+        s.record_agent_action(7, 22, 0, 100, "");
+        s.set_agent_anchors(&[0x8000_D001, 7], &[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]);
+        assert_eq!(s.agent_count(), 3);
+        // Retire the two synthetic ids (flag bit on one, masked on the other).
+        assert_eq!(s.retire_agents(&[0x8000_D001, 0xD002, 0xD0FF]), 2);
+        assert_eq!(s.agent_ids(), vec![7], "only the live agent remains");
+        assert_eq!(s.agent_anchor(0xD001), None, "anchor goes with the record");
+        assert_eq!(s.agent_anchor(7), Some([2.0, 2.0, 2.0]), "live anchor untouched");
+        // Retiring is idempotent and a later action can re-create the record.
+        assert_eq!(s.retire_agents(&[0xD001]), 0);
+        assert!(s.record_agent_action(0x8000_D001, 20, 0, 200, ""));
+        assert_eq!(s.agent_count(), 2);
     }
 
     #[test]

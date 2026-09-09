@@ -29,7 +29,11 @@ const COLOR_IDLE: Color = Color(0.42, 0.6, 0.9)
 const COLOR_WORKING: Color = Color(0.3, 0.9, 0.72)
 const COLOR_AWAITING: Color = Color(1.0, 0.62, 0.12)
 const COLOR_SPEAKING: Color = Color(0.7, 0.85, 1.0)
-const COLOR_DONE: Color = Color(0.55, 0.55, 0.6)
+# Done = cyan-white per the XR status palette (docs/explanation/xr-architecture.md
+# §7: idle slate / working green / blocked amber-red / done cyan-white); the
+# 0.3 alpha carries "finished", the tint keeps it in the palette.
+const COLOR_DONE: Color = Color(0.80, 0.95, 1.0)
+const COLOR_WORK_BADGE: Color = Color(0.9, 0.95, 1.0)
 
 const COLOR_VERIFIED: Color = Color(0.75, 1.0, 0.82)
 const COLOR_UNVERIFIED: Color = Color(1.0, 0.72, 0.28)
@@ -56,6 +60,16 @@ var _display_name: String = ""
 var _did: String = ""
 var _verified: bool = false
 
+# Work-layer embodiment (ADR-140 work layer, keyed by wire id, no DID claim):
+# the badge shows name + task caption instead of a DID line, the cone acts as a
+# pointer aimed at the work target, and the activity state is set directly by
+# the choreography rather than by the Rust conversation-state machine.
+var _work_layer: bool = false
+var _caption: String = ""
+var _aim: Vector3 = Vector3.ZERO
+var _cone_mat: StandardMaterial3D = null
+var _cone_base_alpha: float = 1.0
+
 
 func _ready() -> void:
 	_model = AgentAvatarNode.create()
@@ -70,6 +84,10 @@ func _ready() -> void:
 			_core_mat = src.duplicate()
 			core.material_override = _core_mat
 			core_billboard.material_override = _core_mat
+	if gaze_cone != null and gaze_cone.material_override is StandardMaterial3D:
+		_cone_mat = gaze_cone.material_override.duplicate()
+		_cone_base_alpha = _cone_mat.albedo_color.a
+		gaze_cone.material_override = _cone_mat
 
 	var comfort := get_tree().get_first_node_in_group("xr_visual_environment")
 	if comfort != null:
@@ -119,18 +137,64 @@ func activity() -> int:
 	return _activity
 
 
+## Whole-body alpha: core (+ billboard), pointer cone and badge together, so a
+## parked agent reads as one faded object rather than a bright badge on a ghost.
 func set_alpha(a: float) -> void:
-	if _core_mat == null:
-		return
-	_core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if a < 0.99 else BaseMaterial3D.TRANSPARENCY_DISABLED
-	var c := _core_mat.albedo_color
-	_core_mat.albedo_color = Color(c.r, c.g, c.b, a)
+	var alpha: float = clampf(a, 0.0, 1.0)
+	if _core_mat != null:
+		_core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if alpha < 0.99 else BaseMaterial3D.TRANSPARENCY_DISABLED
+		var c := _core_mat.albedo_color
+		_core_mat.albedo_color = Color(c.r, c.g, c.b, alpha)
+	if _cone_mat != null:
+		var cc := _cone_mat.albedo_color
+		_cone_mat.albedo_color = Color(cc.r, cc.g, cc.b, _cone_base_alpha * alpha)
+	if badge != null:
+		var m := badge.modulate
+		badge.modulate = Color(m.r, m.g, m.b, alpha)
+
+
+func alpha() -> float:
+	return _core_mat.albedo_color.a if _core_mat != null else 1.0
 
 
 func set_activity_done() -> void:
-	if _activity == ACT_DONE:
+	set_display_state(ACT_DONE)
+
+
+## Work-layer identity: a wire-id-keyed agent has no DID to claim, so the badge
+## shows name + task caption and never a fabricated verification mark.
+func set_work_identity(display_name: String) -> void:
+	_work_layer = true
+	_display_name = display_name
+	_refresh_badge()
+
+
+func is_work_layer() -> bool:
+	return _work_layer
+
+
+func set_task_caption(text: String) -> void:
+	if _caption == text:
 		return
-	_activity = ACT_DONE
+	_caption = text
+	_refresh_badge()
+
+
+func task_caption() -> String:
+	return _caption
+
+
+## Point the cone at a world-space direction (the work target). Zero releases
+## the override back to the Rust gaze-attention model.
+func set_aim(dir: Vector3) -> void:
+	_aim = dir
+
+
+## Set the shown activity directly (work layer: the choreography owns state).
+func set_display_state(state: int) -> void:
+	if _activity == state:
+		return
+	_activity = state
 	_apply_state_visual()
 
 
@@ -164,9 +228,13 @@ func _process(delta: float) -> void:
 # attention direction, narrow end at the core. Built basis-first (not look_at)
 # because the mesh axis is +Y, not -Z.
 func _orient_gaze_cone() -> void:
-	if _model == null or gaze_cone == null or not gaze_cone.visible:
+	if gaze_cone == null or not gaze_cone.visible:
 		return
-	var gdir: Vector3 = _model.gaze_dir()
+	var gdir: Vector3 = _aim
+	if gdir.length() < 0.001:
+		if _model == null:
+			return
+		gdir = _model.gaze_dir()
 	if gdir.length() < 0.001:
 		return
 	var basis := _basis_from_y(gdir.normalized())
@@ -197,9 +265,11 @@ func _animate_motion() -> void:
 			core.position.y = sin(_time * 1.2) * 0.02
 			_set_emission(0.3)
 		ACT_WORKING:
+			# Slow breathing (~0.8 Hz, ±10 %) — the beam, ring and caption carry
+			# "working"; a 6 Hz flicker only reads as noise in the headset.
 			core.position.y = 0.0
-			var pulse: float = 0.5 + 0.5 * sin(_time * 6.0)
-			_set_emission(0.4 + pulse * 0.5)
+			var pulse: float = sin(_time * 5.0)
+			_set_emission(0.55 + pulse * 0.06)
 		ACT_AWAITING:
 			# Saturated colour and a sharper attention bob — this is the state
 			# the operator must act on.
@@ -239,6 +309,11 @@ func _apply_state_visual() -> void:
 
 func _refresh_badge() -> void:
 	if badge == null:
+		return
+	if _work_layer:
+		var keep_a: float = badge.modulate.a
+		badge.text = _display_name if _caption.is_empty() else "%s\n%s" % [_display_name, _caption]
+		badge.modulate = Color(COLOR_WORK_BADGE.r, COLOR_WORK_BADGE.g, COLOR_WORK_BADGE.b, keep_a)
 		return
 	var mark: String = "✓" if _verified else "?"
 	var short: String = _short_did(_did)
