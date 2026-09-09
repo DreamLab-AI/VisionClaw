@@ -42,7 +42,7 @@ func _probe_capabilities(xr_interface: XRInterface) -> void:
 	# XR_EXT_eye_gaze_interaction action-map binding blindly, which is the bug
 	# that trips the action-map error. Head-gaze stays primary; GraphScene feeds
 	# this same capability to the Rust gaze resolver, which degrades eye-gaze to
-	# head when unsupported. Quest 3 (the floor device) returns false here.
+	# head when unsupported. SteamVR on the Vive and Quest 3 both return false here.
 	var eye_gaze_supported: bool = false
 	if xr_interface.has_method("is_eye_gaze_interaction_supported"):
 		eye_gaze_supported = xr_interface.is_eye_gaze_interaction_supported()

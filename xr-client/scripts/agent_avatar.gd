@@ -6,8 +6,8 @@ extends Node3D
 ## by the Rust attention output, and a screen-facing DID badge. Every threshold
 ## and state transition lives in Rust (`avatar_state.rs` → AgentAvatarNode); this
 ## script only wires those outputs to scene nodes and animates colour/motion.
-## Body/face tracking are out of scope (Quest 3 has no hardware) and never
-## appear here.
+## Body/face tracking are out of scope (neither the Vive/SteamVR rig nor a
+## standalone headset exposes them to us) and never appear here.
 
 # Activity ordinals mirror AgentActivity::as_u8 (agent_presence.rs:72).
 const ACT_IDLE: int = 0

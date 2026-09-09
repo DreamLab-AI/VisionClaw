@@ -6,7 +6,7 @@
  * the GemNodes instanced-mesh render loop.
  */
 
-import { useTransientBeamStore } from '../../store/transientBeamStore';
+import { useTransientBeamStore, type TransientBeam } from '../../store/transientBeamStore';
 
 const IDLE_THRESHOLD_MS = 15_000;
 
@@ -19,22 +19,38 @@ const targets = new Map<string, WorkEntry>();
 let lastProcessedBeamId = -1;
 let unsub: (() => void) | null = null;
 
+function ingest(beams: ReadonlyArray<TransientBeam>): void {
+  for (const beam of beams) {
+    if (beam.id <= lastProcessedBeamId) continue;
+    lastProcessedBeamId = beam.id;
+    const agentId = String(beam.sourceAgentId);
+    const existing = targets.get(agentId);
+    if (!existing || beam.startTime > existing.lastBeamStartMs) {
+      targets.set(agentId, {
+        targetNodeId: String(beam.targetNodeId),
+        lastBeamStartMs: beam.startTime,
+      });
+    }
+  }
+}
+
 function ensureSubscribed(): void {
   if (unsub) return;
-  unsub = useTransientBeamStore.subscribe(state => {
-    for (const beam of state.beams) {
-      if (beam.id <= lastProcessedBeamId) continue;
-      lastProcessedBeamId = beam.id;
-      const agentId = String(beam.sourceAgentId);
-      const existing = targets.get(agentId);
-      if (!existing || beam.startTime > existing.lastBeamStartMs) {
-        targets.set(agentId, {
-          targetNodeId: String(beam.targetNodeId),
-          lastBeamStartMs: beam.startTime,
-        });
-      }
-    }
-  });
+  unsub = useTransientBeamStore.subscribe(state => ingest(state.beams));
+  // zustand's subscribe only fires on *subsequent* changes. Beams already in
+  // the store when the first render-loop lookup arrives would otherwise stay
+  // invisible until the next batch, so drain the current state right away.
+  ingest(useTransientBeamStore.getState().beams);
+}
+
+/** Test-only: drop all tracked targets and the store subscription. */
+export function resetAgentWorkTargets(): void {
+  targets.clear();
+  lastProcessedBeamId = -1;
+  if (unsub) {
+    unsub();
+    unsub = null;
+  }
 }
 
 export type AgentWorkState = 'working' | 'done';

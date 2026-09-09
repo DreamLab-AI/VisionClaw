@@ -15,19 +15,22 @@ const MUTUAL_GAZE_DOT: float = 0.9
 # HTTP origin for the intervention decide POST, derived from the ws:// backend
 # base by scheme swap (ws→http, wss→https) unless XR_BACKEND_HTTP overrides.
 
-# Reconnect with exponential backoff, unbounded: a Quest sleeping in its case
-# must rejoin when it wakes, however long that takes.
+# Reconnect with exponential backoff, unbounded: a headset that goes to sleep
+# (SteamVR standby, a standalone HMD in its case) must rejoin when it wakes,
+# however long that takes.
 const RECONNECT_BASE_DELAY_SEC: float = 2.0
 const RECONNECT_MAX_DELAY_SEC: float = 60.0
 
-# Quest render budgets. When the graph exceeds these, the most important
-# nodes (by server-computed centrality) and the heaviest edges (by weight)
-# are kept — same importance language as the desktop client.
+# Render budgets, sized for the lowest-spec headset we target (a standalone
+# HMD) and therefore comfortably safe on the deployed Vive/SteamVR desktop rig.
+# When the graph exceeds these, the most important nodes (by server-computed
+# centrality) and the heaviest edges (by weight) are kept — same importance
+# language as the desktop client.
 # Instance budgets are now RUNTIME-DERIVED from the received topology (the backend
 # serves a settings-driven initial load that can exceed any fixed constant), not
 # hardcoded quality gates. Node budget = topology node count, edge budget =
 # topology edge count, each bounded by an absolute safety ceiling so a runaway
-# payload can't blow the Quest instance buffers. See _recompute_instance_budgets.
+# payload can't blow the MultiMesh instance buffers. See _recompute_instance_budgets.
 const NODE_SAFETY_CEILING: int = 20000
 const EDGE_SAFETY_CEILING: int = 20000
 
@@ -68,7 +71,7 @@ const DEFAULT_BACKEND_WS := "ws://localhost:4000"
 const GRAPH_STREAM_PATH := "/wss"
 const PRESENCE_PATH := "/ws/presence"
 const DEFAULT_ROOM_URN := "urn:visionclaw:room:sha256-12-deadbeefcafe"
-const DEFAULT_DISPLAY_NAME := "Quest User"
+const DEFAULT_DISPLAY_NAME := "XR User"
 
 # RES-a / ADR-130 D3 liveness canary the on-device selection loop fires once,
 # the first time the selection arbiter resolves a non-origin agent-node
@@ -686,7 +689,8 @@ func _set_labelled_nodes(ids: PackedInt32Array) -> void:
 # XRBoot — and feed the flag to the Rust gaze resolver, which keeps head-gaze
 # primary and degrades eye-gaze to head unless supported. We never enable the
 # XR_EXT_eye_gaze_interaction action-map binding blindly: the extension stays
-# off on Quest 3 (which returns false), so the action-map error can never fire.
+# off on runtimes that report no support (SteamVR on the Vive, Quest 3), so the
+# action-map error can never fire.
 func _probe_eye_gaze() -> void:
 	var xr: XRInterface = XRServer.find_interface("OpenXR")
 	if xr != null and xr.has_method("is_eye_gaze_interaction_supported"):
@@ -696,7 +700,7 @@ func _probe_eye_gaze() -> void:
 	if _gaze_tracker != null and _gaze_tracker.has_method("set_eye_gaze_supported"):
 		_gaze_tracker.set_eye_gaze_supported(_eye_gaze_supported)
 	if not _eye_gaze_supported:
-		print("GraphScene: eye-gaze unsupported (Quest 3 floor device) -- head-gaze primary")
+		print("GraphScene: eye-gaze unsupported by this OpenXR runtime -- head-gaze primary")
 
 
 func _wire_hud() -> void:
@@ -2554,7 +2558,7 @@ func _on_topology_updated(_edge_count: int) -> void:
 
 # Derive the runtime instance budgets from the received topology, each bounded by
 # its absolute safety ceiling so a runaway settings-driven load can't overrun the
-# Quest instance buffers. Node budget follows the count of topology (edge-endpoint)
+# MultiMesh instance buffers. Node budget follows the count of topology (edge-endpoint)
 # nodes; edge budget follows the topology edge count. When topology carries no
 # edges the node budget stays at the ceiling so the position stream still draws.
 func _recompute_instance_budgets() -> void:
