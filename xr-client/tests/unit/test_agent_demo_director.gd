@@ -111,7 +111,11 @@ func test_start_stagger_real_targets_keepalive_and_stop_retires() -> void:
 	var first: Array = _decode(fake.frames[0])
 	assert_true(Director.is_demo_id(int(first[0]["source"])), "source is a demo wire id")
 	assert_between(int(first[0]["target"]), 1, 8, "target is a REAL node id from the candidate pool")
-	assert_true(String(first[0]["payload"]).begins_with("{\"intent\":\""), "intent caption in payload")
+	# JSON.stringify sorts keys, so assert on the keys, not their order — the Rust
+	# extractor (extract_action_task) reads "intent" by name.
+	var payload_s: String = String(first[0]["payload"])
+	assert_true(payload_s.contains("\"intent\":\""), "intent caption in payload")
+	assert_true(payload_s.contains("\"demo\":true"), "demo provenance in payload")
 	# All six have started by 9.2 s; keep-alives keep evidence under the 30 s TTL.
 	var t := 0.0
 	while t < 9.5:
