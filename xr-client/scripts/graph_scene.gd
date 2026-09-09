@@ -2196,6 +2196,7 @@ var _swarm_sig: String = ""
 const AgentChoreography := preload("res://scripts/agent_choreography.gd")
 const AgentEffects := preload("res://scripts/agent_effects.gd")
 const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
+const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
 const CONVERSATION_LAYER := "conversation"
 const RIM_PADDING_M: float = 0.3     # rim slots sit this far outside the fitted bounds
@@ -2206,6 +2207,7 @@ var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
 var _demo: RefCounted = AgentDemoDirector.new()
 var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
+var _selected_agent_id: String = ""  # last agent the arbiter resolved (caption stays up)
 var _rim_slot_cursor: int = 0
 var _anchor_ids := PackedInt32Array()
 var _anchor_pos := PackedVector3Array()
@@ -2295,8 +2297,14 @@ func _reconcile_embodiment() -> void:
 		var target_world: Vector3 = _server_to_world(_binary_client.node_position(target)) if has_target else Vector3.ZERO
 		_choreo.update_registry(sid, status, has_target, target, target_world)
 		var agent: Node3D = _agents[sid]
+		var task: String = String(_binary_client.agent_task(id))
 		if agent.has_method("set_task_caption"):
-			agent.set_task_caption(String(_binary_client.agent_task(id)))
+			agent.set_task_caption(task)
+		# A live agent whose name carried no role may reveal it in its task line.
+		if agent.has_method("role") and agent.role() == "generic" and agent.has_method("set_role"):
+			var inferred: String = AgentRole.infer(String(agent.get_meta("display_name", "")), task)
+			if inferred != "generic":
+				agent.set_role(inferred)
 	for id: int in _embodied.keys():
 		if not seen.has(id):
 			_despawn_work_agent(id)
@@ -2323,6 +2331,8 @@ func _spawn_work_agent(wire_id: int, sid: String) -> void:
 	agent.set_meta("wire_id", wire_id)
 	if agent.has_method("set_work_identity"):
 		agent.set_work_identity(name_s)
+	if agent.has_method("set_role"):
+		agent.set_role(AgentRole.infer(name_s, ""))
 	var rim: Vector3 = _rim_slot(_rim_slot_cursor)
 	_rim_slot_cursor += 1
 	agent.global_position = rim
@@ -2437,10 +2447,15 @@ func _update_agents(delta: float) -> void:
 					agent.set_alpha(float(p["alpha"]))
 				if agent.has_method("set_aim"):
 					agent.set_aim(p["aim"])
+				var phase: int = p["phase"]
 				if agent.has_method("set_display_state"):
-					var phase: int = p["phase"]
 					var engaged: bool = bool(p["working"]) or (phase == AgentChoreography.PH_TRAVEL and bool(p["has_target"]))
 					agent.set_display_state(1 if engaged else (4 if bool(p["done"]) else 0))
+				# Caption only while a task is being announced (travel/arrive) or
+				# while this agent is the one you selected.
+				if agent.has_method("set_caption_visible"):
+					var announcing: bool = phase == AgentChoreography.PH_TRAVEL or phase == AgentChoreography.PH_ARRIVE
+					agent.set_caption_visible(announcing or agent_id == _selected_agent_id)
 				if _effects != null:
 					if bool(p["working"]) and bool(p["has_target"]):
 						_effects.set_ring(agent_id, p["target_world"])
@@ -2460,8 +2475,20 @@ func _update_agents(delta: float) -> void:
 			agent.set_feature_mask(_lod_policy.agent_feature_mask(level))
 
 	for ev: Dictionary in _choreo.take_events():
-		if _effects != null and String(ev["type"]) == "complete":
+		var kind: String = String(ev["type"])
+		if kind == "complete" and _effects != null:
 			_effects.burst(ev["pos"])
+		elif kind == "handoff" and _effects != null:
+			# Work travels the real edge from the node being left to the next one.
+			var sid: String = ev["id"]
+			var color: Color = AgentEffects.COLOR_PACKET
+			if _agents.has(sid) and (_agents[sid] as Node).has_method("role"):
+				color = AgentRole.color_of((_agents[sid] as Node).role())
+			_effects.send_packets(ev["from"], ev["to"], color)
+		elif kind == "arrive":
+			var sid2: String = ev["id"]
+			if _agents.has(sid2) and (_agents[sid2] as Node).has_method("flash"):
+				(_agents[sid2] as Node).flash()
 	# Beam origins follow the bodies (visual-only; physics untouched).
 	if _anchor_ids.size() > 0 and _binary_client != null and _binary_client.has_method("set_agent_anchors"):
 		_binary_client.set_agent_anchors(_anchor_ids, _anchor_pos)
@@ -2523,6 +2550,7 @@ func _on_selection_made(handle: int, did_nostr: String, _resolver: int) -> void:
 	if not _agent_by_handle.has(handle):
 		return
 	var agent_id: String = _agent_by_handle[handle]
+	_selected_agent_id = agent_id
 	emit_signal("agent_selected", agent_id, did_nostr)
 	# M4-RAY: the arbiter resolved a non-origin agent-node selection — fire the
 	# liveness canary once (RES-a / ADR-130 D3).

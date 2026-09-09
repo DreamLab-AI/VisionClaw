@@ -15,12 +15,22 @@ const BURST_SEC := 1.2
 const BURST_SCALE := 4.0
 const COLOR_WORK := Color(0.30, 0.90, 0.72, 0.85)
 const COLOR_DONE := Color(0.80, 0.95, 1.00, 0.9)
+# Hand-off packets: small solid beads that travel the real edge between the
+# node an agent leaves and the node it moves to (the "work carried along an
+# edge" cue revived from the 2025 desktop code).
+const BEAD_RADIUS := 0.0075
+const BEAD_SPEED := 0.45         # m/s
+const BEAD_SPACING := 0.12       # m between beads of one packet
+const BEAD_COUNT := 3
+const COLOR_PACKET := Color(0.95, 0.95, 1.0, 1.0)
 
 var reduced_motion: bool = false
 
 var _mmi: MultiMeshInstance3D = null
+var _beads_mmi: MultiMeshInstance3D = null
 var _rings: Dictionary = {}   # key -> {pos: Vector3, color: Color}
 var _bursts: Array = []       # [{pos, t, color}]
+var _beads: Array = []        # [{from, to, t, dur, delay, color}]
 var _time: float = 0.0
 var _head: Vector3 = Vector3.ZERO
 
@@ -47,9 +57,48 @@ func _ready() -> void:
 	_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_mmi)
 
+	var bead := SphereMesh.new()
+	bead.radius = BEAD_RADIUS
+	bead.height = BEAD_RADIUS * 2.0
+	bead.radial_segments = 8
+	bead.rings = 4
+	var bead_mat := StandardMaterial3D.new()
+	bead_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bead_mat.vertex_color_use_as_albedo = true
+	bead.material = bead_mat
+	var bmm := MultiMesh.new()
+	bmm.transform_format = MultiMesh.TRANSFORM_3D
+	bmm.use_colors = true
+	bmm.mesh = bead
+	_beads_mmi = MultiMeshInstance3D.new()
+	_beads_mmi.name = "BeadMulti"
+	_beads_mmi.multimesh = bmm
+	_beads_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_beads_mmi)
+
 
 func set_head(p: Vector3) -> void:
 	_head = p
+
+
+## Send a packet of beads from `from` to `to` (world metres) along a real edge.
+## No-op under reduced motion (a travelling object is exactly what it forbids).
+func send_packets(from: Vector3, to: Vector3, color: Color = COLOR_PACKET, count: int = BEAD_COUNT) -> void:
+	if reduced_motion:
+		return
+	var dist: float = from.distance_to(to)
+	if dist < 0.02:
+		return
+	var dur: float = dist / BEAD_SPEED
+	for i: int in range(maxi(count, 1)):
+		_beads.append({
+			"from": from, "to": to, "t": 0.0, "dur": dur,
+			"delay": float(i) * BEAD_SPACING / BEAD_SPEED, "color": color,
+		})
+
+
+func bead_count() -> int:
+	return _beads.size()
 
 
 func set_ring(key: String, pos: Vector3, color: Color = COLOR_WORK) -> void:
@@ -63,6 +112,7 @@ func clear_ring(key: String) -> void:
 func clear_all() -> void:
 	_rings.clear()
 	_bursts.clear()
+	_beads.clear()
 
 
 func burst(pos: Vector3, color: Color = COLOR_DONE) -> void:
@@ -85,7 +135,14 @@ func _process(delta: float) -> void:
 		if float(b["t"]) < BURST_SEC:
 			alive.append(b)
 	_bursts = alive
+	var live_beads: Array = []
+	for b: Dictionary in _beads:
+		b["t"] = float(b["t"]) + delta
+		if float(b["t"]) < float(b["delay"]) + float(b["dur"]):
+			live_beads.append(b)
+	_beads = live_beads
 	_rebuild()
+	_rebuild_beads()
 
 
 func _rebuild() -> void:
@@ -111,6 +168,26 @@ func _rebuild() -> void:
 		c.a *= 1.0 - u
 		mm.set_instance_transform(i, _facing_transform(b["pos"], s))
 		mm.set_instance_color(i, c)
+		i += 1
+
+
+func _rebuild_beads() -> void:
+	if _beads_mmi == null or _beads_mmi.multimesh == null:
+		return
+	var mm: MultiMesh = _beads_mmi.multimesh
+	# Beads still waiting on their spacing delay are not drawn.
+	var visible_beads: Array = []
+	for b: Dictionary in _beads:
+		if float(b["t"]) >= float(b["delay"]):
+			visible_beads.append(b)
+	if mm.instance_count != visible_beads.size():
+		mm.instance_count = visible_beads.size()
+	var i: int = 0
+	for b: Dictionary in visible_beads:
+		var u: float = clampf((float(b["t"]) - float(b["delay"])) / maxf(float(b["dur"]), 0.001), 0.0, 1.0)
+		var p: Vector3 = (b["from"] as Vector3).lerp(b["to"], u)
+		mm.set_instance_transform(i, Transform3D(Basis.IDENTITY, p))
+		mm.set_instance_color(i, b["color"])
 		i += 1
 
 

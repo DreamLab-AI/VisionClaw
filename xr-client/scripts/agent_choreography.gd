@@ -230,7 +230,16 @@ func _check_rest_transitions(id: String, a: Dictionary) -> void:
 
 
 func _begin_travel(id: String, a: Dictionary) -> void:
+	# A hand-off: leaving one node for another while still working. The effects
+	# layer draws the work travelling the edge between the two nodes.
+	var prev_target: int = int(a["working_target"])
+	if prev_target >= 0 and prev_target != int(a["target_id"]) and a.has("working_target_world"):
+		_events.append({
+			"type": "handoff", "id": id, "target_id": a["target_id"],
+			"from": a["working_target_world"], "to": a["target_world"], "pos": a["target_world"],
+		})
 	a["working_target"] = a["target_id"]
+	a["working_target_world"] = a["target_world"]
 	a["slot"] = _work_slot(a)
 	_setup_move(a, a["slot"], TRAVEL_SPEED, TRAVEL_MIN_SEC, TRAVEL_MAX_SEC)
 	_alpha_goal(a, 1.0, BRIGHTEN_SEC)
@@ -240,6 +249,7 @@ func _begin_travel(id: String, a: Dictionary) -> void:
 
 func _begin_park(id: String, a: Dictionary) -> void:
 	a["working_target"] = -1
+	a.erase("working_target_world")
 	var rim: Vector3 = _away_from_head(a["rim"])
 	_setup_move(a, rim, PARK_SPEED, PARK_MIN_SEC, PARK_MAX_SEC)
 	_alpha_goal(a, ALPHA_PARKED, FADE_SEC)

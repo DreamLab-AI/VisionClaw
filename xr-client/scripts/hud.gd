@@ -189,6 +189,10 @@ const KEY_PANEL_GRAB: Color = Color(1.0, 0.72, 0.32)         # spatial_environme
 const KEY_AVATAR_IDLE: Color = Color(0.42, 0.6, 0.9)         # agent_avatar.gd COLOR_IDLE
 const KEY_AVATAR_AWAITING: Color = Color(1.0, 0.62, 0.12)    # agent_avatar.gd COLOR_AWAITING
 const KEY_AVATAR_SPEAKING: Color = Color(0.7, 0.85, 1.0)     # agent_avatar.gd COLOR_SPEAKING
+# Role accents mirror agent_role.gd ROLES (silhouette + 2-letter badge also differ).
+const KEY_ROLE_COLORS: Array[Color] = [
+	Color("#56CFE1"), Color("#F6BD60"), Color("#7B9EFF"), Color("#D98ACD"), Color("#8FD175"), Color("#F08A62"),
+]
 const KEY_META: StringName = &"key"                          # set on every key row (label text) — tests count these
 const SWATCH_PX: int = 34
 const KEY_REGION_H: int = 452                                # header + region must fit the 532px page host
@@ -650,6 +654,7 @@ func _key_sections() -> Array:
 			[[SWARM_STATUS_COLORS[1]], "Working", "Embodied agent busy"],
 			[[KEY_AVATAR_AWAITING], "Awaiting input", "Embodied agent waiting on you"],
 			[[KEY_AVATAR_SPEAKING], "Speaking", "Embodied agent talking"],
+			[KEY_ROLE_COLORS, "Roles AR AN CO RE TE OP", "Architect cyan cage · Analyst amber ring · Coder blue chevrons · Reviewer magenta diamond · Tester green fins · Optimizer orange hoops"],
 		]},
 	]
 

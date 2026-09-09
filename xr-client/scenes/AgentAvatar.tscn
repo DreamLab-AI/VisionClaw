@@ -12,10 +12,17 @@
 [ext_resource type="Material" uid="uid://b3xrmatcone01" path="res://materials/gaze_cone.tres" id="3_cone"]
 
 [sub_resource type="SphereMesh" id="SphereMesh_core"]
-radius = 0.15
-height = 0.3
-radial_segments = 24
-rings = 12
+radius = 0.14
+height = 0.28
+radial_segments = 12
+rings = 6
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_pointer"]
+top_radius = 0.0
+bottom_radius = 0.022
+height = 0.09
+radial_segments = 8
+rings = 1
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_cone"]
 top_radius = 0.28
@@ -30,9 +37,9 @@ cap_bottom = false
 size = Vector2(0.3, 0.3)
 
 [sub_resource type="LabelSettings" id="LabelSettings_badge"]
-font_size = 22
-outline_size = 4
-outline_color = Color(0, 0, 0, 0.8)
+font_size = 64
+outline_size = 6
+outline_color = Color(0, 0, 0, 0.85)
 
 [node name="AgentAvatar" type="Node3D"]
 script = ExtResource("1_agent")
@@ -50,12 +57,20 @@ material_override = ExtResource("2_orb")
 mesh = SubResource("CylinderMesh_cone")
 material_override = ExtResource("3_cone")
 
+[node name="RoleFrame" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+
+[node name="Pointer" type="MeshInstance3D" parent="."]
+visible = false
+cast_shadow = 0
+mesh = SubResource("CylinderMesh_pointer")
+
 [node name="Badge" type="Label3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.31, 0)
 billboard = 1
 double_sided = true
 no_depth_test = false
-fixed_size = true
-pixel_size = 0.0006
+fixed_size = false
+pixel_size = 0.0011
 text = ""
 label_settings = SubResource("LabelSettings_badge")

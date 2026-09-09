@@ -116,6 +116,56 @@ func test_apply_signal_drives_activity_state():
 	await get_tree().process_frame
 
 
+# Work-layer embodiment (ADR-2109 / plan §2.2): role frame + accent, pointer
+# instead of the social gaze cone, badge letters, gated caption, whole-body alpha.
+func test_work_identity_uses_pointer_role_frame_and_gated_caption() -> void:
+	var agent: Node3D = await _make_agent()
+	agent.set_work_identity("Demo-Reviewer")
+	agent.set_role("reviewer")
+	agent.set_feature_mask(FEAT_BADGE | FEAT_CONE | FEAT_CORE_MESH)
+	await get_tree().process_frame
+	assert_eq(agent.role(), "reviewer")
+	var frame: MeshInstance3D = agent.get_node("RoleFrame")
+	assert_not_null(frame.mesh, "role frame mesh assigned")
+	assert_true(frame.visible, "frame shows with the core mesh")
+	assert_false(agent.get_node("GazeCone").visible, "work layer hides the social gaze cone even at High LOD")
+	var pointer: MeshInstance3D = agent.get_node("Pointer")
+	assert_false(pointer.visible, "no aim → no pointer")
+	agent.set_aim(Vector3(1, 0, 0))
+	await get_tree().process_frame
+	assert_true(pointer.visible, "aim → pointer shows")
+	assert_almost_eq(pointer.transform.basis.y, Vector3(1, 0, 0), Vector3(0.001, 0.001, 0.001), "pointer +Y follows the aim")
+	assert_gt(pointer.position.x, agent.CORE_RADIUS, "pointer sits outside the core")
+	var badge: Label3D = agent.get_node("Badge")
+	assert_false(badge.fixed_size, "world-size badge")
+	assert_true(badge.text.begins_with("RE  Demo-Reviewer"), "badge letters + name")
+	assert_false(badge.text.contains("unverified"), "work layer never shows a DID line")
+	agent.set_task_caption("Reviewing: Access policy")
+	assert_true(badge.text.contains("Reviewing"), "caption shown by default")
+	agent.set_caption_visible(false)
+	assert_false(badge.text.contains("Reviewing"), "caption hidden when not announcing/selected")
+	agent.set_alpha(0.3)
+	assert_almost_eq(agent.alpha(), 0.3, 0.001)
+	assert_almost_eq(badge.modulate.a, 0.3, 0.001, "badge fades with the body")
+	assert_almost_eq((frame.material_override as StandardMaterial3D).albedo_color.a, 0.3, 0.001, "frame fades with the body")
+	agent.set_alpha(1.0)
+	assert_eq((frame.material_override as StandardMaterial3D).transparency, BaseMaterial3D.TRANSPARENCY_DISABLED, "opaque frame while working")
+	agent.queue_free()
+	await get_tree().process_frame
+
+
+func test_conversation_layer_keeps_gaze_cone_and_generic_frame() -> void:
+	var agent: Node3D = await _make_agent()
+	agent.set_avatar_identity("Planner", "did:nostr:" + "a".repeat(64), true)
+	agent.set_feature_mask(FEAT_BADGE | FEAT_CONE | FEAT_CORE_MESH)
+	assert_true(agent.get_node("GazeCone").visible, "conversation layer keeps the gaze cone")
+	assert_false(agent.get_node("Pointer").visible, "no pointer outside the work layer")
+	assert_eq(agent.role(), "generic")
+	assert_not_null((agent.get_node("RoleFrame") as MeshInstance3D).mesh, "generic hoop present")
+	agent.queue_free()
+	await get_tree().process_frame
+
+
 func test_gaze_cone_basis_aligns_y_with_gaze():
 	var agent: Node3D = await _make_agent()
 	var gaze := Vector3(1.0, 0.0, -1.0).normalized()

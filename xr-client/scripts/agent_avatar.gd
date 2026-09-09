@@ -44,7 +44,15 @@ const CONE_LENGTH: float = 0.6
 @onready var core: MeshInstance3D = $Core
 @onready var core_billboard: MeshInstance3D = $CoreBillboard
 @onready var gaze_cone: MeshInstance3D = $GazeCone
+@onready var role_frame: MeshInstance3D = $RoleFrame
+@onready var pointer: MeshInstance3D = $Pointer
 @onready var badge: Label3D = $Badge
+
+const AgentRole := preload("res://scripts/agent_role.gd")
+const CORE_RADIUS: float = 0.14
+const POINTER_LENGTH: float = 0.09
+const POINTER_GAP: float = 0.004
+const FLASH_SEC: float = 0.6
 
 # Rust AgentAvatarNode — owns the activity machine + gaze-attention model.
 var _model: RefCounted = null
@@ -66,9 +74,17 @@ var _verified: bool = false
 # the choreography rather than by the Rust conversation-state machine.
 var _work_layer: bool = false
 var _caption: String = ""
+var _caption_visible: bool = true
 var _aim: Vector3 = Vector3.ZERO
 var _cone_mat: StandardMaterial3D = null
 var _cone_base_alpha: float = 1.0
+# Role silhouette + accent (agent_role.gd). Conversation-layer avatars keep the
+# gaze cone as their attention cue; work-layer avatars use the pointer instead.
+var _role: String = "generic"
+var _frame_mat: StandardMaterial3D = null
+var _cone_enabled: bool = true
+var _flash_t: float = 0.0
+var _alpha: float = 1.0
 
 
 func _ready() -> void:
@@ -88,6 +104,16 @@ func _ready() -> void:
 		_cone_mat = gaze_cone.material_override.duplicate()
 		_cone_base_alpha = _cone_mat.albedo_color.a
 		gaze_cone.material_override = _cone_mat
+	# Frame + pointer share one unshaded, per-avatar material in the role accent.
+	_frame_mat = StandardMaterial3D.new()
+	_frame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_frame_mat.emission_enabled = true
+	_frame_mat.emission_energy_multiplier = 0.35
+	if role_frame != null:
+		role_frame.material_override = _frame_mat
+	if pointer != null:
+		pointer.material_override = _frame_mat
+	_apply_role()
 
 	var comfort := get_tree().get_first_node_in_group("xr_visual_environment")
 	if comfort != null:
@@ -137,14 +163,21 @@ func activity() -> int:
 	return _activity
 
 
-## Whole-body alpha: core (+ billboard), pointer cone and badge together, so a
-## parked agent reads as one faded object rather than a bright badge on a ghost.
+## Whole-body alpha: core (+ billboard), frame, pointer, cone and badge together,
+## so a parked agent reads as one faded object rather than a bright badge on a
+## ghost. Frame/pointer stay opaque above 0.99 (no sorting cost while working).
 func set_alpha(a: float) -> void:
 	var alpha: float = clampf(a, 0.0, 1.0)
+	_alpha = alpha
+	var faded: bool = alpha < 0.99
 	if _core_mat != null:
-		_core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if alpha < 0.99 else BaseMaterial3D.TRANSPARENCY_DISABLED
+		_core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if faded else BaseMaterial3D.TRANSPARENCY_DISABLED
 		var c := _core_mat.albedo_color
 		_core_mat.albedo_color = Color(c.r, c.g, c.b, alpha)
+	if _frame_mat != null:
+		_frame_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if faded else BaseMaterial3D.TRANSPARENCY_DISABLED
+		var fc := _frame_mat.albedo_color
+		_frame_mat.albedo_color = Color(fc.r, fc.g, fc.b, alpha)
 	if _cone_mat != null:
 		var cc := _cone_mat.albedo_color
 		_cone_mat.albedo_color = Color(cc.r, cc.g, cc.b, _cone_base_alpha * alpha)
@@ -154,7 +187,48 @@ func set_alpha(a: float) -> void:
 
 
 func alpha() -> float:
-	return _core_mat.albedo_color.a if _core_mat != null else 1.0
+	return _alpha
+
+
+## Assign a role (agent_role.gd key): silhouette frame, accent colour, badge
+## letters. Unknown keys fall back to the generic hoop.
+func set_role(key: String) -> void:
+	var k: String = key if AgentRole.is_role(key) else "generic"
+	if k == _role and role_frame != null and role_frame.mesh != null:
+		return
+	_role = k
+	_apply_role()
+
+
+func role() -> String:
+	return _role
+
+
+func _apply_role() -> void:
+	if role_frame != null:
+		role_frame.mesh = AgentRole.frame_mesh(_role)
+	if _frame_mat != null:
+		var c: Color = AgentRole.color_of(_role)
+		_frame_mat.albedo_color = Color(c.r, c.g, c.b, _frame_mat.albedo_color.a)
+		_frame_mat.emission = c
+	_refresh_badge()
+
+
+## Brief emission swell on arrival ("intent flash", 600 ms). Skipped under
+## reduced motion — a static arrival ring carries the cue instead.
+func flash() -> void:
+	if _reduced_motion:
+		return
+	_flash_t = FLASH_SEC
+
+
+## Show or hide the task caption line (shown while travelling/arriving and
+## while selected, so six permanent captions never crowd the graph).
+func set_caption_visible(v: bool) -> void:
+	if _caption_visible == v:
+		return
+	_caption_visible = v
+	_refresh_badge()
 
 
 func set_activity_done() -> void:
@@ -166,6 +240,10 @@ func set_activity_done() -> void:
 func set_work_identity(display_name: String) -> void:
 	_work_layer = true
 	_display_name = display_name
+	# Work layer: pointer instead of the social gaze cone.
+	_cone_enabled = false
+	if gaze_cone != null:
+		gaze_cone.visible = false
 	_refresh_badge()
 
 
@@ -205,9 +283,16 @@ func set_feature_mask(mask: int) -> void:
 	if badge != null:
 		badge.visible = (mask & FEAT_BADGE) != 0
 	if gaze_cone != null:
-		gaze_cone.visible = (mask & FEAT_CONE) != 0
+		gaze_cone.visible = (mask & FEAT_CONE) != 0 and _cone_enabled
+	var core_on: bool = (mask & FEAT_CORE_MESH) != 0
 	if core != null:
-		core.visible = (mask & FEAT_CORE_MESH) != 0
+		core.visible = core_on
+	# Frame and pointer live and die with the full core mesh (never below 4 m
+	# in practice: the LOD swaps to the billboard at 15 m).
+	if role_frame != null:
+		role_frame.visible = core_on
+	if pointer != null:
+		pointer.visible = core_on and _work_layer and _aim.length_squared() > 0.000001
 	if core_billboard != null:
 		core_billboard.visible = (mask & FEAT_CORE_BILLBOARD) != 0
 	visible = mask != 0
@@ -220,8 +305,30 @@ func _on_activity_changed(state: int) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if _flash_t > 0.0:
+		_flash_t = maxf(_flash_t - delta, 0.0)
 	_orient_gaze_cone()
+	_orient_pointer()
 	_animate_motion()
+
+
+# Pointer: a small cone whose tip points along the aim direction, its base just
+# off the core surface. The CylinderMesh axis is +Y (tip at +Y/2).
+func _orient_pointer() -> void:
+	if pointer == null:
+		return
+	var show: bool = _work_layer and (_feature_mask & FEAT_CORE_MESH) != 0 and _aim.length_squared() > 0.000001
+	pointer.visible = show
+	if not show:
+		return
+	var d: Vector3 = _aim.normalized()
+	var basis := _basis_from_y(d)
+	pointer.transform = Transform3D(basis, d * (CORE_RADIUS + POINTER_GAP + POINTER_LENGTH * 0.5))
+
+
+## Take a role-accent emission boost from the arrival flash (0..1).
+func flash_level() -> float:
+	return clampf(_flash_t / FLASH_SEC, 0.0, 1.0)
 
 
 # Orient the gaze cone so its axis (the CylinderMesh +Y) lies along the Rust
@@ -286,8 +393,11 @@ func _animate_motion() -> void:
 
 
 func _set_emission(energy: float) -> void:
+	var boost: float = flash_level() * 0.9
 	if _core_mat != null:
-		_core_mat.emission_energy_multiplier = energy
+		_core_mat.emission_energy_multiplier = energy + boost
+	if _frame_mat != null:
+		_frame_mat.emission_energy_multiplier = 0.35 + boost
 
 
 func _apply_state_visual() -> void:
@@ -312,7 +422,9 @@ func _refresh_badge() -> void:
 		return
 	if _work_layer:
 		var keep_a: float = badge.modulate.a
-		badge.text = _display_name if _caption.is_empty() else "%s\n%s" % [_display_name, _caption]
+		var head: String = "%s  %s" % [AgentRole.badge_of(_role), _display_name]
+		var show_caption: bool = _caption_visible and not _caption.is_empty()
+		badge.text = head if not show_caption else "%s\n%s" % [head, _caption]
 		badge.modulate = Color(COLOR_WORK_BADGE.r, COLOR_WORK_BADGE.g, COLOR_WORK_BADGE.b, keep_a)
 		return
 	var mark: String = "✓" if _verified else "?"
