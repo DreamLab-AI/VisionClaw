@@ -66,6 +66,25 @@ head-gaze stays primary. `GraphScene.tscn` → `graph_scene.gd` (3326 lines) is 
 runtime: it holds the `GraphRoot/NodesMulti`, `GraphRoot/EdgesMulti` and
 `GraphRoot/AgentMulti` MultiMeshInstance3D nodes (`graph_scene.gd:381-385`).
 
+### Agent embodiment (ADR-2109)
+Two layers, deliberately separate (ADR-140 D5). The **work layer** is every id
+in the Rust agent registry (fed by `0x23 AGENT_ACTION` frames): embodied at
+~4 Hz by `_reconcile_embodiment` with the `AgentAvatar` template under the
+unit-scale `AgentsRoot` (never under `GraphRoot`, so avatars keep physical size
+while the graph is fitted). Exactly one writer owns a work-layer avatar's
+position and alpha: `scripts/agent_choreography.gd` (materialise at a rim slot →
+travel at ~0.32 m/s → work 0.32 m off the node → explicit complete → park to the
+rim at 0.3 alpha → rest → re-task). Work cues — the beam (`AgentMulti`, origin
+synchronised to the body via `set_agent_anchors`), a pulsing node ring and a
+completion burst (`scripts/agent_effects.gd` under `AgentEffectsRoot`) — follow
+the registry. The **conversation layer** (`spawn_agent`, did:nostr keyed) is the
+only thing the proxemics arc places. **Demo mode** is `scripts/agent_demo_director.gd`
+alone: it produces real `0x23` frames into `ingest()` (wire ids
+`0x80000000|0xD001..`, payload `"demo":true`), reports completion via
+`apply_agent_state`, and `retire_agents` on Stop; the scene has no demo branch and
+labels demo rows "[demo]". Reduced motion (comfort default) turns travel into
+fade/relocate/fade.
+
 ### HUD structure (hud.gd)
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
 SubViewport shown on a world-space, wand-grabbable quad — one source of truth so
@@ -235,6 +254,12 @@ intent; the stale exclusion paragraph above it should be read as superseded.
 6. `XR_NOSTR_SECRET` required for drag/pin/presence; NIP-98 header URL must be the
    exact request URL incl. query.
 7. DAG-rank detection must accept the ingest's collapsed `hierarchical` label.
+8. Work-layer embodiments have ONE pose writer (`agent_choreography.gd`); the
+   proxemics arc, nudges or drifts must never write their transforms. Avatars
+   and effects sit under unit-scale roots, never under `GraphRoot` (ADR-2109).
+9. Demo mode enters only through the real registry doors (`ingest`,
+   `apply_agent_state`, `retire_agents`) from `agent_demo_director.gd`; no
+   scene-side demo rendering branch, no synthetic position frames (ADR-2109).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
