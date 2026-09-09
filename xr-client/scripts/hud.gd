@@ -403,12 +403,6 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_agent_button)
 	page.add_child(g3)
 
-	page.add_child(_group_header("Demo"))
-	var g_demo := _grid(1)
-	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Inject 6 synthetic demo agents that cycle through work→idle to exercise sprites, nudges and fade")
-	g_demo.add_child(_demo_button)
-	page.add_child(g_demo)
-
 	page.add_child(_group_header("Status"))
 	_controls_status = _mk_label("repelK --  restLen --  edges --  node x--", "Live physics & layout state")
 	_controls_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -533,6 +527,8 @@ func _build_swarm_page() -> VBoxContainer:
 	page.add_child(_group_header("Agent Swarm"))
 	_swarm_count_label = _mk_label("0 agents", "Live agents working the graph")
 	page.add_child(_swarm_count_label)
+	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Inject 6 synthetic demo agents that cycle through work→idle to exercise sprites, nudges and fade")
+	page.add_child(_demo_button)
 	var region := _scroll_region(360)
 	_swarm_list = VBoxContainer.new()
 	_swarm_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
