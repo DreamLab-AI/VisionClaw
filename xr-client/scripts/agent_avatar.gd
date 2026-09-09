@@ -14,6 +14,7 @@ const ACT_IDLE: int = 0
 const ACT_WORKING: int = 1
 const ACT_AWAITING: int = 2
 const ACT_SPEAKING: int = 3
+const ACT_DONE: int = 4
 
 # LOD feature bits mirror lod.rs AGENT_FEAT_* (agent_feature_mask).
 const FEAT_BADGE: int = 1
@@ -28,6 +29,7 @@ const COLOR_IDLE: Color = Color(0.42, 0.6, 0.9)
 const COLOR_WORKING: Color = Color(0.3, 0.9, 0.72)
 const COLOR_AWAITING: Color = Color(1.0, 0.62, 0.12)
 const COLOR_SPEAKING: Color = Color(0.7, 0.85, 1.0)
+const COLOR_DONE: Color = Color(0.55, 0.55, 0.6)
 
 const COLOR_VERIFIED: Color = Color(0.75, 1.0, 0.82)
 const COLOR_UNVERIFIED: Color = Color(1.0, 0.72, 0.28)
@@ -117,6 +119,21 @@ func activity() -> int:
 	return _activity
 
 
+func set_alpha(a: float) -> void:
+	if _core_mat == null:
+		return
+	_core_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if a < 0.99 else BaseMaterial3D.TRANSPARENCY_DISABLED
+	var c := _core_mat.albedo_color
+	_core_mat.albedo_color = Color(c.r, c.g, c.b, a)
+
+
+func set_activity_done() -> void:
+	if _activity == ACT_DONE:
+		return
+	_activity = ACT_DONE
+	_apply_state_visual()
+
+
 ## Drive per-feature visibility from the Rust LOD feature mask (lod.rs). Badge
 ## drops first, then the cone; the core swaps to a billboard before it culls.
 func set_feature_mask(mask: int) -> void:
@@ -193,6 +210,9 @@ func _animate_motion() -> void:
 			core.position.y = 0.0
 			var talk: float = 0.5 + 0.5 * sin(_time * 9.0)
 			_set_emission(0.5 + talk * 0.35)
+		ACT_DONE:
+			core.position.y = sin(_time * 0.5) * 0.008
+			_set_emission(0.12)
 
 
 func _set_emission(energy: float) -> void:
@@ -211,6 +231,8 @@ func _apply_state_visual() -> void:
 			col = COLOR_AWAITING
 		ACT_SPEAKING:
 			col = COLOR_SPEAKING
+		ACT_DONE:
+			col = COLOR_DONE
 	_core_mat.albedo_color = Color(col.r, col.g, col.b, _core_mat.albedo_color.a)
 	_core_mat.emission = col
 

@@ -29,6 +29,7 @@ import {
   notifyBinaryMessageHandlers,
 } from './connectionManager';
 import { pushTransientBeams } from '../transientBeamStore';
+import { useAgentTargetStore } from '../agentTargetStore';
 import { nodeAnalyticsStore } from '../../features/analytics/store/nodeAnalyticsStore';
 
 const logger = createLogger('WebSocketStore');
@@ -448,6 +449,8 @@ function dispatchAgentActions(actions: ReturnType<typeof binaryProtocol.decodeAg
   // Embodied transient beams (0x23 → TransientBeamsLayer). Distinct sink,
   // pushed in parallel so neither path can starve the other.
   pushTransientBeams(actions);
+  // Agent→target tracking (momentum nudge in BotsVisualization).
+  useAgentTargetStore.getState().pushActions(actions);
 
   if (debugState.isDataDebugEnabled()) {
     logger.debug(`Processed ${actions.length} agent action(s)`);

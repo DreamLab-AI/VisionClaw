@@ -24,6 +24,9 @@ import { getVisionClawColors } from './BotsShared';
 import { agentTrustKey } from '../agentIdentity';
 import { BotsNode } from './BotsNode';
 import { BotsEdges } from './BotsEdges';
+import { useAgentTargetStore } from '../../../store/agentTargetStore';
+import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
+import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus';
 
 const logger = createLogger('BotsVisualization');
 
@@ -134,8 +137,26 @@ export const BotsVisualization: React.FC = () => {
     });
   }, [contextBotsData]);
 
-  // Placeholder frame hook (reserved for future per-frame global logic)
-  useFrame(() => {});
+  // Resolve agent→target KG node positions each frame so BotsNodes can
+  // apply a momentum nudge toward their working area.
+  const agentTargets = useAgentTargetStore(s => s.targets);
+  const nudgeTargetsRef = useRef<Map<string, THREE.Vector3>>(new Map());
+
+  useFrame(() => {
+    const targets = agentTargets;
+    const nudges = nudgeTargetsRef.current;
+    nudges.clear();
+    if (targets.size === 0) return;
+    const positions = sharedNodePositions;
+    const indexMap = sharedNodeIdToIndexMap;
+    if (!positions || indexMap.size === 0) return;
+    for (const [agentWireId, targetNodeId] of targets) {
+      const pos = resolveNodeWorldPosition(targetNodeId, indexMap, positions);
+      if (pos) {
+        nudges.set(String(agentWireId), new THREE.Vector3(pos.x, pos.y, pos.z));
+      }
+    }
+  });
 
   // -------------------------------------------------------------------------
   // Render states
@@ -199,6 +220,7 @@ export const BotsVisualization: React.FC = () => {
             index={index}
             color={nodeColor}
             swarmTint={swarmTint}
+            nudgeTargetsRef={nudgeTargetsRef}
           />
         );
       })}

@@ -781,6 +781,8 @@ func _on_hud_control(action: String) -> void:
 			_request_fold(-1)
 		"unpin_all":
 			_unpin_all()
+		"toggle_demo":
+			_toggle_demo()
 		_:
 			push_warning("GraphScene: unknown HUD control '%s'" % action)
 	_refresh_controls_status()
@@ -800,6 +802,10 @@ func _apply_type_toggle(spec: String) -> void:
 		return
 	var visible: bool = parts[1] == "1"
 	_binary_client.set_type_visible(class_code, visible)
+	# Agent type (2): also toggle the AgentAvatar scene-tree embodiments so they
+	# hide alongside the Rust render store's MultiMesh spheres.
+	if class_code == 2 and agent_spawner != null:
+		agent_spawner.visible = visible
 	# Force the draw domain to rebuild so hidden-class nodes drop immediately.
 	_selection_dirty = true
 
@@ -1318,6 +1324,7 @@ func _physics_process(delta: float) -> void:
 	_update_beam_multimesh()
 	_update_interaction()
 	_update_agents(delta)
+	_tick_demo(delta)
 	_update_selection(delta)
 	_update_voice_listener()
 	_tick_reconnect(delta)
@@ -1328,6 +1335,7 @@ func _physics_process(delta: float) -> void:
 		_label_accum -= LABEL_UPDATE_SEC
 		_update_proximity_labels()
 		_update_swarm_roster()
+		_rebuild_nudge_targets()
 
 
 # Trackpad/stick locomotion: slide the XR rig through the graph. Either wand's
@@ -2059,6 +2067,7 @@ func spawn_agent(agent_id: String, display_name: String, did: String, verified: 
 	agent.set_meta("agent_id", agent_id)
 	agent.set_meta("handle", handle)
 	agent.set_meta("did", did)
+	agent.set_meta("display_name", display_name)
 	if agent.has_method("set_avatar_identity"):
 		agent.set_avatar_identity(display_name, did, verified)
 	_agents[agent_id] = agent
@@ -2158,6 +2167,13 @@ func _resolve_agent_arc() -> void:
 # signature diff avoids rebuilding the row UI every tick). Agent wire ids ARE node
 # ids, so each row's tap → "teleport:<id>" reuses the existing node-teleport glide.
 var _swarm_sig: String = ""
+# Per-agent last-active timestamp (ticks_msec) for fade-to-edge idle detection.
+var _agent_work_state: Dictionary = {}
+const _AGENT_IDLE_THRESHOLD_MS: int = 15_000
+# Per-copresence-agent nudge target (world-space). Built at ~4 Hz in
+# _update_swarm_roster by matching copresence display_names to binary-client
+# agent labels, then read every frame in _update_agents for the lerp.
+var _agent_nudge_targets: Dictionary = {}  # copresence agent_id -> Vector3
 
 
 func _update_swarm_roster() -> void:
@@ -2191,6 +2207,32 @@ func _update_swarm_roster() -> void:
 	hud.set_swarm_roster(rows)
 
 
+func _rebuild_nudge_targets() -> void:
+	_agent_nudge_targets.clear()
+	if _binary_client == null or not _binary_client.has_method("agent_target_node"):
+		return
+	if graph_root == null or _agents.is_empty():
+		return
+	var gxf: Transform3D = graph_root.global_transform
+	# Build label → copresence agent_id lookup (small N, fine at 4 Hz).
+	var label_to_id: Dictionary = {}
+	for aid: String in _agents:
+		var a: Node3D = _agents[aid]
+		var dname: String = a.get_meta("display_name", "")
+		if dname.length() > 0:
+			label_to_id[dname] = aid
+	var ids: PackedInt32Array = _binary_client.agent_ids()
+	for wid: int in ids:
+		var target_id: int = _binary_client.agent_target_node(wid)
+		if target_id < 0:
+			continue
+		var wire_label: String = _binary_client.label_of(wid)
+		if not label_to_id.has(wire_label):
+			continue
+		var server_pos: Vector3 = _binary_client.node_position(target_id)
+		_agent_nudge_targets[label_to_id[wire_label]] = gxf * server_pos
+
+
 func _update_agents(delta: float) -> void:
 	if _agents.is_empty():
 		return
@@ -2204,6 +2246,11 @@ func _update_agents(delta: float) -> void:
 	# Reuse _update_lod's once-per-frame recompute decision (never re-tick here).
 	var recompute_lod: bool = _lod_recompute and _lod_policy != null \
 		and _lod_policy.has_method("agent_feature_mask")
+	# Graph-root transform for server→world position conversion.
+	var has_targets: bool = _binary_client != null \
+		and _binary_client.has_method("agent_target_node") \
+		and graph_root != null
+	var gxf: Transform3D = graph_root.global_transform if has_targets else Transform3D.IDENTITY
 
 	for agent_id: String in _agents:
 		var agent: Node3D = _agents[agent_id]
@@ -2217,6 +2264,32 @@ func _update_agents(delta: float) -> void:
 		if recompute_lod and agent.has_method("set_feature_mask"):
 			var level: int = _lod_policy.classify_distance(dist)
 			agent.set_feature_mask(_lod_policy.agent_feature_mask(level))
+		# Momentum nudge + fade-to-edge. Working agents drift toward their
+		# target node; idle agents (no beam for >15 s) fade to 0.3 alpha and
+		# drift slowly outward from the graph centre, still selectable.
+		if _agent_nudge_targets.has(agent_id):
+			var target_world: Vector3 = _agent_nudge_targets[agent_id]
+			agent.global_position = agent.global_position.lerp(target_world, clampf(0.6 * delta, 0.0, 0.15))
+			_agent_work_state[agent_id] = Time.get_ticks_msec()
+			agent.set_meta("_cur_alpha", 1.0)
+			if agent.has_method("set_alpha"):
+				agent.set_alpha(1.0)
+		elif _agent_work_state.has(agent_id):
+			var elapsed: int = Time.get_ticks_msec() - int(_agent_work_state[agent_id])
+			if elapsed > _AGENT_IDLE_THRESHOLD_MS:
+				if agent.has_method("set_activity_done"):
+					agent.set_activity_done()
+				var cur_a: float = agent.get_meta("_cur_alpha", 1.0)
+				var new_a: float = lerpf(cur_a, 0.3, clampf(2.0 * delta, 0.0, 0.1))
+				agent.set_meta("_cur_alpha", new_a)
+				if agent.has_method("set_alpha"):
+					agent.set_alpha(new_a)
+				if has_targets:
+					var graph_centre: Vector3 = gxf.origin
+					var away: Vector3 = (agent.global_position - graph_centre).normalized()
+					if away.length_squared() < 0.001:
+						away = Vector3.RIGHT
+					agent.global_position += away * 0.15 * delta
 
 
 # Feed the three-resolver arbiter this frame's controller rays, smoothed gaze,
@@ -3384,3 +3457,95 @@ func _plane_binding_label(binding: Dictionary) -> String:
 		var lbl: String = _binary_client.label_of(id) if _binary_client != null else ""
 		return lbl if lbl != "" else str(id)
 	return ""
+
+
+# ── Demo mode — synthetic agent injection ──────────────────────────────────
+# Spawns 6 demo agents that cycle work→idle so the avatar sprite, momentum-
+# nudge, and fade-to-edge features can be exercised without a live swarm.
+# Tagged `demo` so they are unambiguously non-production.
+
+const _DEMO_AGENTS: Array[Dictionary] = [
+	{"suffix": "D001", "label": "Demo-Architect", "type": "architect"},
+	{"suffix": "D002", "label": "Demo-Analyst",   "type": "analyst"},
+	{"suffix": "D003", "label": "Demo-Coder",     "type": "coder"},
+	{"suffix": "D004", "label": "Demo-Reviewer",  "type": "reviewer"},
+	{"suffix": "D005", "label": "Demo-Tester",    "type": "tester"},
+	{"suffix": "D006", "label": "Demo-Optimizer",  "type": "optimizer"},
+]
+const _DEMO_WORK_SEC: float = 12.0
+const _DEMO_IDLE_SEC: float = 8.0
+
+var _demo_running: bool = false
+var _demo_ids: Array[String] = []
+# Per demo agent: { "phase": "working"|"idle", "elapsed": float, "target": Vector3 }
+var _demo_state: Dictionary = {}
+
+
+func _toggle_demo() -> void:
+	if _demo_running:
+		_stop_demo()
+	else:
+		_start_demo()
+
+
+func _start_demo() -> void:
+	if _demo_running:
+		return
+	_demo_running = true
+	for entry: Dictionary in _DEMO_AGENTS:
+		var aid: String = "demo_%s" % entry["suffix"]
+		spawn_agent(aid, String(entry["label"]), "", false)
+		_demo_ids.append(aid)
+		_demo_state[aid] = {"phase": "working", "elapsed": 0.0, "target": _random_graph_point()}
+		_agent_work_state[aid] = Time.get_ticks_msec()
+	if hud != null and hud.has_method("set_demo_active"):
+		hud.set_demo_active(true)
+
+
+func _stop_demo() -> void:
+	if not _demo_running:
+		return
+	_demo_running = false
+	for aid: String in _demo_ids:
+		despawn_agent(aid)
+		_demo_state.erase(aid)
+		_agent_work_state.erase(aid)
+		_agent_nudge_targets.erase(aid)
+	_demo_ids.clear()
+	if hud != null and hud.has_method("set_demo_active"):
+		hud.set_demo_active(false)
+
+
+func _random_graph_point() -> Vector3:
+	if graph_root == null:
+		return Vector3(randf_range(-1.0, 1.0), randf_range(-0.5, 0.5), randf_range(-1.0, 1.0))
+	var gxf: Transform3D = graph_root.global_transform
+	return gxf * Vector3(
+		randf_range(-30.0, 30.0),
+		randf_range(-15.0, 15.0),
+		randf_range(-30.0, 30.0),
+	)
+
+
+func _tick_demo(delta: float) -> void:
+	if not _demo_running:
+		return
+	for aid: String in _demo_ids:
+		if not _demo_state.has(aid):
+			continue
+		var st: Dictionary = _demo_state[aid]
+		st["elapsed"] = float(st["elapsed"]) + delta
+		var phase: String = str(st["phase"])
+		if phase == "working":
+			_agent_nudge_targets[aid] = st["target"] as Vector3
+			_agent_work_state[aid] = Time.get_ticks_msec()
+			if float(st["elapsed"]) >= _DEMO_WORK_SEC:
+				st["phase"] = "idle"
+				st["elapsed"] = 0.0
+				_agent_nudge_targets.erase(aid)
+		elif phase == "idle":
+			if float(st["elapsed"]) >= _DEMO_IDLE_SEC:
+				st["phase"] = "working"
+				st["elapsed"] = 0.0
+				st["target"] = _random_graph_point()
+				_agent_work_state[aid] = Time.get_ticks_msec()

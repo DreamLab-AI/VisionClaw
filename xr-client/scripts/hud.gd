@@ -139,6 +139,8 @@ var _type_agent_button: Button = null
 var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": true}
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
+var _demo_button: Button = null
+var _demo_active: bool = false
 # Query page.
 var _query_summary_label: Label = null
 var _query_count_label: Label = null
@@ -391,7 +393,7 @@ func _build_graph_page() -> VBoxContainer:
 	# class; pressing flips visibility and emits control_pressed
 	# "type_toggle:<class>:<0|1>" (1 = now visible). graph_scene forwards to the
 	# render store's set_type_visible.
-	page.add_child(_group_header("Node Types"))
+	page.add_child(_group_header("Layers"))
 	var g3 := _grid(3)
 	_type_knowledge_button = _type_toggle_btn("Knowledge", "knowledge")
 	_type_ontology_button = _type_toggle_btn("Ontology", "ontology")
@@ -400,6 +402,12 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
 	page.add_child(g3)
+
+	page.add_child(_group_header("Demo"))
+	var g_demo := _grid(1)
+	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Inject 6 synthetic demo agents that cycle through work→idle to exercise sprites, nudges and fade")
+	g_demo.add_child(_demo_button)
+	page.add_child(g_demo)
 
 	page.add_child(_group_header("Status"))
 	_controls_status = _mk_label("repelK --  restLen --  edges --  node x--", "Live physics & layout state")
@@ -839,7 +847,7 @@ func _type_toggle_btn(label: String, key: String) -> Button:
 
 
 func _style_type_toggle(b: Button, label: String, visible: bool) -> void:
-	b.text = "%s %s" % [label, "✓" if visible else "✕"]
+	b.text = "%s %s" % [label, "☑" if visible else "☐"]
 	b.add_theme_color_override("font_color", ACCENT if visible else IDLE)
 
 
@@ -1408,6 +1416,13 @@ func _on_decide_completed(
 	emit_signal("case_decided", decided_case, _last_outcome, accepted)
 	if accepted and _current_case_id == decided_case:
 		clear_case()
+
+
+func set_demo_active(active: bool) -> void:
+	_demo_active = active
+	if _demo_button != null:
+		_demo_button.text = "Stop Agent Demo" if active else "Start Agent Demo"
+		_demo_button.add_theme_color_override("font_color", ACCENT if active else IDLE)
 
 
 func set_visual_comfort(reduced_motion: bool, low_cost: bool) -> void:

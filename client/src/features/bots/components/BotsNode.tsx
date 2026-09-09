@@ -138,9 +138,16 @@ export interface BotsNodeProps {
    * swarm on the flat type colour.
    */
   swarmTint?: boolean;
+  /**
+   * Shared ref map: agent wire id → target KG node world position. When a
+   * target is present the node drifts toward it at medium speed, giving the
+   * visual impression that agents cluster around the area of the graph they
+   * are actively working on.
+   */
+  nudgeTargetsRef?: React.RefObject<Map<string, THREE.Vector3>>;
 }
 
-export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, color, swarmTint = true }) => {
+export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, color, swarmTint = true, nudgeTargetsRef }) => {
   const groupRef   = useRef<THREE.Group>(null);
   const meshRef    = useRef<THREE.Mesh>(null);
   const glowRef    = useRef<THREE.Mesh>(null);
@@ -250,6 +257,18 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
     }
 
     targetPositionRef.current.copy(position);
+
+    // Momentum nudge: if this agent has a target KG node, bias the target
+    // position toward it so the sprite drifts into the working area of the
+    // graph. The blend factor (0.35) gives a medium-speed drift — fast enough
+    // to trend quickly to the mass centre, gentle enough to remain smooth.
+    if (nudgeTargetsRef?.current) {
+      const kgTarget = nudgeTargetsRef.current.get(agent.id);
+      if (kgTarget) {
+        targetPositionRef.current.lerp(kgTarget, 0.35);
+      }
+    }
+
     lerpVector3(currentPositionRef.current, targetPositionRef.current, 0.15);
     groupRef.current.position.copy(currentPositionRef.current);
 

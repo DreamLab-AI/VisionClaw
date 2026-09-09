@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 224,
+  "count": 225,
   "groups": [
     {
       "id": "motion",
@@ -64,7 +64,7 @@
       "label": "Agents",
       "testid": "group-agents",
       "hotkey": "9",
-      "fieldCount": 43
+      "fieldCount": 44
     },
     {
       "id": "decisions",
@@ -2829,6 +2829,18 @@
       "min": 5,
       "max": 60,
       "step": 1
+    },
+    {
+      "key": "agentDemoToggle",
+      "path": null,
+      "testid": "setting-agents.agentDemoToggle",
+      "control": "action-button",
+      "group": "agents",
+      "label": "Toggle Agent Demo",
+      "clientOnly": true,
+      "server": null,
+      "subgroup": "Demo",
+      "action": "toggle-demo"
     },
     {
       "key": "showDecisionChains",

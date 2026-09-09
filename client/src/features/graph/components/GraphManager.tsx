@@ -27,6 +27,7 @@ import { useGraphDataSubscription } from '../hooks/useGraphDataSubscription'
 import { useGraphSelection } from '../hooks/useGraphSelection'
 import { useEdgeBufferComputation } from '../hooks/useEdgeBufferComputation'
 import { nodePageUrl } from '../utils/pageLinks'
+import { setSharedNodePositions, setSharedNodeIdToIndexMap } from '../contexts/NodePositionContext'
 
 const logger = createLogger('GraphManager')
 
@@ -70,6 +71,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   // === Decomposed hooks: visual state + filtering ===
   const { perNodeVisualModeMap, hierarchyMap, connectionCountMap, dominantMode: graphMode } = useGraphVisualState(graphData)
   const { visibleNodes, nodeIdToIndexMap, expansionState } = useGraphFiltering(graphData, hierarchyMap, connectionCountMap)
+
+  useEffect(() => { setSharedNodeIdToIndexMap(nodeIdToIndexMap) }, [nodeIdToIndexMap])
 
   // Node-type visibility filtering + per-population partition.
   //
@@ -425,6 +428,7 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
         if (!hasNonZero && checkLen > 0) return
       }
       nodePositionsRef.current = positions
+      setSharedNodePositions(positions)
 
       // Layout mode transition: mass-aware LERP
       if (transitionRef.current?.active) {

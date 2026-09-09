@@ -12,6 +12,7 @@ import { RefreshCw } from 'lucide-react';
 import type { RegistryField } from '../registry/types';
 import { webSocketService } from '../../../store/websocketStore';
 import { isWebGPURenderer, setForceWebGLOverride } from '../../../rendering/rendererFactory';
+import { toggleDemo, isDemoRunning } from '../../bots/agentDemoMode';
 import { createLogger } from '../../../utils/loggerConfig';
 import { cn } from '../../../utils/classNameUtils';
 
@@ -31,6 +32,7 @@ const BUTTON_STYLE: Record<string, string> = {
   reset_layout: 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30',
   run_clustering: 'bg-violet-600 hover:bg-violet-500 shadow-violet-600/30',
   'toggle-webgpu': '', // computed dynamically below (active/inactive)
+  'toggle-demo': '',   // computed dynamically below (active/inactive)
   refresh_graph: 'bg-primary hover:bg-primary/90 shadow-primary/30',
 };
 
@@ -43,8 +45,10 @@ export const SettingAction: React.FC<SettingActionProps> = ({
   onError,
 }) => {
   const [running, setRunning] = useState(false);
+  const [demoActive, setDemoActive] = useState(() => isDemoRunning());
   const isRunClustering = field.action === 'run_clustering';
   const isWebGPUToggle = field.action === 'toggle-webgpu';
+  const isDemoToggle = field.action === 'toggle-demo';
   const webgpuActive = isWebGPUToggle ? isWebGPURenderer : false;
 
   const handleAction = useCallback(async () => {
@@ -69,6 +73,13 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     if (field.action === 'toggle-webgpu') {
       setForceWebGLOverride(isWebGPURenderer);
       window.location.reload();
+      return;
+    }
+
+    if (field.action === 'toggle-demo') {
+      await toggleDemo();
+      setDemoActive(isDemoRunning());
+      onSuccess?.(isDemoRunning() ? 'Demo agents injected — 6 synthetic agents cycling work→idle' : 'Demo agents removed');
       return;
     }
 
@@ -106,15 +117,23 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     ? webgpuActive
       ? 'WebGPU Active — Click for WebGL'
       : 'WebGL Active — Click for WebGPU'
-    : isRunClustering && running
-      ? 'Running…'
-      : field.label;
+    : isDemoToggle
+      ? demoActive
+        ? 'Demo Running — Click to Stop'
+        : 'Start Agent Demo'
+      : isRunClustering && running
+        ? 'Running…'
+        : field.label;
 
   const colorClass = isWebGPUToggle
     ? webgpuActive
       ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
       : 'bg-gray-600 hover:bg-gray-500 shadow-gray-600/30'
-    : BUTTON_STYLE[field.action ?? ''] ?? 'bg-primary hover:bg-primary/90 shadow-primary/30';
+    : isDemoToggle
+      ? demoActive
+        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+        : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-600/30'
+      : BUTTON_STYLE[field.action ?? ''] ?? 'bg-primary hover:bg-primary/90 shadow-primary/30';
 
   return (
     <div className="flex flex-col gap-1">

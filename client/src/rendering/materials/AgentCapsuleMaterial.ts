@@ -41,7 +41,7 @@ export function createAgentCapsuleMaterial(): AgentCapsuleMaterialResult {
     // Opaque + single-sided: agents were already near-opaque; drop blend + back faces.
     roughness: 0.15,
     metalness: 0.0,
-    transparent: false,
+    transparent: true,
     opacity: 1.0,
     side: THREE.FrontSide,
     depthWrite: true,
@@ -119,10 +119,11 @@ export async function createTslAgentCapsuleMaterial(
     // --- Per-instance unique phase ---
     const phase = fract(sin(idx.mul(43758.5453))).mul(6.2831);
 
-    // --- Fresnel rim lighting (the existing capsule look) ---
+    // --- Fresnel rim lighting — sprite-like halo for embodied agents ---
     const viewDir = normalize(positionView.negate());
     const nDotV = saturate(dot(normalView, viewDir));
     const fresnel = pow(oneMinus(nDotV), float(3.0));
+    const haloRim = pow(oneMinus(nDotV), float(1.5));
 
     // --- Pulse driven by whichever is stronger: KG authority or live activity ---
     // so an idle swarm rests (slow pulse) and an active one works (fast pulse).
@@ -142,6 +143,7 @@ export async function createTslAgentCapsuleMaterial(
     );
 
     const fresnelEmissive = vec3(float(0.08), float(0.4), float(0.2)).mul(fresnel);
+    const haloEmissive = vec3(float(0.12), float(0.5), float(0.3)).mul(haloRim).mul(activityBoost);
     const metaEmissive = baseEmissive
       .mul(qualityBrightness)
       .mul(mix(float(0.4), float(1.0), pulse))
@@ -155,10 +157,14 @@ export async function createTslAgentCapsuleMaterial(
     const errorFlag = errorBand.mul(notAuthoritative);
     const errorTint = vec3(float(0.7), float(0.0), float(0.0)).mul(errorFlag);
 
-    const emissiveNode = fresnelEmissive.add(metaEmissive).add(errorTint);
+    const emissiveNode = fresnelEmissive.add(haloEmissive).add(metaEmissive).add(errorTint);
 
-    // --- Opacity: Fresnel rim + authority-based solidity ---
-    const baseAlpha = mix(float(0.5), float(0.9), authority);
+    // --- Opacity: Fresnel rim + authority-based solidity; done agents fade ---
+    // A very low activity (≤0.1) flags a "done" agent (no recent work-target
+    // beam); these fade to 0.3 alpha so they remain visible but recessive.
+    const doneFlag = oneMinus(step(float(0.1), activity));
+    const workingAlpha = mix(float(0.5), float(0.9), authority);
+    const baseAlpha = mix(workingAlpha, float(0.3), doneFlag);
     const opacityNode = mix(baseAlpha, float(0.95), fresnel);
 
     const augmented = material as unknown as TSLNodeProperties;

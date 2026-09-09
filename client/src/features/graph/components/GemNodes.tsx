@@ -30,6 +30,7 @@ import { computeNodeScale } from '../utils/nodeScaling';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
+import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -105,6 +106,12 @@ const METADATA_TEX_WIDTH = 2048;
 // ~2Hz. The DataTexture upload is the real cost; heat decays continuously but
 // the eye cannot resolve a faster emissive fade, so we sample it on this cadence.
 const HEAT_UPLOAD_INTERVAL_MS = 500;
+
+// Agent momentum-nudge: per-frame lerp factors controlling how quickly an
+// agent's visual position converges on its work target (NUDGE) or drifts
+// outward from the graph centre when idle (DRIFT).
+const AGENT_NUDGE_SPEED = 0.03;
+const AGENT_DRIFT_SPEED = 0.005;
 
 // Node scaling delegated to shared computeNodeScale (../utils/nodeScaling.ts)
 
@@ -187,6 +194,9 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const lastHeatUploadRef = useRef(0);
   const heatBucketRef = useRef(0);
   const heatWasActiveRef = useRef(false);
+  // Agent momentum-nudge: per-instance visual offset accumulated frame-over-
+  // frame. Working agents converge on their target; done agents drift outward.
+  const agentOffsetsRef = useRef<Float32Array | null>(null);
   // Attention-heat → instanceColor (WebGL-visible per-instance heat). The base
   // (unheated) RGB is cached on each colour repaint so the 2Hz heat pass can
   // rescale it in place — brightening touched gems and letting them fade — without
@@ -920,6 +930,23 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // Keep the picking refs current (raycast reads them when GPU transform on).
     xformBufRef.current = xformBuf ?? null;
     visibleCountRef.current = visCount;
+    // --- Agent momentum-nudge: graph centre + offset buffer setup ---
+    let graphCX = 0, graphCY = 0, graphCZ = 0;
+    if (isAgent && positions) {
+      let sn = 0;
+      for (let s = 0; s < positions.length - 2; s += 150) {
+        graphCX += positions[s]; graphCY += positions[s + 1]; graphCZ += positions[s + 2];
+        sn++;
+      }
+      if (sn > 0) { graphCX /= sn; graphCY /= sn; graphCZ /= sn; }
+      if (!agentOffsetsRef.current || agentOffsetsRef.current.length < visCount * 3) {
+        const old = agentOffsetsRef.current;
+        // eslint-disable-next-line no-restricted-syntax -- grow-only cache
+        agentOffsetsRef.current = new Float32Array(cacheLen * 3);
+        if (old) agentOffsetsRef.current.set(old.subarray(0, Math.min(old.length, visCount * 3)));
+      }
+    }
+    const agentOff = isAgent ? agentOffsetsRef.current : null;
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -942,6 +969,39 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         const p = currentNodes[i].position;
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
       }
+
+      // Agent momentum-nudge: visual offset toward work target (working) or
+      // away from graph centre (done/idle). Dragged nodes skip.
+      if (agentOff && i !== dragLocalIdx) {
+        const o3 = i * 3;
+        const work = getAgentWork(String(currentNodes[i].id));
+        if (work && work.state === 'working' && positions) {
+          const tIdx = props.nodeIdToIndexMap.get(work.targetNodeId);
+          if (tIdx !== undefined) {
+            const t3 = tIdx * 3;
+            if (t3 + 2 < positions.length) {
+              const dx = positions[t3] - x - agentOff[o3];
+              const dy = positions[t3 + 1] - y - agentOff[o3 + 1];
+              const dz = positions[t3 + 2] - z - agentOff[o3 + 2];
+              agentOff[o3] += dx * AGENT_NUDGE_SPEED;
+              agentOff[o3 + 1] += dy * AGENT_NUDGE_SPEED;
+              agentOff[o3 + 2] += dz * AGENT_NUDGE_SPEED;
+            }
+          }
+        } else if (work && work.state === 'done') {
+          const cx = x + agentOff[o3] - graphCX;
+          const cy = y + agentOff[o3 + 1] - graphCY;
+          const cz = z + agentOff[o3 + 2] - graphCZ;
+          const d = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+          agentOff[o3] += (cx / d) * AGENT_DRIFT_SPEED;
+          agentOff[o3 + 1] += (cy / d) * AGENT_DRIFT_SPEED;
+          agentOff[o3 + 2] += (cz / d) * AGENT_DRIFT_SPEED;
+        }
+        x += agentOff[o3];
+        y += agentOff[o3 + 1];
+        z += agentOff[o3 + 2];
+      }
+
       if (xformBuf) {
         const t4 = i * 4;
         xformBuf[t4] = x; xformBuf[t4 + 1] = y; xformBuf[t4 + 2] = z; xformBuf[t4 + 3] = s;
@@ -1014,11 +1074,16 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
           // active ones. Reinterpreting the channel is safe here because this
           // mesh renders a single population.
           const recency = computeRecency(node.metadata?.lastModified ?? node.metadata?.updatedAt);
-          texBuf[i4 + 3] = isAgent
-            ? agentStatusActivity(node.metadata?.status as string | undefined)
-            : heatEnabled
+          if (isAgent) {
+            const aw = getAgentWork(nid);
+            texBuf[i4 + 3] = (aw && aw.state === 'done')
+              ? AGENT_DONE_ACTIVITY
+              : agentStatusActivity(node.metadata?.status as string | undefined);
+          } else {
+            texBuf[i4 + 3] = heatEnabled
               ? Math.max(recency, attentionHeat.getHeat(nid))
               : recency;
+          }
         }
         if (metaTexRef.current) metaTexRef.current.needsUpdate = true;
         // WebGL parity: aGlowMeta wraps the SAME texBuf — re-upload it too so the
