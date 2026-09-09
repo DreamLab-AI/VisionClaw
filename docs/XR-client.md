@@ -70,7 +70,8 @@ runtime: it holds the `GraphRoot/NodesMulti`, `GraphRoot/EdgesMulti` and
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
 SubViewport shown on a world-space, wand-grabbable quad — one source of truth so
 every control fits its page (`hud.gd:1-28`). Tab order:
-`graph, layout, query, pins, swarm, session, help` (`hud.gd:155`). Stable node
+`graph, layout, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
+`key` is the colour swatch legend, 2026-09-08). Stable node
 paths are documented in-file (`hud.gd:20-28`) for rebases.
 
 Two overflow lessons are baked in as INVARIANTS:
@@ -203,9 +204,22 @@ intent; the stale exclusion paragraph above it should be read as superseded.
   frame are the only graph-socket credential. The *server* still accepts the
   query form for other clients — that remains an open divergence owned by the
   wire/core domains (`docs/BASELINE-architecture.md:217`).
-- **Dev bearer fallback.** Still open. `_auth_headers` (`graph_scene.gd:1061`)
-  falls back to `PHYSICS_BEARER` + `X-Nostr-Pubkey` when no real secret is
-  present; the path 401s in release builds but the client still constructs it.
+- **Dev bearer fallback.** Still open as a code path. `_auth_headers`
+  (`graph_scene.gd`) falls back to `PHYSICS_BEARER` + `X-Nostr-Pubkey` when no
+  real secret is present; the server refuses it for any non-loopback peer (the
+  HP is never loopback), so on the headset every server-routed HUD write
+  (View 3D/Flat, Hierarchy, Shells, Spread, Planes, Radial, Layout Mode, Reset)
+  401s unless the backend is armed with `VISIONCLAW_DEV_MODE=1`. **ADR-2108
+  (2026-09-08)** arms it by default in the dev compose profile; the client now
+  also flashes the rejection and its remedy in the HUD bottom strip
+  (`hud.flash_notice`, `graph_scene._describe_write_failure`) and appends it to
+  the Graph-tab status line, instead of a log-only `push_warning`.
+- **HUD Key tab (2026-09-08).** A colour swatch key (`hud.gd::_build_key_page`)
+  mirrors the live palette: community hue / anomaly / query marks
+  (`render_store.rs`), agent status halo + Swarm dot (`SWARM_STATUS_COLORS`),
+  edge tints (`edge_flow.gdshader`), wand ray + panel states, avatar states.
+  The swatch constants are duplicated from their sources by design (same
+  posture as `SWARM_STATUS_COLORS`); a palette change must update both.
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.

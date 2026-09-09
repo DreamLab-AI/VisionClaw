@@ -73,18 +73,21 @@ services:
       # Dev-only: LAN-local full auth bypass for a 100%-local headset (the HP
       # over the rail). When "1"/"true", EVERY request is granted dev-admin with
       # no NIP-98/token/peer check — kills all write-auth friction on the dev
-      # headset. Default OFF; opt in with VISIONCLAW_DEV_MODE=1 in .env/environ.
+      # headset. ADR-2108: the dev profile arms it BY DEFAULT, so every
+      # `launch.sh up dev` backend accepts the HP headset's server-routed HUD
+      # writes (View 3D/Flat, Hierarchy, Radial, Layout Mode, Reset) with no
+      # NIP-98 setup. Opt OUT with VISIONCLAW_DEV_MODE=0 in .env/environ.
       # Compiled only into dev/`dev-auth` builds; a release binary REFUSES TO
       # BOOT if this is set (ADR-06 §D11), so it can never reach production.
       #
       # SCOPE (codex review, ADR-2039): this line lives in the DEV service only —
       # NOT in the `*common-environment` anchor and NOT in the production service —
-      # so the always-present `:-0` default is injected only into the dev build
+      # so the always-present `:-1` default is injected only into the dev build
       # (which does not boot-refuse). A release deploy never receives it here.
       # Caveat: both services load `env_file: .env`; do NOT put VISIONCLAW_DEV_MODE
       # in a `.env` shared with a prod deployment, or the release binary will
       # (by design, §D11) refuse to boot on the mere presence of the var.
-      VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-0}"
+      VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-1}"
       # ADR-142 multi-user RBAC (defaults are fail-closed; these preserve the
       # current single-operator behaviour *visibly*):
       #  - RBAC_PUBLIC_READS=1 keeps anonymous /api GET reads open (client fetches

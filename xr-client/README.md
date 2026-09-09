@@ -254,7 +254,12 @@ records instead of clamping (no more edge-fan-on-clamp).
 - **Wand-ray pointer** — the first working VR button input; a laser from the wand
   drives the world-space HUD buttons (`RAY_IDLE_COLOR` cyan when tracking).
 - **Operator control panel** on the HUD: Reset Layout, Spread ±, Edges ±, NodeSize ±
-  (`hud.gd` `ControlsGrid`), live status line.
+  (`hud.gd` `ControlsGrid`), live status line. A **Key** tab holds the colour
+  swatch legend (community hue, anomaly, query marks, agent status, edge tints,
+  wand/panel states). Server-routed buttons (View 3D/Flat, Hierarchy, Radial,
+  Layout Mode, Reset) need the backend armed with `VISIONCLAW_DEV_MODE=1` (the
+  dev compose default since ADR-2108) or a power-user `XR_NOSTR_SECRET`; a
+  rejected write now flashes its reason + remedy in the HUD bottom strip.
 - **Grab / drag** — ray/sphere pick, keep-distance; server-authoritative (NIP-98
   signed, needs `XR_NOSTR_SECRET`).
 - **Double-click a node** → narrativegoldmine page card in the HUD document panel

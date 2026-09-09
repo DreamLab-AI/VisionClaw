@@ -126,3 +126,12 @@ resolution.
 CP-01/04/06/08. Owner remains jjohare with release/authentication maintainers. The scoped implemented bypass and existing decision/activation declarations are retained. Nine extracted-helper runs verify conditional compilation and dev-mode behaviour, not shipped-image stripping or headset operation. ADR-2037 is proposed; its release-image assertion cannot yet be claimed as a guaranteed dependency.
 
 **Acceptance condition:** Bind image digest, source, feature closure and effective profile to a receipt. Test production rejection before listener bind, including forbidden variables set to zero, and prevent promotion of a dev-auth artefact. Exercise full REST and WebSocket paths, report-mode interaction, network reachability and sentinel attribution separately from helper parsing. Preserve the distinction between the peer-agnostic full bypass and loopback dev-token mechanism. Reopen on build features, boot sequencing, bypass branches or profile policy. See the [review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/role-authority.md#development-bypass-and-release-identity), [reproducer](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/evidence/dev-auth-probe.py) and [receipt](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/evidence/dev-auth-probe.json). No full image, listener, HTTP or headset execution ran.
+
+## Amendment — 2026-09-08 (ADR-2108)
+
+The "default OFF" clause of the Decision is amended by ADR-2108: the dev compose
+service now defaults `VISIONCLAW_DEV_MODE` to `1` (`${VISIONCLAW_DEV_MODE:-1}`),
+because the observed state on 2026-09-08 was a dev backend running with the flag
+at `0` and every server-routed HUD write from the HP headset rejected. The
+compile-gate, the release boot-refusal, the dev-service-only scoping and the
+`.env` opt-out are unchanged.

@@ -227,6 +227,11 @@ var _pinned_ids: Dictionary = {}
 # PUT returns 2xx in _on_physics_completed; a 401/timeout/500 discards them so the
 # tracked state (and the HUD it drives) never diverges from the backend.
 var _physics_staged: Dictionary = {}
+# Operator-readable reason for the LAST failed server write ("" after a success).
+# Shown on the Graph-tab status line and flashed in the HUD's bottom strip, so a
+# rejected write (the dev-headset 401/403 trap) is visible in-HMD, not just in
+# the log.
+var _last_write_error: String = ""
 
 # --- Fold-level ladder (Wave 3, Phase 2) ------------------------------------
 # Per-view density level: 0 = ∅ (everything), 1 = hide low-signal, 2 = fold
@@ -806,9 +811,10 @@ func _refresh_controls_status() -> void:
 		var busy: String = "  [busy]" if _physics_pending else ""
 		var dag: String = "on" if _dag_bias_on else "off"
 		var fold: String = "  [fold busy]" if _fold_pending else ""
-		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes<=%d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d%s%s" % [
+		var err: String = "" if _last_write_error.is_empty() else "\n⚠ " + _last_write_error
+		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes<=%d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d%s%s%s" % [
 			_repel_k, _rest_length, _edge_show_count, _edge_budget, _node_budget, _node_size_factor,
-			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(), busy, fold])
+			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(), busy, fold, err])
 	# Reflect the toggle/pin state on the button faces (press-only, no per-frame cost).
 	if hud.has_method("set_control_states"):
 		hud.set_control_states(_dag_bias_on, _z_compression < Z_COMPRESSION_FULL_3D, _pinned_ids.size(), not is_zero_approx(_plane_bias_k))
@@ -1066,8 +1072,12 @@ func _on_physics_completed(result: int, response_code: int, _headers: PackedStri
 		# tracked state matches the backend exactly.
 		for field: String in _physics_staged:
 			set(field, _physics_staged[field])
+		_last_write_error = ""
 	else:
-		push_warning("GraphScene: physics request failed (result=%d code=%d) — staged change discarded" % [result, response_code])
+		_last_write_error = _describe_write_failure(result, response_code)
+		push_warning("GraphScene: physics request failed (result=%d code=%d) — staged change discarded: %s" % [result, response_code, _last_write_error])
+		if hud != null and hud.has_method("flash_notice"):
+			hud.flash_notice(_last_write_error)
 	# Discard staged on either outcome: on failure the member vars were never
 	# touched, so the HUD stays in sync with the backend (no divergence).
 	_physics_staged = {}
@@ -1112,6 +1122,23 @@ func _post_physics_reset() -> bool:
 # only if the request was dispatched. Thin wrapper over _put_physics_body.
 func _put_physics_params(repel_k: float, rest_length: float) -> bool:
 	return _put_physics_body({"repelK": repel_k, "restLength": rest_length})
+
+
+# Operator-readable reason (with the remedy) for a failed server write. 401/403
+# is the dev-headset trap: the HP client is not a loopback peer, so the dev bearer
+# is always refused and only VISIONCLAW_DEV_MODE=1 on a dev-build backend (ADR-2039
+# / ADR-2108) or a power-user NIP-98 identity (XR_NOSTR_SECRET) unlocks the
+# server-routed HUD buttons (View 3D/Flat, Hierarchy, Shells, Spread, Planes,
+# Radial, Layout Mode, Reset).
+func _describe_write_failure(result: int, response_code: int) -> String:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		return "Backend unreachable (result %d) — layout write dropped" % result
+	match response_code:
+		401, 403:
+			var cred: String = "NIP-98 identity" if _nostr_secret_present else "dev bearer"
+			return "Layout write denied (HTTP %d via %s): set VISIONCLAW_DEV_MODE=1 on the dev backend, or a power-user XR_NOSTR_SECRET" % [response_code, cred]
+		_:
+			return "Layout write failed (HTTP %d) — change discarded" % response_code
 
 
 # PUT {base}/api/settings/physics?graph=knowledge with an arbitrary physics body.

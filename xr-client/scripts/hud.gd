@@ -23,6 +23,7 @@ extends Node3D
 ##   HudViewport/HudControl/Root/Tabs/GraphPage    — physics/layout controls
 ##   HudViewport/HudControl/Root/Tabs/QueryPage    — visual query builder
 ##   HudViewport/HudControl/Root/Tabs/PinsPage     — pinned nodes + Unpin All
+##   HudViewport/HudControl/Root/Tabs/KeyPage      — colour swatch key (legend)
 ##   HudViewport/HudControl/Root/Tabs/SessionPage  — room/mute/connection/debug
 ##   HudViewport/HudControl/Root/Tabs/HelpPage     — controller cheat-sheet
 ##   HudViewport/HudControl/Root/HintBar           — hover-hint strip (bottom)
@@ -155,9 +156,9 @@ var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
 
-const TAB_ORDER: Array[String] = ["graph", "layout", "query", "pins", "swarm", "session", "help"]
+const TAB_ORDER: Array[String] = ["graph", "layout", "query", "pins", "swarm", "key", "session", "help"]
 const TAB_LABELS: Dictionary = {
-	"graph": "Graph", "layout": "Layout", "query": "Query", "pins": "Pins", "swarm": "Swarm", "session": "Session", "help": "Help",
+	"graph": "Graph", "layout": "Layout", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
 }
 
 # Agent status → roster dot colour (ADR-140, Pillar 3). Mirrors
@@ -169,6 +170,36 @@ const SWARM_STATUS_COLORS: Dictionary = {
 	2: Color(1.0, 0.35, 0.20),
 	3: Color(0.60, 0.85, 1.0),
 }
+
+# --- Colour key (Key tab) ----------------------------------------------------
+# Every swatch mirrors the constant that actually paints the scene, so the key
+# is a legend of the live palette rather than a decorative one. Keep each entry
+# in lockstep with its cited source; agent status rows reuse SWARM_STATUS_COLORS.
+const GOLDEN_RATIO_CONJ: float = 0.61803398875               # render_store::community_color / query_var_color hue walk
+const KEY_ANOMALY: Color = Color(1.0, 0.15, 0.1)             # render_store::community_color warn blend
+const KEY_EDGE_FLOW: Color = Color(0.30, 0.72, 1.0)          # materials/edge_flow.gdshader flow_color
+const KEY_EDGE_SUBCLASS: Color = Color(0.62, 0.50, 1.0)      # materials/edge_flow.gdshader subclass_color
+const KEY_EDGE_INFERRED: Color = Color(1.0, 0.66, 0.12)      # materials/edge_flow.gdshader inferred_color
+const KEY_RAY_IDLE: Color = Color(0.35, 0.7, 1.0)            # graph_scene.gd RAY_IDLE_COLOR
+const KEY_RAY_ACTIVE: Color = Color(0.3, 1.0, 0.4)           # graph_scene.gd RAY_ACTIVE_COLOR
+const KEY_PANEL_HOVER: Color = Color(0.4, 0.9, 0.94)         # spatial_environment.gd HOVER_COLOR
+const KEY_PANEL_GRAB: Color = Color(1.0, 0.72, 0.32)         # spatial_environment.gd GRAB_COLOR
+const KEY_AVATAR_IDLE: Color = Color(0.42, 0.6, 0.9)         # agent_avatar.gd COLOR_IDLE
+const KEY_AVATAR_AWAITING: Color = Color(1.0, 0.62, 0.12)    # agent_avatar.gd COLOR_AWAITING
+const KEY_AVATAR_SPEAKING: Color = Color(0.7, 0.85, 1.0)     # agent_avatar.gd COLOR_SPEAKING
+const KEY_META: StringName = &"key"                          # set on every key row (label text) — tests count these
+const SWATCH_PX: int = 34
+const KEY_REGION_H: int = 452                                # header + region must fit the 532px page host
+
+# --- Transient operator notice (bottom strip) --------------------------------
+# A rejected server write used to vanish into push_warning where no one in the
+# headset could see it. flash_notice() overrides the hover hint on EVERY tab for
+# a few seconds so the failure (and its remedy) is readable in-HMD.
+const NOTICE_SEC: float = 8.0
+const NOTICE_COLOR: Color = Color(1.0, 0.72, 0.32)
+var _notice_text: String = ""
+var _notice_until_ms: int = 0
+var _hint_bar_notice_mode: bool = false
 
 
 func _ready() -> void:
@@ -316,6 +347,7 @@ func _build_pages_host() -> void:
 	_pages["query"] = _build_query_page()
 	_pages["pins"] = _build_pins_page()
 	_pages["swarm"] = _build_swarm_page()
+	_pages["key"] = _build_key_page()
 	_pages["session"] = _build_session_page()
 	_pages["help"] = _build_help_page()
 	for id: String in _pages:
@@ -552,6 +584,101 @@ func set_swarm_roster(rows: Array) -> void:
 	for r: Variant in rows:
 		_swarm_list.add_child(_mk_swarm_row(r as Dictionary))
 	call_deferred("_update_scroll_arrows")
+
+
+# Colour swatch key. One scroll region (like Help) so the page can never fall
+# below the fold however many entries are added; the ▲▼ column appears only on
+# overflow. Rows are [swatch…][label] pairs in a 2-column grid per section.
+func _build_key_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 6)
+	page.add_child(_group_header("Colour Key"))
+	var region := _scroll_region(KEY_REGION_H)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 4)
+	for section: Dictionary in _key_sections():
+		var sub := Label.new()
+		sub.text = String(section["title"])
+		sub.add_theme_color_override("font_color", IDLE)
+		body.add_child(sub)
+		var g := _grid(2)
+		for row: Array in section["rows"]:
+			g.add_child(_key_row(row[0], String(row[1]), String(row[2])))
+		body.add_child(g)
+	(region.get_meta("scroll") as ScrollContainer).add_child(body)
+	page.add_child(region)
+	return page
+
+
+# The key's content, grouped. Each row: [Array[Color] swatches, label, hover hint].
+func _key_sections() -> Array:
+	return [
+		{"title": "Nodes", "rows": [
+			[[community_swatch(1), community_swatch(2), community_swatch(3), community_swatch(4)],
+				"Community hue", "Each node takes a golden-ratio hue keyed by its community — same colour = same cluster"],
+			[[KEY_ANOMALY], "Anomaly (blends to red)", "Anomalous nodes blend toward warning red; brighter rim = higher centrality"],
+			[[query_swatch(0), query_swatch(1), query_swatch(2), query_swatch(3)],
+				"Query mark ?v1…?v8", "Nodes marked as query variables take a saturated palette colour and a rim flag"],
+		]},
+		{"title": "Agents — node halo and Swarm dot", "rows": [
+			[[SWARM_STATUS_COLORS[0]], "Idle", "Agent with no active work"],
+			[[SWARM_STATUS_COLORS[1]], "Working (beam to target)", "Agent acting on a node — a beam links it to the node it is working on"],
+			[[SWARM_STATUS_COLORS[2]], "Blocked / error", "Agent blocked or errored — needs attention"],
+			[[SWARM_STATUS_COLORS[3]], "Done", "Agent finished or offline"],
+		]},
+		{"title": "Edges", "rows": [
+			[[KEY_EDGE_FLOW], "Link", "Ordinary graph edge (flow pulses along it)"],
+			[[KEY_EDGE_SUBCLASS], "Subclass-of", "Ontology subclass / hierarchy edge"],
+			[[KEY_EDGE_INFERRED], "Inferred", "Edge inferred by the reasoner, not asserted"],
+		]},
+		{"title": "Wand and panel", "rows": [
+			[[KEY_RAY_IDLE], "Ray idle", "Wand ray while tracking"],
+			[[KEY_RAY_ACTIVE], "Ray firing", "Wand ray as the trigger pulls"],
+			[[KEY_PANEL_HOVER], "Panel hover", "This panel when a wand is near enough to grab it"],
+			[[KEY_PANEL_GRAB], "Panel grabbed", "This panel while being carried"],
+		]},
+		{"title": "Agent avatars", "rows": [
+			[[KEY_AVATAR_IDLE], "Idle", "Embodied agent at rest"],
+			[[SWARM_STATUS_COLORS[1]], "Working", "Embodied agent busy"],
+			[[KEY_AVATAR_AWAITING], "Awaiting input", "Embodied agent waiting on you"],
+			[[KEY_AVATAR_SPEAKING], "Speaking", "Embodied agent talking"],
+		]},
+	]
+
+
+# One key row: swatches then a label. Carries KEY_META (the label) and a hover hint.
+func _key_row(colors: Array, label: String, hint: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.set_meta(KEY_META, label)
+	row.set_meta(HINT_META, hint)
+	for c: Color in colors:
+		var sw := ColorRect.new()
+		sw.name = "Swatch"
+		sw.color = c
+		sw.custom_minimum_size = Vector2(SWATCH_PX, SWATCH_PX)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(sw)
+	var l := Label.new()
+	l.text = label
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(l)
+	return row
+
+
+## Sample community colour for community `k` (k ≥ 1). Mirrors
+## render_store::community_color / graph_scene._community_color (no anomaly).
+static func community_swatch(k: int) -> Color:
+	return Color.from_hsv(fmod(float(k) * GOLDEN_RATIO_CONJ, 1.0), 0.6, 0.95)
+
+
+## Query-variable overlay colour for palette `slot`. Mirrors render_store::query_var_color.
+static func query_swatch(slot: int) -> Color:
+	return Color.from_hsv(fmod(float(slot % 8) * GOLDEN_RATIO_CONJ, 1.0), 0.85, 1.0)
 
 
 func _build_session_page() -> VBoxContainer:
@@ -829,6 +956,18 @@ func set_controls_status(text: String) -> void:
 		_controls_status.text = text
 
 
+## Show a transient operator notice in the bottom strip on every tab (e.g. a
+## server write the backend rejected). Overrides the hover hint for `seconds`.
+func flash_notice(text: String, seconds: float = NOTICE_SEC) -> void:
+	_notice_text = text
+	_notice_until_ms = Time.get_ticks_msec() + int(maxf(seconds, 0.0) * 1000.0)
+
+
+## Whether a flashed notice is still on screen. Public-ish for tests.
+func _notice_active() -> bool:
+	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
+
+
 ## Reflect the Hierarchy/View toggle state and pinned-node count on the button
 ## faces + Pins tab. Press-only, no per-frame cost.
 func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, planes_on: bool = false) -> void:
@@ -1090,7 +1229,11 @@ func _process(delta: float) -> void:
 	# it tracks the ray. Godot's idle tooltip never fires for our synthetic pointer,
 	# hence this custom always-visible bar.
 	if _hint_bar != null:
-		_hint_bar.text = "ⓘ " + _resolve_hint()
+		var notice := _notice_active()
+		if notice != _hint_bar_notice_mode:
+			_hint_bar_notice_mode = notice
+			_hint_bar.add_theme_color_override("font_color", NOTICE_COLOR if notice else ACCENT)
+		_hint_bar.text = ("⚠ " + _notice_text) if notice else ("ⓘ " + _resolve_hint())
 	# Ambient ACSP glow: pulse amber while cases are open, transparent when clear.
 	if acsp_glow != null:
 		if _open_case_count > 0:
