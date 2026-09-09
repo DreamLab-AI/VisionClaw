@@ -85,10 +85,11 @@ along the real edge, an arrival flash and a completion burst
 (`scripts/agent_effects.gd` under `AgentEffectsRoot`) — follow the registry. The **conversation layer** (`spawn_agent`, did:nostr keyed) is the
 only thing the proxemics arc places. **Demo mode** is `scripts/agent_demo_director.gd`
 alone: it produces real `0x23` frames into `ingest()` (wire ids
-`0x80000000|0xD001..`, payload `"demo":true`), reports completion via
-`apply_agent_state`, and `retire_agents` on Stop; the scene has no demo branch and
-labels demo rows "[demo]". Reduced motion (comfort default) turns travel into
-fade/relocate/fade.
+`0x80000000|0xD001..`), reports completion via `apply_agent_state`, and
+`retire_agents` on Stop; the scene has no demo branch, and the synthetic agents
+play as real ones — no name, roster or payload marker; the HUD's Start/Stop
+Agent Demo button is the only visible sign. Reduced motion (comfort default)
+turns travel into fade/relocate/fade.
 
 ### HUD structure (hud.gd)
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a

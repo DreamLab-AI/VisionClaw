@@ -2230,17 +2230,15 @@ func _update_swarm_roster() -> void:
 		var status: int = _binary_client.agent_status(id)
 		var task: String = _binary_client.agent_task(id)
 		var name_s: String = _work_agent_name(id)
-		var is_demo: bool = AgentDemoDirector.is_demo_id(id)
 		rows.append({
 			"id": id,
 			"name": name_s,
 			"status": status,
 			"target": target_label,
 			"task": task,
-			"demo": is_demo,
 		})
 		# Name is in the signature so a late-arriving label refreshes its row.
-		sig.append("%d:%s:%d:%s:%s:%d" % [id, name_s, status, target_label, task, int(is_demo)])
+		sig.append("%d:%s:%d:%s:%s" % [id, name_s, status, target_label, task])
 	var joined := "|".join(sig)
 	if joined == _swarm_sig:
 		return
@@ -2248,22 +2246,20 @@ func _update_swarm_roster() -> void:
 	hud.set_swarm_roster(rows)
 
 
-# Display name for a registry agent: its wire label, else the demo director's
-# label for a reserved demo id, else a plain id.
+# Display name for a registry agent: its wire label, else the director's name
+# for a synthetic id (which the registry has no label for), else a plain id.
 func _work_agent_name(wire_id: int) -> String:
 	if _binary_client != null and _binary_client.has_method("label_of"):
 		var s: String = String(_binary_client.label_of(wire_id))
 		if s.length() > 0:
 			return s
-	var demo_name: String = AgentDemoDirector.display_name_for(wire_id)
-	if demo_name.length() > 0:
-		return demo_name
+	var synthetic_name: String = AgentDemoDirector.display_name_for(wire_id)
+	if synthetic_name.length() > 0:
+		return synthetic_name
 	return "agent %d" % wire_id
 
 
 func _scene_id_for(wire_id: int) -> String:
-	if AgentDemoDirector.is_demo_id(wire_id):
-		return AgentDemoDirector.scene_id_for(wire_id)
 	return "agent_%d" % wire_id
 
 
@@ -3665,8 +3661,8 @@ func _plane_binding_label(binding: Dictionary) -> String:
 # ── Demo mode ─────────────────────────────────────────────────────────────────
 # All demo code lives in agent_demo_director.gd. It produces synthetic 0x23
 # frames into the SAME Rust registry a live swarm feeds; the scene has no demo
-# branch — demo agents are embodied, beamed and listed exactly like live ones,
-# and are labelled "[demo]" wherever they appear.
+# branch — synthetic agents are embodied, beamed and listed exactly like live
+# ones and play as real agents. The HUD button is the only visible demo marker.
 
 func _toggle_demo() -> void:
 	if _demo.is_running():

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useTransientBeamStore } from '../../../store/transientBeamStore';
-import { getAgentWork, resetAgentWorkTargets } from '../agentWorkTargets';
+import { getAgentWork, markAgentDone, resetAgentWorkTargets } from '../agentWorkTargets';
 import type { AgentActionEvent } from '../../../services/binaryProtocol/frameTypes';
 
 function event(agent: number, target: number): AgentActionEvent {
@@ -40,6 +40,17 @@ describe('agentWorkTargets', () => {
     useTransientBeamStore.getState().pushBeams([event(7, 200), event(8, 300)]);
     expect(getAgentWork('7')?.targetNodeId).toBe('200');
     expect(getAgentWork('8')?.targetNodeId).toBe('300');
+  });
+
+  it('explicit completion reads done at once and a newer beam re-arms working', () => {
+    useTransientBeamStore.getState().pushBeams([event(7, 100)]);
+    expect(getAgentWork('7')?.state).toBe('working');
+    markAgentDone('7');
+    expect(getAgentWork('7')).toEqual({ targetNodeId: '100', state: 'done' });
+    markAgentDone('999'); // unknown agent: no-op
+    expect(getAgentWork('999')).toBeNull();
+    useTransientBeamStore.getState().pushBeams([event(7, 200)]);
+    expect(getAgentWork('7')).toEqual({ targetNodeId: '200', state: 'working' });
   });
 
   it('flips to done once the idle threshold elapses', () => {

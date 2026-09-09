@@ -531,7 +531,7 @@ func _build_swarm_page() -> VBoxContainer:
 	page.add_child(_group_header("Agent Swarm"))
 	_swarm_count_label = _mk_label("0 agents", "Live agents working the graph")
 	page.add_child(_swarm_count_label)
-	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Inject 6 synthetic demo agents that cycle through work→idle to exercise sprites, nudges and fade")
+	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Run six agents through a live work loop on the graph (they appear and behave as real agents)")
 	page.add_child(_demo_button)
 	var region := _scroll_region(360)
 	_swarm_list = VBoxContainer.new()
@@ -561,9 +561,6 @@ func _mk_swarm_row(r: Dictionary) -> Control:
 	var name_s: String = str(r.get("name", ""))
 	if name_s == "":
 		name_s = "agent %d" % aid
-	# Synthetic demo agents are labelled as such wherever they appear.
-	if bool(r.get("demo", false)):
-		name_s = "[demo] " + name_s
 	var target_s: String = str(r.get("target", ""))
 	var btn := _press_fire(Button.new()) as Button
 	btn.text = "%s → %s" % [name_s, target_s if target_s != "" else "…"]

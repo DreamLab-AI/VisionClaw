@@ -9,10 +9,12 @@ extends RefCounted
 ## registry, status, targets, beams, Swarm roster, embodiment choreography — is
 ## the production path with no demo branch.
 ##
-## Provenance is unmistakable: wire ids are `0x80000000 | 0xD001..0xD006`
-## (reserved demo range 0xD001–0xD0FF), scene ids are `demo_D001..`, every
-## action payload carries `"demo":true`, and Stop retires exactly those ids from
-## the registry (`retire_agents`) so no demo state can outlive the demo.
+## The synthetic agents play as real agents: nothing they emit or display says
+## "demo" — same frame layout, same registry, same names a swarm would use. The
+## only visible sign of the demo is the Start/Stop Agent Demo button. Provenance
+## lives here in code alone: wire ids are `0x80000000 | 0xD001..0xD006`
+## (reserved range 0xD001–0xD0FF) and Stop retires exactly those ids from the
+## registry (`retire_agents`) so no demo state can outlive the demo.
 ##
 ## Loop (multi-minute, per agent, independently seeded so nothing moves in
 ## lockstep): stagger in → work a real node 9–14 s (keep-alive actions every 5 s
@@ -40,12 +42,12 @@ const STAGGER_SEC: Array[float] = [0.0, 1.3, 2.9, 4.6, 6.8, 9.1]
 # Role, label, the AgentActionType it emits (0 Query, 1 Update, 2 Create,
 # 3 Link, 4 Delete, 5 Transform — binary_protocol.rs) and its caption verb.
 const ROLES: Array[Dictionary] = [
-	{"suffix": 0xD001, "label": "Demo-Architect", "action": 2, "verb": "Mapping"},
-	{"suffix": 0xD002, "label": "Demo-Analyst",   "action": 0, "verb": "Analysing"},
-	{"suffix": 0xD003, "label": "Demo-Coder",     "action": 1, "verb": "Refactoring"},
-	{"suffix": 0xD004, "label": "Demo-Reviewer",  "action": 3, "verb": "Reviewing"},
-	{"suffix": 0xD005, "label": "Demo-Tester",    "action": 0, "verb": "Testing"},
-	{"suffix": 0xD006, "label": "Demo-Optimizer", "action": 5, "verb": "Optimising"},
+	{"suffix": 0xD001, "label": "Architect", "action": 2, "verb": "Mapping"},
+	{"suffix": 0xD002, "label": "Analyst",   "action": 0, "verb": "Analysing"},
+	{"suffix": 0xD003, "label": "Coder",     "action": 1, "verb": "Refactoring"},
+	{"suffix": 0xD004, "label": "Reviewer",  "action": 3, "verb": "Reviewing"},
+	{"suffix": 0xD005, "label": "Tester",    "action": 0, "verb": "Testing"},
+	{"suffix": 0xD006, "label": "Optimizer", "action": 5, "verb": "Optimising"},
 ]
 
 const PH_WAIT := 0
@@ -72,7 +74,8 @@ func frames_sent() -> int:
 	return _frames_sent
 
 
-## Wire ids of the demo agents (with the agent flag), for roster provenance.
+## Wire ids of the synthetic agents (with the agent flag) — used only to retire
+## them on Stop and to supply names the registry has no label for.
 static func demo_wire_ids() -> PackedInt32Array:
 	var out := PackedInt32Array()
 	for r: Dictionary in ROLES:
@@ -92,10 +95,6 @@ static func display_name_for(wire_id: int) -> String:
 		if int(r["suffix"]) == masked:
 			return String(r["label"])
 	return ""
-
-
-static func scene_id_for(wire_id: int) -> String:
-	return "demo_%04X" % (wire_id & 0x03FFFFFF)
 
 
 ## `client` must expose ingest(PackedByteArray), apply_agent_state(id, status,
@@ -190,7 +189,7 @@ func _complete(a: Dictionary) -> void:
 func _send_action(a: Dictionary) -> void:
 	var role: Dictionary = a["role"]
 	var caption: String = "%s: %s" % [role["verb"], _label(int(a["target"]))]
-	var payload: PackedByteArray = JSON.stringify({"intent": caption, "demo": true}).to_utf8_buffer()
+	var payload: PackedByteArray = JSON.stringify({"intent": caption}).to_utf8_buffer()
 	var frame: PackedByteArray = encode_action_frame([{
 		"source": int(a["wire"]), "target": int(a["target"]), "action": int(role["action"]),
 		"ts": _next_ts(), "duration_ms": 2000, "payload": payload,

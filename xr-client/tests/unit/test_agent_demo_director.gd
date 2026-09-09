@@ -73,7 +73,7 @@ func _decode(frame: PackedByteArray) -> Array:
 
 
 func test_encoder_matches_server_wire_layout() -> void:
-	var payload := "{\"intent\":\"Reviewing: X\",\"demo\":true}".to_utf8_buffer()
+	var payload := "{\"intent\":\"Reviewing: X\"}".to_utf8_buffer()
 	var frame: PackedByteArray = Director.encode_action_frame([
 		{"source": 0x8000D001, "target": 20, "action": 3, "ts": 123456, "duration_ms": 2000, "payload": payload},
 		{"source": 0x8000D002, "target": 21, "action": 0, "ts": 123457, "duration_ms": 0},
@@ -86,7 +86,7 @@ func test_encoder_matches_server_wire_layout() -> void:
 	assert_eq(int(evs[0]["action"]), 3)
 	assert_eq(int(evs[0]["ts"]), 123456)
 	assert_eq(int(evs[0]["dur"]), 2000)
-	assert_true(String(evs[0]["payload"]).contains("\"demo\":true"), "payload tags demo provenance")
+	assert_true(String(evs[0]["payload"]).contains("\"intent\""), "payload carries the intent line")
 	assert_eq(String(evs[1]["payload"]), "", "empty payload allowed")
 
 
@@ -94,10 +94,11 @@ func test_ids_are_reserved_and_named() -> void:
 	var ids: PackedInt32Array = Director.demo_wire_ids()
 	assert_eq(ids.size(), 6)
 	for id: int in ids:
-		assert_true(Director.is_demo_id(id), "every demo id is in the reserved range")
-		assert_true(Director.display_name_for(id).begins_with("Demo-"), "demo names are prefixed")
-		assert_true(Director.scene_id_for(id).begins_with("demo_"), "scene ids are prefixed")
-	assert_false(Director.is_demo_id(0x80000000 | 42), "a live agent id is never demo")
+		assert_true(Director.is_demo_id(id), "every synthetic id is in the reserved range")
+		var name_s: String = Director.display_name_for(id)
+		assert_gt(name_s.length(), 0, "synthetic agent has a display name")
+		assert_false(name_s.to_lower().contains("demo"), "names play as real agents (no 'demo' marker)")
+	assert_false(Director.is_demo_id(0x80000000 | 42), "a live agent id is never in the reserved range")
 	assert_eq(Director.display_name_for(42), "")
 
 
@@ -115,7 +116,7 @@ func test_start_stagger_real_targets_keepalive_and_stop_retires() -> void:
 	# extractor (extract_action_task) reads "intent" by name.
 	var payload_s: String = String(first[0]["payload"])
 	assert_true(payload_s.contains("\"intent\":\""), "intent caption in payload")
-	assert_true(payload_s.contains("\"demo\":true"), "demo provenance in payload")
+	assert_false(payload_s.to_lower().contains("demo"), "frames are indistinguishable from a live swarm's")
 	# All six have started by 9.2 s; keep-alives keep evidence under the 30 s TTL.
 	var t := 0.0
 	while t < 9.5:

@@ -87,7 +87,7 @@ const fields: RegistryField[] = [
   { key: 'kgAttentionHeat', subgroup: 'Behaviour', label: 'File-Attention Heat', type: 'toggle', path: `${K}attentionHeatEnabled`, description: 'Knowledge/ontology nodes heat up (glow) as agents touch them via 0x23 actions, then cool as the heat decays' },
   { key: 'kgAttentionHeatHalfLife', subgroup: 'Behaviour', label: 'Attention Heat Half-Life', type: 'slider', min: 5, max: 60, step: 1, path: `${K}attentionHeatHalfLife`, description: 'Seconds for a node\'s attention heat to fade by half' },
   // Demo mode — synthetic agent injection for visual verification (no backend path).
-  { key: 'agentDemoToggle', subgroup: 'Demo', label: 'Toggle Agent Demo', type: 'action-button', action: 'toggle-demo', description: 'Inject/remove 6 synthetic agents that cycle through work→idle to exercise sprite, nudge and fade features' },
+  { key: 'agentDemoToggle', subgroup: 'Demo', label: 'Toggle Agent Demo', type: 'action-button', action: 'toggle-demo', description: 'Run six agents through a live work loop on the graph; they appear and behave as real agents' },
 ];
 
 export const agents: GroupData = {

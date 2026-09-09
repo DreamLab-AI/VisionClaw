@@ -13,6 +13,8 @@ const IDLE_THRESHOLD_MS = 15_000;
 interface WorkEntry {
   targetNodeId: string;
   lastBeamStartMs: number;
+  /** Explicit completion (state channel / demo director); cleared by a newer beam. */
+  done: boolean;
 }
 
 const targets = new Map<string, WorkEntry>();
@@ -29,9 +31,21 @@ function ingest(beams: ReadonlyArray<TransientBeam>): void {
       targets.set(agentId, {
         targetNodeId: String(beam.targetNodeId),
         lastBeamStartMs: beam.startTime,
+        done: false,
       });
     }
   }
+}
+
+/**
+ * Explicit completion for an agent (parity with the XR registry's `done`
+ * status): the agent keeps its last target so the renderer knows where to
+ * drift away from, but reads as `done` immediately instead of waiting out the
+ * idle threshold. A newer beam clears it.
+ */
+export function markAgentDone(agentNodeId: string): void {
+  const entry = targets.get(agentNodeId);
+  if (entry) entry.done = true;
 }
 
 function ensureSubscribed(): void {
@@ -67,7 +81,7 @@ export function getAgentWork(agentNodeId: string): AgentWorkInfo | null {
   const elapsed = performance.now() - entry.lastBeamStartMs;
   return {
     targetNodeId: entry.targetNodeId,
-    state: elapsed < IDLE_THRESHOLD_MS ? 'working' : 'done',
+    state: entry.done || elapsed >= IDLE_THRESHOLD_MS ? 'done' : 'working',
   };
 }
 

@@ -120,7 +120,7 @@ func test_apply_signal_drives_activity_state():
 # instead of the social gaze cone, badge letters, gated caption, whole-body alpha.
 func test_work_identity_uses_pointer_role_frame_and_gated_caption() -> void:
 	var agent: Node3D = await _make_agent()
-	agent.set_work_identity("Demo-Reviewer")
+	agent.set_work_identity("Reviewer")
 	agent.set_role("reviewer")
 	agent.set_feature_mask(FEAT_BADGE | FEAT_CONE | FEAT_CORE_MESH)
 	await get_tree().process_frame
@@ -138,7 +138,7 @@ func test_work_identity_uses_pointer_role_frame_and_gated_caption() -> void:
 	assert_gt(pointer.position.x, agent.CORE_RADIUS, "pointer sits outside the core")
 	var badge: Label3D = agent.get_node("Badge")
 	assert_false(badge.fixed_size, "world-size badge")
-	assert_true(badge.text.begins_with("RE  Demo-Reviewer"), "badge letters + name")
+	assert_true(badge.text.begins_with("RE  Reviewer"), "badge letters + name")
 	assert_false(badge.text.contains("unverified"), "work layer never shows a DID line")
 	agent.set_task_caption("Reviewing: Access policy")
 	assert_true(badge.text.contains("Reviewing"), "caption shown by default")

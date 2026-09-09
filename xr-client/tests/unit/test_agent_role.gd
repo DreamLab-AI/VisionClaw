@@ -21,12 +21,13 @@ func test_six_roles_have_distinct_badges_and_colours() -> void:
 
 
 func test_inference_prefers_name_then_task_then_generic() -> void:
-	assert_eq(Role.infer("Demo-Architect", ""), "architect")
-	assert_eq(Role.infer("Demo-Analyst", ""), "analyst")
-	assert_eq(Role.infer("Demo-Coder", ""), "coder")
-	assert_eq(Role.infer("Demo-Reviewer", ""), "reviewer")
-	assert_eq(Role.infer("Demo-Tester", ""), "tester")
-	assert_eq(Role.infer("Demo-Optimizer", ""), "optimizer")
+	assert_eq(Role.infer("Architect", ""), "architect")
+	assert_eq(Role.infer("Analyst", ""), "analyst")
+	assert_eq(Role.infer("Coder", ""), "coder")
+	assert_eq(Role.infer("Reviewer", ""), "reviewer")
+	assert_eq(Role.infer("Tester", ""), "tester")
+	assert_eq(Role.infer("Optimizer", ""), "optimizer")
+	assert_eq(Role.infer("swarm-architect-2", ""), "architect", "real swarm naming")
 	assert_eq(Role.infer("agent 42", "Reviewing: Access policy"), "reviewer", "task reveals the role")
 	assert_eq(Role.infer("Optimizer-7", "Testing: X"), "optimizer", "name wins over task")
 	assert_eq(Role.infer("agent 9", ""), "generic")
