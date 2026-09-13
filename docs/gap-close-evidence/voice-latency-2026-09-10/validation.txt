@@ -1,0 +1,32 @@
+2026-09-10
+
+Gateway unittest: 1 passed, 0 failed.
+Python py_compile: passed for gateway, wrapper and benchmark scripts.
+docker compose -f docker-compose.voice-latency.yml config --quiet: passed.
+Pocket derived image build: passed; running container recreated by Compose.
+Gateway derived image build: passed; running container recreated by Compose.
+Kokoros release build: passed.
+Kokoros cargo test -p kokoros --lib: 1 passed, 1 failed.
+Unchanged upstream failure: tts::tokenize::tests::test_tokenize
+  actual:   [50, 47, 102, 16, 81, 102, 61, 16, 102, 68, 16, 156, 54, 138, 64, 54, 51, 158, 5]
+  expected: [24, 47, 54, 54, 57, 5]
+The fixture supplies a different phoneme string from the Hello! expected vector.
+
+Direct Pocket model cancellation in rebuilt container: 10/10 passed.
+No extra Python threads remained after each stream.close().
+Close/join milliseconds by run:
+  0: 4.6957
+  1: 3.5892
+  2: 3.7622
+  3: 35.3264
+  4: 10.7984
+  5: 14.5956
+  6: 3.6635
+  7: 34.5384
+  8: 14.2492
+  9: 3.2937
+
+Post-recreation gateway interruption smoke: 3/3 passed; zero stale frames.
+See raw/voice-pocket-recreated-smoke.jsonl (kept separate from final comparison).
+All four saved short WAV samples transcribed to the expected words.
+No physical mic/speaker, AEC, browser or LLM latency test was performed.

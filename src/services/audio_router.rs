@@ -2,7 +2,7 @@
 //!
 //! Routes audio between four planes:
 //!   Plane 1: User mic → Turbo Whisper STT → agent commands (private per-user)
-//!   Plane 2: Agent response → Kokoro TTS → owner's ears (private per-user)
+//!   Plane 2: Agent response → PocketTts TTS → owner's ears (private per-user)
 //!   Plane 3: User mic → LiveKit SFU → all users (public spatial voice chat)
 //!   Plane 4: Agent TTS → LiveKit SFU at agent position → all users (public spatial)
 //!
@@ -48,7 +48,7 @@ pub struct AgentVoiceIdentity {
     pub agent_id: String,
     pub agent_type: String,
     pub owner_user_id: String,
-    /// Kokoro voice preset ID (e.g., "af_sarah", "am_adam")
+    /// PocketTts voice preset ID (e.g., "alba", "am_adam")
     pub voice_id: String,
     /// Speech speed multiplier
     pub speed: f32,
@@ -82,7 +82,7 @@ fn default_agent_voice_presets() -> HashMap<String, VoicePreset> {
     presets.insert(
         "researcher".to_string(),
         VoicePreset {
-            voice_id: "af_sarah".to_string(),
+            voice_id: "alba".to_string(),
             speed: 1.0,
         },
     );
@@ -110,7 +110,7 @@ fn default_agent_voice_presets() -> HashMap<String, VoicePreset> {
     presets.insert(
         "coordinator".to_string(),
         VoicePreset {
-            voice_id: "af_heart".to_string(),
+            voice_id: "alba".to_string(),
             speed: 1.0,
         },
     );
@@ -259,7 +259,7 @@ impl AudioRouter {
     ) {
         let presets = self.default_voice_presets.read().await;
         let preset = presets.get(agent_type).cloned().unwrap_or(VoicePreset {
-            voice_id: "af_heart".to_string(),
+            voice_id: "alba".to_string(),
             speed: 1.0,
         });
 
@@ -301,7 +301,7 @@ impl AudioRouter {
         }
     }
 
-    /// Get voice identity for an agent (used to select Kokoro voice preset for TTS)
+    /// Get voice identity for an agent (used to select PocketTts voice preset for TTS)
     pub async fn get_agent_voice(&self, agent_id: &str) -> Option<AgentVoiceIdentity> {
         self.agent_voices.read().await.get(agent_id).cloned()
     }

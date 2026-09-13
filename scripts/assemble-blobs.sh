@@ -201,7 +201,7 @@ State: Zustand stores with Immer
 UI: Radix UI primitives + Lucide icons + Framer Motion
 WebSocket: Binary protocol for real-time position updates
 Features: 3D graph visualization, XR/VR mode, voice commands,
-          AI integrations (RAGFlow, Perplexity, OpenAI, Kokoro TTS, Whisper STT)
+          AI integrations (RAGFlow, Perplexity, OpenAI, PocketTts TTS, Whisper STT)
 ================================================================================
 
 HEADER

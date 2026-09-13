@@ -604,6 +604,7 @@ is_container_running() {
 # Start environment
 start_environment() {
     log "Starting $ENVIRONMENT environment..."
+    docker compose -f "$PROJECT_ROOT/agentbox/docker-compose.speech.yml" up -d --build --wait
 
     # Check if main container is already running and healthy
     if is_container_running "$CONTAINER_NAME"; then

@@ -1,0 +1,20 @@
+{"engine": "moshi", "cfg": 2.0, "abort": false, "ready_ms": 1.617362955585122, "first_audio_ms": 482.34378383494914, "first_nonsilent_ms": 482.34378383494914, "elapsed_ms": 1596.2282458785921, "audio_s": 4.88, "chunks": 61, "simulated_underrun_ms": 0.0, "close_ms": 0.006220070645213127, "run": 0, "scenario": "short", "label": "batch1-gpu2"}
+{"engine": "moshi", "cfg": 2.0, "abort": false, "ready_ms": 1.5295769553631544, "first_audio_ms": 160.99316207692027, "first_nonsilent_ms": 160.99316207692027, "elapsed_ms": 9401.896086987108, "audio_s": 40.16, "chunks": 502, "simulated_underrun_ms": 0.0, "close_ms": 0.00327196903526783, "run": 0, "scenario": "long", "label": "batch1-gpu2"}
+{"engine": "moshi", "cfg": 2.0, "abort": true, "ready_ms": 1.1767300311475992, "first_audio_ms": 165.70203704759479, "first_nonsilent_ms": 165.70203704759479, "elapsed_ms": 185.32023299485445, "audio_s": 0.08, "chunks": 1, "simulated_underrun_ms": 0.0, "close_ms": 19.43570119328797, "run": 0, "scenario": "interrupt", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 0, "scenario": "replacement", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 1, "scenario": "short", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 1, "scenario": "long", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 1, "scenario": "interrupt", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 1, "scenario": "replacement", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 2, "scenario": "short", "label": "batch1-gpu2"}
+{"engine": "moshi", "cfg": 2.0, "abort": false, "ready_ms": 1.1973138898611069, "first_audio_ms": 184.3786200042814, "first_nonsilent_ms": 184.3786200042814, "elapsed_ms": 8933.816283941269, "audio_s": 38.16, "chunks": 477, "simulated_underrun_ms": 0.0, "close_ms": 0.003232154995203018, "run": 2, "scenario": "long", "label": "batch1-gpu2"}
+{"engine": "moshi", "cfg": 2.0, "abort": true, "ready_ms": 1.64266605861485, "first_audio_ms": 148.98767601698637, "first_nonsilent_ms": 148.98767601698637, "elapsed_ms": 166.7973631992936, "audio_s": 0.08, "chunks": 1, "simulated_underrun_ms": 0.0, "close_ms": 17.552891978994012, "run": 2, "scenario": "interrupt", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 2, "scenario": "replacement", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 3, "scenario": "short", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 3, "scenario": "long", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 3, "scenario": "interrupt", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 3, "scenario": "replacement", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 4, "scenario": "short", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 4, "scenario": "long", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 4, "scenario": "interrupt", "label": "batch1-gpu2"}
+{"error": "RuntimeError({'type': 'Error', 'message': 'no free channels'})", "engine": "moshi", "run": 4, "scenario": "replacement", "label": "batch1-gpu2"}

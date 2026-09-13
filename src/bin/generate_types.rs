@@ -439,7 +439,7 @@ export interface OpenAISettings {
   rate_limit?: number;
 }
 
-export interface KokoroSettings {
+export interface PocketTtsSettings {
   api_url?: string;
   default_voice?: string;
   default_format?: string;
@@ -529,7 +529,7 @@ export interface AppFullSettings {
   ragflow?: RagFlowSettings;
   perplexity?: PerplexitySettings;
   openai?: OpenAISettings;
-  kokoro?: KokoroSettings;
+  pocketTts?: PocketTtsSettings;
   whisper?: WhisperSettings;
 }
 

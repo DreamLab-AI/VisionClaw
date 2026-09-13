@@ -1,0 +1,5 @@
+{"engine": "moshi", "run": 0, "trigger": "Step", "speech_onset_to_detection_ms": 105.0080677960068, "speech_onset_to_cancel_ack_ms": 107.13452473282814, "speech_onset_to_replacement_ms": 401.45576070062816, "stale_frames_after_ack": 0}
+{"engine": "moshi", "run": 1, "trigger": "Step", "speech_onset_to_detection_ms": 116.1669937428087, "speech_onset_to_cancel_ack_ms": 117.39181261509657, "speech_onset_to_replacement_ms": 439.408186590299, "stale_frames_after_ack": 0}
+{"engine": "moshi", "run": 2, "trigger": "Step", "speech_onset_to_detection_ms": 108.29042945988476, "speech_onset_to_cancel_ack_ms": 113.08094253763556, "speech_onset_to_replacement_ms": 432.1632266510278, "stale_frames_after_ack": 0}
+{"engine": "moshi", "run": 3, "trigger": "Step", "speech_onset_to_detection_ms": 115.19075650721788, "speech_onset_to_cancel_ack_ms": 116.9587355107069, "speech_onset_to_replacement_ms": 441.09635055065155, "stale_frames_after_ack": 0}
+{"engine": "moshi", "run": 4, "trigger": "Step", "speech_onset_to_detection_ms": 94.28446157835424, "speech_onset_to_cancel_ack_ms": 96.0580836981535, "speech_onset_to_replacement_ms": 400.29537468217313, "stale_frames_after_ack": 0}

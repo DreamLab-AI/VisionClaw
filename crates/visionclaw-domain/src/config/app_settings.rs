@@ -8,7 +8,7 @@ use super::field_mappings::{
     convert_empty_strings_to_null, merge_json_values, normalize_field_names_to_camel_case,
 };
 use super::services::{
-    AuthSettings, KokoroSettings, OntologyAgentSettings, OpenAISettings, PerplexitySettings,
+    AuthSettings, OntologyAgentSettings, OpenAISettings, PerplexitySettings, PocketTtsSettings,
     RagFlowSettings, VoiceRoutingSettings, WhisperSettings,
 };
 use super::system::SystemSettings;
@@ -95,8 +95,8 @@ pub struct AppFullSettings {
     pub perplexity: Option<PerplexitySettings>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "openai")]
     pub openai: Option<OpenAISettings>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "kokoro")]
-    pub kokoro: Option<KokoroSettings>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "pocketTts")]
+    pub pocket_tts: Option<PocketTtsSettings>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "whisper")]
     pub whisper: Option<WhisperSettings>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "voice_routing")]
@@ -127,7 +127,7 @@ impl Default for AppFullSettings {
             ragflow: None,
             perplexity: None,
             openai: None,
-            kokoro: None,
+            pocket_tts: None,
             whisper: None,
             voice_routing: None,
             ontology_agent: None,

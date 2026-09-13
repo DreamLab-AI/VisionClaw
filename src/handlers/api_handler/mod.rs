@@ -50,7 +50,7 @@ async fn get_app_config(state: web::Data<crate::AppState>) -> impl Responder {
                 "ragflow": settings.ragflow.is_some(),
                 "perplexity": settings.perplexity.is_some(),
                 "openai": settings.openai.is_some(),
-                "kokoro": settings.kokoro.is_some(),
+                "pocketTts": settings.pocket_tts.is_some(),
                 "whisper": settings.whisper.is_some(),
             },
             "websocket": {
@@ -82,7 +82,7 @@ async fn get_app_config(state: web::Data<crate::AppState>) -> impl Responder {
                     "ragflow": settings.ragflow.is_some(),
                     "perplexity": settings.perplexity.is_some(),
                     "openai": settings.openai.is_some(),
-                    "kokoro": settings.kokoro.is_some(),
+                    "pocketTts": settings.pocket_tts.is_some(),
                     "whisper": settings.whisper.is_some(),
                 },
                 "websocket": {

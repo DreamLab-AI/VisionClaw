@@ -14,12 +14,12 @@ pub mod write_handlers;
 pub use types::{
     value_type_name, AgentColorsDTO, AnimationSettingsDTO, AuthSettingsDTO, AutoBalanceConfigDTO,
     CameraSettingsDTO, DebugSettingsDTO, EdgeSettingsDTO, GlowSettingsDTO, GraphSettingsDTO,
-    GraphsSettingsDTO, HologramSettingsDTO, KokoroSettingsDTO, LabelSettingsDTO, MovementAxesDTO,
-    NetworkSettingsDTO, NodeSettingsDTO, OpenAISettingsDTO, PerplexitySettingsDTO,
-    PhysicsSettingsDTO, PositionDTO, RagFlowSettingsDTO, RenderingSettingsDTO, SecuritySettingsDTO,
-    SensitivityDTO, SettingsResponseDTO, SettingsUpdateDTO, SettingsValidationError,
-    SpacePilotSettingsDTO, SystemSettingsDTO, VisualisationSettingsDTO, WebSocketSettingsDTO,
-    WhisperSettingsDTO, XRSettingsDTO,
+    GraphsSettingsDTO, HologramSettingsDTO, LabelSettingsDTO, MovementAxesDTO, NetworkSettingsDTO,
+    NodeSettingsDTO, OpenAISettingsDTO, PerplexitySettingsDTO, PhysicsSettingsDTO,
+    PocketTtsSettingsDTO, PositionDTO, RagFlowSettingsDTO, RenderingSettingsDTO,
+    SecuritySettingsDTO, SensitivityDTO, SettingsResponseDTO, SettingsUpdateDTO,
+    SettingsValidationError, SpacePilotSettingsDTO, SystemSettingsDTO, VisualisationSettingsDTO,
+    WebSocketSettingsDTO, WhisperSettingsDTO, XRSettingsDTO,
 };
 
 // Re-export enhanced handler

@@ -3,7 +3,7 @@
 //! Routes spoken view/graph configuration requests from the local Whisper STT
 //! stream to the **same settings assistant** that the Control Center command
 //! box drives (`POST /api/bots/settings-command` → agentbox LLM → settings
-//! REST API), and confirms over local Kokoro TTS. One assistant, two mouths:
+//! REST API), and confirms over local PocketTts TTS. One assistant, two mouths:
 //! typed in the UX control centre, or spoken inside the immersive session.
 //!
 //! Intent detection is deliberately conservative — a configuration verb AND an

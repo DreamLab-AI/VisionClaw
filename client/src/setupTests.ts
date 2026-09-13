@@ -3,6 +3,27 @@ import '@testing-library/jest-dom/vitest';
 import { vi, beforeAll, afterAll } from 'vitest';
 import * as React from 'react';
 
+// Node 26 exposes an incomplete experimental `localStorage` unless
+// --localstorage-file is supplied, and that object can leak into jsdom too.
+// Give persistence middleware a deterministic standards-shaped test store.
+const localStorageData = new Map<string, string>();
+const testLocalStorage: Storage = {
+  get length() { return localStorageData.size; },
+  clear: () => localStorageData.clear(),
+  getItem: (key) => localStorageData.get(key) ?? null,
+  key: (index) => Array.from(localStorageData.keys())[index] ?? null,
+  removeItem: (key) => { localStorageData.delete(key); },
+  setItem: (key, value) => { localStorageData.set(key, String(value)); },
+};
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: testLocalStorage,
+});
+Object.defineProperty(window, 'localStorage', {
+  configurable: true,
+  value: testLocalStorage,
+});
+
 // Polyfill React.act for React 19 compatibility with @testing-library/react
 // React 19 moved act from react-dom/test-utils to the main react package
 if (typeof (React as unknown as Record<string, unknown>).act === 'function') {

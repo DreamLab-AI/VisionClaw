@@ -14,7 +14,7 @@ impl From<&AppFullSettings> for SettingsResponseDTO {
             ragflow: settings.ragflow.as_ref().map(|r| r.into()),
             perplexity: settings.perplexity.as_ref().map(|p| p.into()),
             openai: settings.openai.as_ref().map(|o| o.into()),
-            kokoro: settings.kokoro.as_ref().map(|k| k.into()),
+            pocket_tts: settings.pocket_tts.as_ref().map(|k| k.into()),
             whisper: settings.whisper.as_ref().map(|w| w.into()),
         }
     }
@@ -513,8 +513,8 @@ impl From<&crate::config::OpenAISettings> for OpenAISettingsDTO {
     }
 }
 
-impl From<&crate::config::KokoroSettings> for KokoroSettingsDTO {
-    fn from(settings: &crate::config::KokoroSettings) -> Self {
+impl From<&crate::config::PocketTtsSettings> for PocketTtsSettingsDTO {
+    fn from(settings: &crate::config::PocketTtsSettings) -> Self {
         Self {
             api_url: settings.api_url.clone(),
             default_voice: settings.default_voice.clone(),

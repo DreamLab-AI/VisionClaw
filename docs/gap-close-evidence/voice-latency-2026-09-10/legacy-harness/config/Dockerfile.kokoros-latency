@@ -1,0 +1,10 @@
+# runtime/ is a staged copy of the tested host binary and its ldd dependencies.
+# This preserves the host's GLIBC_2.43 ABI without mounting host libraries.
+FROM scratch
+COPY runtime/ /
+WORKDIR /app
+ENV KOKORO_INTRA_THREADS=0
+ENV LD_LIBRARY_PATH=/usr/lib
+EXPOSE 8880
+ENTRYPOINT ["/usr/bin/koko"]
+CMD ["--instances", "1", "openai", "--ip", "0.0.0.0", "--port", "8880"]

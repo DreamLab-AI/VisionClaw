@@ -1,0 +1,10 @@
+{"engine": "kokoro", "run": 0, "first_audio_ms": 1006.5186629071832, "cancel_ack_ms": 0.29976479709148407, "cancel_to_replacement_ms": 874.0624238271266, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 1, "first_audio_ms": 956.0149589087814, "cancel_ack_ms": 0.26345299556851387, "cancel_to_replacement_ms": 851.0037041269243, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 2, "first_audio_ms": 930.0332979764789, "cancel_ack_ms": 0.30971504747867584, "cancel_to_replacement_ms": 823.739331914112, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 3, "first_audio_ms": 872.5110969971865, "cancel_ack_ms": 0.29688887298107147, "cancel_to_replacement_ms": 781.9585090037435, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 4, "first_audio_ms": 890.0569330435246, "cancel_ack_ms": 0.3261980600655079, "cancel_to_replacement_ms": 797.4659961182624, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 5, "first_audio_ms": 891.3168448489159, "cancel_ack_ms": 0.2924869768321514, "cancel_to_replacement_ms": 791.340412106365, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 6, "first_audio_ms": 897.3895451053977, "cancel_ack_ms": 0.28977496549487114, "cancel_to_replacement_ms": 939.0633029397577, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 7, "first_audio_ms": 1004.6578580513597, "cancel_ack_ms": 0.27248915284872055, "cancel_to_replacement_ms": 931.3813881017268, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 8, "first_audio_ms": 964.0300439205021, "cancel_ack_ms": 0.3388212062418461, "cancel_to_replacement_ms": 872.6706032175571, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}
+{"engine": "kokoro", "run": 9, "first_audio_ms": 970.7621580455452, "cancel_ack_ms": 0.269558047875762, "cancel_to_replacement_ms": 776.8151999916881, "in_flight_audio_ms": 0.0, "stale_frames_after_ack": 0}

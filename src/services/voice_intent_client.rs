@@ -8,7 +8,7 @@
 //! targeted at that DID, then POSTed to the agentbox producer
 //! (`/v1/voice-intent`, ADR-037 D7: additive `actor_did`, mandate-authenticated
 //! with a NIP-98 header). On accepted dispatch the caller speaks the
-//! acknowledgement over the Kokoro TTS path.
+//! acknowledgement over the PocketTts TTS path.
 //!
 //! ## Cross-substrate boundary (honest label)
 //!
@@ -191,7 +191,7 @@ impl VoiceIntentClient {
 
     /// Build a signed, targeted governed dispatch from a transcript + the bound
     /// agent DID, and POST it to the D7 producer. On acceptance returns the echo
-    /// the caller turns into a Kokoro acknowledgement.
+    /// the caller turns into a PocketTts acknowledgement.
     pub async fn dispatch(
         &self,
         transcript: &str,
@@ -320,7 +320,7 @@ fn sign_unsigned(ev: &UnsignedAcspEvent, keys: &Keys) -> Result<Event, String> {
         .map_err(|e| format!("31402 sign failed: {e}"))
 }
 
-/// A spoken acknowledgement for an accepted dispatch, played over Kokoro TTS
+/// A spoken acknowledgement for an accepted dispatch, played over PocketTts TTS
 /// (COM-15 AC3). Keeps it short and legible — the operator hears which agent it
 /// reached and what was understood.
 pub fn ack_sentence(accepted: &VoiceIntentAccepted, actor_did: &str) -> String {

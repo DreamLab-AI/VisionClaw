@@ -1264,7 +1264,7 @@ impl AppState {
 
         // ADR-110: flagship ACSP agentic actor — knowledge elevation through
         // forum governance cases, voice-guided when the local speech stack
-        // (Whisper STT / Kokoro TTS) is up. ADR-130 Decision 2: the gate now
+        // (Whisper STT / PocketTts TTS) is up. ADR-130 Decision 2: the gate now
         // defaults ON in dev/staging (opt-in in production) and still requires
         // FORUM_RELAY_URL + a panel secret to publish; None means the gate is
         // closed for this profile/config.
@@ -1290,7 +1290,7 @@ impl AppState {
 
         // ADR-110: voice → settings-assistant bridge. Spoken configuration
         // requests reach the same agent the Control Center command box drives;
-        // active whenever the local speech stack (Whisper/Kokoro) is up.
+        // active whenever the local speech stack (Whisper/PocketTts) is up.
         match crate::actors::voice_interface_actor::VoiceInterfaceActor::new(
             task_orchestrator_addr.clone(),
             speech_service.clone(),

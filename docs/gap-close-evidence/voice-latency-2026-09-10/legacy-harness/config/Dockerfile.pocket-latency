@@ -1,0 +1,7 @@
+# Build the upstream image at the revision recorded in the report first.
+FROM voice-latency-pocket:upstream
+COPY config/voice-latency/pocket-cancellation.patch /tmp/pocket-cancellation.patch
+RUN patch -p1 < /tmp/pocket-cancellation.patch
+COPY scripts/pocket_tts_cancellable.py /app/pocket_tts_cancellable.py
+ENTRYPOINT ["/app/.venv/bin/python"]
+CMD ["/app/pocket_tts_cancellable.py"]

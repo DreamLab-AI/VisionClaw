@@ -71,7 +71,7 @@ impl SpeechService {
         let service = SpeechService {
             sender,
             settings,
-            tts_provider: Arc::new(RwLock::new(TTSProvider::Kokoro)),
+            tts_provider: Arc::new(RwLock::new(TTSProvider::PocketTts)),
             stt_provider: Arc::new(RwLock::new(STTProvider::Whisper)),
             audio_tx,
             transcription_tx,
@@ -98,6 +98,7 @@ impl SpeechService {
 
         task::spawn(async move {
             let mut ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>> = None;
+            let mut tts_task: Option<tokio::task::JoinHandle<()>> = None;
 
             while let Some(command) = receiver.recv().await {
                 match command {
@@ -260,7 +261,17 @@ impl SpeechService {
                             error!("OpenAI WebSocket not initialized");
                         }
                     }
+                    SpeechCommand::StopSpeech => {
+                        if let Some(task) = tts_task.take() {
+                            task.abort();
+                            let _ = task.await;
+                        }
+                    }
                     SpeechCommand::Close => {
+                        if let Some(task) = tts_task.take() {
+                            task.abort();
+                            let _ = task.await;
+                        }
                         if let Some(mut stream) = ws_stream.take() {
                             if let Err(e) = stream.send(tungstenite::Message::Close(None)).await {
                                 error!("Failed to send close frame: {}", e);
@@ -274,115 +285,45 @@ impl SpeechService {
                         info!("TTS provider updated to: {:?}", provider);
                     }
                     SpeechCommand::TextToSpeech(text, options) => {
+                        if let Some(task) = tts_task.take() {
+                            task.abort();
+                            let _ = task.await;
+                        }
                         let provider = tts_provider.read().await.clone();
 
                         match provider {
-                            TTSProvider::OpenAI => {
-                                info!("Processing TextToSpeech command with OpenAI provider");
-                                let openai_config = {
+                            TTSProvider::PocketTts => {
+                                info!("Processing TextToSpeech command with PocketTts provider");
+                                let pocket_tts_config = {
                                     let s = settings.read().await;
-                                    s.openai.clone()
+                                    Some(s.pocket_tts.clone().unwrap_or_default())
                                 };
 
-                                if let Some(config) = openai_config {
-                                    if let Some(api_key) = config.api_key.as_ref() {
-                                        let api_url = "https://api.openai.com/v1/audio/speech";
-                                        info!("Sending TTS request to OpenAI API: {}", api_url);
-
-                                        let request_body = json!({
-                                            "model": "tts-1",
-                                            "input": text,
-                                            "voice": options.voice.clone(),
-                                            "response_format": "mp3",
-                                            "speed": options.speed
-                                        });
-
-                                        let response = match http_client
-                                            .post(api_url)
-                                            .header("Authorization", format!("Bearer {}", api_key))
-                                            .header("Content-Type", "application/json")
-                                            .body(request_body.to_string())
-                                            .send()
-                                            .await
-                                        {
-                                            Ok(response) => {
-                                                if !response.status().is_success() {
-                                                    let status = response.status();
-                                                    let error_text =
-                                                        response.text().await.unwrap_or_default();
-                                                    error!(
-                                                        "OpenAI TTS API error {}: {}",
-                                                        status, error_text
-                                                    );
-                                                    continue;
-                                                }
-                                                response
-                                            }
-                                            Err(e) => {
-                                                error!(
-                                                    "Failed to connect to OpenAI TTS API: {}",
-                                                    e
-                                                );
-                                                continue;
-                                            }
-                                        };
-
-                                        match response.bytes().await {
-                                            Ok(bytes) => {
-                                                if let Err(e) = audio_tx.send(bytes.to_vec()) {
-                                                    error!(
-                                                        "Failed to send OpenAI audio data: {}",
-                                                        e
-                                                    );
-                                                } else {
-                                                    debug!(
-                                                        "Sent {} bytes of OpenAI audio data",
-                                                        bytes.len()
-                                                    );
-                                                }
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to get OpenAI audio bytes: {}", e);
-                                            }
-                                        }
-                                    } else {
-                                        error!("OpenAI API key not configured");
-                                    }
-                                } else {
-                                    error!("OpenAI configuration not found");
-                                }
-                            }
-                            TTSProvider::Kokoro => {
-                                info!("Processing TextToSpeech command with Kokoro provider");
-                                let kokoro_config = {
-                                    let s = settings.read().await;
-                                    s.kokoro.clone()
-                                };
-
-                                if let Some(config) = kokoro_config {
+                                if let Some(config) = pocket_tts_config {
                                     let api_url_base = match config.api_url.as_deref() {
                                         Some(url) if !url.is_empty() => url,
                                         _ => {
-                                            info!("Using default Kokoro API URL on Docker network");
-                                            "http://kokoro-tts-container:8880"
+                                            info!(
+                                                "Using default PocketTts API URL on Docker network"
+                                            );
+                                            "http://pocket-tts:8000"
                                         }
                                     };
                                     let api_url = format!(
                                         "{}/v1/audio/speech",
                                         api_url_base.trim_end_matches('/')
                                     );
-                                    info!("Sending TTS request to Kokoro API: {}", api_url);
+                                    info!("Sending TTS request to PocketTts API: {}", api_url);
 
-                                    let response_format =
-                                        config.default_format.as_deref().unwrap_or("mp3");
+                                    let response_format = "pcm";
 
                                     let request_body = json!({
-                                        "model": "kokoro",
+                                        "model": "pocket-tts",
                                         "input": text,
                                         "voice": options.voice.clone(),
                                         "response_format": response_format,
-                                        "speed": options.speed,
-                                        "stream": options.stream
+                                        "speed": 1.0,
+                                        "stream": true
                                     });
 
                                     let response = match http_client
@@ -398,7 +339,7 @@ impl SpeechService {
                                                 let error_text =
                                                     response.text().await.unwrap_or_default();
                                                 error!(
-                                                    "Kokoro API error {}: {}",
+                                                    "PocketTts API error {}: {}",
                                                     status, error_text
                                                 );
                                                 continue;
@@ -406,16 +347,16 @@ impl SpeechService {
                                             response
                                         }
                                         Err(e) => {
-                                            error!("Failed to connect to Kokoro API: {}", e);
+                                            error!("Failed to connect to PocketTts API: {}", e);
                                             continue;
                                         }
                                     };
 
-                                    if options.stream {
+                                    if true {
                                         let stream = response.bytes_stream();
                                         let audio_broadcaster = audio_tx.clone();
 
-                                        tokio::spawn(async move {
+                                        tts_task = Some(tokio::spawn(async move {
                                             let mut stream = Box::pin(stream);
 
                                             while let Some(item) = stream.next().await {
@@ -436,8 +377,8 @@ impl SpeechService {
                                                     }
                                                 }
                                             }
-                                            debug!("Finished streaming audio from Kokoro");
-                                        });
+                                            debug!("Finished streaming audio from PocketTts");
+                                        }));
                                     } else {
                                         match response.bytes().await {
                                             Ok(bytes) => {
@@ -456,7 +397,7 @@ impl SpeechService {
                                         }
                                     }
                                 } else {
-                                    error!("Kokoro configuration not found");
+                                    error!("PocketTts configuration not found");
                                 }
                             }
                         }
@@ -1017,6 +958,17 @@ impl SpeechService {
             })
         })?;
         Ok(())
+    }
+
+    pub async fn stop_speech(&self) -> VisionClawResult<()> {
+        self.sender
+            .lock()
+            .await
+            .send(SpeechCommand::StopSpeech)
+            .await
+            .map_err(|e| {
+                VisionClawError::Speech(VisionSpeechError::InitializationFailed(e.to_string()))
+            })
     }
 
     pub fn subscribe_to_transcriptions(&self) -> broadcast::Receiver<String> {

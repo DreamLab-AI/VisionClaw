@@ -1,0 +1,6 @@
+["voice-latency-pocket:upstream"] sha256:f6c533c1be9ebce578e3650d433088d9fd6cfb3347a64ee45eacf0535f74fc86 []
+["voice-latency-pocket:cancellable"] sha256:e637c874e42b1c16fcd06af1019f00f3e2384ba948020ab341623d3d720fd9a1 []
+["voice-latency-kokoro:shared-voices"] sha256:79a59d42572ad040792869917fc8020a9a1788cc3b6aa1c15d66585e0d2559e4 []
+["voice-latency-gateway:tested"] sha256:b3722937e8f6a0f65cff7b2067878b13c3c4969e2cc6cdcd772e8226f275b9c4 []
+["voice-latency-moshi:snapshot"] sha256:cabbc984e3744722bd1dc5a9e70db81a0a2a57e8122f1e13d25654f4f12f9a17 []
+["vllm/vllm-omni:v0.28.0"] sha256:b5803ef0eca37e2c6208391cf71db824dd05c2ccada931545ce410271b460df0 ["vllm/vllm-omni@sha256:6f8be103eaf0055448cf7578cfd621405fd669079d4361bd58896326b2bf722a"]

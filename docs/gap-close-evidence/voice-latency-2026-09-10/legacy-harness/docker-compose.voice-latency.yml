@@ -1,0 +1,53 @@
+# Isolated benchmark/baseline, not the application voice production deployment.
+# docker compose -f docker-compose.voice-latency.yml up -d
+name: voice-latency-baseline
+services:
+  pocket:
+    image: voice-latency-pocket:cancellable
+    container_name: voice-latency-pocket-tuned
+    volumes:
+      - pocket-cache:/root/.cache
+    networks: [visionclaw]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+  gateway:
+    image: voice-latency-gateway:tested
+    container_name: voice-latency-gateway
+    environment:
+      BIND: 0.0.0.0
+      DEFAULT_TTS_ENGINE: pocket
+      POCKET_URL: http://voice-latency-pocket-tuned:8000
+      KOKORO_URL: http://voice-latency-kokoro:8880
+      MOSHI_URL: http://agentbox-voice-tts-1:8080
+      QWEN_URL: http://voice-latency-qwen:8000
+    ports: ["127.0.0.1:8898:8895"]
+    networks: [visionclaw, unmute]
+    depends_on:
+      pocket:
+        condition: service_healthy
+    restart: unless-stopped
+  kokoro:
+    profiles: [kokoro]
+    image: voice-latency-kokoro:shared-voices
+    container_name: voice-latency-kokoro
+    environment:
+      KOKORO_INTRA_THREADS: "0"
+    volumes:
+      - /mnt/nvme/githubs/Kokoros/checkpoints:/app/checkpoints:ro
+      - /mnt/nvme/githubs/Kokoros/data:/app/data:ro
+    networks: [visionclaw]
+networks:
+  visionclaw:
+    external: true
+    name: visionclaw_network
+  unmute:
+    external: true
+    name: agentbox-voice_default
+volumes:
+  pocket-cache:
+    external: true
+    name: voice-latency-pocket-cache

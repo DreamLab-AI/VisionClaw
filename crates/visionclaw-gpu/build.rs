@@ -30,7 +30,8 @@ fn main() {
     let cuda_files = [
         "src/cuda_sources/visionclaw_unified.cu",
         "src/cuda_sources/gpu_clustering_kernels.cu",
-        "src/cuda_sources/dynamic_grid.cu",
+        // dynamic_grid.cu contains only __host__ helpers (no launchable kernels).
+        // It must not be emitted/validated as a device PTX module.
         "src/cuda_sources/gpu_aabb_reduction.cu",
         "src/cuda_sources/gpu_landmark_apsp.cu",
         "src/cuda_sources/sssp_compact.cu",

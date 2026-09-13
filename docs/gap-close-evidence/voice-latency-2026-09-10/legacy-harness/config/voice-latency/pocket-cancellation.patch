@@ -1,0 +1,141 @@
+diff --git a/pocket_tts/models/tts_model.py b/pocket_tts/models/tts_model.py
+index 6ff6b48..8da976c 100644
+--- a/pocket_tts/models/tts_model.py
++++ b/pocket_tts/models/tts_model.py
+@@ -501,6 +501,7 @@ class TTSModel(nn.Module):
+         result_queue: ResultQueue,
+         mimi_sequence_length: int,
+         mimi_steps_per_latent: int,
++        cancel_event: threading.Event,
+     ):
+         """Worker thread function for decoding audio latents from queue with immediate streaming."""
+         try:
+@@ -508,7 +509,7 @@ class TTSModel(nn.Module):
+             mimi_state = init_states(self.mimi, batch_size=1, sequence_length=mimi_sequence_length)
+             while True:
+                 latent = latents_queue.get()
+-                if latent is None:
++                if latent is None or cancel_event.is_set():
+                     break
+                 # Decode every latent frame the generator has queued in one call. The first frame
+                 # never waits. max_decoder_frames_per_call=1 is frame-by-frame decoding.
+@@ -739,11 +740,12 @@ class TTSModel(nn.Module):
+         # Set up multithreaded generation and decoding
+         latents_queue: LatentQueue = queue.Queue()
+         result_queue: ResultQueue = queue.Queue()
++        cancel_event = threading.Event()
+ 
+         # Start decoder worker thread
+         decoder_thread = threading.Thread(
+             target=self._decode_audio_worker,
+-            args=(latents_queue, result_queue, mimi_sequence_length, mimi_steps_per_latent),
++            args=(latents_queue, result_queue, mimi_sequence_length, mimi_steps_per_latent, cancel_event),
+             daemon=True,
+         )
+         logger.info("starting timer now!")
+@@ -751,33 +753,36 @@ class TTSModel(nn.Module):
+         decoder_thread.start()
+ 
+         # Generate latents and add them to queue (decoder processes them in parallel)
+-        self._generate(
++        generation_thread = self._generate(
+             model_state=model_state,
+             prepared=prepared,
+             max_gen_len=max_gen_len,
+             frames_after_eos=frames_after_eos,
+             latents_queue=latents_queue,
+             result_queue=result_queue,
++            cancel_event=cancel_event,
+         )
+ 
+         # Stream audio chunks as they become available
+         total_generated_samples = 0
+-        while True:
+-            result = result_queue.get()
+-            if result[0] == "chunk":
+-                # Audio chunk available immediately for streaming/playback
+-                audio_chunk = result[1]
+-                total_generated_samples += audio_chunk.shape[-1]
+-                yield audio_chunk[0, 0]  # Remove batch, channel
+-            elif result[0] == "done":
+-                # Generation complete
+-                break
+-            elif result[0] == "error":
+-                # Wait for decoder thread to finish cleanly before propagating error
+-                with display_execution_time("Waiting for mimi decoder to finish"):
+-                    decoder_thread.join()
+-                # Propagate error
+-                raise result[1]
++        try:
++            while True:
++                result = result_queue.get()
++                if result[0] == "chunk":
++                    audio_chunk = result[1]
++                    total_generated_samples += audio_chunk.shape[-1]
++                    yield audio_chunk[0, 0]
++                elif result[0] == "done":
++                    break
++                elif result[0] == "error":
++                    raise result[1]
++        finally:
++            # Generator.close() propagates cancellation to BOTH model threads.
++            # Join before releasing the server's single-model inference lock.
++            cancel_event.set()
++            latents_queue.put(None)
++            generation_thread.join()
++            decoder_thread.join()
+ 
+         # Wait for decoder thread to finish cleanly
+         with display_execution_time("Waiting for mimi decoder to finish"):
+@@ -806,6 +811,7 @@ class TTSModel(nn.Module):
+         frames_after_eos: int,
+         latents_queue: LatentQueue,
+         result_queue: ResultQueue,
++        cancel_event: threading.Event,
+     ):
+         token_count = prepared.shape[1]
+         current_end = self._flow_lm_current_end(model_state)
+@@ -818,7 +824,7 @@ class TTSModel(nn.Module):
+         def run_generation():
+             try:
+                 self._autoregressive_generation(
+-                    model_state, max_gen_len, frames_after_eos, latents_queue
++                    model_state, max_gen_len, frames_after_eos, latents_queue, cancel_event
+                 )
+             except Exception as e:
+                 logger.error(f"Error in autoregressive generation: {e}")
+@@ -832,6 +838,7 @@ class TTSModel(nn.Module):
+ 
+         generation_thread = threading.Thread(target=run_generation, daemon=True)
+         generation_thread.start()
++        return generation_thread
+ 
+     @torch.no_grad
+     def _autoregressive_generation(
+@@ -840,6 +847,7 @@ class TTSModel(nn.Module):
+         max_gen_len: int,
+         frames_after_eos: int,
+         latents_queue: LatentQueue,
++        cancel_event: threading.Event,
+     ):
+         backbone_input = torch.full(
+             (1, 1, self.flow_lm.ldim),
+@@ -850,6 +858,8 @@ class TTSModel(nn.Module):
+         steps_times = []
+         eos_step = None
+         for generation_step in range(max_gen_len):
++            if cancel_event.is_set():
++                break
+             with display_execution_time("Generating latent", print_output=False) as timer:
+                 next_latent, is_eos = self._run_flow_lm_and_increment_step(
+                     model_state=model_state, backbone_input_latents=backbone_input
+@@ -873,7 +883,8 @@ class TTSModel(nn.Module):
+ 
+         # Add sentinel value to signal end of generation
+         latents_queue.put(None)
+-        logger.info("Average generation step time: %d ms", int(statistics.mean(steps_times)))
++        if steps_times:
++            logger.info("Average generation step time: %d ms", int(statistics.mean(steps_times)))
+ 
+     @lru_cache(maxsize=2)
+     def _cached_get_state_for_audio_prompt(

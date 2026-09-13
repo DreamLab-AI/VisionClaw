@@ -38,7 +38,7 @@ pub use system::{
 pub use xr::{MovementAxes, XRSettings};
 
 pub use services::{
-    AgentVoicePreset, AuthSettings, KokoroSettings, LiveKitSettings, OntologyAgentSettings,
-    OpenAISettings, PerplexitySettings, RagFlowSettings, TurboWhisperSettings,
+    AgentVoicePreset, AuthSettings, LiveKitSettings, OntologyAgentSettings, OpenAISettings,
+    PerplexitySettings, PocketTtsSettings, RagFlowSettings, TurboWhisperSettings,
     VoiceRoutingSettings, WhisperSettings,
 };

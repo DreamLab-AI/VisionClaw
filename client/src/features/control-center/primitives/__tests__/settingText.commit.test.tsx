@@ -1,7 +1,7 @@
 /**
  * SettingText commit-path regression (DEFECT C).
  *
- * Typing into a text field (perplexity.model / kokoro.defaultVoice) must land in
+ * Typing into a text field (perplexity.model / pocketTts.defaultVoice) must land in
  * the settings store on BOTH blur and Enter — exactly like the sliders in the
  * same group, which write through the same useSettingField setter. The network
  * side (autoSaveManager) is mocked so this asserts only the in-memory store
@@ -41,10 +41,10 @@ const modelField: RegistryField = {
 };
 
 const voiceField: RegistryField = {
-  key: 'kokoroVoice',
+  key: 'pocketTtsVoice',
   label: 'Default Voice',
   type: 'text',
-  path: 'kokoro.defaultVoice',
+  path: 'pocketTts.defaultVoice',
 };
 
 describe('SettingText commit path (DEFECT C)', () => {
@@ -70,12 +70,12 @@ describe('SettingText commit path (DEFECT C)', () => {
 
   it('commits typed text to the store on Enter', () => {
     render(<SettingRow field={voiceField} groupId="ai" />);
-    const input = screen.getByTestId('setting-kokoro.defaultVoice') as HTMLInputElement;
+    const input = screen.getByTestId('setting-pocketTts.defaultVoice') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'af_bella' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(readPath(useSettingsStore.getState().settings, 'kokoro.defaultVoice')).toBe('af_bella');
-    expect(autoSaveManager.queueChange).toHaveBeenCalledWith('kokoro.defaultVoice', 'af_bella');
+    expect(readPath(useSettingsStore.getState().settings, 'pocketTts.defaultVoice')).toBe('af_bella');
+    expect(autoSaveManager.queueChange).toHaveBeenCalledWith('pocketTts.defaultVoice', 'af_bella');
   });
 });

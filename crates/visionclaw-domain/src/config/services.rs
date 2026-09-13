@@ -75,7 +75,7 @@ pub struct OpenAISettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, Type, Validate)]
 #[serde(rename_all = "camelCase")]
-pub struct KokoroSettings {
+pub struct PocketTtsSettings {
     #[serde(skip_serializing_if = "Option::is_none", alias = "api_url")]
     pub api_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "default_voice")]
@@ -125,7 +125,7 @@ pub struct VoiceRoutingSettings {
     pub livekit: Option<LiveKitSettings>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "turbo_whisper")]
     pub turbo_whisper: Option<TurboWhisperSettings>,
-    /// Per-agent voice presets mapping agent_type -> Kokoro voice ID
+    /// Per-agent voice presets mapping agent_type -> PocketTts voice ID
     #[serde(
         default,
         skip_serializing_if = "HashMap::is_empty",
@@ -216,7 +216,7 @@ fn default_beam_size() -> u32 {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, Type, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentVoicePreset {
-    /// Kokoro voice ID (e.g., "af_sarah", "am_adam", "bf_emma")
+    /// PocketTts voice ID (e.g., "alba", "am_adam", "bf_emma")
     pub voice_id: String,
     /// Speech speed multiplier (default: 1.0)
     #[serde(default = "default_speed")]

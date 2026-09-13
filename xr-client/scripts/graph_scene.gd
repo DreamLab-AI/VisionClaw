@@ -1394,8 +1394,10 @@ func _reparent_hud_to_world() -> void:
 	if old_parent != null and old_parent != origin:
 		old_parent.remove_child(hud)
 		origin.add_child(hud)
-	# Comfortable default: down and to the left, angled toward the user.
-	hud.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(25.0)), Vector3(-0.6, 1.0, -0.9))
+	# Default: behind and to the right of the viewer (the old front-left placement
+	# rotated 180 deg about the origin's vertical axis), yawed so the panel still
+	# faces the play-space centre. Turn round to use it; the wand can relocate it.
+	hud.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(205.0)), Vector3(0.6, 1.0, 0.9))
 	hud.visible = true
 
 

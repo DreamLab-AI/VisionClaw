@@ -23,6 +23,31 @@ export class AudioOutputService {
   private isProcessing = false;
   private stopRequested = false;
   private volume = 1.0;
+  private pcmSources = new Set<AudioBufferSourceNode>();
+  private pcmNextTime = 0;
+
+  async queuePcm(audioData: ArrayBuffer, sampleRate = 24000): Promise<void> {
+    if (this.audioContext.state === 'suspended') await this.audioContext.resume();
+    const count = audioData.byteLength / 2;
+    if (!count) return;
+    const audio = this.audioContext.createBuffer(1, count, sampleRate);
+    const samples = audio.getChannelData(0);
+    const view = new DataView(audioData);
+    for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audio;
+    source.connect(this.gainNode);
+    this.pcmSources.add(source);
+    source.onended = () => {
+      this.pcmSources.delete(source);
+      source.disconnect();
+      if (!this.pcmSources.size) { this.setState('idle'); this.emit('audioEnded'); }
+    };
+    if (this.state !== 'playing') { this.setState('playing'); this.emit('audioStarted'); }
+    this.pcmNextTime = Math.max(this.pcmNextTime, this.audioContext.currentTime + 0.02);
+    source.start(this.pcmNextTime);
+    this.pcmNextTime += audio.duration;
+  }
 
   private constructor() {
     this.audioContext = AudioContextManager.getInstance().getContext();
@@ -122,6 +147,9 @@ export class AudioOutputService {
   
   stop() {
     this.stopRequested = true;
+    for (const source of this.pcmSources) { source.stop(); source.disconnect(); }
+    this.pcmSources.clear();
+    this.pcmNextTime = 0;
     if (this.currentSource) {
       try {
         this.currentSource.stop();

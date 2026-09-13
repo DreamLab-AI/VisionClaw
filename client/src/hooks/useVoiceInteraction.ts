@@ -158,16 +158,16 @@ export function useVoiceInteraction(options: UseVoiceInteractionOptions = {}): U
     try {
       await voiceServiceRef.current.sendTextForTTS({
         text,
-        voice: settings?.kokoro?.defaultVoice,
-        speed: settings?.kokoro?.defaultSpeed,
-        stream: settings?.kokoro?.stream ?? true
+        voice: settings?.pocketTts?.defaultVoice,
+        speed: settings?.pocketTts?.defaultSpeed,
+        stream: settings?.pocketTts?.stream ?? true
       });
     } catch (error) {
       gatedConsole.voice.error('Failed to speak:', error);
       onError?.(error);
       throw error;
     }
-  }, [isConnected, settings?.kokoro?.defaultVoice, settings?.kokoro?.defaultSpeed, settings?.kokoro?.stream]);
+  }, [isConnected, settings?.pocketTts?.defaultVoice, settings?.pocketTts?.defaultSpeed, settings?.pocketTts?.stream]);
 
   const toggleListening = useCallback(async () => {
     if (isListening) {

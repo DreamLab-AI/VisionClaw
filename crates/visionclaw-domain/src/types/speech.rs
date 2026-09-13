@@ -64,8 +64,7 @@ impl From<base64::DecodeError> for SpeechError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TTSProvider {
-    OpenAI,
-    Kokoro,
+    PocketTts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +111,7 @@ fn default_opus_format() -> String {
 impl Default for SpeechOptions {
     fn default() -> Self {
         Self {
-            voice: "af_heart".to_string(),
+            voice: "alba".to_string(),
             speed: 1.0,
             stream: true,
             format: "opus".to_string(),

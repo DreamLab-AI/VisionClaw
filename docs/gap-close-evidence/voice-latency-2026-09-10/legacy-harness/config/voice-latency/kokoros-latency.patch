@@ -1,0 +1,102 @@
+diff --git a/kokoros-openai/src/lib.rs b/kokoros-openai/src/lib.rs
+index 7aa3354..27b620b 100644
+--- a/kokoros-openai/src/lib.rs
++++ b/kokoros-openai/src/lib.rs
+@@ -777,6 +777,14 @@ async fn handle_tts_streaming(
+         let window_size = worker_pool_clone.instance_count(); // Allow chunks to process in parallel up to available TTS instances
+ 
+         loop {
++            // A disconnected listener must not leave queued synthesis running.
++            // Already executing blocking inference completes its current chunk.
++            if audio_tx_clone.is_closed() {
++                for (_, handle) in pending_chunks {
++                    handle.abort();
++                }
++                return;
++            }
+             // Receive new tasks while we have window space and tasks are available
+             while pending_chunks.len() < window_size {
+                 // Use a non-blocking approach but with proper channel closure detection
+diff --git a/kokoros/build.rs b/kokoros/build.rs
+index e4b69c7..588d54d 100644
+--- a/kokoros/build.rs
++++ b/kokoros/build.rs
+@@ -12,8 +12,8 @@ fn main() {
+         println!("cargo:rustc-link-search=/usr/lib64");
+ 
+         // Link against required system libraries
+-        println!("cargo:rustc-link-lib=dylib=sonic");
+-        println!("cargo:rustc-link-lib=dylib=pcaudio");
++        // espeak-rs-sys builds its vendored espeak with sonic/playback disabled.
++        // Do not force optional system libraries into a headless TTS server.
+     }
+ 
+     // macOS specific settings
+diff --git a/kokoros/src/onn/ort_base.rs b/kokoros/src/onn/ort_base.rs
+index 9839a7a..2136266 100644
+--- a/kokoros/src/onn/ort_base.rs
++++ b/kokoros/src/onn/ort_base.rs
+@@ -13,7 +13,14 @@ pub trait OrtBase {
+ 
+         match SessionBuilder::new() {
+             Ok(builder) => {
++                // Keep thread tuning opt-in: reduced pools regressed this host.
++                // Zero retains ONNX Runtime's automatic thread selection.
++                let threads = std::env::var("KOKORO_INTRA_THREADS")
++                    .ok().and_then(|s| s.parse::<usize>().ok())
++                    .unwrap_or(0);
+                 let session = builder
++                    .with_intra_threads(threads)
++                    .map_err(|e| format!("Failed to set inference threads: {}", e))?
+                     .with_execution_providers(providers)
+                     .map_err(|e| format!("Failed to build session: {}", e))?
+                     .with_log_level(LogLevel::Warning)
+diff --git a/kokoros/src/tts/koko.rs b/kokoros/src/tts/koko.rs
+index 701d975..57e5623 100644
+--- a/kokoros/src/tts/koko.rs
++++ b/kokoros/src/tts/koko.rs
+@@ -70,7 +70,7 @@ pub struct TTSKoko {
+     #[allow(dead_code)]
+     model_path: String,
+     model: Arc<Mutex<ort_koko::OrtKoko>>,
+-    styles: HashMap<String, Vec<[[f32; 256]; 1]>>,
++    styles: Arc<HashMap<String, Vec<[[f32; 256]; 1]>>>,
+     init_config: InitConfig,
+ }
+ 
+@@ -80,7 +80,7 @@ pub struct TTSKokoParallel {
+     #[allow(dead_code)]
+     model_path: String,
+     models: Vec<Arc<Mutex<ort_koko::OrtKoko>>>,
+-    styles: HashMap<String, Vec<[[f32; 256]; 1]>>,
++    styles: Arc<HashMap<String, Vec<[[f32; 256]; 1]>>>,
+     init_config: InitConfig,
+ }
+ 
+@@ -126,7 +126,7 @@ impl TTSKoko {
+         // TODO: if(not streaming) { model.print_info(); }
+         // model.print_info();
+ 
+-        let styles = Self::load_voices(voices_path);
++        let styles = Arc::new(Self::load_voices(voices_path));
+ 
+         TTSKoko {
+             model_path: model_path.to_string(),
+@@ -1099,7 +1099,7 @@ impl TTSKokoParallel {
+             models.push(model);
+         }
+ 
+-        let styles = TTSKoko::load_voices(voices_path);
++        let styles = Arc::new(TTSKoko::load_voices(voices_path));
+ 
+         TTSKokoParallel {
+             model_path: model_path.to_string(),
+@@ -1120,7 +1120,7 @@ impl TTSKokoParallel {
+         TTSKoko {
+             model_path: self.model_path.clone(),
+             model: model_instance,
+-            // TODO: This clones the HashMap. In a future PR, wrap styles in Arc<>!
++            // Voice embeddings are immutable and shared across requests.
+             styles: self.styles.clone(),
+             init_config: self.init_config.clone(),
+         }

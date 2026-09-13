@@ -1,0 +1,5 @@
+{"engine": "qwen", "run": 0, "trigger": "Step", "speech_onset_to_detection_ms": 101.83459264226258, "speech_onset_to_cancel_ack_ms": 102.89730154909194, "speech_onset_to_replacement_ms": 596.9450136180967, "stale_frames_after_ack": 0}
+{"engine": "qwen", "run": 1, "trigger": "Step", "speech_onset_to_detection_ms": 102.94562857598066, "speech_onset_to_cancel_ack_ms": 103.54004870168865, "speech_onset_to_replacement_ms": 582.1813514921814, "stale_frames_after_ack": 0}
+{"engine": "qwen", "run": 2, "trigger": "Step", "speech_onset_to_detection_ms": 103.36515167728066, "speech_onset_to_cancel_ack_ms": 104.33565150015056, "speech_onset_to_replacement_ms": 4439.741240581498, "stale_frames_after_ack": 0}
+{"engine": "qwen", "run": 3, "trigger": "Step", "speech_onset_to_detection_ms": 104.43364945240319, "speech_onset_to_cancel_ack_ms": 105.43664265424013, "speech_onset_to_replacement_ms": 1056.3936806283891, "stale_frames_after_ack": 0}
+{"engine": "qwen", "run": 4, "trigger": "Step", "speech_onset_to_detection_ms": 102.09950152784586, "speech_onset_to_cancel_ack_ms": 103.0109585262835, "speech_onset_to_replacement_ms": 3226.788071449846, "stale_frames_after_ack": 0}

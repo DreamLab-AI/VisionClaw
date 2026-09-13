@@ -38,6 +38,7 @@ export class VoiceWebSocketService {
   private audioOutput: AudioOutputService;
   private audioInput: AudioInputService;
   private isStreamingAudio = false;
+  private pcmRemainder = new Uint8Array(0);
   private transcriptionCallback?: (result: TranscriptionResult) => void;
   private listeners: Map<string, Set<Function>> = new Map();
   private reconnectAttempts = 0;
@@ -224,7 +225,12 @@ export class VoiceWebSocketService {
       const buffer = data instanceof Blob ? await data.arrayBuffer() : data;
 
       
-      await this.audioOutput.queueAudio(buffer);
+      const joined = new Uint8Array(this.pcmRemainder.length + buffer.byteLength);
+      joined.set(this.pcmRemainder);
+      joined.set(new Uint8Array(buffer), this.pcmRemainder.length);
+      const length = joined.length - joined.length % 2;
+      this.pcmRemainder = joined.slice(length);
+      await this.audioOutput.queuePcm(joined.slice(0, length).buffer, 24000);
       this.emit('audioReceived', buffer);
     } catch (error) {
       gatedConsole.voice.error('Failed to handle audio data:', error);
@@ -246,9 +252,11 @@ export class VoiceWebSocketService {
       throw new Error('Not connected to voice service');
     }
 
+    this.audioOutput.stop();
+    this.pcmRemainder = new Uint8Array(0);
     const message: VoiceMessage = {
       type: 'tts',
-      data: request
+      data: { ...request, voice: request.voice || 'alba', stream: true }
     };
 
     this.send(JSON.stringify(message));
@@ -263,6 +271,11 @@ export class VoiceWebSocketService {
    */
   setPtt(active: boolean, actorDid?: string | null): void {
     if (!this.isConnected()) return;
+    if (active) {
+      this.audioOutput.stop();
+      this.pcmRemainder = new Uint8Array(0);
+      this.send(JSON.stringify({ type: 'cancel_tts' }));
+    }
     this.send(
       JSON.stringify({
         type: 'set_ptt',
@@ -275,7 +288,7 @@ export class VoiceWebSocketService {
   /**
    * COM-15 / V1: dispatch a spoken command. When `actorDid` is a bound agent's
    * `did:nostr`, the server takes the GOVERNED path (signed 31402 →
-   * `/v1/voice-intent` → Kokoro ack); otherwise it reaches the settings
+   * `/v1/voice-intent` → PocketTts ack); otherwise it reaches the settings
    * assistant. The `actorDid` is carried per-command so a mid-utterance
    * re-selection cannot mis-address it.
    */

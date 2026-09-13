@@ -85,7 +85,7 @@ pub const P0_CANARIES: &[(&str, &str, &str, &str)] = &[
 /// The governed-voice-loop canary (COM-15 / V1 / D6 / M5, PRD-023 WP-5). Fires
 /// on the live end-to-end: a spoken command bound to the selected agent's
 /// `did:nostr` → a signed 31402 accepted by agentbox `/v1/voice-intent` → a
-/// Kokoro TTS acknowledgement. Standing (P1).
+/// PocketTts TTS acknowledgement. Standing (P1).
 pub const CANARY_COM15_PTT: &str = "CANARY-VC-COM15-PTT";
 
 /// The steering-surface canary (D2, PRD-023 WP-3). Fires when a steer action
@@ -162,7 +162,7 @@ pub const P1_CANARIES: &[(&str, &str, &str, &str)] = &[
     (
         CANARY_COM15_PTT,
         "Spoken command bound to the selected agent → signed 31402 accepted by \
-         /v1/voice-intent → Kokoro TTS acknowledgement",
+         /v1/voice-intent → PocketTts TTS acknowledgement",
         "standing",
         "P1",
     ),

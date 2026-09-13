@@ -113,7 +113,7 @@ pub struct ElevationActor {
     /// source is threaded state.
     consistency_base: Option<Arc<dyn OntologyRepository>>,
     acsp: Option<Arc<AcspClient>>,
-    /// Local Kokoro TTS / Whisper STT bridge: transcripts guide candidate
+    /// Local PocketTts TTS / Whisper STT bridge: transcripts guide candidate
     /// selection; the actor speaks confirmations back into the session.
     speech: Option<Arc<SpeechService>>,
     panel_secret: String,
@@ -201,7 +201,7 @@ impl ElevationActor {
         })
     }
 
-    /// Speak a short confirmation into the immersive session via local Kokoro
+    /// Speak a short confirmation into the immersive session via local PocketTts
     /// TTS. Fire-and-forget: voice feedback must never block case handling.
     fn speak(&self, text: String) {
         if let Some(speech) = self.speech.clone() {
@@ -756,7 +756,7 @@ impl Actor for ElevationActor {
                     }
                 }
             });
-            info!("[Elevation] voice guidance active (local Whisper STT → demand ledger; Kokoro TTS confirmations)");
+            info!("[Elevation] voice guidance active (local Whisper STT → demand ledger; PocketTts TTS confirmations)");
         }
     }
 }

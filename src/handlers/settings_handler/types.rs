@@ -29,7 +29,7 @@ pub struct SettingsResponseDTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAISettingsDTO>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kokoro: Option<KokoroSettingsDTO>,
+    pub pocket_tts: Option<PocketTtsSettingsDTO>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub whisper: Option<WhisperSettingsDTO>,
 }
@@ -67,7 +67,7 @@ pub struct SettingsUpdateDTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openai: Option<OpenAISettingsDTO>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kokoro: Option<KokoroSettingsDTO>,
+    pub pocket_tts: Option<PocketTtsSettingsDTO>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub whisper: Option<WhisperSettingsDTO>,
 }
@@ -673,7 +673,7 @@ pub struct OpenAISettingsDTO {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct KokoroSettingsDTO {
+pub struct PocketTtsSettingsDTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

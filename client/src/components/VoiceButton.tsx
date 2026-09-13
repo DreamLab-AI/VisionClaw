@@ -54,7 +54,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   // COM-15 / D6 / M5: own the PushToTalkService lifecycle and bind PTT to the
   // selected agent (graph selection → did:nostr). A final transcript for a bound
   // agent is dispatched down the governed voice path (signed 31402 →
-  // /v1/voice-intent → Kokoro ack) via handleTranscription.
+  // /v1/voice-intent → PocketTts ack) via handleTranscription.
   const { handleTranscription } = usePushToTalkAgentBinding();
 
   const {

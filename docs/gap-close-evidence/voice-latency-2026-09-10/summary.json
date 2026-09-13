@@ -1,0 +1,950 @@
+{
+  "voice-kokoro-bargein-final.jsonl": {
+    "interaction": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "speech_onset_to_cancel_ack_ms": {
+          "median": 104.53,
+          "p95": 107.05,
+          "max": 107.05
+        },
+        "speech_onset_to_detection_ms": {
+          "median": 103.51,
+          "p95": 106.02,
+          "max": 106.02
+        },
+        "speech_onset_to_replacement_ms": {
+          "median": 1022.38,
+          "p95": 1049.77,
+          "max": 1049.77
+        },
+        "stale_frames_after_ack": {
+          "median": 0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-kokoro-final.jsonl": {
+    "interrupt": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 3.17,
+          "p95": 3.98,
+          "max": 3.98
+        },
+        "close_ms": {
+          "median": 0.13,
+          "p95": 0.18,
+          "max": 0.18
+        },
+        "elapsed_ms": {
+          "median": 736.06,
+          "p95": 759.07,
+          "max": 759.07
+        },
+        "first_audio_ms": {
+          "median": 731.3,
+          "p95": 747.58,
+          "max": 747.58
+        },
+        "first_nonsilent_ms": {
+          "median": 731.3,
+          "p95": 747.58,
+          "max": 747.58
+        },
+        "ready_ms": {
+          "median": 6.06,
+          "p95": 6.13,
+          "max": 6.13
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "long": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 47.7,
+          "p95": 47.7,
+          "max": 47.7
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.03,
+          "max": 0.03
+        },
+        "elapsed_ms": {
+          "median": 8840.09,
+          "p95": 9066.49,
+          "max": 9066.49
+        },
+        "first_audio_ms": {
+          "median": 738.07,
+          "p95": 859.71,
+          "max": 859.71
+        },
+        "first_nonsilent_ms": {
+          "median": 738.07,
+          "p95": 859.71,
+          "max": 859.71
+        },
+        "ready_ms": {
+          "median": 6.08,
+          "p95": 6.24,
+          "max": 6.24
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "replacement": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 4.5,
+          "p95": 4.5,
+          "max": 4.5
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.03,
+          "max": 0.03
+        },
+        "elapsed_ms": {
+          "median": 1797.56,
+          "p95": 1812.36,
+          "max": 1812.36
+        },
+        "first_audio_ms": {
+          "median": 1167.1,
+          "p95": 1173.13,
+          "max": 1173.13
+        },
+        "first_nonsilent_ms": {
+          "median": 1167.1,
+          "p95": 1173.13,
+          "max": 1173.13
+        },
+        "ready_ms": {
+          "median": 2.96,
+          "p95": 3.52,
+          "max": 3.52
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "short": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 4.5,
+          "p95": 4.5,
+          "max": 4.5
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 942.52,
+          "p95": 1001.27,
+          "max": 1001.27
+        },
+        "first_audio_ms": {
+          "median": 324.17,
+          "p95": 353.9,
+          "max": 353.9
+        },
+        "first_nonsilent_ms": {
+          "median": 324.17,
+          "p95": 353.9,
+          "max": 353.9
+        },
+        "ready_ms": {
+          "median": 1.71,
+          "p95": 2.09,
+          "max": 2.09
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  },
+  "voice-kokoro-interrupt-final.jsonl": {
+    "interaction": {
+      "n": 10,
+      "errors": 0,
+      "metrics": {
+        "cancel_ack_ms": {
+          "median": 0.47,
+          "p95": 0.66,
+          "max": 0.66
+        },
+        "cancel_to_replacement_first_packet_ms": {
+          "median": 752.07,
+          "p95": 810.42,
+          "max": 810.42
+        },
+        "cancel_to_replacement_ms": {
+          "median": 1093.09,
+          "p95": 1151.05,
+          "max": 1151.05
+        },
+        "first_audio_ms": {
+          "median": 740.73,
+          "p95": 773.1,
+          "max": 773.1
+        },
+        "first_nonsilent_ms": {
+          "median": 1000.92,
+          "p95": 1033.87,
+          "max": 1033.87
+        },
+        "in_flight_audio_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "stale_frames_after_ack": {
+          "median": 0.0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-moshi-bargein-final.jsonl": {
+    "interaction": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "speech_onset_to_cancel_ack_ms": {
+          "median": 106.42,
+          "p95": 110.81,
+          "max": 110.81
+        },
+        "speech_onset_to_detection_ms": {
+          "median": 105.45,
+          "p95": 109.0,
+          "max": 109.0
+        },
+        "speech_onset_to_replacement_ms": {
+          "median": 400.72,
+          "p95": 405.99,
+          "max": 405.99
+        },
+        "stale_frames_after_ack": {
+          "median": 0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-moshi-interrupt-final.jsonl": {
+    "interaction": {
+      "n": 10,
+      "errors": 0,
+      "metrics": {
+        "cancel_ack_ms": {
+          "median": 0.6,
+          "p95": 0.69,
+          "max": 0.69
+        },
+        "cancel_to_replacement_first_packet_ms": {
+          "median": 277.01,
+          "p95": 285.79,
+          "max": 285.79
+        },
+        "cancel_to_replacement_ms": {
+          "median": 277.07,
+          "p95": 285.86,
+          "max": 285.86
+        },
+        "first_audio_ms": {
+          "median": 308.18,
+          "p95": 324.58,
+          "max": 324.58
+        },
+        "first_nonsilent_ms": {
+          "median": 308.25,
+          "p95": 324.66,
+          "max": 324.66
+        },
+        "in_flight_audio_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "stale_frames_after_ack": {
+          "median": 0.0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-pocket-bargein-final.jsonl": {
+    "interaction": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "speech_onset_to_cancel_ack_ms": {
+          "median": 102.79,
+          "p95": 104.77,
+          "max": 104.77
+        },
+        "speech_onset_to_detection_ms": {
+          "median": 101.75,
+          "p95": 103.73,
+          "max": 103.73
+        },
+        "speech_onset_to_replacement_ms": {
+          "median": 293.61,
+          "p95": 299.95,
+          "max": 299.95
+        },
+        "stale_frames_after_ack": {
+          "median": 0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-pocket-final.jsonl": {
+    "interrupt": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 0.08,
+          "p95": 0.08,
+          "max": 0.08
+        },
+        "close_ms": {
+          "median": 0.09,
+          "p95": 0.15,
+          "max": 0.15
+        },
+        "elapsed_ms": {
+          "median": 189.77,
+          "p95": 193.07,
+          "max": 193.07
+        },
+        "first_audio_ms": {
+          "median": 189.57,
+          "p95": 192.74,
+          "max": 192.74
+        },
+        "first_nonsilent_ms": {
+          "median": 189.57,
+          "p95": 192.74,
+          "max": 192.74
+        },
+        "ready_ms": {
+          "median": 3.06,
+          "p95": 3.29,
+          "max": 3.29
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "long": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 38.72,
+          "p95": 39.6,
+          "max": 39.6
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 18142.68,
+          "p95": 19219.34,
+          "max": 19219.34
+        },
+        "first_audio_ms": {
+          "median": 191.81,
+          "p95": 198.93,
+          "max": 198.93
+        },
+        "first_nonsilent_ms": {
+          "median": 191.81,
+          "p95": 198.93,
+          "max": 198.93
+        },
+        "ready_ms": {
+          "median": 2.68,
+          "p95": 3.1,
+          "max": 3.1
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "replacement": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 3.04,
+          "p95": 3.28,
+          "max": 3.28
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 1503.28,
+          "p95": 1571.21,
+          "max": 1571.21
+        },
+        "first_audio_ms": {
+          "median": 218.71,
+          "p95": 220.3,
+          "max": 220.3
+        },
+        "first_nonsilent_ms": {
+          "median": 218.71,
+          "p95": 220.3,
+          "max": 220.3
+        },
+        "ready_ms": {
+          "median": 4.25,
+          "p95": 4.45,
+          "max": 4.45
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "short": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 3.2,
+          "p95": 3.2,
+          "max": 3.2
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 1478.2,
+          "p95": 1555.2,
+          "max": 1555.2
+        },
+        "first_audio_ms": {
+          "median": 168.36,
+          "p95": 201.71,
+          "max": 201.71
+        },
+        "first_nonsilent_ms": {
+          "median": 168.36,
+          "p95": 201.71,
+          "max": 201.71
+        },
+        "ready_ms": {
+          "median": 2.52,
+          "p95": 4.93,
+          "max": 4.93
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  },
+  "voice-pocket-interrupt-final.jsonl": {
+    "interaction": {
+      "n": 10,
+      "errors": 0,
+      "metrics": {
+        "cancel_ack_ms": {
+          "median": 0.6,
+          "p95": 0.7,
+          "max": 0.7
+        },
+        "cancel_to_replacement_first_packet_ms": {
+          "median": 200.06,
+          "p95": 274.51,
+          "max": 274.51
+        },
+        "cancel_to_replacement_ms": {
+          "median": 200.12,
+          "p95": 274.57,
+          "max": 274.57
+        },
+        "first_audio_ms": {
+          "median": 204.38,
+          "p95": 213.77,
+          "max": 213.77
+        },
+        "first_nonsilent_ms": {
+          "median": 204.44,
+          "p95": 213.84,
+          "max": 213.84
+        },
+        "in_flight_audio_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "stale_frames_after_ack": {
+          "median": 0.0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-qwen-bargein-final.jsonl": {
+    "interaction": {
+      "n": 5,
+      "errors": 0,
+      "metrics": {
+        "speech_onset_to_cancel_ack_ms": {
+          "median": 103.54,
+          "p95": 105.44,
+          "max": 105.44
+        },
+        "speech_onset_to_detection_ms": {
+          "median": 102.95,
+          "p95": 104.43,
+          "max": 104.43
+        },
+        "speech_onset_to_replacement_ms": {
+          "median": 1056.39,
+          "p95": 4439.74,
+          "max": 4439.74
+        },
+        "stale_frames_after_ack": {
+          "median": 0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-qwen-final.jsonl": {
+    "interrupt": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 0.56,
+          "p95": 0.56,
+          "max": 0.56
+        },
+        "close_ms": {
+          "median": 0.11,
+          "p95": 0.12,
+          "max": 0.12
+        },
+        "elapsed_ms": {
+          "median": 176.23,
+          "p95": 178.57,
+          "max": 178.57
+        },
+        "first_audio_ms": {
+          "median": 98.46,
+          "p95": 102.67,
+          "max": 102.67
+        },
+        "first_nonsilent_ms": {
+          "median": 175.33,
+          "p95": 177.67,
+          "max": 177.67
+        },
+        "ready_ms": {
+          "median": 9.01,
+          "p95": 11.16,
+          "max": 11.16
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "long": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 52.48,
+          "p95": 58.56,
+          "max": 58.56
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 7495.67,
+          "p95": 8371.0,
+          "max": 8371.0
+        },
+        "first_audio_ms": {
+          "median": 90.1,
+          "p95": 90.11,
+          "max": 90.11
+        },
+        "first_nonsilent_ms": {
+          "median": 162.15,
+          "p95": 167.77,
+          "max": 167.77
+        },
+        "ready_ms": {
+          "median": 6.0,
+          "p95": 6.68,
+          "max": 6.68
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "replacement": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 6.08,
+          "p95": 10.96,
+          "max": 10.96
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.02,
+          "max": 0.02
+        },
+        "elapsed_ms": {
+          "median": 958.58,
+          "p95": 1686.17,
+          "max": 1686.17
+        },
+        "first_audio_ms": {
+          "median": 95.81,
+          "p95": 97.34,
+          "max": 97.34
+        },
+        "first_nonsilent_ms": {
+          "median": 172.27,
+          "p95": 175.29,
+          "max": 175.29
+        },
+        "ready_ms": {
+          "median": 9.73,
+          "p95": 9.74,
+          "max": 9.74
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "short": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 5.52,
+          "p95": 6.0,
+          "max": 6.0
+        },
+        "close_ms": {
+          "median": 0.02,
+          "p95": 0.03,
+          "max": 0.03
+        },
+        "elapsed_ms": {
+          "median": 894.87,
+          "p95": 3016.71,
+          "max": 3016.71
+        },
+        "first_audio_ms": {
+          "median": 78.6,
+          "p95": 2298.2,
+          "max": 2298.2
+        },
+        "first_nonsilent_ms": {
+          "median": 151.94,
+          "p95": 2327.63,
+          "max": 2327.63
+        },
+        "ready_ms": {
+          "median": 4.63,
+          "p95": 1095.62,
+          "max": 1095.62
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  },
+  "voice-qwen-interrupt-final.jsonl": {
+    "interaction": {
+      "n": 10,
+      "errors": 0,
+      "metrics": {
+        "cancel_ack_ms": {
+          "median": 0.69,
+          "p95": 1.14,
+          "max": 1.14
+        },
+        "cancel_to_replacement_first_packet_ms": {
+          "median": 102.06,
+          "p95": 8232.44,
+          "max": 8232.44
+        },
+        "cancel_to_replacement_ms": {
+          "median": 499.0,
+          "p95": 8653.46,
+          "max": 8653.46
+        },
+        "first_audio_ms": {
+          "median": 101.86,
+          "p95": 1165.59,
+          "max": 1165.59
+        },
+        "first_nonsilent_ms": {
+          "median": 490.72,
+          "p95": 1566.41,
+          "max": 1566.41
+        },
+        "in_flight_audio_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "stale_frames_after_ack": {
+          "median": 0.0,
+          "p95": 0,
+          "max": 0
+        }
+      }
+    }
+  },
+  "voice-moshi-baseline.jsonl": {
+    "interrupt": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 0.08,
+          "p95": 0.08,
+          "max": 0.08
+        },
+        "close_ms": {
+          "median": 19.0,
+          "p95": 23.94,
+          "max": 23.94
+        },
+        "elapsed_ms": {
+          "median": 182.97,
+          "p95": 194.53,
+          "max": 194.53
+        },
+        "first_audio_ms": {
+          "median": 163.86,
+          "p95": 170.41,
+          "max": 170.41
+        },
+        "first_nonsilent_ms": {
+          "median": 163.86,
+          "p95": 170.41,
+          "max": 170.41
+        },
+        "ready_ms": {
+          "median": 1.05,
+          "p95": 1.73,
+          "max": 1.73
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "long": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 44.4,
+          "p95": 46.0,
+          "max": 46.0
+        },
+        "close_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "elapsed_ms": {
+          "median": 10738.59,
+          "p95": 10960.02,
+          "max": 10960.02
+        },
+        "first_audio_ms": {
+          "median": 165.25,
+          "p95": 174.8,
+          "max": 174.8
+        },
+        "first_nonsilent_ms": {
+          "median": 165.25,
+          "p95": 174.8,
+          "max": 174.8
+        },
+        "ready_ms": {
+          "median": 1.25,
+          "p95": 1.68,
+          "max": 1.68
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "replacement": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 4.08,
+          "p95": 4.48,
+          "max": 4.48
+        },
+        "close_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "elapsed_ms": {
+          "median": 1233.59,
+          "p95": 1296.23,
+          "max": 1296.23
+        },
+        "first_audio_ms": {
+          "median": 276.31,
+          "p95": 280.0,
+          "max": 280.0
+        },
+        "first_nonsilent_ms": {
+          "median": 276.31,
+          "p95": 280.0,
+          "max": 280.0
+        },
+        "ready_ms": {
+          "median": 1.35,
+          "p95": 1.5,
+          "max": 1.5
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "short": {
+      "n": 3,
+      "errors": 0,
+      "metrics": {
+        "audio_s": {
+          "median": 4.96,
+          "p95": 6.0,
+          "max": 6.0
+        },
+        "close_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "elapsed_ms": {
+          "median": 1527.51,
+          "p95": 1627.19,
+          "max": 1627.19
+        },
+        "first_audio_ms": {
+          "median": 192.9,
+          "p95": 460.64,
+          "max": 460.64
+        },
+        "first_nonsilent_ms": {
+          "median": 192.9,
+          "p95": 460.64,
+          "max": 460.64
+        },
+        "ready_ms": {
+          "median": 1.64,
+          "p95": 6.71,
+          "max": 6.71
+        },
+        "simulated_underrun_ms": {
+          "median": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  }
+}

@@ -54,7 +54,7 @@ struct VoiceCommandRequest {
     respond_via_voice: Option<bool>,
     /// COM-15 / D6: the selected agent's `did:nostr` this command is addressed
     /// to. When present (and canonical), the command takes the governed voice
-    /// path (signed 31402 → `/v1/voice-intent` → Kokoro ack) instead of the
+    /// path (signed 31402 → `/v1/voice-intent` → PocketTts ack) instead of the
     /// global settings assistant. Threaded from the client graph selection
     /// through the PTT-start binding.
     actor_did: Option<String>,
@@ -279,13 +279,15 @@ impl SpeechSocket {
                 .await
                 .map_err(|e| format!("Settings actor mailbox error: {}", e))?
                 .map_err(|e| format!("Failed to get settings: {}", e))?;
-            let kokoro_config = settings.kokoro.as_ref();
+            let pocket_tts_config = settings.pocket_tts.as_ref();
 
-            let default_voice = kokoro_config
+            let default_voice = pocket_tts_config
                 .and_then(|k| k.default_voice.clone())
-                .unwrap_or_else(|| "af_sarah".to_string());
-            let default_speed = kokoro_config.and_then(|k| k.default_speed).unwrap_or(1.0);
-            let default_stream = kokoro_config.and_then(|k| k.stream).unwrap_or(true);
+                .unwrap_or_else(|| "alba".to_string());
+            let default_speed = pocket_tts_config
+                .and_then(|k| k.default_speed)
+                .unwrap_or(1.0);
+            let default_stream = pocket_tts_config.and_then(|k| k.stream).unwrap_or(true);
 
             let options = SpeechOptions {
                 voice: req.voice.unwrap_or(default_voice),
@@ -306,7 +308,7 @@ impl SpeechSocket {
     /// COM-15 / V1 / D6 (PRD-023 WP-5): the governed voice path. A spoken
     /// command addressed to a selected agent's `did:nostr` is signed into a
     /// kind-31402 and POSTed to agentbox `/v1/voice-intent`; on accepted
-    /// dispatch a Kokoro TTS acknowledgement plays and the standing
+    /// dispatch a PocketTts TTS acknowledgement plays and the standing
     /// `CANARY-VC-COM15-PTT` records a live fire. Returns the spoken ack text for
     /// the WS `voice_response`. `Err` lets the caller fall back to the settings
     /// assistant (never the settings assistant when the governed loop succeeds —
@@ -328,7 +330,7 @@ impl SpeechSocket {
 
         let ack = crate::services::voice_intent_client::ack_sentence(&accepted, &actor_did);
 
-        // COM-15 AC3: speak the acknowledgement over the Kokoro TTS path.
+        // COM-15 AC3: speak the acknowledgement over the PocketTts TTS path.
         if let Some(speech_service) = &app_state.speech_service {
             if let Err(e) = speech_service
                 .text_to_speech(ack.clone(), SpeechOptions::default())
@@ -341,7 +343,7 @@ impl SpeechSocket {
         // The full loop carried one utterance end to end → record a live fire on
         // the standing canary (observed traffic, never a synthetic probe).
         let evidence = format!(
-            "voice→31402→/v1/voice-intent accepted (event {:?}, verb '{}') → Kokoro ack",
+            "voice→31402→/v1/voice-intent accepted (event {:?}, verb '{}') → PocketTts ack",
             accepted.event_id, accepted.intent.verb
         );
         if let Err(e) = app_state
@@ -406,7 +408,7 @@ impl SpeechSocket {
                     .set_pending_clarification(&session_key, Some(pending.to_token()))
                     .await;
 
-                // Speak the clarification over the Kokoro TTS path (the operator
+                // Speak the clarification over the PocketTts TTS path (the operator
                 // hears what was misunderstood, and does not get a dispatch).
                 if let Some(speech_service) = &app_state.speech_service {
                     if let Err(e) = speech_service
@@ -625,10 +627,20 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for SpeechSocket {
                             return;
                         }
                         match msg_type {
+                            Some("cancel_tts") => {
+                                if let Some(service) = self.app_state.speech_service.clone() {
+                                    ctx.spawn(
+                                        async move {
+                                            let _ = service.stop_speech().await;
+                                        }
+                                        .into_actor(self),
+                                    );
+                                }
+                            }
                             Some("tts") => {
-                                if let Ok(tts_req) =
-                                    serde_json::from_value::<TextToSpeechRequest>(msg)
-                                {
+                                if let Ok(tts_req) = serde_json::from_value::<TextToSpeechRequest>(
+                                    msg.get("data").cloned().unwrap_or(msg),
+                                ) {
                                     let app_state = self.app_state.clone();
                                     let addr = ctx.address();
                                     let fut = async move {
@@ -762,7 +774,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for SpeechSocket {
                                 {
                                     // COM-15: a command addressed to a selected
                                     // agent's did:nostr takes the GOVERNED voice
-                                    // path (signed 31402 → /v1/voice-intent → Kokoro
+                                    // path (signed 31402 → /v1/voice-intent → PocketTts
                                     // ack). Only an UNBOUND command reaches the
                                     // settings assistant — a bound command never
                                     // does (falsification clause 2). A malformed DID

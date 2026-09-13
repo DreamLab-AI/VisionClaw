@@ -43,8 +43,8 @@ pub use visionclaw_domain::config::system::{
 pub use visionclaw_domain::config::xr::{MovementAxes, XRSettings};
 
 pub use visionclaw_domain::config::services::{
-    AgentVoicePreset, AuthSettings, KokoroSettings, LiveKitSettings, OntologyAgentSettings,
-    OpenAISettings, PerplexitySettings, RagFlowSettings, TurboWhisperSettings,
+    AgentVoicePreset, AuthSettings, LiveKitSettings, OntologyAgentSettings, OpenAISettings,
+    PerplexitySettings, PocketTtsSettings, RagFlowSettings, TurboWhisperSettings,
     VoiceRoutingSettings, WhisperSettings,
 };
 
