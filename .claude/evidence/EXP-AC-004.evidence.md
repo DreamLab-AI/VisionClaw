@@ -3,7 +3,11 @@ expectation_id: EXP-AC-004
 git_sha: 4a9a3e0682bdc695a8ebf904e0453271443daea8
 produced_by: agent:claude-opus
 produced_at: 2026-09-14T15:31:46Z
-audited_by:
+audited_by: agent:claude-sonnet-5 (degraded: same family as producer; codex GPT-6 Astra unavailable — bwrap sandbox refused in container)
+audited_at: 2026-09-14T20:20:00Z
+auditor_verdict: pass
+auditor_counter_examples_attempted: 2
+auditor_counter_examples_found: 0
 ---
 
 # Evidence — EXP-AC-004 (ElevationActor TTL, boot reconciliation, expiry receipt)
@@ -93,6 +97,44 @@ rather than fixed here.
 | A post-restart 31403 returning early at the in-memory map miss | Fixed — `a_decision_arriving_after_a_restart_finds_its_case` |
 | Two `escalated-on-age` receipts for one case | Not applicable to FR4.5 (relay cron clause, not evidenced) |
 | A decision projected `projection-committed` for ever with no receipt | Not applicable to FR4.5 (receipts-endpoint clause, not evidenced) |
+
+## Auditor adversarial probes
+
+Both probes were added as throwaway `#[test]` cases to
+`src/actors/elevation_actor.rs`, run, and reverted (`git status --porcelain`
+confirmed clean afterward). Nothing committed except this evidence file.
+
+**Probe 1 — restart-then-decide combined with a row ALREADY past the 14-day
+TTL at boot** (the mandate's exact adversarial combination: not just "restart
+recovers a fresh case" and not just "a stale case expires" in isolation, but
+both at once — a decision for an EXPIRED case arriving after restart must
+still be dropped, not resurrected into the working set).
+```
+$ cargo test --lib ... elevation_actor::tests::auditor -- --nocapture
+PROBE stale-restart: restored=0 expired=1
+test ...auditor_probe_restart_then_decide_on_a_row_older_than_ttl_is_expired_not_applied ... ok
+```
+`cold.remove(case_id)` correctly returns `None` after reconciliation — the
+stale row lands in the `expire` half of `split_reconciliation`, never the
+`restore` half, so a late 31403 for it has nothing to resolve. **No
+counter-example.**
+
+**Probe 2 — TTL boundary at ±1 second, not just the exact boundary the
+producer's `the_ttl_boundary_is_exclusive` test checks.**
+```
+PROBE ttl-1s-inside: ResumePending(...)
+PROBE ttl-1s-outside: Expire(...)
+test ...auditor_probe_ttl_boundary_one_second_either_side ... ok
+```
+One second inside the TTL resumes; one second outside expires. Consistent
+with `plan_elevation_reconciliation`'s documented exclusive-boundary
+semantics. **No counter-example.**
+
+**Verdict: PASS for the scope evidenced (FR4.5 only).** The evidence's own
+scope note that FR4.1-4.4 (receipts endpoint, broker-bridge post, relay
+ageing cron, authority-deny journal) are unevidenced and remain open is
+accurate — this audit did not attempt to evidence them either; they are
+outside this repository or outside VisionClaw.
 
 ## Not covered
 

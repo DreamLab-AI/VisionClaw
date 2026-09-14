@@ -3,7 +3,11 @@ expectation_id: EXP-AC-006
 git_sha: 4a9a3e0682bdc695a8ebf904e0453271443daea8
 produced_by: agent:claude-opus
 produced_at: 2026-09-14T15:31:46Z
-audited_by:
+audited_by: agent:claude-sonnet-5 (degraded: same family as producer; codex GPT-6 Astra unavailable — bwrap sandbox refused in container)
+audited_at: 2026-09-14T20:20:00Z
+auditor_verdict: pass
+auditor_counter_examples_attempted: 2
+auditor_counter_examples_found: 0
 ---
 
 # Evidence — EXP-AC-006 (case ageing and ordering, VisionClaw clause)
@@ -69,6 +73,33 @@ $ ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 | A reviewer deciding a case not delegated to them | Not applicable (FR6.2, forum clause, not evidenced) |
 | Probe tag visible on a pending card | Not applicable (FR6.4, forum clause, not evidenced) |
 | Sampling that depends on wall-clock time | Not applicable (FR6.3, forum clause, not evidenced) |
+
+## Auditor adversarial probes
+
+Both probes added as throwaway vitest cases to `brokerCaseQueue.test.ts`, run,
+and reverted (`git status --porcelain` confirmed clean afterward). Nothing
+committed except this evidence file.
+
+**Probe 1 — clock-skew: a `createdAt` in the FUTURE relative to `now`.**
+```
+PROBE future createdAt label = just now
+```
+`caseAgeLabel` clamps `now - createdAt` to `Math.max(0, ...)`, so a clock-skewed
+or malformed future timestamp renders `"just now"` rather than a negative or
+garbage age. **No counter-example.**
+
+**Probe 2 — two cases sharing an identical `createdAt` — stable relative
+order?**
+```
+PROBE equal-createdAt order = [ 'a', 'b' ]
+```
+`Array.prototype.sort` is stable in the JS engines this ships to (ES2019+
+guarantee); confirmed empirically rather than assumed. **No counter-example.**
+
+**Verdict: PASS for the scope evidenced (FR6.5 only).** Note: a broader probe
+of the client-side `MIN_RATIONALE_CHARS` counting (astral-plane Unicode
+divergence from the server) surfaced during this audit is an EXP-AC-002
+finding, not FR6.5 — recorded there, not duplicated here.
 
 ## Not covered
 

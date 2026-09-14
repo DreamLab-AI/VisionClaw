@@ -3,7 +3,11 @@ expectation_id: EXP-AC-002
 git_sha: 4a9a3e0682bdc695a8ebf904e0453271443daea8
 produced_by: agent:claude-opus
 produced_at: 2026-09-14T15:29:56Z
-audited_by:
+audited_by: agent:claude-sonnet-5 (degraded: same family as producer; codex GPT-6 Astra unavailable — bwrap sandbox refused in container)
+audited_at: 2026-09-14T20:20:00Z
+auditor_verdict: pass-with-finding
+auditor_counter_examples_attempted: 6
+auditor_counter_examples_found: 1
 ---
 
 # Evidence — EXP-AC-002 (non-vacuous decision surface, VisionClaw half)
@@ -203,6 +207,73 @@ $ ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 | Tier/confidence rendered above the controls | Prevented — DOM-order test |
 | `reasoning` containing text the human did not type | Prevented — `body.reasoning` asserted byte-equal to the typed string; `undefined` when untyped; the server gate **refuses** rather than filling in |
 | `confidence: 0.5` for a case where no model produced one | Prevented — `Option<f32>`/`undefined` end to end |
+
+## Auditor adversarial probes
+
+All probes were run as throwaway `#[test]`/vitest cases added to the target
+file, executed, and reverted (`git status --porcelain` confirmed clean after
+each) — none are committed. Repo unchanged except this evidence file.
+
+**Probe 1 — 19 real characters padded with trailing whitespace to 20+ raw
+length (server gate, `check_rationale`).**
+```
+$ cargo test --lib ... enrichment_proposals_handler::tests::auditor -- --nocapture
+PROBE 19-padded-to-22 result = Err(RationaleRejection { ... received_chars: 19 })
+test ...auditor_probe_19_chars_padded_with_trailing_spaces_to_20_raw ... ok
+```
+Verdict: **as claimed.** The gate counts trimmed characters; whitespace
+padding does not satisfy it.
+
+**Probe 2 — a high-tier `approve` shaped exactly as the `/api/ingest/writeback`
+git-bridge call, no rationale, routed through the shared `check_rationale`
+predicate the evidence names as this route's gate.**
+```
+PROBE ingest/writeback-shaped call, no rationale = Err(RationaleRejection { ... tier: "high", received_chars: 0 })
+test ...auditor_probe_high_tier_via_ingest_writeback_without_rationale_is_refused ... ok
+```
+Verdict: **as claimed** for the predicate; confirmed by reading
+`ingest_writeback_handler.rs::writeback`, which funnels unconditionally
+through `apply_decision` with no tier field of its own — it inherits the
+existing case row's declared tier exactly like the other two routes. No
+HTTP-level harness exists for this route with a live `AppState` (the
+evidence's own "Not covered" already says so); this probe closes the gap at
+the predicate level only, not at the wire.
+
+**Probe 3 — astral-plane (surrogate-pair) Unicode in the rationale: client
+`.length` (UTF-16 code units) vs server `.chars().count()` (Unicode scalar
+values).**
+```
+$ ./node_modules/.bin/vitest run ... -t "auditor adversarial probes"
+JS length: 20  expected server chars count: 10
+client canPublishDecision result for 10 astral chars = true
+```
+`'𝕏'.repeat(10)` is 10 Unicode scalar values but 20 UTF-16 code units (each 𝕏
+is a surrogate pair). `client/.../brokerCaseQueue.ts::canPublishDecision` uses
+`rationale.trim().length` (20 here) and returns `true` — the Approve/Reject
+buttons enable. The server's `check_rationale`
+(`src/handlers/enrichment_proposals_handler.rs`) counts
+`.trim().chars().count()` (10 here) and would return `Err` — a 422. **CONFIRMED
+counter-example against the evidence's own invariant** ("the two are one rule
+enforced in two places, not two rules", `MIN_RATIONALE_CHARS` doc comment,
+`enrichment_proposals_handler.rs:341-343`): for astral-plane characters the
+client and server gates diverge. Not a security hole (the server still
+refuses the fabricated-rationale case), but a real UX defect: a reviewer typing
+a rationale using characters outside the Basic Multilingual Plane (rare in
+practice, but not excluded — e.g. certain emoji, some CJK Extension B/mathematical
+alphanumeric symbols) sees the button enable, submits, and is bounced with a
+422 the client told them wouldn't happen. File:line —
+`client/src/features/control-center/governance/brokerCaseQueue.ts:200-203`
+vs `src/handlers/enrichment_proposals_handler.rs:406-417`.
+
+**Probe 4 — undefined confidence on a non-gated tier still permits publish
+(sanity check on `canPublishDecision` for an untiered/low case).** Passed as
+claimed; no finding.
+
+**Probes 5-6 — intent/confidence rendering counter-examples already covered by
+the producer's own DOM-order and absence tests** (`AcspCaseQueue.test.tsx:119,
+130`) were re-read rather than re-probed independently; they read correctly
+(`view.confidence !== undefined` gates rendering, DOM order asserted via
+`indexOf`).
 
 ## Not covered
 
