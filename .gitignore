@@ -197,7 +197,18 @@ agentdb.db-shm
 .claude-flow/
 **/.claude-flow/
 multi-agent-docker/gui-tools-assets/blender-*.tar.xz
-.claude/
+# `.claude/*` rather than `.claude/`: git cannot re-include anything under an
+# excluded DIRECTORY, so the directory itself must stay un-excluded for the two
+# negations below to take effect.
+.claude/*
+# The build-with-quality audit artefacts are tracked: an expectation is the
+# contract a change is written against and the evidence is the executed proof
+# that it holds, so both are reviewed alongside the diff (ADR-2110).
+!.claude/expectations/
+!.claude/evidence/
+# Nested `.claude/` directories (e.g. `xr-client/rust/.claude/`) stay ignored:
+# the negations above are root-anchored and must not re-expose them.
+*/**/.claude/
 
 # ComfyUI storage (models, input, output - too large for git)
 multi-agent-docker/comfyui/storage-models/

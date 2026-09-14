@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 4a9a3e0682bdc695a8ebf904e0453271443daea8
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -64,6 +64,16 @@ Two call sites reach `reify_activity`: `oxigraph_ontology_repository.rs:646`
 called directly, bypassing `emit_provenance`) — both resolve to the same
 insert-only primitive, so the append-only property holds across both paths
 even though `emit_provenance` is not the sole entry point.
+
+Re-verified at `4a9a3e0682bdc695a8ebf904e0453271443daea8` (ADR-2110). One
+governed path changed since the previous `verified_commit`:
+`src/services/ontology_mutation_service.rs`, where ADR-2110 made
+`AgentContext.confidence` optional. The diff is a PR-body format string and a
+test fixture; the file contains no SPARQL write of any kind
+(`grep -n "INSERT DATA\|DELETE DATA\|DELETE WHERE\|DELETE {"` returns nothing),
+and `emit_activity_nonfatal` at line 127 still resolves to the same insert-only
+`reify_activity` primitive. The other three governed paths are unchanged since
+the previous verification, so their evidence above carries forward unaltered.
 Re-verified at `542d63d1d` after the ADR-141 formatting sweep (test-only line
 wrapping in `ontology_mutation_service.rs` `provenance_wiring_tests`) — the
 append-only invariant is unchanged.

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-09-14 — augmentation conditions, VisionClaw substrate (ADR-2110)
+
+The judgment surfaces are instrumented against the six augmentation conditions
+of arXiv 2609.12482 (PRD-augmentation-conditions, EXP-AC-002/004/005/006). Nothing
+here is deployed — `activation_status: inactive`.
+
+- **Intent kept (FR5.1–5.2).** `kpi_agent_events.intent` persists the
+  `/wss/agent-events` envelope's declared intent verbatim
+  (`migrations/sqlite/0006_kpi_agent_event_intent.sql`); `None` stays `NULL` and
+  is never synthesised. `/api/trace` reports `intent` and a three-valued
+  `intent_match` from the new pure `services::intent_match` — `null` for "no
+  claim was made" is never conflated with `false`.
+- **HITL Precision is real (FR5.3).** The `awaiting_data_source` stub is gone.
+  Warranted ÷ decided over human-decided cases, one row per case, denominator
+  always reported, `value: None` at a zero denominator rather than a number.
+- **System actors are not humans (FR5.4).** The EL++ consistency gate's own
+  rejections carried the *human's* pubkey; they now carry `system:whelk-gate` and
+  are excluded from the Trust Variance human series and from both HITL terms.
+- **A restart no longer drops a decision (FR4.5).** `ElevationActor` gains a
+  14-day `OPEN_CASE_TTL`, boot reconciliation of durable `pending` rows before
+  the first cycle, and an `elevation_expired` kind-31404 receipt. Previously a
+  kind-31403 arriving after a restart returned early at an empty in-memory map.
+- **The case card can be judged (FR2.3–2.4, FR6.5).** Full proposal payload
+  pretty-printed and unclipped; proposal URN, reasoning summary, reasoning hash
+  and generation provenance shown only when present; the human's typed rationale
+  published byte-for-byte, mandatory (20 chars) on `high`/`critical`; the agent's
+  self-assessment moved BELOW the controls; queue sorted oldest first with an age
+  badge. The fabricated `operator {outcome} via control centre` rationale is
+  deleted, and `AgentContext.confidence` is `Option<f32>` so the hardcoded `0.5`
+  no longer reaches a reviewer as the agent's own judgement.
+
+
 ### 2026-09-05 sprint, diagrams-as-code overhaul and Wave 3 remediation
 
 - **Sprint (2026-09-05):** actor set trimmed to graph-service / agent-beam / presence (346fff7af); GPU actor and compute pipeline consolidated onto `visionclaw-gpu` (da2f5cac7); dead settings, config and physics-v1 modules removed (35c2448a8); explicit runtime security profile and RBAC gate (ac3e12dd1); Oxigraph/SQLite repository and vault-migrate (b47db377c); agent-visualisation, provenance and vault services (1b513295a); backup-posture and dev-build-input contract tests (ca80eafa5); client websocket/binary-protocol and settings surface (1d68d8eb1); xr-client render-store, transport and HUD (f21d30922).
