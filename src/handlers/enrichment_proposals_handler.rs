@@ -316,6 +316,119 @@ fn derive_kernel_decision(record: &RecordedDecision) -> (String, Option<serde_js
     }
 }
 
+// ---------------------------------------------------------------------------
+// FR2.2 — the server-side rationale gate (EXP-AC-002, ADR-2110 follow-on 1)
+// ---------------------------------------------------------------------------
+//
+// The case queue disables its controls below `MIN_RATIONALE_CHARS` on a
+// `high`/`critical` case, but a client-side gate is a courtesy, not a rule: any
+// caller with the credential could POST a tiered decision carrying no rationale
+// at all, and the 31403 would record a signed judgement in nobody's words. The
+// same rule therefore runs HERE, on the one shared decide core both routes
+// funnel through, and it refuses — it never fills the rationale in. A rationale
+// the server authored is exactly the fabricated judgement DDD invariant 1
+// forbids, and a 422 naming what is missing is the honest answer.
+//
+// Scope note: the tier consulted is the tier RECORDED ON THE CASE, which today
+// is the proposing agent's declared `risk_tier`. PRD FR3's `effective_tier`
+// (operator task properties bounding the agent's declaration from below) is a
+// nostr-rust-forum clause and has not landed; when it does, this gate should
+// read the effective tier from the case row instead, and tighten rather than
+// loosen. Reading the declared tier in the meantime is strictly better than
+// reading nothing.
+
+/// Minimum length of a human rationale on a tier that requires one, counted
+/// after trimming. Must match the client's `MIN_RATIONALE_CHARS`
+/// (`client/src/features/control-center/governance/brokerCaseQueue.ts`) — the
+/// two are one rule enforced in two places, not two rules.
+pub const MIN_RATIONALE_CHARS: usize = 20;
+
+/// Machine-readable code on the 422 body, so a caller can distinguish "you must
+/// supply a rationale" from every other rejection without parsing prose.
+pub const RATIONALE_REQUIRED_CODE: &str = "rationale_required";
+
+/// Why a decision was refused, as the 422 body.
+///
+/// Carries what is missing and what would satisfy it. It deliberately carries NO
+/// `reasoning` field: the server states the requirement, never a draft the human
+/// could accept without writing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RationaleRejection {
+    /// Always `false`, matching the shape every other rejection on this route uses.
+    pub success: bool,
+    pub code: &'static str,
+    pub error: String,
+    /// The tier that made the rationale mandatory, lowercased.
+    pub tier: String,
+    pub min_chars: usize,
+    /// How many characters the request actually supplied, after trimming.
+    pub received_chars: usize,
+}
+
+/// Does this outcome record a HUMAN's judgement on a case?
+///
+/// `approve`/`reject`/`amend`/`delegate` (in any spelling the broker uses) do.
+/// System-produced terminal states do not — they are not a human's judgement and
+/// there is no rationale to demand of them.
+fn is_human_outcome(outcome: &str) -> bool {
+    let o = outcome.trim().to_ascii_lowercase();
+    o.starts_with("approve")
+        || o.starts_with("accept")
+        || o.starts_with("reject")
+        || o.starts_with("amend")
+        || o.starts_with("delegate")
+}
+
+/// Does this tier require a typed human rationale? `high` and `critical` do.
+fn tier_requires_rationale(tier: Option<&str>) -> bool {
+    matches!(
+        tier.map(|t| t.trim().to_ascii_lowercase()).as_deref(),
+        Some("high") | Some("critical")
+    )
+}
+
+/// The tier recorded on a case, read from the proposal body. `None` when the
+/// body names none — an unlabelled case is not silently promoted to `critical`,
+/// nor silently demoted; it simply carries no tier and the gate does not fire.
+pub fn declared_tier_of(proposal_json: &serde_json::Value) -> Option<String> {
+    ["risk_tier", "tier"]
+        .into_iter()
+        .filter_map(|k| proposal_json.get(k).and_then(|v| v.as_str()))
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .map(|t| t.to_string())
+}
+
+/// The gate itself: `Ok(())` to proceed, `Err(rejection)` to refuse with 422.
+///
+/// A predicate, not a transformer — it returns permission and nothing else, so
+/// it is structurally incapable of supplying the text it is demanding.
+pub fn check_rationale(
+    tier: Option<&str>,
+    outcome: &str,
+    reasoning: Option<&str>,
+) -> std::result::Result<(), RationaleRejection> {
+    if !tier_requires_rationale(tier) || !is_human_outcome(outcome) {
+        return Ok(());
+    }
+    let received_chars = reasoning.map(|r| r.trim().chars().count()).unwrap_or(0);
+    if received_chars >= MIN_RATIONALE_CHARS {
+        return Ok(());
+    }
+    let tier = tier.unwrap_or_default().trim().to_ascii_lowercase();
+    Err(RationaleRejection {
+        success: false,
+        code: RATIONALE_REQUIRED_CODE,
+        error: format!(
+            "a '{tier}' case needs the deciding human's own rationale: at least \
+             {MIN_RATIONALE_CHARS} characters, {received_chars} supplied"
+        ),
+        tier,
+        min_chars: MIN_RATIONALE_CHARS,
+        received_chars,
+    })
+}
+
 /// `POST /api/enrichment-proposals/{id}/decide` — the agentbox broker-bridge
 /// service-to-service decide route (gated by `X-Agent-Key`).
 pub async fn decide(
@@ -386,11 +499,39 @@ pub(crate) async fn apply_decision(
 
     let repo = &state.sqlite_enrichment_repository;
 
+    // Read the case ONCE: its presence decides the `broker:new_case` round-trip
+    // below, and its recorded tier drives the FR2.2 rationale gate.
+    let existing = repo.get(&case_id).await.ok().flatten();
+
+    // FR2.2 (EXP-AC-002): a `high`/`critical` case may not be decided without
+    // the deciding human's own rationale. Refused BEFORE anything is minted or
+    // persisted, so a gated request leaves no trace and no partial state — and
+    // refused, never filled in. Both routes funnel through here, so the service
+    // bridge is held to the same rule as the operator UI.
+    //
+    // A case with no row yet carries no tier, so the gate does not fire on it;
+    // a first-contact decision from the bridge is not something this route can
+    // tier, and inventing one would be as dishonest as inventing the rationale.
+    let declared_tier = existing
+        .as_ref()
+        .and_then(|p| declared_tier_of(&p.proposal_json));
+    if let Err(rejection) = check_rationale(
+        declared_tier.as_deref(),
+        &body.outcome,
+        body.reasoning.as_deref(),
+    ) {
+        warn!(
+            "[enrichment-decide] refused case={case_id}: {} ({} of {} chars)",
+            rejection.code, rejection.received_chars, rejection.min_chars
+        );
+        return HttpResponse::UnprocessableEntity().json(rejection);
+    }
+
     // Ensure a proposal row exists. The broker may decide a case VisionClaw has
     // not ingested yet — create a pending stub so the lifecycle stays closed.
     // A freshly-created stub is a case entering the queue this call, so it also
     // drives the `broker:new_case` event below (REC-2 round-trip).
-    let is_new_case = matches!(repo.get(&case_id).await, Ok(None));
+    let is_new_case = existing.is_none();
     if is_new_case {
         let stub = StoredProposal {
             case_id: case_id.clone(),
@@ -733,6 +874,109 @@ mod tests {
     use super::*;
 
     const PK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    // -----------------------------------------------------------------
+    // FR2.2 server-side rationale gate (EXP-AC-002, ADR-2110 follow-on 1).
+    // A decision on a high/critical case must carry the human's own words; the
+    // server must never fill them in, and must never accept their absence.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn min_rationale_chars_matches_the_client_gate() {
+        assert_eq!(
+            MIN_RATIONALE_CHARS, 20,
+            "the server and client thresholds are one rule; they must not drift"
+        );
+    }
+
+    #[test]
+    fn an_untiered_or_low_case_may_be_decided_without_a_rationale() {
+        for tier in [None, Some("low"), Some("medium"), Some("LOW")] {
+            assert!(check_rationale(tier, "approve", None).is_ok(), "tier {tier:?}");
+            assert!(check_rationale(tier, "reject", Some("")).is_ok(), "tier {tier:?}");
+        }
+    }
+
+    #[test]
+    fn a_high_or_critical_case_is_rejected_without_a_rationale() {
+        for tier in ["high", "critical", "High", "CRITICAL"] {
+            let rejection = check_rationale(Some(tier), "approve", None)
+                .expect_err("a tiered case with no rationale must be refused");
+            assert_eq!(rejection.tier, tier.to_ascii_lowercase());
+            assert_eq!(rejection.received_chars, 0);
+            assert_eq!(rejection.min_chars, MIN_RATIONALE_CHARS);
+        }
+    }
+
+    #[test]
+    fn a_short_or_whitespace_rationale_does_not_satisfy_the_gate() {
+        assert!(check_rationale(Some("high"), "approve", Some("too short")).is_err());
+        assert!(check_rationale(Some("high"), "approve", Some(&"x".repeat(19))).is_err());
+        let ws = check_rationale(Some("critical"), "reject", Some("          \t  \n   "))
+            .expect_err("whitespace is not a judgement");
+        assert_eq!(ws.received_chars, 0, "the count is of TRIMMED characters");
+    }
+
+    #[test]
+    fn a_real_rationale_passes_and_is_never_rewritten_by_the_gate() {
+        // Exactly at the threshold, and a real sentence beyond it.
+        assert!(check_rationale(Some("high"), "approve", Some(&"x".repeat(20))).is_ok());
+        let typed = "  Checked the axioms; the draft definition matches the corpus.  ";
+        assert!(check_rationale(Some("critical"), "amend", Some(typed)).is_ok());
+        // The gate is a predicate. It returns no text, so it cannot supply any.
+        assert_eq!(
+            check_rationale(Some("critical"), "amend", Some(typed)),
+            Ok(()),
+            "a passing gate yields nothing but permission"
+        );
+    }
+
+    #[test]
+    fn every_human_outcome_family_is_gated() {
+        for outcome in [
+            "approve", "approved", "reject", "rejected", "amend", "delegate", "DELEGATE",
+        ] {
+            assert!(
+                check_rationale(Some("critical"), outcome, None).is_err(),
+                "outcome {outcome} must be gated"
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_human_outcome_is_not_gated() {
+        // System-produced terminal states (e.g. an expiry receipt) are not a
+        // human's judgement and have no rationale to demand.
+        assert!(check_rationale(Some("critical"), "expired", None).is_ok());
+        assert!(check_rationale(Some("critical"), "precedent", None).is_ok());
+    }
+
+    #[test]
+    fn the_declared_tier_is_read_from_the_proposal_body() {
+        assert_eq!(
+            declared_tier_of(&serde_json::json!({ "risk_tier": "critical" })).as_deref(),
+            Some("critical")
+        );
+        assert_eq!(
+            declared_tier_of(&serde_json::json!({ "tier": "high" })).as_deref(),
+            Some("high")
+        );
+        assert_eq!(declared_tier_of(&serde_json::json!({})), None);
+        assert_eq!(declared_tier_of(&serde_json::json!({ "risk_tier": "  " })), None);
+    }
+
+    #[test]
+    fn the_rejection_serialises_as_a_structured_422_body() {
+        let rejection = check_rationale(Some("high"), "approve", Some("nope")).unwrap_err();
+        let body = serde_json::to_value(&rejection).unwrap();
+        assert_eq!(body["success"], serde_json::json!(false));
+        assert_eq!(body["code"], serde_json::json!(RATIONALE_REQUIRED_CODE));
+        assert_eq!(body["tier"], serde_json::json!("high"));
+        assert_eq!(body["min_chars"], serde_json::json!(20));
+        assert_eq!(body["received_chars"], serde_json::json!(4));
+        // The body explains what is missing; it does not offer a substitute.
+        assert!(body.get("reasoning").is_none());
+    }
 
     #[test]
     fn attributed_approval_mints_provenance_and_triggers_writeback() {

@@ -68,6 +68,21 @@ is closed with a kind-31404 `elevation_expired` receipt plus a terminal durable
 status that is not conditional on the receipt publishing. A row with no draft is
 never rehydrated — fabricating one would commit text no agent authored.
 
+**The rationale gate runs on the server (FR2.2).** A client-side gate is a
+courtesy, not a rule. `apply_decision` — the one core both the service route
+(`X-Agent-Key`) and the operator route (power-user session) funnel through —
+refuses with **HTTP 422** and a structured `rationale_required` body any
+`approve`/`reject`/`amend`/`delegate` on a `high`/`critical` case whose reasoning
+is absent or under 20 trimmed characters, before anything is minted or persisted.
+It **refuses; it never fills the rationale in** — `check_rationale` returns
+`Result<(), RationaleRejection>`, so it is structurally incapable of supplying
+the text it demands, and the 422 body carries no `reasoning` field. `low`,
+`medium` and untiered stay optional. The tier consulted is the tier recorded on
+the case, which today is the agent's *declared* `risk_tier`; when FR3's
+`effective_tier` lands this gate reads that instead, and tightens rather than
+loosens. The Whelk gate is unaffected: it writes through `record_decision`
+directly, so a system actor is never asked for a human rationale.
+
 **Non-vacuous decision surface (FR2.3–2.4, FR6.5).** The case card renders the
 full proposal payload pretty-printed and unclipped, with proposal URN, reasoning
 summary, reasoning hash and generation provenance each shown only when present.
@@ -89,8 +104,11 @@ sorts oldest first and badges each case's age.
 - `AgentContext.confidence` is a breaking change for any out-of-tree constructor;
   all three in-tree ones are updated and the single reader prints
   "not reported" for absence.
-- A reviewer on a `high` case cannot decide without typing 20 characters. The
-  gate is client-side only — the WS-9 operator route does not yet enforce it.
+- A reviewer on a `high` case cannot decide without typing 20 characters, and
+  neither can any other caller: both decide routes enforce it. An integration
+  that posted a tiered decision with no rationale now receives a 422 where it
+  previously received a 200 — a deliberate break, and the reason for it is in
+  the response body.
 - `decisions_since` now returns `KpiDecisionRow` rather than a tuple. One caller.
 - Correlating a trajectory to a case still rests on the case id appearing in
   agent-supplied URNs. The match is now segment-delimited, closing the
@@ -99,8 +117,10 @@ sorts oldest first and badges each case's age.
 
 ### Follow-on work (open, not closed by this ADR)
 
-1. The rationale gate is client-side. The WS-9 decide route should reject a
-   `high`/`critical` decision carrying no rationale.
+1. ~~The rationale gate is client-side.~~ **Closed** — the gate now runs on
+   `apply_decision`, so both routes enforce it (nine tests). What remains is
+   narrower and is folded into follow-on 5 below: the gate reads the *declared*
+   tier, because FR3's effective tier has not landed.
 2. `elevation_actor`'s approve path trusts relay-side admission of a kind-31403
    and holds no in-process admin allowlist before spending a GitHub write token
    (deepsec `acl-check`, MEDIUM). Pre-existing, identical to the finding standing
@@ -109,6 +129,20 @@ sorts oldest first and badges each case's age.
    removes the row from the scan), not tested.
 4. The forum halves of EXP-AC-002, EXP-AC-004 and EXP-AC-006 are open. This ADR
    closes only the VisionClaw clauses.
+5. The server rationale gate reads the case's *declared* `risk_tier`, so an agent
+   that under-declares its own tier escapes it. Closing this needs FR3's
+   `effective_tier` on the case row (nostr-rust-forum). The gate's call site is
+   one line and will tighten, not loosen, when it lands.
+6. `apply_decision` has three entry points with divergent authorisation — the
+   service route (`X-Agent-Key`), the operator route (`power_user()`) and
+   `/api/ingest/writeback` (the `RbacGate` default). The rationale gate now
+   applies uniformly to all three because it lives in the shared core, but the
+   authorisation asymmetry is untouched (deepsec `acl-check`, MEDIUM,
+   pre-existing).
+7. `record_decision` accepts `broker_pubkey` from the request body on a syntactic
+   hex check alone — no signature binds the caller to that key, yet it becomes
+   `owner_did` and drives an owner-scoped Oxigraph write (deepsec
+   `other-provenance-forgery`, MEDIUM, pre-existing).
 
 ## Verification
 
@@ -118,7 +152,7 @@ At `verified_commit`, on the non-GPU feature set — the default set includes CU
 ```
 $ cargo test --lib --no-default-features \
     --features ontology,persistence-oxigraph,solid-pod-embed
-test result: ok. 1408 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
+test result: ok. 1417 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
 
 $ cargo clippy --lib --no-default-features \
     --features ontology,persistence-oxigraph,solid-pod-embed
@@ -138,7 +172,18 @@ $ .claude/skills/build-with-quality/scripts/deepsec-gate.sh --diff main
 deepsec-gate: PASS — 7 finding(s) {CRITICAL:0, HIGH:0, MEDIUM:5, HIGH_BUG:1, BUG:1, LOW:0},
 0 at/above HIGH; exit 0
 receipt .deepsec-gate/reports/20260914T152023Z/receipt.json
+
+# re-run after the server-side rationale gate
+$ .claude/skills/build-with-quality/scripts/deepsec-gate.sh --diff main
+deepsec-gate: PASS — 20 finding(s) {CRITICAL:0, HIGH:0, MEDIUM:16, HIGH_BUG:1, BUG:3, LOW:0},
+0 at/above HIGH; exit 0
+receipt .deepsec-gate/reports/20260914T154635Z/receipt.json
 ```
+
+Both receipts are copied into `.claude/evidence/` because `.deepsec-gate/reports`
+is gitignored. The second run analysed a wider slice of the diff and raised more
+findings; none is at or above HIGH, and the two standing against the decide
+handler are pre-existing (follow-ons 6 and 7).
 
 The run's one finding in new code — an unbounded substring correlation between
 cases and trajectories over agent-controlled URNs — was fixed before commit

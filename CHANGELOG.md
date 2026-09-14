@@ -29,6 +29,12 @@ here is deployed — `activation_status: inactive`.
   14-day `OPEN_CASE_TTL`, boot reconciliation of durable `pending` rows before
   the first cycle, and an `elevation_expired` kind-31404 receipt. Previously a
   kind-31403 arriving after a restart returned early at an empty in-memory map.
+- **The rationale gate is enforced server-side (FR2.2).** `apply_decision` — the
+  one core both decide routes funnel through — refuses with HTTP 422 and a
+  structured `rationale_required` body any approve/reject/amend/delegate on a
+  `high`/`critical` case whose reasoning is absent or under 20 trimmed
+  characters, before anything is minted or persisted. It refuses; it never fills
+  the rationale in. `low`/`medium`/untiered stay optional.
 - **The case card can be judged (FR2.3–2.4, FR6.5).** Full proposal payload
   pretty-printed and unclipped; proposal URN, reasoning summary, reasoning hash
   and generation provenance shown only when present; the human's typed rationale

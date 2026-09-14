@@ -90,7 +90,90 @@ client/src/features/control-center/governance/AcspCaseQueue.tsx:20://     `opera
 The single remaining hit is the comment recording the deletion. No producer or
 fixture emits either template.
 
-## 6. Self-assessment renders BELOW the controls
+## 6. The rationale gate is enforced SERVER-SIDE too
+
+The client gate is a courtesy: any caller holding the credential could POST a
+tiered decision carrying no rationale, and the record would hold a signed
+judgement in nobody's words. The same rule therefore runs on
+`apply_decision` — the one shared core both the service route
+(`POST /api/enrichment-proposals/{id}/decide`, `X-Agent-Key`) and the operator
+route (`POST /api/broker/cases/{id}/decide`, power-user session) funnel through.
+
+A `high`/`critical` case whose decision carries no rationale, or under
+`MIN_RATIONALE_CHARS` (20) after trimming, is refused with **HTTP 422** and a
+structured body (`code: "rationale_required"`, `tier`, `min_chars`,
+`received_chars`). The refusal happens **before** anything is minted, stubbed or
+persisted, so a gated request leaves no partial state.
+
+`check_rationale` is a predicate returning `Result<(), RationaleRejection>`: it
+yields permission and nothing else, so it is structurally incapable of supplying
+the text it demands. The 422 body deliberately carries no `reasoning` field — a
+test asserts its absence.
+
+```
+\$ cargo test --lib --no-default-features --features ontology,persistence-oxigraph,solid-pod-embed enrichment_proposals
+test handlers::enrichment_proposals_handler::tests::min_rationale_chars_matches_the_client_gate ... ok
+test handlers::enrichment_proposals_handler::tests::an_untiered_or_low_case_may_be_decided_without_a_rationale ... ok
+test handlers::enrichment_proposals_handler::tests::a_high_or_critical_case_is_rejected_without_a_rationale ... ok
+test handlers::enrichment_proposals_handler::tests::a_short_or_whitespace_rationale_does_not_satisfy_the_gate ... ok
+test handlers::enrichment_proposals_handler::tests::a_real_rationale_passes_and_is_never_rewritten_by_the_gate ... ok
+test handlers::enrichment_proposals_handler::tests::every_human_outcome_family_is_gated ... ok
+test handlers::enrichment_proposals_handler::tests::a_non_human_outcome_is_not_gated ... ok
+test handlers::enrichment_proposals_handler::tests::the_declared_tier_is_read_from_the_proposal_body ... ok
+test handlers::enrichment_proposals_handler::tests::the_rejection_serialises_as_a_structured_422_body ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 1404 filtered out
+```
+
+Covered: the 20-char threshold shared with the client; `low`/`medium`/untiered
+stay optional; `high`/`critical` refused at 0 and at 19 characters and on
+whitespace-only input (the count is of TRIMMED characters); accepted at exactly
+20; all four human outcome families gated (`approve`, `reject`, `amend`,
+`delegate`, and their spellings); non-human outcomes (`expired`, `precedent`) NOT
+gated, so a system-produced terminal state is never asked for a judgement it did
+not make; tier read from `risk_tier` or `tier` on the proposal body, with a blank
+value treated as absent.
+
+**Scope limit, recorded rather than hidden.** The tier consulted is the tier
+RECORDED ON THE CASE, which today is the proposing agent's *declared*
+`risk_tier`. PRD FR3's `effective_tier` — operator task properties bounding the
+agent's declaration from below — is a nostr-rust-forum clause and has not landed,
+so an agent that under-declares its own tier still escapes the gate. When FR3
+lands, this gate should read the effective tier from the case row; it will
+tighten, never loosen. Reading the declared tier meanwhile is strictly better
+than reading nothing. A case with no stored row carries no tier and is not gated:
+a first-contact decision from the bridge is not something this route can tier,
+and inventing one would be as dishonest as inventing the rationale.
+
+The Whelk-gate path is unaffected: `elevation_actor` writes its synthetic
+rejection through `repo.record_decision` directly, not through `apply_decision`,
+so `system:whelk-gate` is never asked for a human rationale.
+
+**Three entry points, one gate.** The deepsec re-run established that
+`apply_decision` has *three* callers, not the two named in its own doc comment:
+the service route, the operator route, and `/api/ingest/writeback`. Placing the
+gate inside the shared core rather than on the two handlers means all three are
+covered, including the one neither the brief nor the module docs mentioned.
+
+### Security gate on this increment
+
+`deepsec-gate.sh --diff main` re-run after the change →
+`deepsec-gate: PASS`, exit **0**, receipt
+`.claude/evidence/deepsec-20260914T154635Z.receipt.json` (20 findings, **0 at or
+above HIGH**). The wider diff surfaced two MEDIUMs against this handler, both
+**pre-existing and not introduced or widened here**:
+
+- `other-provenance-forgery` — `record_decision` accepts `broker_pubkey` from the
+  request body on a syntactic hex check alone, with no signature binding the
+  caller to that key, and that pubkey becomes `owner_did` and drives an
+  owner-scoped Oxigraph write. Untouched by this change.
+- `acl-check` — the three entry points into `apply_decision` carry divergent
+  authorisation (`X-Agent-Key`, `power_user()`, and `/api/ingest/writeback` at
+  the `RbacGate` default). The rationale gate now applies uniformly across all
+  three; the *authorisation* asymmetry is a separate, older problem.
+
+Both are recorded as follow-ons on ADR-2110 rather than fixed here.
+
+## 7. Self-assessment renders BELOW the controls
 
 The card's DOM order is payload → provenance → rationale input → controls →
 self-assessment. The test asserts index order between `acsp-case-controls` and
@@ -118,13 +201,17 @@ $ ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 |---|---|
 | Approve enabled on a `critical` case with an empty rationale | Prevented — test `disables a critical decision until 20 characters of rationale are typed` |
 | Tier/confidence rendered above the controls | Prevented — DOM-order test |
-| `reasoning` containing text the human did not type | Prevented — `body.reasoning` asserted byte-equal to the typed string; `undefined` when untyped |
+| `reasoning` containing text the human did not type | Prevented — `body.reasoning` asserted byte-equal to the typed string; `undefined` when untyped; the server gate **refuses** rather than filling in |
 | `confidence: 0.5` for a case where no model produced one | Prevented — `Option<f32>`/`undefined` end to end |
 
 ## Not covered
 
 - The forum `ActionRow` half of this expectation (different repository).
 - No browser run: assertions are jsdom-level via Testing Library.
-- `decide()` still posts to the WS-9 operator route, which does not yet enforce
-  the rationale server-side. The gate is client-side only; recorded as follow-on
-  1 on ADR-2110, not closed.
+- The server gate reads the case's DECLARED tier, not PRD FR3's effective tier,
+  which has not landed. An agent that under-declares its own tier escapes it.
+- No HTTP-level test: `apply_decision` needs a full `AppState` (Oxigraph, the
+  client-coordinator actor), which no test in this handler constructs. The gate
+  is tested as the pure predicate it is, and its single call site is the first
+  statement after the case read in the shared core. The route wiring itself is
+  unverified by test.
