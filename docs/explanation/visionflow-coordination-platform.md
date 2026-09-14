@@ -163,7 +163,8 @@ flowchart LR
 | 30001 | VisionClaw | Provenance beads (content-addressed) |
 | 30910-30916 | Forum admins | Moderation (ban, mute, warning, report) |
 | 31400-31405 | Registered agents | Agent Control Surface (panel, state, action, response) |
-| 38000-38201 | Agentbox agents | Agent intent, job estimates, settlements |
+| 38000-38099 | Agentbox agents | Agent intent, job estimates, settlements |
+| 38100-38105 | Agentbox colloquy | Knowledge units, confirmations, flags, supersessions, graduations, tooling-gap signals (ADR-2085). Agentbox and the forum only — deliberately not federated to VisionClaw, and declared `not-federated` in `schema/federation-kinds.json` so the refusal is recorded rather than absent. |
 
 ### Two-Tier Pod Architecture
 
