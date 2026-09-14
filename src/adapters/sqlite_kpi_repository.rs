@@ -66,7 +66,14 @@ CREATE TABLE IF NOT EXISTS kpi_agent_events (
     target_urn       TEXT,
     handoff_id       TEXT,
     token_count      INTEGER,
-    verification     TEXT
+    verification     TEXT,
+    -- FR5.1 (EXP-AC-005, D7 intent legibility): the agent's DECLARED intent,
+    -- persisted verbatim from the `/wss/agent-events` envelope. NULL when the
+    -- agent declared none — the column is NEVER synthesised from
+    -- `action_type_name` after the fact (that would fabricate the very claim the
+    -- intent_match verdict is supposed to test). Additive + nullable, so a store
+    -- predating this gains it via `apply_additive_migrations`.
+    intent           TEXT
 );
 
 CREATE INDEX IF NOT EXISTS kpi_agent_events_time_idx
@@ -105,6 +112,7 @@ CREATE INDEX IF NOT EXISTS kpi_lineage_snapshot_idx
     ON kpi_lineage(snapshot_id);
 
 INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0005_kpi_snapshots');
+INSERT OR IGNORE INTO schema_migrations (id) VALUES ('0006_kpi_agent_event_intent');
 "#;
 
 // ---------------------------------------------------------------------------
@@ -136,6 +144,8 @@ fn apply_additive_migrations(c: &rusqlite::Connection) -> rusqlite::Result<()> {
         ("handoff_id", "TEXT"),
         ("token_count", "INTEGER"),
         ("verification", "TEXT"),
+        // FR5.1 — 0006_kpi_agent_event_intent.
+        ("intent", "TEXT"),
     ] {
         add_column_if_missing(c, "kpi_agent_events", col, decl)?;
     }
@@ -230,6 +240,9 @@ pub struct NewAgentTrajectory {
     pub handoff_id: Option<String>,
     pub token_count: Option<u64>,
     pub verification: Option<String>,
+    /// FR5.1 — the envelope's declared `intent`, persisted VERBATIM. `None`
+    /// stays NULL; the tap never synthesises one.
+    pub intent: Option<String>,
     pub observed_at_ms: i64,
 }
 
@@ -246,6 +259,8 @@ pub struct AgentTrajectoryRow {
     pub handoff_id: Option<String>,
     pub token_count: Option<i64>,
     pub verification: Option<String>,
+    /// The declared intent as persisted, or `None` when the agent declared none.
+    pub intent: Option<String>,
     pub observed_at_ms: i64,
 }
 
@@ -324,8 +339,8 @@ impl SqliteKpiRepository {
                     "INSERT INTO kpi_agent_events
                          (event_id, source_agent_id, action_type, observed_at_ms,
                           agent_did, action_type_name, source_urn, target_urn,
-                          handoff_id, token_count, verification)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                          handoff_id, token_count, verification, intent)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 )?;
                 stmt.execute(rusqlite::params![
                     t.event_id as i64,
@@ -339,6 +354,7 @@ impl SqliteKpiRepository {
                     &t.handoff_id,
                     t.token_count.map(|n| n as i64),
                     &t.verification,
+                    &t.intent,
                 ])?;
                 Ok(())
             })
@@ -355,7 +371,7 @@ impl SqliteKpiRepository {
                 let mut stmt = c.prepare_cached(
                     "SELECT event_id, source_agent_id, action_type, action_type_name,
                             agent_did, source_urn, target_urn, handoff_id,
-                            token_count, verification, observed_at_ms
+                            token_count, verification, intent, observed_at_ms
                      FROM kpi_agent_events
                      WHERE observed_at_ms >= ?1
                      ORDER BY observed_at_ms DESC, id DESC",
@@ -374,7 +390,8 @@ impl SqliteKpiRepository {
                         handoff_id: r.get(7)?,
                         token_count: r.get(8)?,
                         verification: r.get(9)?,
-                        observed_at_ms: r.get(10)?,
+                        intent: r.get(10)?,
+                        observed_at_ms: r.get(11)?,
                     });
                 }
                 Ok(out)
@@ -572,6 +589,54 @@ mod tests {
         repo.record_agent_event(4, 8, 2, 5_000).await.unwrap();
         assert_eq!(repo.count_agent_events_since(10_000).await.unwrap(), 3);
         assert_eq!(repo.count_agent_events_since(0).await.unwrap(), 4);
+    }
+
+    #[tokio::test]
+    async fn declared_intent_round_trips_verbatim_and_absence_stays_null() {
+        // FR5.1 / EXP-AC-005: the envelope's intent is stored exactly as the
+        // agent wrote it, and an envelope with none leaves NULL — never a
+        // string derived from `action_type_name`.
+        let repo = temp_repo().await;
+        let declared = "op=update target=urn:visionclaw:kg:aaaa:node-7";
+        repo.record_agent_trajectory(&NewAgentTrajectory {
+            event_id: 1,
+            source_agent_id: 7,
+            action_type: 1,
+            action_type_name: Some("graph_update".into()),
+            agent_did: Some("did:nostr:aaaa".into()),
+            source_urn: None,
+            target_urn: Some("urn:visionclaw:kg:aaaa:node-7".into()),
+            handoff_id: None,
+            token_count: None,
+            verification: None,
+            intent: Some(declared.into()),
+            observed_at_ms: 10_000,
+        })
+        .await
+        .unwrap();
+        repo.record_agent_trajectory(&NewAgentTrajectory {
+            event_id: 2,
+            source_agent_id: 7,
+            action_type: 1,
+            action_type_name: Some("graph_update".into()),
+            agent_did: None,
+            source_urn: None,
+            target_urn: None,
+            handoff_id: None,
+            token_count: None,
+            verification: None,
+            intent: None,
+            observed_at_ms: 20_000,
+        })
+        .await
+        .unwrap();
+
+        let rows = repo.trajectories_since(0).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        let with_intent = rows.iter().find(|r| r.event_id == 1).unwrap();
+        assert_eq!(with_intent.intent.as_deref(), Some(declared));
+        let without = rows.iter().find(|r| r.event_id == 2).unwrap();
+        assert_eq!(without.intent, None, "absence stays absence");
     }
 
     #[tokio::test]

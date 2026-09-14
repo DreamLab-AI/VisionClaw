@@ -81,6 +81,8 @@ pub mod nostr_identity_verifier;
 // RES-a: sprint-wide live-traffic observer + KG-backend watchdog (ADR-130 D3)
 pub mod liveness_harness;
 
+// FR5.2 (EXP-AC-005): declared-intent ↔ recorded-act matching for the trace.
+pub mod intent_match;
 // REC-4: four-KPI compute engine (Augmentation Ratio, Trust Variance) with
 // SQLite snapshots + lineage; ADR-043 resurrected per ADR-130 Decision 5.
 pub mod kpi_compute;

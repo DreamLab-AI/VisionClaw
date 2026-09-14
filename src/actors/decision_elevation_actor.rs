@@ -328,7 +328,10 @@ impl DecisionElevationActor {
                         case.decision_urn
                     ),
                     session_id: None,
-                    confidence: 0.5,
+                    // FR2.4 (EXP-AC-002): no model produced a confidence for this
+                    // elevation. `0.5` was a fabricated self-assessment; absence
+                    // is now representable and renders as absence.
+                    confidence: None,
                     user_id: "acsp-governance".into(),
                 };
                 let title = format!(

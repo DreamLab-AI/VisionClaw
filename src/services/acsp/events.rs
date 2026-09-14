@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn action_response_parses_forum_shape() {
-        let raw = r#"{"action":"approve","reasoning":"Human approve via governance UI"}"#;
+        let raw = r#"{"action":"approve","reasoning":"Checked the axioms against the corpus; the draft holds."}"#;
         let resp: ActionResponse = serde_json::from_str(raw).unwrap();
         assert_eq!(resp.action, "approve");
     }
@@ -561,7 +561,7 @@ mod broker_kernel_reconciliation {
     /// parses into a kernel `DecisionOutcome` via `from_action`.
     #[test]
     fn action_response_parses_into_kernel_outcome() {
-        let raw = r#"{"action":"approve","reasoning":"Human approve via governance UI"}"#;
+        let raw = r#"{"action":"approve","reasoning":"Checked the axioms against the corpus; the draft holds."}"#;
         let resp: ActionResponse = serde_json::from_str(raw).unwrap();
         let outcome = DecisionOutcome::from_action(&resp.action, None)
             .expect("approve maps to a kernel outcome");

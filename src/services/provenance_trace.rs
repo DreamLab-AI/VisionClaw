@@ -29,6 +29,7 @@ use crate::adapters::sqlite_enrichment_repository::{
     ProvenanceDecisionRow, SqliteEnrichmentRepository,
 };
 use crate::adapters::sqlite_kpi_repository::{AgentTrajectoryRow, SqliteKpiRepository};
+use crate::services::intent_match::intent_match;
 
 /// The three source kinds the trace can join.
 pub const SOURCE_AGENT_EVENT: &str = "agent_event";
@@ -112,6 +113,16 @@ pub struct TraceRecord {
     pub at_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// FR5.2 (EXP-AC-005) — the agent's DECLARED intent for this act, verbatim
+    /// from the envelope, or absent when it declared none. Agent-event records
+    /// only; other source kinds carry no declaration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
+    /// Did the act match the declaration? `Some(true)`/`Some(false)` only when an
+    /// intent was declared; `null` means "no claim was made", which is NOT the
+    /// same as "the claim failed". See [`crate::services::intent_match`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intent_match: Option<bool>,
 }
 
 /// A cross-source correlation under one `did:nostr` — the actual join. Present
@@ -191,6 +202,12 @@ pub fn build_trace(
                 .unwrap_or_else(|| "action".to_string()),
             at_ms: t.observed_at_ms,
             detail: t.verification.clone().map(|v| format!("verification={v}")),
+            intent: t.intent.clone(),
+            intent_match: intent_match(
+                t.intent.as_deref(),
+                t.action_type_name.as_deref(),
+                t.target_urn.as_deref(),
+            ),
         });
     }
     for d in decisions {
@@ -201,6 +218,8 @@ pub fn build_trace(
             kind: d.outcome.clone(),
             at_ms: d.decided_at_ms,
             detail: Some(format!("case={} attributed={}", d.case_id, d.attributed)),
+            intent: None,
+            intent_match: None,
         });
     }
     for m in pod_marks {
@@ -211,6 +230,8 @@ pub fn build_trace(
             kind: "git-mark".to_string(),
             at_ms: m.at_ms(),
             detail: Some(format!("resource={} anchored={}", m.resource, m.anchored)),
+            intent: None,
+            intent_match: None,
         });
     }
 
@@ -355,6 +376,7 @@ mod tests {
             handoff_id: handoff.map(str::to_string),
             token_count: Some(1234),
             verification: Some("pass".into()),
+            intent: None,
             observed_at_ms: at,
         }
     }
@@ -404,6 +426,43 @@ mod tests {
         // Records newest first.
         assert_eq!(trace.records[0].at_ms, 3_000);
         assert_eq!(trace.total_records, 2);
+    }
+
+    #[test]
+    fn agent_event_records_carry_intent_and_its_verdict() {
+        // FR5.2 (EXP-AC-005): /api/trace reports the declaration AND whether it
+        // held — three-valued, with `null` reserved for "no claim was made".
+        let mut declared = trajectory(Some("did:nostr:aaaa"), 1_000, None);
+        declared.intent = Some("update urn:kg:node-7".into());
+        declared.action_type_name = Some("graph_update".into());
+        declared.target_urn = Some("urn:kg:node-7".into());
+
+        let mut diverged = trajectory(Some("did:nostr:aaaa"), 2_000, None);
+        diverged.intent = Some("update urn:kg:node-7".into());
+        diverged.action_type_name = Some("graph_update".into());
+        diverged.target_urn = Some("urn:kg:node-99".into());
+
+        let silent = trajectory(Some("did:nostr:aaaa"), 3_000, None);
+
+        let trace = build_trace(&[declared, diverged, silent], &[], &[], false, None);
+        // Newest first: silent, diverged, declared.
+        assert_eq!(trace.records[0].intent, None);
+        assert_eq!(trace.records[0].intent_match, None, "no claim ⇒ no verdict");
+        assert_eq!(trace.records[1].intent_match, Some(false));
+        assert_eq!(trace.records[2].intent_match, Some(true));
+        assert_eq!(
+            trace.records[2].intent.as_deref(),
+            Some("update urn:kg:node-7"),
+            "the declaration is reported verbatim"
+        );
+    }
+
+    #[test]
+    fn non_agent_sources_declare_no_intent() {
+        let dec = vec![decision(Some("did:nostr:aaaa"), 1_000, "urn:x")];
+        let trace = build_trace(&[], &dec, &[], false, None);
+        assert_eq!(trace.records[0].intent, None);
+        assert_eq!(trace.records[0].intent_match, None);
     }
 
     #[test]

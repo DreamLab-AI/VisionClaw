@@ -308,7 +308,7 @@ mod tests {
         let keys = Keys::generate();
         EventBuilder::new(
             Kind::Custom(KIND_ACTION_RESPONSE),
-            serde_json::json!({"action": action, "reasoning": "Human approve via governance UI"})
+            serde_json::json!({"action": action, "reasoning": "Checked the axioms against the corpus; the draft holds."})
                 .to_string(),
         )
         .tags([Tag::identifier(case_id)])

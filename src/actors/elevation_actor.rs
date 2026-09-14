@@ -45,6 +45,7 @@ use crate::services::acsp::{
     AcspClient, ActionPriority, ActionRequest, CaseCategory, CaseDecision, CaseSpec, SubjectKind,
 };
 use crate::services::github_pr_service::{GitHubPRService, PrState};
+use crate::services::kpi_compute::SYSTEM_WHELK_GATE;
 use crate::services::speech_service::SpeechService;
 use crate::types::ontology_tools::AgentContext;
 use crate::types::speech::SpeechOptions;
@@ -60,6 +61,18 @@ const CYCLE_INTERVAL: Duration = Duration::from_secs(600);
 /// GOV-2 merge-poll cadence: how often opened elevation PRs are checked for a
 /// terminal git state (merged → `concept_elevated`, closed → abandoned).
 const PR_POLL_INTERVAL: Duration = Duration::from_secs(120);
+/// FR4.5 (EXP-AC-004): how long an opened case may sit awaiting a human before
+/// boot reconciliation times it out with a receipt. 14 days, the same TTL
+/// `decision_elevation_actor.rs` uses — one panel should not age a case out on a
+/// different clock from its sibling.
+const OPEN_CASE_TTL: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// Kind-31404 status published when reconciliation times a stale case out.
+const EXPIRED_STATUS: &str = "elevation_expired";
+/// Durable status written for a timed-out case.
+const EXPIRED_STORE_STATUS: &str = "expired";
+/// How many durable rows boot reconciliation scans. Generous next to
+/// `MAX_OPEN_CASES`, so a store carrying a backlog is still fully recovered.
+const RECONCILE_SCAN_LIMIT: i64 = 500;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -73,6 +86,11 @@ struct Decision(CaseDecision);
 #[derive(Message)]
 #[rtype(result = "()")]
 struct PollPrs;
+
+/// FR4.5: rebuild the in-memory working set from the durable projection at boot.
+#[derive(Message)]
+#[rtype(result = "()")]
+struct Reconcile;
 
 /// An opened elevation PR being tracked to its terminal state (GOV-2). Keyed by
 /// case id in [`ElevationActor::elevating`] so the merge poll can fire the
@@ -88,7 +106,7 @@ struct TrackedPr {
 #[rtype(result = "()")]
 struct VoiceTranscript(String);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PendingCase {
     label: String,
     file_path: String,
@@ -670,6 +688,127 @@ fn terminal_for_pr_state(state: PrState) -> Option<(&'static str, &'static str)>
     }
 }
 
+// ---------------------------------------------------------------------------
+// FR4.5 — boot reconciliation (EXP-AC-004)
+// ---------------------------------------------------------------------------
+//
+// The in-memory `pending` map is the working set, but it dies with the process.
+// Before this, a kind-31403 arriving after a restart hit the `self.pending
+// .remove(&d.case_id)` miss in the `Decision` handler and returned early — the
+// human's signed decision was silently dropped, and the case sat `pending` for
+// ever. Reconciliation rebuilds the map from the durable projection at boot, and
+// closes out anything past `OPEN_CASE_TTL` with a receipt rather than leaving it
+// to rot.
+
+/// Durable proposal statuses that need no further work.
+///
+/// Anything else is an OPEN case: still answerable by a human, or old enough to
+/// be timed out. Kept explicit (rather than "not pending") so a status this
+/// actor has never seen is treated as open and surfaced, not silently dropped.
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "approved" | "rejected" | "reviewed" | "elevated" | "abandoned" | "expired" | "applying"
+    )
+}
+
+/// One open case recovered from the durable projection at boot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecoveredCase {
+    case_id: String,
+    /// Proposal-row creation instant (unix **seconds**) — the case's age clock.
+    created_at_s: i64,
+    /// The working-set shape the `Decision` handler needs to apply a decision.
+    pending: PendingCase,
+}
+
+/// What boot reconciliation must do with one recovered open case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ElevationReconcileAction {
+    /// Within the TTL — re-arm it so a late kind-31403 is still matched.
+    ResumePending(RecoveredCase),
+    /// Unanswered past the TTL — close it out with a receipt.
+    Expire(RecoveredCase),
+}
+
+/// Rehydrate an open elevation case from its durable row, or `None` when the row
+/// is not a recoverable case of THIS panel.
+///
+/// Returns `None` for a case id outside [`CASE_PREFIX`] (another panel's row), a
+/// terminal status (already closed), or a body carrying no draft. The last is
+/// deliberate: an `approve` commits the stored draft to the corpus, so a row
+/// without one cannot be honoured — and fabricating a replacement draft would
+/// commit text no agent authored and no human reviewed.
+fn recovered_case(p: &StoredProposal) -> Option<RecoveredCase> {
+    if !p.case_id.starts_with(CASE_PREFIX) || is_terminal_status(&p.status) {
+        return None;
+    }
+    let j = &p.proposal_json;
+    let s = |k: &str| {
+        j.get(k)
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+    };
+    let draft = s("content")?;
+    let file_path = s("target_path")?;
+    // The label is recovered from the row that opened the case — never re-derived
+    // from a fresh graph read, which may have moved on since.
+    let label = s("title")
+        .and_then(|t| t.strip_prefix("Elevate: ").map(str::to_string))
+        .or_else(|| s("label"))
+        .unwrap_or_else(|| p.case_id.trim_start_matches(CASE_PREFIX).to_string());
+    Some(RecoveredCase {
+        case_id: p.case_id.clone(),
+        created_at_s: p.created_at,
+        pending: PendingCase {
+            label,
+            file_path,
+            draft,
+        },
+    })
+}
+
+/// Pure reconciliation policy: resume every open case inside the TTL, expire the
+/// rest. Free of I/O so the TTL boundary is unit-testable without a relay, a
+/// store or an actor system — the same posture as
+/// `decision_elevation_actor::plan_reconciliation`.
+///
+/// The boundary is EXCLUSIVE: a case exactly at the TTL is still answerable.
+fn plan_elevation_reconciliation(
+    cases: Vec<RecoveredCase>,
+    now_s: i64,
+    ttl_s: i64,
+) -> Vec<ElevationReconcileAction> {
+    cases
+        .into_iter()
+        .map(|case| {
+            if now_s.saturating_sub(case.created_at_s) > ttl_s {
+                ElevationReconcileAction::Expire(case)
+            } else {
+                ElevationReconcileAction::ResumePending(case)
+            }
+        })
+        .collect()
+}
+
+/// Split a plan into the working set to re-arm and the cases to expire.
+fn split_reconciliation(
+    plan: Vec<ElevationReconcileAction>,
+) -> (HashMap<String, PendingCase>, Vec<RecoveredCase>) {
+    let mut resumed = HashMap::new();
+    let mut expired = Vec::new();
+    for action in plan {
+        match action {
+            ElevationReconcileAction::ResumePending(c) => {
+                resumed.insert(c.case_id, c.pending);
+            }
+            ElevationReconcileAction::Expire(c) => expired.push(c),
+        }
+    }
+    (resumed, expired)
+}
+
 impl Actor for ElevationActor {
     type Context = Context<Self>;
 
@@ -714,7 +853,11 @@ impl Actor for ElevationActor {
             .map(|client, act, ctx| {
                 act.acsp = client;
                 if act.acsp.is_some() {
-                    ctx.address().do_send(RunCycle);
+                    // FR4.5: rebuild the working set from the durable projection
+                    // BEFORE opening any new case, so a decision that arrives
+                    // after a restart still finds its case. Scheduling the cycle
+                    // is the reconciliation's job — it runs after the recovery.
+                    ctx.address().do_send(Reconcile);
                 }
             }),
         );
@@ -953,6 +1096,88 @@ impl Handler<RunCycle> for ElevationActor {
     }
 }
 
+impl Handler<Reconcile> for ElevationActor {
+    type Result = ();
+
+    /// FR4.5 (EXP-AC-004): re-arm the working set from durable `pending` rows,
+    /// and time out anything past [`OPEN_CASE_TTL`] with an `expired` receipt.
+    ///
+    /// Mirrors `decision_elevation_actor`'s reconciliation: the durable status
+    /// write is NOT conditional on the 31404 receipt publishing — a relay that
+    /// is down must not leave the case permanently un-aged. Only the panel's own
+    /// cases are touched; another panel's rows are left alone.
+    fn handle(&mut self, _msg: Reconcile, ctx: &mut Self::Context) {
+        let repo = self.enrichment_repo.clone();
+        let acsp = self.acsp.clone();
+        let now_s = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let ttl_s = OPEN_CASE_TTL.as_secs() as i64;
+
+        ctx.spawn(
+            actix::fut::wrap_future::<_, Self>(async move {
+                let rows = match repo.list(Some("pending"), RECONCILE_SCAN_LIMIT, 0).await {
+                    Ok(rows) => rows,
+                    Err(e) => {
+                        warn!("[Elevation] boot reconciliation read failed: {e}; working set stays cold");
+                        return HashMap::new();
+                    }
+                };
+                let recovered: Vec<RecoveredCase> = rows.iter().filter_map(recovered_case).collect();
+                let (resumed, expired) = split_reconciliation(plan_elevation_reconciliation(
+                    recovered, now_s, ttl_s,
+                ));
+
+                for case in &expired {
+                    // The receipt first (so the forum shows WHY the case
+                    // vanished), then the terminal durable status regardless.
+                    if let Some(acsp) = acsp.as_ref() {
+                        if let Err(e) = acsp
+                            .publish(&build_case_status_update(
+                                PANEL_ID,
+                                &case.case_id,
+                                EXPIRED_STATUS,
+                                &format!(
+                                    "unanswered for more than {} days",
+                                    ttl_s / (24 * 60 * 60)
+                                ),
+                            ))
+                            .await
+                        {
+                            warn!(
+                                "[Elevation] expiry receipt publish failed for {}: {e}",
+                                case.case_id
+                            );
+                        }
+                    }
+                    if let Err(e) = repo.set_status(&case.case_id, EXPIRED_STORE_STATUS).await {
+                        warn!(
+                            "[Elevation] expiry status persist failed for {}: {e}",
+                            case.case_id
+                        );
+                    }
+                }
+                info!(
+                    "[Elevation] boot reconciliation: {} case(s) re-armed, {} timed out",
+                    resumed.len(),
+                    expired.len()
+                );
+                resumed
+            })
+            .map(|resumed, act, ctx| {
+                for (case_id, pending) in resumed {
+                    act.seen.insert(pending.label.clone());
+                    act.pending.insert(case_id, pending);
+                }
+                // Only now open new cases — the window budget must count the
+                // recovered ones.
+                ctx.address().do_send(RunCycle);
+            }),
+        );
+    }
+}
+
 impl Handler<Decision> for ElevationActor {
     type Result = ();
 
@@ -1022,7 +1247,6 @@ impl ElevationActor {
         let repo = self.enrichment_repo.clone();
         let (draft_classes, draft_axioms) = parse_draft_axioms(&case.draft);
         let approve_record = decision_record(&d);
-        let responder = d.responder_pubkey.clone();
         let case_id = d.case_id.clone();
         let case_id_map = case_id.clone();
         let label = case.label.clone();
@@ -1042,11 +1266,20 @@ impl ElevationActor {
                         // A locally minted decision: it answers no signed 31403,
                         // so it carries no event id (ADR-2006) and falls back to
                         // the local correlation form in `decision_record`.
+                        //
+                        // FR5.4 / DDD invariant 8 (EXP-AC-005): the gate is NOT
+                        // the human who opened the case. Attributing its
+                        // rejection to `responder` counted a reasoner outcome as
+                        // a human override — inflating HITL Precision and
+                        // scattering Trust Variance with dispersion no human
+                        // produced. The decider is the reserved non-DID actor
+                        // `system:whelk-gate`, which the KPI compute excludes
+                        // from every human-reviewer series.
                         let synthetic = CaseDecision {
                             case_id: case_id.clone(),
                             action: "reject".to_string(),
                             reasoning: format!("GOV-7 consistency gate blocked elevation: {reason}"),
-                            responder_pubkey: responder,
+                            responder_pubkey: SYSTEM_WHELK_GATE.to_string(),
                             event_id: String::new(),
                             created_at: 0,
                         };
@@ -1068,7 +1301,11 @@ impl ElevationActor {
                                 "ACSP-approved elevation of frontier concept '{label}'"
                             ),
                             session_id: None,
-                            confidence: 0.5,
+                            // FR2.4 (EXP-AC-002): no model produced a confidence
+                            // for this elevation, so it has none. `0.5` was a
+                            // fabricated self-assessment the UI then rendered as
+                            // the agent's own. Absence renders as absence.
+                            confidence: None,
                             user_id: "acsp-governance".into(),
                         };
                         match pr
@@ -1290,6 +1527,121 @@ mod tests {
     use visionclaw_domain::models::edge::Edge;
     use visionclaw_domain::models::graph::GraphData;
     use visionclaw_domain::models::node::Node;
+
+    // -----------------------------------------------------------------
+    // FR4.5 (EXP-AC-004): the actor recovers its open cases across a restart,
+    // so a kind-31403 arriving after a restart is APPLIED rather than dropped
+    // at the in-memory map miss, and an unanswered case expires with a receipt.
+    // -----------------------------------------------------------------
+
+    fn stored_pending(case_id: &str, created_at_s: i64, status: &str) -> StoredProposal {
+        StoredProposal {
+            case_id: case_id.to_string(),
+            category: Some("knowledge_enrichment".into()),
+            source_iri: Some("urn:ngm:class:finality-mechanism".into()),
+            proposal_json: json!({
+                "target_path": "pages/Finality Mechanism.md",
+                "content": "# Finality Mechanism\n\ndraft body",
+                "enrichment_type": "class_elevation",
+                "proposed_by": "elevation-finality-mechanism",
+                "title": "Elevate: Finality Mechanism",
+            }),
+            status: status.to_string(),
+            created_at: created_at_s,
+            updated_at: created_at_s,
+        }
+    }
+
+    const DAY_S: i64 = 24 * 60 * 60;
+
+    #[test]
+    fn ttl_is_fourteen_days_matching_the_decision_elevation_actor() {
+        assert_eq!(OPEN_CASE_TTL.as_secs() as i64, 14 * DAY_S);
+    }
+
+    #[test]
+    fn a_pending_row_rehydrates_into_the_working_set() {
+        let recovered = recovered_case(&stored_pending("vc-elev-finality-mechanism", 100, "pending"))
+            .expect("a pending elevation row rehydrates");
+        assert_eq!(recovered.case_id, "vc-elev-finality-mechanism");
+        assert_eq!(recovered.pending.file_path, "pages/Finality Mechanism.md");
+        assert!(recovered.pending.draft.contains("draft body"));
+        // The label is recovered from the durable row, never re-derived from a
+        // fresh graph read (the graph may have moved on since the case opened).
+        assert_eq!(recovered.pending.label, "Finality Mechanism");
+        assert_eq!(recovered.created_at_s, 100);
+    }
+
+    #[test]
+    fn a_row_from_another_panel_is_not_ours_to_recover() {
+        assert!(recovered_case(&stored_pending("vc-decelev-other", 100, "pending")).is_none());
+    }
+
+    #[test]
+    fn a_row_with_no_draft_cannot_be_rehydrated() {
+        let mut row = stored_pending("vc-elev-x", 100, "pending");
+        row.proposal_json = json!({ "target_path": "pages/x.md" });
+        assert!(
+            recovered_case(&row).is_none(),
+            "an approve would have no draft to commit; never fabricate one"
+        );
+    }
+
+    #[test]
+    fn reconciliation_resumes_a_case_inside_the_ttl_and_expires_one_outside_it() {
+        let now = 100 * DAY_S;
+        let fresh = recovered_case(&stored_pending("vc-elev-fresh", now - DAY_S, "pending")).unwrap();
+        let stale =
+            recovered_case(&stored_pending("vc-elev-stale", now - 15 * DAY_S, "pending")).unwrap();
+        let plan = plan_elevation_reconciliation(vec![fresh, stale], now, OPEN_CASE_TTL.as_secs() as i64);
+        assert_eq!(plan.len(), 2);
+        assert!(matches!(&plan[0], ElevationReconcileAction::ResumePending(c) if c.case_id == "vc-elev-fresh"));
+        assert!(matches!(&plan[1], ElevationReconcileAction::Expire(c) if c.case_id == "vc-elev-stale"));
+    }
+
+    #[test]
+    fn the_ttl_boundary_is_exclusive() {
+        let now = 100 * DAY_S;
+        let ttl = OPEN_CASE_TTL.as_secs() as i64;
+        let exactly = recovered_case(&stored_pending("vc-elev-edge", now - ttl, "pending")).unwrap();
+        let plan = plan_elevation_reconciliation(vec![exactly], now, ttl);
+        assert!(
+            matches!(&plan[0], ElevationReconcileAction::ResumePending(_)),
+            "a case exactly at the TTL is still answerable"
+        );
+    }
+
+    #[test]
+    fn terminal_rows_are_never_reconciled() {
+        let now = 100 * DAY_S;
+        let cases: Vec<RecoveredCase> = ["approved", "rejected", "elevated", "abandoned", "expired"]
+            .iter()
+            .filter_map(|st| recovered_case(&stored_pending("vc-elev-done", now - 30 * DAY_S, st)))
+            .collect();
+        assert!(cases.is_empty(), "a decided case is not an open case");
+        assert!(plan_elevation_reconciliation(cases, now, OPEN_CASE_TTL.as_secs() as i64).is_empty());
+    }
+
+    #[test]
+    fn a_decision_arriving_after_a_restart_finds_its_case() {
+        // The regression EXP-AC-004 names: "a post-restart 31403 returning early
+        // at the in-memory map miss". Before reconciliation the map is empty and
+        // the decision is dropped; after it, the same decision resolves.
+        let now = 100 * DAY_S;
+        let case_id = "vc-elev-finality-mechanism";
+        let recovered = recovered_case(&stored_pending(case_id, now - DAY_S, "pending")).unwrap();
+
+        let mut cold: HashMap<String, PendingCase> = HashMap::new();
+        assert!(cold.remove(case_id).is_none(), "cold start drops the decision");
+
+        let plan = plan_elevation_reconciliation(vec![recovered], now, OPEN_CASE_TTL.as_secs() as i64);
+        let (restored, expired) = split_reconciliation(plan);
+        assert!(expired.is_empty());
+        cold.extend(restored);
+
+        let matched = cold.remove(case_id).expect("the late decision now applies");
+        assert_eq!(matched.file_path, "pages/Finality Mechanism.md");
+    }
 
     #[test]
     fn production_gate_defaults_dev_on_prod_off() {

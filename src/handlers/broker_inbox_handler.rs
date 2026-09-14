@@ -94,6 +94,16 @@ struct CaseMetadata {
     proposal_urn: Option<String>,
     /// PROV-O activity URN of the decision, when decided.
     activity_urn: Option<String>,
+    /// FR2.3 (EXP-AC-002) — the agent's SELF-DECLARED tier. The case queue uses
+    /// it to decide whether a typed rationale is mandatory, and renders it BELOW
+    /// the decision controls so it cannot anchor the reviewer.
+    risk_tier: Option<String>,
+    /// FR2.4 — the agent's SELF-ASSESSED confidence. `null` when no model
+    /// produced one; the UI then renders nothing (absence as absence).
+    confidence: Option<f64>,
+    /// FR2.3 — generation provenance (`model`, `source_excerpt`, `confidence`)
+    /// as recorded, or `null`. Rendered field by field, only where present.
+    provenance: Option<serde_json::Value>,
 }
 
 impl From<&EnrichmentProposal> for BrokerCase {
@@ -116,6 +126,9 @@ impl From<&EnrichmentProposal> for BrokerCase {
                 broker_did: p.broker_did.clone(),
                 proposal_urn: p.proposal_urn.clone(),
                 activity_urn: p.activity_urn.clone(),
+                risk_tier: p.risk_tier.clone(),
+                confidence: p.confidence,
+                provenance: p.provenance.clone(),
             },
             created_at_ms: p.created_at_ms,
             decided_at_ms: p.decided_at_ms,
@@ -193,9 +206,42 @@ mod tests {
             broker_did: None,
             proposal_urn: Some("urn:visionclaw:kg:aaaa:sha256-12-abc".into()),
             activity_urn: None,
+            risk_tier: None,
+            confidence: None,
+            provenance: None,
             created_at_ms: 1_700_000_000_000,
             decided_at_ms: None,
         }
+    }
+
+    #[test]
+    fn a_proposal_with_no_self_assessment_projects_absence_not_a_default() {
+        // FR2.4 (EXP-AC-002): the queue must be able to render nothing. A `0.5`
+        // here would reach the reviewer as the agent's own confidence.
+        let c = BrokerCase::from(&sample());
+        assert_eq!(c.metadata.confidence, None);
+        assert_eq!(c.metadata.risk_tier, None);
+        assert_eq!(c.metadata.provenance, None);
+        // The age clock the queue sorts and badges on (FR6.5).
+        assert_eq!(c.created_at_ms, 1_700_000_000_000);
+    }
+
+    #[test]
+    fn self_assessment_and_provenance_pass_through_when_the_agent_produced_them() {
+        let mut p = sample();
+        p.risk_tier = Some("critical".into());
+        p.confidence = Some(0.82);
+        p.provenance = Some(serde_json::json!({
+            "model": "qwen3.8-27B",
+            "source_excerpt": "the seed sentence",
+        }));
+        let c = BrokerCase::from(&p);
+        assert_eq!(c.metadata.risk_tier.as_deref(), Some("critical"));
+        assert_eq!(c.metadata.confidence, Some(0.82));
+        assert_eq!(
+            c.metadata.provenance.as_ref().unwrap()["model"],
+            serde_json::json!("qwen3.8-27B")
+        );
     }
 
     #[test]

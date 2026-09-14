@@ -890,7 +890,11 @@ impl OntologyMutationService {
                 .as_deref()
                 .unwrap_or("No logical contradictions"),
             quality = quality,
-            confidence = agent_ctx.confidence,
+            // FR2.4: absence renders as absence, in the PR body too.
+            confidence = agent_ctx
+                .confidence
+                .map(|c| format!("{c}"))
+                .unwrap_or_else(|| "not reported".to_string()),
         )
     }
 
@@ -1049,7 +1053,7 @@ mod provenance_wiring_tests {
             agent_type: "test-agent".to_string(),
             task_description: "provenance wiring test".to_string(),
             session_id: None,
-            confidence: 0.9,
+            confidence: Some(0.9),
             user_id: "user-1".to_string(),
         }
     }

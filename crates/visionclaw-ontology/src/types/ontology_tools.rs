@@ -207,7 +207,17 @@ pub struct AgentContext {
     pub agent_type: String,
     pub task_description: String,
     pub session_id: Option<String>,
-    pub confidence: f32,
+    /// The agent's SELF-ASSESSED confidence in `[0, 1]`, or `None` when no model
+    /// produced one.
+    ///
+    /// PRD-augmentation-conditions FR2.4 / EXP-AC-002: this was `f32`, so every
+    /// caller with nothing to say still had to say something, and the callers
+    /// that had nothing said `0.5`. The governance UI then rendered that
+    /// fabricated number as the agent's own judgement — a confidence no model
+    /// produced, shown to a human about to decide. Absence is now representable,
+    /// and renders as absence.
+    #[serde(default)]
+    pub confidence: Option<f32>,
     /// User who owns this agent and the resulting notes
     pub user_id: String,
 }

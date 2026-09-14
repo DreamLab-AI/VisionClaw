@@ -192,6 +192,22 @@ fn add_column_if_missing(
     Ok(())
 }
 
+/// The action a proposal requested, read from its body.
+///
+/// A proposal IS a request to approve it, so a body that names no
+/// `requested_action` requests `approve`. Nothing is inferred from the outcome —
+/// that would make every decision agree with its request by construction.
+pub fn requested_action_of(proposal_json: Option<&str>) -> String {
+    proposal_json
+        .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+        .as_ref()
+        .and_then(|v| v.get("requested_action"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("approve")
+        .to_string()
+}
+
 /// Map a broker outcome string to the durable proposal status. Approvals (in
 /// any spelling the broker uses) → `approved`; rejections → `rejected`;
 /// everything else (amend/delegate/precedent/...) → `reviewed`. Mirrors the
@@ -292,6 +308,42 @@ pub struct ProvenanceDecisionRow {
     pub proposal_urn: Option<String>,
     pub outcome: String,
     pub attributed: bool,
+    pub decided_at_ms: i64,
+}
+
+/// A broker decision projected for the REC-4 KPI compute. Carries the outcome
+/// and activity URN the Trust-Variance lineage traces, plus `decided_by` — the
+/// identity that resolved the case.
+///
+/// `decided_by` is the `broker_pubkey` column read under its domain name
+/// (DDD §3 "decided_by"). It is a `did:nostr` pubkey for a human 31403, and the
+/// reserved non-DID actor `system:whelk-gate` for an outcome the EL++
+/// consistency gate produced. DDD invariant 8 — *system actors are not humans* —
+/// is enforced at the compute, not here: this read is faithful to the store.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KpiDecisionRow {
+    pub outcome: String,
+    pub activity_urn: String,
+    pub decided_at_ms: i64,
+    pub decided_by: Option<String>,
+}
+
+/// A decided-case row as SQLite hands it back, before the proposal body is
+/// parsed: `(case_id, outcome, decided_by, decided_at_ms, proposal_json)`.
+type RawDecidedCase = (String, String, Option<String>, i64, Option<String>);
+
+/// One DECIDED case, joined to the proposal that requested it — the HITL
+/// Precision read (FR5.3). `requested_action` is what the agent asked for; the
+/// outcome is what the human (or the gate) answered.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecidedCaseRow {
+    pub case_id: String,
+    pub outcome: String,
+    /// The action the proposing agent requested. Read from the proposal body's
+    /// `requested_action`, defaulting to `approve`: a proposal IS a request to
+    /// approve it, so an unlabelled proposal's requested action is an approval.
+    pub requested_action: String,
+    pub decided_by: Option<String>,
     pub decided_at_ms: i64,
 }
 
@@ -661,11 +713,11 @@ impl SqliteEnrichmentRepository {
     /// count and the Trust-Variance dispersion is over the `outcome` column, both
     /// windowed on `decided_at_ms`. Returns `(outcome, activity_urn, decided_at_ms)`
     /// so the KPI lineage can trace a value back to each contributing decision.
-    pub async fn decisions_since(&self, cutoff_ms: i64) -> Result<Vec<(String, String, i64)>> {
+    pub async fn decisions_since(&self, cutoff_ms: i64) -> Result<Vec<KpiDecisionRow>> {
         self.conn
             .call(move |c| {
                 let mut stmt = c.prepare_cached(
-                    "SELECT outcome, activity_urn, decided_at_ms
+                    "SELECT outcome, activity_urn, decided_at_ms, broker_pubkey
                      FROM enrichment_decisions
                      WHERE decided_at_ms >= ?1
                      ORDER BY decided_at_ms DESC, id DESC",
@@ -673,12 +725,68 @@ impl SqliteEnrichmentRepository {
                 let mut q = stmt.query(rusqlite::params![cutoff_ms])?;
                 let mut out = Vec::new();
                 while let Some(r) = q.next()? {
-                    out.push((r.get(0)?, r.get(1)?, r.get(2)?));
+                    out.push(KpiDecisionRow {
+                        outcome: r.get(0)?,
+                        activity_urn: r.get(1)?,
+                        decided_at_ms: r.get(2)?,
+                        decided_by: r.get(3)?,
+                    });
                 }
                 Ok(out)
             })
             .await
             .map_err(map_db_err)
+    }
+
+    /// Decided cases at or after `cutoff_ms`, one row per case (its TERMINAL
+    /// decision), joined to the proposal that requested it — the HITL Precision
+    /// source (FR5.3, EXP-AC-005).
+    ///
+    /// A case re-decided (a supersession, or an admin answering twice) counts
+    /// ONCE, as its latest decision: HITL Precision measures cases escalated to
+    /// a human, not decision events. Rows whose parent proposal has vanished are
+    /// still returned, with the default requested action.
+    pub async fn decided_cases_since(&self, cutoff_ms: i64) -> Result<Vec<DecidedCaseRow>> {
+        let raw: Vec<RawDecidedCase> = self
+            .conn
+            .call(move |c| {
+                // The inner MAX(decided_at_ms) per case keeps one row per case;
+                // the id tiebreak keeps it deterministic when two decisions
+                // share a millisecond.
+                let mut stmt = c.prepare_cached(
+                    "SELECT d.case_id, d.outcome, d.broker_pubkey, d.decided_at_ms,
+                            p.proposal_json
+                     FROM enrichment_decisions d
+                     LEFT JOIN enrichment_proposals p ON p.case_id = d.case_id
+                     WHERE d.decided_at_ms >= ?1
+                       AND d.id = (
+                           SELECT id FROM enrichment_decisions d2
+                           WHERE d2.case_id = d.case_id
+                           ORDER BY d2.decided_at_ms DESC, d2.id DESC
+                           LIMIT 1
+                       )
+                     ORDER BY d.decided_at_ms DESC",
+                )?;
+                let mut q = stmt.query(rusqlite::params![cutoff_ms])?;
+                let mut out = Vec::new();
+                while let Some(r) = q.next()? {
+                    out.push((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?));
+                }
+                Ok(out)
+            })
+            .await
+            .map_err(map_db_err)?;
+
+        Ok(raw
+            .into_iter()
+            .map(|(case_id, outcome, decided_by, decided_at_ms, proposal_json)| DecidedCaseRow {
+                case_id,
+                outcome,
+                requested_action: requested_action_of(proposal_json.as_deref()),
+                decided_by,
+                decided_at_ms,
+            })
+            .collect())
     }
 
     /// All decisions for a case, newest first. Backs the WS-9 decision-log read
@@ -1107,9 +1215,61 @@ mod tests {
             "only decisions at/after cutoff are returned"
         );
         // Newest first.
-        assert_eq!(windowed[0].0, "reject");
-        assert_eq!(windowed[0].2, 3_000);
-        assert!(windowed.iter().all(|(_, _, ts)| *ts >= 1_000));
+        assert_eq!(windowed[0].outcome, "reject");
+        assert_eq!(windowed[0].decided_at_ms, 3_000);
+        assert!(windowed.iter().all(|r| r.decided_at_ms >= 1_000));
+        // FR5.4: the KPI read carries the decider, so the compute can exclude
+        // `system:whelk-gate` from the human-outcome series.
+        assert!(windowed.iter().all(|r| r.decided_by.is_some()));
+    }
+
+    #[tokio::test]
+    async fn decided_cases_report_one_row_per_case_with_its_requested_action() {
+        // FR5.3 (EXP-AC-005): HITL Precision counts CASES, not decision events,
+        // and reads what the agent asked for from the proposal body.
+        let repo = temp_repo().await;
+        repo.create_or_update(&EnrichmentProposal {
+            case_id: "case-r1".into(),
+            category: Some("knowledge_enrichment".into()),
+            source_iri: None,
+            proposal_json: serde_json::json!({ "content": "body" }),
+            status: "pending".into(),
+            created_at: 0,
+            updated_at: 0,
+        })
+        .await
+        .unwrap();
+
+        let mut first = decision("case-r1", true);
+        first.outcome = "approve".into();
+        first.decided_at_ms = 1_000;
+        first.activity_urn = "urn:visionclaw:execution:sha256-12-aaaaaaaaaaaa".into();
+        repo.record_decision(&first).await.unwrap();
+        let mut superseding = decision("case-r1", true);
+        superseding.outcome = "reject".into();
+        superseding.decided_at_ms = 2_000;
+        superseding.activity_urn = "urn:visionclaw:execution:sha256-12-bbbbbbbbbbbb".into();
+        repo.record_decision(&superseding).await.unwrap();
+
+        let decided = repo.decided_cases_since(0).await.unwrap();
+        assert_eq!(decided.len(), 1, "a re-decided case counts once");
+        assert_eq!(decided[0].outcome, "reject", "its TERMINAL decision");
+        assert_eq!(
+            decided[0].requested_action, "approve",
+            "an unlabelled proposal requests its own approval"
+        );
+    }
+
+    #[test]
+    fn requested_action_defaults_to_approve_and_honours_an_explicit_one() {
+        assert_eq!(requested_action_of(None), "approve");
+        assert_eq!(requested_action_of(Some("{}")), "approve");
+        assert_eq!(requested_action_of(Some("not json")), "approve");
+        assert_eq!(requested_action_of(Some(r#"{"requested_action":"  "}"#)), "approve");
+        assert_eq!(
+            requested_action_of(Some(r#"{"requested_action":"amend"}"#)),
+            "amend"
+        );
     }
 
     #[tokio::test]

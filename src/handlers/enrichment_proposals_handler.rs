@@ -677,6 +677,16 @@ pub mod store {
         pub broker_did: Option<String>,
         pub proposal_urn: Option<String>,
         pub activity_urn: Option<String>,
+        /// FR2.3 (EXP-AC-002): the proposing agent's SELF-DECLARED risk tier.
+        /// Telemetry only — it gates the reviewer's mandatory rationale; it does
+        /// not decide who may resolve the case.
+        pub risk_tier: Option<String>,
+        /// FR2.4 (EXP-AC-002): the agent's SELF-ASSESSED confidence, present
+        /// only when a model actually produced one. Never defaulted.
+        pub confidence: Option<f64>,
+        /// FR2.3: generation provenance (`model`, `source_excerpt`,
+        /// `confidence`) as the proposal recorded it, or `None`.
+        pub provenance: Option<serde_json::Value>,
         pub created_at_ms: u64,
         pub decided_at_ms: Option<u64>,
     }
@@ -699,6 +709,14 @@ pub mod store {
                 broker_did: s("broker_did").or_else(|| s("broker_pubkey")),
                 proposal_urn: p.source_iri.clone().or_else(|| s("proposal_urn")),
                 activity_urn: s("activity_urn"),
+                risk_tier: s("risk_tier").or_else(|| s("tier")),
+                // Absence stays absence: a body with no confidence yields None,
+                // never a default the agent did not author (FR2.4).
+                confidence: j.get("confidence").and_then(|v| v.as_f64()),
+                provenance: j
+                    .get("provenance")
+                    .filter(|v| v.is_object())
+                    .cloned(),
                 created_at_ms: (p.created_at.max(0) as u64) * 1000,
                 decided_at_ms: if p.status == "pending" {
                     None
