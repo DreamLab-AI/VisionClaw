@@ -230,3 +230,86 @@ No live-traffic run: the elevation actor needs `FORUM_RELAY_URL` plus a relay,
 neither available here. Every claim above is unit-level. `/api/trace` was not
 exercised over HTTP; the handler is an unmodified pass-through of
 `ProvenanceTraceService::query`, whose join is tested directly.
+
+## Iteration after audit
+
+Commit: `b2baa2d16b58bf9d030a41c7b0880df14eb0d803`
+Closes the auditor's **Probe 1 FAIL** above: `intent_match`'s declared-target
+comparison was plain substring containment, so a declared `urn:kg:node-7`
+matched a recorded `urn:kg:node-70`.
+
+The auditor's diagnosis was exact — the correct pattern already existed in the
+same codebase (`kpi_compute::urn_names_case`) and had simply not been applied
+here. Rather than copy it, the rule is lifted into one shared helper,
+`intent_match::urn_names_segment`, which `urn_names_case` now delegates to; the
+`/api/trace` intent verdict and the KPI case correlation are now structurally
+incapable of drifting apart.
+
+`token_matches` is split rather than tightened, because the two declared
+components warrant different rules and a uniform segment rule would have broken
+operation matching: `update` is a genuine part of `graph_update`, and `_` is not
+a URN delimiter. So `operation_matches` keeps containment; `target_matches`
+requires whole `:`/`/`-delimited segments in either direction.
+
+### Failing first
+
+```
+$ cargo test --lib --no-default-features \
+    --features ontology,persistence-oxigraph,solid-pod-embed intent_match
+thread '...::a_declared_target_matches_on_whole_segments_not_substrings' panicked
+  at src/services/intent_match.rs:285:9:
+assertion `left == right` failed
+  left: Some(true)
+ right: Some(false)
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 1414 filtered out
+```
+
+`left: Some(true)` is the defect itself: the declared `urn:kg:node-7` against a
+recorded `urn:kg:node-70`, reported as a match.
+
+### After the fix
+
+```
+$ cargo test --lib --no-default-features \
+    --features ontology,persistence-oxigraph,solid-pod-embed intent_match
+test services::intent_match::tests::a_declared_target_matches_on_whole_segments_not_substrings ... ok
+test services::intent_match::tests::a_declared_operation_that_differs_is_a_mismatch ... ok
+test services::intent_match::tests::a_declared_component_with_nothing_recorded_cannot_match ... ok
+test services::intent_match::tests::an_operation_only_intent_matches_on_the_operation_alone ... ok
+test services::intent_match::tests::a_declared_target_that_differs_is_a_mismatch ... ok
+test services::intent_match::tests::an_unparseable_intent_declares_nothing_and_cannot_be_verified ... ok
+test services::intent_match::tests::declared_operation_and_target_both_found_is_a_match ... ok
+test services::intent_match::tests::matching_is_case_insensitive_and_tolerates_affixes ... ok
+test services::intent_match::tests::no_intent_is_unknown_never_a_verdict ... ok
+test services::intent_match::tests::parse_splits_operation_from_target ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1414 filtered out
+
+# the shared helper does not regress the correlation it was lifted from
+$ cargo test --lib --no-default-features \
+    --features ontology,persistence-oxigraph,solid-pod-embed \
+    a_case_is_correlated_only_on_whole_urn_segments
+test services::kpi_compute::tests::a_case_is_correlated_only_on_whole_urn_segments ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1423 filtered out
+
+$ cargo test --lib --no-default-features \
+    --features ontology,persistence-oxigraph,solid-pod-embed
+test result: ok. 1418 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
+```
+
+The new test asserts all four cases the auditor's mandate named, including the
+two the producer's original table never exercised:
+
+| declared | recorded | verdict | why |
+|---|---|---|---|
+| `urn:kg:node-7` | `urn:kg:node-70` | `Some(false)` | the auditor's counter-example: a superstring is a different node |
+| `urn:kg:node-7` | `urn:kg:node-7` | `Some(true)` | the same declaration still holds against the node named |
+| `urn:kg` | `urn:kg:node-7` | `Some(true)` | a coarser claim ON a segment boundary is a real claim the record bears out |
+| `urn:kg:node` | `urn:kg:node-7` | `Some(false)` | a prefix stopping mid-segment names nothing (`-` is not a delimiter) |
+
+### Still not covered
+
+Unchanged from the scope note above: no live-traffic run, no HTTP exercise of
+`/api/trace`. `urn_names_segment` is byte-exact and case-insensitivity is
+applied by the caller, so a URN differing only by percent-encoding or Unicode
+normalisation still reads as a mismatch — correct for the ids these surfaces
+actually mint, but not a general URN equivalence.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 4a9a3e0682bdc695a8ebf904e0453271443daea8
+verified_commit: b2baa2d16b58bf9d030a41c7b0880df14eb0d803
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -143,6 +143,25 @@ sorts oldest first and badges each case's age.
    hex check alone — no signature binds the caller to that key, yet it becomes
    `owner_did` and drives an owner-scoped Oxigraph write (deepsec
    `other-provenance-forgery`, MEDIUM, pre-existing).
+8. ~~`intent_match` compares declared targets by substring.~~ **Closed** at
+   `verified_commit` — raised by the EXP-AC-005 auditor, which found that a
+   declared `urn:kg:node-7` matched a recorded `urn:kg:node-70` and so let an
+   agent's divergence from its own declaration score as compliant. The segment
+   rule this ADR had applied to case correlation was, as the auditor observed,
+   already the right pattern and simply not applied here; it now lives in one
+   shared helper (`intent_match::urn_names_segment`) that `urn_names_case`
+   delegates to, so the two cannot drift apart. Operation matching deliberately
+   keeps containment — `update` is a genuine part of `graph_update` — so the
+   rule is split, not uniformly tightened.
+9. ~~The client and server rationale gates count different units.~~ **Closed**
+   at `verified_commit` — raised by the EXP-AC-002 auditor: the client counted
+   UTF-16 code units (`String.length`) and the server Unicode scalars
+   (`chars()`), so ten astral characters enabled the publish button and
+   collected a 422. The client now counts scalars. What remains open is the
+   coupling itself: the two `MIN_RATIONALE_CHARS` constants are held equal by a
+   comment and a test on each side, not by a shared artefact, so a change to the
+   server's value alone would pass both suites and re-open the divergence in the
+   other direction.
 
 ## Verification
 
@@ -152,7 +171,7 @@ At `verified_commit`, on the non-GPU feature set — the default set includes CU
 ```
 $ cargo test --lib --no-default-features \
     --features ontology,persistence-oxigraph,solid-pod-embed
-test result: ok. 1417 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
+test result: ok. 1418 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
 
 $ cargo clippy --lib --no-default-features \
     --features ontology,persistence-oxigraph,solid-pod-embed
@@ -160,7 +179,7 @@ exit 0 — warning count identical to the `main` baseline (770), i.e. no new lin
 
 $ cd client && ./node_modules/.bin/vitest run src/features/control-center/governance/
  Test Files  2 passed (2)
-      Tests  23 passed (23)
+      Tests  24 passed (24)
 
 $ ./node_modules/.bin/eslint src/features/control-center/governance --ext ts,tsx
 (clean, exit 0)
@@ -193,6 +212,24 @@ pre-existing or out of scope, itemised in the evidence files.
 Per-expectation evidence with commands, trimmed raw output and per-clause
 verdicts: `.claude/evidence/EXP-AC-{002,004,005,006}.evidence.md`. Each carries a
 scope note naming the clauses it does **not** cover.
+
+### Iteration after audit
+
+`verified_commit` moved from `4a9a3e06` to `b2baa2d1` after independent audits of
+EXP-AC-002 and EXP-AC-005 each found a real counter-example in code this ADR had
+recorded as verified (follow-ons 8 and 9 above). Both were the same class of
+defect — a comparison measured in a unit its authority does not use: bytes-as-
+substrings where the domain is `:`-delimited segments, and UTF-16 code units
+where the server counts Unicode scalars. Neither was caught by the producer's
+own tests because both suites exercised only exact matches and wholly-differing
+values, never the adjacent cases (`node-7`/`node-70`, a non-BMP character) where
+the unit mismatch becomes visible.
+
+Each fix landed test-first, failing at exactly the counter-example the auditor
+named; the raw failing and passing output is in the `## Iteration after audit`
+sections of `.claude/evidence/EXP-AC-{002,005}.evidence.md`. Clippy on the two
+touched Rust modules reports nothing; the warning count is unchanged from the
+`main` baseline.
 
 `activation_status: inactive` — nothing here is deployed. No launch, build or
 docker command was run; every claim above is unit-level, from a working tree.

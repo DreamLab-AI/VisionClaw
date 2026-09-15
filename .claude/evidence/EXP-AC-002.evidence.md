@@ -286,3 +286,73 @@ the producer's own DOM-order and absence tests** (`AcspCaseQueue.test.tsx:119,
   is tested as the pure predicate it is, and its single call site is the first
   statement after the case read in the shared core. The route wiring itself is
   unverified by test.
+
+## Iteration after audit
+
+Commit: `b2baa2d16b58bf9d030a41c7b0880df14eb0d803`
+Closes the auditor's **Probe 3** finding above: `canPublishDecision` counted
+`String.length` — UTF-16 code units — while the server's `check_rationale`
+counts `chars()`, i.e. Unicode scalars.
+
+The client now measures the same unit as the server. `rationaleLength` is
+extracted so the unit is named once and documented next to the constant, and
+`MIN_RATIONALE_CHARS` carries an explicit pointer to the server constant it
+must stay equal to.
+
+The auditor's severity assessment stands and is unchanged by the fix: this was
+never a security hole — the server always refused the case — it was a UX defect
+in which the button promised a submission the API then bounced with a 422, which
+reads to the reviewer as the system losing their typed rationale.
+
+### Failing first
+
+```
+$ cd client && ./node_modules/.bin/vitest run src/features/control-center/governance/
+ FAIL  src/features/control-center/governance/__tests__/brokerCaseQueue.test.ts
+   > rationale gate (EXP-AC-002)
+   > counts Unicode scalars, agreeing with the server on astral characters
+AssertionError: expected true to be false // Object.is equality
+- Expected  false
++ Received  true
+ ❯ src/features/control-center/governance/__tests__/brokerCaseQueue.test.ts:176:63
+    176|     expect(canPublishDecision('critical', astral.repeat(10))).toBe(fal…
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 23 passed (24)
+```
+
+Line 176 is exactly the auditor's counter-example: ten `𝕏` (U+1D54F
+MATHEMATICAL DOUBLE-STRUCK CAPITAL X), one scalar and two code units each,
+passing a client gate the server refuses.
+
+### After the fix
+
+```
+$ cd client && ./node_modules/.bin/vitest run src/features/control-center/governance/ --reporter=verbose
+ ✓ brokerCaseQueue.test.ts > rationale gate (EXP-AC-002) > requires a rationale on high and critical tiers only 0ms
+ ✓ brokerCaseQueue.test.ts > rationale gate (EXP-AC-002) > blocks publishing a high-tier decision until the rationale reaches 20 characters 0ms
+ ✓ brokerCaseQueue.test.ts > rationale gate (EXP-AC-002) > counts trimmed characters, so whitespace cannot satisfy the gate 0ms
+ ✓ brokerCaseQueue.test.ts > rationale gate (EXP-AC-002) > counts Unicode scalars, agreeing with the server on astral characters 0ms
+ ✓ AcspCaseQueue.test.tsx > ... > disables a critical decision until 20 characters of rationale are typed 26ms
+ ✓ AcspCaseQueue.test.tsx > ... > never publishes a fabricated rationale on an untiered case 14ms
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+
+$ ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+0 errors
+
+$ ./node_modules/.bin/eslint src/features/control-center/governance --ext ts,tsx
+(clean, exit 0)
+```
+
+The test asserts the unit difference itself (`astral.length === 2`,
+`Array.from(astral).length === 1`) before asserting the gate, so it fails loudly
+rather than silently if a future runtime or transpiler target changes how the
+literal is represented. Boundary cases are 10 (the auditor's), 19 and 20 scalars,
+plus a whitespace-padded 20 to confirm trimming and scalar counting compose.
+
+### Still not covered
+
+Unchanged from the scope note above, and one addition: the two constants are
+kept equal by a comment and a test on each side, not by a shared generated
+artefact. A change to the server's `MIN_RATIONALE_CHARS` alone would still pass
+both suites while re-opening the divergence in the other direction.
