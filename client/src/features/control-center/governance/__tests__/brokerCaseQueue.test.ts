@@ -163,6 +163,21 @@ describe('rationale gate (EXP-AC-002)', () => {
     expect(canPublishDecision('high', `${' '.repeat(30)}`)).toBe(false);
     expect(canPublishDecision('high', `  ${'y'.repeat(20)}  `)).toBe(true);
   });
+
+  it('counts Unicode scalars, agreeing with the server on astral characters', () => {
+    // The server counts `chars()` — Unicode scalars. Each of these is ONE
+    // scalar but TWO UTF-16 code units, so a `.length` gate would let ten of
+    // them through the button and collect a 422 from the API. The client must
+    // refuse exactly what the server refuses.
+    const astral = '\u{1D54F}'; // MATHEMATICAL DOUBLE-STRUCK CAPITAL X
+    expect(astral.length).toBe(2);
+    expect(Array.from(astral).length).toBe(1);
+
+    expect(canPublishDecision('critical', astral.repeat(10))).toBe(false);
+    expect(canPublishDecision('critical', astral.repeat(19))).toBe(false);
+    expect(canPublishDecision('critical', astral.repeat(20))).toBe(true);
+    expect(canPublishDecision('high', `  ${astral.repeat(20)}  `)).toBe(true);
+  });
 });
 
 describe('queue ordering and ageing (EXP-AC-006)', () => {

@@ -178,10 +178,27 @@ export function toCaseView(c: InboxCase): CaseView {
 // ---------------------------------------------------------------------------
 
 /**
- * Minimum length of a human rationale on a tier that requires one. Short enough
- * that a real sentence clears it, long enough that a keystroke does not.
+ * Minimum length of a human rationale on a tier that requires one, counted in
+ * Unicode scalars. Short enough that a real sentence clears it, long enough
+ * that a keystroke does not. Must stay equal to the server's
+ * `MIN_RATIONALE_CHARS` (`src/handlers/enrichment_proposals_handler.rs`).
  */
 export const MIN_RATIONALE_CHARS = 20;
+
+/**
+ * Length in Unicode scalars, which is what the server's `check_rationale`
+ * counts (`str::chars()`).
+ *
+ * `String.length` counts UTF-16 code units, so anything outside the BMP —
+ * astral scripts, mathematical alphanumerics, emoji — counts double there and
+ * once on the server. Measuring the gate in code units would therefore let ten
+ * astral characters enable the publish button and collect a 422 from the API,
+ * which reads to the reviewer as the system losing their typed rationale.
+ * `Array.from` iterates by code point, so surrogate pairs count once.
+ */
+export function rationaleLength(text: string): number {
+  return Array.from(text.trim()).length;
+}
 
 /**
  * Does this effective tier require a typed human rationale? `high` and
@@ -195,11 +212,13 @@ export function rationaleRequired(tier: string | undefined): boolean {
 /**
  * May a decision be published? On a rationale-requiring tier, only once the
  * human has typed at least [`MIN_RATIONALE_CHARS`] non-whitespace-padded
- * characters. The text is never supplied by the UI — it is published verbatim.
+ * Unicode scalars — the same unit, and so the same verdict, as the server's
+ * `check_rationale`. The text is never supplied by the UI — it is published
+ * verbatim.
  */
 export function canPublishDecision(tier: string | undefined, rationale: string): boolean {
   if (!rationaleRequired(tier)) return true;
-  return rationale.trim().length >= MIN_RATIONALE_CHARS;
+  return rationaleLength(rationale) >= MIN_RATIONALE_CHARS;
 }
 
 // ---------------------------------------------------------------------------

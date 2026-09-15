@@ -9,13 +9,17 @@
 //!
 //! ## The rule (deliberately narrow)
 //!
-//! Matching is **exact token containment, case-insensitive**. Semantic
-//! similarity is explicitly out of scope (EXP-AC-005 "Out of scope"): a fuzzy
-//! matcher would manufacture agreement, which is precisely the failure mode this
-//! context exists to remove. An intent declares up to two components:
+//! Matching is **exact, case-insensitive and structural**. Semantic similarity
+//! is explicitly out of scope (EXP-AC-005 "Out of scope"): a fuzzy matcher would
+//! manufacture agreement, which is precisely the failure mode this context
+//! exists to remove. An intent declares up to two components, each compared by
+//! the rule its own shape warrants:
 //!
-//!   * an **operation** — compared against the recorded `action_type_name`;
-//!   * a **target** — compared against the recorded `target_urn`.
+//!   * an **operation** — token containment against the recorded
+//!     `action_type_name`, so a declared `update` matches `graph_update`;
+//!   * a **target** — WHOLE `:`/`/`-delimited segment containment against the
+//!     recorded `target_urn`, so a declared `urn:kg:node-7` does NOT match a
+//!     recorded `urn:kg:node-70` ([`urn_names_segment`]).
 //!
 //! Only components the agent ACTUALLY DECLARED are required to match, and at
 //! least one must have been declared. So:
@@ -138,16 +142,68 @@ pub fn parse_intent(intent: &str) -> DeclaredIntent {
     declared
 }
 
-/// Case-insensitive containment in either direction, so a declared `update`
-/// matches a recorded `graph_update` and vice versa. Both sides are trimmed of
-/// the punctuation prose adds; neither is stemmed or fuzzily compared.
-fn token_matches(declared: &str, recorded: &str) -> bool {
+/// Does `haystack` name `needle` as one or more WHOLE `:`/`/`-delimited
+/// segments?
+///
+/// URNs, IRIs and paths are delimited identifiers, so a contained name must
+/// start and end on a delimiter (or on the ends of the string) to have actually
+/// been named. A plain `contains` would let `urn:kg:node-7` match
+/// `urn:kg:node-70` — a DIFFERENT node — and both of those strings arrive on
+/// the agent's own envelope, so the loose rule is an integrity hole and not
+/// merely an imprecision: an agent could declare an intent against one id,
+/// act on another whose id merely extends it, and have the divergence scored
+/// as compliant.
+///
+/// Comparison is byte-exact on what it is given; callers that need
+/// case-insensitivity lowercase both sides first (see [`target_matches`]).
+/// This is the single implementation of the rule — `kpi_compute`'s
+/// case-id correlation shares it.
+pub fn urn_names_segment(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let is_delim = |c: char| c == ':' || c == '/';
+    haystack.match_indices(needle).any(|(i, _)| {
+        let before_ok = i == 0 || haystack[..i].chars().next_back().is_some_and(is_delim);
+        let end = i + needle.len();
+        let after_ok = end == haystack.len() || haystack[end..].chars().next().is_some_and(is_delim);
+        before_ok && after_ok
+    })
+}
+
+/// Operation comparison: case-insensitive containment in either direction, so a
+/// declared `update` matches a recorded `graph_update` and vice versa. Both
+/// sides are trimmed of the punctuation prose adds; neither is stemmed or
+/// fuzzily compared.
+///
+/// Substring containment is right HERE and wrong for targets: action-type names
+/// are `_`-joined words in which the declared verb is a genuine part
+/// (`graph_update` really is an update), whereas a target id that merely
+/// extends another names something else entirely.
+fn operation_matches(declared: &str, recorded: &str) -> bool {
     let d = trim_token(declared).to_ascii_lowercase();
     let r = trim_token(recorded).to_ascii_lowercase();
     if d.is_empty() || r.is_empty() {
         return false;
     }
     d.contains(&r) || r.contains(&d)
+}
+
+/// Target comparison: case-insensitive, but on WHOLE delimited segments in
+/// either direction (see [`urn_names_segment`]).
+///
+/// Either direction, because an agent may legitimately declare a coarser target
+/// than the act records (`urn:kg` for an act on `urn:kg:node-7`) or a bare
+/// local id where the act recorded the full URN — both are claims the record
+/// bears out. What neither direction permits is a partial segment: a declared
+/// `urn:kg:node` names no part of `urn:kg:node-7`.
+fn target_matches(declared: &str, recorded: &str) -> bool {
+    let d = trim_token(declared).to_ascii_lowercase();
+    let r = trim_token(recorded).to_ascii_lowercase();
+    if d.is_empty() || r.is_empty() {
+        return false;
+    }
+    urn_names_segment(&r, &d) || urn_names_segment(&d, &r)
 }
 
 /// Compare an agent's declared intent with the act actually recorded for it.
@@ -175,14 +231,14 @@ pub fn intent_match(
 
     if let Some(op) = declared.operation.as_deref() {
         match action_type_name {
-            Some(recorded) if token_matches(op, recorded) => {}
+            Some(recorded) if operation_matches(op, recorded) => {}
             // Declared but absent from — or contradicted by — the record.
             _ => return Some(false),
         }
     }
     if let Some(target) = declared.target.as_deref() {
         match target_urn {
-            Some(recorded) if token_matches(target, recorded) => {}
+            Some(recorded) if target_matches(target, recorded) => {}
             _ => return Some(false),
         }
     }
@@ -272,6 +328,36 @@ mod tests {
         let d = parse_intent("rebalance");
         assert_eq!(d.operation.as_deref(), Some("rebalance"));
         assert_eq!(d.target, None);
+    }
+
+    #[test]
+    fn a_declared_target_matches_on_whole_segments_not_substrings() {
+        // urn:kg:node-7 is a DIFFERENT node from urn:kg:node-70. A plain
+        // substring check calls this a match and so reports the agent did what
+        // it declared when it demonstrably did not — and, because both strings
+        // come off the agent's own envelope, lets an agent launder a divergent
+        // act past HITL Precision by declaring a target whose id is a prefix of
+        // the one it actually touched.
+        assert_eq!(
+            intent_match(Some("update urn:kg:node-7"), Some("graph_update"), Some("urn:kg:node-70")),
+            Some(false)
+        );
+        // The same declaration against the node actually named still matches.
+        assert_eq!(
+            intent_match(Some("update urn:kg:node-7"), Some("graph_update"), Some("urn:kg:node-7")),
+            Some(true)
+        );
+        // A declared target naming only a LEADING RUN OF WHOLE SEGMENTS is a
+        // genuine (if coarse) claim about the act, and still matches...
+        assert_eq!(
+            intent_match(Some("update urn:kg"), Some("graph_update"), Some("urn:kg:node-7")),
+            Some(true)
+        );
+        // ...but a prefix that stops part-way THROUGH a segment names nothing.
+        assert_eq!(
+            intent_match(Some("update urn:kg:node"), Some("graph_update"), Some("urn:kg:node-7")),
+            Some(false)
+        );
     }
 
     #[test]

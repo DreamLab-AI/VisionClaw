@@ -37,7 +37,7 @@ use crate::adapters::sqlite_enrichment_repository::{
 use crate::adapters::sqlite_kpi_repository::{
     AgentTrajectoryRow, NewAgentTrajectory, NewKpiSnapshot, SqliteKpiRepository,
 };
-use crate::services::intent_match::intent_match;
+use crate::services::intent_match::{intent_match, urn_names_segment};
 use crate::services::liveness_harness::{LivenessHarness, CANARY_REC4_KPI};
 
 /// The rolling window for both computed KPIs: 30 days (ADR-043 / the "30-day
@@ -238,14 +238,11 @@ pub fn hitl_precision(cases: &[DecidedCase]) -> HitlPrecision {
 /// let an agent attach a deliberately mismatched intent to ANOTHER agent's case
 /// and mark its escalation warranted. The boundary check closes that: an
 /// embedded id must still start and end on a delimiter.
+/// Shares its implementation with declared-intent target matching
+/// ([`urn_names_segment`]) — one segment rule, so the correlation here and the
+/// intent verdict on `/api/trace` cannot drift apart.
 fn urn_names_case(urn: &str, case_id: &str) -> bool {
-    let is_delim = |c: char| c == ':' || c == '/';
-    urn.match_indices(case_id).any(|(i, _)| {
-        let before_ok = i == 0 || urn[..i].chars().next_back().is_some_and(is_delim);
-        let end = i + case_id.len();
-        let after_ok = end == urn.len() || urn[end..].chars().next().is_some_and(is_delim);
-        before_ok && after_ok
-    })
+    urn_names_segment(urn, case_id)
 }
 
 /// Does this trajectory row belong to `case_id`?
