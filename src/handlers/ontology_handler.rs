@@ -415,20 +415,30 @@ pub async fn get_owl_property(
 
     let handler = GetOwlPropertyHandler::new(state.ontology_repository.clone());
 
-    match handler.handle(GetOwlProperty {
-        iri: property_iri.clone(),
-    }) {
-        Ok(Some(property)) => {
+    // The sync QueryHandler enters a nested block_on; it must run on a blocking
+    // thread like every sibling here, or it panics with "Cannot start a runtime
+    // from within a runtime" on the actix worker (same defect as the 2026-08-10
+    // hierarchy fix; this and add_owl_property were the last two bare calls).
+    let iri_for_query = property_iri.clone();
+    let result =
+        execute_in_thread(move || handler.handle(GetOwlProperty { iri: iri_for_query })).await;
+
+    match result {
+        Ok(Ok(Some(property))) => {
             info!("OWL property found via CQRS: iri={}", property_iri);
             ok_json!(property)
         }
-        Ok(None) => {
+        Ok(Ok(None)) => {
             info!("OWL property not found: iri={}", property_iri);
             not_found!("OWL property not found")
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             error!("CQRS query failed to get OWL property: {}", e);
             error_json!("Failed to get OWL property", e.to_string())
+        }
+        Err(e) => {
+            error!("Thread execution error: {}", e);
+            error_json!("Internal server error")
         }
     }
 }
@@ -475,8 +485,11 @@ pub async fn add_owl_property(
     let handler = AddOwlPropertyHandler::new(state.ontology_repository.clone());
 
     let property_iri = property.iri.clone();
-    match handler.handle(AddOwlProperty { property }) {
-        Ok(()) => {
+    // Off the async worker — see get_owl_property.
+    let result = execute_in_thread(move || handler.handle(AddOwlProperty { property })).await;
+
+    match result {
+        Ok(Ok(())) => {
             info!(
                 "OWL property added successfully via CQRS: iri={}",
                 property_iri
@@ -486,9 +499,13 @@ pub async fn add_owl_property(
                 "iri": property_iri
             }))
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             error!("CQRS directive failed to add OWL property: {}", e);
             error_json!("Failed to add OWL property", e.to_string())
+        }
+        Err(e) => {
+            error!("Thread execution error: {}", e);
+            error_json!("Internal server error")
         }
     }
 }
@@ -1032,6 +1049,87 @@ pub async fn get_ontology_metrics(
 // `sparql_query`, `get_inferred_graph`, `validate_ontology`, etc.) remain `pub`
 // here and are re-used from that scope; `validate_read_only_sparql` and its
 // tests also remain. There is no longer a `config` fn in this module.
+
+#[cfg(test)]
+mod owl_property_dispatch_tests {
+    //! Regression for the nested-runtime panic. The OWL *property* handlers
+    //! were the last two actix handlers in this file to call a sync CQRS
+    //! handler directly on the async worker; every other handler already went
+    //! through `execute_in_thread`. Both directions are pinned here: the CQRS
+    //! handlers work when dispatched the way the actix handlers now dispatch
+    //! them, and the bare call is documented as the panic it is.
+
+    use super::execute_in_thread;
+    use crate::application::ontology::{
+        AddOwlProperty, AddOwlPropertyHandler, GetOwlProperty, GetOwlPropertyHandler,
+    };
+    use crate::test_helpers::MockOntologyRepository;
+    use hexser::{DirectiveHandler, QueryHandler};
+    use std::sync::Arc;
+    use visionclaw_domain::ports::ontology_repository::{OntologyRepository, OwlProperty};
+
+    fn property(iri: &str) -> OwlProperty {
+        OwlProperty {
+            iri: iri.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn owl_property_handlers_round_trip_off_the_async_worker() {
+        let repo: Arc<dyn OntologyRepository> = Arc::new(MockOntologyRepository::new());
+        let iri = "http://example.org/hasPart".to_string();
+
+        let add = AddOwlPropertyHandler::new(repo.clone());
+        let p = property(&iri);
+        let added = execute_in_thread(move || add.handle(AddOwlProperty { property: p }))
+            .await
+            .expect("blocking task joined");
+        assert!(added.is_ok(), "add failed: {:?}", added.err());
+
+        let get = GetOwlPropertyHandler::new(repo.clone());
+        let q = iri.clone();
+        let got = execute_in_thread(move || get.handle(GetOwlProperty { iri: q }))
+            .await
+            .expect("blocking task joined")
+            .expect("query ok");
+        assert_eq!(got.map(|p| p.iri), Some(iri.clone()));
+
+        let get = GetOwlPropertyHandler::new(repo);
+        let missing = execute_in_thread(move || {
+            get.handle(GetOwlProperty {
+                iri: "http://example.org/absent".into(),
+            })
+        })
+        .await
+        .expect("blocking task joined")
+        .expect("query ok");
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bare_sync_handle_on_the_async_worker_is_the_panic_this_guards_against() {
+        let repo: Arc<dyn OntologyRepository> = Arc::new(MockOntologyRepository::new());
+        let get = GetOwlPropertyHandler::new(repo);
+        // Calling the sync handler directly from an async context is exactly what
+        // the actix handlers used to do. Tokio refuses the nested block_on. If this
+        // ever stops panicking (e.g. the handlers become async-direct), the wrapping
+        // in ontology_handler.rs is no longer load-bearing and this test can go.
+        let outcome = tokio::task::spawn(async move {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                get.handle(GetOwlProperty {
+                    iri: "http://example.org/x".into(),
+                })
+            }))
+        })
+        .await
+        .expect("task joined");
+        assert!(
+            outcome.is_err(),
+            "nested block_on did not panic — re-check the guard"
+        );
+    }
+}
 
 #[cfg(test)]
 mod sparql_validation_tests {
