@@ -77,7 +77,9 @@ const LEAD_INS: [&str; 6] = ["about", "to", "going", "will", "intend", "intends"
 /// Trim the punctuation an agent's prose wraps tokens in, without touching the
 /// characters URNs are built from (`:`, `/`, `-`, `_`, `.`, `#`).
 fn trim_token(t: &str) -> &str {
-    t.trim_matches(|c: char| !c.is_alphanumeric() && !matches!(c, ':' | '/' | '-' | '_' | '.' | '#'))
+    t.trim_matches(|c: char| {
+        !c.is_alphanumeric() && !matches!(c, ':' | '/' | '-' | '_' | '.' | '#')
+    })
 }
 
 /// Does a token look like a target reference rather than a word? A URN, an IRI
@@ -87,9 +89,8 @@ fn trim_token(t: &str) -> &str {
 /// `intends to:`, whose trailing colon would otherwise make `to:` look like a
 /// declared target and turn every prose intent into a mismatch.
 fn looks_like_target(t: &str) -> bool {
-    t.char_indices().any(|(i, c)| {
-        (c == ':' || c == '/') && i > 0 && i + c.len_utf8() < t.len()
-    })
+    t.char_indices()
+        .any(|(i, c)| (c == ':' || c == '/') && i > 0 && i + c.len_utf8() < t.len())
 }
 
 /// Parse an agent's declared intent into its verifiable components.
@@ -132,7 +133,8 @@ pub fn parse_intent(intent: &str) -> DeclaredIntent {
             continue;
         }
         if declared.operation.is_none()
-            && t.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            && t.chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
             && t.chars().any(|c| c.is_alphabetic())
             && !LEAD_INS.contains(&t.to_ascii_lowercase().as_str())
         {
@@ -166,7 +168,8 @@ pub fn urn_names_segment(haystack: &str, needle: &str) -> bool {
     haystack.match_indices(needle).any(|(i, _)| {
         let before_ok = i == 0 || haystack[..i].chars().next_back().is_some_and(is_delim);
         let end = i + needle.len();
-        let after_ok = end == haystack.len() || haystack[end..].chars().next().is_some_and(is_delim);
+        let after_ok =
+            end == haystack.len() || haystack[end..].chars().next().is_some_and(is_delim);
         before_ok && after_ok
     })
 }
@@ -251,17 +254,36 @@ mod tests {
 
     #[test]
     fn no_intent_is_unknown_never_a_verdict() {
-        assert_eq!(intent_match(None, Some("graph_update"), Some("urn:a")), None);
+        assert_eq!(
+            intent_match(None, Some("graph_update"), Some("urn:a")),
+            None
+        );
         assert_eq!(intent_match(Some("   "), Some("graph_update"), None), None);
     }
 
     #[test]
     fn declared_operation_and_target_both_found_is_a_match() {
         let cases: &[(&str, Option<&str>, Option<&str>)] = &[
-            ("update urn:visionclaw:kg:aaaa:node-7", Some("graph_update"), Some("urn:visionclaw:kg:aaaa:node-7")),
-            ("op=update target=urn:kg:node-7", Some("update"), Some("urn:kg:node-7")),
-            ("operation=Create target=URN:KG:Node-7", Some("create_class"), Some("urn:kg:node-7")),
-            ("about to: elevate urn:ngm:class:Foo", Some("elevate"), Some("urn:ngm:class:Foo")),
+            (
+                "update urn:visionclaw:kg:aaaa:node-7",
+                Some("graph_update"),
+                Some("urn:visionclaw:kg:aaaa:node-7"),
+            ),
+            (
+                "op=update target=urn:kg:node-7",
+                Some("update"),
+                Some("urn:kg:node-7"),
+            ),
+            (
+                "operation=Create target=URN:KG:Node-7",
+                Some("create_class"),
+                Some("urn:kg:node-7"),
+            ),
+            (
+                "about to: elevate urn:ngm:class:Foo",
+                Some("elevate"),
+                Some("urn:ngm:class:Foo"),
+            ),
         ];
         for (intent, atn, target) in cases {
             assert_eq!(
@@ -287,7 +309,11 @@ mod tests {
     #[test]
     fn a_declared_operation_that_differs_is_a_mismatch() {
         assert_eq!(
-            intent_match(Some("delete urn:kg:node-7"), Some("graph_update"), Some("urn:kg:node-7")),
+            intent_match(
+                Some("delete urn:kg:node-7"),
+                Some("graph_update"),
+                Some("urn:kg:node-7")
+            ),
             Some(false)
         );
     }
@@ -296,23 +322,46 @@ mod tests {
     fn a_declared_component_with_nothing_recorded_cannot_match() {
         // The agent said what it was about to do; the act recorded no such
         // field. That is a mismatch, not an unknown — the intent WAS declared.
-        assert_eq!(intent_match(Some("update urn:kg:node-7"), None, Some("urn:kg:node-7")), Some(false));
-        assert_eq!(intent_match(Some("update urn:kg:node-7"), Some("graph_update"), None), Some(false));
+        assert_eq!(
+            intent_match(Some("update urn:kg:node-7"), None, Some("urn:kg:node-7")),
+            Some(false)
+        );
+        assert_eq!(
+            intent_match(Some("update urn:kg:node-7"), Some("graph_update"), None),
+            Some(false)
+        );
     }
 
     #[test]
     fn an_operation_only_intent_matches_on_the_operation_alone() {
         // Only DECLARED components are required to match: an intent naming no
         // target makes no claim about the target.
-        assert_eq!(intent_match(Some("update"), Some("graph_update"), Some("urn:kg:anything")), Some(true));
-        assert_eq!(intent_match(Some("update"), Some("graph_delete"), Some("urn:kg:anything")), Some(false));
+        assert_eq!(
+            intent_match(
+                Some("update"),
+                Some("graph_update"),
+                Some("urn:kg:anything")
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            intent_match(
+                Some("update"),
+                Some("graph_delete"),
+                Some("urn:kg:anything")
+            ),
+            Some(false)
+        );
     }
 
     #[test]
     fn an_unparseable_intent_declares_nothing_and_cannot_be_verified() {
         // Punctuation only: nothing was actually declared, so there is no claim
         // to verify. Honest answer is "unknown", never a fabricated verdict.
-        assert_eq!(intent_match(Some("!!! ???"), Some("graph_update"), Some("urn:a")), None);
+        assert_eq!(
+            intent_match(Some("!!! ???"), Some("graph_update"), Some("urn:a")),
+            None
+        );
     }
 
     #[test]
@@ -339,23 +388,39 @@ mod tests {
         // act past HITL Precision by declaring a target whose id is a prefix of
         // the one it actually touched.
         assert_eq!(
-            intent_match(Some("update urn:kg:node-7"), Some("graph_update"), Some("urn:kg:node-70")),
+            intent_match(
+                Some("update urn:kg:node-7"),
+                Some("graph_update"),
+                Some("urn:kg:node-70")
+            ),
             Some(false)
         );
         // The same declaration against the node actually named still matches.
         assert_eq!(
-            intent_match(Some("update urn:kg:node-7"), Some("graph_update"), Some("urn:kg:node-7")),
+            intent_match(
+                Some("update urn:kg:node-7"),
+                Some("graph_update"),
+                Some("urn:kg:node-7")
+            ),
             Some(true)
         );
         // A declared target naming only a LEADING RUN OF WHOLE SEGMENTS is a
         // genuine (if coarse) claim about the act, and still matches...
         assert_eq!(
-            intent_match(Some("update urn:kg"), Some("graph_update"), Some("urn:kg:node-7")),
+            intent_match(
+                Some("update urn:kg"),
+                Some("graph_update"),
+                Some("urn:kg:node-7")
+            ),
             Some(true)
         );
         // ...but a prefix that stops part-way THROUGH a segment names nothing.
         assert_eq!(
-            intent_match(Some("update urn:kg:node"), Some("graph_update"), Some("urn:kg:node-7")),
+            intent_match(
+                Some("update urn:kg:node"),
+                Some("graph_update"),
+                Some("urn:kg:node-7")
+            ),
             Some(false)
         );
     }
@@ -363,7 +428,11 @@ mod tests {
     #[test]
     fn matching_is_case_insensitive_and_tolerates_affixes() {
         assert_eq!(
-            intent_match(Some("UPDATE URN:KG:NODE-7"), Some("graph_update"), Some("urn:kg:node-7")),
+            intent_match(
+                Some("UPDATE URN:KG:NODE-7"),
+                Some("graph_update"),
+                Some("urn:kg:node-7")
+            ),
             Some(true)
         );
     }

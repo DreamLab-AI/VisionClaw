@@ -822,8 +822,14 @@ mod tests {
 
     #[test]
     fn amend_and_delegate_are_always_warranted() {
-        let p = hitl_precision(&[decided("c1", "amend", "amend"), decided("c2", "delegate", "delegate")]);
-        assert_eq!(p.warranted, 2, "amend and delegate are human work by definition");
+        let p = hitl_precision(&[
+            decided("c1", "amend", "amend"),
+            decided("c2", "delegate", "delegate"),
+        ]);
+        assert_eq!(
+            p.warranted, 2,
+            "amend and delegate are human work by definition"
+        );
         assert_eq!(p.decided, 2);
     }
 
@@ -841,7 +847,10 @@ mod tests {
         gate.decided_by = Some(SYSTEM_WHELK_GATE.to_string());
         let human = decided("c2", "approve", "approve");
         let p = hitl_precision(&[gate, human]);
-        assert_eq!(p.decided, 1, "only the human case counts toward the denominator");
+        assert_eq!(
+            p.decided, 1,
+            "only the human case counts toward the denominator"
+        );
         assert_eq!(p.warranted, 0);
         assert_eq!(p.value, Some(0.0));
     }
@@ -903,13 +912,22 @@ mod tests {
         // deepsec `other-metric-integrity`: these URNs are agent-controlled, so
         // a substring match would let an agent attach a mismatched intent to
         // ANOTHER case and mark that case's escalation warranted.
-        assert!(urn_names_case("urn:visionclaw:case:vc-elev-foo", "vc-elev-foo"));
+        assert!(urn_names_case(
+            "urn:visionclaw:case:vc-elev-foo",
+            "vc-elev-foo"
+        ));
         assert!(urn_names_case("vc-elev-foo", "vc-elev-foo"));
         assert!(urn_names_case("urn:vc-elev-foo:step-2", "vc-elev-foo"));
         assert!(urn_names_case("a/vc-elev-foo/b", "vc-elev-foo"));
 
-        assert!(!urn_names_case("urn:visionclaw:case:vc-elev-foo-bar", "vc-elev-foo"));
-        assert!(!urn_names_case("urn:visionclaw:case:xvc-elev-foo", "vc-elev-foo"));
+        assert!(!urn_names_case(
+            "urn:visionclaw:case:vc-elev-foo-bar",
+            "vc-elev-foo"
+        ));
+        assert!(!urn_names_case(
+            "urn:visionclaw:case:xvc-elev-foo",
+            "vc-elev-foo"
+        ));
         assert!(!urn_names_case("urn:visionclaw:case:other", "vc-elev-foo"));
     }
 
@@ -970,7 +988,10 @@ mod tests {
             decided_at_ms: 1,
         }];
         let joined = decided_cases_with_intent(&rows, &trajectories);
-        assert!(joined[0].intent_mismatch, "the agent did not do what it declared");
+        assert!(
+            joined[0].intent_mismatch,
+            "the agent did not do what it declared"
+        );
         assert_eq!(hitl_precision(&joined).warranted, 1);
     }
 

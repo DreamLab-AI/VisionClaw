@@ -31,16 +31,31 @@ vi.mock('../../../utils/clientDebugState', () => ({
   }
 }))
 
+// The store tries the server SSSP endpoint first and falls back to the local
+// algorithms when it fails. Without this mock every test issues a real HTTP
+// request to the jsdom origin and waits for the client timeout before the
+// fallback runs (~7s per test, within a 10s testTimeout). Reject explicitly so
+// the fallback path these tests assert on is exercised deterministically and
+// offline.
+vi.mock('../../../services/api', () => ({
+  unifiedApiClient: {
+    post: vi.fn(() => Promise.reject(new Error('analytics API unavailable in tests')))
+  }
+}))
+
 // Mock global objects for Node.js testing environment
 global.window = global.window || {}
-global.localStorage = {
+// jsdom installs `localStorage` as a non-writable accessor on the global, so a
+// bare `global.localStorage = ...` throws under jsdom >= 27. vi.stubGlobal
+// redefines the property instead of assigning through the accessor.
+vi.stubGlobal('localStorage', {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
   length: 0,
   key: vi.fn(() => null),
-} as Storage
+} as Storage)
 
 describe('AnalyticsStore', () => {
   const sampleNodes: GraphNode[] = [

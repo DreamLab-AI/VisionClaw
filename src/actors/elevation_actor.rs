@@ -1561,8 +1561,12 @@ mod tests {
 
     #[test]
     fn a_pending_row_rehydrates_into_the_working_set() {
-        let recovered = recovered_case(&stored_pending("vc-elev-finality-mechanism", 100, "pending"))
-            .expect("a pending elevation row rehydrates");
+        let recovered = recovered_case(&stored_pending(
+            "vc-elev-finality-mechanism",
+            100,
+            "pending",
+        ))
+        .expect("a pending elevation row rehydrates");
         assert_eq!(recovered.case_id, "vc-elev-finality-mechanism");
         assert_eq!(recovered.pending.file_path, "pages/Finality Mechanism.md");
         assert!(recovered.pending.draft.contains("draft body"));
@@ -1590,20 +1594,31 @@ mod tests {
     #[test]
     fn reconciliation_resumes_a_case_inside_the_ttl_and_expires_one_outside_it() {
         let now = 100 * DAY_S;
-        let fresh = recovered_case(&stored_pending("vc-elev-fresh", now - DAY_S, "pending")).unwrap();
-        let stale =
-            recovered_case(&stored_pending("vc-elev-stale", now - 15 * DAY_S, "pending")).unwrap();
-        let plan = plan_elevation_reconciliation(vec![fresh, stale], now, OPEN_CASE_TTL.as_secs() as i64);
+        let fresh =
+            recovered_case(&stored_pending("vc-elev-fresh", now - DAY_S, "pending")).unwrap();
+        let stale = recovered_case(&stored_pending(
+            "vc-elev-stale",
+            now - 15 * DAY_S,
+            "pending",
+        ))
+        .unwrap();
+        let plan =
+            plan_elevation_reconciliation(vec![fresh, stale], now, OPEN_CASE_TTL.as_secs() as i64);
         assert_eq!(plan.len(), 2);
-        assert!(matches!(&plan[0], ElevationReconcileAction::ResumePending(c) if c.case_id == "vc-elev-fresh"));
-        assert!(matches!(&plan[1], ElevationReconcileAction::Expire(c) if c.case_id == "vc-elev-stale"));
+        assert!(
+            matches!(&plan[0], ElevationReconcileAction::ResumePending(c) if c.case_id == "vc-elev-fresh")
+        );
+        assert!(
+            matches!(&plan[1], ElevationReconcileAction::Expire(c) if c.case_id == "vc-elev-stale")
+        );
     }
 
     #[test]
     fn the_ttl_boundary_is_exclusive() {
         let now = 100 * DAY_S;
         let ttl = OPEN_CASE_TTL.as_secs() as i64;
-        let exactly = recovered_case(&stored_pending("vc-elev-edge", now - ttl, "pending")).unwrap();
+        let exactly =
+            recovered_case(&stored_pending("vc-elev-edge", now - ttl, "pending")).unwrap();
         let plan = plan_elevation_reconciliation(vec![exactly], now, ttl);
         assert!(
             matches!(&plan[0], ElevationReconcileAction::ResumePending(_)),
@@ -1614,12 +1629,17 @@ mod tests {
     #[test]
     fn terminal_rows_are_never_reconciled() {
         let now = 100 * DAY_S;
-        let cases: Vec<RecoveredCase> = ["approved", "rejected", "elevated", "abandoned", "expired"]
-            .iter()
-            .filter_map(|st| recovered_case(&stored_pending("vc-elev-done", now - 30 * DAY_S, st)))
-            .collect();
+        let cases: Vec<RecoveredCase> =
+            ["approved", "rejected", "elevated", "abandoned", "expired"]
+                .iter()
+                .filter_map(|st| {
+                    recovered_case(&stored_pending("vc-elev-done", now - 30 * DAY_S, st))
+                })
+                .collect();
         assert!(cases.is_empty(), "a decided case is not an open case");
-        assert!(plan_elevation_reconciliation(cases, now, OPEN_CASE_TTL.as_secs() as i64).is_empty());
+        assert!(
+            plan_elevation_reconciliation(cases, now, OPEN_CASE_TTL.as_secs() as i64).is_empty()
+        );
     }
 
     #[test]
@@ -1632,9 +1652,13 @@ mod tests {
         let recovered = recovered_case(&stored_pending(case_id, now - DAY_S, "pending")).unwrap();
 
         let mut cold: HashMap<String, PendingCase> = HashMap::new();
-        assert!(cold.remove(case_id).is_none(), "cold start drops the decision");
+        assert!(
+            cold.remove(case_id).is_none(),
+            "cold start drops the decision"
+        );
 
-        let plan = plan_elevation_reconciliation(vec![recovered], now, OPEN_CASE_TTL.as_secs() as i64);
+        let plan =
+            plan_elevation_reconciliation(vec![recovered], now, OPEN_CASE_TTL.as_secs() as i64);
         let (restored, expired) = split_reconciliation(plan);
         assert!(expired.is_empty());
         cold.extend(restored);

@@ -107,14 +107,17 @@ global.window.setInterval = setInterval;
 // @ts-ignore
 global.window.clearInterval = clearInterval;
 
-global.localStorage = {
+// jsdom installs `localStorage` as a non-writable accessor on the global, so a
+// bare `global.localStorage = ...` throws under jsdom >= 27. vi.stubGlobal
+// redefines the property instead of assigning through the accessor.
+vi.stubGlobal('localStorage', {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
   length: 0,
   key: vi.fn(() => null),
-} as Storage;
+} as Storage);
 
 import { useWebSocketStore, webSocketService, WebSocketServiceCompat } from './websocketStore';
 

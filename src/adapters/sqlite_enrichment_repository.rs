@@ -779,13 +779,15 @@ impl SqliteEnrichmentRepository {
 
         Ok(raw
             .into_iter()
-            .map(|(case_id, outcome, decided_by, decided_at_ms, proposal_json)| DecidedCaseRow {
-                case_id,
-                outcome,
-                requested_action: requested_action_of(proposal_json.as_deref()),
-                decided_by,
-                decided_at_ms,
-            })
+            .map(
+                |(case_id, outcome, decided_by, decided_at_ms, proposal_json)| DecidedCaseRow {
+                    case_id,
+                    outcome,
+                    requested_action: requested_action_of(proposal_json.as_deref()),
+                    decided_by,
+                    decided_at_ms,
+                },
+            )
             .collect())
     }
 
@@ -1265,7 +1267,10 @@ mod tests {
         assert_eq!(requested_action_of(None), "approve");
         assert_eq!(requested_action_of(Some("{}")), "approve");
         assert_eq!(requested_action_of(Some("not json")), "approve");
-        assert_eq!(requested_action_of(Some(r#"{"requested_action":"  "}"#)), "approve");
+        assert_eq!(
+            requested_action_of(Some(r#"{"requested_action":"  "}"#)),
+            "approve"
+        );
         assert_eq!(
             requested_action_of(Some(r#"{"requested_action":"amend"}"#)),
             "amend"

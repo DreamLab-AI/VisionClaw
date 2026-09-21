@@ -854,10 +854,7 @@ pub mod store {
                 // Absence stays absence: a body with no confidence yields None,
                 // never a default the agent did not author (FR2.4).
                 confidence: j.get("confidence").and_then(|v| v.as_f64()),
-                provenance: j
-                    .get("provenance")
-                    .filter(|v| v.is_object())
-                    .cloned(),
+                provenance: j.get("provenance").filter(|v| v.is_object()).cloned(),
                 created_at_ms: (p.created_at.max(0) as u64) * 1000,
                 decided_at_ms: if p.status == "pending" {
                     None
@@ -892,8 +889,14 @@ mod tests {
     #[test]
     fn an_untiered_or_low_case_may_be_decided_without_a_rationale() {
         for tier in [None, Some("low"), Some("medium"), Some("LOW")] {
-            assert!(check_rationale(tier, "approve", None).is_ok(), "tier {tier:?}");
-            assert!(check_rationale(tier, "reject", Some("")).is_ok(), "tier {tier:?}");
+            assert!(
+                check_rationale(tier, "approve", None).is_ok(),
+                "tier {tier:?}"
+            );
+            assert!(
+                check_rationale(tier, "reject", Some("")).is_ok(),
+                "tier {tier:?}"
+            );
         }
     }
 
@@ -962,7 +965,10 @@ mod tests {
             Some("high")
         );
         assert_eq!(declared_tier_of(&serde_json::json!({})), None);
-        assert_eq!(declared_tier_of(&serde_json::json!({ "risk_tier": "  " })), None);
+        assert_eq!(
+            declared_tier_of(&serde_json::json!({ "risk_tier": "  " })),
+            None
+        );
     }
 
     #[test]
