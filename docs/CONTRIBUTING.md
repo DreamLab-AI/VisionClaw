@@ -22,7 +22,8 @@ Welcome to the unified documentation corpus. This guide helps you contribute hig
 3. [Front Matter Requirements](#front-matter-requirements)
 4. [Diagram Guidelines](#diagram-guidelines)
 5. [Linking Standards](#linking-standards)
-6. [Submission Process](#submission-process)
+6. [Git Hooks](#git-hooks)
+7. [Submission Process](#submission-process)
 
 ---
 
@@ -396,6 +397,81 @@ Link to related documents at the end of each section:
 - [Configuration Guide](./how-to/operations/configuration.md)
 - [Troubleshooting](./how-to/operations/troubleshooting.md)
 ```
+
+---
+
+## Git Hooks
+
+The repository's hooks are tracked in `.githooks/` and installed by a script.
+Nothing installs them automatically, and nothing installs itself during a
+commit.
+
+### Installing
+
+```bash
+./scripts/install-hooks.sh            # install the hooks
+./scripts/install-hooks.sh --status   # show what is installed
+./scripts/install-hooks.sh --uninstall
+```
+
+The script places each file from `.githooks/` into the repository's effective
+hooks directory rather than repointing `core.hooksPath`, so any hook you
+installed by hand (`scripts/pre-commit-validate.sh`, for instance) keeps
+working. Worktrees share the common git directory, so one install covers every
+worktree of the clone. Where the main working tree holds the tracked hooks the
+script symlinks to them, so updates arrive without reinstalling; otherwise it
+copies, so removing a worktree never leaves a dangling hook. An existing
+regular file that is not ours is moved aside to
+`<name>.replaced-by-install-hooks` rather than deleted.
+
+### `prepare-commit-msg` and git-gen-utils
+
+`prepare-commit-msg` can draft a commit message with
+[git-gen-utils](https://pypi.org/project/git-gen-utils/), a local LLM that
+reads your diff. It is off unless you provision it:
+
+```bash
+./scripts/install-hooks.sh --with-git-gen
+```
+
+That builds one shared virtualenv at `$XDG_CACHE_HOME/git-gen-utils/venv`
+(override with `GIT_GEN_UTILS_VENV`) and installs git-gen-utils from upstream's
+prebuilt CPU wheel index. git-gen-utils depends on `llama-cpp-python`, which
+PyPI carries as a source distribution only, so a plain `pip install` compiles a
+C++ tree for several minutes. The installer passes
+`--only-binary=llama-cpp-python` against
+`https://abetlen.github.io/llama-cpp-python/whl/cpu`, which turns "no wheel for
+this platform" into an immediate error instead of a long wait. The wheel links
+against the system `libstdc++.so.6`; on minimal or Nix-composed images that
+library may be absent, so the installer runs `git-gen --help` once and reports
+a failure to start at install time rather than leaving it for a commit.
+
+The hook itself obeys a deliberately narrow contract:
+
+- It never fails a commit. Every path exits 0.
+- It never provisions anything: no venv, no `pip install`, no compilation.
+- It exits before running a single subprocess whenever git already has a
+  message, which covers every `git commit -m`, merge, squash, amend and
+  templated commit.
+- It only generates for a bare interactive `git commit` with an empty message
+  file, and only when the shared environment is already present. Otherwise it
+  prints one line and gets out of the way.
+- It is worktree-safe: one shared environment, never a per-worktree `.venv`.
+
+Controls:
+
+| Variable | Effect |
+|---|---|
+| `GIT_GEN_UTILS_DISABLE=1` | Skip generation entirely |
+| `GIT_GEN_UTILS_VENV` | Use a different environment |
+| `GIT_GEN_UTILS_TIMEOUT` | Generation timeout in seconds, default 60 |
+
+`git commit --no-verify` does **not** bypass `prepare-commit-msg` (git only
+skips `pre-commit` and `commit-msg`), which is why the hook must be cheap and
+fail-open by construction rather than by opt-out.
+
+If you have a stale per-worktree `.venv` from the earlier version of this hook,
+delete it; it is not used any more.
 
 ---
 

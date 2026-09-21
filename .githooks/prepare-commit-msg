@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# prepare-commit-msg — optionally draft a commit message with git-gen-utils.
+#
+# Contract (see docs/CONTRIBUTING.md § Git hooks):
+#
+#   * It NEVER fails a commit. Every path exits 0.
+#   * It NEVER provisions anything: no venv creation, no pip install, no
+#     compilation. The environment is provisioned once, ahead of time, by
+#     scripts/install-hooks.sh --with-git-gen. If it is absent the hook
+#     prints one line and gets out of the way.
+#   * It does the cheapest checks first. When a message already exists
+#     (the overwhelmingly common case: `git commit -m`, merge, squash,
+#     amend, template) it exits before running a single subprocess.
+#   * The environment is shared across every worktree of every clone. It
+#     lives under $XDG_CACHE_HOME, never in a per-worktree .venv.
+#
+# Arguments, as passed by git:
+#   $1  path to the file holding the proposed commit message
+#   $2  source of the message: "" | message | template | merge | squash | commit
+#   $3  commit SHA (only when $2 is "commit")
+
+msg_file="${1-}"
+msg_source="${2-}"
+
+# ---------------------------------------------------------------------------
+# 1. Cheap exits. No subprocesses beyond this point until we are sure we are
+#    actually going to generate something.
+# ---------------------------------------------------------------------------
+
+# Explicit opt-out.
+case "${GIT_GEN_UTILS_DISABLE:-}" in
+  1 | true | TRUE | yes | YES) exit 0 ;;
+esac
+
+# A message source of any kind means git already has content for the message:
+#   message  -> -m/-F/-C was given
+#   template -> commit.template was applied
+#   merge    -> MERGE_MSG / .git/SQUASH_MSG exists
+#   squash   -> squash/fixup
+#   commit   -> --amend / -c / -C
+# Only a bare `git commit` passes no source at all, and that is the one case
+# where drafting a message is useful.
+[ -n "$msg_source" ] && exit 0
+
+# No message file, nothing to write to.
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+
+# Non-interactive session (CI, scripts, agents, IDE plumbing). Git leaves
+# stderr attached to the terminal for hooks, so this is a reliable probe, and
+# it costs nothing. Generation is an interactive convenience only.
+[ -t 2 ] || exit 0
+
+# Common CI markers, for the case where a runner does hand us a pty.
+[ -n "${CI:-}${GITHUB_ACTIONS:-}${GITLAB_CI:-}${BUILDKITE:-}${JENKINS_URL:-}" ] && exit 0
+
+# The message file may exist but hold only git's own comment block. Anything
+# else counts as a message the author already wrote (a commit.template applied
+# by hand, a recovered .git/COMMIT_EDITMSG, a previous hook). Pure bash: no
+# grep, no sed, no fork.
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in
+    '#'*) continue ;;
+    '') continue ;;
+    *) exit 0 ;;
+  esac
+done <"$msg_file"
+
+# ---------------------------------------------------------------------------
+# 2. The environment must already exist. We never build one here.
+# ---------------------------------------------------------------------------
+
+venv="${GIT_GEN_UTILS_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/git-gen-utils/venv}"
+git_gen="$venv/bin/git-gen"
+
+if [ ! -x "$git_gen" ]; then
+  printf 'prepare-commit-msg: git-gen-utils not provisioned, skipping message generation (run scripts/install-hooks.sh --with-git-gen to enable)\n' >&2
+  exit 0
+fi
+
+# A venv copied or moved between paths keeps a stale shebang and dies with a
+# confusing "bad interpreter". Check the interpreter itself, cheaply.
+if [ ! -x "$venv/bin/python3" ] && [ ! -x "$venv/bin/python" ]; then
+  printf 'prepare-commit-msg: git-gen-utils environment at %s is broken (no interpreter), skipping\n' "$venv" >&2
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Generate. Bounded in time, written aside, and only adopted if it worked.
+# ---------------------------------------------------------------------------
+
+timeout_secs="${GIT_GEN_UTILS_TIMEOUT:-60}"
+draft="$msg_file.git-gen"
+
+runner=""
+command -v timeout >/dev/null 2>&1 && runner="timeout ${timeout_secs}s"
+
+# shellcheck disable=SC2086 # $runner is a deliberate two-word prefix or empty.
+if ! $runner "$git_gen" --max_tokens 256 --temperature 0.5 >"$draft" 2>/dev/null; then
+  rm -f "$draft"
+  printf 'prepare-commit-msg: git-gen-utils failed or timed out, leaving the message to you\n' >&2
+  exit 0
+fi
+
+if [ ! -s "$draft" ]; then
+  rm -f "$draft"
+  exit 0
+fi
+
+# Prepend the draft, keeping git's comment block so the author still sees the
+# status and can abort with an empty message.
+cat "$draft" "$msg_file" >"$msg_file.merged" 2>/dev/null &&
+  mv -f "$msg_file.merged" "$msg_file"
+rm -f "$draft" "$msg_file.merged"
+
+exit 0
