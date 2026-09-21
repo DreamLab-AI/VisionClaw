@@ -39,6 +39,30 @@ The [pre-execution board](../../VisionFlow/docs/estate-review/closeout/execution
 | E-5 | blocked | visionclaw-server fails DNS from this container; endpoint and authenticated publication path must be restored before direct axiom writes. [Evidence](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-agentbox.md). |
 | V-1 | blocked | Reload trigger implemented and notes/explorer mobile fixes published and browser-verified. Frozen notes SPA has no current rebuild source; coordinated matching semantic bundle/server activation remains outstanding. [Evidence](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-federation.md). |
 
+## External critique, 2026-09-21: dispositions
+
+An outside architectural review graded the estate as if fully built (vision A+, security A-,
+systems A, maintainability D, viability C+). Dispositions below separate what it got right from
+what it assumed. The estate's own ledgers carry three status axes precisely so that "designed"
+and "live" are never conflated; several of the review's praises (the dream engine's evaluator
+veto, the augmentation-conditions rationale gate) describe records that are `inactive` or
+"mostly paper" today, and its prescriptions on settlement (park sidestr, settle over Lightning)
+were already decided the same day in the opposite direction on the Lightning point: Lightning-
+first was dropped by owner decision and sidestr is parked eight weeks behind three conditions
+(agentbox PRD-024 §3, ADR-2103). Complexity is not an accident here: the estate is a
+demonstrator, a teaching instrument and the owner's own tool factory, judged by "more
+convincing in the room, more repeatable on someone else's kit, more multiplying for the owner".
+That said, four of its points are real work and are added as rows.
+
+| ID | State | Evidence and remaining boundary |
+|---|---|---|
+| X-1 | open | **Same-UID boundary.** Every supervised program, agent, MCP tool and script runs as `devuser` (UID 1000), so `~/.config/agent-of-empires/serve.url` (mode 600, owner devuser: the AoE daemon bearer token) and `identity.env` (sourced into every supervised program) are ambiently readable by any compromised agent process. Already an explicit exception in the LAN-door threat model (G-10) and named by the GPT-6 Astra review of PRD-024. Close in two steps: (1) per-role service accounts and `/run/secrets` for the secret-holding roles first (identity signing port, AoE daemon token, the settlement signer and bridge roots per agentbox ADR-2101 amendments), so an agent process can neither read the roots nor reach an unrestricted signing port; (2) per-agent-stack kernel user namespaces or microVM isolation as a later programme with its own ADR. Not this cycle's focus; the first step is a prerequisite for any value-bearing chain. |
+| X-2 | open | **Actor bypass audit.** `execute_in_thread` appears at 46 sites across `src/handlers/{graph_state_handler,ontology_handler,api_handler/mod,api_handler/graph/mod,utils}.rs`, and handlers read SQLite and Oxigraph directly beside the `GraphServiceSupervisor` tree. Decide per site, per "deprecate by removing": either route through the actor and remove the direct read, or remove the supervision layer where it is decorative and let the handler talk to the store. Deliverable: an inventory with one decision per site and the dead half deleted. |
+| X-3 | open | **One failure, seven layers.** A single agent write crosses Nix/compose, the MCP hub, NIP-98 and its replay cache, the Actix actor tree, the CUDA `SimParams` ABI, the binary wire unpacker and WAC inheritance. There is no correlation id carried end to end and no debug playbook. Deliverable: one request id propagated from the NIP-98 token through actor messages to the wire frame and the client console, and a `docs/developer/` playbook that traces one write across the seven layers with the command at each hop. The static assertions already lock the 52-byte frame and `SimParams` size (ADR-2018/2019/2024); this row is about finding which layer dropped a request, not about the contracts. |
+| X-4 | open | **Upgrade rehearsal.** The review's "full-time SRE for your own brain" is the maintenance cost of fail-closed contracts across many upstreams (Knots/Core RPC, PTX ISA, WebAuthn PRF, Cloudflare Workers, Claude Code hooks). Deliverable: the weekly `nix-flake-update` branch is boot-rehearsed in a throwaway container with the execution journal recording pass/fail per gate before anyone merges it, so a breaking bump is found on a schedule rather than on a weekend. Depends on the journal (agentbox ADR-2071, Track A of the 2026-09-21 cycle). |
+| X-5 | deferred | **OWL/RDF as export versus operational core.** The review calls the Semantic Web layer a philosophical commitment rather than an ergonomic utility. That is exactly the question loom PRD-028 preregisters (does the ontology-backed serving path beat strong flat-text retrieval on genuinely private knowledge, at matched information access). No separate row: the answer decides it, and one of PRD-028's stated outcomes is "invest in corpus quality rather than serving complexity". |
+| X-6 | noted | **Dream engine.** Praised as a self-annealing loop with an evaluator veto; the governing document itself says the programme is "mostly paper" apart from the engine binary, and its journal (ADR-2071) is unbuilt. The praise is a target, not a description. Covered by Track A of the 2026-09-21 cycle (journal or die, three sterile runs and stop, dream branches merged or deleted at seven days). |
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
