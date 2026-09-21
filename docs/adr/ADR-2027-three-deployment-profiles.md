@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -277,3 +277,21 @@ this record's "What remains genuinely open" paragraph describes.
 Missing declared profile and unnamed effective flag sets now produce findings and prevent non-debug listener binding. Compose forwards intent without inventing a default; security documentation records migration. Named flag tables remain unchanged. Explicit intent is stricter than the original implicit production-selector proposal; no operator profile is selected by this audit.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `1ad881cab`:** `src/main.rs` +11/-5 (the panic-hook
+payload downcast, diagnostics only) and `docker-compose.unified.yml` +6/-3 (the
+dev service's `VISIONCLAW_DEV_MODE` default `:-0` → `:-1`, ADR-2108, with the
+comment block updated to say so). `src/config/security_profile.rs`,
+`src/middleware/rbac_gate.rs`, `src/services/role_store.rs` and
+`src/handlers/socket_flow_handler/position_updates.rs` are unchanged.
+
+**Decision unaffected.** The three profiles and their boundaries are untouched.
+The compose change arms an existing dev-only bypass by default in the `dev`
+service alone: it is not in the `*common-environment` anchor, not in the
+production service, the codepath is `#[cfg]`-stripped in release, and a release
+binary still refuses to boot on the mere presence of the variable.
+
+**Citation note.** As for ADR-2026, `main.rs` citations after line 170 have
+moved down by six lines. `verified_commit` moved to the CI-repair commit.

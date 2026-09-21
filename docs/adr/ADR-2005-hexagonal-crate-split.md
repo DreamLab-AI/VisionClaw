@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e299114056c0bf3ff7ccc22f7a68efe65068e183
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -178,3 +178,19 @@ Governed paths changed in the Wave 3 landing commit: crates/visionclaw-actors me
 ## EA-04 source qualification — 2026-09-07
 
 At `e299114056c0bf3ff7ccc22f7a68efe65068e183`, request journalling remains in `src/services/acsp/client.rs`; the decision actor delegates its conditional application claim through `DecisionElevationStore` to `SqliteEnrichmentRepository`. No actor was moved into a crate, no workspace member or Cargo dependency changed, and no dependency-boundary enforcement was introduced. The extraction decision and partial status remain unchanged. The new persistence does not prove independent responsibility or incremental build improvement. Validation: the shared root library suite with `--no-default-features --features solid-pod-embed` passed1,369 tests with six ignored; no release-profile or build-timing claim follows.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `e29911405`:** `Cargo.toml` (+7: the
+`[profile.dev-runtime]` profile, no member change);
+`src/actors/decision_elevation_actor.rs` (elevation confidence `0.5` → `None`,
+FR2.4/EXP-AC-002 — absence is now representable instead of fabricated);
+`src/actors/voice_interface_actor.rs` (one doc comment, Kokoro → PocketTts);
+`src/actors/elevation_actor.rs` (+368: pending-case rehydration and
+reconciliation planning plus their unit tests), and rustfmt of that file in this
+commit.
+
+**Decision unaffected.** The decision governs *which crate new code lands in*,
+not what root-crate actors do internally. No actor moved between crates, no
+workspace member was added or removed, and the nine `visionclaw-*` members plus
+the root binary are unchanged. `verified_commit` moved to the CI-repair commit.

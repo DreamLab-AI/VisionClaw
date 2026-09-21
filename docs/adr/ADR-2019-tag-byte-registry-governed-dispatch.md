@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4d1a698e70f60c19d8c83fa8c6caef193866978e
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -185,3 +185,19 @@ and presence codecs; `grep -rn wire_fixtures xr-client/rust --include=*.rs`;
 `cargo test --lib --no-default-features binary_protocol` → **38 passed**;
 `cargo test --lib --no-default-features adr_20` → **35 passed**; `cargo test` in
 `xr-client/rust` → **226 lib + 83 integration passed, 0 failed**.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `4d1a698e7`:** the same two additive changes recorded
+under ADR-2018 — the encoder's pre-stamped-id arm
+(`src/utils/binary_protocol.rs`, +64) and three out-of-band `#[func]`s on the
+client (`xr-client/rust/src/binary_protocol.rs`, +39).
+`src/protocols/binary_settings_protocol.rs`,
+`crates/visionclaw-xr-presence/src/wire.rs` and `.../agent_presence.rs` are
+unchanged.
+
+**Decision unaffected.** No tag was allocated, removed or reinterpreted: `0x03`
+still selects the bare V3 body, `0x05` the V5 envelope, removed versions still
+fail loud and unknown tags are still rejected rather than reinterpreted. The
+change is inside the V3 body encoder, downstream of dispatch. `verified_commit`
+moved to the CI-repair commit.

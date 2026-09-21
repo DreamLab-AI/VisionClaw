@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/utils/binary_protocol.rs]
 owner: jjohare
 review_trigger: node count approaching 2^26, or promotion of the debug_assert ceiling to a runtime guard
@@ -165,3 +165,24 @@ tracked by `review_trigger`, and the node count is nowhere near 2^26.
 remap_wire_id|WireIdClass|fn set_.*flag' src/utils/binary_protocol.rs`;
 `cargo test --lib --no-default-features binary_protocol` → **38 passed, 0
 failed**, including the `remap_wire_id` all-classes suite at `:785-800`.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `b0bc275f6`:** `src/utils/binary_protocol.rs` (+64) —
+`encode_node_data_extended_with_sssp` gained an arm before the untyped branch:
+an id whose bits 26-31 already form a recognised class pattern
+(`get_node_type(id) != NodeType::Unknown`) is forwarded unchanged. Callers that
+stamp the class flag themselves (`position_updates.rs`, `actor_messages.rs`)
+pass empty class sets, so their ids reached the over-range check with the flag
+bits set: that panicked every broadcast in debug builds (each XR client saw a
+2 s "connection reset" loop, 2026-09-08) and would have stripped the class flag
+in release.
+
+**Decision refined, not contradicted.** A stamped id is not an over-range id, so
+excluding it from the ceiling check is the ceiling being applied correctly.
+`NODE_ID_MASK = 0x03FFFFFF` is unchanged (`:29`); a compact raw id never carries
+bits 26-31, and a raw id with a high bit that is *not* a class pattern still
+takes the loud path — the added test asserts `get_node_type(0x2000_0001)` is
+`Unknown` and that `remap_wire_id` still reports the overflow. The
+debug_assert-plus-`log::error!`-then-mask behaviour for genuine over-range ids
+stands. `verified_commit` moved to the CI-repair commit.

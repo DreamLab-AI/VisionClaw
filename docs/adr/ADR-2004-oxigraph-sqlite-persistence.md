@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2cf2224062a0bc0d71d72f1eb4f82e02809a9042
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -174,3 +174,16 @@ Governed paths changed in the Wave 3 landing commit: src/app_state.rs: `validate
 ## Estate audit — 2026-09-07
 
 The default graph/local-state decision remains accepted. `Cargo.toml:253` exposes the non-default `redis` feature, and `src/services/nostr_service.rs:149-187,245-299` configures Redis, restores sessions and persists them with SETEX when that feature is enabled. Redis is not a networked graph database, so its presence does not undo the Oxigraph decision. It does invalidate the universal claim that all non-triple persistence is SQLite. No Redis deployment was observed in this audit. Backup, erasure and release-profile inventories must include session Redis if enabled. See [VC-A11](../../../VisionFlow/docs/estate-review/2026-09-07-visionclaw-audit.md).
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `2cf222406`:** `Cargo.toml` gained a
+`[profile.dev-runtime]` (inherits `release`, `debug-assertions` and
+`overflow-checks` on) and `src/app_state.rs` changed two doc comments
+(Kokoro → PocketTts in the local speech-stack description).
+
+**Decision unaffected.** Neither touches persistence. At HEAD `Cargo.toml` still
+declares `oxigraph = "0.4"`, `rusqlite = "0.31"` (bundled) and
+`tokio-rusqlite = "0.5"`, and `persistence-oxigraph` is still in the default
+feature set; the `app_state.rs` edits are comment-only and the store wiring they
+sit beside is unchanged. `verified_commit` moved to the CI-repair commit.

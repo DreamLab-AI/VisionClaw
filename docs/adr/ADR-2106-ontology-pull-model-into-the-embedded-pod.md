@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 5350edbb6d3bf3d8d696608f5a2fa959d06e8ad0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -125,3 +125,16 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 
 
 Workflow provenance re-verification at `5350edbb6d3bf3d8d696608f5a2fa959d06e8ad0`: external actions in ontology-publish.yml are pinned to immutable SHAs. Release resource generation and pull direction are unchanged; YAML parsing passes. This verifies the workflow edit without claiming a new hosted publish run.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `5350edbb6`:** `src/main.rs` only, +11/-5 — the
+panic-hook payload downcast. Diagnostics only.
+
+**Decision unaffected.** The boot pull is still spawned from `main.rs` under
+`#[cfg(feature = "solid-pod-embed")]` immediately after the pod state is
+initialised: `services::ontology_pull::spawn_boot_pull(Arc::clone(&solid_state.storage))`
+at `src/main.rs:883`, with `init_solid_state().await` at `:876`.
+`src/services/ontology_pull.rs` and the client-side URL contract are outside
+this record's `verified_paths` and unchanged in this range. `verified_commit`
+moved to the CI-repair commit.

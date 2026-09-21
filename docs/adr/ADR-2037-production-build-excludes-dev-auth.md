@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 81929f1f3c3688d08f0b2311ec19a7dbe158686f
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -108,3 +108,21 @@ Both probes were repeated with a fully matching explicit profile, so profile dri
 is not their refusal reason. The tested artefact predates later storage work.
 No claim is made that every produced Docker image has the tested feature closure
 or that a deployed image has passed authenticated negative-route probes.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `81929f1f3`:** `.github/workflows/ci.yml` +19/-2 and
+`src/main.rs` +11/-5. The CI gate's positive control (check 4) now accepts
+`dev-auth` on either `scripts/dev-entrypoint.sh` or
+`scripts/rust-backend-wrapper.sh`, because ADR-2008's dev rebuild moved into the
+wrapper; and a new check 5 fails the build if `scripts/prod-entrypoint.sh` or
+`Dockerfile.production` ever invokes that wrapper. The `main.rs` change is the
+panic-hook payload downcast (diagnostics only). `src/config/security_profile.rs`
+and `Dockerfile.production` are unchanged.
+
+**Decision unaffected, and the gate is stronger.** Checks 1-3 (no `dev-auth` in
+either production Dockerfile or in `prod-entrypoint.sh`) are unchanged, the
+positive control now follows the launcher rather than one filename, and the new
+check closes the route by which the wrapper's default `BUILD_FEATURES` could
+have reached production. The job passed on run 35636184190 while the rest of
+that run was red. `verified_commit` moved to the CI-repair commit.

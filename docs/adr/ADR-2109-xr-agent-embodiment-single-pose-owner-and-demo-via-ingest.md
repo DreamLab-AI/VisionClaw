@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3eb2ffae5b895d36957d5d4f1b7f4f3fc28ef826
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -38,3 +38,23 @@ The XR client had an agent avatar (orb + gaze cone + DID badge, ADR-130 D4) that
 - `cargo test -p visionclaw-xr-gdext --all-features` — `beam_starts_at_the_embodiment_anchor_when_one_is_published`, `retire_agents_removes_records_and_anchors_outright` (66 render_store tests green).
 - GUT (Godot 4.3 in CI): `tests/unit/test_agent_choreography.gd` (in-place materialise, head turns never move a working agent, explicit done → park at 0.3 alpha, re-task without snap, head exclusion, reduced motion), `tests/unit/test_agent_demo_director.gd` (byte-exact `0x23` layout, real-node targets, keep-alive under TTL, 150 s loop completes/rests/re-tasks along real edges, Stop retires exactly the demo ids).
 - HP-Desktop VIVE, Godot 4.6.1: headless `--check-only` on all six scripts exit 0; `/tmp/godot-xr-fresh.log` shows `XR_SESSION_STATE_FOCUSED`, 0 script errors, 0 HUD overflow, 89–90 FPS with the demo loop running.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `3eb2ffae5`:**
+`xr-client/scripts/agent_demo_director.gd` (role labels lose their `Demo-`
+prefix, the action payload drops `"demo": true`, `scene_id_for` is deleted, the
+provenance comment rewritten) and `xr-client/scripts/graph_scene.gd` (the roster
+row drops its `demo` field and signature component, `_scene_id_for` no longer
+special-cases demo ids).
+
+**Decision unaffected — this *is* the decision.** D5 as written already says the
+synthetic agents play as real agents, that names, frames, roster rows and
+captions carry no demo marker, that the Start/Stop button is the only visible
+sign, and that provenance lives in the reserved id range in code. The changes
+remove the last markers that contradicted that text. The load-bearing parts are
+intact at HEAD: wire ids are still `0x80000000 | 0xD001..0xD006`, Stop still
+calls `retire_agents(ids)` so no demo state outlives the demo, frames still go
+through `ingest()` with timestamps from `server_clock_ms()`, and the scene still
+has no demo-specific rendering branch. `verified_commit` moved to the CI-repair
+commit.

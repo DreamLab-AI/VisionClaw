@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 3eb2ffae5b895d36957d5d4f1b7f4f3fc28ef826
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -47,3 +47,17 @@ The XR workflow retains its existing GUT job identifier and pinned Godot 4.3/GUT
 ## Acceptance boundary
 
 Implementation is partial and activation staged until a fresh headset session checks stereo compositing, near/far text readability, translated/scaled graph focus, both comfort modes and controller/dwell operation against measured frame times. Quest packaging remains subject to the existing Android toolchain and device acceptance; this revision does not certify it. No live authenticated graph workload or headset was used for the new visual captures. Desktop software-display throughput is not a headset performance measurement.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `3eb2ffae5`:** `xr-client/scripts/hud.gd` +1/-4 — the
+Agent Demo button's tooltip was reworded and `_mk_swarm_row` no longer prefixes
+a synthetic agent's name with `[demo]`. Both are ADR-2109 D5 ("the synthetic
+agents play as real agents") landing in the HUD.
+
+**Decision unaffected.** Nothing in the palette, typography, spacing,
+hover/focus outlines, MSAA-off-under-XR rule, reduced-motion default, ground
+grid or focus bracket changed; the edit is two lines of row text inside the
+Swarm page. The acceptance boundary (implementation partial, activation staged
+until a fresh headset session) is unchanged and is *not* re-asserted here.
+`verified_commit` moved to the CI-repair commit.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -154,3 +154,19 @@ Governed paths changed in the doc-sync commit: docs/SECURITY-profiles.md — fro
 `admit_signed_in` now applies the per-pubkey quota after cryptographic verification and before the global claim under one mutex. Existing single-use TTL/capacity invariants remain; the signed WebSocket carrier enters the same validator. Fairness/expiry, replay and URL-binding tests pass. This remains process-local, not cross-replica replay protection.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `1ad881cab`:** `docs/SECURITY-profiles.md` only, one
+table row — the `VISIONCLAW_DEV_MODE` default for the dev compose service is now
+`${VISIONCLAW_DEV_MODE:-1}` (ADR-2108), scoped to the `dev` profile.
+`src/utils/nip98.rs` is token-identical across the range.
+
+**Decision unaffected.** Nothing in that row touches either replay layer.
+Re-checked at HEAD: `TOKEN_MAX_AGE_SECONDS = 60`, `REPLAY_CACHE_TTL` is still
+`2 x TOKEN_MAX_AGE_SECONDS`, `REPLAY_CACHE_MAX_ENTRIES = 100_000` still returns
+`ReplayCacheFull` rather than evicting a live entry, and the single-use claim is
+still the last step after signature verification. Invariant 4 of
+`docs/SECURITY-profiles.md` still records both layers, the process-local scope
+and the fail-closed ceiling. The horizontal-scaling review trigger is unchanged.
+`verified_commit` moved to the CI-repair commit.

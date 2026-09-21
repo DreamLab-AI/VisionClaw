@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -157,3 +157,18 @@ operator restart; these checks do not claim runtime recovery.
 Restart with `./scripts/launch.sh up dev` from the updated host checkout, with
 `SKIP_RUST_REBUILD` unset or false. A plain `docker restart` can retain the old
 image-copied launcher. Expect a first build in `target/dev-runtime`.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `1ad881cab`:** `scripts/dev-entrypoint.sh` (-24 net)
+no longer inlines its own `cargo build --release --features gpu,dev-auth`; it
+backgrounds `/app/scripts/rust-backend-wrapper.sh`, so both entry modes share
+one development build identity, input stamp, binary name and failure handling.
+`docker-compose.unified.yml` changed only the dev service's
+`VISIONCLAW_DEV_MODE` default (`:-0` → `:-1`, ADR-2108).
+
+**Decision unaffected, and better served.** The dev image still recompiles the
+backend on start; the recompile simply moved into the shared wrapper, which is
+where the `dev-auth` feature now lives. ADR-2037's CI gate was updated in the
+same period to accept the feature on either file, so the positive control still
+fires. `verified_commit` moved to the CI-repair commit.

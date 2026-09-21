@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -150,3 +150,19 @@ src/main.rs src/services/role_store.rs`; `awk` dumps of `main.rs:115-170` and
 The pre-bind assertion now rejects every finding for non-debug builds, including release/dev-auth. main.rs additionally logs selected storage membership and supports opt-in writer checkpointing; neither bypasses the assertion. Actual default release artefact negative probes returned exit 2 for forbidden variables set to zero. The exact artefact receipt predates later storage implementation; no rebuilt deployment image is claimed.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `1ad881cab`:** `src/main.rs` only, +11/-5 — the panic
+hook now downcasts the payload to `String` as well as `&str`, so formatted
+`panic!`/`debug_assert!` messages stop printing as "unknown". Diagnostics only.
+
+**Decision unaffected.** `enforce_release_env_hygiene()` is unchanged at
+`src/main.rs:118-163` (release) with the dev no-op stub at `:169`, and it is
+still called at `:201`, before any listener work. `src/middleware/rbac_gate.rs`
+and `src/services/role_store.rs` are unchanged across the range.
+
+**Citation note.** The hook edit sits at `src/main.rs:174-190`, so every
+`main.rs` citation in this record *after* that point has moved down by six lines
+(the RBAC role-store block cited as `732-752` is now `747-767`); citations below
+line 170 are unmoved. `verified_commit` moved to the CI-repair commit.

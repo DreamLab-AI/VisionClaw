@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -260,3 +260,18 @@ is rejected before listener binding. ADR-2008 now uses an optimised
 `dev-runtime` profile with debug assertions enabled for local development.
 The release rejection, environment checks and production posture are unchanged.
 Host runtime acceptance remains pending the operator's rebuild/restart.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `1ad881cab`:** `src/main.rs` only, +11/-5 — the
+panic-hook payload downcast. `src/config/security_profile.rs` is unchanged.
+
+**Decision unaffected.** The assertion still runs before the listener binds:
+`assert_effective_profile_or_exit(...)` is at `src/main.rs:918`, inside the
+ADR-2038 block opened at `:904`, and `.bind(&bind_address)?` is at `:1219`.
+
+**Citation note.** This record's `main.rs` citations predate several intervening
+commits as well as the six-line shift from the panic-hook edit; the anchors
+above are re-derived at HEAD and supersede the `873 / 876 / 879-883 / 882-886 /
+896 / 1177` line numbers in the older sections. `verified_commit` moved to the
+CI-repair commit.

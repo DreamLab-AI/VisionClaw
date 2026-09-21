@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
@@ -178,3 +178,19 @@ crates/visionclaw-gpu/build.rs`; `grep -n` over `ptx_policy.rs` for
 PtxProvenance|content_tag`; `awk` dump of `ptx_policy.rs:55-97`;
 `cargo test -p visionclaw-gpu --lib ptx` → **44 passed, 0 failed** (27 filtered
 out).
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed change since `b0bc275f6`:** `crates/visionclaw-gpu/build.rs` +2/-1 —
+`src/cuda_sources/dynamic_grid.cu` was removed from the compiled list with a
+comment recording why: it contains only `__host__` helpers and no launchable
+kernel, so it must not be emitted or validated as a device PTX module.
+`crates/visionclaw-gpu/src/ptx_policy.rs` is unchanged.
+
+**Decision unaffected.** The decision is about what happens to each compiled
+`.ptx`, not about which sources are compiled. At HEAD the `.version 9.0` splice,
+the structural validation, the bundled-fallback set consulted on *both* nvcc
+failure modes and the final panic when neither compilation nor fallback yields
+PTX are all present and unchanged (`build.rs:161-240`). Dropping a kernel-free
+translation unit removes a module that could never have been a tested kernel.
+`verified_commit` moved to the CI-repair commit.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4d1a698e70f60c19d8c83fa8c6caef193866978e
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -186,3 +186,19 @@ duplicate, full/delta interleaving, reconnect resync, delta-before-resync,
 unsequenced V3, frozen record size). The acceptance section's "227 lib + 75
 integration" was that session's count; the suite has since been re-partitioned —
 the 23-case freshness figure it names is exact.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `4d1a698e7`:** both files additive only.
+`src/utils/binary_protocol.rs` (+64) added the pre-stamped-id pass-through arm
+of the encoder's class-flag branch plus its regression test;
+`xr-client/rust/src/binary_protocol.rs` (+39) added three `#[func]`s
+(`set_agent_anchors`, `retire_agents`, `server_clock_ms`) for ADR-2109.
+
+**Decision unaffected.** The record size is untouched: the static assertion
+`WIRE_V3_ITEM_SIZE == 52` still stands (`src/utils/binary_protocol.rs:94`), the
+client still pins `NODE_RECORD_BYTES: usize = 52`
+(`xr-client/rust/src/binary_protocol.rs:28`) with `record_is_52_bytes` at
+`:1785`, and no field was added to the record or the V5 envelope. The new
+`#[func]`s carry anchors and lifecycle out of band, not on the wire.
+`verified_commit` moved to the CI-repair commit.

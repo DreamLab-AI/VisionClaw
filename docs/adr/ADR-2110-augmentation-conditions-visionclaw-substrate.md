@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: b2baa2d16b58bf9d030a41c7b0880df14eb0d803
+verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -233,3 +233,16 @@ touched Rust modules reports nothing; the warning count is unchanged from the
 
 `activation_status: inactive` — nothing here is deployed. No launch, build or
 docker command was run; every claim above is unit-level, from a working tree.
+
+## Re-verification — 2026-09-21 at 997440cd0717d4c5f9341369571fc69fcf5a38d6
+
+**Governed changes since `b2baa2d16`:** `src/services/intent_match.rs`,
+`src/services/kpi_compute.rs`, `src/actors/elevation_actor.rs` and
+`src/adapters/sqlite_enrichment_repository.rs` — all four are `cargo fmt --all`
+output in the CI-repair commit and nothing else. Verified, not assumed: the
+whole range is that one commit, whose Rust hunks are rustfmt reflow (expression
+wrapping, multi-line test tuples, trailing commas); no identifier, literal or
+control-flow edge changed.
+
+**Decision unaffected.** `verified_commit` moved to the CI-repair commit so the
+staleness gate stops firing on a formatting-only diff.
