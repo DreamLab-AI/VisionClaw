@@ -87,7 +87,8 @@ jobs:
         -p visionclaw-actors
         -p visionclaw-xr-presence
         -p visionclaw-analytics-oracle
-        -p vault-migrate
+        -p vault-core
+        -p vault
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install Rust toolchain (clippy)
@@ -112,7 +113,7 @@ jobs:
       # test targets probe a live server / GPU. Build and lint the whole
       # crate; run only the two hermetic contract targets (ADR-2069 backup
       # posture, ADR-2008 dev build inputs). Until 2026-09-05 CI never saw
-      # this crate or vault-migrate at all except through cargo fmt.
+      # this crate or the vault crates at all except through cargo fmt.
       - name: cargo clippy (integration-tests crate)
         run: cargo clippy -p visionclaw-integration-tests --all-targets
       - name: cargo test (hermetic integration contracts)

@@ -143,7 +143,6 @@ describe('useAgentActionFeed', () => {
   it('caps across multiple batches', async () => {
     await render(3);
     for (let i = 0; i < 6; i++) {
-      // eslint-disable-next-line no-await-in-loop
       await act(async () => ws.emit([makeEvent({ sourceAgentId: i, timestamp: 1000 + i })]));
     }
 

@@ -395,7 +395,10 @@ scalars:
             &options(Level::Content, Some(root)),
         )
         .unwrap();
-        assert_ne!(one.digest, many.digest, "different decisions, different cases");
+        assert_ne!(
+            one.digest, many.digest,
+            "different decisions, different cases"
+        );
 
         // And the single-page digest is the pre-grouping one.
         assert_eq!(

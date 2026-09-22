@@ -62,7 +62,6 @@ class GraphWorker {
   private lastTweenTs: number = 0;
 
   // Retained for API compatibility — server (Rust/CUDA) now owns all force-directed layout.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private forcePhysics: ForcePhysicsSettings = {
     repulsionStrength: 500, attractionStrength: 0.05, centerGravity: 0.01,
     damping: 0.85, maxVelocity: 5.0, idealEdgeLength: 30, theta: 0.8,

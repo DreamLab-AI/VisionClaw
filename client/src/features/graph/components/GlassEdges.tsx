@@ -267,7 +267,6 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
       // prune to last 60s
       while (ts.length > 0 && now - ts[0] > 60_000) ts.shift();
       if (ts.length > 2) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[GlassEdges] capacity reallocated ${ts.length}x in last 60s — ` +
           `consider raising rendering.maxEdgesCeiling above current capacity ${targetCapacity}.`
@@ -395,7 +394,6 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           } else {
             // Hardcoded-default fallback (setting absent) — nudge the operator
             // to configure a ceiling that fits their graph.
-            // eslint-disable-next-line no-console
             console.warn(
               `[GlassEdges] edge count ${edgeCount} exceeds ceiling ${ceiling}. ` +
               `${hidden} edges will not be rendered. ` +

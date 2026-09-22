@@ -39,7 +39,6 @@ export function useWebSocketErrorHandler() {
                 await new Promise(resolve => setTimeout(resolve, error.retryAfter));
               }
               
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- processMessageQueue is internal to websocketStore, not exposed on compat wrapper
               await (webSocketService as unknown as { processMessageQueue?: () => Promise<void> }).processMessageQueue?.();
             },
             metadata: {

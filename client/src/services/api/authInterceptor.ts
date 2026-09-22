@@ -28,7 +28,6 @@ function warnIfServerInReleaseMode(status: number, sentDevToken: boolean): void 
   if (releaseModeWarned) return;
   if (status === 401 && sentDevToken) {
     releaseModeWarned = true;
-    // eslint-disable-next-line no-console
     console.warn(
       '[AuthInterceptor] Server returned 401 on Bearer dev-session-token. ' +
       'The server is likely a release build compiled WITHOUT `--features dev-auth` ' +

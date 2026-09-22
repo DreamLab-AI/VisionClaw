@@ -95,7 +95,6 @@ export class LiveKitVoiceService {
 
     try {
       // Dynamically import LiveKit client SDK (optional peer dependency)
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const livekitModule: string = 'livekit-client';
       // LiveKit SDK types from dynamic import
       // LiveKit SDK types from dynamic import

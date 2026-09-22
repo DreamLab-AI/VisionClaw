@@ -631,7 +631,6 @@ const InstancedLabelsWebGL: React.FC<WebGLProps> = ({
     // means upstream forgot to forward nodePositionsRef. Should never happen
     // in practice because the wrapper enforces it at compile time.
     if (!rawPositions && !diagLoggedRef.current && nodeMap.length > 0) {
-      // eslint-disable-next-line no-console
       console.warn(
         '[InstancedLabelsWebGL] nodePositionsRef absent — falling back to labelPositionsRef. ' +
         'This is a bug upstream: the parent should always forward nodePositionsRef.'

@@ -78,10 +78,7 @@ pub fn action_request(
     // single-page event is byte-identical to what it was before grouping
     // existed.
     if proposal.is_grouped() {
-        tags.push(vec![
-            "pages".into(),
-            proposal.pages.len().to_string(),
-        ]);
+        tags.push(vec!["pages".into(), proposal.pages.len().to_string()]);
     }
     tags.extend(task_properties(proposal.level).to_tags());
 

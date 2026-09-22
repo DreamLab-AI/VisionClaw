@@ -15,7 +15,6 @@
  */
 // troika-three-text ships no type declarations; the single call below is the
 // entire surface we touch.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { configureTextBuilder } from 'troika-three-text';
 
