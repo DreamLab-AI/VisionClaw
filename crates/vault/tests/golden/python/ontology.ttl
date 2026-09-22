@@ -1,0 +1,2833 @@
+@prefix dc1: <http://purl.org/dc/terms/> .
+@prefix ngm: <https://narrativegoldmine.com/class/> .
+@prefix ngmi: <https://narrativegoldmine.com/individual/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix vc: <https://narrativegoldmine.com/ns/v1#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+dc1:creator a owl:AnnotationProperty .
+
+skos:broader a owl:AnnotationProperty .
+
+ngm:1-hive a owl:Class ;
+    rdfs:label "1Hive"@en ;
+    rdfs:comment "A decentralised community and DAO that issues the Honey community currency and develops governance tooling such as the Gardens framework for conviction voting."@en ;
+    rdfs:subClassOf ngm:decentralized-autonomous-organization ;
+    vc:enables ngm:quadratic-funding ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.6"^^xsd:float ;
+    vc:requires ngm:decentralized-autonomous-organization,
+        ngm:governance-token ;
+    vc:slug "1-hive" ;
+    vc:sourceDomain "governance" .
+
+ngm:1-inch a owl:Class ;
+    rdfs:label "1inch"@en ;
+    rdfs:comment "A decentralised exchange aggregator that routes trades across multiple liquidity sources to find favourable execution prices on Ethereum and other chains."@en ;
+    rdfs:subClassOf ngm:decentralized-exchange ;
+    vc:enables ngm:liquidity-pool ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.6"^^xsd:float ;
+    vc:requires ngm:automated-market-maker,
+        ngm:ethereum-smart-contract-platform,
+        ngm:smart-contract ;
+    vc:slug "1-inch" ;
+    vc:sourceDomain "blockchain" .
+
+ngm:3-d-and-4-d a owl:Class ;
+    rdfs:label "3D and 4D"@en ;
+    rdfs:comment "The domain of three-dimensional and four-dimensional content creation, covering tools, techniques, and AI-powered pipelines for generating, editing, and rendering 3D assets and temporally dynamic (4D) representations. Encompasses text-to-3D systems (NVIDIA Edify, Luma Genie, Point-E), neural radiance fields, Gaussian splatting, and diffusion-based mesh generation, as well as 6D pose estimation, scene-scale generation, and integration with AR/VR workflows."@en ;
+    rdfs:subClassOf ngm:sc-content-and-assets ;
+    skos:broader ngm:sc-content-and-assets ;
+    vc:enables ngm:3-d-asset,
+        ngm:augmented-reality,
+        ngm:pose-estimation ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:relatedTo ngm:computer-vision,
+        ngm:machine-learning-discipline ;
+    vc:slug "3-d-and-4-d" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:deep-learning,
+        ngm:diffusion-model,
+        ngm:generative-ai,
+        ngm:neural-radiance-field .
+
+ngm:3-d-asset-standard a owl:Class ;
+    rdfs:label "3D Asset Standard"@en ;
+    rdfs:comment "A 3D Asset Standard is a formal specification defining the file formats, metadata schemas, coordinate systems, material models, animation encodings, and interoperability protocols required for consistent creation, exchange, and real-time rendering of three-dimensional digital content across diverse software platforms and runtime environments. Such standards normalise vertex data structures, physically based rendering (PBR) material pipelines, level-of-detail hierarchies, skeletal animation rigs, and compression algorithms so that assets created in one authoring tool function correctly in another without manual conversion or data loss. Prominent examples include the Khronos Group glTF 2.0 specification for web and mobile 3D delivery, Pixar's Universal Scene Description (USD/USDZ) for complex scene composition, and the Metaverse Standards Forum interoperability profiles. These specifications underpin spatial computing, extended reality, game engines, digital-twin platforms, and emerging metaverse ecosystems by ensuring deterministic visual fidelity and semantic asset identity across the entire content pipeline."@en ;
+    rdfs:subClassOf ngm:interoperability-standard ;
+    vc:bridgesTo ngm:non-fungible-token,
+        ngm:semantic-web-linked-data-standard ;
+    vc:contrastsWith ngm:fbx ;
+    vc:enables ngm:asset-interoperability,
+        ngm:digital-twin,
+        ngm:extended-reality,
+        ngm:real-time-rendering ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:gltf-standard,
+        ngm:level-of-detail,
+        ngm:physically-based-rendering,
+        ngm:universal-scene-description ;
+    vc:implements ngm:iso-iec-14496-16,
+        ngm:open-standard ;
+    vc:qualityScore "0.74"^^xsd:float ;
+    vc:relatedTo ngm:digital-content-creation,
+        ngm:iso-iec-14496-16,
+        ngm:spatial-web ;
+    vc:requires ngm:coordinate-system,
+        ngm:mesh-compression,
+        ngm:texture-atlas ;
+    vc:slug "3-d-asset-standard" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:academy-software-foundation,
+        ngm:khronos-group,
+        ngm:metaverse-standards-forum ;
+    vc:supports ngm:augmented-reality,
+        ngm:game-engine,
+        ngm:metaverse-platform ;
+    vc:uses ngm:material-x,
+        ngm:scene-graph,
+        ngm:skeletal-animation .
+
+ngm:3-d-design a owl:Class ;
+    rdfs:label "3D Design"@en ;
+    rdfs:comment "3D Design is the creative and technical discipline of conceiving, modelling, and refining three-dimensional digital objects and environments for interactive, immersive, or real-time applications. It encompasses spatial composition, form language, and visual hierarchy adapted for game engines, virtual reality, and metaverse platforms, requiring performance-conscious workflows such as level-of-detail strategies, UV unwrapping, and real-time shader design."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3d-modelling ],
+        [ a owl:Restriction ;
+            owl:onProperty vc:hasPart ;
+            owl:someValuesFrom ngm:3-d-asset ],
+        ngm:infra-software-engineering ;
+    skos:broader ngm:infra-software-engineering ;
+    vc:enables ngm:3-d-content-generation,
+        ngm:real-time-rendering ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:3-d-asset ;
+    vc:isPartOf ngm:3-d-content-pipeline,
+        ngm:3-d-development ;
+    vc:qualityScore "0.0"^^xsd:float ;
+    vc:requires ngm:3d-modelling,
+        ngm:rendering-engine ;
+    vc:slug "3-d-design" ;
+    vc:sourceDomain "infrastructure" .
+
+ngm:3-d-engine a owl:Class ;
+    rdfs:label "3D Engine"@en ;
+    rdfs:comment "A 3D engine is software that handles the representation, rendering, physics simulation, and animation of three-dimensional scenes, providing an abstraction layer over GPU hardware and platform-specific graphics APIs so developers can build interactive applications and simulations without writing low-level graphics code."@en ;
+    rdfs:subClassOf ngm:game-engine ;
+    vc:bridgesTo ngm:machine-learning,
+        ngm:robotics ;
+    vc:enables ngm:augmented-reality,
+        ngm:digital-twin,
+        ngm:virtual-reality ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:animation-system,
+        ngm:physics-simulation-engine,
+        ngm:rendering-pipeline,
+        ngm:scene-graph ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:extended-reality,
+        ngm:level-of-detail ;
+    vc:requires ngm:computational-geometry,
+        ngm:graphics-processing-unit,
+        ngm:linear-algebra,
+        ngm:shader ;
+    vc:slug "3-d-engine" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:supports ngm:metaverse,
+        ngm:spatial-computing ;
+    vc:uses ngm:directx,
+        ngm:open-gl,
+        ngm:vulkan,
+        ngm:webgpu .
+
+ngm:3-d-geometry a owl:Class ;
+    rdfs:label "3D Geometry"@en ;
+    rdfs:comment "3D geometry is the mathematical description of shapes, positions, and transformations of objects in three-dimensional space, using representations such as points, vectors, meshes, and coordinate transforms. It provides the underlying spatial data model that computer graphics rendering pipelines and photorealistic rendering engines operate on, from vertex positions through to camera projection matrices. Practical 3D geometry combines linear algebra with computational geometry techniques to represent and manipulate scenes efficiently."@en ;
+    rdfs:subClassOf ngm:computational-geometry ;
+    vc:enables ngm:computer-graphics ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:slug "3-d-geometry" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:3-d-scene-exchange-protocol-sxp a owl:Class ;
+    rdfs:label "3D Scene Exchange Protocol (SXP)"@en ;
+    rdfs:comment "Open standards framework enabling interoperable transfer of complete 3D scene graphs including geometric meshes (polygon topology vertex positions normals texture coordinates with indexed triangle lists optimized for GPU rendering), physically-based rendering (PBR) material systems (metallic-roug..."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-modeling-software ],
+        ngm:sc-standards-and-interop ;
+    skos:broader ngm:sc-standards-and-interop ;
+    vc:enables ngm:asset-portability,
+        ngm:cross-platform-compatibility,
+        ngm:e-commerce-3-d,
+        ngm:metaverse-interoperability,
+        ngm:real-time-rendering ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:animation-rig,
+        ngm:material-system,
+        ngm:normal-map,
+        ngm:texture-map,
+        ngm:vertex-attribute ;
+    vc:implements ngm:non-destructive-editing,
+        ngm:pbr-materials,
+        ngm:scene-graph-format,
+        ngm:skeletal-animation,
+        ngm:version-control ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:requires ngm:3-d-modeling-software,
+        ngm:game-engine,
+        ngm:mesh-compression,
+        ngm:rendering-pipeline,
+        ngm:texture-authoring ;
+    vc:slug "3-d-scene-exchange-protocol-sxp" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:3-d-user-interface a owl:Class ;
+    rdfs:label "3D User Interface"@en ;
+    rdfs:comment "A 3D User Interface (3DUI) is an interactive control system within three-dimensional virtual environments enabling users to manipulate objects, navigate spaces, and access functionality through spatial gestures, hand tracking, gaze-based selection, and voice commands. 3DUI design balances accessibility standards with intuitive spatial affordances appropriate for VR, AR, and metaverse interactions."@en ;
+    rdfs:subClassOf ngm:sc-interaction ;
+    skos:broader ngm:sc-interaction ;
+    vc:bridgesTo ngm:digital-twin,
+        ngm:interaction-design,
+        ngm:metaverse ;
+    vc:contrastsWith ngm:graphical-user-interface,
+        ngm:user-interface ;
+    vc:enables ngm:immersive-experience,
+        ngm:user-navigation ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:gaze-tracking,
+        ngm:gesture-recognition,
+        ngm:hand-tracking,
+        ngm:haptic-feedback,
+        ngm:voice-input ;
+    vc:isPartOf ngm:extended-reality,
+        ngm:spatial-computing ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:augmented-reality,
+        ngm:embodied-interaction,
+        ngm:mixed-reality,
+        ngm:virtual-reality ;
+    vc:requires ngm:gaze-tracking,
+        ngm:hand-tracking,
+        ngm:haptic-feedback,
+        ngm:sensor-input,
+        ngm:voice-input ;
+    vc:slug "3-d-user-interface" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:supports ngm:accessibility-standard,
+        ngm:multimodal-interaction ;
+    vc:uses ngm:depth-sensing,
+        ngm:real-time-rendering,
+        ngm:spatial-audio .
+
+ngm:360-video a owl:Class ;
+    rdfs:label "360 Video"@en ;
+    rdfs:comment "A spherical video format captured with omnidirectional camera rigs that records the full 360-degree field of view around a single vantage point, allowing viewers to look in any direction during playback on headsets, browsers, or mobile devices. Because the footage is fixed to the capture position, it offers rotational (three-degrees-of-freedom) immersion but no positional movement, distinguishing it from volumetric formats that reconstruct scene geometry."@en ;
+    rdfs:subClassOf ngm:immersive-media ;
+    vc:contrastsWith ngm:volumetric-capture,
+        ngm:volumetric-video ;
+    vc:enables ngm:vr-experiences ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:virtual-reality ;
+    vc:slug "360-video" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:video-streaming .
+
+ngm:3d-asset-creation a owl:Class ;
+    rdfs:label "3D Asset Creation"@en ;
+    rdfs:comment "The production of three-dimensional digital assets—models, characters, environments, props, and their materials, textures, rigs, and animations—ready for use in games, film, extended reality, simulation, and digital-twin applications. 3D asset creation is the spatial specialisation of general asset creation, spanning manual modelling and sculpting, photogrammetry and scanning, procedural generation, and increasingly generative AI pipelines that produce textured meshes from text or image prompts."@en ;
+    rdfs:subClassOf ngm:asset-creation ;
+    vc:enables ngm:virtual-environment ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:creative-tools,
+        ngm:digital-asset ;
+    vc:slug "3d-asset-creation" ;
+    vc:sourceDomain "metaverse" ;
+    vc:uses ngm:3d-modelling,
+        ngm:procedural-generation,
+        ngm:texture-mapping .
+
+ngm:3d-mapping a owl:Class ;
+    rdfs:label "3D Mapping"@en ;
+    rdfs:comment "3D mapping is the process of building a spatially coherent three-dimensional representation of an environment from sensor observations, such as camera images, LiDAR scans, or depth data, typically as a robot or capture device moves through the space. It relies on techniques including structure-from-motion and triangulation to recover the geometry of the scene and the trajectory of the sensor simultaneously. 3D mapping outputs, including point clouds, meshes, or occupancy grids, support downstream applications in robotics navigation, spatial computing, and photogrammetry-based 3D reconstruction."@en ;
+    rdfs:subClassOf ngm:3-d-reconstruction ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:qualityScore "0.0"^^xsd:float ;
+    vc:slug "3d-mapping" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:3d-parallelism a owl:Class ;
+    rdfs:label "3D Parallelism"@en ;
+    rdfs:comment "3D parallelism is a distributed training strategy that combines data parallelism, tensor parallelism and pipeline parallelism along three independent axes to train models too large for a single accelerator or single parallelism scheme alone. Each axis partitions a different dimension of the problem: data parallelism splits the batch, tensor parallelism splits individual layers across devices, and pipeline parallelism splits the layer stack across stages. Frameworks such as Megatron-LM and DeepSpeed implement 3D parallelism to scale training to thousands of GPUs."@en ;
+    rdfs:subClassOf ngm:distributed-training ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:slug "3d-parallelism" ;
+    vc:sourceDomain "machine-learning" .
+
+ngm:51-attack a owl:Class ;
+    rdfs:label "51% Attack"@en ;
+    rdfs:comment "A 51% Attack is a consensus-layer attack on a Proof-of-Work blockchain in which a single entity or coalition controls more than half of the network's hash rate, enabling double-spending, transaction censorship, and chain reorganisation. The attack exploits the longest-chain rule: the attacker mines a private fork containing fraudulent transactions and, once it exceeds the honest chain in cumulative work, broadcasts it to override confirmed history."@en ;
+    rdfs:subClassOf ngm:bc-protocol-and-consensus ;
+    skos:broader ngm:bc-protocol-and-consensus ;
+    vc:bridgesTo ngm:ai-energy-optimisation,
+        ngm:game-theory,
+        ngm:network-security ;
+    vc:contrastsWith ngm:byzantine-fault-tolerance,
+        ngm:proof-of-stake ;
+    vc:dependsOn ngm:blockchain,
+        ngm:cryptocurrency,
+        ngm:mining-hardware ;
+    vc:enables ngm:chain-reorganization,
+        ngm:double-spending,
+        ngm:transaction-censorship ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:isPartOf ngm:blockchain-security ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:ethereum-smart-contract-platform-classic,
+        ngm:finality,
+        ngm:selfish-mining,
+        ngm:transaction ;
+    vc:requires ngm:hash-rate,
+        ngm:mining,
+        ngm:mining-pool,
+        ngm:proof-of-work ;
+    vc:slug "51-attack" ;
+    vc:sourceDomain "blockchain" .
+
+ngm:a-b-testing a owl:Class ;
+    rdfs:label "A/B Testing"@en ;
+    rdfs:comment "A/B testing is a controlled experimentation method that compares two or more variants by randomly assigning subjects to each and measuring a defined outcome metric. By holding all factors constant except the variant under test, it isolates causal effects and supports data-driven decisions with statistical rigour. It is widely used to optimise digital products, content and user experiences."@en ;
+    rdfs:subClassOf ngm:data-analytics ;
+    vc:contrastsWith ngm:usability-testing ;
+    vc:dependsOn ngm:data-visualisation ;
+    vc:enables ngm:predictive-personalization ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:isPartOf ngm:data-analytics ;
+    vc:qualityScore "0.62"^^xsd:float ;
+    vc:relatedTo ngm:business-intelligence,
+        ngm:monitoring-dashboard,
+        ngm:recommendation-system,
+        ngm:user-experience ;
+    vc:slug "a-b-testing" ;
+    vc:sourceDomain "data" ;
+    vc:supports ngm:data-science,
+        ngm:digital-marketing,
+        ngm:optimisation ;
+    vc:uses ngm:metrics,
+        ngm:statistics .
+
+ngm:a-star-algorithm a owl:Class ;
+    rdfs:label "A Star Algorithm"@en ;
+    rdfs:comment "The A* algorithm is an informed best-first graph-search method that finds a least-cost path from a start node to a goal node by evaluating each candidate node n with the function f(n) = g(n) + h(n), where g(n) is the exact cost accumulated from the start node to n and h(n) is an admissible heuristic estimating the remaining cost from n to the goal. By always expanding the open-list node with the lowest f-value, A* is guaranteed to find the optimal path when h is admissible (never overestimates) and is also consistent (satisfies the triangle inequality h(n) ≤ c(n,n') + h(n') for every edge (n,n')). A* generalises Dijkstra's algorithm by adding goal-directed heuristic guidance, and subsumes greedy best-first search as the special case g(n)=0. First described by Peter Hart, Nils Nilsson, and Bertram Raphael at the Stanford Research Institute in 1968, A* remains the most widely deployed optimal graph-search algorithm in artificial intelligence, robotics, game development, and logistics."@en ;
+    rdfs:subClassOf ngm:graph-search,
+        ngm:informed-search,
+        ngm:search-algorithm ;
+    vc:contrastsWith ngm:dijkstra-algorithm,
+        ngm:monte-carlo-tree-search,
+        ngm:rrt-algorithm ;
+    vc:enables ngm:autonomous-navigation,
+        ngm:motion-planning,
+        ngm:path-planning,
+        ngm:pathfinding,
+        ngm:shortest-path ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:admissibility,
+        ngm:consistency,
+        ngm:cost-function,
+        ngm:heuristic-methods,
+        ngm:priority-queue ;
+    vc:implements ngm:graph-search,
+        ngm:heuristic-methods,
+        ngm:informed-search ;
+    vc:qualityScore "0.9"^^xsd:float ;
+    vc:relatedTo ngm:bidirectional-search,
+        ngm:d-star,
+        ngm:graph-theory,
+        ngm:ida-star,
+        ngm:jump-point-search,
+        ngm:occupancy-grid,
+        ngm:optimisation,
+        ngm:spatial-computing,
+        ngm:theta-star ;
+    vc:requires ngm:graph-representation,
+        ngm:state-space,
+        ngm:weighted-graph ;
+    vc:slug "a-star-algorithm" ;
+    vc:sourceDomain "artificial-intelligence" ;
+    vc:supports ngm:game-ai,
+        ngm:gps-systems,
+        ngm:logistics,
+        ngm:network-routing,
+        ngm:robotics ;
+    vc:uses ngm:cost-function,
+        ngm:dynamic-programming,
+        ngm:graph-search,
+        ngm:priority-queue,
+        ngm:weighted-graph .
+
+ngm:a2-a-protocol a owl:Class ;
+    rdfs:label "A2A Protocol"@en ;
+    rdfs:comment "The Agent-to-Agent (A2A) Protocol is an open communication specification, initially proposed by Google in April 2025 and transferred to the Linux Foundation in June 2025, that defines how autonomous AI agents discover one another, negotiate capabilities, delegate tasks, and exchange results across heterogeneous agent frameworks and cloud environments. It uses HTTP/HTTPS transport with JSON-RPC 2.0 structured messages and Server-Sent Events for streaming, an Agent Card system at a well-known URI for capability advertisement, and enterprise-grade authentication through OAuth 2.0, mTLS, and JWT, enabling cross-vendor agent interoperability without requiring shared infrastructure. A2A complements tool-access protocols such as the Model Context Protocol by standardising the agent-to-agent interaction layer, and reached v1.0 production readiness in 2026 with adoption by over 150 organisations including Microsoft, AWS, Salesforce, SAP, and ServiceNow."@en ;
+    rdfs:subClassOf ngm:agent-communication-protocol,
+        ngm:agent-to-agent-protocol ;
+    vc:bridgesTo ngm:microservices-architecture,
+        ngm:peer-to-peer-network,
+        ngm:semantic-web,
+        ngm:web-of-things ;
+    vc:contrastsWith ngm:model-context-protocol,
+        ngm:remote-procedure-call ;
+    vc:dependsOn ngm:autonomous-agent,
+        ngm:distributed-systems,
+        ngm:service-discovery ;
+    vc:enables ngm:agent-marketplace,
+        ngm:agentic-workflow,
+        ngm:enterprise-ai,
+        ngm:inter-agent-communication,
+        ngm:multi-agent-orchestration,
+        ngm:task-delegation ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:agent-card,
+        ngm:capability-negotiation,
+        ngm:streaming-api,
+        ngm:task-lifecycle ;
+    vc:qualityScore "0.88"^^xsd:float ;
+    vc:relatedTo ngm:contract-net-protocol,
+        ngm:fipa-acl,
+        ngm:model-context-protocol,
+        ngm:multi-agent-system,
+        ngm:prompt-injection ;
+    vc:requires ngm:http-protocol,
+        ngm:json-data-interchange-format-rpc-2-0,
+        ngm:json-data-interchange-format-schema,
+        ngm:oauth-2-0,
+        ngm:server-sent-events ;
+    vc:slug "a2-a-protocol" ;
+    vc:sourceDomain "ai" ;
+    vc:uses ngm:agent-frameworks,
+        ngm:agentic-ai,
+        ngm:function-calling,
+        ngm:json-ld,
+        ngm:protocol-buffer .
+
+ngm:aaai a owl:Class ;
+    rdfs:label "AAAI"@en ;
+    rdfs:comment "AAAI (the Association for the Advancement of Artificial Intelligence), founded in 1979 under the original name 'American Association for Artificial Intelligence' and renamed in 2007, is the principal non-profit scientific society devoted to advancing research in and responsible use of artificial intelligence. It is best known for its flagship annual peer-reviewed conference — one of the most selective and broadly scoped venues in AI — alongside the AI, Ethics and Society (AIES) conference, symposia, workshops, and the journal AI Magazine. AAAI also engages in education, public communication, and policy discussion concerning AI; administers the AAAI Fellows Program recognising sustained contributions to the discipline; and maintains historical continuity as the first professional society dedicated exclusively to AI, founded by leaders including Allen Newell, Edward Feigenbaum, Marvin Minsky, and John McCarthy. AAAI 2026 — the 40th annual conference — received 23,680 submissions and accepted 4,167 papers at a 17.6% acceptance rate, making it the most competitive edition in the conference's history."@en ;
+    rdfs:subClassOf ngm:academic-conference,
+        ngm:ai-research-area ;
+    skos:broader ngm:ai-research-area ;
+    vc:bridgesTo ngm:ai-alignment,
+        ngm:ai-governance,
+        ngm:artificial-intelligence ;
+    vc:contrastsWith ngm:cvpr,
+        ngm:iclr,
+        ngm:icml,
+        ngm:ijcai,
+        ngm:neur-ips ;
+    vc:enables ngm:ai-for-social-good,
+        ngm:ai-research,
+        ngm:benchmark-standard,
+        ngm:research-dissemination ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:aaai-conference,
+        ngm:aaai-fellows-program,
+        ngm:ai-magazine,
+        ngm:peer-review,
+        ngm:poster-session,
+        ngm:programme-committee,
+        ngm:tutorial,
+        ngm:workshop ;
+    vc:qualityScore "0.9"^^xsd:float ;
+    vc:relatedTo ngm:academic-conference,
+        ngm:knowledge-representation,
+        ngm:multi-agent-system,
+        ngm:research-institution,
+        ngm:scientific-conference,
+        ngm:symbolic-ai ;
+    vc:slug "aaai" ;
+    vc:sourceDomain "ai" ;
+    vc:standardizedBy ngm:double-blind-review,
+        ngm:peer-review ;
+    vc:supports ngm:ai-ethics,
+        ngm:ai-policy,
+        ngm:artificial-intelligence,
+        ngm:machine-learning,
+        ngm:open-science,
+        ngm:responsible-ai .
+
+ngm:abi-encoding a owl:Class ;
+    rdfs:label "ABI Encoding"@en ;
+    rdfs:comment "ABI encoding is the Application Binary Interface encoding scheme used by the Ethereum Virtual Machine to serialise function calls and their arguments into the byte layout that smart contracts expect on-chain. It defines fixed rules for encoding primitive types, dynamic types such as strings and arrays, and nested structures, so that a compiled contract can decode calldata deterministically regardless of the source language or tool that produced it. Development toolchains such as Foundry and compilers such as Vyper generate ABI-encoded calldata automatically from a contract's interface definition."@en ;
+    rdfs:subClassOf ngm:smart-contract ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:slug "abi-encoding" ;
+    vc:sourceDomain "blockchain" .
+
+ngm:acid-properties a owl:Class ;
+    rdfs:label "ACID Properties"@en ;
+    rdfs:comment "ACID Properties are the four guarantees - Atomicity, Consistency, Isolation and Durability - that define a reliable database transaction. Atomicity ensures a transaction is all-or-nothing; Consistency preserves invariants; Isolation hides concurrent intermediate states; and Durability persists committed results across failures. Together they let applications reason about correctness despite concurrency and crashes, distinguishing strongly consistent transactional systems from eventually consistent alternatives."@en ;
+    rdfs:subClassOf ngm:transaction ;
+    vc:contrastsWith ngm:scalability ;
+    vc:dependsOn ngm:data-persistence,
+        ngm:write-ahead-logging ;
+    vc:enables ngm:data-integrity,
+        ngm:relational-database,
+        ngm:reliability ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:data-integrity,
+        ngm:fault-tolerance ;
+    vc:implements ngm:data-integrity,
+        ngm:reliability ;
+    vc:isPartOf ngm:transaction ;
+    vc:qualityScore "0.62"^^xsd:float ;
+    vc:relatedTo ngm:data-persistence,
+        ngm:distributed-systems,
+        ngm:transaction ;
+    vc:requires ngm:two-phase-commit,
+        ngm:write-ahead-logging ;
+    vc:slug "acid-properties" ;
+    vc:sourceDomain "distributed-systems" ;
+    vc:supports ngm:database-management-system,
+        ngm:database-systems ;
+    vc:uses ngm:two-phase-commit .
+
+ngm:acinq a owl:Class ;
+    rdfs:label "ACINQ"@en ;
+    rdfs:comment "ACINQ is a Paris-based Bitcoin technology company specialising in the development and operation of Lightning Network infrastructure, most notably the Eclair Lightning Network node implementation written in Scala and the Phoenix self-custodial mobile Bitcoin wallet. The company operates one of the largest publicly reachable Lightning Network routing nodes, providing significant liquidity and routing capacity to the network. ACINQ contributes to the BOLT (Basis of Lightning Technology) protocol specification process and has pioneered features such as trampoline routing to reduce the on-device computation required by mobile Lightning clients."@en ;
+    rdfs:subClassOf ngm:lightning-network ;
+    vc:bridgesTo ngm:decentralised-finance,
+        ngm:peer-to-peer-network ;
+    vc:contrastsWith ngm:core-lightning,
+        ngm:lnd ;
+    vc:enables ngm:micropayment,
+        ngm:non-custodial-wallet ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:eclair,
+        ngm:phoenix-wallet ;
+    vc:implements ngm:lightning-network,
+        ngm:onion-routing ;
+    vc:isPartOf ngm:lightning-network ;
+    vc:qualityScore "0.74"^^xsd:float ;
+    vc:relatedTo ngm:bitcoin-proof-of-work-protocol-layer-2,
+        ngm:bolt-12,
+        ngm:channel-liquidity ;
+    vc:requires ngm:bitcoin,
+        ngm:payment-channel ;
+    vc:slug "acinq" ;
+    vc:sourceDomain "blockchain" ;
+    vc:supports ngm:splicing ;
+    vc:uses ngm:htlc,
+        ngm:onion-routing,
+        ngm:programming-language .
+
+ngm:acl a owl:Class ;
+    rdfs:label "ACL"@en ;
+    rdfs:comment "An Access Control List (ACL) is a data structure attached to a resource — such as a file, directory, or network interface — that enumerates which subjects (users, groups, or processes) are permitted to perform which operations on that resource. Each entry in the list is called an Access Control Entry (ACE) and specifies a principal, a set of permissions (read, write, execute, delete), and whether those permissions are granted or denied. ACLs originated in file-system security (POSIX, NTFS) and were subsequently extended to networking, where routers and firewalls use IP-level ACLs to filter packets by source address, destination port, and protocol. In distributed and cloud environments ACLs underpin fine-grained authorisation that complements role-based and attribute-based access-control models."@en ;
+    rdfs:subClassOf ngm:access-control ;
+    vc:contrastsWith ngm:policy-enforcement-point ;
+    vc:enables ngm:policy-enforcement,
+        ngm:zero-trust-architecture ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:access-control-system,
+        ngm:digital-identity,
+        ngm:identity-and-access-management ;
+    vc:slug "acl" ;
+    vc:sourceDomain "security" ;
+    vc:uses ngm:authentication,
+        ngm:encryption .
+
+ngmi:maturity-deprecated a owl:NamedIndividual,
+        ngm:MaturityLevel ;
+    rdfs:label "Deprecated"@en .
+
+ngmi:maturity-stub a owl:NamedIndividual,
+        ngm:MaturityLevel ;
+    rdfs:label "Stub"@en .
+
+vc:bridgesTo a owl:ObjectProperty ;
+    rdfs:label "bridgesTo"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:contrastsWith a owl:ObjectProperty ;
+    rdfs:label "contrastsWith"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:enabledBy a owl:ObjectProperty ;
+    rdfs:label "enabledBy"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:enables a owl:ObjectProperty ;
+    rdfs:label "enables"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:hasMaturity a owl:ObjectProperty ;
+    rdfs:label "hasMaturity"@en ;
+    rdfs:range ngm:MaturityLevel .
+
+vc:implements a owl:ObjectProperty ;
+    rdfs:label "implements"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing ;
+    rdfs:subPropertyOf vc:utilises .
+
+vc:isPartOf a owl:ObjectProperty ;
+    rdfs:label "isPartOf"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:qualityScore a owl:AnnotationProperty .
+
+vc:relatedTo a owl:ObjectProperty ;
+    rdfs:label "relatedTo"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:slug a owl:AnnotationProperty .
+
+vc:sourceDomain a owl:AnnotationProperty .
+
+vc:standardizedBy a owl:ObjectProperty ;
+    rdfs:label "standardizedBy"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+vc:supports a owl:ObjectProperty ;
+    rdfs:label "supports"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing ;
+    rdfs:subPropertyOf vc:utilises .
+
+vc:uses a owl:ObjectProperty ;
+    rdfs:label "uses"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing ;
+    rdfs:subPropertyOf vc:utilises .
+
+<https://narrativegoldmine.com/ontology> a owl:Ontology ;
+    rdfs:label "NarrativeGoldmine Ontology"@en ;
+    dc1:creator "Dr John O'Hare" ;
+    owl:versionInfo "3.1.0" .
+
+ngm:2-d-li-dar a owl:Class ;
+    rdfs:label "2D LiDAR"@en ;
+    rdfs:comment "2D LiDAR is a laser scanning sensor that emits a rotating beam in a single horizontal or vertical plane, producing a planar point cloud used for obstacle detection, proximity sensing, and 2D mapping. It is widely deployed on mobile robots and autonomous guided vehicles where full 3D sensing is unnecessary or cost-prohibitive."@en ;
+    rdfs:subClassOf ngm:robo-perception ;
+    skos:broader ngm:robo-perception ;
+    vc:bridgesTo ngm:lidar ;
+    vc:enables ngm:localisation,
+        ngm:proximity-detection,
+        ngm:simultaneous-localisation-and-mapping ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:isPartOf ngm:robo-perception ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:3-d-li-dar,
+        ngm:laser-scanner,
+        ngm:point-cloud,
+        ngm:proximity-sensor,
+        ngm:slam,
+        ngm:ultrasonic-sensor ;
+    vc:slug "2-d-li-dar" ;
+    vc:sourceDomain "robotics" ;
+    vc:uses ngm:lidar-scanning .
+
+ngm:3-d-gaussian-splatting a owl:Class ;
+    rdfs:label "3D Gaussian Splatting"@en ;
+    rdfs:comment "A neural rendering technique that represents 3D scenes as collections of millions of 3D Gaussian primitives with learnable positions, colours, opacities, and covariances, enabling photorealistic real-time rendering at 100+ frames per second through GPU-accelerated rasterisation, revolutionising telepresence and immersive collaboration with unprecedented visual fidelity."@en ;
+    rdfs:subClassOf ngm:neural-rendering ;
+    vc:bridgesTo ngm:extended-reality,
+        ngm:tele-050-neural-rendering-telepresence,
+        ngm:web-xr ;
+    vc:contrastsWith ngm:neural-radiance-fields,
+        ngm:tele-060-instant-ngp ;
+    vc:dependsOn ngm:adam-optimiser,
+        ngm:multi-view-photography,
+        ngm:point-cloud ;
+    vc:enables ngm:avatar,
+        ngm:novel-view-synthesis,
+        ngm:photorealistic-telepresence,
+        ngm:tele-053-volumetric-video-conferencing ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:gaussian-primitive,
+        ngm:spherical-harmonics ;
+    vc:implements ngm:alpha-blending ;
+    vc:isPartOf ngm:novel-view-synthesis ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:3-d-scene-reconstruction,
+        ngm:virtual-reality-telepresence ;
+    vc:requires ngm:differentiable-rendering,
+        ngm:structure-from-motion ;
+    vc:slug "3-d-gaussian-splatting" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:ssim-loss,
+        ngm:stochastic-gradient-descent .
+
+ngm:3-d-generation a owl:Class ;
+    rdfs:label "3D Generation"@en ;
+    rdfs:comment "3D Generation refers to the automated or semi-automated creation of three-dimensional geometry, appearance, and scene representations using machine learning models, procedural algorithms, or hybrid approaches. Techniques include text-to-3D, image-to-3D, and scene-level generation via neural radiance fields, Gaussian splatting, diffusion models, and large multi-modal networks. The field aims to dramatically reduce the time and skill threshold required to produce photorealistic or stylised 3D content for gaming, film, spatial computing, e-commerce, digital twins, and robotics simulation."@en ;
+    rdfs:subClassOf ngm:3-d-content-generation,
+        ngm:computer-vision,
+        ngm:generative-model ;
+    vc:enables ngm:3-d-content-creation,
+        ngm:digital-twin-generation,
+        ngm:game-asset-generation,
+        ngm:scene-generation,
+        ngm:spatial-computing ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:mesh-generation,
+        ngm:neural-3-d-generation,
+        ngm:novel-view-synthesis,
+        ngm:text-to-3-d ;
+    vc:qualityScore "0.88"^^xsd:float ;
+    vc:relatedTo ngm:3-d-reconstruction,
+        ngm:digital-twin,
+        ngm:extended-reality,
+        ngm:image-generation,
+        ngm:robotics ;
+    vc:requires ngm:differentiable-rendering,
+        ngm:gpu-compute,
+        ngm:objaverse ;
+    vc:slug "3-d-generation" ;
+    vc:sourceDomain "artificial-intelligence" ;
+    vc:uses ngm:clip,
+        ngm:diffusion-model,
+        ngm:gaussian-splatting,
+        ngm:implicit-neural-representation,
+        ngm:ne-rf,
+        ngm:score-distillation-sampling,
+        ngm:triplane .
+
+ngm:4g-lte a skos:Concept ;
+    rdfs:label "4g Lte"@en .
+
+ngm:5g-core a skos:Concept ;
+    rdfs:label "5g Core"@en .
+
+ngm:5g-core-network a skos:Concept ;
+    rdfs:label "5g Core Network"@en .
+
+ngm:6-do-f-tracking a owl:Class ;
+    rdfs:label "6DoF Tracking"@en ;
+    rdfs:comment "6DoF (Six Degrees of Freedom) Tracking is the measurement and continuous estimation of an object's complete rigid-body pose in three-dimensional space, encompassing three translational components (x, y, z position) and three rotational components (pitch, yaw, roll orientation). It is the foundational capability for XR headsets, controllers, and spatial computing devices to understand and respond to the user's physical motion with sub-millimetre accuracy and minimal latency. 6DoF tracking is achieved through sensor fusion of inertial measurement units, camera-based visual odometry, and optionally external beacons or reference markers."@en ;
+    rdfs:subClassOf ngm:simultaneous-localisation-and-mapping ;
+    vc:enables ngm:3-d-perception,
+        ngm:ar-registration,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:camera-tracking,
+        ngm:depth-sensing,
+        ngm:pose-estimation ;
+    vc:slug "6-do-f-tracking" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:imu,
+        ngm:sensor-fusion,
+        ngm:simultaneous-localisation-and-mapping .
+
+ngm:6-g-network-slice a owl:Class ;
+    rdfs:label "6G Network Slice"@en ;
+    rdfs:comment "Virtual partition of 6G infrastructure guaranteeing specified quality-of-service levels for immersive workloads through isolated resource allocation."@en ;
+    rdfs:subClassOf ngm:infra-network-and-comms ;
+    skos:broader ngm:infra-network-and-comms ;
+    vc:enables ngm:guaranteed-bandwidth,
+        ngm:resource-allocation ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:resource-allocation,
+        ngm:service-level-agreement ;
+    vc:qualityScore "0.35"^^xsd:float ;
+    vc:requires ngm:network-infrastructure ;
+    vc:slug "6-g-network-slice" ;
+    vc:sourceDomain "infrastructure" .
+
+ngm:6g a skos:Concept ;
+    rdfs:label "6g"@en .
+
+ngm:aaai-conference a skos:Concept ;
+    rdfs:label "Aaai Conference"@en .
+
+ngm:aaai-fellows-program a skos:Concept ;
+    rdfs:label "Aaai Fellows Program"@en .
+
+ngm:access-control-system a skos:Concept ;
+    rdfs:label "Access Control System"@en .
+
+ngm:accessibility-standard a skos:Concept ;
+    rdfs:label "Accessibility Standard"@en .
+
+ngm:adam-optimiser a skos:Concept ;
+    rdfs:label "Adam Optimiser"@en .
+
+ngm:admissibility a skos:Concept ;
+    rdfs:label "Admissibility"@en .
+
+ngm:agent-card a skos:Concept ;
+    rdfs:label "Agent Card"@en .
+
+ngm:agent-frameworks a skos:Concept ;
+    rdfs:label "Agent Frameworks"@en .
+
+ngm:agent-marketplace a skos:Concept ;
+    rdfs:label "Agent Marketplace"@en .
+
+ngm:agentic-ai a skos:Concept ;
+    rdfs:label "Agentic AI"@en .
+
+ngm:agentic-workflow a skos:Concept ;
+    rdfs:label "Agentic Workflow"@en .
+
+ngm:ai-alignment a skos:Concept ;
+    rdfs:label "AI Alignment"@en .
+
+ngm:ai-energy-optimisation a skos:Concept ;
+    rdfs:label "AI Energy Optimisation"@en .
+
+ngm:ai-ethics a skos:Concept ;
+    rdfs:label "AI Ethics"@en .
+
+ngm:ai-for-social-good a skos:Concept ;
+    rdfs:label "AI For Social Good"@en .
+
+ngm:ai-governance a skos:Concept ;
+    rdfs:label "AI Governance"@en .
+
+ngm:ai-magazine a skos:Concept ;
+    rdfs:label "AI Magazine"@en .
+
+ngm:ai-policy a skos:Concept ;
+    rdfs:label "AI Policy"@en .
+
+ngm:ai-research a skos:Concept ;
+    rdfs:label "AI Research"@en .
+
+ngm:alpha-blending a skos:Concept ;
+    rdfs:label "Alpha Blending"@en .
+
+ngm:animation a skos:Concept ;
+    rdfs:label "Animation"@en .
+
+ngm:animation-retargeting a skos:Concept ;
+    rdfs:label "Animation Retargeting"@en .
+
+ngm:animation-state-machine a skos:Concept ;
+    rdfs:label "Animation State Machine"@en .
+
+ngm:animation-system a skos:Concept ;
+    rdfs:label "Animation System"@en .
+
+ngm:anti-aliasing a skos:Concept ;
+    rdfs:label "Anti Aliasing"@en .
+
+ngm:artificial-intelligence-operations a skos:Concept ;
+    rdfs:label "Artificial Intelligence Operations"@en .
+
+ngm:asset-interoperability a skos:Concept ;
+    rdfs:label "Asset Interoperability"@en .
+
+ngm:asset-management-system a skos:Concept ;
+    rdfs:label "Asset Management System"@en .
+
+ngm:asset-portability a skos:Concept ;
+    rdfs:label "Asset Portability"@en .
+
+ngm:authentication a skos:Concept ;
+    rdfs:label "Authentication"@en .
+
+ngm:automated-market-maker a skos:Concept ;
+    rdfs:label "Automated Market Maker"@en .
+
+ngm:autonomous-agent a skos:Concept ;
+    rdfs:label "Autonomous Agent"@en .
+
+ngm:autonomous-robot a skos:Concept ;
+    rdfs:label "Autonomous Robot"@en .
+
+ngm:beamforming a skos:Concept ;
+    rdfs:label "Beamforming"@en .
+
+ngm:benchmark-standard a skos:Concept ;
+    rdfs:label "Benchmark Standard"@en .
+
+ngm:bidirectional-search a skos:Concept ;
+    rdfs:label "Bidirectional Search"@en .
+
+ngm:bim-software a skos:Concept ;
+    rdfs:label "Bim Software"@en .
+
+ngm:binary-encoding a skos:Concept ;
+    rdfs:label "Binary Encoding"@en .
+
+ngm:bitcoin a skos:Concept ;
+    rdfs:label "Bitcoin"@en .
+
+ngm:bitcoin-proof-of-work-protocol-layer-2 a skos:Concept ;
+    rdfs:label "Bitcoin Proof Of Work Protocol Layer 2"@en .
+
+ngm:blend-shape a skos:Concept ;
+    rdfs:label "Blend Shape"@en .
+
+ngm:blockchain a skos:Concept ;
+    rdfs:label "Blockchain"@en .
+
+ngm:blockchain-security a skos:Concept ;
+    rdfs:label "Blockchain Security"@en .
+
+ngm:bolt-12 a skos:Concept ;
+    rdfs:label "Bolt 12"@en .
+
+ngm:building-information-modelling a skos:Concept ;
+    rdfs:label "Building Information Modelling"@en .
+
+ngm:business-intelligence a skos:Concept ;
+    rdfs:label "Business Intelligence"@en .
+
+ngm:byzantine-fault-tolerance a skos:Concept ;
+    rdfs:label "Byzantine Fault Tolerance"@en .
+
+ngm:cad-software a skos:Concept ;
+    rdfs:label "Cad Software"@en .
+
+ngm:calibration a skos:Concept ;
+    rdfs:label "Calibration"@en .
+
+ngm:camera-calibration a skos:Concept ;
+    rdfs:label "Camera Calibration"@en .
+
+ngm:camera-tracking a skos:Concept ;
+    rdfs:label "Camera Tracking"@en .
+
+ngm:capability-negotiation a skos:Concept ;
+    rdfs:label "Capability Negotiation"@en .
+
+ngm:chain-reorganization a skos:Concept ;
+    rdfs:label "Chain Reorganization"@en .
+
+ngm:channel-liquidity a skos:Concept ;
+    rdfs:label "Channel Liquidity"@en .
+
+ngm:character-animation a skos:Concept ;
+    rdfs:label "Character Animation"@en .
+
+ngm:character-model a skos:Concept ;
+    rdfs:label "Character Model"@en .
+
+ngm:ci-cd-automation a skos:Concept ;
+    rdfs:label "Ci Cd Automation"@en .
+
+ngm:clip a skos:Concept ;
+    rdfs:label "Clip"@en .
+
+ngm:cloud-computing a skos:Concept ;
+    rdfs:label "Cloud Computing"@en .
+
+ngm:cloud-native a skos:Concept ;
+    rdfs:label "Cloud Native"@en .
+
+ngm:cloud-native-architecture a skos:Concept ;
+    rdfs:label "Cloud Native Architecture"@en .
+
+ngm:compute-shader a skos:Concept ;
+    rdfs:label "Compute Shader"@en .
+
+ngm:consistency a skos:Concept ;
+    rdfs:label "Consistency"@en .
+
+ngm:contract-net-protocol a skos:Concept ;
+    rdfs:label "Contract Net Protocol"@en .
+
+ngm:core-lightning a skos:Concept ;
+    rdfs:label "Core Lightning"@en .
+
+ngm:creative-tools a skos:Concept ;
+    rdfs:label "Creative Tools"@en .
+
+ngm:cross-platform-asset-exchange a skos:Concept ;
+    rdfs:label "Cross Platform Asset Exchange"@en .
+
+ngm:cryptocurrency a skos:Concept ;
+    rdfs:label "Cryptocurrency"@en .
+
+ngm:cvpr a skos:Concept ;
+    rdfs:label "Cvpr"@en .
+
+ngm:d-star a skos:Concept ;
+    rdfs:label "D Star"@en .
+
+ngm:data-compression a skos:Concept ;
+    rdfs:label "Data Compression"@en .
+
+ngm:data-science a skos:Concept ;
+    rdfs:label "Data Science"@en .
+
+ngm:data-visualisation a skos:Concept ;
+    rdfs:label "Data Visualisation"@en .
+
+ngm:database-management-system a skos:Concept ;
+    rdfs:label "Database Management System"@en .
+
+ngm:database-systems a skos:Concept ;
+    rdfs:label "Database Systems"@en .
+
+ngm:decentralised-finance a skos:Concept ;
+    rdfs:label "Decentralised Finance"@en .
+
+ngm:depth-buffer a skos:Concept ;
+    rdfs:label "Depth Buffer"@en .
+
+ngm:depth-estimation a skos:Concept ;
+    rdfs:label "Depth Estimation"@en .
+
+ngm:depth-sensor a skos:Concept ;
+    rdfs:label "Depth Sensor"@en .
+
+ngm:design-software a skos:Concept ;
+    rdfs:label "Design Software"@en .
+
+ngm:digital-art a skos:Concept ;
+    rdfs:label "Digital Art"@en .
+
+ngm:digital-heritage a skos:Concept ;
+    rdfs:label "Digital Heritage"@en .
+
+ngm:digital-identity a skos:Concept ;
+    rdfs:label "Digital Identity"@en .
+
+ngm:digital-marketing a skos:Concept ;
+    rdfs:label "Digital Marketing"@en .
+
+ngm:digital-twin-generation a skos:Concept ;
+    rdfs:label "Digital Twin Generation"@en .
+
+ngm:dijkstra-algorithm a skos:Concept ;
+    rdfs:label "Dijkstra Algorithm"@en .
+
+ngm:distributed-team-collaboration a skos:Concept ;
+    rdfs:label "Distributed Team Collaboration"@en .
+
+ngm:double-blind-review a skos:Concept ;
+    rdfs:label "Double Blind Review"@en .
+
+ngm:double-spending a skos:Concept ;
+    rdfs:label "Double Spending"@en .
+
+ngm:driver-software a skos:Concept ;
+    rdfs:label "Driver Software"@en .
+
+ngm:dynamic-programming a skos:Concept ;
+    rdfs:label "Dynamic Programming"@en .
+
+ngm:e-commerce-3-d a skos:Concept ;
+    rdfs:label "E Commerce 3 D"@en .
+
+ngm:eclair a skos:Concept ;
+    rdfs:label "Eclair"@en .
+
+ngm:edge-computing a skos:Concept ;
+    rdfs:label "Edge Computing"@en .
+
+ngm:embodied-interaction a skos:Concept ;
+    rdfs:label "Embodied Interaction"@en .
+
+ngm:encryption a skos:Concept ;
+    rdfs:label "Encryption"@en .
+
+ngm:enterprise-ai a skos:Concept ;
+    rdfs:label "Enterprise AI"@en .
+
+ngm:environmental-mapping a skos:Concept ;
+    rdfs:label "Environmental Mapping"@en .
+
+ngm:ethereum-smart-contract-platform a skos:Concept ;
+    rdfs:label "Ethereum Smart Contract Platform"@en .
+
+ngm:ethereum-smart-contract-platform-classic a skos:Concept ;
+    rdfs:label "Ethereum Smart Contract Platform Classic"@en .
+
+ngm:fault-tolerance a skos:Concept ;
+    rdfs:label "Fault Tolerance"@en .
+
+ngm:feature-matching a skos:Concept ;
+    rdfs:label "Feature Matching"@en .
+
+ngm:finality a skos:Concept ;
+    rdfs:label "Finality"@en .
+
+ngm:fipa-acl a skos:Concept ;
+    rdfs:label "Fipa Acl"@en .
+
+ngm:function-calling a skos:Concept ;
+    rdfs:label "Function Calling"@en .
+
+ngm:game-ai a skos:Concept ;
+    rdfs:label "Game AI"@en .
+
+ngm:game-asset-generation a skos:Concept ;
+    rdfs:label "Game Asset Generation"@en .
+
+ngm:game-theory a skos:Concept ;
+    rdfs:label "Game Theory"@en .
+
+ngm:gaussian-primitive a skos:Concept ;
+    rdfs:label "Gaussian Primitive"@en .
+
+ngm:generative-adversarial-network a skos:Concept ;
+    rdfs:label "Generative Adversarial Network"@en .
+
+ngm:gesture-recognition a skos:Concept ;
+    rdfs:label "Gesture Recognition"@en .
+
+ngm:gl-tf a skos:Concept ;
+    rdfs:label "Gl Tf"@en .
+
+ngm:global-illumination a skos:Concept ;
+    rdfs:label "Global Illumination"@en .
+
+ngm:governance-token a skos:Concept ;
+    rdfs:label "Governance Token"@en .
+
+ngm:gps-systems a skos:Concept ;
+    rdfs:label "Gps Systems"@en .
+
+ngm:gpu a skos:Concept ;
+    rdfs:label "Gpu"@en .
+
+ngm:graph-representation a skos:Concept ;
+    rdfs:label "Graph Representation"@en .
+
+ngm:graph-theory a skos:Concept ;
+    rdfs:label "Graph Theory"@en .
+
+ngm:graphical-user-interface a skos:Concept ;
+    rdfs:label "Graphical User Interface"@en .
+
+ngm:graphics-api a skos:Concept ;
+    rdfs:label "Graphics API"@en .
+
+ngm:hardware-acceleration a skos:Concept ;
+    rdfs:label "Hardware Acceleration"@en .
+
+ngm:hash-rate a skos:Concept ;
+    rdfs:label "Hash Rate"@en .
+
+ngm:htlc a skos:Concept ;
+    rdfs:label "Htlc"@en .
+
+ngm:http-protocol a skos:Concept ;
+    rdfs:label "Http Protocol"@en .
+
+ngm:iclr a skos:Concept ;
+    rdfs:label "Iclr"@en .
+
+ngm:icml a skos:Concept ;
+    rdfs:label "Icml"@en .
+
+ngm:ida-star a skos:Concept ;
+    rdfs:label "Ida Star"@en .
+
+ngm:identity-and-access-management a skos:Concept ;
+    rdfs:label "Identity And Access Management"@en .
+
+ngm:ieee a skos:Concept ;
+    rdfs:label "Ieee"@en .
+
+ngm:ijcai a skos:Concept ;
+    rdfs:label "Ijcai"@en .
+
+ngm:image-generation a skos:Concept ;
+    rdfs:label "Image Generation"@en .
+
+ngm:image-processing a skos:Concept ;
+    rdfs:label "Image Processing"@en .
+
+ngm:immersive-experiences a skos:Concept ;
+    rdfs:label "Immersive Experiences"@en .
+
+ngm:implicit-neural-representation a skos:Concept ;
+    rdfs:label "Implicit Neural Representation"@en .
+
+ngm:imu a skos:Concept ;
+    rdfs:label "Imu"@en .
+
+ngm:industrial-io-t a skos:Concept ;
+    rdfs:label "Industrial Io T"@en .
+
+ngm:inference a skos:Concept ;
+    rdfs:label "Inference"@en .
+
+ngm:inter-agent-communication a skos:Concept ;
+    rdfs:label "Inter Agent Communication"@en .
+
+ngm:interaction-design a skos:Concept ;
+    rdfs:label "Interaction Design"@en .
+
+ngm:interactive-visualization a skos:Concept ;
+    rdfs:label "Interactive Visualization"@en .
+
+ngm:interoperability a skos:Concept ;
+    rdfs:label "Interoperability"@en .
+
+ngm:inverse-kinematics a skos:Concept ;
+    rdfs:label "Inverse Kinematics"@en .
+
+ngm:iso-iec-jtc-1-sc-24 a skos:Concept ;
+    rdfs:label "Iso Iec Jtc 1 Sc 24"@en .
+
+ngm:json-data-interchange-format-rpc-2-0 a skos:Concept ;
+    rdfs:label "Json Data Interchange Format Rpc 2 0"@en .
+
+ngm:json-data-interchange-format-schema a skos:Concept ;
+    rdfs:label "Json Data Interchange Format Schema"@en .
+
+ngm:json-ld a skos:Concept ;
+    rdfs:label "Json Ld"@en .
+
+ngm:jump-point-search a skos:Concept ;
+    rdfs:label "Jump Point Search"@en .
+
+ngm:keyframe-animation a skos:Concept ;
+    rdfs:label "Keyframe Animation"@en .
+
+ngm:knowledge-representation a skos:Concept ;
+    rdfs:label "Knowledge Representation"@en .
+
+ngm:laser-scanner a skos:Concept ;
+    rdfs:label "Laser Scanner"@en .
+
+ngm:latency a skos:Concept ;
+    rdfs:label "Latency"@en .
+
+ngm:liquidity-pool a skos:Concept ;
+    rdfs:label "Liquidity Pool"@en .
+
+ngm:lnd a skos:Concept ;
+    rdfs:label "Lnd"@en .
+
+ngm:localisation a skos:Concept ;
+    rdfs:label "Localisation"@en .
+
+ngm:logistics a skos:Concept ;
+    rdfs:label "Logistics"@en .
+
+ngm:machine-learning-discipline a skos:Concept ;
+    rdfs:label "Machine Learning Discipline"@en .
+
+ngm:material-system a skos:Concept ;
+    rdfs:label "Material System"@en .
+
+ngm:material-x a skos:Concept ;
+    rdfs:label "Material X"@en .
+
+ngm:medical-imaging a skos:Concept ;
+    rdfs:label "Medical Imaging"@en .
+
+ngm:metaverse-and-telecollaboration a skos:Concept ;
+    rdfs:label "Metaverse And Telecollaboration"@en .
+
+ngm:metaverse-content-creation a skos:Concept ;
+    rdfs:label "Metaverse Content Creation"@en .
+
+ngm:metaverse-infrastructure a skos:Concept ;
+    rdfs:label "Metaverse Infrastructure"@en .
+
+ngm:metaverse-interoperability a skos:Concept ;
+    rdfs:label "Metaverse Interoperability"@en .
+
+ngm:metaverse-platform a skos:Concept ;
+    rdfs:label "Metaverse Platform"@en .
+
+ngm:metaverse-standards-forum a skos:Concept ;
+    rdfs:label "Metaverse Standards Forum"@en .
+
+ngm:metrics a skos:Concept ;
+    rdfs:label "Metrics"@en .
+
+ngm:micropayment a skos:Concept ;
+    rdfs:label "Micropayment"@en .
+
+ngm:microservices-architecture a skos:Concept ;
+    rdfs:label "Microservices Architecture"@en .
+
+ngm:mining a skos:Concept ;
+    rdfs:label "Mining"@en .
+
+ngm:mining-hardware a skos:Concept ;
+    rdfs:label "Mining Hardware"@en .
+
+ngm:mining-pool a skos:Concept ;
+    rdfs:label "Mining Pool"@en .
+
+ngm:mixed-reality a skos:Concept ;
+    rdfs:label "Mixed Reality"@en .
+
+ngm:monitoring-dashboard a skos:Concept ;
+    rdfs:label "Monitoring Dashboard"@en .
+
+ngm:monte-carlo-tree-search a skos:Concept ;
+    rdfs:label "Monte Carlo Tree Search"@en .
+
+ngm:motion-planning a skos:Concept ;
+    rdfs:label "Motion Planning"@en .
+
+ngm:multi-agent-orchestration a skos:Concept ;
+    rdfs:label "Multi Agent Orchestration"@en .
+
+ngm:multi-view-photography a skos:Concept ;
+    rdfs:label "Multi View Photography"@en .
+
+ngm:multimodal-interaction a skos:Concept ;
+    rdfs:label "Multimodal Interaction"@en .
+
+ngm:multirotor-uav a skos:Concept ;
+    rdfs:label "Multirotor Uav"@en .
+
+ngm:network-architecture a skos:Concept ;
+    rdfs:label "Network Architecture"@en .
+
+ngm:network-routing a skos:Concept ;
+    rdfs:label "Network Routing"@en .
+
+ngm:network-security a skos:Concept ;
+    rdfs:label "Network Security"@en .
+
+ngm:neur-ips a skos:Concept ;
+    rdfs:label "Neur Ips"@en .
+
+ngm:neural-3-d-generation a skos:Concept ;
+    rdfs:label "Neural 3 D Generation"@en .
+
+ngm:neural-radiance-fields a skos:Concept ;
+    rdfs:label "Neural Radiance Fields"@en .
+
+ngm:non-custodial-wallet a skos:Concept ;
+    rdfs:label "Non Custodial Wallet"@en .
+
+ngm:non-destructive-editing a skos:Concept ;
+    rdfs:label "Non Destructive Editing"@en .
+
+ngm:normal-map a skos:Concept ;
+    rdfs:label "Normal Map"@en .
+
+ngm:o-ran-alliance a skos:Concept ;
+    rdfs:label "O Ran Alliance"@en .
+
+ngm:oauth-2-0 a skos:Concept ;
+    rdfs:label "Oauth 2 0"@en .
+
+ngm:obj-format a skos:Concept ;
+    rdfs:label "Obj Format"@en .
+
+ngm:objaverse a skos:Concept ;
+    rdfs:label "Objaverse"@en .
+
+ngm:object-detection a skos:Concept ;
+    rdfs:label "Object Detection"@en .
+
+ngm:occupancy-grid a skos:Concept ;
+    rdfs:label "Occupancy Grid"@en .
+
+ngm:offline-rendering a skos:Concept ;
+    rdfs:label "Offline Rendering"@en .
+
+ngm:open-ran a skos:Concept ;
+    rdfs:label "Open Ran"@en .
+
+ngm:open-science a skos:Concept ;
+    rdfs:label "Open Science"@en .
+
+ngm:open-standard a skos:Concept ;
+    rdfs:label "Open Standard"@en .
+
+ngm:path-planning a skos:Concept ;
+    rdfs:label "Path Planning"@en .
+
+ngm:path-tracing a skos:Concept ;
+    rdfs:label "Path Tracing"@en .
+
+ngm:pathfinding a skos:Concept ;
+    rdfs:label "Pathfinding"@en .
+
+ngm:payment-channel a skos:Concept ;
+    rdfs:label "Payment Channel"@en .
+
+ngm:pbr-materials a skos:Concept ;
+    rdfs:label "Pbr Materials"@en .
+
+ngm:perception-system a skos:Concept ;
+    rdfs:label "Perception System"@en .
+
+ngm:phoenix-wallet a skos:Concept ;
+    rdfs:label "Phoenix Wallet"@en .
+
+ngm:photorealistic-rendering a skos:Concept ;
+    rdfs:label "Photorealistic Rendering"@en .
+
+ngm:photorealistic-telepresence a skos:Concept ;
+    rdfs:label "Photorealistic Telepresence"@en .
+
+ngm:physics-engine a skos:Concept ;
+    rdfs:label "Physics Engine"@en .
+
+ngm:physics-simulation-engine a skos:Concept ;
+    rdfs:label "Physics Simulation Engine"@en .
+
+ngm:pixar-animation-studios a skos:Concept ;
+    rdfs:label "Pixar Animation Studios"@en .
+
+ngm:pixel-shader a skos:Concept ;
+    rdfs:label "Pixel Shader"@en .
+
+ngm:point-cloud-generation a skos:Concept ;
+    rdfs:label "Point Cloud Generation"@en .
+
+ngm:point-cloud-processing a skos:Concept ;
+    rdfs:label "Point Cloud Processing"@en .
+
+ngm:policy-enforcement a skos:Concept ;
+    rdfs:label "Policy Enforcement"@en .
+
+ngm:policy-enforcement-point a skos:Concept ;
+    rdfs:label "Policy Enforcement Point"@en .
+
+ngm:poster-session a skos:Concept ;
+    rdfs:label "Poster Session"@en .
+
+ngm:predictive-personalization a skos:Concept ;
+    rdfs:label "Predictive Personalization"@en .
+
+ngm:private-5g-network a skos:Concept ;
+    rdfs:label "Private 5g Network"@en .
+
+ngm:procedural-animation a skos:Concept ;
+    rdfs:label "Procedural Animation"@en .
+
+ngm:programme-committee a skos:Concept ;
+    rdfs:label "Programme Committee"@en .
+
+ngm:programming-language a skos:Concept ;
+    rdfs:label "Programming Language"@en .
+
+ngm:prompt-injection a skos:Concept ;
+    rdfs:label "Prompt Injection"@en .
+
+ngm:proof-of-stake a skos:Concept ;
+    rdfs:label "Proof Of Stake"@en .
+
+ngm:proof-of-work a skos:Concept ;
+    rdfs:label "Proof Of Work"@en .
+
+ngm:protocol-buffer a skos:Concept ;
+    rdfs:label "Protocol Buffer"@en .
+
+ngm:proximity-detection a skos:Concept ;
+    rdfs:label "Proximity Detection"@en .
+
+ngm:proximity-sensor a skos:Concept ;
+    rdfs:label "Proximity Sensor"@en .
+
+ngm:quadratic-funding a skos:Concept ;
+    rdfs:label "Quadratic Funding"@en .
+
+ngm:quality-inspection a skos:Concept ;
+    rdfs:label "Quality Inspection"@en .
+
+ngm:radio-access-network a skos:Concept ;
+    rdfs:label "Radio Access Network"@en .
+
+ngm:real-time-visualisation a skos:Concept ;
+    rdfs:label "Real Time Visualisation"@en .
+
+ngm:recommendation-system a skos:Concept ;
+    rdfs:label "Recommendation System"@en .
+
+ngm:relational-database a skos:Concept ;
+    rdfs:label "Relational Database"@en .
+
+ngm:remote-procedure-call a skos:Concept ;
+    rdfs:label "Remote Procedure Call"@en .
+
+ngm:render-pipeline a skos:Concept ;
+    rdfs:label "Render Pipeline"@en .
+
+ngm:rendering a skos:Concept ;
+    rdfs:label "Rendering"@en .
+
+ngm:rendering-engine a skos:Concept ;
+    rdfs:label "Rendering Engine"@en .
+
+ngm:research-dissemination a skos:Concept ;
+    rdfs:label "Research Dissemination"@en .
+
+ngm:research-institution a skos:Concept ;
+    rdfs:label "Research Institution"@en .
+
+ngm:responsible-ai a skos:Concept ;
+    rdfs:label "Responsible AI"@en .
+
+ngm:reverse-engineering a skos:Concept ;
+    rdfs:label "Reverse Engineering"@en .
+
+ngm:robotics-perception a skos:Concept ;
+    rdfs:label "Robotics Perception"@en .
+
+ngm:rrt-algorithm a skos:Concept ;
+    rdfs:label "Rrt Algorithm"@en .
+
+ngm:scalability a skos:Concept ;
+    rdfs:label "Scalability"@en .
+
+ngm:scene-generation a skos:Concept ;
+    rdfs:label "Scene Generation"@en .
+
+ngm:scene-graph-format a skos:Concept ;
+    rdfs:label "Scene Graph Format"@en .
+
+ngm:scene-understanding a skos:Concept ;
+    rdfs:label "Scene Understanding"@en .
+
+ngm:scientific-conference a skos:Concept ;
+    rdfs:label "Scientific Conference"@en .
+
+ngm:score-distillation-sampling a skos:Concept ;
+    rdfs:label "Score Distillation Sampling"@en .
+
+ngm:selfish-mining a skos:Concept ;
+    rdfs:label "Selfish Mining"@en .
+
+ngm:semantic-segmentation a skos:Concept ;
+    rdfs:label "Semantic Segmentation"@en .
+
+ngm:semantic-web a skos:Concept ;
+    rdfs:label "Semantic Web"@en .
+
+ngm:semantic-web-linked-data-standard a skos:Concept ;
+    rdfs:label "Semantic Web Linked Data Standard"@en .
+
+ngm:sensor-input a skos:Concept ;
+    rdfs:label "Sensor Input"@en .
+
+ngm:server-sent-events a skos:Concept ;
+    rdfs:label "Server Sent Events"@en .
+
+ngm:service-discovery a skos:Concept ;
+    rdfs:label "Service Discovery"@en .
+
+ngm:service-level-agreement a skos:Concept ;
+    rdfs:label "Service Level Agreement"@en .
+
+ngm:service-oriented-architecture a skos:Concept ;
+    rdfs:label "Service Oriented Architecture"@en .
+
+ngm:shader-pipeline a skos:Concept ;
+    rdfs:label "Shader Pipeline"@en .
+
+ngm:shortest-path a skos:Concept ;
+    rdfs:label "Shortest Path"@en .
+
+ngm:skinning a skos:Concept ;
+    rdfs:label "Skinning"@en .
+
+ngm:software-defined-networking a skos:Concept ;
+    rdfs:label "Software Defined Networking"@en .
+
+ngm:software-development a skos:Concept ;
+    rdfs:label "Software Development"@en .
+
+ngm:spatial-web a skos:Concept ;
+    rdfs:label "Spatial Web"@en .
+
+ngm:spherical-harmonics a skos:Concept ;
+    rdfs:label "Spherical Harmonics"@en .
+
+ngm:splicing a skos:Concept ;
+    rdfs:label "Splicing"@en .
+
+ngm:ssim-loss a skos:Concept ;
+    rdfs:label "Ssim Loss"@en .
+
+ngm:state-space a skos:Concept ;
+    rdfs:label "State Space"@en .
+
+ngm:statistics a skos:Concept ;
+    rdfs:label "Statistics"@en .
+
+ngm:stereo-camera a skos:Concept ;
+    rdfs:label "Stereo Camera"@en .
+
+ngm:stereoscopic-display a skos:Concept ;
+    rdfs:label "Stereoscopic Display"@en .
+
+ngm:stochastic-gradient-descent a skos:Concept ;
+    rdfs:label "Stochastic Gradient Descent"@en .
+
+ngm:streaming-api a skos:Concept ;
+    rdfs:label "Streaming API"@en .
+
+ngm:structured-light a skos:Concept ;
+    rdfs:label "Structured Light"@en .
+
+ngm:symbolic-ai a skos:Concept ;
+    rdfs:label "Symbolic AI"@en .
+
+ngm:task-delegation a skos:Concept ;
+    rdfs:label "Task Delegation"@en .
+
+ngm:task-lifecycle a skos:Concept ;
+    rdfs:label "Task Lifecycle"@en .
+
+ngm:technical-standard a skos:Concept ;
+    rdfs:label "Technical Standard"@en .
+
+ngm:tele-050-neural-rendering-telepresence a skos:Concept ;
+    rdfs:label "Tele 050 Neural Rendering Telepresence"@en .
+
+ngm:tele-053-volumetric-video-conferencing a skos:Concept ;
+    rdfs:label "Tele 053 Volumetric Video Conferencing"@en .
+
+ngm:tele-060-instant-ngp a skos:Concept ;
+    rdfs:label "Tele 060 Instant Ngp"@en .
+
+ngm:text-to-3-d a skos:Concept ;
+    rdfs:label "Text To 3 D"@en .
+
+ngm:texture-atlas a skos:Concept ;
+    rdfs:label "Texture Atlas"@en .
+
+ngm:texture-authoring a skos:Concept ;
+    rdfs:label "Texture Authoring"@en .
+
+ngm:texture-compression a skos:Concept ;
+    rdfs:label "Texture Compression"@en .
+
+ngm:texture-synthesis a skos:Concept ;
+    rdfs:label "Texture Synthesis"@en .
+
+ngm:theta-star a skos:Concept ;
+    rdfs:label "Theta Star"@en .
+
+ngm:time-of-flight-sensor a skos:Concept ;
+    rdfs:label "Time Of Flight Sensor"@en .
+
+ngm:topology a skos:Concept ;
+    rdfs:label "Topology"@en .
+
+ngm:transaction-censorship a skos:Concept ;
+    rdfs:label "Transaction Censorship"@en .
+
+ngm:transport-network a skos:Concept ;
+    rdfs:label "Transport Network"@en .
+
+ngm:triplane a skos:Concept ;
+    rdfs:label "Triplane"@en .
+
+ngm:tutorial a skos:Concept ;
+    rdfs:label "Tutorial"@en .
+
+ngm:ultrasonic-sensor a skos:Concept ;
+    rdfs:label "Ultrasonic Sensor"@en .
+
+ngm:usability-testing a skos:Concept ;
+    rdfs:label "Usability Testing"@en .
+
+ngm:user-experience a skos:Concept ;
+    rdfs:label "User Experience"@en .
+
+ngm:user-interface a skos:Concept ;
+    rdfs:label "User Interface"@en .
+
+ngm:user-navigation a skos:Concept ;
+    rdfs:label "User Navigation"@en .
+
+ngm:vehicle-to-everything a skos:Concept ;
+    rdfs:label "Vehicle To Everything"@en .
+
+ngm:vertex-attribute a skos:Concept ;
+    rdfs:label "Vertex Attribute"@en .
+
+ngm:video-streaming a skos:Concept ;
+    rdfs:label "Video Streaming"@en .
+
+ngm:virtual-environment a skos:Concept ;
+    rdfs:label "Virtual Environment"@en .
+
+ngm:virtual-lighting-model a skos:Concept ;
+    rdfs:label "Virtual Lighting Model"@en .
+
+ngm:virtual-production a skos:Concept ;
+    rdfs:label "Virtual Production"@en .
+
+ngm:virtual-reality-telepresence a skos:Concept ;
+    rdfs:label "Virtual Reality Telepresence"@en .
+
+ngm:virtual-world a skos:Concept ;
+    rdfs:label "Virtual World"@en .
+
+ngm:volumetric-capture a skos:Concept ;
+    rdfs:label "Volumetric Capture"@en .
+
+ngm:volumetric-video a skos:Concept ;
+    rdfs:label "Volumetric Video"@en .
+
+ngm:voxel a skos:Concept ;
+    rdfs:label "Voxel"@en .
+
+ngm:vr-experiences a skos:Concept ;
+    rdfs:label "VR Experiences"@en .
+
+ngm:w3-c a skos:Concept ;
+    rdfs:label "W3 C"@en .
+
+ngm:web-of-things a skos:Concept ;
+    rdfs:label "Web Of Things"@en .
+
+ngm:web-xr a skos:Concept ;
+    rdfs:label "Web XR"@en .
+
+ngm:webgpu a skos:Concept ;
+    rdfs:label "Webgpu"@en .
+
+ngm:wi-fi a skos:Concept ;
+    rdfs:label "Wi Fi"@en .
+
+ngm:workshop a skos:Concept ;
+    rdfs:label "Workshop"@en .
+
+ngm:xr-content-delivery a skos:Concept ;
+    rdfs:label "XR Content Delivery"@en .
+
+ngm:zero-trust-architecture a skos:Concept ;
+    rdfs:label "Zero Trust Architecture"@en .
+
+vc:dependsOn a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "dependsOn"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+ngm:3-d-content-creation a owl:Class ;
+    rdfs:label "3D Content Creation"@en ;
+    rdfs:comment "3D Content Creation encompasses the end-to-end process of designing, modelling, texturing, rigging, and rendering three-dimensional digital assets and environments for use in games, film, XR experiences, and digital twins. It spans artistic and technical disciplines ranging from polygon modelling and UV unwrapping to physically based material authoring and real-time rendering optimisation. The discipline bridges human creative intent and the technical pipelines that deliver interactive or cinematic experiences."@en ;
+    rdfs:subClassOf ngm:content-creation ;
+    vc:enables ngm:3-d-content-pipeline,
+        ngm:digital-twin-creation,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:3-d-asset,
+        ngm:3-d-generation,
+        ngm:motion-capture ;
+    vc:slug "3-d-content-creation" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:3-d-modeling-software,
+        ngm:3-d-rendering-engine,
+        ngm:physically-based-rendering .
+
+ngm:3-d-content-pipeline a owl:Class ;
+    rdfs:label "3D Content Pipeline"@en ;
+    rdfs:comment "The comprehensive workflows, tools, and methodologies for creating, processing, optimising, and delivering three-dimensional assets for metaverse and spatial computing applications. A 3D content pipeline spans concept art, geometry modelling, UV mapping, PBR texturing, rigging, LOD generation, and platform-specific optimisation, integrating DCC tools, game engines, version control, and CI/CD systems to support distributed teams and continuous asset delivery."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:hasPart ;
+            owl:someValuesFrom ngm:3-d-asset ],
+        [ a owl:Restriction ;
+            owl:onProperty vc:hasPart ;
+            owl:someValuesFrom ngm:3-d-animation ],
+        ngm:infra-software-engineering ;
+    skos:broader ngm:infra-software-engineering ;
+    vc:bridgesTo ngm:cloud-computing ;
+    vc:dependsOn ngm:asset-management-system,
+        ngm:ci-cd-automation ;
+    vc:enables ngm:metaverse-and-telecollaboration,
+        ngm:procedural-generation,
+        ngm:real-time-rendering,
+        ngm:xr-content-delivery ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:3-d-animation,
+        ngm:3-d-asset,
+        ngm:character-rigging,
+        ngm:level-of-detail,
+        ngm:rendering-pipeline ;
+    vc:qualityScore "0.73"^^xsd:float ;
+    vc:relatedTo ngm:3-d-content-generation,
+        ngm:digital-twin ;
+    vc:requires ngm:digital-content-creation,
+        ngm:game-engine,
+        ngm:version-control ;
+    vc:slug "3-d-content-pipeline" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:gltf-standard,
+        ngm:universal-scene-description ;
+    vc:supports ngm:distributed-team-collaboration ;
+    vc:uses ngm:geometry-processing,
+        ngm:physically-based-rendering .
+
+ngm:3-d-graphics-standard a owl:Class ;
+    rdfs:label "3D Graphics Standard"@en ;
+    rdfs:comment "3D Graphics Standards are technical specifications and conventions governing the representation, rendering, and interchange of three-dimensional visual data, including APIs like OpenGL, DirectX, and Vulkan, shader languages, and coordinate system conventions."@en ;
+    rdfs:subClassOf ngm:sc-content-and-assets,
+        ngm:sc-display-and-rendering ;
+    skos:broader ngm:sc-content-and-assets,
+        ngm:sc-display-and-rendering ;
+    vc:enables ngm:cross-platform-compatibility,
+        ngm:hardware-acceleration,
+        ngm:real-time-rendering ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:implements ngm:technical-standard ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:requires ngm:driver-software,
+        ngm:gpu ;
+    vc:slug "3-d-graphics-standard" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:3-d-li-dar a owl:Class ;
+    rdfs:label "3D LiDAR"@en ;
+    rdfs:comment "3D LiDAR is a active ranging sensor that emits pulsed laser light across multiple vertical channels to capture dense three-dimensional point clouds of the surrounding environment. Spinning or solid-state variants measure range and intensity for hundreds of thousands of points per second, enabling robots and autonomous vehicles to perform obstacle detection, SLAM, and high-fidelity scene reconstruction in real time."@en ;
+    rdfs:subClassOf ngm:robo-perception ;
+    skos:broader ngm:robo-perception ;
+    vc:bridgesTo ngm:lidar ;
+    vc:enables ngm:autonomous-navigation,
+        ngm:point-cloud,
+        ngm:simultaneous-localisation-and-mapping,
+        ngm:slam ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:2-d-li-dar,
+        ngm:lidar-scanning,
+        ngm:multirotor-uav,
+        ngm:stereo-camera ;
+    vc:slug "3-d-li-dar" ;
+    vc:sourceDomain "robotics" ;
+    vc:uses ngm:perception-system,
+        ngm:sensor-fusion .
+
+ngm:3-d-rendering a owl:Class ;
+    rdfs:label "3D Rendering"@en ;
+    rdfs:comment "3D rendering is the computational process of generating a two-dimensional image or animation from a three-dimensional scene description by simulating the interaction of light with surfaces, materials, and geometry. It encompasses techniques ranging from real-time rasterization used in interactive applications to physically-based ray tracing and path tracing used for photorealistic offline production. The pipeline converts geometric primitives, shader programs, texture maps, and lighting data into final pixel colours via a GPU compute pipeline or software renderer. Contemporary rendering also incorporates neural methods such as Neural Radiance Fields and 3D Gaussian Splatting, as well as AI-driven upscaling and denoising, blurring the boundary between classical computer graphics and machine learning."@en ;
+    rdfs:subClassOf ngm:computer-graphics ;
+    vc:bridgesTo ngm:3-d-content-generation,
+        ngm:3-d-gaussian-splatting,
+        ngm:differentiable-rendering,
+        ngm:neural-radiance-field ;
+    vc:dependsOn ngm:3-d-rendering-engine,
+        ngm:linear-algebra ;
+    vc:enables ngm:augmented-reality,
+        ngm:foveated-rendering,
+        ngm:photorealistic-rendering,
+        ngm:physically-based-rendering,
+        ngm:real-time-graphics,
+        ngm:virtual-reality ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:compute-shader,
+        ngm:path-tracing,
+        ngm:pixel-shader,
+        ngm:rasterization,
+        ngm:ray-tracing,
+        ngm:render-pipeline ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:anti-aliasing,
+        ngm:global-illumination,
+        ngm:level-of-detail,
+        ngm:spatial-computing ;
+    vc:requires ngm:depth-buffer,
+        ngm:graphics-processing-unit,
+        ngm:virtual-lighting-model ;
+    vc:slug "3-d-rendering" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:3-d-model,
+        ngm:gpu-compute,
+        ngm:scene-graph,
+        ngm:shader,
+        ngm:texture-mapping .
+
+ngm:3-d-scanning a owl:Class ;
+    rdfs:label "3D Scanning"@en ;
+    rdfs:comment "3D Scanning is the process of capturing the three-dimensional shape, and optionally the colour and texture, of real-world objects, people, or environments using hardware such as structured-light scanners, time-of-flight LiDAR, photogrammetry rigs, or depth cameras, producing digital point clouds or meshes that represent the physical source. The resulting data feeds into digital preservation, reverse engineering, visual-effects production, quality inspection, and spatial computing pipelines. Accuracy, resolution, and scan volume are the primary quality axes that distinguish scanning technologies."@en ;
+    rdfs:subClassOf ngm:3-d-reconstruction ;
+    vc:bridgesTo ngm:medical-imaging,
+        ngm:robotics-perception ;
+    vc:contrastsWith ngm:neural-radiance-field,
+        ngm:structure-from-motion ;
+    vc:enables ngm:3-d-scene-reconstruction,
+        ngm:digital-heritage,
+        ngm:digital-twin-creation,
+        ngm:point-cloud-processing,
+        ngm:reverse-engineering ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:mesh-generation,
+        ngm:point-cloud ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:3-d-perception,
+        ngm:gaussian-splatting,
+        ngm:simultaneous-localisation-and-mapping ;
+    vc:requires ngm:calibration,
+        ngm:depth-sensor ;
+    vc:slug "3-d-scanning" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:supports ngm:augmented-reality,
+        ngm:building-information-modelling,
+        ngm:quality-inspection ;
+    vc:uses ngm:3-d-li-dar,
+        ngm:photogrammetry,
+        ngm:structured-light,
+        ngm:time-of-flight-sensor .
+
+ngm:3-d-scene-reconstruction a owl:Class ;
+    rdfs:label "3D Scene Reconstruction"@en ;
+    rdfs:comment "3D Scene Reconstruction is the computational process of recovering a complete, coherent three-dimensional model of an environment or scene from sensor observations such as images, depth maps, or LiDAR returns, integrating multiple viewpoints and modalities into a unified representation. Methods include volumetric fusion, truncated signed distance function (TSDF) integration, neural implicit representations, and Gaussian splatting, each offering different trade-offs between completeness, accuracy, and real-time capability. The output is used in robotics, autonomous driving, spatial computing, and cultural heritage documentation."@en ;
+    rdfs:subClassOf ngm:3-d-reconstruction ;
+    vc:enables ngm:3-d-perception,
+        ngm:ar-registration,
+        ngm:digital-twin-creation ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:3-d-scanning,
+        ngm:gaussian-splatting,
+        ngm:ne-rf ;
+    vc:slug "3-d-scene-reconstruction" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:multi-view-stereo,
+        ngm:simultaneous-localisation-and-mapping,
+        ngm:structure-from-motion .
+
+ngm:3-d-scene-representation a owl:Class ;
+    rdfs:label "3D Scene Representation"@en ;
+    rdfs:comment "A 3D scene representation is a data structure that encodes the geometry, appearance and spatial layout of a three-dimensional environment, such as point clouds, meshes, voxel grids or neural implicit fields. It underpins 3D content generation and reconstruction pipelines, providing the intermediate format from which renderable or editable scenes are produced. Point clouds are one common instance, forming a sparse, unstructured representation that is often converted into denser structures for downstream use."@en ;
+    rdfs:subClassOf ngm:scene-representation ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:isPartOf ngm:point-cloud ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:slug "3-d-scene-representation" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:5g-new-radio a skos:Concept ;
+    rdfs:label "5g New Radio"@en .
+
+ngm:academic-conference a skos:Concept ;
+    rdfs:label "Academic Conference"@en .
+
+ngm:academy-software-foundation a skos:Concept ;
+    rdfs:label "Academy Software Foundation"@en .
+
+ngm:animation-rig a skos:Concept ;
+    rdfs:label "Animation Rig"@en .
+
+ngm:ar-registration a skos:Concept ;
+    rdfs:label "AR Registration"@en .
+
+ngm:asset-creation a skos:Concept ;
+    rdfs:label "Asset Creation"@en .
+
+ngm:autonomous-navigation a skos:Concept ;
+    rdfs:label "Autonomous Navigation"@en .
+
+ngm:autonomous-vehicle a skos:Concept ;
+    rdfs:label "Autonomous Vehicle"@en .
+
+ngm:avatar a skos:Concept ;
+    rdfs:label "Avatar"@en .
+
+ngm:computational-geometry a skos:Concept ;
+    rdfs:label "Computational Geometry"@en .
+
+ngm:computer-aided-design a skos:Concept ;
+    rdfs:label "Computer Aided Design"@en .
+
+ngm:coordinate-system a skos:Concept ;
+    rdfs:label "Coordinate System"@en .
+
+ngm:cost-function a skos:Concept ;
+    rdfs:label "Cost Function"@en .
+
+ngm:cross-platform-compatibility a skos:Concept ;
+    rdfs:label "Cross Platform Compatibility"@en .
+
+ngm:data-analytics a skos:Concept ;
+    rdfs:label "Data Analytics"@en .
+
+ngm:data-format-standard a skos:Concept ;
+    rdfs:label "Data Format Standard"@en .
+
+ngm:data-persistence a skos:Concept ;
+    rdfs:label "Data Persistence"@en .
+
+ngm:decentralized-autonomous-organization a skos:Concept ;
+    rdfs:label "Decentralized Autonomous Organization"@en .
+
+ngm:digital-asset-management a skos:Concept ;
+    rdfs:label "Digital Asset Management"@en .
+
+ngm:directx a skos:Concept ;
+    rdfs:label "Directx"@en .
+
+ngm:distributed-systems a skos:Concept ;
+    rdfs:label "Distributed Systems"@en .
+
+ngm:etsi a skos:Concept ;
+    rdfs:label "Etsi"@en .
+
+ngm:fbx a skos:Concept ;
+    rdfs:label "Fbx"@en .
+
+ngm:foveated-rendering a skos:Concept ;
+    rdfs:label "Foveated Rendering"@en .
+
+ngm:game-development a skos:Concept ;
+    rdfs:label "Game Development"@en .
+
+ngm:gaze-tracking a skos:Concept ;
+    rdfs:label "Gaze Tracking"@en .
+
+ngm:geometry-processing a skos:Concept ;
+    rdfs:label "Geometry Processing"@en .
+
+ngm:guaranteed-bandwidth a skos:Concept ;
+    rdfs:label "Guaranteed Bandwidth"@en .
+
+ngm:hand-tracking a skos:Concept ;
+    rdfs:label "Hand Tracking"@en .
+
+ngm:haptic-feedback a skos:Concept ;
+    rdfs:label "Haptic Feedback"@en .
+
+ngm:heuristic-methods a skos:Concept ;
+    rdfs:label "Heuristic Methods"@en .
+
+ngm:immersive-experience a skos:Concept ;
+    rdfs:label "Immersive Experience"@en .
+
+ngm:informed-search a skos:Concept ;
+    rdfs:label "Informed Search"@en .
+
+ngm:internet-of-things a skos:Concept ;
+    rdfs:label "Internet Of Things"@en .
+
+ngm:io-t-infrastructure a skos:Concept ;
+    rdfs:label "Io T Infrastructure"@en .
+
+ngm:iso-iec-14496-16 a skos:Concept ;
+    rdfs:label "Iso Iec 14496 16"@en .
+
+ngm:itu-r a skos:Concept ;
+    rdfs:label "Itu R"@en .
+
+ngm:lidar-scanning a skos:Concept ;
+    rdfs:label "Lidar Scanning"@en .
+
+ngm:linear-algebra a skos:Concept ;
+    rdfs:label "Linear Algebra"@en .
+
+ngm:low-latency a skos:Concept ;
+    rdfs:label "Low Latency"@en .
+
+ngm:massive-mimo a skos:Concept ;
+    rdfs:label "Massive Mimo"@en .
+
+ngm:mesh-compression a skos:Concept ;
+    rdfs:label "Mesh Compression"@en .
+
+ngm:mesh-data a skos:Concept ;
+    rdfs:label "Mesh Data"@en .
+
+ngm:mobile-edge-computing a skos:Concept ;
+    rdfs:label "Mobile Edge Computing"@en .
+
+ngm:model-context-protocol a skos:Concept ;
+    rdfs:label "Model Context Protocol"@en .
+
+ngm:motion-capture a skos:Concept ;
+    rdfs:label "Motion Capture"@en .
+
+ngm:multi-agent-system a skos:Concept ;
+    rdfs:label "Multi Agent System"@en .
+
+ngm:multi-view-stereo a skos:Concept ;
+    rdfs:label "Multi View Stereo"@en .
+
+ngm:ne-rf a skos:Concept ;
+    rdfs:label "Ne Rf"@en .
+
+ngm:network-infrastructure a skos:Concept ;
+    rdfs:label "Network Infrastructure"@en .
+
+ngm:non-fungible-token a skos:Concept ;
+    rdfs:label "Non Fungible Token"@en .
+
+ngm:onion-routing a skos:Concept ;
+    rdfs:label "Onion Routing"@en .
+
+ngm:open-gl a skos:Concept ;
+    rdfs:label "Open Gl"@en .
+
+ngm:optimisation a skos:Concept ;
+    rdfs:label "Optimisation"@en .
+
+ngm:peer-review a skos:Concept ;
+    rdfs:label "Peer Review"@en .
+
+ngm:peer-to-peer-network a skos:Concept ;
+    rdfs:label "Peer To Peer Network"@en .
+
+ngm:physics-simulation a skos:Concept ;
+    rdfs:label "Physics Simulation"@en .
+
+ngm:priority-queue a skos:Concept ;
+    rdfs:label "Priority Queue"@en .
+
+ngm:rasterization a skos:Concept ;
+    rdfs:label "Rasterization"@en .
+
+ngm:ray-tracing a skos:Concept ;
+    rdfs:label "Ray Tracing"@en .
+
+ngm:reliability a skos:Concept ;
+    rdfs:label "Reliability"@en .
+
+ngm:resource-allocation a skos:Concept ;
+    rdfs:label "Resource Allocation"@en .
+
+ngm:skeletal-animation a skos:Concept ;
+    rdfs:label "Skeletal Animation"@en .
+
+ngm:skeletal-rig a skos:Concept ;
+    rdfs:label "Skeletal Rig"@en .
+
+ngm:slam a skos:Concept ;
+    rdfs:label "Slam"@en .
+
+ngm:smart-contract a skos:Concept ;
+    rdfs:label "Smart Contract"@en .
+
+ngm:spatial-audio a skos:Concept ;
+    rdfs:label "Spatial Audio"@en .
+
+ngm:spectrum-allocation a skos:Concept ;
+    rdfs:label "Spectrum Allocation"@en .
+
+ngm:telecommunications a skos:Concept ;
+    rdfs:label "Telecommunications"@en .
+
+ngm:two-phase-commit a skos:Concept ;
+    rdfs:label "Two Phase Commit"@en .
+
+ngm:uv-mapping a skos:Concept ;
+    rdfs:label "Uv Mapping"@en .
+
+ngm:version-control a skos:Concept ;
+    rdfs:label "Version Control"@en .
+
+ngm:voice-input a skos:Concept ;
+    rdfs:label "Voice Input"@en .
+
+ngm:vulkan a skos:Concept ;
+    rdfs:label "Vulkan"@en .
+
+ngm:weighted-graph a skos:Concept ;
+    rdfs:label "Weighted Graph"@en .
+
+ngm:write-ahead-logging a skos:Concept ;
+    rdfs:label "Write Ahead Logging"@en .
+
+ngm:3-d-animation a owl:Class ;
+    rdfs:label "3D Animation"@en ;
+    rdfs:comment "3D Animation is the discipline of creating motion in three-dimensional digital environments using techniques such as keyframe animation, motion capture, and procedural simulation. It underpins character movement, environmental dynamics, and cinematic sequences in spatial computing platforms, game engines, and metaverse applications."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-asset ],
+        ngm:animation-technique ;
+    vc:bridgesTo ngm:generative-ai,
+        ngm:machine-learning ;
+    vc:contrastsWith ngm:animation ;
+    vc:dependsOn ngm:graphics-processing-unit,
+        ngm:scene-graph ;
+    vc:enables ngm:avatar,
+        ngm:digital-twin,
+        ngm:immersive-experience ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:animation-state-machine,
+        ngm:blend-shape,
+        ngm:character-rigging,
+        ngm:keyframe-animation ;
+    vc:isPartOf ngm:sc-content-and-assets,
+        ngm:visual-effects ;
+    vc:qualityScore "0.0"^^xsd:float ;
+    vc:relatedTo ngm:level-of-detail,
+        ngm:rendering-pipeline ;
+    vc:requires ngm:3-d-asset,
+        ngm:game-engine ;
+    vc:slug "3-d-animation" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:gltf-standard,
+        ngm:iso-iec-jtc-1-sc-24,
+        ngm:universal-scene-description ;
+    vc:supports ngm:extended-reality,
+        ngm:real-time-rendering ;
+    vc:uses ngm:inverse-kinematics,
+        ngm:motion-capture,
+        ngm:physics-simulation,
+        ngm:procedural-animation .
+
+ngm:3-d-development a owl:Class ;
+    rdfs:label "3D Development"@en ;
+    rdfs:comment "3D Development encompasses the modologies, tools, and workflows for creating, iterating, and deploying three-dimensional digital assets and environments."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-rendering-engine ],
+        [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-graphics-standard ],
+        ngm:sc-platform-and-environment ;
+    skos:broader ngm:sc-platform-and-environment ;
+    vc:bridgesTo ngm:software-development ;
+    vc:enables ngm:metaverse-content-creation,
+        ngm:virtual-environment-design,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.5"^^xsd:float ;
+    vc:requires ngm:3-d-graphics-standard,
+        ngm:3-d-rendering-engine ;
+    vc:slug "3-d-development" ;
+    vc:sourceDomain "spatial-computing" .
+
+ngm:3-d-file-format a owl:Class ;
+    rdfs:label "3D File Format"@en ;
+    rdfs:comment "3D File Formats are standardised container structures for encoding three-dimensional geometric data, textures, materials, animations, and metadata, enabling asset portability across tools, rendering engines, and platforms."@en ;
+    rdfs:subClassOf ngm:data-format-standard ;
+    vc:bridgesTo ngm:data-format-standard,
+        ngm:interoperability,
+        ngm:metaverse-infrastructure ;
+    vc:enables ngm:3-d-rendering,
+        ngm:augmented-reality,
+        ngm:cross-platform-asset-exchange,
+        ngm:digital-asset-management,
+        ngm:real-time-graphics ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:material-definition,
+        ngm:mesh-data,
+        ngm:texture-map ;
+    vc:implements ngm:gl-tf,
+        ngm:universal-scene-description ;
+    vc:isPartOf ngm:asset-pipeline ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:3-d-model,
+        ngm:point-cloud ;
+    vc:requires ngm:coordinate-system ;
+    vc:slug "3-d-file-format" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:khronos-group,
+        ngm:pixar-animation-studios ;
+    vc:supports ngm:level-of-detail,
+        ngm:physics-simulation ;
+    vc:uses ngm:binary-encoding,
+        ngm:data-compression .
+
+ngm:3-d-model a owl:Class ;
+    rdfs:label "3D Model"@en ;
+    rdfs:comment "A 3D Model is a digital representation of a three-dimensional object or environment constructed from vertices, edges, faces, and materials, encoded in standard formats such as glTF, OBJ, FBX, or USD, and used as a foundational asset in spatial computing, simulation, gaming, and metaverse applications."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-file-format ],
+        [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3d-modelling ],
+        ngm:sc-content-and-assets ;
+    skos:broader ngm:sc-content-and-assets ;
+    vc:bridgesTo ngm:3-d-development,
+        ngm:computer-vision ;
+    vc:enables ngm:3-d-rendering,
+        ngm:animation-retargeting,
+        ngm:augmented-reality,
+        ngm:interactive-visualization,
+        ngm:virtual-reality ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:material-definition,
+        ngm:mesh-data,
+        ngm:skeletal-rig,
+        ngm:texture-mapping ;
+    vc:isPartOf ngm:digital-asset,
+        ngm:virtual-environment-design ;
+    vc:qualityScore "0.7"^^xsd:float ;
+    vc:relatedTo ngm:photogrammetry,
+        ngm:procedural-generation ;
+    vc:requires ngm:3-d-file-format,
+        ngm:3d-modelling ;
+    vc:slug "3-d-model" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:gltf-standard,
+        ngm:universal-scene-description ;
+    vc:supports ngm:digital-twin,
+        ngm:metaverse ;
+    vc:uses ngm:level-of-detail,
+        ngm:uv-mapping .
+
+ngm:3-d-modeling-software a owl:Class ;
+    rdfs:label "3D Modeling Software"@en ;
+    rdfs:comment "3D Modeling Software is a category of applications that provide tools for constructing, editing, and organising three-dimensional geometric representations of objects and scenes, typically via polygon mesh editing, subdivision surfaces, NURBS curves, sculpting, or parametric operations. These applications underpin virtually all digital content creation workflows for games, film, architecture, product design, and XR environments. They commonly integrate texturing, rigging, animation, and basic rendering capabilities alongside the core modelling toolkit."@en ;
+    rdfs:subClassOf ngm:3d-modelling ;
+    vc:enables ngm:3-d-asset,
+        ngm:3-d-content-creation,
+        ngm:animation-rig ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:bim-software,
+        ngm:cad-software,
+        ngm:game-engine ;
+    vc:slug "3-d-modeling-software" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:3-d-file-format,
+        ngm:physically-based-rendering,
+        ngm:shader .
+
+ngm:3-d-perception a owl:Class ;
+    rdfs:label "3D Perception"@en ;
+    rdfs:comment "3D Perception is the computational capability to interpret sensor data — from cameras, LiDAR, radar, and depth sensors — and derive accurate three-dimensional understanding of the surrounding environment, including object detection, pose estimation, scene structure, and semantic labelling. It forms a foundational layer for autonomous systems, robotic manipulation, augmented reality registration, and spatial computing. The discipline draws on computer vision, geometry, and deep learning to transform raw observations into actionable 3D representations."@en ;
+    rdfs:subClassOf ngm:computer-vision ;
+    vc:enables ngm:6-do-f-tracking,
+        ngm:object-detection,
+        ngm:simultaneous-localisation-and-mapping ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:3-d-scanning,
+        ngm:pose-estimation,
+        ngm:semantic-segmentation ;
+    vc:slug "3-d-perception" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:depth-sensing,
+        ngm:point-cloud,
+        ngm:sensor-fusion .
+
+ngm:3-gpp a owl:Class ;
+    rdfs:label "3GPP"@en ;
+    rdfs:comment "The 3rd Generation Partnership Project (3GPP) is a global consortium of regional telecommunications standards bodies that develops and maintains versioned technical specifications governing mobile communication systems, from UMTS (3G) through LTE (4G) to NR (5G) and the emerging 6G framework. Operating through working groups (RAN, SA, CT), it produces Releases that introduce new radio access technologies, core network architectures, and service-layer capabilities. 3GPP specifications are the foundational technical substrate for the global cellular infrastructure serving billions of devices."@en ;
+    rdfs:subClassOf ngm:standards-body ;
+    vc:bridgesTo ngm:artificial-intelligence,
+        ngm:digital-twin,
+        ngm:spatial-computing ;
+    vc:enables ngm:internet-of-things,
+        ngm:multi-access-edge-computing,
+        ngm:network-function-virtualization,
+        ngm:network-slicing,
+        ngm:vehicle-to-everything ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:5g-core-network,
+        ngm:5g-new-radio,
+        ngm:radio-access-network ;
+    vc:implements ngm:5-g-connectivity,
+        ngm:5-g-network ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:etsi,
+        ngm:ieee,
+        ngm:itu-r,
+        ngm:network-architecture,
+        ngm:telecommunications ;
+    vc:requires ngm:spectrum-allocation ;
+    vc:slug "3-gpp" ;
+    vc:sourceDomain "standards" ;
+    vc:supports ngm:low-latency .
+
+ngm:5-g a owl:Class ;
+    rdfs:label "5G"@en ;
+    rdfs:comment "5G (Fifth Generation) is the latest generation of mobile cellular network technology, standardised by 3GPP from Release 15 onwards, characterised by peak data rates exceeding 20 Gbps, radio latencies below 1 ms, and support for up to one million connected devices per square kilometre. It introduces three primary use-case families: enhanced mobile broadband (eMBB), ultra-reliable low-latency communications (URLLC), and massive machine-type communications (mMTC). 5G underpins advances in spatial computing, autonomous vehicles, industrial automation, and IoT at scale."@en ;
+    rdfs:subClassOf ngm:telecommunications ;
+    vc:bridgesTo ngm:digital-twin,
+        ngm:spatial-computing ;
+    vc:contrastsWith ngm:4g-lte,
+        ngm:6g ;
+    vc:enables ngm:5-g-connectivity,
+        ngm:autonomous-vehicle,
+        ngm:industrial-io-t,
+        ngm:multi-access-edge-computing,
+        ngm:network-slicing,
+        ngm:private-5g-network,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:5g-core,
+        ngm:5g-new-radio,
+        ngm:service-oriented-architecture ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:5-g-network,
+        ngm:internet-of-things,
+        ngm:mobile-edge-computing ;
+    vc:requires ngm:massive-mimo ;
+    vc:slug "5-g" ;
+    vc:sourceDomain "infrastructure" ;
+    vc:standardizedBy ngm:3-gpp,
+        ngm:itu-r ;
+    vc:uses ngm:beamforming,
+        ngm:cloud-native,
+        ngm:network-function-virtualization .
+
+ngm:5-g-connectivity a owl:Class ;
+    rdfs:label "5G Connectivity"@en ;
+    rdfs:comment "5G Connectivity is the set of radio access and core network capabilities delivered by a 5G NR network that provides devices and applications with wireless communication services characterised by high throughput, ultra-low latency, and high device density. It encompasses the radio link between user equipment and the gNB base station, quality-of-service mechanisms, network slicing for application-specific service guarantees, and the APIs through which applications access network capabilities. 5G Connectivity is a critical enabler for cloud XR, autonomous systems, and real-time industrial applications."@en ;
+    rdfs:subClassOf ngm:5-g ;
+    vc:enables ngm:io-t-infrastructure,
+        ngm:low-latency,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:qualityScore "0.8"^^xsd:float ;
+    vc:relatedTo ngm:3-gpp,
+        ngm:guaranteed-bandwidth,
+        ngm:latency ;
+    vc:slug "5-g-connectivity" ;
+    vc:sourceDomain "infrastructure" ;
+    vc:uses ngm:5-g-network,
+        ngm:multi-access-edge-computing,
+        ngm:network-function-virtualization .
+
+ngm:5-g-network a owl:Class ;
+    rdfs:label "5G Network"@en ;
+    rdfs:comment "A 5G Network is the end-to-end fifth-generation mobile telecommunications system comprising a 5G New Radio (NR) radio access network built around gNB base stations, a cloud-native 5G Core implementing a service-based architecture with independently deployable network functions (AMF, SMF, UPF, PCF, NRF, AUSF), and the transport infrastructure interconnecting them. The architecture fundamentally separates the control plane from the user plane, enables network slicing to provision multiple virtualised logical networks on shared physical resources, and integrates multi-access edge computing nodes for deterministic low-latency application hosting. Defined across 3GPP Release 15 (frozen 2018) through Release 18 (5G-Advanced), 5G networks support three canonical service classes: enhanced Mobile Broadband (eMBB), Ultra-Reliable Low-Latency Communications (URLLC), and massive Machine-Type Communications (mMTC), making them the foundational connectivity layer for industrial IoT, autonomous systems, extended reality, and private campus networks."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:hasPart ;
+            owl:someValuesFrom ngm:5-g ],
+        ngm:telecommunications-infrastructure ;
+    vc:bridgesTo ngm:6-g-network-slice,
+        ngm:artificial-intelligence-operations,
+        ngm:digital-twin ;
+    vc:contrastsWith ngm:wi-fi ;
+    vc:enables ngm:5-g-connectivity,
+        ngm:autonomous-vehicle,
+        ngm:extended-reality,
+        ngm:io-t-infrastructure ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:5-g,
+        ngm:multi-access-edge-computing,
+        ngm:network-slicing ;
+    vc:qualityScore "0.74"^^xsd:float ;
+    vc:relatedTo ngm:mobile-edge-computing,
+        ngm:network-infrastructure,
+        ngm:open-ran ;
+    vc:requires ngm:cloud-native-architecture,
+        ngm:spectrum-allocation,
+        ngm:transport-network ;
+    vc:slug "5-g-network" ;
+    vc:sourceDomain "infrastructure" ;
+    vc:standardizedBy ngm:3-gpp,
+        ngm:etsi,
+        ngm:o-ran-alliance ;
+    vc:uses ngm:edge-computing,
+        ngm:massive-mimo,
+        ngm:network-function-virtualization,
+        ngm:software-defined-networking .
+
+ngm:artificial-intelligence a skos:Concept ;
+    rdfs:label "Artificial Intelligence"@en .
+
+ngm:asset-pipeline a skos:Concept ;
+    rdfs:label "Asset Pipeline"@en .
+
+ngm:data-integrity a skos:Concept ;
+    rdfs:label "Data Integrity"@en .
+
+ngm:depth-sensing a skos:Concept ;
+    rdfs:label "Depth Sensing"@en .
+
+ngm:differentiable-rendering a skos:Concept ;
+    rdfs:label "Differentiable Rendering"@en .
+
+ngm:diffusion-model a skos:Concept ;
+    rdfs:label "Diffusion Model"@en .
+
+ngm:digital-content-creation a skos:Concept ;
+    rdfs:label "Digital Content Creation"@en .
+
+ngm:digital-twin-creation a skos:Concept ;
+    rdfs:label "Digital Twin Creation"@en .
+
+ngm:gaussian-splatting a skos:Concept ;
+    rdfs:label "Gaussian Splatting"@en .
+
+ngm:gpu-compute a skos:Concept ;
+    rdfs:label "Gpu Compute"@en .
+
+ngm:graph-search a skos:Concept ;
+    rdfs:label "Graph Search"@en .
+
+ngm:lidar a skos:Concept ;
+    rdfs:label "Lidar"@en .
+
+ngm:lightning-network a skos:Concept ;
+    rdfs:label "Lightning Network"@en .
+
+ngm:material-definition a skos:Concept ;
+    rdfs:label "Material Definition"@en .
+
+ngm:mesh-generation a skos:Concept ;
+    rdfs:label "Mesh Generation"@en .
+
+ngm:network-slicing a skos:Concept ;
+    rdfs:label "Network Slicing"@en .
+
+ngm:neural-rendering a skos:Concept ;
+    rdfs:label "Neural Rendering"@en .
+
+ngm:novel-view-synthesis a skos:Concept ;
+    rdfs:label "Novel View Synthesis"@en .
+
+ngm:polygon-mesh a skos:Concept ;
+    rdfs:label "Polygon Mesh"@en .
+
+ngm:pose-estimation a skos:Concept ;
+    rdfs:label "Pose Estimation"@en .
+
+ngm:real-time-graphics a skos:Concept ;
+    rdfs:label "Real Time Graphics"@en .
+
+ngm:shader a skos:Concept ;
+    rdfs:label "Shader"@en .
+
+ngm:texture-map a skos:Concept ;
+    rdfs:label "Texture Map"@en .
+
+ngm:virtual-environment-design a skos:Concept ;
+    rdfs:label "Virtual Environment Design"@en .
+
+ngm:visual-effects a skos:Concept ;
+    rdfs:label "Visual Effects"@en .
+
+vc:utilises a owl:ObjectProperty ;
+    rdfs:label "utilises"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+ngm:3-d-content-generation a owl:Class ;
+    rdfs:label "3D Content Generation"@en ;
+    rdfs:comment "The computational process of producing three-dimensional digital content through algorithmic and AI-driven methods, encompassing procedural generation, neural rendering, NeRF-based scene synthesis, and GAN-based 3D model creation. Applications span game development, virtual reality, digital twins, and automated CAD, enabling scalable production of photorealistic 3D assets from text or image inputs."@en ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty vc:requires ;
+            owl:someValuesFrom ngm:3-d-scene-representation ],
+        ngm:generative-ai ;
+    vc:bridgesTo ngm:autonomous-robot,
+        ngm:extended-reality,
+        ngm:metaverse ;
+    vc:contrastsWith ngm:3d-modelling,
+        ngm:photogrammetry ;
+    vc:dependsOn ngm:gpu-compute ;
+    vc:enables ngm:digital-asset,
+        ngm:digital-twin,
+        ngm:game-development,
+        ngm:virtual-world ;
+    vc:hasMaturity ngmi:maturity-emerging ;
+    vc:hasPart ngm:mesh-generation,
+        ngm:neural-rendering,
+        ngm:procedural-generation,
+        ngm:texture-synthesis ;
+    vc:qualityScore "0.68"^^xsd:float ;
+    vc:relatedTo ngm:3-d-animation,
+        ngm:3-d-asset ;
+    vc:requires ngm:3-d-scene-representation,
+        ngm:computer-graphics,
+        ngm:deep-learning ;
+    vc:slug "3-d-content-generation" ;
+    vc:sourceDomain "artificial-intelligence" ;
+    vc:uses ngm:deep-learning,
+        ngm:diffusion-model,
+        ngm:generative-adversarial-network,
+        ngm:neural-radiance-field,
+        ngm:neural-rendering,
+        ngm:procedural-generation .
+
+ngm:3-d-reconstruction a owl:Class ;
+    rdfs:label "3D Reconstruction"@en ;
+    rdfs:comment "3D Reconstruction is the computational process of recovering three-dimensional geometric and structural information from multiple 2D images or sensor data (such as LiDAR or depth cameras) using techniques including Computer Vision, photogrammetry, and Structure-from-Motion (SfM), enabling digital capture of real-world objects and environments for Digital Twin creation, immersive environment mapping, and spatial analysis."@en ;
+    rdfs:subClassOf ngm:sc-content-and-assets ;
+    skos:broader ngm:sc-content-and-assets ;
+    vc:bridgesTo ngm:computer-vision,
+        ngm:machine-learning,
+        ngm:robotics ;
+    vc:dependsOn ngm:computer-vision,
+        ngm:deep-learning ;
+    vc:enables ngm:augmented-reality,
+        ngm:digital-twin,
+        ngm:environmental-mapping,
+        ngm:point-cloud-generation ;
+    vc:hasMaturity ngmi:maturity-draft ;
+    vc:hasPart ngm:depth-estimation,
+        ngm:multi-view-stereo,
+        ngm:point-cloud,
+        ngm:structure-from-motion ;
+    vc:isPartOf ngm:photogrammetry ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:scene-understanding,
+        ngm:spatial-computing ;
+    vc:requires ngm:camera-calibration,
+        ngm:feature-matching,
+        ngm:image-processing,
+        ngm:sensor-fusion ;
+    vc:slug "3-d-reconstruction" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:uses ngm:lidar,
+        ngm:neural-radiance-field,
+        ngm:simultaneous-localisation-and-mapping .
+
+ngm:3-d-rendering-engine a owl:Class ;
+    rdfs:label "3D Rendering Engine"@en ;
+    rdfs:comment "A 3D rendering engine is software that converts three-dimensional geometric data into two-dimensional images through processes including geometry processing, lighting calculation, texture mapping, and rasterisation or ray tracing. In real-time contexts it targets interactive frame rates (90 Hz+) and must minimise motion-to-photon latency for XR presence."@en ;
+    rdfs:subClassOf ngm:computer-graphics ;
+    vc:bridgesTo ngm:inference,
+        ngm:metaverse ;
+    vc:contrastsWith ngm:offline-rendering ;
+    vc:dependsOn ngm:physics-engine,
+        ngm:spatial-audio ;
+    vc:enables ngm:digital-twin,
+        ngm:foveated-rendering,
+        ngm:immersive-experiences,
+        ngm:real-time-visualisation,
+        ngm:xr-applications ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:level-of-detail,
+        ngm:scene-graph,
+        ngm:shader-pipeline,
+        ngm:texture-mapping ;
+    vc:implements ngm:rasterization,
+        ngm:ray-tracing ;
+    vc:isPartOf ngm:game-engine ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:spatial-computing ;
+    vc:requires ngm:graphics-api,
+        ngm:graphics-processing-unit ;
+    vc:slug "3-d-rendering-engine" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:khronos-group ;
+    vc:supports ngm:augmented-reality,
+        ngm:stereoscopic-display,
+        ngm:virtual-reality ;
+    vc:uses ngm:directx,
+        ngm:open-gl,
+        ngm:vulkan .
+
+ngm:character-rigging a skos:Concept ;
+    rdfs:label "Character Rigging"@en .
+
+ngm:deep-learning a skos:Concept ;
+    rdfs:label "Deep Learning"@en .
+
+ngm:digital-asset a skos:Concept ;
+    rdfs:label "Digital Asset"@en .
+
+ngm:graphics-processing-unit a skos:Concept ;
+    rdfs:label "Graphics Processing Unit"@en .
+
+ngm:khronos-group a skos:Concept ;
+    rdfs:label "Khronos Group"@en .
+
+ngm:machine-learning a skos:Concept ;
+    rdfs:label "Machine Learning"@en .
+
+ngm:multi-access-edge-computing a skos:Concept ;
+    rdfs:label "Multi Access Edge Computing"@en .
+
+ngm:network-function-virtualization a skos:Concept ;
+    rdfs:label "Network Function Virtualization"@en .
+
+ngm:rendering-pipeline a skos:Concept ;
+    rdfs:label "Rendering Pipeline"@en .
+
+ngm:robotics a skos:Concept ;
+    rdfs:label "Robotics"@en .
+
+ngm:sensor-fusion a skos:Concept ;
+    rdfs:label "Sensor Fusion"@en .
+
+ngm:structure-from-motion a skos:Concept ;
+    rdfs:label "Structure From Motion"@en .
+
+ngm:transaction a skos:Concept ;
+    rdfs:label "Transaction"@en .
+
+vc:hasPart a owl:ObjectProperty ;
+    rdfs:label "hasPart"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing .
+
+ngm:computer-graphics a skos:Concept ;
+    rdfs:label "Computer Graphics"@en .
+
+ngm:generative-ai a skos:Concept ;
+    rdfs:label "Generative AI"@en .
+
+ngm:photogrammetry a skos:Concept ;
+    rdfs:label "Photogrammetry"@en .
+
+ngm:procedural-generation a skos:Concept ;
+    rdfs:label "Procedural Generation"@en .
+
+ngm:robo-perception a skos:Concept ;
+    rdfs:label "Robo Perception"@en .
+
+ngm:texture-mapping a skos:Concept ;
+    rdfs:label "Texture Mapping"@en .
+
+ngm:MaturityLevel a owl:Class ;
+    rdfs:label "Maturity Level"@en .
+
+ngm:gltf-standard a skos:Concept ;
+    rdfs:label "Gltf Standard"@en .
+
+ngm:metaverse a skos:Concept ;
+    rdfs:label "Metaverse"@en .
+
+ngm:neural-radiance-field a skos:Concept ;
+    rdfs:label "Neural Radiance Field"@en .
+
+ngm:physically-based-rendering a skos:Concept ;
+    rdfs:label "Physically Based Rendering"@en .
+
+ngm:scene-graph a skos:Concept ;
+    rdfs:label "Scene Graph"@en .
+
+ngm:universal-scene-description a skos:Concept ;
+    rdfs:label "Universal Scene Description"@en .
+
+ngm:xr-applications a skos:Concept ;
+    rdfs:label "XR Applications"@en .
+
+ngm:3d-modelling a owl:Class ;
+    rdfs:label "3D Modelling"@en ;
+    rdfs:comment "3D modelling is the creation of a mathematical representation of a three-dimensional surface or volume using specialised software. Models are commonly built from polygon meshes, parametric surfaces or volumetric data and define the geometry that is later textured, rigged, animated and rendered. It is the foundational discipline for games, film, visualisation, product design and spatial computing."@en ;
+    rdfs:subClassOf ngm:3-d-development,
+        ngm:computer-graphics ;
+    vc:bridgesTo ngm:augmented-reality,
+        ngm:computer-vision,
+        ngm:generative-ai,
+        ngm:photogrammetry ;
+    vc:contrastsWith ngm:computer-aided-design,
+        ngm:digital-art ;
+    vc:enables ngm:asset-creation,
+        ngm:character-animation,
+        ngm:character-model,
+        ngm:real-time-graphics,
+        ngm:rendering,
+        ngm:texture-mapping,
+        ngm:virtual-environment-design ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:character-rigging,
+        ngm:geometry-processing,
+        ngm:material-definition,
+        ngm:polygon-mesh,
+        ngm:topology ;
+    vc:isPartOf ngm:asset-pipeline ;
+    vc:qualityScore "0.62"^^xsd:float ;
+    vc:relatedTo ngm:character-rigging,
+        ngm:fbx,
+        ngm:skinning,
+        ngm:visual-effects ;
+    vc:requires ngm:design-software,
+        ngm:polygon-mesh ;
+    vc:slug "3d-modelling" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:gltf-standard,
+        ngm:obj-format ;
+    vc:supports ngm:augmented-reality,
+        ngm:game-development,
+        ngm:game-engine,
+        ngm:virtual-production,
+        ngm:virtual-reality,
+        ngm:visual-effects ;
+    vc:uses ngm:3-d-model,
+        ngm:computer-aided-design,
+        ngm:level-of-detail,
+        ngm:uv-mapping .
+
+ngm:computer-vision a skos:Concept ;
+    rdfs:label "Computer Vision"@en .
+
+ngm:virtual-reality a skos:Concept ;
+    rdfs:label "Virtual Reality"@en .
+
+ngm:point-cloud a skos:Concept ;
+    rdfs:label "Point Cloud"@en .
+
+ngm:real-time-rendering a skos:Concept ;
+    rdfs:label "Real Time Rendering"@en .
+
+ngm:simultaneous-localisation-and-mapping a skos:Concept ;
+    rdfs:label "Simultaneous Localisation And Mapping"@en .
+
+vc:requires a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "requires"@en ;
+    rdfs:domain owl:Thing ;
+    rdfs:range owl:Thing ;
+    rdfs:subPropertyOf vc:dependsOn .
+
+ngm:extended-reality a skos:Concept ;
+    rdfs:label "Extended Reality"@en .
+
+ngm:game-engine a skos:Concept ;
+    rdfs:label "Game Engine"@en .
+
+ngm:sc-content-and-assets a skos:Concept ;
+    rdfs:label "Sc Content And Assets"@en .
+
+ngm:3-d-asset a owl:Class ;
+    rdfs:label "3D Asset"@en ;
+    rdfs:comment "A 3D Asset is a discrete, self-contained digital artefact encoding three-dimensional geometry, surface materials, skeletal animation rigs, and associated metadata in a machine-readable interchange format such as glTF 2.0, USD, FBX, or OBJ. Such assets are produced by digital content creation tools, stored in asset management systems with versioning and provenance records, and consumed at runtime by rendering engines, game engines, and spatial computing platforms. Production-quality 3D assets typically incorporate multiple levels of detail (LOD), physically-based rendering (PBR) material maps (albedo, metallic-roughness, normal, occlusion, emissive), collision meshes for physics simulation, and compressed texture atlases optimised for a target hardware envelope. Cross-platform delivery relies on open standards maintained by the Khronos Group and Pixar/Academy Software Foundation, enabling asset reuse across metaverse environments, digital twins, extended reality (XR) applications, and game titles."@en ;
+    rdfs:subClassOf ngm:digital-asset ;
+    vc:bridgesTo ngm:generative-ai,
+        ngm:neural-radiance-field,
+        ngm:non-fungible-token ;
+    vc:contrastsWith ngm:voxel ;
+    vc:enables ngm:digital-twin,
+        ngm:extended-reality,
+        ngm:metaverse,
+        ngm:real-time-rendering ;
+    vc:hasMaturity ngmi:maturity-established ;
+    vc:hasPart ngm:level-of-detail,
+        ngm:polygon-mesh,
+        ngm:skeletal-rig,
+        ngm:texture-map ;
+    vc:qualityScore "0.72"^^xsd:float ;
+    vc:relatedTo ngm:game-engine,
+        ngm:scene-graph,
+        ngm:spatial-computing ;
+    vc:requires ngm:asset-pipeline,
+        ngm:digital-content-creation,
+        ngm:physically-based-rendering ;
+    vc:slug "3-d-asset" ;
+    vc:sourceDomain "spatial-computing" ;
+    vc:standardizedBy ngm:academy-software-foundation,
+        ngm:khronos-group,
+        ngm:w3-c ;
+    vc:uses ngm:digital-asset-management,
+        ngm:gltf-standard,
+        ngm:texture-compression,
+        ngm:universal-scene-description .
+
+ngm:level-of-detail a skos:Concept ;
+    rdfs:label "Level Of Detail"@en .
+
+ngm:spatial-computing a skos:Concept ;
+    rdfs:label "Spatial Computing"@en .
+
+ngmi:maturity-emerging a owl:NamedIndividual,
+        ngm:MaturityLevel ;
+    rdfs:label "Emerging"@en .
+
+ngm:augmented-reality a skos:Concept ;
+    rdfs:label "Augmented Reality"@en .
+
+ngm:digital-twin a skos:Concept ;
+    rdfs:label "Digital Twin"@en .
+
+ngmi:maturity-draft a owl:NamedIndividual,
+        ngm:MaturityLevel ;
+    rdfs:label "Draft"@en .
+
+ngmi:maturity-established a owl:NamedIndividual,
+        ngm:MaturityLevel ;
+    rdfs:label "Established"@en .
+
+skos:Concept a owl:Class ;
+    rdfs:label "Concept"@en .
+

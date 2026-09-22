@@ -25,6 +25,17 @@ impl EnhancedContentAPI {
         self.client.base_paths()
     }
 
+    /// `owner/repo@branch` — how the GitHub corpus source identifies itself in
+    /// telemetry and in the persisted sync-source identity.
+    pub(crate) fn location(&self) -> String {
+        format!(
+            "{}/{}@{}",
+            self.client.owner(),
+            self.client.repo(),
+            self.client.branch()
+        )
+    }
+
     /// List all markdown files using GitHub's Git Trees API (single API call).
     /// Returns all .md files under the configured base_path with their SHA hashes.
     /// This replaces the recursive Contents API approach that required one call per directory.

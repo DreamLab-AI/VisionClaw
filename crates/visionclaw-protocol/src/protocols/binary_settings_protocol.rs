@@ -74,15 +74,15 @@ impl PathRegistry {
         };
 
         let common_paths = vec![
-            "visualisation.graphs.logseq.physics.damping",
-            "visualisation.graphs.logseq.physics.spring_k",
-            "visualisation.graphs.logseq.physics.repel_k",
-            "visualisation.graphs.logseq.physics.max_velocity",
-            "visualisation.graphs.logseq.physics.gravity",
-            "visualisation.graphs.logseq.physics.temperature",
-            "visualisation.graphs.logseq.physics.bounds_size",
-            "visualisation.graphs.logseq.physics.iterations",
-            "visualisation.graphs.logseq.physics.enabled",
+            "visualisation.graphs.knowledge.physics.damping",
+            "visualisation.graphs.knowledge.physics.spring_k",
+            "visualisation.graphs.knowledge.physics.repel_k",
+            "visualisation.graphs.knowledge.physics.max_velocity",
+            "visualisation.graphs.knowledge.physics.gravity",
+            "visualisation.graphs.knowledge.physics.temperature",
+            "visualisation.graphs.knowledge.physics.bounds_size",
+            "visualisation.graphs.knowledge.physics.iterations",
+            "visualisation.graphs.knowledge.physics.enabled",
         ];
 
         for path in common_paths {
@@ -864,7 +864,7 @@ mod tests {
     #[test]
     fn path_registry_lookup_by_id_round_trip() {
         let mut registry = PathRegistry::new();
-        let path = "visualisation.graphs.logseq.physics.damping";
+        let path = "visualisation.graphs.knowledge.physics.damping";
         let id = registry.register_path(path.to_string());
         assert_eq!(registry.get_path_by_id(id).unwrap().as_str(), path);
         assert_eq!(registry.get_path_id(path), Some(id));

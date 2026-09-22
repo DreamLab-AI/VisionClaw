@@ -6,7 +6,7 @@ decision_status: accepted
 implementation_status: complete
 activation_status: live
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-2114]
 verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
 verified_paths: []
 owner: jjohare

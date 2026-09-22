@@ -505,18 +505,35 @@ impl OntologyMutationService {
             meta.extra.insert("definition".to_string(), new_def.clone());
         }
 
+        // PRD-sovereign-corpus Q5: a relation is a LIST of wikilinks, not a
+        // comma-joined scalar. Appending to one string re-emitted
+        // `requires: '[[A]], [[B]]'`, which YAML reads back as a single target
+        // named "[[A]], [[B]]" — two edges collapsed into one broken one.
         for (rel_type, targets) in &amendment.add_relationships {
-            let entry = meta.extra.entry(rel_type.clone()).or_default();
+            let entry = meta.extra_lists.entry(rel_type.clone()).or_default();
+            // Seed from a legacy comma-joined value so converting a page does
+            // not drop the edges it already had.
+            if entry.is_empty() {
+                if let Some(legacy) = meta.extra.get(rel_type) {
+                    entry.extend(
+                        legacy
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string),
+                    );
+                }
+            }
             for target in targets {
                 let link = format!("[[{}]]", target);
-                if entry.split(',').any(|existing| existing.trim() == link) {
+                if entry.iter().any(|existing| existing.trim() == link) {
                     continue;
                 }
-                if !entry.is_empty() {
-                    entry.push_str(", ");
-                }
-                entry.push_str(&link);
+                entry.push(link);
             }
+            // The scalar shadow would otherwise be re-rendered stale if the
+            // list were ever emptied; the list is authoritative from here.
+            meta.extra.remove(rel_type);
         }
 
         let new_markdown = vault::render_page(&meta, body);

@@ -63,7 +63,6 @@ pub async fn update_settings(
         .get("visualisation")
         .and_then(|v| v.get("graphs"))
         .and_then(|g| {
-            // ADR-2041: `logseq` is accepted as an alias of `knowledge`.
             if let Some(knowledge) = crate::config::knowledge_graph_value(g) {
                 if let Some(physics) = knowledge.get("physics") {
                     if let Some(auto_balance) = physics.get("autoBalance") {

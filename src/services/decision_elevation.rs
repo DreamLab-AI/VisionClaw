@@ -21,8 +21,9 @@
 //!
 //! ## What lands where (ADR-049 boundary, preserved)
 //!
-//! The corpus page carries the decision SUMMARY plus a `dl:DecisionRecord`
-//! json-ld block (type memberships + direct causal edges) and a *provenance
+//! The corpus page carries the decision SUMMARY plus OKF frontmatter — the
+//! `type: Individual` / `resource: <decision URN>` node typing, the direct
+//! causal edges as vocabulary-declared relation keys, and a *provenance
 //! summary* (the `did:nostr` attribution + `generatedAtTime`). It does NOT carry
 //! the signed envelope — the authoritative signed PROV-O attribution stays in the
 //! `:provenance` graph. Re-materialisation ([`decision_page_quads`]) therefore
@@ -32,21 +33,30 @@
 
 use log::warn;
 use oxigraph::model::Quad;
-use serde_json::{json, Value};
 use visionclaw_domain::vault;
 
-use crate::services::decision_service::{build_decision_quads, DecisionInput, DL_NS, PROV_NS};
+use crate::services::decision_service::{build_decision_quads, DecisionInput};
 
 /// Corpus namespace for elevated decision pages. Mirrors the class-elevation
-/// convention (`mainKnowledgeGraph/pages/…`) with a dedicated `decisions/`
+/// convention (`knowledge/pages/…`) with a dedicated `decisions/`
 /// sub-namespace so a `force_full` read-half can list them cheaply.
-pub const DECISIONS_DIR: &str = "mainKnowledgeGraph/pages/decisions";
+///
+/// Repo-root-relative, matching the prefixes [`CorpusSource::list_pages_under`]
+/// takes — `knowledge/pages` is the governed role's page root in the
+/// visionGraph `vault.toml`. The old `mainKnowledgeGraph/pages/decisions`
+/// named a corpus layout that no longer exists (PRD-sovereign-corpus Q1: the
+/// canonical vault is `visionGraph`, `knowledge/` + `working/`); against the
+/// real corpus it resolved to nothing, so the ADR-050 read-half silently
+/// re-materialised zero decision records on every sync.
+pub const DECISIONS_DIR: &str = "knowledge/pages/decisions";
 
-/// Full `dl:DecisionRecord` class IRI (`DL_NS` + `DecisionRecord`). Accepted in
-/// either compact (`dl:DecisionRecord`) or expanded form when recognising a page.
-fn dl_decision_record_iri() -> String {
-    format!("{DL_NS}DecisionRecord")
-}
+/// The governed vault's page root — `$VAULT_ROOT/knowledge/pages`, the prefix
+/// [`DECISIONS_DIR`] and the class-elevation writer both live under.
+///
+/// The old `mainKnowledgeGraph/pages` named a corpus layout that no longer
+/// exists (PRD-sovereign-corpus Q1), so every writer that still used it was
+/// writing to a path the corpus source never lists.
+pub const KNOWLEDGE_PAGES_DIR: &str = "knowledge/pages";
 
 // ---------------------------------------------------------------------------
 // Significance predicate (ADR-050 DECIDED: broker-gated, significant-only)
@@ -156,52 +166,101 @@ pub fn decision_slug(decision_urn: &str, summary: &str) -> String {
     format!("{base}-{}", urn_hash_tail(decision_urn))
 }
 
-/// Turn a list of target URNs into a json-ld object-list (`[{"@id": …}, …]`),
-/// or a bare `{"@id": …}` for a single target, matching the corpus json-ld
-/// convention the parser round-trips.
-fn id_list(targets: &[String]) -> Value {
-    let objs: Vec<Value> = targets.iter().map(|t| json!({ "@id": t })).collect();
-    Value::Array(objs)
+/// The vocabulary-governed frontmatter relation key each `dl:` decision edge is
+/// authored as, and the order they are emitted in.
+///
+/// PRD-sovereign-corpus Q4/Q5: the ontology lives in typed Obsidian Properties,
+/// and a relation key is valid only if `ontology/vocabulary.yaml` declares it.
+/// None of the `dl:` predicate names are declared, so each edge set is authored
+/// as the declared relation that carries the same meaning:
+///
+/// | decision edge | frontmatter key | vocabulary `owl:` |
+/// |---|---|---|
+/// | `dl:caused`          | `causes`       | `vc:causes` |
+/// | `dl:precedentFor`    | `precedes`     | `vc:precedes` |
+/// | `dl:influenced`      | `influences`   | `vc:influences` |
+/// | `dl:consideredInput` | `informed-by`  | `vc:informedBy` |
+/// | `dl:governedBy`      | `regulated-by` | `vc:regulatedBy` |
+///
+/// The mapping is a *projection for authoring only*. The assert-graph quads are
+/// still built by [`build_decision_quads`] from the recovered
+/// [`DecisionInput`], so the `dl:` predicates the governed write door emits are
+/// unchanged — this table decides how the edge is written down, never what it
+/// means in the graph.
+pub const DECISION_RELATION_KEYS: [&str; 5] = [
+    "causes",
+    "precedes",
+    "influences",
+    "informed-by",
+    "regulated-by",
+];
+
+/// The OKF actor that stamps a drafted decision page (`okf.actors.process`).
+fn drafting_process() -> String {
+    format!("process:visionclaw/{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Author a relation target as a wikilink.
+///
+/// A decision edge points at a URN, not at a page, and contract C1's long-tail
+/// rule is to write the reference as a wikilink whose target text is the thing
+/// itself — so the URN survives verbatim and the read half recovers it by
+/// stripping the brackets. An empty edge set emits no key at all rather than an
+/// empty list: absence and "explicitly nothing" are the same fact here, and the
+/// shorter page is the one a human reviews.
+fn wikilinks(targets: &[String]) -> Vec<String> {
+    targets
+        .iter()
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("[[{t}]]"))
+        .collect()
+}
+
+/// Recover the targets of a relation key written by [`wikilinks`].
+fn unwikilink(items: &[String]) -> Vec<String> {
+    items
+        .iter()
+        .map(|s| {
+            s.trim()
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .trim()
+                .to_string()
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Draft the canonical corpus page for a significant decision — the inverse of
 /// [`crate::actors::elevation_actor::draft_class_page`], for `dl:DecisionRecord`
-/// instances. Emits `pages/decisions/<slug>.md` carrying a `dl:DecisionRecord`
-/// json-ld block:
-///   * `@id` = the decision URN; `@type` = `[prov:Activity, dl:DecisionRecord]`;
-///   * `dl:summary` / `dl:rationale` (human-readable, corpus-only — never asserted);
-///   * the direct `dl:caused` / `dl:precedentFor` / `dl:influenced` /
-///     `dl:consideredInput` / `dl:governedBy` edges;
-///   * a PROVENANCE SUMMARY (`prov:wasAssociatedWith <did:nostr>` +
-///     `prov:generatedAtTime`) — NOT the signed envelope (ADR-049: the
-///     authoritative signed attribution stays in the `:provenance` graph).
+/// instances. Emits `knowledge/pages/decisions/<slug>.md` as **frontmatter
+/// only** (PRD-sovereign-corpus Q4: no ```json-ld fence; `vault validate` lists
+/// a fence under `rejected_constructs`):
+///
+///   * `type: Individual` — a decision record is a `prov:Activity` instance,
+///     not a class, and the ontology build keys the bundle on this;
+///   * `resource` = the decision URN (the old json-ld `@id`);
+///   * `status: draft` — an elevated decision is a proposal until a human 31403
+///     promotes it;
+///   * `generated: {by: process:visionclaw/<version>, at: <RFC3339>}` — the OKF
+///     trust stamp, carrying the *summary* provenance only;
+///   * the five causal edge sets as declared relation keys
+///     ([`DECISION_RELATION_KEYS`]);
+///   * `public: true`, as before — without it the §V4 gate reads every drafted
+///     decision as private and the record never reaches the knowledge graph.
+///
+/// ## What is deliberately NOT here (ADR-049 boundary, preserved)
+///
+/// The signed PROV-O envelope. The page carries the `did:nostr` attribution as
+/// the `generated.by`-adjacent `decided-by` scalar and `prov:generatedAtTime`
+/// as `generated.at`; the authoritative *signed* attribution stays in the
+/// `:provenance` graph. Re-materialisation emits only asserted `dl:` quads.
 ///
 /// Returns `(file_path, markdown)`.
 pub fn draft_decision_page(dec: &ElevatedDecision) -> (String, String) {
     let slug = decision_slug(&dec.decision_urn, &dec.input.summary);
     let file_path = format!("{DECISIONS_DIR}/{slug}.md");
-
-    let jsonld = json!({
-        "@context": {
-            "dl": DL_NS,
-            "prov": PROV_NS,
-            "xsd": "http://www.w3.org/2001/XMLSchema#",
-        },
-        "@id": dec.decision_urn,
-        "@type": ["prov:Activity", "dl:DecisionRecord"],
-        "dl:summary": dec.input.summary,
-        "dl:rationale": dec.input.rationale,
-        "dl:caused": id_list(&dec.input.caused),
-        "dl:precedentFor": id_list(&dec.input.precedent_for),
-        "dl:influenced": id_list(&dec.input.influenced),
-        "dl:consideredInput": id_list(&dec.input.considered_inputs),
-        "dl:governedBy": id_list(&dec.input.governed_by),
-        // Provenance SUMMARY only — the signed envelope stays in :provenance.
-        "prov:wasAssociatedWith": { "@id": dec.agent_did },
-        "prov:generatedAtTime": { "@value": dec.generated_at, "@type": "xsd:dateTime" },
-    });
-
-    let block = serde_json::to_string_pretty(&jsonld).unwrap_or_else(|_| "{}".to_string());
 
     let heading = if dec.input.summary.trim().is_empty() {
         "Decision".to_string()
@@ -209,26 +268,69 @@ pub fn draft_decision_page(dec: &ElevatedDecision) -> (String, String) {
         dec.input.summary.trim().to_string()
     };
 
-    let body = format!(
-        "# {heading}\n\n\
-         > Elevated decision record (ADR-050). Re-derived into \
-         `urn:ngm:graph:ontology:assert` on the next corpus sync. Signed \
-         attribution lives in the provenance graph; this page carries the summary.\n\n\
-         ```json-ld\n{block}\n```\n"
-    );
+    let mut extra_lists = std::collections::BTreeMap::new();
+    let edge_sets: [&[String]; 5] = [
+        &dec.input.caused,
+        &dec.input.precedent_for,
+        &dec.input.influenced,
+        &dec.input.considered_inputs,
+        &dec.input.governed_by,
+    ];
+    for (key, targets) in DECISION_RELATION_KEYS.iter().zip(edge_sets) {
+        let links = wikilinks(targets);
+        if !links.is_empty() {
+            extra_lists.insert((*key).to_string(), links);
+        }
+    }
 
-    // ADR-2040 §V5: writers emit vault frontmatter, never `key:: value` lines.
-    // Without `public: true` the §V4 gate would treat every drafted decision
-    // page as private and the record would never reach the knowledge graph.
     let meta = vault::PageMeta {
         public: true,
-        title: (heading != "Decision").then(|| heading.clone()),
+        page_type: Some(DECISION_PAGE_TYPE.to_string()),
+        resource: Some(dec.decision_urn.clone()),
+        status: Some("draft".to_string()),
+        // The provenance SUMMARY (ADR-049). `by` is the deciding principal as
+        // an OKF `did:` actor — the attribution the record carries; `rule` is
+        // the process that wrote the page down. Neither is the signed envelope.
+        generated: Some(vault::GeneratedStamp {
+            by: dec.agent_did.clone(),
+            at: dec.generated_at.clone(),
+            rule: Some(drafting_process()),
+        }),
+        title: Some(heading.clone()),
+        extra_lists,
         ..vault::PageMeta::default()
     };
-    let content = vault::render_page(&meta, &body);
 
-    (file_path, content)
+    // The rationale has no declared frontmatter home, so it goes where
+    // vocabulary.yaml's own migration rule C puts such a value: into the body
+    // as `**key:** value`. It is human-readable, corpus-only and never
+    // asserted as a quad, so prose loses nothing.
+    let rationale = dec.input.rationale.trim();
+    let rationale_line = if rationale.is_empty() {
+        String::new()
+    } else {
+        format!("**{RATIONALE_LABEL}:** {rationale}\n\n")
+    };
+
+    let body = format!(
+        "# {heading}\n\n{rationale_line}\
+         > Elevated decision record (ADR-050). Re-derived into \
+         `urn:ngm:graph:ontology:assert` on the next corpus sync. Signed \
+         attribution lives in the provenance graph; this page carries the summary.\n"
+    );
+
+    (file_path, vault::render_page(&meta, &body))
 }
+
+/// `type` of a decision-record page: a `prov:Activity` **instance**, so the OKF
+/// type is `Individual` — it is never an ontology class.
+pub const DECISION_PAGE_TYPE: &str = "Individual";
+
+/// Body label carrying the human-readable rationale (corpus-only; never
+/// asserted as a quad). Matches vocabulary.yaml migration rule C's `**key:**`
+/// prose convention, so a human editing the page in Obsidian sees the same
+/// shape a migrated `rationale::` line produces.
+const RATIONALE_LABEL: &str = "Rationale";
 
 // ---------------------------------------------------------------------------
 // Page parsing / re-materialisation (the read-half recogniser)
@@ -247,85 +349,50 @@ pub struct ParsedDecision {
     pub agent_did: Option<String>,
 }
 
-/// Pull IRIs out of a json-ld relation value: a bare IRI string, a `{"@id": …}`
-/// object, or an array of either. Mirrors the elevation parser's `jsonld_iri_list`.
-fn jsonld_iri_list(value: &Value) -> Vec<String> {
-    fn one(v: &Value, out: &mut Vec<String>) {
-        if let Some(s) = v.as_str() {
-            if !s.trim().is_empty() {
-                out.push(s.to_string());
-            }
-        } else if let Some(s) = v.get("@id").and_then(|x| x.as_str()) {
-            if !s.trim().is_empty() {
-                out.push(s.to_string());
-            }
-        }
-    }
-    let mut out = Vec::new();
-    match value {
-        Value::Array(arr) => arr.iter().for_each(|v| one(v, &mut out)),
-        v => one(v, &mut out),
-    }
-    out
-}
-
-/// Does the json-ld `@type` value name `dl:DecisionRecord` (compact or expanded)?
-fn is_decision_record_type(types: &Value) -> bool {
-    let full = dl_decision_record_iri();
-    let matches_one = |s: &str| s == "dl:DecisionRecord" || s == full;
-    match types {
-        Value::String(s) => matches_one(s),
-        Value::Array(arr) => arr
-            .iter()
-            .any(|v| v.as_str().map(matches_one).unwrap_or(false)),
-        _ => false,
-    }
-}
-
-/// Recognise a `dl:DecisionRecord` corpus page and recover its
-/// [`ParsedDecision`] — the byte-faithful inverse of [`draft_decision_page`]
-/// (via "the parser's node typing": the `@type` recognition). Returns `None` for
-/// a page with no json-ld block, an unparseable block, a missing `@id`, or a
-/// block that is not a decision record (so class pages are left to the
-/// class-rebuild path untouched).
+/// Recognise an elevated decision page and recover its [`ParsedDecision`] —
+/// the byte-faithful inverse of [`draft_decision_page`].
+///
+/// The node typing is now the OKF frontmatter, not a json-ld `@type`: a page is
+/// a decision record IFF `type: Individual` and its `resource` is a decision
+/// URN (`urn:agentbox:decision:…`). That second half matters — `Individual` is
+/// the OKF type of *every* named individual, so without the URN check the read
+/// half would claim every individual page in `knowledge/` as a decision.
+///
+/// Returns `None` for a page with no frontmatter, the wrong `type`, a missing
+/// or non-decision `resource` — so class pages and ordinary individuals are
+/// left to the class-rebuild path untouched.
 pub fn parse_decision_page(markdown: &str) -> Option<ParsedDecision> {
-    let block = markdown
-        .split("```json-ld")
-        .nth(1)
-        .and_then(|s| s.split("```").next())?;
-    let value: Value = serde_json::from_str(block.trim()).ok()?;
+    let meta = vault::parse(markdown);
 
-    // Node typing gate: only decision-record instances (ADR-050 read-half).
-    if !is_decision_record_type(value.get("@type")?) {
+    if meta.page_type.as_deref() != Some(DECISION_PAGE_TYPE) {
         return None;
     }
-    let decision_urn = value.get("@id").and_then(|v| v.as_str())?.to_string();
+    let decision_urn = meta.resource.clone()?;
+    if !decision_urn.starts_with(DECISION_URN_PREFIX) {
+        return None;
+    }
 
-    let edges = |key: &str| value.get(key).map(jsonld_iri_list).unwrap_or_default();
-
-    let input = DecisionInput {
-        summary: value
-            .get("dl:summary")
-            .and_then(|v| v.as_str())
+    let edges = |key: &str| {
+        meta.extra_lists
+            .get(key)
+            .map(|items| unwikilink(items))
             .unwrap_or_default()
-            .to_string(),
-        rationale: value
-            .get("dl:rationale")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        proposal_urn: None,
-        caused: edges("dl:caused"),
-        precedent_for: edges("dl:precedentFor"),
-        influenced: edges("dl:influenced"),
-        considered_inputs: edges("dl:consideredInput"),
-        governed_by: edges("dl:governedBy"),
     };
 
-    let agent_did = value
-        .get("prov:wasAssociatedWith")
-        .and_then(|v| v.get("@id").and_then(|x| x.as_str()).or_else(|| v.as_str()))
-        .map(str::to_string);
+    let input = DecisionInput {
+        summary: meta.title.clone().unwrap_or_default(),
+        rationale: parse_rationale(markdown),
+        proposal_urn: None,
+        caused: edges(DECISION_RELATION_KEYS[0]),
+        precedent_for: edges(DECISION_RELATION_KEYS[1]),
+        influenced: edges(DECISION_RELATION_KEYS[2]),
+        considered_inputs: edges(DECISION_RELATION_KEYS[3]),
+        governed_by: edges(DECISION_RELATION_KEYS[4]),
+    };
+
+    // ADR-049 provenance summary: the deciding principal, not the process that
+    // wrote the page — `generated.rule` holds that.
+    let agent_did = meta.generated.as_ref().map(|g| g.by.clone());
 
     Some(ParsedDecision {
         decision_urn,
@@ -333,6 +400,24 @@ pub fn parse_decision_page(markdown: &str) -> Option<ParsedDecision> {
         agent_did,
     })
 }
+
+/// Recover the `**Rationale:** …` prose line [`draft_decision_page`] writes.
+/// Returns an empty string when the page carries none (a rationale-less
+/// decision is legal; inventing one would be worse than recording none).
+fn parse_rationale(markdown: &str) -> String {
+    let prefix = format!("**{RATIONALE_LABEL}:**");
+    markdown
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix))
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// URN prefix that distinguishes a decision record from any other OKF
+/// `Individual`. Minted by the governed decision write door as
+/// `urn:agentbox:decision:<pubkey>:sha256-12-<hex>`.
+const DECISION_URN_PREFIX: &str = "urn:agentbox:decision:";
 
 /// Re-materialise a decision corpus page into its `urn:ngm:graph:ontology:assert`
 /// quads — the type memberships + direct `dl:` edges, and NOTHING ELSE (no
@@ -452,7 +537,11 @@ mod tests {
             ..Default::default()
         });
         let (path, _) = draft_decision_page(&dec);
-        assert!(path.starts_with("mainKnowledgeGraph/pages/decisions/"));
+        // Repo-root-relative under the governed vault role, so the write-half's
+        // path and the read-half's `list_pages_under(DECISIONS_DIR)` prefix are
+        // the same string against the real visionGraph corpus.
+        assert!(path.starts_with("knowledge/pages/decisions/"));
+        assert_eq!(DECISIONS_DIR, "knowledge/pages/decisions");
         assert!(path.ends_with(".md"));
         // Deterministic: same decision → same path.
         let (path2, _) = draft_decision_page(&dec);
@@ -497,10 +586,75 @@ mod tests {
             "proposal_urn is not on the corpus page"
         );
 
-        // Raw json-ld carries the exact dl: @type (both memberships).
-        assert!(markdown.contains("\"dl:DecisionRecord\""));
-        assert!(markdown.contains("\"prov:Activity\""));
-        assert!(markdown.contains("\"dl:caused\""));
+        // Q4: the node typing is frontmatter, and there is no fence to read.
+        assert!(!markdown.contains("```"), "no json-ld fence: {markdown}");
+        let meta = vault::parse(&markdown);
+        assert_eq!(meta.page_type.as_deref(), Some(DECISION_PAGE_TYPE));
+        assert_eq!(meta.resource.as_deref(), Some(dec.decision_urn.as_str()));
+        assert_eq!(meta.status.as_deref(), Some("draft"));
+
+        // Every edge is a wikilink list under a vocabulary-DECLARED key.
+        for key in DECISION_RELATION_KEYS {
+            let items = meta.extra_lists.get(key).expect("edge key present");
+            assert!(
+                items
+                    .iter()
+                    .all(|i| i.starts_with("[[") && i.ends_with("]]")),
+                "{key} targets are wikilinks: {items:?}"
+            );
+        }
+        assert_eq!(
+            meta.extra_lists.get("causes"),
+            Some(&vec![format!("[[{}]]", input.caused[0])])
+        );
+
+        // The OKF trust stamp carries the drafting process and the activity time.
+        let stamp = meta.generated.as_ref().expect("generated stamp");
+        assert_eq!(stamp.by, dec.agent_did, "attributed to the principal");
+        assert_eq!(stamp.at, dec.generated_at);
+        assert!(stamp
+            .rule
+            .as_deref()
+            .is_some_and(|r| r.starts_with("process:visionclaw/")));
+    }
+
+    #[test]
+    fn every_relation_key_the_drafter_emits_is_declared_in_the_vocabulary() {
+        // Contract C1 / PRD Q5: an undeclared frontmatter key fails
+        // `vault validate` on a `knowledge/` page, so the writer may only reach
+        // for keys `ontology/vocabulary.yaml` declares. Pinned here because the
+        // vocabulary is read-only to this crate and a drift is silent otherwise.
+        const DECLARED_RELATIONS: [&str; 5] = [
+            // `vc:causes`, `vc:precedes`, `vc:influences`, `vc:informedBy`,
+            // `vc:regulatedBy` — all present in vocabulary.yaml `relations:`.
+            "causes",
+            "precedes",
+            "influences",
+            "informed-by",
+            "regulated-by",
+        ];
+        assert_eq!(DECISION_RELATION_KEYS, DECLARED_RELATIONS);
+    }
+
+    #[test]
+    fn an_edgeless_decision_emits_no_empty_relation_keys() {
+        let dec = sample(DecisionInput {
+            summary: "quiet decision".into(),
+            rationale: "r".into(),
+            ..Default::default()
+        });
+        let (_, markdown) = draft_decision_page(&dec);
+        let meta = vault::parse(&markdown);
+        for key in DECISION_RELATION_KEYS {
+            assert!(
+                !meta.extra_lists.contains_key(key),
+                "{key} should be absent, not an empty list"
+            );
+        }
+        // …and the page still round-trips to an edgeless decision.
+        let parsed = parse_decision_page(&markdown).expect("parses");
+        assert!(parsed.input.caused.is_empty());
+        assert_eq!(parsed.decision_urn, dec.decision_urn);
     }
 
     #[test]
@@ -570,13 +724,17 @@ mod tests {
             !markdown.contains(":: "),
             "no writer emits `key:: value` lines (Invariant 1)"
         );
+        assert!(
+            !markdown.contains("```"),
+            "a ```json-ld fence is a vocabulary `rejected_construct` (PRD Q4)"
+        );
 
         let meta = vault::parse(&markdown);
         assert!(meta.public);
         assert!(meta.is_kg_included());
         assert_eq!(meta.title.as_deref(), Some("merge duplicate concepts"));
 
-        // The json-ld body is untouched, so the read half still round-trips.
+        // The frontmatter alone carries the record, so the read half round-trips.
         let parsed = parse_decision_page(&markdown).expect("decision page parses");
         assert_eq!(parsed.decision_urn, dec.decision_urn);
         assert_eq!(parsed.input.caused, dec.input.caused);
@@ -598,29 +756,101 @@ mod tests {
         let meta = vault::parse(&markdown);
 
         assert!(meta.public, "still ingests");
-        assert_eq!(
-            meta.title, None,
-            "the `Decision` placeholder is not a title"
-        );
+        // `title` is a required knowledge key, so the placeholder is written —
+        // but it is the placeholder, not a summary the decision never had.
+        assert_eq!(meta.title.as_deref(), Some("Decision"));
         assert!(markdown.contains("# Decision"));
+        // The record is still recoverable: identity lives in `resource`.
+        let parsed = parse_decision_page(&markdown).expect("parses");
+        assert_eq!(parsed.decision_urn, dec.decision_urn);
+        assert_eq!(parsed.input.summary, "Decision");
     }
 
     #[test]
     fn non_decision_page_is_ignored_by_the_read_half() {
         // A class page (the class-elevation output) must NOT be re-materialised here.
-        let class_page = "# Camera\n```json-ld\n{\n  \"@id\": \"urn:ngm:class:camera\",\n  \"@type\": \"Class\"\n}\n```\n";
+        let class_page =
+            "---\ntype: Class\nresource: urn:ngm:class:camera\nstatus: draft\n---\n\n# Camera\n";
         assert!(parse_decision_page(class_page).is_none());
         assert!(decision_page_quads(class_page).is_empty());
 
-        // A page with no json-ld block at all.
-        assert!(parse_decision_page("# Just prose\nno block here").is_none());
+        // An ordinary OKF Individual is NOT a decision: the `type` alone is not
+        // the node typing — the `resource` must be a decision URN. Without this
+        // the read half would claim every named individual in the corpus.
+        let individual = "---\ntype: Individual\nresource: urn:ngm:individual:mature\nstatus: stable\n---\n\n# Mature\n";
+        assert!(parse_decision_page(individual).is_none());
+        assert!(decision_page_quads(individual).is_empty());
+
+        // A page with no metadata carrier at all.
+        assert!(parse_decision_page("# Just prose\nno frontmatter here").is_none());
     }
 
     #[test]
-    fn parse_tolerates_bare_iri_and_object_edge_forms() {
-        // Hand-authored / older pages may use bare-string edges; accept both.
+    fn the_drafter_never_writes_a_value_from_the_process_environment() {
+        // The elevation path runs in a process holding ACSP_PANEL_NOSTR_PRIVKEY,
+        // a GitHub token and relay URLs, and it writes a PUBLIC corpus page. The
+        // only environment value it may carry is the COMPILE-time crate version
+        // in the OKF `generated.by` actor; nothing read at run time belongs on a
+        // page. Pinned as an allowlist so a future writer cannot quietly add an
+        // env-sourced key.
+        const ALLOWED_KEYS: [&str; 6] =
+            ["type", "resource", "status", "public", "title", "generated"];
+
+        let dec = sample(DecisionInput {
+            summary: "audit".into(),
+            rationale: "r".into(),
+            caused: vec!["urn:agentbox:decision:AA:sha256-12-def".into()],
+            ..Default::default()
+        });
+        let (_, markdown) = draft_decision_page(&dec);
+        let (meta, _) = vault::split(&markdown);
+
+        // No frontmatter VALUE is an environment value. Exact equality, not a
+        // substring scan: the ambient environment of this estate holds short
+        // words like `agentbox` that legitimately occur inside a decision URN,
+        // and a scan that flags those is a test nobody can keep green. A
+        // credential — the thing Invariant 11 is about — is carried whole, so
+        // equality is where it would show up.
+        let env: std::collections::HashSet<String> = std::env::vars().map(|(_, v)| v).collect();
+        let mut emitted: Vec<String> = meta.extra.values().cloned().collect();
+        emitted.extend(meta.extra_lists.values().flatten().cloned());
+        emitted.extend(
+            [&meta.page_type, &meta.resource, &meta.status, &meta.title]
+                .into_iter()
+                .flatten()
+                .cloned(),
+        );
+        if let Some(ref stamp) = meta.generated {
+            emitted.push(stamp.by.clone());
+            emitted.push(stamp.at.clone());
+        }
+        for value in &emitted {
+            assert!(
+                !env.contains(value),
+                "an environment value was written to the page: {value}"
+            );
+        }
+
+        // Every authored key is either in the allowlist or a declared relation.
+        for key in meta
+            .extra
+            .keys()
+            .chain(meta.extra_lists.keys())
+            .map(String::as_str)
+        {
+            assert!(
+                ALLOWED_KEYS.contains(&key) || DECISION_RELATION_KEYS.contains(&key),
+                "unexpected frontmatter key `{key}` on a public corpus page"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_tolerates_a_hand_authored_page() {
+        // A human editing the page in Obsidian writes plain wikilinks; the read
+        // half must accept them exactly as the drafter's own output.
         let md = format!(
-            "# D\n```json-ld\n{{\n  \"@id\": \"urn:agentbox:decision:{PK}:sha256-12-abc\",\n  \"@type\": [\"prov:Activity\", \"dl:DecisionRecord\"],\n  \"dl:caused\": \"urn:agentbox:decision:bare\",\n  \"dl:precedentFor\": [{{\"@id\": \"urn:agentbox:decision:obj\"}}]\n}}\n```\n"
+            "---\ntype: Individual\nresource: \"urn:agentbox:decision:{PK}:sha256-12-abc\"\nstatus: draft\npublic: true\ntitle: Hand authored\ncauses:\n  - \"[[urn:agentbox:decision:bare]]\"\nprecedes:\n  - \"[[urn:agentbox:decision:obj]]\"\n---\n\n# Hand authored\n"
         );
         let parsed = parse_decision_page(&md).expect("parses");
         assert_eq!(parsed.input.caused, vec!["urn:agentbox:decision:bare"]);
@@ -628,5 +858,158 @@ mod tests {
             parsed.input.precedent_for,
             vec!["urn:agentbox:decision:obj"]
         );
+    }
+}
+
+#[cfg(test)]
+mod vocabulary_conformance {
+    use super::*;
+    use crate::services::decision_service::DecisionInput;
+
+    /// Where the governed vocabulary lives relative to this repo. Absent on a
+    /// machine that has not checked out the corpus, in which case the test
+    /// reports that it could not run rather than passing vacuously.
+    const VOCABULARY: &str = "../visionGraph/ontology/vocabulary.yaml";
+
+    fn sample_pages() -> Vec<(String, String)> {
+        let dec = ElevatedDecision {
+            decision_urn: "urn:agentbox:decision:0123456789abcdef:sha256-12-9ec3d090ff23".into(),
+            input: DecisionInput {
+                summary: "Merge Duplicate Concepts".into(),
+                rationale: "resolves DUPLICATE_CONCEPT".into(),
+                proposal_urn: None,
+                caused: vec!["urn:agentbox:decision:AA:sha256-12-def".into()],
+                precedent_for: vec!["urn:agentbox:decision:AA:sha256-12-ghi".into()],
+                influenced: vec!["urn:agentbox:decision:AA:sha256-12-jkl".into()],
+                considered_inputs: vec!["urn:agentbox:activity:in".into()],
+                governed_by: vec!["urn:agentbox:decision:policy".into()],
+            },
+            agent_did: "did:nostr:0123456789abcdef".into(),
+            generated_at: "2026-09-22T00:00:00Z".into(),
+            acsp_approved: false,
+        };
+        let (_, decision) = draft_decision_page(&dec);
+
+        let (_, class) = crate::actors::elevation_actor::draft_class_page(
+            &crate::actors::elevation_actor::FrontierCandidate {
+                label: "finality mechanism".into(),
+                degree: 7,
+                domain: "blockchain".into(),
+                referenced_by: vec!["Consensus Layer".into()],
+            },
+        );
+        vec![
+            ("decision".to_string(), decision),
+            ("class".to_string(), class),
+        ]
+    }
+
+    /// Every frontmatter key either writer emits must be declared in
+    /// `ontology/vocabulary.yaml`, because `vault validate` fails a
+    /// `knowledge/` page on an unknown key and a failing page never reaches the
+    /// corpus at all.
+    ///
+    /// This is the cheap twin of `vault validate --vault knowledge`: it reads
+    /// the SAME file the CLI reads, so a vocabulary change that orphans a
+    /// writer's key fails here without needing the CLI built or a vault staged.
+    #[test]
+    fn every_key_the_corpus_writers_emit_is_declared() {
+        let Ok(text) = std::fs::read_to_string(VOCABULARY) else {
+            eprintln!("skipping: {VOCABULARY} not checked out on this machine");
+            return;
+        };
+        let vocab: serde_yaml::Value = serde_yaml::from_str(&text).expect("vocabulary.yaml parses");
+
+        let keys_of = |section: &str| -> std::collections::HashSet<String> {
+            vocab
+                .get(section)
+                .and_then(|v| v.as_mapping())
+                .map(|m| {
+                    m.keys()
+                        .filter_map(|k| k.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut declared = keys_of("relations");
+        declared.extend(keys_of("scalars"));
+        // OKF blocks are declared as nested structures, not as flat scalars.
+        declared.extend(["type", "resource", "status", "generated"].map(String::from));
+
+        for (name, markdown) in sample_pages() {
+            let meta = vault::parse(&markdown);
+            let emitted: Vec<String> = meta
+                .extra
+                .keys()
+                .chain(meta.extra_lists.keys())
+                .cloned()
+                .chain(meta.source_domain.is_some().then(|| "source-domain".into()))
+                .chain(meta.owl_class.is_some().then(|| "owl-class".into()))
+                .chain((!meta.aliases.is_empty()).then(|| "aliases".into()))
+                .chain((!meta.tags.is_empty()).then(|| "tags".into()))
+                .chain(meta.elevated_from.is_some().then(|| "elevatedFrom".into()))
+                .collect();
+            for key in emitted {
+                assert!(
+                    declared.contains(&key),
+                    "the {name} writer emits `{key}`, which vocabulary.yaml does \
+                     not declare — `vault validate` would reject the page"
+                );
+            }
+            // …and no rejected construct sneaks back in.
+            assert!(!markdown.contains("```"), "{name}: json-ld fence");
+            assert!(!markdown.contains(":: "), "{name}: Logseq property line");
+            assert!(!markdown.contains("{{embed"), "{name}: embed");
+        }
+    }
+}
+
+#[cfg(test)]
+mod dump_for_vault_cli {
+    use super::*;
+    use crate::services::decision_service::DecisionInput;
+
+    /// Not an assertion — a fixture emitter, so the real `vault` CLI can be run
+    /// against exactly what the drafter writes. `DUMP_DECISION_PAGE=<dir>`.
+    #[test]
+    fn dump() {
+        let Ok(dir) = std::env::var("DUMP_DECISION_PAGE") else {
+            return;
+        };
+        let dec = ElevatedDecision {
+            decision_urn: "urn:agentbox:decision:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:sha256-12-9ec3d090ff23".into(),
+            input: DecisionInput {
+                summary: "Merge Duplicate Concepts".into(),
+                rationale: "resolves DUPLICATE_CONCEPT".into(),
+                proposal_urn: None,
+                caused: vec!["urn:agentbox:decision:AA:sha256-12-def".into()],
+                precedent_for: vec![],
+                influenced: vec![],
+                considered_inputs: vec![],
+                governed_by: vec![],
+            },
+            agent_did: "did:nostr:0123456789abcdef".into(),
+            generated_at: "2026-09-22T00:00:00Z".into(),
+            acsp_approved: false,
+        };
+        let (path, md) = draft_decision_page(&dec);
+        let out = std::path::Path::new(&dir).join(path.rsplit('/').next().unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&out, md).unwrap();
+        eprintln!("wrote {}", out.display());
+
+        // …and the class-elevation sibling, which lands one level up.
+        let (cpath, cmd) = crate::actors::elevation_actor::draft_class_page(
+            &crate::actors::elevation_actor::FrontierCandidate {
+                label: "finality mechanism".into(),
+                degree: 7,
+                domain: "blockchain".into(),
+                referenced_by: vec!["Consensus Layer".into()],
+            },
+        );
+        let parent = std::path::Path::new(&dir).parent().unwrap().to_path_buf();
+        let cout = parent.join(cpath.rsplit('/').next().unwrap());
+        std::fs::write(&cout, cmd).unwrap();
+        eprintln!("wrote {}", cout.display());
     }
 }

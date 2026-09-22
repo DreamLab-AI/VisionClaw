@@ -1,295 +1,437 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 1.4.2
+version: 2.0.1
 status: living
-verified_commit: 
+verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2040, ADR-2041, ADR-2042]
-agentbox_ledger: [ADR-2028, ADR-2029]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116]
+agentbox_ledger: [ADR-2106, ADR-2107, ADR-2108]
 ---
 
 # VAULT — authored corpus format
 
-This is the governing document for the **authored knowledge corpus**: the
-markdown files that GitHub sync ingests into the knowledge graph, that the
-elevation and mutation services write back, and that agentbox skills read and
-extend. It replaces the implicit Logseq conventions that were previously spread
-across `file_service.rs`, `github_sync_service.rs`, and the agentbox skills.
+This is the governing document for the **authored knowledge corpus**: the markdown
+files that VisionClaw ingests into the knowledge graph, that `vault build` turns
+into the Loom bundle and narrativegoldmine.com, that the governance loop writes
+back to, and that agentbox skills read and extend.
+
+**v2.0.0 is a format break, not an amendment.** The ontology no longer lives in
+two `json-ld` fences per page; it lives in typed Obsidian Properties. There is no
+legacy tolerance: `vault validate` **rejects** a fence, a `key:: value` line, an
+`{{embed}}`, a `((block-ref))`, an `a___b.md` filename or a Logseq journal. Git is
+the rollback. See ADR-2112 (supersedes ADR-2040).
 
 Related governing documents: [`DATA-authority-erasure.md`](DATA-authority-erasure.md)
-(ownership of the "Authored content" class), [`BASELINE-architecture.md`](BASELINE-architecture.md)
-(the GitHub → Oxigraph → client pipeline), and in agentbox
-[`agentbox/docs/BASELINE-container.md`](../agentbox/docs/BASELINE-container.md)
-(the `[vault]` manifest section and the Rune TUI window).
+(ownership of the "Authored content" class),
+[`BASELINE-architecture.md`](BASELINE-architecture.md) (the corpus → Oxigraph →
+client pipeline), [`IDENTIFIER-taxonomy.md`](IDENTIFIER-taxonomy.md) (IRIs and node
+ids), and in the corpus itself `visionGraph/ontology/vocabulary.yaml` (the
+normative vocabulary) and `visionGraph/vault.toml` (the manifest).
 
 ## Purpose
 
 1. Define the **one** on-disk format the system reads and writes: an
-   [Obsidian](https://obsidian.md) vault of plain markdown with YAML frontmatter.
-2. Define the **legacy tolerance**: which Logseq constructs the readers still
-   accept during the transition, and the date/trigger at which tolerance ends.
-3. Define the **converter contract** (`vault-migrate`) that turns a Logseq graph
-   into a vault, and what the converter must report rather than guess.
-4. Give every consumer (VisionClaw backend, client, agentbox skills, MCP servers,
-   tmux TUI) a single path authority for the vault.
+   [Obsidian](https://obsidian.md) vault of plain markdown whose metadata is
+   entirely YAML frontmatter.
+2. Define the **two vault roles** — `knowledge/` as a governed
+   [OKF v0.2](https://openknowledgeformat.org) bundle, `working/` as the curator's
+   OKF-conformant space — and the type set each admits.
+3. Point every rule at the **versioned vocabulary** (`ontology/vocabulary.yaml`)
+   rather than restating it here, so the format and the ontology cannot drift.
+4. Give every consumer (VisionClaw backend and client, Loom, agentbox skills,
+   Quartz) a single path authority and a single parser.
+5. State what the format **forbids**, so the check is mechanical.
 
 ## Current state
 
-### Corpus survey (2026-09-02, `/home/devuser/workspace/logseq/mainKnowledgeGraph`)
+### Corpus census (2026-09-22, `/home/devuser/workspace/visionGraph`)
 
-| Statistic | Value |
-|---|---|
-| Pages in `pages/` | 8,638 |
-| Pages with `public:: true` | 8,601 |
-| Pages with a `json-ld` fence | 8,447 |
-| Namespace pages stored as `a___b.md` | 201 |
-| Journals (`YYYY_MM_DD.md`) | 308 |
-| Working-graph pages (`workingGraph/pages/`) | 574 |
-| Pages with `{{embed ((uuid))}}` block embeds (no page embeds exist) | 14 (34 occurrences) |
-| Pages with `((block-ref))` | 13 in `pages/` + 1 journal (zero `id::` targets outside `pages/.deleted/` — all dangling) |
-| Pages with `#[[multi word]]` tags | 6 |
-| Pages with TODO/DOING/NOW/LATER/DONE markers | 13 (12 outside code fences; 239 marker occurrences incl. journals) |
-| Pages with body-level `- key:: value` lines (Dataview-style inline fields carrying the relation graph: `enables::` ×7,882, `relatedTo::` ×6,640, `requires::` ×5,982, `uses::` ×5,834, `owl-class::` ×3,854) | 6,541 files / 98,674 lines |
-| Pages referencing `../assets/` | 36 (177 targets; 9 inside code fences) |
-| Pages starting with a `- ` outliner bullet | 0 |
-| Pages with YAML frontmatter | 0 |
+Measured by a pipeline-independent parse; full evidence in
+[`visionGraph/docs/fence-census-2026-09-22.md`](https://github.com/jjohare/visionGraph/blob/main/docs/fence-census-2026-09-22.md).
 
-The corpus is therefore prose-first markdown with a leading Logseq property
-block. The heavy lifting (JSON-LD `Page` and `Class` blocks) is format-neutral
-and carries over unchanged.
-
-### Readers and writers (post-ADR-2040, verified 2026-09-02)
-
-Single parsing entry point: `visionclaw_domain::vault::parse`
-(`crates/visionclaw-domain/src/vault/mod.rs:149`) → `PageMeta { public,
-owl_class, source_domain, aliases, title, elevated_from, tags, extra, format }`
-with `is_kg_included()`, plus `split()` / `render_page()` /
-`to_frontmatter_yaml()` (the one emitter, so YAML quoting of `mv:Foo` and
-`"[[Page]]"` is solved once), `legacy_properties_anywhere()` (enrichment
-only — never the gate) and `page_name_from_path()`.
-
-| Component | Reads / writes | Citation |
+| Statistic | knowledge/ | working/ |
 |---|---|---|
-| `FileService::page_is_kg_included` | gate via `PageMeta` | `src/services/file_service.rs:747` |
-| `FileService::extract_owl_class_iri` / `extract_ontology_data` | enrichment, whole page (`legacy_properties_anywhere`) | `file_service.rs:728`, `:759` |
-| `github_sync_service::page_is_kg_included` | gate via `PageMeta` | `src/services/github_sync_service.rs:2304` |
-| `github_sync_service` elevation bridge | `PageMeta.elevated_from` | `github_sync_service.rs:1667` |
-| `KnowledgeGraphParser::create_page_node` | `vault::parse` for owl-class, source-domain, tags, aliases, title (label honours `title`) | `src/services/parsers/knowledge_graph_parser.rs:116`; identity via `page_name_from_path` `:77` |
-| `EnhancedContentAPI::list_markdown_files` | skips `/bak/`, `/logseq/`, `/.recycle/`, `/journals/`, `/.obsidian/`, `/.trash/` | `src/services/github/content_enhanced.rs:113-114` (files), `:234-235` (dirs) |
-| `EnhancedContentAPI` namespace lookup | decodes `%2F` **and** `___` → `/` | `content_enhanced.rs:395` |
-| `OntologyMutationService::generate_vault_markdown` | writes frontmatter pages; amendment path edits frontmatter via `split`/`render_page` | `src/services/ontology_mutation_service.rs:53`, `:484` |
-| `DecisionElevation` page draft | writes `public: true` (+ `title`) via `render_page` — previously emitted no property at all, so drafts would have been private | `src/services/decision_elevation.rs:223` |
-| agentbox `ontology-local.js` / `ontology-index-build.js` / `continual-harness.js` | corpus from `VAULT_PAGES` / `VAULT_ROOT`; writes via `vault-frontmatter.js` `ensureFrontmatter` | `agentbox/mcp/servers/lib/` (ADR-2028) |
-| agentbox entrypoint | exports `VAULT_ROOT`/`VAULT_PAGES`/`VAULT_FORMAT`/`VAULT_TUI`; `ONTOLOGY_PAGES_DIR` derives from `VAULT_PAGES` | `agentbox/config/entrypoint-unified.sh` `_ab_vault_resolve` |
-| agentbox `podcast-knowledge-ingest`, `web-summary` | write frontmatter pages under `$VAULT_ROOT` | `agentbox/skills/*/SKILL.md` (ADR-2028) |
-| `vault-migrate` | one-shot converter | `crates/vault-migrate` (ADR-2042) |
-| Rune "Notes" window | tmux window 9 at `$VAULT_ROOT` | `agentbox/config/tmux-autostart.sh` (ADR-2029) |
+| Markdown files | 8,671 (28 under `pages/.deleted/`) | 574 |
+| Pages with `public: true` in frontmatter | 8,608 | 193 |
+| Pages with a `json-ld` fence | 8,454 | 0 |
+| `@type: Class` fences | 8,446 | 0 |
+| `@type: Page` fences | 8,454 | 0 |
+| `vc:LinkResolutionsAnnotation` fences (undocumented until now; derived data) | 3,712 | 0 |
+| Distinct relation predicates inside `relations` | 57 | — |
+| Relation edges in the fences | 104,731 | — |
+| Relation edges present **only** in `key::` lines | 36,632 (18,006 resolvable) | — |
+| `key:: value` lines | 100,675 over 643 keys | 7,531 over 17 keys |
+| `{{embed}}` occurrences | 35 across 14 files | 41 across 23 files |
+| `a___b.md` namespace files | 0 | 0 |
+| Logseq journals | 0 | 0 |
+| Classes whose `definition` exists **only** in the fence | 5,053 of 8,446 | — |
 
-Tests: `crates/visionclaw-domain/src/vault/mod.rs` (40 unit),
-`crates/visionclaw-domain/tests/vault_fixtures.rs` (5),
-`tests/vault_gate_test.rs` (9) over `tests/fixtures/vault/`;
-`tests/fixtures/data-model/valid/pages/*.md` remain Logseq-format and exercise
-the legacy-tolerance path.
+Three facts from that census drive the design of v2 and are worth stating here
+because they contradict v1.4.2:
+
+- **The body `key::` lines are not decoration.** v1.4.2 §V3 classified them as
+  "content, not metadata". They carry 18,006 relation edges that resolve to real
+  pages and appear nowhere in the fences. Migration takes the **union**.
+- **The `definition` is the content.** For 5,053 classes the fence is the only
+  place the prose exists. It becomes the page's leading body paragraph, not a
+  frontmatter key.
+- **The current build silently loses data.** 955 classes declare
+  `maturity: mature`, which the Turtle emitter coerces to `draft`; 744 classes
+  carry a `qualityScore` the parser never reads and publish `quality 0.0`; and 75
+  relation edges across 34 predicates are dropped because `rel_map` has twelve
+  entries. v2 fixes the first two and makes the third visible.
+
+### Readers and writers (post-ADR-2113)
+
+**One parser, one vocabulary, one reasoner.** `vault-core` (VisionClaw
+`crates/vault`) holds the frontmatter parser, the vocabulary model, the OKF types
+and the promotion state machine. VisionClaw's ingest, the `vault` CLI and CI all
+call it; nothing else parses the corpus.
+
+| Component | Role | Contract |
+|---|---|---|
+| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }` | ADR-2113 |
+| `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
+| `vault find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap | C2 |
+| `vault edit --expect docs=N blocks=M` | guarded mutation; refused without a declared blast radius | C2 |
+| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + forum 31402 | C4, C5 |
+| `vault gate` / `vault conflicts` | the autonomous quality gate and the conflict detector | C2 |
+| `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
+| `vault migrate --fences-to-properties` | the one-shot; deleted after its run | C1 `migration:` |
+| `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via `vault-core` | ADR-2114 |
+| Loom | consumes the `vault build` bundle; generation `visionGraph@<sha>` | Loom ADR-141 |
+| Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish ⇐ `public` | PRD Q13 |
+| agentbox skills (`ontology-augment`, `podcast-knowledge-ingest`, `ontology-curator`) | read and write via the `vault` binary; **no MCP server** | ADR-2107 |
+
+Deleted by this change: `pipeline/*.py`, `publishing-tools/`,
+`crates/vault-migrate`, `agentbox/mcp/servers/ontology-bridge.js` and
+`ontology-propose.js`, `loom-mcp-stdio`, the ADR-2041 `serde(alias = "logseq")`.
 
 ## The vault contract
 
 ### V1 — Layout
 
 ```
-<VAULT_ROOT>/                     # the Obsidian vault root (was mainKnowledgeGraph/)
-  .obsidian/                      # app config; only app/appearance/core-plugins/community-plugins/hotkeys are committed
-  pages/                          # authored pages — GitHub sync base path stays "pages"
-    <Title>.md
-    <Namespace>/<Title>.md        # was <Namespace>___<Title>.md
-  journals/YYYY-MM-DD.md          # was YYYY_MM_DD.md; excluded from KG ingest as before
-  assets/                         # unchanged; links rewritten to vault-root-relative "assets/..."
-  templates/                      # optional
+visionGraph/
+├── vault.toml                  # roles, vocabulary version, build targets, policy, publish
+├── ontology/vocabulary.yaml    # the normative vocabulary; versioned; Schema-tier
+├── knowledge/                  # the governed OKF bundle
+│   ├── .obsidian/              # committed: core plugins, types.json, bases/*.base
+│   ├── pages/**.md             # frontmatter-only
+│   ├── assets/                 # symlink → ../working/assets  (see V9)
+│   └── index.md                # OKF §8 index, generated by `vault build`, committed
+├── working/                    # the curator's space
+│   ├── .obsidian/              # committed: core plugins + Templater templates + Canvas
+│   ├── pages/**.md
+│   └── assets/
+├── quartz/                     # Quartz v4 config; content dir → ../knowledge
+└── .github/workflows/publish.yml
 ```
 
-- The vault root is the single path authority: `VAULT_ROOT` (env) ← agentbox
-  `[vault].root` (manifest). Every consumer derives sub-paths from it; no
-  consumer hard-codes `/home/devuser/workspace/logseq/...`.
-- Page **identity** is the path relative to the **matched `GITHUB_BASE_PATH`
-  prefix** (each vault's `pages/`), without the `.md` extension, with `/` as the
-  namespace separator — never the repo-relative path. The same relative path in
-  `knowledge/pages/` and `working/pages/` is deliberately **one node** (the
-  main↔working twin join: 254 such pairs in the 2026-09-02 corpus).
-  `page_name_to_id` slugifies that name exactly as before, so node ids for
-  root-level pages are unchanged; pages in subfolders gain distinct identities
-  (they were previously merged by basename — 34 genuinely distinct pages
-  collided). Legacy encodings `___` and `%2F` decode to `/` on read.
-- `title` is a **display** value only. A `title` that merely echoes the
-  identity path is ignored by readers, and the converter never writes one.
-- **Wikilink resolution follows Obsidian's shortest-path rule.** A link target
-  is normalised (trim; strip `|alias`, `#heading`, `^block`; decode `___` and
-  `%2F` to `/`). A target containing `/` resolves by **exact** identity match
-  with no basename fallback (rebinding `[[Wrong_Folder/Economy]]` to another
-  folder's `Economy` would invent an edge). A bare target
-  resolves by **basename**: exactly one page with that basename anywhere under
-  `pages/` → that page's full identity; several → the one in the linking
-  page's own folder, else the first in sorted path order, and the ambiguity is
-  reported; none → a `linked_page` stub. Pages that already lived in plain
-  subfolders (e.g. `working/pages/podcast-evidence/<slug>.md`) are therefore
-  reachable by the bare `[[<slug>]]` links the corpus uses, and no stub is
-  minted beside a real page. (Found by the 2026-09-02 shadow sync: +186 stub
-  pages before this rule.)
+- `vault.toml` is the single path authority. No consumer hard-codes a corpus path;
+  agentbox's manifest `[vault].root` supplies the root and every sub-path derives
+  from `vault.toml`.
+- **Page identity** is the vault-relative path without `.md`
+  (`knowledge/pages/Knowledge Graph` ⇒ id `Knowledge Graph`), with `/` as the
+  namespace separator (contract C2). The same relative path in `knowledge/pages/`
+  and `working/pages/` is deliberately **one node** — the knowledge↔working twin
+  join, 254 such pairs.
+- There are no `journals/`, no `a___b.md` names and no `%2F` encodings. A
+  namespace is a real directory.
+- `pages/.deleted/` is not a namespace. It is deleted, not converted.
 
-### V2 — Frontmatter (Obsidian Properties)
+### V2 — Frontmatter is the whole of the metadata
 
-Every page begins with a YAML frontmatter block delimited by `---` lines.
-Keys are lower-kebab-case. The reserved Obsidian keys `aliases`, `tags`,
-`cssclasses` keep their Obsidian meaning.
+Every page begins with a YAML frontmatter block delimited by `---`. Keys are
+lower-kebab-case. The reserved Obsidian keys `aliases`, `tags`, `cssclasses` keep
+their Obsidian meaning. **There is no metadata anywhere else in the file.**
 
-| Key | Type | Meaning | Logseq origin |
+The key set is not listed here — it is `ontology/vocabulary.yaml`, and
+`vault validate` reads that file, not this document. What this document fixes is
+the *shape*:
+
+| Group | Keys | Type | Source of truth |
 |---|---|---|---|
-| `public` | checkbox | KG inclusion gate (see V4) | `public:: true` |
-| `aliases` | list | Obsidian aliases; also KG alias metadata | `alias::` |
-| `title` | text | Display title when it differs from the filename; never the identity path | `title::` |
-| `tags` | list | Obsidian tags; KG `tags` metadata | `tags::`, `#[[..]]` |
-| `owl-class` | text | Formal class IRI; **bypasses the public gate** | `owl:class::` |
-| `source-domain` | text | Domain prefix (ai/bc/mv/rb/tc/ngm) | `source-domain::` |
-| `elevatedFrom` | text (quoted link) | `"[[Working Page]]"` provenance bridge | `elevatedFrom:: [[..]]` |
-| any other `key` | text/list | Preserved verbatim from the Logseq property block | `key::` |
+| Identity | `type`, `title`, `resource` | text | `vocabulary.types`, `vocabulary.identity` |
+| Gate | `public` | boolean | `vocabulary.scalars.public` |
+| Classification | `domain`, `maturity`, `quality`, `authority`, `gloss`, `aliases`, `tags`, `legacy-term-id` | per vocabulary | `vocabulary.scalars` |
+| Relations | `is-a`, `requires`, `enables`, `uses`, `supports`, `has-part`, `part-of`, `related-to`, `depends-on`, `bridges-to`, `contrasts-with`, `implements`, `standardized-by`, `same-as`, + 35 provisional | list of wikilink strings | `vocabulary.relations` |
+| OKF lifecycle | `status`, `stale_after` | text, date | `vocabulary.okf.lifecycle` |
+| OKF trust | `generated {by, at, rule}`, `verified [{by, at}]` | mapping, list | `vocabulary.okf.trust` |
+| OKF provenance | `sources [{id, resource}]` | list | `vocabulary.okf.sources` |
 
 Rules:
-- Wikilinks inside property values are quoted strings: `elevatedFrom: "[[Working Page]]"`.
-- `public` is a real YAML boolean (`true`/`false`), never the string `"true"`.
-- The JSON-LD `Page` and `Class` fences stay in the body unchanged; frontmatter
-  never duplicates their content.
-- A page with no frontmatter is **private** (fail-closed), exactly as a page
-  with no `public:: true` was.
+
+1. **Every relation value is a list of wikilink strings**, even a single target:
+   `is-a: ["[[Algorithm]]"]`. Wikilinks in property values are quoted.
+2. `public` is a real YAML boolean, never `"true"`.
+3. `resource` is minted once from `namespace + slug(title)` and is **immutable
+   thereafter**. It is never recomputed: 412 existing IRIs come from a
+   case/digit-boundary slugifier (`3D Asset` → `3-d-asset`), they are the subject
+   of 104,731 edges and of every published URL, and stability beats tidiness.
+   `vault validate` checks presence, uniqueness and immutability.
+4. `title` is display only, omitted when it equals the filename stem, and never
+   the identity path.
+5. `ancestors`, the inferred closure, backlinks and outbound-wikilink lists are
+   **build outputs** (`<out>/api/`, `ontology-inferred.ttl`). Storing them in a
+   page is a violation.
+6. An unknown key in `knowledge/` **fails** `vault validate`. `working/` tolerates
+   unknown keys (OKF v0.2 §4.1); the documented episodic extensions are in
+   `vocabulary.working_extensions`.
+7. A page with no frontmatter is **private and invalid** — fail-closed on the gate,
+   and a validation error in `knowledge/`.
 
 ### V3 — Body dialect
 
-| Construct | Vault form | Note |
+The body is prose and wikilinks. Nothing in it is metadata.
+
+| Construct | Vault form |
+|---|---|
+| The concept's definition | the **leading paragraph**, immediately after the frontmatter |
+| Wikilinks | `[[Page]]`, `[[Page\|Alias]]`, `[[Ns/Page]]` |
+| Page embeds | `![[Page]]` |
+| Tasks | `- [ ] text`, `- [x] text` |
+| Tags | `#multi-word` |
+| Assets | `assets/<file>` — vault-root-relative, never `../assets/` |
+| Code fences | any language **except `json-ld`** |
+
+Rejected outright by `vault validate` (ADR-2112; no tolerance window, no flag):
+
+- ` ```json-ld ` fences of any `@type`
+- `key:: value` lines, in the leading block or in a bullet
+- `{{embed [[Page]]}}` and `{{embed ((uuid))}}`
+- `((block-ref))`
+- `a___b.md` filenames and `%2F` in a path
+- Logseq journals and `YYYY_MM_DD.md` filenames
+- `TODO` / `DOING` / `NOW` / `LATER` / `DONE` markers
+- `#[[multi word]]` tags
+- a `### Relationships` section listing edges (regenerated from frontmatter)
+
+### V4 — Inclusion and publish gates
+
+Two gates, and they are now the same gate:
+
+1. **Ingest.** Every page in `knowledge/pages` with valid frontmatter is a KG
+   node. There is no `owl-class` bypass and no OR: v1.4.2's `is_kg_included()`
+   disjunction (`public: true` OR a class marker) produced pages that were private
+   and published at once. `type` and `resource` make a page a class; `public`
+   decides only whether it is *published*.
+2. **Publish.** A page publishes to narrativegoldmine.com iff `public: true`
+   (Quartz ExplicitPublish). Fail-closed: absent means private.
+
+`working/` is never ingested into the governed graph and never published. It is
+read by `vault propose` to build proposals and by the curator in Obsidian.
+
+**The publish gate decides visibility, not safety.** `public: true` answers
+"should this be published?" and never "is this safe to publish?". Those are
+different questions, and answering the first correctly is precisely what
+publishes a secret. A 2026-09-22 sweep found 14 live API credentials across 5
+files in `working/` — two OpenAI keys and a bearer token among them — one on a
+page marked `public: true` and on the publication list; they surfaced only
+because a `knowledge/` copy of a journal had been redacted and its `working/`
+twin had not. `vault validate` has no credential check and would have passed
+that page. Until it has one (`CREDENTIAL_RESIDUE`, error severity, **both**
+vaults — the leak reached `public: true` from the ungated side), the gate is
+not a safety control and must not be relied on as one.
+
+### V5 — Writers emit frontmatter only
+
+`vault edit`, `vault build`, agentbox's `podcast-knowledge-ingest` and
+`web-summary`, VisionClaw's mutation and elevation paths: all emit frontmatter
+pages through `vault-core`'s one emitter, so YAML quoting of `"[[Page]]"` and
+`mv:Foo` is solved once. No writer emits a fence or a `key::` line. A writer that
+must touch a page it did not create still goes through `vault edit --expect`, which
+refuses a mutation without a declared blast radius and names the missing guards.
+
+### V6 — Migration (`vault migrate --fences-to-properties`, ADR-2113)
+
+The one remaining one-shot; the subcommand is deleted after its run.
+
+- Lossless **by construction**: the migration fails on any fence field or `key::`
+  key not covered by `vocabulary.migration`, rather than guessing or dropping.
+- `--dry-run` first; the diff is committed as evidence before the real run.
+- Three rules do the work (full statement in `vocabulary.migration`):
+  - a `key::` line in the **leading block** is page-level and takes its mapped
+    frontmatter destination;
+  - a `key::` line **inside a bullet** is block-level: a relation key is
+    union-merged, anything else is rendered into that bullet's prose and the key
+    dropped — block properties cannot be lifted to page-level frontmatter without
+    collapsing many values into one;
+  - relation values are the **union** of the fence targets and the `key::`
+    wikilink targets, deduplicated by resolved identity, dangling targets
+    reported;
+  - a `{{embed ((uuid))}}` block reference is **resolved and inlined**, not
+    deleted. The uuids were long assumed dead; they are not — the earlier
+    survey searched only `knowledge/`, and 33 of the 34 resolve to an `id::`
+    line in `working/`. Each becomes a blockquote carrying an HTML provenance
+    comment that names the source file. The two remaining occurrences are
+    documentation *about* Logseq syntax inside inline code, and are escaped.
+- Idempotent: a second run is a no-op.
+- `git` is the rollback. There is no reverse converter.
+
+### V7 — Vocabulary is versioned and Schema-tier
+
+`ontology/vocabulary.yaml` carries `version`. `vault.toml` pins it. `vault build`
+stamps it into `.generation.json`. Changing the file — adding a relation, changing
+an `owl:` value, flipping `emitted`, widening an enum — is a **Schema-level**
+change: tier High by floor, human-signed forum 31403, Whelk-clean (PRD Q6/Q7).
+
+The `owl:` value of every relation with `emitted: true` is byte-identical to the
+property the retired Python emitter wrote. **Only the authoring syntax changed.** A
+change to an `owl:` value is an ontology break.
+
+`inverse:` in the vocabulary is an authoring and build hint, not an emitted
+`owl:inverseOf`: inverse object properties are outside the OWL 2 EL profile Whelk
+reasons over, so `vault build` materialises the reverse edge in the graph, page API
+and scaffold index and emits no inverse axiom. The corpus uses exactly one inverse
+pair in both directions (`has-part` / `part-of`).
+
+### V8 — Obsidian tooling and the two type sets
+
+Core plugins only: Bases, `types.json`, Templater, Canvas, obsidian-git. Both
+`.obsidian/` directories are committed and validated by `vault build`; a `types.json`
+that disagrees with `vocabulary.yaml` is a validation failure.
+
+| | `knowledge/` | `working/` |
 |---|---|---|
-| Wikilinks | `[[Page]]`, `[[Page\|Alias]]`, `[[Ns/Page]]` | unchanged |
-| Page embeds | `![[Page]]` | was `{{embed [[Page]]}}` (none exist in the corpus) |
-| Block embeds | left literal, reported | `{{embed ((uuid))}}` — no `id::` targets exist |
-| Tasks | `- [ ] text`, `- [x] text` | was `- TODO/DOING/NOW/LATER text`, `- DONE text` |
-| Multi-word tags | `#multi-word` | was `#[[multi word]]` |
-| Block refs | left literal, reported | `((uuid))` with no `id::` target anywhere in the corpus |
-| Assets | `assets/<file>` (vault-root-relative) | was `../assets/<file>`; rewritten in bodies **and** in leading-block property values (a note-relative path breaks once the page moves into a namespace folder) |
-| Body-level `- key:: value` | preserved verbatim, reported | 6,541 pages: Dataview inline fields carrying the relation graph; readable by Obsidian's Dataview, navigable via their `[[links]]`; never part of the gate |
-| `collapsed:: true` | dropped | outliner-only |
-| Code fences (`json-ld` etc.) | unchanged | |
+| Types | `Class`, `Property`, `Individual` | `Note`, `Episode`, `Transcript`, `Draft Concept`, `Journal`, `Canvas` |
+| Unknown keys | fail | allow |
+| Required | `type`, `title`, `resource`, `public`, `status`, `generated` | `type`, `title` |
+| Reasoned | yes (Whelk EL++) | no |
+| Published | `public: true` → Quartz | never |
+| Documented extensions | — | `source`, `topic`, `episodes`, `assertions`, `promotion-status` |
 
-### V4 — Inclusion gate (amends ADR-2014)
+`Draft Concept` + `status: draft` is what `vault propose` generates a proposal
+from. Bases views over the same frontmatter give the curator the review queue,
+the stale list and the by-domain browse with no plugin beyond core.
 
-A page is ingested as a KG node iff **either**:
+### V9 — Assets: one store, one symlink
 
-1. its frontmatter has `public: true`, or
-2. its frontmatter has a non-empty `owl-class` (formal data ingests unconditionally),
+`knowledge/assets` is a **symlink** into `working/assets`. It stays. A page
+elevated from the working vault keeps its image and PDF links without a copy, and
+the alternative — an independent copy per vault, as the v1 converter did — produced
+two divergent multi-hundred-megabyte trees. `vault validate` follows the symlink
+for link integrity, `vault build` resolves it, Quartz copies through it, and asset
+links are always vault-root-relative `assets/<file>`.
 
-**or**, during the legacy-tolerance window, the corresponding Logseq line
-(`public:: true`, `owl:class::`) appears in the leading property block. Absence
-of both means private. The gate anchors on parsed metadata, never on the file
-path. A page whose formal data is a `json-ld` **`Class` fence** (not an
-`owl-class` key) is claimed by the canonical JSON-LD path
-(`parse_canonical_entity`) before the publish gate runs, so its ontology data
-surfaces even when the page is private — legacy ADR-08 D3 is honoured by the
-canonical path, not by the gate (pinned by
-`tests/vault_gate_test.rs::legacy_data_model_fixtures_still_gate_as_authored`). `/journals/`, `/.obsidian/`, `/bak/`, `/logseq/`, `/.recycle/`,
-`/.trash/` are skipped at listing time.
+## Worked example
 
-### V5 — Writers emit vault format only
+`knowledge/pages/Knowledge Graph.md` after migration — the whole file:
 
-`OntologyMutationService`, `DecisionElevation`, agentbox `ontology-local.js`'s
-write path, `podcast-knowledge-ingest`, and `web-summary` emit **frontmatter**
-pages. No writer emits `key:: value` lines after ADR-2040 lands. A writer that
-must touch a legacy page converts the leading property block on write.
+```markdown
+---
+type: Class
+title: Knowledge Graph
+resource: urn:ngm:class:knowledge-graph
+public: true
+aliases: [KnowledgeGraph]
+domain: spatial-computing
+maturity: established
+quality: 0.35
+is-a: ["[[Content and Assets]]"]
+requires: ["[[Ontology]]", "[[Schema Definition]]", "[[Triple Store]]"]
+enables: ["[[Reasoning]]", "[[Knowledge Discovery]]", "[[Recommendation System]]"]
+part-of: ["[[Semantic Web Infrastructure]]", "[[Knowledge Management System]]"]
+status: stable
+generated: { by: process:vault-migrate/1.0, at: 2026-09-22T00:00:00Z }
+verified: [{ by: human:<npub>, at: 2026-09-22T00:00:00Z }]
+sources: [{ id: origin, resource: "[[working/Knowledge graph notes]]" }]
+---
 
-### V6 — Converter (`vault-migrate`, ADR-2042)
+A knowledge graph is a structured representation of entities and the relations
+between them, expressed so that both people and machines can traverse it.
 
-- One Rust binary, `crates/vault-migrate`, no LLM, deterministic, idempotent.
-- Default mode writes to an **output directory**; `--in-place` is explicit.
-- Never deletes; unknown constructs are preserved and **reported**, not guessed.
-- Emits a machine-readable report (`vault-migrate-report.json`) with per-rule
-  counts and the list of pages carrying unconverted constructs.
-- Round-trip property: converting an already-converted vault is a no-op.
-- The converter never writes `title:` from the identity; a `title` that echoes
-  the identity or its leaf is removed on any run (`title_echo_removed`).
-- Zero-byte pages and journals rename like any other file.
-- `pages/` subdirectories: a plain subdirectory (e.g. `pages/_misc/`) converts
-  as a namespace folder; dot-directories (`pages/.deleted/`, `.swarm`,
-  `.claude-flow`) are copied verbatim and never converted, matching V4's
-  listing skips. `mainKnowledgeGraph/assets` is a symlink into
-  `workingGraph/assets`; the converter follows it so each vault owns an
-  independent copy of its assets.
+## Applications
 
-### V7 — Settings and wire vocabulary (ADR-2041)
+Knowledge graphs underpin [[Semantic Search]] and [[Recommendation System]]s …
+```
 
-The graph-settings key `visualisation.graphs.logseq` is renamed
-`visualisation.graphs.knowledge`. Rust deserialises both (`serde(alias)`), the
-client migrates persisted settings on load, and the wire/query value `logseq`
-for `graph_type` is accepted as a synonym of `knowledge` for one release.
-
-### V8 — TUI (agentbox ADR-2029)
-
-The vault has a first-class terminal surface: Rune (`aka-rider/rune`, MIT,
-Rust/ratatui) launched from `VAULT_ROOT` in tmux window 9 "Notes". Presence is
-detected at session start like the AoE plane; absence prints the rebuild notice.
+Note what is absent: no fence, no `key::` line, no `### Relationships` section, no
+`ancestors`, no `slug`, no `schemaVersion`, no `@context`. The definition is the
+leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 
 ## Invariants (must not silently change)
 
-1. **One format on write.** Every writer in either repo emits frontmatter pages
-   (V2) for page metadata. Adding a leading-block `key:: value` emitter is a
-   violation. Body-level `- pred:: [[Target]]` inline fields (V3) are content,
-   not metadata, and remain the corpus's relation-authoring form.
-2. **Fail-closed gate.** No frontmatter, or `public` absent/false and no
-   `owl-class`, means the page is not a KG node.
-3. **Path authority is `VAULT_ROOT`.** No consumer hard-codes a corpus path;
-   the manifest `[vault].root` is the only default.
-4. **Identity stability.** Non-namespace page ids are byte-identical before and
-   after conversion; namespace page ids derive from `Ns/Title`, matching the
-   `[[Ns/Title]]` wikilink form already used in the corpus.
-5. **Converter never destroys.** Output-dir default, explicit `--in-place`,
-   preserve-and-report for anything not in V3.
-6. **Legacy tolerance is bounded.** Readers accept Logseq property lines only
-   in the leading block, only for the keys in V2, and the tolerance is removed
-   by the `review_trigger` on ADR-2040.
+1. **Frontmatter is the only metadata.** A fence, a `key::` line or a
+   `### Relationships` section anywhere in `knowledge/` or `working/` is a
+   validation failure, not a tolerance.
+2. **One parser.** `vault-core::parse` is the only code that reads the corpus.
+   A second parser — in VisionClaw, in a skill, in a script — is a violation.
+3. **`resource` is immutable.** Minted once, never recomputed, never reused.
+   A changed `resource` is the `RESOURCE_MUTATED` blocker.
+4. **Identity is the vault-relative path.** Non-namespace page ids are
+   byte-identical to their v1 values; namespace ids derive from `Ns/Title`.
+5. **Path authority is `vault.toml`.** No consumer hard-codes a corpus path.
+6. **The emitted OWL surface is fixed.** Every `emitted: true` relation keeps the
+   `vc:` property the Python emitter wrote. Changing one, or flipping a
+   provisional relation to `emitted: true`, is a signed Schema change.
+7. **Fail-closed publish.** `public` absent or false means the page does not
+   reach narrativegoldmine.com.
+8. **Derived data is never stored in a page.** Inferred closure, backlinks,
+   outbound wikilinks, link resolutions and the OKF index are build outputs.
+9. **Blockers are never approvable.** Whelk inconsistency, subclass cycles,
+   relation contradictions, vocabulary violations and resource collisions block a
+   proposal; no signature overrides them.
+10. **Agents never push.** `vault` writes working trees; the owner commits and
+    publishes.
+11. **No credential reaches either vault.** Keys, tokens and bearer strings are
+    never committed to `knowledge/` or `working/`. The `public` gate does not
+    catch them and is not a safety control; `working/` is not gated at all, and
+    a credential there is one elevation away from the open web.
 
 ## Expectations (EDD)
 
 | ID | Priority | Expectation | Evidence |
 |---|---|---|---|
-| EXP-V01 | critical, regression | A page whose frontmatter is `public: true` and nothing else ingests as a KG node; the same page with `public: false` or with no frontmatter does not. | `cargo test -p webxr vault_gate` |
-| EXP-V02 | critical, regression | A page with `owl-class: mv:Foo` and no `public` key ingests, and its node carries `owl_class_iri = "mv:Foo"`. | same |
-| EXP-V03 | high, regression | A legacy page starting `public:: true` still ingests; a legacy page with `public:: true` only inside a code fence or after the first heading does not. | same |
-| EXP-V04 | high, regression | `vault-migrate` on the 2026-09-02 corpus emits `public: true` on 8,615 pages (8,601 top-level + 14 under `pages/_misc/`), moves 201 namespace files into folders, renames 308 journals, rewrites 239 task markers and 168 asset links, rewrites no page embeds (none exist), and reports 14 block-embed/block-ref files, 6,541 body-property files and 4 SCHEDULED/DEADLINE journals — with `--check` on the output exiting 0. | `vault-migrate --report` on the corpus; verified 2026-09-02 (66 unit + 16 integration tests green; real run 2.6 s) |
-| EXP-V05 | high, regression | Running `vault-migrate` twice yields byte-identical output the second time. | converter test |
-| EXP-V06 | medium | `visualisation.graphs.logseq` in a persisted `settings.yaml` loads into `graphs.knowledge` without loss; the client renders with the same colours. | settings test + vitest |
-| EXP-V08 | critical | Shadow sync: syncing the converted corpus with the new binary yields the same node set as syncing the unconverted `main` with the same binary, except labels that now honour `title`; after the shortest-path link rule the graph returns to the original baseline. | 2026-09-02 dev-container runs (`GITHUB_BRANCH`/`GITHUB_REPO` override on `sync_github`): same pre-fix binary → main 13,351 nodes / 156,153 edges vs converted 13,351 / 156,101 (3 title-driven label diffs); link-fix binary → `jjohare/visionGraph` 13,162 / 145,474 / 378 `page` nodes against the original old-binary baseline 13,164 / 145,692 / 382 — the 191 `podcast-evidence___…` stubs are gone and the 254 main↔working twin joins hold; final run with the percent-encoding and leaf-label fixes → 13,165 / 145,561 / 381, zero fetch errors, only genuine slashed names (`TCP/IP`, `ISO/IEC …`) as labels. |
-| EXP-V07 | medium | tmux window 9 "Notes" opens Rune at `VAULT_ROOT` when the binary exists and prints the rebuild notice when it does not; window 0 remains the tab0-bridge target. | `bash -n` + a dry run of `tmux-autostart.sh` in a scratch socket |
+| EXP-V01 | critical, regression | `vault validate` exits 0 on both vaults; zero fences, zero `key::` lines, zero `{{embed}}`, and every `knowledge/` page carries `type`, `resource`, `status`. | `vault validate --vault all --strict` |
+| EXP-V02 | critical, regression | A page carrying a fence, a `key::` line, a `{{embed}}`, an `a___b.md` name or a journal filename fails `vault validate` with a named rule. One fixture per rejected construct. | `cargo test -p vault validate_rejects` |
+| EXP-V03 | critical, regression | An unknown frontmatter key fails in `knowledge/` and passes in `working/`. | same |
+| EXP-V04 | critical | `vault migrate --fences-to-properties --dry-run` covers every fence field and every one of the 643 `key::` keys; an uncovered field fails the run rather than dropping. | migration report, committed as evidence |
+| EXP-V05 | critical | Migration is lossless on relations: the post-migration edge count equals the union of the 104,731 fence edges and the 18,006 resolvable `key::`-only edges, minus duplicates, and the report accounts for every dangling target. | `vault build --stats` against the census |
+| EXP-V06 | high, regression | Running `vault migrate` twice yields byte-identical output the second time. | migration test |
+| EXP-V07 | critical | `vault build` and the retired Python build emit byte-identical `scaffold-index.json`, and identical `ontology.ttl` **except** for the five deltas enumerated in `vocabulary.migration.intentional_deltas`. | golden-parity test (ADR-2113) |
+| EXP-V08 | critical | Loom `/health`, VisionClaw `/api/ontology/classes` and `vault build --stats` report the same class count from one generation. | PRD acceptance 2 |
+| EXP-V09 | high | VisionClaw boots with no `PRIVATE_REPO_GITHUB_PAT`, ingests from the mounted volume, and its node/edge counts sit within the explainable delta of the 13,165 / 153,960 baseline. | PRD acceptance 3 |
+| EXP-V10 | high | `vault edit` without `--expect` is refused and names the missing guards; with a wrong `--expect` it is refused and names the actual blast radius. | `cargo test -p vault edit_guard` |
+| EXP-V11 | high | A `vault propose` on a test IRI posts a 31402; a human 31403 Approve writes `verified` + `status: stable` and a ledger entry with the same case id; Reject writes nothing; a Schema-level proposal is tiered High. | PRD acceptance 4 |
+| EXP-V12 | medium | Quartz builds narrativegoldmine.com from `knowledge/` locally, `static/api/search-index.json` and `static/data/ontology.ttl` are present, and only `public: true` pages are rendered. | PRD acceptance 6 |
+| EXP-V13 | medium | `grep -ri logseq` across loom, VisionClaw, agentbox, VisionFlow and visionGraph returns only ADR and history references. | PRD acceptance 7 |
 
 ## Change process
 
-This is a living document. Amend it in the same commit that changes any
-reader, writer, gate rule, converter rule, or the path authority. Every
-load-bearing claim carries a `file:line` citation; update the citation when
-the code moves. Bump `version` (patch for wording, minor for a new key or
-rule, major for a change to the gate or identity rule) and refresh
-`verified_commit`.
+This is a living document. Amend it in the same change that alters a reader,
+writer, gate rule, migration rule or the path authority — and note that most such
+changes belong in `ontology/vocabulary.yaml` instead, which is where the key set,
+the OWL mapping and the migration table now live. This document governs the
+*shape*; the vocabulary governs the *content*.
 
-## Converter closeout qualification — 2026-09-04
+Bump `version`: patch for wording, minor for a new rule or section, **major for a
+change to identity, the gate, or what the format rejects**. Refresh
+`verified_commit`. A change to the vocabulary is separately a signed Schema-level
+decision (V7).
 
-ADR-2042 is partial: although 86 existing tests pass, a synthetic mixed-layout collision maps two pages to one output with exit zero and one body lost from the output. Source files remain unchanged. Explicit report output also writes during dry-run. [Evidence and acceptance](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/authored-vault-transition.md#converter-collision-and-dry-run-boundaries) require destination uniqueness, input/output accounting and consumer/recovery validation before promotion. No real vault was converted in this review.
+## Version history
 
-## Inclusion closeout qualification — 2026-09-04
+| Version | Date | Change |
+|---|---|---|
+| 2.0.1 | 2026-09-22 | Invariant 11 (no credentials in either vault) and the V4 note that the publish gate is a visibility control, not a safety one, after 14 live credentials were found in `working/`, one on a `public: true` page. |
+| 2.0.0 | 2026-09-22 | **Format break.** Frontmatter-only; the two json-ld fences fold into typed Obsidian Properties; `ontology/vocabulary.yaml` becomes the normative key set and `vault.toml` the manifest; two vault roles with distinct type sets and unknown-key policies (PRD Q9); the `owl-class` gate bypass removed; all legacy tolerance removed — `key::`, `{{embed}}`, `((block-ref))`, `a___b.md` and journals are now validation failures; `vault` (Rust) replaces `vault-migrate`, the Python pipeline and the ontology MCP servers. ADR-2112, supersedes ADR-2040. |
+| 1.4.2 | 2026-09-05 | ADR-2096 remediation: `LocalFileSyncService` gate delegates to `vault::parse`; the last raw carrier scan removed. |
+| 1.4.1 | 2026-09-05 | ADR-2064 and ADR-2070 remediation: real-corpus ontology loader; typed `owl-class` grammar. |
+| 1.4.0 | 2026-09-04 | Converter, inclusion and settings closeout qualifications recorded. |
+| 1.3.0 | 2026-09-02 | Shortest-path wikilink resolution rule (EXP-V08); namespace folders; identity via `page_name_from_path`. |
+| 1.2.0 | 2026-09-02 | Corpus survey; `vault-migrate` converter contract (ADR-2042). |
+| 1.1.0 | 2026-08-31 | Settings and wire vocabulary rename `logseq` → `knowledge` (ADR-2041). |
+| 1.0.0 | 2026-08-31 | Initial: Obsidian vault frontmatter, inclusion gate, bounded legacy tolerance (ADR-2040). |
 
-ADR-2040 is partial. **Resolved since — ADR-2070 (2026-09-05):** owl-class parsing is no longer scalar-coercing. `is_class_marker` (`crates/visionclaw-domain/src/vault/mod.rs:419`) accepts only an absolute `http(s)://`/`urn:` IRI or a `prefix:local` CURIE, with no whitespace or control characters, and a rejected value is retained verbatim in `PageMeta.owl_class_rejected` (`:68-75`) while the gate stays shut — so `owl-class: true` and `owl-class: 42` no longer open it. **Still open:** local fallback metadata scanning does not enforce the shared inclusion gate (`local_file_sync_service.rs:489-491` raw-scans the first 20 lines rather than calling `visionclaw_domain::vault::parse`), and explicit public false plus a valid class marker remains included by policy — `is_kg_included` is an OR (`vault/mod.rs:129-130`). [Evidence and acceptance](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/authored-vault-transition.md#inclusion-typing-and-local-fallback) distinguish 56 passing domain tests from unexecuted full ingest/publication journeys and require typed markers, reader/fallback accounting and migration activation evidence.
+## Superseded qualifications
 
-## Settings migration acceptance — 2026-09-04
-
-ADR-2041 retains its scoped complete/staged rename status. Eleven current helper/migration tests pass, but actual persistence, patches and mixed-version transport need separate receipts. [Compatibility requirements](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/configuration-projection.md#knowledge-settings-migration) cover key precedence, malformed values, binary registration order, restart/rollback and a named alias-retirement release.
-
-## Remediation — 2026-09-05
-
-- **ADR-2064** — the ontology loader walks the real authored corpus, resolving the root from a CLI
-  argument, then `VAULT_ROOT`/`pages` (Invariant 3), then the container default. The five hardcoded
-  sample classes are gone and the bin exits non-zero when nothing is extracted.
-- **ADR-2070** — records that owl-class parsing is now a typed grammar (`is_class_marker`), closing
-  that half of the Inclusion closeout qualification, and corrects the `page_is_kg_included` citation
-  to `github_sync_service.rs:2304`.
-- **ADR-2096** — `LocalFileSyncService` no longer scans the first 20 lines for a literal `public:: true`. Its inclusion gate is `visionclaw_domain::vault::parse(content).is_kg_included()`, the same one-line delegation `FileService` and `GitHubSyncService` use, so the last raw carrier scan in the server crate is gone. The old scan could not see the Obsidian frontmatter carrier at all (those pages were dropped from local sync while GitHub sync ingested them) and matched the Logseq marker mid-body or inside a code fence, which is the §V4 leak the bounded tolerance closes. `skipped_files` is now derived from the same two decisions instead of a third `content.contains("public::")` heuristic that agreed with neither branch.
+The v1.4.x closeout qualifications for ADR-2040 (inclusion typing, local
+fallback), ADR-2041 (settings migration) and ADR-2042 (converter collision,
+dry-run boundaries) are **closed by supersession**, not by remediation: the gate
+they qualified is replaced (V4), the alias they qualified is deleted (ADR-2114),
+and the converter they qualified is deleted (`crates/vault-migrate` → `vault
+migrate`, ADR-2113). Their evidence is retained in
+[`docs/estate-review/authored-vault-transition.md`](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/authored-vault-transition.md)
+for rationale and history, never as authority.

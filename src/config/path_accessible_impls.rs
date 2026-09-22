@@ -156,8 +156,7 @@ impl PathAccessible for GraphsSettings {
         let segments = parse_path(path)?;
 
         match segments[0] {
-            // ADR-2041: `logseq` is a read-only alias of `knowledge` for one release.
-            "knowledge" | "logseq" => {
+            "knowledge" => {
                 if segments.len() == 1 {
                     Ok(Box::new(self.knowledge.clone()))
                 } else {
@@ -181,8 +180,7 @@ impl PathAccessible for GraphsSettings {
         let segments = parse_path(path)?;
 
         match segments[0] {
-            // ADR-2041: `logseq` is a read-only alias of `knowledge` for one release.
-            "knowledge" | "logseq" => {
+            "knowledge" => {
                 if segments.len() == 1 {
                     match value.downcast::<GraphSettings>() {
                         Ok(v) => {

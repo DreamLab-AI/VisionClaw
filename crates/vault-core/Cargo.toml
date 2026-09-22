@@ -1,0 +1,31 @@
+[package]
+name = "vault-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared parser, vocabulary model, OKF v0.2 types and promotion state machine for the sovereign corpus (PRD-sovereign-corpus, ADR-2113)"
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/jjohare/VisionClaw"
+publish = false
+
+[features]
+default = []
+# The json-ld fence reader. Needed ONLY by `vault migrate --fences-to-properties`,
+# the one-shot converter. Once the corpus is frontmatter-only this feature — and
+# the module behind it — is deleted.
+migrate = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+indexmap = { version = "2", features = ["serde"] }
+regex = "1"
+thiserror = "2"
+walkdir = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde"] }
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

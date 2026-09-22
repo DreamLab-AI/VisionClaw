@@ -3,7 +3,7 @@ source: tests/schema_stability.rs
 expression: v
 ---
 {
-  "canonical_path": "mainKnowledgeGraph/pages/example.md",
+  "canonical_path": "knowledge/pages/example.md",
   "raw": "public:: true\n\n# Example\n",
   "frontmatter_json": {
     "public": true,

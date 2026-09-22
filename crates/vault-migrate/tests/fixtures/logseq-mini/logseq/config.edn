@@ -1,2 +1,0 @@
-;; logseq config fixture
-{:default-home {:page "home"}}

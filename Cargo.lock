@@ -310,6 +310,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3400,13 +3411,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr"
+version = "0.44.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40ff7b77ef428b40aa2834a6acbae38a0e104c98b306208ca4b87a420d579a4b"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "bech32",
+ "bip39",
+ "bitcoin_hashes 0.14.0",
+ "cbc",
+ "chacha20",
+ "chacha20poly1305",
+ "getrandom 0.2.16",
+ "hex",
+ "instant",
+ "scrypt",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+ "url",
+]
+
+[[package]]
+name = "nostr-bbs-core"
+version = "1.0.0-beta.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dd4b0239cc6645ecb3acb16cbe18d1e39268c79727561019ca473cd9cb351c5"
+dependencies = [
+ "aes",
+ "async-trait",
+ "base64 0.22.1",
+ "bech32",
+ "cbc",
+ "chacha20poly1305",
+ "getrandom 0.2.16",
+ "hex",
+ "hkdf",
+ "hmac",
+ "js-sys",
+ "k256",
+ "nostr 0.44.8",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "solid-pod-rs 0.5.0-alpha.7",
+ "thiserror 2.0.16",
+ "wasm-bindgen",
+ "zeroize",
+]
+
+[[package]]
 name = "nostr-database"
 version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1c75a8c2175d2785ba73cfddef21d1e30da5fbbdf158569b6808ba44973a15b"
 dependencies = [
  "lru 0.16.0",
- "nostr",
+ "nostr 0.43.1",
  "tokio",
 ]
 
@@ -3421,7 +3486,7 @@ dependencies = [
  "atomic-destructor",
  "lru 0.16.0",
  "negentropy",
- "nostr",
+ "nostr 0.43.1",
  "nostr-database",
  "tokio",
  "tracing",
@@ -3434,7 +3499,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "599f8963d6a1522a13b1a2b0ea6e168acfc367706606f1d33fa595e91fa22db0"
 dependencies = [
  "async-utility",
- "nostr",
+ "nostr 0.43.1",
  "nostr-database",
  "nostr-relay-pool",
  "tokio",
@@ -5120,6 +5185,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5145,6 +5221,7 @@ version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
+ "indexmap 2.10.0",
  "itoa",
  "memchr",
  "serde",
@@ -5441,6 +5518,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "solid-pod-rs"
+version = "0.5.0-alpha.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "615d04af22c42d2a20e9695e779b99c432e0781dc6816a0e1aeb0881c7453aa8"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "getrandom 0.2.16",
+ "hex",
+ "js-sys",
+ "mime_guess",
+ "serde",
+ "serde_json",
+ "sha2",
+ "spargebra",
+ "thiserror 1.0.69",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "solid-pod-rs-idp"
 version = "0.4.0-alpha.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5461,7 +5562,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "solid-pod-rs",
+ "solid-pod-rs 0.4.0-alpha.15",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -5483,7 +5584,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "solid-pod-rs",
+ "solid-pod-rs 0.4.0-alpha.15",
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.24.0",
@@ -5508,7 +5609,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "solid-pod-rs",
+ "solid-pod-rs 0.4.0-alpha.15",
  "solid-pod-rs-idp",
  "tokio",
  "tracing",
@@ -6465,6 +6566,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]
@@ -6603,16 +6706,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
-name = "vault-migrate"
+name = "vault"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap 4.5.49",
+ "hex",
+ "horned-owl 1.2.0",
+ "indexmap 2.10.0",
+ "nostr-bbs-core",
+ "oxrdf",
+ "oxttl",
  "rayon",
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2",
+ "similar",
  "tempfile",
+ "thiserror 2.0.16",
+ "time",
+ "tungstenite 0.21.0",
+ "ureq",
+ "vault-core",
+ "walkdir",
+ "whelk",
+]
+
+[[package]]
+name = "vault-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "indexmap 2.10.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.16",
+ "time",
  "walkdir",
 ]
 
@@ -6866,7 +7001,7 @@ dependencies = [
  "sha1",
  "sha2",
  "socket2 0.5.10",
- "solid-pod-rs",
+ "solid-pod-rs 0.4.0-alpha.15",
  "solid-pod-rs-idp",
  "solid-pod-rs-nostr",
  "solid-pod-rs-server",
@@ -7645,6 +7780,20 @@ name = "zeroize"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
 
 [[package]]
 name = "zerotrie"

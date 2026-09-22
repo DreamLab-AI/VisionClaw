@@ -513,7 +513,7 @@ impl OptimizedSettingsActor {
         if compiled_path.len() == 4
             && compiled_path[0] == "visualisation"
             && compiled_path[1] == "graphs"
-            && matches!(compiled_path[2].as_str(), "knowledge" | "logseq")
+            && compiled_path[2] == "knowledge"
             && compiled_path[3] == "physics"
         {
             let physics = &settings.visualisation.graphs.knowledge.physics;
@@ -524,7 +524,7 @@ impl OptimizedSettingsActor {
         if compiled_path.len() == 5
             && compiled_path[0] == "visualisation"
             && compiled_path[1] == "graphs"
-            && matches!(compiled_path[2].as_str(), "knowledge" | "logseq")
+            && compiled_path[2] == "knowledge"
             && compiled_path[3] == "physics"
         {
             let physics = &settings.visualisation.graphs.knowledge.physics;
@@ -936,10 +936,9 @@ impl Handler<SetSettingsByPaths> for OptimizedSettingsActor {
             }
 
             for (path, value) in updates {
-                // ADR-2041: accept the legacy `logseq` segment on inbound paths.
-                let physics_prefix = if path.starts_with("visualisation.graphs.logseq.physics.") {
-                    Some("visualisation.graphs.logseq.physics.")
-                } else if path.starts_with("visualisation.graphs.knowledge.physics.") {
+                // ADR-2115: only the canonical `knowledge` segment is accepted.
+                let physics_prefix = if path.starts_with("visualisation.graphs.knowledge.physics.")
+                {
                     Some("visualisation.graphs.knowledge.physics.")
                 } else {
                     None

@@ -466,8 +466,13 @@ async fn main() -> std::io::Result<()> {
 
     info!("[main] Initializing GitHub Sync Service...");
     let enhanced_content_api = Arc::new(EnhancedContentAPI::new(github_client.clone()));
-    let github_sync_service = Arc::new(GitHubSyncService::new(
+    // ADR-2114: ingest reads through the CorpusSource port — the mounted
+    // vault by default, GitHub when CORPUS_SOURCE=github.
+    let corpus_source = visionclaw_server::services::corpus_source::source_from_env_with_github(
         enhanced_content_api,
+    );
+    let github_sync_service = Arc::new(GitHubSyncService::new(
+        corpus_source,
         app_state.graph_adapter.clone()
             as Arc<
                 dyn visionclaw_server::ports::knowledge_graph_repository::KnowledgeGraphRepository,

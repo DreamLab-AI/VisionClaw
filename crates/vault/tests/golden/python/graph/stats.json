@@ -1,0 +1,99 @@
+{
+  "pipelineVersion": "ng-1.0.0",
+  "attributedTo": "did:nostr:jjohare",
+  "provenance": {
+    "did": "did:nostr:jjohare",
+    "label": "DreamLab AI",
+    "corpusNature": "synthetic-ai-generated-human-directed"
+  },
+  "corpus": {
+    "nature": "synthetic",
+    "description": "Mostly AI-generated synthetic content, produced under human direction, by design \u2014 this corpus exists to exercise and demonstrate the VisionFlow pipeline and VisionClaw engine on a medium-scale ontology (~8.1k classes, ~100k relations). Provenance (did:nostr, generatedAtTime, URNs) attests traceable generation under human direction, not human authorship."
+  },
+  "datasetDate": "2026-09-22",
+  "pages": 50,
+  "classes": 50,
+  "individuals": 0,
+  "nodes": 50,
+  "domains": 6,
+  "categories": 34,
+  "uncategorised": 31,
+  "domainless": 0,
+  "bridging": {
+    "multiParent": 6,
+    "crossCategory": 1,
+    "crossDomain": 0
+  },
+  "edges": {
+    "declared": 869,
+    "declaredBackbone": 58,
+    "declaredRelations": 811,
+    "resolvable": 68,
+    "backbone": 7,
+    "relations": 61
+  },
+  "scopes": {
+    "full": {
+      "nodes": 50,
+      "backbone": 7,
+      "relations": 61,
+      "shipped": 68,
+      "relationsCapped": 0,
+      "bytes": 5316
+    },
+    "domain-artificial-intelligence": {
+      "nodes": 6,
+      "backbone": 1,
+      "relations": 0,
+      "shipped": 1,
+      "relationsCapped": 0,
+      "bytes": 647,
+      "nodesTruncated": 0
+    },
+    "domain-blockchain": {
+      "nodes": 4,
+      "backbone": 0,
+      "relations": 0,
+      "shipped": 0,
+      "relationsCapped": 0,
+      "bytes": 396,
+      "nodesTruncated": 0
+    },
+    "domain-spatial-computing": {
+      "nodes": 28,
+      "backbone": 5,
+      "relations": 33,
+      "shipped": 38,
+      "relationsCapped": 0,
+      "bytes": 3134,
+      "nodesTruncated": 0
+    },
+    "domain-robotics": {
+      "nodes": 2,
+      "backbone": 0,
+      "relations": 2,
+      "shipped": 2,
+      "relationsCapped": 0,
+      "bytes": 236,
+      "nodesTruncated": 0
+    },
+    "domain-distributed-collaboration": {
+      "nodes": 0,
+      "backbone": 0,
+      "relations": 0,
+      "shipped": 0,
+      "relationsCapped": 0,
+      "bytes": 44,
+      "nodesTruncated": 0
+    },
+    "domain-infrastructure": {
+      "nodes": 10,
+      "backbone": 1,
+      "relations": 11,
+      "shipped": 12,
+      "relationsCapped": 0,
+      "bytes": 1011,
+      "nodesTruncated": 0
+    }
+  }
+}

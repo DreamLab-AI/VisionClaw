@@ -4,6 +4,5 @@
 //! and translation of semantic axioms into physics constraints.
 
 pub mod actors;
-pub mod parser;
 pub mod physics;
 pub mod services;

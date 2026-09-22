@@ -10,7 +10,8 @@ members = [
     "crates/visionclaw-actors",
     "crates/visionclaw-xr-presence",
     "crates/visionclaw-analytics-oracle",
-    "crates/vault-migrate",
+    "crates/vault-core",
+    "crates/vault",
     "crates/visionclaw-integration-tests",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
@@ -310,12 +311,8 @@ name = "generate_types"
 path = "src/bin/generate_types.rs"
 
 [[bin]]
-name = "sync_local"
-path = "src/bin/sync_local.rs"
-
-[[bin]]
-name = "sync_github"
-path = "src/bin/sync_github.rs"
+name = "sync_corpus"
+path = "src/bin/sync_corpus.rs"
 
 # Data Sprint Phase D-2: JSON-LD validator CLI. Pre-commit hook
 # (`scripts/pre-commit-validate.sh`) invokes this binary against

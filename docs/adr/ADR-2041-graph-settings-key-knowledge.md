@@ -6,7 +6,7 @@ decision_status: proposed
 implementation_status: complete
 activation_status: staged
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-2115]
 verified_commit:
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare

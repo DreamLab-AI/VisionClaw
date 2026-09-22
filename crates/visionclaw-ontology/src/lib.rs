@@ -9,7 +9,7 @@
 //! ## What lives here (Phase A4 extraction)
 //! - `inference`  — OWL 2 EL++ parser, inference cache, optimisation
 //! - `reasoning`  — custom Whelk-backed reasoner
-//! - `ontology`   — Logseq parser, OWL assembler, stub actor/physics modules
+//! - `ontology`   — OWL services, stub actor/physics modules
 //! - `validation` — actor-state validation helpers
 //! - `types`      — ontology MCP tool surface types
 //! - `services`   — json-ld ingest pipeline, json-ld validator, OWL validator

@@ -194,7 +194,7 @@ fn snapshot_enterprise_session_revoked() {
 #[test]
 fn snapshot_parsed_markdown() {
     let v = ParsedMarkdown {
-        canonical_path: "mainKnowledgeGraph/pages/example.md".into(),
+        canonical_path: "knowledge/pages/example.md".into(),
         raw: "public:: true\n\n# Example\n".into(),
         frontmatter_json: json!({ "public": true, "tags": ["renaissance"] }),
         jsonld_blocks: vec![json!({"@id": "x", "@type": "Thing"})],

@@ -390,22 +390,19 @@ fn test_serialization_uses_bloom_name() {
 */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADR-2041 / EXP-V06 — the knowledge-graph settings key is `knowledge`, and a
-// persisted document still using the legacy `logseq` key loads into it without
-// loss. Serialisation emits `knowledge` only.
-//
-// Delete this module together with the alias (ADR-2041 review_trigger).
+// ADR-2115 (supersedes ADR-2041) — the knowledge-graph settings key is
+// `knowledge` and nothing else. The bounded `logseq` read alias is gone: a
+// persisted document still using the old key no longer loads, and the old
+// dotted path segment no longer resolves.
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
-mod adr2041_graph_settings_key {
+mod adr2115_graph_settings_key {
     use visionclaw_server::config::{normalise_graph_type, AppFullSettings};
 
     const MARK_COLOR: &str = "#202724";
     const MARK_SPRING_K: f32 = 0.4242;
 
-    /// A complete settings tree with distinctive values on the knowledge graph,
-    /// so we can prove the whole block survives the alias rather than just its
-    /// presence.
+    /// A complete settings tree with distinctive values on the knowledge graph.
     fn marked_settings() -> AppFullSettings {
         let mut s = AppFullSettings::default();
         let g = &mut s.visualisation.graphs.knowledge;
@@ -414,9 +411,9 @@ mod adr2041_graph_settings_key {
         s
     }
 
-    /// Serialise, then rewrite the canonical key back to the legacy one — i.e.
-    /// exactly the shape of a settings file persisted before ADR-2041.
-    fn as_legacy_document(settings: &AppFullSettings) -> serde_json::Value {
+    /// Serialise, then rewrite the canonical key back to the retired one —
+    /// exactly the shape of a settings document persisted before ADR-2041.
+    fn as_retired_document(settings: &AppFullSettings) -> serde_json::Value {
         let mut v = serde_json::to_value(settings).expect("settings should serialise");
         let graphs = v["visualisation"]["graphs"]
             .as_object_mut()
@@ -429,97 +426,75 @@ mod adr2041_graph_settings_key {
     }
 
     #[test]
-    fn legacy_logseq_key_loads_into_knowledge() {
-        let legacy = as_legacy_document(&marked_settings());
+    fn a_retired_logseq_document_is_rejected() {
+        let retired = as_retired_document(&marked_settings());
         assert!(
-            legacy["visualisation"]["graphs"].get("logseq").is_some(),
-            "fixture must actually use the legacy key"
+            retired["visualisation"]["graphs"].get("logseq").is_some(),
+            "fixture must actually use the retired key"
         );
 
-        let loaded: AppFullSettings =
-            serde_json::from_value(legacy).expect("a legacy document must still deserialise");
-
-        assert_eq!(
-            loaded.visualisation.graphs.knowledge.nodes.base_color, MARK_COLOR,
-            "the `logseq` block must land on `graphs.knowledge` without loss"
-        );
-        assert_eq!(
-            loaded.visualisation.graphs.knowledge.physics.spring_k, MARK_SPRING_K,
-            "physics under the legacy key must survive the alias"
+        let loaded: Result<AppFullSettings, _> = serde_json::from_value(retired);
+        assert!(
+            loaded.is_err(),
+            "ADR-2115: the `logseq` key is no longer an alias of `knowledge`"
         );
     }
 
     #[test]
-    fn legacy_and_canonical_documents_are_equivalent() {
+    fn a_canonical_document_still_round_trips() {
         let original = marked_settings();
-        let via_legacy: AppFullSettings =
-            serde_json::from_value(as_legacy_document(&original)).expect("legacy should load");
-        let via_canonical: AppFullSettings =
+        let loaded: AppFullSettings =
             serde_json::from_value(serde_json::to_value(&original).unwrap())
                 .expect("canonical should load");
-
         assert_eq!(
-            serde_json::to_value(&via_legacy.visualisation.graphs).unwrap(),
-            serde_json::to_value(&via_canonical.visualisation.graphs).unwrap(),
-            "the alias must be a pure synonym, not a partial load"
+            loaded.visualisation.graphs.knowledge.nodes.base_color,
+            MARK_COLOR
+        );
+        assert_eq!(
+            loaded.visualisation.graphs.knowledge.physics.spring_k,
+            MARK_SPRING_K
         );
     }
 
     #[test]
     fn serialisation_emits_knowledge_only() {
-        let loaded: AppFullSettings =
-            serde_json::from_value(as_legacy_document(&marked_settings()))
-                .expect("legacy should load");
-
-        let yaml = serde_yaml::to_string(&loaded).expect("should serialise to YAML");
+        let yaml = serde_yaml::to_string(&marked_settings()).expect("should serialise to YAML");
         assert!(
             yaml.contains("knowledge:"),
-            "re-serialised settings must carry the `knowledge` key"
+            "settings must carry the `knowledge` key"
         );
         assert!(
             !yaml.contains("logseq:"),
-            "re-serialised settings must NOT re-emit the legacy `logseq` key"
+            "settings must never emit a `logseq` key"
         );
     }
 
     #[test]
-    fn path_access_resolves_both_segments_to_the_same_field() {
+    fn the_retired_path_segment_no_longer_resolves() {
         use visionclaw_server::config::path_access::PathAccessible;
 
         let settings = marked_settings();
         let canonical = settings
             .get_by_path("visualisation.graphs.knowledge.physics")
             .expect("canonical segment must resolve");
-        let legacy = settings
-            .get_by_path("visualisation.graphs.logseq.physics")
-            .expect("legacy segment must resolve to the same field");
+        assert!(
+            settings
+                .get_by_path("visualisation.graphs.logseq.physics")
+                .is_err(),
+            "ADR-2115: the retired segment must not resolve"
+        );
 
         let canonical = canonical
             .downcast_ref::<visionclaw_server::config::physics::PhysicsSettings>()
             .expect("canonical downcast");
-        let legacy = legacy
-            .downcast_ref::<visionclaw_server::config::physics::PhysicsSettings>()
-            .expect("legacy downcast");
         assert_eq!(canonical.spring_k, MARK_SPRING_K);
-        assert_eq!(legacy.spring_k, MARK_SPRING_K);
     }
 
     #[test]
-    fn graph_type_values_normalise_to_knowledge() {
-        assert_eq!(normalise_graph_type("logseq"), "knowledge");
+    fn graph_type_values_no_longer_normalise_the_retired_name() {
+        assert_eq!(normalise_graph_type("logseq"), "logseq");
         assert_eq!(normalise_graph_type("knowledge"), "knowledge");
         assert_eq!(normalise_graph_type("visionclaw"), "visionclaw");
         assert_eq!(normalise_graph_type("agent"), "visionclaw");
-    }
-
-    #[test]
-    fn get_physics_accepts_the_legacy_graph_type_value() {
-        let settings = marked_settings();
-        assert_eq!(settings.get_physics("logseq").spring_k, MARK_SPRING_K);
-        assert_eq!(settings.get_physics("knowledge").spring_k, MARK_SPRING_K);
-        assert_eq!(
-            settings.get_physics("logseq").spring_k,
-            settings.get_physics("knowledge").spring_k
-        );
     }
 }

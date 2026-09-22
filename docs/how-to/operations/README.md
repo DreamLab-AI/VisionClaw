@@ -17,6 +17,7 @@ Operating VisionClaw in production environments.
 ## Contents
 
 - [Configuration](configuration.md) - Environment and deployment configuration
+- [Corpus ingest from the local vault](corpus-source-local.md) - The mounted vault source, and switching back to GitHub
 - [Troubleshooting](troubleshooting.md) - Common issues and solutions
 - [Security](security.md) - Security hardening
 - [Telemetry & Logging](telemetry-logging.md) - Observability and alerting

@@ -22,8 +22,6 @@ pub use visionclaw_actors::messages::ontology_messages::{
 
 use actix::prelude::*;
 
-use crate::ontology::parser::parser::LogseqPage;
-
 /// Update the ontology validation config.
 /// Blocked: references `services::owl_validator::ValidationConfig`.
 #[derive(Message)]
@@ -62,14 +60,6 @@ pub struct ApplyInferences {
 #[rtype(result = "Result<Option<crate::services::owl_validator::ValidationReport>, String>")]
 pub struct GetOntologyReport {
     pub report_id: Option<String>,
-}
-
-/// Process raw Logseq ontology pages into the actor's internal state.
-/// Blocked: references `ontology::parser::parser::LogseqPage`.
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
-pub struct ProcessOntologyData {
-    pub pages: Vec<LogseqPage>,
 }
 
 /// PRD-018 WS-3 / ADR-098 D1 — apply materialised OWL axioms (asserted +

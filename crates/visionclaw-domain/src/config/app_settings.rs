@@ -157,7 +157,7 @@ impl AppFullSettings {
     }
 
     pub fn get_physics(&self, graph: &str) -> &PhysicsSettings {
-        // ADR-2041: the `logseq` alias lives solely in `normalise_graph_type`.
+        // ADR-2115: the graph-type vocabulary lives solely in `normalise_graph_type`.
         match super::graph_type::normalise_graph_type(graph) {
             "knowledge" => &self.visualisation.graphs.knowledge.physics,
             "visionclaw" => &self.visualisation.graphs.visionclaw.physics,

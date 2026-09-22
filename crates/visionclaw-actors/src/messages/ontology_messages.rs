@@ -5,7 +5,6 @@
 //!   - `ValidateOntology`      — refs `services::owl_validator::PropertyGraph`
 //!   - `ApplyInferences`       — refs `services::owl_validator::RdfTriple`
 //!   - `GetOntologyReport`     — refs `services::owl_validator::ValidationReport`
-//!   - `ProcessOntologyData`   — refs `ontology::parser::parser::LogseqPage`
 //!
 //! Everything below depends only on `actix`, `chrono`, `serde`, `std`,
 //! and `visionclaw_domain::models::constraints`.

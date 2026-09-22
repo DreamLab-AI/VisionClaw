@@ -142,7 +142,6 @@ impl ValidationService {
             )
         })?;
 
-        // ADR-2041: `logseq` is accepted as an alias of `knowledge`.
         if !crate::config::graphs_map_has_knowledge(graphs_obj)
             && !graphs_obj.contains_key("visionclaw")
         {
@@ -153,12 +152,9 @@ impl ValidationService {
             ));
         }
 
-        if let (Some(knowledge), Some(visionclaw)) = (
-            graphs_obj
-                .get("knowledge")
-                .or_else(|| graphs_obj.get("logseq")),
-            graphs_obj.get("visionclaw"),
-        ) {
+        if let (Some(knowledge), Some(visionclaw)) =
+            (graphs_obj.get("knowledge"), graphs_obj.get("visionclaw"))
+        {
             if let (Some(knowledge_physics), Some(visionclaw_physics)) =
                 (knowledge.get("physics"), visionclaw.get("physics"))
             {

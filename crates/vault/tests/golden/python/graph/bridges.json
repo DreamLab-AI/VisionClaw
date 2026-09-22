@@ -1,0 +1,20 @@
+{
+  "pipelineVersion": "ng-1.0.0",
+  "note": "Classes bridging more than one taxonomy category or domain. Overlap is a design property of this corpus. The NGG1 node record carries a single u16 category (FORMAT-NGG1 3), so tiers keep the nearest one; the full membership is here. Indices match overview.json.",
+  "count": 1,
+  "bridges": [
+    {
+      "iri": "https://narrativegoldmine.com/class/3-d-graphics-standard",
+      "label": "3D Graphics Standard",
+      "categories": [
+        12,
+        14
+      ],
+      "domains": [],
+      "parents": [
+        "Display and Rendering",
+        "Content and Assets"
+      ]
+    }
+  ]
+}

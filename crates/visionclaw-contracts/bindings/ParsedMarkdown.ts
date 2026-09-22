@@ -5,15 +5,14 @@
  *
  * The domain receives this via `IngestPage` / `IngestOntologyOnly`
  * commands and never sees raw HTTP responses, `octocrab` types, or
- * corpus-specific frontmatter / wikilink syntax. That insulation has since
- * been exercised: when the authored corpus moved from a Logseq graph to an
- * Obsidian vault (ADR-2040), only the adapter changed and this value object
- * stayed stable.
+ * corpus-specific frontmatter / wikilink syntax. That insulation has been
+ * exercised twice: the move from a Logseq graph to an Obsidian vault
+ * (ADR-2040), and the move from a remote pull to the local vault source
+ * (ADR-2114). Neither changed this value object.
  *
- * The corpus format is specified by `docs/VAULT-corpus-format.md`: §V2 YAML
- * frontmatter is the metadata carrier, and a leading Logseq `key:: value`
- * property block is still accepted under the bounded legacy tolerance of
- * ADR-2040 D3, which ends at the `review_trigger` on that record.
+ * The corpus format is specified by `docs/VAULT-corpus-format.md`: YAML
+ * frontmatter is the one metadata carrier (ADR-2112). There is no
+ * `key:: value` property syntax.
  *
  * `frontmatter_json` and `jsonld_blocks` are deliberately `serde_json::Value`
  * because:
@@ -39,17 +38,16 @@ canonical_path: string,
 raw: string, 
 /**
  * Parsed vault frontmatter as a JSON object
- * (`docs/VAULT-corpus-format.md` §V2). Keys preserved verbatim. Under the
- * ADR-2040 legacy tolerance the adapter also accepts a leading Logseq
- * property block, normalising `public:: true` into `{"public": true}`
- * per DDD-08 §"To Section 10" — both carriers reach the domain in the
- * one shape.
+ * (`docs/VAULT-corpus-format.md` §V2). Keys preserved verbatim. YAML
+ * frontmatter is the only carrier: a `key:: value` line in the body is
+ * body text and reaches the domain inside `raw`, not here.
  */
 frontmatter_json: Record<string, unknown>, 
 /**
- * JSON-LD block bodies, one per block, order preserved. In the vault
- * these are plain `json-ld` code fences in the page body (§V3); in the
- * legacy corpus they sat under a `### OntologyBlock` heading.
+ * JSON-LD block bodies, one per block, order preserved — plain `json-ld`
+ * code fences in the page body (§V3). Empty once the corpus is
+ * frontmatter-only (ADR-2112) and `vault_core::parse_page` supersedes the
+ * fence parser.
  */
 jsonld_blocks: Array<Record<string, unknown>>, 
 /**

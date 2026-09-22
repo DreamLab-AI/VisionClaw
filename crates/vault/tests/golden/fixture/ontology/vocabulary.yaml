@@ -1,0 +1,146 @@
+# Fixture vocabulary for the golden-parity test (WS-C).
+#
+# Derived from the predicate set the json-ld fences actually carry on the
+# 50-page fixture. WS-B owns the real `visionGraph/ontology/vocabulary.yaml`;
+# this file is the frozen input the parity test builds against, so the test
+# does not move when the real vocabulary does.
+version: 1
+namespace: "urn:ngm:class:"
+context: "https://narrativegoldmine.com/context/v1.jsonld"
+
+types:
+  Class:      { owl: "owl:Class", required: [resource, status] }
+  Individual: { owl: "owl:NamedIndividual", required: [resource, status] }
+
+working_types: [Note, Episode, Transcript, Draft Concept, Journal, Canvas]
+
+relations:
+  is-a:            { owl: "rdfs:subClassOf", characteristics: [transitive] }
+  instance-of:     { owl: "rdf:type" }
+  has-part:        { owl: "vc:hasPart",        inverse: part-of,  json_key: hasPart }
+  part-of:         { owl: "vc:isPartOf",       inverse: has-part, json_key: partOf }
+  requires:        { owl: "vc:requires",       characteristics: [transitive], sub_property_of: depends-on }
+  enables:         { owl: "vc:enables",        json_key: enables }
+  depends-on:      { owl: "vc:dependsOn",      characteristics: [transitive], json_key: dependsOn }
+  implements:      { owl: "vc:implements",     sub_property_of: uses }
+  contrasts-with:  { owl: "vc:contrastsWith",  json_key: contrastsWith }
+  bridges-to:      { owl: "vc:bridgesTo",      json_key: bridgesTo }
+  uses:            { owl: "vc:uses" }
+  supports:        { owl: "vc:supports",       sub_property_of: uses }
+  standardized-by: { owl: "vc:standardizedBy", json_key: standardizedBy }
+  related-to:      { owl: "vc:relatedTo",      json_key: relatedTo }
+  # Present in the fences but never read by the retired Python pipeline. It is
+  # mapped rather than dropped so the migration stays lossless; it contributes
+  # to no v1 artefact, which is why parity is unaffected.
+  produces:        { owl: "vc:produces" }
+  same-as:         { owl: "owl:sameAs" }
+  applies-to:      { owl: "vc:appliesTo" }
+
+scalars:
+  domain:      { type: text }
+  maturity:    { type: text, enum: [emerging, established, draft, stub, deprecated] }
+  quality:     { type: number, min: 0, max: 1 }
+  slug:        { type: text }
+  label:       { type: text }
+  links:       { type: text, list: true }
+  resolutions: { type: text, list: true }
+  legacy-term-id: { type: text }
+
+migration:
+  fence_fields:
+    # Page block
+    "title": title
+    "vc:slug": slug
+    "vc:public": public
+    "vc:outboundWikilinks": links
+    # Only `preferred-term` survives, as an alias; the rest of the array is dropped.
+    "vc:legacyProperties": aliases
+    # Ontology block
+    "label": label
+    "domain": domain
+    "definition": body
+    "maturity": maturity
+    "vc:maturity": maturity
+    "quality": quality
+    "qualityScore": quality
+    "vc:qualityScore": quality
+    "vc:sourceDomain": domain
+    "subClassOf": is-a
+    "instanceOf": instance-of
+    "sameAs": same-as
+    "vc:appliesTo": applies-to
+    "vc:resolutions": resolutions
+    # Nested v2 relations
+    "relations.hasPart": has-part
+    "relations.partOf": part-of
+    "relations.requires": requires
+    "relations.enables": enables
+    "relations.dependsOn": depends-on
+    "relations.implements": implements
+    "relations.contrastsWith": contrasts-with
+    "relations.bridgesTo": bridges-to
+    "relations.uses": uses
+    "relations.supports": supports
+    "relations.standardizedBy": standardized-by
+    "relations.relatedTo": related-to
+    "relations.produces": produces
+  ignore:
+    # Structural or provenance keys that carry no page content.
+    - "@context"
+    - "@id"
+    - "@type"
+    - "relations"
+    - "provenance"
+    - "prov:wasAttributedTo"
+    - "prov:generatedAtTime"
+    - "vc:schemaVersion"
+    - "vc:inferenceRule"
+  logseq_keys:
+    # Every one of these duplicates a fence field. The fence is the
+    # authoritative source — it carries the resolved IRI, the `key:: [[Label]]`
+    # line carries only a label — so the line is dropped rather than merged.
+    owl-class: null
+    owl-role: null
+    owl-inferred: null
+    is-subclass-of: null
+    subClassOf: null
+    has-part: null
+    hasPart: null
+    part-of: null
+    partOf: null
+    requires: null
+    enables: null
+    depends-on: null
+    dependsOn: null
+    implements: null
+    contrasts-with: null
+    contrastsWith: null
+    bridges-to: null
+    bridgesTo: null
+    uses: null
+    supports: null
+    standardized-by: null
+    standardizedBy: null
+    related-to: null
+    relatedTo: null
+    produces: null
+    sameAs: null
+    belongs-to-domain: null
+    implemented-in-layer: null
+    migration-date: null
+    attributedTo: null
+    inferenceRule: null
+    sources: null
+    modified: null
+    updated: null
+    quality: null
+    collapsed: null
+    preferred-term: aliases
+  body:
+    fences_removed: [json-ld]
+    # Q4: frontmatter is metadata, prose is body. The fence definition becomes
+    # the page's leading paragraph; `vault build` derives the scaffold index's
+    # `d` and the OKF description from it, so parity is unaffected.
+    definition_placement: leading-paragraph
+    definition_dedupe: "remove the `### Definition` bullet when it repeats the fence text"
+    relationships_section_removed: true

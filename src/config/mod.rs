@@ -18,7 +18,7 @@ pub const CANONICAL_MAX_FORCE: f32 = 50.0;
 // unaffected.
 // ---------------------------------------------------------------------------
 
-// ADR-2041: the graph-type vocabulary and the bounded `logseq` alias have
+// ADR-2115: the graph-type vocabulary has
 // exactly one definition, in the domain crate's `config::graph_type`.
 pub use visionclaw_domain::config::graph_type::{
     graphs_map_has_knowledge, knowledge_graph_value, normalise_graph_type,

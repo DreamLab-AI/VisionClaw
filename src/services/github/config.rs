@@ -193,6 +193,30 @@ mod tests {
         }
     }
 
+    /// ADR-2115: GitHub ingest is optional and off by default. Boot must not
+    /// depend on `PRIVATE_REPO_GITHUB_PAT` / `GITHUB_OWNER` / `GITHUB_REPO`:
+    /// `from_env` reports the absence, and the `disabled()` placeholder the
+    /// server boots with is itself a valid config.
+    #[test]
+    fn the_disabled_placeholder_is_valid_without_any_github_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::remove_var("PRIVATE_REPO_GITHUB_PAT");
+        env::remove_var("LOGSEQ_PRIVATE_REPO_GITHUB");
+        env::remove_var("GITHUB_OWNER");
+        env::remove_var("GITHUB_REPO");
+        env::remove_var("GITHUB_BASE_PATH");
+        env::remove_var("GITHUB_BASE_PATHS");
+
+        assert!(
+            GitHubConfig::from_env().is_err(),
+            "an unconfigured environment yields no GitHub config"
+        );
+        assert!(
+            GitHubConfig::disabled().validate().is_ok(),
+            "the placeholder the server boots with must validate"
+        );
+    }
+
     #[test]
     fn test_empty_values() {
         let _guard = ENV_LOCK.lock().unwrap();

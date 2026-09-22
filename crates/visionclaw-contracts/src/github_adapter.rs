@@ -5,7 +5,7 @@
 //!
 //! Section 10 is the transport; Section 8 owns the parse and the domain.
 //! The on-disk corpus format both sides assume is the Obsidian vault
-//! specified in `docs/VAULT-corpus-format.md` (ADR-2040).
+//! specified in `docs/VAULT-corpus-format.md` (ADR-2040, ADR-2112).
 //! This module defines the wire shape that crosses the boundary — the
 //! `ParsedMarkdown` value object that Section 10 produces and Section 8
 //! consumes via the `IngestPage` / `IngestOntologyOnly` commands.
@@ -14,8 +14,9 @@
 //!
 //! - Transport: `octocrab` REST client.
 //! - Auth: `GITHUB_TOKEN` environment variable.
-//! - Sync gating: `GitHubSyncService::sync_graphs()` SHA1-compares each
-//!   file's blob against the cached hash and skips unchanged files.
+//! - Sync gating: `sync_graphs()` compares each page's change marker against
+//!   the cached one and skips unchanged pages (ADR-2114: the blob SHA for the
+//!   GitHub source, `mtime:size` for the local vault).
 //! - `FORCE_FULL_SYNC=1` bypasses gating and forces full reparse.
 //!
 //! ## Error reporting
@@ -38,15 +39,14 @@ use ts_rs::TS;
 ///
 /// The domain receives this via `IngestPage` / `IngestOntologyOnly`
 /// commands and never sees raw HTTP responses, `octocrab` types, or
-/// corpus-specific frontmatter / wikilink syntax. That insulation has since
-/// been exercised: when the authored corpus moved from a Logseq graph to an
-/// Obsidian vault (ADR-2040), only the adapter changed and this value object
-/// stayed stable.
+/// corpus-specific frontmatter / wikilink syntax. That insulation has been
+/// exercised twice: the move from a Logseq graph to an Obsidian vault
+/// (ADR-2040), and the move from a remote pull to the local vault source
+/// (ADR-2114). Neither changed this value object.
 ///
-/// The corpus format is specified by `docs/VAULT-corpus-format.md`: §V2 YAML
-/// frontmatter is the metadata carrier, and a leading Logseq `key:: value`
-/// property block is still accepted under the bounded legacy tolerance of
-/// ADR-2040 D3, which ends at the `review_trigger` on that record.
+/// The corpus format is specified by `docs/VAULT-corpus-format.md`: YAML
+/// frontmatter is the one metadata carrier (ADR-2112). There is no
+/// `key:: value` property syntax.
 ///
 /// `frontmatter_json` and `jsonld_blocks` are deliberately `serde_json::Value`
 /// because:
@@ -68,16 +68,15 @@ pub struct ParsedMarkdown {
     /// Raw file body, UTF-8.
     pub raw: String,
     /// Parsed vault frontmatter as a JSON object
-    /// (`docs/VAULT-corpus-format.md` §V2). Keys preserved verbatim. Under the
-    /// ADR-2040 legacy tolerance the adapter also accepts a leading Logseq
-    /// property block, normalising `public:: true` into `{"public": true}`
-    /// per DDD-08 §"To Section 10" — both carriers reach the domain in the
-    /// one shape.
+    /// (`docs/VAULT-corpus-format.md` §V2). Keys preserved verbatim. YAML
+    /// frontmatter is the only carrier: a `key:: value` line in the body is
+    /// body text and reaches the domain inside `raw`, not here.
     #[cfg_attr(feature = "typescript-export", ts(type = "Record<string, unknown>"))]
     pub frontmatter_json: serde_json::Value,
-    /// JSON-LD block bodies, one per block, order preserved. In the vault
-    /// these are plain `json-ld` code fences in the page body (§V3); in the
-    /// legacy corpus they sat under a `### OntologyBlock` heading.
+    /// JSON-LD block bodies, one per block, order preserved — plain `json-ld`
+    /// code fences in the page body (§V3). Empty once the corpus is
+    /// frontmatter-only (ADR-2112) and `vault_core::parse_page` supersedes the
+    /// fence parser.
     #[cfg_attr(
         feature = "typescript-export",
         ts(type = "Array<Record<string, unknown>>")
@@ -128,7 +127,7 @@ mod tests {
     #[test]
     fn parsed_markdown_round_trips() {
         let v = ParsedMarkdown {
-            canonical_path: "mainKnowledgeGraph/pages/example.md".into(),
+            canonical_path: "knowledge/pages/example.md".into(),
             raw: "public:: true\n\n# Example\n".into(),
             frontmatter_json: json!({ "public": true }),
             jsonld_blocks: vec![json!({"@id": "x", "@type": "Thing"})],

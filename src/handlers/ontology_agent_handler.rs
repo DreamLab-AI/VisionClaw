@@ -6,17 +6,15 @@
 //!   POST /ontology-agent/read
 //!   POST /ontology-agent/query
 //!   POST /ontology-agent/traverse
-//!   POST /ontology-agent/propose
+//!   POST /ontology-agent/propose   (RETIRED — 410 Gone, ADR-2116)
 //!   POST /ontology-agent/validate
 //!   GET  /ontology-agent/status
 
-use crate::middleware::{RateLimit, RequireAuth};
-use crate::services::ontology_mutation_service::{
-    OntologyMutationService, CONFLICT_BLOCKED_PREFIX, ENVELOPE_REJECTED_PREFIX,
-    IDEMPOTENCY_CONFLICT_PREFIX,
-};
+// ADR-2116: `OntologyMutationService` and its error prefixes are no longer
+// imported HERE — the retired `/propose` is the only route that ever called
+// them. The service itself is untouched and still used by `decision_handler.rs`
+// and `decision_service.rs`; only this handler's dependency on it is gone.
 use crate::services::ontology_query_service::OntologyQueryService;
-use crate::settings::auth_extractor::AuthenticatedUser;
 use crate::types::ontology_tools::*;
 use crate::{error_json, ok_json};
 use actix_web::{web, Error, HttpResponse};
@@ -64,25 +62,11 @@ fn default_depth() -> usize {
     3
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProposeRequest {
-    pub proposal: ProposeInput,
-    pub agent_context: AgentContext,
-    /// W-E transaction spine (ADR-049): client-supplied idempotency key. A replay
-    /// of the same key with an identical payload returns the prior receipt; a
-    /// replay with a different payload is rejected (409). Absent → the spine mints
-    /// a deterministic payload-derived key.
-    #[serde(default)]
-    pub idempotency_key: Option<String>,
-    /// PRD-022 W-D: OPTIONAL native signature envelope — a BIP-340 (secp256k1
-    /// Schnorr) signature, 64-byte / 128-char hex, by the authenticated
-    /// principal's x-only pubkey over `sha256(canonicalize(payload))`. Absent →
-    /// unchanged behaviour (verified only when present, or when
-    /// `ONTOLOGY_REQUIRE_SIGNED_ENVELOPE` demands it).
-    #[serde(default)]
-    pub signature: Option<String>,
-}
+// ADR-2116: `ProposeRequest` — the body of the retired `/propose` — is deleted
+// rather than left parked. It had exactly one reader, and a DTO that nothing
+// deserialises is a claim that the route still accepts something. `ProposeInput`
+// and `AgentContext` are NOT deleted: they are `visionclaw-domain` types that
+// `decision_service.rs` still uses.
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,94 +190,49 @@ pub async fn traverse(
     }
 }
 
-/// POST /ontology-agent/propose — Propose new note or amendment.
+/// POST /ontology-agent/propose — **RETIRED** (ADR-2116). Always 410 Gone.
 ///
-/// WS-1 / ADR-120: this is the ONLY mutating route in the `/ontology-agent`
-/// surface, so it is the only one gated by `RequireAuth::authenticated()` +
-/// per-user rate limiting (see `configure_ontology_agent_routes`). The
-/// `agent_id` / `user_id` are NOT trusted from the request body — they are
-/// OVERRIDDEN with the verified `did:nostr` pubkey from the NIP-98 / session
-/// auth, so a caller cannot self-assert another agent's identity.
-pub async fn propose(
-    auth: AuthenticatedUser,
-    mutation_service: web::Data<Arc<OntologyMutationService>>,
-    request: web::Json<ProposeRequest>,
-) -> Result<HttpResponse, Error> {
-    let mut req = request.into_inner();
-    // WS-1 / ADR-120: bind the proposal to the authenticated identity,
-    // discarding whatever agent_id / user_id the body self-asserted.
-    req.agent_context.agent_id = auth.pubkey.clone();
-    req.agent_context.user_id = auth.pubkey.clone();
-    let idempotency_key = req.idempotency_key.clone();
-    let signature = req.signature.clone();
-    info!("ontology-agent/propose: authed agent={}", auth.pubkey);
-
-    let result = match req.proposal {
-        ProposeInput::Create(proposal) => {
-            mutation_service
-                .propose_create(proposal, req.agent_context, idempotency_key, signature)
-                .await
+/// This route was the sanctioned ontology write path: an agent posted a
+/// proposal, the Whelk consistency gate ran, and an approved proposal became a
+/// pull request against the corpus repository. `PRD-sovereign-corpus` §3.3
+/// replaces that with a signed governance loop — `vault propose` builds a
+/// `PatchProposal`, runs Whelk and the conflict detector as *blockers*, and
+/// posts a forum kind-31402; a human's signed kind-31403 carries
+/// `Promote{iri}` or `Demote{iri}`; agentbox applies it through a guarded
+/// `vault edit`. A pull request is nobody's signature, so the PR path is not
+/// deprecated-but-working — it is gone.
+///
+/// # Why 410, and why no auth in front of it
+///
+/// The route is kept, answering 410 with its replacement in the body, because
+/// the callers that still hold this URL (agentbox's `ontology-propose.js`, the
+/// `ontology-augment` and `podcast-knowledge-ingest` skills, the
+/// `ontology-curator` agent) deserve to be told what to do instead. A 404
+/// would read as a deployment fault and get retried; a 410 is terminal and
+/// names its successor.
+///
+/// It is retired for EVERYONE, so `RequireAuth` and `RateLimit` come off with
+/// it. A 401 on a route that can only refuse would tell a caller its
+/// credentials were the problem, which is false, and would invite exactly the
+/// retry loop the 410 exists to stop.
+///
+/// `OntologyMutationService` and its three error prefixes are NOT removed:
+/// `decision_handler.rs` and `decision_service.rs` share them.
+pub async fn propose() -> Result<HttpResponse, Error> {
+    Ok(HttpResponse::Gone().json(serde_json::json!({
+        "success": false,
+        "error": "route_retired",
+        "message": "Ontology proposals are forum ActionRequests, not pull requests. \
+                    Run `vault propose <iri> --level content|schema`: it runs Whelk \
+                    and the conflict detector as blockers, then posts a kind-31402 \
+                    to the forum relay for a human-signed kind-31403 decision.",
+        "replacement": {
+            "command": "vault propose <iri> --level content|schema [--hypothesis \"…\"] [--diff <file>]",
+            "decision": "forum kind-31403 ActionResponse — Promote{iri} | Demote{iri} | Reject",
+            "appliesThrough": "agentbox handleGovernanceDecision → vault edit --expect docs=1,blocks=1",
+            "see": ["ADR-2116", "forum ADR-2013", "agentbox ADR-2106", "PRD-sovereign-corpus §3.3"]
         }
-        ProposeInput::Amend {
-            target_iri,
-            amendment,
-        } => {
-            mutation_service
-                .propose_amend(
-                    &target_iri,
-                    amendment,
-                    req.agent_context,
-                    idempotency_key,
-                    signature,
-                )
-                .await
-        }
-    };
-
-    match result {
-        Ok(proposal_result) => {
-            ok_json!(serde_json::json!({
-                "success": true,
-                "proposal": proposal_result
-            }))
-        }
-        // W-E: a blocking conflict-integrity report → 409 with the serialised report.
-        // Delta-scoped: `blocking` = conflicts THIS proposal introduces/touches,
-        // `preExisting` = advisory corpus conflicts. Both are lifted to the top level
-        // for the client gate-chips consumer alongside the full report.
-        Err(e) if e.starts_with(CONFLICT_BLOCKED_PREFIX) => {
-            let body = &e[CONFLICT_BLOCKED_PREFIX.len()..];
-            let report: serde_json::Value =
-                serde_json::from_str(body).unwrap_or_else(|_| serde_json::json!({ "raw": body }));
-            Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "success": false,
-                "error": "conflict_blocked",
-                "blockingConflicts": report.get("blocking").cloned().unwrap_or(serde_json::json!([])),
-                "preExisting": report.get("preExisting").cloned().unwrap_or(serde_json::json!([])),
-                "conflictReport": report
-            })))
-        }
-        // W-E: idempotency key reused with a divergent payload → 409.
-        Err(e) if e.starts_with(IDEMPOTENCY_CONFLICT_PREFIX) => {
-            Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "success": false,
-                "error": "idempotency_conflict",
-                "message": &e[IDEMPOTENCY_CONFLICT_PREFIX.len()..]
-            })))
-        }
-        // ADR-049: signature-envelope precondition failed (fail-closed) → 403.
-        Err(e) if e.starts_with(ENVELOPE_REJECTED_PREFIX) => {
-            Ok(HttpResponse::Forbidden().json(serde_json::json!({
-                "success": false,
-                "error": "envelope_rejected",
-                "message": &e[ENVELOPE_REJECTED_PREFIX.len()..]
-            })))
-        }
-        Err(e) => {
-            error!("ontology-agent/propose failed: {}", e);
-            error_json!("Proposal failed", e)
-        }
-    }
+    })))
 }
 
 /// POST /ontology-agent/validate — Check axioms for Whelk consistency
@@ -342,7 +281,9 @@ pub async fn status() -> Result<HttpResponse, Error> {
             "ontology_read".to_string(),
             "ontology_query".to_string(),
             "ontology_traverse".to_string(),
-            "ontology_propose".to_string(),
+            // ADR-2116: `ontology_propose` is gone from this surface. Writes go
+            // through `vault propose` and a human-signed forum 31403, so
+            // advertising it here would point an agent at a 410.
             "ontology_validate".to_string(),
         ],
     })
@@ -417,18 +358,11 @@ async fn build_traversal(
 
 // ---------- Route Configuration ----------
 
-/// WS-1 / ADR-120: read-side tools (`discover`/`read`/`query`/`traverse`/
-/// `validate`/`status`) stay anonymous; the mutating `/propose` is the ONLY
-/// gated route. actix-web does not fall through duplicate prefixes, so `/propose`
-/// is mounted as a NESTED sub-scope carrying its own middleware while the rest
-/// of `/ontology-agent` stays open.
-///
-/// Middleware order: `RequireAuth::authenticated()` is wrapped INNERMOST so it
-/// runs FIRST on the request path and inserts the `AuthenticatedUser` into the
-/// request extensions; `RateLimit::per_minute(20)` is wrapped OUTERMOST so its
-/// `extract_identifier` reads that extension and keys the limit on
-/// `user:{pubkey}` rather than the source IP. (In actix, the last `.wrap()`
-/// applied is the outermost layer, so RateLimit is listed before RequireAuth.)
+/// WS-1 / ADR-120 as amended by ADR-2116: every route in the `/ontology-agent`
+/// surface is now anonymous, because every route in it is now read-only. The
+/// nested `/propose` sub-scope and its `RequireAuth` + `RateLimit` middleware
+/// are gone with the write path they guarded; `/propose` remains as a plain
+/// route that answers 410 Gone and names its replacement.
 pub fn configure_ontology_agent_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/ontology-agent")
@@ -438,13 +372,9 @@ pub fn configure_ontology_agent_routes(cfg: &mut web::ServiceConfig) {
             .route("/traverse", web::post().to(traverse))
             .route("/validate", web::post().to(validate))
             .route("/status", web::get().to(status))
-            // WS-1: only /propose is authed + rate-limited (resolves to
-            // POST /ontology-agent/propose via the empty-path route).
-            .service(
-                web::scope("/propose")
-                    .wrap(RateLimit::per_minute(20))
-                    .wrap(RequireAuth::authenticated())
-                    .route("", web::post().to(propose)),
-            ),
+            // ADR-2116: /propose is retired and answers 410 Gone to every
+            // caller, so it carries no auth or rate-limit middleware — it
+            // reaches no service and mutates nothing.
+            .route("/propose", web::post().to(propose)),
     );
 }

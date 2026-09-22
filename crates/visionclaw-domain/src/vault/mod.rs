@@ -90,11 +90,55 @@ pub struct PageMeta {
     pub elevated_from: Option<String>,
     /// `tags` (Obsidian and Logseq). Empty when absent.
     pub tags: Vec<String>,
-    /// Every other key in the carrier, preserved verbatim (§V2 "any other
-    /// `key`"). Ordered so callers and tests see a stable iteration order.
+    /// Every other **scalar** key in the carrier, preserved verbatim (§V2 "any
+    /// other `key`"). Ordered so callers and tests see a stable iteration
+    /// order. A sequence-valued key is comma-joined here *and* kept losslessly
+    /// in [`PageMeta::extra_lists`]; the renderer prefers the list.
     pub extra: BTreeMap<String, String>,
+    /// Sequence-valued keys, preserved as lists.
+    ///
+    /// The OKF frontmatter of PRD-sovereign-corpus Q4 carries every relation as
+    /// a *list of wikilinks* (`requires: ["[[A]]", "[[B]]"]`). Comma-joining
+    /// those into [`PageMeta::extra`] and re-emitting the join as one string
+    /// would turn two edges into one malformed target, so writers that author
+    /// relations use this map and [`render_page`] emits a genuine YAML
+    /// sequence. Values are stored verbatim, brackets included, because the
+    /// wikilink text *is* the edge.
+    pub extra_lists: BTreeMap<String, Vec<String>>,
+    /// `type` — the OKF page type (`Class` / `Property` / `Individual` in
+    /// `knowledge/`; `Note` / `Episode` / `Transcript` / `Draft Concept` /
+    /// `Journal` / `Canvas` in `working/`). The ontology bundle is built from
+    /// this key, never from a page's directory (PRD-sovereign-corpus Q16).
+    pub page_type: Option<String>,
+    /// `resource` — the page's minted IRI. Data, not a derivation: it is
+    /// minted once from `namespace + slug(title)` and immutable thereafter
+    /// (vocabulary.yaml `identity.resource_rule`).
+    pub resource: Option<String>,
+    /// `status` — the OKF lifecycle state (`draft` / `stable` / `deprecated`).
+    pub status: Option<String>,
+    /// `generated` — the OKF trust stamp (`{by: <actor>, at: <RFC3339>}`).
+    pub generated: Option<GeneratedStamp>,
     /// Which carrier matched.
     pub format: PageFormat,
+}
+
+/// The OKF `generated` trust stamp: which actor produced this page, and when.
+///
+/// `by` is an OKF actor — `process:<name>/<version>`, `human:<npub>`,
+/// `<producer>/<version>` or `did:<method>:<id>` (vocabulary.yaml `okf.actors`).
+/// `at` is RFC-3339. Both are required by `vault validate` on a `knowledge/`
+/// page, so the type carries no `Option`: a stamp exists or it does not.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GeneratedStamp {
+    pub by: String,
+    pub at: String,
+    /// `generated.rule` — the documented OKF extension naming *what produced
+    /// the page*, as distinct from `by`, the actor the record is attributed to.
+    /// An elevated decision is attributed to the deciding principal
+    /// (`did:nostr:…`) while the page itself was written by
+    /// `process:visionclaw/<version>`; both facts belong on the page and this
+    /// is the declared key for the second.
+    pub rule: Option<String>,
 }
 
 /// Why a page is (or is not) admitted to the knowledge graph (ADR-2014/2040).
@@ -167,6 +211,17 @@ impl PageMeta {
         let mut map = serde_yaml::Mapping::new();
         let key = |k: &str| Value::String(k.to_string());
 
+        // OKF identity first — `type` is what the ontology build keys on, so it
+        // leads the block (vocabulary.yaml `validation.required_knowledge_keys`).
+        if let Some(ref page_type) = self.page_type {
+            map.insert(key("type"), Value::String(page_type.clone()));
+        }
+        if let Some(ref resource) = self.resource {
+            map.insert(key("resource"), Value::String(resource.clone()));
+        }
+        if let Some(ref status) = self.status {
+            map.insert(key("status"), Value::String(status.clone()));
+        }
         map.insert(key("public"), Value::Bool(self.public));
         if let Some(ref owl_class) = self.owl_class {
             map.insert(key("owl-class"), Value::String(owl_class.clone()));
@@ -190,7 +245,24 @@ impl PageMeta {
                 Value::String(format!("[[{}]]", elevated_from)),
             );
         }
+        if let Some(ref generated) = self.generated {
+            let mut stamp = serde_yaml::Mapping::new();
+            stamp.insert(key("by"), Value::String(generated.by.clone()));
+            stamp.insert(key("at"), Value::String(generated.at.clone()));
+            if let Some(ref rule) = generated.rule {
+                stamp.insert(key("rule"), Value::String(rule.clone()));
+            }
+            map.insert(key("generated"), Value::Mapping(stamp));
+        }
+        // A list-valued key wins over the comma-joined shadow in `extra`: the
+        // join is a lossy read-side convenience, the list is the authored form.
+        for (list_key, items) in &self.extra_lists {
+            map.insert(key(list_key), string_sequence(items));
+        }
         for (extra_key, extra_value) in &self.extra {
+            if self.extra_lists.contains_key(extra_key) {
+                continue;
+            }
             map.insert(key(extra_key), Value::String(extra_value.clone()));
         }
 
@@ -387,7 +459,21 @@ fn parse_frontmatter(yaml: &str) -> Option<PageMeta> {
             }
             "aliases" | "alias" => meta.aliases = yaml_string_list(value),
             "tags" => meta.tags = yaml_string_list(value),
+            "type" => meta.page_type = yaml_non_empty_string(value),
+            "resource" => meta.resource = yaml_non_empty_string(value),
+            "status" => meta.status = yaml_non_empty_string(value),
+            "generated" => meta.generated = yaml_generated_stamp(value),
             other => {
+                // Sequences land in BOTH maps: `extra` keeps the comma-joined
+                // rendering every existing reader expects, `extra_lists` keeps
+                // the elements so a render→parse round-trip is lossless.
+                if let serde_yaml::Value::Sequence(items) = value {
+                    let list: Vec<String> =
+                        items.iter().filter_map(yaml_non_empty_string).collect();
+                    if !list.is_empty() {
+                        meta.extra_lists.insert(other.to_string(), list);
+                    }
+                }
                 if let Some(rendered) = yaml_render(value) {
                     meta.extra.insert(other.to_string(), rendered);
                 }
@@ -487,6 +573,23 @@ fn yaml_string_list(value: &serde_yaml::Value) -> Vec<String> {
             .map(|s| split_comma_list(&s))
             .unwrap_or_default(),
     }
+}
+
+/// A YAML mapping as an OKF [`GeneratedStamp`]. Both `by` and `at` must be
+/// present and non-empty: a half-written stamp is not a trust record, and
+/// silently defaulting one half would forge provenance.
+fn yaml_generated_stamp(value: &serde_yaml::Value) -> Option<GeneratedStamp> {
+    let mapping = value.as_mapping()?;
+    let get = |k: &str| {
+        mapping
+            .get(serde_yaml::Value::String(k.to_string()))
+            .and_then(yaml_non_empty_string)
+    };
+    Some(GeneratedStamp {
+        by: get("by")?,
+        at: get("at")?,
+        rule: get("rule"),
+    })
 }
 
 /// Render any YAML value for the verbatim `extra` map: scalars as themselves,
@@ -917,9 +1020,66 @@ mod tests {
             format: PageFormat::Obsidian,
             owl_class_rejected: None,
             public_declared_false: false,
+            page_type: Some("Class".to_string()),
+            resource: Some("urn:ngm:class:foo".to_string()),
+            status: Some("draft".to_string()),
+            generated: Some(GeneratedStamp {
+                by: "process:visionclaw/0.1.0".to_string(),
+                at: "2026-09-22T00:00:00Z".to_string(),
+                rule: Some("process:visionclaw/0.1.0".to_string()),
+            }),
+            extra_lists: BTreeMap::new(),
         };
         let page = render_page(&meta, "# Foo\n\nBody prose.\n");
         assert_eq!(parse(&page), meta);
+    }
+
+    #[test]
+    fn a_relation_list_round_trips_as_a_list_not_a_comma_join() {
+        // PRD-sovereign-corpus Q4/Q5: relations are LISTS of wikilinks. Joining
+        // them into one scalar turns two edges into one malformed target, so the
+        // list must survive render -> parse intact.
+        let meta = PageMeta {
+            public: true,
+            page_type: Some("Class".to_string()),
+            resource: Some("urn:ngm:class:camera".to_string()),
+            status: Some("stable".to_string()),
+            title: Some("Camera".to_string()),
+            extra_lists: [(
+                "is-a".to_string(),
+                vec!["[[Device]]".to_string(), "[[Sensor]]".to_string()],
+            )]
+            .into_iter()
+            .collect(),
+            format: PageFormat::Obsidian,
+            ..PageMeta::default()
+        };
+        let page = render_page(&meta, "# Camera\n");
+
+        // Emitted as a genuine YAML sequence, not `is-a: '[[Device]], [[Sensor]]'`.
+        assert!(page.contains("- '[[Device]]'") || page.contains("- \"[[Device]]\""));
+
+        let reparsed = parse(&page);
+        assert_eq!(
+            reparsed.extra_lists.get("is-a"),
+            Some(&vec!["[[Device]]".to_string(), "[[Sensor]]".to_string()])
+        );
+        // The comma-joined shadow is still there for existing readers…
+        assert_eq!(
+            reparsed.extra.get("is-a").map(String::as_str),
+            Some("[[Device]], [[Sensor]]")
+        );
+        // …and it does not cause a duplicate key on re-render.
+        assert_eq!(parse(&render_page(&reparsed, "# Camera\n")), reparsed);
+    }
+
+    #[test]
+    fn a_half_written_generated_stamp_is_not_a_trust_record() {
+        // Defaulting the missing half would forge provenance.
+        let only_by = parse("---\ntype: Class\ngenerated:\n  by: process:visionclaw/0.1.0\n---\n");
+        assert_eq!(only_by.generated, None);
+        let only_at = parse("---\ntype: Class\ngenerated:\n  at: 2026-09-22T00:00:00Z\n---\n");
+        assert_eq!(only_at.generated, None);
     }
 
     #[test]

@@ -197,7 +197,7 @@ mod tests {
         EnrichmentProposal {
             id: "case-7".into(),
             status: ProposalStatus::Pending,
-            target_path: Some("mainKnowledgeGraph/pages/foo.md".into()),
+            target_path: Some("knowledge/pages/foo.md".into()),
             content: Some("proposed body".into()),
             enrichment_type: Some("wikilink".into()),
             proposer_did: Some("did:nostr:aaaa".into()),
@@ -255,7 +255,7 @@ mod tests {
         // metadata keys the bridge reads in _enrichCase.
         assert_eq!(
             c.metadata.target_path.as_deref(),
-            Some("mainKnowledgeGraph/pages/foo.md")
+            Some("knowledge/pages/foo.md")
         );
         assert_eq!(c.metadata.content.as_deref(), Some("proposed body"));
         assert_eq!(c.metadata.proposed_by.as_deref(), Some("did:nostr:aaaa"));

@@ -572,8 +572,12 @@ impl AppState {
         info!("[AppState::new] Initializing GitHubSyncService for data ingestion");
 
         let enhanced_content_api = Arc::new(EnhancedContentAPI::new(github_client.clone()));
+        // ADR-2114: ingest reads through the CorpusSource port — the mounted
+        // vault by default, GitHub when CORPUS_SOURCE=github.
+        let corpus_source =
+            crate::services::corpus_source::source_from_env_with_github(enhanced_content_api);
         let github_sync_service = Arc::new(GitHubSyncService::new(
-            enhanced_content_api,
+            corpus_source,
             graph_adapter.clone()
                 as Arc<dyn crate::ports::knowledge_graph_repository::KnowledgeGraphRepository>,
             ontology_repository.clone(),

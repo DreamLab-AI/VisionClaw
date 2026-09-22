@@ -142,8 +142,8 @@ pub use ontology_messages::{
     ClearOntologyCaches, ConstraintMergeMode, ConstraintStats, GetCachedOntologies,
     GetConstraintStats, GetOntologyConstraintStats, GetOntologyHealth, GetOntologyHealthLegacy,
     GetOntologyReport, GetValidationReport, LoadOntologyAxioms, OntologyConstraintStats,
-    OntologyHealth, ProcessOntologyData, SetConstraintGroupActive, UpdateOntologyMapping,
-    ValidateGraph, ValidateOntology, ValidationMode,
+    OntologyHealth, SetConstraintGroupActive, UpdateOntologyMapping, ValidateGraph,
+    ValidateOntology, ValidationMode,
 };
 
 // --- client_messages ---

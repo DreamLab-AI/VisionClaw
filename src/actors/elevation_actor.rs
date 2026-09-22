@@ -488,18 +488,23 @@ pub fn slugify(s: &str) -> String {
     out.trim_end_matches('-').to_string()
 }
 
-/// Draft a canonical Class page for a frontier concept. Same JSON-LD shape as
-/// the existing elevated corpus pages (v2 context, `urn:ngm:class:` identity,
-/// maturity `draft` so the quality layers treat it honestly).
+/// Draft a canonical Class page for a frontier concept.
+///
+/// **Frontmatter only** (PRD-sovereign-corpus Q4). The page carries the OKF
+/// typed properties `vault validate` requires of a `knowledge/` page —
+/// `type: Class`, `resource` (the minted `urn:ngm:class:` IRI), `status: draft`
+/// so the quality layers treat an un-reviewed elevation honestly, and the
+/// `generated` trust stamp — plus `is-a` / `related-to` as wikilink lists using
+/// the keys `ontology/vocabulary.yaml` declares. A ```json-ld fence is a
+/// `rejected_construct`: the two fences per page are exactly what this
+/// migration folds into properties.
+///
+/// `public` is deliberately absent rather than `false`: `type: Class` admits the
+/// page to the ontology on its own (§V4 inclusion), and a frontier concept
+/// nobody has reviewed is not something to publish.
 pub fn draft_class_page(c: &FrontierCandidate) -> (String, String) {
     let name = canonical_name(&c.label);
     let slug = slugify(&name);
-    let refs = c
-        .referenced_by
-        .iter()
-        .map(|r| format!("\"{}\"", r.replace('"', "'")))
-        .collect::<Vec<_>>()
-        .join(", ");
     let definition = format!(
         "Draft elevation of the frontier concept '{}': referenced by {} graph relationships \
          (including {}) but not yet formally authored. Refine this definition during review.",
@@ -512,29 +517,56 @@ pub fn draft_class_page(c: &FrontierCandidate) -> (String, String) {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let content = format!(
-        "# {name}\n\
-         ```json-ld\n\
-         {{\n\
-         \x20 \"@context\": \"https://narrativegoldmine.com/ns/v2.jsonld\",\n\
-         \x20 \"@id\": \"{class_iri}\",\n\
-         \x20 \"@type\": \"Class\",\n\
-         \x20 \"label\": \"{name}\",\n\
-         \x20 \"definition\": \"{definition}\",\n\
-         \x20 \"domain\": \"{domain}\",\n\
-         \x20 \"maturity\": \"draft\",\n\
-         \x20 \"qualityScore\": 0.5,\n\
-         \x20 \"subClassOf\": [],\n\
-         \x20 \"vc:referencedBy\": [{refs}]\n\
-         }}\n\
-         ```\n",
-        name = name,
-        class_iri = crate::uri::ngm::class_iri(&slug),
-        definition = definition.replace('"', "'"),
-        domain = c.domain,
-        refs = refs,
-    );
-    (format!("mainKnowledgeGraph/pages/{name}.md"), content)
+
+    // `domain` and `maturity` are declared scalars; `draft` maturity is the
+    // honest reading of a page nobody has authored yet. `definition` and
+    // `source-domain` are NOT declared in the live vocabulary, so the draft
+    // definition goes into the body as prose (vocabulary.yaml migration rule C)
+    // — which is where a reviewer rewrites it anyway.
+    let mut extra = std::collections::BTreeMap::new();
+    extra.insert("domain".to_string(), c.domain.clone());
+    extra.insert("maturity".to_string(), "draft".to_string());
+
+    let mut extra_lists = std::collections::BTreeMap::new();
+    // The concept is a frontier *because* the graph already points at it; the
+    // referencing pages are the evidence, authored as the declared associative
+    // relation. `is-a` stays empty — inventing a parent is what review is for.
+    let referenced: Vec<String> = c
+        .referenced_by
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .map(|r| format!("[[{r}]]"))
+        .collect();
+    if !referenced.is_empty() {
+        extra_lists.insert("related-to".to_string(), referenced);
+    }
+
+    let meta = visionclaw_domain::vault::PageMeta {
+        page_type: Some("Class".to_string()),
+        resource: Some(crate::uri::ngm::class_iri(&slug)),
+        status: Some("draft".to_string()),
+        title: Some(name.clone()),
+        generated: Some(visionclaw_domain::vault::GeneratedStamp {
+            by: format!("process:visionclaw/{}", env!("CARGO_PKG_VERSION")),
+            at: chrono::Utc::now().to_rfc3339(),
+            rule: None,
+        }),
+        extra,
+        extra_lists,
+        ..Default::default()
+    };
+
+    let body = format!("# {name}\n\n**Definition:** {definition}\n");
+    let content = visionclaw_domain::vault::render_page(&meta, &body);
+
+    (
+        format!(
+            "{}/{name}.md",
+            crate::services::decision_elevation::KNOWLEDGE_PAGES_DIR
+        ),
+        content,
+    )
 }
 
 /// A minimal `owl_class` declaration for the EL++ gate (IRI only — the reasoner
@@ -546,68 +578,40 @@ fn declare_class(iri: &str) -> OwlClass {
     }
 }
 
-/// Pull the IRIs out of a JSON-LD relation value that may be a bare IRI string,
-/// a `{"@id": iri}` object, or an array of either (`subClassOf` / `disjointWith`).
-fn jsonld_iri_list(value: &serde_json::Value) -> Vec<String> {
-    fn one(v: &serde_json::Value, out: &mut Vec<String>) {
-        if let Some(s) = v.as_str() {
-            if !s.trim().is_empty() {
-                out.push(s.to_string());
-            }
-        } else if let Some(s) = v.get("@id").and_then(|x| x.as_str()) {
-            if !s.trim().is_empty() {
-                out.push(s.to_string());
-            }
-        }
-    }
-    let mut out = Vec::new();
-    match value {
-        serde_json::Value::Array(arr) => arr.iter().for_each(|v| one(v, &mut out)),
-        v => one(v, &mut out),
-    }
-    out
-}
-
-/// Parse a drafted Class page's ```json-ld``` block into the class + the OWL
-/// axioms the EL++ engine checks (GOV-7). Reuses the exact JSON-LD shape
-/// [`draft_class_page`] emits and the corpus ingest reads: `@id` is the class
-/// IRI, and `subClassOf` / `disjointWith` (bare IRIs or `{"@id": …}`, scalar or
-/// array) become `SubClassOf` / `DisjointWith` axioms whose targets are also
-/// declared so the reasoner can resolve them. An unparseable or block-less draft
-/// yields empty vecs — the caller treats "nothing drafted to check" honestly (a
-/// draft with no relations is trivially consistent against the base).
+/// Parse a drafted Class page's **frontmatter** into the class + the OWL axioms
+/// the EL++ engine checks (GOV-7).
+///
+/// The inverse of [`draft_class_page`] and the shape the corpus ingest reads
+/// after PRD-sovereign-corpus Q4: `resource` is the class IRI, `is-a` is the
+/// `rdfs:subClassOf` relation (`vault validate` rejects a json-ld fence, so
+/// there is no longer a block to read), and `disjoint-with` — when a reviewer
+/// has added one by hand — becomes a `DisjointWith` axiom. Relation targets are
+/// wikilinks; the bracket text is the target IRI or page slug.
+///
+/// Axiom targets are also *declared* as classes so the reasoner can resolve
+/// them. A page with no frontmatter, a non-`Class` `type`, or no `resource`
+/// yields empty vecs — the caller treats "nothing drafted to check" honestly
+/// (a draft with no relations is trivially consistent against the base).
 pub fn parse_draft_axioms(draft: &str) -> (Vec<OwlClass>, Vec<OwlAxiom>) {
-    let block = draft
-        .split("```json-ld")
-        .nth(1)
-        .and_then(|s| s.split("```").next());
-    let Some(block) = block else {
+    let meta = visionclaw_domain::vault::parse(draft);
+    if meta.page_type.as_deref() != Some("Class") {
         return (Vec::new(), Vec::new());
-    };
-    let value: serde_json::Value = match serde_json::from_str(block.trim()) {
-        Ok(v) => v,
-        Err(_) => return (Vec::new(), Vec::new()),
-    };
-    let Some(id) = value.get("@id").and_then(|v| v.as_str()) else {
+    }
+    let Some(id) = meta.resource.clone() else {
         return (Vec::new(), Vec::new());
     };
 
-    let mut class = OwlClass {
-        iri: id.to_string(),
+    let class = OwlClass {
+        iri: id.clone(),
+        label: meta.title.clone(),
+        maturity: meta.extra.get("maturity").cloned(),
+        source_domain: meta
+            .extra
+            .get("domain")
+            .cloned()
+            .or_else(|| meta.source_domain.clone()),
         ..Default::default()
     };
-    class.label = value
-        .get("label")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    class.maturity = value
-        .get("maturity")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    class.source_domain = value
-        .get("domain")
-        .and_then(|v| v.as_str())
-        .map(String::from);
 
     let mut classes = vec![class];
     let mut axioms = Vec::new();
@@ -615,24 +619,35 @@ pub fn parse_draft_axioms(draft: &str) -> (Vec<OwlClass>, Vec<OwlAxiom>) {
     let mk = |axiom_type: AxiomType, object: &str| OwlAxiom {
         id: None,
         axiom_type,
-        subject: id.to_string(),
+        subject: id.clone(),
         object: object.to_string(),
         annotations: HashMap::new(),
     };
 
-    for parent in value
-        .get("subClassOf")
-        .map(jsonld_iri_list)
-        .unwrap_or_default()
-    {
+    let targets = |key: &str| -> Vec<String> {
+        meta.extra_lists
+            .get(key)
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|s| {
+                        s.trim()
+                            .trim_start_matches("[[")
+                            .trim_end_matches("]]")
+                            .trim()
+                            .to_string()
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    for parent in targets("is-a") {
         axioms.push(mk(AxiomType::SubClassOf, &parent));
         classes.push(declare_class(&parent));
     }
-    for other in value
-        .get("disjointWith")
-        .map(jsonld_iri_list)
-        .unwrap_or_default()
-    {
+    for other in targets("disjoint-with") {
         axioms.push(mk(AxiomType::DisjointWith, &other));
         classes.push(declare_class(&other));
     }
@@ -1781,19 +1796,50 @@ mod tests {
             ],
         };
         let (path, content) = draft_class_page(&c);
-        assert_eq!(path, "mainKnowledgeGraph/pages/Finality Mechanism.md");
-        assert!(content.contains("\"@id\": \"urn:ngm:class:finality-mechanism\""));
-        assert!(content.contains("\"@type\": \"Class\""));
-        assert!(content.contains("\"maturity\": \"draft\""));
-        assert!(content.contains("\"domain\": \"blockchain\""));
-        // The JSON-LD block must parse.
-        let block = content
-            .split("```json-ld\n")
-            .nth(1)
-            .and_then(|s| s.split("```").next())
-            .unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(block).expect("json-ld parses");
-        assert_eq!(parsed["label"], "Finality Mechanism");
+        // PRD-sovereign-corpus Q1: the governed vault role, not the retired
+        // `mainKnowledgeGraph/` layout.
+        assert_eq!(path, "knowledge/pages/Finality Mechanism.md");
+
+        // Q4: frontmatter only — a fence is a `rejected_construct`, and
+        // Invariant 1 forbids `key:: value` lines.
+        assert!(content.starts_with("---\n"));
+        assert!(!content.contains("```"), "no fence of any kind: {content}");
+        assert!(!content.contains(":: "), "no Logseq property lines");
+
+        let meta = visionclaw_domain::vault::parse(&content);
+        assert_eq!(meta.page_type.as_deref(), Some("Class"));
+        assert_eq!(
+            meta.resource.as_deref(),
+            Some("urn:ngm:class:finality-mechanism")
+        );
+        assert_eq!(meta.status.as_deref(), Some("draft"));
+        assert_eq!(meta.title.as_deref(), Some("Finality Mechanism"));
+        assert_eq!(
+            meta.extra.get("maturity").map(String::as_str),
+            Some("draft")
+        );
+        assert_eq!(
+            meta.extra.get("domain").map(String::as_str),
+            Some("blockchain")
+        );
+        // The OKF trust stamp names the process that drafted the page.
+        let stamp = meta.generated.as_ref().expect("generated stamp");
+        assert!(stamp.by.starts_with("process:visionclaw/"));
+        assert!(!stamp.at.is_empty());
+
+        // Relations are wikilink LISTS under a vocabulary-declared key — two
+        // referencing pages must stay two edges, not one comma-joined target.
+        assert_eq!(
+            meta.extra_lists.get("related-to"),
+            Some(&vec![
+                "[[Consensus Layer]]".to_string(),
+                "[[Bitcoin Proof-of-Work Protocol]]".to_string(),
+            ])
+        );
+
+        // An unreviewed frontier concept is admitted to the ontology by its
+        // `type`, and is NOT published.
+        assert!(!meta.is_publishable());
     }
 
     #[test]
@@ -1805,17 +1851,26 @@ mod tests {
     // ── GOV-7 consistency gate ──────────────────────────────────────────────
 
     fn draft_with(sub_class_of: &[&str], disjoint_with: &[&str]) -> String {
-        let arr = |v: &[&str]| {
-            v.iter()
-                .map(|s| format!("\"{s}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
+        let links = |v: &[&str]| -> Vec<String> { v.iter().map(|s| format!("[[{s}]]")).collect() };
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("maturity".to_string(), "draft".to_string());
+        let mut extra_lists = std::collections::BTreeMap::new();
+        if !sub_class_of.is_empty() {
+            extra_lists.insert("is-a".to_string(), links(sub_class_of));
+        }
+        if !disjoint_with.is_empty() {
+            extra_lists.insert("disjoint-with".to_string(), links(disjoint_with));
+        }
+        let meta = visionclaw_domain::vault::PageMeta {
+            page_type: Some("Class".to_string()),
+            resource: Some("urn:ngm:class:test".to_string()),
+            status: Some("draft".to_string()),
+            title: Some("Test".to_string()),
+            extra,
+            extra_lists,
+            ..Default::default()
         };
-        format!(
-            "# Test\n```json-ld\n{{\n  \"@id\": \"urn:ngm:class:test\",\n  \"@type\": \"Class\",\n  \"label\": \"Test\",\n  \"maturity\": \"draft\",\n  \"subClassOf\": [{}],\n  \"disjointWith\": [{}]\n}}\n```\n",
-            arr(sub_class_of),
-            arr(disjoint_with)
-        )
+        visionclaw_domain::vault::render_page(&meta, "# Test\n")
     }
 
     #[test]

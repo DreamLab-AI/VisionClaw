@@ -12,7 +12,7 @@ pub fn validate_settings_update(update: &Value) -> Result<(), String> {
             for (graph_name, graph_settings) in
                 graphs.as_object().ok_or("graphs must be an object")?.iter()
             {
-                // ADR-2041: `logseq` is accepted as an alias of `knowledge`.
+                // ADR-2115: `logseq` is no longer a recognised graph name.
                 let canonical = crate::config::normalise_graph_type(graph_name);
                 if canonical != "knowledge" && canonical != "visionclaw" {
                     return Err(format!("Invalid graph name: {}", graph_name));

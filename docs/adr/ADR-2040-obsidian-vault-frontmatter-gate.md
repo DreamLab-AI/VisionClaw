@@ -6,7 +6,7 @@ decision_status: proposed
 implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
-superseded_by: []
+superseded_by: [ADR-2112]
 verified_commit:
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare

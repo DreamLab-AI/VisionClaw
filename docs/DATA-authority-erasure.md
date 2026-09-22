@@ -15,7 +15,7 @@ sources:
   - crates/visionclaw-domain/src/utils/visibility_filter.rs
   - src/handlers/socket_flow_handler/position_updates.rs
   - scripts/backup-sqlite.sh
-  - src/bin/sync_github.rs
+  - src/bin/sync_corpus.rs
   - src/services/file_service.rs
 date: 2026-08-31
 ---
@@ -37,7 +37,7 @@ running code reads back as truth, regardless of what legacy ADR prose claims.
 
 | Data class | Authoritative owner (today) | Store / mechanism | Linearisation point |
 |---|---|---|---|
-| Authored content | Vault `public: true` / `owl-class` markdown (GitHub-synced) | `src/bin/sync_github.rs:~`, `src/services/file_service.rs:~` — gate per [ADR-2040](adr/ADR-2040-obsidian-vault-frontmatter-gate.md) / [`VAULT-corpus-format.md`](VAULT-corpus-format.md) §V4 | Sync run commit SHA; last-writer = the GitHub push |
+| Authored content | Vault `public: true` / `owl-class` markdown (ingested from the local vault via `CorpusSource`, ADR-2114) | `src/bin/sync_corpus.rs:~`, `src/services/file_service.rs:~` — gate per [ADR-2040](adr/ADR-2040-obsidian-vault-frontmatter-gate.md) / [`VAULT-corpus-format.md`](VAULT-corpus-format.md) §V4 | Sync run marker (`mtime:size` locally, blob SHA on GitHub); last-writer = the vault edit |
 | Visibility intent | Node `visibility` column + owner pubkey | SQLite (settings/node metadata), projected by `visibility_filter.rs` | Write to the node metadata row |
 | Graph projection | Oxigraph named graphs | `oxigraph_ontology_repository.rs` (`GRAPH_KNOWLEDGE`) | Oxigraph transaction commit |
 | Ontology (asserted + inferred) | Oxigraph | `GRAPH_ONTOLOGY` / `GRAPH_ONTOLOGY_INFERRED` | Oxigraph transaction commit; inferred is derived, never primary |

@@ -88,6 +88,13 @@ services:
       # in a `.env` shared with a prod deployment, or the release binary will
       # (by design, §D11) refuse to boot on the mere presence of the var.
       VISIONCLAW_DEV_MODE: "${VISIONCLAW_DEV_MODE:-1}"
+      # ADR-2114 — corpus ingest source. `local` walks the mounted vault; no
+      # GitHub credentials are read. Set CORPUS_SOURCE=github to fall back to
+      # the remote pull (then PRIVATE_REPO_GITHUB_PAT/GITHUB_OWNER/GITHUB_REPO
+      # become required again).
+      CORPUS_SOURCE: "${CORPUS_SOURCE:-local}"
+      VAULT_ROOT: "${VAULT_ROOT:-/vault/visionGraph}"
+      VAULT_BASE_PATHS: "${VAULT_BASE_PATHS:-knowledge/pages,working/pages}"
       # ADR-142 multi-user RBAC (defaults are fail-closed; these preserve the
       # current single-operator behaviour *visibly*):
       #  - RBAC_PUBLIC_READS=1 keeps anonymous /api GET reads open (client fetches
@@ -158,6 +165,10 @@ services:
       # Mount host data directory for graph content
       - ${HOST_PROJECT_ROOT:-.}/data/markdown:/workspace/ext/data/markdown:ro
       - ${HOST_PROJECT_ROOT:-.}/data/metadata:/workspace/ext/data/metadata:rw
+      # ADR-2114 — the sovereign corpus. The agent workspace named volume holds
+      # the vault at /vault/visionGraph; ingest reads it READ-ONLY through
+      # CorpusSource::LocalDirectory. See docs/how-to/operations/corpus-source-local.md.
+      - agent-workspace:/vault:ro
     ports:
       # Development: Nginx entry point + API port
       - "${DEV_NGINX_PORT:-3001}:3001"
@@ -372,6 +383,12 @@ networks:
     name: ${EXTERNAL_NETWORK:-visionclaw_network}
 
 volumes:
+  # ADR-2114 — the sovereign corpus vault, owned by the agent workspace stack
+  # and mounted read-only here. External: this compose file never creates or
+  # removes it. `docker volume create multi-agent-docker_workspace` if absent.
+  agent-workspace:
+    name: multi-agent-docker_workspace
+    external: true
   # Ontology Loom mirrored corpus generation
   loom-data:
     name: ${LOOM_DATA_VOLUME:-loom-data}

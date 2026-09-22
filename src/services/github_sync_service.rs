@@ -1,22 +1,29 @@
 // src/services/github_sync_service.rs
-//! GitHub Sync Service
+//! Corpus Sync Service (ADR-2114)
 //!
-//! Synchronizes markdown files from GitHub repository to Oxigraph.
+//! Synchronises the markdown corpus into Oxigraph. The corpus is read through
+//! the [`CorpusSource`] port — a mounted vault directory by default, the GitHub
+//! repository when selected — and everything downstream of the listing is
+//! source-agnostic: parse -> dual graph -> post-sync Whelk reasoning ->
+//! inferred-edge materialisation -> `ReloadGraphFromDatabase`.
+//!
+//! The type keeps its historical `GitHubSyncService` name; renaming it across
+//! its 50-odd call sites is deliberately left out of this change.
 //! - Parses public:: true pages as knowledge graph nodes (KnowledgeGraphRepository)
 //! - Extracts ```json-ld``` blocks and ingests quads via OxigraphOntologyRepository
 //! - Enriches graph nodes with owl_class_iri metadata via OntologyEnrichmentService
-//! - Uses SHA1 filtering to process only changed files (unless FORCE_FULL_SYNC=1)
+//! - Uses the source's change marker to process only changed pages (unless FORCE_FULL_SYNC=1)
 //! - Batch processing (50 files) to avoid memory issues with large repositories
 
 use crate::adapters::oxigraph_ontology_repository::{OxigraphOntologyRepository, GRAPH_ONTOLOGY};
 use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
 use crate::adapters::SqliteSettingsRepository;
 use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
+use crate::services::corpus_source::{CorpusPage, CorpusSource};
 use crate::services::decision_elevation::{decision_page_quads_logged, DECISIONS_DIR};
-use crate::services::github::content_enhanced::EnhancedContentAPI;
-use crate::services::github::types::GitHubFileBasicMetadata;
 use crate::services::inferred_edge_materialiser as mat;
 use crate::services::jsonld_ingest::{self, IngestOutcome, PageMetadata};
+use crate::services::page_parser::parse_page;
 use crate::services::parsers::KnowledgeGraphParser;
 use crate::services::semantic_type_registry::SEMANTIC_TYPE_REGISTRY;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -49,6 +56,11 @@ pub(crate) struct InferredEdgeSelection {
 }
 
 const BATCH_SIZE: usize = 50;
+
+/// Sync-database key holding the identity
+/// ([`crate::services::corpus_source::SourceDescriptor::identity`]) of the
+/// source the current store was built from.
+const SOURCE_IDENTITY_KEY: &str = "corpus_source_identity";
 
 // Predicate IRI constants for JSON-LD quad routing.
 // Expanded forms (vc: prefix = https://narrativegoldmine.com/ns/v1#).
@@ -230,7 +242,7 @@ fn ensure_stub_from_iri(
 }
 
 pub struct GitHubSyncService {
-    content_api: Arc<EnhancedContentAPI>,
+    source: Arc<dyn CorpusSource>,
     kg_parser: Arc<KnowledgeGraphParser>,
     kg_repo: Arc<dyn KnowledgeGraphRepository>,
     onto_repo: Arc<OxigraphOntologyRepository>,
@@ -246,7 +258,7 @@ pub struct GitHubSyncService {
 
 impl GitHubSyncService {
     pub fn new(
-        content_api: Arc<EnhancedContentAPI>,
+        source: Arc<dyn CorpusSource>,
         kg_repo: Arc<dyn KnowledgeGraphRepository>,
         onto_repo: Arc<OxigraphOntologyRepository>,
         sync_db: Arc<SqliteSettingsRepository>,
@@ -257,7 +269,7 @@ impl GitHubSyncService {
         // is still used by `run_post_sync_reasoning`, hence the
         // `inference_engine` retention here.
         Self {
-            content_api,
+            source,
             kg_parser: Arc::new(KnowledgeGraphParser::new()),
             kg_repo,
             onto_repo,
@@ -292,7 +304,11 @@ impl GitHubSyncService {
         &self,
         force_full_override: bool,
     ) -> Result<SyncStatistics, String> {
-        info!("Starting GitHub sync (batch size: {})", BATCH_SIZE);
+        info!(
+            "Starting corpus sync from {} (batch size: {})",
+            self.source.describe(),
+            BATCH_SIZE
+        );
         let start_time = Instant::now();
 
         let mut stats = SyncStatistics {
@@ -308,16 +324,16 @@ impl GitHubSyncService {
 
         let base_path_changed = self.detect_and_handle_base_path_change().await;
 
-        let files = match self.fetch_all_markdown_files().await {
+        let files = match self.source.list_pages().await {
             Ok(files) => {
-                info!("Found {} markdown files", files.len());
+                info!("Found {} markdown pages", files.len());
                 files
             }
             Err(e) => {
-                let error_msg = format!("Failed to fetch files: {}", e);
+                let error_msg = format!("Failed to list pages: {}", e);
                 error!("{}", error_msg);
                 stats.duration = start_time.elapsed();
-                return Err(format!("GitHub sync failed: {}", error_msg));
+                return Err(format!("Corpus sync failed: {}", error_msg));
             }
         };
 
@@ -326,7 +342,7 @@ impl GitHubSyncService {
         // ADR-2040 §V1: build the vault index from the FULL listing, never the
         // changed subset — an incremental sync must still resolve links into
         // unchanged pages, or every one of them mints a phantom stub.
-        let base_paths = self.content_api.base_paths().to_vec();
+        let base_paths = self.source.base_paths().to_vec();
         let vault_index = visionclaw_domain::vault::VaultIndex::from_identities(
             files
                 .iter()
@@ -996,16 +1012,24 @@ impl GitHubSyncService {
             .await
             .map_err(|e| format!("load_graph for assert rebuild: {}", e))?;
 
-        // Ontology class nodes only — those carrying an owl_class_iri.
+        // Ontology nodes only — pages that DECLARED themselves ontology in
+        // `knowledge/` (PRD-sovereign-corpus Q16). `owl_class_iri.is_some()` is
+        // NOT that test: the per-file ingest sets it on any node whose IRI looks
+        // ontological, so a public `working/` Episode that mints an IRI was
+        // being shipped to Whelk as a class. The declaration is the frontmatter
+        // `type`, stamped by `mark_ontology_type` at ingest.
         let onto_nodes: Vec<visionclaw_domain::models::node::Node> = graph
             .nodes
             .iter()
-            .filter(|n| n.owl_class_iri.is_some())
+            .filter(|n| n.metadata.contains_key(ONTOLOGY_TYPE_KEY))
             .cloned()
             .collect();
 
         if onto_nodes.is_empty() {
-            info!("No ontology (owl_class_iri) nodes in KG — skipping assert-graph rebuild");
+            info!(
+                "No ontology-typed ({}) nodes in KG — skipping assert-graph rebuild",
+                ONTOLOGY_TYPE_KEY
+            );
             return Ok(0);
         }
 
@@ -1047,7 +1071,7 @@ impl GitHubSyncService {
         stats.ontology_files_processed += count;
 
         // ADR-050 read-half: the CLEAR+INSERT above rebuilds the assert graph from
-        // the corpus CLASSES only (`owl_class_iri.is_some()`), which erases any
+        // the corpus CLASSES only (ontology-typed pages), which erases any
         // runtime decision-record instances (`dl:DecisionRecord`, a prov:Activity
         // individual with no owl_class_iri). Re-derive them from the elevated
         // decision pages in the corpus so a force_full preserves the decisions the
@@ -1078,7 +1102,7 @@ impl GitHubSyncService {
     /// page carries only the summary. Returns the count of decision records
     /// re-derived (honest reporting).
     async fn rematerialise_decisions(&self) -> Result<usize, String> {
-        let files = match self.content_api.list_markdown_files(DECISIONS_DIR).await {
+        let files = match self.source.list_pages_under(DECISIONS_DIR).await {
             Ok(f) => f,
             Err(e) => {
                 // A corpus with no decisions namespace yet is the common case.
@@ -1096,7 +1120,7 @@ impl GitHubSyncService {
         let mut quads: Vec<Quad> = Vec::new();
         let mut decisions = 0usize;
         for f in &files {
-            let content = match self.content_api.fetch_file_content(&f.download_url).await {
+            let content = match self.source.fetch_page(f).await {
                 Ok(c) => c,
                 Err(e) => {
                     warn!(
@@ -1489,7 +1513,7 @@ impl GitHubSyncService {
     /// for a final pass after all nodes from every batch are present.
     async fn process_batch_incremental(
         &self,
-        files: &[GitHubFileBasicMetadata],
+        files: &[CorpusPage],
         stats: &mut SyncStatistics,
         deferred_edges: &mut Vec<Edge>,
         vault_ctx: visionclaw_domain::vault::VaultContext<'_>,
@@ -1506,32 +1530,25 @@ impl GitHubSyncService {
         const PARALLEL_FETCHES: usize = 8;
 
         fn create_fetch_future(
-            content_api: Arc<EnhancedContentAPI>,
-            file: GitHubFileBasicMetadata,
+            source: Arc<dyn CorpusSource>,
+            file: CorpusPage,
         ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = (GitHubFileBasicMetadata, Result<String, String>)>
-                    + Send,
-            >,
+            Box<dyn std::future::Future<Output = (CorpusPage, Result<String, String>)> + Send>,
         > {
-            let download_url = file.download_url.clone();
             Box::pin(async move {
-                let result = content_api
-                    .fetch_file_content(&download_url)
-                    .await
-                    .map_err(|e| format!("Failed to fetch content: {}", e));
+                let result = source.fetch_page(&file).await;
                 (file, result)
             })
         }
 
         let mut fetch_futures: FuturesUnordered<_> = FuturesUnordered::new();
-        let mut fetched_contents: Vec<(GitHubFileBasicMetadata, Result<String, String>)> =
+        let mut fetched_contents: Vec<(CorpusPage, Result<String, String>)> =
             Vec::with_capacity(files.len());
         let mut file_iter = files.iter().cloned().peekable();
 
         while fetch_futures.len() < PARALLEL_FETCHES {
             if let Some(file) = file_iter.next() {
-                fetch_futures.push(create_fetch_future(Arc::clone(&self.content_api), file));
+                fetch_futures.push(create_fetch_future(Arc::clone(&self.source), file));
             } else {
                 break;
             }
@@ -1540,7 +1557,7 @@ impl GitHubSyncService {
         while let Some((file, content_result)) = fetch_futures.next().await {
             fetched_contents.push((file, content_result));
             if let Some(file) = file_iter.next() {
-                fetch_futures.push(create_fetch_future(Arc::clone(&self.content_api), file));
+                fetch_futures.push(create_fetch_future(Arc::clone(&self.source), file));
             }
         }
 
@@ -1685,7 +1702,7 @@ impl GitHubSyncService {
     #[allow(clippy::too_many_arguments)]
     async fn process_fetched_file(
         &self,
-        file: &GitHubFileBasicMetadata,
+        file: &CorpusPage,
         content: &str,
         nodes: &mut std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
         edges: &mut std::collections::HashMap<String, Edge>,
@@ -1701,7 +1718,7 @@ impl GitHubSyncService {
         let identity = vault_ctx.identity_of(&file.path);
 
         // 1. Distill the file's JSON-LD blocks into a single canonical entity.
-        let entity = match jsonld_ingest::parse_canonical_entity(content, &file.path) {
+        let entity = match parse_page(content, &file.path) {
             Ok(Some(e)) => e,
             Ok(None) => {
                 // No JSON-LD blocks — this is an unstructured logseq page from
@@ -1872,7 +1889,7 @@ impl GitHubSyncService {
     /// `insert` still upgrades a plain page to its ontology form.
     fn process_plain_vault_file(
         &self,
-        file: &GitHubFileBasicMetadata,
+        file: &CorpusPage,
         content: &str,
         nodes: &mut std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
         edges: &mut std::collections::HashMap<String, Edge>,
@@ -1943,6 +1960,13 @@ impl GitHubSyncService {
             ensure_source_domain(&mut node, &file.path);
             node.metadata
                 .insert("wikilink_count".to_string(), wikilink_count.to_string());
+            // Q16: the ontology bundle is built from this stamp, never from a
+            // node's IRI shape or its directory alone. A page that declares no
+            // ontology type is a graph node and nothing more.
+            if let Some(ontology_type) = declared_ontology_type(&file.path, content) {
+                node.metadata
+                    .insert(ONTOLOGY_TYPE_KEY.to_string(), ontology_type);
+            }
             // A real authored node upgrades any stub an earlier sibling file
             // materialised (ontology IRI stubs still use stub_ids); it never
             // clobbers another authored node a JSON-LD sibling emitted.
@@ -2188,26 +2212,7 @@ impl GitHubSyncService {
     // File listing + SHA1 change detection
     // ------------------------------------------------------------------
 
-    async fn fetch_all_markdown_files(&self) -> Result<Vec<GitHubFileBasicMetadata>, String> {
-        match self.content_api.list_markdown_files_via_tree().await {
-            Ok(files) => {
-                info!("Trees API returned {} markdown files", files.len());
-                Ok(files)
-            }
-            Err(e) => {
-                warn!("Trees API failed ({}), falling back to Contents API", e);
-                self.content_api
-                    .list_markdown_files("")
-                    .await
-                    .map_err(|e| format!("GitHub API error: {}", e))
-            }
-        }
-    }
-
-    async fn filter_changed_files(
-        &self,
-        files: &[GitHubFileBasicMetadata],
-    ) -> Result<Vec<GitHubFileBasicMetadata>, String> {
+    async fn filter_changed_files(&self, files: &[CorpusPage]) -> Result<Vec<CorpusPage>, String> {
         let existing = self.get_existing_file_metadata().await?;
 
         // Key on the full repo path, NOT the basename: the source dirs
@@ -2218,7 +2223,7 @@ impl GitHubSyncService {
         Ok(files
             .iter()
             .filter(|f| match existing.get(&f.path) {
-                Some(sha) if sha == &f.sha => false,
+                Some(marker) if marker == &f.change_marker => false,
                 _ => true,
             })
             .cloned()
@@ -2244,7 +2249,7 @@ impl GitHubSyncService {
         Ok(map)
     }
 
-    async fn update_file_metadata(&self, files: &[GitHubFileBasicMetadata]) -> Result<(), String> {
+    async fn update_file_metadata(&self, files: &[CorpusPage]) -> Result<(), String> {
         if files.is_empty() {
             return Ok(());
         }
@@ -2255,7 +2260,7 @@ impl GitHubSyncService {
         // collide across source dirs.
         let pairs: Vec<(String, String)> = files
             .iter()
-            .map(|f| (f.path.clone(), f.sha.clone()))
+            .map(|f| (f.path.clone(), f.change_marker.clone()))
             .collect();
 
         self.sync_db
@@ -2264,20 +2269,14 @@ impl GitHubSyncService {
             .map_err(|e| format!("SQLite update error: {}", e))
     }
 
-    /// Detect GITHUB_BASE_PATH change; clear stale data if it changed.
-    /// Returns true when a change was detected (triggers forced full sync).
+    /// Detect a change of corpus source (kind, location or base paths) and
+    /// clear stale data when it changed. Returns true on a change, which
+    /// forces a full re-sync — a store built from one source is never topped
+    /// up incrementally from another.
     async fn detect_and_handle_base_path_change(&self) -> bool {
-        // Track the full source-path set (plural preferred, singular fallback) so
-        // adding/removing a source dir triggers a clean full re-sync.
-        let current_base_path = std::env::var("GITHUB_BASE_PATHS")
-            .or_else(|_| std::env::var("GITHUB_BASE_PATH"))
-            .unwrap_or_default();
-        if current_base_path.is_empty() {
-            return false;
-        }
+        let current_identity = self.source.describe().identity();
 
-        // Read previously stored base path from SQLite.
-        let stored_base_path = match self.sync_db.get_sync_config("github_base_path").await {
+        let stored_identity = match self.sync_db.get_sync_config(SOURCE_IDENTITY_KEY).await {
             Ok(val) => val,
             Err(e) => {
                 warn!("Failed to read sync config: {}", e);
@@ -2285,19 +2284,19 @@ impl GitHubSyncService {
             }
         };
 
-        let changed = match &stored_base_path {
-            Some(stored) if stored == &current_base_path => false,
+        let changed = match &stored_identity {
+            Some(stored) if stored == &current_identity => false,
             Some(stored) => {
                 info!(
-                    "GITHUB_BASE_PATH changed: '{}' -> '{}' — clearing stale data",
-                    stored, current_base_path
+                    "Corpus source changed: '{}' -> '{}' — clearing stale data",
+                    stored, current_identity
                 );
                 true
             }
             None => {
                 info!(
-                    "First sync run — recording base path '{}'",
-                    current_base_path
+                    "First sync run for this store — recording corpus source '{}'",
+                    current_identity
                 );
                 false
             }
@@ -2309,19 +2308,18 @@ impl GitHubSyncService {
             }
         }
 
-        // Upsert the current base path in SQLite.
         if let Err(e) = self
             .sync_db
-            .set_sync_config("github_base_path", &current_base_path)
+            .set_sync_config(SOURCE_IDENTITY_KEY, &current_identity)
             .await
         {
-            warn!("Failed to save SyncConfig base path: {}", e);
+            warn!("Failed to save the corpus source identity: {}", e);
         }
 
         changed
     }
 
-    /// Clear all stale data when switching to a new GitHub base path.
+    /// Clear all stale data when switching to a different corpus source.
     /// Clears Oxigraph ontology graph (actual RDF data) and SQLite sync metadata.
     async fn clear_stale_data(&self) -> Result<(), String> {
         info!("Clearing stale data for fresh ingest");
@@ -2397,6 +2395,44 @@ impl GitHubSyncService {
 /// only in the leading property block.
 fn page_is_kg_included(content: &str) -> bool {
     visionclaw_domain::vault::parse(content).is_kg_included()
+}
+
+/// Node-metadata key carrying the page's declared OKF ontology type.
+///
+/// Present ⇔ the page is part of the governed ontology bundle. Absence is what
+/// keeps a `working/` page — an `Episode`, a `Note`, a `Draft Concept` — out of
+/// the classes and axioms handed to Whelk, however public it is and whatever
+/// IRI its quads mint.
+pub(crate) const ONTOLOGY_TYPE_KEY: &str = "ontology_type";
+
+/// The vault root whose pages may declare ontology (PRD-sovereign-corpus Q16:
+/// "Governed ontology bundle = `type: Class|Property|Individual` in
+/// `knowledge/` only").
+const ONTOLOGY_VAULT_PREFIX: &str = "knowledge/";
+
+/// The OKF `type` values that make a page part of the ontology bundle.
+const ONTOLOGY_PAGE_TYPES: [&str; 3] = ["Class", "Property", "Individual"];
+
+/// The ontology type a page DECLARES, or `None` if it declares none.
+///
+/// Two conditions, both necessary (PRD-sovereign-corpus Q16):
+///   1. the page lives under `knowledge/` — `working/` is OKF-conformant with
+///      its own types (Q9) and never contributes classes or axioms;
+///   2. its frontmatter `type` is one of [`ONTOLOGY_PAGE_TYPES`].
+///
+/// Deriving this from the path ALONE would re-admit the 496 non-class files
+/// that Q16 moves out of `knowledge/`; deriving it from the `type` alone would
+/// admit a `working/` page that happened to say `type: Class`. Both halves, or
+/// the page is graph-only.
+pub(crate) fn declared_ontology_type(repo_path: &str, content: &str) -> Option<String> {
+    let path = repo_path.trim_start_matches("./").trim_start_matches('/');
+    if !path.starts_with(ONTOLOGY_VAULT_PREFIX) {
+        return None;
+    }
+    let page_type = visionclaw_domain::vault::parse(content).page_type?;
+    ONTOLOGY_PAGE_TYPES
+        .contains(&page_type.as_str())
+        .then_some(page_type)
 }
 
 /// Map a fully-expanded predicate IRI to a canonical edge-type label.
@@ -2972,5 +3008,94 @@ mod adr_2071_inferred_edge_tests {
         );
         // Every retained edge classifies as inferred for the client channel.
         assert!(shared.edges.iter().all(edge_is_inferred));
+    }
+}
+
+/// PRD-sovereign-corpus Q16: the governed ontology bundle is
+/// `type: Class|Property|Individual` in `knowledge/` **only**, while the KG
+/// graph ingest keeps both base paths.
+#[cfg(test)]
+mod sovereign_corpus_scope_tests {
+    use super::*;
+
+    /// A public `working/` Episode — exactly the 188 podcast-evidence pages
+    /// PRD-sovereign-corpus Q16 relocates out of `knowledge/`.
+    fn working_episode_page() -> &'static str {
+        "---\ntype: Episode\npublic: true\ntitle: Black Friday GPT\nsource: The Podcast\nepisode-date: 2026-08-01\ntier: '2'\n---\n\n# Black Friday GPT\n\nEvidence body.\n"
+    }
+
+    fn knowledge_class_page() -> &'static str {
+        "---\ntype: Class\nresource: urn:ngm:class:camera\nstatus: stable\npublic: true\ntitle: Camera\n---\n\n# Camera\n"
+    }
+
+    #[test]
+    fn a_public_working_episode_is_a_graph_node_but_never_an_ontology_class() {
+        let episode = working_episode_page();
+
+        // It IS admitted to the knowledge graph: `public: true` opens the §V4
+        // gate, and the graph ingest keeps BOTH base paths.
+        assert!(
+            page_is_kg_included(episode),
+            "a public working page is still a graph node"
+        );
+
+        // It is NOT part of the ontology bundle — it declares no ontology type,
+        // so nothing stamps it and the assert-graph rebuild cannot see it.
+        assert_eq!(
+            declared_ontology_type(
+                "working/pages/podcast-evidence/black-friday-gpt.md",
+                episode
+            ),
+            None,
+            "an Episode is not a Class, Property or Individual"
+        );
+
+        // …and the same page is still not ontology if it were misfiled under
+        // knowledge/: the `type` is the declaration, not the directory.
+        assert_eq!(
+            declared_ontology_type("knowledge/pages/black-friday-gpt.md", episode),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_knowledge_page_with_an_ontology_type_joins_the_bundle() {
+        let class_page = knowledge_class_page();
+        assert_eq!(
+            declared_ontology_type("knowledge/pages/Camera.md", class_page),
+            Some("Class".to_string())
+        );
+        // Leading `./` and `/` are normalised — the corpus source emits both.
+        assert_eq!(
+            declared_ontology_type("./knowledge/pages/Camera.md", class_page),
+            Some("Class".to_string())
+        );
+
+        // Property and Individual qualify too (vocabulary.yaml `types:`).
+        for t in ["Property", "Individual"] {
+            let page =
+                format!("---\ntype: {t}\nresource: urn:ngm:class:x\nstatus: draft\n---\n\n# X\n");
+            assert_eq!(
+                declared_ontology_type("knowledge/pages/X.md", &page),
+                Some(t.to_string())
+            );
+        }
+
+        // The SAME class page under working/ does not: Q16 scopes the governed
+        // bundle to knowledge/ only, so a working-vault draft cannot smuggle a
+        // class into Whelk.
+        assert_eq!(
+            declared_ontology_type("working/pages/Camera.md", class_page),
+            None
+        );
+
+        // A knowledge page with no `type` at all is graph-only.
+        assert_eq!(
+            declared_ontology_type(
+                "knowledge/pages/Plain.md",
+                "---\npublic: true\n---\n\n# Plain\n"
+            ),
+            None
+        );
     }
 }
