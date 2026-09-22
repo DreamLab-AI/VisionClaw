@@ -60,6 +60,8 @@ dist
 dist-ssr
 *.local
 build
+!crates/vault/src/build/
+!crates/vault/src/build/**
 out
 /codebase.txt
 
