@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -200,3 +200,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** the workspace is now thirteen members — `crates/vault-migrate` was deleted (ADR-2112/ADR-2113) and `crates/vault-core` + `crates/vault` added at `Cargo.toml:13-14`, so the count in the 2026-09-04 review above reads "twelve" and names `vault-migrate`; both are superseded by this note. In `src/actors/`, `elevation_actor.rs` drafts frontmatter-only OKF pages instead of a `json-ld` fence, the blocked `ProcessOntologyData` message (and its `LogseqPage` import) was deleted from `messages/ontology_messages.rs`, and `optimized_settings_actor.rs` dropped the legacy `logseq` path alias (ADR-2115). `crates/visionclaw-actors/src/messages/ontology_messages.rs` lost one doc-comment line.
 
 **Decision unaffected.** No actor crossed a crate boundary and the thin-root-plus-crates shape is intact; removing `ProcessOntologyData` deletes one of the root-internal dependencies that blocked extraction rather than adding one. `.github/workflows/ci.yml` was corrected in the same commit to build `vault-core` and `vault` in place of the deleted crate. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
+
+**Governed changes since `a32abac57`:** `Cargo.toml` adds the root dependency on `crates/vault-core`; `crates/visionclaw-actors/src/messages/ontology_messages.rs` changes one comment ("Logseq-based" → "validation/report surface"). **Decision unaffected.** `vault-core` is a leaf domain crate with no dependency on server layers, so the hexagonal direction of dependencies holds. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.

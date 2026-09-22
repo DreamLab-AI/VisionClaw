@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -193,3 +193,7 @@ sit beside is unchanged. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `Cargo.toml` swapped the workspace member `crates/vault-migrate` for `crates/vault-core` + `crates/vault` and renamed the `sync_local`/`sync_github` bins to one `sync_corpus`; `src/app_state.rs` now builds the sync service over a `CorpusSource` (ADR-2114) instead of the GitHub API directly.
 
 **Decision unaffected.** Neither touches persistence: `oxigraph = "0.4"`, `rusqlite = "0.31"` (bundled) and the `persistence-oxigraph` default feature are unchanged, and the `app_state.rs` edit is upstream of the store (which corpus is read), not the store itself. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
+
+**Governed changes since `a32abac57`:** `Cargo.toml` adds the root dependency `vault-core = { path = "crates/vault-core" }` (ADR-2113: ingest parses pages and the relation vocabulary through the same crate `vault` builds from). **Decision unaffected.** No persistence dependency, feature or store path changed; Oxigraph remains the canonical store. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.

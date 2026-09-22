@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -301,3 +301,7 @@ moved down by six lines. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `src/main.rs` — the ADR-2114 `CorpusSource` wiring only; `docker-compose.unified.yml` — the ADR-2114 `CORPUS_SOURCE`/`VAULT_*` environment and read-only vault mount. The four other governed paths are unchanged.
 
 **Decision unaffected.** No compose security default moved: `VISIONCLAW_DEV_MODE`, the `RBAC_*` flags and the profile selection are as before; the additions are ingest configuration. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
+
+**Governed changes since `a32abac57`:** `src/handlers/socket_flow_handler/position_updates.rs`: a doc comment now names the vault frontmatter `public: true` key instead of the Logseq `public:: true` tag. **Decision unaffected.** No profile, flag or gate changed; behaviour identical. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.

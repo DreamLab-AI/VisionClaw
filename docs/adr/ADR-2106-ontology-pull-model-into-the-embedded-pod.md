@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -144,3 +144,7 @@ moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (ADR-2114 `CorpusSource`).
 
 **Decision unaffected.** The ontology pull into the embedded pod is downstream of ingest and its wiring is not on the changed lines. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
+
+**Governed changes since `a32abac57`:** `.github/workflows/ontology-publish.yml` builds the corpus with `vault build` (the Python `pipeline.build` it ran was deleted), and `scripts/ontology/pack-pod-resources.py` reads `context/v1.jsonld` and counts corpus classes (`owl:Class` with a `vc:slug`, 8,432) rather than every `owl:Class` subject. **Decision unaffected.** Delivery is still pull-model: the resources and `SHA256SUMS` are attached to the rolling `ontology-latest` release and the embedded pod pulls and verifies them. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.

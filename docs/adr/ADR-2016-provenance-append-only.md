@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -222,3 +222,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 **Governed changes since `4a9a3e068`:** `src/services/ontology_mutation_service.rs` now writes relation targets as a list of wikilinks (`extra_lists`) instead of a comma-joined scalar, seeding from and then removing the legacy scalar (PRD-sovereign-corpus Q5). The three other governed paths are unchanged.
 
 **Decision unaffected.** The change is in page-frontmatter shaping, not in the provenance graph: the file still contains no `DELETE`/`DROP`/`CLEAR` against `GRAPH_PROVENANCE`, and the emitter/repository paths that own the append-only write are untouched. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
+
+**Governed changes since `a32abac57`:** `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`: edges that carry their OWL property IRI (typed frontmatter relations from the vault vocabulary) are written with that predicate instead of a fixed edge-type → predicate table. **Decision unaffected.** No `prov:` term, `wasGeneratedBy` or `wasAttributedTo` write was added, removed or altered (0 PROV lines in the diff); the append-only provenance triad is untouched. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
