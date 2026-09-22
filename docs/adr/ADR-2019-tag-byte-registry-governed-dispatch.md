@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -201,3 +201,9 @@ still selects the bare V3 body, `0x05` the V5 envelope, removed versions still
 fail loud and unknown tags are still rejected rather than reinterpreted. The
 change is inside the V3 body encoder, downstream of dispatch. `verified_commit`
 moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/protocols/binary_settings_protocol.rs` moved only by `rustfmt` (import ordering, line wrapping, trailing commas). The other four governed paths are unchanged.
+
+**Decision unaffected.** No tag was allocated, removed or reinterpreted; the `0xFF` compressed-frame marker and the unknown-type rejection arms are byte-for-byte the same after formatting. `verified_commit` moved to the CI-repair commit.

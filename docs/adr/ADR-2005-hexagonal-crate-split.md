@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -194,3 +194,9 @@ commit.
 not what root-crate actors do internally. No actor moved between crates, no
 workspace member was added or removed, and the nine `visionclaw-*` members plus
 the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** the workspace is now thirteen members — `crates/vault-migrate` was deleted (ADR-2112/ADR-2113) and `crates/vault-core` + `crates/vault` added at `Cargo.toml:13-14`, so the count in the 2026-09-04 review above reads "twelve" and names `vault-migrate`; both are superseded by this note. In `src/actors/`, `elevation_actor.rs` drafts frontmatter-only OKF pages instead of a `json-ld` fence, the blocked `ProcessOntologyData` message (and its `LogseqPage` import) was deleted from `messages/ontology_messages.rs`, and `optimized_settings_actor.rs` dropped the legacy `logseq` path alias (ADR-2115). `crates/visionclaw-actors/src/messages/ontology_messages.rs` lost one doc-comment line.
+
+**Decision unaffected.** No actor crossed a crate boundary and the thin-root-plus-crates shape is intact; removing `ProcessOntologyData` deletes one of the root-internal dependencies that blocked extraction rather than adding one. `.github/workflows/ci.yml` was corrected in the same commit to build `vault-core` and `vault` in place of the deleted crate. `verified_commit` moved to the CI-repair commit.

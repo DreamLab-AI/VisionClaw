@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -187,3 +187,9 @@ declares `oxigraph = "0.4"`, `rusqlite = "0.31"` (bundled) and
 `tokio-rusqlite = "0.5"`, and `persistence-oxigraph` is still in the default
 feature set; the `app_state.rs` edits are comment-only and the store wiring they
 sit beside is unchanged. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `Cargo.toml` swapped the workspace member `crates/vault-migrate` for `crates/vault-core` + `crates/vault` and renamed the `sync_local`/`sync_github` bins to one `sync_corpus`; `src/app_state.rs` now builds the sync service over a `CorpusSource` (ADR-2114) instead of the GitHub API directly.
+
+**Decision unaffected.** Neither touches persistence: `oxigraph = "0.4"`, `rusqlite = "0.31"` (bundled) and the `persistence-oxigraph` default feature are unchanged, and the `app_state.rs` edit is upstream of the store (which corpus is read), not the store itself. `verified_commit` moved to the CI-repair commit.

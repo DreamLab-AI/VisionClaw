@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -138,3 +138,9 @@ at `src/main.rs:883`, with `init_solid_state().await` at `:876`.
 `src/services/ontology_pull.rs` and the client-side URL contract are outside
 this record's `verified_paths` and unchanged in this range. `verified_commit`
 moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (ADR-2114 `CorpusSource`).
+
+**Decision unaffected.** The ontology pull into the embedded pod is downstream of ingest and its wiring is not on the changed lines. `verified_commit` moved to the CI-repair commit.

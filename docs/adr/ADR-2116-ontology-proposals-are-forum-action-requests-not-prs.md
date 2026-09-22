@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs]
 owner: jjohare
 review_trigger: the `vault` binary landing (WS-C), or the first caller reported still POSTing to /api/ontology-agent/propose after the agentbox MCP servers are deleted (WS-G)
@@ -49,3 +49,9 @@ At `verified_commit`:
 
 - `cargo check -p visionclaw-server` — clean, no new warnings; the removed imports and DTO leave nothing dangling.
 - `cargo test --test rec1_route_guard` — 5 pass: `ontology_agent_propose_is_retired_and_answers_410` (410, body `error: "route_retired"`, `replacement.command` starting `vault propose`, and an explicit assertion that the status is **not** 401/403 — a retired route must not look like an auth failure), `ontology_agent_propose_is_retired_for_authenticated_callers_too` (410 with an `Authorization` header, proving the middleware is off rather than passing), plus the three unchanged guards for the read side and the `/ontology` ingest routes.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `06dfe97a5`:** `src/handlers/ontology_agent_handler.rs` and `tests/rec1_route_guard.rs` now carry the retirement this record decides: `/propose` answers 410 Gone with a body naming `vault propose`, the `ProposeRequest` DTO and the handler's `OntologyMutationService`/`RequireAuth`/`RateLimit` imports are deleted, `ontology_propose` is gone from the status capability list, and the REC-1 guard asserts the route stays retired for authenticated and anonymous callers alike.
+
+**Decision unaffected — the code caught up with the record.** `verified_commit` moved to the CI-repair commit.

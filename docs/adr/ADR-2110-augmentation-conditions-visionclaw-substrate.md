@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -246,3 +246,9 @@ control-flow edge changed.
 
 **Decision unaffected.** `verified_commit` moved to the CI-repair commit so the
 staleness gate stops firing on a formatting-only diff.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/actors/elevation_actor.rs` drafts frontier-concept Class pages as frontmatter-only OKF pages (`type: Class`, `resource`, `status: draft`, a `generated` stamp, `related-to` wikilinks) under `knowledge/pages/` instead of a `json-ld` fence under `mainKnowledgeGraph/pages/` (ADR-2112); `src/handlers/broker_inbox_handler.rs` updated the same path in two test fixtures. The six other governed paths are unchanged.
+
+**Decision unaffected.** The augmentation conditions this record governs — optional confidence, boot reconciliation, the expiry receipt — are untouched; what changed is the on-disk shape of the page an approved elevation drafts, which is ADR-2112's decision. `verified_commit` moved to the CI-repair commit.

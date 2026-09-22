@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -126,3 +126,9 @@ positive control now follows the launcher rather than one filename, and the new
 check closes the route by which the wrapper's default `BUILD_FEATURES` could
 have reached production. The job passed on run 35636184190 while the rest of
 that run was red. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `Dockerfile.production` replaced the `sync_local`/`sync_github` bin stubs in the dependency-caching layer with one `sync_corpus` stub; `src/main.rs` — the ADR-2114 `CorpusSource` wiring; `.github/workflows/ci.yml` — the CPU crate list now names `vault-core` and `vault` in place of the deleted `vault-migrate` (the `dev-auth-release-gate` job is unchanged). `security_profile.rs` is unchanged.
+
+**Decision unaffected.** The `--release` build line in `Dockerfile.production` still names no `dev-auth` feature; the CI gate asserting that is untouched and still runs. `verified_commit` moved to the CI-repair commit.

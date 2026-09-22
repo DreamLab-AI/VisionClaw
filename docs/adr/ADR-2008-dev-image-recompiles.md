@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -172,3 +172,9 @@ backend on start; the recompile simply moved into the shared wrapper, which is
 where the `dev-auth` feature now lives. ADR-2037's CI gate was updated in the
 same period to accept the feature on either file, so the positive control still
 fires. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `docker-compose.unified.yml` gained the ADR-2114 corpus-source environment (`CORPUS_SOURCE`, `VAULT_ROOT`, `VAULT_BASE_PATHS`), a read-only `agent-workspace:/vault` mount and the external volume declaration. `scripts/dev-entrypoint.sh` is unchanged.
+
+**Decision unaffected.** The dev image still recompiles on start via `rust-backend-wrapper.sh`; the compose change is runtime configuration for what the recompiled binary reads, not how it is built. `verified_commit` moved to the CI-repair commit.

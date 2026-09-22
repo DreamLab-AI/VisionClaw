@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -295,3 +295,9 @@ binary still refuses to boot on the mere presence of the variable.
 
 **Citation note.** As for ADR-2026, `main.rs` citations after line 170 have
 moved down by six lines. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/main.rs` — the ADR-2114 `CorpusSource` wiring only; `docker-compose.unified.yml` — the ADR-2114 `CORPUS_SOURCE`/`VAULT_*` environment and read-only vault mount. The four other governed paths are unchanged.
+
+**Decision unaffected.** No compose security default moved: `VISIONCLAW_DEV_MODE`, the `RBAC_*` flags and the profile selection are as before; the additions are ingest configuration. `verified_commit` moved to the CI-repair commit.

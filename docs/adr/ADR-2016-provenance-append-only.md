@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4a9a3e0682bdc695a8ebf904e0453271443daea8
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -216,3 +216,9 @@ Governed paths changed in the Wave 3 landing commit: crates/visionclaw-adapters/
 The new durable reconciliation journal supplies operation IDs, selected membership and per-store receipts. No production provenance erase adapter is wired: ADR-2016 forbids DELETE/DROP/CLEAR against the append-only provenance graph, so a concrete redaction/crypto-shred authority and subject mapping must be agreed before such an adapter can truthfully implement erasure. Synthetic adapter tests establish retry/idempotency boundaries only; they do not satisfy provenance erasure.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `4a9a3e068`:** `src/services/ontology_mutation_service.rs` now writes relation targets as a list of wikilinks (`extra_lists`) instead of a comma-joined scalar, seeding from and then removing the legacy scalar (PRD-sovereign-corpus Q5). The three other governed paths are unchanged.
+
+**Decision unaffected.** The change is in page-frontmatter shaping, not in the provenance graph: the file still contains no `DELETE`/`DROP`/`CLEAR` against `GRAPH_PROVENANCE`, and the emitter/repository paths that own the append-only write are untouched. `verified_commit` moved to the CI-repair commit.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -166,3 +166,9 @@ and `src/services/role_store.rs` are unchanged across the range.
 `main.rs` citation in this record *after* that point has moved down by six lines
 (the RBAC role-store block cited as `732-752` is now `747-767`); citations below
 line 170 are unmoved. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (`GitHubSyncService::new` now takes a `CorpusSource` from `source_from_env_with_github`, ADR-2114). `rbac_gate.rs` and `role_store.rs` are unchanged.
+
+**Decision unaffected.** No security flag was added, read or defaulted; `enforce_release_env_hygiene` and the fail-closed boot order are untouched. `verified_commit` moved to the CI-repair commit.

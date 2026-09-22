@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -275,3 +275,9 @@ commits as well as the six-line shift from the panic-hook edit; the anchors
 above are re-derived at HEAD and supersede the `873 / 876 / 879-883 / 882-886 /
 896 / 1177` line numbers in the older sections. `verified_commit` moved to the
 CI-repair commit.
+
+## Re-verification — 2026-09-22 at a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+
+**Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (ADR-2114 `CorpusSource`).
+
+**Decision unaffected.** The boot-time profile assertion and its illegal-combination abort are not on the changed lines. `verified_commit` moved to the CI-repair commit.
