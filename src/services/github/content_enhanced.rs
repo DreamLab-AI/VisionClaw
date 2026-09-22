@@ -123,10 +123,8 @@ impl EnhancedContentAPI {
                 continue;
             }
 
-            // Skip backup, app-config and non-content paths (ADR-2040 D6:
-            // `/.obsidian/` and `/.trash/` join the legacy Logseq exclusions).
+            // Skip backup, app-config and non-content paths (ADR-2040 D6).
             if entry_path.contains("/bak/")
-                || entry_path.contains("/logseq/")
                 || entry_path.contains("/.recycle/")
                 || entry_path.contains("/journals/")
                 || entry_path.contains("/.obsidian/")
@@ -245,7 +243,6 @@ impl EnhancedContentAPI {
                 // Skip backup, recycle, journal, and app-config directories
                 // (ADR-2040 D6 adds `.obsidian` and `.trash`).
                 if dir_path.contains("/bak")
-                    || dir_path.contains("/logseq/")
                     || dir_path.contains("/.recycle")
                     || dir_path.contains("/journals")
                     || dir_path.contains("/.obsidian")

@@ -130,7 +130,7 @@ impl Transition {
 }
 
 /// A machine-checkable reason a transition cannot happen.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Blocker {
     /// A stable code, e.g. `SUBCLASS_CYCLE` or `WHELK_INCONSISTENT`.
     pub code: String,

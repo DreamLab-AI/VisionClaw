@@ -103,18 +103,93 @@ pub struct Report {
     pub out: PathBuf,
 }
 
+/// Two artefacts claimed one output path. The build refuses rather than let
+/// the second silently overwrite the first — which is exactly how four
+/// `api/pages/<slug>.json` records went missing while the generation stamp
+/// still recorded the first writer's hash.
+///
+/// A distinct type so the CLI exits **2**, the code for "the corpus does not
+/// permit this build", naming every clash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputCollision {
+    /// `(path, first claimant, second claimant)` for every clash, in order.
+    pub clashes: Vec<(String, String, String)>,
+}
+
+impl std::fmt::Display for OutputCollision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} output path(s) claimed twice; nothing was written: ",
+            self.clashes.len()
+        )?;
+        for (path, first, second) in &self.clashes {
+            write!(f, "{path} <- `{first}` and `{second}`; ")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for OutputCollision {}
+
+/// The claimant named for an artefact the build itself emits, rather than
+/// one page.
+const BUILD_OWNER: &str = "the build";
+
 /// Files staged for one bundle, kept in memory so the promotion is atomic.
+///
+/// Every path is **write-once**: a second claim on a path is recorded, not
+/// applied, and [`Staged::ensure_single_claims`] refuses the build before
+/// anything is stamped or promoted. No emitter can overwrite another silently.
 struct Staged {
     files: Vec<(String, Vec<u8>)>,
+    owners: HashMap<String, String>,
+    clashes: Vec<(String, String, String)>,
 }
 
 impl Staged {
     fn new() -> Self {
-        Self { files: Vec::new() }
+        Self {
+            files: Vec::new(),
+            owners: HashMap::new(),
+            clashes: Vec::new(),
+        }
     }
 
+    /// Stage a build-level artefact.
     fn add(&mut self, path: impl Into<String>, content: impl Into<Vec<u8>>) {
-        self.files.push((path.into(), content.into()));
+        self.add_for(path, content, BUILD_OWNER);
+    }
+
+    /// Stage an artefact on behalf of `owner` (a page id, where there is one),
+    /// so a clash names both claimants.
+    fn add_for(
+        &mut self,
+        path: impl Into<String>,
+        content: impl Into<Vec<u8>>,
+        owner: impl Into<String>,
+    ) {
+        let (path, owner) = (path.into(), owner.into());
+        match self.owners.entry(path.clone()) {
+            std::collections::hash_map::Entry::Occupied(first) => {
+                self.clashes.push((path, first.get().clone(), owner));
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(owner);
+                self.files.push((path, content.into()));
+            }
+        }
+    }
+
+    /// Refuse the build if any path was claimed twice.
+    fn ensure_single_claims(&self) -> Result<(), OutputCollision> {
+        if self.clashes.is_empty() {
+            Ok(())
+        } else {
+            Err(OutputCollision {
+                clashes: self.clashes.clone(),
+            })
+        }
     }
 
     fn artifacts(&self) -> Vec<generation::Artifact> {
@@ -252,12 +327,11 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     let page_count = corpus.records.len();
 
     let mut staged = Staged::new();
-    // `publish/` either rides inside the bundle or is promoted on its own.
-    if let Some(dir) = &options.publish_out {
-        publish::write_to(&staging, dir)?;
-    } else {
+    // `publish/` either rides inside the bundle or is promoted on its own —
+    // the latter only after the write-once check below passes.
+    if options.publish_out.is_none() {
         for file in &staging.files {
-            staged.add(file.path.clone(), file.content.clone());
+            staged.add_for(file.path.clone(), file.content.clone(), file.path.clone());
         }
     }
     staged.add("data/ontology.ttl", turtle::serialise(&graph));
@@ -277,9 +351,10 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
 
     let (documents, domain_index) = page_api::build(&corpus, &structural, &backlinks);
     for doc in &documents {
-        staged.add(
+        staged.add_for(
             format!("api/pages/{}.json", doc.slug),
             to_indented(&doc.value)?,
+            doc.page_id.clone(),
         );
     }
     staged.add("api/pages/_domain-index.json", to_indented(&domain_index)?);
@@ -289,11 +364,14 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         to_indented(&report.summary())?,
     );
     // The context is served from /ns/v2.jsonld; the property IRIs inside it
-    // still cite narrativegoldmine.com/ns/v1#. Both paths ship, byte-identical,
-    // because consumers exist for each (contract C3).
+    // still cite narrativegoldmine.com/ns/v1#. Every path ships, byte-identical,
+    // because consumers exist for each (contract C3). `/api/schema/context.jsonld`
+    // is the old site's pinned URL — its five prefixes are a strict subset of
+    // this document — and the publish workflow requires it.
     let context = okf::context(vocab);
     let context_json = to_indented(&context)?;
     staged.add("context/v1.jsonld", context_json.clone());
+    staged.add("api/schema/context.jsonld", context_json.clone());
     staged.add("ns/v2.jsonld", context_json);
 
     // WebVOWL graph — the explorer's build input.
@@ -320,17 +398,33 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
             }
             text.push_str(&record.body);
             text.push('\n');
-            for name in [
+            let mut names = vec![
                 record.page_id.replace('/', "___"),
                 record.page_id.replace('/', "%2F"),
-            ] {
-                staged.add(format!("api/markdown/{name}.md"), text.clone());
+            ];
+            // Without a namespace the two encodings are the same name.
+            names.dedup();
+            for name in names {
+                staged.add_for(
+                    format!("api/markdown/{name}.md"),
+                    text.clone(),
+                    record.page_id.clone(),
+                );
             }
         }
     }
 
     let commit = generation::git_sha(&options.repo_root);
-    let generation_id = format!("visionGraph@{commit}");
+    // The paths a build reads: the vault, the vocabulary beside it, and
+    // `working/` when its public pages are staged too.
+    let vocabulary_dir = options.repo_root.join("ontology");
+    let working_root = options.vault_root.parent().map(|repo| repo.join("working"));
+    let mut read_paths: Vec<&Path> = vec![options.vault_root.as_path(), vocabulary_dir.as_path()];
+    if options.with_working_publish {
+        read_paths.extend(working_root.as_deref());
+    }
+    let dirty = generation::git_dirty(&options.repo_root, &read_paths);
+    let generation_id = generation::generation_id(&commit, dirty);
     for file in okf::bundle(&corpus, vocab, &generation_id) {
         staged.add(format!("okf/{}", file.path), file.content);
     }
@@ -349,6 +443,9 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         );
     }
 
+    // Write-once: refuse before anything is stamped or promoted.
+    staged.ensure_single_claims()?;
+
     let sources: Vec<(String, Vec<u8>)> = vault
         .pages
         .iter()
@@ -361,6 +458,7 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
 
     let gen = generation::generation(
         commit,
+        dirty,
         content_digest,
         generated,
         class_count,
@@ -369,8 +467,16 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         options.stale_after.clone(),
         staged.artifacts(),
     );
+    // Loom serves `data/` and reads its marker from there, verifying each
+    // artefact relative to that directory; the root marker keeps the whole
+    // bundle's view. Both carry the same identity.
+    staged.add("data/.generation.json", to_indented(&gen.scoped("data"))?);
     staged.add(".generation.json", to_indented(&gen)?);
+    staged.ensure_single_claims()?;
     staged.promote(&options.out)?;
+    if let Some(dir) = &options.publish_out {
+        publish::write_to(&staging, dir)?;
+    }
 
     Ok(Report {
         generation: gen,
@@ -523,6 +629,167 @@ scalars:
             .map(|a| a["name"].as_str().unwrap())
             .collect();
         assert!(names.contains(&"data/scaffold-index.json"));
+    }
+
+    #[test]
+    fn the_data_marker_verifies_every_data_artefact_relative_to_data() {
+        let (dir, report) = build_fixture();
+        let data = dir.path().join("www/data");
+        let marker: Value = read_artifact(&data, ".generation.json").unwrap();
+        assert_eq!(marker["id"], report.generation.id.as_str());
+        assert_eq!(marker["commit"], report.generation.commit.as_str());
+        assert_eq!(
+            marker["content_digest"],
+            report.generation.content_digest.as_str()
+        );
+        assert_eq!(marker["class_count"], 2);
+
+        let listed = marker["artifacts"].as_array().unwrap();
+        let mut names: Vec<String> = Vec::new();
+        for artifact in listed {
+            let name = artifact["name"].as_str().unwrap();
+            assert!(
+                !name.starts_with("data/"),
+                "{name} must be relative to data/"
+            );
+            let bytes = std::fs::read(data.join(name)).unwrap();
+            let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
+            assert_eq!(artifact["sha256"], sha.as_str(), "{name} hash");
+            assert_eq!(artifact["bytes"], bytes.len() as u64, "{name} size");
+            names.push(name.to_owned());
+        }
+        assert!(names.contains(&"scaffold-index.json".to_owned()));
+        assert!(
+            names.iter().any(|n| n.starts_with("graph/")),
+            "graph tiers listed"
+        );
+
+        // Every file under data/ (bar the marker itself) is accounted for.
+        let mut on_disk: Vec<String> = walkdir::WalkDir::new(&data)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .map(|e| {
+                e.path()
+                    .strip_prefix(&data)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .filter(|n| n != ".generation.json")
+            .collect();
+        on_disk.sort();
+        names.sort();
+        assert_eq!(names, on_disk);
+    }
+
+    #[test]
+    fn a_second_claim_on_a_path_is_recorded_not_applied() {
+        let mut staged = Staged::new();
+        staged.add_for("api/pages/x.json", "first", "Page One");
+        staged.add_for("api/pages/x.json", "second", "Page Two");
+        assert_eq!(staged.files.len(), 1);
+        assert_eq!(staged.files[0].1, b"first");
+        let clash = staged.ensure_single_claims().unwrap_err();
+        assert_eq!(
+            clash.clashes,
+            vec![(
+                "api/pages/x.json".to_owned(),
+                "Page One".to_owned(),
+                "Page Two".to_owned()
+            )]
+        );
+        assert!(clash.to_string().contains("Page One"));
+    }
+
+    fn build_pages(pages: &[(&str, &str)]) -> (tempfile::TempDir, anyhow::Result<Report>) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("knowledge/pages");
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, text) in pages {
+            std::fs::write(root.join(format!("{id}.md")), text).unwrap();
+        }
+        let options = Options {
+            vault_root: dir.path().join("knowledge"),
+            out: dir.path().join("www"),
+            repo_root: dir.path().to_path_buf(),
+            with_rvdb: false,
+            with_markdown_mirror: true,
+            with_working_publish: false,
+            publish_out: None,
+            embed_endpoint: rvdb::DEFAULT_ENDPOINT.to_owned(),
+            stale_after: None,
+        };
+        let result = run(&options, &vocab());
+        (dir, result)
+    }
+
+    fn class_page(extra: &str) -> String {
+        format!(
+            "---\ntype: Class\npublic: true\nstatus: stable\ndomain: infrastructure\n{extra}---\nA page.\n"
+        )
+    }
+
+    #[test]
+    fn a_title_slug_colliding_with_a_declared_slug_gets_its_own_file() {
+        // The real pair: `ML Experiment Tracking` declares the slug that
+        // `Experiment Tracking` derives from its title.
+        let (dir, result) = build_pages(&[
+            (
+                "ML Experiment Tracking",
+                &class_page(
+                    "slug: experiment-tracking\nresource: urn:ngm:class:experiment-tracking\n",
+                ),
+            ),
+            (
+                "Experiment Tracking",
+                &class_page("resource: urn:ngm:class:empirical-experimental-design-tracking\n"),
+            ),
+        ]);
+        result.expect("the pair is disambiguated, not refused");
+        let out = dir.path().join("www");
+        let kept: Value = read_artifact(&out, "api/pages/experiment-tracking.json").unwrap();
+        assert_eq!(kept["title"], "ML Experiment Tracking");
+        let moved: Value = read_artifact(
+            &out,
+            "api/pages/empirical-experimental-design-tracking.json",
+        )
+        .unwrap();
+        assert_eq!(moved["title"], "Experiment Tracking");
+
+        // Every artefact the root marker records verifies against its file.
+        let marker: Value = read_artifact(&out, ".generation.json").unwrap();
+        for artifact in marker["artifacts"].as_array().unwrap() {
+            let name = artifact["name"].as_str().unwrap();
+            let bytes = std::fs::read(out.join(name)).unwrap();
+            let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
+            assert_eq!(artifact["sha256"], sha.as_str(), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_unresolvable_collision_refuses_the_build_and_names_both_pages() {
+        // `Foo` loses `foo` to the page declaring it and falls back to its
+        // resource tail `bar` — which `Bar` already derives from its title.
+        let (dir, result) = build_pages(&[
+            (
+                "Declared",
+                &class_page("slug: foo\nresource: urn:ngm:class:declared\n"),
+            ),
+            ("Foo", &class_page("resource: urn:ngm:class:bar\n")),
+            ("Bar", &class_page("resource: urn:ngm:class:bar-page\n")),
+        ]);
+        let error = result.expect_err("two pages claim api/pages/bar.json");
+        let clash = error
+            .downcast_ref::<OutputCollision>()
+            .expect("a typed collision, for exit code 2");
+        let text = clash.to_string();
+        assert!(text.contains("api/pages/bar.json"), "{text}");
+        assert!(text.contains("`Foo`") && text.contains("`Bar`"), "{text}");
+        assert!(
+            !dir.path().join("www").exists(),
+            "nothing is promoted when the build refuses"
+        );
     }
 
     #[test]

@@ -70,7 +70,7 @@ Key properties explained:
 | Wikilinks (`[[...]]`) | Each wikilink to an existing ontology class is a scoring signal |
 | `owl-class` | An explicit OWL declaration — one of the strongest scoring signals, and it ingests the page even without `public: true` |
 
-These keys live in the page's YAML frontmatter (Obsidian Properties). The full contract — layout, keys, body dialect, and the inclusion gate — is [`VAULT-corpus-format.md`](../VAULT-corpus-format.md). Pages still carrying the older Logseq `public:: true` property lines keep working until the tolerance window in [ADR-2040](../adr/ADR-2040-obsidian-vault-frontmatter-gate.md) closes.
+These keys live in the page's YAML frontmatter (Obsidian Properties). The full contract — layout, keys, body dialect, and the inclusion gate — is [`VAULT-corpus-format.md`](../VAULT-corpus-format.md). The older Logseq `public:: true` property lines no longer carry metadata: the tolerance window in [ADR-2040](../adr/ADR-2040-obsidian-vault-frontmatter-gate.md) closed under ADR-2112, so such a line is plain body text.
 
 Save the file and commit it to the corpus repository (Obsidian writes plain markdown; sync it with git or your usual vault-sync plugin). VisionClaw will pick it up during its next ingestion run (every few minutes by default, or you can trigger a manual sync from the Settings panel).
 

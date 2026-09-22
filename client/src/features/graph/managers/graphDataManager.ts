@@ -11,7 +11,7 @@ import { useWorkerErrorStore } from '../../../store/workerErrorStore';
 import { ensureNodeHasValidPosition, validateNodeMappings, dropLinkedPageStubs } from './dataManager/nodeUtils';
 import { buildNodeIdMaps, upsertNodeIdEntry, setDataAndNotify, topologyHash } from './dataManager/topology';
 import { ListenerRegistry } from './dataManager/listeners';
-import { normaliseGraphType } from '../types/graphTypes';
+import type { GraphType } from '../types/graphTypes';
 import { fetchGraphData, scheduleEmptyDataRetry, type GraphTypeFilter } from './dataManager/restClient';
 import { handleBinaryFrame, sendNodePositions as _sendNodePositions, enableBinaryUpdates as _enableBinaryUpdates } from './dataManager/wsClient';
 import { parseBinaryNodeData, getActualNodeId } from '../../../types/binaryProtocol';
@@ -165,10 +165,9 @@ class GraphDataManager {
     if (debugState.isDataDebugEnabled()) logger.debug('WebSocket service set');
   }
 
-  // ADR-2041: the legacy value `logseq` is accepted here for one release and
-  // normalised to `knowledge`; everything this manager sends uses `knowledge`.
-  public setGraphType(type: 'knowledge' | 'visionclaw' | 'logseq'): void {
-    this.graphType = normaliseGraphType(type);
+  // Send-side API: only the current vocabulary (ADR-2115 retired `logseq`).
+  public setGraphType(type: GraphType): void {
+    this.graphType = type;
     if (debugState.isEnabled()) logger.info(`Graph type set to: ${this.graphType}`);
   }
 

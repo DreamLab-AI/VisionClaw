@@ -9,9 +9,11 @@
 //!
 //! The type keeps its historical `GitHubSyncService` name; renaming it across
 //! its 50-odd call sites is deliberately left out of this change.
-//! - Parses public:: true pages as knowledge graph nodes (KnowledgeGraphRepository)
-//! - Extracts ```json-ld``` blocks and ingests quads via OxigraphOntologyRepository
-//! - Enriches graph nodes with owl_class_iri metadata via OntologyEnrichmentService
+//! - Parses every page once through `page_parser::parse_page` (`vault_core`);
+//!   frontmatter `public: true` pages become knowledge graph nodes
+//! - Pages declaring `type: Class|Property|Individual` under `knowledge/`
+//!   become ontology nodes, their vocabulary-declared relations typed edges,
+//!   and the assert graph is rebuilt from them for Whelk
 //! - Uses the source's change marker to process only changed pages (unless FORCE_FULL_SYNC=1)
 //! - Batch processing (50 files) to avoid memory issues with large repositories
 
@@ -22,16 +24,16 @@ use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use crate::services::corpus_source::{CorpusPage, CorpusSource};
 use crate::services::decision_elevation::{decision_page_quads_logged, DECISIONS_DIR};
 use crate::services::inferred_edge_materialiser as mat;
-use crate::services::jsonld_ingest::{self, IngestOutcome, PageMetadata};
-use crate::services::page_parser::parse_page;
+use crate::services::page_parser::{parse_page, ParsedPage, ONTOLOGY_VAULT_PREFIX};
 use crate::services::parsers::KnowledgeGraphParser;
 use crate::services::semantic_type_registry::SEMANTIC_TYPE_REGISTRY;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::{debug, error, info, warn};
-use oxigraph::model::{Quad, Subject};
+use oxigraph::model::Quad;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use vault_core::vocabulary::Vocabulary;
 use visionclaw_domain::models::canonical_entity::{CanonicalEntity, EntityKind};
 use visionclaw_domain::models::edge::Edge;
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
@@ -62,7 +64,7 @@ const BATCH_SIZE: usize = 50;
 /// source the current store was built from.
 const SOURCE_IDENTITY_KEY: &str = "corpus_source_identity";
 
-// Predicate IRI constants for JSON-LD quad routing.
+// Predicate IRI constants for edge-type routing.
 // Expanded forms (vc: prefix = https://narrativegoldmine.com/ns/v1#).
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
 const IRI_REQUIRES: &str = "https://narrativegoldmine.com/ns/v1#requires";
@@ -111,17 +113,6 @@ const IRI_ENABLED_BY: &str = "https://narrativegoldmine.com/ns/v1#enabledBy";
 const IRI_UTILISES: &str = "https://narrativegoldmine.com/ns/v1#utilises";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
-// Entity metadata IRI constants for JSON-LD node enrichment.
-const VC_SOURCE_DOMAIN: &str = "https://narrativegoldmine.com/ns/v1#sourceDomain";
-const VC_MATURITY: &str = "https://narrativegoldmine.com/ns/v1#maturity";
-const VC_QUALITY_SCORE: &str = "https://narrativegoldmine.com/ns/v1#qualityScore";
-const VC_DEFINITION: &str = "https://narrativegoldmine.com/ns/v1#definition";
-const VC_SLUG: &str = "https://narrativegoldmine.com/ns/v1#slug";
-const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
-const RDFS_COMMENT: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
-const OWL_CLASS_IRI: &str = "http://www.w3.org/2002/07/owl#Class";
-const OWL_NAMED_INDIVIDUAL: &str = "http://www.w3.org/2002/07/owl#NamedIndividual";
-
 #[derive(Debug, Clone)]
 pub struct SyncStatistics {
     pub total_files: usize,
@@ -136,31 +127,29 @@ pub struct SyncStatistics {
 
 /// Build a graph node directly from a canonical entity.
 ///
-/// All identity (id, label, metadata_id, owl_class_iri, node_type) comes from
-/// the entity rather than the filename — the entity itself is sourced from
-/// `vc:slug` and the JSON-LD `@type` keys, which are the authoritative
-/// upstream conventions.
+/// Label, IRIs and node type come from the entity — the page's frontmatter as
+/// `vault_core` parsed it. `identity` is the page's §V1 vault identity, the
+/// same `metadata_id` the plain path gives a page, so a class and the links
+/// into it agree on one node.
 fn build_node_from_entity(
     entity: &CanonicalEntity,
+    identity: &str,
     id: u32,
     parser: &KnowledgeGraphParser,
 ) -> visionclaw_domain::models::node::Node {
     use visionclaw_domain::types::BinaryNodeData;
 
-    let mut node = visionclaw_domain::models::node::Node::default();
-    node.id = id;
-    node.metadata_id = entity.slug.clone();
-    node.label = entity.display_label().to_string();
-    // Population policy: EntityKind is the discriminator. `@type: Class`
-    // (an OntologyBlock) marks formal ontology source → ontology_node;
-    // `@type: Page` only → Knowledge `page`. `entity.public` must NOT be
-    // used here: the canonical parser defaults `public` to true when the
-    // JSON-LD carries no Page node, which is the case for the entire
-    // ontology corpus (~5.8k files) — gating on it floods the Knowledge
-    // population. When a working-graph page and an ontology class share a
-    // slug (the cross-graph join), the later upsert wins wholesale; the
-    // working pages dir sorts after the ontology dir in the tree listing,
-    // so the authored `page` typing prevails for shared slugs.
+    let mut node = visionclaw_domain::models::node::Node {
+        id,
+        metadata_id: identity.to_string(),
+        label: entity.display_label().to_string(),
+        ..Default::default()
+    };
+    // Population policy: EntityKind is the discriminator — a declared
+    // `type: Class|Property` is an `ontology_node`, `type: Individual` an
+    // `owl_individual`. When a working-graph page and an ontology class share
+    // an identity (the cross-graph join) the class wins: see
+    // `SyncScope::yields_to_knowledge`.
     let node_type = entity.kind.as_node_type();
     node.node_type = Some(node_type.to_string());
     if matches!(
@@ -182,6 +171,10 @@ fn build_node_from_entity(
     if let Some(ref iri) = entity.class_iri {
         node.metadata.insert("class_iri".to_string(), iri.clone());
     }
+    if !entity.slug.is_empty() {
+        node.metadata
+            .insert("slug".to_string(), entity.slug.clone());
+    }
 
     // Position: reuse existing if present, else random. Going through the
     // parser keeps the existing-positions cache as the single source of truth.
@@ -197,48 +190,6 @@ fn build_node_from_entity(
     }
     .into();
     node
-}
-
-/// Materialise a stub node for the target of a typed semantic edge derived
-/// from JSON-LD axioms (`subClassOf`, `hasPart`, `enables`, …).
-fn ensure_stub_from_iri(
-    id: u32,
-    iri: &str,
-    nodes: &mut std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
-    stub_ids: &mut std::collections::HashSet<u32>,
-) {
-    if nodes.contains_key(&id) {
-        return;
-    }
-    // ADR-100 D3: typed-edge target stub with no `rdf:type` yet — IRI-shape is
-    // the documented last-resort classifier (see `classify_by_iri_shape`).
-    let kind = classify_by_iri_shape(iri);
-    if matches!(kind, OwlKind::LinkedPage) {
-        // Non-class IRI targets (page/linked shapes) must NOT materialise
-        // phantom nodes — this path minted tens of thousands of linked_page
-        // stubs per sync from JSON-LD axiom objects. The typed edge defers and
-        // either resolves to an authored node at the final pass or folds into
-        // the dangling-wikilink weight signal.
-        return;
-    }
-    stub_ids.insert(id);
-    let node_type = kind.as_node_type();
-    let local_name = iri.rsplit_once(':').map(|(_, r)| r).unwrap_or(iri);
-    let local_name = local_name
-        .rsplit_once('/')
-        .map(|(_, r)| r)
-        .unwrap_or(local_name);
-    let mut node = visionclaw_domain::models::node::Node::default();
-    node.id = id;
-    node.metadata_id = local_name.to_string();
-    node.label = local_name.replace('-', " ");
-    node.node_type = Some(node_type.to_string());
-    node.metadata
-        .insert("type".to_string(), node_type.to_string());
-    if matches!(kind, OwlKind::Class | OwlKind::Individual) {
-        node.owl_class_iri = Some(iri.to_string());
-    }
-    nodes.insert(id, node);
 }
 
 pub struct GitHubSyncService {
@@ -355,6 +306,46 @@ impl GitHubSyncService {
         );
         let vault_ctx = visionclaw_domain::vault::VaultContext::new(&vault_index, &base_paths);
 
+        // The relation vocabulary: frontmatter relation key -> OWL property.
+        // A source that cannot supply one still ingests pages and wikilinks;
+        // a vocabulary that exists but will not load is a sync error.
+        let vocabulary = match self.source.vocabulary().await {
+            Ok(Some(vocab)) => {
+                info!(
+                    "Vocabulary: {} relation keys drive typed edges",
+                    vocab.relations.len()
+                );
+                Some(vocab)
+            }
+            Ok(None) => {
+                warn!(
+                    "No corpus vocabulary from this source — typed relation edges are not emitted"
+                );
+                None
+            }
+            Err(e) => {
+                error!("Corpus vocabulary failed to load: {}", e);
+                stats.errors.push(format!("vocabulary: {}", e));
+                None
+            }
+        };
+        // Node ids with a `knowledge/` page behind them, from the FULL listing:
+        // a `working/` twin yields to its knowledge page whichever batch
+        // either lands in.
+        let knowledge_ids: std::collections::HashSet<u32> = files
+            .iter()
+            .filter(|f| is_knowledge_path(&f.path))
+            .map(|f| {
+                self.kg_parser
+                    .page_name_to_id(&vault_ctx.identity_of(&f.path))
+            })
+            .collect();
+        let scope = SyncScope {
+            vault: vault_ctx,
+            knowledge_ids: &knowledge_ids,
+            vocabulary: vocabulary.as_ref(),
+        };
+
         let force_full_sync = force_full_override
             || base_path_changed
             || std::env::var("FORCE_FULL_SYNC")
@@ -413,7 +404,7 @@ impl GitHubSyncService {
             );
 
             match self
-                .process_batch_incremental(batch, &mut stats, &mut deferred_edges, vault_ctx)
+                .process_batch_incremental(batch, &mut stats, &mut deferred_edges, scope)
                 .await
             {
                 Ok(_) => {
@@ -974,8 +965,8 @@ impl GitHubSyncService {
     /// wrote it back. So the assert graph stayed frozen on a stale historical
     /// load carrying duplicate concepts, and the conflict gate
     /// (`onto_repo.list_owl_classes()`) kept flagging conflicts that no longer
-    /// exist in the clean json-ld source. This collects the ontology class nodes
-    /// — those with `owl_class_iri.is_some()` — plus the class↔class edges into a
+    /// exist in the corpus. This collects the ontology class nodes — those
+    /// stamped with a declared ontology type — plus the class↔class edges into a
     /// `GraphData` and calls `onto_repo.save_ontology_graph`, whose atomic
     /// `CLEAR GRAPH <assert> ; INSERT DATA {…}` rebuilds the assert graph from
     /// the current corpus (dropping the stale duplicates).
@@ -1000,7 +991,7 @@ impl GitHubSyncService {
     ///     (GRAPH_ONTOLOGY_INFERRED), also untouched by this CLEAR.
     ///   • A `force_full` is an explicit operator "reload from source of truth";
     ///     a governed class enrichment meant to persist is expected to be
-    ///     promoted back into the corpus (logseq source), from which this rebuild
+    ///     promoted back into the corpus (the visionGraph vault), from which this rebuild
     ///     re-derives it.
     /// This is purely the corpus-ingestion writer; the governed propose /
     /// decision write path is a DIFFERENT writer to the same graph and is NOT
@@ -1516,7 +1507,7 @@ impl GitHubSyncService {
         files: &[CorpusPage],
         stats: &mut SyncStatistics,
         deferred_edges: &mut Vec<Edge>,
-        vault_ctx: visionclaw_domain::vault::VaultContext<'_>,
+        scope: SyncScope<'_>,
     ) -> Result<(), String> {
         let mut batch_nodes = std::collections::HashMap::new();
         let mut batch_edges = std::collections::HashMap::new();
@@ -1582,7 +1573,7 @@ impl GitHubSyncService {
                             &mut batch_edges,
                             &mut public_pages,
                             &mut batch_stub_ids,
-                            vault_ctx,
+                            scope,
                         )
                         .await
                     {
@@ -1682,20 +1673,13 @@ impl GitHubSyncService {
     }
 
     /// Process one pre-fetched file, populating nodes/edges in-place.
-    /// JSON-LD-first per-file ingest (ADR-090 Phase B).
     ///
-    /// One file → one `CanonicalEntity` keyed by `vc:slug`. The entity supplies
-    /// the canonical node (id derived from `hash(slug)`) and the outbound
-    /// wikilinks. The same `ingest_page` call also produces RDF quads — these
-    /// give us (a) the typed semantic edges (`subClassOf`, `hasPart`, etc.)
-    /// from the `@type: Class` block and (b) the quads we persist to Oxigraph
-    /// for SPARQL queries.
-    ///
-    /// Slug canonicalisation (`KnowledgeGraphParser::slugify` ≡
-    /// `visionclaw_ontology::jsonld_ingest::expander::slugify`) ensures that
-    /// every edge target — whether it's a sibling canonical entity, a wikilink
-    /// stub, or an upper-ontology class reference — resolves to the same node
-    /// id as the entity itself when ingested.
+    /// The page is parsed once, by [`parse_page`] (`vault_core`). A page that
+    /// declares ontology content — `type: Class|Property|Individual` under
+    /// `knowledge/` — becomes a canonical ontology node here; every other page
+    /// takes the plain markdown/wikilink path. Both paths apply the same §V4
+    /// gate. Identity is the page's §V1 vault identity on both paths, so a
+    /// class and every link into it agree on one node id.
     // The four `&mut` accumulators are one logical value (the batch being
     // built) and would read better bundled; that refactor touches every call
     // site in this file and is deliberately left for its own change.
@@ -1708,84 +1692,68 @@ impl GitHubSyncService {
         edges: &mut std::collections::HashMap<String, Edge>,
         public_pages: &mut std::collections::HashSet<String>,
         stub_ids: &mut std::collections::HashSet<u32>,
-        vault_ctx: visionclaw_domain::vault::VaultContext<'_>,
+        scope: SyncScope<'_>,
     ) -> Result<(), String> {
         debug!("Processing file: {} ({} bytes)", file.name, content.len());
 
-        // The page's vault identity (§V1) — the path relative to its configured
-        // source prefix, so a knowledge page and its working twin still share
-        // one identity (and one node).
-        let identity = vault_ctx.identity_of(&file.path);
-
-        // 1. Distill the file's JSON-LD blocks into a single canonical entity.
-        let entity = match parse_page(content, &file.path) {
-            Ok(Some(e)) => e,
+        let parsed = match parse_page(content, &file.path) {
+            Ok(Some(parsed)) => parsed,
             Ok(None) => {
-                // No JSON-LD blocks — this is an unstructured logseq page from
-                // the working knowledge graph (personal/working KG: prose,
-                // `public:: true`, `[[wikilinks]]`, no owl:class). The canonical
-                // entity parser only handles the formal ontology source. Fall
-                // back to the plain-markdown KG parser so these pages still
-                // populate the force-directed graph as `page` nodes joined by
-                // their wikilinks — the dual-source ingest the system was
-                // designed for.
-                self.process_plain_vault_file(file, content, nodes, edges, stub_ids, vault_ctx);
+                self.process_plain_vault_file(file, content, nodes, edges, stub_ids, scope);
                 return Ok(());
             }
             Err(e) => {
-                debug!("Canonical parse failed for {}: {} — skipping", file.name, e);
+                // Unreadable frontmatter means an unreadable publication flag:
+                // fail closed.
+                warn!("Skipping {}: {}", file.name, e);
                 return Ok(());
             }
         };
 
-        // 2. Emit the page node from the entity. Identity = deterministic
-        //    seeded hash(slug) (ADR-100 D2). Collision detection happens at the
-        //    insertion sites below via the deterministic `page_name_to_id`.
-        let source_id = self.kg_parser.page_name_to_id(&entity.slug);
-        let mut page_node = build_node_from_entity(&entity, source_id, self.kg_parser.as_ref());
+        // §V4: the one publication gate, shared with the plain path. A class
+        // page is published iff its frontmatter says `public: true`, which is
+        // the boundary `vault build` projects the ontology through too.
+        if !page_is_kg_included(content) {
+            debug!(
+                "Skipped non-public {} page: {}",
+                parsed.ontology_type, file.name
+            );
+            return Ok(());
+        }
+
+        let identity = scope.vault.identity_of(&file.path);
+        let source_id = self.kg_parser.page_name_to_id(&identity);
+        let entity = &parsed.entity;
+        let mut page_node =
+            build_node_from_entity(entity, &identity, source_id, self.kg_parser.as_ref());
+        enrich_node_from_frontmatter(&mut page_node, &parsed, &identity, content);
         // WS-0: guarantee a non-NULL source_domain for this node.
         ensure_source_domain(&mut page_node, &file.path);
-        // Authored quality/maturity from the page's JSON-LD ontology block.
-        // CanonicalEntity does not carry these, so extract from the raw
-        // content — metadata.quality_score is the key the per-client quality
-        // gates (client_filter.rs) and the client's quality visuals read.
-        if let Some(q) = KnowledgeGraphParser::extract_quality(content) {
-            page_node
-                .metadata
-                .insert("quality_score".to_string(), q.to_string());
-        }
-        if let Some(m) = KnowledgeGraphParser::extract_maturity(content) {
-            page_node
-                .metadata
-                .entry("maturity".to_string())
-                .or_insert(m);
-        }
         // Total outbound wikilink degree (resolved + dangling). Dangling links
-        // no longer materialise stub nodes, so this count is the weight signal
+        // do not materialise stub nodes, so this count is the weight signal
         // the GPU can consume for connectivity-based mass.
         page_node.metadata.insert(
             "wikilink_count".to_string(),
             entity.outbound_links.len().to_string(),
         );
+        // Q16: the ontology bundle is built from this stamp, never from a
+        // node's IRI shape or its directory alone.
+        page_node
+            .metadata
+            .insert(ONTOLOGY_TYPE_KEY.to_string(), parsed.ontology_type.clone());
         nodes.insert(source_id, page_node);
-        // A real authored node always supersedes any stub a sibling file
-        // materialised earlier in this batch.
+        // A real authored node always supersedes a stub — or a yielding
+        // working-graph twin — that a sibling file put in this batch earlier.
         stub_ids.remove(&source_id);
         if entity.public {
             public_pages.insert(entity.slug.clone());
         }
 
-        // 3. Emit edges from the page's outbound wikilinks. Each link's target
-        //    slug hashes to the canonical id of that entity if it exists in the
-        //    corpus. NO stub node is materialised for missing targets: wikilinks
-        //    contribute connectivity between AUTHORED nodes only (dangling links
-        //    feed the node's wikilink_count weight signal instead — see
-        //    metadata below). Edges whose target never materialises are pruned
-        //    at the deferred-edge pass against the store's node-id set.
+        // Outbound wikilinks — the curated `links` list, else the body scan.
+        // No stub is materialised for a missing target: dangling edges are
+        // pruned at the deferred pass and feed `wikilink_count` instead.
         for link in &entity.outbound_links {
-            // Obsidian's rule (§V1): a bare `[[Title]]` finds the page wherever
-            // it lives, so it joins the real node instead of minting a stub.
-            let resolved = vault_ctx.resolve(&link.target_slug, &identity);
+            let resolved = scope.vault.resolve(&link.target_slug, &identity);
             let target_id = self.kg_parser.page_name_to_id(resolved.target());
             if target_id == source_id {
                 continue;
@@ -1802,18 +1770,12 @@ impl GitHubSyncService {
             });
         }
 
-        // 3b. Elevation provenance: the page's `elevatedFrom` property becomes a
-        //     typed bridge edge from the formal class node to its working-graph
-        //     origin page. Read through `visionclaw_domain::vault` (ADR-2040
-        //     D4), so it resolves from frontmatter `elevatedFrom: "[[X]]"` and,
-        //     under the bounded legacy tolerance, from a leading-block
-        //     `elevatedFrom:: [[X]]` line (the 2026-06-12 twin-rename batch).
-        //     The property is read here because the canonical entity carries
-        //     only JSON-LD wikilinks. Targets that are not authored nodes
-        //     (non-public working twins) fold to weight at the deferred pass
-        //     like any dangling link.
+        // Elevation provenance: `elevatedFrom: "[[X]]"` becomes a typed bridge
+        // edge from the class node to its working-graph origin page. Targets
+        // that are not authored nodes fold to weight at the deferred pass like
+        // any dangling link.
         if let Some(name) = visionclaw_domain::vault::parse(content).elevated_from {
-            let resolved = vault_ctx.resolve(&name, &identity);
+            let resolved = scope.vault.resolve(&name, &identity);
             let target_id = self.kg_parser.page_name_to_id(resolved.target());
             if target_id != source_id {
                 let edge_id = format!("{}_{}_elevated_from", source_id, target_id);
@@ -1829,64 +1791,95 @@ impl GitHubSyncService {
             }
         }
 
-        // 4. Run the full JSON-LD ingest to (a) emit typed semantic edges from
-        //    Class-block axioms and (b) persist quads to Oxigraph. Failures
-        //    are non-fatal — the canonical entity is already in `nodes`.
-        let metadata = PageMetadata::new(&file.path);
-        match jsonld_ingest::ingest_page(content, &metadata).await {
-            Ok(outcome) => {
-                // Typed edges from `subClassOf`, `hasPart`, `enables`, …
-                let typed_edges = self.process_jsonld_outcome(&outcome, source_id);
-                for edge in typed_edges {
-                    let target_iri = edge
-                        .metadata
-                        .as_ref()
-                        .and_then(|m| m.get("target_iri"))
-                        .cloned();
-                    // Ensure a stub exists for the target if it wasn't already
-                    // emitted by a sibling file's canonical entity ingest.
-                    if let Some(ref iri) = target_iri {
-                        ensure_stub_from_iri(edge.target, iri, nodes, stub_ids);
-                    }
-                    // Typed edges overwrite the generic wikilink edge for the
-                    // same (source, target) pair so the semantic type wins.
-                    edges.insert(edge.id.clone(), edge);
-                }
-
-                if !outcome.quads.is_empty() {
-                    if let Err(e) = self.insert_quads_to_store(&outcome.quads).await {
-                        warn!("Failed to insert quads from {}: {}", file.name, e);
-                    }
-                    // Enrich the canonical node with rdf:type, domain, etc.
-                    if let Some(node) = nodes.get_mut(&source_id) {
-                        Self::enrich_node_from_quads(node, &outcome.quads, &entity.slug);
-                    }
-                }
-            }
-            Err(e) => {
-                // Block-level validation failure — corpus integrity issue we
-                // log but tolerate, since the canonical entity is still useful.
-                debug!("ingest_page warning for {}: {}", file.name, e);
+        // Typed semantic edges from the frontmatter relations the vocabulary
+        // declares (`is-a` -> rdfs:subClassOf, `requires` -> vc:requires, …).
+        // Each overwrites the generic wikilink edge for the same pair, so the
+        // semantic type wins; the predicate IRI rides on the edge so the
+        // assert-graph rebuild writes the real axiom. Like wikilinks, typed
+        // edges join AUTHORED nodes only: a long-tail target with no page
+        // mints no node (`vault build` models those as `skos:Concept` tail
+        // stubs, not classes) and its edge is pruned at the deferred pass.
+        if let Some(vocab) = scope.vocabulary {
+            for edge in self.relation_edges(&parsed, vocab, &identity, source_id, scope) {
+                edges.remove(&format!("{}_{}_wikilink", source_id, edge.target));
+                edges.insert(edge.id.clone(), edge);
             }
         }
 
         Ok(())
     }
 
-    /// Fallback ingest for unstructured logseq pages — the working knowledge
-    /// graph. These files carry no JSON-LD blocks, so `parse_canonical_entity`
-    /// skips them. The plain-markdown KG parser emits a `page` node (or an
-    /// `ontology_node` if the page carries a logseq `owl:class::` line) plus an
-    /// edge for every `[[wikilink]]`. Targets that another file materialises as
-    /// a real node connect; the rest dangle harmlessly until their page syncs.
+    /// One typed edge per frontmatter relation target, for every relation key
+    /// the vocabulary declares. A relation whose property has no edge-type
+    /// mapping is skipped (and counted in the debug log): its targets are
+    /// still in the page's `links` list, so connectivity is not lost.
+    fn relation_edges(
+        &self,
+        parsed: &ParsedPage,
+        vocab: &Vocabulary,
+        identity: &str,
+        source_id: u32,
+        scope: SyncScope<'_>,
+    ) -> Vec<Edge> {
+        let mut out = Vec::new();
+        let mut unmapped = 0usize;
+        for (key, def) in &vocab.relations {
+            let targets = parsed.page.frontmatter.wikilinks(key);
+            if targets.is_empty() {
+                continue;
+            }
+            let predicate = vocab.expand(&def.owl);
+            let edge_type = predicate_to_edge_type(&predicate);
+            if edge_type.is_empty() {
+                unmapped += targets.len();
+                continue;
+            }
+            let reg_id = SEMANTIC_TYPE_REGISTRY.get_or_register_id(edge_type);
+            // Normalise the registry's 0-1 strength to the 0-2 spring range.
+            let weight = SEMANTIC_TYPE_REGISTRY
+                .get_config(reg_id)
+                .map(|c| c.strength * 2.0)
+                .unwrap_or(1.0);
+            for link in targets {
+                let resolved = scope.vault.resolve(&link.target, identity);
+                let target_id = self.kg_parser.page_name_to_id(resolved.target());
+                if target_id == source_id {
+                    continue;
+                }
+                let mut metadata = std::collections::HashMap::new();
+                metadata.insert("relation".to_string(), key.clone());
+                out.push(Edge {
+                    id: format!("{}_{}_{}", source_id, target_id, key),
+                    source: source_id,
+                    target: target_id,
+                    weight,
+                    edge_type: Some(edge_type.to_string()),
+                    owl_property_iri: Some(predicate.clone()),
+                    metadata: Some(metadata),
+                });
+            }
+        }
+        if unmapped > 0 {
+            debug!(
+                "{}: {} relation target(s) under properties with no edge-type mapping",
+                parsed.entity.source_path, unmapped
+            );
+        }
+        out
+    }
+
+    /// Ingest for every page that declares no ontology content — the working
+    /// knowledge graph and any untyped knowledge page. The markdown parser
+    /// emits a `page` node plus an edge for every `[[wikilink]]`; targets that
+    /// another file materialises as a real node connect, the rest dangle
+    /// harmlessly until their page syncs.
     ///
-    /// Identity uses the same `page_name_to_id(slug)` hash as the canonical
-    /// path, so a working-graph page and an ontology page sharing a basename
-    /// resolve to the same node — the intended cross-graph join. To keep
-    /// "owl:class wins" deterministic regardless of processing order, the page
-    /// node is inserted with `or_insert`: it never clobbers an ontology node a
-    /// JSON-LD sibling already emitted, while the canonical path's unconditional
-    /// `insert` still upgrades a plain page to its ontology form.
+    /// Identity is the page's §V1 vault identity, hashed exactly as the
+    /// ontology path hashes it, so a working-graph page and a knowledge page
+    /// sharing an identity resolve to one node — the intended cross-graph
+    /// join. The knowledge page wins that join: a working twin is written as
+    /// a yielding (insert-if-absent) node, so it never clobbers the class
+    /// whichever batch either lands in.
     fn process_plain_vault_file(
         &self,
         file: &CorpusPage,
@@ -1894,49 +1887,25 @@ impl GitHubSyncService {
         nodes: &mut std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
         edges: &mut std::collections::HashMap<String, Edge>,
         stub_ids: &mut std::collections::HashSet<u32>,
-        vault_ctx: visionclaw_domain::vault::VaultContext<'_>,
+        scope: SyncScope<'_>,
     ) {
-        // §V1 identity: the vault-relative path, NOT `file.name`. A basename
-        // collapses every namespaced page onto its leaf, which merged distinct
-        // pages (`ETSI_Domain_Infrastructure/Security` with the root
-        // `Security`) and orphaned every bare link into a subfolder.
-        let vault_path = format!("{}.md", vault_ctx.identity_of(&file.path));
-        let parsed =
-            match self
-                .kg_parser
-                .parse_with_index(content, &vault_path, Some(vault_ctx.index()))
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    debug!(
-                        "Plain logseq parse failed for {}: {} — skipping",
-                        file.name, e
-                    );
-                    return;
-                }
-            };
-
-        // Design gate: the working knowledge graph only surfaces *published*
-        // pages. A plain page (no `owl:class::`) becomes a graph node ONLY when
-        // it carries `public:: true`. Ontology pages — those with `owl:class::`,
-        // which the parser already typed as `ontology_node` — ingest
-        // unconditionally: they are authoritative formal data regardless of
-        // publish tagging, wherever they live in the repo. Anchoring the gate on
-        // owl:class (not on the source directory) keeps it correct for an
-        // ontology page that happens to sit in the working graph, and for a
-        // plain page that happens to sit in the ontology dir.
-        let is_ontology = parsed
-            .nodes
-            .first()
-            .map(|n| n.owl_class_iri.is_some())
-            .unwrap_or(false);
-        if !is_ontology && !page_is_kg_included(content) {
+        // §V4 gate: frontmatter `public: true` (or a valid `owl-class`).
+        if !page_is_kg_included(content) {
             debug!(
-                "Skipped non-public working-graph page: {} (no frontmatter `public: true`/`owl-class`)",
+                "Skipped non-public page: {} (no frontmatter `public: true`/`owl-class`)",
                 file.name
             );
             return;
         }
+
+        // §V1 identity: the vault-relative path, NOT `file.name`. A basename
+        // collapses every namespaced page onto its leaf, which merged distinct
+        // pages (`ETSI_Domain_Infrastructure/Security` with the root
+        // `Security`) and orphaned every bare link into a subfolder.
+        let vault_path = format!("{}.md", scope.vault.identity_of(&file.path));
+        let parsed =
+            self.kg_parser
+                .parse_with_index(content, &vault_path, Some(scope.vault.index()));
 
         // Parser output mixes the authored page node with `linked_page` stubs
         // for its wikilink targets. Stubs are DROPPED entirely: wikilinks
@@ -1960,23 +1929,21 @@ impl GitHubSyncService {
             ensure_source_domain(&mut node, &file.path);
             node.metadata
                 .insert("wikilink_count".to_string(), wikilink_count.to_string());
-            // Q16: the ontology bundle is built from this stamp, never from a
-            // node's IRI shape or its directory alone. A page that declares no
-            // ontology type is a graph node and nothing more.
-            if let Some(ontology_type) = declared_ontology_type(&file.path, content) {
-                node.metadata
-                    .insert(ONTOLOGY_TYPE_KEY.to_string(), ontology_type);
-            }
-            // A real authored node upgrades any stub an earlier sibling file
-            // materialised (ontology IRI stubs still use stub_ids); it never
-            // clobbers another authored node a JSON-LD sibling emitted.
+            // A working twin of a knowledge page yields: it is kept only where
+            // nothing else stands, and is written insert-if-absent like a stub.
+            let yields = scope.yields_to_knowledge(&file.path, node.id);
             match nodes.entry(node.id) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
-                    if stub_ids.remove(&node.id) {
+                    // A real authored node upgrades a stub an earlier sibling
+                    // materialised; it never clobbers another authored node.
+                    if !yields && stub_ids.remove(&node.id) {
                         e.insert(node);
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
+                    if yields {
+                        stub_ids.insert(node.id);
+                    }
                     e.insert(node);
                 }
             }
@@ -1985,87 +1952,6 @@ impl GitHubSyncService {
         for edge in parsed.edges {
             edges.entry(edge.id.clone()).or_insert(edge);
         }
-    }
-
-    /// Map an IngestOutcome's quads to Edge structs for the force-directed graph.
-    ///
-    /// Only object-property triples with named-node objects produce graph edges.
-    /// Literal-valued triples (labels, descriptions, SHA1s, etc.) are skipped.
-    ///
-    /// Target node IDs are derived from the IRI local name via the same
-    /// `KnowledgeGraphParser::page_name_to_id` hash so IDs are consistent with
-    /// nodes created by the KG parser branch.
-    fn process_jsonld_outcome(&self, outcome: &IngestOutcome, source_id: u32) -> Vec<Edge> {
-        let mut result = Vec::new();
-        let mut unmapped_count: usize = 0;
-        let mut unmapped_samples: Vec<String> = Vec::new();
-
-        for quad in &outcome.quads {
-            // Subject must be a named node.
-            let _subj_iri = match &quad.subject {
-                Subject::NamedNode(n) => n.as_str(),
-                _ => continue,
-            };
-
-            let predicate_iri = quad.predicate.as_str();
-
-            // Object must be a named node (relationship target).
-            let object_iri = match &quad.object {
-                oxigraph::model::Term::NamedNode(n) => n.as_str().to_string(),
-                _ => continue,
-            };
-
-            let edge_type = predicate_to_edge_type(predicate_iri);
-            if edge_type.is_empty() {
-                unmapped_count += 1;
-                if unmapped_samples.len() < 5 {
-                    let iri_str = predicate_iri.to_string();
-                    if !unmapped_samples.contains(&iri_str) {
-                        unmapped_samples.push(iri_str);
-                    }
-                }
-                continue;
-            }
-
-            // Extract the local name fragment from the object IRI and resolve to
-            // a numeric node ID via the KG parser's hash — matching existing node IDs.
-            let local_name = object_iri
-                .rsplit_once(':')
-                .map(|(_, r)| r)
-                .unwrap_or(&object_iri);
-            let target_id = self.kg_parser.page_name_to_id(local_name);
-            if target_id == source_id {
-                continue;
-            }
-
-            let reg_id = SEMANTIC_TYPE_REGISTRY.get_or_register_id(edge_type);
-            let weight = SEMANTIC_TYPE_REGISTRY
-                .get_config(reg_id)
-                .map(|c| c.strength * 2.0) // normalise registry 0-1 to spring 0-2 range
-                .unwrap_or(1.0);
-            let edge_id = format!("{}_{}_{}", source_id, target_id, edge_type);
-            let mut edge_meta = std::collections::HashMap::new();
-            edge_meta.insert("target_iri".to_string(), object_iri.clone());
-            let edge = Edge {
-                id: edge_id.clone(),
-                source: source_id,
-                target: target_id,
-                weight,
-                edge_type: Some(edge_type.to_string()),
-                owl_property_iri: Some(predicate_iri.to_string()),
-                metadata: Some(edge_meta),
-            };
-            result.push(edge);
-        }
-
-        if unmapped_count > 0 {
-            warn!(
-                "process_jsonld_outcome: {} unmapped predicate(s) for source_id={}, samples: {:?}",
-                unmapped_count, source_id, unmapped_samples
-            );
-        }
-
-        result
     }
 
     /// Insert quads into the Oxigraph store via spawn_blocking.
@@ -2085,128 +1971,6 @@ impl GitHubSyncService {
         .await
         .map_err(|e| format!("spawn_blocking join error: {}", e))?
     }
-
-    /// Ensure a node exists in the batch map as a linked_page (stub).
-    ///
-    /// `target_iri` is the IRI the link points at (when available — e.g.
-    /// from a JSON-LD vc:wikilink edge). When provided we derive a
-    /// human-readable label from its local-name segment, so the resulting
-    /// node shows up in the UI as "Backdoor Attack" instead of
-    /// "node_672356712531". Falls back to "node_<id>" only when the caller
-    /// has nothing better.
-    // `ensure_linked_page_node` and `ensure_ontology_node` were removed in
-    // ADR-090 Phase B. Stub creation is now handled by the free functions
-    // `ensure_stub_from_link` (called from the outbound-wikilink loop in
-    // `process_fetched_file`) and `ensure_stub_from_iri` (called from the
-    // typed-edge loop). They produce identical node shapes but key off the
-    // canonical slug derived in either pass — so slug-canonicalisation
-    // guarantees a single node id per logical entity.
-
-    /// Enrich a graph node with metadata extracted from JSON-LD quads.
-    /// Reads rdf:type, domain, maturity, qualityScore, label, and definition
-    /// from literal-valued quads whose subject matches the entity IRI.
-    fn enrich_node_from_quads(
-        node: &mut visionclaw_domain::models::node::Node,
-        quads: &[Quad],
-        page_name: &str,
-    ) {
-        // Find the entity IRI — look for any quad whose subject contains
-        // the page slug as a class or individual IRI.
-        let slug = page_name.to_lowercase().replace(' ', "-");
-        let entity_iri = quads.iter().find_map(|q| {
-            if let Subject::NamedNode(n) = &q.subject {
-                let iri = n.as_str();
-                if iri.contains(&slug)
-                    && (iri.starts_with("urn:ngm:")
-                        || iri.starts_with("urn:visionclaw:")
-                        || iri.contains("/class/")
-                        || iri.contains("/individual/"))
-                {
-                    return Some(iri.to_string());
-                }
-            }
-            None
-        });
-
-        let entity_iri = match entity_iri {
-            Some(iri) => iri,
-            None => return,
-        };
-
-        // Set owl_class_iri to the entity's IRI.
-        node.owl_class_iri = Some(entity_iri.clone());
-
-        for quad in quads {
-            let subj_iri = match &quad.subject {
-                Subject::NamedNode(n) => n.as_str(),
-                _ => continue,
-            };
-            if subj_iri != entity_iri {
-                continue;
-            }
-
-            let pred = quad.predicate.as_str();
-
-            // Record entity OWL type as metadata but do NOT change node_type.
-            // KG pages stay as "page" nodes (Gem geometry); ontology nodes
-            // are separate (CrystalOrb). The owl_class_iri link bridges them.
-            if pred == RDF_TYPE {
-                if let oxigraph::model::Term::NamedNode(n) = &quad.object {
-                    let type_iri = n.as_str();
-                    if type_iri == OWL_CLASS_IRI {
-                        node.metadata
-                            .insert("owl_type".to_string(), "Class".to_string());
-                    } else if type_iri == OWL_NAMED_INDIVIDUAL {
-                        node.metadata
-                            .insert("owl_type".to_string(), "Individual".to_string());
-                    }
-                }
-                continue;
-            }
-
-            // Extract literal values for metadata.
-            let literal_value = match &quad.object {
-                oxigraph::model::Term::Literal(lit) => lit.value().to_string(),
-                _ => continue,
-            };
-
-            match pred {
-                p if p == VC_SOURCE_DOMAIN => {
-                    node.metadata
-                        .insert("domain".to_string(), literal_value.clone());
-                    node.group = Some(literal_value);
-                }
-                p if p == VC_MATURITY => {
-                    node.metadata.insert("maturity".to_string(), literal_value);
-                }
-                p if p == VC_QUALITY_SCORE => {
-                    node.metadata
-                        .insert("qualityScore".to_string(), literal_value.clone());
-                    if let Ok(score) = literal_value.parse::<f32>() {
-                        node.size = Some(0.5 + score * 1.5); // range 0.5-2.0
-                        node.weight = Some(score);
-                    }
-                }
-                p if p == RDFS_LABEL => {
-                    if !literal_value.is_empty() {
-                        node.label = literal_value;
-                    }
-                }
-                p if p == RDFS_COMMENT || p == VC_DEFINITION => {
-                    node.metadata
-                        .insert("definition".to_string(), literal_value);
-                }
-                p if p == VC_SLUG => {
-                    node.metadata.insert("slug".to_string(), literal_value);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // File type detection
-    // ------------------------------------------------------------------
 
     // ------------------------------------------------------------------
     // File listing + SHA1 change detection
@@ -2386,13 +2150,12 @@ impl GitHubSyncService {
 // Free functions
 // ------------------------------------------------------------------
 
-/// The ADR-2040 §V4 inclusion gate for a plain (non-JSON-LD) vault page:
+/// The ADR-2040 §V4 inclusion gate, shared by the ontology and plain paths:
 /// frontmatter `public: true`, or a non-empty `owl-class`. Absence of both
 /// means private — the working-graph gate excludes it.
 ///
 /// Delegates to `visionclaw_domain::vault`, the single parsing entry point.
-/// Logseq `public::` lines still count under the bounded legacy tolerance, but
-/// only in the leading property block.
+/// Only frontmatter counts; a `public:: true` line is body text.
 fn page_is_kg_included(content: &str) -> bool {
     visionclaw_domain::vault::parse(content).is_kg_included()
 }
@@ -2405,34 +2168,82 @@ fn page_is_kg_included(content: &str) -> bool {
 /// IRI its quads mint.
 pub(crate) const ONTOLOGY_TYPE_KEY: &str = "ontology_type";
 
-/// The vault root whose pages may declare ontology (PRD-sovereign-corpus Q16:
-/// "Governed ontology bundle = `type: Class|Property|Individual` in
-/// `knowledge/` only").
-const ONTOLOGY_VAULT_PREFIX: &str = "knowledge/";
+/// `true` for a page under the `knowledge/` vault root.
+fn is_knowledge_path(repo_path: &str) -> bool {
+    repo_path
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .starts_with(ONTOLOGY_VAULT_PREFIX)
+}
 
-/// The OKF `type` values that make a page part of the ontology bundle.
-const ONTOLOGY_PAGE_TYPES: [&str; 3] = ["Class", "Property", "Individual"];
+/// What one sync run resolves every page against. Bundled because each
+/// per-file function needs all three, and passing them separately pushed
+/// those functions past a readable arity.
+#[derive(Clone, Copy)]
+struct SyncScope<'a> {
+    /// The §V1 identity index and the configured base paths.
+    vault: visionclaw_domain::vault::VaultContext<'a>,
+    /// Node ids that have a `knowledge/` page behind them, from the full
+    /// listing.
+    knowledge_ids: &'a std::collections::HashSet<u32>,
+    /// The corpus vocabulary, when the source supplies one.
+    vocabulary: Option<&'a Vocabulary>,
+}
 
-/// The ontology type a page DECLARES, or `None` if it declares none.
-///
-/// Two conditions, both necessary (PRD-sovereign-corpus Q16):
-///   1. the page lives under `knowledge/` — `working/` is OKF-conformant with
-///      its own types (Q9) and never contributes classes or axioms;
-///   2. its frontmatter `type` is one of [`ONTOLOGY_PAGE_TYPES`].
-///
-/// Deriving this from the path ALONE would re-admit the 496 non-class files
-/// that Q16 moves out of `knowledge/`; deriving it from the `type` alone would
-/// admit a `working/` page that happened to say `type: Class`. Both halves, or
-/// the page is graph-only.
-pub(crate) fn declared_ontology_type(repo_path: &str, content: &str) -> Option<String> {
-    let path = repo_path.trim_start_matches("./").trim_start_matches('/');
-    if !path.starts_with(ONTOLOGY_VAULT_PREFIX) {
-        return None;
+impl SyncScope<'_> {
+    /// A page outside `knowledge/` whose node id a knowledge page also owns
+    /// yields to it: the knowledge page is the governed record of that
+    /// identity (PRD-sovereign-corpus Q16).
+    fn yields_to_knowledge(&self, repo_path: &str, node_id: u32) -> bool {
+        !is_knowledge_path(repo_path) && self.knowledge_ids.contains(&node_id)
     }
-    let page_type = visionclaw_domain::vault::parse(content).page_type?;
-    ONTOLOGY_PAGE_TYPES
-        .contains(&page_type.as_str())
-        .then_some(page_type)
+}
+
+/// Copy a class page's frontmatter scalars onto its graph node: the display
+/// and filter signals the client reads (`domain`, `quality_score`,
+/// `maturity`), the definition (the body's leading paragraph, where
+/// `vault migrate` placed it), and the page's source identity.
+fn enrich_node_from_frontmatter(
+    node: &mut visionclaw_domain::models::node::Node,
+    parsed: &ParsedPage,
+    identity: &str,
+    content: &str,
+) {
+    let fm = &parsed.page.frontmatter;
+    node.metadata
+        .insert("source_file".to_string(), format!("{identity}.md"));
+    node.metadata
+        .insert("file_size".to_string(), content.len().to_string());
+    node.file_size = content.len() as u64;
+    node.metadata.insert(
+        "owl_type".to_string(),
+        if parsed.entity.kind == EntityKind::OntologyIndividual {
+            "Individual"
+        } else {
+            "Class"
+        }
+        .to_string(),
+    );
+    if let Some(domain) = fm.text("domain").filter(|d| !d.trim().is_empty()) {
+        node.group = Some(domain.clone());
+        node.metadata
+            .insert("source_domain".to_string(), domain.clone());
+        node.metadata.insert("domain".to_string(), domain);
+    }
+    if let Some(maturity) = fm.text("maturity").filter(|m| !m.trim().is_empty()) {
+        node.metadata.insert("maturity".to_string(), maturity);
+    }
+    if let Some(quality) = fm.number("quality").filter(|q| q.is_finite()) {
+        let quality = quality.clamp(0.0, 1.0) as f32;
+        node.metadata
+            .insert("quality_score".to_string(), quality.to_string());
+        node.size = Some(0.5 + quality * 1.5); // range 0.5-2.0
+        node.weight = Some(quality);
+    }
+    let definition = parsed.page.leading_paragraph();
+    if !definition.is_empty() {
+        node.metadata.insert("definition".to_string(), definition);
+    }
 }
 
 /// Map a fully-expanded predicate IRI to a canonical edge-type label.
@@ -2585,57 +2396,6 @@ fn ensure_source_domain(node: &mut visionclaw_domain::models::node::Node, file_p
         .entry("domain".to_string())
         .or_insert_with(|| domain.to_string());
     true
-}
-
-// ---------------------------------------------------------------------------
-// WS-0 / ADR-100 D3 — rdf:type-based classification, replacing the fragile
-// `iri.contains(":class:")` substring sniffing. A node's OWL kind is decided
-// by its asserted `rdf:type` (owl:Class / owl:NamedIndividual / …) when known,
-// falling back to IRI-shape ONLY as a last resort for un-typed stub targets.
-// ---------------------------------------------------------------------------
-
-/// The OWL kind of a stub/linked target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OwlKind {
-    Class,
-    Individual,
-    LinkedPage,
-}
-
-impl OwlKind {
-    pub fn as_node_type(self) -> &'static str {
-        match self {
-            OwlKind::Class => "owl_class",
-            OwlKind::Individual => "owl_individual",
-            OwlKind::LinkedPage => "linked_page",
-        }
-    }
-}
-
-/// Classify by an explicit `rdf:type` IRI when one is available (the ADR-100
-/// D3 path). `None` means "no rdf:type known" and the caller falls back to
-/// [`classify_by_iri_shape`].
-pub fn classify_by_rdf_type(type_iri: &str) -> Option<OwlKind> {
-    match type_iri {
-        OWL_CLASS_IRI => Some(OwlKind::Class),
-        OWL_NAMED_INDIVIDUAL => Some(OwlKind::Individual),
-        _ => None,
-    }
-}
-
-/// Last-resort IRI-shape classification for stub targets that carry no
-/// `rdf:type` yet (a wikilink to a page not yet ingested). This preserves the
-/// previous behaviour for the un-typed case only; typed nodes use
-/// [`classify_by_rdf_type`]. Kept narrow and documented so it is not mistaken
-/// for the primary classifier.
-pub fn classify_by_iri_shape(iri: &str) -> OwlKind {
-    if iri.contains(":individual:") || iri.contains("/individual/") {
-        OwlKind::Individual
-    } else if iri.contains(":class:") || iri.contains("/class/") {
-        OwlKind::Class
-    } else {
-        OwlKind::LinkedPage
-    }
 }
 
 #[cfg(test)]
@@ -3017,6 +2777,45 @@ mod adr_2071_inferred_edge_tests {
 #[cfg(test)]
 mod sovereign_corpus_scope_tests {
     use super::*;
+
+    /// The ontology type the ingest seam reports for a page, if any.
+    fn declared_ontology_type(path: &str, content: &str) -> Option<String> {
+        parse_page(content, path)
+            .expect("fixture frontmatter parses")
+            .map(|parsed| parsed.ontology_type)
+    }
+
+    #[test]
+    fn only_knowledge_paths_are_knowledge() {
+        assert!(is_knowledge_path("knowledge/pages/A.md"));
+        assert!(is_knowledge_path("./knowledge/pages/A.md"));
+        assert!(is_knowledge_path("/knowledge/pages/A.md"));
+        assert!(!is_knowledge_path("working/pages/A.md"));
+        assert!(!is_knowledge_path("working/pages/knowledge/A.md"));
+    }
+
+    #[test]
+    fn a_working_twin_yields_to_its_knowledge_page_and_nothing_else_does() {
+        let index = visionclaw_domain::vault::VaultIndex::from_identities(["Camera"]);
+        let bases = vec!["knowledge/pages".to_string(), "working/pages".to_string()];
+        let parser = KnowledgeGraphParser::new();
+        let camera = parser.page_name_to_id("Camera");
+        let knowledge_ids: std::collections::HashSet<u32> = [camera].into_iter().collect();
+        let scope = SyncScope {
+            vault: visionclaw_domain::vault::VaultContext::new(&index, &bases),
+            knowledge_ids: &knowledge_ids,
+            vocabulary: None,
+        };
+        assert!(scope.yields_to_knowledge("working/pages/Camera.md", camera));
+        assert!(
+            !scope.yields_to_knowledge("knowledge/pages/Camera.md", camera),
+            "the knowledge page itself never yields"
+        );
+        assert!(
+            !scope.yields_to_knowledge("working/pages/Lens.md", parser.page_name_to_id("Lens")),
+            "a working page with no knowledge twin is authored in its own right"
+        );
+    }
 
     /// A public `working/` Episode — exactly the 188 podcast-evidence pages
     /// PRD-sovereign-corpus Q16 relocates out of `knowledge/`.

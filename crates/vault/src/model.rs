@@ -192,6 +192,56 @@ impl NameIndex {
     }
 }
 
+/// Give every public record a unique publish slug.
+///
+/// The slug names each page's published files (`api/pages/<slug>.json`) and
+/// is its search-index `id`, which is what the explorer fetches by. It is the
+/// declared `slug`, else `slugify(title)` — and those two sources can collide:
+/// `ML Experiment Tracking` declares `slug: experiment-tracking`, while
+/// `Experiment Tracking` derives the same slug from its title. Left alone, the
+/// second page's file silently overwrote the first's.
+///
+/// Among public records sharing a slug, one keeps it: the page that
+/// **declares** it (the migration carried that slug over as the page's
+/// published identity), else the one whose `resource` tail equals it, else the
+/// first in page order. Every other claimant is re-keyed to its own `resource`
+/// tail — unique, immutable, and already the IRI Loom and `VisionClaw` key on.
+/// Private records are left alone: they publish nothing, and a public/private
+/// clash is refused by [`crate::projection::project`] rather than resolved by
+/// renaming a public page.
+fn disambiguate_public_slugs(records: &mut [ClassRecord], declares_slug: &[bool]) {
+    let mut claims: IndexMap<String, Vec<usize>> = IndexMap::new();
+    for (i, r) in records.iter().enumerate() {
+        if r.public && !r.slug.is_empty() {
+            claims.entry(r.slug.clone()).or_default().push(i);
+        }
+    }
+    for (slug, claimants) in claims {
+        if claimants.len() < 2 {
+            continue;
+        }
+        let keeper = claimants
+            .iter()
+            .copied()
+            .find(|&i| declares_slug[i])
+            .or_else(|| {
+                claimants
+                    .iter()
+                    .copied()
+                    .find(|&i| ref_slug(&records[i].iri) == slug)
+            })
+            .unwrap_or(claimants[0]);
+        for i in claimants {
+            if i != keeper {
+                let tail = ref_slug(&records[i].iri);
+                if !tail.is_empty() {
+                    records[i].slug = tail;
+                }
+            }
+        }
+    }
+}
+
 impl Corpus {
     /// Project a loaded vault through its vocabulary.
     #[must_use]
@@ -225,7 +275,9 @@ impl Corpus {
         };
 
         let mut records = Vec::with_capacity(vault.pages.len());
+        let mut declares_slug = Vec::with_capacity(vault.pages.len());
         for (i, page) in vault.pages.iter().enumerate() {
+            declares_slug.push(page.frontmatter.has("slug"));
             let fm = &page.frontmatter;
             let title = page.title();
             let mut relations: IndexMap<&'static str, Vec<Ref>> = IndexMap::new();
@@ -290,6 +342,8 @@ impl Corpus {
             });
         }
 
+        disambiguate_public_slugs(&mut records, &declares_slug);
+
         let mut by_class_slug = IndexMap::new();
         for (i, r) in records.iter().enumerate() {
             if r.has_ontology && !r.iri.is_empty() {
@@ -327,6 +381,49 @@ impl Corpus {
 mod tests {
     use super::*;
     use vault_core::page::VaultKind;
+
+    #[test]
+    fn a_declared_slug_keeps_its_url_and_the_derived_claimant_moves_to_its_resource() {
+        let vault = Vault {
+            root: std::path::PathBuf::new(),
+            kind: VaultKind::Knowledge,
+            journals: Vec::new(),
+            skipped: Vec::new(),
+            pages: [
+                (
+                    "Experiment Tracking",
+                    "---\ntype: Class\npublic: true\nresource: urn:ngm:class:empirical-experimental-design-tracking\n---\n",
+                ),
+                (
+                    "ML Experiment Tracking",
+                    "---\ntype: Class\npublic: true\nslug: experiment-tracking\nresource: urn:ngm:class:experiment-tracking\n---\n",
+                ),
+            ]
+            .into_iter()
+            .map(|(id, text)| {
+                Page::parse(format!("/v/pages/{id}.md"), format!("pages/{id}.md"), id, text)
+                    .unwrap()
+            })
+            .collect(),
+        };
+        let vocab =
+            Vocabulary::from_yaml_str("version: 1\nnamespace: \"urn:ngm:class:\"\n").unwrap();
+        let corpus = Corpus::build(&vault, &vocab);
+        let slug_of = |id: &str| {
+            corpus
+                .records
+                .iter()
+                .find(|r| r.page_id == id)
+                .unwrap()
+                .slug
+                .clone()
+        };
+        assert_eq!(slug_of("ML Experiment Tracking"), "experiment-tracking");
+        assert_eq!(
+            slug_of("Experiment Tracking"),
+            "empirical-experimental-design-tracking"
+        );
+    }
 
     fn vocab() -> Vocabulary {
         Vocabulary::from_yaml_str(

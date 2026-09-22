@@ -158,14 +158,16 @@ broadcast (`gpu/context_bus.rs`), not a central handle.
 `GitHubSyncService` (`src/services/github_sync_service.rs`) synchronises markdown
 from the source repo into Oxigraph. The source is the authored **Obsidian
 vault** — plain markdown with YAML frontmatter, specified in
-[`VAULT-corpus-format.md`](VAULT-corpus-format.md), synced from the GitHub repo
-(still literally named `jjohare/visionGraph`) with base path `pages/`. A page is
-ingested as a KG node iff its frontmatter carries `public: true` **or** a
-non-empty `owl-class` (formal data bypasses the publish gate); absence of both
-is private, fail-closed. Legacy Logseq property lines (`public:: true`,
-`owl:class::`) are tolerated only in a page's leading property block for the
-bounded window named in ADR-2040. The gate anchors on parsed metadata, never on
-the file path. The live ingest path extracts JSON-LD blocks
+[`VAULT-corpus-format.md`](VAULT-corpus-format.md), read through the
+`CorpusSource` port — the mounted local vault (`VAULT_ROOT`, default) or the
+GitHub repo `jjohare/visionGraph` (`CORPUS_SOURCE=github`, ADR-2114) — with base
+paths `knowledge/pages,working/pages`. A page is ingested as a KG node iff its
+frontmatter carries `public: true` **or** a non-empty `owl-class` (formal data
+bypasses the publish gate); absence of both is private, fail-closed. The corpus
+is frontmatter-only (ADR-2112): the retired Logseq property lines
+(`public:: true`, `owl:class::`) are body text and carry no metadata. The gate
+anchors on parsed metadata, never on the file path. The live ingest path parses
+each page once through `page_parser::parse_page` (`vault_core`, ADR-2113)
 and writes **quads** through `OxigraphOntologyRepository` — `sync_graphs()`
 (`:264`) / `sync_graphs_with()` (`:272`), `insert_quads_to_store()` (`:1085`);
 module header `:4-6`. It clears then repopulates the store, resolves bridge edges

@@ -3,17 +3,11 @@
 export type GraphType = 'knowledge' | 'visionclaw';
 
 /**
- * ADR-2041: the knowledge-graph type value is `knowledge`. The legacy value
- * `logseq` is accepted on the RECEIVE side (server responses, persisted state,
- * worker messages) for one release; everything the client SENDS uses
- * `knowledge`. Removal is tracked by ADR-2041's review_trigger.
+ * The knowledge-graph type value is `knowledge` (ADR-2041); the server has
+ * rejected the retired `logseq` since ADR-2115. The only remaining receive-side
+ * mapping is for persisted browser settings (`migrateGraphSettingsKey`,
+ * `toVisualKey`).
  */
-export const LEGACY_KNOWLEDGE_GRAPH_TYPE = 'logseq';
-
-/** Normalise an inbound graph-type value, mapping the legacy `logseq` to `knowledge`. */
-export function normaliseGraphType(value: string | undefined | null): GraphType {
-  return value === 'visionclaw' ? 'visionclaw' : 'knowledge';
-}
 
 export interface GraphNode {
   id: string;

@@ -197,31 +197,7 @@ pub fn apply(page: &Page, changes: &[Change], expect: Expectation) -> Result<Out
     }
 
     let mut next = page.clone();
-    let mut touched: BTreeMap<String, [Option<String>; 2]> = BTreeMap::new();
-
-    for change in changes {
-        let key = change.key().to_owned();
-        let before = next.frontmatter.get(&key).map(render_yaml);
-        match change {
-            Change::Set { value, .. } => next.frontmatter.set(key.clone(), value.clone()),
-            Change::Append { value, .. } => {
-                let mut list = match next.frontmatter.get(&key) {
-                    Some(Yaml::Sequence(items)) => items.clone(),
-                    Some(other) => vec![other.clone()],
-                    None => Vec::new(),
-                };
-                list.push(value.clone());
-                next.frontmatter.set(key.clone(), Yaml::Sequence(list));
-            }
-            Change::Unset { .. } => {
-                next.frontmatter.remove(&key);
-            }
-        }
-        let after = next.frontmatter.get(&key).map(render_yaml);
-        if before != after {
-            touched.insert(key, [before, after]);
-        }
-    }
+    let touched = apply_changes(&mut next, changes);
 
     let blocks = touched.len();
     let docs = usize::from(blocks > 0);
@@ -256,6 +232,39 @@ pub fn apply(page: &Page, changes: &[Change], expect: Expectation) -> Result<Out
         changes: touched,
         rendered,
     })
+}
+
+/// Apply `changes` to `page` in order, returning key to `(before, after)`
+/// for every key whose rendered value actually changed.
+///
+/// No guard is checked here: `vault edit` and `vault create` each enforce
+/// their own blast radius over the returned map.
+pub fn apply_changes(page: &mut Page, changes: &[Change]) -> BTreeMap<String, [Option<String>; 2]> {
+    let mut touched: BTreeMap<String, [Option<String>; 2]> = BTreeMap::new();
+    for change in changes {
+        let key = change.key().to_owned();
+        let before = page.frontmatter.get(&key).map(render_yaml);
+        match change {
+            Change::Set { value, .. } => page.frontmatter.set(key.clone(), value.clone()),
+            Change::Append { value, .. } => {
+                let mut list = match page.frontmatter.get(&key) {
+                    Some(Yaml::Sequence(items)) => items.clone(),
+                    Some(other) => vec![other.clone()],
+                    None => Vec::new(),
+                };
+                list.push(value.clone());
+                page.frontmatter.set(key.clone(), Yaml::Sequence(list));
+            }
+            Change::Unset { .. } => {
+                page.frontmatter.remove(&key);
+            }
+        }
+        let after = page.frontmatter.get(&key).map(render_yaml);
+        if before != after {
+            touched.insert(key, [before, after]);
+        }
+    }
+    touched
 }
 
 fn render_yaml(v: &Yaml) -> String {

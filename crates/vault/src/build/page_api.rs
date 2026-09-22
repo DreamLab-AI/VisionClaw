@@ -35,6 +35,9 @@ pub const PAGE_API_REL_ORDER: &[&str] = &[
 pub struct PageDocument {
     /// The file stem: `<slug>.json`.
     pub slug: String,
+    /// The page the document was built from, named when two documents would
+    /// claim one file.
+    pub page_id: String,
     /// The document.
     pub value: Value,
 }
@@ -160,6 +163,7 @@ pub fn build(
 
         documents.push(PageDocument {
             slug: record.slug.clone(),
+            page_id: record.page_id.clone(),
             value: Value::Object(entry),
         });
     }

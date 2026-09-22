@@ -3,9 +3,9 @@
 //! that runs BEFORE Whelk consistency and BEFORE ACSP governance on the governed
 //! `/api/ontology-agent/propose` write door.
 //!
-//! This is a *native* Rust port of the four semantica-style detectors that already
-//! exist for the batch/corpus path in `logseq/pipeline/conflicts.py` (:103-184),
-//! ported with **identical semantics**:
+//! This is a *native* Rust port of the four semantica-style detectors that the
+//! batch/corpus path runs in `vault` (`crates/vault/src/conflicts.rs`, itself the
+//! port of the retired `logseq/pipeline/conflicts.py`), with **identical semantics**:
 //!
 //!   * `DUPLICATE_CONCEPT`      — distinct IRIs sharing a normalised label
 //!   * `SUBCLASS_CYCLE`         — a cycle in the `subClassOf` graph

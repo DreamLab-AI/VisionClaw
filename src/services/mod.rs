@@ -108,11 +108,6 @@ pub mod provenance_trace;
 // validation; does NOT depend on the persistence-oxigraph feature.
 pub mod jsonld_validator;
 
-// JSON-LD ingest pipeline (Migration Sprint Phase 2 M1). Parses Logseq
-// markdown JSON-LD blocks → oxigraph::model::Quad sets routed to Phase 1
-// repository ports.
-pub mod jsonld_ingest;
-
 // Re-export semantic type registry types for convenience
 pub use semantic_type_registry::{
     DynamicForceConfigGPU, RelationshipForceConfig, SemanticTypeRegistry, SEMANTIC_TYPE_REGISTRY,

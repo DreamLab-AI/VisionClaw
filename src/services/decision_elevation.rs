@@ -7,8 +7,8 @@
 //! the corpus on a `force_full` sync ([`crate::services::github_sync_service`]).
 //! A runtime decision is born-in-the-graph / absent-from-source, so the rebuild
 //! would erase it. This module routes a **significant** decision *into the
-//! corpus* — drafted as a page, gated through the broker, PR'd to `jjohare/logseq`
-//! on approve — so the same sync→rebuild path that re-derives every class
+//! corpus* — drafted as a page, gated through the broker, PR'd to the corpus
+//! repository (the visionGraph vault, `GITHUB_OWNER`/`GITHUB_REPO`) on approve — so the same sync→rebuild path that re-derives every class
 //! re-derives the decision too.
 //!
 //! This module is the PURE half (no actor, no I/O): the significance predicate,

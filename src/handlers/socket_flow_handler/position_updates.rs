@@ -63,8 +63,8 @@ pub(crate) fn pubkey_visibility_filter_enabled() -> bool {
 ///
 /// ADR-050 stores `visibility` / `owner_pubkey` on the node. Until that storage
 /// lands, we derive them from the node metadata the parser already populates:
-/// a node is public iff `metadata["public"] == "true"` (the `public:: true`
-/// Logseq tag), and `owner_pubkey` is read from `metadata["owner_pubkey"]` when
+/// a node is public iff `metadata["public"] == "true"` (the vault frontmatter
+/// `public: true` key), and `owner_pubkey` is read from `metadata["owner_pubkey"]` when
 /// present. Absent an owner, a private node fails closed (dropped for everyone
 /// but a future owner match).
 fn node_visibility(wire_id: u32, node: &visionclaw_domain::models::Node) -> NodeVisibility {

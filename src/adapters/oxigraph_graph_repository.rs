@@ -1464,13 +1464,14 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
 fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> {
     let prologue = OxigraphGraphRepository::PROLOGUE;
     let q = format!(
-        "{p}SELECT ?edge ?src ?tgt ?weight ?etype WHERE {{\n  \
+        "{p}SELECT ?edge ?src ?tgt ?weight ?etype ?owl WHERE {{\n  \
          GRAPH <{graph}> {{\n    \
          ?edge a vc:KGEdge .\n    \
          ?edge vc:source ?src .\n    \
          ?edge vc:target ?tgt .\n    \
          OPTIONAL {{ ?edge vc:weight ?weight }} .\n    \
-         OPTIONAL {{ ?edge vc:relationshipType ?etype }} .\n  \
+         OPTIONAL {{ ?edge vc:relationshipType ?etype }} .\n    \
+         OPTIONAL {{ ?edge vc:owlProperty ?owl }} .\n  \
          }}\n}}",
         p = prologue,
         graph = graph_iri,
@@ -1505,6 +1506,13 @@ fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> 
         let target = iri_to_node_id(&tgt).unwrap_or(0);
         let weight = sol.get("weight").and_then(term_to_f32).unwrap_or(1.0);
         let etype = sol.get("etype").and_then(term_to_string);
+        // The typed predicate the edge was written with (`vc:owlProperty`),
+        // so the assert-graph rebuild can re-emit `rdfs:subClassOf`,
+        // `vc:requires`, … rather than collapsing every edge to one predicate.
+        let owl_property_iri = match sol.get("owl") {
+            Some(oxigraph::model::Term::NamedNode(n)) => Some(n.as_str().to_string()),
+            _ => None,
+        };
 
         out.push(Edge {
             id: edge_iri,
@@ -1512,7 +1520,7 @@ fn load_edges_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Edge>> 
             target,
             weight,
             edge_type: etype,
-            owl_property_iri: None,
+            owl_property_iri,
             metadata: None,
         });
     }

@@ -16,8 +16,9 @@ use visionclaw_server::ports::OntologyRepository;
 use visionclaw_server::services::corpus_source::LocalDirectorySource;
 use visionclaw_server::services::github_sync_service::{GitHubSyncService, SyncStatistics};
 
-/// Twenty pages: sixteen published working-graph pages wired into a wikilink
-/// ring, and four ontology pages whose JSON-LD fences form a subclass chain.
+/// Twenty pages: sixteen published pages wired into a wikilink ring, and four
+/// ontology pages whose frontmatter `is-a` lists form a subclass chain, plus
+/// the vocabulary that makes `is-a` mean `rdfs:subClassOf`.
 fn write_fixture_vault(root: &std::path::Path) {
     let write = |rel: &str, body: String| {
         let path = root.join(rel);
@@ -25,52 +26,35 @@ fn write_fixture_vault(root: &std::path::Path) {
         std::fs::write(path, body).unwrap();
     };
 
-    // Four ontology pages in knowledge/pages, carrying the corpus's two
-    // `json-ld` fences (page envelope + Class) with Alpha :> Beta :> Gamma :>
-    // Delta as the subclass chain the reasoner closes over.
-    const ONTOLOGY_PAGE: &str = r#"---
-public: true
----
+    write(
+        "ontology/vocabulary.yaml",
+        r#"version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:     { owl: "rdfs:subClassOf", characteristics: [transitive] }
+  requires: { owl: "vc:requires", restriction: true }
+"#
+        .to_string(),
+    );
 
-# {NAME}
-
-```json-ld
-{ "@context":"https://narrativegoldmine.com/ns/v1", "@id":"urn:visionflow:page:{SLUG}", "@type":"Page", "title":"{NAME}", "vc:slug":"{SLUG}", "vc:public":true, "vc:schemaVersion":2, "vc:outboundWikilinks":[] }
-```
-
-```json-ld
-{
-  "@context": "https://narrativegoldmine.com/ns/v2.jsonld",
-  "@id": "urn:ngm:class:{SLUG}",
-  "@type": "Class",
-  "label": "{NAME}",
-  "definition": "Fixture class {NAME}.",
-  "domain": "data",
-  "maturity": "established",
-  "subClassOf": {SUPERCLASSES},
-  "quality": 0.5
-}
-```
-"#;
-
+    // Four ontology pages in knowledge/pages: OKF frontmatter with
+    // Alpha :> Beta :> Gamma :> Delta as the subclass chain the reasoner
+    // closes over.
     let chain = ["Alpha", "Beta", "Gamma", "Delta"];
     for (i, name) in chain.iter().enumerate() {
         let slug = name.to_lowercase();
-        let superclasses = if i == 0 {
-            "[]".to_string()
+        let parent = if i == 0 {
+            String::new()
         } else {
-            format!(
-                r#"[{{ "@id": "urn:ngm:class:{}", "label": "{}" }}]"#,
-                chain[i - 1].to_lowercase(),
-                chain[i - 1]
-            )
+            format!("is-a:\n- '[[{}]]'\n", chain[i - 1])
         };
         write(
             &format!("knowledge/pages/{}.md", name),
-            ONTOLOGY_PAGE
-                .replace("{NAME}", name)
-                .replace("{SLUG}", &slug)
-                .replace("{SUPERCLASSES}", &superclasses),
+            format!(
+                "---\ntype: Class\ntitle: {name}\nresource: urn:ngm:class:{slug}\n\
+                 status: stable\npublic: true\ndomain: data\nmaturity: established\n\
+                 quality: 0.5\n{parent}---\n\nFixture class {name}.\n"
+            ),
         );
     }
 
@@ -218,7 +202,7 @@ async fn a_full_sync_rebuilds_the_assert_graph_and_reasons() {
     let classes = h.onto_repo.get_classes().await.expect("classes");
     assert!(
         classes.len() >= 4,
-        "the four JSON-LD classes reach the assert graph, got {}",
+        "the four frontmatter classes reach the assert graph, got {}",
         classes.len()
     );
 
@@ -238,6 +222,64 @@ async fn a_full_sync_rebuilds_the_assert_graph_and_reasons() {
         ),
         _ => panic!("ASK must return a boolean"),
     }
+}
+
+/// Frontmatter relations become typed edges, and a class keeps its node when a
+/// public working page shares its identity (the cross-graph twin join).
+#[actix_rt::test]
+async fn frontmatter_relations_are_typed_edges_and_a_class_wins_its_working_twin() {
+    let h = harness().await;
+    // A public working note twinned with the Alpha class. `working/` sorts
+    // after `knowledge/`, so without the yield rule its batch would upsert
+    // over the class node.
+    std::fs::write(
+        h.vault.path().join("working/pages/Alpha.md"),
+        "---\ntype: Note\npublic: true\n---\n\n# Alpha\n\nA working note.\n",
+    )
+    .unwrap();
+
+    let stats = h.service.sync_graphs_with(true).await.expect("sync");
+    assert_no_stage_failed(&stats);
+    assert_eq!(stats.total_files, 21);
+
+    let graph = h.kg_repo.load_graph().await.expect("graph loads");
+    assert_eq!(graph.nodes.len(), 19, "the twin joins the class node");
+    let alpha = graph
+        .nodes
+        .iter()
+        .find(|n| n.metadata_id == "Alpha")
+        .expect("the Alpha node");
+    assert_eq!(
+        alpha.metadata.get("ontology_type").map(String::as_str),
+        Some("Class"),
+        "the class, not its working twin, owns the node"
+    );
+    assert_eq!(alpha.owl_class_iri.as_deref(), Some("urn:ngm:class:alpha"));
+
+    let beta = graph
+        .nodes
+        .iter()
+        .find(|n| n.metadata_id == "Beta")
+        .expect("the Beta node");
+    let subclass = graph
+        .edges
+        .iter()
+        .find(|e| e.source == beta.id && e.target == alpha.id)
+        .expect("Beta is-a Alpha is an edge");
+    assert_eq!(subclass.edge_type.as_deref(), Some("hierarchical"));
+    assert_eq!(
+        subclass.owl_property_iri.as_deref(),
+        Some("http://www.w3.org/2000/01/rdf-schema#subClassOf"),
+        "the predicate survives the store round trip"
+    );
+
+    let axioms = h.onto_repo.get_axioms().await.expect("axioms");
+    assert!(
+        axioms
+            .iter()
+            .any(|a| a.subject == "urn:ngm:class:beta" && a.object == "urn:ngm:class:alpha"),
+        "the assert graph carries Beta SubClassOf Alpha"
+    );
 }
 
 #[actix_rt::test]
@@ -264,4 +306,84 @@ async fn a_second_sync_skips_unchanged_pages() {
         1,
         "exactly the rewritten page re-processes"
     );
+}
+
+/// PRD-sovereign-corpus §5 acceptance 3, without a deploy: a full sync of the
+/// REAL vault through `LocalDirectorySource`, reporting the node, edge and
+/// ontology-class counts to set against the pre-change GitHub-ingest baseline
+/// (13,165 nodes / 153,960 edges / 4,167 classes).
+///
+/// Ignored by default — it reads `VAULT_ROOT` (plus the optional
+/// `VAULT_BASE_PATHS`) and walks ~11k pages. Run it with
+/// `VAULT_ROOT=/path/to/visionGraph cargo test --test corpus_local_sync \
+///  -- --ignored --nocapture real_vault`.
+#[actix_rt::test]
+#[ignore = "reads the real vault named by VAULT_ROOT"]
+async fn real_vault_ingest_counts() {
+    let source =
+        Arc::new(LocalDirectorySource::from_env().expect("VAULT_ROOT must name the vault"));
+    let dir = tempfile::tempdir().unwrap();
+    let onto_repo = Arc::new(
+        OxigraphOntologyRepository::open(&dir.path().join("oxigraph"))
+            .await
+            .expect("oxigraph store"),
+    );
+    let kg_repo = Arc::new(OxigraphGraphRepository::from_store(
+        onto_repo.store().clone(),
+    ));
+    onto_repo
+        .store()
+        .update(
+            "INSERT DATA { GRAPH <urn:ngm:graph:ontology:assert> { \
+             <urn:ngm:fixture:bootstrap> <http://www.w3.org/2000/01/rdf-schema#label> \"bootstrap\" } }",
+        )
+        .expect("bootstrap the assert graph");
+    let sync_db = Arc::new(
+        SqliteSettingsRepository::open(&dir.path().join("settings.sqlite3"))
+            .await
+            .expect("sqlite settings"),
+    );
+    let service = GitHubSyncService::new(
+        source,
+        kg_repo.clone() as Arc<dyn KnowledgeGraphRepository>,
+        onto_repo.clone(),
+        sync_db,
+    );
+
+    let stats = service
+        .sync_graphs_with(true)
+        .await
+        .expect("full sync of the real vault");
+    let graph = kg_repo.load_graph().await.expect("graph loads");
+    let classes = onto_repo.get_classes().await.expect("classes");
+
+    let mut by_type: std::collections::BTreeMap<String, usize> = Default::default();
+    for node in &graph.nodes {
+        *by_type
+            .entry(node.node_type.clone().unwrap_or_default())
+            .or_default() += 1;
+    }
+    let mut ontology_types: std::collections::BTreeMap<String, usize> = Default::default();
+    for node in &graph.nodes {
+        if let Some(t) = node.metadata.get("ontology_type") {
+            *ontology_types.entry(t.clone()).or_default() += 1;
+        }
+    }
+    let mut edge_types: std::collections::BTreeMap<String, usize> = Default::default();
+    for edge in &graph.edges {
+        *edge_types
+            .entry(edge.edge_type.clone().unwrap_or_default())
+            .or_default() += 1;
+    }
+
+    println!("REAL-VAULT total_files      = {}", stats.total_files);
+    println!("REAL-VAULT sync errors      = {:?}", stats.errors);
+    println!("REAL-VAULT nodes            = {}", graph.nodes.len());
+    println!("REAL-VAULT edges            = {}", graph.edges.len());
+    println!("REAL-VAULT ontology classes = {}", classes.len());
+    println!("REAL-VAULT node types       = {:?}", by_type);
+    println!("REAL-VAULT ontology_type    = {:?}", ontology_types);
+    println!("REAL-VAULT edge types       = {:?}", edge_types);
+
+    assert!(!graph.nodes.is_empty(), "the real vault ingests");
 }

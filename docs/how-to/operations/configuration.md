@@ -195,21 +195,21 @@ GITHUB-TOKEN=ghp-your-github-personal-access-token
 GITHUB-SYNC-INTERVAL=300
 ENABLE-GITHUB-WEBHOOKS=true
 
-# Vault configuration (env names retain their legacy LOGSEQ- prefix)
-LOGSEQ-GRAPH-PATH=/data/logseq
-LOGSEQ-SYNC-MODE=auto
-ENABLE-BLOCK-REFERENCES=true
-ENABLE-PAGE-PROPERTIES=true
+# Vault corpus source (ADR-2114 / ADR-2115: local by default, GitHub optional)
+CORPUS_SOURCE=local
+VAULT_ROOT=/vault/visionGraph
+VAULT_BASE_PATHS=knowledge/pages,working/pages
 ```
 
-Set up graph-specific visualisation in `data/settings.yaml`. The server-side key is still `logseq`
-(`src/config/visualisation.rs:512`, `data/settings.yaml:67`);
-[ADR-2041](../../adr/ADR-2041-graph-settings-key-knowledge.md) renames it to `knowledge` with
-`serde(alias = "logseq")`, so persisted files keep loading. The client already emits `knowledge`:
+Set up graph-specific visualisation in `data/settings.yaml`. The graph key is `knowledge`
+(`GraphsSettings::knowledge`, `crates/visionclaw-domain/src/config/visualisation.rs`;
+[ADR-2041](../../adr/ADR-2041-graph-settings-key-knowledge.md)). The former `logseq` key is
+rejected like any other unknown key since
+[ADR-2115](../../adr/ADR-2115-github-sync-is-optional-and-off.md) retired the read alias:
 ```yaml
 visualisation:
   graphs:
-    logseq:
+    knowledge:
       physics:
         enabled: true
         spring-strength: 0.005

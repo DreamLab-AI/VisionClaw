@@ -241,7 +241,6 @@ claude "Create a Grafana dashboard for agent telemetry metrics"
 | **ontology-core** | Knowledge graph operations and semantic relationship management | No |
 | **ontology-enrich** | Ontology enrichment and expansion | No |
 | **import-to-ontology** | Convert CSV/JSON/TypeScript interfaces to OWL ontology nodes | No |
-| **logseq-formatted** | Logseq knowledge base formatting and export | No |
 | **wardley-maps** | Wardley mapping for strategic analysis and architecture planning | No |
 | **docs-alignment** | Documentation verification against codebase — link checking, diagram verification | No |
 
@@ -328,7 +327,6 @@ These 13 skills are always available when the Agentic Workstation container is r
 | 10 | qgis | Engineering |
 | 11 | kicad | Engineering |
 | 12 | ngspice | Engineering |
-| 13 | logseq-formatted | Knowledge |
 
 ---
 

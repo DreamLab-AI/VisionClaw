@@ -367,22 +367,25 @@ pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Gr
         }
     }
 
-    // Existential restrictions for the high-confidence structural edges, where
-    // both endpoints are declared. Whelk uses these for subsumption.
+    // Existential restrictions for the relations the vocabulary flags
+    // `restriction: true` (an absent flag is false), where both endpoints are
+    // declared. Whelk uses these for subsumption. Vocabulary order fixes the
+    // blank-node order.
+    let restricted: Vec<(String, String)> = vocab
+        .restriction_relations()
+        .into_iter()
+        .map(|fm_key| {
+            let json_key = vocab.json_key(fm_key);
+            let property = relation_property(vocab, fm_key, &json_key);
+            (json_key, property)
+        })
+        .collect();
     for record in &records {
         if record.entity_type == EntityType::Individual {
             continue;
         }
         let uri = iri_to_uri(&record.iri);
-        for json_key in ["requires", "hasPart"] {
-            let property = format!(
-                "{VC}{}",
-                if json_key == "hasPart" {
-                    "hasPart"
-                } else {
-                    "requires"
-                }
-            );
+        for (json_key, property) in &restricted {
             for r in record.relation(json_key) {
                 let target = iri_to_uri(&r.iri);
                 if !declared.contains(&target) {
@@ -805,12 +808,75 @@ version: 1
 namespace: "urn:ngm:class:"
 relations:
   is-a:     { owl: "rdfs:subClassOf" }
-  requires: { owl: "vc:requires" }
-  has-part: { owl: "vc:hasPart" }
+  requires: { owl: "vc:requires", restriction: true }
+  has-part: { owl: "vc:hasPart", restriction: true }
   part-of:  { owl: "vc:isPartOf" }
 "#,
         )
         .unwrap()
+    }
+
+    /// The same relations with no `restriction` flag anywhere.
+    fn vocab_without_restrictions() -> Vocabulary {
+        Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:     { owl: "rdfs:subClassOf" }
+  requires: { owl: "vc:requires" }
+  has-part: { owl: "vc:hasPart" }
+  part-of:  { owl: "vc:isPartOf", restriction: true }
+"#,
+        )
+        .unwrap()
+    }
+
+    /// Every `owl:onProperty` a restriction in `g` points at.
+    fn restricted_properties(g: &Graph) -> BTreeSet<String> {
+        g.iter()
+            .filter(|(_, p, _)| *p == format!("{OWL}onProperty"))
+            .filter_map(|(_, _, o)| match o {
+                Term::Iri(i) => Some(i.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A pair of declared classes linked by `requires`, `has-part` and
+    /// `part-of`, so each relation has a candidate restriction.
+    fn linked_pair() -> crate::model::Corpus {
+        let target = || {
+            vec![Ref {
+                iri: "urn:ngm:class:b".into(),
+                label: "B".into(),
+            }]
+        };
+        let mut a = record("A");
+        a.relations.insert("requires", target());
+        a.relations.insert("hasPart", target());
+        a.relations.insert("partOf", target());
+        corpus_of(vec![a, record("B")])
+    }
+
+    #[test]
+    fn restrictions_follow_the_vocabulary_flag() {
+        let flagged = build_graph(&linked_pair(), &vocab(), true);
+        assert_eq!(
+            restricted_properties(&flagged),
+            BTreeSet::from([format!("{VC}hasPart"), format!("{VC}requires")]),
+            "exactly the relations flagged `restriction: true`"
+        );
+    }
+
+    #[test]
+    fn an_absent_restriction_flag_means_no_restriction() {
+        let g = build_graph(&linked_pair(), &vocab_without_restrictions(), true);
+        assert_eq!(
+            restricted_properties(&g),
+            BTreeSet::from([format!("{VC}isPartOf")]),
+            "requires/has-part lose their restriction once unflagged; part-of gains one"
+        );
     }
 
     fn record(id: &str) -> crate::model::ClassRecord {

@@ -22,7 +22,9 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
       logger.warn('updatePhysics called with invalid graphName, defaulting to "knowledge":', graphName);
       graphName = 'knowledge';
     }
-    // ADR-2041: accept the legacy `logseq` graph name for one release.
+    // Receive-side shim: a graph name read from persisted browser state may still
+    // be the pre-ADR-2041 `logseq`; map it so localStorage keeps working. The
+    // server rejects `logseq` since ADR-2115, so it is never sent.
     if (graphName === 'logseq') {
       graphName = 'knowledge';
     }
@@ -147,7 +149,9 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
       logger.warn('updateTweening called with invalid graphName, defaulting to "knowledge":', graphName);
       graphName = 'knowledge';
     }
-    // ADR-2041: accept the legacy `logseq` graph name for one release.
+    // Receive-side shim: a graph name read from persisted browser state may still
+    // be the pre-ADR-2041 `logseq`; map it so localStorage keeps working. The
+    // server rejects `logseq` since ADR-2115, so it is never sent.
     if (graphName === 'logseq') {
       graphName = 'knowledge';
     }

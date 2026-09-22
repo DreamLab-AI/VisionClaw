@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use log::{debug, info};
 use std::path::{Path, PathBuf};
 
+use vault_core::vocabulary::Vocabulary;
+
 use super::{CorpusPage, CorpusSource, SourceDescriptor};
 
 /// Environment variable naming the vault root on disk.
@@ -16,6 +18,8 @@ pub const VAULT_BASE_PATHS_ENV: &str = "VAULT_BASE_PATHS";
 /// Base paths used when [`VAULT_BASE_PATHS_ENV`] is unset — the dual-source
 /// split of the sovereign corpus.
 pub const DEFAULT_VAULT_BASE_PATHS: &str = "knowledge/pages,working/pages";
+/// The vocabulary's location relative to the vault root (contract C1).
+pub const VOCABULARY_PATH: &str = "ontology/vocabulary.yaml";
 
 /// Directory names never descended into: app config, backups, bins and the
 /// non-content namespaces the vault contract excludes from KG ingest
@@ -27,7 +31,6 @@ const SKIP_DIRS: &[&str] = &[
     ".recycle",
     ".git",
     "bak",
-    "logseq",
     "journals",
     "_misc",
 ];
@@ -236,6 +239,20 @@ impl CorpusSource for LocalDirectorySource {
         tokio::fs::read_to_string(&path)
             .await
             .map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+    }
+
+    /// `<root>/ontology/vocabulary.yaml`, parsed by `vault_core` — the same
+    /// vocabulary model `vault build` projects the corpus through.
+    async fn vocabulary(&self) -> Result<Option<Vocabulary>, String> {
+        let path = self.root.join(VOCABULARY_PATH);
+        let text = match tokio::fs::read_to_string(&path).await {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("Failed to read {}: {}", path.display(), e)),
+        };
+        Vocabulary::from_yaml_str(&text)
+            .map(Some)
+            .map_err(|e| format!("Invalid vocabulary {}: {}", path.display(), e))
     }
 }
 

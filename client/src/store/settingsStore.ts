@@ -50,7 +50,8 @@ export const useSettingsStore = create<SettingsState>()(
         // Deep-merge persisted partialSettings into the current state so that
         // server-fetched values take priority during initialize(), but any settings
         // that were only stored locally are restored from localStorage.
-        // ADR-2041: migrate a persisted `visualisation.graphs.logseq` object onto
+        // Receive-side migration (ADR-2041 rename; server alias retired by
+        // ADR-2115): map a persisted `visualisation.graphs.logseq` object onto
         // `visualisation.graphs.knowledge` before it reaches the store.
         const persistedSettings = migrateGraphSettingsKey(
           (persisted.partialSettings as import('./settings/settingsTypes').DeepPartial<import('../features/settings/config/settings').Settings>) || {},

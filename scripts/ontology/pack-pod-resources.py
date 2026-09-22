@@ -2,7 +2,7 @@
 """Pack the vault pipeline's build output into the pod's /public/ontology resources.
 
 Input:  <vault_build_dir> as written by `python -m pipeline.build` in the
-        jjohare/visionGraph checkout (data/ontology.ttl, api/schema/context.jsonld,
+        `vault build` output (data/ontology.ttl, context/v1.jsonld,
         api/search-index.json).
 Output: <out_dir>/ontology-ttl/{visionflow.ttl,visionflow.stats.json}
         <out_dir>/ontology-jsonld/{ontology.jsonld,context.jsonld,index.jsonld}
@@ -22,12 +22,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from rdflib import Graph
+from rdflib import Graph, URIRef
 from rdflib.namespace import OWL, RDF
 
 # Half of the 2026-09-06 vault (8,434 classes / 265,455 triples). A legitimate
 # corpus change that halves the ontology should move these numbers on purpose.
 MIN_CLASSES = 4000
+VC_NS = "https://narrativegoldmine.com/ns/v1#"
 MIN_TRIPLES = 100_000
 
 
@@ -42,7 +43,7 @@ def main() -> int:
     build = Path(sys.argv[1])
     out = Path(sys.argv[2])
     ttl_src = build / "data" / "ontology.ttl"
-    ctx_src = build / "api" / "schema" / "context.jsonld"
+    ctx_src = build / "context" / "v1.jsonld"  # `vault build` layout (ns/v2.jsonld is the same document)
     idx_src = build / "api" / "search-index.json"
     for p in (ttl_src, ctx_src, idx_src):
         if not p.is_file():
@@ -51,7 +52,13 @@ def main() -> int:
 
     g = Graph()
     g.parse(str(ttl_src), format="turtle")
-    classes = len(set(g.subjects(RDF.type, OWL.Class)))
+    # Count corpus classes only: the emitter also declares schema-support classes
+    # (skos:Concept, ngm:MaturityLevel) as owl:Class; a corpus class is one a page
+    # minted, and every page-minted class carries a vc:slug. The corpus-class count is the
+    # number Loom /health, VisionClaw /api/ontology/classes and `vault build --stats`
+    # report (PRD-sovereign-corpus acceptance 2), so the pod reports it too.
+    slugged = set(g.subjects(URIRef(VC_NS + "slug"), None))
+    classes = len({c for c in g.subjects(RDF.type, OWL.Class) if c in slugged})
     properties = len(
         set(g.subjects(RDF.type, OWL.ObjectProperty))
         | set(g.subjects(RDF.type, OWL.DatatypeProperty))

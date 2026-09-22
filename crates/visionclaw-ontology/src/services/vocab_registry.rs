@@ -30,9 +30,8 @@
 //! ADR-100: "PURL resolution adds a network dependency at ingest; mitigated
 //! by caching resolved vocabularies and treating resolution failure as
 //! non-fatal (vocab terms degrade to local mints with a logged warning)."
-//! This module owns the registry table only. The fetch+cache layer that the
-//! pipeline drives lives in [`crate::services::jsonld_ingest::vocab_resolver`]
-//! and is injectable so tests never touch the network.
+//! This module owns the registry table only; the fetch+cache layer that the
+//! json-ld pipeline drove was deleted with that pipeline.
 
 use std::collections::HashMap;
 

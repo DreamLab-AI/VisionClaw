@@ -1,7 +1,9 @@
-public:: true
-source-domain:: mv
+---
+public: true
+source-domain: mv
+---
 
 # A/B Testing
 
-A legacy namespace page stored under the `___` encoding. Its page name decodes
-to `A/B Testing`, and its node id is unchanged by the decode.
+A namespace page stored under the legacy `___` filename encoding. Its page
+name decodes to `A/B Testing`, and its node id is unchanged by the decode.

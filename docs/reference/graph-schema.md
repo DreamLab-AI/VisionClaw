@@ -87,9 +87,9 @@ pods, so a node round-trips between the triple store and a user's pod without re
 Only vault pages whose YAML frontmatter carries `public: true` — or a non-empty `owl-class`,
 which bypasses the publish gate — produce a page resource; the targets of their
 `[[wikilink]]` references are materialised as linked-page resources even when the target file
-lacks the gate. Legacy Logseq property lines (`public:: true`, `owl:class::`) are still accepted
-in a page's leading property block for the bounded window named in
-[ADR-2040](../adr/ADR-2040-obsidian-vault-frontmatter-gate.md); see
+lacks the gate. The Logseq property lines the bounded tolerance of
+[ADR-2040](../adr/ADR-2040-obsidian-vault-frontmatter-gate.md) once accepted (`public:: true`,
+`owl:class::`) are body text since ADR-2112 and carry no metadata; see
 [`VAULT-corpus-format.md`](../VAULT-corpus-format.md) §V4. Agent and bot definitions enter the same graph as agent resources.
 
 ### 3a. Node types

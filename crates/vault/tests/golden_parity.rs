@@ -449,6 +449,12 @@ fn the_context_ships_at_both_served_paths() {
     let v1 = read(&out.join("context/v1.jsonld"));
     let v2 = read(&out.join("ns/v2.jsonld"));
     assert_eq!(v1, v2, "the two paths serve the same document");
+    // The old site's pinned URL, required by the publish workflow.
+    let schema = read(&out.join("api/schema/context.jsonld"));
+    assert_eq!(
+        schema, v2,
+        "/api/schema/context.jsonld is the same document"
+    );
     // The served path is /ns/v2.jsonld; the property IRIs inside still cite
     // narrativegoldmine.com/ns/v1#.
     assert!(

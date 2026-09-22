@@ -13,7 +13,7 @@ on:
       - 'ontology/**'
       - 'public/ontology/**'
   repository_dispatch:
-    types: [logseq-sync]
+    types: [corpus-sync]
   workflow_dispatch:
     inputs:
       source_repo:
@@ -90,13 +90,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ env.ONTOLOGY_SOURCE_REPO }}
-          path: logseq-source
+          path: vault-source
           token: ${{ secrets.ONTOLOGY_SOURCE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Detect changes
         id: detect
         run: |
-          cd logseq-source
+          cd vault-source
 
           # Get current SHA
           SOURCE_SHA=$(git rev-parse HEAD)
@@ -123,15 +123,12 @@ jobs:
           restore-keys: |
             ontology-state-${{ runner.os }}-
 
-  # One converter, the vault's own. The two jobs this replaces (convert-ontology
-  # and convert-jsonld, an inline md_to_ttl.py plus an rdflib→pyld re-serialise)
-  # read Logseq `key:: value` lines and never looked at the fenced json-ld block
-  # that carries every page's identity and typing in the ADR-2040 vault format.
-  # Run 34045488066 was the first to get past the source preflight and shipped
-  # 380 untyped nodes and 0 owl:Class under an example.org vocabulary, with
-  # valid syntax and matching digests. jjohare/visionGraph's pipeline.build is
-  # what narrativegoldmine.com publishes from (8,4xx classes, ~265k triples,
-  # public-only, narrativegoldmine.com IRIs); the pod now holds exactly that.
+  # One converter, the vault's own: `vault build` (crates/vault in this
+  # repository, ADR-2113) — the same binary visionGraph's publish.yml uses for
+  # narrativegoldmine.com. It replaced the Python `pipeline.build` (deleted with
+  # the move to a frontmatter-only vault, ADR-2112), which in turn replaced two
+  # earlier jobs (convert-ontology, convert-jsonld) that read Logseq `key:: value`
+  # lines; run 34045488066 shipped 380 untyped nodes and 0 owl:Class from them.
   build-ontology:
     name: Build ontology (vault pipeline)
     runs-on: ubuntu-latest
@@ -151,8 +148,28 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ env.ONTOLOGY_SOURCE_REPO }}
-          path: logseq-source
+          path: vault-source
           token: ${{ secrets.ONTOLOGY_SOURCE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Cache the Rust build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: vault-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: vault-${{ runner.os }}-
+
+      - name: Build `vault`
+        run: cargo build --release --locked -p vault
+
+      - name: vault build (knowledge vault)
+        run: |
+          ./target/release/vault --repo vault-source build \
+            --vault knowledge \
+            --out "$GITHUB_WORKSPACE/output/vault"
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -160,15 +177,9 @@ jobs:
           python-version: '3.12'
           # no pip cache: setup-python keys it on a requirements file this repo does not have
 
-      # The vault pipeline's only third-party import; pinned floor matches
-      # visionGraph/.github/workflows/publish.yml.
+      # pack-pod-resources.py's only third-party import.
       - name: Install rdflib
         run: pip install "rdflib>=7.0.0"
-
-      - name: Run the vault's JSON-LD publishing pipeline
-        working-directory: logseq-source
-        run: |
-          python -m pipeline.build knowledge/pages "$GITHUB_WORKSPACE/output/vault"
 
       # Copies the public-only Turtle, compacts it to JSON-LD against the
       # vault's context, writes the LDP index manifest, and refuses to pack an

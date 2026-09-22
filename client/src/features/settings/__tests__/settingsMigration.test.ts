@@ -3,12 +3,12 @@
  * persisted `visualisation.graphs.logseq` object migrates onto it without loss
  * and the legacy key is dropped so the next save emits only `knowledge`.
  *
- * Delete this suite together with the alias (ADR-2041 review_trigger).
+ * The server alias was retired by ADR-2115 (superseding ADR-2041); this
+ * receive-side migration stays so existing users' localStorage keeps loading.
  */
 import { describe, it, expect } from 'vitest';
 import { migrateGraphSettingsKey } from '../../../store/settings/settingsHelpers';
 import { toVisualKey } from '../../../api/settings/schemaMappings';
-import { normaliseGraphType } from '../../graph/types/graphTypes';
 
 type Persisted = Record<string, any>;
 
@@ -83,18 +83,11 @@ describe('ADR-2041 settings migration: graphs.logseq → graphs.knowledge', () =
   });
 });
 
-describe('ADR-2041 read-only alias acceptance', () => {
+describe('receive-side mapping of persisted pre-ADR-2041 settings paths', () => {
   it('maps a legacy settings path to the same visual key as the new one', () => {
     expect(toVisualKey('visualisation.graphs.logseq.nodes.baseColor')).toBe('nodes.baseColor');
     expect(toVisualKey('visualisation.graphs.knowledge.nodes.baseColor')).toBe('nodes.baseColor');
     expect(toVisualKey('visualisation.graphs.logseq.edges.color')).toBe('edges.color');
     expect(toVisualKey('visualisation.graphs.logseq.labels.enableLabels')).toBe('labels.enableLabels');
-  });
-
-  it('normalises the legacy graph-type value on the receive side', () => {
-    expect(normaliseGraphType('logseq')).toBe('knowledge');
-    expect(normaliseGraphType('knowledge')).toBe('knowledge');
-    expect(normaliseGraphType('visionclaw')).toBe('visionclaw');
-    expect(normaliseGraphType(undefined)).toBe('knowledge');
   });
 });

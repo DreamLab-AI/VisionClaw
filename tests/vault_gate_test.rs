@@ -82,9 +82,7 @@ fn exp_v02_owl_class_ingests_and_types_the_node() {
     // The node the sync builds carries the IRI, which is what reclassifies it
     // into the ontology population downstream.
     let parser = KnowledgeGraphParser::new();
-    let graph = parser
-        .parse(&content, "obsidian-owl-class.md")
-        .expect("parses");
+    let graph = parser.parse(&content, "obsidian-owl-class.md");
     let node = &graph.nodes[0];
 
     assert_eq!(node.owl_class_iri.as_deref(), Some("mv:Foo"));
@@ -103,18 +101,19 @@ fn exp_v02_elevated_from_resolves_to_the_bare_page_name() {
 }
 
 // ---------------------------------------------------------------------------
-// EXP-V03 — bounded legacy tolerance
+// EXP-V03 — a `key:: value` line is body text (ADR-2112)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn exp_v03_legacy_leading_property_block_still_ingests() {
+fn exp_v03_a_leading_key_block_is_body_text_and_the_page_is_private() {
     let content = fixture("legacy-public.md");
+    assert!(content.starts_with("public:: true"));
     let meta = vault::parse(&content);
 
-    assert!(meta.public);
-    assert!(is_kg_included(&content));
-    assert_eq!(meta.format, PageFormat::LogseqLegacy);
-    assert_eq!(meta.aliases, vec!["Legacy Fixture"]);
+    assert!(!meta.public);
+    assert!(!is_kg_included(&content));
+    assert_eq!(meta.format, PageFormat::None);
+    assert!(meta.aliases.is_empty(), "`alias::` is not an alias");
 }
 
 #[test]
@@ -125,10 +124,7 @@ fn exp_v03_legacy_marker_after_a_heading_or_in_a_fence_does_not_ingest() {
         content.contains("public:: true"),
         "fixture must contain the marker it is not allowed to honour"
     );
-    assert!(
-        !is_kg_included(&content),
-        "ADR-2040 D3 narrowing: the marker counts only in the leading block"
-    );
+    assert!(!is_kg_included(&content));
     assert_eq!(vault::parse(&content).format, PageFormat::None);
 }
 
@@ -142,7 +138,7 @@ fn namespace_pages_ingest_and_keep_a_stable_identity() {
     assert!(is_kg_included(&content));
 
     let parser = KnowledgeGraphParser::new();
-    let graph = parser.parse(&content, "A___B Testing.md").expect("parses");
+    let graph = parser.parse(&content, "A___B Testing.md");
     let node = &graph.nodes[0];
 
     // The page name decodes to the `[[Ns/Title]]` form the corpus links with,
@@ -171,7 +167,7 @@ fn every_fixture_agrees_with_its_expected_verdict() {
         ("obsidian-public.md", true),
         ("obsidian-private.md", false),
         ("obsidian-owl-class.md", true),
-        ("legacy-public.md", true),
+        ("legacy-public.md", false),
         ("legacy-midbody-public.md", false),
         ("namespace/A___B Testing.md", true),
     ];
@@ -186,50 +182,29 @@ fn every_fixture_agrees_with_its_expected_verdict() {
 }
 
 // ---------------------------------------------------------------------------
-// The pre-existing Logseq corpus fixtures now exercise the legacy path
+// The Logseq-format data-model fixtures carry no metadata
 // ---------------------------------------------------------------------------
 
-/// `tests/fixtures/data-model/valid/pages/` was authored against the Logseq
-/// conventions and is deliberately left in that format: it is now the
-/// regression corpus for ADR-2040's bounded legacy tolerance, the counterpart
-/// to the Obsidian-form fixtures in `tests/fixtures/vault/`.
+/// `tests/fixtures/data-model/valid/pages/` was authored in the Logseq
+/// property-line format for the json-ld ingest tests. Under ADR-2112 none of
+/// those pages carries metadata the gate can read: every one is private.
 #[test]
-fn legacy_data_model_fixtures_still_gate_as_authored() {
+fn logseq_format_data_model_fixtures_are_private() {
     let dir =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-model/valid/pages");
-
-    // 001-004 declare `public:: true` in their leading property block.
     for name in [
         "001-minimal-page.md",
         "002-page-with-tags-and-links.md",
         "003-page-with-wikilinks.md",
         "004-stub-page.md",
+        "005-page-with-embedded-ontology-block.md",
     ] {
         let content = std::fs::read_to_string(dir.join(name)).expect("fixture readable");
+        assert!(content.contains(":: "), "{name} is a `key::` fixture");
         let meta = vault::parse(&content);
-        assert!(meta.is_kg_included(), "{name} must still ingest");
-        assert_eq!(meta.format, PageFormat::LogseqLegacy, "{name}");
-        assert!(meta.title.is_some(), "{name} carries a leading `title::`");
+        assert!(!meta.is_kg_included(), "{name} must not ingest");
+        assert_eq!(meta.format, PageFormat::None, "{name}");
     }
-
-    // 005 is `public:: false` and its ontology data is a json-ld FENCE, not an
-    // `owl:class::` property. The gate therefore reports private — which is
-    // correct and not a regression: a page carrying json-ld is claimed by
-    // `parse_canonical_entity` in the sync and never reaches this gate, so
-    // ADR-08 D3 ("the host page is private, the OntologyClass still surfaces")
-    // is preserved by the canonical path rather than by the publish gate.
-    let content =
-        std::fs::read_to_string(dir.join("005-page-with-embedded-ontology-block.md")).unwrap();
-    let meta = vault::parse(&content);
-    assert!(!meta.public);
-    assert_eq!(
-        meta.owl_class, None,
-        "the class lives in a json-ld fence, not a leading `owl:class::` line"
-    );
-    assert!(
-        content.contains("```json-ld"),
-        "routed by the canonical path"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -263,9 +238,7 @@ fn a_bare_link_to_a_subfolder_page_joins_the_real_node() {
     let index = indexed_vault();
     let content = page("# AI Daily Brief\n\nCovered in [[black-friday-gpt]].");
 
-    let graph = parser
-        .parse_with_index(&content, "AI Daily Brief.md", Some(&index))
-        .expect("parses");
+    let graph = parser.parse_with_index(&content, "AI Daily Brief.md", Some(&index));
 
     assert_eq!(graph.edges.len(), 1);
     assert_eq!(
@@ -286,9 +259,7 @@ fn a_legacy_underscore_link_resolves_to_the_converted_folder_page() {
     let index = indexed_vault();
     let content = page("# Some Page\n\nSee [[ETSI_Domain_Governance___Economy]].");
 
-    let graph = parser
-        .parse_with_index(&content, "Some Page.md", Some(&index))
-        .expect("parses");
+    let graph = parser.parse_with_index(&content, "Some Page.md", Some(&index));
 
     assert_eq!(
         graph.edges[0].target,
@@ -302,13 +273,11 @@ fn an_ambiguous_basename_prefers_the_linking_pages_own_folder() {
     let index = indexed_vault();
     let content = page("# Interop\n\nSee [[Security]].");
 
-    let graph = parser
-        .parse_with_index(
-            &content,
-            "ETSI_Domain_Infrastructure/Interop.md",
-            Some(&index),
-        )
-        .expect("parses");
+    let graph = parser.parse_with_index(
+        &content,
+        "ETSI_Domain_Infrastructure/Interop.md",
+        Some(&index),
+    );
 
     assert_eq!(
         graph.edges[0].target,
@@ -323,9 +292,7 @@ fn an_unknown_target_still_links_to_a_stub_id() {
     let index = indexed_vault();
     let content = page("# Orphan\n\nSee [[No Such Page]].");
 
-    let graph = parser
-        .parse_with_index(&content, "Orphan.md", Some(&index))
-        .expect("parses");
+    let graph = parser.parse_with_index(&content, "Orphan.md", Some(&index));
 
     assert_eq!(graph.edges.len(), 1, "the dangling edge is still emitted");
     assert_eq!(
@@ -344,13 +311,11 @@ fn a_subfolder_pages_identity_label_and_source_file_agree() {
     let content =
         "---\npublic: true\ntitle: podcast-evidence/black-friday-gpt\n---\n\n# Black Friday GPT\n";
 
-    let graph = parser
-        .parse_with_index(
-            content,
-            "podcast-evidence/black-friday-gpt.md",
-            Some(&index),
-        )
-        .expect("parses");
+    let graph = parser.parse_with_index(
+        content,
+        "podcast-evidence/black-friday-gpt.md",
+        Some(&index),
+    );
     let node = &graph.nodes[0];
 
     assert_eq!(node.metadata_id, "podcast-evidence/black-friday-gpt");
@@ -373,9 +338,7 @@ fn a_genuine_display_title_still_becomes_the_label() {
     let parser = KnowledgeGraphParser::new();
     let content = "---\npublic: true\ntitle: Black Friday GPT\n---\n\n# Body\n";
 
-    let graph = parser
-        .parse_with_index(content, "podcast-evidence/black-friday-gpt.md", None)
-        .expect("parses");
+    let graph = parser.parse_with_index(content, "podcast-evidence/black-friday-gpt.md", None);
 
     assert_eq!(graph.nodes[0].label, "Black Friday GPT");
     assert_eq!(

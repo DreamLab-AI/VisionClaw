@@ -1,6 +1,6 @@
 ---
 title: Ontology Pipeline
-description: How VisionClaw turns vault Markdown into a reasoned, validated, provenance-bearing RDF knowledge graph — GitHub sync, OWL extraction, the horned-owl assembler/converter, Whelk-rs OWL 2 EL reasoning, embedded Oxigraph storage, SHACL-lite and JSON-LD validation, and PROV-O provenance.
+description: How VisionClaw turns vault Markdown into a reasoned, validated, provenance-bearing RDF knowledge graph — corpus sync, vocabulary-driven OWL projection, Whelk-rs OWL 2 EL reasoning, embedded Oxigraph storage, SHACL-lite and JSON-LD validation, and PROV-O provenance.
 category: explanation
 tags: [ontology, owl, whelk, oxigraph, sparql, shacl, prov-o, reasoning, pipeline]
 ---
@@ -17,17 +17,15 @@ The graph store is an **embedded Oxigraph** RDF quad-store (in-process, RocksDB-
 
 ## 1. Pipeline at a glance
 
-Two ingestion fronts feed the same store. Vault pages carry OWL axioms either as **OWL Functional Syntax** (fenced code or an `owl:functional-syntax::` block) or as **JSON-LD** fenced blocks. Both land as RDF quads in Oxigraph; Whelk-rs then reasons over the asserted graph and materialises inferred axioms into a separate named graph.
+The corpus is frontmatter-only (ADR-2112): a page's ontology identity is its OKF `type`, `resource`, `title` and `slug` properties, and its relations are the list-of-wikilink keys that `ontology/vocabulary.yaml` declares. Every page is parsed once, by the same parser `vault build` uses (`vault_core::page::parse_page`, ADR-2113), so the graph and the published ontology read the corpus through one implementation. Neither `key:: value` lines nor `json-ld` fences carry meaning.
 
 ```mermaid
 flowchart LR
-    GH["GitHub vault repo<br/>Markdown pages"]
+    SRC["CorpusSource<br/>mounted vault (default) or GitHub"]
 
-    subgraph Extract["Extraction (visionclaw-ontology)"]
-        LP["page parser<br/>LogseqPage: title, properties, owl_blocks"]
-        CONV["converter<br/>logseq_properties_to_owl"]
-        ASM["assembler<br/>OntologyAssembler"]
-        HORN["horned-owl<br/>OFN parse + validate"]
+    subgraph Parse["Parse (src/services/page_parser.rs)"]
+        PP["parse_page<br/>→ vault_core::page::parse_page"]
+        PROJ["project_ontology<br/>vocabulary.yaml relations → OwlClass + OwlAxiom"]
     end
 
     subgraph Reason["Reasoning (visionclaw-adapters)"]
@@ -40,57 +38,32 @@ flowchart LR
         KNOW["graph:knowledge<br/>KGNode + KGEdge"]
     end
 
-    GH --> LP
-    LP -->|"owl_blocks"| ASM
-    LP -->|"properties"| CONV
-    CONV -->|"OWL axioms"| ASM
-    ASM -->|"OWL Functional Syntax"| HORN
-    HORN -->|"classes + axioms"| WHELK
-    WHELK -->|"asserted"| ASSERT
+    SRC --> PP
+    PP -->|"type: Class/Property/Individual<br/>under knowledge/"| PROJ
+    PROJ -->|"classes + SubClassOf"| ASSERT
+    ASSERT --> WHELK
     WHELK -->|"inferred"| INFER
-    LP -->|"page + wikilink triples"| KNOW
+    PP -->|"public: true pages + links"| KNOW
     ASSERT -->|"GPU constraints"| GPU["Force / Ontology<br/>constraint actors"]
 ```
 
-The JSON-LD front (modern path) runs `extractor -> expander -> validator -> SHACL-lite gate -> triple_emitter`, producing quads directly without the OFN assembler. Both fronts share the Oxigraph store, the trust layer (Section 5), and the query surface (Section 7).
+The SHACL-lite gate (`visionclaw_ontology::services::jsonld_ingest::shacl_gate`) remains on the governed write door; it does not read the corpus. All writers share the Oxigraph store, the trust layer (Section 5), and the query surface (Section 7).
 
 ---
 
-## 2. Stage 1 — GitHub vault ingestion
+## 2. Stage 1 — corpus ingestion
 
-`GitHubSyncService::sync_graphs()` is the entry point. It pulls Markdown from the configured repository path (`GITHUB_BASE_PATH`, default `knowledge/pages/`) in batches, and skips unchanged files by SHA-1 comparison. `FORCE_FULL_SYNC=1` bypasses the incremental filter and reprocesses every file; reset it to `0` afterwards.
+`GitHubSyncService::sync_graphs()` (`src/services/github_sync_service.rs`; the type keeps its historical name) is the entry point. It lists pages through the `CorpusSource` port — a mounted vault directory by default, the GitHub repository when selected (ADR-2114) — under `VAULT_BASE_PATHS` (local; `GITHUB_BASE_PATHS` for GitHub; default `knowledge/pages,working/pages`), in batches, and skips unchanged pages by the source's change marker. `FORCE_FULL_SYNC=1` bypasses the incremental filter and reprocesses every file; reset it to `0` afterwards.
 
-Each page is classified by content. A page whose frontmatter carries `public: true` becomes a knowledge-graph page node and its `[[wikilink]]` targets become edges in `urn:ngm:graph:knowledge`; the legacy `public:: true` property line is still honoured in a page's leading property block for the window named in [ADR-2040](../adr/ADR-2040-obsidian-vault-frontmatter-gate.md). **Independently of the publish gate**, every page is scanned for ontology content — OWL Functional Syntax blocks and `### OntologyBlock` property sections — so private notes still contribute axioms.
-
-`parse_logseq_file` (`crates/visionclaw-ontology/src/ontology/parser/parser.rs`) produces a `LogseqPage`. The type and function names are legacy identifiers retained from the Logseq era; the format they parse is the vault format:
-
-```rust
-pub struct LogseqPage {
-    pub title: String,
-    pub properties: HashMap<String, Vec<String>>, // term-id, owl:class, has-part, ...
-    pub owl_blocks: Vec<String>,                    // raw OWL Functional Syntax
-}
-```
-
-`extract_owl_blocks` recognises three shapes: a ```` ```clojure ```` fence, a bare fence whose first line is `owl:functional-syntax:: |`, and an inline `owl:functional-syntax:: |` block. A block is treated as OWL only if it contains a `Declaration(`, `SubClassOf(`, `EquivalentClasses(`, `DisjointClasses(`, `ObjectProperty(`, or `DataProperty(` construct.
+Each page is parsed once by `page_parser::parse_page`. A page whose frontmatter carries `public: true` becomes a knowledge-graph page node and its links (the curated `links` list, else the body's wikilinks) become edges in `urn:ngm:graph:knowledge`. A page without frontmatter is private, fail-closed. **Independently of the publish gate**, a page under `knowledge/` whose `type` is `Class`, `Property` or `Individual` is an ontology page, so private ontology pages still contribute axioms.
 
 ---
 
-## 3. Stage 2 — OWL extraction (converter and assembler)
+## 3. Stage 2 — OWL projection
 
-Two small, pure modules turn a `LogseqPage` into a single OWL Functional Syntax document that `horned-owl` can parse.
+`page_parser::project_ontology` turns the ontology pages into an `OntologyProjection` — one `OwlClass` per page, keyed by its `resource`, plus the asserted axioms — through the vocabulary. A relation target resolves to the `resource` of the page it names (by page id, title or slug, case-insensitively), otherwise to `namespace + slug(target)`, the same long-tail IRI `vault build` mints. The taxonomy relation (the key whose property is `rdfs:subClassOf`) fills `parent_classes` and yields the `SubClassOf` axioms; the other vocabulary relations fill the class's relationship lists. The projection is loaded into `urn:ngm:graph:ontology:assert` (`load_ontology`, ADR-2064), rebuilt from the corpus on each full sync.
 
-**`converter`** (`ontology/parser/converter.rs`) — `logseq_properties_to_owl` walks the page's typed properties and emits axioms. Relationship properties (`has-part`, `is-part-of`, `requires`, `depends-on`, `enables`, …) become existential restrictions:
-
-```text
-SubClassOf(mv:Avatar ObjectSomeValuesFrom(mv:hasPart mv:VisualMesh))
-```
-
-Property names are kebab-to-camel normalised (`has-part` → `hasPart`); wikilink values (`[[Visual Mesh]]`) are slugged to IRIs (`VisualMesh`). Data properties such as `maturity` and `term-id` become `ClassAssertion(DataHasValue(...))`. Bookkeeping keys (`owl:*`, `term-*`, `definition`, `source`, `preferred-term`, `synonyms`) are skipped — they are metadata, not axioms.
-
-**`assembler`** (`ontology/parser/assembler.rs`) — `OntologyAssembler` joins the page's raw `owl_blocks` (the header/`Ontology(...)` envelope) with the converter's generated axioms into one document. `to_string()` re-indents each axiom block inside the `Ontology(...)` parentheses; `validate()` round-trips the result through `horned_owl::io::ofn::reader::read` into a `SetOntology<Arc<str>>`. A parse failure here aborts the page before any reasoning or storage, so malformed OWL never reaches the store.
-
-> The assembler validates **syntax** only. Logical consistency (satisfiability, `owl:Nothing` collapse) is the reasoner's job in Stage 3.
+> The published ontology (`ontology.ttl`) is emitted by `vault build` (`crates/vault/src/build/turtle.rs`) from the same parsed pages; the two projections agree by construction.
 
 ---
 
@@ -216,7 +189,7 @@ The ontology subsystem is the `visionclaw-ontology` crate, extracted under the h
 |--------|----------------|
 | `inference` | OWL 2 EL++ parser, inference cache, optimisation |
 | `reasoning` | custom Whelk-backed reasoner |
-| `ontology` | page parser, converter, assembler |
+| `ontology` | actor and physics modules, OWL validator service (page parsing moved to `vault_core`, ADR-2113) |
 | `services/jsonld_ingest` | extractor → expander → validator → SHACL gate → triple emitter |
 | `services/jsonld_validator` | EL profile, SHACL-lite, IRI/class checks |
 | `validation`, `types`, `utils` | actor-state validation, MCP tool surface, time helpers |

@@ -44,10 +44,16 @@ fn exp_v02_owl_class_bypasses_the_publish_gate() {
 }
 
 #[test]
-fn exp_v03_bounded_legacy_tolerance() {
-    let meta = vault::parse(&fixture("legacy-public.md"));
-    assert!(meta.is_kg_included());
-    assert_eq!(meta.format, PageFormat::LogseqLegacy);
+fn exp_v03_key_lines_are_body_text() {
+    let leading = fixture("legacy-public.md");
+    assert!(leading.starts_with("public:: true"));
+    let meta = vault::parse(&leading);
+    assert!(
+        !meta.is_kg_included(),
+        "a leading `key::` block is not metadata"
+    );
+    assert_eq!(meta.format, PageFormat::None);
+    assert!(meta.aliases.is_empty());
 
     let midbody = fixture("legacy-midbody-public.md");
     assert!(midbody.contains("public:: true"));
@@ -73,7 +79,7 @@ fn every_fixture_agrees_with_its_expected_verdict() {
         ("obsidian-public.md", true),
         ("obsidian-private.md", false),
         ("obsidian-owl-class.md", true),
-        ("legacy-public.md", true),
+        ("legacy-public.md", false),
         ("legacy-midbody-public.md", false),
         ("namespace/A___B Testing.md", true),
     ];

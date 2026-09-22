@@ -701,7 +701,7 @@ same typed paths (the phantom reads are gone).
 
 | Look-and-feel control | Real settings path | Notes |
 |----------|---------|-------|
-| Show agents in graph | `visualisation.graphs.knowledge.nodes.nodeTypeVisibility.agent` | GraphManager's gate (Filtering & Quality group); the sole visibility authority. Per [ADR-2041](../adr/ADR-2041-graph-settings-key-knowledge.md) the graph key is `knowledge`; the legacy `logseq` segment is accepted on the receive side for one release. |
+| Show agents in graph | `visualisation.graphs.knowledge.nodes.nodeTypeVisibility.agent` | GraphManager's gate (Filtering & Quality group); the sole visibility authority. The graph key is `knowledge` ([ADR-2041](../adr/ADR-2041-graph-settings-key-knowledge.md)); since [ADR-2115](../adr/ADR-2115-github-sync-is-optional-and-off.md) the server rejects the retired `logseq` segment. |
 | Agent node colour | `visualisation.graphs.visionclaw.nodes.baseColor` | Agents group → Agent Nodes |
 | Agent node size | `visualisation.graphs.visionclaw.nodes.nodeSize` | Agents group → Agent Nodes |
 | Agent node opacity / metalness / roughness | `visualisation.graphs.visionclaw.nodes.{opacity,metalness,roughness}` | Agents group → Agent Nodes |

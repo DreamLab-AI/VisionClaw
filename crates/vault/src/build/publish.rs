@@ -98,7 +98,7 @@ pub struct VaultPublished {
 /// A file staged under `publish/`.
 #[derive(Debug, Clone)]
 pub struct StagedPage {
-    /// Path within the bundle, e.g. `publish/knowledge/Knowledge Graph.md`.
+    /// Path within the bundle, e.g. `publish/pages/Knowledge Graph.md`.
     pub path: String,
     /// The file's bytes.
     pub content: String,
@@ -113,17 +113,42 @@ pub struct Staging {
     pub per_vault: std::collections::BTreeMap<String, VaultPublished>,
 }
 
-/// `true` when the page is eligible for the publish staging.
+/// Folders held back from publication at **any** depth, whatever the pages in
+/// them declare.
 ///
-/// Two conditions, and the order matters for the count: the page must be inside
-/// the publish scope at all (an `_misc/` page never publishes, whatever its
-/// flag says), and it must declare `public: true`.
-fn eligible(page: &Page) -> bool {
-    !is_unpublished(
-        page.rel_path
-            .strip_prefix("pages")
-            .unwrap_or(&page.rel_path),
-    ) && page.is_public()
+/// `_misc` is the projection's own rule ([`is_unpublished`], top level only).
+/// `misc` is the owner's 2026-09-02 scratch-tray decision, which the migration
+/// moved to `working/pages/misc/`; the published site holds it back with the
+/// `**/misc/**` Quartz ignore pattern and the site's `stage-content.sh` with the
+/// same list. Staging a page Quartz then ignores would make the site's
+/// completeness check (`check-urls.sh` [0/7]: staged == built) fail, so the
+/// staging applies the same rule rather than relying on the renderer alone.
+const HELD_BACK_DIRS: &[&str] = &["_misc", "misc"];
+
+/// `true` when a page path (relative to its vault's `pages/`) is outside the
+/// publish scope.
+fn held_back(rel: &Path) -> bool {
+    if is_unpublished(rel) {
+        return true;
+    }
+    let mut dirs: Vec<_> = rel.iter().collect();
+    dirs.pop();
+    dirs.iter()
+        .any(|d| HELD_BACK_DIRS.contains(&d.to_string_lossy().as_ref()))
+}
+
+/// The publish-tree directory a vault's pages land in.
+///
+/// This is the published site's URL contract: knowledge pages are Quartz slug
+/// `pages/<Title>` (the URLs the site has always had) and working pages are
+/// `working/<subdir>/<Title>`, keeping their subdirectories. The two vaults
+/// stay in separate namespaces because hundreds of filenames collide between
+/// them.
+fn tree_dir(kind: vault_core::page::VaultKind) -> &'static str {
+    match kind {
+        vault_core::page::VaultKind::Knowledge => "pages",
+        vault_core::page::VaultKind::Working => "working",
+    }
 }
 
 /// Render a page for publication.
@@ -158,16 +183,17 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
         // `journals/` is not published: a daily note is working material, and
         // nothing in the estate consumes it. It is still scanned by
         // `vault validate`.
+        let tree = tree_dir(vault.kind);
         for page in &vault.pages {
             let rel = page
                 .rel_path
                 .strip_prefix("pages")
                 .unwrap_or(&page.rel_path);
-            if is_unpublished(rel) {
+            if held_back(rel) {
                 continue;
             }
             counts.considered += 1;
-            if !eligible(page) {
+            if !page.is_public() {
                 continue;
             }
             counts.published += 1;
@@ -180,7 +206,9 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
                 });
             }
             staging.files.push(StagedPage {
-                path: format!("publish/{name}/{}.md", page.id),
+                // `id` is the path under `pages/` without `.md`, so a
+                // working subdirectory survives into the slug.
+                path: format!("publish/{tree}/{}.md", page.id),
                 content: render(page),
             });
         }
@@ -190,7 +218,8 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
         return Err(SecretsFound { findings });
     }
     staging.files.push(StagedPage {
-        path: "publish/knowledge/index.md".to_owned(),
+        // The site's home page: `<publish>/index.md` is Quartz slug `index`.
+        path: "publish/index.md".to_owned(),
         content: index_page(&staging),
     });
     Ok(staging)
@@ -209,6 +238,9 @@ fn index_page(staging: &Staging) -> String {
     let _ = writeln!(out, "okf_version: \"0.2\"");
     let _ = writeln!(out, "type: Index");
     let _ = writeln!(out, "title: Published Corpus");
+    // The home page is itself published: Quartz's ExplicitPublish filter drops
+    // anything without `public: true`, which would leave the site with no `/`.
+    let _ = writeln!(out, "public: true");
     let _ = writeln!(out, "published_count: {total}");
     let _ = writeln!(out, "by_vault:");
     for (vault, counts) in &staging.per_vault {
@@ -228,8 +260,14 @@ fn index_page(staging: &Staging) -> String {
     for (vault, counts) in &staging.per_vault {
         let _ = writeln!(
             out,
-            "- `{vault}/`: {} of {} page(s)",
-            counts.published, counts.considered
+            "- `{vault}/`: {} of {} page(s), under `/{}/`",
+            counts.published,
+            counts.considered,
+            if vault == "knowledge" {
+                "pages"
+            } else {
+                vault.as_str()
+            }
         );
     }
     out
@@ -250,7 +288,8 @@ pub fn write_to(staging: &Staging, dir: &Path) -> std::io::Result<()> {
         std::fs::remove_dir_all(dir)?;
     }
     for file in &staging.files {
-        // Paths are `publish/<vault>/<id>.md`; `dir` replaces the `publish/`.
+        // Paths are `publish/{pages,working}/<id>.md` and `publish/index.md`;
+        // `dir` replaces the `publish/`.
         let rel = file.path.strip_prefix("publish/").unwrap_or(&file.path);
         let target = dir.join(rel);
         if let Some(parent) = target.parent() {
@@ -330,17 +369,14 @@ mod tests {
         let staging = stage(&[&knowledge, &working]).unwrap();
         let paths: Vec<&str> = staging.files.iter().map(|f| f.path.as_str()).collect();
         assert!(
-            paths.contains(&"publish/knowledge/Public Class.md"),
+            paths.contains(&"publish/pages/Public Class.md"),
             "{paths:?}"
         );
         assert!(
             paths.contains(&"publish/working/Public Note.md"),
             "{paths:?}"
         );
-        assert!(
-            !paths.contains(&"publish/knowledge/Held Class.md"),
-            "{paths:?}"
-        );
+        assert!(!paths.contains(&"publish/pages/Held Class.md"), "{paths:?}");
         assert!(
             !paths.contains(&"publish/working/Private Note.md"),
             "{paths:?}"
@@ -379,6 +415,33 @@ mod tests {
         // Not published, and not counted as considered either: it is outside
         // the scope, not a page that chose to stay private.
         assert_eq!(staging.per_vault["knowledge"].considered, 0);
+    }
+
+    #[test]
+    fn a_misc_dir_at_any_depth_is_held_back_and_subdirectories_survive() {
+        let working = vault(
+            VaultKind::Working,
+            vec![
+                (
+                    "misc/Scratch",
+                    "---\ntype: Note\npublic: true\n---\nProse.\n",
+                ),
+                (
+                    "podcast-evidence/Episode",
+                    "---\ntype: Note\npublic: true\n---\nProse.\n",
+                ),
+            ],
+        );
+        let staging = stage(&[&working]).unwrap();
+        let paths: Vec<&str> = staging.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "publish/working/podcast-evidence/Episode.md",
+                "publish/index.md"
+            ]
+        );
+        assert_eq!(staging.per_vault["working"].considered, 1);
     }
 
     #[test]
@@ -428,7 +491,7 @@ mod tests {
         let index = staging
             .files
             .iter()
-            .find(|f| f.path == "publish/knowledge/index.md")
+            .find(|f| f.path == "publish/index.md")
             .expect("an index is always written");
         assert!(
             index.content.contains("published_count: 1"),
@@ -436,5 +499,10 @@ mod tests {
             index.content
         );
         assert!(index.content.contains("considered: 1"), "{}", index.content);
+        assert!(
+            index.content.contains("\npublic: true\n"),
+            "{}",
+            index.content
+        );
     }
 }

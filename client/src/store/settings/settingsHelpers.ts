@@ -360,12 +360,13 @@ export function collectPathsFromSettings(obj: unknown, prefix: string = ''): Set
 }
 
 /**
- * ADR-2041 migration: persisted settings written before the rename carry
- * `visualisation.graphs.logseq`. Map that object onto `visualisation.graphs.knowledge`
- * when `knowledge` is absent, and drop the legacy key so the next save emits only
- * `knowledge`. Returns the same reference when there is nothing to migrate.
- *
- * Removal is tracked by ADR-2041's review_trigger.
+ * Receive-side migration of persisted browser state: settings written before
+ * the ADR-2041 rename carry `visualisation.graphs.logseq`. Map that object onto
+ * `visualisation.graphs.knowledge` when `knowledge` is absent, and drop the
+ * legacy key so the next save emits only `knowledge` — the server rejects
+ * `logseq` since ADR-2115 (which superseded ADR-2041). Returns the same
+ * reference when there is nothing to migrate. Kept so existing users'
+ * localStorage keeps loading.
  */
 export function migrateGraphSettingsKey<T>(persisted: T): T {
   const root = persisted as Record<string, unknown> | null | undefined;

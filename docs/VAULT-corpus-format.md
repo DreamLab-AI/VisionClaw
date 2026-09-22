@@ -6,7 +6,7 @@ verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
 ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116]
-agentbox_ledger: [ADR-2106, ADR-2107, ADR-2108]
+agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109]
 ---
 
 # VAULT — authored corpus format

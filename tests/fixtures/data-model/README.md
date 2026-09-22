@@ -5,13 +5,15 @@ to the canonical VisionClaw source-data schema (ADR-08, ADR-11). These
 fixtures are the model corpus consumed by the parser, the ontology
 adapter, the graph adapter, and the parity test harness.
 
-> **Format note.** These fixtures are still written in the legacy Logseq
-> property style (`public:: true`), which the readers accept only inside a
-> page's leading property block during the tolerance window in
-> [ADR-2040](../../../docs/adr/ADR-2040-obsidian-vault-frontmatter-gate.md).
-> Vault-format counterparts (YAML frontmatter `public: true` / `owl-class`,
-> per [`VAULT-corpus-format.md`](../../../docs/VAULT-corpus-format.md)) are owed
-> alongside the `PageMeta` parser — see `C-14` in `docs/TODO-unified.md`.
+> **Format note.** The `valid/pages/` fixtures predate the vault and were
+> authored in the retired Logseq property style (`public:: true`). The bounded
+> tolerance [ADR-2040](../../../docs/adr/ADR-2040-obsidian-vault-frontmatter-gate.md)
+> D3 allowed for that style ended under ADR-2112: a `key:: value` line is now
+> body text, so these pages carry no metadata and every one is private
+> (asserted by `tests/vault_gate_test.rs`). The live corpus format is YAML
+> frontmatter (`public: true` / `owl-class`, per
+> [`VAULT-corpus-format.md`](../../../docs/VAULT-corpus-format.md)); the
+> fixtures remain useful for their embedded JSON-LD blocks.
 
 ## Domain
 
@@ -84,7 +86,7 @@ These are required by the validator. A block without either is invalid.
 
 ```
 valid/
-├── pages/        Page-vocabulary fixtures (the Logseq surface)
+├── pages/        Page-vocabulary fixtures (pre-vault property style)
 ├── ontology/     OntologyClass, OntologyProperty, Axiom fixtures
 ├── agents/       AgentTelemetry fixtures
 ├── bridges/      Cross-graph bridge records (default named graph)

@@ -360,8 +360,7 @@ impl FileService {
                         .await
                     {
                         Ok(content) => {
-                            // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`,
-                            // or a leading-block Logseq property.
+                            // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`.
                             let is_public = Self::page_is_kg_included(&content);
 
                             if !is_public {
@@ -755,51 +754,32 @@ impl FileService {
     /// Used to surface ontology-tagged pages as ontology_node nodes so the
     /// dual-graph X-axis separation control has two populations to separate.
     ///
-    /// Frontmatter `owl-class` (ADR-2040 §V2) is authoritative. This is node
-    /// *typing*, not the publish gate, so it also accepts the deeply-indented
-    /// `- ### OntologyBlock` form that pre-ADR-2040 writers emitted — narrowing
-    /// it to the leading block would untype thousands of existing pages.
+    /// Frontmatter `owl-class` (ADR-2040 §V2) is the only carrier: the corpus
+    /// is frontmatter-only (ADR-2112), so an `owl:class::` body line is text.
     fn extract_owl_class_iri(content: &str) -> Option<String> {
-        if let Some(iri) = vault::parse(content).owl_class {
-            return Some(iri);
-        }
-        vault::legacy_properties_anywhere(content)
-            .into_iter()
-            .filter(|(key, value)| key == "owl:class" && !value.is_empty())
-            .map(|(_, value)| value)
-            .next()
+        vault::parse(content).owl_class
     }
 
     /// The ADR-2040 §V4 inclusion gate: frontmatter `public: true`, or a
     /// non-empty `owl-class` (formal data ingests unconditionally).
     ///
     /// Delegates to `visionclaw_domain::vault` — the single parsing entry
-    /// point. This is a deliberate narrowing of the former `is_public_file`,
-    /// which matched `public:: true` ANYWHERE in the file and so leaked pages
-    /// that merely quoted the marker in prose or a code fence. Logseq property
-    /// lines now count only in the leading property block.
+    /// point. Only frontmatter counts: a `public:: true` line anywhere in the
+    /// body is text, so a page that merely quotes the marker cannot leak.
     fn page_is_kg_included(content: &str) -> bool {
         vault::parse(content).is_kg_included()
     }
 
     /// Extract ontology data from markdown content.
     ///
-    /// Routes through `visionclaw_domain::vault` (ADR-2040 D4): frontmatter —
-    /// or, under the bounded legacy tolerance, the leading Logseq property
-    /// block — supplies the §V2 keys, and `legacy_properties_anywhere` fills
-    /// the remaining ontology fields from the indented `### OntologyBlock`
-    /// lists older writers emitted. This is metadata enrichment, NOT the
-    /// inclusion gate; the gate is `page_is_kg_included` and stays narrow.
+    /// Routes through `visionclaw_domain::vault` (ADR-2040 D4): the page's
+    /// frontmatter supplies every field. This is metadata enrichment, NOT the
+    /// inclusion gate; the gate is `page_is_kg_included`.
     fn extract_ontology_data(content: &str) -> OntologyData {
         let mut data = OntologyData::default();
         let meta = vault::parse(content);
 
-        // Body-level properties first, then the frontmatter/leading-block keys
-        // so the authoritative carrier wins on any conflict.
-        let mut properties = vault::legacy_properties_anywhere(content);
-        properties.extend(meta.extra.iter().map(|(k, v)| (k.clone(), v.clone())));
-
-        for (key, value) in &properties {
+        for (key, value) in &meta.extra {
             let value = value.as_str();
             match key.as_str() {
                 "term-id" => data.term_id = Some(value.to_string()),
@@ -829,9 +809,8 @@ impl FileService {
                         .collect();
                 }
                 "is-subclass-of" => {
-                    // Accumulates across repeated legacy `is-subclass-of::`
-                    // lines AND across a single comma-separated frontmatter
-                    // value — the vault writers emit `"[[A]], [[B]]"`.
+                    // A frontmatter list arrives comma-joined in `extra`
+                    // (`"[[A]], [[B]]"`), so split it back into parents.
                     data.is_subclass_of.extend(
                         value
                             .split(',')
@@ -948,8 +927,7 @@ impl FileService {
         );
         match content_api.fetch_file_content(download_url).await {
             Ok(content) => {
-                // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`,
-                // or a leading-block Logseq property.
+                // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`.
                 let is_public = Self::page_is_kg_included(&content);
                 if !is_public {
                     info!(
@@ -1075,8 +1053,7 @@ impl FileService {
 
                     match content_api.fetch_file_content(&file_extended_meta.download_url).await {
                         Ok(content) => {
-                            // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`,
-                            // or a leading-block Logseq property.
+                            // ADR-2040 §V4 gate: frontmatter `public`/`owl-class`.
                             let is_public = Self::page_is_kg_included(&content);
 
                             if !is_public {
@@ -1225,7 +1202,7 @@ impl FileService {
             node.size = Some(meta.node_size as f32);
 
             // Detect ontology classification from file content.
-            // Files declaring `owl:class:: <iri>` in their OntologyBlock are surfaced
+            // Files declaring a frontmatter `owl-class: <iri>` are surfaced
             // as ontology nodes so the dual-graph (knowledge ↔ ontology) X-axis
             // separation control has something to separate.
             let owl_class_iri = Self::extract_owl_class_iri(&content);

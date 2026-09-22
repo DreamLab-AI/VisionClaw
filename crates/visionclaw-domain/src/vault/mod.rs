@@ -5,10 +5,9 @@
 //!
 //! The authored corpus is an [Obsidian](https://obsidian.md) vault: plain
 //! markdown whose metadata carrier is a YAML frontmatter block. This module
-//! owns *all* knowledge of that carrier — and of the bounded Logseq
-//! `key:: value` tolerance that survives until ADR-2040's `review_trigger`.
-//! Every reader in the "Readers and writers" table of the governing document
-//! calls [`parse`]; none of them re-implements a line scan.
+//! owns *all* knowledge of that carrier. Every reader in the "Readers and
+//! writers" table of the governing document calls [`parse`]; none of them
+//! re-implements a line scan.
 //!
 //! # The inclusion gate (§V4)
 //!
@@ -18,16 +17,13 @@
 //! fail-closed, and anchors on parsed metadata, never on the file path. See
 //! [`PageMeta::is_kg_included`].
 //!
-//! # Bounded legacy tolerance (§V4, ADR-2040 D3)
+//! # Frontmatter is the only carrier (ADR-2112)
 //!
-//! Logseq property lines are accepted **only** in the *leading property block*:
-//! the run of contiguous `key:: value` lines (optionally `- ` prefixed) at the
-//! very top of the file, terminated by the first blank line, heading, code
-//! fence, or non-property line. A `public:: true` anywhere else — mid-body, or
-//! quoted inside a code fence — no longer counts. This is a deliberate
-//! narrowing of the pre-ADR-2040 `FileService::is_public_file`, which matched
-//! the property anywhere in the file and therefore leaked private pages that
-//! merely *quoted* the marker.
+//! The corpus is frontmatter-only. The bounded Logseq tolerance ADR-2040 D3
+//! allowed — a leading block of `key:: value` lines — reached its
+//! `review_trigger` when the last such page was migrated, and is gone: a
+//! `key:: value` line anywhere in a page, `public:: true` included, is body
+//! text and carries no metadata. A page without frontmatter is private.
 
 pub mod link;
 
@@ -37,19 +33,12 @@ pub use link::{
 
 use std::collections::BTreeMap;
 
-/// Which metadata carrier supplied a page's properties.
-///
-/// Readers log this so the operator can watch the Logseq tail shrink as the
-/// corpus converts; when no page reports [`PageFormat::LogseqLegacy`] the
-/// tolerance in [`parse`] can be removed (ADR-2040 `review_trigger`).
+/// Whether a page carried authored metadata.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PageFormat {
     /// A YAML frontmatter block delimited by `---` lines opened the file (§V2).
     Obsidian,
-    /// No frontmatter, but a leading Logseq `key:: value` property block
-    /// carried at least one recognised key.
-    LogseqLegacy,
-    /// Neither carrier is present — the page has no authored metadata.
+    /// No valid frontmatter — the page has no authored metadata.
     #[default]
     None,
 }
@@ -80,7 +69,7 @@ pub struct PageMeta {
     pub public_declared_false: bool,
     /// `source-domain` — the domain prefix (ai/bc/mv/rb/tc/ngm).
     pub source_domain: Option<String>,
-    /// `aliases` (Obsidian) / `alias::` (Logseq). Empty when absent.
+    /// `aliases` (or the singular `alias`). Empty when absent.
     pub aliases: Vec<String>,
     /// `title` — display title when it differs from the filename.
     pub title: Option<String>,
@@ -88,9 +77,9 @@ pub struct PageMeta {
     /// as the bare page name: the `[[…]]` brackets and any `|alias` part are
     /// stripped, so `"[[Working Page|shown]]"` yields `Working Page`.
     pub elevated_from: Option<String>,
-    /// `tags` (Obsidian and Logseq). Empty when absent.
+    /// `tags`. Empty when absent.
     pub tags: Vec<String>,
-    /// Every other **scalar** key in the carrier, preserved verbatim (§V2 "any
+    /// Every other **scalar** key in the frontmatter, preserved verbatim (§V2 "any
     /// other `key`"). Ordered so callers and tests see a stable iteration
     /// order. A sequence-valued key is comma-joined here *and* kept losslessly
     /// in [`PageMeta::extra_lists`]; the renderer prefers the list.
@@ -281,12 +270,11 @@ fn string_sequence(items: &[String]) -> serde_yaml::Value {
 
 /// Parse a page's metadata from its full markdown content.
 ///
-/// Frontmatter wins when present: it must start at the **very first bytes** of
-/// the file (`---\n` … `\n---\n`), as Obsidian requires. Otherwise the leading
-/// Logseq property block is scanned under the bounded tolerance described in
-/// the module docs. A page with neither carrier yields
-/// `PageMeta { format: PageFormat::None, .. }` — every field at its default,
-/// which the gate reads as private.
+/// The frontmatter must start at the **very first bytes** of the file
+/// (`---\n` … `\n---\n`), as Obsidian requires. A page without it — or whose
+/// block is not a YAML mapping — yields
+/// `PageMeta { format: PageFormat::None, .. }`: every field at its default,
+/// which the gate reads as private. `key:: value` lines are body text.
 pub fn parse(content: &str) -> PageMeta {
     split(content).0
 }
@@ -295,20 +283,17 @@ pub fn parse(content: &str) -> PageMeta {
 /// metadata carrier.
 ///
 /// The body is everything after the closing `---` of a frontmatter block, or
-/// after the last line of a leading Logseq property block. Writers use this to
-/// edit a page's metadata without disturbing its prose and JSON-LD fences —
-/// and to convert a legacy page's property block to frontmatter on write
-/// (§V5).
+/// the whole page when there is none. Writers use this to edit a page's
+/// metadata without disturbing its prose (§V5).
 pub fn split(content: &str) -> (PageMeta, &str) {
     if let Some((yaml, body)) = split_frontmatter(content) {
         if let Some(meta) = parse_frontmatter(yaml) {
             return (meta, body);
         }
-        // Delimiters present but the block is not a YAML mapping. Fall through
-        // to the legacy scan, which sees `---` as its first line and therefore
-        // finds no property block — the page stays private (fail-closed).
+        // Delimiters present but the block is not a YAML mapping: no metadata,
+        // so the page stays private (fail-closed).
     }
-    parse_leading_property_block(content)
+    (PageMeta::default(), content)
 }
 
 /// Render a complete vault page: a §V2 frontmatter block followed by `body`.
@@ -335,27 +320,6 @@ pub fn render_page(meta: &PageMeta, body: &str) -> String {
         }
     }
     out
-}
-
-/// Scan **every** `key:: value` line in a page, not just the leading block.
-///
-/// This is *not* the gate and must never be used as one — it exists solely so
-/// that ontology-enrichment readers can keep harvesting the deeply-indented
-/// `- ### OntologyBlock` property lists that pre-ADR-2040 writers emitted
-/// (`term-id::`, `quality-score::`, `is-subclass-of::`, …). Those blocks sit
-/// under a heading, so [`parse`] correctly refuses to see them, and narrowing
-/// the enrichment path too would silently drop metadata from ~8.6k existing
-/// pages. Pairs are returned in document order, with repeats preserved:
-/// `is-subclass-of::` legitimately appears several times on one page, so a map
-/// would silently drop all but the last parent.
-///
-/// Retire this alongside the [`PageFormat::LogseqLegacy`] tolerance.
-pub fn legacy_properties_anywhere(content: &str) -> Vec<(String, String)> {
-    content
-        .lines()
-        .filter_map(split_property_line)
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect()
 }
 
 /// Derive a page's vault identity from a vault-relative path (§V1).
@@ -615,108 +579,8 @@ fn yaml_scalar(value: &serde_yaml::Value) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy leading property block (§V4, bounded tolerance)
-// ---------------------------------------------------------------------------
-
-fn parse_leading_property_block(content: &str) -> (PageMeta, &str) {
-    let mut meta = PageMeta::default();
-    let mut matched_known_key = false;
-    let mut body_offset = 0usize;
-
-    for line in content.split_inclusive('\n') {
-        let trimmed = line.trim();
-
-        // The block is contiguous and leading: a blank line, a heading, or a
-        // code fence terminates it, and so does any line that is not a
-        // `key:: value` property.
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```") {
-            break;
-        }
-        let Some((key, value)) = split_property_line(line) else {
-            break;
-        };
-        body_offset += line.len();
-
-        match key {
-            "public" | "public-access" => {
-                if value.eq_ignore_ascii_case("true") {
-                    meta.public = true;
-                } else if value.trim().eq_ignore_ascii_case("false") {
-                    // ADR-2014: an explicit false, not merely an absent key.
-                    meta.public_declared_false = true;
-                }
-                matched_known_key = true;
-            }
-            "owl:class" => {
-                // ADR-2040: the legacy carrier is text-only, so there is no
-                // YAML type to check — but the IRI grammar still applies, and
-                // a quoted or bare `true` is still not a class marker.
-                match non_empty(value) {
-                    Some(v) if is_class_marker(&v) => meta.owl_class = Some(v),
-                    Some(v) => meta.owl_class_rejected = Some(v),
-                    None => {}
-                }
-                matched_known_key = true;
-            }
-            "source-domain" => {
-                meta.source_domain = non_empty(value);
-                matched_known_key = true;
-            }
-            "title" => {
-                meta.title = non_empty(value);
-                matched_known_key = true;
-            }
-            "elevatedFrom" => {
-                meta.elevated_from = non_empty(value).as_deref().map(strip_wikilink);
-                matched_known_key = true;
-            }
-            "alias" | "aliases" => {
-                meta.aliases = split_comma_list(value);
-                matched_known_key = true;
-            }
-            "tags" => {
-                meta.tags = split_comma_list(value);
-                matched_known_key = true;
-            }
-            other => {
-                meta.extra.insert(other.to_string(), value.to_string());
-            }
-        }
-    }
-
-    meta.format = if matched_known_key {
-        PageFormat::LogseqLegacy
-    } else {
-        PageFormat::None
-    };
-    (meta, &content[body_offset..])
-}
-
-/// Split a Logseq property line into its trimmed key and value.
-///
-/// Accepts an optional `- ` outliner prefix and any leading indentation. The
-/// key must be non-empty and must not itself contain a `:` — that keeps a
-/// prose line such as `see also:: nothing` out of the block. The one dotted
-/// key §V2 defines, `owl:class`, is unaffected: its single colons never form
-/// the `::` separator, so the first `::` still lands after the whole key.
-fn split_property_line(line: &str) -> Option<(&str, &str)> {
-    let body = line.trim().trim_start_matches("- ").trim_start();
-    let (key, value) = body.split_once("::")?;
-    let key = key.trim();
-    if key.is_empty() || key.contains(char::is_whitespace) {
-        return None;
-    }
-    Some((key, value.trim()))
-}
-
-// ---------------------------------------------------------------------------
 // Shared value helpers
 // ---------------------------------------------------------------------------
-
-fn non_empty(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
 
 /// Strip the `[[…]]` wrapper and any `|alias` suffix from a wikilink value,
 /// leaving the bare page name. Values that are not wikilinks pass through.
@@ -798,62 +662,42 @@ mod tests {
         assert!(!meta.is_kg_included());
     }
 
-    // -- EXP-V03: bounded legacy tolerance -----------------------------------
+    // -- EXP-V03 (ADR-2112): a `key:: value` line is body text -----------------
 
     #[test]
-    fn exp_v03_legacy_leading_public_is_included() {
-        let meta = parse("public:: true\nsource-domain:: mv\n\n# Page\n\nBody.\n");
-        assert!(meta.public);
-        assert!(meta.is_kg_included());
-        assert_eq!(meta.source_domain.as_deref(), Some("mv"));
-        assert_eq!(meta.format, PageFormat::LogseqLegacy);
-    }
-
-    #[test]
-    fn exp_v03_legacy_public_after_a_heading_is_excluded() {
-        let meta = parse("# Page\n\npublic:: true\n\nBody.\n");
-        assert!(!meta.public);
+    fn exp_v03_a_leading_logseq_block_is_body_text_not_metadata() {
+        let page = "public:: true\nsource-domain:: mv\nowl:class:: mv:Foo\n\n# Page\n\nBody.\n";
+        let (meta, body) = split(page);
+        assert!(!meta.public, "`public:: true` is not the publish gate");
+        assert_eq!(meta.owl_class, None, "`owl:class::` is not a class marker");
+        assert_eq!(meta.source_domain, None);
+        assert!(meta.extra.is_empty());
         assert!(!meta.is_kg_included());
         assert_eq!(meta.format, PageFormat::None);
+        assert_eq!(body, page, "the whole page is body");
     }
 
     #[test]
-    fn exp_v03_legacy_public_inside_a_code_fence_after_a_heading_is_excluded() {
-        let meta = parse("# Example\n\nTo publish a page, write:\n\n```\npublic:: true\n```\n");
+    fn exp_v03_public_marker_mid_body_or_in_a_fence_is_excluded() {
+        for page in [
+            "# Page\n\npublic:: true\n\nBody.\n",
+            "# Example\n\nTo publish a page, write:\n\n```\npublic:: true\n```\n",
+            "Some prose first.\n\npublic:: true\n",
+            "- public:: true\n- owl:class:: mv:Foo\n\n# Page\n",
+        ] {
+            let meta = parse(page);
+            assert!(!meta.is_kg_included(), "{page:?}");
+            assert_eq!(meta.format, PageFormat::None, "{page:?}");
+        }
+    }
+
+    #[test]
+    fn a_key_line_below_frontmatter_does_not_override_it() {
+        let meta = parse("---\npublic: false\n---\n\npublic:: true\nowl:class:: mv:Foo\n");
         assert!(!meta.public);
+        assert!(meta.public_declared_false);
+        assert_eq!(meta.owl_class, None);
         assert!(!meta.is_kg_included());
-        assert_eq!(meta.format, PageFormat::None);
-    }
-
-    #[test]
-    fn legacy_public_mid_body_is_excluded() {
-        // The pre-ADR-2040 `is_public_file` matched this anywhere in the file
-        // and leaked the page. The narrowing is deliberate (ADR-2040 D3).
-        let meta = parse("Some prose first.\n\npublic:: true\n");
-        assert!(!meta.is_kg_included());
-    }
-
-    #[test]
-    fn legacy_public_access_alias_counts_as_public() {
-        let meta = parse("public-access:: true\n\n# Page\n");
-        assert!(meta.public);
-        assert!(meta.is_kg_included());
-        assert_eq!(meta.format, PageFormat::LogseqLegacy);
-    }
-
-    #[test]
-    fn legacy_bullet_prefixed_properties_are_accepted() {
-        let meta = parse("- public:: true\n- owl:class:: mv:Foo\n\n# Page\n");
-        assert!(meta.public);
-        assert_eq!(meta.owl_class.as_deref(), Some("mv:Foo"));
-        assert_eq!(meta.format, PageFormat::LogseqLegacy);
-    }
-
-    #[test]
-    fn legacy_block_stops_at_the_first_non_property_line() {
-        let meta = parse("public:: true\nprose interrupts here\nowl:class:: mv:Foo\n");
-        assert!(meta.public);
-        assert_eq!(meta.owl_class, None, "the block ended before this line");
     }
 
     // -- `public` must be a real YAML boolean (§V2) --------------------------
@@ -881,12 +725,6 @@ mod tests {
         assert_eq!(meta.elevated_from.as_deref(), Some("Working Page"));
     }
 
-    #[test]
-    fn legacy_elevated_from_strips_brackets_and_alias() {
-        let meta = parse("public:: true\nelevatedFrom:: [[Working Page|alias]]\n");
-        assert_eq!(meta.elevated_from.as_deref(), Some("Working Page"));
-    }
-
     // -- aliases / tags: list or comma-separated scalar ----------------------
 
     #[test]
@@ -905,27 +743,7 @@ mod tests {
         assert_eq!(meta.tags, vec!["alpha", "beta"]);
     }
 
-    #[test]
-    fn legacy_alias_and_tags_are_comma_separated_and_unwrap_wikilinks() {
-        let meta = parse("public:: true\nalias:: [[One]], [[Two]]\ntags:: #alpha, beta\n");
-        assert_eq!(meta.aliases, vec!["One", "Two"]);
-        assert_eq!(meta.tags, vec!["alpha", "beta"]);
-    }
-
     // -- extra ---------------------------------------------------------------
-
-    #[test]
-    fn unrecognised_keys_are_preserved_verbatim_in_extra() {
-        let meta = parse("public:: true\nterm-id:: mv-0042\nmaturity:: draft\n");
-        assert_eq!(
-            meta.extra.get("term-id").map(String::as_str),
-            Some("mv-0042")
-        );
-        assert_eq!(
-            meta.extra.get("maturity").map(String::as_str),
-            Some("draft")
-        );
-    }
 
     #[test]
     fn frontmatter_unrecognised_keys_are_preserved_in_extra() {
@@ -967,36 +785,6 @@ mod tests {
         let meta = parse("---\r\npublic: true\r\n---\r\n\r\n# Page\r\n");
         assert!(meta.public);
         assert_eq!(meta.format, PageFormat::Obsidian);
-    }
-
-    // -- legacy_properties_anywhere (enrichment only, never the gate) --------
-
-    #[test]
-    fn legacy_properties_anywhere_sees_indented_ontology_blocks() {
-        let page =
-            "- Foo\n  - ### OntologyBlock\n    - term-id:: mv-0001\n    - owl:class:: mv:Foo\n";
-        let props = legacy_properties_anywhere(page);
-        assert_eq!(
-            props,
-            vec![
-                ("term-id".to_string(), "mv-0001".to_string()),
-                ("owl:class".to_string(), "mv:Foo".to_string()),
-            ]
-        );
-        // …while the gate correctly refuses to see them.
-        assert!(!parse(page).is_kg_included());
-    }
-
-    #[test]
-    fn legacy_properties_anywhere_preserves_repeated_keys() {
-        let page = "- Foo\n  - ### OntologyBlock\n    - is-subclass-of:: [[A]]\n    - is-subclass-of:: [[B]]\n";
-        let props = legacy_properties_anywhere(page);
-        let values: Vec<&str> = props
-            .iter()
-            .filter(|(k, _)| k == "is-subclass-of")
-            .map(|(_, v)| v.as_str())
-            .collect();
-        assert_eq!(values, vec!["[[A]]", "[[B]]"]);
     }
 
     // -- the writer half (§V5, Invariant 1) ----------------------------------
@@ -1117,34 +905,10 @@ mod tests {
     }
 
     #[test]
-    fn split_returns_the_body_after_a_legacy_property_block() {
-        let (meta, body) = split("public:: true\nowl:class:: mv:Foo\n\n# Page\n\nBody.\n");
-        assert!(meta.public);
-        assert_eq!(body, "\n# Page\n\nBody.\n");
-    }
-
-    #[test]
     fn split_returns_the_whole_page_when_there_is_no_carrier() {
         let (meta, body) = split("# Page\n\nBody.\n");
         assert_eq!(meta.format, PageFormat::None);
         assert_eq!(body, "# Page\n\nBody.\n");
-    }
-
-    #[test]
-    fn a_legacy_page_converts_to_frontmatter_on_write() {
-        // §V5: a writer that must touch a legacy page converts its leading
-        // property block. The gate verdict must survive the conversion.
-        let legacy = "public:: true\nowl:class:: mv:Foo\nalias:: [[Bar]]\n\n# Foo\n\nProse.\n";
-        let (meta, body) = split(legacy);
-        let converted = render_page(&meta, body);
-        assert!(converted.starts_with("---\n"));
-        assert!(!converted.contains(":: "), "no `key:: value` line survives");
-        let reparsed = parse(&converted);
-        assert_eq!(reparsed.format, PageFormat::Obsidian);
-        assert!(reparsed.is_kg_included());
-        assert_eq!(reparsed.owl_class.as_deref(), Some("mv:Foo"));
-        assert_eq!(reparsed.aliases, vec!["Bar"]);
-        assert!(converted.ends_with("# Foo\n\nProse.\n"));
     }
 
     // -- page_name_from_path (§V1) -------------------------------------------
@@ -1426,43 +1190,21 @@ mod tests {
         assert!(class_only.is_kg_included() && !class_only.is_publishable());
     }
 
-    // ---- ADR-2040: the legacy carrier obeys the same policy -----------------
-
-    /// The legacy leading-property block is text-only, so there is no YAML type
-    /// to check — but the IRI grammar still applies there.
+    /// Whatever a page's `key::` lines say, frontmatter is the only carrier:
+    /// a page with class-marker lines and no frontmatter stays private.
     #[test]
-    fn legacy_property_block_applies_the_same_class_policy() {
-        let good = parse("public:: false\nowl:class:: mv:Foo\n\nbody\n");
-        assert_eq!(good.owl_class.as_deref(), Some("mv:Foo"));
-        assert!(good.is_kg_included());
-        assert!(good.public_declared_false);
-        assert_eq!(
-            good.inclusion_reason(),
-            InclusionReason::FormalClassDespitePublicFalse
-        );
-
-        let bad = parse("public:: false\nowl:class:: true\n\nbody\n");
-        assert_eq!(bad.owl_class, None, "a bare 'true' is not a class IRI");
-        assert_eq!(bad.owl_class_rejected.as_deref(), Some("true"));
-        assert!(!bad.is_kg_included());
-    }
-
-    /// Legacy `public-access:: true` still admits, and does not set the
-    /// explicit-false flag.
-    #[test]
-    fn legacy_public_access_still_admits() {
-        let meta = parse("public-access:: true\n\nbody\n");
-        assert!(meta.public);
-        assert!(!meta.public_declared_false);
-        assert!(meta.is_publishable());
-    }
-
-    /// A private legacy page with no markers stays out.
-    #[test]
-    fn legacy_private_page_is_excluded() {
-        let meta = parse("title:: Private Notes\n\nbody\n");
-        assert!(!meta.is_kg_included());
-        assert_eq!(meta.inclusion_reason(), InclusionReason::Excluded);
+    fn key_lines_never_open_the_inclusion_gate() {
+        for page in [
+            "public:: false\nowl:class:: mv:Foo\n\nbody\n",
+            "public-access:: true\n\nbody\n",
+            "title:: Private Notes\n\nbody\n",
+        ] {
+            let meta = parse(page);
+            assert_eq!(meta.owl_class, None, "{page:?}");
+            assert_eq!(meta.title, None, "{page:?}");
+            assert!(!meta.is_kg_included(), "{page:?}");
+            assert_eq!(meta.inclusion_reason(), InclusionReason::Excluded);
+        }
     }
 
     /// A rejected marker survives a render/parse round trip as *absent*, so a

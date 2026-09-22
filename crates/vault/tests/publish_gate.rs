@@ -102,10 +102,10 @@ fn the_fixture_builds_and_stages_its_public_pages() {
     assert!(counts.published > 0, "{counts:?}");
     assert!(counts.published <= counts.considered, "{counts:?}");
     assert!(
-        out.join("publish/knowledge/index.md").is_file(),
+        out.join("publish/index.md").is_file(),
         "the OKF §8 index is always written"
     );
-    let index = std::fs::read_to_string(out.join("publish/knowledge/index.md")).unwrap();
+    let index = std::fs::read_to_string(out.join("publish/index.md")).unwrap();
     assert!(
         index.contains(&format!("published_count: {}", counts.published)),
         "{index}"
@@ -216,5 +216,40 @@ fn publish_out_is_counted_and_lands_outside_the_bundle() {
         !out.join("publish").exists(),
         "publish/ must not be in the bundle"
     );
-    assert!(published.join("knowledge/index.md").is_file());
+    assert!(published.join("index.md").is_file());
+}
+
+/// The `--publish-out` tree is the published site's URL contract (C3):
+/// `pages/**` for knowledge (Quartz slug `pages/<Title>`), `working/**` keeping
+/// subdirectories, and the OKF home page at the root. A `misc/` scratch page is
+/// held back however it is flagged.
+#[test]
+fn publish_out_matches_the_site_url_contract() {
+    let (scratch, repo) = migrated_repo();
+    let public_title = a_public_page(&repo)
+        .file_name()
+        .expect("a file name")
+        .to_owned();
+    let note = "---\ntype: Note\nstatus: draft\npublic: true\n---\nA public working note.\n";
+    for rel in ["podcast-evidence/Episode One.md", "misc/Scratch Note.md"] {
+        let path = repo.join("working/pages").join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, note).unwrap();
+    }
+    let out = scratch.path().join("out");
+    let published = scratch.path().join("published");
+    let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
+    let mut opts = options(&repo, &out);
+    opts.publish_out = Some(published.clone());
+    opts.with_working_publish = true;
+    build::run(&opts, &vocab).expect("builds");
+
+    assert!(published.join("pages").join(&public_title).is_file());
+    assert!(published
+        .join("working/podcast-evidence/Episode One.md")
+        .is_file());
+    assert!(published.join("index.md").is_file());
+    assert!(!published.join("knowledge").exists());
+    assert!(!published.join("working/misc").exists());
+    assert!(!published.join("working/Episode One.md").exists());
 }

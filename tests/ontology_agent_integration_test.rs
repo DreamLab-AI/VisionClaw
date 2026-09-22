@@ -6,7 +6,7 @@
 //!   - Enriched note reading with axioms and related notes
 //!   - Cypher query validation against OWL schema
 //!   - Proposal creation with Whelk consistency checks
-//!   - Logseq markdown generation with OntologyBlock headers
+//!   - Vault markdown generation with YAML frontmatter (ADR-2040 §V5)
 //!   - Amendment workflow for existing notes
 
 use std::collections::HashMap;

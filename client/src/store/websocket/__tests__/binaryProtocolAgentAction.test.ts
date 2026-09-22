@@ -39,7 +39,7 @@ vi.mock('../../settingsStore', () => ({
 
 vi.mock('../../../features/graph/managers/graphDataManager', () => ({
   graphDataManager: {
-    getGraphType: () => 'logseq',
+    getGraphType: () => 'knowledge',
     updateNodePositions: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -79,7 +79,7 @@ vi.mock('../../../services/BinaryWebSocketProtocol', () => ({
     CONTROL_BITS: 0x30,
     BROADCAST_ACK: 0x34,
   },
-  GraphTypeFlag: { LOGSEQ: 0, VISIONFLOW: 1 },
+  GraphTypeFlag: { KNOWLEDGE_GRAPH: 0, ONTOLOGY: 1 },
   binaryProtocol: {
     parseHeader: vi.fn(),
     extractPayload: vi.fn(),

@@ -73,7 +73,7 @@ pub struct CachedOntologyInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy Ontology Actor Messages (Logseq-based)
+// Legacy Ontology Actor Messages (validation/report surface)
 // ---------------------------------------------------------------------------
 
 #[derive(Message)]

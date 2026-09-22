@@ -57,7 +57,7 @@ pub struct EnrichedNote {
     pub iri: String,
     pub term_id: String,
     pub preferred_term: String,
-    /// Full Logseq markdown content
+    /// Full page markdown (YAML frontmatter + body)
     pub markdown_content: String,
     pub ontology_metadata: OntologyMetadata,
     pub whelk_axioms: Vec<InferredAxiomSummary>,

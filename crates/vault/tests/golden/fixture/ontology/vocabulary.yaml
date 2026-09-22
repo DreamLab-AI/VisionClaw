@@ -17,9 +17,11 @@ working_types: [Note, Episode, Transcript, Draft Concept, Journal, Canvas]
 relations:
   is-a:            { owl: "rdfs:subClassOf", characteristics: [transitive] }
   instance-of:     { owl: "rdf:type" }
-  has-part:        { owl: "vc:hasPart",        inverse: part-of,  json_key: hasPart }
+  # coordinator 2026-09-22: made explicit when the emitter began honouring the flag
+  has-part:        { owl: "vc:hasPart",        inverse: part-of,  json_key: hasPart, restriction: true }
   part-of:         { owl: "vc:isPartOf",       inverse: has-part, json_key: partOf }
-  requires:        { owl: "vc:requires",       characteristics: [transitive], sub_property_of: depends-on }
+  # coordinator 2026-09-22: made explicit when the emitter began honouring the flag
+  requires:        { owl: "vc:requires",       characteristics: [transitive], sub_property_of: depends-on, restriction: true }
   enables:         { owl: "vc:enables",        json_key: enables }
   depends-on:      { owl: "vc:dependsOn",      characteristics: [transitive], json_key: dependsOn }
   implements:      { owl: "vc:implements",     sub_property_of: uses }

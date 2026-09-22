@@ -65,7 +65,8 @@ impl KnowledgeGraphParser {
         )
     }
 
-    pub fn parse(&self, content: &str, filename: &str) -> Result<GraphData, String> {
+    /// Parse a page with no vault index: link text is hashed as written.
+    pub fn parse(&self, content: &str, filename: &str) -> GraphData {
         self.parse_with_index(content, filename, None)
     }
 
@@ -85,7 +86,7 @@ impl KnowledgeGraphParser {
         content: &str,
         filename: &str,
         index: Option<&VaultIndex>,
-    ) -> Result<GraphData, String> {
+    ) -> GraphData {
         info!("Parsing knowledge graph file: {}", filename);
 
         // Page identity is the vault-relative path under `pages/` without the
@@ -116,7 +117,7 @@ impl KnowledgeGraphParser {
             );
         }
 
-        let metadata = self.extract_metadata_store(content);
+        let metadata = MetadataStore::new();
 
         debug!(
             "Parsed {}: {} nodes, {} wikilink edges",
@@ -125,19 +126,18 @@ impl KnowledgeGraphParser {
             wikilink_edges.len(),
         );
 
-        Ok(GraphData {
+        GraphData {
             nodes,
             edges: wikilink_edges,
             metadata,
             id_to_metadata,
-        })
+        }
     }
 
     /// Create a page node, preserving existing position if available.
     ///
     /// All authored metadata comes from `visionclaw_domain::vault` (ADR-2040
-    /// D4) — frontmatter, or the leading Logseq property block under the
-    /// bounded legacy tolerance. The metadata KEY SET is unchanged from
+    /// D4) — the page's frontmatter. The metadata KEY SET is unchanged from
     /// pre-ADR-2040 (`type`, `source_file`, `public`, `file_size`, `tags`,
     /// `source_domain`, `quality_score`, `maturity`), so the client contract is
     /// untouched; only `source_file` changes shape, to the vault-relative path
@@ -168,12 +168,12 @@ impl KnowledgeGraphParser {
             metadata.insert("source_domain".to_string(), dom.clone());
         }
 
-        // Authored quality/maturity from the page's JSON-LD ontology block —
-        // the signals the per-client quality gates filter on.
-        if let Some(q) = Self::extract_quality(content) {
+        // Authored quality/maturity from the frontmatter — the signals the
+        // per-client quality gates filter on.
+        if let Some(q) = Self::extract_quality(&meta) {
             metadata.insert("quality_score".to_string(), q.to_string());
         }
-        if let Some(m) = Self::extract_maturity(content) {
+        if let Some(m) = Self::extract_maturity(&meta) {
             metadata.insert("maturity".to_string(), m);
         }
 
@@ -246,44 +246,25 @@ impl KnowledgeGraphParser {
         }
     }
 
-    /// Extract `"quality": <float>` from the page's embedded JSON-LD ontology
-    /// block. The corpus authors a 0-1 quality score per page (surfaced as
-    /// vc:qualityScore by the logseq pipeline); publishing it here as
-    /// `metadata.quality_score` powers the per-client quality filter
-    /// (client_filter.rs reads exactly this key) and the client's
-    /// quality-driven node visuals — both were dead signals without it.
-    pub(crate) fn extract_quality(content: &str) -> Option<f32> {
-        for line in content.lines() {
-            let t = line.trim();
-            if let Some(rest) = t.strip_prefix("\"quality\":") {
-                let v = rest.trim().trim_end_matches(',').trim();
-                if let Ok(q) = v.parse::<f32>() {
-                    return Some(q.clamp(0.0, 1.0));
-                }
-            }
-        }
-        None
+    /// The frontmatter `quality` scalar (vocabulary.yaml `scalars.quality`,
+    /// 0–1), clamped. Published as `metadata.quality_score`, the key the
+    /// per-client quality filter (`client_filter.rs`) and the client's
+    /// quality-driven node visuals read.
+    pub(crate) fn extract_quality(meta: &PageMeta) -> Option<f32> {
+        meta.extra
+            .get("quality")
+            .and_then(|q| q.trim().parse::<f32>().ok())
+            .filter(|q| q.is_finite())
+            .map(|q| q.clamp(0.0, 1.0))
     }
 
-    /// Extract `"maturity": "<tier>"` from the embedded JSON-LD ontology block
-    /// (draft/developing/emerging/growing/established/mature) — feeds the
-    /// client's min-maturity filter.
-    pub(crate) fn extract_maturity(content: &str) -> Option<String> {
-        for line in content.lines() {
-            let t = line.trim();
-            if let Some(rest) = t.strip_prefix("\"maturity\":") {
-                let v = rest
-                    .trim()
-                    .trim_end_matches(',')
-                    .trim()
-                    .trim_matches('"')
-                    .to_string();
-                if !v.is_empty() {
-                    return Some(v);
-                }
-            }
-        }
-        None
+    /// The frontmatter `maturity` scalar (draft / emerging / established / …)
+    /// — feeds the client's min-maturity filter.
+    pub(crate) fn extract_maturity(meta: &PageMeta) -> Option<String> {
+        meta.extra
+            .get("maturity")
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
     }
 
     /// Extract wikilink edges only — no new nodes created.
@@ -357,96 +338,8 @@ impl KnowledgeGraphParser {
         (edges, ambiguous)
     }
 
-    /// Extract links from content, preserving existing positions (legacy — creates nodes)
-    #[allow(dead_code)]
-    fn extract_links(&self, content: &str, source_id: &u32) -> (Vec<Node>, Vec<Edge>) {
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-
-        let link_pattern =
-            regex::Regex::new(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]").expect("Invalid regex pattern");
-
-        for cap in link_pattern.captures_iter(content) {
-            if let Some(link_match) = cap.get(1) {
-                let target_page = link_match.as_str().trim().to_string();
-                let target_id = self.page_name_to_id(&target_page);
-
-                let mut metadata = HashMap::new();
-                metadata.insert("type".to_string(), "linked_page".to_string());
-
-                // Use existing position or generate random (position preservation)
-                let (x, y, z) = self.get_position(target_id);
-                let data: visionclaw_domain::BinaryNodeData = BinaryNodeData {
-                    node_id: target_id,
-                    x,
-                    y,
-                    z,
-                    vx: 0.0,
-                    vy: 0.0,
-                    vz: 0.0,
-                }
-                .into();
-
-                nodes.push(Node {
-                    id: target_id,
-                    metadata_id: target_page.clone(),
-                    label: target_page.clone(),
-                    data,
-                    metadata,
-                    file_size: 0,
-                    node_type: Some("linked_page".to_string()),
-                    color: Some("#7C3AED".to_string()),
-                    size: Some(0.8),
-                    weight: Some(0.8),
-                    group: None,
-                    user_data: None,
-                    mass: Some(1.0),
-                    x: Some(data.x),
-                    y: Some(data.y),
-                    z: Some(data.z),
-                    vx: Some(0.0),
-                    vy: Some(0.0),
-                    vz: Some(0.0),
-                    owl_class_iri: None,
-                });
-
-                edges.push(Edge {
-                    id: format!("{}_{}", source_id, target_id),
-                    source: *source_id,
-                    target: target_id,
-                    weight: 1.0,
-                    edge_type: Some("link".to_string()),
-                    metadata: Some(HashMap::new()),
-                    owl_property_iri: None,
-                });
-            }
-        }
-
-        (nodes, edges)
-    }
-
-    fn extract_metadata_store(&self, content: &str) -> MetadataStore {
-        let store = MetadataStore::new();
-
-        let prop_pattern =
-            regex::Regex::new(r"([a-zA-Z_]+)::\s*(.+)").expect("Invalid regex pattern");
-
-        let mut properties = HashMap::new();
-        for cap in prop_pattern.captures_iter(content) {
-            if let (Some(key), Some(value)) = (cap.get(1), cap.get(2)) {
-                let key_str = key.as_str().to_string();
-                let value_str = value.as_str().trim().to_string();
-
-                properties.insert(key_str, value_str);
-            }
-        }
-
-        store
-    }
-
-    /// A page's tags: the authored `tags` property (frontmatter or leading
-    /// Logseq block, via `PageMeta`) first, then body `#hashtags` in document
-    /// order. Deduplicated across both sources — the previous `Vec::dedup`
+    /// A page's tags: the authored frontmatter `tags` property (via
+    /// `PageMeta`) first, then body `#hashtags` in document order. Deduplicated across both sources — the previous `Vec::dedup`
     /// only collapsed ADJACENT repeats, so a tag recurring later in the body
     /// was emitted twice.
     fn extract_tags(meta: &PageMeta, content: &str) -> Vec<String> {
@@ -462,10 +355,9 @@ impl KnowledgeGraphParser {
             push(tag.clone(), &mut tags);
         }
 
-        let tag_pattern = regex::Regex::new(r"#([a-zA-Z0-9_-]+)|tag::\s*#?([a-zA-Z0-9_-]+)")
-            .expect("Invalid regex pattern");
+        let tag_pattern = regex::Regex::new(r"#([a-zA-Z0-9_-]+)").expect("Invalid regex pattern");
         for cap in tag_pattern.captures_iter(content) {
-            if let Some(tag) = cap.get(1).or_else(|| cap.get(2)) {
+            if let Some(tag) = cap.get(1) {
                 push(tag.as_str().to_string(), &mut tags);
             }
         }
@@ -490,7 +382,7 @@ impl KnowledgeGraphParser {
     }
 
     /// Canonical slug: lowercase, collapse non-alphanumeric runs to `-`,
-    /// strip leading/trailing dashes. Matches `logseq/pipeline/validate.py`.
+    /// strip leading/trailing dashes.
     pub fn slugify(s: &str) -> String {
         let mut out = String::with_capacity(s.len());
         let mut prev_dash = true; // suppresses leading dash
@@ -534,10 +426,7 @@ mod tests {
 
     fn label_of(page_path: &str, frontmatter: &str) -> String {
         let content = format!("---\npublic: true\n{frontmatter}---\n\n# Body\n");
-        KnowledgeGraphParser::new()
-            .parse(&content, page_path)
-            .expect("parses")
-            .nodes[0]
+        KnowledgeGraphParser::new().parse(&content, page_path).nodes[0]
             .label
             .clone()
     }
@@ -587,9 +476,8 @@ mod tests {
     #[test]
     fn identity_is_not_affected_by_the_label_rule() {
         let content = "---\npublic: true\n---\n\n# Body\n";
-        let graph = KnowledgeGraphParser::new()
-            .parse(content, "podcast-evidence/black-friday-gpt.md")
-            .expect("parses");
+        let graph =
+            KnowledgeGraphParser::new().parse(content, "podcast-evidence/black-friday-gpt.md");
         let node = &graph.nodes[0];
 
         assert_eq!(node.label, "black-friday-gpt");

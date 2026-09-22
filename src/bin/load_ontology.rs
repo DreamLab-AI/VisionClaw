@@ -2,9 +2,11 @@
 //! Ontology Loader Binary (ADR-2064)
 //!
 //! Walks the real authored corpus (the vault's `pages/` tree — see
-//! `docs/VAULT-corpus-format.md`), parses every markdown file carrying an
-//! `### OntologyBlock` section with the real [`OntologyParser`], persists the
-//! extracted classes/properties/axioms to the Oxigraph quad-store via
+//! `docs/VAULT-corpus-format.md`), parses every page through the ingest seam
+//! ([`parse_page`], `vault_core`), projects the pages that declare ontology
+//! (`type: Class|Property|Individual` under `knowledge/`) through the corpus
+//! vocabulary ([`project_ontology`]), persists the classes and `SubClassOf`
+//! axioms to the Oxigraph quad-store via
 //! [`OntologyRepository::save_ontology`] (ADR-11) and then runs the
 //! [`OwlExtractorService`] over the freshly persisted classes to pull any
 //! embedded OWL Functional Syntax blocks out of their `markdown_content` via
@@ -27,16 +29,16 @@ use visionclaw_server::ports::ontology_repository::{
 };
 use visionclaw_server::services::corpus_source::{CorpusSource, LocalDirectorySource};
 use visionclaw_server::services::owl_extractor_service::OwlExtractorService;
-use visionclaw_server::services::parsers::OntologyParser;
+use visionclaw_server::services::page_parser::{parse_page, project_ontology};
 
 #[derive(Default)]
 struct IngestStats {
     files_scanned: usize,
     ontology_files_parsed: usize,
     parse_errors: usize,
+    private_skipped: usize,
     persist_errors: usize,
     classes_persisted: usize,
-    properties_persisted: usize,
     axioms_persisted: usize,
 }
 
@@ -68,14 +70,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let files = source.list_pages().await?;
     info!("Found {} markdown pages under the corpus root", files.len());
 
-    // 4. Parse every page carrying an OntologyBlock with the real
-    //    OntologyParser and persist it via `save_ontology` (ADR-11).
-    let parser = OntologyParser::new();
+    // 4. Parse every page through the ingest seam, keep the ontology pages,
+    //    and project them through the vocabulary.
+    let vocabulary = source
+        .vocabulary()
+        .await?
+        .ok_or_else(|| format!("{} has no ontology/vocabulary.yaml", corpus_root.display()))?;
     let mut stats = IngestStats {
         files_scanned: files.len(),
         ..Default::default()
     };
-
+    let mut ontology_pages = Vec::new();
     for page in &files {
         let content = match source.fetch_page(page).await {
             Ok(c) => c,
@@ -85,47 +90,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-
-        if !content.contains("### OntologyBlock") {
-            continue;
-        }
-
-        let file_name = page.name.clone();
-
-        match parser.parse(&content, &file_name) {
-            Ok(onto_data) => {
-                info!(
-                    "Extracted ontology from {}: {} classes, {} properties, {} axioms",
-                    file_name,
-                    onto_data.classes.len(),
-                    onto_data.properties.len(),
-                    onto_data.axioms.len()
-                );
-
-                match persist(
-                    &ontology_repo,
-                    &onto_data.classes,
-                    &onto_data.properties,
-                    &onto_data.axioms,
-                )
-                .await
-                {
-                    Ok(()) => {
-                        stats.ontology_files_parsed += 1;
-                        stats.classes_persisted += onto_data.classes.len();
-                        stats.properties_persisted += onto_data.properties.len();
-                        stats.axioms_persisted += onto_data.axioms.len();
-                    }
-                    Err(e) => {
-                        warn!("Failed to persist ontology from {}: {}", file_name, e);
-                        stats.persist_errors += 1;
-                    }
-                }
+        match parse_page(&content, &page.path) {
+            // The same §V4 gate the sync applies, and the same public boundary
+            // `vault build` projects the ontology through.
+            Ok(Some(parsed)) if visionclaw_domain::vault::parse(&content).is_kg_included() => {
+                ontology_pages.push(parsed)
             }
+            Ok(Some(_)) => stats.private_skipped += 1,
+            Ok(None) => {}
             Err(e) => {
-                warn!("Failed to parse ontology from {}: {}", file_name, e);
+                warn!("Failed to parse {}: {}", page.path, e);
                 stats.parse_errors += 1;
             }
+        }
+    }
+    stats.ontology_files_parsed = ontology_pages.len();
+    let projection = project_ontology(&ontology_pages, &vocabulary);
+    info!(
+        "Projected {} ontology pages: {} classes, {} axioms",
+        ontology_pages.len(),
+        projection.classes.len(),
+        projection.axioms.len()
+    );
+    match persist(&ontology_repo, &projection.classes, &[], &projection.axioms).await {
+        Ok(()) => {
+            stats.classes_persisted = projection.classes.len();
+            stats.axioms_persisted = projection.axioms.len();
+        }
+        Err(e) => {
+            warn!("Failed to persist the ontology: {}", e);
+            stats.persist_errors += 1;
         }
     }
 
@@ -144,16 +138,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  Corpus root:                {}", corpus_root.display());
     info!("  Markdown files scanned:      {}", stats.files_scanned);
     info!(
-        "  OntologyBlock files parsed:  {}",
+        "  Ontology pages parsed:       {}",
         stats.ontology_files_parsed
     );
     info!("  Parse errors:                {}", stats.parse_errors);
+    info!("  Private ontology pages:      {}", stats.private_skipped);
     info!("  Persist errors:              {}", stats.persist_errors);
     info!("  Classes persisted (this run):{}", stats.classes_persisted);
-    info!(
-        "  Properties persisted:        {}",
-        stats.properties_persisted
-    );
     info!("  Axioms persisted:            {}", stats.axioms_persisted);
     info!(
         "  Classes with horned-owl blocks: {} ({} axioms)",
@@ -168,16 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Corpus root:                 {}", corpus_root.display());
     println!("  Markdown files scanned:      {}", stats.files_scanned);
     println!(
-        "  OntologyBlock files parsed:  {}",
+        "  Ontology pages parsed:       {}",
         stats.ontology_files_parsed
     );
     println!(
         "  Classes persisted (this run): {}",
         stats.classes_persisted
-    );
-    println!(
-        "  Properties persisted:        {}",
-        stats.properties_persisted
     );
     println!("  Axioms persisted:            {}", stats.axioms_persisted);
     println!(
@@ -187,12 +174,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("  Total classes now in store:  {}", all_classes.len());
     println!("  Parse errors:                {}", stats.parse_errors);
+    println!("  Private ontology pages:      {}", stats.private_skipped);
     println!("  Persist errors:              {}", stats.persist_errors);
     println!("{}", "=".repeat(50));
 
     if stats.ontology_files_parsed == 0 || stats.classes_persisted == 0 {
         error!(
-            "No ontology data was extracted from {} — check the corpus path and that files contain '### OntologyBlock' sections",
+            "No ontology data was extracted from {} — check the corpus path and that knowledge/ pages declare `type: Class|Property|Individual`",
             corpus_root.display()
         );
         std::process::exit(1);

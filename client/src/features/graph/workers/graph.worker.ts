@@ -104,8 +104,8 @@ class GraphWorker {
     return Promise.resolve();
   }
 
-  // ADR-2041: `logseq` accepted and normalised to `knowledge` for one release.
-  async setGraphType(type: 'knowledge' | 'visionclaw' | 'logseq'): Promise<void> {
+  // Send-side API: only the current vocabulary (ADR-2115 retired `logseq`).
+  async setGraphType(type: 'knowledge' | 'visionclaw'): Promise<void> {
     this.graphType = type === 'visionclaw' ? 'visionclaw' : 'knowledge';
     this.useServerPhysics = true;
     workerLogger.info(`Graph type set to ${this.graphType} - using SERVER-AUTHORITATIVE physics (single source of truth)`);

@@ -170,10 +170,54 @@ identical to the corpus is dropped as a no-op; one naming a page the vault does
 not hold refuses the proposal rather than being skipped, because a typo in one of
 513 entries would otherwise be invisible.
 
+**A creation.** An elevation — a `working/` note promoted to a new knowledge
+Class — is a page that does not exist yet. When the subject names no page by id
+or title and the `--diff` file declares a `title` no page has, the proposal is
+`kind: "create"` (every other proposal is `kind: "amend"`): its diff is against
+`/dev/null`, its `iri` is the staged page's `resource`, and it is blocked by
+
+* validation errors on the staged page (it is assessed inside the real corpus,
+  so a dangling relation target is judged against the pages that exist),
+* `IRI_COLLISION` — the `resource` is an existing page's,
+* `SLUG_COLLISION` — the publish slug is taken, or adding the page would make
+  the build re-key an existing page's slug,
+* `FILENAME_COLLISION` / `FILENAME_INVALID` — the title differs only in case
+  from an existing page, or cannot be a flat filename,
+* any conflict or unsatisfiable class the page introduces (a delta, as ever).
+
+The level is `content` unless the page declares a schema-level key (one the
+vocabulary does not declare, or a provisional relation), which makes it
+`schema`. An amendment's digest is unchanged by `kind`; a creation's folds
+`kind:create` in, so the two never share a case. In a manifest, a file naming
+an absent page is a creation only when it declares `title: <its id>`.
+
+```bash
+vault propose urn:ngm:class:agentic-workshop --diff staged/agentic-workshop.md \
+  --hypothesis "elevated from working/Agentic Workshop" --dry-run
+```
+
 `--dry-run` prints the signed event without publishing. A proposal with a
 non-empty `blockers` list is emitted (so the refusal is auditable) and exits 1
 **without** being posted. A `--level schema` proposal declares
 `Stakes::Critical`, which floors the panel's risk tier at High.
+
+### `vault create`
+
+The apply side of a creation, once a human has promoted the case:
+
+```bash
+vault --repo . create staged/agentic-workshop.md --expect docs=1 \
+  --set status=stable --set 'verified+={by: human:npub1…, at: 2026-09-22T20:00:00Z}' --json
+```
+
+Writes `knowledge/pages/<title>.md` — the staged page with the `--set`/`--unset`
+keys applied, in one write — **only if it is absent**. Every refusal writes
+nothing and exits **2**, with `{created: false, code, message, blockers}` on
+stdout under `--json`: `--expect` without `docs=1` (or a wrong `blocks=N`), an
+unparseable or untitled staged page, a page that already exists (checked against
+the vault *and* by an exclusive create on disk, so a second call never
+overwrites the first), and a result that fails validation or the collision
+checks `vault propose` applied.
 
 ### `vault gate` / `vault conflicts`
 
@@ -215,14 +259,27 @@ Emits the contract-C3 bundle:
 <out>/api/pages/<slug>.json, _domain-index.json
 <out>/api/census.json, validation-report.json
 <out>/api/markdown/                          --with-markdown-mirror only
-<out>/context/v1.jsonld  and  <out>/ns/v2.jsonld   (the same document; /ns/v2.jsonld
+<out>/context/v1.jsonld, <out>/api/schema/context.jsonld  and  <out>/ns/v2.jsonld
+                                             (the same document; /ns/v2.jsonld
                                              is the served path, and the property
                                              IRIs inside still cite ns/v1#)
 <out>/okf/index.md, concepts/<slug>.md
-<out>/publish/<vault>/<id>.md                 knowledge ∪ working, `public: true`
-<out>/publish/knowledge/index.md             OKF §8 extent of the publication
+<out>/publish/pages/<title>.md               public knowledge pages (Quartz slug `pages/<title>`)
+<out>/publish/working/<subdir>/<title>.md    public working pages, subdirectories kept
+<out>/publish/index.md                       the site's home page: OKF §8 extent
 <out>/.generation.json                       visionGraph@<sha> + content digest
 ```
+
+The `publish/` tree (or the `--publish-out` directory, which replaces it) is laid
+out as the **published site's URL contract**, so Quartz builds from it with no
+re-staging: `pages/**` keeps every knowledge URL the site has always had,
+`working/**` keeps the working vault's subdirectories (the two vaults stay in
+separate namespaces — hundreds of filenames collide between them), and
+`index.md` at the root is the home page. A page under `_misc/` or `misc/` at
+any depth is held back whatever its flag says: that is the owner's scratch-tray
+decision, the site's `**/misc/**` ignore pattern enforces it too, and staging a
+page Quartz then ignores would fail the site's staged-equals-built completeness
+check.
 
 `publish/` is the only artefact that spans **both** vaults. Every other one is a
 projection of `knowledge/`'s ontology types: OWL, the scaffold and prose
@@ -331,8 +388,9 @@ the closer at the first blank line, which on an orphaned closer is the very next
 line: that put an empty code block on 34 knowledge pages — validating clean while
 leaving a fresh defect in the source the repair exists to remove.
 
-"Code-looking" is a **content** test, never indentation: the corpus is a Logseq
-outliner export in which nearly every prose line is an indented bullet, so
+"Code-looking" is a **content** test, never indentation: the corpus was migrated
+from a Logseq outliner export and nearly every prose line is still an indented
+bullet, so
 "indented therefore code" would fence the whole vault. What actually follows a
 real stray opener here is OWL functional syntax, Turtle and the occasional
 SPARQL query.

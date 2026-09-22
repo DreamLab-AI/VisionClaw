@@ -204,9 +204,9 @@ const CODE_KEYWORDS: &[&str] = &[
 
 /// `true` when `line` looks like code rather than prose.
 ///
-/// The signals are **content** signals, never indentation. The corpus is a
-/// Logseq outliner export in which nearly every prose line is an indented
-/// bullet, so "indented therefore code" would classify the whole vault as code.
+/// The signals are **content** signals, never indentation. The corpus was
+/// migrated from a Logseq outliner export and nearly every prose line is still
+/// an indented bullet, so "indented therefore code" would classify the whole vault as code.
 ///
 /// What actually follows a real stray opener in this corpus is OWL functional
 /// syntax, Turtle and the occasional SPARQL query, so those are what the list

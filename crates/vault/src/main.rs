@@ -16,7 +16,7 @@ use anyhow::Context as _;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
 use vault::{
-    build, conflicts, edit, gate, migrate, model::Corpus, nostr, propose, repair, validate,
+    build, conflicts, create, edit, gate, migrate, model::Corpus, nostr, propose, repair, validate,
 };
 use vault_core::graph::VaultGraph;
 use vault_core::page::{load_vault, Vault, VaultKind};
@@ -52,6 +52,8 @@ enum Command {
     Tree(TreeArgs),
     /// Guarded mutation; refused without `--expect`.
     Edit(EditArgs),
+    /// Write a new knowledge page from a staged file; never overwrites.
+    Create(CreateArgs),
     /// Build a `PatchProposal` and post it as a forum 31402.
     Propose(ProposeArgs),
     /// The autonomous continuation gate.
@@ -198,6 +200,27 @@ struct EditArgs {
 }
 
 #[derive(Debug, Args)]
+struct CreateArgs {
+    /// The staged page in full. Its `title` names the file:
+    /// `knowledge/pages/<title>.md`.
+    file: PathBuf,
+    /// `key=value`, or `key+=value` to append to a list, applied in the same
+    /// write (e.g. `status=stable`, `verified+={by: …, at: …}`).
+    #[arg(long = "set", value_name = "K=V")]
+    sets: Vec<String>,
+    /// Remove a key from the staged page before writing.
+    #[arg(long = "unset", value_name = "K")]
+    unsets: Vec<String>,
+    /// The declared blast radius: `docs=1`, optionally `,blocks=N` for the
+    /// keys `--set`/`--unset` change. Required.
+    #[arg(long)]
+    expect: Option<String>,
+    /// Check everything and report, without writing.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
 struct ProposeArgs {
     /// The subject: a page id, title or `resource` IRI.
     iri: String,
@@ -209,14 +232,25 @@ struct ProposeArgs {
     hypothesis: String,
     /// The proposed page in full, or a DIRECTORY of them.
     ///
+    /// A file whose frontmatter declares a `title` no page has, with a subject
+    /// that names no existing page by id or title, is a **creation**
+    /// (`kind: "create"`, diffed against `/dev/null`); apply it with
+    /// `vault create`.
+    ///
     /// A directory is a manifest: one `*.md` per page, named by page id
     /// (`<root>/<id>.md`, mirroring `pages/`), and the result is ONE grouped
     /// proposal whose `diff` is a multi-file unified diff. That is how a
     /// decision spanning 513 pages goes through the gate once instead of 513
     /// times. A manifest entry identical to the corpus is dropped; one naming a
-    /// page the vault does not hold refuses the proposal.
+    /// page the vault does not hold refuses the proposal, unless it declares
+    /// `title: <that id>`, which makes it a creation.
     #[arg(long)]
     diff: Option<PathBuf>,
+    /// A grouped proposal's title. Its subject IRI is
+    /// `urn:ngm:proposal:<slug of title>`; without it, the positional subject
+    /// is slugged instead. Ignored for a single-page proposal.
+    #[arg(long)]
+    title: Option<String>,
     /// The proposing actor.
     #[arg(long, default_value = "process:vault/1.0")]
     proposer: String,
@@ -530,6 +564,76 @@ fn run() -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
+        Command::Create(args) => {
+            let expect = edit::Expectation::parse(args.expect.as_deref().unwrap_or(""))
+                .map_err(anyhow::Error::msg)?;
+            let mut changes: Vec<edit::Change> = args
+                .sets
+                .iter()
+                .map(|s| edit::Change::parse_set(s).map_err(anyhow::Error::msg))
+                .collect::<anyhow::Result<_>>()?;
+            changes.extend(
+                args.unsets
+                    .iter()
+                    .map(|k| edit::Change::Unset { key: k.clone() }),
+            );
+            let staged = std::fs::read_to_string(&args.file)
+                .with_context(|| format!("reading {}", args.file.display()))?;
+            let vault = load(&root, &[VaultKind::Knowledge])?
+                .into_iter()
+                .next()
+                .context("no knowledge vault")?;
+
+            // Every refusal is exit 2 with nothing written, and under `--json`
+            // stdout is still one JSON document naming why.
+            let refuse = |error: &create::CreateError| -> anyhow::Result<ExitCode> {
+                let value = json!({
+                    "created": false,
+                    "file": args.file.display().to_string(),
+                    "code": error.code(),
+                    "message": error.to_string(),
+                    "blockers": error.blockers(),
+                });
+                emit(cli.json, &value, || {})?;
+                eprintln!("vault: {error}");
+                Ok(ExitCode::from(2))
+            };
+            let outcome = match create::prepare(&vault, &vocab, &staged, &changes, expect) {
+                Ok(outcome) => outcome,
+                Err(error) => return refuse(&error),
+            };
+            if !args.dry_run {
+                if let Err(e) = create::write(&outcome) {
+                    return match e.downcast_ref::<create::CreateError>() {
+                        Some(error) => refuse(error),
+                        None => Err(e),
+                    };
+                }
+            }
+            let mut value = serde_json::to_value(&outcome)?;
+            value["dry_run"] = json!(args.dry_run);
+            emit(cli.json, &value, || {
+                println!(
+                    "{} {}{}",
+                    if args.dry_run {
+                        "would create"
+                    } else {
+                        "created"
+                    },
+                    outcome.path,
+                    if args.dry_run { " (dry run)" } else { "" }
+                );
+                for (key, [before, after]) in &outcome.changes {
+                    println!(
+                        "  {key}: {} -> {}",
+                        before.as_deref().unwrap_or("(absent)"),
+                        after.as_deref().unwrap_or("(removed)")
+                    );
+                }
+            })?;
+            Ok(ExitCode::SUCCESS)
+        }
+
         Command::Propose(args) => {
             let level: Level = args.level.parse().map_err(anyhow::Error::msg)?;
             // The signing key FIRST, before the vault is even loaded.
@@ -550,9 +654,18 @@ fn run() -> anyhow::Result<ExitCode> {
                 .next()
                 .context("no knowledge vault")?;
             let corpus = Corpus::build(&vault, &vocab);
-            let generation = format!("visionGraph@{}", build::generation::git_sha(&root));
+            // The base generation the proposal applies to — `+dirty` when the
+            // corpus it read has uncommitted changes, exactly as `vault build`
+            // marks its bundle.
+            let dirty = build::generation::git_dirty(
+                &root,
+                &[&root.join("knowledge"), &root.join("ontology")],
+            );
+            let generation =
+                build::generation::generation_id(&build::generation::git_sha(&root), dirty);
             let options = propose::Options {
                 subject: args.iri.clone(),
+                title: args.title.clone(),
                 level,
                 hypothesis: args.hypothesis.clone(),
                 diff_source: args.diff.clone(),
@@ -561,11 +674,13 @@ fn run() -> anyhow::Result<ExitCode> {
             };
             let proposal = propose::build(&vault, &corpus, &vocab, &generation, &options)?;
 
+            // A progress note, not output: stderr, so `--json` stdout stays
+            // exactly one JSON document.
             if proposal.is_grouped() {
-                println!(
+                eprintln!(
                     "grouped proposal: {} pages, subject `{}`",
                     proposal.pages.len(),
-                    proposal.page
+                    proposal.iri
                 );
             }
             if !proposal.is_postable() {
@@ -688,6 +803,12 @@ fn run() -> anyhow::Result<ExitCode> {
                     // the vocabulary does not cover uses.
                     if let Some(secrets) = e.downcast_ref::<build::publish::SecretsFound>() {
                         eprintln!("vault: {secrets}");
+                        return Ok(ExitCode::from(2));
+                    }
+                    // Two artefacts claiming one output path: the same refusal
+                    // class — the corpus does not permit this build as it stands.
+                    if let Some(clash) = e.downcast_ref::<build::OutputCollision>() {
+                        eprintln!("vault: {clash}");
                         return Ok(ExitCode::from(2));
                     }
                     return Err(e);

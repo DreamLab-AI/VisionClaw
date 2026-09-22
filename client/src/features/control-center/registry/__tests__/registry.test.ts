@@ -124,10 +124,10 @@ const AGENT_GROUP_PATHS: string[] = [
 
 /** The frozen `path` strings captured from the legacy unifiedSettingsConfig. */
 function legacyPaths(): string[] {
-  // ADR-2041 renamed the knowledge-graph settings key `logseq` → `knowledge`.
-  // The fixture stays byte-frozen as the true WP5 historical record; the one
-  // sanctioned rename is applied here so the zero-drift comparison still holds.
-  // Remove this normalisation with the alias (ADR-2041 review_trigger).
+  // ADR-2041 renamed the knowledge-graph settings key `logseq` → `knowledge`
+  // (server alias retired by ADR-2115). The fixture stays byte-frozen as the
+  // true WP5 historical record; the one sanctioned rename is applied here so
+  // the zero-drift comparison still holds.
   return legacyFixture.paths.map((p) =>
     p.startsWith('visualisation.graphs.logseq.')
       ? p.replace('visualisation.graphs.logseq.', 'visualisation.graphs.knowledge.')

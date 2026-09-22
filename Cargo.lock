@@ -7028,6 +7028,7 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "validator",
+ "vault-core",
  "visionclaw-actors",
  "visionclaw-adapters",
  "visionclaw-analytics-oracle",

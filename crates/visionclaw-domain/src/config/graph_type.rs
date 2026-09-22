@@ -40,9 +40,9 @@ mod tests {
 
     #[test]
     fn the_retired_alias_is_no_longer_normalised() {
-        // ADR-2115: `logseq` is an unknown graph type, passed through for the
+        // ADR-2115: a retired or unknown graph type is passed through for the
         // caller to reject rather than silently resolved to `knowledge`.
-        assert_eq!(normalise_graph_type("logseq"), "logseq");
+        assert_eq!(normalise_graph_type("retired-graph"), "retired-graph");
         assert_eq!(normalise_graph_type("knowledge"), "knowledge");
         assert_eq!(normalise_graph_type("visionclaw"), "visionclaw");
         assert_eq!(normalise_graph_type("agent"), "visionclaw");
@@ -52,11 +52,11 @@ mod tests {
 
     #[test]
     fn json_lookups_take_the_canonical_key_only() {
-        let retired = serde_json::json!({ "logseq": { "physics": { "springK": 1 } } });
+        let retired = serde_json::json!({ "retired-graph": { "physics": { "springK": 1 } } });
         let canonical = serde_json::json!({ "knowledge": { "physics": { "springK": 1 } } });
         assert!(
             knowledge_graph_value(&retired).is_none(),
-            "the retired `logseq` key must not resolve"
+            "an unknown graph key must not resolve"
         );
         assert_eq!(
             knowledge_graph_value(&canonical),
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn paths_match_the_canonical_segment_only() {
         assert!(!path_targets_knowledge_graph(
-            "visualisation.graphs.logseq.physics.springK"
+            "visualisation.graphs.retired-graph.physics.springK"
         ));
         assert!(path_targets_knowledge_graph(
             "visualisation.graphs.knowledge.physics.springK"

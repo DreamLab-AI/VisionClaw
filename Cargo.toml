@@ -46,6 +46,9 @@ visionclaw-protocol = { path = "crates/visionclaw-protocol" }
 visionclaw-adapters = { path = "crates/visionclaw-adapters" }
 visionclaw-gpu = { path = "crates/visionclaw-gpu" }
 visionclaw-ontology = { path = "crates/visionclaw-ontology" }
+# ADR-2113 — the one corpus parser. Ingest reads pages and the relation
+# vocabulary through the same implementation `vault` builds from.
+vault-core = { path = "crates/vault-core" }
 # PRD-008 §5.3 — XR presence protocol crate (room registry, wire codec,
 # delta compression). Consumed by src/handlers/presence_handler.rs and
 # src/actors/presence_actor.rs for the `/ws/presence` WebSocket.

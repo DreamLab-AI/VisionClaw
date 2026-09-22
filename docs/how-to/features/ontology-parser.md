@@ -15,6 +15,13 @@ difficulty-level: intermediate
 
 # Guide: Ontology Parser
 
+> **Superseded (2026-09-22).** The `OntologyParser` module this guide describes has
+> been deleted. Corpus pages are parsed once, by `vault_core::page::parse_page`
+> through `src/services/page_parser.rs` (ADR-2113), and the corpus is
+> frontmatter-only (ADR-2112): see [`VAULT-corpus-format.md`](../../VAULT-corpus-format.md)
+> and [Ontology Pipeline](../../explanation/ontology-pipeline.md). The text below is
+> kept as a historical record.
+
 **Version:** 1.0
 **Date:** 2025-10-27
 
@@ -22,7 +29,7 @@ difficulty-level: intermediate
 
 ## 1. Overview
 
-The `OntologyParser` module is a crucial component for semantic understanding within the VisionClaw system. It is designed to parse markdown files that contain ontology definitions written in the vault format ([`VAULT-corpus-format.md`](../../VAULT-corpus-format.md)); legacy Logseq-style property lines are still accepted in a page's leading property block for the window named in ADR-2040. The parser extracts OWL (Web Ontology Language) structures, including classes, properties, and axioms, which are then used to build the knowledge graph's semantic layer.
+The `OntologyParser` module is a crucial component for semantic understanding within the VisionClaw system. It is designed to parse markdown files that contain ontology definitions written in the vault format ([`VAULT-corpus-format.md`](../../VAULT-corpus-format.md)); the Logseq-style property lines ADR-2040 once tolerated carry no metadata since ADR-2112. The parser extracts OWL (Web Ontology Language) structures, including classes, properties, and axioms, which are then used to build the knowledge graph's semantic layer.
 
 This guide provides developers with the necessary information to use the parser, understand its syntax, and integrate it into their workflows.
 

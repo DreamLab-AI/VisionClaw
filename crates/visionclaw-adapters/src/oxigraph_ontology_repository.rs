@@ -1628,17 +1628,25 @@ impl OntologyRepository for OxigraphOntologyRepository {
                 Some(v) => v,
                 None => continue,
             };
-            let predicate = match edge.edge_type.as_deref() {
-                Some("is_subclass_of") | Some("subclass_of") | Some("SUBCLASS_OF") => P_SUBCLASS_OF,
-                Some("has_part") => P_HAS_PART,
-                Some("is_part_of") => P_IS_PART_OF,
-                Some("requires") => P_REQUIRES,
-                Some("depends_on") => P_DEPENDS_ON,
-                Some("enables") => P_ENABLES,
-                Some("relates_to") => P_RELATES_TO,
-                Some("bridges_to") => P_BRIDGES_TO,
-                Some("bridges_from") => P_BRIDGES_FROM,
-                _ => P_RELATES_TO,
+            // An edge that carries its OWL property IRI (a frontmatter
+            // relation projected through the vocabulary) is written with that
+            // predicate; the coarse `edge_type` label is the fallback.
+            let predicate = match edge.owl_property_iri.as_deref() {
+                Some(owl) if is_insertable_iri(owl) => owl,
+                _ => match edge.edge_type.as_deref() {
+                    Some("is_subclass_of") | Some("subclass_of") | Some("SUBCLASS_OF") => {
+                        P_SUBCLASS_OF
+                    }
+                    Some("has_part") => P_HAS_PART,
+                    Some("is_part_of") => P_IS_PART_OF,
+                    Some("requires") => P_REQUIRES,
+                    Some("depends_on") => P_DEPENDS_ON,
+                    Some("enables") => P_ENABLES,
+                    Some("relates_to") => P_RELATES_TO,
+                    Some("bridges_to") => P_BRIDGES_TO,
+                    Some("bridges_from") => P_BRIDGES_FROM,
+                    _ => P_RELATES_TO,
+                },
             };
             update.push_str(&format!("    <{src}> <{predicate}> <{tgt}> .\n"));
         }
@@ -2325,8 +2333,10 @@ impl OntologyRepository for OxigraphOntologyRepository {
     }
 
     async fn get_axioms(&self) -> RepoResult<Vec<OwlAxiom>> {
-        // ADR-098 / PRD-018 fix: the canonical JSON-LD ingest (matching the
-        // logseq `jsonld_to_turtle.py` converter) writes the OWL structure as
+        // ADR-098 / PRD-018 fix: the canonical ingest (matching the Turtle
+        // `vault build` emits — `crates/vault/src/build/turtle.rs`, which
+        // replaced the retired logseq `jsonld_to_turtle.py` converter) writes
+        // the OWL structure as
         // PLAIN triples in the assert graph — `<C> rdfs:subClassOf <D>`,
         // `<C> owl:equivalentClass <D>`, `<C> owl:disjointWith <D>`, the
         // mereological `<C> vc:hasPart|isPartOf <D>` object properties, and
@@ -3088,6 +3098,19 @@ fn scalar_f32(result: &(Vec<String>, Vec<Vec<Option<Term>>>)) -> Option<f32> {
 #[allow(dead_code)]
 fn _force_imports() -> (HashSet<u32>, OntologyRepositoryError) {
     (HashSet::new(), OntologyRepositoryError::NotFound)
+}
+
+/// `true` when `iri` can be written between `<…>` in a SPARQL update without
+/// escaping: non-empty, absolute (`scheme:`), and free of whitespace and the
+/// characters the IRIREF production forbids.
+fn is_insertable_iri(iri: &str) -> bool {
+    !iri.is_empty()
+        && iri.contains(':')
+        && !iri.chars().any(|c| {
+            c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '<' | '>' | '"' | '{' | '}' | '|' | '^' | '`' | '\\')
+        })
 }
 
 #[cfg(test)]

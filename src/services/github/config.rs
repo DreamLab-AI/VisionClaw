@@ -21,27 +21,11 @@ impl Error for GitHubConfigError {}
 
 /// Environment variable carrying the GitHub token for the corpus repository.
 pub const GITHUB_TOKEN_ENV: &str = "PRIVATE_REPO_GITHUB_PAT";
-/// Pre-2026-09-02 name, accepted for one release so a stale `.env` still works.
-pub const GITHUB_TOKEN_ENV_LEGACY: &str = "LOGSEQ_PRIVATE_REPO_GITHUB";
 
-/// The GitHub token, from `PRIVATE_REPO_GITHUB_PAT` or, failing that, the
-/// legacy `LOGSEQ_PRIVATE_REPO_GITHUB`. `None` when neither is set; an empty
-/// value counts as set (callers validate emptiness themselves).
+/// The GitHub token from `PRIVATE_REPO_GITHUB_PAT`. `None` when unset; an
+/// empty value counts as set (callers validate emptiness themselves).
 pub fn github_token_from_env() -> Option<String> {
-    match env::var(GITHUB_TOKEN_ENV) {
-        Ok(v) => Some(v),
-        Err(_) => match env::var(GITHUB_TOKEN_ENV_LEGACY) {
-            Ok(v) => {
-                log::warn!(
-                    "{} is deprecated; rename it to {} (accepted for one release)",
-                    GITHUB_TOKEN_ENV_LEGACY,
-                    GITHUB_TOKEN_ENV
-                );
-                Some(v)
-            }
-            Err(_) => None,
-        },
-    }
+    env::var(GITHUB_TOKEN_ENV).ok()
 }
 
 #[derive(Debug, Clone)]
@@ -178,7 +162,6 @@ mod tests {
     fn test_missing_required_vars() {
         let _guard = ENV_LOCK.lock().unwrap();
         env::remove_var("PRIVATE_REPO_GITHUB_PAT");
-        env::remove_var("LOGSEQ_PRIVATE_REPO_GITHUB");
         env::remove_var("GITHUB_OWNER");
         env::remove_var("GITHUB_REPO");
         env::remove_var("GITHUB_BASE_PATH");
@@ -201,7 +184,6 @@ mod tests {
     fn the_disabled_placeholder_is_valid_without_any_github_env() {
         let _guard = ENV_LOCK.lock().unwrap();
         env::remove_var("PRIVATE_REPO_GITHUB_PAT");
-        env::remove_var("LOGSEQ_PRIVATE_REPO_GITHUB");
         env::remove_var("GITHUB_OWNER");
         env::remove_var("GITHUB_REPO");
         env::remove_var("GITHUB_BASE_PATH");

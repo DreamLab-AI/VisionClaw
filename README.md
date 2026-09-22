@@ -244,7 +244,7 @@ Diátaxis layout, backed by the decision record. Start at the [documentation hub
 | OWL 2 EL reasoning (Whelk) | integrated | Running on the live corpus. The class count was audited at 5,975 in August 2026; a divergence against the 8,152 the pipeline counts is still open. |
 | SPARQL over Oxigraph | integrated | Sole store; Neo4j is gone ([ADR-2004](docs/adr/ADR-2004-oxigraph-sqlite-persistence.md)). |
 | GPU physics | released | Isolated-node runaway fixed 2 September; GPU re-verification pending after the next relaunch. |
-| Corpus | integrated | Obsidian vault, `jjohare/visionGraph`; Logseq tolerance kept until [ADR-2040](docs/adr/ADR-2040-obsidian-vault-frontmatter-gate.md)'s review trigger. |
+| Corpus | integrated | Obsidian vault `visionGraph`, read locally by default (GitHub sync optional, [ADR-2115](docs/adr/ADR-2115-github-sync-is-optional-and-off.md)); frontmatter-only, the Logseq tolerance of ADR-2040 closed by [ADR-2112](docs/adr/ADR-2112-vault-corpus-format-v2-frontmatter-only-okf.md). |
 | `did:nostr` identity spine | integrated | One keypair for login, WAC principal, provenance author, DID subject. NIP-98 on write routes is validated twice per request today; the session realm is the workaround. |
 | ACSP signed governance | integrated | Six kinds live; one use case (ontology elevation, five concurrent cases). |
 | Judgment broker | integrated | `ElevationActor` case queue; the distributed broker in the design is unbuilt. |

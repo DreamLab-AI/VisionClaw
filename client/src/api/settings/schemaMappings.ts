@@ -146,14 +146,15 @@ export function isVisualSettingsPath(path: string): boolean {
  * Convert a client settings path to its key within the visual blob stored on the server.
  *
  * Mappings:
- *   visualisation.graphs.knowledge.nodes.X  → nodes.X   (legacy `logseq` also accepted)
+ *   visualisation.graphs.knowledge.nodes.X  → nodes.X   (pre-ADR-2041 `logseq` mapped on receive)
  *   visualisation.graphs.knowledge.edges.X  → edges.X
  *   visualisation.graphs.knowledge.labels.X → labels.X
  *   visualisation.<category>.X           → <category>.X
  */
 export function toVisualKey(path: string): string {
-  // ADR-2041: `logseq` is accepted as a read-only alias of `knowledge` for one
-  // release so a path built from persisted state still maps to the right key.
+  // Receive-side shim: a path built from persisted browser state may still use
+  // the pre-ADR-2041 `logseq` segment; map it onto `knowledge`. The server has
+  // rejected `logseq` since ADR-2115, and the mapped path is what gets sent.
   const p = path.startsWith('visualisation.graphs.logseq.')
     ? path.replace('visualisation.graphs.logseq.', 'visualisation.graphs.knowledge.')
     : path;

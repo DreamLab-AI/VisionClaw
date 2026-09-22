@@ -25,6 +25,7 @@ pub use github::GitHubSource;
 pub use local::{LocalDirectorySource, VAULT_BASE_PATHS_ENV, VAULT_ROOT_ENV};
 
 use async_trait::async_trait;
+use vault_core::vocabulary::Vocabulary;
 
 /// One markdown page offered by a [`CorpusSource`].
 ///
@@ -111,6 +112,17 @@ pub trait CorpusSource: Send + Sync {
 
     /// Fetch one page's body via its [`CorpusPage::fetch_ref`].
     async fn fetch_page(&self, page: &CorpusPage) -> Result<String, String>;
+
+    /// The corpus vocabulary (`ontology/vocabulary.yaml`, contract C1), which
+    /// maps every frontmatter relation key to its OWL property.
+    ///
+    /// `Ok(None)` when the source cannot supply one — the default, and the
+    /// GitHub source's answer. The sync then ingests pages and wikilinks but
+    /// emits no typed relation edges. An `Err` is a vocabulary that exists
+    /// but does not load, which must not be silently ignored.
+    async fn vocabulary(&self) -> Result<Option<Vocabulary>, String> {
+        Ok(None)
+    }
 }
 
 /// Build the configured corpus source.
@@ -268,7 +280,6 @@ mod tests {
         std::fs::create_dir_all(vault.path().join("knowledge/pages")).unwrap();
 
         std::env::remove_var("PRIVATE_REPO_GITHUB_PAT");
-        std::env::remove_var("LOGSEQ_PRIVATE_REPO_GITHUB");
         std::env::remove_var("GITHUB_OWNER");
         std::env::remove_var("GITHUB_REPO");
         std::env::remove_var("GITHUB_BASE_PATH");

@@ -481,12 +481,8 @@ describe('GraphDataManager', () => {
       graphDataManager.setGraphType('knowledge');
     });
 
-    // ADR-2041: the legacy value is accepted on the receive side for one release.
-    it('should normalise the legacy "logseq" value to "knowledge"', () => {
-      graphDataManager.setGraphType('visionclaw');
-      graphDataManager.setGraphType('logseq');
-      expect(graphDataManager.getGraphType()).toBe('knowledge');
-    });
+    // ADR-2115: `logseq` is retired from the send-side API; receive-side
+    // normalisation of persisted state is covered by settingsMigration.test.ts.
   });
 
   // ---- addNode / removeNode ----

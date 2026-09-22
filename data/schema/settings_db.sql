@@ -290,7 +290,7 @@ VALUES
 INSERT OR IGNORE INTO physics_settings (profile_name, description, is_default)
 VALUES
     ('default', 'Default balanced physics profile', 1),
-    ('logseq', 'Optimized for Logseq knowledge graphs', 0),
+    ('knowledge', 'Optimised for the vault knowledge graph', 0),
     ('ontology', 'Optimized for dense ontology graphs with hierarchies', 0),
     ('performance', 'High performance with lower quality', 0),
     ('quality', 'High quality with lower performance', 0);
@@ -302,7 +302,7 @@ SET
     repel_k = 1000.0,
     spring_k = 0.5,
     iterations = 10
-WHERE profile_name = 'logseq';
+WHERE profile_name = 'knowledge';
 
 UPDATE physics_settings
 SET

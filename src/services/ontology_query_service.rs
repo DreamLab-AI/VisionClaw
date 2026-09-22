@@ -2,9 +2,9 @@
 //!
 //! Provides semantic discovery, enriched note reading, validated Cypher queries,
 //! and ontology graph traversal. Agents call these methods via MCP tools to
-//! discover relevant Logseq notes via OWL class hierarchies and Whelk inferences.
+//! discover relevant vault notes via OWL class hierarchies and Whelk inferences.
 //!
-//! The Logseq markdown notes with ontology headers ARE the knowledge graph nodes.
+//! The vault markdown pages with OKF frontmatter ARE the knowledge graph nodes.
 //! Discovery happens via ontology semantics: class hierarchy traversal, Whelk EL++
 //! subsumption reasoning, and relationship fan-out (has-part, requires, enables, bridges-to).
 
