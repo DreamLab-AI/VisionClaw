@@ -388,6 +388,29 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     }
 
     if options.with_markdown_mirror {
+        // A page's own name (its page id, in both `/` encodings) always wins.
+        // Its title is written too, because the explorer requests
+        // `/api/markdown/<title>.md` with the search-index title, which can
+        // differ from the page id (`ai agents` vs `AI Agents`). But a title is
+        // only an alias: where it is another page's own name, or two pages
+        // share it, the file would answer for the wrong page, so no page gets
+        // it as an alias. Those pages keep their id-named file.
+        let encodings = |key: &str| {
+            let mut v = vec![key.replace('/', "___"), key.replace('/', "%2F")];
+            v.dedup();
+            v
+        };
+        let mut owned = std::collections::HashSet::new();
+        let mut alias_claims: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for record in corpus.public() {
+            owned.extend(encodings(&record.page_id));
+            if !record.title.is_empty() && record.title != record.page_id {
+                for name in encodings(&record.title) {
+                    *alias_claims.entry(name).or_default() += 1;
+                }
+            }
+        }
         for record in corpus.public() {
             // Generated from the projected record, never copied from source: a
             // public page can reference a private one.
@@ -403,20 +426,14 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
             }
             text.push_str(&record.body);
             text.push('\n');
-            // The explorer requests `/api/markdown/<title>.md` with the TITLE
-            // from the search index, which can differ from the page id (file
-            // name): `ai agents` vs `AI Agents`, `A/B Testing` vs `A-B Testing`.
-            // Write under both, each with the two `/` encodings.
-            let mut names = Vec::new();
-            for key in [&record.page_id, &record.title] {
-                if key.is_empty() {
-                    continue;
-                }
-                names.push(key.replace('/', "___"));
-                names.push(key.replace('/', "%2F"));
+            let mut names = encodings(&record.page_id);
+            if !record.title.is_empty() && record.title != record.page_id {
+                names.extend(
+                    encodings(&record.title)
+                        .into_iter()
+                        .filter(|name| !owned.contains(name) && alias_claims.get(name) == Some(&1)),
+                );
             }
-            names.sort();
-            names.dedup();
             for name in names {
                 staged.add_for(
                     format!("api/markdown/{name}.md"),
@@ -760,6 +777,30 @@ scalars:
         ] {
             assert!(md.join(name).is_file(), "missing {name}");
         }
+    }
+
+    #[test]
+    fn a_title_that_is_another_pages_name_is_not_an_alias() {
+        // `bc-cryptographic-primitive` is titled like the page named
+        // `Cryptographic Primitive`: the name stays that page's alone.
+        let (dir, result) = build_pages(&[
+            ("Cryptographic Primitive", &class_page("")),
+            (
+                "bc-cryptographic-primitive",
+                &class_page(
+                    "title: Cryptographic Primitive\nresource: urn:ngm:class:bc-cryptographic-primitive\n",
+                ),
+            ),
+        ]);
+        result.expect("builds instead of refusing on the shared title");
+        let md = dir.path().join("www/api/markdown");
+        assert!(md.join("bc-cryptographic-primitive.md").is_file());
+        let owner = std::fs::read_to_string(md.join("Cryptographic Primitive.md")).unwrap();
+        let other = std::fs::read_to_string(md.join("bc-cryptographic-primitive.md")).unwrap();
+        assert_eq!(
+            owner, other,
+            "fixture bodies are identical; the claim is what is tested"
+        );
     }
 
     #[test]
