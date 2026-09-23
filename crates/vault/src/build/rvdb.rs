@@ -1,5 +1,4 @@
-//! `ontology-corpus.rvdb` and its `.generation.json` sidecar — the portable
-//! vector bundle.
+//! `ontology-corpus.records.jsonl` — the portable vector records.
 //!
 //! **Division of labour.** Loom already owns the Postgres write channel:
 //! `loom-scaffold`'s `build-concept-records` turns `scaffold-index.json` +
@@ -7,7 +6,9 @@
 //! `stage_corpus` embeds and stages them into `ruvector-postgres`. This module
 //! does **not** replace either. It produces the *portable* form — records with
 //! their vectors inline — for a consumer that wants the bundle without a
-//! database, and it writes the sidecar Loom's generation law requires.
+//! database. Loom's `promote_vault_build` turns them into its serving
+//! artefact, the ruvector-core database `ontology-corpus.rvdb`, and writes that
+//! artefact's sidecar: only the builder of a file can describe it.
 //!
 //! **The embedder lock is not a convention.** `bge-small-en-v1.5` at 384
 //! dimensions, and only that: the whole namespace must be cosine-comparable,
@@ -26,6 +27,9 @@ pub const MODEL_ID: &str = "bge-small-en-v1.5";
 pub const DIMENSIONS: usize = 384;
 /// Default Xinference endpoint on the LAN.
 pub const DEFAULT_ENDPOINT: &str = "http://192.168.2.132:9997/v1/embeddings";
+
+/// Where `--with-rvdb` writes the portable records, relative to the build output.
+pub const RECORDS_PATH: &str = "data/ontology-corpus.records.jsonl";
 
 /// One concept record: the seed-finding surface a semantic query matches.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,27 +246,6 @@ pub fn to_jsonl(records: &[ConceptRecord]) -> serde_json::Result<String> {
     Ok(out)
 }
 
-/// The `.generation.json` sidecar Loom's ingest law requires.
-#[must_use]
-pub fn sidecar(generation: &str, records: usize, content_digest: &str) -> Value {
-    json!({
-        "generation": generation,
-        "embedding_model": MODEL_ID,
-        "dimensions": DIMENSIONS,
-        "records": records,
-        "content_digest": content_digest,
-        "index": {
-            "am": "hnsw",
-            "m": 16,
-            "ef_construction": 128,
-            "build": "serial",
-            "note": "Rebuild non-concurrently after a bulk load. \
-                     CREATE INDEX CONCURRENTLY double-inserts on the ruvector HNSW \
-                     access method and is never correct here.",
-        },
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,19 +328,6 @@ mod tests {
     #[test]
     fn normalise_leaves_a_zero_vector_alone() {
         assert_eq!(normalise(vec![0.0; 4]), vec![0.0; 4]);
-    }
-
-    #[test]
-    fn the_sidecar_states_the_locked_model_and_the_index_law() {
-        let s = sidecar("visionGraph@abc", 8146, "deadbeef");
-        assert_eq!(s["embedding_model"], MODEL_ID);
-        assert_eq!(s["dimensions"], 384);
-        assert_eq!(s["records"], 8146);
-        assert_eq!(s["index"]["build"], "serial");
-        assert!(s["index"]["note"]
-            .as_str()
-            .unwrap()
-            .contains("CONCURRENTLY"));
     }
 
     #[test]

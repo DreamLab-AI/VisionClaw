@@ -304,7 +304,7 @@ struct BuildArgs {
     /// C3 bundle; the credential gate applies either way.
     #[arg(long)]
     publish_out: Option<PathBuf>,
-    /// Embed the corpus and emit `ontology-corpus.rvdb`. Requires the
+    /// Embed the corpus and emit the portable `ontology-corpus.records.jsonl`. Requires the
     /// embedder; the rest of the build works without it.
     #[arg(long)]
     with_rvdb: bool,

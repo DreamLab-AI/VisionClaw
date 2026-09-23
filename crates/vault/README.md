@@ -253,8 +253,9 @@ Emits the contract-C3 bundle:
 <out>/data/graph/full.bin                    NGG1 uncapped whole graph (CSR)
 <out>/data/graph/domain-<slug>.bin ×6        NGG1 T1, relations capped top-8
 <out>/data/graph/stats.json, bridges.json
-<out>/data/ontology-corpus.rvdb              --with-rvdb only
-<out>/data/ontology-corpus.rvdb.generation.json
+<out>/data/ontology-corpus.records.jsonl     --with-rvdb only: portable records, vectors inline.
+                                             Loom's `promote_vault_build` turns them into its serving
+                                             `ontology-corpus.rvdb` (a ruvector-core database) and sidecar.
 <out>/api/search-index.json
 <out>/api/pages/<slug>.json, _domain-index.json
 <out>/api/census.json, validation-report.json

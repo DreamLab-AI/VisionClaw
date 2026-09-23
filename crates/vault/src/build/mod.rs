@@ -50,7 +50,7 @@ pub struct Options {
     pub out: PathBuf,
     /// The repository the generation sha is read from.
     pub repo_root: PathBuf,
-    /// Embed the corpus and emit `ontology-corpus.rvdb`.
+    /// Embed the corpus and emit the portable `ontology-corpus.records.jsonl`.
     pub with_rvdb: bool,
     /// Emit `api/markdown/` — the title-form markdown mirror.
     ///
@@ -434,13 +434,11 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         let embedder = rvdb::Xinference::new(options.embed_endpoint.clone());
         rvdb::embed_all(&mut records, &embedder, 96)
             .context("embedding the corpus for --with-rvdb")?;
-        let jsonl = rvdb::to_jsonl(&records)?;
-        let digest = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(jsonl.as_bytes()));
-        staged.add("data/ontology-corpus.rvdb", jsonl);
-        staged.add(
-            "data/ontology-corpus.rvdb.generation.json",
-            to_indented(&rvdb::sidecar(&generation_id, records.len(), &digest))?,
-        );
+        // The portable form only. Loom's `promote_vault_build` turns these
+        // records into its serving `ontology-corpus.rvdb` (a ruvector-core
+        // database) and writes that artefact's sidecar; naming this file `.rvdb`
+        // claimed a format it does not have.
+        staged.add(rvdb::RECORDS_PATH, rvdb::to_jsonl(&records)?);
     }
 
     // Write-once: refuse before anything is stamped or promoted.
