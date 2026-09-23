@@ -392,17 +392,30 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
             // Generated from the projected record, never copied from source: a
             // public page can reference a private one.
             let mut text = String::new();
-            if !record.definition.is_empty() {
-                text.push_str(&record.definition);
+            // Since the frontmatter migration the definition IS the body's
+            // leading paragraph (definition_placement: leading-paragraph), so
+            // prepend it only for a page whose body does not already open
+            // with it; otherwise every mirrored page states it twice.
+            let definition = record.definition.trim();
+            if !definition.is_empty() && !record.body.trim_start().starts_with(definition) {
+                text.push_str(definition);
                 text.push_str("\n\n");
             }
             text.push_str(&record.body);
             text.push('\n');
-            let mut names = vec![
-                record.page_id.replace('/', "___"),
-                record.page_id.replace('/', "%2F"),
-            ];
-            // Without a namespace the two encodings are the same name.
+            // The explorer requests `/api/markdown/<title>.md` with the TITLE
+            // from the search index, which can differ from the page id (file
+            // name): `ai agents` vs `AI Agents`, `A/B Testing` vs `A-B Testing`.
+            // Write under both, each with the two `/` encodings.
+            let mut names = Vec::new();
+            for key in [&record.page_id, &record.title] {
+                if key.is_empty() {
+                    continue;
+                }
+                names.push(key.replace('/', "___"));
+                names.push(key.replace('/', "%2F"));
+            }
+            names.sort();
             names.dedup();
             for name in names {
                 staged.add_for(
@@ -726,6 +739,42 @@ scalars:
         format!(
             "---\ntype: Class\npublic: true\nstatus: stable\ndomain: infrastructure\n{extra}---\nA page.\n"
         )
+    }
+
+    #[test]
+    fn the_markdown_mirror_is_written_under_the_title_the_explorer_requests() {
+        // The explorer fetches /api/markdown/<search-index title>.md; the title
+        // can differ from the file name.
+        let (dir, result) = build_pages(&[
+            ("AI Agents", &class_page("title: ai agents\n")),
+            ("A-B Testing", &class_page("title: A/B Testing\n")),
+        ]);
+        result.expect("builds");
+        let md = dir.path().join("www/api/markdown");
+        for name in [
+            "AI Agents.md",
+            "ai agents.md",
+            "A-B Testing.md",
+            "A___B Testing.md",
+            "A%2FB Testing.md",
+        ] {
+            assert!(md.join(name).is_file(), "missing {name}");
+        }
+    }
+
+    #[test]
+    fn the_markdown_mirror_states_a_leading_paragraph_definition_once() {
+        let (dir, result) = build_pages(&[(
+            "Once",
+            &format!(
+                "---\ntype: Class\npublic: true\nstatus: stable\ndomain: infrastructure\n---\n{}\n\nMore text.\n",
+                "A page."
+            ),
+        )]);
+        result.expect("builds");
+        let text = std::fs::read_to_string(dir.path().join("www/api/markdown/Once.md")).unwrap();
+        assert_eq!(text.matches("A page.").count(), 1, "{text}");
+        assert!(text.contains("More text."));
     }
 
     #[test]

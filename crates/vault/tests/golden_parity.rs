@@ -489,10 +489,22 @@ fn the_markdown_mirror_is_opt_in() {
         &vocab,
     )
     .expect("build with the mirror");
-    let count = std::fs::read_dir(mirrored.join("api/markdown"))
-        .expect("mirror directory")
-        .count();
-    assert_eq!(count, 50, "one file per public page");
+    // Every indexed page's body is reachable by the TITLE the explorer
+    // requests, and by its page id; a page whose title differs from its file
+    // name therefore has two files.
+    let index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(mirrored.join("api/search-index.json")).expect("search index"),
+    )
+    .expect("search index JSON");
+    let entries = index.as_array().expect("an array");
+    assert_eq!(entries.len(), 50);
+    for entry in entries {
+        let title = entry["title"].as_str().expect("title").replace('/', "___");
+        assert!(
+            mirrored.join(format!("api/markdown/{title}.md")).is_file(),
+            "no mirror file for the title {title}"
+        );
+    }
 }
 
 #[test]
