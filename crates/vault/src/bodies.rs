@@ -34,6 +34,9 @@
 //!
 //! Outside code, `![alt](src){:height H, :width W}` becomes Obsidian's
 //! `![alt|W](src)`, and an immediately repeated blockquote line is dropped.
+//! Logseq macros with an Obsidian equivalent are rewritten: `{{video URL}}`
+//! becomes an embed, `{{twitter}}` / `{{tweet}}` a link, and the diagram
+//! renderer and `{{evalparent}}` controls are dropped.
 //! A list item's Logseq task marker becomes a task: `TODO`, `DOING`, `NOW`
 //! and `LATER` become `[ ]`, `DONE` becomes `[x]`.
 //!
@@ -79,8 +82,27 @@ pub fn convert(text: &str) -> String {
     let head_len = text.len() - split.body.len();
     let mut out = String::with_capacity(text.len());
     out.push_str(&text[..head_len]);
-    out.push_str(&convert_body(split.body));
+    out.push_str(&stable_body(split.body));
     out
+}
+
+/// [`convert_body`] repeated until it stops changing, at most four times.
+///
+/// One pass is its own fixpoint on every well-formed body. A body with fence
+/// markers written mid-line can need a second: whether such a fence closes
+/// depends on the text below it, and the first pass moves that text. Running
+/// to the fixpoint is what lets `--check` promise that a converted corpus
+/// reports nothing.
+fn stable_body(body: &str) -> String {
+    let mut current = convert_body(body);
+    for _ in 0..3 {
+        let next = convert_body(&current);
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    current
 }
 
 /// One unit of the parsed outline.
@@ -386,7 +408,7 @@ pub fn convert_body(body: &str) -> String {
                 let line = if fence.is_some() {
                     line
                 } else {
-                    fix_images(&line)
+                    fix_inline(&line)
                 };
                 out.push(line);
                 out.last = Some(Kind::Free);
@@ -399,7 +421,17 @@ pub fn convert_body(body: &str) -> String {
                 while lines.last().is_some_and(|l| l.trim().is_empty()) && lines.len() > 1 {
                     lines.pop();
                 }
-                let lines = fix_images_outside_code(&lines);
+                let emptied = !lines[0].trim().is_empty();
+                let mut lines = fix_inline_outside_code(&lines);
+                // A macro that was the block's whole first line (the Logseq
+                // `{{renderer code_diagram,mermaid}}` above a fence) leaves it
+                // empty; the block is what follows. Only then: a bullet that
+                // was always empty keeps its shape.
+                if emptied && lines[0].is_empty() {
+                    while lines.len() > 1 && lines[0].trim().is_empty() {
+                        lines.remove(0);
+                    }
+                }
                 let kind = classify(&lines);
                 let child_level = match kind {
                     Kind::Heading | Kind::Break => 0,
@@ -544,7 +576,7 @@ fn indent(pad: &str, line: &str) -> String {
     }
 }
 
-fn fix_images_outside_code(lines: &[String]) -> Vec<String> {
+fn fix_inline_outside_code(lines: &[String]) -> Vec<String> {
     let mut fence: Option<(char, usize)> = None;
     lines
         .iter()
@@ -559,7 +591,7 @@ fn fix_images_outside_code(lines: &[String]) -> Vec<String> {
             if fence.is_some() {
                 l.clone()
             } else {
-                fix_images(l)
+                fix_inline(l)
             }
         })
         .collect()
@@ -611,6 +643,74 @@ pub fn fix_images(line: &str) -> String {
             }
         })
         .into_owned()
+}
+
+/// Image sizing and Logseq macros, on a line outside code.
+fn fix_inline(line: &str) -> String {
+    fix_macros(&fix_images(line))
+}
+
+fn macro_regexes() -> &'static [(regex::Regex, &'static str)] {
+    static R: std::sync::OnceLock<Vec<(regex::Regex, &'static str)>> = std::sync::OnceLock::new();
+    R.get_or_init(|| {
+        let re = |p: &str| regex::Regex::new(p).expect("static macro regex");
+        vec![
+            // A video: Obsidian and Quartz both embed a YouTube or media URL
+            // written as an image.
+            (re(r"\{\{video\s+(https?://[^\s{}]+)\s*\}\}"), "![]($1)"),
+            // A post on X: nothing downstream embeds one, so a link.
+            (
+                re(r"\{\{(?:twitter|tweet)\s+(?:tweet\s+)?[\[(]?(https?://[^\s{}\]]+)\]?\s*\}\}"),
+                "<$1>",
+            ),
+            (
+                re(r"\{\{renderer\s+:linkpreview,\s*(https?://[^\s{}]+)\s*\}\}"),
+                "<$1>",
+            ),
+            // Logseq plugin controls with no meaning outside Logseq: the
+            // diagram renderer (the fence below it renders natively) and the
+            // code-evaluation button.
+            (re(r"\{\{renderer\s+code_diagram,[A-Za-z-]+\s*\}\}"), ""),
+            (re(r"\{\{evalparent\}\}"), ""),
+        ]
+    })
+}
+
+/// Rewrite the Logseq macros that have an Obsidian equivalent.
+///
+/// `{{query …}}` and the other Logseq-only macros have none and are left as
+/// written.
+///
+/// ```
+/// use vault::bodies::fix_macros;
+///
+/// assert_eq!(
+///     fix_macros("{{video https://www.youtube.com/watch?v=AJWTUvXA0Wc}}"),
+///     "![](https://www.youtube.com/watch?v=AJWTUvXA0Wc)"
+/// );
+/// assert_eq!(
+///     fix_macros("See {{twitter https://twitter.com/a/status/1}}"),
+///     "See <https://twitter.com/a/status/1>"
+/// );
+/// assert_eq!(fix_macros("{{renderer code_diagram,mermaid}}"), "");
+/// assert_eq!(fix_macros("{{query (and [[X]])}}"), "{{query (and [[X]])}}");
+/// ```
+#[must_use]
+pub fn fix_macros(line: &str) -> String {
+    if !line.contains("{{") {
+        return line.to_owned();
+    }
+    let mut out = line.to_owned();
+    for (re, with) in macro_regexes() {
+        out = re.replace_all(&out, *with).into_owned();
+    }
+    if out.trim().is_empty() {
+        String::new()
+    } else if out == line {
+        out
+    } else {
+        out.trim_end().to_owned()
+    }
 }
 
 /// What to convert and how.
@@ -846,6 +946,27 @@ mod tests {
             idempotent(body),
             "- [ ] Write it\n- [x] Ship it\n- [ ] is the time\n"
         );
+    }
+
+    #[test]
+    fn a_video_bullet_becomes_an_embed_and_a_renderer_line_vanishes() {
+        let body = "- Watch:\n\t- {{video https://youtu.be/abc}}\n- {{renderer code_diagram,mermaid}}\n\t- ```mermaid\n\t  graph TD\n\t  ```\n";
+        assert_eq!(
+            idempotent(body),
+            "- Watch:\n\n  ![](https://youtu.be/abc)\n\n```mermaid\ngraph TD\n```\n"
+        );
+    }
+
+    #[test]
+    fn a_renderer_as_the_first_line_of_a_fenced_block_leaves_the_fence() {
+        let body = "- {{renderer code_diagram,mermaid}}\n  ```mermaid\n  graph TD\n  ```\n";
+        assert_eq!(idempotent(body), "```mermaid\ngraph TD\n```\n");
+    }
+
+    #[test]
+    fn macros_inside_code_are_left_alone() {
+        let body = "```\n{{video https://youtu.be/abc}}\n```\n";
+        assert_eq!(idempotent(body), body);
     }
 
     #[test]
