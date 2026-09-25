@@ -27,7 +27,8 @@
 //!   image-only line. Emitted as its own markdown block, indented under the
 //!   enclosing list item when it has one, so the list is not broken.
 //! * **Empty** — a bare `-`. Dropped; its children are emitted as if they were
-//!   its parent's.
+//!   its parent's. The exception is a bare `-` that closes the page: that is
+//!   an outliner's next-item bullet and is kept.
 //! * **List item** — everything else. Emitted as `- ` at two spaces per level,
 //!   where the level counts only the list-item ancestors since the nearest
 //!   heading.
@@ -386,7 +387,8 @@ pub fn convert_body(body: &str) -> String {
     let mut stack: Vec<(usize, usize)> = Vec::new();
     let mut fence: Option<(char, usize)> = None;
 
-    for item in items {
+    let count = items.len();
+    for (index, item) in items.into_iter().enumerate() {
         match item {
             Item::Free(line) => {
                 stack.clear();
@@ -446,6 +448,17 @@ pub fn convert_body(body: &str) -> String {
                     }
                 }
                 stack.push((col, child_level));
+                // A bare `-` closing the page is where an outliner (Obsidian's
+                // Outliner plugin, Logseq) puts the cursor for the next item.
+                // Everywhere else a bare bullet is debris and is dropped.
+                if kind == Kind::Empty && index + 1 == count {
+                    if out.last != Some(Kind::ListItem) {
+                        out.blank();
+                    }
+                    out.push(format!("{}-", "  ".repeat(level)));
+                    out.last = Some(Kind::ListItem);
+                    continue;
+                }
                 emit_block(&mut out, kind, level, &lines);
             }
         }
@@ -713,6 +726,27 @@ pub fn fix_macros(line: &str) -> String {
     }
 }
 
+/// Whether two texts differ only in trailing whitespace on lines, or in blank
+/// lines at the end.
+///
+/// ```
+/// use vault::bodies::same_but_trailing_whitespace;
+///
+/// assert!(same_but_trailing_whitespace("- a\n- \n\n", "- a\n-\n"));
+/// assert!(!same_but_trailing_whitespace("- a\n", "  - a\n"));
+/// ```
+#[must_use]
+pub fn same_but_trailing_whitespace(a: &str, b: &str) -> bool {
+    fn norm(t: &str) -> Vec<&str> {
+        let mut lines: Vec<&str> = t.lines().map(str::trim_end).collect();
+        while lines.last().is_some_and(|l| l.is_empty()) {
+            lines.pop();
+        }
+        lines
+    }
+    norm(a) == norm(b)
+}
+
 /// What to convert and how.
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -762,7 +796,10 @@ pub fn run(options: &Options) -> anyhow::Result<Report> {
             report.pages_examined += 1;
             let before = std::fs::read_to_string(&path)?;
             let after = convert(&before);
-            if after == before {
+            // Trailing whitespace is not a body change: an outliner writes a
+            // closing `- ` and editors differ on the final blank line. A page
+            // that differs only there is left exactly as its author saved it.
+            if same_but_trailing_whitespace(&after, &before) {
                 continue;
             }
             let rel = path.strip_prefix(&scope.dir).unwrap_or(&path);
@@ -967,6 +1004,14 @@ mod tests {
     fn macros_inside_code_are_left_alone() {
         let body = "```\n{{video https://youtu.be/abc}}\n```\n";
         assert_eq!(idempotent(body), body);
+    }
+
+    #[test]
+    fn an_outliners_closing_bare_bullet_is_kept() {
+        let body = "- Plan the lab furniture\n- Order lab furniture\n-\n";
+        assert_eq!(idempotent(body), body);
+        // A bare bullet anywhere else is still dropped.
+        assert_eq!(idempotent("- a\n-\n- b\n"), "- a\n- b\n");
     }
 
     #[test]
