@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use vault::{build, migrate};
 use vault_core::vocabulary::Vocabulary;
 
-/// The two documented divergences, stated once so a reader does not have to
+/// The three documented divergences, stated once so a reader does not have to
 /// infer them from assertion failures:
 ///
 /// 1. `search-index.json`'s `labels` is a **superset**. Python read one
@@ -29,7 +29,16 @@ use vault_core::vocabulary::Vocabulary;
 /// 2. `ontology-inferred.ttl` is Whelk's EL++ closure, where Python emitted a
 ///    plain transitive `subClassOf` BFS. Contract C3 asks for the reasoner, so
 ///    this file is deliberately not compared.
-const DIVERGENCES: &str = "search-index labels (superset); ontology-inferred (Whelk, by contract)";
+/// 3. `prose-index.json`'s `cl` (Current Landscape) is a **superset**. Python
+///    read the section only from a Logseq heading bullet
+///    (`- ### Current Landscape`) and ended it at the next heading bullet.
+///    `vault repair bodies` turns those bullets into markdown headings, so the
+///    build reads both forms, ends the section at the next heading of its own
+///    level or higher, and prefers the last section on a re-researched page.
+///    Pages whose heading Python never saw gain a `cl`; no page loses one.
+const DIVERGENCES: &str =
+    "search-index labels (superset); ontology-inferred (Whelk, by contract); \
+     prose-index cl (superset: markdown-form Current Landscape headings)";
 
 fn golden_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden")
@@ -208,13 +217,54 @@ fn scaffold_index_is_byte_identical_to_the_python_pipeline() {
 }
 
 #[test]
-fn prose_index_is_byte_identical_to_the_python_pipeline() {
+fn prose_index_matches_the_python_pipeline_but_for_landscape_superset() {
     let (_scratch, out) = migrate_and_build();
-    assert_byte_identical(
-        "prose-index.json",
-        &golden_dir().join("python/prose-index.json"),
-        &out.join("data/prose-index.json"),
+    let parse = |p: &Path| -> serde_json::Value {
+        serde_json::from_str(&read(p)).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+    };
+    let python = parse(&golden_dir().join("python/prose-index.json"));
+    let vault = parse(&out.join("data/prose-index.json"));
+
+    assert_eq!(
+        python["counts"]["with_full_definition"], vault["counts"]["with_full_definition"],
+        "definitions are not part of divergence 3 and must match exactly"
     );
+    let count = |v: &serde_json::Value, k: &str| v["counts"][k].as_u64().unwrap_or(0);
+    assert!(count(&vault, "with_landscape") >= count(&python, "with_landscape"));
+
+    let (py_pages, vault_pages) = (
+        python["pages"].as_object().expect("python pages"),
+        vault["pages"].as_object().expect("vault pages"),
+    );
+    let without_cl = |v: &serde_json::Value| {
+        let mut m = v.as_object().cloned().unwrap_or_default();
+        m.remove("cl");
+        m
+    };
+    for (slug, py) in py_pages {
+        let ours = vault_pages
+            .get(slug)
+            .unwrap_or_else(|| panic!("{slug}: in python's prose index, missing from vault's"));
+        assert_eq!(
+            without_cl(py),
+            without_cl(ours),
+            "{slug}: a field other than cl diverged"
+        );
+        if py["cl"].as_str().is_some_and(|c| !c.is_empty()) {
+            assert!(
+                ours["cl"].as_str().is_some_and(|c| !c.is_empty()),
+                "{slug}: python had a landscape and vault lost it ({DIVERGENCES})"
+            );
+        }
+    }
+    for (slug, ours) in vault_pages {
+        if !py_pages.contains_key(slug) {
+            assert!(
+                without_cl(ours).is_empty(),
+                "{slug}: an extra page may carry only a landscape ({DIVERGENCES})"
+            );
+        }
+    }
 }
 
 #[test]

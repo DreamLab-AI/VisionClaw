@@ -170,19 +170,26 @@ pub fn scaffold_index(
     })
 }
 
-/// The "Current Landscape" heading, as a Logseq top-level heading bullet.
+/// The "Current Landscape" heading, and any heading, each either as a markdown
+/// heading or as the Logseq heading bullet (`- ### Current Landscape`) the
+/// corpus used before `vault repair bodies`. Both forms must match: the section
+/// feeds the Loom's prose layer, and a form that stops matching empties it
+/// without an error. The captured `#` run is the heading's level.
 fn landscape_regexes() -> &'static (regex::Regex, regex::Regex) {
     static R: std::sync::OnceLock<(regex::Regex, regex::Regex)> = std::sync::OnceLock::new();
     R.get_or_init(|| {
         (
-            regex::Regex::new(r"(?m)^\s*-\s+#{2,4}\s+Current Landscape.*$")
+            regex::Regex::new(r"(?m)^\s*(?:-\s+)?(#{2,4})\s+Current Landscape.*$")
                 .expect("static landscape regex"),
-            regex::Regex::new(r"(?m)^\s*-\s+#{2,4}\s+").expect("static heading regex"),
+            regex::Regex::new(r"(?m)^\s*(?:-\s+)?(#{1,6})\s+").expect("static heading regex"),
         )
     })
 }
 
 /// Extract the "Current Landscape" section, flattened to one line and capped.
+///
+/// The section runs to the next heading of the same or a higher level, so its
+/// own sub-headings stay inside it.  Where a page has several, the last is used.
 ///
 /// Bullets lose their list markers so a consumer can splice the text straight
 /// into an LLM context block without carrying Logseq indentation semantics.
@@ -192,11 +199,18 @@ fn landscape_regexes() -> &'static (regex::Regex, regex::Regex) {
 #[must_use]
 pub fn extract_current_landscape(body: &str, cap: usize) -> String {
     let (heading, next) = landscape_regexes();
-    let Some(m) = heading.find(body) else {
+    // The last section: a page that has been re-researched carries the newer
+    // "Current Landscape (2026)" after the older one.
+    let Some(c) = heading.captures_iter(body).last() else {
         return String::new();
     };
-    let rest = &body[m.end()..];
-    let section = next.find(rest).map_or(rest, |n| &rest[..n.start()]);
+    let level = c[1].len();
+    let rest = &body[c.get(0).map_or(0, |m| m.end())..];
+    let section = next
+        .captures_iter(rest)
+        .find(|n| n[1].len() <= level)
+        .and_then(|n| n.get(0))
+        .map_or(rest, |n| &rest[..n.start()]);
 
     let mut lines: Vec<&str> = Vec::new();
     for raw in section.lines() {
@@ -562,6 +576,40 @@ mod tests {
             extract_current_landscape(body, LANDSCAPE_CAP),
             "Widely adopted. Growing fast."
         );
+    }
+
+    #[test]
+    fn current_landscape_reads_the_same_from_markdown_headings() {
+        let logseq = "- ### Current Landscape (2026)\n  - Widely adopted.\n  - Growing fast.\n- ### References\n  - Ignore me.\n";
+        let obsidian = "### Current Landscape (2026)\n\n- Widely adopted.\n- Growing fast.\n\n### References\n\n- Ignore me.\n";
+        assert_eq!(
+            extract_current_landscape(obsidian, LANDSCAPE_CAP),
+            extract_current_landscape(logseq, LANDSCAPE_CAP)
+        );
+        assert_eq!(
+            extract_current_landscape(&crate::bodies::convert_body(logseq), LANDSCAPE_CAP),
+            "Widely adopted. Growing fast."
+        );
+    }
+
+    #[test]
+    fn current_landscape_keeps_its_own_sub_headings() {
+        let body = "- ### Content\n  ## Current Landscape\n  Intro.\n  ### Standards\n  WCAG 2.2.\n  ## References\n  Ignore me.\n";
+        assert_eq!(
+            extract_current_landscape(body, LANDSCAPE_CAP),
+            "Intro. ### Standards WCAG 2.2."
+        );
+        assert_eq!(
+            extract_current_landscape(&crate::bodies::convert_body(body), LANDSCAPE_CAP),
+            "Intro. ### Standards WCAG 2.2."
+        );
+    }
+
+    #[test]
+    fn the_newest_landscape_section_wins() {
+        let body =
+            "## Current Landscape (2025)\nOld.\n## Other\nx\n### Current Landscape (2026)\nNew.\n";
+        assert_eq!(extract_current_landscape(body, LANDSCAPE_CAP), "New.");
     }
 
     #[test]
