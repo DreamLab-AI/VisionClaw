@@ -71,11 +71,17 @@ const TAB_WIDTH: usize = 2;
 
 /// Rewrite a whole page: the frontmatter block verbatim, the body converted.
 ///
+/// A blank line the author left between the frontmatter and the body is kept
+/// (one, however many there were): it is ordinary Markdown style, and the
+/// working vault's own templates write it.
+///
 /// ```
 /// use vault::bodies::convert;
 ///
 /// let page = "---\ntype: Note\n---\n- # Title\n\t- Point\n";
 /// assert_eq!(convert(page), "---\ntype: Note\n---\n# Title\n\n- Point\n");
+/// let spaced = "---\ntype: Note\n---\n\n# Title\n";
+/// assert_eq!(convert(spaced), spaced);
 /// ```
 #[must_use]
 pub fn convert(text: &str) -> String {
@@ -83,7 +89,17 @@ pub fn convert(text: &str) -> String {
     let head_len = text.len() - split.body.len();
     let mut out = String::with_capacity(text.len());
     out.push_str(&text[..head_len]);
-    out.push_str(&stable_body(split.body));
+    let body = stable_body(split.body);
+    let gap = head_len > 0
+        && split
+            .body
+            .lines()
+            .next()
+            .is_some_and(|l| l.trim().is_empty());
+    if gap && !body.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(&body);
     out
 }
 
@@ -1021,6 +1037,17 @@ mod tests {
             convert(page),
             "---\ntitle: x\nlinks:\n- '[[A]]'\n---\n### H\n\n- p\n"
         );
+    }
+
+    #[test]
+    fn a_blank_line_after_frontmatter_is_kept_once() {
+        let page = "---\ntype: Journal\n---\n\n# Friday\n\n-\n";
+        assert_eq!(convert(page), page);
+        assert_eq!(convert(&convert(page)), page);
+        let wide = "---\ntype: Journal\n---\n\n\n\n- # Friday\n";
+        assert_eq!(convert(wide), "---\ntype: Journal\n---\n\n# Friday\n");
+        // No frontmatter: a leading blank line is still dropped.
+        assert_eq!(convert("\n# Title\n"), "# Title\n");
     }
 
     #[test]
