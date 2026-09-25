@@ -1,53 +1,25 @@
-# AGENTS.md
+# VisionClaw — agent instructions
 
-This file provides guidance to agents when working with code in this repository.
+> Canonical, tool-neutral instructions for every coding agent (Claude Code, Codex, others). Claude-only affordances live in `CLAUDE.md`, which imports this file. `agentbox/` is a separate repository with its own `AGENTS.md`.
 
-## Build & Test
-- **Rust Backend**: `cargo run` (dev), `cargo test` (unit). GPU/Ontology features enabled by default.
-- **Frontend**: `cd client && npm install && npm run dev`.
-- **Docker**: `./scripts/launch.sh up dev` (preferred over direct `docker compose`).
-- **Type Gen**: `cargo run --bin generate_types` updates `client/src/types/` from Rust structs.
+## Architecture ground truth
 
-## Agent Capabilities
+The ADR pack for any domain = its living governing document in `docs/` (BASELINE-architecture, IDENTITY-authority-chain, DATA-authority-erasure, PROTOCOL-registry, IDENTIFIER-taxonomy, SECURITY-profiles, GPU-wire-abi, XR-client; their *Invariants* are the compliance surface) + the `docs/adr/` ledger records amending it. Lookup order: governing doc → its `file:line` citations → `docs/adr/` → `docs/archive/` **for rationale only, never authority** (redirects: `docs/MIGRATION-plan.md`). New decisions: one-page record from `docs/adr/TEMPLATE.md` + update the governing doc in the same change + `node scripts/adr-index-gen.js docs/adr`. Routing: `docs/adr/README.md`.
 
-The following agent-facing capabilities are available via MCP tools and REST endpoints:
+## Build & test
 
-- **Ontology Discovery**: Semantic search across OWL classes using configurable similarity thresholds.
-- **Enriched Note Reading**: Retrieve notes with full axioms, relationships, and metadata.
-- **Cypher Query Validation**: Schema-aware query validation with Levenshtein-based hints for typos.
-- **Ontology Graph Traversal**: BFS traversal with configurable depth for exploring class hierarchies.
-- **Note Proposal**: Create or amend ontology notes with Whelk consistency checks.
-- **Quality Scoring**: Automated completeness assessment for ontology entries.
-- **GitHub PR Creation**: Automated ontology change PRs via the full GitHub REST API flow.
-- **Voice Routing**: Multi-user real-time voice routing with push-to-talk, LiveKit SFU spatial audio, and Turbo-Whisper STT.
+- **Rust backend**: `cargo test` (unit); workspace crates live in `crates/` (`visionclaw-*`, `vault`). GPU and ontology features are on by default.
+- **Client**: `cd client && npm install && npm run dev` (Vite); `npm test` runs Vitest; `npm run build` regenerates types first.
+- **Type generation**: `cargo run --bin generate_types` updates `client/src/types/` from Rust structs — run it after changing any API or data struct; never hand-edit generated types.
+- **Docker**: `./scripts/launch.sh up dev` (source-only) or `rebuild dev` (Dockerfile/deps) — never plain `docker compose`. From inside the agentbox container, launch it in the host shell (see the workspace environment notes), never directly.
+- **Env**: `.env` is not committed; start from `env.development.template` or `env.example`.
 
-## MCP Tools
+## Code conventions
 
-Seven ontology-focused MCP tools are defined in the MCP server:
+- **Rust**: `actix-web` for the API, `neo4rs` for the graph DB, `whelk-rs` for ontology reasoning. `OntologyQueryService` and `OntologyMutationService` are the agent-facing ontology API layer.
+- **Ontology agent tools** (discover, read, query, traverse, propose, validate, status): types in `crates/visionclaw-ontology/src/types/ontology_tools.rs`, REST handler in `src/handlers/ontology_agent_handler.rs`; integration tests in `tests/ontology_agent_integration_test.rs`.
+- **TypeScript**: `client/src/features/` feature-sliced layout; generated types in `client/src/types/`.
 
-1. `ontology_discover` - Semantic search across OWL classes
-2. `ontology_read` - Enriched note reading with axioms and relationships
-3. `ontology_query` - Schema-aware Cypher query validation
-4. `ontology_traverse` - BFS graph traversal with configurable depth
-5. `ontology_propose` - Create/amend notes with Whelk consistency checks
-6. `ontology_validate` - Automated completeness and quality scoring
-7. `ontology_status` - Proposal and PR lifecycle tracking
+## Memory
 
-## Code Conventions
-- **Rust**:
-  - `actix-web` for API, `neo4rs` for graph DB.
-  - `whelk-rs` (local path) for ontology reasoning.
-  - `generate_types` binary MUST be run after changing API/Data structs.
-  - `OntologyRepository` uses in-memory `Arc<RwLock<HashMap>>` for proposal state.
-  - `OntologyQueryService` and `OntologyMutationService` are the agent-facing API layer for ontology operations.
-- **TypeScript**:
-  - `client/src/features/` architecture (Feature-Sliced Design inspired).
-  - Use `src/types/` for generated types (do not edit manually).
-
-## Project Specifics
-- **Multi-Agent**: `multi-agent-docker/` contains independent agent definitions.
-- **MCP Server**: `multi-agent-docker/mcp-infrastructure/servers/mcp-server.js` has MCP tool definitions (including the 7 ontology tools).
-- **Orchestration**: `CLAUDE.md` mandates specific "Spawn and Wait" pattern for swarms.
-- **Docs**: `docs/` contains architecture, `CLAUDE.md` contains agent behavior rules.
-- **Ontology Tests**: `tests/ontology_agent_integration_test.rs` contains 13 integration tests for the ontology pipeline.
-- **Env**: `.env` is ignored; copy from `.env.development.template` or `multi-agent-docker/.env.example`.
+Durable agent memory is the shared RuVector store, reached only through the memory MCP tools (never the CLI or raw SQL). Search it (`project-state`, `patterns`) when prior decisions or similar past tasks are likely relevant; store durable lessons afterwards.

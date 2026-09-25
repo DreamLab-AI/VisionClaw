@@ -379,10 +379,14 @@ impl McpTcpClient {
         query: &str,
         limit: usize,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        // min_score 0: the canary proves the index is live and populated, not
+        // that the probe query is a good match; the server's relevance floor
+        // (default 0.55) would otherwise report a healthy index as EMPTY.
         let params = json!({
             "namespace": namespace,
             "query": query,
             "limit": limit,
+            "min_score": 0.0,
         });
         debug!(
             "memory_search ns='{}' query='{}' limit={}",
