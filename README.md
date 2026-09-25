@@ -65,6 +65,7 @@ VisionClaw is the embodiment-and-observation layer of the **Dynamic Agentic Mesh
 | [agentbox](https://github.com/DreamLab-AI/agentbox) | Sovereign agent runtime: Nix-built container, `did:nostr` per agent, 124 skills, RuVector memory, Rune markdown TUI over the vault *(git submodule here)* |
 | [nostr-rust-forum](https://github.com/DreamLab-AI/nostr-rust-forum) | The one place a human decision gets signed |
 | [solid-pod-rs](https://github.com/DreamLab-AI/solid-pod-rs) | Personal-data sovereignty: a Rust Solid pod server |
+| [sidestr-rs](https://github.com/DreamLab-AI/sidestr-rs) | Rust port of Melvin Carvalho's sidestr sidechains, AGPL-3.0-only: the economic engine for `did:nostr` agents. A `did:nostr` key is a sidechain wallet |
 | [narrativegoldmine](https://github.com/DreamLab-AI/knowledgeGraph) | The readable front door: 8,433 public pages (the count before the vault split) as an open dataset, rendered at [narrativegoldmine.com](https://narrativegoldmine.com) |
 | [dreamlab-ai-website](https://github.com/DreamLab-AI/dreamlab-ai-website) | The commercial face, a thin consumer of the forum kit |
 

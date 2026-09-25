@@ -13,7 +13,7 @@ those 50 pages (`python -m pipeline.build`, rdflib 7.6.0, 2026-09-22).
 | artefact | assertion |
 |---|---|
 | `data/scaffold-index.json` | **byte-identical** (modulo timestamps) |
-| `data/prose-index.json` | **byte-identical** |
+| `data/prose-index.json` | every field **identical** but `cl`, which is a documented **superset** (markdown-form Current Landscape headings are read too; no page loses one) |
 | `data/ontology.json` (WebVOWL) | **byte-identical** |
 | `data/graph/full.bin` | **byte-identical** |
 | `data/graph/domain-*.bin` ×6 | **byte-identical** |

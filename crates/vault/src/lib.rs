@@ -13,6 +13,7 @@
 //! | `propose` | a contract-C4 `PatchProposal`, Whelk and `conflicts` as blockers, posted as a forum 31402 |
 //! | `gate` / `conflicts` | the autonomous continuation gate and the semantic conflict detector |
 //! | `build` | pages to one generation: asserted and inferred TTL, the scaffold / prose / search indexes, the page API, the OKF bundle, the JSON-LD context and the generation stamp |
+//! | `repair fences` / `repair bodies` | close unmatched code fences; rewrite Logseq outliner bodies as Obsidian markdown |
 //! | `migrate` | the one-shot fence-to-properties conversion, deleted after its run |
 //!
 //! # Layers
@@ -59,6 +60,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
+pub mod bodies;
 pub mod build;
 pub mod closure;
 pub mod conflicts;

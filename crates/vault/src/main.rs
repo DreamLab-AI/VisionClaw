@@ -73,6 +73,26 @@ enum Command {
 enum RepairCommand {
     /// Close or remove unmatched code-fence openers.
     Fences(RepairArgs),
+    /// Rewrite Logseq outliner bodies (heading bullets, `{:height}` image
+    /// sizing, repeated inlined lines) as Obsidian markdown.
+    Bodies(BodiesArgs),
+}
+
+#[derive(Debug, Args)]
+struct BodiesArgs {
+    /// Which vault to convert: `knowledge`, `working` or `all`.
+    #[arg(long, default_value = "all", value_parser = VAULT_VALUES)]
+    vault: String,
+    /// Compute everything, write nothing.
+    #[arg(long)]
+    dry_run: bool,
+    /// Write nothing and exit 1 when any page still needs converting — the
+    /// residue gate.
+    #[arg(long)]
+    check: bool,
+    /// Write the converted page list here.
+    #[arg(long)]
+    report: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -836,6 +856,50 @@ fn run() -> anyhow::Result<ExitCode> {
                 "the build wrote no artefacts to {}; refusing to report success",
                 report.out.display()
             );
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Command::Repair(RepairCommand::Bodies(args)) => {
+            let vaults: Vec<&str> = vault_kinds(&args.vault)
+                .into_iter()
+                .map(VaultKind::dir_name)
+                .collect();
+            let report = vault::bodies::run(&vault::bodies::Options {
+                scopes: repair::scopes_for(&root, &vaults),
+                dry_run: args.dry_run || args.check,
+            })?;
+            if let Some(path) = &args.report {
+                let mut text = serde_json::to_string_pretty(&report)?;
+                text.push('\n');
+                std::fs::write(path, text)
+                    .with_context(|| format!("writing {}", path.display()))?;
+            }
+            let value = serde_json::to_value(&report)?;
+            emit(cli.json, &value, || {
+                let verb = if args.check {
+                    "need converting"
+                } else if args.dry_run {
+                    "would be converted"
+                } else {
+                    "converted"
+                };
+                println!(
+                    "{} page(s) examined, {} {verb}",
+                    report.pages_examined, report.pages_converted
+                );
+                for change in report.changes.iter().take(10) {
+                    println!("  {}/{}", change.vault, change.id);
+                }
+                if report.changes.len() > 10 {
+                    println!(
+                        "  … {} more; pass --report for the full list",
+                        report.changes.len() - 10
+                    );
+                }
+            })?;
+            if args.check && report.pages_converted > 0 {
+                return Ok(ExitCode::FAILURE);
+            }
             Ok(ExitCode::SUCCESS)
         }
 

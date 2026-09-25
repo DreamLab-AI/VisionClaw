@@ -402,6 +402,43 @@ page is reported on every run until it is resolved). This is not part of
 `vault migrate`: `migrate` is deleted after its one run, and this defect recurs
 every time somebody pastes functional syntax into a page.
 
+### `vault repair bodies`
+
+The fence migration moved metadata into frontmatter and left every body a
+Logseq outline: headings as bullets (`- ### Overview`), paragraphs as indented
+bullets, images sized with `{:height 841, :width 800}`, and the blocks inlined
+in place of `{{embed}}` with their first child written twice. This rewrites
+the body as Obsidian markdown and carries the frontmatter through byte for byte.
+
+```bash
+vault repair bodies --vault all --dry-run --report bodies.json
+vault repair bodies --vault all
+#   10458 page(s) examined, 10446 converted
+vault repair bodies --vault all --check   # the residue gate: exit 1 if any page would change
+```
+
+| outline block | becomes |
+|---|---|
+| `- ## Heading` | a flush heading; it closes the list, so its children start a new one |
+| `- ---` | a thematic break |
+| a fence, table, quote, HTML or image-only bullet | its own markdown block, indented under its list item when it has one |
+| a bare `-` | dropped; its children move up |
+| `- TODO …` / `- DONE …` | `- [ ] …` / `- [x] …` |
+| anything else | `- ` at two spaces per level, the level counting list items since the last heading |
+
+A fence opened in a bullet and never closed anywhere below is closed where its
+block ends, which is where Logseq ended it; a closed fence is never touched,
+even when its code is less indented than its bullet. Everything else outside
+code is carried as written.
+
+It is idempotent — a second run over the converted corpus reports `0 need
+converting` — and was verified on the full corpus against the build: every
+artefact but the markdown mirror and `prose-index.json` is identical, and the
+prose index only gains. `extract_current_landscape` reads a Current Landscape
+heading in either form and ends the section at the next heading of its level
+or higher; against the pre-conversion build, 903 pages gain a landscape and
+none loses one.
+
 ### `vault migrate` (one-shot)
 
 ```bash
@@ -511,9 +548,9 @@ run lands.
 
 `tests/golden/` holds 50 unmodified pre-migration pages and the output the
 retired Python pipeline produced from them. `tests/golden_parity.rs` migrates
-and builds a copy and asserts byte-identity on `scaffold-index.json` and
-`prose-index.json`, triple-identity on `ontology.ttl`, and clean validation with
-zero residue.
+and builds a copy and asserts byte-identity on `scaffold-index.json`, identity
+on `prose-index.json` but for its documented landscape superset,
+triple-identity on `ontology.ttl`, and clean validation with zero residue.
 
 ```bash
 cargo test -p vault --test golden_parity
