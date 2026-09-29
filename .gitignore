@@ -240,7 +240,8 @@ client/public/embedding-cloud.json
 Kokoros
 Whisper-WebUI
 xinference
-
+target-rune
+nntp-stack
 
 # Local utility binaries (downloaded, not committed)
 scripts/age/
