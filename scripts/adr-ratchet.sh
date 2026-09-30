@@ -10,6 +10,12 @@
 # closed. A new record that supersedes a proposed one therefore passes; a new
 # record on its own does not.
 #
+# The rule's one exception ("or documents the work above", i.e. the cycle's own
+# tracks) is claimed per record with a commit trailer in the range, e.g.
+#   ADR-Ratchet: ADR-2119 documents Track A item 5 (execution journal)
+# which exempts exactly the record whose number it names, and is printed so the
+# claim stays reviewable.
+#
 # Usage: scripts/adr-ratchet.sh <adr-dir> <base-rev> [<head-rev>]
 #   <base-rev> of all zeros (a new branch's push) or an unknown rev: skipped.
 #   ADR_RATCHET_UNTIL=YYYY-MM-DD  the rule's end date; after it the script
@@ -36,18 +42,24 @@ status_at() {
 
 is_adr() { [[ "$(basename "$1")" =~ ^ADR-[0-9]+.*\.md$ ]]; }
 
-added=() closed=()
+# Record numbers claimed as documenting cycle work, from ADR-Ratchet trailers.
+exempt_ids=" $(git log --format='%(trailers:key=ADR-Ratchet,valueonly)' "$base..$head" \
+  | grep -oE 'ADR-[0-9]+' | sort -u | tr '\n' ' ')"
+adr_id() { basename "$1" | grep -oE '^ADR-[0-9]+'; }
+
+added=() closed=() exempt=()
 while IFS=$'\t' read -r kind path; do
   is_adr "$path" || continue
   case "$kind" in
-    A) added+=("$path") ;;
+    A) if [[ "$exempt_ids" == *" $(adr_id "$path") "* ]]; then exempt+=("$path"); else added+=("$path"); fi ;;
     M) [[ "$(status_at "$base" "$path")" == proposed && "$(status_at "$head" "$path")" != proposed ]] \
          && closed+=("$path") ;;
   esac
 done < <(git diff --no-renames --name-status "$base" "$head" -- "$dir")
 
-echo "adr-ratchet: $base..$head in $dir — added ${#added[@]}, closed from proposed ${#closed[@]}"
+echo "adr-ratchet: $base..$head in $dir — added ${#added[@]}, closed from proposed ${#closed[@]}, exempt ${#exempt[@]}"
 for f in "${added[@]}"; do echo "  + $f ($(status_at "$head" "$f"))"; done
+for f in "${exempt[@]}"; do echo "  = $f (ADR-Ratchet trailer: documents cycle work)"; done
 for f in "${closed[@]}"; do echo "  ✓ $f ($(status_at "$base" "$f") → $(status_at "$head" "$f"))"; done
 
 if (( ${#added[@]} <= ${#closed[@]} )); then
@@ -59,6 +71,6 @@ if [[ -n "$until" && "$(date -u +%F)" > "$until" ]]; then
   echo "ADR-RATCHET-OK"
   exit 0
 fi
-echo "::error::adr-ratchet: ${#added[@]} ADR(s) added but only ${#closed[@]} closed from proposed. Until $until a new decision record must close a proposed one (accept, reject, supersede or withdraw it in the same change)."
+echo "::error::adr-ratchet: ${#added[@]} ADR(s) added but only ${#closed[@]} closed from proposed. Until $until a new decision record must close a proposed one (accept, reject, supersede or withdraw it in the same change), or claim that it documents cycle work with a commit trailer 'ADR-Ratchet: ADR-NNNN documents <track item>'."
 echo "ADR-RATCHET-FAIL"
 exit 1
