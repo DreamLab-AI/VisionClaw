@@ -24,9 +24,8 @@ launcher and binary flags see the [CLI reference](../reference/cli.md).
 | Development | 4+ cores | 16 GB | 20 GB SSD | optional |
 | Production (≤100K nodes) | 8+ cores | 32 GB | 100 GB SSD | NVIDIA, compute capability 7.5+ |
 
-The CUDA physics engine delivers a 55x speedup over the CPU path: a 100K-node
-force step runs in ~4.5 ms on GPU (222 FPS) versus ~246 ms on CPU (4 FPS). A
-GPU is optional for small graphs and recommended above ~10K nodes.
+The CUDA physics engine is much faster than the CPU path for large graphs. A GPU
+is optional for small graphs and recommended above ~10K nodes.
 
 ### Software
 

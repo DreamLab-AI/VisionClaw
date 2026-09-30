@@ -294,7 +294,7 @@ The slider maxima are conservative limits that prevent degenerate layouts:
 
 - [Physics / GPU Engine](../explanation/physics-gpu-engine.md) — architecture of the simulation pipeline and CUDA kernels
 - [REST API — `PUT /api/settings/physics`](rest-api.md) — request schema and auth
-- [Performance Benchmarks](performance-benchmarks.md) — GPU vs CPU layout timings
+- [Performance Benchmarks](performance-benchmarks.md) — measured figures and benchmark harnesses
 - Governing ADRs: [ADR-069 Force Preset System](../archive/adr/ADR-069-force-preset-system.md), [ADR-070 CUDA Integration Hardening](../archive/adr/ADR-070-cuda-integration-hardening.md), [ADR-108 Layout Mode System](../archive/adr/ADR-108-layout-mode-system.md)
 </content>
 </invoke>

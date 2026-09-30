@@ -33,7 +33,7 @@ The graph store is the embedded Oxigraph triple store backed by SQLite ([ADR-200
 | Layer | Facts |
 |-------|-------|
 | Backend | 428 Rust files (~178K LOC); 35 Actix actors (19 service + 16 GPU; +10 WebSocket session); 44 hexser handlers (19 directive + 25 query), no CQRS bus (ADR-089); 9 ports, 12 adapters; 8 workspace crates |
-| GPU physics | 82 CUDA `__global__` kernels across 9 `.cu` files (5,854 LOC); 55× speedup — 246 ms CPU (4 FPS) → 4.5 ms GPU (222 FPS) at 100K nodes |
+| GPU physics | 82 CUDA `__global__` kernels across 9 `.cu` files (5,854 LOC); 17,147 nodes laid out live |
 | Client | 465 TypeScript/TSX files (422 non-test, ~103K LOC); 16 feature modules |
 | Ontology | Whelk-rs OWL 2 EL + SHACL-lite + JSON-LD validation + PROV-O provenance (PRD-022); 7 MCP ontology tools |
 | Wire protocol | Full-snapshot V3 (52 B/node) / V5 (V3 body + 8-byte broadcast seq) — **delta encoding prohibited by design** (BROADCAST-001); clients tween to server targets |

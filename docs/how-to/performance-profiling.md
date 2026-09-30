@@ -81,17 +81,17 @@ VISIONCLAW_CUDA_TIMING=1 ./visionclaw 2>&1 | grep '\[ForceComputeActor\]' | tee 
 
 ### Key Metrics to Inspect
 
-| Metric | How to read it | Expected baseline (RTX 4080, 100K nodes) |
+| Metric | How to read it | Working budget (not a measured baseline; record your own run) |
 |--------|---------------|------------------------------------------|
-| `total` frame time | Sum of all kernel phases | < 10 ms (benchmark: 4.5 ms) |
-| `force` kernel time | Barnes-Hut repulsion + Hooke's springs | < 3 ms (benchmark: 2.3 ms) |
-| `grid` construction | 3D spatial hash rebuild | < 0.5 ms (benchmark: 0.3 ms) |
-| `stability` check | Kinetic energy threshold | < 1 ms (benchmark: 0.7 ms) |
-| `semantic` forces | OWL-constrained kernel batch | < 3 ms for 10K nodes (~2.3 ms total ontology overhead) |
+| `total` frame time | Sum of all kernel phases | < 16.7 ms (60 FPS budget) |
+| `force` kernel time | Barnes-Hut repulsion + Hooke's springs | < 3 ms |
+| `grid` construction | 3D spatial hash rebuild | < 0.5 ms |
+| `stability` check | Kinetic energy threshold | < 1 ms |
+| `semantic` forces | OWL-constrained kernel batch | < 3 ms for 10K nodes |
 | `iters_since_full` | Frames since last full position broadcast | Must reach 300 and reset; if it never resets, broadcast is stuck |
 | Convergence frame | Frame count at which KE drops below threshold | ~600 frames during warm-up |
 
-The 55× speedup over CPU serial (`246 ms → 4.5 ms` at 100K nodes) is the production baseline. If total frame time exceeds 10 ms at 100K nodes on an RTX 4080, the simulation is degraded.
+There is no receipted GPU-versus-CPU baseline yet (see [Performance benchmarks](../reference/performance-benchmarks.md)). Judge degradation against the 60 FPS frame budget: if total frame time exceeds 16.7 ms, the simulation is degraded.
 
 ### Monitoring the Periodic Broadcast Counter
 
@@ -440,25 +440,16 @@ sequenceDiagram
 
 ## Benchmark Baselines
 
-Use these numbers to determine whether observed performance is within production tolerance. Numbers are from `reference/performance-benchmarks.md` (RTX 4080, 100K nodes, 200K edges, Chrome 120, 1 Gbps LAN).
+Use these thresholds to judge whether observed performance is within tolerance. They are operating targets, not measured baselines: the earlier per-subsystem figures (RTX 4080, 100K nodes) had no receipt and were withdrawn on 2026-09-30. Measured figures and the harnesses that produce them are in [Performance benchmarks](../reference/performance-benchmarks.md).
 
 | Metric | Target | Warning threshold | Alert threshold |
 |--------|--------|------------------|----------------|
-| Physics frame time (GPU) | 4.5 ms | 10 ms | > 16.7 ms (< 60 FPS equiv.) |
-| GPU speedup vs CPU serial | 55× | < 30× | < 10× |
-| Force kernel time (100K nodes) | 2.3 ms | 5 ms | > 8 ms |
-| WebSocket end-to-end latency | 10 ms | 20 ms | 50 ms |
-| WebSocket message size (100K nodes) | 3.6 MB/frame | 7 MB | 18 MB (JSON parity — protocol broken) |
-| Binary parse time (client) | 0.8 ms | 5 ms | > 12 ms (JSON parity) |
-| Client FPS (100K nodes, balanced) | 60 FPS | 30 FPS | 15 FPS |
-| Draw calls (instanced) | 1 per node type | 10 | > 50 |
-| Client RAM (100K nodes) | 2.8 GB | 5 GB | > 8 GB |
-| Client VRAM (100K nodes) | 4.5 GB | 7 GB | > 12 GB |
-| Oxigraph node fetch (100K) | < 3.2 s | 5 s | > 10 s |
-| Oxigraph get-by-ID | < 1 ms | 2 ms | 5 ms |
-| Oxigraph PageRank (100K) | < 95 ms | 140 ms | 500 ms |
+| Physics frame time (GPU) | < 16.7 ms (60 FPS) | 16.7 ms | > 33 ms (< 30 FPS) |
+| WebSocket end-to-end latency | < 10 ms | 20 ms | 50 ms |
+| Client FPS | 60 FPS | 30 FPS | 15 FPS |
 | Server CPU | < 30% | 60% | 85% |
 | GPU VRAM utilisation | < 60% | 80% | 95% |
+| Graph query time (Oxigraph) | < 20 ms | 100 ms | 500 ms |
 | `iters_since_full` reset interval | ~300 iters (~5 s) | 600 iters | Never resets |
 | API P95 latency | < 50 ms | 100 ms | 500 ms |
 | Stale-position window (post-convergence) | < 5 s | 10 s | Indefinite |
@@ -491,6 +482,6 @@ Use these numbers to determine whether observed performance is within production
 ## Related Documentation
 
 - [GPU Physics Engine](../explanation/physics-gpu-engine.md) — architecture of `ForceComputeActor`, `BroadcastOptimizer`, SimParams fields, the periodic full broadcast fix, and CUDA build system details
-- [Performance Benchmarks](../reference/performance-benchmarks.md) — full benchmark tables for all subsystems, test environment specification, and scalability data up to 1M nodes
+- [Performance Benchmarks](../reference/performance-benchmarks.md) — measured figures with receipts and the benchmark harnesses
 - [Actor Hierarchy](../explanation/actor-hierarchy.md) — supervision strategies for `PhysicsSupervisor` (AllForOne) and how actor failure isolation affects the profiling surface
 - [Client Architecture](../explanation/client-architecture.md) — React Three Fiber component hierarchy, SAB position delivery, and the InstancedLabels two-phase rendering architecture
