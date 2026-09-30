@@ -44,7 +44,7 @@ is_adr() { [[ "$(basename "$1")" =~ ^ADR-[0-9]+.*\.md$ ]]; }
 
 # Record numbers claimed as documenting cycle work, from ADR-Ratchet trailers.
 exempt_ids=" $(git log --format='%(trailers:key=ADR-Ratchet,valueonly)' "$base..$head" \
-  | grep -oE 'ADR-[0-9]+' | sort -u | tr '\n' ' ')"
+  | { grep -oE 'ADR-[0-9]+' || true; } | sort -u | tr '\n' ' ')"
 adr_id() { basename "$1" | grep -oE '^ADR-[0-9]+'; }
 
 added=() closed=() exempt=()
