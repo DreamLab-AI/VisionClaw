@@ -34,7 +34,7 @@ Each page is self-contained and back-links to its governing ADR(s) in [../adr/](
 | Reference | Covers |
 |-----------|--------|
 | [Physics Parameters](physics-parameters.md) | Every force-directed layout parameter — type, range, default, and effect — plus the authoritative tuning table for large knowledge graphs. |
-| [Performance Benchmarks](performance-benchmarks.md) | GPU physics speedup (55×: 246 ms CPU at 4 FPS → 4.5 ms GPU at 222 FPS for 100K nodes), WebSocket latency, binary bandwidth savings, and API response times. |
+| [Performance Benchmarks](performance-benchmarks.md) | Measured figures with receipts (live graph scale, XR presence wire baseline), the harnesses that produce new ones, and operating targets. |
 
 ## Operations
 

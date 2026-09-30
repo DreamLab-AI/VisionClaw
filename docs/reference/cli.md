@@ -114,7 +114,7 @@ cargo doc --open            # build and open API docs
 ### Benchmarks and dependencies
 
 ```bash
-cargo bench --features gpu  # GPU physics benchmarks (see performance-benchmarks.md)
+cargo bench -p visionclaw-xr-presence --bench wire  # XR wire benchmark (see performance-benchmarks.md)
 cargo tree                  # dependency graph
 cargo update -p oxigraph    # update one dependency
 cargo audit                 # security advisory scan
@@ -340,7 +340,7 @@ docker network inspect visionclaw_network   # shared external network
 - [Development](../how-to/development.md) — local build loop, incremental recompile, host-shell rebuilds
 - [Deployment](../how-to/deployment.md) — dev/prod launch, environments, cloudflared tunnel
 - [Configuration](configuration.md) — environment variables and `.env.<env>` reference
-- [Performance Benchmarks](performance-benchmarks.md) — GPU vs CPU physics (55× at 100K nodes)
+- [Performance Benchmarks](performance-benchmarks.md) — measured figures and benchmark harnesses
 - [Reference index](README.md)
 - ADR-090 — [Hexagonal crate modularisation](../archive/adr/ADR-090-hexagonal-crate-modularisation.md) (workspace crate split)
 - ADR-011 — [Auth enforcement](../archive/adr/ADR-011-auth-enforcement.md) (`dev-auth` compile-time gate)

@@ -27,7 +27,7 @@ By the end you can point VisionClaw at your own notes, navigate the result in 3D
 - **Docker Engine** with the Compose plugin (or Docker Desktop)
 - **8 GB RAM** minimum, 16 GB recommended
 - **A modern WebGL browser** (Chrome, Firefox, or Safari, current release)
-- **Optional:** an NVIDIA GPU with CUDA for the 55x physics speedup — VisionClaw runs without it on CPU
+- **Optional:** an NVIDIA GPU with CUDA for GPU-accelerated physics — VisionClaw runs without it on CPU
 
 Tutorial 2 covers each of these in detail, including how to verify your setup.
 

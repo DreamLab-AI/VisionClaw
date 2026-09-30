@@ -149,8 +149,8 @@ Ontological structure becomes physical force: `SubClassOf` pulls children toward
 parents, `DisjointWith` pushes classes apart, inferred axioms apply weaker
 influence than asserted ones. The result is a layout that reflects meaning.
 
-At 100K nodes the GPU path delivers roughly a **55× speedup** over the CPU
-fallback — 246 ms per frame (about 4 FPS) collapses to 4.5 ms (about 222 FPS).
+The GPU path is what makes live layout of the full graph (17,147 nodes
+captured) interactive; the CPU fallback stays usable to roughly 10K nodes.
 Computed positions stream out over the binary protocol. See
 [Physics GPU Engine](physics-gpu-engine.md) and
 [Agent–Physics Bridge](agent-physics-bridge.md).
@@ -240,7 +240,7 @@ tiers; the cryptographic primitive is the coordination primitive.
 | Ports / adapters | 9 ports, 12 adapters |
 | Workspace crates | 8 (ADR-090) |
 | CUDA kernels | 82 `__global__` across 9 `.cu` files, ~5,854 LOC |
-| GPU speedup @100K | ~55× — 246 ms (4 FPS) → 4.5 ms (222 FPS) |
+| Live graph scale | 17,147 nodes captured |
 | Graph store | embedded Oxigraph (RDF) + SQLite (settings); Neo4j removed |
 | Ontology | Whelk-rs OWL 2 EL + SHACL-lite + JSON-LD + PROV-O (PRD-022) |
 | MCP ontology tools | 7 (discover/read/query/traverse/propose/validate/status) |

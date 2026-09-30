@@ -338,5 +338,5 @@ per snapshot.
 - [WebSocket Protocol](websocket-protocol.md) — handshake, JSON control frames, subscription lifecycle
 - [Graph Schema](graph-schema.md) — node-type taxonomy and ID semantics
 - [Physics GPU Engine](../explanation/physics-gpu-engine.md) — where position broadcasts originate
-- [Performance Benchmarks](performance-benchmarks.md) — frame-size and bandwidth figures
+- [Performance Benchmarks](performance-benchmarks.md) — measured wire figures and how to benchmark
 - Governing records: [ADR-061 — Binary Protocol Unification](../archive/adr/ADR-061-binary-protocol-unification.md) · [ADR-031 — GPU Analytics Correctness and Wiring](../archive/adr/ADR-031-gpu-analytics-correctness-and-wiring.md)

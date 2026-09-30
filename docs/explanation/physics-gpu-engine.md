@@ -25,14 +25,10 @@ see [Binary Protocol](../reference/binary-protocol.md).
 
 Force-directed layout is dominated by node-node repulsion, which is naively
 O(n²) per frame. At interactive scale this is the difference between a usable
-graph and a slideshow:
-
-| Stage | 100K nodes, CPU (Rayon) | 100K nodes, GPU (CUDA) |
-|-------|-------------------------|------------------------|
-| One force step | ~246 ms | ~4.5 ms |
-| Effective frame rate | ~4 FPS | ~222 FPS |
-
-That is a **55× speedup** end-to-end, drawn from three sources working together:
+graph and a slideshow. The GPU path is much faster than the CPU path at scale
+(no GPU-versus-CPU figure is published until a receipted run exists; see
+[Performance benchmarks](../reference/performance-benchmarks.md)). The gain comes
+from three sources working together:
 massive thread-level parallelism, the GPU's order-of-magnitude higher memory
 bandwidth, and a spatial-hash grid that reduces the repulsion pass from O(n²) to
 near O(n). A Rayon + SIMD CPU path exists as a fallback and stays interactive up

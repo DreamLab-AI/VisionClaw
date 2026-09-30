@@ -154,8 +154,9 @@ device availability. The Compose dev/prod profiles request an NVIDIA device via
 | `FANOUT_NODE_THRESHOLD` | integer | kernel default | Node count above which fan-out partitioning engages. |
 | `CUDA_HOME` / `CUDA_PATH` | string | `/opt/cuda` | Toolkit location (build-time; CachyOS uses `/opt/cuda`). |
 
-The GPU path delivers roughly a 55x speedup over CPU — about 246 ms/frame (4 FPS)
-falls to 4.5 ms/frame (222 FPS) at 100K nodes. See
+The GPU path is much faster than the CPU path for large graphs; no GPU-versus-CPU
+figure is published until a receipted run exists (see
+[Performance benchmarks](performance-benchmarks.md)). See
 [Physics parameters](physics-parameters.md) for layout tuning.
 
 ---

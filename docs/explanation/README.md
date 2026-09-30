@@ -25,7 +25,7 @@ How the running system is layered, from the CUDA force engine up to the browser 
 | [Actor Hierarchy](actor-hierarchy.md) | The 45 Actix actors (19 service + 16 GPU + 10 WebSocket session) and how messages flow between supervisors. |
 | [Client Architecture](client-architecture.md) | The TypeScript/React client (465 files, 16 feature modules), WebGL/WebGPU rendering, and the binary position pipeline. |
 | [Control Center](control-center.md) | The glass-overlay settings UI — macro dials, semantic groups, the frozen dot-path registry, and the command-palette reveal flow — that replaced the docked `IntegratedControlPanel`. |
-| [Physics GPU Engine](physics-gpu-engine.md) | The 82 CUDA kernels across 9 source files; 55× speedup (246 ms CPU → 4.5 ms GPU at 100K nodes); force-directed layout on the GPU. |
+| [Physics GPU Engine](physics-gpu-engine.md) | The 82 CUDA kernels across 9 source files; force-directed layout on the GPU. |
 | [Agent–Physics Bridge](agent-physics-bridge.md) | Deep-dive — how agent nodes enter the same force graph as knowledge and ontology nodes. |
 | [XR Architecture](xr-architecture.md) | Quest 3 / WebXR plus the Godot presence layer and the `visionclaw-xr-presence` crate. |
 | [Deployment Topology](deployment-topology.md) | Container and network layout — API :4000, nginx :3001, Solid pod :8484, legacy MCP TCP :9500. |

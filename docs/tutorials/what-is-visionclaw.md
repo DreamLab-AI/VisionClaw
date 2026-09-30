@@ -102,7 +102,7 @@ You do not need any of this to use VisionClaw, but it helps to know the shape of
 | Live system | 35 Actix actors supervise the running stack (19 service + 16 GPU), plus a per-connection WebSocket session actor for each client. |
 | Graph store | Embedded **Oxigraph** RDF triple store (W3C SPARQL 1.1), in-process. SQLite holds settings. No Neo4j, no external database, no separate DB browser. |
 | Ontology | **Whelk-rs** OWL 2 EL reasoner with SHACL-lite and JSON-LD validation, and PROV-O provenance on every inferred fact (PRD-022). Exposed to agents through 7 MCP tools (discover, read, query, traverse, propose, validate, status). |
-| GPU physics | 82 CUDA kernels across 9 source files. A 100,000-node layout solves in **4.5 ms** — about 222 physics frames per second, **55× faster** than the CPU path (246 ms, roughly 4 FPS) at the same scale. |
+| GPU physics | 82 CUDA kernels across 9 source files. The full graph (17,147 nodes captured live) lays out interactively on the GPU; the CPU path stays usable to roughly 10K nodes. |
 | Client | React + Three.js / React Three Fiber, organised into 16 feature modules. Renders the live graph smoothly while positions stream in. |
 | Wire protocol | Binary WebSocket. The default V4 format sends only deltas; the fixed frame formats are 36 bytes per node (V2) and 52 bytes (V3). All far smaller than JSON. |
 | XR | Native Meta Quest 3 support via a Godot 4 + godot-rust APK, with OpenXR hand tracking and passthrough, and multi-user spatial presence. |
