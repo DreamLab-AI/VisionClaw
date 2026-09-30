@@ -9,6 +9,7 @@ on:
       - 'CHANGELOG.md'
       - 'AGENTS.md'
       - 'scripts/adr-index-gen.js'
+      - 'scripts/adr-ratchet.sh'
       - '.github/workflows/docs-ci.yml'
   pull_request:
     branches: [main]
@@ -18,6 +19,7 @@ on:
       - 'CHANGELOG.md'
       - 'AGENTS.md'
       - 'scripts/adr-index-gen.js'
+      - 'scripts/adr-ratchet.sh'
 
 jobs:
   validate-adr-ledger:
@@ -30,6 +32,10 @@ jobs:
           fetch-depth: 0
       - name: Validate ADR frontmatter, supersession reciprocity, verified_commit staleness
         run: node scripts/adr-index-gen.js docs/adr --check
+      - name: adr-ratchet (planning cycle 2026-09-21 — a new ADR must close a proposed one)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/adr-ratchet.sh docs/adr "${BASE:-0}" "${{ github.sha }}"
 
   validate-documentation:
     name: Validate Documentation Quality
