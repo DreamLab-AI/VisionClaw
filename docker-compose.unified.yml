@@ -225,7 +225,7 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://junkiejarvis.com,http://localhost:3000,http://localhost:3001}
       # ComfyUI image generation
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
-      COMFYUI_SALAD_URL: ${COMFYUI_SALAD_URL:-http://comfyui:3000}
+      IMAGE_GEN_MODEL: ${IMAGE_GEN_MODEL:-minimax-h3}
       # Solid pod storage for agent pipeline
       SOLID_PROXY_SECRET_KEY: ${SOLID_PROXY_SECRET_KEY}
       # Fail fast in production if the agent key is unset — no insecure default.
