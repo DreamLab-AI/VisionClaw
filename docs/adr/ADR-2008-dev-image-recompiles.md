@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: f92d53a5dcdb7a1aa47e4c03e5e9482624c1e3be
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default

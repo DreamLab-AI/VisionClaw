@@ -221,7 +221,7 @@ See [URN ↔ Solid mapping](urn-solid-mapping.md) and the
 | `PERPLEXITY_API_KEY` | string | `""` | **Not the Perplexity endpoint config.** Read only by the boot readiness report (`app_state.rs:1516`) to decide whether `PerplexityService` was *expected* to be present. See the correction note below. |
 | `PERPLEXITY_ENABLED_PUBKEYS` | string (csv) | `""` | Per-pubkey feature gate for Perplexity access (`feature_access.rs:20`). Gates *who* may call it, not *where* it calls. |
 | `COMFYUI_URL` | string | `http://comfyui:8188` | ComfyUI image-generation endpoint. |
-| `COMFYUI_SALAD_URL` | string | `http://comfyui:3000` | Alternate ComfyUI/Salad endpoint. |
+| `IMAGE_GEN_MODEL` | string | `minimax-h3` | ComfyUI graph for `/api/image-gen/*`: `minimax-h3` (installed MiniMax H3 weights; renders a 5-frame clip and keeps frame 0) or `flux2` (needs the FLUX 2 Dev weights). |
 | `RAGFLOW_API_KEY` | string | `""` | RAGFlow API key. |
 | `RAGFLOW_API_BASE_URL` | string | `""` | RAGFlow base URL. |
 | `RAGFLOW_AGENT_ID` | string | `""` | RAGFlow agent identifier. |
