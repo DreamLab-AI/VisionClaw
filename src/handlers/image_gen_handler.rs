@@ -328,7 +328,11 @@ fn h3_canvas(width: u32, height: u32) -> (u32, u32) {
 /// half of the AV latent is never decoded. `guidance` does not apply to this
 /// sampler (BasicGuider carries no CFG), matching the agentbox H3 reference
 /// workflow.
-fn build_minimax_h3_still_workflow(req: &ImageGenRequest, seed: u64, filename_prefix: &str) -> Value {
+fn build_minimax_h3_still_workflow(
+    req: &ImageGenRequest,
+    seed: u64,
+    filename_prefix: &str,
+) -> Value {
     let (width, height) = h3_canvas(req.width, req.height);
     json!({
         "1": {
@@ -437,7 +441,11 @@ fn build_workflow(
     match model {
         ImageModel::MiniMaxH3 => {
             let (w, h) = h3_canvas(req.width, req.height);
-            (build_minimax_h3_still_workflow(req, seed, filename_prefix), w, h)
+            (
+                build_minimax_h3_still_workflow(req, seed, filename_prefix),
+                w,
+                h,
+            )
         }
         ImageModel::Flux2 => (
             build_flux2_workflow(req, seed, filename_prefix),
@@ -525,7 +533,10 @@ async fn run_comfyui_job(workflow: Value, client_id: &str) -> Result<ComfyJob, H
             }))
         })?;
 
-    info!("ComfyUI accepted job {} → prompt_id {}", client_id, prompt_id);
+    info!(
+        "ComfyUI accepted job {} → prompt_id {}",
+        client_id, prompt_id
+    );
 
     let history_url = format!("{}/history/{}", comfyui_base(), prompt_id);
     let mut saved: Option<(String, String)> = None;
@@ -534,7 +545,12 @@ async fn run_comfyui_job(workflow: Value, client_id: &str) -> Result<ComfyJob, H
         let history = match client.get(&history_url).send().await {
             Ok(r) => r.json::<Value>().await.unwrap_or_default(),
             Err(e) => {
-                warn!("History poll {}/{} failed: {}", attempt + 1, HISTORY_POLLS, e);
+                warn!(
+                    "History poll {}/{} failed: {}",
+                    attempt + 1,
+                    HISTORY_POLLS,
+                    e
+                );
                 continue;
             }
         };
@@ -1017,7 +1033,10 @@ mod workflow_tests {
             "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
         );
         assert_eq!(wf["2"]["inputs"]["type"], "minimax");
-        assert_eq!(wf["3"]["inputs"]["vae_name"], "minimax_h3_video_vae_fp16.safetensors");
+        assert_eq!(
+            wf["3"]["inputs"]["vae_name"],
+            "minimax_h3_video_vae_fp16.safetensors"
+        );
         assert_eq!(wf["4"]["inputs"]["prompt"], "a glass knowledge graph");
         assert_eq!(wf["4"]["inputs"]["width"], 992);
         assert_eq!(wf["4"]["inputs"]["height"], 768);
@@ -1040,7 +1059,10 @@ mod workflow_tests {
             for (name, input) in node["inputs"].as_object().unwrap() {
                 if let Some(link) = input.as_array() {
                     let target = link[0].as_str().unwrap();
-                    assert!(nodes.contains_key(target), "node {id} input {name} -> missing {target}");
+                    assert!(
+                        nodes.contains_key(target),
+                        "node {id} input {name} -> missing {target}"
+                    );
                 }
             }
         }
@@ -1054,7 +1076,10 @@ mod workflow_tests {
         ]}}});
         assert_eq!(
             first_saved_image(&job),
-            Some(("h3-still_00001_.png".to_string(), "visionclaw/e1-acceptance".to_string()))
+            Some((
+                "h3-still_00001_.png".to_string(),
+                "visionclaw/e1-acceptance".to_string()
+            ))
         );
         assert_eq!(first_saved_image(&json!({"outputs": {}})), None);
         assert_eq!(first_saved_image(&json!({"status": {}})), None);
@@ -1067,6 +1092,9 @@ mod workflow_tests {
         assert_eq!((w, h), (992, 768));
         let (wf, w, h) = build_workflow(ImageModel::Flux2, &req, 1, "p");
         assert_eq!((w, h), (1000, 770));
-        assert_eq!(wf["1"]["inputs"]["unet_name"], "flux2_dev_fp8mixed.safetensors");
+        assert_eq!(
+            wf["1"]["inputs"]["unet_name"],
+            "flux2_dev_fp8mixed.safetensors"
+        );
     }
 }
