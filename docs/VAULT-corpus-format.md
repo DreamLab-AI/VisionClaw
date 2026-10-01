@@ -1,11 +1,11 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 2.0.1
+version: 2.1.0
 status: living
 verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109]
 ---
 
@@ -98,7 +98,6 @@ call it; nothing else parses the corpus.
 | `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + forum 31402 | C4, C5 |
 | `vault gate` / `vault conflicts` | the autonomous quality gate and the conflict detector | C2 |
 | `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
-| `vault migrate --fences-to-properties` | the one-shot; deleted after its run | C1 `migration:` |
 | `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via `vault-core` | ADR-2114 |
 | Loom | consumes the `vault build` bundle; generation `visionGraph@<sha>` | Loom ADR-141 |
 | Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish ⇐ `public` | PRD Q13 |
@@ -142,6 +141,12 @@ visionGraph/
 - `pages/.deleted/` is not a namespace. It is deleted, not converted.
 
 ### V2 — Frontmatter is the whole of the metadata
+
+Domain roots include the two linked additions in
+[ADR-2118](adr/ADR-2118-append-space-earth-domain-identities.md): Space Science
+and Systems, and Earth Observation and Geospatial Sensing. Graph domain IDs
+0–5 retain their existing meanings; the additions occupy IDs 6 and 7. Domain
+membership is independent of subclassing and never implies disjointness.
 
 Every page begins with a YAML frontmatter block delimited by `---`. Keys are
 lower-kebab-case. The reserved Obsidian keys `aliases`, `tags`, `cssclasses` keep
@@ -244,31 +249,16 @@ pages through `vault-core`'s one emitter, so YAML quoting of `"[[Page]]"` and
 must touch a page it did not create still goes through `vault edit --expect`, which
 refuses a mutation without a declared blast radius and names the missing guards.
 
-### V6 — Migration (`vault migrate --fences-to-properties`, ADR-2113)
+### V6 — Obsidian-only authoring (ADR-2117)
 
-The one remaining one-shot; the subcommand is deleted after its run.
+The one-shot converter, JSON-LD fence reader and migration vocabulary model
+are retired. `vault migrate` is not a supported command. New source material
+must be converted to canonical Obsidian Markdown and governed YAML frontmatter
+before it is submitted through `vault create` or `vault propose`.
 
-- Lossless **by construction**: the migration fails on any fence field or `key::`
-  key not covered by `vocabulary.migration`, rather than guessing or dropping.
-- `--dry-run` first; the diff is committed as evidence before the real run.
-- Three rules do the work (full statement in `vocabulary.migration`):
-  - a `key::` line in the **leading block** is page-level and takes its mapped
-    frontmatter destination;
-  - a `key::` line **inside a bullet** is block-level: a relation key is
-    union-merged, anything else is rendered into that bullet's prose and the key
-    dropped — block properties cannot be lifted to page-level frontmatter without
-    collapsing many values into one;
-  - relation values are the **union** of the fence targets and the `key::`
-    wikilink targets, deduplicated by resolved identity, dangling targets
-    reported;
-  - a `{{embed ((uuid))}}` block reference is **resolved and inlined**, not
-    deleted. The uuids were long assumed dead; they are not — the earlier
-    survey searched only `knowledge/`, and 33 of the 34 resolve to an `id::`
-    line in `working/`. Each becomes a blockquote carrying an HTML provenance
-    comment that names the source file. The two remaining occurrences are
-    documentation *about* Logseq syntax inside inline code, and are escaped.
-- Idempotent: a second run is a no-op.
-- `git` is the rollback. There is no reverse converter.
+`vault validate` continues rejecting obsolete syntax outside code examples.
+`vault repair bodies` and `vault repair fences` remain current repair tools;
+format repair does not establish semantic correctness or grant publication.
 
 ### V7 — Vocabulary is versioned and Schema-tier
 
@@ -387,10 +377,10 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 | EXP-V01 | critical, regression | `vault validate` exits 0 on both vaults; zero fences, zero `key::` lines, zero `{{embed}}`, and every `knowledge/` page carries `type`, `resource`, `status`. | `vault validate --vault all --strict` |
 | EXP-V02 | critical, regression | A page carrying a fence, a `key::` line, a `{{embed}}`, an `a___b.md` name or a journal filename fails `vault validate` with a named rule. One fixture per rejected construct. | `cargo test -p vault validate_rejects` |
 | EXP-V03 | critical, regression | An unknown frontmatter key fails in `knowledge/` and passes in `working/`. | same |
-| EXP-V04 | critical | `vault migrate --fences-to-properties --dry-run` covers every fence field and every one of the 643 `key::` keys; an uncovered field fails the run rather than dropping. | migration report, committed as evidence |
-| EXP-V05 | critical | Migration is lossless on relations: the post-migration edge count equals the union of the 104,731 fence edges and the 18,006 resolvable `key::`-only edges, minus duplicates, and the report accounts for every dangling target. | `vault build --stats` against the census |
-| EXP-V06 | high, regression | Running `vault migrate` twice yields byte-identical output the second time. | migration test |
-| EXP-V07 | critical | `vault build` and the retired Python build emit byte-identical `scaffold-index.json`, and identical `ontology.ttl` **except** for the five deltas enumerated in `vocabulary.migration.intentional_deltas`. | golden-parity test (ADR-2113) |
+| EXP-V04 | critical | The CLI rejects the retired `migrate` command; the core has no legacy fence reader or migration feature. | CLI regression test and source inspection |
+| EXP-V05 | critical | Canonical Obsidian fixtures preserve published relations and identities against frozen reference output. | golden-parity test |
+| EXP-V06 | high, regression | Body repair is idempotent and preserves YAML frontmatter. | body-repair tests |
+| EXP-V07 | critical | `vault build` preserves scaffold, graph and ontology output against frozen references, with explicit test-documented differences. | golden-parity test (ADR-2113, ADR-2117) |
 | EXP-V08 | critical | Loom `/health`, VisionClaw `/api/ontology/classes` and `vault build --stats` report the same class count from one generation. | PRD acceptance 2 |
 | EXP-V09 | high | VisionClaw boots with no `PRIVATE_REPO_GITHUB_PAT`, ingests from the mounted volume, and its node/edge counts sit within the explainable delta of the 13,165 / 153,960 baseline. | PRD acceptance 3 |
 | EXP-V10 | high | `vault edit` without `--expect` is refused and names the missing guards; with a wrong `--expect` it is refused and names the actual blast radius. | `cargo test -p vault edit_guard` |
@@ -401,9 +391,9 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 ## Change process
 
 This is a living document. Amend it in the same change that alters a reader,
-writer, gate rule, migration rule or the path authority — and note that most such
+writer, gate rule or the path authority — and note that most such
 changes belong in `ontology/vocabulary.yaml` instead, which is where the key set,
-the OWL mapping and the migration table now live. This document governs the
+the OWL mapping live. This document governs the
 *shape*; the vocabulary governs the *content*.
 
 Bump `version`: patch for wording, minor for a new rule or section, **major for a
@@ -431,7 +421,10 @@ The v1.4.x closeout qualifications for ADR-2040 (inclusion typing, local
 fallback), ADR-2041 (settings migration) and ADR-2042 (converter collision,
 dry-run boundaries) are **closed by supersession**, not by remediation: the gate
 they qualified is replaced (V4), the alias they qualified is deleted (ADR-2114),
-and the converter they qualified is deleted (`crates/vault-migrate` → `vault
-migrate`, ADR-2113). Their evidence is retained in
+and both successive converters are deleted (ADR-2113, ADR-2117). Their evidence is retained in
 [`docs/estate-review/authored-vault-transition.md`](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/authored-vault-transition.md)
 for rationale and history, never as authority.
+
+### Space and Earth vocabulary publication (2026-10-01)
+
+ADR-2118 appends the two domain identities after the legacy six. `vault-core::domains` is the shared registry for exporter IDs, live navigation roots and GPU class mapping; long canonical slugs and historical short names resolve consistently. Domain grouping remains navigation rather than an invented OWL subclass axiom. The owner authorised publication of 922 draft vocabulary pages with empty article bodies. Public visibility does not assert scientific verification. Site deployment dispatches the exact corpus revision to VisionClaw’s ontology release workflow; validation and build use the same source commit. The local ingest path consumes that frontmatter independently of the Solid pod release pull.

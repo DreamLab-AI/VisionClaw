@@ -12,14 +12,7 @@ import type { GraphVisualMode } from '../hooks/useGraphVisualState';
 import { computeNodeScale } from '../utils/nodeScaling';
 import type { GraphTypeVisualsSettings } from '../../settings/config/settings';
 
-// --- Metadata overlay helpers (duplicated from GraphManager to avoid circular imports) ---
-const DOMAIN_COLORS: Record<string, string> = {
-  'AI': '#4FC3F7', 'BC': '#81C784', 'RB': '#FFB74D', 'MV': '#CE93D8',
-  'TC': '#FFD54F', 'DT': '#EF5350', 'NGM': '#4DB6AC',
-};
-const DEFAULT_DOMAIN_COLOR = '#90A4AE';
-const getDomainColor = (domain?: string): string =>
-  domain && DOMAIN_COLORS[domain] ? DOMAIN_COLORS[domain] : DEFAULT_DOMAIN_COLOR;
+import { getDomainColor } from '../utils/domainColors';
 
 const getQualityStars = (quality?: number | string): string => {
   if (quality === undefined || quality === null) return '';

@@ -1,3 +1,4 @@
+import { getDomainColor, DEFAULT_DOMAIN_COLOR as DEFAULT_COLOR } from '../utils/domainColors';
 import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -28,20 +29,6 @@ interface ClusterHullsProps {
 // ============================================================================
 // Constants
 // ============================================================================
-
-const DOMAIN_COLORS: Record<string, string> = {
-  'AI': '#4FC3F7',
-  'BC': '#81C784',
-  'RB': '#FFB74D',
-  'MV': '#CE93D8',
-  'TC': '#FFD54F',
-  'DT': '#EF5350',
-  'NGM': '#4DB6AC',
-  'SEC': '#FF7043',
-  'INFRA': '#78909C',
-};
-
-const DEFAULT_COLOR = '#90A4AE';
 
 const MIN_CLUSTER_SIZE = 4;
 const TICK_INTERVAL = 30;
@@ -79,7 +66,7 @@ function getDomainHullColor(domain: string): string {
     const idx = parseInt(clusterMatch[1], 10) % GPU_CLUSTER_COLORS.length;
     return GPU_CLUSTER_COLORS[idx];
   }
-  return DOMAIN_COLORS[domain] ?? DEFAULT_COLOR;
+  return getDomainColor(domain);
 }
 
 // ADR-031 D6: Louvain community hull colour. Matches GemNodes' community node

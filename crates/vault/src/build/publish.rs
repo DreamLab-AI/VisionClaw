@@ -58,8 +58,8 @@ impl fmt::Display for SecretFinding {
 /// The build refused because a page selected for publication carries a
 /// credential.
 ///
-/// A distinct error type so the CLI can exit **2** — "a migration or
-/// publication the corpus does not permit" — rather than the generic 1.
+/// A distinct error type so the CLI can exit **2** for refused publication
+/// rather than the generic 1.
 #[derive(Debug, Clone)]
 pub struct SecretsFound {
     /// Every finding, so one run names every page to fix.

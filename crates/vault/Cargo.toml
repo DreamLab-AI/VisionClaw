@@ -2,7 +2,7 @@
 name = "vault"
 version = "0.1.0"
 edition = "2021"
-description = "The single door onto the sovereign corpus: validate, query, guarded edit, propose, gate, conflicts, build, migrate (PRD-sovereign-corpus, ADR-2113)"
+description = "The single door onto the sovereign corpus: validate, query, guarded edit, propose, gate, conflicts, build (PRD-sovereign-corpus, ADR-2113)"
 authors = ["jjohare <github@thedreamlab.uk>"]
 license = "AGPL-3.0-only"
 repository = "https://github.com/jjohare/VisionClaw"
@@ -17,7 +17,7 @@ name = "vault"
 path = "src/lib.rs"
 
 [dependencies]
-vault-core = { path = "../vault-core", features = ["migrate"] }
+vault-core = { path = "../vault-core" }
 clap = { version = "4.5", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

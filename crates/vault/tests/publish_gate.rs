@@ -35,28 +35,11 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// Migrate the golden fixture into a scratch repo and return `(scratch, repo)`.
-fn migrated_repo() -> (tempfile::TempDir, PathBuf) {
+/// Copy the Obsidian fixture into a scratch repo and return `(scratch, repo)`.
+fn fixture_repo() -> (tempfile::TempDir, PathBuf) {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let repo = scratch.path().join("repo");
     copy_tree(&fixture(), &repo);
-    let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
-    vault::migrate::run(
-        &vault::migrate::Options {
-            scopes: vec![vault::migrate::Scope {
-                vault: "knowledge".to_owned(),
-                dir: repo.join("knowledge/pages"),
-                journals: false,
-            }],
-            repo_root: repo.clone(),
-            allow_type_fallback: false,
-            dry_run: false,
-            now: "2026-09-22T00:00:00Z".to_owned(),
-        },
-        &vocab,
-        false,
-    )
-    .expect("the fixture migrates");
     (scratch, repo)
 }
 
@@ -74,7 +57,7 @@ fn options(repo: &Path, out: &Path) -> build::Options {
     }
 }
 
-/// The first `public: true` page in the migrated knowledge vault.
+/// The first `public: true` page in the knowledge vault.
 fn a_public_page(repo: &Path) -> PathBuf {
     let pages = repo.join("knowledge/pages");
     let mut candidates: Vec<PathBuf> = vault_core::page::page_files(&pages)
@@ -92,7 +75,7 @@ fn a_public_page(repo: &Path) -> PathBuf {
 
 #[test]
 fn the_fixture_builds_and_stages_its_public_pages() {
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     let out = scratch.path().join("out");
     let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
     let report = build::run(&options(&repo, &out), &vocab).expect("a clean fixture builds");
@@ -114,7 +97,7 @@ fn the_fixture_builds_and_stages_its_public_pages() {
 
 #[test]
 fn a_credential_on_a_published_page_refuses_the_build_and_writes_nothing() {
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     let page = a_public_page(&repo);
     let original = std::fs::read_to_string(&page).expect("read the page");
     std::fs::write(&page, format!("{original}\nleaked: {SYNTHETIC_KEY}\n")).expect("plant the key");
@@ -148,7 +131,7 @@ fn a_credential_on_a_published_page_refuses_the_build_and_writes_nothing() {
 
 #[test]
 fn a_credential_on_a_private_page_does_not_refuse_the_build() {
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     // Hold one page back, then plant the same key in it. The fixture is 50
     // public pages, so the private one has to be made.
     let private = a_public_page(&repo);
@@ -183,7 +166,7 @@ fn a_build_reports_what_it_wrote() {
     // "Nothing built" must be distinguishable from "built successfully". The
     // CLI turns `written == 0` into a non-zero exit; the library reports the
     // count so it can.
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     let out = scratch.path().join("out");
     let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
     let report = build::run(&options(&repo, &out), &vocab).expect("builds");
@@ -202,7 +185,7 @@ fn a_build_reports_what_it_wrote() {
 
 #[test]
 fn publish_out_is_counted_and_lands_outside_the_bundle() {
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     let out = scratch.path().join("out");
     let published = scratch.path().join("published");
     let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
@@ -225,7 +208,7 @@ fn publish_out_is_counted_and_lands_outside_the_bundle() {
 /// held back however it is flagged.
 #[test]
 fn publish_out_matches_the_site_url_contract() {
-    let (scratch, repo) = migrated_repo();
+    let (scratch, repo) = fixture_repo();
     let public_title = a_public_page(&repo)
         .file_name()
         .expect("a file name")

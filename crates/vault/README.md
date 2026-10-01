@@ -1,7 +1,6 @@
 # `vault` — the single door onto the sovereign corpus
 
-One binary replaces the `visionGraph/pipeline` Python (4,322 lines), the
-`ontology-bridge` and `ontology-propose` MCP servers, and `vault-migrate`.
+The CLI validates, queries, edits and builds the Obsidian ontology corpus.
 Agents reach the corpus through this CLI and nothing else; humans use Obsidian.
 
 See [ADR-2113](../../docs/adr/ADR-2113-crates-vault-is-the-single-corpus-parser-and-build.md)
@@ -20,7 +19,7 @@ sees `ontology/vocabulary.yaml`. Pass `--repo <dir>` to be explicit.
 ## Commands
 
 Every subcommand accepts `--json`. Exit codes are contractual: **0** success,
-**1** a failed check, **2** a migration the vocabulary does not cover.
+**1** a failed check or execution error, **2** a refused operation or invalid argument.
 
 ### `vault validate`
 
@@ -60,7 +59,7 @@ nobody looked.
 These are two different questions and `vault` now keeps them apart.
 
 **Enumerated** — loaded by the vault, and therefore reachable by `validate`,
-`find`, `retrieve` and `migrate` — is every `.md` file under `pages/` and
+`find` and `retrieve` — is every `.md` file under `pages/` and
 `journals/` except those in a dot-directory. Each skip is reported with a reason,
 so an absent page can never be confused with a page that does not exist:
 
@@ -73,7 +72,7 @@ vault validate --vault all --json | jq '.knowledge.skipped'
 **Published** is narrower: it excludes `_misc/` (`UNPUBLISHED_DIRS`) and every
 page without `public: true`. `_misc` used to be applied during *enumeration*,
 which quietly turned a publication decision into an existence decision — a
-`_misc` page could not be validated, found or migrated. It now lives only in the
+`_misc` page could not be validated, found or edited. It now lives only in the
 projection's publish scope.
 
 A `.deleted/` or `.trash/` page is a **tombstone**, not a held page, and its
@@ -122,7 +121,7 @@ and a mapping round-trips as a mapping rather than a string:
 
 ```bash
 vault edit "Some Page" \
-  --set 'generated={by: process:vault-migrate/1.0, at: 2026-09-22T11:37:06Z}' \
+  --set 'generated={by: process:vault/1.0, at: 2026-09-22T11:37:06Z}' \
   --expect docs=1,blocks=1
 ```
 
@@ -389,23 +388,18 @@ the closer at the first blank line, which on an orphaned closer is the very next
 line: that put an empty code block on 34 knowledge pages — validating clean while
 leaving a fresh defect in the source the repair exists to remove.
 
-"Code-looking" is a **content** test, never indentation: the corpus was migrated
-from a Logseq outliner export and nearly every prose line is still an indented
-bullet, so
-"indented therefore code" would fence the whole vault. What actually follows a
+"Code-looking" is a **content** test, never indentation: an indented Markdown
+list is still prose. What actually follows a
 real stray opener here is OWL functional syntax, Turtle and the occasional
 SPARQL query.
 
 Every change is listed in `--report`, and the command is idempotent — a repaired
 page has no unmatched marker, so a second run reports `0 repaired` (an ambiguous
-page is reported on every run until it is resolved). This is not part of
-`vault migrate`: `migrate` is deleted after its one run, and this defect recurs
-every time somebody pastes functional syntax into a page.
+page is reported on every run until it is resolved). This check remains necessary when somebody pastes functional syntax into a page.
 
 ### `vault repair bodies`
 
-The fence migration moved metadata into frontmatter and left every body a
-Logseq outline: headings as bullets (`- ### Overview`), paragraphs as indented
+Imported content can contain outliner residue: headings as bullets (`- ### Overview`), paragraphs as indented
 bullets, images sized with `{:height 841, :width 800}`, and the blocks inlined
 in place of `{{embed}}` with their first child written twice. This rewrites
 the body as Obsidian markdown and carries the frontmatter through byte for byte.
@@ -439,116 +433,10 @@ heading in either form and ends the section at the next heading of its level
 or higher; against the pre-conversion build, 903 pages gain a landscape and
 none loses one.
 
-### `vault migrate` (one-shot)
-
-```bash
-vault migrate --fences-to-properties --dry-run --report migration-report.json
-vault migrate --fences-to-properties
-```
-
-Folds both `json-ld` fences into typed Obsidian Properties, converts the
-surviving Logseq `key:: value` lines, rewrites `{{embed [[X]]}}` to `![[X]]`,
-and stamps `type`, `resource`, `status: stable` and `generated`.
-
-Pages with **no** fence are converted too — the same machinery minus the fence
-step. `working/`'s 574 pages and the 189 fence-less knowledge pages carry
-`key::` lines and embeds that would otherwise survive untouched.
-
-`--vault all` runs **both** vaults and both `journals/` trees — 10,458 files,
-where it previously ran `knowledge/pages` alone and said nothing about it. The
-order is not an implementation detail: every tree is *indexed* before any tree is
-*converted*, because `logseq_keys.id: drop` deletes the very `id::` lines
-`migration.block_refs` resolves against, and converting `knowledge/` first would
-make all 33 of its block references unresolvable.
-
-```bash
-vault migrate --vault all --fences-to-properties --dry-run --report m.json
-#   10458 pages examined, 10458 converted, …
-#     knowledge: 8457 page(s) + 125 journal(s) examined, 8582 converted
-#     working: 771 page(s) + 1105 journal(s) examined, 1876 converted
-#     28 file(s) skipped: knowledge/pages/.deleted/… (hidden directory)
-```
-
-Three input categories, not two. Beside the fences and the `key::` lines, a
-page's **own frontmatter** is converted through `migration.frontmatter_keys`,
-using the same `Destination` grammar. That is what turns `legacy_iri` and
-`legacy_uri` into `sources[]` provenance and drops `schema_version` — 40
-`UNKNOWN_KEY` errors before, none after.
-
-A key the vocabulary does **not** name is *authored*: it survives, and it wins
-over anything the fences supply. A human wrote it and a fence did not. This is
-why an authored `type: Episode` is still `Episode` after a run — 107 `working/`
-pages that an earlier run rewrote to `Note`.
-
-The resolved `type` is also constrained by the destination vault: `knowledge/`
-accepts `Class`, `Property` and `Individual`; `working/` accepts its
-`working_types`. A candidate the vault refuses is reported as
-`type_not_permitted` and **not written**, so a legacy `OntologyClass` fence can
-no longer put a `Class` into `working/`.
-
-**A type fallback refuses the run** — exit 2, nothing written. A page whose type
-falls back to `Note` has not been converted; the tool has failed to establish
-what it *is*. That matters most on a re-run: `type: Class` came from a fence, and
-`migrate` removes the fences, so without the authored value winning every one of
-the 8,457 governed pages would fall back and the ontology would be erased at exit
-0. `--allow-type-fallback` proceeds anyway, for the one case that is a content
-decision rather than a tool failure: `knowledge/journals/`'s 125 pages are
-`Journal`s, which is a `working_types` member and not a governed type.
-
-**The conversion is idempotent, and the report says so.** `pages_changed` is the
-write set and `pages_unchanged` is everything else; a byte-identical page is not
-rewritten, so its mtime stays a usable signal. The verdict is printed first —
-`REFUSED`, or `NO-OP … 0 written. The corpus is already migrated.` — because a
-summary opening with "8,446 converted" over a run that wrote nothing reads as a
-broken tool:
-
-```bash
-vault migrate --vault knowledge --only pages --fences-to-properties   # 8,446 converted
-vault migrate --vault knowledge --only pages --fences-to-properties   # 0 diffs
-```
-
-Two things were needed for that. The body is composed with `trim`, not
-`trim_end` — the separator between frontmatter and body is unconditional, so
-trimming only the tail accumulated one blank line per run. And the key **order**
-is seeded from the page's own frontmatter, because otherwise the output order
-depended on which input supplied each key: a first pass orders by the fence, a
-second (no fences left) by the authored block, and the two differ while the
-content is identical.
-
-`--only pages | journals | all` selects the tree within each vault, so the 1,230
-journal pages can take their first pass without touching `pages/` — the
-difference between a reviewable diff and a 10,458-file one.
-
-`--repo` must point at the **repository**, not a vault: block references
-resolve against `migration.block_refs.resolve_from`, which reaches into
-`working/`.
-
-**Lossless by construction.** Every fence key and every Logseq key must appear
-in the vocabulary's `migration:` map — mapped to a frontmatter key, or listed
-in `ignore:`. An uncovered key exits **2** and writes nothing, naming the key
-and its occurrence count.
-
-Three conditions are **reported, not refused**, because refusing would stop a
-run over something with nothing to fix at source:
-
-| condition | disposition |
-|---|---|
-| an unresolvable block reference | removed, counted per page |
-| an unmatched code-fence opener | region read as prose, page recorded |
-| a long-tail IRI outside the namespace | normalised, slug preserved, counted |
-
-An unterminated fence is **not** treated as opening a code block. 511 knowledge
-pages carry a stray opener and 1,713 real `key::` lines fall after it; treating
-"opener to end of file" as code would lose them silently.
-
-Delete this subcommand, the `migrate` feature and `vault_core::fences` after the
-run lands.
-
 ## Golden parity
 
-`tests/golden/` holds 50 unmodified pre-migration pages and the output the
-retired Python pipeline produced from them. `tests/golden_parity.rs` migrates
-and builds a copy and asserts byte-identity on `scaffold-index.json`, identity
+`tests/golden/` holds 50 canonical Obsidian pages and frozen reference output.
+`tests/golden_parity.rs` builds a copy and asserts byte-identity on `scaffold-index.json`, identity
 on `prose-index.json` but for its documented landscape superset,
 triple-identity on `ontology.ttl`, and clean validation with zero residue.
 

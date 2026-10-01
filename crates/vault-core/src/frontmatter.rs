@@ -1,4 +1,4 @@
-//! YAML frontmatter: the only place ontology lives after the migration (Q4).
+//! YAML frontmatter: the canonical home of ontology metadata (Q4).
 //!
 //! A page is `---` / YAML mapping / `---` / body. The mapping is kept as a
 //! [`serde_yaml::Mapping`], which is insertion-ordered, so a round-trip through
@@ -79,7 +79,7 @@ impl fmt::Display for Wikilink {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frontmatter {
     /// The raw mapping. Prefer the typed accessors; this is public so
-    /// `vault edit` and `vault migrate` can rewrite keys in place.
+    /// `vault edit` can rewrite keys in place.
     pub map: serde_yaml::Mapping,
 }
 
@@ -285,12 +285,7 @@ impl Frontmatter {
 
     /// Reorder the keys into [`CANONICAL_ORDER`], alphabetically thereafter.
     ///
-    /// Makes serialisation **independent of which input supplied each key**,
-    /// which is what makes `vault migrate` idempotent on byte equality. Before
-    /// this, a first pass ordered by the `json-ld` fence and a second (with the
-    /// fences gone) by the page's own frontmatter; the content was identical and
-    /// the bytes were not, so a no-op run still rewrote every file and "did this
-    /// change anything?" could not be answered from the diff.
+    /// Makes serialisation independent of insertion order.
     ///
     /// It also makes the corpus diff-stable in git: a key added today lands in
     /// the same place as the same key added next year.

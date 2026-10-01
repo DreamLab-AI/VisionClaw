@@ -40,7 +40,7 @@ const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 const SKOS: &str = "http://www.w3.org/2004/02/skos/core#";
 const DCTERMS: &str = "http://purl.org/dc/terms/";
 
-/// The six top-level domain roots.
+/// The top-level domain roots; membership never implies disjointness.
 pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
     "artificial-intelligence",
     "spatial-computing",
@@ -48,6 +48,8 @@ pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
     "infrastructure",
     "distributed-collaboration",
     "robotics",
+    "space-science-and-systems",
+    "earth-observation-and-geospatial-sensing",
 ];
 
 /// The 34 intermediate taxonomy categories.

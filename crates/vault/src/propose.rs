@@ -26,7 +26,7 @@ use vault_core::proposal::{Level, PatchProposal, ProposalKind, STALE_AFTER_DAYS}
 use vault_core::vocabulary::Vocabulary;
 
 use crate::conflicts;
-use crate::migrate::unified_diff;
+use crate::diff::unified_diff;
 use crate::model::Corpus;
 use crate::validate;
 use crate::whelk;

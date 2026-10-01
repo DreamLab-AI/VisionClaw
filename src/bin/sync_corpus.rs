@@ -12,6 +12,7 @@ use visionclaw_server::adapters::{
     OxigraphGraphRepository, OxigraphOntologyRepository, SqliteSettingsRepository,
 };
 use visionclaw_server::config::AppFullSettings;
+use visionclaw_server::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use visionclaw_server::services::corpus_source::{
     corpus_source_kind, CorpusSource, CorpusSourceKind, GitHubSource, LocalDirectorySource,
 };
@@ -69,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create sync service
     let sync_service = GitHubSyncService::new(
         corpus_source,
-        kg_repo
+        kg_repo.clone()
             as Arc<
                 dyn visionclaw_server::ports::knowledge_graph_repository::KnowledgeGraphRepository,
             >,
@@ -103,6 +104,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if stats.errors.len() > 10 {
             println!("  ... and {} more", stats.errors.len() - 10);
         }
+    }
+
+    // Optional verification receipt over the actual persisted graph. This is
+    // deliberately independent of the CLI's progress text and exit status.
+    if let Ok(path) = std::env::var("SYNC_GRAPH_REPORT_PATH") {
+        let graph = kg_repo.load_graph().await?;
+        let file = std::fs::File::create(path)?;
+        serde_json::to_writer(std::io::BufWriter::new(file), &graph)?;
+    }
+    if !stats.errors.is_empty() {
+        return Err(format!("corpus sync reported {} errors", stats.errors.len()).into());
     }
 
     Ok(())

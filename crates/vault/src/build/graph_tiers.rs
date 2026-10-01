@@ -54,24 +54,10 @@ pub const MAX_NODES: usize = 1500;
 /// Per-node `objectProperty` ship cap for domain tiers.
 pub const RELATION_TOPK: usize = 8;
 
-/// The six domains, in the order that fixes their ids.
-pub const DOMAIN_SLUGS: &[&str] = &[
-    "artificial-intelligence",
-    "blockchain",
-    "spatial-computing",
-    "robotics",
-    "distributed-collaboration",
-    "infrastructure",
-];
+/// Domain order is append-only: the first six numeric identities stay fixed.
+pub use vault_core::domains::DOMAIN_SLUGS;
 
-const DOMAIN_LABELS: &[(&str, &str)] = &[
-    ("artificial-intelligence", "Artificial Intelligence"),
-    ("blockchain", "Blockchain"),
-    ("spatial-computing", "Spatial Computing"),
-    ("robotics", "Robotics"),
-    ("distributed-collaboration", "Distributed Collaboration"),
-    ("infrastructure", "Infrastructure"),
-];
+const DOMAIN_LABELS: &[(&str, &str)] = vault_core::domains::DOMAIN_ROOTS;
 
 /// Short-form and legacy domain vocabulary folded onto a canonical domain.
 ///
@@ -717,8 +703,8 @@ pub fn build_overview(model: &GraphModel, generated_at: &str) -> Value {
         })
         .collect();
 
-    // Node order is frozen: 6 domains at 0..5, then 34 categories at 6..39, so
-    // edge indices and the baked positions align.
+    // Overview array indices put all domains first, then categories. These
+    // are local edge indices; domain/category identities remain append-only.
     let mut nodes: Vec<Value> = Vec::with_capacity(ndom + ncat);
     for (di, slug) in DOMAIN_SLUGS.iter().enumerate() {
         let root = domain_root.get(&(di as u16));
@@ -958,8 +944,24 @@ mod tests {
     }
 
     #[test]
-    fn the_taxonomy_has_six_domains_and_thirty_four_categories() {
-        assert_eq!(DOMAIN_SLUGS.len(), 6);
+    fn the_taxonomy_preserves_legacy_ids_and_appends_space_domains() {
+        assert_eq!(DOMAIN_SLUGS.len(), 8);
+        assert_eq!(
+            &DOMAIN_SLUGS[..6],
+            &[
+                "artificial-intelligence",
+                "blockchain",
+                "spatial-computing",
+                "robotics",
+                "distributed-collaboration",
+                "infrastructure"
+            ]
+        );
+        assert_eq!(resolve_domain("space-science-and-systems"), 6);
+        assert_eq!(
+            resolve_domain("earth-observation-and-geospatial-sensing"),
+            7
+        );
         assert_eq!(CATEGORY_ORDER.len(), 34);
         // Category ids are contiguous per domain, in DOMAIN_SLUGS order.
         let mut last = 0u16;
@@ -1152,15 +1154,15 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_has_forty_nodes_in_the_frozen_order() {
+    fn the_overview_uses_domain_count_for_category_array_indices() {
         let model = build_model(&corpus_of(vec![record("A", "ai")]));
         let ov = build_overview(&model, "2026-09-22");
         let nodes = ov["nodes"].as_array().unwrap();
-        assert_eq!(nodes.len(), 40);
+        assert_eq!(nodes.len(), DOMAIN_SLUGS.len() + CATEGORY_ORDER.len());
         assert_eq!(nodes[0]["id"], 0);
         assert_eq!(nodes[0]["label"], "Artificial Intelligence");
-        assert_eq!(nodes[6]["id"], 6);
-        assert_eq!(nodes[6]["label"], "AI Technique");
+        assert_eq!(nodes[DOMAIN_SLUGS.len()]["id"], DOMAIN_SLUGS.len());
+        assert_eq!(nodes[DOMAIN_SLUGS.len()]["label"], "AI Technique");
         assert_eq!(ov["taxonomy"].as_array().unwrap().len(), 34);
         // 34 backbone edges, category -> domain.
         assert_eq!(ov["edges"].as_array().unwrap().len(), 34);

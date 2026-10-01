@@ -27,7 +27,7 @@ on:
         type: boolean
 
 env:
-  ONTOLOGY_SOURCE_REPO: ${{ github.event.inputs.source_repo || 'jjohare/visionGraph' }}
+  ONTOLOGY_SOURCE_REPO: ${{ github.event.inputs.source_repo || github.event.client_payload.source_repo || 'jjohare/visionGraph' }}
   # ADR-2098: solid-pod-rs is embedded in the VisionClaw server (ADR-032 M3) and
   # the JSS sidecar is gone from docker-compose.unified.yml — there is no `jss`
   # host left to resolve, so the old default could only ever fail DNS. The pod is
@@ -90,6 +90,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ env.ONTOLOGY_SOURCE_REPO }}
+          ref: ${{ github.event.client_payload.source_sha || 'main' }}
           path: vault-source
           token: ${{ secrets.ONTOLOGY_SOURCE_TOKEN || secrets.GITHUB_TOKEN }}
 
@@ -148,6 +149,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ env.ONTOLOGY_SOURCE_REPO }}
+          ref: ${{ needs.validate-source.outputs.source_sha }}
           path: vault-source
           token: ${{ secrets.ONTOLOGY_SOURCE_TOKEN || secrets.GITHUB_TOKEN }}
 

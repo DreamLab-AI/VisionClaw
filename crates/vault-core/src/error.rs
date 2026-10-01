@@ -42,16 +42,6 @@ pub enum VaultError {
         /// Why it was rejected.
         message: String,
     },
-
-    /// A json-ld fence could not be decoded during migration.
-    #[error("{path}: malformed json-ld fence: {source}")]
-    Fence {
-        /// The offending page.
-        path: PathBuf,
-        /// The JSON parser's complaint.
-        #[source]
-        source: serde_json::Error,
-    },
 }
 
 /// `Result` specialised to [`VaultError`].

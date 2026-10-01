@@ -89,7 +89,7 @@ Re-verified against repository HEADs on day 9 of the 22 Sep–20 Oct cycle ([pla
 
 | ID | State | Evidence and remaining boundary |
 |---|---|---|
-| N-1 | open | **Corpus/vault landing.** Host ADR-2112/2113/2114 `accepted`/`partial`/`staged` (`f9720fbcb` and series). Activation needs the real `vault migrate --fences-to-properties` run on visionGraph and a first VisionClaw boot on the migrated corpus. |
+| N-1 | open | **Corpus/vault landing.** Host ADR-2112/2113/2114 `accepted`/`partial`/`staged` (`f9720fbcb` and series). The corpus uses canonical Obsidian frontmatter; the completed one-shot converter is retired (ADR-2117). Remaining activation evidence concerns VisionClaw boot/ingest, not rerunning conversion. |
 | N-2 | open | **ADR-2116 replacement path.** Propose route retired; the forum ActionRequest `vault propose` apply path (WS-C) is outstanding. Pairs with E-5. |
 | N-3 | open | **Host ADR-2111** (`f223bbd40`) is `proposed`/`none`: delete FsPaymentStore and implement AnchorConfirmer on `sidestr-node`. The sidestr-rs parity release does not implement either host change. |
 | N-4 | open | **Voice pipeline** (`ab5724422`) and **XR agent embodiment** (host ADR-2109) have no acceptance receipt. Voice folds into CY-A2. |

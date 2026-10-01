@@ -2,8 +2,8 @@
 //!
 //! Every subcommand accepts `--json`, because the primary caller is an agent
 //! in a Bash tool, not a person at a terminal. Exit codes are contractual:
-//! `0` success, `1` a failed check, `2` a migration the vocabulary does not
-//! cover.
+//! `0` success, `1` a failed check or execution error, `2` a refused operation
+//! or invalid argument.
 
 #![deny(unsafe_code)]
 #![warn(clippy::pedantic)]
@@ -16,7 +16,7 @@ use anyhow::Context as _;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
 use vault::{
-    build, conflicts, create, edit, gate, migrate, model::Corpus, nostr, propose, repair, validate,
+    build, conflicts, create, edit, gate, model::Corpus, nostr, propose, repair, validate,
 };
 use vault_core::graph::VaultGraph;
 use vault_core::page::{load_vault, Vault, VaultKind};
@@ -62,8 +62,6 @@ enum Command {
     Conflicts(ConflictsArgs),
     /// Pages to one generation.
     Build(BuildArgs),
-    /// The one-shot fence-to-properties conversion.
-    Migrate(MigrateArgs),
     /// Fix corpus defects in place.
     #[command(subcommand)]
     Repair(RepairCommand),
@@ -128,7 +126,7 @@ pub(crate) const VAULT_VALUES: [&str; 3] = ["knowledge", "working", "all"];
 
 /// The vaults a `--vault` value names.
 ///
-/// `all` means BOTH, everywhere — `migrate` and `build` used to accept the
+/// `all` means BOTH, everywhere — earlier commands accepted the
 /// word and quietly run `knowledge/` only, which is the worst of the three
 /// possible behaviours: it looks like it did what you asked.
 ///
@@ -344,33 +342,6 @@ struct BuildArgs {
     stale_after: Option<String>,
 }
 
-#[derive(Debug, Args)]
-struct MigrateArgs {
-    /// The only supported migration.
-    #[arg(long, required = true)]
-    fences_to_properties: bool,
-    /// Which vault to migrate: `knowledge`, `working` or `all`.
-    #[arg(long, default_value = "knowledge", value_parser = VAULT_VALUES)]
-    vault: String,
-    /// Which tree within each vault: `pages`, `journals` or `all`.
-    ///
-    /// `--only journals` gives the 1,230 journal pages their first pass without
-    /// touching `pages/`, which is the difference between a reviewable diff and
-    /// a 10,458-file one.
-    #[arg(long, default_value = "all", value_parser = ["pages", "journals", "all"])]
-    only: String,
-    /// Proceed even when a page infers a type its vault forbids (exit 2 by
-    /// default). Read the report before using this.
-    #[arg(long)]
-    allow_type_fallback: bool,
-    /// Compute everything, write nothing.
-    #[arg(long)]
-    dry_run: bool,
-    /// Write the full diff and counts here.
-    #[arg(long)]
-    report: Option<PathBuf>,
-}
-
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -418,13 +389,6 @@ fn emit(json: bool, value: &serde_json::Value, prose: impl FnOnce()) -> anyhow::
         prose();
     }
     Ok(())
-}
-
-#[allow(clippy::too_many_lines)] // One arm per subcommand; splitting hides the surface.
-/// The tree a vault's `pages/` or `journals/` lives in.
-fn root_of(root: &Path, kind: VaultKind, journals: bool) -> PathBuf {
-    root.join(kind.dir_name())
-        .join(if journals { "journals" } else { "pages" })
 }
 
 // One arm per subcommand. Splitting it would scatter the CLI's dispatch table
@@ -819,8 +783,7 @@ fn run() -> anyhow::Result<ExitCode> {
                 Err(e) => {
                     // A credential on a page selected for publication is not a
                     // generic failure: it is the corpus refusing to publish
-                    // something it must not. Exit 2, the same code a migration
-                    // the vocabulary does not cover uses.
+                    // something it must not. Exit 2 denotes this refusal.
                     if let Some(secrets) = e.downcast_ref::<build::publish::SecretsFound>() {
                         eprintln!("vault: {secrets}");
                         return Ok(ExitCode::from(2));
@@ -952,159 +915,6 @@ fn run() -> anyhow::Result<ExitCode> {
             })?;
             Ok(ExitCode::SUCCESS)
         }
-
-        Command::Migrate(args) => {
-            // Both trees of every selected vault, `pages/` before `journals/`.
-            // `migrate::run` indexes every scope before converting any of
-            // them, which is what `migration.block_refs`' ordering note
-            // requires of an `--vault all` run.
-            let trees: &[bool] = match args.only.as_str() {
-                "pages" => &[false],
-                "journals" => &[true],
-                _ => &[false, true],
-            };
-            let mut scopes: Vec<migrate::Scope> = Vec::new();
-            for kind in vault_kinds(&args.vault) {
-                for &journals in trees {
-                    scopes.push(migrate::Scope {
-                        vault: kind.dir_name().to_owned(),
-                        dir: root_of(&root, kind, journals),
-                        journals,
-                    });
-                }
-            }
-            let options = migrate::Options {
-                scopes,
-                repo_root: root.clone(),
-                allow_type_fallback: args.allow_type_fallback,
-                dry_run: args.dry_run,
-                now: time::OffsetDateTime::now_utc()
-                    .format(&time::format_description::well_known::Rfc3339)?,
-            };
-            let report = migrate::run(&options, &vocab, args.report.is_some())?;
-            if let Some(path) = &args.report {
-                let mut text = serde_json::to_string_pretty(&report)?;
-                text.push('\n');
-                for page in &report.pages {
-                    if let Some(diff) = &page.diff {
-                        text.push_str(diff);
-                    }
-                }
-                std::fs::write(path, text)
-                    .with_context(|| format!("writing {}", path.display()))?;
-            }
-            let value = serde_json::to_value(&report)?;
-            emit(cli.json, &value, || {
-                // The verdict FIRST. A refusal used to print below a summary
-                // that opened with "8,446 converted", so a run that wrote
-                // nothing read as a success and the refusal looked like a
-                // footnote.
-                let refused = report.exit_code() != 0;
-                if refused {
-                    println!("REFUSED — nothing was written. Reasons below.");
-                } else if report.pages_changed == 0 {
-                    println!(
-                        "NO-OP — {} page(s) examined and converted, {} already \
-                         up to date, 0 written. The corpus is already migrated.",
-                        report.pages_examined, report.pages_unchanged
-                    );
-                }
-                println!(
-                    "{} examined, {} changed, {} unchanged, {} fences, \
-                     {} logseq lines, {} embeds, {} aliases added{}",
-                    report.pages_examined,
-                    report.pages_changed,
-                    report.pages_unchanged,
-                    report.fences_removed,
-                    report.logseq_lines,
-                    report.embeds_rewritten,
-                    report.aliases_added,
-                    if args.dry_run {
-                        " (dry run — nothing written)"
-                    } else if refused {
-                        " (refused — nothing written)"
-                    } else {
-                        ""
-                    }
-                );
-                // The extent, per vault. Never implicit: a run over one vault
-                // and a run over both used to print the same line.
-                for (vault, counts) in &report.per_vault {
-                    println!(
-                        "  {vault}: {} page(s) + {} journal(s) examined, {} converted",
-                        counts.pages_examined, counts.journals_examined, counts.converted
-                    );
-                }
-                if !report.skipped.is_empty() {
-                    println!(
-                        "  {} file(s) skipped: {}",
-                        report.skipped.len(),
-                        report
-                            .skipped
-                            .iter()
-                            .take(3)
-                            .map(|s| format!("{} ({})", s.path.display(), s.reason))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
-                }
-                if !report.unconvertible_embeds.is_empty() {
-                    println!(
-                        "  {} unresolvable block reference(s) removed and reported \
-                         on {} page(s)",
-                        report.unconvertible_embeds.values().sum::<usize>(),
-                        report.unconvertible_embeds.len()
-                    );
-                }
-                if !report.type_not_permitted.is_empty() {
-                    let mut kinds: BTreeMap<&str, usize> = BTreeMap::new();
-                    for t in report.type_not_permitted.values() {
-                        *kinds.entry(t.as_str()).or_insert(0) += 1;
-                    }
-                    if args.allow_type_fallback {
-                        println!(
-                            "  {} page(s) infer a type this vault does not permit \
-                             ({kinds:?}); written anyway — --allow-type-fallback",
-                            report.type_not_permitted.len()
-                        );
-                    } else {
-                        println!(
-                            "  REFUSED: {} page(s) infer a type this vault does not permit \
-                             ({kinds:?}); nothing written. A page that falls back has had \
-                             its identity erased, not converted. Fix the source, or pass \
-                             --allow-type-fallback if the report is understood.",
-                            report.type_not_permitted.len()
-                        );
-                    }
-                }
-                if !report.unterminated_fences.is_empty() {
-                    println!(
-                        "  {} page(s) carry an unmatched code-fence opener \
-                         (a corpus defect; the region was read as prose)",
-                        report.unterminated_fences.len()
-                    );
-                }
-                if !report.normalised_tail_iris.is_empty() {
-                    println!(
-                        "  {} long-tail reference(s) normalised onto the canonical \
-                         namespace (slug preserved)",
-                        report.normalised_tail_iris.len()
-                    );
-                }
-                if !report.is_lossless() {
-                    println!("REFUSED — the migration map does not cover this corpus:");
-                    for (key, count) in &report.uncovered_fence_fields {
-                        println!("  fence field `{key}` ({count} occurrences)");
-                    }
-                    for (key, count) in &report.uncovered_logseq_keys {
-                        println!("  logseq key `{key}` ({count} occurrences)");
-                    }
-                }
-            })?;
-            Ok(ExitCode::from(
-                u8::try_from(report.exit_code()).unwrap_or(2),
-            ))
-        }
     }
 }
 
@@ -1152,7 +962,6 @@ mod tests {
         for args in [
             vec!["validate", "--vault", "bogus"],
             vec!["build", "--out", "/tmp/x", "--vault", "bogus"],
-            vec!["migrate", "--fences-to-properties", "--vault", "bogus"],
             vec!["repair", "fences", "--vault", "bogus"],
             vec!["find", "--query", "x", "--vault", "bogus"],
         ] {
@@ -1173,7 +982,6 @@ mod tests {
             for args in [
                 vec!["validate", "--vault", vault],
                 vec!["build", "--out", "/tmp/x", "--vault", vault],
-                vec!["migrate", "--fences-to-properties", "--vault", vault],
                 vec!["repair", "fences", "--vault", vault],
             ] {
                 assert!(parse(&args).is_ok(), "{args:?} must be accepted");
@@ -1182,13 +990,9 @@ mod tests {
     }
 
     #[test]
-    fn migrate_only_is_restricted_to_the_two_trees() {
-        assert!(parse(&["migrate", "--fences-to-properties", "--only", "pages"]).is_ok());
-        assert!(parse(&["migrate", "--fences-to-properties", "--only", "journals"]).is_ok());
-        assert!(parse(&["migrate", "--fences-to-properties", "--only", "all"]).is_ok());
-        let error = parse(&["migrate", "--fences-to-properties", "--only", "everything"])
-            .expect_err("an unknown tree must be rejected");
-        assert_eq!(error.exit_code(), 2);
+    fn retired_migration_command_is_rejected() {
+        let error = parse(&["migrate", "--fences-to-properties"]).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
 
     #[test]

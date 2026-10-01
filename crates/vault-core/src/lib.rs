@@ -57,21 +57,14 @@
 //! assert_eq!(page.frontmatter.wikilinks("is-a")[0].target, "Content and Assets");
 //! ```
 //!
-//! # Feature flags
-//!
-//! * `migrate` — enables [`fences`], the json-ld fence reader used only by
-//!   `vault migrate --fences-to-properties`. Delete the feature with the
-//!   one-shot.
-
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
 pub mod code;
+pub mod domains;
 pub mod error;
-#[cfg(feature = "migrate")]
-pub mod fences;
 pub mod frontmatter;
 pub mod graph;
 pub mod json;

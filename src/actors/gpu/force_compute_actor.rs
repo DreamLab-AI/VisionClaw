@@ -1172,15 +1172,8 @@ impl ForceComputeActor {
                             .get("source_domain")
                             .map(|s| s.as_str())
                             .unwrap_or("");
-                        let (id, charge) = match domain {
-                            "ai" => (1, 0.6),
-                            "bc" => (2, 0.6),
-                            "mv" => (3, 0.6),
-                            "rb" => (4, 0.6),
-                            "ngm" => (5, 0.6),
-                            "tc" => (6, 0.6),
-                            _ => (0, 1.2),
-                        };
+                        let id = vault_core::domains::domain_class_id(domain);
+                        let charge = if id == 0 { 1.2f32 } else { 0.6f32 };
                         class_ids.push(id);
                         class_charges.push(charge);
                     }

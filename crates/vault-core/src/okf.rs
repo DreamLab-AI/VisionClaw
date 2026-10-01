@@ -75,7 +75,7 @@ pub enum Actor {
     Human(String),
     /// A deterministic program: name and version.
     Process {
-        /// The program's name, e.g. `vault-migrate`.
+        /// The program's name, e.g. `vault`.
         name: String,
         /// Its version, e.g. `1.0`.
         version: String,
@@ -304,7 +304,7 @@ mod tests {
     fn actor_round_trips_every_prefix() {
         for s in [
             "human:npub1abc",
-            "process:vault-migrate/1.0",
+            "process:vault/1.0",
             "agent:visionclaw/2.3",
         ] {
             let a: Actor = s.parse().unwrap();
@@ -336,7 +336,7 @@ mod tests {
             "resource: urn:ngm:class:knowledge-graph\n",
             "status: stable\n",
             "stale_after: 2026-10-06\n",
-            "generated: { by: process:vault-migrate/1.0, at: 2026-09-22T00:00:00Z }\n",
+            "generated: { by: process:vault/1.0, at: 2026-09-22T00:00:00Z }\n",
             "verified:\n",
             "  - { by: human:npub1abc, at: 2026-09-22T00:00:00Z }\n",
             "sources:\n",
@@ -348,10 +348,7 @@ mod tests {
         assert_eq!(okf.type_name.as_deref(), Some("Class"));
         assert!(okf.is_human_verified());
         assert_eq!(okf.sources[0].link().unwrap().target, "working/Notes");
-        assert_eq!(
-            okf.generated.unwrap().by.as_string(),
-            "process:vault-migrate/1.0"
-        );
+        assert_eq!(okf.generated.unwrap().by.as_string(), "process:vault/1.0");
     }
 
     #[test]

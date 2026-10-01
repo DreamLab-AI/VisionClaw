@@ -49,7 +49,7 @@ pub const EDGE_SUBCLASS: u8 = 0;
 /// An `objectProperty` edge.
 pub const EDGE_RELATION: u8 = 1;
 
-/// Node is one of the six domain roots.
+/// Node is a declared domain root.
 pub const FLAG_DOMAIN_ROOT: u8 = 0x01;
 /// Node is one of the 34 taxonomy category roots.
 pub const FLAG_CATEGORY_ROOT: u8 = 0x02;

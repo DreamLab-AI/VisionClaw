@@ -29,6 +29,8 @@ const DOMAIN_COLOURS: &[(&str, &str)] = &[
     ("infrastructure", "#9C27B0"),
     ("distributed-collaboration", "#00BCD4"),
     ("robotics", "#F44336"),
+    ("space-science-and-systems", "#646b9f"),
+    ("earth-observation-and-geospatial-sensing", "#438273"),
 ];
 const DEFAULT_COLOUR: &str = "#607D8B";
 const INDIVIDUAL_COLOUR: &str = "#FF5722";

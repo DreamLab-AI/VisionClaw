@@ -1,22 +1,13 @@
-//! Golden parity: the migration must not change what Loom sees.
+//! Golden build compatibility from canonical Obsidian pages.
 //!
-//! The whole sovereign-corpus migration rests on one claim — folding the
-//! `json-ld` fences into frontmatter is a *format* change, not a *content*
-//! change. This test is that claim, executed: it takes 50 pages of the real
-//! pre-migration corpus, runs `vault migrate --fences-to-properties` and
-//! `vault build` over them, and compares the result against what the retired
-//! Python pipeline produced from the same 50 pages.
-//!
-//! `scaffold-index.json` and `prose-index.json` must be **byte-identical**.
-//! Loom's `loom-scaffold` loads the first of those directly, so a byte is a
-//! contract.
-//!
-//! See `tests/golden/README.md` for how the reference output was produced.
+//! The frozen references record the established publication contract. Tests
+//! build YAML-frontmatter fixtures directly, without a legacy conversion path.
+//! See `tests/golden/README.md` for reference provenance and expected differences.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use vault::{build, migrate};
+use vault::build;
 use vault_core::vocabulary::Vocabulary;
 
 /// The three documented divergences, stated once so a reader does not have to
@@ -44,38 +35,14 @@ fn golden_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden")
 }
 
-/// Copy the fenced fixture into a scratch directory, migrate it, and build it.
-fn migrate_and_build() -> (tempfile::TempDir, PathBuf) {
+/// Copy the Obsidian fixture into a scratch directory and build it.
+fn fixture_and_build() -> (tempfile::TempDir, PathBuf) {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let repo = scratch.path().join("repo");
     copy_tree(&golden_dir().join("fixture"), &repo);
 
     let vocab =
         Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("fixture vocabulary");
-
-    let report = migrate::run(
-        &migrate::Options {
-            scopes: vec![vault::migrate::Scope {
-                vault: "knowledge".to_owned(),
-                dir: repo.join("knowledge/pages"),
-                journals: false,
-            }],
-            repo_root: repo.clone(),
-            allow_type_fallback: false,
-            dry_run: false,
-            now: "2026-09-22T00:00:00Z".to_owned(),
-        },
-        &vocab,
-        false,
-    )
-    .expect("migration runs");
-    assert!(
-        report.is_lossless(),
-        "the fixture vocabulary must cover every fence key: {:?} / {:?}",
-        report.uncovered_fence_fields,
-        report.uncovered_logseq_keys
-    );
-    assert_eq!(report.pages_converted, 50);
 
     let out = scratch.path().join("out");
     build::run(
@@ -92,7 +59,7 @@ fn migrate_and_build() -> (tempfile::TempDir, PathBuf) {
         },
         &vocab,
     )
-    .expect("build succeeds on the migrated corpus");
+    .expect("build succeeds on the Obsidian corpus");
 
     (scratch, out)
 }
@@ -208,7 +175,7 @@ fn blank_node_triples(path: &Path) -> usize {
 
 #[test]
 fn scaffold_index_is_byte_identical_to_the_python_pipeline() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     assert_byte_identical(
         "scaffold-index.json",
         &golden_dir().join("python/scaffold-index.json"),
@@ -218,7 +185,7 @@ fn scaffold_index_is_byte_identical_to_the_python_pipeline() {
 
 #[test]
 fn prose_index_matches_the_python_pipeline_but_for_landscape_superset() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     let parse = |p: &Path| -> serde_json::Value {
         serde_json::from_str(&read(p)).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
     };
@@ -269,7 +236,7 @@ fn prose_index_matches_the_python_pipeline_but_for_landscape_superset() {
 
 #[test]
 fn the_asserted_turtle_has_the_same_triples() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     let golden = golden_dir().join("python/ontology.ttl");
     let produced = out.join("data/ontology.ttl");
 
@@ -293,7 +260,7 @@ fn the_asserted_turtle_has_the_same_triples() {
 
 #[test]
 fn the_search_index_matches_except_for_the_documented_label_superset() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     let expected: Vec<serde_json::Value> =
         serde_json::from_str(&read(&golden_dir().join("python/search-index.json"))).expect("json");
     let actual: Vec<serde_json::Value> =
@@ -331,7 +298,7 @@ fn the_search_index_matches_except_for_the_documented_label_superset() {
 
 #[test]
 fn the_migrated_corpus_validates_clean() {
-    let (scratch, _out) = migrate_and_build();
+    let (scratch, _out) = fixture_and_build();
     let repo = scratch.path().join("repo");
     let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
     let vault = vault_core::page::load_vault(repo.join("knowledge")).expect("load");
@@ -347,7 +314,7 @@ fn the_migrated_corpus_validates_clean() {
 
 #[test]
 fn the_migration_leaves_no_residue() {
-    let (scratch, _out) = migrate_and_build();
+    let (scratch, _out) = fixture_and_build();
     let pages = scratch.path().join("repo/knowledge/pages");
     let mut checked = 0usize;
     for entry in std::fs::read_dir(&pages).expect("read pages") {
@@ -370,8 +337,8 @@ fn the_migration_leaves_no_residue() {
 
 #[test]
 fn the_build_is_reproducible() {
-    let (_a, out_a) = migrate_and_build();
-    let (_b, out_b) = migrate_and_build();
+    let (_a, out_a) = fixture_and_build();
+    let (_b, out_b) = fixture_and_build();
     for name in [
         "data/scaffold-index.json",
         "data/prose-index.json",
@@ -432,7 +399,7 @@ fn assert_bytes_identical(name: &str, golden: &Path, produced: &Path) {
 
 #[test]
 fn the_ngg1_binary_tiers_are_byte_identical() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     for tier in BIN_TIERS {
         assert_bytes_identical(
             tier,
@@ -444,7 +411,7 @@ fn the_ngg1_binary_tiers_are_byte_identical() {
 
 #[test]
 fn every_bin_tier_carries_the_ngg1_header() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     for tier in BIN_TIERS {
         let bytes = std::fs::read(out.join("data/graph").join(tier)).expect("tier");
         assert_eq!(&bytes[0..4], b"NGG1", "{tier} magic");
@@ -460,32 +427,96 @@ fn every_bin_tier_carries_the_ngg1_header() {
 }
 
 #[test]
-fn stats_json_is_byte_identical() {
-    let (_scratch, out) = migrate_and_build();
-    assert_byte_identical(
-        "graph/stats.json",
+fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
+    let (_scratch, out) = fixture_and_build();
+    let expected: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
         &golden_dir().join("python/graph/stats.json"),
+    )))
+    .unwrap();
+    let mut actual: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
         &out.join("data/graph/stats.json"),
+    )))
+    .unwrap();
+    assert_eq!(actual["domains"], 8);
+    for slug in [
+        "space-science-and-systems",
+        "earth-observation-and-geospatial-sensing",
+    ] {
+        let key = format!("domain-{slug}");
+        let scope = actual["scopes"]
+            .as_object_mut()
+            .unwrap()
+            .remove(&key)
+            .expect("new domain scope");
+        assert_eq!(scope["nodes"], 0);
+        assert_eq!(scope["shipped"], 0);
+        assert_eq!(scope["bytes"], 44); // header + empty CSR offsets + empty string table
+    }
+    actual["domains"] = serde_json::json!(6);
+    assert_eq!(
+        actual, expected,
+        "every existing scope and corpus metric retains golden parity"
     );
 }
 
 #[test]
-fn overview_and_bridges_are_byte_identical() {
-    let (_scratch, out) = migrate_and_build();
-    // Contract C3 asks only for JSON-equality on these two; they come out
-    // byte-identical, so that is what is asserted.
-    for name in ["overview.json", "bridges.json"] {
-        assert_byte_identical(
-            name,
-            &golden_dir().join("python/graph").join(name),
-            &out.join("data/graph").join(name),
-        );
+fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
+    let (_scratch, out) = fixture_and_build();
+    assert_byte_identical(
+        "bridges.json",
+        &golden_dir().join("python/graph/bridges.json"),
+        &out.join("data/graph/bridges.json"),
+    );
+    let mut expected: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
+        &golden_dir().join("python/graph/overview.json"),
+    )))
+    .unwrap();
+    let mut actual: serde_json::Value = serde_json::from_str(&without_timestamp(&read(
+        &out.join("data/graph/overview.json"),
+    )))
+    .unwrap();
+    assert_eq!(actual["domains"][6]["id"], 6);
+    assert_eq!(actual["domains"][6]["slug"], "space-science-and-systems");
+    assert_eq!(actual["domains"][7]["id"], 7);
+    assert_eq!(
+        actual["domains"][7]["slug"],
+        "earth-observation-and-geospatial-sensing"
+    );
+    for i in [6, 7] {
+        assert_eq!(actual["domains"][i]["memberCount"], 0);
     }
+    actual["domains"].as_array_mut().unwrap().truncate(6);
+    actual["nodes"].as_array_mut().unwrap().drain(6..8);
+    for node in actual["nodes"].as_array_mut().unwrap() {
+        if node["category"].is_number() {
+            node["id"] = serde_json::json!(node["id"].as_u64().unwrap() - 2);
+        }
+    }
+    for edge in actual["edges"].as_array_mut().unwrap() {
+        for key in ["source", "target"] {
+            let index = edge[key].as_u64().unwrap();
+            if index >= 8 {
+                edge[key] = serde_json::json!(index - 2);
+            }
+        }
+    }
+    // Adding roots legitimately changes the force-layout picture. Compare
+    // all semantic metadata and topology against the independent old oracle.
+    // Deterministic positions are checked separately by byte-stable rebuilds.
+    for value in [&mut actual, &mut expected] {
+        for key in ["nodes", "domains", "categories"] {
+            for entry in value[key].as_array_mut().unwrap() {
+                entry.as_object_mut().unwrap().remove("x");
+                entry.as_object_mut().unwrap().remove("y");
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }
 
 #[test]
 fn the_webvowl_graph_is_byte_identical() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     assert_byte_identical(
         "ontology.json",
         &golden_dir().join("python/ontology.json"),
@@ -495,7 +526,7 @@ fn the_webvowl_graph_is_byte_identical() {
 
 #[test]
 fn the_context_ships_at_both_served_paths() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     let v1 = read(&out.join("context/v1.jsonld"));
     let v2 = read(&out.join("ns/v2.jsonld"));
     assert_eq!(v1, v2, "the two paths serve the same document");
@@ -515,7 +546,7 @@ fn the_context_ships_at_both_served_paths() {
 
 #[test]
 fn the_markdown_mirror_is_opt_in() {
-    let (scratch, out) = migrate_and_build();
+    let (scratch, out) = fixture_and_build();
     assert!(
         !out.join("api/markdown").exists(),
         "124 MB with no consumer must not ship by default"
@@ -559,7 +590,7 @@ fn the_markdown_mirror_is_opt_in() {
 
 #[test]
 fn the_graph_tiers_agree_with_the_class_count() {
-    let (_scratch, out) = migrate_and_build();
+    let (_scratch, out) = fixture_and_build();
     let stats: serde_json::Value =
         serde_json::from_str(&read(&out.join("data/graph/stats.json"))).expect("stats json");
     let scaffold: serde_json::Value =
@@ -568,6 +599,6 @@ fn the_graph_tiers_agree_with_the_class_count() {
         stats["classes"], scaffold["counts"]["classes"],
         "stats.json and scaffold-index.json must report the same class count"
     );
-    assert_eq!(stats["domains"], 6);
+    assert_eq!(stats["domains"], 8);
     assert_eq!(stats["categories"], 34);
 }

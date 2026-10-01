@@ -1,10 +1,9 @@
 //! `vault validate` — OKF v0.2 conformance, vocabulary agreement, link
 //! integrity and the public gate.
 //!
-//! It replaces `pipeline/validate.py`, `pipeline/iri_integrity.py` and
-//! `vault-migrate --check`, and adds the three residue checks that make
-//! acceptance criterion 1 machine-checkable: no `json-ld` fence, no Logseq
-//! `key:: value` line, no `{{embed}}`.
+//! Rejects obsolete authoring constructs outside code examples: `json-ld`
+//! metadata fences, Logseq `key:: value` properties and block references,
+//! and `{{embed}}` macros. The canonical input is Obsidian YAML frontmatter.
 //!
 //! Severity is load-bearing. An **error** blocks `vault build`; a **warning**
 //! is reported and does not; **info** is a fact worth surfacing. `MULTI_PARENT`
@@ -102,7 +101,7 @@ pub struct Report {
     /// Pages examined under `journals/`.
     ///
     /// 1,230 journal pages across the two vaults were invisible to `validate`,
-    /// `migrate` and `build` until the tree was walked. A count of zero now
+    /// `retrieve` and `build` until the tree was walked. A count of zero now
     /// means there are none, not that nobody looked.
     pub total_journals: usize,
     /// Markdown files the vault walk declined to load, with the reason.
@@ -206,7 +205,7 @@ impl Report {
     }
 }
 
-/// Residue patterns that must not survive the migration.
+/// Obsolete authoring patterns rejected in canonical Obsidian input.
 type ResiduePatterns = (regex::Regex, regex::Regex, regex::Regex, regex::Regex);
 
 fn residue() -> &'static ResiduePatterns {
@@ -240,7 +239,7 @@ fn page_level_checks(
     vocab: &Vocabulary,
     strict_keys: bool,
 ) {
-    // --- residue: the migration's own acceptance criterion ---------------
+    // --- obsolete authoring constructs ---------------------------------
     //
     // Matches inside code are documentation, not residue: a page that
     // *teaches* Logseq syntax must not fail for describing a construct it
@@ -257,25 +256,25 @@ fn page_level_checks(
             fence,
             true,
             "FENCE_RESIDUE",
-            "a json-ld fence survived the migration",
+            "obsolete json-ld metadata fence; use YAML frontmatter",
         ),
         (
             prop,
             false,
             "LOGSEQ_PROPERTY",
-            "a Logseq `key:: value` line survived the migration",
+            "obsolete Logseq `key:: value` property; use YAML frontmatter",
         ),
         (
             embed,
             false,
             "EMBED_RESIDUE",
-            "a `{{embed}}` survived the migration; use `![[…]]`",
+            "obsolete `{{embed}}` macro; use `![[…]]`",
         ),
         (
             block_ref,
             false,
             "BLOCK_REF_RESIDUE",
-            "a Logseq `((block-ref))` survived the migration",
+            "obsolete Logseq `((block-ref))`; use an Obsidian block link",
         ),
     ] {
         let excused = |m: &regex::Match<'_>| {

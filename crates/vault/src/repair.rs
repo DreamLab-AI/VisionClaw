@@ -9,8 +9,7 @@
 //! still renders the rest of the page as a code block in Obsidian and in every
 //! markdown renderer downstream.
 //!
-//! This command fixes the source. It is separate from `vault migrate` on
-//! purpose: `migrate` is a one-shot that is deleted after its run, and this
+//! This command fixes the source. It remains an ongoing repair because this
 //! defect will recur every time somebody pastes OWL functional syntax into a
 //! page.
 //!

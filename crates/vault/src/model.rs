@@ -176,7 +176,7 @@ impl NameIndex {
             };
             add(page.id.to_lowercase());
             add(page.title().to_lowercase());
-            // A slug-targeted wikilink (what `vault migrate` emits for a
+            // A slug-targeted wikilink (the canonical spelling for a
             // long-tail reference) must still connect if a page is later
             // authored for that concept.
             add(page.slug().to_lowercase());

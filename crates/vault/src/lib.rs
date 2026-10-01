@@ -1,20 +1,17 @@
 //! `vault` — the single door onto the sovereign corpus.
 //!
-//! One binary replaces the Python pipeline (`build.py` and its twelve
-//! siblings), `vault-migrate`, the `ontology-bridge` MCP server and
-//! `ontology-propose` (PRD-sovereign-corpus §3.2, ADR-2113). Agents reach the
-//! corpus through this CLI and nothing else; humans use Obsidian.
+//! The CLI validates, queries, edits and builds the Obsidian ontology corpus.
+//! Agents use this CLI; humans use Obsidian.
 //!
 //! | subcommand | what it does |
 //! |---|---|
-//! | `validate` | OKF v0.2 conformance, vocabulary agreement, link integrity, the public gate, and the three migration-residue checks |
+//! | `validate` | OKF v0.2 conformance, vocabulary agreement, link integrity, the public gate, and the obsolete-format rejection checks |
 //! | `find` / `retrieve` / `tree` | the graph over frontmatter links, with per-edge-type expansion depths |
 //! | `edit --expect` | guarded mutation; refused without a declared blast radius |
 //! | `propose` | a contract-C4 `PatchProposal`, Whelk and `conflicts` as blockers, posted as a forum 31402 |
 //! | `gate` / `conflicts` | the autonomous continuation gate and the semantic conflict detector |
 //! | `build` | pages to one generation: asserted and inferred TTL, the scaffold / prose / search indexes, the page API, the OKF bundle, the JSON-LD context and the generation stamp |
 //! | `repair fences` / `repair bodies` | close unmatched code fences; rewrite Logseq outliner bodies as Obsidian markdown |
-//! | `migrate` | the one-shot fence-to-properties conversion, deleted after its run |
 //!
 //! # Layers
 //!
@@ -65,9 +62,9 @@ pub mod build;
 pub mod closure;
 pub mod conflicts;
 pub mod create;
+mod diff;
 pub mod edit;
 pub mod gate;
-pub mod migrate;
 pub mod model;
 pub mod nostr;
 pub mod projection;

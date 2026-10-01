@@ -12,16 +12,7 @@ import type { GraphTypeVisualsSettings } from '../../settings/config/settings';
 
 // ---------- Domain / type color constants ----------
 
-const DOMAIN_COLORS: Record<string, string> = {
-  'AI': '#4FC3F7',
-  'BC': '#81C784',
-  'RB': '#FFB74D',
-  'MV': '#CE93D8',
-  'TC': '#FFD54F',
-  'DT': '#EF5350',
-  'NGM': '#4DB6AC',
-};
-const DEFAULT_DOMAIN_COLOR = '#90A4AE';
+export { getDomainColor } from './domainColors';
 
 const TYPE_COLORS: Record<string, string> = {
   'folder': '#FFD700',
@@ -218,11 +209,4 @@ export function isNodeVisible(
   if (nodeMode === 'agent') return visibility.agent !== false;
 
   return true;
-}
-
-/**
- * Get the domain color for a node domain string.
- */
-export function getDomainColor(domain?: string): string {
-  return domain && DOMAIN_COLORS[domain] ? DOMAIN_COLORS[domain] : DEFAULT_DOMAIN_COLOR;
 }

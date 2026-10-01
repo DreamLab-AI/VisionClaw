@@ -848,17 +848,10 @@ impl GitHubSyncService {
         Ok(n_nodes)
     }
 
-    /// Create domain root nodes for the 6 NarrativeGoldmine domains and
+    /// Create navigation root nodes for the eight NarrativeGoldmine domains and
     /// hierarchical edges from each node whose `group` matches a domain.
     async fn materialise_domain_roots(&self, stats: &mut SyncStatistics) -> Result<usize, String> {
-        const DOMAINS: &[(&str, &str)] = &[
-            ("spatial-computing", "Spatial Computing"),
-            ("artificial-intelligence", "Artificial Intelligence"),
-            ("infrastructure", "Infrastructure"),
-            ("blockchain", "Blockchain"),
-            ("robotics", "Robotics"),
-            ("distributed-collaboration", "Distributed Collaboration"),
-        ];
+        let domains = vault_core::domains::DOMAIN_ROOTS;
 
         let graph = self
             .kg_repo
@@ -871,7 +864,7 @@ impl GitHubSyncService {
             std::collections::HashMap::new();
         for node in &graph.nodes {
             if let Some(ref group) = node.group {
-                for &(slug, _) in DOMAINS {
+                for &(slug, _) in domains {
                     if group == slug {
                         domain_members.entry(slug).or_default().push(node.id);
                     }
@@ -883,7 +876,7 @@ impl GitHubSyncService {
         let mut domain_edges = Vec::new();
         let mut created = 0;
 
-        for &(slug, label) in DOMAINS {
+        for &(slug, label) in domains {
             let members = match domain_members.get(slug) {
                 Some(m) if !m.is_empty() => m,
                 _ => continue,
@@ -913,7 +906,7 @@ impl GitHubSyncService {
             .map_err(|e| format!("batch_add_nodes domain roots: {}", e))?;
 
         // Map slug → assigned root ID.
-        let domain_slugs: Vec<&str> = DOMAINS
+        let domain_slugs: Vec<&str> = domains
             .iter()
             .filter(|(slug, _)| domain_members.contains_key(slug))
             .map(|(slug, _)| *slug)

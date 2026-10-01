@@ -148,7 +148,7 @@ pub fn inspect_inputs(pages_dir: impl AsRef<Path>) -> Result<Census, Publication
 /// one.
 ///
 /// A held page is a page that exists, is loaded by the vault, is reachable by
-/// `validate`, `find` and `migrate`, and is deliberately never published: an
+/// `validate`, `find` and `retrieve`, and is deliberately never published: an
 /// [`vault_core::page::UNPUBLISHED_DIRS`] folder. Its identities are collected
 /// here so a link from a public page cannot drag it into the bundle.
 ///

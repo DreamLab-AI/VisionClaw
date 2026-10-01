@@ -242,7 +242,7 @@ pub struct ValidationSchema {
     /// `knowledge: fail`, `working: allow`.
     #[serde(default)]
     pub unknown_keys: BTreeMap<String, String>,
-    /// Constructs that must not survive the migration, in prose.
+    /// Obsolete authoring constructs rejected from canonical input, in prose.
     #[serde(default)]
     pub rejected_constructs: Vec<String>,
     /// Keys every `knowledge/` page must carry.
@@ -262,442 +262,13 @@ impl ValidationSchema {
     }
 }
 
-/// Where a migrated fence field or `key:: value` line ends up.
-///
-/// The vocabulary spells these as `drop`, `prose`, a plain frontmatter key, a
-/// dotted field (`generated.by`), or a `sources[…]` form. They are not
-/// interchangeable: `drop` deletes the value, `prose` keeps it as text in the
-/// bullet it came from, and a key lifts it into frontmatter — where, for a
-/// relation key, it is union-merged with the fence targets rather than
-/// replacing them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Destination {
-    /// `drop` — discard it. An explicit owner decision, recorded in the file.
-    Drop,
-    /// `prose` — render the value into the surrounding bullet's prose.
-    ///
-    /// Block-level properties cannot be lifted to page-level frontmatter
-    /// without collapsing many values into one, which is why this exists.
-    Prose,
-    /// `body` — the page body's leading paragraph.
-    Body,
-    /// `type` — the OKF type, read from the fence `@type`.
-    Type,
-    /// `per_key` — expand per entry of a `vc:legacyProperties` array.
-    PerKey,
-    /// `per_predicate` — expand per predicate of a nested `relations` object.
-    PerPredicate,
-    /// `per_shape` — match a `provenance` object against `provenance_shapes`.
-    PerShape,
-    /// A plain frontmatter key.
-    Key(String),
-    /// A field of a mapping-valued key, e.g. `generated.by`.
-    Nested {
-        /// The frontmatter key, e.g. `generated`.
-        key: String,
-        /// The field within it, e.g. `by`.
-        field: String,
-    },
-    /// Append an entry to `sources` (`sources[]`).
-    SourceAppend,
-    /// A field of the `sources` entry with a given id, e.g.
-    /// `sources[id=origin].resource`.
-    SourceField {
-        /// The entry's `id`.
-        id: String,
-        /// The field to set, e.g. `resource` or `date`.
-        field: String,
-    },
-}
-
-impl Destination {
-    /// Parse a destination from the migration map. A YAML `null` is [`Self::Drop`].
-    ///
-    /// ```
-    /// # use vault_core::vocabulary::Destination;
-    /// assert_eq!(Destination::parse("drop"), Destination::Drop);
-    /// assert_eq!(Destination::parse("prose"), Destination::Prose);
-    /// assert_eq!(
-    ///     Destination::parse("generated.by"),
-    ///     Destination::Nested { key: "generated".into(), field: "by".into() }
-    /// );
-    /// assert_eq!(Destination::parse("sources[]"), Destination::SourceAppend);
-    /// assert_eq!(Destination::parse("sources[].resource"), Destination::SourceAppend);
-    /// assert_eq!(
-    ///     Destination::parse("sources[id=origin].resource"),
-    ///     Destination::SourceField { id: "origin".into(), field: "resource".into() }
-    /// );
-    /// assert_eq!(Destination::parse("is-a"), Destination::Key("is-a".into()));
-    /// ```
-    #[must_use]
-    pub fn parse(raw: &str) -> Self {
-        // `!prose` and `prose` are the same instruction; the file has used both
-        // spellings, and neither is worth failing a build over.
-        let raw = raw.trim().trim_start_matches('!');
-        match raw {
-            "drop" | "null" | "~" => return Self::Drop,
-            "prose" => return Self::Prose,
-            "body" => return Self::Body,
-            "type" => return Self::Type,
-            "per_key" => return Self::PerKey,
-            "per_predicate" => return Self::PerPredicate,
-            "per_shape" => return Self::PerShape,
-            "sources[]" => return Self::SourceAppend,
-            _ => {}
-        }
-        // `sources[].resource` is the same instruction as `sources[]`: append
-        // an entry whose `resource` is the value.
-        if let Some(field) = raw.strip_prefix("sources[].") {
-            if field == "resource" {
-                return Self::SourceAppend;
-            }
-        }
-        if let Some(rest) = raw.strip_prefix("sources[id=") {
-            if let Some((id, tail)) = rest.split_once(']') {
-                let field = tail.trim_start_matches('.').trim();
-                if !id.is_empty() && !field.is_empty() {
-                    return Self::SourceField {
-                        id: id.to_owned(),
-                        field: field.to_owned(),
-                    };
-                }
-            }
-        }
-        if let Some((key, field)) = raw.split_once('.') {
-            if !key.is_empty() && !field.is_empty() && !field.contains('.') {
-                return Self::Nested {
-                    key: key.to_owned(),
-                    field: field.to_owned(),
-                };
-            }
-        }
-        Self::Key(raw.to_owned())
-    }
-
-    /// The frontmatter key this destination writes, when it writes one.
-    ///
-    /// `sources[…]` and `generated.…` report `sources` and `generated`, which
-    /// is what a "does the vocabulary declare this key?" check needs.
-    #[must_use]
-    pub fn frontmatter_key(&self) -> Option<&str> {
-        match self {
-            Self::Key(k) | Self::Nested { key: k, .. } => Some(k),
-            Self::SourceAppend | Self::SourceField { .. } => Some("sources"),
-            Self::Drop
-            | Self::Prose
-            | Self::Body
-            | Self::Type
-            | Self::PerKey
-            | Self::PerPredicate
-            | Self::PerShape => None,
-        }
-    }
-
-    /// `true` when the destination discards the value outright.
-    #[must_use]
-    pub fn is_drop(&self) -> bool {
-        matches!(self, Self::Drop)
-    }
-}
-
-impl<'de> Deserialize<'de> for Destination {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let raw = Option::<String>::deserialize(d)?;
-        Ok(raw.as_deref().map_or(Self::Drop, Self::parse))
-    }
-}
-
-impl Serialize for Destination {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        let text = match self {
-            Self::Drop => "drop".to_owned(),
-            Self::Prose => "prose".to_owned(),
-            Self::Body => "body".to_owned(),
-            Self::Type => "type".to_owned(),
-            Self::PerKey => "per_key".to_owned(),
-            Self::PerPredicate => "per_predicate".to_owned(),
-            Self::PerShape => "per_shape".to_owned(),
-            Self::Key(k) => k.clone(),
-            Self::Nested { key, field } => format!("{key}.{field}"),
-            Self::SourceAppend => "sources[]".to_owned(),
-            Self::SourceField { id, field } => format!("sources[id={id}].{field}"),
-        };
-        s.serialize_str(&text)
-    }
-}
-
-/// Where the fence `definition` lands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DefinitionPlacement {
-    /// A `definition:` frontmatter key.
-    Frontmatter,
-    /// The body's leading paragraph.
-    LeadingParagraph,
-}
-
-/// The `migration.body:` rules.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BodyRules {
-    /// Fence languages removed wholesale.
-    #[serde(default)]
-    pub fences_removed: Vec<String>,
-    /// Where the fence `definition` goes: `frontmatter` or `leading-paragraph`.
-    ///
-    /// A genuine open decision, so it is data rather than code: the migration
-    /// honours whichever the vocabulary declares and needs no change if the
-    /// owner moves it.
-    #[serde(default)]
-    pub definition_placement: Option<String>,
-    /// How a duplicated `### Definition` bullet is handled.
-    #[serde(default)]
-    pub definition_dedupe: Option<String>,
-    /// `true` => the `### Relationships` section is dropped, because the build
-    /// regenerates it from frontmatter.
-    #[serde(default)]
-    pub relationships_section_removed: bool,
-    /// How `{{embed …}}` is handled, in prose.
-    #[serde(default)]
-    pub embeds: Option<String>,
-    /// How Logseq task markers are rewritten, in prose.
-    #[serde(default)]
-    pub tasks: Option<String>,
-    /// How `#[[multi word]]` tags are rewritten, in prose.
-    #[serde(default)]
-    pub tags: Option<String>,
-    /// How asset links are rewritten, in prose.
-    #[serde(default)]
-    pub assets: Option<String>,
-}
-
-impl BodyRules {
-    /// Where the fence `definition` lands, defaulting to `frontmatter`.
-    #[must_use]
-    pub fn definition_placement(&self) -> DefinitionPlacement {
-        match self.definition_placement.as_deref() {
-            Some("leading-paragraph") => DefinitionPlacement::LeadingParagraph,
-            _ => DefinitionPlacement::Frontmatter,
-        }
-    }
-}
-
-/// The `migration.block_refs:` rules.
-///
-/// Logseq block references (`{{embed ((uuid))}}`, `((uuid))`) were assumed
-/// dead; 33 of the 34 in `knowledge/` resolve to an `id::` line in `working/`.
-/// Each resolved reference is inlined as a quoted block so the text survives in
-/// the governed vault instead of being deleted with the reference.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockRefRules {
-    /// Directories searched for the `id::` target, in order.
-    #[serde(default)]
-    pub resolve_from: Vec<String>,
-    /// Maximum lines inlined from one resolved block.
-    #[serde(default = "default_block_ref_max_lines")]
-    pub max_lines: usize,
-    /// Uuids that are documentation *about* Logseq syntax rather than live
-    /// references; escaped so they render verbatim.
-    #[serde(default)]
-    pub literal_placeholders: Vec<String>,
-    /// Uuids known not to resolve, with the owner's disposition for each.
-    #[serde(default)]
-    pub unresolved: IndexMap<String, serde_yaml::Value>,
-}
-
-impl Default for BlockRefRules {
-    fn default() -> Self {
-        Self {
-            resolve_from: Vec::new(),
-            max_lines: default_block_ref_max_lines(),
-            literal_placeholders: Vec::new(),
-            unresolved: IndexMap::new(),
-        }
-    }
-}
-
-fn default_block_ref_max_lines() -> usize {
-    40
-}
-
-impl BlockRefRules {
-    /// `true` when this uuid is documentation, not a reference.
-    #[must_use]
-    pub fn is_literal_placeholder(&self, uuid: &str) -> bool {
-        self.literal_placeholders.iter().any(|p| p == uuid)
-    }
-}
-
-/// The `migration:` block — the one-shot fence-to-property map.
-///
-/// Consumed only by `vault migrate --fences-to-properties`. When the migration
-/// has run, this block and the code that reads it are deleted.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct MigrationMap {
-    /// This map describes a one-shot conversion.
-    #[serde(default)]
-    pub one_shot: bool,
-    /// The subcommand is deleted after the run.
-    #[serde(default)]
-    pub deleted_after_run: bool,
-    /// Where the migration writes its evidence report.
-    #[serde(default)]
-    pub report: Option<String>,
-    /// Paths excluded from conversion entirely (deleted, not migrated).
-    #[serde(default)]
-    pub excluded_paths: Vec<String>,
-    /// A flat fence-key map, the alternative spelling of the four blocks
-    /// below; folded into [`MigrationMap::fences`] on load.
-    #[serde(default)]
-    pub fence_fields: IndexMap<String, Destination>,
-    /// Fence keys that carry no page content, in the flat spelling.
-    #[serde(default)]
-    pub ignore: IndexSet<String>,
-    /// `@type: Page` fence keys.
-    #[serde(default)]
-    pub page_fence: IndexMap<String, Destination>,
-    /// Entries of the Page fence's `vc:legacyProperties` array.
-    #[serde(default)]
-    pub page_fence_legacy_properties: IndexMap<String, Destination>,
-    /// `@type: Class` fence keys.
-    #[serde(default)]
-    pub class_fence: IndexMap<String, Destination>,
-    /// The eight legacy `@type: OntologyClass` fences.
-    #[serde(default)]
-    pub ontology_class_fence: IndexMap<String, Destination>,
-    /// The `vc:LinkResolutionsAnnotation` fence — wholly derived data.
-    #[serde(default)]
-    pub link_resolutions_fence: Option<Destination>,
-    /// `provenance` object shapes, keyed by their field set.
-    #[serde(default)]
-    pub provenance_shapes: IndexMap<String, serde_yaml::Value>,
-    /// Block-reference resolution rules.
-    #[serde(default)]
-    pub block_refs: BlockRefRules,
-    /// Variant predicate spellings folded onto a canonical relation key.
-    #[serde(default)]
-    pub relation_aliases: IndexMap<String, String>,
-    /// Variant `maturity` values folded onto a canonical one.
-    #[serde(default)]
-    pub maturity_aliases: IndexMap<String, String>,
-    /// `key:: value` keys.
-    #[serde(default)]
-    pub logseq_keys: IndexMap<String, Destination>,
-    /// Keys already present in a page's **own** frontmatter before migration.
-    ///
-    /// The third input category, beside the `json-ld` fences and the Logseq
-    /// `key:: value` lines. A page that predates the governed schema carries
-    /// keys of its own (`elevatedFrom`, `legacy_iri`, `schema_version`, the
-    /// `working/` episodic extensions, Logseq editor state); without a map
-    /// they pass through untouched and `vault validate` then reports each one
-    /// as `UNKNOWN_KEY`. The grammar is the same [`Destination`] grammar the
-    /// fence and `key::` maps use.
-    ///
-    /// A key absent from this map is **authored**: it survives unchanged and
-    /// wins over anything the fences supply.
-    #[serde(default)]
-    pub frontmatter_keys: IndexMap<String, Destination>,
-    /// Body rewriting rules.
-    #[serde(default)]
-    pub body: BodyRules,
-    /// Deltas against the retired Python build, stated so the golden-parity
-    /// test accounts for them rather than being surprised.
-    #[serde(default)]
-    pub intentional_deltas: Vec<String>,
-    /// **Normalised** fence-key map: every fence block and the `ignore` list
-    /// folded into one source-key to destination map, built on load. This is
-    /// what the migration reads.
-    #[serde(skip)]
-    pub fences: IndexMap<String, Destination>,
-}
-
-impl MigrationMap {
-    /// Fold every fence-key spelling into [`MigrationMap::fences`].
-    ///
-    /// The governed file has used two equivalent layouts — a flat
-    /// `fence_fields` + `ignore` pair, and four per-fence-type blocks
-    /// (`page_fence`, `class_fence`, …). They carry the same information, so
-    /// rather than pick one and break whenever the other is written, the
-    /// reader accepts both and the rest of the crate sees one map.
-    ///
-    /// A key mapped in one place and ignored in another is a contradiction the
-    /// caller must resolve, so `ignore` is applied first and an explicit
-    /// mapping wins.
-    fn normalise(&mut self) {
-        let mut fences: IndexMap<String, Destination> = IndexMap::new();
-        for key in &self.ignore {
-            fences.insert(key.clone(), Destination::Drop);
-        }
-        for block in [
-            &self.fence_fields,
-            &self.page_fence,
-            &self.page_fence_legacy_properties,
-            &self.class_fence,
-            &self.ontology_class_fence,
-        ] {
-            for (key, destination) in block {
-                fences.insert(key.clone(), destination.clone());
-            }
-        }
-        self.fences = fences;
-    }
-
-    /// `true` when the block is populated at all.
-    ///
-    /// An empty migration map means the vocabulary was read mid-write or the
-    /// block is missing; either way the migration must refuse rather than
-    /// convert the corpus against nothing.
-    #[must_use]
-    pub fn is_populated(&self) -> bool {
-        !self.fences.is_empty() && !self.logseq_keys.is_empty()
-    }
-
-    /// The destination for a fence key, or `None` when the key appears nowhere
-    /// in the map — the condition that makes `vault migrate` refuse rather
-    /// than silently discard a field.
-    #[must_use]
-    pub fn fence_destination(&self, key: &str) -> Option<&Destination> {
-        self.fences.get(key)
-    }
-
-    /// The destination for a key found in a page's own frontmatter, or `None`
-    /// when the vocabulary does not name it — in which case the key is
-    /// authored and passes through unchanged.
-    #[must_use]
-    pub fn frontmatter_destination(&self, key: &str) -> Option<&Destination> {
-        self.frontmatter_keys.get(key)
-    }
-
-    /// The canonical relation key for a predicate spelling, if it names one.
-    #[must_use]
-    pub fn canonical_relation(&self, spelling: &str) -> Option<&str> {
-        self.relation_aliases.get(spelling).map(String::as_str)
-    }
-
-    /// The canonical `maturity` value for a spelling, unchanged when it is
-    /// already canonical.
-    #[must_use]
-    pub fn canonical_maturity<'a>(&'a self, value: &'a str) -> &'a str {
-        self.maturity_aliases
-            .get(value)
-            .map_or(value, String::as_str)
-    }
-
-    /// Every `(source key, destination)` pair across the normalised fence map
-    /// and the `key::` map — what a coverage check iterates.
-    pub fn all_destinations(&self) -> impl Iterator<Item = (&str, &Destination)> {
-        self.fences
-            .iter()
-            .chain(&self.logseq_keys)
-            .map(|(k, v)| (k.as_str(), v))
-    }
-}
-
 impl ScalarDef {
     /// Every value this key is known to take: the closed `enum` when it has one,
     /// otherwise the census's `observed` keys unioned with its `roots`.
     ///
     /// The distinction is the point. `domain` is deliberately **free text** —
     /// normalising `ai` (513 pages) onto `artificial-intelligence` is a content
-    /// decision for the governance loop, not something `migrate` should do
+    /// decision for the governance loop, not something a parser should do
     /// silently — so validating it against a closed set is wrong. Validating it
     /// against *what the census saw* is right: it still catches a typo, and it
     /// stays silent about the seventeen values the corpus legitimately uses.
@@ -763,12 +334,9 @@ pub struct Vocabulary {
     /// What `vault validate` enforces.
     #[serde(default)]
     pub validation: ValidationSchema,
-    /// The migration map (one-shot).
-    #[serde(default)]
-    pub migration: MigrationMap,
     /// Long-tail concept label to IRI, for references whose IRI is neither a
     /// page's `resource` nor recoverable from the link. An override; normally
-    /// unnecessary, because `vault migrate` writes a long-tail reference as
+    /// unnecessary, because a long-tail reference can be authored as
     /// `[[<iri-tail>|<label>]]`.
     #[serde(default)]
     pub tail_iris: IndexMap<String, String>,
@@ -844,8 +412,7 @@ impl Vocabulary {
     /// or relation alias names an undeclared relation, or a key is both a
     /// relation and a scalar.
     pub fn from_yaml_str(yaml: &str) -> std::result::Result<Self, String> {
-        let mut vocab: Self = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
-        vocab.migration.normalise();
+        let vocab: Self = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
         vocab.check()?;
         Ok(vocab)
     }
@@ -868,20 +435,6 @@ impl Vocabulary {
                 if min > max {
                     return Err(format!("scalar bound min {min} exceeds max {max}"));
                 }
-            }
-        }
-        // Every migration destination must name a key this vocabulary
-        // declares, or the migration would write frontmatter that
-        // `vault validate` immediately rejects.
-        for (source, destination) in self.migration.all_destinations() {
-            let Some(target) = destination.frontmatter_key() else {
-                continue;
-            };
-            if !self.is_known_working_key(target) {
-                return Err(format!(
-                    "migration maps {source:?} onto {target:?}, which is not a \
-                     declared relation, scalar or reserved key"
-                ));
             }
         }
         Ok(())
@@ -1052,65 +605,8 @@ validation:
   blockers: [WHELK_INCONSISTENCY, RESOURCE_MUTATED]
 "#;
 
-    /// The flat spelling: `fence_fields` + `ignore`.
     fn flat() -> Vocabulary {
-        Vocabulary::from_yaml_str(&format!(
-            "{CORE}
-migration:
-  fence_fields:
-    \"@id\": resource
-    \"@type\": type
-    definition: body
-    relations: per_predicate
-    relations.hasPart: has-part
-  ignore: [\"@context\", vc:schemaVersion]
-  logseq_keys:
-    attributedTo: generated.by
-    elevatedFrom: \"sources[id=origin].resource\"
-    sources: \"sources[]\"
-    collapsed: drop
-    confidence: prose
-    hasPart: has-part
-  body:
-    definition_placement: frontmatter
-  intentional_deltas: [\"maturity `mature` stops collapsing to `draft`\"]
-"
-        ))
-        .unwrap()
-    }
-
-    /// The structured spelling: one block per fence type.
-    fn structured() -> Vocabulary {
-        Vocabulary::from_yaml_str(&format!(
-            "{CORE}
-migration:
-  page_fence:
-    \"@context\": drop
-    \"@type\": type
-  class_fence:
-    \"@id\": resource
-    definition: body
-    relations: per_predicate
-    relations.hasPart: has-part
-    vc:schemaVersion: drop
-  relation_aliases: {{ hasPart: has-part, subClassOf: is-a }}
-  maturity_aliases: {{ experimental: emerging }}
-  block_refs:
-    resolve_from: [working/pages]
-    max_lines: 40
-    literal_placeholders: [block-uuid]
-  logseq_keys:
-    attributedTo: generated.by
-    elevatedFrom: \"sources[id=origin].resource\"
-    sources: \"sources[]\"
-    collapsed: drop
-    confidence: prose
-  body:
-    definition_placement: leading-paragraph
-  intentional_deltas: [\"maturity `mature` stops collapsing to `draft`\"]
-"
-        ))
-        .unwrap()
+        Vocabulary::from_yaml_str(CORE).unwrap()
     }
 
     #[test]
@@ -1168,124 +664,12 @@ migration:
     }
 
     #[test]
-    fn both_fence_spellings_normalise_to_the_same_map() {
-        for v in [flat(), structured()] {
-            let m = &v.migration;
-            assert!(m.is_populated());
-            assert_eq!(m.fences["@id"], Destination::Key("resource".into()));
-            assert_eq!(m.fences["@type"], Destination::Type);
-            assert_eq!(m.fences["definition"], Destination::Body);
-            assert_eq!(m.fences["relations"], Destination::PerPredicate);
-            assert_eq!(
-                m.fences["relations.hasPart"],
-                Destination::Key("has-part".into())
-            );
-            assert_eq!(m.fences["@context"], Destination::Drop);
-            assert_eq!(m.fences["vc:schemaVersion"], Destination::Drop);
-            assert!(m.fence_destination("vc:unseen").is_none());
-        }
-    }
-
-    #[test]
-    fn destinations_parse_every_shape_in_the_map() {
-        let v = flat();
-        let m = &v.migration;
-        assert_eq!(m.logseq_keys["collapsed"], Destination::Drop);
-        assert_eq!(m.logseq_keys["confidence"], Destination::Prose);
-        assert_eq!(m.logseq_keys["sources"], Destination::SourceAppend);
-        assert_eq!(
-            m.logseq_keys["attributedTo"],
-            Destination::Nested {
-                key: "generated".into(),
-                field: "by".into()
-            }
-        );
-        assert_eq!(
-            m.logseq_keys["elevatedFrom"],
-            Destination::SourceField {
-                id: "origin".into(),
-                field: "resource".into()
-            }
-        );
-    }
-
-    #[test]
-    fn a_yaml_null_and_a_bang_prose_are_both_understood() {
-        // The file has written `null`/`drop` and `prose`/`!prose` at different
-        // times; neither spelling is worth failing a build over.
-        assert_eq!(Destination::parse("!prose"), Destination::Prose);
-        assert_eq!(Destination::parse("null"), Destination::Drop);
-        let v = Vocabulary::from_yaml_str(&format!(
-            "{CORE}\nmigration:\n  fence_fields: {{ \"@id\": resource }}\n  \
-             logseq_keys: {{ collapsed: null, tier: \"!prose\" }}\n"
-        ))
-        .unwrap();
-        assert_eq!(v.migration.logseq_keys["collapsed"], Destination::Drop);
-        assert_eq!(v.migration.logseq_keys["tier"], Destination::Prose);
-    }
-
-    #[test]
-    fn frontmatter_key_reports_the_key_a_destination_writes() {
-        assert_eq!(
-            Destination::parse("sources[id=origin].resource").frontmatter_key(),
-            Some("sources")
-        );
-        assert_eq!(
-            Destination::parse("generated.by").frontmatter_key(),
-            Some("generated")
-        );
-        assert_eq!(Destination::parse("is-a").frontmatter_key(), Some("is-a"));
-        assert_eq!(Destination::parse("prose").frontmatter_key(), None);
-        assert_eq!(Destination::parse("drop").frontmatter_key(), None);
-    }
-
-    #[test]
-    fn a_destination_onto_an_undeclared_key_fails_the_load() {
-        let err = Vocabulary::from_yaml_str(&format!(
-            "{CORE}\nmigration:\n  fence_fields: {{ \"@id\": nowhere }}\n"
-        ))
-        .unwrap_err();
-        assert!(err.contains("nowhere"), "{err}");
-    }
-
-    #[test]
     fn a_dangling_inverse_fails_the_load() {
         let err = Vocabulary::from_yaml_str(
             "version: 1\nrelations:\n  requires: { owl: vc:requires, inverse: nowhere }\n",
         )
         .unwrap_err();
         assert!(err.contains("nowhere"), "{err}");
-    }
-
-    #[test]
-    fn alias_folding_is_available_to_the_migration() {
-        let v = structured();
-        assert_eq!(v.migration.canonical_relation("hasPart"), Some("has-part"));
-        assert_eq!(v.migration.canonical_relation("nope"), None);
-        assert_eq!(v.migration.canonical_maturity("experimental"), "emerging");
-        assert_eq!(v.migration.canonical_maturity("established"), "established");
-    }
-
-    #[test]
-    fn definition_placement_is_read_from_the_vocabulary() {
-        assert_eq!(
-            flat().migration.body.definition_placement(),
-            DefinitionPlacement::Frontmatter
-        );
-        assert_eq!(
-            structured().migration.body.definition_placement(),
-            DefinitionPlacement::LeadingParagraph
-        );
-    }
-
-    #[test]
-    fn block_ref_rules_default_sensibly_and_read_placeholders() {
-        let v = structured();
-        let refs = &v.migration.block_refs;
-        assert_eq!(refs.max_lines, 40);
-        assert!(refs.is_literal_placeholder("block-uuid"));
-        assert!(!refs.is_literal_placeholder("66f13d66"));
-        assert_eq!(flat().migration.block_refs.max_lines, 40, "default");
     }
 
     #[test]

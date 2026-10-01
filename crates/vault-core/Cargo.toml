@@ -8,13 +8,6 @@ license = "AGPL-3.0-only"
 repository = "https://github.com/jjohare/VisionClaw"
 publish = false
 
-[features]
-default = []
-# The json-ld fence reader. Needed ONLY by `vault migrate --fences-to-properties`,
-# the one-shot converter. Once the corpus is frontmatter-only this feature — and
-# the module behind it — is deleted.
-migrate = []
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

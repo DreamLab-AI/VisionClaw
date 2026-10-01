@@ -1,14 +1,13 @@
-# Golden corpus — the migration must not change what Loom sees
+# Golden corpus — published output compatibility
 
-`fixture/` is 50 pages of the **pre-migration** `visionGraph` corpus, in their
-original two-`json-ld`-fence form, plus the `ontology/vocabulary.yaml` that
-covers every fence key they carry.
+`fixture/` contains 50 canonical Obsidian pages with YAML frontmatter and
+Markdown bodies, plus a frozen `ontology/vocabulary.yaml`.
 
-`python/` is what the retired `visionGraph/pipeline` produced from exactly
-those 50 pages (`python -m pipeline.build`, rdflib 7.6.0, 2026-09-22).
+`python/` contains immutable historical reference output from 2026-09-22.
+It is test data, not an executable pipeline. No legacy reader or converter is
+needed to run these tests.
 
-`tests/golden_parity.rs` runs `vault migrate --fences-to-properties` followed by
-`vault build` over a copy of `fixture/` and asserts:
+`tests/golden_parity.rs` runs `vault build` over a copy of `fixture/` and asserts:
 
 | artefact | assertion |
 |---|---|
@@ -37,5 +36,5 @@ reproducible outside `rdflib`.
   across a `round(x, 3)` boundary. `ngg1.rs` carries a module-level
   `allow(clippy::suboptimal_flops)` for exactly this reason.
 
-Regenerate `python/` only if the fixture changes, and never to make a failing
-test pass: a diff here means the Rust build changed what Loom loads.
+Do not regenerate `python/` to make a failing test pass: a diff here means
+the Rust build changed what Loom loads.

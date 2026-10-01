@@ -8,20 +8,7 @@ import * as THREE from 'three'
 import type { Node as GraphNode } from '../managers/graphDataManager'
 import type { GraphVisualMode } from './useGraphVisualState'
 
-// === Domain colours ===
-export const DOMAIN_COLORS: Record<string, string> = {
-  'AI':  '#4FC3F7',
-  'BC':  '#81C784',
-  'RB':  '#FFB74D',
-  'MV':  '#CE93D8',
-  'TC':  '#FFD54F',
-  'DT':  '#EF5350',
-  'NGM': '#4DB6AC',
-}
-export const DEFAULT_DOMAIN_COLOR = '#90A4AE'
-
-export const getDomainColor = (domain?: string): string =>
-  domain && DOMAIN_COLORS[domain] ? DOMAIN_COLORS[domain] : DEFAULT_DOMAIN_COLOR
+export { DOMAIN_COLORS, DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/domainColors'
 
 // === Edge-type colours ===
 // Palette is a hue wheel chosen so the 11 emitted edge types occupy distinct,

@@ -16,6 +16,10 @@ repo: visionclaw
 
 # ADR-2113 — `crates/vault` is the single corpus parser and build
 
+> Current amendment: [ADR-2117](ADR-2117-retire-corpus-format-migration.md)
+> removes the completed one-shot converter and core fence reader. Migration
+> commands and coverage details below are historical evidence, not current instructions.
+
 ## Context
 
 The estate had four doors onto one corpus and they disagreed about its size:
