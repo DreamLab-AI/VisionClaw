@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f92d53a5dcdb7a1aa47e4c03e5e9482624c1e3be
+verified_commit: b39b1a6264ae87c873153bd8b3664898bd139582
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
