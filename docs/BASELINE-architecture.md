@@ -231,6 +231,13 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
 
 ## Known divergences and open items
 
+- **The sidestr library release does not replace VisionClaw's payment host.** The
+  `FsPaymentStore` ledger and `/pay/*` routes still exist in
+  `src/handlers/pay_handler.rs:198-900`, while `AnchorConfirmer` remains an interface backed
+  only by test doubles (`src/web_contract/ritual.rs:144`, `:319-328`). ADR-2111 therefore
+  remains `proposed / none / inactive`: the host still needs the authenticated agentbox proxy
+  and a real sidestr-backed confirmer. The master estate board tracks this as N-3.
+
 - **Security fixes landing 2026-08-31** (write-up reflects post-fix state):
   (1) `PUBKEY_VISIBILITY_FILTER` default flipped ON (encoder existed but was
   inert); (2) NIP-98 single-use event-id replay cache added in

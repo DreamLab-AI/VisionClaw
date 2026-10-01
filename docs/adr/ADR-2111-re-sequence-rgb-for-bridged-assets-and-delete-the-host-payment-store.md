@@ -80,6 +80,21 @@ instrument and that assets are bridged in (PRD-024 D0, D4).
    header stating what it is not, and every ADR-124 or ADR-128 citation names the path rather
    than the word "contracts".
 
+## Source qualification — 2026-10-01
+
+The `sidestr-rs` parity release does not implement this host decision. It supplies reusable
+consensus, wallet, EVM and Hitch libraries, but VisionClaw still owns each host-side change:
+
+- `FsPaymentStore` and `/pay/*` remain in `src/handlers/pay_handler.rs`;
+- `AnchorConfirmer` remains a trait with test doubles in `src/web_contract/ritual.rs`;
+- no proxy carries the caller's NIP-98 identity to agentbox `/v1/wallet/*` or
+  `/v1/chain/*`;
+- publishing `sidestr-hitch` does not supply wallet funding, relay transport, chain watches,
+  durable storage or broadcasting for VisionClaw.
+
+ADR-2111 therefore remains `proposed / none / inactive`. Closing sidestr source parity in
+the estate board's N-9 row does not close N-3 or any verification item below.
+
 ## Consequences
 
 The host loses a payment surface it never settled with, which removes one of the three
