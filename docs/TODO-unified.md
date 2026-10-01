@@ -1,6 +1,6 @@
 # Unified TODO — VisionClaw and Agentbox estate
 
-**Reconciled:** 2026-09-07. Execution recorded. **Re-verified:** 2026-09-30 against repository HEADs (see [2026-09-30 reconciliation](#reconciliation-2026-09-30)); the counts below remain those of the 2026-09-07 disposition receipt.
+**Reconciled:** 2026-09-07. Execution recorded. **Re-verified:** wider estate 2026-09-30; sidestr rows 2026-10-01 (see [2026-09-30 reconciliation](#reconciliation-2026-09-30) and N-9/N-10 below). The counts below remain those of the 2026-09-07 disposition receipt.
 
 The execution-start register contained **61 distinct open IDs**. Current dispositions: **38 closed, 21 blocked, 0 in progress, 2 excluded**. Paired rows are counted individually. These figures are generated from the [disposition receipt](../../VisionFlow/docs/estate-review/closeout/execution-2026-09-07/master-dispositions.json).
 
@@ -48,8 +48,10 @@ and "live" are never conflated; several of the review's praises (the dream engin
 veto, the augmentation-conditions rationale gate) describe records that are `inactive` or
 "mostly paper" today, and its prescriptions on settlement (park sidestr, settle over Lightning)
 were already decided the same day in the opposite direction on the Lightning point: Lightning-
-first was dropped by owner decision and sidestr is parked eight weeks behind three conditions
-(agentbox PRD-024 §3, ADR-2103). Complexity is not an accident here: the estate is a
+first was dropped by owner decision and sidestr was parked eight weeks behind three conditions
+(agentbox PRD-024 §3, ADR-2103). The park did not hold for source work: the Rust parity release
+landed on 1 October, while activation and real-value gates remain closed in N-10 below.
+Complexity is not an accident here: the estate is a
 demonstrator, a teaching instrument and the owner's own tool factory, judged by "more
 convincing in the room, more repeatable on someone else's kit, more multiplying for the owner".
 That said, four of its points are real work and are added as rows.
@@ -89,12 +91,14 @@ Re-verified against repository HEADs on day 9 of the 22 Sep–20 Oct cycle ([pla
 |---|---|---|
 | N-1 | open | **Corpus/vault landing.** Host ADR-2112/2113/2114 `accepted`/`partial`/`staged` (`f9720fbcb` and series). Activation needs the real `vault migrate --fences-to-properties` run on visionGraph and a first VisionClaw boot on the migrated corpus. |
 | N-2 | open | **ADR-2116 replacement path.** Propose route retired; the forum ActionRequest `vault propose` apply path (WS-C) is outstanding. Pairs with E-5. |
-| N-3 | open | **Host ADR-2111** (`f223bbd40`) is `proposed`/`none`: delete FsPaymentStore, AnchorConfirmer on sidestr-node. Parked with sidestr unless it closes a proposed record. |
+| N-3 | open | **Host ADR-2111** (`f223bbd40`) is `proposed`/`none`: delete FsPaymentStore and implement AnchorConfirmer on `sidestr-node`. The sidestr-rs parity release does not implement either host change. |
 | N-4 | open | **Voice pipeline** (`ab5724422`) and **XR agent embodiment** (host ADR-2109) have no acceptance receipt. Voice folds into CY-A2. |
 | N-5 | open | **Forum ADR-2015..2019.** Encrypted zones (2016) and relay read caches (2018) are live or staged. ADR-2019 is uncommitted in the forum working tree alongside edits to ADR-2015, BASELINE and README: commit or discard. |
-| N-6 | open | **New key-custody surfaces.** Sidestr testnet producer, mirror and faucet under supervisor (`d0fa1b80b`, `4c95c5354`; genesis `f04a496ab`); ADR-2117 Liquid reserve wiring (`c330052e3`, not live); forum zone keys held by JunkieJarvis (`f462d6f18`, `e0e331afd`); encrypted nightly digest (`9d71837a9`). All run as the shared UID and fall under X-1 and G-5; ADR-2101 key separation is still `proposed`/`none`. |
+| N-6 | open | **New key-custody surfaces.** Sidestr testnet producer, mirror and faucet under supervisor (`d0fa1b80b`, `4c95c5354`; genesis `f04a496ab`); ADR-2117 Liquid reserve wiring (`c330052e3`, not live); forum zone keys held by JunkieJarvis (`f462d6f18`, `e0e331afd`); encrypted nightly digest (`9d71837a9`). All run as the shared UID and fall under X-1 and G-5; ADR-2101 key separation is still `proposed`/`none`. Publishing channel and consensus libraries does not close custody or service-account isolation. |
 | N-7 | open | **Prompt egress.** System One (agentbox ADR-2094, `6fbbb43eb`) and the live skill router (ADR-2091, `cb5d34270`) route prompts off-box; egress accepted in `5e213c3ec`. Record it in the egress register and link it from the LAN-door threat model (G-10). |
 | N-8 | noted | agentbox ADR-2087 governance deny journal and receipt ladder (`bc4a9b259`), ADR-2093 compaction plugin (`0950527d3`) and ADR-2118 instruction tiers (`accepted`/`partial`/`live`) shipped. ADR-2087 is the natural base for the ADR-2071 journal (X-4, CY-A5). |
+| N-9 | closed (source, 1 Oct) | **sidestr-rs parity and release.** Commit `2bdee2d5606c43c67fa5674ff9ba0992d2ac12c7` matches `sidestr/spec` `fe689e9`. Seven crates are published: core 0.4.0, header 0.3.1, wallet 0.5.0, nostr 0.4.0, round 0.3.0, agent 0.4.0 and hitch 0.1.1. Reference-oracle CI is green. The release adds activation-height rules, asset mint policy and carry traces, constant-product pools, binary markets, ordered overlay composition, retained EVM snapshots, exact mempool eviction, federated announcement trust, issue-15 peg scans, `blocks.json` caching and a shared reconnecting relay pool. Hitch covers revocable commitments, HTLCs, recovery, snapshots, invoices and one-hop routing. This row closes source parity and publication only. |
+| N-10 | open | **Estate adoption of the new sidestr capabilities.** Agentbox still runs the upstream JavaScript producer for `sidestr:dreamlab`; no Rust producer is deployed. The estate chain has not activated pools, markets or EVM, `sidestr-evm` is unpublished, and Hitch has no host for wallet funding, relay I/O, chain watches, durable storage or broadcasting. An isolated Knots 29.4.2 plus rbitcoin 0.7.99 BLAKE2b testnet4 pair is synced on Dell staging, which proves the parent-node path only: it carries no estate sidechain and touches no mainnet service. Close with explicit per-capability activation receipts; P21, X-1, N-3 and N-6 still gate any value-bearing use. |
 
 ### Proposed decision records (ADR census 2026-09-30)
 
