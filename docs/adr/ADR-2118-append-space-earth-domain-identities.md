@@ -52,3 +52,7 @@ local working-tree changes; no deployment or published generation is claimed.
 ## Owner-authorised release
 
 On 2026-10-01 the owner explicitly authorised merging and deploying the draft vocabulary before funding article research. The shared `vault-core::domains` registry now serves publication, runtime navigation roots and GPU class IDs, with canonical/legacy-name regression coverage. Client palettes recognise both new domains. The site pipeline gates all 922 public draft identities, then dispatches its exact source SHA to the VisionClaw ontology release workflow, whose build checkout is pinned to validation’s source revision. Empty bodies and draft lifecycle remain intentional. Deployment and ingestion receipts are recorded with the corpus programme.
+
+## Fresh-store ingestion correction
+
+A full real-corpus sync exposed an absent assert graph on first ingest: the rebuild used `CLEAR GRAPH` and never reached its INSERT. Assert/inferred rebuilds now use idempotent `CLEAR SILENT GRAPH`. The integration fixture no longer bootstraps the graph to hide this case. Assert rebuilds also retain source domain and draft maturity, and a fresh-ingest regression verifies both new domains and navigation roots. `sync_corpus` now fails on recorded stage errors and can write an actual-graph verification receipt.

@@ -692,7 +692,7 @@ impl OxigraphOntologyRepository {
     /// touches only `urn:ngm:graph:ontology:inferred`.
     pub async fn clear_inferred_graph(&self) -> RepoResult<()> {
         self.run_update(format!(
-            "{PROLOGUE}CLEAR GRAPH <{GRAPH_ONTOLOGY_INFERRED}>\n"
+            "{PROLOGUE}CLEAR SILENT GRAPH <{GRAPH_ONTOLOGY_INFERRED}>\n"
         ))
         .await
     }
@@ -1589,7 +1589,9 @@ impl OntologyRepository for OxigraphOntologyRepository {
         // CLEAR + bulk INSERT pattern. Single atomic SPARQL Update.
         let mut update = String::with_capacity(8192);
         update.push_str(PROLOGUE);
-        update.push_str(&format!("CLEAR GRAPH <{GRAPH_ONTOLOGY}> ;\n"));
+        // First ingest has no assert graph yet. Clearing absent state is an
+        // idempotent initialisation step, not a reason to skip the INSERT.
+        update.push_str(&format!("CLEAR SILENT GRAPH <{GRAPH_ONTOLOGY}> ;\n"));
         update.push_str(&format!("INSERT DATA {{\n  GRAPH <{GRAPH_ONTOLOGY}> {{\n"));
         for node in &graph.nodes {
             let iri = node
@@ -1608,6 +1610,14 @@ impl OntologyRepository for OxigraphOntologyRepository {
                 "    <{iri}> <{P_LABEL}> \"{}\" .\n",
                 escape_literal(&label)
             ));
+            for (key, predicate) in [("source_domain", P_SOURCE_DOMAIN), ("maturity", P_MATURITY)] {
+                if let Some(value) = node.metadata.get(key) {
+                    update.push_str(&format!(
+                        "    <{iri}> <{predicate}> \"{}\" .\n",
+                        escape_literal(value)
+                    ));
+                }
+            }
         }
         // Edges → vc:relatesTo (or typed predicate) triples.
         // Build id→iri map from current nodes.

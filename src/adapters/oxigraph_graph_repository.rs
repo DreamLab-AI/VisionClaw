@@ -234,6 +234,13 @@ impl OxigraphGraphRepository {
             ));
         }
 
+        if let Some(group) = &node.group {
+            buf.push_str(&format!(
+                "    <{iri}> vc:group \"{group}\" .\n",
+                group = escape_literal(group)
+            ));
+        }
+
         // node_type (optional)
         if let Some(nt) = &node.node_type {
             let nt_esc = escape_literal(nt);
@@ -1369,6 +1376,7 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
         let mut mass: Option<f32> = None;
         let mut owl_class_iri: Option<String> = None;
         let mut node_type: Option<String> = None;
+        let mut group: Option<String> = None;
         let mut metadata: HashMap<String, String> = HashMap::new();
 
         for (p, v) in props {
@@ -1401,6 +1409,7 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
                         owl_class_iri = Some(n.as_str().to_string());
                     }
                 }
+                (_, Some("group")) => group = term_to_string(&v),
                 (_, Some("nodeType")) => {
                     if let Some(t) = term_to_string(&v) {
                         node_type = Some(t);
@@ -1444,13 +1453,13 @@ fn load_nodes_in_graph(store: &Store, graph_iri: &str) -> RepoResult<Vec<Node>> 
             vz: Some(vz),
             mass,
             owl_class_iri,
-            metadata,
+            metadata: metadata.clone(),
             file_size: 0,
             node_type,
             size: None,
             color: None,
             weight: None,
-            group: None,
+            group: group.or_else(|| metadata.get("source_domain").cloned()),
             user_data: None,
         };
         out.push(n);

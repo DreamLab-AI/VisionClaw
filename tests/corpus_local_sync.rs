@@ -109,18 +109,7 @@ async fn harness() -> Harness {
         onto_repo.store().clone(),
     ));
 
-    // A fresh Oxigraph store has no named graphs, and the assert-graph rebuild
-    // opens with `CLEAR GRAPH <…:assert>`, which errors on a graph that does
-    // not exist yet. Production stores are long-lived and already carry it;
-    // the fixture creates it with one non-class triple so the rebuild has
-    // something to clear.
-    onto_repo
-        .store()
-        .update(
-            "INSERT DATA { GRAPH <urn:ngm:graph:ontology:assert> { \
-             <urn:ngm:fixture:bootstrap> <http://www.w3.org/2000/01/rdf-schema#label> \"bootstrap\" } }",
-        )
-        .expect("bootstrap the assert graph");
+    // Exercise first ingestion without pre-creating the ontology graph.
     let sync_db = Arc::new(
         SqliteSettingsRepository::open(&dir.path().join("settings.sqlite3"))
             .await
@@ -160,6 +149,44 @@ fn assert_no_stage_failed(stats: &SyncStatistics) {
 }
 
 #[actix_rt::test]
+async fn header_only_space_domains_survive_fresh_ingest_and_have_navigation_roots() {
+    let h = harness().await;
+    for (slug, title) in [
+        ("space-science-and-systems", "Space Vocabulary"),
+        (
+            "earth-observation-and-geospatial-sensing",
+            "Earth Vocabulary",
+        ),
+    ] {
+        std::fs::write(
+            h.vault.path().join(format!("knowledge/pages/{title}.md")),
+            format!("---\ntype: Class\ntitle: {title}\nresource: urn:ngm:class:{slug}-fixture\npublic: true\nstatus: draft\nmaturity: draft\ndomain: {slug}\n---\n"),
+        ).unwrap();
+    }
+    let stats = h.service.sync_graphs_with(true).await.expect("fresh sync");
+    assert_no_stage_failed(&stats);
+    let graph = h.kg_repo.load_graph().await.unwrap();
+    let classes = h.onto_repo.get_classes().await.unwrap();
+    for slug in [
+        "space-science-and-systems",
+        "earth-observation-and-geospatial-sensing",
+    ] {
+        let iri = format!("urn:ngm:class:{slug}-fixture");
+        let class = classes
+            .iter()
+            .find(|c| c.iri == iri)
+            .expect("asserted class");
+        assert_eq!(class.source_domain.as_deref(), Some(slug));
+        assert_eq!(class.maturity.as_deref(), Some("draft"));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|n| n.metadata_id == format!("domain-root-{slug}")
+                && n.group.as_deref() == Some(slug)));
+    }
+}
+
+#[actix_rt::test]
 async fn sync_graphs_ingests_the_local_vault() {
     let h = harness().await;
 
@@ -172,13 +199,18 @@ async fn sync_graphs_ingests_the_local_vault() {
 
     let graph = h.kg_repo.load_graph().await.expect("graph loads");
 
-    // The private working page is gated out; every other page is a node. The
-    // fixture carries no domain groups, so no domain roots are materialised.
+    // The private working page is gated out; every other page is a node, and
+    // untyped prose defaults to the infrastructure group, represented by one
+    // navigation root; the explicit legacy `data` group remains unrecognised.
     assert_eq!(
         graph.nodes.len(),
-        19,
-        "19 of 20 pages ingest — `public: false` is gated out"
+        20,
+        "19 public pages plus the infrastructure navigation root"
     );
+    assert!(graph.nodes.iter().any(|n| {
+        n.metadata_id == "domain-root-infrastructure"
+            && n.group.as_deref() == Some("infrastructure")
+    }));
     assert!(
         !graph.edges.is_empty(),
         "the wikilink ring and the subclass chain produce edges"
@@ -243,7 +275,11 @@ async fn frontmatter_relations_are_typed_edges_and_a_class_wins_its_working_twin
     assert_eq!(stats.total_files, 21);
 
     let graph = h.kg_repo.load_graph().await.expect("graph loads");
-    assert_eq!(graph.nodes.len(), 19, "the twin joins the class node");
+    assert_eq!(
+        graph.nodes.len(),
+        20,
+        "the twin joins the class node and the data-domain root remains"
+    );
     let alpha = graph
         .nodes
         .iter()
@@ -331,13 +367,6 @@ async fn real_vault_ingest_counts() {
     let kg_repo = Arc::new(OxigraphGraphRepository::from_store(
         onto_repo.store().clone(),
     ));
-    onto_repo
-        .store()
-        .update(
-            "INSERT DATA { GRAPH <urn:ngm:graph:ontology:assert> { \
-             <urn:ngm:fixture:bootstrap> <http://www.w3.org/2000/01/rdf-schema#label> \"bootstrap\" } }",
-        )
-        .expect("bootstrap the assert graph");
     let sync_db = Arc::new(
         SqliteSettingsRepository::open(&dir.path().join("settings.sqlite3"))
             .await
