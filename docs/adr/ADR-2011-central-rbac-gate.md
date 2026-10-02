@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -126,3 +126,7 @@ matching or level-mapping logic changed.** `src/utils/auth.rs` is unchanged.
 (full patch read); `awk` dumps of `rbac_gate.rs:40-76`, `:75-124`, `:134-176`;
 `grep -n has_permission src/utils/auth.rs`; `cargo test --lib
 --no-default-features rbac` → **14 passed, 0 failed** (1253 filtered out).
+
+## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
+
+**Governed changes:** `src/utils/auth.rs` gains `nip98_request_url` (`:153`), which is the URL reconstruction that `verify_access` previously did inline: `X-Forwarded-Proto`/`X-Forwarded-Host` first, then `connection_info`. Empty forwarded headers now fall through to `connection_info`. The settings extractor and the `/wss` and `/ws/speech` authenticate URLs share it, and `nip98_proxy_tests` (`:544`) were added. The change exists so that the headset's NIP-98 writes validate behind the prod nginx (owner decision 2026-10-02, Q3). **Decision unaffected.** `RbacGate` still delegates to `verify_access`, and `required_level` is unchanged. The new helper sits on the NIP-98 branch only. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.

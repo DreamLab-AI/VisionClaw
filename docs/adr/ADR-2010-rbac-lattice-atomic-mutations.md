@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
 verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
@@ -160,3 +160,7 @@ src/services/role_store.rs src/utils/auth.rs`; `grep -n` over `role_store.rs` fo
 parse_default_role|effective_role`; `awk` dumps of `role_store.rs:195-215` and
 `:355-395`; `cargo test --lib --no-default-features role_store` → **29 passed,
 0 failed** (1238 filtered out).
+
+## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
+
+**Governed changes:** `src/utils/auth.rs` gains `nip98_request_url` (`:153`), which is the URL reconstruction that `verify_access` previously did inline: `X-Forwarded-Proto`/`X-Forwarded-Host` first, then `connection_info`. Empty forwarded headers now fall through to `connection_info`. The settings extractor and the `/wss` and `/ws/speech` authenticate URLs share it, and `nip98_proxy_tests` (`:544`) were added. The change exists so that the headset's NIP-98 writes validate behind the prod nginx (owner decision 2026-10-02, Q3). **Decision unaffected.** The lattice (`AccessLevel::has_permission`, `:41`) and role resolution (`resolve_access_level`, `:60`) are untouched. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.

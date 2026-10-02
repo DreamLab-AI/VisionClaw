@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable
@@ -128,3 +128,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 **Governed changes since `1ad881cab`:** `client/src/services/api/authInterceptor.ts` lost one line — an `eslint-disable-next-line no-console` directive above the release-mode `console.warn`, which ESLint reported as unused (the config allows `console.warn`). The other governed paths are unchanged.
 
 **Decision unaffected.** A comment deletion; the interceptor's realm selection and the warning it emits are byte-identical. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
+
+**Governed changes:** `src/utils/auth.rs` gains `nip98_request_url` (`:153`), which is the URL reconstruction that `verify_access` previously did inline: `X-Forwarded-Proto`/`X-Forwarded-Host` first, then `connection_info`. Empty forwarded headers now fall through to `connection_info`. The settings extractor and the `/wss` and `/ws/speech` authenticate URLs share it, and `nip98_proxy_tests` (`:544`) were added. The change exists so that the headset's NIP-98 writes validate behind the prod nginx (owner decision 2026-10-02, Q3). **Decision unaffected.** Both request realms, and which headers each reads, are unchanged. Only the URL that a NIP-98 `u` tag is compared against is now built in one place. Line shifts: `verify_access` moved from `:142` to `:174`, and the cited `:270-315` is now `:281-326`. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.

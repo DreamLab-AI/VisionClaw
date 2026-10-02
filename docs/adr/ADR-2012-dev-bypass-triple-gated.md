@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-011 dev-bypass clause distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
 verified_paths: [src/utils/auth.rs, src/middleware/rbac_gate.rs]
 owner: jjohare
 review_trigger: any change to the dev-auth feature gate, DEV_AUTH_LOOPBACK handling, or the report-mode ack check
@@ -144,3 +144,7 @@ of `auth.rs:185-210` and `rbac_gate.rs:75-124`; `grep -n
 assert_effective_profile_or_exit src/main.rs`; `cargo test --lib
 --no-default-features security_profile` → **37 passed, 0 failed** (1230 filtered
 out).
+
+## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
+
+**Governed changes:** `src/utils/auth.rs` gains `nip98_request_url` (`:153`), which is the URL reconstruction that `verify_access` previously did inline: `X-Forwarded-Proto`/`X-Forwarded-Host` first, then `connection_info`. Empty forwarded headers now fall through to `connection_info`. The settings extractor and the `/wss` and `/ws/speech` authenticate URLs share it, and `nip98_proxy_tests` (`:544`) were added. The change exists so that the headset's NIP-98 writes validate behind the prod nginx (owner decision 2026-10-02, Q3). **Decision unaffected.** The dev-session-token branch and `dev_bypass_permitted` are byte-identical. Their lines moved from `:185-210` to `:217-242`; `:82` and `:122` are unchanged. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.

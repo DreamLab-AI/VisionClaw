@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 95e98ab12baceb51a49ac8a0d2ff37a7b85e5e10
+verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -89,3 +89,7 @@ CP-01/02/06/08. Owner remains jjohare with settings/client/runtime maintainers. 
 - **Priority:** withdrawn
 - **Why:** Superseded by accepted ADR-2115 ("the `logseq` settings alias is removed"), which already lists `supersedes: [ADR-2041]`. This record's one-release alias, which was its whole transitional content, has been retired by that successor.
 - **Next:** None. `decision_status` set to `superseded`. The validator requires a `verified_commit`, so it is stamped `95e98ab12`. The other status fields are unchanged.
+
+## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
+
+**Governed changes:** `xr-client/scripts/graph_scene.gd` changes only `_describe_write_failure`: the 401/403 text and its comment now name an Owner/Admin `XR_NOSTR_SECRET` as the remedy and mark `VISIONCLAW_DEV_MODE` as dev-only (owner decision 2026-10-02, Q1 and Q3). **Decision unaffected.** The physics writes still target `?graph=knowledge`, and no request URL or body changed. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.
