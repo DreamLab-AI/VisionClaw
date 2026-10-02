@@ -123,6 +123,10 @@ Hygiene: merged worktrees and branches were removed in agentbox, sidestr-rs, pro
 
 CI: the estate check fell from 12/15 to 9/15 green on 1 Oct and is restored. Host Documentation Quality (stale ADR ledger, `b51b80faf`); agentbox contract tests (Jest 30 renamed `--testPathPattern`, `23e5818a6`); forum clippy (rustc 1.99 `double_must_use` on `#[async_trait]`, `d8bd0c7`, `6708c38`; `rust-toolchain.toml` still floats on `stable`).
 
+### Track C parked, 2026-10-02 (evening)
+
+Owner call: Track C is parked. docBox is retired for now (item 12 drops). The engagement paperwork (item 14) is the owner's calendar, eventually run through the forum but not yet. The CY-C checklist below stays as the fresh-host requirements record; the runbook, the bring-up receipt and the letter MVP resume when the owner reopens the track. A Proxmox VM on the Dell was proposed as the bring-up target; the Proxmox host address and a token are still needed. The next sprint is the sidechain headline demo (cycle plan §9).
+
 ### CY-C: what a fresh Trust host needs on the prod profile
 
 The Trust residential runs the **prod profile**, not the dev profile with dev mode off (owner decision 2026-10-02, Q1). There is no fresh-host runbook yet, so the requirements live here until CY-C writes one. Names only; no values. Verified against source on 2 Oct.
