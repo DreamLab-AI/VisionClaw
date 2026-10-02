@@ -4662,6 +4662,7 @@ mod dag_rank_tests {
         }
         for label in [
             "domain_member",
+            "chain_payment",
             "equivalent_class",
             "same_as",
             "sub_property_of",

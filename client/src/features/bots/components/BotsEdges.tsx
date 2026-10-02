@@ -36,6 +36,7 @@ import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BotsEdge, BotsAgent } from '../types/BotsTypes';
+import { CHAIN_PAYMENT_COLOR, CHAIN_PAYMENT_EDGE_TYPE } from '../chain/chainPayments';
 
 /* R3F maps three.js props onto JSX host elements (args, position, rotation, intensity...);
    these are not DOM properties. react/no-unknown-property is not enforced in this config. */
@@ -91,6 +92,18 @@ export function shouldEdgePulse(avgTokenRate: number, messageCount: number): boo
 /** Pulse envelope sin(t*5)*0.3+1 (t in seconds); 1 when the edge should not pulse. */
 export function computePulse(shouldPulse: boolean, elapsedSeconds: number): number {
   return shouldPulse ? Math.sin(elapsedSeconds * 5) * 0.3 + 1 : 1;
+}
+
+/**
+ * Sidechain payment edges (S5) keep their own colour whatever the token
+ * traffic: full intensity once settled, dimmed while unsettled, never pulsing.
+ * Returns undefined for any other edge.
+ */
+export function chainPaymentStyle(
+  edge: Pick<BotsEdge, 'type' | 'chainPayment'>,
+): { color: string; opacity: number } | undefined {
+  if (edge.type !== CHAIN_PAYMENT_EDGE_TYPE) return undefined;
+  return { color: CHAIN_PAYMENT_COLOR, opacity: edge.chainPayment?.settled ? 1 : 0.45 };
 }
 
 /** Grow-by-double capacity, like GlassEdges — smallest 2^k*current ≥ needed. */
@@ -185,6 +198,23 @@ export const BotsEdges: React.FC<BotsEdgesProps> = ({ edges, agents, positionsRe
       const src = agents.get(edge.source);
       const tgt = agents.get(edge.target);
       const avg = computeAvgTokenRate(src?.tokenRate, tgt?.tokenRate);
+
+      const chain = chainPaymentStyle(edge);
+      if (chain) {
+        _edgeColorScratch.set(chain.color);
+        const { r, g, b } = _edgeColorScratch;
+        out.push({
+          srcId: edge.source,
+          tgtId: edge.target,
+          activeR: r, activeG: g, activeB: b,
+          inactiveR: r, inactiveG: g, inactiveB: b,
+          activeOpacity: chain.opacity,
+          inactiveOpacity: chain.opacity,
+          shouldPulse: false,
+          lastMessageTime: edge.lastMessageTime,
+        });
+        return;
+      }
 
       _edgeColorScratch.set(computeEdgeColor(true, avg, color));
       const activeR = _edgeColorScratch.r;

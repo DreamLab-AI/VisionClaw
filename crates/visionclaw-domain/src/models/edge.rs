@@ -11,6 +11,14 @@ pub const RDFS_SUBCLASS_OF_IRI: &str = "http://www.w3.org/2000/01/rdf-schema#sub
 /// so it carries its own label rather than the `hierarchical` force category.
 pub const DOMAIN_MEMBER_EDGE_TYPE: &str = "domain_member";
 
+/// Edge type of a sidechain payment between two agent nodes (one edge per
+/// sidechain transaction, payer → payee, keyed by the agents' `did:nostr`).
+///
+/// A payment ties two agents together the way has-part ties parts, so it uses
+/// the Structural force category; it is never subsumption, so it carries its own
+/// label rather than `hierarchical` or `domain_member` (ADR-2035).
+pub const CHAIN_PAYMENT_EDGE_TYPE: &str = "chain_payment";
+
 /// GPU-friendly edge type for semantic pipeline (ADR-014 Phase 2).
 /// Maps relationship strings from Oxigraph/OntologyParser to a compact u8
 /// discriminant suitable for GPU buffers and spring-force differentiation.
@@ -70,6 +78,8 @@ impl SemanticEdgeType {
             // Domain membership groups pages around their domain root, the way
             // has-part groups parts: structural, never subsumption.
             "domain_member" => Self::Structural,
+            // Agent-to-agent sidechain payments: structural spring, own label.
+            "chain_payment" => Self::Structural,
             "inferred" => Self::Inferred,
             "implements" | "implemented_by" => Self::Implements,
             "enhances" | "enhanced_by" | "optimizes" | "optimized_by" | "enhancement" => {
@@ -375,6 +385,18 @@ mod tests {
             SemanticEdgeType::from_u8(255),
             SemanticEdgeType::ExplicitLink
         );
+    }
+
+    #[test]
+    fn chain_payment_is_structural_and_never_subsumption() {
+        assert_eq!(
+            SemanticEdgeType::from_relation_type(CHAIN_PAYMENT_EDGE_TYPE),
+            SemanticEdgeType::Structural
+        );
+        let e = Edge::new(1, 2, 1.0).with_edge_type(CHAIN_PAYMENT_EDGE_TYPE.to_string());
+        assert!(!e.asserts_subsumption());
+        assert_ne!(CHAIN_PAYMENT_EDGE_TYPE, DOMAIN_MEMBER_EDGE_TYPE);
+        assert_ne!(CHAIN_PAYMENT_EDGE_TYPE, "hierarchical");
     }
 
     #[test]

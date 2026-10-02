@@ -52,7 +52,7 @@ pub struct Agent {
 /// `None` rather than carried onto a trusted surface (WP-1, invariant 2). This
 /// is the well-formedness gate at carry time; control of the key is proven
 /// separately by the Schnorr challenge in `nostr_identity_verifier`.
-fn validate_did_nostr(claimed: &str) -> Option<String> {
+pub(crate) fn validate_did_nostr(claimed: &str) -> Option<String> {
     match crate::uri::parse(claimed) {
         Ok(crate::uri::ParsedUri::DidNostr { pubkey }) => crate::uri::did_nostr(&pubkey)
             .ok()

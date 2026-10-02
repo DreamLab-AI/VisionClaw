@@ -1976,6 +1976,19 @@ impl Handler<msgs::UpdateBotsGraph> for GraphServiceSupervisor {
     }
 }
 
+/// Handler for UpdateChainPayments - delegates to GraphStateActor (S5).
+impl Handler<msgs::UpdateChainPayments> for GraphServiceSupervisor {
+    type Result = ();
+
+    fn handle(&mut self, msg: msgs::UpdateChainPayments, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(ref graph_state_addr) = self.graph_state {
+            graph_state_addr.do_send(msg);
+        } else {
+            warn!("Cannot forward UpdateChainPayments: GraphStateActor not initialized");
+        }
+    }
+}
+
 /// Handler for UpdateNodePositions - delegates to PhysicsOrchestratorActor AND GraphStateActor.
 /// PhysicsOrchestratorActor forwards to ClientCoordinatorActor for WebSocket push (BroadcastPositions).
 /// GraphStateActor stores positions so the polling path (subscribe_position_updates → GetGraphData)

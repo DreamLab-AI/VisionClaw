@@ -24,6 +24,7 @@ import { getVisionClawColors } from './BotsShared';
 import { agentTrustKey } from '../agentIdentity';
 import { BotsNode } from './BotsNode';
 import { BotsEdges } from './BotsEdges';
+import { ChainPaymentLabels } from '../chain/ChainPaymentLabels';
 import { useAgentTargetStore } from '../../../store/agentTargetStore';
 import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus';
@@ -199,6 +200,9 @@ export const BotsVisualization: React.FC = () => {
         positionsRef={positionsRef}
         color={colors.edge}
       />
+
+      {/* S5: amount + short txid at each payment edge's midpoint. */}
+      <ChainPaymentLabels edges={botsData.edges} positionsRef={positionsRef} />
 
       {/* Nodes */}
       {Array.from(botsData.agents.values()).map((node, index) => {

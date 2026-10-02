@@ -91,6 +91,12 @@ pub struct TaskInfo {
     /// hazard. `None` for role-only spawns (no interruptible-by-agent-id join).
     #[serde(default)]
     pub claude_flow_agent_id: Option<String>,
+    /// The task's agent `did:nostr`, when the Management API echoes one
+    /// (`didNostr`, or `did_nostr` as on the spawn response). Unvalidated here;
+    /// the monitor carries it only after the `uri::did_nostr()` round-trip, and
+    /// sidechain payment edges attach only to agents that have one (S5).
+    #[serde(default, alias = "did_nostr")]
+    pub did_nostr: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -370,6 +376,45 @@ impl ManagementApiClient {
                 .unwrap_or_else(|_| "Unknown error".to_string());
             Err(ManagementApiError::ApiError(error_text, status))
         }
+    }
+
+    /// Sidechain payments between agents (`GET /v1/chain/payments`, S5).
+    ///
+    /// `Ok(None)` when the route is not deployed (404), so a Management API that
+    /// predates the route is quiet rather than a poll failure. The body is the
+    /// contract in [`crate::services::chain_payments`].
+    pub async fn get_chain_payments(
+        &self,
+    ) -> Result<Option<crate::services::chain_payments::ChainPaymentsResponse>, ManagementApiError>
+    {
+        let url = format!(
+            "{}{}",
+            self.base_url,
+            crate::services::chain_payments::CHAIN_PAYMENTS_PATH
+        );
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await
+            .map_err(|e| ManagementApiError::NetworkError(e.to_string()))?;
+        let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if status == StatusCode::OK {
+            return response
+                .json()
+                .await
+                .map(Some)
+                .map_err(|e| ManagementApiError::DeserializationError(e.to_string()));
+        }
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        Err(ManagementApiError::ApiError(error_text, status))
     }
 
     pub async fn stop_task(&self, task_id: &str) -> Result<(), ManagementApiError> {

@@ -3,6 +3,7 @@ import { agentPollingService, AgentSwarmData, PollingConfig } from '../services/
 import type { BotsAgent, BotsEdge } from '../types/BotsTypes';
 import { createLogger } from '../../../utils/loggerConfig';
 import { agentTelemetry } from '../../../telemetry/AgentTelemetry';
+import { badgeFromNodeMetadata, edgeInfoFromWire } from '../chain/chainPayments';
 
 const logger = createLogger('useAgentPolling');
 
@@ -65,6 +66,8 @@ export function transformAgentData(data: AgentSwarmData): {
       capabilities: node.metadata?.capabilities ?
         node.metadata.capabilities.split(',').map(cap => cap.trim()).filter(cap => cap) :
         undefined,
+      did_nostr: node.metadata?.did_nostr || undefined,
+      chain: badgeFromNodeMetadata(node.metadata),
     } as BotsAgent;
   });
 
@@ -76,12 +79,39 @@ export function transformAgentData(data: AgentSwarmData): {
       id: edge.id,
       source: nodeIdToAgentId.get(edge.source) || String(edge.source),
       target: nodeIdToAgentId.get(edge.target) || String(edge.target),
+      type: edge.edgeType,
+      chainPayment: edgeInfoFromWire(edge.edgeType, edge.metadata),
       dataVolume: edge.weight * 1000,
       messageCount: Math.floor(edge.weight * 10),
       lastMessageTime: Date.now()
     } as BotsEdge));
 
   return { agents, edges };
+}
+
+/** Whether a polled agent differs from the cached one in anything drawn. */
+export function agentChanged(prev: BotsAgent, next: BotsAgent): boolean {
+  return (
+    prev.position?.x !== next.position?.x ||
+    prev.position?.y !== next.position?.y ||
+    prev.position?.z !== next.position?.z ||
+    prev.status !== next.status ||
+    prev.health !== next.health ||
+    prev.did_nostr !== next.did_nostr ||
+    // S5: a new fold height or balance, or an anchor change, must redraw the badge.
+    JSON.stringify(prev.chain ?? null) !== JSON.stringify(next.chain ?? null)
+  );
+}
+
+/** Whether a polled edge differs from the cached one in anything drawn. */
+export function edgeChanged(prev: BotsEdge, next: BotsEdge): boolean {
+  return (
+    prev.dataVolume !== next.dataVolume ||
+    prev.messageCount !== next.messageCount ||
+    prev.type !== next.type ||
+    // S5: a payment moving from unsettled to settled must redraw its label.
+    JSON.stringify(prev.chainPayment ?? null) !== JSON.stringify(next.chainPayment ?? null)
+  );
 }
 
 export interface UseAgentPollingOptions {
@@ -136,12 +166,7 @@ export function useAgentPolling(options: UseAgentPollingOptions = {}) {
     let hasAgentChanges = false;
     agents.forEach(agent => {
       const existing = agentsMapRef.current.get(agent.id);
-      if (!existing ||
-          existing.position?.x !== agent.position?.x ||
-          existing.position?.y !== agent.position?.y ||
-          existing.position?.z !== agent.position?.z ||
-          existing.status !== agent.status ||
-          existing.health !== agent.health) {
+      if (!existing || agentChanged(existing, agent)) {
         hasAgentChanges = true;
         agentsMapRef.current.set(agent.id, agent);
       }
@@ -153,9 +178,7 @@ export function useAgentPolling(options: UseAgentPollingOptions = {}) {
     edges.forEach(edge => {
       newEdgeIds.add(edge.id);
       const existing = edgesMapRef.current.get(edge.id);
-      if (!existing ||
-          existing.dataVolume !== edge.dataVolume ||
-          existing.messageCount !== edge.messageCount) {
+      if (!existing || edgeChanged(existing, edge)) {
         hasEdgeChanges = true;
         edgesMapRef.current.set(edge.id, edge);
       }

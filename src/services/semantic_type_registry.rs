@@ -591,6 +591,20 @@ impl SemanticTypeRegistry {
             },
         );
 
+        // Agent-to-agent sidechain payment (S5). Structural-strength spring so
+        // trading agents draw together, but a plain bidirectional spring: the
+        // has-part orbit (force_type 1) models containment, and a payment
+        // contains nothing. Its own label keeps it out of the subClassOf ranker.
+        registry.register_internal(
+            "chain_payment",
+            RelationshipForceConfig {
+                strength: 0.7,
+                rest_length: 50.0,
+                is_directional: false,
+                force_type: 0,
+            },
+        );
+
         registry
     }
 
@@ -772,6 +786,7 @@ mod tests {
             "tracking",
             "similarity",
             "provenance",
+            "chain_payment",
         ] {
             assert!(
                 registry.get_id(label).is_some(),

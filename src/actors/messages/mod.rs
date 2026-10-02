@@ -172,6 +172,8 @@ pub use agent_messages::{
     AgentUpdate,
     Bottleneck,
     BottleneckAnalyze,
+    // S5: sidechain payments between agents
+    ChainPaymentsView,
     CloseTcpConnection,
     ConnectionFailed,
     CoordinationPattern,
@@ -180,6 +182,7 @@ pub use agent_messages::{
     GetAgentMetrics,
     GetBotsGraphData,
     GetCachedAgentStatuses,
+    GetChainPaymentsView,
     GetNeuralStatus,
     GetPerformanceReport,
     GetSwarmStatus,
@@ -216,4 +219,5 @@ pub use agent_messages::{
     TopologyOptimize,
     UpdateAgentCache,
     UpdateBotsGraph,
+    UpdateChainPayments,
 };

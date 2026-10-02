@@ -71,6 +71,9 @@ pub struct GraphStateActor {
     node_map: Arc<HashMap<u32, Node>>,
 
     bots_graph_data: Arc<GraphData>,
+    /// S5: latest sidechain payment projection, re-applied on every roster
+    /// update because bots node ids are reassigned each time.
+    chain_payments: Option<Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
 
     next_node_id: std::sync::atomic::AtomicU32,
 
@@ -108,6 +111,7 @@ impl GraphStateActor {
             graph_data: Arc::new(GraphData::new()),
             node_map: Arc::new(HashMap::new()),
             bots_graph_data: Arc::new(GraphData::new()),
+            chain_payments: None,
             next_node_id: std::sync::atomic::AtomicU32::new(1),
             metadata_store: HashMap::new(),
             knowledge_node_ids: HashSet::new(),
@@ -1170,6 +1174,12 @@ impl Handler<UpdateBotsGraph> for GraphStateActor {
         let bots_graph_data_mut = Arc::make_mut(&mut self.bots_graph_data);
         bots_graph_data_mut.nodes = nodes;
         bots_graph_data_mut.edges = edges;
+        // S5: node ids are reassigned on every roster update, so the sidechain
+        // payment edges are re-resolved by did:nostr against the new nodes.
+        crate::services::chain_payments::apply_to_bots_graph(
+            bots_graph_data_mut,
+            self.chain_payments.as_deref(),
+        );
 
         // Classify all bots_graph_data nodes as agent nodes so binary protocol
         // sets bit 31 for them via NodeTypeArrays.
@@ -1182,6 +1192,24 @@ impl Handler<UpdateBotsGraph> for GraphStateActor {
             msg.agents.len(),
             self.bots_graph_data.edges.len(),
             self.agent_node_ids.len()
+        );
+    }
+}
+
+impl Handler<UpdateChainPayments> for GraphStateActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateChainPayments, _ctx: &mut Context<Self>) -> Self::Result {
+        self.chain_payments = msg.snapshot;
+        let bots = Arc::make_mut(&mut self.bots_graph_data);
+        crate::services::chain_payments::apply_to_bots_graph(bots, self.chain_payments.as_deref());
+        debug!(
+            "Applied chain payments to bots graph: {} chain_payment edges",
+            bots.edges
+                .iter()
+                .filter(|e| e.edge_type.as_deref()
+                    == Some(visionclaw_domain::models::edge::CHAIN_PAYMENT_EDGE_TYPE))
+                .count()
         );
     }
 }

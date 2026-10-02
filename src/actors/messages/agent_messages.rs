@@ -42,3 +42,41 @@ pub struct UpdateBotsGraph {
 pub struct SetAgentMonitorAddr {
     pub addr: actix::Addr<crate::actors::AgentMonitorActor>,
 }
+
+/// Replace the sidechain payment projection on the bots graph (S5): the
+/// `chain_payment` edges between verified agent nodes and the settled-balance
+/// and anchor metadata on those nodes. `None` clears them.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct UpdateChainPayments {
+    pub snapshot: Option<std::sync::Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
+}
+
+/// Read the `AgentMonitorActor`'s latest sidechain payment projection and its
+/// cumulative drop counters, for `/api/bots/data` and the payments panel.
+#[derive(Message)]
+#[rtype(result = "ChainPaymentsView")]
+pub struct GetChainPaymentsView;
+
+/// Reply to [`GetChainPaymentsView`].
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ChainPaymentsView {
+    /// Latest projection, `None` before the first successful read or when the
+    /// route is not deployed.
+    #[serde(serialize_with = "serialize_shared_snapshot")]
+    pub snapshot: Option<std::sync::Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
+    /// Payments dropped since start because an endpoint was not a verified agent.
+    pub dropped_unverified_total: u64,
+    /// Payments dropped since start because a DID was malformed.
+    pub dropped_malformed_total: u64,
+    /// Whether the last read found the route deployed.
+    pub route_available: bool,
+}
+
+/// serde has no `rc` feature in this crate; serialise through the shared ref.
+fn serialize_shared_snapshot<S: serde::Serializer>(
+    value: &Option<std::sync::Arc<crate::services::chain_payments::ChainPaymentsSnapshot>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serde::Serialize::serialize(&value.as_deref(), serializer)
+}

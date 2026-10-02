@@ -1,0 +1,39 @@
+{
+  "schema": "sidechain-witness/1",
+  "headline": "NOT ANCHORED: no checkpoint of sidestr:dreamlab-txbt4 exists in tbtc4 (checkpoints are off)",
+  "chain": "sidestr:dreamlab-txbt4",
+  "checkpoint": null,
+  "checkpoints": "off",
+  "verdict": "PASS",
+  "replay": {
+    "height": 941,
+    "tip_hash": "2022f3d00e84faaee3a010960eca5ed07aecb30f010f01cacf803a7448019aac",
+    "engine": "sidestr-core (fixture)",
+    "balances": [
+      {
+        "did": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+        "settled_sats": 9000
+      },
+      {
+        "did": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+        "settled_sats": 1330
+      }
+    ]
+  },
+  "payments": [
+    {
+      "txid": "d5587bdd00e73f51cc218a50311bcb5f30c66274088d620e25e31f1203d87176",
+      "payer": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+      "payee": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+      "amount_sats": 400,
+      "block_height": 941
+    },
+    {
+      "txid": "579effcfa31c97df0fa934c730cac4137e1bba716694e3bafe11cca8ac013a4c",
+      "payer": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+      "payee": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+      "amount_sats": 1000,
+      "block_height": 940
+    }
+  ]
+}

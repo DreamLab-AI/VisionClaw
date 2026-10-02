@@ -15,6 +15,7 @@ import { Bot } from 'lucide-react';
 import { useBotsDataOptional } from '../../bots/contexts/BotsDataContext';
 import { AgentDetailPanel } from '../../bots/components/AgentDetailPanel';
 import { SwarmObservabilityPanel } from '../../bots/components/SwarmObservabilityPanel';
+import { ChainPaymentsPanel } from '../../bots/chain/ChainPaymentsPanel';
 import { resolveSelectedAgentId } from '../../bots/agentSelection';
 import { GlassPanel } from '../primitives/GlassPanel';
 
@@ -76,6 +77,9 @@ export const AgentOpsSurface: React.FC = () => {
           </div>
 
           <SwarmObservabilityPanel className="mb-3" />
+
+          {/* S5: sidechain payments between agents, with mirror links. */}
+          <ChainPaymentsPanel className="mb-3 pt-2 border-t border-white/10" />
 
           <div className="pt-2 border-t border-white/10">
             <AgentDetailPanel

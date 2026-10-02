@@ -4,6 +4,9 @@
 //! - Polling the Management API (port 9090) for active task statuses
 //! - Converting tasks to agent nodes
 //! - Forwarding updates to GraphServiceSupervisor
+//! - Reading sidechain payments between agents (`GET /v1/chain/payments`, S5)
+//!   and projecting them onto the bots graph as `chain_payment` edges between
+//!   agent nodes keyed by verified `did:nostr` (see `services::chain_payments`)
 //!
 //! All task management is handled by TaskOrchestratorActor.
 //! This actor only monitors and displays running agents.
@@ -11,10 +14,12 @@
 use actix::prelude::*;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actors::messages::*;
+use crate::services::chain_payments::{self, ChainPaymentsResponse, ChainPaymentsSnapshot};
 use crate::services::management_api_client::{ManagementApiClient, TaskInfo};
 use crate::utils::time;
 use visionclaw_domain::types::claude_flow::{
@@ -93,6 +98,31 @@ fn task_to_agent_status(task: TaskInfo, telemetry: &ContainerTelemetry) -> Agent
         age: age as u64,
         workload: Some(0.5),
     }
+}
+
+/// Task id → canonical `did:nostr` for every task whose echoed DID survives the
+/// `uri::did_nostr()` round-trip. A malformed claim is dropped, so the agent node
+/// is drawn without a DID and no payment edge can attach to it.
+fn verified_task_dids(tasks: &[TaskInfo]) -> HashMap<String, String> {
+    tasks
+        .iter()
+        .filter_map(|t| {
+            let did = t
+                .did_nostr
+                .as_deref()
+                .and_then(crate::services::bots_client::validate_did_nostr)?;
+            Some((t.task_id.clone(), did))
+        })
+        .collect()
+}
+
+/// Fold one projection into the served view: replace the snapshot and add this
+/// poll's drops to the cumulative counters.
+fn record_projection(view: &mut ChainPaymentsView, snapshot: ChainPaymentsSnapshot) {
+    view.dropped_unverified_total += u64::from(snapshot.dropped_unverified);
+    view.dropped_malformed_total += u64::from(snapshot.dropped_malformed);
+    view.route_available = true;
+    view.snapshot = Some(Arc::new(snapshot));
 }
 
 /// Debounce threshold for a confirmed-empty roster (defect: agent roster clobber).
@@ -200,6 +230,10 @@ pub struct AgentMonitorActor {
     /// not clobber the bots graph to zero. See `decide_bots_graph_emit`.
     last_bots_emit_nonempty: bool,
     consecutive_empty_polls: u32,
+
+    /// S5: latest sidechain payment projection plus cumulative drop counters,
+    /// served by `GetChainPaymentsView`.
+    chain_view: ChainPaymentsView,
 }
 
 /// Whether insecure defaults may relax a security failure in this build.
@@ -310,6 +344,7 @@ impl AgentMonitorActor {
             poll_offset: 0,
             last_bots_emit_nonempty: false,
             consecutive_empty_polls: 0,
+            chain_view: ChainPaymentsView::default(),
         }
     }
 
@@ -330,8 +365,11 @@ impl AgentMonitorActor {
         ctx.spawn(
             async move {
                 // Fetch tasks and system status concurrently
-                let (tasks_result, status_result) =
-                    tokio::join!(api_client.list_tasks(), api_client.get_system_status());
+                let (tasks_result, status_result, chain_result) = tokio::join!(
+                    api_client.list_tasks(),
+                    api_client.get_system_status(),
+                    api_client.get_chain_payments()
+                );
 
                 // Extract container telemetry from system status
                 let telemetry = match &status_result {
@@ -373,18 +411,34 @@ impl AgentMonitorActor {
                             active_count
                         );
 
+                        let dids = verified_task_dids(&task_list.active_tasks);
                         let agents: Vec<AgentStatus> = task_list
                             .active_tasks
                             .into_iter()
                             .map(|task| task_to_agent_status(task, &telemetry))
                             .collect();
 
-                        ctx_addr.do_send(ProcessAgentStatuses { agents, telemetry });
+                        ctx_addr.do_send(ProcessAgentStatuses {
+                            agents,
+                            telemetry,
+                            dids,
+                        });
                     }
                     Err(e) => {
                         error!("[AgentMonitorActor] Management API query failed: {}", e);
                         ctx_addr.do_send(RecordPollFailure);
                     }
+                }
+
+                // Sent after ProcessAgentStatuses so the roster update reaches
+                // the graph before the payments are matched against it.
+                match chain_result {
+                    Ok(response) => ctx_addr.do_send(ProcessChainPayments { response }),
+                    Err(e) => warn!(
+                        "[AgentMonitorActor] /v1/chain/payments read failed, keeping the \
+                         last projection: {}",
+                        e
+                    ),
                 }
             }
             .into_actor(self),
@@ -426,6 +480,15 @@ impl AgentMonitorActor {
 struct ProcessAgentStatuses {
     agents: Vec<AgentStatus>,
     telemetry: ContainerTelemetry,
+    /// Task id → verified `did:nostr` (see [`verified_task_dids`]).
+    dids: HashMap<String, String>,
+}
+
+/// One read of `/v1/chain/payments`; `None` when the route is not deployed.
+#[derive(Message)]
+#[rtype(result = "()")]
+struct ProcessChainPayments {
+    response: Option<ChainPaymentsResponse>,
 }
 
 impl Actor for AgentMonitorActor {
@@ -627,8 +690,9 @@ impl Handler<ProcessAgentStatuses> for AgentMonitorActor {
                     age: Some(
                         (time::timestamp_seconds() - status.timestamp.timestamp()) as u64 * 1000,
                     ),
-                    // Local monitor snapshot carries no agentbox DID (COM-14).
-                    did_nostr: None,
+                    // The task's DID when the Management API echoes one and it
+                    // passed the uri::did_nostr() round-trip (COM-14, S5).
+                    did_nostr: msg.dids.get(&status.agent_id).cloned(),
                 }
             })
             .collect();
@@ -672,6 +736,76 @@ impl Handler<ProcessAgentStatuses> for AgentMonitorActor {
         self.last_successful_poll = Some(time::now());
         // ADR-031 item 1: advance round-robin offset for next poll cycle.
         self.poll_offset = self.poll_offset.wrapping_add(1);
+    }
+}
+
+impl Handler<ProcessChainPayments> for AgentMonitorActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ProcessChainPayments, ctx: &mut Self::Context) {
+        let Some(response) = msg.response else {
+            if self.chain_view.route_available || self.chain_view.snapshot.is_some() {
+                info!(
+                    "[AgentMonitorActor] /v1/chain/payments not deployed; clearing payment edges"
+                );
+                self.graph_service_addr
+                    .do_send(UpdateChainPayments { snapshot: None });
+            }
+            self.chain_view.route_available = false;
+            self.chain_view.snapshot = None;
+            return;
+        };
+
+        let graph = self.graph_service_addr.clone();
+        ctx.spawn(
+            async move { graph.send(GetBotsGraphData).await }
+                .into_actor(self)
+                .map(move |reply, act, _ctx| {
+                    let bots = match reply {
+                        Ok(Ok(bots)) => bots,
+                        Ok(Err(e)) => {
+                            warn!(
+                                "[AgentMonitorActor] bots graph unavailable for payments: {}",
+                                e
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            warn!("[AgentMonitorActor] bots graph mailbox error: {}", e);
+                            return;
+                        }
+                    };
+                    let verified: HashSet<String> = chain_payments::verified_agent_dids(&bots)
+                        .into_keys()
+                        .collect();
+                    match chain_payments::project(&response, &verified) {
+                        Ok(snapshot) => {
+                            if snapshot.dropped_unverified + snapshot.dropped_malformed > 0 {
+                                info!(
+                                    "[AgentMonitorActor] chain payments: {} drawn, {} dropped \
+                                     (unverified agent), {} dropped (malformed did)",
+                                    snapshot.payments.len(),
+                                    snapshot.dropped_unverified,
+                                    snapshot.dropped_malformed
+                                );
+                            }
+                            record_projection(&mut act.chain_view, snapshot);
+                            act.graph_service_addr.do_send(UpdateChainPayments {
+                                snapshot: act.chain_view.snapshot.clone(),
+                            });
+                        }
+                        Err(e) => warn!("[AgentMonitorActor] refusing chain payments: {}", e),
+                    }
+                }),
+        );
+    }
+}
+
+impl Handler<GetChainPaymentsView> for AgentMonitorActor {
+    type Result = MessageResult<GetChainPaymentsView>;
+
+    fn handle(&mut self, _msg: GetChainPaymentsView, _ctx: &mut Self::Context) -> Self::Result {
+        MessageResult(self.chain_view.clone())
     }
 }
 
@@ -805,6 +939,103 @@ mod tests {
         let d3 = decide_bots_graph_emit(19, d2.next_last_emit_nonempty, d2.next_consecutive_empty);
         assert!(d3.send, "roster restored with no intervening empty clear");
         assert_eq!(d3.next_consecutive_empty, 0);
+    }
+
+    // ── S5: sidechain payments ────────────────────────────────────────────────
+
+    const DID_A: &str =
+        "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e";
+    const DID_B: &str =
+        "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098";
+
+    fn task(id: &str, did: Option<&str>) -> TaskInfo {
+        serde_json::from_value(serde_json::json!({
+            "taskId": id, "agent": "coder", "task": "t", "provider": "p",
+            "status": "running", "startTime": 0, "duration": 0,
+            "didNostr": did,
+        }))
+        .expect("TaskInfo shape")
+    }
+
+    #[test]
+    fn task_dids_are_carried_only_when_canonical() {
+        let tasks = vec![
+            task("t-a-0000", Some(DID_A)),
+            task("t-x-0000", Some("did:nostr:not-hex")),
+            task("t-n-0000", None),
+        ];
+        let dids = verified_task_dids(&tasks);
+        assert_eq!(dids.len(), 1);
+        assert_eq!(dids["t-a-0000"], DID_A);
+    }
+
+    #[test]
+    fn task_did_accepts_the_spawn_response_spelling() {
+        let t: TaskInfo = serde_json::from_value(serde_json::json!({
+            "taskId": "t-b-0000", "agent": "coder", "task": "t", "provider": "p",
+            "status": "running", "startTime": 0, "duration": 0,
+            "did_nostr": DID_B,
+        }))
+        .unwrap();
+        assert_eq!(t.did_nostr.as_deref(), Some(DID_B));
+    }
+
+    /// Fixture payments → edges through the same path the actor runs: the
+    /// roster (as UpdateBotsGraph builds it) supplies the verified DIDs, the
+    /// projection drops and counts the rest, and the counters accumulate.
+    #[test]
+    fn fixture_payments_map_to_edges_between_verified_agent_nodes() {
+        use visionclaw_domain::models::graph::GraphData;
+        use visionclaw_domain::models::node::Node;
+        let response: ChainPaymentsResponse = serde_json::from_str(include_str!(
+            "../../tests/fixtures/sidechain/chain-payments.v1.json"
+        ))
+        .unwrap();
+
+        let mut bots = GraphData::new();
+        for (i, did) in [Some(DID_A), Some(DID_B), None].into_iter().enumerate() {
+            let mut n = Node::new_with_id(format!("task-{i}"), Some(10_000 + i as u32));
+            n.metadata.insert("is_agent".into(), "true".into());
+            if let Some(d) = did {
+                n.metadata.insert("did_nostr".into(), d.into());
+            }
+            bots.nodes.push(n);
+        }
+        let verified: HashSet<String> = chain_payments::verified_agent_dids(&bots)
+            .into_keys()
+            .collect();
+        let snapshot = chain_payments::project(&response, &verified).unwrap();
+
+        let mut view = ChainPaymentsView::default();
+        record_projection(&mut view, snapshot.clone());
+        record_projection(&mut view, snapshot);
+        assert_eq!(view.dropped_unverified_total, 2, "one per poll accumulates");
+        assert_eq!(view.dropped_malformed_total, 2);
+        assert!(view.route_available);
+
+        let snap = view.snapshot.clone().unwrap();
+        chain_payments::apply_to_bots_graph(&mut bots, Some(&snap));
+        let settled: Vec<(&str, &str)> = bots
+            .edges
+            .iter()
+            .map(|e| {
+                let md = e.metadata.as_ref().unwrap();
+                (md["txid"].get(..6).unwrap(), md["settled"].as_str())
+            })
+            .collect();
+        assert_eq!(
+            settled,
+            vec![
+                ("1cdea0", "false"),
+                ("c4ee63", "false"),
+                ("d5587b", "true"),
+                ("579eff", "true")
+            ]
+        );
+        assert!(bots
+            .edges
+            .iter()
+            .all(|e| e.source != 10_002 && e.target != 10_002));
     }
 
     // ── ADR-2094: Management API credential is fail-closed ───────────────────

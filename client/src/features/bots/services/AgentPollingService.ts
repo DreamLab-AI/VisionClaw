@@ -36,6 +36,14 @@ export interface AgentSwarmData {
       swarm_id?: string;
       parent_queen_id?: string;
       capabilities?: string;
+      did_nostr?: string;
+      // S5 chain badge keys (server `chain_payments::node_keys`).
+      chain_id?: string;
+      chain_settled_sats?: string;
+      chain_fold_height?: string;
+      chain_balance_tier?: string;
+      chain_anchor?: string;
+      chain_anchor_label?: string;
     };
   }>;
   edges: Array<{
@@ -43,6 +51,9 @@ export interface AgentSwarmData {
     source: number;
     target: number;
     weight: number;
+    /** Server `Edge.edge_type` (camelCase on the wire); `chain_payment` for S5. */
+    edgeType?: string;
+    metadata?: Record<string, string>;
   }>;
   metadata?: {
     total_agents: number;

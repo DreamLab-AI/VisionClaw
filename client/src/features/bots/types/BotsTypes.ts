@@ -1,4 +1,5 @@
 // Bots visualization type definitions
+import type { AgentChainBadge, ChainPaymentEdgeInfo } from '../chain/chainPayments';
 
 // UPDATED: Enhanced agent types to match claude-flow hive-mind system (15+ types including Maestro specs-driven agents)
 export interface BotsAgent {
@@ -66,6 +67,10 @@ export interface BotsAgent {
 
   
   processingLogs?: string[]; 
+
+  /** S5: settled balance tier and anchor state on the sidechain, when the agent
+   *  is a verified chain participant. */
+  chain?: AgentChainBadge;
 }
 
 export interface BotsCommunication {
@@ -92,6 +97,8 @@ export interface BotsEdge {
   source: string;
   target: string;
   type?: string;
+  /** S5: present on `chain_payment` edges (one sidechain transaction each). */
+  chainPayment?: ChainPaymentEdgeInfo;
   dataVolume: number;
   messageCount: number;
   lastMessageTime: number;

@@ -5,6 +5,7 @@ pub mod agent_visualization_processor;
 pub mod agent_visualization_protocol;
 pub mod audio_router;
 pub mod bots_client;
+pub mod chain_payments;
 pub mod corpus_source;
 pub mod file_service;
 pub mod github;

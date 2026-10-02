@@ -32,6 +32,8 @@ import { shortDid } from '../agentIdentity';
 import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { AgentStatusBadges } from './AgentStatusBadges';
 import { AgentTrail, TRAIL_DEFAULT_LENGTH } from './AgentTrail';
+import { ChainBadge } from '../chain/ChainBadge';
+import { badgeLines } from '../chain/chainPayments';
 
 /**
  * Nameplate level-of-detail tiers (W3D). A 3-line HTML nameplate per agent
@@ -603,6 +605,8 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
                 {shortDid(agent.did_nostr)}
               </div>
             )}
+            {/* S5: settled balance tier + anchor state on the sidechain. */}
+            {agent.chain && <ChainBadge badge={agent.chain} />}
           </>)}
         </Html>
       ) : (
@@ -617,6 +621,14 @@ export const BotsNode: React.FC<BotsNodeProps> = ({ agent, position, index, colo
             {shortDid(agent.did_nostr)}
           </Text>
         )}
+        {/* S5: chain badge lines above the DID (settled tier, then anchor). */}
+        {showNameplateFull && agent.chain && badgeLines(agent.chain).map((line, i, all) => (
+          <Text key={line} position={[0, clampedSize + 1.45 + (all.length - 1 - i) * 0.22, 0]} fontSize={0.14}
+            color={i === all.length - 1 ? (agent.chain!.anchored ? '#81C784' : '#FFB74D') : '#E040FB'}
+            anchorX="center" anchorY="middle" outlineWidth={0.015} outlineColor="black">
+            {line}
+          </Text>
+        ))}
         {showNameplateFull && (
           <Text position={[0, clampedSize + 0.8, 0]} fontSize={0.18} color="#3498DB"
             anchorX="center" anchorY="middle" outlineWidth={0.02} outlineColor="black">

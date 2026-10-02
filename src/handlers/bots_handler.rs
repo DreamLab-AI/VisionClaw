@@ -215,6 +215,15 @@ pub async fn update_bots_graph(
 }
 
 pub async fn get_bots_data(state: web::Data<AppState>) -> Result<impl Responder> {
+    // S5: the sidechain payment projection rides alongside the agent graph:
+    // the payments panel, the node badges' anchor state and the rehearsal
+    // script's settled-figure diff all read this one object.
+    let chain = state
+        .agent_monitor_addr
+        .send(crate::actors::messages::GetChainPaymentsView)
+        .await
+        .unwrap_or_default();
+
     if let Ok(graph_data) = state.graph_service_addr.send(GetBotsGraphData).await {
         if let Ok(graph) = graph_data {
             let nodes = &graph.nodes;
@@ -228,6 +237,7 @@ pub async fn get_bots_data(state: web::Data<AppState>) -> Result<impl Responder>
                     "success": true,
                     "nodes": nodes,
                     "edges": edges,
+                    "chain": chain,
                 }));
             }
         }
@@ -244,6 +254,7 @@ pub async fn get_bots_data(state: web::Data<AppState>) -> Result<impl Responder>
         "nodes": graph.nodes.clone(),
         "edges": graph.edges.clone(),
         "metadata": graph.metadata,
+        "chain": chain,
     }))
 }
 

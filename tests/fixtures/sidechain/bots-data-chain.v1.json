@@ -1,0 +1,82 @@
+{
+  "success": true,
+  "nodes": [],
+  "edges": [],
+  "chain": {
+    "snapshot": {
+      "schema": "agentbox.chain.payments/1",
+      "chain": "sidestr:dreamlab-txbt4",
+      "mirror_url": "https://dreamlab-ai.github.io/sidestr-dreamlab-txbt4",
+      "tip": {
+        "height": 941,
+        "hash": "2022f3d00e84faaee3a010960eca5ed07aecb30f010f01cacf803a7448019aac"
+      },
+      "anchor": {
+        "state": "not_anchored",
+        "label": "not anchored (checkpoints off)"
+      },
+      "payments": [
+        {
+          "txid": "1cdea06af117fe8e3cef652ab7fb1a3f1ef51ac1fed9e7a5c6259728017eb322",
+          "payer": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+          "payee": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+          "amount_sats": 250,
+          "block_height": null,
+          "settled": false,
+          "time": "2026-10-02T20:05:00Z",
+          "mirror_link": "https://dreamlab-ai.github.io/sidestr-dreamlab-txbt4/blocks.json#1cdea06af117fe8e3cef652ab7fb1a3f1ef51ac1fed9e7a5c6259728017eb322"
+        },
+        {
+          "txid": "c4ee635af3e648c43453f4744c478b5845d80a1e8f1a59e53d360f62df7ac9e7",
+          "payer": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+          "payee": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+          "amount_sats": 50,
+          "block_height": 945,
+          "settled": false,
+          "time": "2026-10-02T20:04:00Z",
+          "mirror_link": "https://dreamlab-ai.github.io/sidestr-dreamlab-txbt4/blocks.json#c4ee635af3e648c43453f4744c478b5845d80a1e8f1a59e53d360f62df7ac9e7"
+        },
+        {
+          "txid": "d5587bdd00e73f51cc218a50311bcb5f30c66274088d620e25e31f1203d87176",
+          "payer": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+          "payee": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+          "amount_sats": 400,
+          "block_height": 941,
+          "settled": true,
+          "time": "2026-10-02T20:03:00Z",
+          "mirror_link": "https://dreamlab-ai.github.io/sidestr-dreamlab-txbt4/blocks.json#d5587bdd00e73f51cc218a50311bcb5f30c66274088d620e25e31f1203d87176"
+        },
+        {
+          "txid": "579effcfa31c97df0fa934c730cac4137e1bba716694e3bafe11cca8ac013a4c",
+          "payer": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+          "payee": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+          "amount_sats": 1000,
+          "block_height": 940,
+          "settled": true,
+          "time": "2026-10-02T20:02:00Z",
+          "mirror_link": "https://dreamlab-ai.github.io/sidestr-dreamlab-txbt4/blocks.json#579effcfa31c97df0fa934c730cac4137e1bba716694e3bafe11cca8ac013a4c"
+        }
+      ],
+      "balances": [
+        {
+          "did": "did:nostr:3bf34d40533c4da9e7d23f05c47573ac302e60d26910f3f2d9fb2cca5a7caa8e",
+          "settled_sats": 9000,
+          "fold_height": 941,
+          "tier": "settled (chain fold @ 941)"
+        },
+        {
+          "did": "did:nostr:30d89dcc39e2a9aa35f1b0d941aa2eedd939f0949b2bb31eedfe0aee7fd20098",
+          "settled_sats": 1330,
+          "fold_height": 941,
+          "tier": "settled (chain fold @ 941)"
+        }
+      ],
+      "dropped_unverified": 1,
+      "dropped_malformed": 1,
+      "skipped_off_chain": 0
+    },
+    "dropped_unverified_total": 1,
+    "dropped_malformed_total": 1,
+    "route_available": true
+  }
+}
