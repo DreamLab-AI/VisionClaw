@@ -43,7 +43,8 @@ pub fn domain_class_id(domain: &str) -> i32 {
     DOMAIN_SLUGS
         .iter()
         .position(|s| *s == canonical)
-        .map_or(0, |id| id as i32 + 1)
+        .and_then(|id| i32::try_from(id + 1).ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -52,7 +53,7 @@ mod tests {
     #[test]
     fn canonical_and_legacy_names_share_stable_ids_and_space_ids_are_distinct() {
         for (id, alias) in ["ai", "bc", "mv", "rb", "ngm", "tc"].iter().enumerate() {
-            assert_eq!(domain_class_id(alias), id as i32 + 1);
+            assert_eq!(domain_class_id(alias), i32::try_from(id + 1).unwrap());
             assert_eq!(domain_class_id(DOMAIN_SLUGS[id]), domain_class_id(alias));
         }
         assert_eq!(domain_class_id("space-science-and-systems"), 7);
