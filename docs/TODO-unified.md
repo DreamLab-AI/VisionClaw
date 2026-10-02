@@ -123,6 +123,30 @@ Hygiene: merged worktrees and branches were removed in agentbox, sidestr-rs, pro
 
 CI: the estate check fell from 12/15 to 9/15 green on 1 Oct and is restored. Host Documentation Quality (stale ADR ledger, `b51b80faf`); agentbox contract tests (Jest 30 renamed `--testPathPattern`, `23e5818a6`); forum clippy (rustc 1.99 `double_must_use` on `#[async_trait]`, `d8bd0c7`, `6708c38`; `rust-toolchain.toml` still floats on `stable`).
 
+### CY-C: what a fresh Trust host needs on the prod profile
+
+The Trust residential runs the **prod profile**, not the dev profile with dev mode off (owner decision 2026-10-02, Q1). There is no fresh-host runbook yet, so the requirements live here until CY-C writes one. Names only; no values. Verified against source on 2 Oct.
+
+**Secrets and required settings**, all in an explicit `.env.prod` (plain `.env`-style file this cycle, owner decision 2026-10-02, Q2; SOPS is P2, host ADR-2104). `launch.sh up prod` refuses to start without the file (`scripts/launch.sh:189`) and without a concrete value for each of `CLOUDFLARE_TUNNEL_TOKEN`, `MANAGEMENT_API_KEY`, `VISIONCLAW_AGENT_KEY` and `SOLID_PROXY_SECRET_KEY` (`:173`). Compose also fails fast on an empty `VISIONCLAW_AGENT_KEY` (`docker-compose.unified.yml:232`).
+
+- `CLOUDFLARE_TUNNEL_TOKEN`: the `cloudflared` service runs under the `prod` profile and reads it as `TUNNEL_TOKEN` (`docker-compose.unified.yml:277`). A Trust host therefore needs its own Cloudflare tunnel and public hostname. An offline deployment has no tunnel; whether `cloudflared` may stay down is an open owner question.
+- Security profile: a production artefact may not bind with findings. Set `VISIONCLAW_SECURITY_PROFILE` (`src/config/security_profile.rs:596`) and the six flags that profile fixes (`:133-138`): `RBAC_PUBLIC_READS`, `RBAC_ALLOW_OWNERLESS`, `RBAC_OWNER_PUBKEY`, `RBAC_DEFAULT_ROLE`, `PUBKEY_VISIBILITY_FILTER=1` and `RBAC_GATE_MODE=enforce`. `single-tenant` or `multi-user-locked` both require `RBAC_OWNER_PUBKEY`.
+- Optional, and empty by default: `VISIONCLAW_NOSTR_PRIVKEY` (bead provenance, `:234`). The binary also warns without `JWT_SECRET` and `CORS_ALLOWED_ORIGINS` (`src/main.rs:70`).
+- The headset's `XR_NOSTR_SECRET` must belong to an Owner or Admin key. HUD physics writes need `WriteSettings` (`src/middleware/rbac_gate.rs:169`), and an `editor` resolves only to `Authenticated` (`src/models/rbac.rs:87`).
+
+**Forbidden.** `.env.prod` must not define `SETTINGS_AUTH_BYPASS`, `ALLOW_INSECURE_DEFAULTS` or `VISIONCLAW_DEV_MODE`, even as `0` (`scripts/launch.sh:165`). The release binary also refuses `DEV_AUTH_LOOPBACK` (`src/config/security_profile.rs:59-64`). So the ADR-2039/2108 dev bypass cannot exist on Trust hardware, and headset writes must carry a NIP-98 signature (owner decision 2026-10-02, Q3).
+
+**Defaults that assume the owner's estate or dev:**
+
+- `CORS_ALLOWED_ORIGINS` defaults to `https://junkiejarvis.com,…` (`docker-compose.unified.yml:225`). Set the Trust hostname.
+- `FORUM_RELAY_URL` defaults to the owner's relay (`:235`).
+- The MCP and management hosts default to `agentic-workstation` (`:9-19`), which is the agentbox container on the owner's network.
+- The `visionclaw_network` network and the `multi-agent-docker_workspace` volume are `external: true` (`:382`, `:391`). Create them first.
+- The corpus vault is mounted only in the dev service (`:171`). The prod service mounts `visionclaw-data` and `visionclaw-logs` only, so it has no corpus source.
+- The image needs an NVIDIA GPU, the `nvidia` runtime (`:256`) and the right `CUDA_ARCH` (default `75`, `:204`).
+- Only port `3001` (nginx) is published (`:242`). The headset must use `XR_BACKEND_WS=ws://<host>:3001` on the LAN, or `wss://<hostname>` through the tunnel, never `:4000`. A LAN-signed NIP-98 URL keeps its port only since the nginx fix in `e7e6b61d8`. Before that fix, prod nginx forwarded `Host $host` without the port, and every LAN headset write failed the `u`-tag check.
+- Release image: no `dev-auth` (host ADR-2037). The receipt is still open.
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |

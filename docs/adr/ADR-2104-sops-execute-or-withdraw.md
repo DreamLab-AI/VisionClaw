@@ -110,6 +110,7 @@ and the chosen branch's test passes:
 ## Disposition — 2026-10-02
 
 - **Suitability:** fits
-- **Priority:** P1 — this cycle (Track C item 10: the fresh-host runbook must say how secrets reach a client's machine)
-- **Why:** The record still describes the tree at `95e98ab12`. `scripts/sops` is the same 43,122,840-byte binary dated 9 May. There is no `.sops.yaml`, `secrets.enc.yaml`, `scripts/sops-env.sh` or `.env.example`. `docs/DATA-authority-erasure.md:112-113` still says "NEVER EXECUTED". agentbox ADR-2027 (custody) is still `proposed`/`none`. A fresh host built "by following the runbook literally" will meet this choice on day one, either with an age-encrypted file or by copying a plaintext `.env` onto Trust hardware, so the choice cannot wait for the next cycle.
-- **Next:** The owner picks branch A or branch B before the runbook is written. Either way, delete the unattributed `scripts/sops` binary.
+- **Priority:** P2 — next cycle (the SOPS rollout, branch A). Not withdrawn.
+- **Owner decision 2026-10-02, Q2:** plain `.env` is the **deliberate, recorded secrets position for this cycle**. That includes the Trust residential's `.env.prod`, which `scripts/launch.sh:189` requires. SOPS moves to P2. The owner did not choose branch B: ADR-109 is not withdrawn, and this record stays open to force the branch A or B choice next cycle.
+- **Why:** At `95e98ab12` nothing has changed. `scripts/sops` is the same 43,122,840-byte binary dated 9 May. There is no `.sops.yaml`, `secrets.enc.yaml`, `scripts/sops-env.sh` or `.env.example`, and agentbox ADR-2027 (custody) is still `proposed`/`none`. The record's "binding in both branches" clause applies now: until branch A completes, the interim state must be documented as plaintext at rest.
+- **Next:** This cycle: the CY-C fresh-host notes state that secrets reach the Trust host as a plaintext `.env.prod` (`docs/TODO-unified.md`, "CY-C: what a fresh Trust host needs on the prod profile"). Next cycle: the owner picks branch A or branch B, and the unattributed `scripts/sops` binary is deleted either way.

@@ -70,7 +70,12 @@ is the fingerprint of an auth gate rather than a dead HUD.
 
 ## Disposition — 2026-10-02
 
-- **Suitability:** fits, needs revision
-- **Priority:** P1 — this cycle (Track C item 10, CY-C fresh-host bring-up; §9 demonstrator path)
-- **Why:** For the owner's own rig the decision stands. `docker-compose.unified.yml:90` reads `${VISIONCLAW_DEV_MODE:-1}` and the XR write-denied notice shipped in `a37433f5d`. Its premise is that "the LAN is the trust boundary", and Track C now makes a client's network a deployment target. A residential host brought up with `launch.sh up dev` would make every peer on the Trust LAN an admin. The prod path forbids the flag (`scripts/launch.sh:165`) but requires `CLOUDFLARE_TUNNEL_TOKEN` and three other secrets (`:171`), which an offline Trust deployment may not have (unverified). The record needs one clause saying which profile a client-hardware deployment uses.
-- **Next:** The owner decides the residential profile (see the triage owner questions). Then take the joint runtime receipt with ADR-2039, after which the record is ready to accept.
+- **Suitability:** fits, as a dev-only default. The revision the triage asked for is supplied by the owner (below) and recorded in the amendment that follows.
+- **Priority:** P1 — this cycle (§9 demonstrator path on the owner's own rig). It is no longer a Track C or CY-C item.
+- **Owner decisions 2026-10-02, Q1 and Q3:** client hardware runs the **prod profile**. The Trust residential is never brought up with `launch.sh up dev`, so the "LAN is the trust boundary" premise never reaches a client's network. The headset there writes with an Owner/Admin `XR_NOSTR_SECRET` over NIP-98, which validates behind the prod nginx since `e7e6b61d8`.
+- **Why:** On the owner's own rig the decision stands. `docker-compose.unified.yml:90` reads `${VISIONCLAW_DEV_MODE:-1}`, and the XR write-denied notice shipped in `a37433f5d`. Since `e7e6b61d8` the notice names an Owner/Admin key as the remedy and marks dev mode as dev-only. The prod path forbids the flag (`scripts/launch.sh:165`).
+- **Next:** Take the joint runtime receipt with ADR-2039 on the dev rig. The record is then ready to accept.
+
+## Amendment — 2026-10-02 (owner decision, Q1)
+
+Decision 1 applies to the owner's own development rig only. A deployment on client hardware, starting with the Trust residential, uses the prod profile (`launch.sh up prod`), where `VISIONCLAW_DEV_MODE` is refused at launch and at boot. The armed-by-default dev profile must never be brought up on a client's network.
