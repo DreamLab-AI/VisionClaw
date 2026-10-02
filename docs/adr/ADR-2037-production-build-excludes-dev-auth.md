@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -140,3 +140,7 @@ that run was red. `verified_commit` moved to the CI-repair commit.
 - **Owner decision 2026-10-02, Q1:** the Trust residential runs the **prod profile**, not the dev profile with dev mode off. This record is therefore the only build-time guarantee that Trust hardware carries no auth bypass. There is no dev-mode fallback: the headset's writes sign NIP-98, which works behind the prod nginx since `e7e6b61d8` (owner decision 2026-10-02, Q3).
 - **Why:** The source half holds at `95e98ab12`. Both `cargo build --release` lines in `Dockerfile.production` (`:101`, `:164`) use default features: `gpu, ontology, persistence-oxigraph, solid-pod-embed` (`Cargo.toml:254`), with no `dev-auth`. The blocking `dev-auth-release-gate` job is at `.github/workflows/ci.yml:143`. `scripts/launch.sh:165` refuses a `.env.prod` that defines `VISIONCLAW_DEV_MODE`, `SETTINGS_AUTH_BYPASS` or `ALLOW_INSECURE_DEFAULTS`. One clause is open, the one the 2026-09-05 progress note names: no receipt binds an image digest to its feature closure.
 - **Next:** During the CY-C fresh-host bring-up, record in one receipt the production image digest, its feature closure and the two exit-2 forbidden-variable probes. The record is then ready to accept. The prod-profile requirements for that host are listed in `docs/TODO-unified.md` ("CY-C: what a fresh Trust host needs on the prod profile").
+
+**Governed changes since `a32abac57`:** `.github/workflows/ci.yml` adds the `prod_ingress` target to the hermetic integration-contract step (host ADR-2119). The `dev-auth-release-gate` job is untouched. In the same commit `scripts/launch.sh` (`:195`) also refuses `DEV_AUTH_LOOPBACK` in `.env.prod`, so its list now matches the release binary's four `FORBIDDEN_DEV_VARS`, in LAN and tunnel ingress alike.
+
+**Decision unaffected.** `verified_commit` moved to `920401379`.

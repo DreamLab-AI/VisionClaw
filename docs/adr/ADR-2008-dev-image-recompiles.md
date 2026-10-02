@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b39b1a6264ae87c873153bd8b3664898bd139582
+verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -178,3 +178,7 @@ fires. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `docker-compose.unified.yml` gained the ADR-2114 corpus-source environment (`CORPUS_SOURCE`, `VAULT_ROOT`, `VAULT_BASE_PATHS`), a read-only `agent-workspace:/vault` mount and the external volume declaration. `scripts/dev-entrypoint.sh` is unchanged.
 
 **Decision unaffected.** The dev image still recompiles on start via `rust-backend-wrapper.sh`; the compose change is runtime configuration for what the recompiled binary reads, not how it is built. `verified_commit` moved to the CI-repair commit.
+
+**Governed changes since `b39b1a626`:** `docker-compose.unified.yml` moved the `cloudflared` service from the `production`/`prod` profiles to its own `tunnel` profile (host ADR-2119). The `visionclaw` dev service is untouched.
+
+**Decision unaffected.** Nothing in how the dev image builds or recompiles changed. `verified_commit` moved to `920401379`.

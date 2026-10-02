@@ -39,7 +39,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_111 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_112 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -154,3 +154,4 @@ _111 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2116](ADR-2116-ontology-proposals-are-forum-action-requests-not-prs.md) | Ontology proposals are forum ActionRequests, not pull requests — /api/ontology-agent/propose is retired | — | 2026-09-22 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2117](ADR-2117-retire-corpus-format-migration.md) | Retire the completed corpus format migration | — | 2026-10-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2118](ADR-2118-append-space-earth-domain-identities.md) | Append space science and Earth observation domain identities | — | 2026-10-01 | accepted | complete | staged | — | — | visionGraph corpus maintainer | visionclaw |
+| [ADR-2119](ADR-2119-prod-ingress-is-declared-lan-or-tunnel.md) | Production ingress is declared, LAN or tunnel | BASELINE-architecture | 2026-10-02 | accepted | complete | staged | — | — | jjohare | visionclaw |

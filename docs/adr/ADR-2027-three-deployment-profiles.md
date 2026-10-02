@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b39b1a6264ae87c873153bd8b3664898bd139582
+verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -305,3 +305,7 @@ moved down by six lines. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `src/handlers/socket_flow_handler/position_updates.rs`: a doc comment now names the vault frontmatter `public: true` key instead of the Logseq `public:: true` tag. **Decision unaffected.** No profile, flag or gate changed; behaviour identical. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+**Governed changes since `b39b1a626`:** `docker-compose.unified.yml` moved the `cloudflared` service from the `production`/`prod` profiles to its own `tunnel` profile (host ADR-2119).
+
+**Decision unaffected.** No compose security default moved: `VISIONCLAW_DEV_MODE`, the `RBAC_*` flags and the profile selection are as before; the change is ingress, not security posture. `verified_commit` moved to `920401379`.
