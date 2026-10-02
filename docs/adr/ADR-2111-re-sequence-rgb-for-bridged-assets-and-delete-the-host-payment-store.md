@@ -122,6 +122,92 @@ Proposed; nothing built. Ratification evidence will be:
 - The vocabulary lint passing over `docs/` and `src/web_contract/` with no occurrence of
   "single-use seal" outside a historical quotation.
 
+## Sidechain payments on the agent graph — 2026-10-02 (stream S5)
+
+This record owns VisionClaw's side of the estate sidechain (`AnchorConfirmer`,
+the `/v1/wallet` proxy), so the render of agent-to-agent payments is recorded
+here rather than in a new record (ratchet). It does not change D1–D9. Owner
+decisions 2026-10-02: **SC1**, the demo chain is `sidestr:dreamlab-txbt4`
+(prefix `drt`, sealed beside BLAKE2b testnet4); **SC2**, each payment is a sidechain transaction (sessions
+are a later layer); **SC5**, the chain is not anchored to its parent yet and the
+screen must never imply that it is.
+
+What is built (`src/services/chain_payments.rs` is the one home of the contract
+and its rules):
+
+- **Source.** `AgentMonitorActor` reads `GET /v1/chain/payments` (agentbox,
+  stream S3) on its existing poll, beside `/v1/tasks` and `/v1/status`. The body
+  is `schema: "agentbox.chain.payments/1"`: `chain`, `mirror_url`,
+  `tip {height, hash}`, `checkpoint` (`null` or `{parent, txid, height,
+  covers_height}`), `payments[] {txid, payer, payee, amount_sats, block_height,
+  block_hash, settled, time}` newest first, and `balances[] {did, settled_sats,
+  fold_height}`. The fixture `tests/fixtures/sidechain/chain-payments.v1.json`
+  pins it with `chain: "sidestr:dreamlab-txbt4"`. The chain id always comes
+  from the route and rides on every edge (`chain`) and node (`chain_id`); it is
+  never assumed. There is no default mirror either. Two chains run side by side,
+  so a response without `mirror_url` gets no link rather than the other
+  chain's mirror. Another schema value is refused, not guessed at. A 404 means the route
+  is not deployed and clears the edges quietly.
+- **Nullable fields (S3's route).** A row with `txid: null` never reached the
+  chain (pending approval, failed or denied), so it is skipped and counted as
+  `skipped_off_chain`, not as an error. A row with `payee: null` (the payee's
+  binding did not verify) is dropped and counted as unverified. With
+  `tip: null` (producer unreachable), payments keep their stored inclusion and
+  no balance is shown, because a fold tier needs a height. One such row never
+  invalidates the rest of the response.
+- **Keying.** An edge joins two agent nodes by `did:nostr`. A node counts as a
+  verified agent only when it is an agent node whose `did_nostr` survives the
+  `uri::did_nostr()` round-trip (ADR-2022). Task records may now carry that DID
+  (`TaskInfo.did_nostr`, `didNostr` or `did_nostr` on the wire), gated the same
+  way. A payment whose payer or payee is not a verified agent is dropped and
+  counted (`dropped_unverified`; a malformed DID counts as `dropped_malformed`).
+  The counts are served, never hidden.
+- **Edge.** One `chain_payment` edge per transaction, payer → payee, carrying
+  `amount_sats`, `txid`, `block_height` and `settled`. The label is its own. It is
+  not `hierarchical` and not `domain_member`, so the ADR-2035 ranker, which ranks
+  only `rdfs:subClassOf` provenance, never layers it. It maps to the Structural
+  force category and gets its own registry spring and its own colour (`#E040FB`).
+  Bots node ids are reassigned on every roster update, so `GraphStateActor`
+  re-resolves the edges by DID each time.
+- **Settled rule.** A payment shows as settled only when the endpoint says
+  `settled` **and** it sits in a block at or below the reported tip. A mempool
+  payment, or one claimed settled in a block past the tip, shows as unsettled.
+- **Two-tier balance rule.** A node badge shows `settled (chain fold @ h)` from
+  the chain fold. The second tier, `in session (signed state n)`, belongs to
+  `GET /v1/chain/sessions` (`agentbox.chain.sessions/1`, empty until Hitch
+  sessions land). It is a separate line and is never summed into, or shown as,
+  the settled figure.
+- **Anchor rule.** The badge and the panel read "anchored" only when the response
+  carries a parent checkpoint confirmed on the parent (non-null `height`). A
+  checkpoint without one reads `checkpoint unconfirmed on <parent> (not anchored)`. With `checkpoint: null`, which is today's state,
+  they read `<chain>: not anchored (checkpoints off)`, for example
+  `dreamlab-txbt4: not anchored (checkpoints off)`. The anchor line is always
+  drawn, so a node never reads as anchored by omission.
+- **Surfaces.** `/api/bots/data` gains `chain` (the projection plus the
+  cumulative drop counters). The client draws the edge with a midpoint label
+  (amount, short txid, "unsettled" when so) and a node badge. A payments panel
+  in the Agent Ops surface lists the last ten payments, each linked to the Pages
+  mirror's `blocks.json`.
+- **Rehearsal.** `scripts/activation/sidechain-render-rehearsal.sh` starts
+  nothing. It diffs the screen's settled figures, payments and anchor state
+  against the S4b witness receipt's replay (`sidechain-witness/1`), and exits
+  non-zero on any mismatch. Its `--self-test` checks one matching fixture pair
+  and three mutated mismatches.
+
+Tests: Rust `services::chain_payments` (14), `actors::agent_monitor_actor` S5
+cases (3), `SemanticEdgeType` and registry `chain_payment` cases. The client has
+vitest suites under `client/src/features/bots/chain/__tests__` (26). The served
+view is pinned by `tests/fixtures/sidechain/bots-data-chain.v1.json`, which the
+Rust test `served_view_matches_the_pinned_screen_fixture` and the client tests
+both read.
+
+Open: the route itself is S3's (agentbox). Until agentbox echoes a DID on
+`/v1/tasks` or on the MCP roster, no agent node is verified and every payment is
+dropped and counted. That is the intended failure mode. The live rehearsal
+waits on a running stack, the S3 route and an S4b receipt. On 2 October
+`visionclaw_container` was not running, so neither the live diff nor the
+screenshot was taken.
+
 ## Disposition — 2026-10-02
 
 - **Suitability:** fits, needs revision

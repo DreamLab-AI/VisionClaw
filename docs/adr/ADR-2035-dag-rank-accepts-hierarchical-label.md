@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8a501fbbce44cbb3bee0084e9a9b30abe6f46e47
+verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -334,3 +334,7 @@ Tests:
   left 5 / 15, right 1627687582) and pass after it.
 - Unit (`domain_root_plan_tests`): eight cases on the pure plan, including
   the two-roots-two-labels store state of 2 Oct and the shared-IRI case.
+
+## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
+
+`c0906ed6e` adds the `chain_payment` edge label for sidechain payments between agents. The ranker is unchanged: `dag_rank_tests` now also asserts that `chain_payment` is not layered, so the ranker still layers subClassOf provenance only, and `hierarchical` and `domain_member` are not reused for payments. The registry entry is appended last, so existing type ids are stable. The decision holds unchanged.

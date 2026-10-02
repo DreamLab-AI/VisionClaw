@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -186,3 +186,7 @@ discharged — so this record moves from `partial` to `complete` and gains
   This is the check that matters for a deletion ADR: `cargo check -p
   visionclaw-server` alone does not compile test targets, so it cannot see a
   test that still references a deleted type.
+
+## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
+
+`c0906ed6e` adds one forwarding handler to `graph_service_supervisor.rs` (`UpdateChainPayments` to `GraphStateActor`, the same shape as `UpdateBotsGraph`). It does not touch `parent_supervisor`, `SetParentSupervisor` or the `Escalate` branch, so the coupling this record leaves for follow-up is unchanged. The decision holds unchanged.

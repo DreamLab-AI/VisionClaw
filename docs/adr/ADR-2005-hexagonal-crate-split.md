@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
+verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -212,3 +212,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-02 at 8bdece469 (DAG rank provenance, ADR-2035)
 
 **Governed change since `805219679`:** `src/actors/gpu/force_compute_actor.rs` replaces `is_directed_hierarchy_relation` with `hierarchy_pairs`, which ranks only edges for which `Edge::asserts_subsumption` holds. **Decision unaffected, and the change follows it.** The subsumption rule is domain knowledge, so it lives on the domain model in `crates/visionclaw-domain/src/models/edge.rs` with the new `RDFS_SUBCLASS_OF_IRI` and `DOMAIN_MEMBER_EDGE_TYPE` constants; the actor in the root binary only consumes it. No crate was added or moved, and `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged. Tests: `cargo test --lib -- dag_rank_tests …` (69 pass), `cargo test -p visionclaw-domain` (275 pass).
+
+## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
+
+`c0906ed6e` adds actor messages (`UpdateChainPayments`, `GetChainPayments`) and their handlers inside `src/actors`, and a pure projection module in `src/services`. Nothing moves between crates, and the split this record tracks is neither advanced nor reversed. The decision holds unchanged.
