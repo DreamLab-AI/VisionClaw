@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
+verified_commit: 80521967954698f729002d5ccbba6302d2fc0ced
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -218,3 +218,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `src/services/github_sync_service.rs` now runs over the `CorpusSource` port (local vault by default, ADR-2114) and parses pages through `vault_core`; 541 lines removed, 340 added. **Decision unaffected.** The Oxigraph `:assert` projection is still regenerated in full from the authoritative corpus on every sync (`rebuild_assert_graph`: `CLEAR GRAPH <assert> ; INSERT DATA {…}`); the write-master and backup posture are unchanged. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+## Re-verification — 2026-10-02 at 805219679 (space/Earth domain registry)
+
+**Governed changes since `853c4a069`:** `src/services/github_sync_service.rs` `materialise_domain_roots` draws its domain list from `vault_core::domains::DOMAIN_ROOTS` (eight domains, adding space-science-and-systems and earth-observation-and-geospatial-sensing) in place of a local six-entry table. Data reconciliation and both backup scripts are unchanged. Outside the governed set, `7b6330608` changed the assert rebuild quoted in the 2026-09-22 note to `CLEAR SILENT GRAPH <assert> ; INSERT DATA {…}`. **Decision unaffected.** Domain roots are derived nodes regenerated on every sync, so they stay inside the disposable projection. The rebuild is still a full clear-and-insert from the configured `CorpusSource`. `SILENT` only makes the first ingest into an empty store succeed rather than abort. The write-master and backup posture are unchanged. `verified_commit` moved to the landing commit. Source reading only.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
+verified_commit: 80521967954698f729002d5ccbba6302d2fc0ced
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -148,3 +148,7 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `.github/workflows/ontology-publish.yml` builds the corpus with `vault build` (the Python `pipeline.build` it ran was deleted), and `scripts/ontology/pack-pod-resources.py` reads `context/v1.jsonld` and counts corpus classes (`owl:Class` with a `vc:slug`, 8,432) rather than every `owl:Class` subject. **Decision unaffected.** Delivery is still pull-model: the resources and `SHA256SUMS` are attached to the rolling `ontology-latest` release and the embedded pod pulls and verifies them. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+## Re-verification — 2026-10-02 at 805219679 (exact-SHA corpus dispatch)
+
+**Governed changes since `853c4a069`:** in `.github/workflows/ontology-publish.yml`, `ONTOLOGY_SOURCE_REPO` also reads `client_payload.source_repo`. Both source checkouts are now pinned: `validate-source` uses `client_payload.source_sha || 'main'` and the build job uses `needs.validate-source.outputs.source_sha`. A `corpus-sync` `repository_dispatch` therefore builds exactly the revision the site pipeline validated. The other governed paths are unchanged. **Decision unaffected.** Delivery is still pull-model. `publish-release` attaches the resources and `SHA256SUMS` to `ontology-latest`, the embedded pod pulls and verifies them, and `deploy-jss` is still gated on `vars.SOLID_POD_URL`. Pinning the source revision tightens the provenance of what the pod pulls without changing who moves it. `verified_commit` moved to the landing commit. Source reading only.

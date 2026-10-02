@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
+verified_commit: 80521967954698f729002d5ccbba6302d2fc0ced
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -204,3 +204,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `Cargo.toml` adds the root dependency on `crates/vault-core`; `crates/visionclaw-actors/src/messages/ontology_messages.rs` changes one comment ("Logseq-based" → "validation/report surface"). **Decision unaffected.** `vault-core` is a leaf domain crate with no dependency on server layers, so the hexagonal direction of dependencies holds. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+## Re-verification — 2026-10-02 at 805219679 (space/Earth domain registry)
+
+**Governed changes since `853c4a069`:** `src/actors/gpu/force_compute_actor.rs:1175` and `src/actors/gpu/gpu_resource_actor.rs:228` replace their hard-coded six-code domain → class-ID tables with `vault_core::domains::domain_class_id` (ADR-2118). The charge rule is the same (known domain 0.6 / 0.3, unknown 1.2 / 2.5). `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged. **Decision unaffected.** The root already depends on `vault-core` (`Cargo.toml:51`). That crate's `[dependencies]` are serde/regex/sha2-class leaves with no server-layer crate, so the dependency direction holds. No actor crossed a crate boundary and the member count is unchanged. `verified_commit` moved to the landing commit. No build or test gate ran for this re-anchor; it is a source reading only.

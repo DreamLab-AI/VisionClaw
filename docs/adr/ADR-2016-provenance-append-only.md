@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
+verified_commit: 7b633060820cb50a6772fdf3b5035c292ea92854
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -226,3 +226,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`: edges that carry their OWL property IRI (typed frontmatter relations from the vault vocabulary) are written with that predicate instead of a fixed edge-type → predicate table. **Decision unaffected.** No `prov:` term, `wasGeneratedBy` or `wasAttributedTo` write was added, removed or altered (0 PROV lines in the diff); the append-only provenance triad is untouched. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+## Re-verification — 2026-10-02 at 7b6330608 (fresh-store ingestion fix)
+
+**Governed changes since `853c4a069`:** `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs` changes in two places. First, the assert rebuild (`:1594`) and `clear_inferred_graph` (`:695`) use `CLEAR SILENT GRAPH`, so a first ingest into a store with no assert graph reaches its `INSERT`. Second, the assert rebuild also writes `sourceDomain`/`maturity` literals per node. `provenance_emitter.rs`, `data_reconciliation.rs` and `ontology_mutation_service.rs` are unchanged. **Decision unaffected.** Both `CLEAR`s target `GRAPH_ONTOLOGY` / `GRAPH_ONTOLOGY_INFERRED`, never `GRAPH_PROVENANCE` (`:57`). No `CLEAR`, `DROP` or `DELETE` in the file names the provenance graph, and no PROV-O write changed. `verified_commit` moved to the landing commit. Source reading only; no gate ran for this re-anchor.

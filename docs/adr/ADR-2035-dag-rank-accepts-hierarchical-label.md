@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: 7b633060820cb50a6772fdf3b5035c292ea92854
 verified_paths: [src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
 review_trigger: an ingest change that stops collapsing subclass provenance to the generic 'hierarchical' label, or reintroduces domain-membership edges under that same label
@@ -159,3 +159,17 @@ src/actors/gpu/force_compute_actor.rs`; `grep -n
 'hierarchical|HIERARCHICAL|is_directed_hierarchy_relation'
 src/actors/gpu/force_compute_actor.rs`; `cargo test --lib --no-default-features
 hierarchy` → **8 passed, 0 failed** (1259 filtered out).
+
+## Re-verification — 2026-10-02 at 7b6330608: review trigger fired (open drift, owner action)
+
+**Governed change since `b0bc275f6`:** `src/actors/gpu/force_compute_actor.rs:1175` now takes domain class IDs from `vault_core::domains::domain_class_id` (`805219679`, ADR-2118). The predicate is untouched. `is_directed_hierarchy_relation` is still at `:581`, its `matches!` arm at `:587` still includes `"hierarchical" | "HIERARCHICAL"`, and its only consumer is at `:1240` (cited `:1247`).
+
+**The Decision's premise no longer holds at this revision.** The Decision accepts the collapsed label "because its ingest does not do so", meaning ingest does not reuse `"hierarchical"` for domain membership. The code now does exactly that:
+
+- `src/services/github_sync_service.rs:919-927`: `materialise_domain_roots` writes an `Edge { source: root_id, target: member_id, edge_type: Some("hierarchical") }` from each domain root to every member node. Domains come from `DOMAIN_ROOTS`, now eight.
+- Until `7b6330608` this was dormant. `load_nodes_in_graph` returned `group: None` for every node, so `materialise_domain_roots` found no members and wrote no edges. The old `tests/corpus_local_sync.rs` assertion said so: "no domain roots are materialised". `7b6330608` round-trips `vc:group` (`src/adapters/oxigraph_graph_repository.rs:239`) and falls back to `source_domain` (`:1462`). Every node with a recognised domain therefore now gets a domain-membership edge under the collapsed label. The updated tests assert that the roots exist.
+- `force_compute_actor.rs:1240-1247` reads every accepted edge as `source` = child, `target` = parent. A domain edge is root → member, so the ranker sees each **domain root as the child of all its members**. Orientation is inverted, not just mixed in. This goes beyond the shortcut risk that `mixed_subclass_and_membership_edges_share_one_rank_space` documents.
+
+This is the `review_trigger` ("reintroduces domain-membership edges under that same label"). No ingest fixture or GPU layout ran here, so the effect on displayed Radial: DAG / Hierarchy layouts is inferred from source, not observed.
+
+**Not resolved here, and the Decision is not edited.** The owner must choose one of two remedies. One is a producer-side label for domain-membership edges, such as `domain_member`, that the predicate rejects; that keeps this Decision valid. The other is a successor ADR that accepts membership ranks and fixes their orientation. `verified_commit` records the revision this finding was verified at. It does not certify that the Decision holds there.
