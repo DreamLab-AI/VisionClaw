@@ -121,3 +121,10 @@ Proposed; nothing built. Ratification evidence will be:
   version identical to the forum's pin.
 - The vocabulary lint passing over `docs/` and `src/web_contract/` with no occurrence of
   "single-use seal" outside a historical quotation.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits, needs revision
+- **Priority:** P3 — parked (review trigger: agentbox ADR-2099 reopens, or a `sidestr-node` exists for `AnchorConfirmer` to query)
+- **Why:** The intent stands: one fewer unsynced ledger, and an honest `AnchorConfirmer`. Nothing is built. `FsPaymentStore` is still at `src/handlers/pay_handler.rs:198`, the deposit is still a 501 (`:487`), and `AnchorConfirmer` is still a trait (`src/web_contract/ritual.rs:144`), all at `0a9abd3f9` (TODO N-3). Three statements are overtaken. D5 says P21 "is now implemented"; agentbox ADR-2103 records its CI receipt check and `pin:` as unbuilt. D8 says `extraction/solid-pod-rs` holds only a `.git` entry; it is now a populated, gitignored checkout at solid-pod-rs `045c24e` (`.gitignore:255`). D3's RGB re-sequencing follows agentbox ADR-2102, whose RGB route has given way to an origin-neutral reserve (sidestr-rs ADR-0003). D1's proxy target, agentbox `/v1/wallet/*`, does not exist (agentbox ADR-2098 D5 unbuilt).
+- **Next:** On reopening, split the record. D1's deletion of the never-funded store and D9's naming fix need no chain and can land on their own. D2 and D3 wait for `sidestr-node` and a successor to agentbox ADR-2102. D5 and D8 are restated against current fact.
