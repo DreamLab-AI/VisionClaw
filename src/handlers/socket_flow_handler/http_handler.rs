@@ -404,18 +404,7 @@ pub async fn socket_flow_handler(
     }
 
     // Store HTTP-equivalent URL for NIP-98 WS auth validation
-    {
-        let conn_info = req.connection_info();
-        ws_server.connection_url = format!(
-            "{}://{}{}",
-            conn_info.scheme(),
-            conn_info.host(),
-            req.uri()
-                .path_and_query()
-                .map(|pq| pq.as_str())
-                .unwrap_or("/wss")
-        );
-    }
+    ws_server.connection_url = crate::utils::auth::nip98_request_url(&req);
 
     // Try to authenticate from query string token
     if let Some(token) = token_from_qs {

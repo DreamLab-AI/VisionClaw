@@ -139,6 +139,38 @@ pub fn dev_bypass_permitted(req: &HttpRequest) -> bool {
     dev_bypass_permitted_for_addr(req.peer_addr())
 }
 
+/// The absolute URL a NIP-98 `u` tag must name for `req`.
+///
+/// Behind a proxy, `connection_info` would report the internal scheme and host,
+/// so the proxy's `X-Forwarded-Proto` / `X-Forwarded-Host` win. The host must
+/// carry the port the client dialled: a headset on the LAN signs
+/// `http://host:3001/...`, and a host stripped of its port can never match that
+/// `u` tag (`urls_match` compares host and path; the scheme is not decisive).
+/// The production nginx therefore forwards `X-Forwarded-Host $http_host`
+/// (owner decision 2026-10-02, Q3). Every NIP-98 entry point — `verify_access`,
+/// the settings extractor and the `/wss` authenticate frame — uses this one
+/// reconstruction so they cannot drift apart.
+pub fn nip98_request_url(req: &HttpRequest) -> String {
+    let conn_info = req.connection_info();
+    let header = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+    };
+    let scheme = header("X-Forwarded-Proto").unwrap_or_else(|| conn_info.scheme());
+    let host = header("X-Forwarded-Host").unwrap_or_else(|| conn_info.host());
+    format!(
+        "{}://{}{}",
+        scheme,
+        host,
+        req.uri()
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/")
+    )
+}
+
 pub async fn verify_access(
     req: &HttpRequest,
     nostr_service: &NostrService,
@@ -214,28 +246,7 @@ pub async fn verify_access(
         .and_then(|h| h.to_str().ok())
     {
         if auth_value.starts_with("Nostr ") {
-            // Behind a TLS-terminating proxy, connection_info returns internal
-            // scheme/host; prefer X-Forwarded-* headers from the proxy.
-            let conn_info = req.connection_info();
-            let scheme = req
-                .headers()
-                .get("X-Forwarded-Proto")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_else(|| conn_info.scheme());
-            let host = req
-                .headers()
-                .get("X-Forwarded-Host")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_else(|| conn_info.host());
-            let url = format!(
-                "{}://{}{}",
-                scheme,
-                host,
-                req.uri()
-                    .path_and_query()
-                    .map(|pq| pq.as_str())
-                    .unwrap_or("/")
-            );
+            let url = nip98_request_url(req);
             let method = req.method().as_str();
 
             match nostr_service
@@ -517,5 +528,196 @@ mod access_level_tests {
         assert!(!ReadOnly.has_permission(&WriteSettings));
         assert!(!ReadOnly.has_permission(&Admin));
         assert!(!ReadOnly.has_permission(&PowerUser));
+    }
+}
+
+/// NIP-98 behind the profile proxies (owner decision 2026-10-02, Q1 and Q3).
+///
+/// Under the prod profile the headset reaches the backend through nginx — on the
+/// LAN at `http://<host>:3001`, or through the Cloudflare tunnel at
+/// `https://<domain>`. The client signs exactly the URL it dialled. These tests
+/// read the nginx configs the images bake (`Dockerfile.production:236`,
+/// `Dockerfile.unified:306`), apply each `location`'s `proxy_set_header`
+/// directives to a client `Host`, rebuild the URL with [`nip98_request_url`],
+/// and require the signed token to validate.
+#[cfg(test)]
+mod nip98_proxy_tests {
+    use super::nip98_request_url;
+    use crate::utils::nip98::{generate_nip98_token, validate_nip98_token, Nip98Config};
+    use actix_web::test::TestRequest;
+    use nostr_sdk::prelude::Keys;
+
+    const PROD_NGINX: &str = include_str!("../../nginx.production.conf");
+    const DEV_NGINX: &str = include_str!("../../nginx.dev.conf");
+
+    /// The body of the first `location` block whose header line starts with
+    /// `marker`, found by brace matching.
+    fn location_block<'a>(conf: &'a str, marker: &str) -> &'a str {
+        let start = conf
+            .find(marker)
+            .unwrap_or_else(|| panic!("nginx config has no `{marker}` block"));
+        let open = start + conf[start..].find('{').expect("location opens");
+        let mut depth = 0usize;
+        for (i, c) in conf[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &conf[open + 1..open + i];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("`{marker}` block never closes");
+    }
+
+    /// The headers nginx sends upstream for the auth-relevant names, given the
+    /// `Host` the client sent. Only the variables these directives use are
+    /// modelled; an unmodelled one fails the test so a config change is seen.
+    fn upstream_headers(block: &str, client_host: &str) -> Vec<(String, String)> {
+        let host_no_port = client_host.split(':').next().unwrap().to_ascii_lowercase();
+        block
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| l.strip_prefix("proxy_set_header "))
+            .filter_map(|rest| {
+                let rest = rest.split('#').next().unwrap().trim().trim_end_matches(';');
+                let (name, value) = rest.split_once(char::is_whitespace)?;
+                let name = name.trim();
+                if !["host", "x-forwarded-host", "x-forwarded-proto"]
+                    .contains(&name.to_ascii_lowercase().as_str())
+                {
+                    return None;
+                }
+                let value = match value.trim() {
+                    "$host" => host_no_port.clone(),
+                    "$http_host" => client_host.to_string(),
+                    "$scheme" => "http".to_string(),
+                    // The dev /api block passes through whatever an outer proxy
+                    // sent; a LAN headset sends none.
+                    "$http_x_forwarded_proto" => String::new(),
+                    v if !v.contains('$') => v.to_string(),
+                    v => panic!("unmodelled nginx variable `{v}` on {name}"),
+                };
+                Some((name.to_string(), value))
+            })
+            .collect()
+    }
+
+    /// Sign `client_url` as the headset does, pass it through `marker`'s
+    /// location in `conf`, and validate it as the backend does.
+    fn signed_request_validates(
+        conf: &str,
+        marker: &str,
+        client_url: &str,
+        client_host: &str,
+        path_and_query: &str,
+        method: &str,
+    ) -> Result<(), String> {
+        let token = generate_nip98_token(
+            &Keys::generate(),
+            &Nip98Config {
+                url: client_url.to_string(),
+                method: method.to_string(),
+                body: None,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut req = TestRequest::default()
+            .uri(path_and_query)
+            .insert_header(("Host", client_host));
+        for (name, value) in upstream_headers(location_block(conf, marker), client_host) {
+            if !value.is_empty() {
+                req = req.insert_header((name, value));
+            }
+        }
+        let expected = nip98_request_url(&req.to_http_request());
+        validate_nip98_token(&token, &expected, method, None)
+            .map(|_| ())
+            .map_err(|e| format!("{e} (server rebuilt `{expected}`)"))
+    }
+
+    const PROD_API: &str = "location ^~ /api/ {";
+    const PROD_WS: &str = "location ~ ^/(wss|ws/speech|ws/mcp-relay|ws/hybrid-status)$ {";
+
+    #[test]
+    fn prod_lan_headset_physics_put_validates_through_nginx() {
+        signed_request_validates(
+            PROD_NGINX,
+            PROD_API,
+            "http://trust.lan:3001/api/settings/physics?graph=knowledge",
+            "trust.lan:3001",
+            "/api/settings/physics?graph=knowledge",
+            "PUT",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prod_lan_headset_wss_authenticate_validates_through_nginx() {
+        signed_request_validates(
+            PROD_NGINX,
+            PROD_WS,
+            "ws://trust.lan:3001/wss",
+            "trust.lan:3001",
+            "/wss",
+            "GET",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prod_tunnel_headset_physics_put_validates_through_nginx() {
+        signed_request_validates(
+            PROD_NGINX,
+            PROD_API,
+            "https://visionclaw.example.org/api/settings/physics?graph=knowledge",
+            "visionclaw.example.org",
+            "/api/settings/physics?graph=knowledge",
+            "PUT",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn dev_nginx_api_and_wss_keep_the_dialled_port() {
+        signed_request_validates(
+            DEV_NGINX,
+            "location ^~ /api/ {",
+            "http://dev.lan:3001/api/layout/mode",
+            "dev.lan:3001",
+            "/api/layout/mode",
+            "POST",
+        )
+        .unwrap();
+        signed_request_validates(
+            DEV_NGINX,
+            "location /wss {",
+            "ws://dev.lan:3001/wss",
+            "dev.lan:3001",
+            "/wss",
+            "GET",
+        )
+        .unwrap();
+    }
+
+    /// A token signed for another host must still fail: forwarding the port
+    /// must not loosen the `u`-tag host binding.
+    #[test]
+    fn token_for_another_host_is_still_rejected() {
+        let err = signed_request_validates(
+            PROD_NGINX,
+            PROD_API,
+            "http://evil.example:3001/api/settings/physics?graph=knowledge",
+            "trust.lan:3001",
+            "/api/settings/physics?graph=knowledge",
+            "PUT",
+        )
+        .unwrap_err();
+        assert!(err.contains("URL mismatch"), "{err}");
     }
 }

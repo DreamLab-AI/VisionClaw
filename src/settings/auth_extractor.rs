@@ -146,31 +146,7 @@ impl FromRequest for AuthenticatedUser {
 
         // --- NIP-98 Schnorr auth (primary path) ---
         if auth_header.starts_with("Nostr ") {
-            // Reconstruct the request URL for NIP-98 validation
-            // Behind a TLS-terminating proxy, connection_info returns internal
-            // scheme/host; prefer X-Forwarded-* headers from the proxy.
-            let conn_info = req.connection_info();
-            let scheme = req
-                .headers()
-                .get("X-Forwarded-Proto")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_else(|| conn_info.scheme())
-                .to_string();
-            let host = req
-                .headers()
-                .get("X-Forwarded-Host")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_else(|| conn_info.host())
-                .to_string();
-            let url = format!(
-                "{}://{}{}",
-                scheme,
-                host,
-                req.uri()
-                    .path_and_query()
-                    .map(|pq| pq.as_str())
-                    .unwrap_or("/")
-            );
+            let url = crate::utils::auth::nip98_request_url(req);
             let method = req.method().as_str().to_string();
 
             return Box::pin(async move {

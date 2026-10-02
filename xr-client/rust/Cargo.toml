@@ -37,6 +37,10 @@ sha2 = "0.10"
 hex = "0.4"
 
 [dev-dependencies]
+# The server's NIP-98 decoder (`src/utils/nip98.rs`) parses and verifies with
+# nostr-sdk 0.43's `nostr`; the signer tests check the headset's events against
+# the same crate rather than a test-only reimplementation.
+nostr = "0.43"
 mockall = "0.13"
 proptest = "1.5"
 tokio = { version = "1", features = ["full", "test-util"] }

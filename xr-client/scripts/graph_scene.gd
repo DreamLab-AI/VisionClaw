@@ -1145,18 +1145,20 @@ func _put_physics_params(repel_k: float, rest_length: float) -> bool:
 
 
 # Operator-readable reason (with the remedy) for a failed server write. 401/403
-# is the dev-headset trap: the HP client is not a loopback peer, so the dev bearer
-# is always refused and only VISIONCLAW_DEV_MODE=1 on a dev-build backend (ADR-2039
-# / ADR-2108) or a power-user NIP-98 identity (XR_NOSTR_SECRET) unlocks the
-# server-routed HUD buttons (View 3D/Flat, Hierarchy, Shells, Spread, Planes,
-# Radial, Layout Mode, Reset).
+# means the credential did not carry: the headset is not a loopback peer, so the
+# dev bearer is always refused. A NIP-98 identity (XR_NOSTR_SECRET) whose key holds
+# the Owner or Admin role unlocks the server-routed HUD buttons (View 3D/Flat,
+# Hierarchy, Shells, Spread, Planes, Radial, Layout Mode, Reset) on every profile;
+# physics writes need WriteSettings, which an editor lacks. VISIONCLAW_DEV_MODE=1
+# (ADR-2039 / ADR-2108) exists on a dev-build backend only: the prod profile that
+# client hardware runs refuses it (owner decision 2026-10-02, Q1 and Q3).
 func _describe_write_failure(result: int, response_code: int) -> String:
 	if result != HTTPRequest.RESULT_SUCCESS:
 		return "Backend unreachable (result %d) — layout write dropped" % result
 	match response_code:
 		401, 403:
 			var cred: String = "NIP-98 identity" if _nostr_secret_present else "dev bearer"
-			return "Layout write denied (HTTP %d via %s): set VISIONCLAW_DEV_MODE=1 on the dev backend, or a power-user XR_NOSTR_SECRET" % [response_code, cred]
+			return "Layout write denied (HTTP %d via %s): set XR_NOSTR_SECRET to an Owner/Admin key, or VISIONCLAW_DEV_MODE=1 on a dev backend only" % [response_code, cred]
 		_:
 			return "Layout write failed (HTTP %d) — change discarded" % response_code
 

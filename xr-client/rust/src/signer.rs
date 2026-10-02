@@ -396,11 +396,54 @@ mod tests {
         assert!(SECP256K1.verify_schnorr(&sig, &message, &xonly).is_ok());
     }
 
+    /// The server decodes the header with `nostr::Event::from_json` and checks
+    /// it with `Event::verify` (`src/utils/nip98.rs`). Prove the headset's
+    /// event passes that exact library, for the URL shapes the HUD signs: a
+    /// LAN host with a non-default port and a query string with `&` and `,`.
+    #[test]
+    fn http_authorization_verifies_under_the_servers_nostr_crate() {
+        use nostr::JsonUtil;
+
+        let s = NostrSigner::generate();
+        for (url, method) in [
+            (
+                "http://trust.lan:3001/api/settings/physics?graph=knowledge",
+                "PUT",
+            ),
+            (
+                "http://trust.lan:3001/api/graph/fold?level=2&pinned=a,b",
+                "GET",
+            ),
+            ("https://visionclaw.example.org/api/layout/mode", "POST"),
+        ] {
+            let header = s.nip98_http_authorization(url, method);
+            let b64 = header.strip_prefix("Nostr ").unwrap();
+            let json = String::from_utf8(base64_decode(b64)).unwrap();
+            let event = nostr::Event::from_json(&json).expect("server decoder parses the event");
+            event.verify().expect("id and Schnorr signature verify");
+            assert_eq!(event.kind, nostr::Kind::HttpAuth);
+            assert_eq!(event.pubkey.to_hex(), s.pubkey_hex());
+            let tags: Vec<Vec<String>> = event.tags.iter().map(|t| t.as_slice().to_vec()).collect();
+            assert!(
+                tags.contains(&vec!["u".to_string(), url.to_string()]),
+                "{tags:?}"
+            );
+            assert!(
+                tags.contains(&vec!["method".to_string(), method.to_string()]),
+                "{tags:?}"
+            );
+        }
+    }
+
     #[test]
     fn base64_round_trips_all_pad_lengths() {
         for input in [&b""[..], b"a", b"ab", b"abc", b"abcd", b"hello world!"] {
             let enc = base64_encode(input);
-            assert_eq!(base64_decode(&enc), input, "round-trip failed for {input:?}");
+            assert_eq!(
+                base64_decode(&enc),
+                input,
+                "round-trip failed for {input:?}"
+            );
         }
     }
 }

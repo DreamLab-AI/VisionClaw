@@ -995,18 +995,7 @@ pub async fn speech_socket_handler(
     // WebSocket headers, so the browser voice client (which sends neither) was
     // rejected outright. Query-token auth is removed here per the fail-closed
     // posture; the socket is now anonymous-but-useless until it authenticates.
-    let connection_url = {
-        let conn_info = req.connection_info();
-        format!(
-            "{}://{}{}",
-            conn_info.scheme(),
-            conn_info.host(),
-            req.uri()
-                .path_and_query()
-                .map(|pq| pq.as_str())
-                .unwrap_or("/ws/speech")
-        )
-    };
+    let connection_url = crate::utils::auth::nip98_request_url(&req);
 
     #[cfg(any(debug_assertions, feature = "dev-auth"))]
     let dev_bypass_ok = crate::utils::auth::dev_bypass_permitted(&req);
