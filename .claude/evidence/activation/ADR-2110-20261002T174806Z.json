@@ -1,0 +1,190 @@
+{
+  "adr": "ADR-2110",
+  "kind": "activation-acceptance",
+  "run_id": "20261002T174807Z-f48a98",
+  "verdict": "PASS",
+  "repo_head": "3fd97572ad2433f195f5b98a8987355af4c18881",
+  "repo_dirty_rust_paths": 0,
+  "binary_reported_sha": "unknown",
+  "container": "visionclaw_container",
+  "image": "sha256:2f4dd6111bb8b6b46fe60696df8396ee664c7dcaa1ed72c1befffd3e24ee230e",
+  "image_created": "2026-10-02T18:29:51.490576201+01:00",
+  "container_started": "2026-10-02T17:30:13.599165377Z",
+  "probes": [
+    {
+      "probe": "static_no_fabricated_rationale",
+      "verdict": "PASS",
+      "evidence": {
+        "pattern": "via governance UI|via control centre",
+        "hits": []
+      },
+      "notes": []
+    },
+    {
+      "probe": "binding",
+      "verdict": "PASS",
+      "evidence": {
+        "binary": "/app/target/dev-runtime/visionclaw-server",
+        "binary_mtime_utc": "2026-10-02T17:44:12Z",
+        "sources_newer_than_binary": [],
+        "sources_newer_count": 0,
+        "backend_health_status": 200,
+        "nginx_health_status": 200
+      },
+      "notes": []
+    },
+    {
+      "probe": "trace_intent",
+      "verdict": "PASS",
+      "evidence": {
+        "db": "/app/data/kpi.sqlite3",
+        "probe_agent": "did:nostr:ad2110509983814cff9a0490d61d1a2f5506f1dab5c7814d6cfaa8fb69f77a89",
+        "real_rows_with_intent_30d": 0,
+        "http_status": 200,
+        "records_returned": 3,
+        "checks": [
+          {
+            "intent": "op=graph_update target=urn:kg:node-7",
+            "target": "urn:kg:node-7",
+            "expected_intent_match": true,
+            "observed": true
+          },
+          {
+            "intent": "op=graph_update target=urn:kg:node-7",
+            "target": "urn:kg:node-70",
+            "expected_intent_match": false,
+            "observed": true
+          },
+          {
+            "intent": null,
+            "target": "urn:kg:node-7",
+            "expected_intent_match": null,
+            "observed": true
+          }
+        ],
+        "seed_rows_removed": 3
+      },
+      "notes": []
+    },
+    {
+      "probe": "hitl_precision",
+      "verdict": "PASS",
+      "evidence": {
+        "http_status": 200,
+        "sha": "unknown",
+        "tile": {
+          "status": "no_decided_cases",
+          "value": null,
+          "numerator": 0.0,
+          "denominator": 0.0,
+          "sample_count": 0,
+          "snapshot_id": null,
+          "source": "warranted \u00f7 decided over human-decided enrichment cases (outcome \u2260 requested action, or amend/delegate, or intent_match == false); system:whelk-gate outcomes excluded"
+        }
+      },
+      "notes": [
+        "no human-decided case in the window yet \u2014 the exit test still needs one"
+      ]
+    },
+    {
+      "probe": "broker_rationale_gate",
+      "verdict": "PASS",
+      "evidence": {
+        "db": "/app/data/enrichment.sqlite3",
+        "probe_case": "adr2110-acceptance-20261002T174807Z-f48a98",
+        "inbox_status": 200,
+        "inbox_total": 3,
+        "inbox_case_metadata": {
+          "risk_tier": "high",
+          "confidence": null
+        },
+        "refusals": [
+          {
+            "route": "operator",
+            "rationale": "absent",
+            "status": 422,
+            "body": {
+              "success": false,
+              "code": "rationale_required",
+              "error": "a 'high' case needs the deciding human's own rationale: at least 20 characters, 0 supplied",
+              "tier": "high",
+              "min_chars": 20,
+              "received_chars": 0
+            },
+            "verdict": "PASS"
+          },
+          {
+            "route": "operator",
+            "rationale": "short",
+            "status": 422,
+            "body": {
+              "success": false,
+              "code": "rationale_required",
+              "error": "a 'high' case needs the deciding human's own rationale: at least 20 characters, 9 supplied",
+              "tier": "high",
+              "min_chars": 20,
+              "received_chars": 9
+            },
+            "verdict": "PASS"
+          },
+          {
+            "route": "operator",
+            "rationale": "whitespace-padded",
+            "status": 422,
+            "body": {
+              "success": false,
+              "code": "rationale_required",
+              "error": "a 'high' case needs the deciding human's own rationale: at least 20 characters, 1 supplied",
+              "tier": "high",
+              "min_chars": 20,
+              "received_chars": 1
+            },
+            "verdict": "PASS"
+          },
+          {
+            "route": "service",
+            "rationale": "short",
+            "status": 422,
+            "body": {
+              "success": false,
+              "code": "rationale_required",
+              "error": "a 'high' case needs the deciding human's own rationale: at least 20 characters, 4 supplied",
+              "tier": "high",
+              "min_chars": 20,
+              "received_chars": 4
+            },
+            "verdict": "PASS"
+          }
+        ],
+        "decision_rows_after": 0,
+        "status_after": "pending",
+        "cleanup": {
+          "decision_rows_removed": 0,
+          "proposal_rows_removed": 1
+        }
+      },
+      "notes": []
+    },
+    {
+      "probe": "elevation_boot_reconciliation",
+      "verdict": "PASS",
+      "evidence": {
+        "log": "/app/logs/rust.log",
+        "segment": "since last 'Starting Rust backend'",
+        "started": [
+          "\u001b[2m2026-10-02T17:46:02.342339Z\u001b[0m \u001b[32m INFO\u001b[0m ThreadId(01) \u001b[2mvisionclaw_server\u001b[0m\u001b[2m:\u001b[0m [main] DecisionElevationActor started (ADR-050 decision-elevation panel live)"
+        ],
+        "disabled": [],
+        "connect_failed": [],
+        "reconciliation": [
+          "\u001b[2m2026-10-02T17:46:06.014945Z\u001b[0m \u001b[32m INFO\u001b[0m ThreadId(01) \u001b[2mvisionclaw_server::actors::elevation_actor\u001b[0m\u001b[2m:\u001b[0m [Elevation] boot reconciliation: 0 case(s) re-armed, 0 timed out"
+        ],
+        "reconciliation_read_failed": [],
+        "re_armed": 0,
+        "timed_out": 0
+      },
+      "notes": []
+    }
+  ],
+  "scope": "Live dev stack, unit fixtures seeded and removed by the probe. Does NOT cover: the owner's live high-tier 31403 on the edge relay (exit test item 4), the forum's effective_tier (VisionClaw does not ingest it; see ADR-2110 follow-on 5), or the case-card UI rendering (browser check)."
+}

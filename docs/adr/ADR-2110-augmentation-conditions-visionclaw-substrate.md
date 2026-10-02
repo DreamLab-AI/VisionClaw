@@ -4,10 +4,10 @@ title: Instrument the VisionClaw judgment surfaces against the augmentation cond
 date: 2026-09-14
 decision_status: accepted
 implementation_status: complete
-activation_status: inactive
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 3fd97572ad2433f195f5b98a8987355af4c18881
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -320,3 +320,18 @@ whole check. The run does not cover the owner's live high-tier 31403 (cycle exit
 test item 4). Per follow-on 5, no VisionClaw case is high-tier on the forum
 today, so that event needs either a declared triple or a case that is not
 VisionClaw's.
+
+## Activation — 2026-10-02 at 3fd97572a
+
+`scripts/activation/adr-2110-check.sh` ran against the dev stack launched by the
+owner at 17:46Z (binary newer than every mounted source) and passed all six
+checks: `static_no_fabricated_rationale`, `binding`, `trace_intent`,
+`hitl_precision`, `broker_rationale_gate`, `elevation_boot_reconciliation`.
+Receipt: `.claude/evidence/activation/ADR-2110-20261002T174806Z.json`.
+
+`activation_status` moves `inactive` → `staged`: every clause is live on the
+running stack, but the HITL Precision window still holds no human-decided case,
+and the owner's live high-tier 31403 (cycle exit item 4) has not happened. It
+moves to `live` on that receipt. The high-tier case for it is
+`solid-pod-rs-1.0.0-beta.1-release-20261002` on the agentbox-release-ops panel,
+raised 2026-10-02 (owner decision Q7).
