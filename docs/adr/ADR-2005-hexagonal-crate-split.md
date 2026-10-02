@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 80521967954698f729002d5ccbba6302d2fc0ced
+verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -208,3 +208,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-02 at 805219679 (space/Earth domain registry)
 
 **Governed changes since `853c4a069`:** `src/actors/gpu/force_compute_actor.rs:1175` and `src/actors/gpu/gpu_resource_actor.rs:228` replace their hard-coded six-code domain → class-ID tables with `vault_core::domains::domain_class_id` (ADR-2118). The charge rule is the same (known domain 0.6 / 0.3, unknown 1.2 / 2.5). `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged. **Decision unaffected.** The root already depends on `vault-core` (`Cargo.toml:51`). That crate's `[dependencies]` are serde/regex/sha2-class leaves with no server-layer crate, so the dependency direction holds. No actor crossed a crate boundary and the member count is unchanged. `verified_commit` moved to the landing commit. No build or test gate ran for this re-anchor; it is a source reading only.
+
+## Re-verification — 2026-10-02 at 8bdece469 (DAG rank provenance, ADR-2035)
+
+**Governed change since `805219679`:** `src/actors/gpu/force_compute_actor.rs` replaces `is_directed_hierarchy_relation` with `hierarchy_pairs`, which ranks only edges for which `Edge::asserts_subsumption` holds. **Decision unaffected, and the change follows it.** The subsumption rule is domain knowledge, so it lives on the domain model in `crates/visionclaw-domain/src/models/edge.rs` with the new `RDFS_SUBCLASS_OF_IRI` and `DOMAIN_MEMBER_EDGE_TYPE` constants; the actor in the root binary only consumes it. No crate was added or moved, and `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged. Tests: `cargo test --lib -- dag_rank_tests …` (69 pass), `cargo test -p visionclaw-domain` (275 pass).

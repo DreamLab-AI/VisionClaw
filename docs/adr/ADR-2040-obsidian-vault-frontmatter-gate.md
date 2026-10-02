@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 95e98ab12baceb51a49ac8a0d2ff37a7b85e5e10
+verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -150,3 +150,7 @@ and legacy support cannot be retired on this evidence.
 - **Priority:** withdrawn
 - **Why:** Superseded by accepted ADR-2112, which already lists `supersedes: [ADR-2040]`, while this record still read `proposed` beside `superseded_by: [ADR-2112]`. ADR-2112 §"Supersession" closes this record's inclusion gate, its bounded Logseq tolerance and its v1.4.x closeout qualifications by replacement, not remediation. TODO-unified row N-1 records the corpus as canonical frontmatter.
 - **Next:** None. `decision_status` set to `superseded`. The validator requires a `verified_commit` on a non-proposed record, so it is stamped `95e98ab12`, the commit at which the supersession was checked. `implementation_status` and `activation_status` are unchanged.
+
+## Re-verification — 2026-10-02 at 8bdece469 (DAG rank provenance, ADR-2035)
+
+**Governed change since `95e98ab12`:** `src/services/github_sync_service.rs` relabels domain-root spokes `domain_member` (ADR-2035). No vault parsing, inclusion gate or page-identity code changed. The record remains superseded by ADR-2112; `verified_commit` moved only to clear the staleness check.

@@ -1,22 +1,27 @@
 ---
 id: ADR-2035
-title: DAG-rank detection accepts the collapsed 'hierarchical' edge label
+title: DAG-rank detection ranks subClassOf provenance, not the collapsed 'hierarchical' label
 date: 2026-08-31
 decision_status: accepted
 implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 7b633060820cb50a6772fdf3b5035c292ea92854
-verified_paths: [src/actors/gpu/force_compute_actor.rs]
+verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
+verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
-review_trigger: an ingest change that stops collapsing subclass provenance to the generic 'hierarchical' label, or reintroduces domain-membership edges under that same label
+review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
 repo: visionclaw
 domain: XR-client
-lineage: distils legacy ADR-141 (constrained-layout engine) and ADR-138 (GPU force-channel registry); label-accept landed 73540faa0, stale doc-comment corrected eac01130
+lineage: distils legacy ADR-141 (constrained-layout engine) and ADR-138 (GPU force-channel registry); label-accept landed 73540faa0, stale doc-comment corrected eac01130; amended 2026-10-02 to rank on provenance (N-14)
 ---
 
-# ADR-2035 — DAG-rank detection accepts the collapsed 'hierarchical' edge label
+# ADR-2035 — DAG-rank detection ranks subClassOf provenance, not the collapsed 'hierarchical' label
+
+> **Amended 2026-10-02.** The Decision below is the current one. The original
+> 2026-08-31 decision (accept the bare `hierarchical` label) is kept under
+> *Superseded decision* for the record; see *Amendment — 2026-10-02* for why it
+> was wrong and what replaced it.
 
 ## Context
 
@@ -29,12 +34,26 @@ also feeds the fold endpoint (fold.rs).
 
 ## Decision
 
-`is_directed_hierarchy_relation` accepts `"hierarchical"` / `"HIERARCHICAL"` alongside
-the explicit `is_subclass_of` / `subclass_of` / `SUBCLASS_OF` provenance. This is a
-deployment-specific accept keyed to how our ingest writes edges; it forecloses treating
-the collapsed label as non-hierarchical. The risk it accepts: if domain-membership
-edges ever reuse `"hierarchical"`, ranks would be fabricated from non-subclass
-structure — that is the trade this deployment takes because its ingest does not do so.
+The DAG ranker layers an edge only when the edge **asserts class subsumption**,
+`source rdfs:subClassOf target` (`Edge::asserts_subsumption`,
+`crates/visionclaw-domain/src/models/edge.rs`). That holds for the explicit
+`is_subclass_of` / `subclass_of` / `SUBCLASS_OF` labels, and for a
+`hierarchical` / `HIERARCHICAL` edge **only** when its `owl_property_iri` is
+`rdfs:subClassOf`. The `hierarchical` label on its own is a force category,
+never a relation.
+
+Domain-root spokes from `materialise_domain_roots` carry their own label,
+`domain_member` (`DOMAIN_MEMBER_EDGE_TYPE`), with the spring configuration they
+had before. Reasoner-materialised subclass edges carry `rdfs:subClassOf`
+provenance like asserted ones.
+
+### Superseded decision (2026-08-31)
+
+`is_directed_hierarchy_relation` accepted `"hierarchical"` / `"HIERARCHICAL"`
+alongside the explicit subclass strings, on the premise that ingest never reused
+the label for anything but subclass. The risk it accepted: if domain-membership
+edges ever reused `"hierarchical"`, ranks would be fabricated from non-subclass
+structure.
 
 ## Consequences
 
@@ -173,3 +192,93 @@ hierarchy` → **8 passed, 0 failed** (1259 filtered out).
 This is the `review_trigger` ("reintroduces domain-membership edges under that same label"). No ingest fixture or GPU layout ran here, so the effect on displayed Radial: DAG / Hierarchy layouts is inferred from source, not observed.
 
 **Not resolved here, and the Decision is not edited.** The owner must choose one of two remedies. One is a producer-side label for domain-membership edges, such as `domain_member`, that the predicate rejects; that keeps this Decision valid. The other is a successor ADR that accepts membership ranks and fixes their orientation. `verified_commit` records the revision this finding was verified at. It does not certify that the Decision holds there.
+
+## Amendment — 2026-10-02: rank on provenance; membership gets its own label (N-14)
+
+**What was seen.** The running stack (pre-fix binary, compiled 16:38-16:52Z)
+logged `Uploaded DAG ranks — 16196 hierarchy edges` at 16:57:39Z, fifteen
+seconds after the sync wrote `6400 domain root edges for 8 domains`: 9796
+subclass edges plus exactly the 6400 membership edges. A census of
+`GET /api/graph/data` shows the two populations cleanly: 9796 `hierarchical`
+edges with `owl_property_iri = rdfs:subClassOf`, 6400 `hierarchical` edges with
+no provenance, all of them domain spokes. Re-running `compute_dag_ranks`' BFS on
+that graph puts **every one of the eight domain roots at rank 1, the child of
+its own members**, with 36 to 533 members per domain ranked above it, and pulls
+1373 nodes that have no subclass edge into the rank space through membership
+alone (8398 ranked against 7025). Evidence:
+`.claude/evidence/adr-2035/2026-10-02T1701Z-rank-analysis.txt`; the Radial: DAG
+view at that moment is `.claude/evidence/adr-2035/2026-10-02T1701Z-radial-dag-prefix.png`
+(at 9473 nodes the roots cannot be singled out by eye, so the rank analysis is
+the decisive record, not the screenshot).
+
+**The premise was false, and so was the claim it rested on.** The 2026-09-05
+tests asserted that "no consumer predicate can recover" subclass from the
+collapsed label. The ingest has always written the folded predicate into
+`owl_property_iri` (`relation_edges`), Oxigraph round-trips it as
+`vc:owlProperty`, and `tests/corpus_local_sync.rs` already asserted it survives
+the store. The label is lossy; the edge is not. Worse than the membership case,
+`predicate_to_edge_type` also folds `owl:equivalentClass`, `owl:sameAs`
+(symmetric: no parent at all), `rdfs:subPropertyOf` (a property hierarchy) and
+instance-of into `hierarchical`, so the bare-label accept was ranking those too
+whenever they appeared.
+
+**Options weighed.**
+
+- *(a) A distinct `domain_member` label alone.* Right about what the edge means,
+  and it also takes membership out of the fold ladder (which groups every
+  `hierarchical` component, so domain spokes were fusing whole domains into one
+  fold group) and out of the gold hierarchy colour. Insufficient on its own: it
+  leaves the ranker reading a force category as a relation, so equivalence and
+  sub-property edges still fabricate layers.
+- *(b) Orient membership child→parent under `hierarchical`.* Rejected. It makes
+  the ranker's output look right while keeping the lie: membership would still
+  be indistinguishable from subsumption to the fold ladder, the palette and any
+  later reader, and the root would become a rank-0 parent of every member,
+  flattening each domain's real subclass depth under one synthetic node.
+- *(c) Make the ranker decide on provenance.* Correct for every folded predicate
+  at once and needs no ingest relabelling; it is the rule the data already
+  supports.
+
+**Chosen: (c) plus (a).** The ranker answers "is this subsumption?" from
+`owl_property_iri`; membership stops borrowing a label that means something
+else. On the live census the change keeps all 9796 subclass edges and all 7025
+subclass-ranked nodes, and drops only the 6400 spokes.
+
+**Consumers checked.** `force_compute_actor` DAG ranker (changed);
+`fold.rs::is_subclass_relation` (unchanged: it deliberately folds the whole
+`hierarchical` class, and now no longer sees membership);
+`SemanticForcesActor::calculate_hierarchy_levels` keys on registry id 2, which
+is `hierarchy`, not `hierarchical`, so it never saw these edges and is unaffected
+(noted, not changed); `layout::engines::hierarchical_layout` takes untyped edges
+and is unaffected; Oxigraph persistence writes `vc:relationshipType` and
+`vc:owlProperty` verbatim and the assert-graph rebuild reads the predicate, not
+the label; the client palette gains `domain_member` (taupe) instead of falling
+to grey; `SemanticEdgeType::from_relation_type("domain_member")` maps to
+`Structural`.
+
+**Tests.** Red first, against the pre-fix predicate:
+`a_domain_root_never_ranks_below_its_own_members` failed at the inversion
+assertion and `folded_non_subsumption_predicates_do_not_rank` failed. Green
+after: `dag_rank_tests` 17 pass, including those two,
+`asserted_and_inferred_subclass_edges_rank_child_below_parent`,
+`only_subsumption_provenance_ranks` (replaces
+`directed_hierarchy_accepts_subsumption_and_the_collapsed_label`),
+`membership_edges_neither_rank_nor_shortcut_a_subclass_chain` (replaces
+`a_domain_membership_fixture_ranks_identically_under_the_collapsed_label` and
+`mixed_subclass_and_membership_edges_share_one_rank_space`) and
+`shortest_depth_wins_when_two_subclass_paths_reach_a_node`.
+`tests/corpus_local_sync.rs` now asserts, through a real sync and store round
+trip, that the live subclass edge `asserts_subsumption()` and every domain-root
+edge is `domain_member` and does not. Commands:
+`cargo test --lib -- dag_rank_tests inferred_edge_materialiser semantic_type_registry github_sync_service fold`
+(69 pass), `cargo test --test corpus_local_sync` (5 pass, 1 ignored),
+`cargo test -p visionclaw-domain` (pass); client `tsc --noEmit` clean.
+
+**Not yet seen on screen after the fix.** The dev image compiles mounted source
+at start, so the fix is live after the next `up dev`. Stale `hierarchical`
+spokes already in the store are rejected by the ranker regardless, having no
+provenance. Whether the next sync overwrites them in place under the new label
+was not verified here; the post-`up dev` check is a census of
+`GET /api/graph/data` showing `domain_member` spokes and no provenance-free
+`hierarchical` edges, plus a `Uploaded DAG ranks` log line back at 9796 edges.
+

@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.2
+version: 0.1.3
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1: flag self-contradictory docstring on is_directed_hierarchy_relation (excludes vs accepts 'hierarchical')"
 sources:
@@ -184,19 +185,18 @@ temporal, clustered`. Radial shells POST `/api/layout/radial` with a mode of
 server at `layout_handler.rs:135-166`). The Hierarchy toggle PUTs `dagBiasK`
 (0.6 on / 0.0 off) and Shells ± nudge `dagLevelDistance` (`graph_scene.gd:888-910`).
 
-**DAG ranks are derived from "hierarchical" edge labels.** As of commit
-73540faa0, `is_directed_hierarchy_relation` in `force_compute_actor.rs:580`
-matches `is_subclass_of | subclass_of | SUBCLASS_OF | hierarchical |
-HIERARCHICAL`. This deployment's ingest writes the collapsed label
-`hierarchical`; before the fix the DAG ranks stayed all-unranked
-(`compute_dag_ranks`, line 590) so `SetRadialLayout{DagRank}` and the Hierarchy
-toggle were silently inert — reported in-headset as the Radial Shells buttons
-"appearing disconnected". Caveat for maintainers: the function's own doc-comment
-(`force_compute_actor.rs:576-578`) still asserts the generic `"hierarchical"`
-string is *excluded* ("accepting it would fabricate ranks from non-subclass
-structure"), directly contradicting the `matches!` set three lines below it at
-line 586 which accepts it. The inline comment at 581-583 is the authoritative
-intent; the stale exclusion paragraph above it should be read as superseded.
+**DAG ranks are derived from subclass provenance, not from the edge label**
+(ADR-2035, amended 2026-10-02). `edge_type` is a force category: the ingest
+folds `rdfs:subClassOf`, `owl:equivalentClass`, `owl:sameAs`,
+`rdfs:subPropertyOf` and instance-of all into `hierarchical`, and keeps the
+predicate it folded in `owl_property_iri`. The ranker
+(`ForceComputeActor::hierarchy_pairs`) layers only edges for which
+`Edge::asserts_subsumption` holds: an explicit `subclass_of`-family label, or
+`hierarchical` whose `owl_property_iri` is `rdfs:subClassOf`. Domain-root
+spokes are labelled `domain_member` and never rank. Before the amendment the
+bare label was accepted, so from `7b6330608` each domain root ranked as the
+child of its own members (live census: 6400 membership edges in a 16196-edge
+rank set; every root at rank 1 below 36-533 of its members).
 
 ## Known divergences & open items
 - **project.godot vs runtime.** File says Godot 4.3 / Forward Mobile
@@ -259,7 +259,8 @@ intent; the stale exclusion paragraph above it should be read as superseded.
 5. Layout-tab page content must fit the 532px host (overflow guard is the tripwire).
 6. `XR_NOSTR_SECRET` required for drag/pin/presence; NIP-98 header URL must be the
    exact request URL incl. query.
-7. DAG-rank detection must accept the ingest's collapsed `hierarchical` label.
+7. DAG-rank detection ranks class subsumption only, decided by `owl_property_iri`
+   provenance (`Edge::asserts_subsumption`), never by the `hierarchical` force label.
 8. Work-layer embodiments have ONE pose writer (`agent_choreography.gd`); the
    proxemics arc, nudges or drifts must never write their transforms. Avatars
    and effects sit under unit-scale roots, never under `GraphRoot` (ADR-2109).
