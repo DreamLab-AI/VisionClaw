@@ -129,7 +129,7 @@ The Trust residential runs the **prod profile**, not the dev profile with dev mo
 
 **Secrets and required settings**, all in an explicit `.env.prod` (plain `.env`-style file this cycle, owner decision 2026-10-02, Q2; SOPS is P2, host ADR-2104). `launch.sh up prod` refuses to start without the file (`scripts/launch.sh:189`) and without a concrete value for each of `CLOUDFLARE_TUNNEL_TOKEN`, `MANAGEMENT_API_KEY`, `VISIONCLAW_AGENT_KEY` and `SOLID_PROXY_SECRET_KEY` (`:173`). Compose also fails fast on an empty `VISIONCLAW_AGENT_KEY` (`docker-compose.unified.yml:232`).
 
-- `CLOUDFLARE_TUNNEL_TOKEN`: the `cloudflared` service runs under the `prod` profile and reads it as `TUNNEL_TOKEN` (`docker-compose.unified.yml:277`). A Trust host therefore needs its own Cloudflare tunnel and public hostname. An offline deployment has no tunnel; whether `cloudflared` may stay down is an open owner question.
+- `CLOUDFLARE_TUNNEL_TOKEN`: **not needed on the Trust box.** The Trust box is LAN-only, and the Cloudflare tunnel may stay down (owner decision 2026-10-02, R2: "Yes: the Cloudflare tunnel may stay down. The Trust box is LAN-only."). The open question is closed. The `cloudflared` service runs under the `prod` profile and reads the token as `TUNNEL_TOKEN` (`docker-compose.unified.yml:277`). A Trust host therefore needs no Cloudflare tunnel and no public hostname. The launcher still demands the token, which is defect CY-C-D1 below.
 - Security profile: a production artefact may not bind with findings. Set `VISIONCLAW_SECURITY_PROFILE` (`src/config/security_profile.rs:596`) and the six flags that profile fixes (`:133-138`): `RBAC_PUBLIC_READS`, `RBAC_ALLOW_OWNERLESS`, `RBAC_OWNER_PUBKEY`, `RBAC_DEFAULT_ROLE`, `PUBKEY_VISIBILITY_FILTER=1` and `RBAC_GATE_MODE=enforce`. `single-tenant` or `multi-user-locked` both require `RBAC_OWNER_PUBKEY`.
 - Optional, and empty by default: `VISIONCLAW_NOSTR_PRIVKEY` (bead provenance, `:234`). The binary also warns without `JWT_SECRET` and `CORS_ALLOWED_ORIGINS` (`src/main.rs:70`).
 - The headset's `XR_NOSTR_SECRET` must belong to an Owner or Admin key. HUD physics writes need `WriteSettings` (`src/middleware/rbac_gate.rs:169`), and an `editor` resolves only to `Authenticated` (`src/models/rbac.rs:87`).
@@ -144,8 +144,14 @@ The Trust residential runs the **prod profile**, not the dev profile with dev mo
 - The `visionclaw_network` network and the `multi-agent-docker_workspace` volume are `external: true` (`:382`, `:391`). Create them first.
 - The corpus vault is mounted only in the dev service (`:171`). The prod service mounts `visionclaw-data` and `visionclaw-logs` only, so it has no corpus source.
 - The image needs an NVIDIA GPU, the `nvidia` runtime (`:256`) and the right `CUDA_ARCH` (default `75`, `:204`).
-- Only port `3001` (nginx) is published (`:242`). The headset must use `XR_BACKEND_WS=ws://<host>:3001` on the LAN, or `wss://<hostname>` through the tunnel, never `:4000`. A LAN-signed NIP-98 URL keeps its port only since the nginx fix in `e7e6b61d8`. Before that fix, prod nginx forwarded `Host $host` without the port, and every LAN headset write failed the `u`-tag check.
+- Only port `3001` (nginx) is published (`:242`). The headset must use `XR_BACKEND_WS=ws://<host>:3001` on the LAN, never `:4000`. There is no tunnel hostname on the Trust box (R2). A LAN-signed NIP-98 URL keeps its port only since the nginx fix in `e7e6b61d8`. Before that fix, prod nginx forwarded `Host $host` without the port, and every LAN headset write failed the `u`-tag check.
 - Release image: no `dev-auth` (host ADR-2037). The receipt is still open.
+
+**Defects against the LAN-only prod profile** (recorded 2026-10-02 and not fixed yet; verified at host `649b921`):
+
+| ID | State | Evidence and remaining boundary |
+|---|---|---|
+| CY-C-D1 | open | **`launch.sh up prod` refuses to start a tunnel-less host.** The prod pre-flight requires a concrete `CLOUDFLARE_TUNNEL_TOKEN` alongside the three real secrets (`scripts/launch.sh:173`, refusal at `:176`). Given R2, this blocks the Trust box for no security gain. Working around it with a placeholder token is worse: the prod branch starts the whole `prod` profile unconditionally (`scripts/launch.sh:684-685`), and `cloudflared` has `restart: unless-stopped` with no token check (`docker-compose.unified.yml:271-292`), so it would crash-loop on the LAN. The fix needs a declared tunnel-less mode, for example an explicit `.env.prod` switch that drops the token from the required list and leaves `cloudflared` out of `up`. An empty token must not silently mean "no tunnel", because a forgotten token on a tunnelled host has to keep failing loudly. Exit test: `launch.sh up prod` succeeds on a host whose `.env.prod` declares LAN-only and has no tunnel token, starts no `cloudflared-tunnel` container, and still refuses a tunnelled host whose token is missing. |
 
 ## Removed as resolved in this execution
 

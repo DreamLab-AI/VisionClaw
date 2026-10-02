@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
 verified_paths: []
 owner: jjohare
-review_trigger: any right-to-erasure request reaching the estate, a subject-deletion API being designed, agentbox ADR-2060 landing its RuVector-side tombstone, or any change to the GRAPH_PROVENANCE append-only invariant
+review_trigger: DEFERRED 2026-10-02 to a future ADR; reopen on the first real user, or on any estate store found holding personal data unencrypted at rest. Earlier triggers: any right-to-erasure request reaching the estate, a subject-deletion API being designed, agentbox ADR-2060 landing its RuVector-side tombstone, or any change to the GRAPH_PROVENANCE append-only invariant
 repo: visionclaw
 domain: DATA-authority-erasure
 lineage: DATA-authority-erasure "No estate-wide erasure design" and "deleteAgentMemory tombstone gap"; ADR-2016 (append-only provenance); ADR-2017 (per-class write-master, no cross-store 2PC); agentbox ADR-2060 (the RuVector-side half, `see` only)
@@ -108,3 +108,13 @@ data in all five stores, with the RuVector consumer stopped:
 - **Priority:** P2 — next cycle (planning-cycle §3: "Erasure pair (agentbox ADR-2060, host ADR-2102) — first candidate after this cycle alongside ADR-2078")
 - **Why:** A left-behind residential node will one day receive a deletion request, and nothing in the estate can honour one in full, so the intent stands. The store list is out of date. "GitHub content" is no longer the corpus upstream: ingest is a `CorpusSource` (ADR-2114) and GitHub sync is optional and off (ADR-2115). Decision item 4's "rebuilt from the GitHub upstream" therefore needs restating against the local vault. agentbox ADR-2060 is still `proposed`/`none`.
 - **Next:** Reopen at the start of the next cycle together with agentbox ADR-2060. First restate the five stores against ADR-2114/2115, then make the item-3 choice (crypto-shredding, or provenance declared out of scope).
+
+## Deferred — 2026-10-02 (owner decision, R5d)
+
+**Explicitly deferred to a future ADR.** This record stays `proposed` because the ledger's `decision_status` vocabulary has no `deferred` value (`scripts/adr-index-gen.js:32`). It is not scheduled for the next cycle. That supersedes the P2 "next cycle" placement in the disposition above.
+
+- **Owner's reason (decision 2026-10-02, R5d):** the estate has no users. Data that users hold encrypted at rest in Solid pods and on Nostr is no concern, because it was never ours to read. A complete-removal path SHOULD exist eventually, but it is complex, and building it now would design against a threat with no subject.
+- **What this does not say:** it does not say erasure is unnecessary, and it does not reject the decision above. The intent stands as a direction.
+- **Store list not corrected here.** The disposition above notes that the store list predates host ADR-2114/2115. Restating it is the future ADR's first job. This record is deliberately left as written.
+- **Reopen when** either of these happens first: (1) the first real user, meaning a person other than the owner whose personal data reaches any estate store; or (2) any estate store is found holding personal data unencrypted at rest. The reopening trigger is also recorded at the front of `review_trigger`.
+- **Paired record:** agentbox ADR-2060 (the RuVector-side half) is deferred by the same decision, with the same trigger.

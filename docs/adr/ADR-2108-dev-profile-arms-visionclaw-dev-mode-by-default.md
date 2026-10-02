@@ -79,3 +79,11 @@ is the fingerprint of an auth gate rather than a dead HUD.
 ## Amendment — 2026-10-02 (owner decision, Q1)
 
 Decision 1 applies to the owner's own development rig only. A deployment on client hardware, starting with the Trust residential, uses the prod profile (`launch.sh up prod`), where `VISIONCLAW_DEV_MODE` is refused at launch and at boot. The armed-by-default dev profile must never be brought up on a client's network.
+
+## Amendment — 2026-10-02 (owner decision, R2): the Trust box is LAN-only
+
+The owner said: "Yes: the Cloudflare tunnel may stay down. The Trust box is LAN-only." The Q1 amendment above still holds: client hardware runs the prod profile, and `VISIONCLAW_DEV_MODE` is refused there. R2 adds that the prod profile on the Trust box has no Cloudflare tunnel and no public hostname. The headset reaches the backend at `ws://<host>:3001` on the LAN and signs every write with NIP-98 (Q3). This closes the open question in host `docs/TODO-unified.md` §CY-C.
+
+"LAN-only" does not bring back this record's dev premise, that "the LAN is the trust boundary". The prod profile authenticates every write whatever the network, so on the Trust box the LAN is a reachability boundary, not an authentication boundary.
+
+**Known defect, recorded and not fixed:** `launch.sh up prod` refuses an `.env.prod` without a concrete `CLOUDFLARE_TUNNEL_TOKEN` (`scripts/launch.sh:173`). It also always brings up `cloudflared` under the `prod` profile (`scripts/launch.sh:684-685`, `docker-compose.unified.yml:271-292`). The prod profile therefore cannot start tunnel-less as it stands. Tracked as CY-C-D1 in `docs/TODO-unified.md`, with its exit test.
