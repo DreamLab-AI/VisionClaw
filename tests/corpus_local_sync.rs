@@ -231,6 +231,139 @@ async fn sync_graphs_ingests_the_local_vault() {
     );
 }
 
+/// The domain-root invariant every sync must leave behind: exactly one root
+/// node per populated domain, at the id its slug derives, and exactly one
+/// `domain_member` spoke per member. No root is a member of another root, no
+/// spoke is duplicated, and no membership edge wears the `hierarchical` label.
+fn assert_one_root_one_spoke_per_member(
+    graph: &visionclaw_domain::models::graph::GraphData,
+    slug: &str,
+) {
+    let roots: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.metadata.get("type").map(String::as_str) == Some("domain_root"))
+        .filter(|n| n.group.as_deref() == Some(slug))
+        .collect();
+    assert_eq!(
+        roots.len(),
+        1,
+        "one {slug} root, found {:?}",
+        roots.iter().map(|n| n.id).collect::<Vec<_>>()
+    );
+    let root = roots[0];
+    assert_eq!(
+        root.id,
+        visionclaw_server::services::github_sync_service::domain_root_node_id(slug),
+        "the root sits at the id its slug derives, stable across processes"
+    );
+
+    let members: std::collections::BTreeSet<u32> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some(slug))
+        .filter(|n| n.metadata.get("type").map(String::as_str) != Some("domain_root"))
+        .map(|n| n.id)
+        .collect();
+    assert!(!members.is_empty(), "the fixture populates {slug}");
+
+    let all_root_ids: std::collections::HashSet<u32> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.metadata.get("type").map(String::as_str) == Some("domain_root"))
+        .map(|n| n.id)
+        .collect();
+    let mut spokes: Vec<(u32, u32)> = Vec::new();
+    for e in &graph.edges {
+        if all_root_ids.contains(&e.source) || all_root_ids.contains(&e.target) {
+            assert_eq!(e.source, root.id, "only the live root has spokes: {:?}", e);
+            assert_eq!(
+                e.edge_type.as_deref(),
+                Some("domain_member"),
+                "spoke label: {:?}",
+                e
+            );
+            assert!(e.owl_property_iri.is_none());
+            spokes.push((e.source, e.target));
+        }
+    }
+    let unique: std::collections::BTreeSet<u32> = spokes.iter().map(|&(_, t)| t).collect();
+    assert_eq!(
+        spokes.len(),
+        unique.len(),
+        "no (root, member) spoke is duplicated"
+    );
+    assert_eq!(
+        unique, members,
+        "exactly one spoke per member, and no root is a member"
+    );
+}
+
+#[actix_rt::test]
+async fn re_syncing_leaves_one_root_and_one_membership_spoke_per_member() {
+    let h = harness().await;
+    // First a full ingest, then the incremental sync every boot runs.
+    for full in [true, false, false] {
+        let stats = h.service.sync_graphs_with(full).await.expect("sync");
+        assert_no_stage_failed(&stats);
+        let graph = h.kg_repo.load_graph().await.unwrap();
+        assert_one_root_one_spoke_per_member(&graph, "infrastructure");
+    }
+}
+
+/// The live store on 2 Oct held what every pre-fix process left behind: an
+/// older root at a process-counter id with `hierarchical` spokes and no
+/// provenance. A sync must replace that state, not add a second root beside it.
+#[actix_rt::test]
+async fn a_sync_replaces_a_legacy_root_and_its_hierarchical_spokes() {
+    let h = harness().await;
+    h.service.sync_graphs_with(true).await.expect("first sync");
+    let graph = h.kg_repo.load_graph().await.unwrap();
+    let members: Vec<u32> = graph
+        .nodes
+        .iter()
+        .filter(|n| n.group.as_deref() == Some("infrastructure"))
+        .filter(|n| n.metadata.get("type").map(String::as_str) != Some("domain_root"))
+        .map(|n| n.id)
+        .collect();
+
+    let mut legacy = visionclaw_domain::models::node::Node::new_with_id(
+        "domain-root-infrastructure".to_string(),
+        Some(937),
+    );
+    legacy.label = "Infrastructure".to_string();
+    legacy.node_type = Some("domain_root".to_string());
+    legacy.group = Some("infrastructure".to_string());
+    legacy.owl_class_iri = Some("urn:ngm:domain:infrastructure".to_string());
+    legacy
+        .metadata
+        .insert("type".to_string(), "domain_root".to_string());
+    h.kg_repo.batch_add_nodes(vec![legacy]).await.unwrap();
+    let spokes: Vec<visionclaw_domain::models::edge::Edge> = members
+        .iter()
+        .map(|&m| visionclaw_domain::models::edge::Edge {
+            id: format!("domain_937_{m}"),
+            source: 937,
+            target: m,
+            weight: 1.5,
+            edge_type: Some("hierarchical".to_string()),
+            owl_property_iri: None,
+            metadata: None,
+        })
+        .collect();
+    h.kg_repo.batch_add_edges(spokes).await.unwrap();
+
+    // The incremental sync every boot runs, as on the live stack.
+    let stats = h.service.sync_graphs().await.expect("re-sync");
+    assert_no_stage_failed(&stats);
+    let graph = h.kg_repo.load_graph().await.unwrap();
+    assert!(
+        graph.nodes.iter().all(|n| n.id != 937),
+        "the legacy root is purged"
+    );
+    assert_one_root_one_spoke_per_member(&graph, "infrastructure");
+}
+
 /// The ontology half: a full sync rebuilds the assert graph from the freshly
 /// ingested corpus and runs Whelk over it, materialising inferred edges.
 #[actix_rt::test]
