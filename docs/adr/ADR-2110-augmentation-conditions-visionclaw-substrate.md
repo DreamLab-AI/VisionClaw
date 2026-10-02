@@ -78,9 +78,9 @@ It **refuses; it never fills the rationale in** — `check_rationale` returns
 `Result<(), RationaleRejection>`, so it is structurally incapable of supplying
 the text it demands, and the 422 body carries no `reasoning` field. `low`,
 `medium` and untiered stay optional. The tier consulted is the tier recorded on
-the case, which today is the agent's *declared* `risk_tier`; when FR3's
-`effective_tier` lands this gate reads that instead, and tightens rather than
-loosens. The Whelk gate is unaffected: it writes through `record_decision`
+the case (`risk_tier` or `tier` in its proposal body): the agent's *declared*
+tier, never the forum's `effective_tier`, which VisionClaw does not receive
+(follow-on 5). The Whelk gate is unaffected: it writes through `record_decision`
 directly, so a system actor is never asked for a human rationale.
 
 **Non-vacuous decision surface (FR2.3–2.4, FR6.5).** The case card renders the
@@ -130,9 +130,34 @@ sorts oldest first and badges each case's age.
 4. The forum halves of EXP-AC-002, EXP-AC-004 and EXP-AC-006 are open. This ADR
    closes only the VisionClaw clauses.
 5. The server rationale gate reads the case's *declared* `risk_tier`, so an agent
-   that under-declares its own tier escapes it. Closing this needs FR3's
-   `effective_tier` on the case row (nostr-rust-forum). The gate's call site is
-   one line and will tighten, not loosen, when it lands.
+   that under-declares its own tier escapes it. *Restated 2026-10-02 after
+   tracing the data path; the earlier text assumed the forum's tier would arrive
+   on the case row.* It will not arrive there unaided:
+   - VisionClaw does not ingest forum cases. Every case row is opened locally by
+     `ElevationActor` (`pending_proposal`), `DecisionElevationStore::open_case`,
+     or the first-contact stub in `apply_decision`, and VisionClaw publishes the
+     31402. The agentbox broker bridge reads cases *from* VisionClaw
+     (`/api/broker/cases`) and proxies decisions back; it brings none in.
+   - None of those writers records a tier, and VisionClaw's 31400
+     (`ElevationActor::panel_definition`) and 31402 (`build_action_request`: `d`,
+     `priority`, `category`, `subject-*`, `title`) carry no `risk-tier` tag, no
+     `risk_tier` in content and no `tp-*` triple. So in-tree the gate finds no
+     tier and never fires; it bites only on a row whose body names one.
+   - The forum's `effective_tier` (ADR-2011, migration 0006) lives in the relay's
+     D1 `broker_cases` row, served by the auth worker at
+     `GET /api/governance/cases/:id` (NIP-98, any signer); it cannot ride on the
+     signed 31402. For a VisionClaw case it folds to the advertised default,
+     `ESCALATION_DEFAULT_TIER = "medium"`, because nothing is declared: below
+     both rationale thresholds, so the relay's own FR2.2 gate on the 31403 does
+     not fire either.
+   Closing this is a declaration, not a read: the operator declares the
+   task-property triple on VisionClaw's panels (a policy choice that belongs to
+   the owner), after which the relay computes a real tier. Mirroring that tier
+   onto the case row (a NIP-98 read of the auth worker, or computing it locally
+   with `nostr_bbs_core::governance::effective_tier`, published in
+   1.0.0-beta.12) is then a small change in which the gate takes the higher of
+   the declared and effective tiers. Until the triple is declared, that read
+   would return `medium` for every case and change nothing.
 6. `apply_decision` has three entry points with divergent authorisation — the
    service route (`X-Agent-Key`), the operator route (`power_user()`) and
    `/api/ingest/writeback` (the `RbacGate` default). The rationale gate now
@@ -252,3 +277,46 @@ staleness gate stops firing on a formatting-only diff.
 **Governed changes since `997440cd0`:** `src/actors/elevation_actor.rs` drafts frontier-concept Class pages as frontmatter-only OKF pages (`type: Class`, `resource`, `status: draft`, a `generated` stamp, `related-to` wikilinks) under `knowledge/pages/` instead of a `json-ld` fence under `mainKnowledgeGraph/pages/` (ADR-2112); `src/handlers/broker_inbox_handler.rs` updated the same path in two test fixtures. The six other governed paths are unchanged.
 
 **Decision unaffected.** The augmentation conditions this record governs — optional confidence, boot reconciliation, the expiry receipt — are untouched; what changed is the on-disk shape of the page an approved elevation drafts, which is ADR-2112's decision. `verified_commit` moved to the CI-repair commit.
+
+## Activation readiness — 2026-10-02 at 7d3ea2edb
+
+Recorded for the activation step; `activation_status` stays `inactive` until the
+acceptance run below passes on a live stack.
+
+**The dev stack is not running.** No `visionclaw_container` exists. The newest
+image, `ar-ai-knowledge-graph-visionclaw:latest` (`028a067537d6`), was built
+2026-09-30T19:08:52Z with no commit label.
+
+**`./scripts/launch.sh up dev` is sufficient; `rebuild dev` is not needed.** The
+dev image carries no source: `src/`, `crates/`, `Cargo.toml`, `Cargo.lock` and
+`build.rs` are bind-mounted (`docker-compose.unified.yml`, visionclaw
+`volumes:`), and `rust-backend-wrapper.sh` recompiles at start. Of the files
+`needs_image_rebuild` treats as image-critical (`Dockerfile.unified`,
+`Dockerfile.production`, `client/package.json`, `client/package-lock.json`),
+none has changed since the image was built: they were last touched on 22 and 9
+September, and `git log --since` the build time names none of them. Root
+`Cargo.toml` and `Cargo.lock` were last changed on 25 September. The changes
+since the build are crate source (`crates/vault*` in `805219679`, which drops a
+feature flag and leaves the lockfile alone, and an adapter in `7b6330608`),
+which the wrapper compiles, and `nginx.dev.conf` (`648c9c442`), a config-tier
+file that `up dev` hot-patches into the container. The ADR-2110 code itself has
+been on `main` since 14 September.
+
+**Acceptance.** Once the stack is up, `scripts/activation/adr-2110-check.sh`
+checks every clause this record governs against the live endpoints:
+
+- the binary is newer than every mounted source file;
+- `/api/trace` echoes a declared intent verbatim and scores it, including the
+  `node-7`/`node-70` counter-example and an absent intent;
+- the HITL Precision tile reports a denominator;
+- `/api/broker/inbox` serves a `high` case with a null confidence;
+- an absent, short or whitespace-padded rationale gets a 422
+  `rationale_required` with nothing persisted;
+- `rust.log` shows the ElevationActor's boot reconciliation.
+
+It seeds its own labelled fixtures, removes them afterwards, and writes a dated
+receipt to `.claude/evidence/activation/`. Any probe that cannot run fails the
+whole check. The run does not cover the owner's live high-tier 31403 (cycle exit
+test item 4). Per follow-on 5, no VisionClaw case is high-tier on the forum
+today, so that event needs either a declared triple or a case that is not
+VisionClaw's.
