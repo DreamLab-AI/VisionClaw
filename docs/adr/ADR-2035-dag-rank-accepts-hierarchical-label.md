@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
+verified_commit: 8a501fbbce44cbb3bee0084e9a9b30abe6f46e47
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -282,3 +282,55 @@ was not verified here; the post-`up dev` check is a census of
 `GET /api/graph/data` showing `domain_member` spokes and no provenance-free
 `hierarchical` edges, plus a `Uploaded DAG ranks` log line back at 9796 edges.
 
+
+## Follow-up — 2026-10-02: one domain root per domain, reconciled every sync (`8a501fbbc`)
+
+The amendment above relabelled new spokes, but after the next `up dev` the
+live store (`GET /api/graph/data`, 17:46Z boot) still held 6,400
+`hierarchical` spokes beside 6,408 `domain_member` ones. The ranker was
+already correct: "Uploaded DAG ranks — 9796 hierarchy edges". The cause
+was a level below the label. Domain roots took their id from
+`Node::default()`, a process-local counter, so every server process minted
+a new set of eight roots: stored ids 937–944 in the earlier process, 1–8 in
+this one. The old roots and their spokes stayed in the store. Each new root
+also counted the old root as a member, because a root's `group` is its own
+slug, and that is the extra 8 in 6,408. Keying the spoke upsert on
+(root, member) could not fix this, since the root changes between processes.
+
+What is now true (`src/services/github_sync_service.rs`):
+
+- **Stable identity.** `domain_root_node_id(slug)` derives the root id with
+  `NodeIdHasher::derive_id` over `domain-root-<slug>`, the scheme page ids
+  use. Each domain has one root id in every process.
+- **Reconcile, not append.** `materialise_domain_roots` applies a pure
+  `plan_domain_roots(&graph)`, which:
+  - purges every stored root that is not a populated domain's derived root,
+    together with every edge on it;
+  - removes spokes on a live root that are labelled `hierarchical`,
+    duplicated, or point at a node that is no longer a member;
+  - rewrites a root only when it differs (an Oxigraph insert appends
+    triples, so a rewrite is a remove then an add);
+  - adds only the spokes that are missing.
+
+  Roots are never members. Spokes with real provenance are left alone.
+  Removal is by IRI, and a spoke that shared its IRI with a removed copy is
+  written again. On a reconciled store the plan is a no-op, so a second
+  sync writes nothing.
+- **Purging the live store.** The startup sync runs every boot and reaches
+  this stage (`app_state.rs` `sync_graphs()`), then reloads GraphStateActor
+  from Oxigraph. One restart onto this source therefore leaves eight roots
+  and one `domain_member` spoke per member. No forced re-sync is needed.
+
+Tests:
+
+- Integration, real Oxigraph (`tests/corpus_local_sync.rs`):
+  - `re_syncing_leaves_one_root_and_one_membership_spoke_per_member` (one
+    full sync, then two incremental ones);
+  - `a_sync_replaces_a_legacy_root_and_its_hierarchical_spokes` (seeds a
+    root at counter id 937 with `hierarchical` spokes, then runs the
+    incremental sync every boot runs).
+
+  Both failed before the fix ("the root sits at the id its slug derives":
+  left 5 / 15, right 1627687582) and pass after it.
+- Unit (`domain_root_plan_tests`): eight cases on the pure plan, including
+  the two-roots-two-labels store state of 2 Oct and the shared-IRI case.

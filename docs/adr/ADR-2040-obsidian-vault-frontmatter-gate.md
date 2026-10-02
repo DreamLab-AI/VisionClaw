@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 8bdece469a3ad29b1b60a86490da1aa841dc89bb
+verified_commit: 8a501fbbce44cbb3bee0084e9a9b30abe6f46e47
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -154,3 +154,9 @@ and legacy support cannot be retired on this evidence.
 ## Re-verification — 2026-10-02 at 8bdece469 (DAG rank provenance, ADR-2035)
 
 **Governed change since `95e98ab12`:** `src/services/github_sync_service.rs` relabels domain-root spokes `domain_member` (ADR-2035). No vault parsing, inclusion gate or page-identity code changed. The record remains superseded by ADR-2112; `verified_commit` moved only to clear the staleness check.
+
+## Re-verification — 2026-10-02 at 8a501fbbce44cbb3bee0084e9a9b30abe6f46e47
+
+`8a501fbbc` changes only domain-root materialisation, which runs after
+ingest over nodes already admitted. It does not touch frontmatter parsing or
+the conformance gate this record governs. The decision holds unchanged.
