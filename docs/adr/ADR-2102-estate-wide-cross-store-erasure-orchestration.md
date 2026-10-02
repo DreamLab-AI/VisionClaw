@@ -101,3 +101,10 @@ data in all five stores, with the RuVector consumer stopped:
 5. Re-running the same erasure is idempotent: five acknowledgements, no new mutations.
 6. Erasing a subject present only in the derived Oxigraph `:assert` graph without an
    upstream deletion is **refused** with a typed error, not acknowledged.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits, needs revision
+- **Priority:** P2 — next cycle (planning-cycle §3: "Erasure pair (agentbox ADR-2060, host ADR-2102) — first candidate after this cycle alongside ADR-2078")
+- **Why:** A left-behind residential node will one day receive a deletion request, and nothing in the estate can honour one in full, so the intent stands. The store list is out of date. "GitHub content" is no longer the corpus upstream: ingest is a `CorpusSource` (ADR-2114) and GitHub sync is optional and off (ADR-2115). Decision item 4's "rebuilt from the GitHub upstream" therefore needs restating against the local vault. agentbox ADR-2060 is still `proposed`/`none`.
+- **Next:** Reopen at the start of the next cycle together with agentbox ADR-2060. First restate the five stores against ADR-2114/2115, then make the item-3 choice (crypto-shredding, or provenance declared out of scope).

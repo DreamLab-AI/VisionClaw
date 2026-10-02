@@ -5,7 +5,7 @@ date: 2026-09-22
 decision_status: accepted
 implementation_status: partial
 activation_status: staged
-supersedes: []
+supersedes: [ADR-2042]
 superseded_by: []
 verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
 verified_paths: []

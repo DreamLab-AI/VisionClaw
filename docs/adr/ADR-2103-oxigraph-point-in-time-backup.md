@@ -92,3 +92,10 @@ restore and no declared RPO/RTO."
    manifest — the ADR-2069 required-member semantics, not a skip-and-continue.
 5. `docs/DATA-authority-erasure.md` no longer contains the sentence "Oxigraph has NO
    point-in-time backup", and states the per-graph restore policy from Decision item 4.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits, needs revision
+- **Priority:** P2 — next cycle (TODO row G-7: reopens once a real deployment exists to set a backup policy for, i.e. after the CY-C fresh-host bring-up)
+- **Why:** `implementation_status: none` is out of date. An opt-in checkpoint taken from the open writer now exists: `ONTOLOGY_BACKUP_DIR` at `src/main.rs:728-750` calls `checkpoint_oxigraph` (`src/services/data_reconciliation.rs:284-297`, last touched in `1ad881cab`). It runs once at boot, aborts boot on failure, and writes no `MANIFEST.txt`. It is not called from `scripts/backup-sqlite.sh`, so decision items 1 to 3 (schedule, declared RPO/RTO, required membership) are still unmet. G-7 records the checkpoint and source-loss restore fixture passing, and the deployment-specific policy as unverified. This is the host record. Planning-cycle §10's "ADR-2103 P21 gate" refers to agentbox ADR-2103, a different record.
+- **Next:** Restate the verification against the boot-time checkpoint, then bind it into the backup run with a manifest and one timed restore drill on the deployed host.

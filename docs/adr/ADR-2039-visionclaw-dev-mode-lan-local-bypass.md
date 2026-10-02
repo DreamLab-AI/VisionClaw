@@ -135,3 +135,10 @@ because the observed state on 2026-09-08 was a dev backend running with the flag
 at `0` and every server-routed HUD write from the HP headset rejected. The
 compile-gate, the release boot-refusal, the dev-service-only scoping and the
 `.env` opt-out are unchanged.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits
+- **Priority:** P1 — this cycle (§9 demonstrator path: the VisionClaw immersive graph on the HP headset; Track C item 10 must state its posture)
+- **Why:** The headset demo is first-class under planning-cycle §9, and its HUD writes depend on this bypass. The NIP-98 u-tag fix it routes around is not evident in history since 1 Sep (unverified). The code is present at `95e98ab12`: `dev_full_bypass_active` (`src/utils/auth.rs:99`, release stub at `:112`), the `SUSPECT_ENVS` entry (`src/main.rs:132`) and the boot banner (`src/main.rs:288`). The "default OFF" clause is already amended by ADR-2108. `verified_commit` is empty because the runtime confirmation never ran: no `visionclaw_container` was running from agentbox on 2 Oct.
+- **Next:** Take one runtime receipt for this record and ADR-2108 together: run `launch.sh up dev`, then send an unauthenticated non-loopback `PUT /api/settings/physics` and expect 2xx, then press View 3D/Flat on the HP headset. The record is then ready to accept on that receipt.

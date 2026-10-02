@@ -67,3 +67,10 @@ is the fingerprint of an auth gate rather than a dead HUD.
   dev mode armed and an unauthenticated `PUT /api/settings/physics` from a
   non-loopback peer returns 2xx; then a View 3D/Flat press on the HP headset
   flips the button face. Populate `verified_commit` on that receipt.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits, needs revision
+- **Priority:** P1 — this cycle (Track C item 10, CY-C fresh-host bring-up; §9 demonstrator path)
+- **Why:** For the owner's own rig the decision stands. `docker-compose.unified.yml:90` reads `${VISIONCLAW_DEV_MODE:-1}` and the XR write-denied notice shipped in `a37433f5d`. Its premise is that "the LAN is the trust boundary", and Track C now makes a client's network a deployment target. A residential host brought up with `launch.sh up dev` would make every peer on the Trust LAN an admin. The prod path forbids the flag (`scripts/launch.sh:165`) but requires `CLOUDFLARE_TUNNEL_TOKEN` and three other secrets (`:171`), which an offline Trust deployment may not have (unverified). The record needs one clause saying which profile a client-hardware deployment uses.
+- **Next:** The owner decides the residential profile (see the triage owner questions). Then take the joint runtime receipt with ADR-2039, after which the record is ready to accept.

@@ -132,3 +132,10 @@ that run was red. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `Dockerfile.production` replaced the `sync_local`/`sync_github` bin stubs in the dependency-caching layer with one `sync_corpus` stub; `src/main.rs` — the ADR-2114 `CorpusSource` wiring; `.github/workflows/ci.yml` — the CPU crate list now names `vault-core` and `vault` in place of the deleted `vault-migrate` (the `dev-auth-release-gate` job is unchanged). `security_profile.rs` is unchanged.
 
 **Decision unaffected.** The `--release` build line in `Dockerfile.production` still names no `dev-auth` feature; the CI gate asserting that is untouched and still runs. `verified_commit` moved to the CI-repair commit.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits
+- **Priority:** P1 — this cycle (Track C item 10, CY-C fresh-host bring-up)
+- **Why:** A Trust host must run a release image whose hardening is compiled in, which is exactly what this record decides. The source half holds at `95e98ab12`: both `cargo build --release` lines in `Dockerfile.production` (`:101`, `:164`) use default features, which are `gpu, ontology, persistence-oxigraph, solid-pod-embed` (`Cargo.toml:254`), with no `dev-auth`; the blocking `dev-auth-release-gate` job is at `.github/workflows/ci.yml:143`; and `scripts/launch.sh:165` refuses a `.env.prod` that defines `VISIONCLAW_DEV_MODE`, `SETTINGS_AUTH_BYPASS` or `ALLOW_INSECURE_DEFAULTS`. The open clause is the one the 2026-09-05 progress note names: no receipt binds an image digest to its feature closure.
+- **Next:** During the CY-C fresh-host bring-up, record the production image digest, its feature closure and the two exit-2 forbidden-variable probes in one receipt. The record is then ready to accept on that receipt.

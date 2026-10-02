@@ -2,12 +2,12 @@
 id: ADR-2042
 title: "`vault-migrate` is the sole Logseq→Obsidian converter — deterministic, output-dir by default, preserve-and-report"
 date: 2026-09-02
-decision_status: proposed
+decision_status: superseded
 implementation_status: partial
 activation_status: live
 supersedes: []
-superseded_by: []
-verified_commit:
+superseded_by: [ADR-2113]
+verified_commit: 95e98ab12baceb51a49ac8a0d2ff37a7b85e5e10
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -136,3 +136,10 @@ destination as drift; and case-differing names handled on either filesystem.
 source page/asset and validating consumer inclusion/identity after conversion is
 not done, and recovery before in-place promotion is untested against a real
 graph.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** discordant
+- **Priority:** withdrawn
+- **Why:** The claim "vault-migrate is the sole converter" no longer holds. `crates/vault-migrate` was deleted in `f9720fbcb` and replaced by `vault migrate` in `crates/vault` (ADR-2113 "Follow-on"; ADR-2112 §"Supersession"). That converter was itself retired by ADR-2117 once the corpus was converted. `crates/` at `95e98ab12` holds no `vault-migrate`. TODO-unified row N-1 confirms that no rerun of conversion remains.
+- **Next:** None. `decision_status` set to `superseded` with `superseded_by: [ADR-2113]`, the record that took over the converter role, and ADR-2113 now lists `supersedes: [ADR-2042]`. ADR-2117 amends ADR-2113 and is not a direct successor. The validator requires a `verified_commit`, so it is stamped `95e98ab12`. The other status fields are unchanged.

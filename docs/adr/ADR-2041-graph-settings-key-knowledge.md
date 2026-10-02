@@ -2,12 +2,12 @@
 id: ADR-2041
 title: "The knowledge-graph settings key and graph-type value are `knowledge`; `logseq` is a read-only alias for one release"
 date: 2026-09-02
-decision_status: proposed
+decision_status: superseded
 implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit:
+verified_commit: 95e98ab12baceb51a49ac8a0d2ff37a7b85e5e10
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -82,3 +82,10 @@ binary.
 CP-01/02/06/08. Owner remains jjohare with settings/client/runtime maintainers. Three Rust alias tests and eight client migration tests pass. The client prefers knowledge when both keys exist and drops logseq; binary paths canonicalise the legacy segment before registration/lookup. Complete/staged is preserved for the scoped rename implementation, not a live persisted-settings migration.
 
 **Acceptance condition:** Verify typed settings load/save, JSON patch, persistence merge, dotted path and transport values against one compatibility matrix. Include both keys, null/wrong types, legacy-only/canonical-only, repeated migration and rollback. Confirm binary registry IDs across independently built peers and registration order; unknown graph values must be rejected by their consuming route. Bind alias removal to a named release and migrated-consumer evidence. Reopen on settings schema, registry ordering, persistence hook or retirement changes. See the [review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/configuration-projection.md#knowledge-settings-migration) and [receipt](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/evidence/graph-settings-migration.json). No real browser storage, server settings load/save, live patch or transport test ran.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** discordant
+- **Priority:** withdrawn
+- **Why:** Superseded by accepted ADR-2115 ("the `logseq` settings alias is removed"), which already lists `supersedes: [ADR-2041]`. This record's one-release alias, which was its whole transitional content, has been retired by that successor.
+- **Next:** None. `decision_status` set to `superseded`. The validator requires a `verified_commit`, so it is stamped `95e98ab12`. The other status fields are unchanged.

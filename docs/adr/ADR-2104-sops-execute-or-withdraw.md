@@ -106,3 +106,10 @@ and the chosen branch's test passes:
 - **Branch B:** ADR-109 reads `decision_status: rejected` with a dated withdrawal note;
   `scripts/sops` and its `.gitignore` line are gone; `docs/DATA-authority-erasure.md`
   carries the plaintext-posture paragraph as a standing statement with an owner.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** fits
+- **Priority:** P1 — this cycle (Track C item 10: the fresh-host runbook must say how secrets reach a client's machine)
+- **Why:** The record still describes the tree at `95e98ab12`. `scripts/sops` is the same 43,122,840-byte binary dated 9 May. There is no `.sops.yaml`, `secrets.enc.yaml`, `scripts/sops-env.sh` or `.env.example`. `docs/DATA-authority-erasure.md:112-113` still says "NEVER EXECUTED". agentbox ADR-2027 (custody) is still `proposed`/`none`. A fresh host built "by following the runbook literally" will meet this choice on day one, either with an age-encrypted file or by copying a plaintext `.env` onto Trust hardware, so the choice cannot wait for the next cycle.
+- **Next:** The owner picks branch A or branch B before the runbook is written. Either way, delete the unattributed `scripts/sops` binary.

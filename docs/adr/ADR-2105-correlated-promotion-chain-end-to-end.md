@@ -2,7 +2,7 @@
 id: ADR-2105
 title: Carry one authoring correlation id through validation, PR, approval, merge and served corpus — VisionClaw echoes it
 date: 2026-09-05
-decision_status: proposed
+decision_status: rejected
 implementation_status: none
 activation_status: inactive
 supersedes: []
@@ -107,3 +107,10 @@ capture the id it mints:
    path returns nothing).
 6. Submit a proposal with a malformed id: it is rejected or recorded `unlinked`, never
    normalised into a plausible-looking one.
+
+## Disposition — 2026-10-02
+
+- **Suitability:** discordant
+- **Priority:** withdrawn
+- **Why:** The premise no longer holds at either end of the chain. The mint site this record depends on, agentbox `mcp/servers/lib/ontology-authoring-authority.js`, was deleted in agentbox `873d9e0a1`, and agentbox ADR-2022, the origin record, is superseded by agentbox ADR-2108. The PR, approval and merge stages were removed by accepted host ADR-2116: `/api/ontology-agent/propose` answers 410, and proposals are forum kind-31402 events decided by signed kind-31403 events. No `ontology-authoring-correlation` reference survives in host `src/`, `crates/` or agentbox (grep, 2 Oct). Traceability now comes from the signed event ids. Whether apply receipts cite the deciding 31403 id is unverified.
+- **Next:** None. `decision_status` set to `rejected`; the other fields are unchanged. If end-to-end traceability is wanted for the ADR-2116 path, raise it there, against the event ids.
