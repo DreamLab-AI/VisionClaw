@@ -22,6 +22,7 @@ AGENT_COMPOSE_FILE="$PROJECT_ROOT/multi-agent-docker/docker-compose.unified.yml"
 COMMAND="${1:-up}"
 ENVIRONMENT="${2:-dev}"
 WITH_AGENT=false
+PROD_INGRESS="tunnel"   # resolved from .env.prod by resolve_prod_ingress (ADR-2119)
 
 # Check for --with-agent flag in any position
 for arg in "$@"; do
@@ -153,6 +154,31 @@ validate_environment() {
     esac
 }
 
+# Last value assigned to a setting in an env file, without sourcing it.
+env_file_value() {
+    sed -n "s/^[[:space:]]*${2}[[:space:]]*=[[:space:]]*//p" "$1" | tail -n 1
+}
+
+# Production ingress (ADR-2119): how clients reach a prod host.
+#   tunnel  the Cloudflare tunnel; needs CLOUDFLARE_TUNNEL_TOKEN, starts cloudflared
+#   lan     LAN only (the Trust residential); no token, cloudflared never starts
+# An .env.prod that does not declare VISIONCLAW_INGRESS keeps the tunnel
+# contract, so a forgotten token on a tunnelled host still fails loudly.
+resolve_prod_ingress() {
+    local declared
+    declared=$(env_file_value "$1" VISIONCLAW_INGRESS)
+    declared="${declared%\"}"; declared="${declared#\"}"
+    case "${declared:-tunnel}" in
+        lan|tunnel)
+            PROD_INGRESS="${declared:-tunnel}"
+            ;;
+        *)
+            error ".env.prod: VISIONCLAW_INGRESS must be 'lan' or 'tunnel', not '${declared}'"
+            exit 1
+            ;;
+    esac
+}
+
 # Load environment-specific configuration
 load_env_config() {
     local env_file="$PROJECT_ROOT/.env.$ENVIRONMENT"
@@ -160,20 +186,37 @@ load_env_config() {
     if [[ -f "$env_file" ]]; then
         success "Loading environment config: .env.$ENVIRONMENT"
 
+        if [[ "$ENVIRONMENT" == "prod" ]]; then
+            resolve_prod_ingress "$env_file"
+        fi
+
         if [[ "$ENVIRONMENT" == "prod" ]] && [[ "$COMMAND" =~ ^(up|restart)$ ]]; then
             local forbidden_setting
-            for forbidden_setting in SETTINGS_AUTH_BYPASS ALLOW_INSECURE_DEFAULTS VISIONCLAW_DEV_MODE; do
+            for forbidden_setting in SETTINGS_AUTH_BYPASS ALLOW_INSECURE_DEFAULTS VISIONCLAW_DEV_MODE DEV_AUTH_LOOPBACK; do
                 if grep -Eq "^[[:space:]]*${forbidden_setting}[[:space:]]*=" "$env_file"; then
                     error ".env.prod must not define ${forbidden_setting} (even as false)"
                     exit 1
                 fi
             done
 
+            # ADR-2119: the tunnel token is required only when ingress is the
+            # tunnel; a LAN host must instead name its own CORS origins, because
+            # the compose default is the owner's public domain.
+            local required_settings=(MANAGEMENT_API_KEY VISIONCLAW_AGENT_KEY SOLID_PROXY_SECRET_KEY)
+            if [[ "$PROD_INGRESS" == "tunnel" ]]; then
+                required_settings+=(CLOUDFLARE_TUNNEL_TOKEN)
+            else
+                required_settings+=(CORS_ALLOWED_ORIGINS)
+                if [[ -n "$(env_file_value "$env_file" CLOUDFLARE_TUNNEL_TOKEN)" ]]; then
+                    warning "VISIONCLAW_INGRESS=lan: CLOUDFLARE_TUNNEL_TOKEN is ignored and cloudflared will not start"
+                fi
+            fi
+
             local required_setting required_value
-            for required_setting in CLOUDFLARE_TUNNEL_TOKEN MANAGEMENT_API_KEY VISIONCLAW_AGENT_KEY SOLID_PROXY_SECRET_KEY; do
-                required_value=$(sed -n "s/^[[:space:]]*${required_setting}[[:space:]]*=[[:space:]]*//p" "$env_file" | tail -n 1)
+            for required_setting in "${required_settings[@]}"; do
+                required_value=$(env_file_value "$env_file" "$required_setting")
                 if [[ -z "$required_value" ]] || [[ "$required_value" == *'${'* ]]; then
-                    error ".env.prod requires a concrete value for ${required_setting}"
+                    error ".env.prod requires a concrete value for ${required_setting} (VISIONCLAW_INGRESS=${PROD_INGRESS})"
                     exit 1
                 fi
             done
@@ -220,10 +263,16 @@ set_environment_vars() {
         prod)
             export CONTAINER_NAME="visionclaw_prod_container"
             export BUILD_TARGET="production"
-            export COMPOSE_PROFILES="prod"
+            # cloudflared lives in its own `tunnel` profile (ADR-2119).
+            if [[ "$PROD_INGRESS" == "tunnel" ]]; then
+                export COMPOSE_PROFILES="prod,tunnel"
+            else
+                export COMPOSE_PROFILES="prod"
+            fi
             export LOG_LEVEL="info"
             export RESTART_POLICY="unless-stopped"
             info "Environment: Production"
+            info "  - Ingress: ${PROD_INGRESS} (VISIONCLAW_INGRESS)"
             info "  - Minimal logging"
             info "  - Optimized builds"
             info "  - Restart policy: unless-stopped"
@@ -323,10 +372,15 @@ detect_gpu() {
     fi
 }
 
-# Docker Compose wrapper
+# Docker Compose wrapper: one --profile flag per entry in COMPOSE_PROFILES.
 docker_compose() {
+    local profile profiles profile_args=()
+    IFS=',' read -ra profiles <<< "$COMPOSE_PROFILES"
+    for profile in "${profiles[@]}"; do
+        profile_args+=(--profile "$profile")
+    done
     cd "$PROJECT_ROOT"
-    docker compose -f "$COMPOSE_FILE" --profile "$COMPOSE_PROFILES" "$@"
+    docker compose -f "$COMPOSE_FILE" "${profile_args[@]}" "$@"
 }
 
 # Clean up conflicting containers and resources
@@ -681,7 +735,14 @@ start_environment() {
         # Show logs and keep running
         docker_compose logs -f
     else
-        info "Production mode: Starting cloudflared tunnel"
+        if [[ "$PROD_INGRESS" == "tunnel" ]]; then
+            info "Production mode: Starting cloudflared tunnel (VISIONCLAW_INGRESS=tunnel)"
+        else
+            info "Production mode: LAN-only ingress, no cloudflared (VISIONCLAW_INGRESS=lan)"
+            # A tunnel left running from an earlier tunnel-mode start is not an
+            # orphan to compose (the service is still defined), so remove it.
+            COMPOSE_PROFILES="prod,tunnel" docker_compose rm --stop --force cloudflared >/dev/null 2>&1 || true
+        fi
         docker_compose up -d --remove-orphans
 
         # Wait for containers to be ready
@@ -699,7 +760,13 @@ start_environment() {
 # Stop environment
 stop_environment() {
     log "Stopping $ENVIRONMENT environment..."
-    docker_compose down --remove-orphans
+    if [[ "$ENVIRONMENT" == "prod" ]]; then
+        # Include the tunnel profile whatever the ingress, so a host switched
+        # from tunnel to LAN does not strand a running cloudflared (ADR-2119).
+        COMPOSE_PROFILES="prod,tunnel" docker_compose down --remove-orphans
+    else
+        docker_compose down --remove-orphans
+    fi
     success "Environment stopped"
 }
 
@@ -1102,6 +1169,9 @@ show_service_urls() {
         echo "  ${GREEN}API (direct):${NC}  http://localhost:${API_PORT:-4000}"
     else
         echo "  ${GREEN}Web UI:${NC}        http://localhost:${PROD_API_PORT:-3001}"
+        if [[ "$PROD_INGRESS" == "lan" ]]; then
+            echo "  ${GREEN}Ingress:${NC}       LAN only; headsets use XR_BACKEND_WS=ws://<this-host>:${PROD_API_PORT:-3001}"
+        fi
     fi
 
     if [[ "$ENVIRONMENT" == "dev" ]]; then
@@ -1133,9 +1203,10 @@ clean_all() {
         cleanup_conflicts
 
         # Stop all containers for both environments
-        for env in dev prod; do
+        # prod,tunnel: reach cloudflared whatever the ingress (ADR-2119).
+        for env in dev prod,tunnel; do
             export COMPOSE_PROFILES="$env"
-            log "Stopping $env environment..."
+            log "Stopping profiles: $env..."
             docker_compose down -v --remove-orphans 2>/dev/null || true
         done
 

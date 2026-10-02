@@ -170,8 +170,11 @@ Docker-in-Docker, and picks the Cargo feature set (`gpu,ontology`, plus
 | `dev` (default) | `development` | `dev` | debug, hot reload | `no` | enabled |
 | `prod` | `production` | `prod` | info | `unless-stopped` | disabled |
 
-`prod` additionally starts the `cloudflared` tunnel; `dev` skips it for
-local-only access.
+`prod` starts the `cloudflared` tunnel only when `.env.prod` declares
+`VISIONCLAW_INGRESS=tunnel` (the default when the setting is absent), which
+also requires `CLOUDFLARE_TUNNEL_TOKEN`. `VISIONCLAW_INGRESS=lan` runs prod
+LAN-only: no token, no `cloudflared`, and an explicit `CORS_ALLOWED_ORIGINS`
+instead (ADR-2119). `dev` never starts the tunnel.
 
 ### Flags
 
@@ -238,8 +241,10 @@ After `up`, the launcher prints the live endpoints:
 | Solid pod | `http://localhost:8484` | Embedded pod (`solid-pod-embed`) |
 | Legacy MCP (TCP) | `tcp://localhost:9500` | Ontology MCP transport |
 
-In `prod` the public URL is served through the `cloudflared` tunnel at
-`https://www.visionclaw.info`.
+In `prod` with `VISIONCLAW_INGRESS=tunnel` the public URL is served through
+the `cloudflared` tunnel at `https://www.visionclaw.info`. With
+`VISIONCLAW_INGRESS=lan` there is no public URL; clients use
+`http://<host>:3001` and headsets `ws://<host>:3001`.
 
 ---
 

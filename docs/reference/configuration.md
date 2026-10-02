@@ -326,7 +326,7 @@ The Compose `json-file` driver caps logs at 10 MB × 3 files per service. See
 |---------|----------|---------|
 | `visionclaw` | `development`, `dev` | Hot-reload dev build; mounts host source read-only and the Docker socket. |
 | `visionclaw-production` | `production`, `prod` | Pre-compiled prod image; data volumes only, no source mounts, no Docker socket. |
-| `cloudflared` | `production`, `prod` | Cloudflare tunnel fronting the prod container. |
+| `cloudflared` | `tunnel` | Cloudflare tunnel fronting the prod container. `launch.sh up prod` activates `tunnel` unless `.env.prod` declares `VISIONCLAW_INGRESS=lan` (ADR-2119). |
 
 Select a profile with `--profile`:
 

@@ -267,7 +267,9 @@ services:
       - production
       - prod
 
-  # Cloudflare tunnel - works with both profiles
+  # Cloudflare tunnel: only under the `tunnel` profile (ADR-2119). launch.sh
+  # activates it when .env.prod declares VISIONCLAW_INGRESS=tunnel (or leaves it
+  # undeclared); a LAN-only host (VISIONCLAW_INGRESS=lan) never starts it.
   cloudflared:
     container_name: ${CLOUDFLARED_CONTAINER:-cloudflared-tunnel}
     # Pinned to the locally-available digest for reproducible production builds.
@@ -288,8 +290,7 @@ services:
     logging:
       <<: *common-logging
     profiles:
-      - production
-      - prod
+      - tunnel
 
   # ── Ontology Loom sidecar (Deployment B — VisionClaw ADR-135 D1 / PRD-025) ──
   # A portable ontology node with a stable, model-swappable façade. Co-located by

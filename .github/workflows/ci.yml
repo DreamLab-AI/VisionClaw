@@ -111,13 +111,13 @@ jobs:
         run: cargo test ${{ env.CPU_CRATES }}
       # visionclaw-integration-tests links no CUDA either, but four of its
       # test targets probe a live server / GPU. Build and lint the whole
-      # crate; run only the two hermetic contract targets (ADR-2069 backup
-      # posture, ADR-2008 dev build inputs). Until 2026-09-05 CI never saw
+      # crate; run only the hermetic contract targets (ADR-2069 backup
+      # posture, ADR-2008 dev build inputs, ADR-2119 prod ingress). Until 2026-09-05 CI never saw
       # this crate or the vault crates at all except through cargo fmt.
       - name: cargo clippy (integration-tests crate)
         run: cargo clippy -p visionclaw-integration-tests --all-targets
       - name: cargo test (hermetic integration contracts)
-        run: cargo test -p visionclaw-integration-tests --test backup_posture --test dev_build_inputs
+        run: cargo test -p visionclaw-integration-tests --test backup_posture --test dev_build_inputs --test prod_ingress
 
   client:
     name: Client Vitest (blocking)

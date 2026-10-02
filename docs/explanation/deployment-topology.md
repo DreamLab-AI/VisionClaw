@@ -19,7 +19,7 @@ The topology is intentionally layered: a reverse proxy sits at the perimeter, st
 > **UPDATED 2026-06-12.** Ground truth is `docker-compose.unified.yml`, which
 > defines exactly three services: `visionclaw` (dev profile, ports
 > `3001:3001` and `4000:4000`), `visionclaw-production` (prod profile, port
-> `3001:3001`), and `cloudflared` (prod, optional). **nginx, the Rust
+> `3001:3001`), and `cloudflared` (`tunnel` profile; prod with `VISIONCLAW_INGRESS=tunnel`, ADR-2119). **nginx, the Rust
 > backend, and the Vite dev server all run inside the single `visionclaw`
 > container** under supervisord — they are not separate compose services.
 > There are no `postgres`, `redis`, `qdrant`, `opensearch`, or `jss`
@@ -61,7 +61,7 @@ The following diagram shows all services as nodes. Solid arrows represent active
 ```mermaid
 graph TB
     Browser(["Browser Client"])
-    CF["cloudflared\n(prod profile, optional tunnel)"]
+    CF["cloudflared\n(tunnel profile: VISIONCLAW_INGRESS=tunnel)"]
 
     subgraph VCC ["visionclaw container (single container, supervisord)"]
         Nginx["nginx\n:3001 (entry point)"]
@@ -136,7 +136,7 @@ The critical path at startup is:
 
 1. The `visionclaw` container starts; inside it the Rust backend opens its embedded Oxigraph dataset and populates it from local files before serving graph data. (There is no graph-database container — ADR-2004. There is no relational database dependency; the backend has no PostgreSQL client.)
 2. nginx (`:3001`) and, in the dev profile, the Vite dev server (`:5173`) proxy to the backend on `:4000`.
-3. `cloudflared` (prod, optional) starts after the `visionclaw` container.
+3. `cloudflared` (`tunnel` profile, prod with `VISIONCLAW_INGRESS=tunnel` only) starts after the `visionclaw` container.
 4. External voice containers (`livekit`, `turbo-whisper`, `kokoro-tts`) start independently of the compose stack; `turbo-whisper` needs `livekit`.
 
 If the embedded Oxigraph store fails to populate at startup, the backend enters a **DEGRADED** state (it does not silently serve empty graph data) — see `app_state.set_degraded(...)` in `src/main.rs` and the `/readyz` readiness probe.
@@ -204,7 +204,7 @@ Activated with `--profile dev`. Starts:
 - `qdrant`
 - `opensearch`
 - `jss` (optional Solid sidecar)
-- `cloudflared` (optional, if `CLOUDFLARE_TUNNEL_TOKEN` is set)
+- `cloudflared` (`tunnel` profile: prod with `VISIONCLAW_INGRESS=tunnel`, which requires `CLOUDFLARE_TUNNEL_TOKEN`; never on a LAN-only host, ADR-2119)
 
 The dev profile mounts the source tree as bind volumes so that Rust recompilation and Vite HMR reflect code changes without image rebuilds. The tradeoff is that the first cold start is slow because Cargo must compile the full Rust workspace inside the container.
 
