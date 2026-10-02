@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use vault_core::vocabulary::Vocabulary;
 use visionclaw_domain::models::canonical_entity::{CanonicalEntity, EntityKind};
-use visionclaw_domain::models::edge::Edge;
+use visionclaw_domain::models::edge::{Edge, DOMAIN_MEMBER_EDGE_TYPE};
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
 use visionclaw_domain::ports::ontology_repository::{AxiomType, OntologyRepository, OwlAxiom};
 
@@ -916,16 +916,7 @@ impl GitHubSyncService {
             let slug = domain_slugs[idx];
             if let Some(members) = domain_members.get(slug) {
                 for &member_id in members {
-                    let edge = Edge {
-                        id: format!("domain_{}_{}", root_id, member_id),
-                        source: root_id,
-                        target: member_id,
-                        weight: 1.5,
-                        edge_type: Some("hierarchical".to_string()),
-                        owl_property_iri: None,
-                        metadata: None,
-                    };
-                    domain_edges.push(edge);
+                    domain_edges.push(domain_membership_edge(root_id, member_id));
                 }
             }
             created += 1;
@@ -2236,6 +2227,23 @@ fn enrich_node_from_frontmatter(
     let definition = parsed.page.leading_paragraph();
     if !definition.is_empty() {
         node.metadata.insert("definition".to_string(), definition);
+    }
+}
+
+/// The edge joining a synthetic domain root to one of its member pages.
+///
+/// Labelled [`DOMAIN_MEMBER_EDGE_TYPE`], not `hierarchical`: membership is not
+/// subsumption, so the DAG ranker, the fold ladder and the edge palette must
+/// not read it as a subclass edge (ADR-2035, amended 2026-10-02).
+pub(crate) fn domain_membership_edge(root_id: u32, member_id: u32) -> Edge {
+    Edge {
+        id: format!("domain_{}_{}", root_id, member_id),
+        source: root_id,
+        target: member_id,
+        weight: 1.5,
+        edge_type: Some(DOMAIN_MEMBER_EDGE_TYPE.to_string()),
+        owl_property_iri: None,
+        metadata: None,
     }
 }
 

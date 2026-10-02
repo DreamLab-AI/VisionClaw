@@ -398,6 +398,19 @@ impl SemanticTypeRegistry {
             },
         );
 
+        // Domain root → member. Spring config is the one these edges had
+        // under `hierarchical`, so the physics is unchanged; only the label,
+        // and with it the rank/fold/colour semantics, differs.
+        registry.register_internal(
+            "domain_member",
+            RelationshipForceConfig {
+                strength: 0.8,
+                rest_length: 60.0,
+                is_directional: true,
+                force_type: 0,
+            },
+        );
+
         registry.register_internal(
             "structural",
             RelationshipForceConfig {

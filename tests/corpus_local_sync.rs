@@ -207,10 +207,24 @@ async fn sync_graphs_ingests_the_local_vault() {
         20,
         "19 public pages plus the infrastructure navigation root"
     );
-    assert!(graph.nodes.iter().any(|n| {
-        n.metadata_id == "domain-root-infrastructure"
-            && n.group.as_deref() == Some("infrastructure")
-    }));
+    let root = graph
+        .nodes
+        .iter()
+        .find(|n| {
+            n.metadata_id == "domain-root-infrastructure"
+                && n.group.as_deref() == Some("infrastructure")
+        })
+        .expect("the infrastructure navigation root");
+
+    // ADR-2035 (amended 2026-10-02): the root's edges to its members survive
+    // the store round trip as membership, never as subsumption, so the DAG
+    // ranker cannot hang the root beneath the pages it groups.
+    let membership: Vec<_> = graph.edges.iter().filter(|e| e.source == root.id).collect();
+    assert!(!membership.is_empty(), "the root reaches its members");
+    for edge in membership {
+        assert_eq!(edge.edge_type.as_deref(), Some("domain_member"));
+        assert!(!edge.asserts_subsumption(), "membership is not subClassOf");
+    }
     assert!(
         !graph.edges.is_empty(),
         "the wikilink ring and the subclass chain produce edges"
@@ -307,6 +321,10 @@ async fn frontmatter_relations_are_typed_edges_and_a_class_wins_its_working_twin
         subclass.owl_property_iri.as_deref(),
         Some("http://www.w3.org/2000/01/rdf-schema#subClassOf"),
         "the predicate survives the store round trip"
+    );
+    assert!(
+        subclass.asserts_subsumption(),
+        "the live ingest's subclass edge is what the DAG ranker layers"
     );
 
     let axioms = h.onto_repo.get_axioms().await.expect("axioms");

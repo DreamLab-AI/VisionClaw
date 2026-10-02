@@ -1,0 +1,15 @@
+# ADR-2035 / N-14 live rank evidence, 2026-10-02T17:01:25Z
+# Running binary: pre-fix (dev-runtime compiled 16:38-16:52Z from source read before the fix landed).
+# Server log: 16:57:39Z 'Uploaded DAG ranks — 16196 hierarchy edges' = 9796 subClassOf + 6400 domain-root edges (16:54:59Z 'Created 6400 domain root edges for 8 domains').
+# Radial DAG engaged 17:00:47Z via POST /api/layout/radial {mode:dagRank} (dag_bias_k=1.0).
+# Edge census from GET /api/graph/data: hierarchical+rdfs:subClassOf=9796, hierarchical+no provenance=6400.
+# OLD = label rule (running); NEW = provenance rule (this fix). Same BFS as compute_dag_ranks.
+nodes=9473 edges=144670; ranked old=8398 new=7025; max old=9 new=9
+domain-root-spatial-computing                    members= 1079 | OLD root rank 1, member ranks min/med/max -1/1/8, 379 members rank above it | NEW root rank -1 | live radius root    67.4 vs member median    71.9
+domain-root-distributed-collaboration            members=  147 | OLD root rank 1, member ranks min/med/max -1/1/7, 57 members rank above it | NEW root rank -1 | live radius root    54.8 vs member median    57.1
+domain-root-artificial-intelligence              members= 1145 | OLD root rank 1, member ranks min/med/max -1/2/7, 36 members rank above it | NEW root rank -1 | live radius root    73.8 vs member median    82.3
+domain-root-infrastructure                       members= 1279 | OLD root rank 1, member ranks min/med/max -1/1/9, 533 members rank above it | NEW root rank -1 | live radius root    47.4 vs member median    54.5
+domain-root-robotics                             members=  603 | OLD root rank 1, member ranks min/med/max -1/1/7, 259 members rank above it | NEW root rank -1 | live radius root    74.7 vs member median    79.8
+domain-root-blockchain                           members= 1213 | OLD root rank 1, member ranks min/med/max -1/2/8, 384 members rank above it | NEW root rank -1 | live radius root    37.9 vs member median    38.8
+domain-root-space-science-and-systems            members=  545 | OLD root rank 1, member ranks min/med/max -1/0/4, 411 members rank above it | NEW root rank -1 | live radius root     7.4 vs member median     4.5
+domain-root-earth-observation-and-geospatial-sensing members=  389 | OLD root rank 1, member ranks min/med/max 0/0/4, 317 members rank above it | NEW root rank -1 | live radius root     6.4 vs member median     4.3

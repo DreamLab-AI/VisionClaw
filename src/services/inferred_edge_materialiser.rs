@@ -23,7 +23,7 @@
 //!   is opt-in via [`InferredMaterialisationConfig::enabled`] (default OFF).
 
 use std::collections::{HashMap, HashSet};
-use visionclaw_domain::models::edge::Edge;
+use visionclaw_domain::models::edge::{Edge, RDFS_SUBCLASS_OF_IRI};
 
 /// Edge-type of a materialised inferred subclass edge — the same class label the
 /// asserted hierarchy edges use, so inferred edges also fold under the L2 ladder.
@@ -68,6 +68,7 @@ pub fn edge_is_inferred(edge: &Edge) -> bool {
 pub fn build_inferred_edge(child: u32, parent: u32) -> Edge {
     Edge::new(child, parent, 1.0)
         .with_edge_type(INFERRED_EDGE_TYPE.to_string())
+        .with_owl_property_iri(RDFS_SUBCLASS_OF_IRI.to_string())
         .add_metadata(INFERRED_META_KEY.to_string(), "true".to_string())
 }
 

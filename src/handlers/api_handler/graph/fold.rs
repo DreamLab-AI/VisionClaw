@@ -15,9 +15,9 @@
 //!
 //! `community_id` + `centrality` come from the shared per-node analytics map
 //! (`AppState::node_analytics`, populated by the GPU PageRank/Louvain actors —
-//! the same source the V3 wire encoder reads). Subclass edges are identified by
-//! the accept set mirrored from
-//! `src/actors/gpu/force_compute_actor.rs::is_directed_hierarchy_relation`.
+//! the same source the V3 wire encoder reads). Hierarchy edges are identified by
+//! the label accept set in [`is_subclass_relation`], which is deliberately wider
+//! than the DAG ranker's provenance rule (`Edge::asserts_subsumption`).
 //!
 //! The pin-agnostic base plan is memoised by `(level, graph_type, generation)`;
 //! per-view pinned-node promotion is a cheap post-step applied outside the memo
@@ -51,9 +51,9 @@ const LOW_SIGNAL_QUANTILE: f32 = 0.25;
 /// The live graph stores the COLLAPSED `SemanticEdgeType` label on the wire, not
 /// the raw relation: on the running deployment there are 7548 `hierarchical`
 /// edges and ZERO `subclass_of`/`SUBCLASS_OF` strings, so a subclass-only accept
-/// set folds nothing. `force_compute_actor::is_directed_hierarchy_relation` stays
-/// narrow because it fabricates radial DAG *ranks* (where a mislabelled
-/// domain-membership edge would corrupt the layout); folding only *groups*
+/// set folds nothing. The DAG ranker stays narrow (`Edge::asserts_subsumption`,
+/// subClassOf provenance only) because it fabricates radial *ranks*, where a
+/// symmetric or membership edge would corrupt the layout; folding only *groups*
 /// connected hierarchy nodes into a representative, so treating the whole
 /// hierarchy class as foldable is both correct and what actually reduces density
 /// here. The explicit strings are kept so deployments that DO carry raw

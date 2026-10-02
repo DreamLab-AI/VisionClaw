@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Expanded IRI of `rdfs:subClassOf`, the only predicate that makes an edge a
+/// class-subsumption edge (see [`Edge::asserts_subsumption`]).
+pub const RDFS_SUBCLASS_OF_IRI: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+
+/// Edge type of a synthetic domain root's edge to one of its member pages.
+///
+/// Membership groups pages under a domain; it says nothing about subsumption,
+/// so it carries its own label rather than the `hierarchical` force category.
+pub const DOMAIN_MEMBER_EDGE_TYPE: &str = "domain_member";
+
 /// GPU-friendly edge type for semantic pipeline (ADR-014 Phase 2).
 /// Maps relationship strings from Oxigraph/OntologyParser to a compact u8
 /// discriminant suitable for GPU buffers and spring-force differentiation.
@@ -57,6 +67,9 @@ impl SemanticEdgeType {
                 Self::Bridge
             }
             "namespace" => Self::Namespace,
+            // Domain membership groups pages around their domain root, the way
+            // has-part groups parts: structural, never subsumption.
+            "domain_member" => Self::Structural,
             "inferred" => Self::Inferred,
             "implements" | "implemented_by" => Self::Implements,
             "enhances" | "enhanced_by" | "optimizes" | "optimized_by" | "enhancement" => {
@@ -207,6 +220,25 @@ impl Edge {
             self.metadata = Some(map);
         }
         self
+    }
+
+    /// True when this edge asserts class subsumption: `source rdfs:subClassOf
+    /// target`, so `source` is the child and `target` the parent.
+    ///
+    /// `edge_type` is a force category, and the ingest folds several predicates
+    /// into `hierarchical` (`rdfs:subClassOf`, `owl:equivalentClass`,
+    /// `owl:sameAs`, `rdfs:subPropertyOf`, instance-of). The label alone cannot
+    /// say which, so a `hierarchical` edge counts only when its
+    /// `owl_property_iri` provenance is `rdfs:subClassOf`. The explicit
+    /// subclass labels (`subclass_of` and kin) name the relation themselves.
+    pub fn asserts_subsumption(&self) -> bool {
+        match self.edge_type.as_deref() {
+            Some("is_subclass_of" | "subclass_of" | "SUBCLASS_OF") => true,
+            Some("hierarchical" | "HIERARCHICAL") => {
+                self.owl_property_iri.as_deref() == Some(RDFS_SUBCLASS_OF_IRI)
+            }
+            _ => false,
+        }
     }
 
     /// Derive the SemanticEdgeType from this edge's `edge_type` string field.

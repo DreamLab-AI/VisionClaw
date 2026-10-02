@@ -22,6 +22,7 @@ export { DOMAIN_COLORS, DEFAULT_DOMAIN_COLOR, getDomainColor } from '../utils/do
 //   utilisation    teal     #26C6DA   co_citation  indigo    #5C6BC0
 //   standardisation slate-blue #7E8CE0 implements   rose      #EC407A
 //   explicit_link  blue-grey #5A6470 (dim — dominant wikilinks recede)
+//   domain_member  taupe    #A1887F (domain-root spokes; muted)
 export const EDGE_TYPE_COLORS: Record<string, THREE.Color> = {
   'hierarchical':   new THREE.Color('#FFD700'),
   'subclass':       new THREE.Color('#FFD700'),
@@ -47,6 +48,9 @@ export const EDGE_TYPE_COLORS: Record<string, THREE.Color> = {
   'explicit_link':  new THREE.Color('#5A6470'),
   'namespace':      new THREE.Color('#78909C'),
   'inferred':       new THREE.Color('#B0BEC5'),
+  // Domain root → member spokes: grouping, not subsumption, so they no longer
+  // share the hierarchy gold; a muted taupe keeps them legible but recessive.
+  'domain_member':  new THREE.Color('#A1887F'),
 }
 export const DEFAULT_EDGE_COLOR = new THREE.Color('#AAAAAA')
 
