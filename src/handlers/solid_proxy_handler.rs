@@ -881,6 +881,12 @@ async fn handle_patch(
 
 /// Walk up the path hierarchy to find the nearest .acl sidecar.
 /// Returns the parsed ACL document, or None if no ACL is found.
+///
+/// A document found at an ancestor container is marked `inherited`, so the
+/// evaluator honours only its `acl:default` rules and ignores its `accessTo`
+/// (WAC §4.2, as solid-pod-rs's own resolver does). A pod root granting public
+/// read through `accessTo ./` alone therefore covers the root, not its
+/// children.
 #[cfg(feature = "solid-pod-embed")]
 async fn load_acl_for_path(
     storage: &Arc<FsBackend>,
@@ -905,7 +911,7 @@ async fn load_acl_for_path(
             Some(0) => {
                 // Root container
                 if let Ok((body, _)) = storage.get("/.acl").await {
-                    return parse_acl_body(&body);
+                    return parse_acl_body(&body).map(inherited_from_ancestor);
                 }
                 break;
             }
@@ -917,11 +923,20 @@ async fn load_acl_for_path(
 
         let parent_acl = format!("{}/.acl", current);
         if let Ok((body, _)) = storage.get(&parent_acl).await {
-            return parse_acl_body(&body);
+            return parse_acl_body(&body).map(inherited_from_ancestor);
         }
     }
 
     None
+}
+
+/// Mark a document as found by walking up rather than at the resource itself.
+#[cfg(feature = "solid-pod-embed")]
+fn inherited_from_ancestor(
+    mut doc: solid_pod_rs::wac::AclDocument,
+) -> solid_pod_rs::wac::AclDocument {
+    doc.inherited = true;
+    doc
 }
 
 #[cfg(feature = "solid-pod-embed")]
@@ -1803,4 +1818,78 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     let _ = cfg;
     info!("=== SOLID POD ROUTES DISABLED (no solid-pod-embed feature): registering none ===");
+}
+
+#[cfg(all(test, feature = "solid-pod-embed"))]
+mod wac_inheritance_tests {
+    use super::*;
+    use bytes::Bytes;
+    use solid_pod_rs::wac::{evaluate_access, AccessMode, IdOrIds, IdRef};
+
+    /// The pod root ACL the host writes, except that the public rule names
+    /// the pod container absolutely (`/pod/`), so `accessTo` would cover the
+    /// container's direct children if an ancestor ACL were treated as direct.
+    async fn pod() -> (tempfile::TempDir, Arc<FsBackend>) {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Arc::new(FsBackend::new(dir.path()).await.unwrap());
+        let mut acl = build_pod_root_acl("owner", "/pod");
+        for rule in acl.graph.iter_mut().flatten() {
+            if rule.id.as_deref() == Some("#public") {
+                rule.access_to = Some(IdOrIds::Single(IdRef { id: "/pod/".into() }));
+            }
+        }
+        let body = serde_json::to_vec(&acl).unwrap();
+        storage
+            .put("/pod/.acl", Bytes::from(body), "application/ld+json")
+            .await
+            .unwrap();
+        (dir, storage)
+    }
+
+    #[tokio::test]
+    async fn own_acl_is_direct_and_ancestor_acl_is_inherited() {
+        let (_d, storage) = pod().await;
+        let own = load_acl_for_path(&storage, "/pod/").await.unwrap();
+        assert!(!own.inherited, "a container's own .acl is not inherited");
+        let up = load_acl_for_path(&storage, "/pod/a.ttl").await.unwrap();
+        assert!(up.inherited, "an ACL found by walking up is inherited");
+    }
+
+    #[tokio::test]
+    async fn ancestor_access_to_no_longer_reaches_children() {
+        let (_d, storage) = pod().await;
+        let root = load_acl_for_path(&storage, "/pod/").await;
+        assert!(
+            evaluate_access(root.as_ref(), None, "/pod/", AccessMode::Read, None),
+            "public read still applies to the container its own ACL names"
+        );
+        let mut child = load_acl_for_path(&storage, "/pod/a.ttl").await.unwrap();
+        assert!(
+            !evaluate_access(Some(&child), None, "/pod/a.ttl", AccessMode::Read, None),
+            "an ancestor's accessTo-only public read must not reach a child (WAC §4.2)"
+        );
+        // The inherited flag is what stops it: read as a direct ACL, the
+        // same document would grant the child.
+        child.inherited = false;
+        assert!(evaluate_access(
+            Some(&child),
+            None,
+            "/pod/a.ttl",
+            AccessMode::Read,
+            None
+        ));
+    }
+
+    #[tokio::test]
+    async fn owner_default_still_reaches_descendants() {
+        let (_d, storage) = pod().await;
+        let child = load_acl_for_path(&storage, "/pod/notes/a.ttl").await;
+        assert!(evaluate_access(
+            child.as_ref(),
+            Some("did:nostr:owner"),
+            "/pod/notes/a.ttl",
+            AccessMode::Read,
+            None
+        ));
+    }
 }
