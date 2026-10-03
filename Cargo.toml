@@ -200,8 +200,8 @@ horned-functional = { version = "0.4.0" }
 clap = { version = "4.5", features = ["derive"] }
 
 # --- Solid Pod (ADR-032 M3) — embed solid-pod-rs as in-process library ---
-# Published crates.io dependency at 0.4.0-alpha.15 (superseding the former
-# alpha.11 pin). M3 (JSS sidecar removal) is COMPLETE: the JSS sidecar has been
+# Published crates.io dependency at =0.5.0-alpha.12, in lockstep with
+# nostr-rust-forum (b73ec8c), superseding the former 0.4.0-alpha.15 pin. M3 (JSS sidecar removal) is COMPLETE: the JSS sidecar has been
 # removed and Solid Pod runs in-process (ADR-032 Implemented, default-on).
 # AGPL-3.0-only — see ADR-032 §"Licence implications".
 #
@@ -217,12 +217,12 @@ clap = { version = "4.5", features = ["derive"] }
 #   - solid-pod-rs-didkey      — not in scope for VisionClaw (Nostr-first)
 #
 # All four deps are `optional = true` and only pulled in when the
-# solid-pod-rs 0.4.0-alpha.15 — embedded Solid Pod (LDP, WAC, NIP-98, fs-backend).
+# solid-pod-rs 0.5.0-alpha.12 — embedded Solid Pod (LDP, WAC, NIP-98, fs-backend).
 # JSS sidecar fully removed; all storage is in-process via FsBackend.
-solid-pod-rs = { version = "0.4.0-alpha.15", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit"] }
-solid-pod-rs-nostr = { version = "0.4.0-alpha.15", default-features = false, optional = true }
-solid-pod-rs-idp = { version = "0.4.0-alpha.15", default-features = false, optional = true }
-solid-pod-rs-server = { version = "0.4.0-alpha.15", default-features = false, optional = true }
+solid-pod-rs = { version = "=0.5.0-alpha.12", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit"] }
+solid-pod-rs-nostr = { version = "=0.5.0-alpha.12", default-features = false, optional = true }
+solid-pod-rs-idp = { version = "=0.5.0-alpha.12", default-features = false, optional = true }
+solid-pod-rs-server = { version = "=0.5.0-alpha.12", default-features = false, optional = true }
 
 
 [dev-dependencies]
@@ -288,6 +288,15 @@ solid-pod-embed = [
     "dep:solid-pod-rs-idp",
     "dep:solid-pod-rs-server",
 ]
+
+# nostr-bbs-core (via crates/vault) pins solid-pod-rs exactly, and one lockfile
+# holds a single 0.5.x solid-pod-rs. Every published nostr-bbs-core pins an
+# older alpha (1.0.0-beta.12 pins =0.5.0-alpha.10), so take the forum's
+# nostr-bbs-core at the commit that moved to =0.5.0-alpha.12 (b73ec8c). Replace
+# with a plain version pin once a nostr-bbs-core release carrying alpha.12 is
+# on crates.io.
+[patch.crates-io]
+nostr-bbs-core = { git = "https://github.com/DreamLab-AI/nostr-rust-forum", rev = "b73ec8c" }
 
 [profile.release]
 opt-level = 3

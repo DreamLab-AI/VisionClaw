@@ -21,9 +21,10 @@
 //!
 //! ## Storage
 //!
-//! `FsPaymentStore` persists per-identity balances as JSON files under
-//! `{ledger_dir}/{hex-encoded-did}.json`. File-level locking via `flock(2)`
-//! provides atomic credit/debit on POSIX systems.
+//! `FsPaymentStore` persists every identity's balance in one Web Ledger
+//! document, `{ledger_dir}/ledger.json`. File-level locking via `flock(2)`
+//! makes each access-fee charge atomic on POSIX systems. Balances rise only
+//! through a deposit receipt (`WebLedger::credit_by_outpoint`).
 //!
 //! @see <https://webledgers.org>
 //! @see `solid_pod_rs::payments` for upstream types
@@ -286,23 +287,13 @@ impl FsPaymentStore {
         ledger.get_balance(did)
     }
 
-    /// Atomically credit an account. Returns the new balance.
-    ///
-    /// Acquires both the tokio mutex (in-process) and an advisory flock
-    /// (cross-process) before touching the ledger.
-    pub async fn credit(&self, did: &str, amount: u64) -> Result<u64, PaymentError> {
-        let _guard = self.lock.lock().await;
-        #[cfg(unix)]
-        let _flock = self.acquire_file_lock()?;
-        let mut ledger = self.read_ledger().await;
-        ledger.credit(did, amount);
-        self.write_ledger(&ledger).await?;
-        Ok(ledger.get_balance(did))
-    }
-
-    /// Atomically debit an account. Returns the new balance on success,
+    /// Atomically charge an access fee. Returns the new balance on success,
     /// or `PaymentError::InsufficientBalance` if the account cannot cover
     /// the cost.
+    ///
+    /// The ledger only moves balances through receipts (solid-pod-rs
+    /// 0.5.0-alpha.11): a fee is a [`WebLedger::charge`]. Nothing here
+    /// credits an account; balances arrive through a recorded deposit.
     ///
     /// Acquires both the tokio mutex (in-process) and an advisory flock
     /// (cross-process) before touching the ledger.
@@ -311,9 +302,9 @@ impl FsPaymentStore {
         #[cfg(unix)]
         let _flock = self.acquire_file_lock()?;
         let mut ledger = self.read_ledger().await;
-        let remaining = ledger.debit(did, amount)?;
+        ledger.charge(did, amount)?;
         self.write_ledger(&ledger).await?;
-        Ok(remaining)
+        Ok(ledger.get_balance(did))
     }
 }
 
@@ -920,6 +911,7 @@ pub fn configure_pay_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solid_pod_rs::payments::ReceiptOutcome;
     use tempfile::TempDir;
 
     #[test]
@@ -1008,43 +1000,65 @@ mod tests {
         assert!(upstream.chains.is_empty());
     }
 
+    /// A 64-hex account, as `pubkey_to_did` yields for a NIP-98 caller.
+    fn account(c: char) -> String {
+        format!("did:nostr:{}", c.to_string().repeat(64))
+    }
+
+    /// Fund `did` the only way the ledger allows: a deposit receipt keyed by
+    /// the outpoint `<n repeated>:0`.
+    async fn deposit(store: &FsPaymentStore, did: &str, n: u8, amount: u64) -> ReceiptOutcome {
+        let mut ledger = store.read_ledger().await;
+        let txid = format!("{n:02x}").repeat(32);
+        let outcome = ledger
+            .credit_by_outpoint(did, "satoshi", &txid, 0, amount)
+            .unwrap();
+        store.write_ledger(&ledger).await.unwrap();
+        outcome
+    }
+
     #[tokio::test]
-    async fn fs_store_credit_and_balance() {
+    async fn fs_store_deposit_and_balance() {
         let tmp = TempDir::new().unwrap();
         let store = FsPaymentStore::new(tmp.path()).unwrap();
-        let did = "did:nostr:aabbccdd";
+        let did = account('a');
 
-        assert_eq!(store.get_balance(did).await, 0);
+        assert_eq!(store.get_balance(&did).await, 0);
 
-        let balance = store.credit(did, 100).await.unwrap();
-        assert_eq!(balance, 100);
+        assert_eq!(deposit(&store, &did, 1, 100).await, ReceiptOutcome::Applied);
+        assert_eq!(store.get_balance(&did).await, 100);
 
-        let balance = store.credit(did, 50).await.unwrap();
-        assert_eq!(balance, 150);
+        assert_eq!(deposit(&store, &did, 2, 50).await, ReceiptOutcome::Applied);
+        assert_eq!(store.get_balance(&did).await, 150);
 
-        assert_eq!(store.get_balance(did).await, 150);
+        // The same outpoint never pays twice.
+        assert_eq!(
+            deposit(&store, &did, 2, 50).await,
+            ReceiptOutcome::AlreadyApplied
+        );
+        assert_eq!(store.get_balance(&did).await, 150);
     }
 
     #[tokio::test]
     async fn fs_store_debit_success() {
         let tmp = TempDir::new().unwrap();
         let store = FsPaymentStore::new(tmp.path()).unwrap();
-        let did = "did:nostr:aabbccdd";
+        let did = account('a');
 
-        store.credit(did, 200).await.unwrap();
-        let remaining = store.debit(did, 50).await.unwrap();
+        deposit(&store, &did, 1, 200).await;
+        let remaining = store.debit(&did, 50).await.unwrap();
         assert_eq!(remaining, 150);
-        assert_eq!(store.get_balance(did).await, 150);
+        assert_eq!(store.get_balance(&did).await, 150);
     }
 
     #[tokio::test]
     async fn fs_store_debit_insufficient() {
         let tmp = TempDir::new().unwrap();
         let store = FsPaymentStore::new(tmp.path()).unwrap();
-        let did = "did:nostr:aabbccdd";
+        let did = account('a');
 
-        store.credit(did, 10).await.unwrap();
-        let err = store.debit(did, 100).await.unwrap_err();
+        deposit(&store, &did, 1, 10).await;
+        let err = store.debit(&did, 100).await.unwrap_err();
         assert!(matches!(
             err,
             PaymentError::InsufficientBalance {
@@ -1052,6 +1066,7 @@ mod tests {
                 cost: 100
             }
         ));
+        assert_eq!(store.get_balance(&did).await, 10);
     }
 
     #[tokio::test]
@@ -1059,7 +1074,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = FsPaymentStore::new(tmp.path()).unwrap();
 
-        let err = store.debit("did:nostr:unknown", 1).await.unwrap_err();
+        let err = store.debit(&account('f'), 1).await.unwrap_err();
         assert!(matches!(
             err,
             PaymentError::InsufficientBalance {
@@ -1072,18 +1087,19 @@ mod tests {
     #[tokio::test]
     async fn fs_store_persistence() {
         let tmp = TempDir::new().unwrap();
-        let did = "did:nostr:persist";
+        let did = account('c');
 
         // Write with one store instance
         {
             let store = FsPaymentStore::new(tmp.path()).unwrap();
-            store.credit(did, 500).await.unwrap();
+            deposit(&store, &did, 1, 500).await;
+            store.debit(&did, 20).await.unwrap();
         }
 
         // Read with a new store instance
         {
             let store = FsPaymentStore::new(tmp.path()).unwrap();
-            assert_eq!(store.get_balance(did).await, 500);
+            assert_eq!(store.get_balance(&did).await, 480);
         }
     }
 
@@ -1092,15 +1108,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = FsPaymentStore::new(tmp.path()).unwrap();
 
-        let alice = "did:nostr:alice111";
-        let bob = "did:nostr:bob22222";
+        let alice = account('a');
+        let bob = account('b');
 
-        store.credit(alice, 100).await.unwrap();
-        store.credit(bob, 200).await.unwrap();
-        store.debit(alice, 30).await.unwrap();
+        deposit(&store, &alice, 1, 100).await;
+        deposit(&store, &bob, 2, 200).await;
+        store.debit(&alice, 30).await.unwrap();
 
-        assert_eq!(store.get_balance(alice).await, 70);
-        assert_eq!(store.get_balance(bob).await, 200);
+        assert_eq!(store.get_balance(&alice).await, 70);
+        assert_eq!(store.get_balance(&bob).await, 200);
     }
 
     #[test]

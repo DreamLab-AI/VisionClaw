@@ -278,6 +278,8 @@ fn public_read_acl() -> AclDocument {
             })),
             condition: None,
         }]),
+        // The container's own sidecar, not one found by walking up.
+        inherited: false,
     }
 }
 

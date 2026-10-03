@@ -1123,6 +1123,8 @@ fn build_pod_root_acl(pubkey: &str, _pod_base: &str) -> solid_pod_rs::wac::AclDo
     AclDocument {
         context: None,
         graph: Some(vec![owner, public]),
+        // The pod root's own sidecar, not one found by walking up.
+        inherited: false,
     }
 }
 
