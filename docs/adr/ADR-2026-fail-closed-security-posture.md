@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -172,3 +172,7 @@ line 170 are unmoved. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (`GitHubSyncService::new` now takes a `CorpusSource` from `source_from_env_with_github`, ADR-2114). `rbac_gate.rs` and `role_store.rs` are unchanged.
 
 **Decision unaffected.** No security flag was added, read or defaulted; `enforce_release_env_hygiene` and the fail-closed boot order are untouched. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`780eb3edb` (W8v, VisionClaw's own K_broker) inserts eight lines at `src/main.rs:195-202`: `visionclaw-server mint-nostr-key --out <path>` is dispatched first and exits. That path loads no `.env`, reads no environment, binds no listener, and rejects every argument other than `--out`/`--help` with exit 2, so `--allow-skip-auth` cannot ride along. Every path that serves still runs `enforce_release_env_hygiene()` (now `:209`) and `assert_effective_profile_or_exit` (now `:931`) before `HttpServer::new` (`:951`) and `.bind()` (`:1232`). Every `main.rs` citation after `:195` in this record moves down by eight lines. The new panel-key loader (`src/services/acsp/key_file.rs`) also fails closed: a key-file variable that is set but unusable, such as a file that group or other can read, disables the signers and never falls through to an inline key. `rbac_gate.rs` and `role_store.rs` are unchanged. The decision holds. Tests: `--lib key_file` 14, `--test mint_nostr_key_cli` 2.

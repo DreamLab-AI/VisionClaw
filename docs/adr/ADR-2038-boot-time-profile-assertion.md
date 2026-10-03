@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -281,3 +281,7 @@ CI-repair commit.
 **Governed changes since `997440cd0`:** `src/main.rs` changed only at the sync-service construction (ADR-2114 `CorpusSource`).
 
 **Decision unaffected.** The boot-time profile assertion and its illegal-combination abort are not on the changed lines. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`780eb3edb` (W8v, VisionClaw's own K_broker) inserts eight lines at `src/main.rs:195-202`: `visionclaw-server mint-nostr-key --out <path>` is dispatched first and exits. That path loads no `.env`, reads no environment, binds no listener, and rejects every argument other than `--out`/`--help` with exit 2, so `--allow-skip-auth` cannot ride along. Every path that serves still runs `enforce_release_env_hygiene()` (now `:209`) and `assert_effective_profile_or_exit` (now `:931`) before `HttpServer::new` (`:951`) and `.bind()` (`:1232`). Every `main.rs` citation after `:195` in this record moves down by eight lines. The assertion is still unconditional on every path that binds. The mint path never reaches a bind, so it needs no profile. `security_profile.rs` is unchanged. The decision holds.

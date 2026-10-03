@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -220,3 +220,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 
 `1d3e14a30` and `fdcbc9120` change `Cargo.toml` (the solid-pod-rs pin, feature `mrc20`, a `[patch.crates-io]` for `nostr-bbs-core`; ADR-2111, S4 amendment). Workspace members are unchanged, nothing moves between crates, and `src/actors` and `crates/visionclaw-actors/src` are untouched. The decision holds unchanged.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`1e55daebb` (`Cargo.toml`: the `nostr-bbs-core` git patch is removed and the crates.io pin used) leaves `[workspace].members` unchanged. In `780eb3edb`, `src/actors/elevation_actor.rs` and `decision_elevation_actor.rs` change only their panel-key lookup. The new loader is in the root `src/services/acsp/`, beside the ACSP client it serves. That adds nothing to the extraction backlog and moves nothing across a crate boundary. `implementation: partial` stands. The decision holds.

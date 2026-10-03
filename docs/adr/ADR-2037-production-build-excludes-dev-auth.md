@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -144,3 +144,7 @@ that run was red. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `a32abac57`:** `.github/workflows/ci.yml` adds the `prod_ingress` target to the hermetic integration-contract step (host ADR-2119). The `dev-auth-release-gate` job is untouched. In the same commit `scripts/launch.sh` (`:195`) also refuses `DEV_AUTH_LOOPBACK` in `.env.prod`, so its list now matches the release binary's four `FORBIDDEN_DEV_VARS`, in LAN and tunnel ingress alike.
 
 **Decision unaffected.** `verified_commit` moved to `920401379`.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`780eb3edb` (W8v, VisionClaw's own K_broker) inserts eight lines at `src/main.rs:195-202`: `visionclaw-server mint-nostr-key --out <path>` is dispatched first and exits. That path loads no `.env`, reads no environment, binds no listener, and rejects every argument other than `--out`/`--help` with exit 2, so `--allow-skip-auth` cannot ride along. Every path that serves still runs `enforce_release_env_hygiene()` (now `:209`) and `assert_effective_profile_or_exit` (now `:931`) before `HttpServer::new` (`:951`) and `.bind()` (`:1232`). Every `main.rs` citation after `:195` in this record moves down by eight lines. The subcommand is the same in every feature closure, and nothing in it is gated on `dev-auth`. `security_profile.rs`, `ci.yml` and `Dockerfile.production` are unchanged. The decision holds.

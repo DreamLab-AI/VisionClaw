@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -201,3 +201,7 @@ sit beside is unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 
 `1d3e14a30` and `fdcbc9120` change `Cargo.toml`: solid-pod-rs and its siblings move to `=0.5.0-alpha.12` with feature `mrc20`, and `nostr-bbs-core` is patched to nostr-rust-forum `b73ec8c` (ADR-2111, S4 amendment). No oxigraph, rusqlite or persistence feature changed, and `src/app_state.rs` is untouched. The decision holds unchanged.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`1e55daebb` drops the `[patch.crates-io]` git override for `nostr-bbs-core` from `Cargo.toml` in favour of the crates.io `=1.0.0-beta.13` pin. That changes no storage dependency. In `780eb3edb`, `src/app_state.rs` changes only the decision-projection client's key lookup (`:1362-1368`, now `load_panel_secret`). Oxigraph and the per-writer SQLite wiring are untouched. The decision holds.
