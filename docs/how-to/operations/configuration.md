@@ -303,8 +303,28 @@ lifecycle with retry, outcome classification, and learning capture (see
 [ADR-034](../../archive/adr/ADR-034-needle-bead-provenance.md) and
 [PRD](../../archive/prd/prd-bead-provenance-upgrade.md)).
 
+VisionClaw mints its own signing key; never copy one from another service.
+Mint it inside the container, onto the persistent `visionclaw-data` volume:
+
 ```bash
-# Bridge bot private key (64-char hex). Generate with: openssl rand -hex 32
+docker exec visionclaw_container sh -c 'umask 077 && mkdir -p /app/data/keys && \
+  /app/target/dev-runtime/visionclaw-server mint-nostr-key --out /app/data/keys/k_broker.key'
+```
+
+(On the production image the binary is `/app/visionclaw-server` and the container
+is `visionclaw_prod_container`.) The command writes the hex secret to a new file
+at mode 0600, refuses to overwrite an existing file, and prints only two lines:
+the x-only public key in hex and its `did:nostr:<hex>`. The secret is never
+printed. Register that public key in the forum relay's `agent_registry`.
+
+```bash
+# Governance / ACSP panel signing key (kinds 31400-31405, decision projection,
+# voice mandates). A key FILE wins over any inline key; see the reference.
+ACSP_PANEL_NOSTR_KEY_FILE=/app/data/keys/k_broker.key
+
+# Bead-provenance bridge key (64-char hex), read inline only by
+# nostr_bridge.rs / nostr_bead_publisher.rs. Also the last-resort fallback for
+# the panel key when no key file and no ACSP_PANEL_NOSTR_PRIVKEY is set.
 VISIONCLAW_NOSTR_PRIVKEY=<64-char hex secret key>
 
 # JSS integrated Nostr relay (default shown — matches docker-compose service name)

@@ -192,6 +192,14 @@ async fn main() -> std::io::Result<()> {
         eprintln!("PANIC at {}: {}", location, payload);
     }));
 
+    // One-shot `visionclaw-server mint-nostr-key --out <path>`: mints this
+    // service's own governance signing key and exits, before `.env` is loaded
+    // or anything else starts (services::acsp::key_file).
+    let argv: Vec<String> = std::env::args().collect();
+    if let Some(code) = visionclaw_server::services::acsp::key_file::dispatch_cli(&argv) {
+        std::process::exit(code);
+    }
+
     dotenv().ok();
 
     // ADR-06 §D11 — Before any other startup work, in a release build, refuse
@@ -567,7 +575,7 @@ async fn main() -> std::io::Result<()> {
             ))
         }
         None => {
-            info!("[main] DecisionElevationActor disabled (set DECISION_ELEVATION_ENABLED=1 + FORUM_RELAY_URL + ACSP_PANEL_NOSTR_PRIVKEY to enable)");
+            info!("[main] DecisionElevationActor disabled (set DECISION_ELEVATION_ENABLED=1 + FORUM_RELAY_URL + a panel key (ACSP_PANEL_NOSTR_KEY_FILE or ACSP_PANEL_NOSTR_PRIVKEY) to enable)");
             None
         }
     };

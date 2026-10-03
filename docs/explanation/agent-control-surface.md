@@ -222,7 +222,9 @@ relay's `agent_registry` before any publish succeeds. The client logs the pubkey
 at startup; a relay admin registers it via the NIP-98-gated
 `POST /api/governance/agents/register`. Until then every publish is rejected with
 `blocked: pubkey not in agent registry`. Signing uses a dedicated panel keypair
-(`ACSP_PANEL_NOSTR_PRIVKEY`, falling back to `VISIONCLAW_NOSTR_PRIVKEY`) so that
+(VisionClaw's own K_broker, minted by `visionclaw-server mint-nostr-key` and read
+from `ACSP_PANEL_NOSTR_KEY_FILE`; the inline `ACSP_PANEL_NOSTR_PRIVKEY` and
+`VISIONCLAW_NOSTR_PRIVKEY` remain as fallbacks) so that
 panel production can be rate-limited and revoked independently of bead
 provenance. The whole producer is env-gated — `FORUM_RELAY_URL` plus a signing
 key present, with each actor behind its own flag (`ELEVATION_ACTOR_ENABLED=1`).

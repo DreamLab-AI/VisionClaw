@@ -8,9 +8,12 @@
 //! - [`events`] — serde-exact wire types + unsigned-event builders
 //! - [`client`] — `nostr_sdk`-backed signing, publishing and the kind-31403
 //!   decision return path
+//! - [`key_file`] — minting VisionClaw's own panel key (K_broker) and the one
+//!   loader every panel signer reads it through
 
 pub mod client;
 pub mod events;
+pub mod key_file;
 
 pub use client::{AcspClient, CaseDecision};
 pub use events::{

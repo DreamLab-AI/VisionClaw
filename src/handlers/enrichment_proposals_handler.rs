@@ -668,7 +668,7 @@ pub(crate) async fn apply_decision(
         }
         None => {
             warn!(
-                "[enrichment-decide] DEGRADED: forum projection SKIPPED for case={case_id} — no AcspClient configured (set FORUM_RELAY_URL + ACSP_PANEL_NOSTR_PRIVKEY). The decision is recorded + written locally but is INVISIBLE to the forum broker_decisions."
+                "[enrichment-decide] DEGRADED: forum projection SKIPPED for case={case_id} — no AcspClient configured (set FORUM_RELAY_URL + ACSP_PANEL_NOSTR_KEY_FILE or ACSP_PANEL_NOSTR_PRIVKEY). The decision is recorded + written locally but is INVISIBLE to the forum broker_decisions."
             );
             "skipped"
         }

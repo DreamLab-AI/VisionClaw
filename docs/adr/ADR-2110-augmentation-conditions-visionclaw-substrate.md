@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 3fd97572ad2433f195f5b98a8987355af4c18881
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -335,3 +335,7 @@ and the owner's live high-tier 31403 (cycle exit item 4) has not happened. It
 moves to `live` on that receipt. The high-tier case for it is
 `solid-pod-rs-1.0.0-beta.1-release-20261002` on the agentbox-release-ops panel,
 raised 2026-10-02 (owner decision Q7).
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`780eb3edb` changes only how `src/actors/elevation_actor.rs` obtains its panel secret, at `:199-206`. It now goes through `services::acsp::key_file::load_panel_secret`, so a 0600 key file named by `ACSP_PANEL_NOSTR_KEY_FILE` wins over the inline env value, and an unusable file disables the actor with a logged error. Case handling, the approve path and the relay-admission trust noted in Consequences item 2 are unchanged. The other seven governed paths are unchanged. The decision holds. Tests: `--lib elevation` 62 pass.

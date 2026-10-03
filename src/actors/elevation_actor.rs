@@ -196,9 +196,14 @@ impl ElevationActor {
             return None;
         }
         let forum_relay_url = std::env::var("FORUM_RELAY_URL").ok()?;
-        let panel_secret = std::env::var("ACSP_PANEL_NOSTR_PRIVKEY")
-            .or_else(|_| std::env::var("VISIONCLAW_NOSTR_PRIVKEY"))
-            .ok()?;
+        let panel_secret = match crate::services::acsp::key_file::load_panel_secret() {
+            Ok(Some(s)) => s.into_secret_hex(),
+            Ok(None) => return None,
+            Err(e) => {
+                error!("[Elevation] panel signing key unusable, actor disabled: {e}");
+                return None;
+            }
+        };
         Some(Self {
             kg_repo,
             enrichment_repo,

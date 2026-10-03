@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -156,3 +156,7 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 
 `1d3e14a30` adds `inherited: false` to the `AclDocument` literal in `public_read_acl` (`src/services/ontology_pull.rs`), the field solid-pod-rs 0.5.0-alpha.12 added. The document is the container's own sidecar, so `false` is its meaning, and it is never serialised. The ACL the pull writes is byte-identical. Tests: `cargo test -p visionclaw-server --lib -- ontology_pull ontology_generation` (16 pass). The decision holds unchanged.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`780eb3edb` inserts the eight-line `mint-nostr-key` dispatch at `src/main.rs:195-202`, ahead of `.env` loading. The boot pull and `init_solid_state` are untouched, and they move down by eight lines. The other governed paths are unchanged. The decision holds.

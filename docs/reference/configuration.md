@@ -187,8 +187,20 @@ environment block. Relay topology follows ADR-073.
 | `VISIONCLAW_NOSTR_PRIVKEY` | string | `""` | Private key for the bead provenance bridge. Unset disables the bridge. |
 | `NOSTR_RELAY_URL` | string | `""` | Source relay (must start `ws://` or `wss://`). |
 | `FORUM_RELAY_URL` | string | `""` | Forum/destination relay for the bridge and elevation actor. |
-| `ACSP_PANEL_NOSTR_PRIVKEY` | string | `""` | Key for the ACSP control-surface panel. |
-| `ELEVATION_ACTOR_ENABLED` | boolean | `false` | Enable the elevation actor (requires `FORUM_RELAY_URL` and `ACSP_PANEL_NOSTR_PRIVKEY`). |
+| `ACSP_PANEL_NOSTR_KEY_FILE` | path | `""` | File holding the ACSP panel / governance signing key (K_broker) as 64-char hex, made by `visionclaw-server mint-nostr-key --out <path>`. Must be a regular file with no group or other permission bits (0600 or 0400); otherwise the panel signers stay off and log why. Takes precedence over every inline key. |
+| `VISIONCLAW_NOSTR_KEY_FILE` | path | `""` | Fallback key-file name for the panel key, consulted when `ACSP_PANEL_NOSTR_KEY_FILE` is unset. Same rules. |
+| `ACSP_PANEL_NOSTR_PRIVKEY` | string | `""` | Inline panel key, used only when neither key-file variable is set. |
+| `ELEVATION_ACTOR_ENABLED` | boolean | `false` | Enable the elevation actor (requires `FORUM_RELAY_URL` and a panel key). |
+
+The panel key is read through one loader (`src/services/acsp/key_file.rs`) by the
+elevation actor, the decision-elevation actor, the decision-projection client in
+`AppState` and the governed voice-intent client. Precedence, first set and
+non-empty wins: `ACSP_PANEL_NOSTR_KEY_FILE`, `VISIONCLAW_NOSTR_KEY_FILE`,
+`ACSP_PANEL_NOSTR_PRIVKEY`, `VISIONCLAW_NOSTR_PRIVKEY`. A key-file variable that
+is set but unusable (missing, too permissive, not a valid key) disables those
+signers with an error naming the variable and path. It never falls through to an
+inline key. The bead-provenance bridge still reads `VISIONCLAW_NOSTR_PRIVKEY`
+inline.
 
 ---
 

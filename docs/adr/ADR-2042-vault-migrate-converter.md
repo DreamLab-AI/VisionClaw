@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -147,3 +147,7 @@ graph.
 ## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 
 `1d3e14a30` and `fdcbc9120` change `Cargo.toml` (the solid-pod-rs pin, feature `mrc20`, a `[patch.crates-io]` for `nostr-bbs-core`; ADR-2111, S4 amendment). None of it concerns the converter this superseded record describes, and `crates/vault-migrate` and `docs/VAULT-corpus-format.md` are untouched. Nothing to re-decide.
+
+## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
+
+`1e55daebb` removes the `nostr-bbs-core` `[patch.crates-io]` from `Cargo.toml`, which the 2026-10-03 note above covered. It does not concern this superseded converter, and `docs/VAULT-corpus-format.md` is untouched. Nothing to re-decide.
