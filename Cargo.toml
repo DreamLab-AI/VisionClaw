@@ -218,8 +218,10 @@ clap = { version = "4.5", features = ["derive"] }
 #
 # All four deps are `optional = true` and only pulled in when the
 # solid-pod-rs 0.5.0-alpha.12 — embedded Solid Pod (LDP, WAC, NIP-98, fs-backend).
+# `mrc20` brings the Blocktrails walker (`solid_pod_rs::blocktrail`) that
+# `src/web_contract` verifies trails with (rust-bitcoin's libsecp256k1).
 # JSS sidecar fully removed; all storage is in-process via FsBackend.
-solid-pod-rs = { version = "=0.5.0-alpha.12", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit"] }
+solid-pod-rs = { version = "=0.5.0-alpha.12", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit", "mrc20"] }
 solid-pod-rs-nostr = { version = "=0.5.0-alpha.12", default-features = false, optional = true }
 solid-pod-rs-idp = { version = "=0.5.0-alpha.12", default-features = false, optional = true }
 solid-pod-rs-server = { version = "=0.5.0-alpha.12", default-features = false, optional = true }

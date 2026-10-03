@@ -39,6 +39,8 @@ pub mod validation;
 // ADR-124 build-out: the gitmark/blocktrails web-contract substrate (4-layer
 // reducer/state/ledger/trail + validate/anchor/verify ritual). Identity-rail-
 // agnostic — carries did:nostr strings unchanged (I1-I4 hold trivially).
+// Its trail type and walker are solid-pod-rs's (`solid_pod_rs::blocktrail`).
+#[cfg(feature = "solid-pod-embed")]
 pub mod web_contract;
 
 // #[cfg(test)]

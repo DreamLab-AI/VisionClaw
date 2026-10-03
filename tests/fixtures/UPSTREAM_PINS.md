@@ -124,6 +124,15 @@ Per ADR-082 D2. Each fixture file in this directory derives vectors from an upst
 - Refresh policy: on ADR-073 or ADR-074 D9 amendment
 - Vectors: 9 (covering fanout, lru-dedup, loop-avoidance, service-list, mode-config scenarios + 1 negative for standalone mode)
 
+### blocktrails (blocktrails/verify, blocktrails/git-mark, via solid-pod-rs)
+- Repository: https://github.com/blocktrails/verify, https://github.com/blocktrails/git-mark (vendored from solid-pod-rs `v0.5.0-alpha.12`)
+- Pinned commit: verify `043e7af`, git-mark `b852d7d`; solid-pod-rs `d64131b` (2026-10-03)
+- Path: `blocktrails/verify-trail-vectors.json`, `blocktrails/live-trail-txs.json` (solid-pod-rs `crates/solid-pod-rs/tests/fixtures/blocktrails/`)
+- Last refresh: 2026-10-03
+- Refresh policy: with every solid-pod-rs pin move
+- Vectors: 13 whole-trail cases + git-mark's live and swapped verifications; 3 captured testnet4 transactions
+- Notes: ADR-2111 S4. The host walker (`web_contract::verify_trail`) must give blocktrails/verify's verdicts; see `blocktrails/README.md` for checksums and the two documented differences.
+
 ## Refresh workflow
 
 1. Open "fixture refresh" PR in VisionClaw monorepo updating UPSTREAM_PINS.md
@@ -151,3 +160,4 @@ Per ADR-082 D2. Each fixture file in this directory derives vectors from an upst
 | 2026-05-07 | did-doc-conformance.json | initial DreamLab-internal (ADR-074 D2) | mega-sprint Phase 1 | DID Document conformance; 7 vectors |
 | 2026-05-07 | is-envelope-v1.json | initial DreamLab-internal (ADR-075 D1+D3) | mega-sprint Phase 1 | IS-Envelope per-kind shapes; 11 vectors |
 | 2026-05-07 | mesh-federation.json | initial DreamLab-internal (ADR-073 D2/D6/D9 + ADR-074 D9) | mega-sprint Phase 1 | Mesh federation behaviour; 9 vectors |
+| 2026-10-03 | blocktrails/*.json | vendor (solid-pod-rs@d64131b: verify@043e7af, git-mark@b852d7d) | ADR-2111 S4 | per-link trail verification; 13 cases + live trail |
