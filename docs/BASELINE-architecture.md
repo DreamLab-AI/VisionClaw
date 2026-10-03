@@ -233,8 +233,10 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
 
 - **The sidestr library release does not replace VisionClaw's payment host.** The
   `FsPaymentStore` ledger and `/pay/*` routes still exist in
-  `src/handlers/pay_handler.rs:198-900`, while `AnchorConfirmer` remains an interface backed
-  only by test doubles (`src/web_contract/ritual.rs:144`, `:319-328`). ADR-2111 therefore
+  `src/handlers/pay_handler.rs:199-905`, while `AnchorConfirmer` remains an interface backed
+  only by test doubles (`src/web_contract/ritual.rs:182`; the captured-testnet4 double at
+  `:527`). Since 2026-10-03 `verify` walks every trail link with solid-pod-rs's Blocktrails
+  walker (ADR-2111, S4 amendment), but no confirmer answers from a node yet. ADR-2111 therefore
   remains `proposed / none / inactive`: the host still needs the authenticated agentbox proxy
   and a real sidestr-backed confirmer. The master estate board tracks this as N-3.
 

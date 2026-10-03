@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 853c4a0696bd0b091c6e4563a3604c4a1f2fef45
+verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -197,3 +197,7 @@ sit beside is unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-09-22 at 853c4a069 (Sovereign Corpus landing)
 
 **Governed changes since `a32abac57`:** `Cargo.toml` adds the root dependency `vault-core = { path = "crates/vault-core" }` (ADR-2113: ingest parses pages and the relation vocabulary through the same crate `vault` builds from). **Decision unaffected.** No persistence dependency, feature or store path changed; Oxigraph remains the canonical store. `verified_commit` moved to the landing commit. Gates at that commit: vault 294 + vault-core 111 + golden parity 15/15; server lib 1,444; corpus_local_sync 4, vault_gate_test 18, jsonld_validator_test 3; client tsc clean; fmt and clippy -D warnings clean on the crates.
+
+## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+
+`1d3e14a30` and `fdcbc9120` change `Cargo.toml`: solid-pod-rs and its siblings move to `=0.5.0-alpha.12` with feature `mrc20`, and `nostr-bbs-core` is patched to nostr-rust-forum `b73ec8c` (ADR-2111, S4 amendment). No oxigraph, rusqlite or persistence feature changed, and `src/app_state.rs` is untouched. The decision holds unchanged.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
+verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -216,3 +216,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
 
 `c0906ed6e` adds actor messages (`UpdateChainPayments`, `GetChainPayments`) and their handlers inside `src/actors`, and a pure projection module in `src/services`. Nothing moves between crates, and the split this record tracks is neither advanced nor reversed. The decision holds unchanged.
+
+## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+
+`1d3e14a30` and `fdcbc9120` change `Cargo.toml` (the solid-pod-rs pin, feature `mrc20`, a `[patch.crates-io]` for `nostr-bbs-core`; ADR-2111, S4 amendment). Workspace members are unchanged, nothing moves between crates, and `src/actors` and `crates/visionclaw-actors/src` are untouched. The decision holds unchanged.

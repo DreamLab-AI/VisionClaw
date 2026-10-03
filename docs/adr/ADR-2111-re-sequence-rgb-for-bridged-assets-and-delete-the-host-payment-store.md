@@ -208,6 +208,61 @@ waits on a running stack, the S3 route and an S4b receipt. On 2 October
 `visionclaw_container` was not running, so neither the live diff nor the
 screenshot was taken.
 
+## Blocktrails alignment and the solid-pod-rs pin — 2026-10-03 (stream S4)
+
+This amends D2 and D8 and applies D9 to `src/web_contract`. It adds no
+decision and leaves the record `proposed / none / inactive`: no confirmer
+answers from `sidestr-node` yet.
+
+- **D8, the pin, is met.** `Cargo.toml` pins every solid-pod-rs crate the host
+  uses (`solid-pod-rs`, `-nostr`, `-idp`, `-server`) at `=0.5.0-alpha.12`,
+  the forum's pin at nostr-rust-forum `b73ec8c`. `crates/vault` reaches
+  solid-pod-rs through `nostr-bbs-core`, which pins it exactly, and every
+  published `nostr-bbs-core` pins an older alpha. `nostr-bbs-core` is
+  therefore patched to the forum at `b73ec8c` until a release carrying alpha.12
+  is published. The `extraction/solid-pod-rs` half of D8 is unchanged.
+- **D2, restated: the trail is walked, not its tip.** The earlier seam asked
+  whether the tip was confirmed and, at L1, whether a prevout was spent once.
+  A confirmed tip shows only that someone paid the tip's key. Under
+  Blocktrails (blocktrails/spec `ef54a08`, "the rule as it is") every mark's
+  output key `x(P_i)` is the base key tweaked by every state so far, so the
+  check that matters is per link. `AnchorConfirmer` is now `is_confirmed`,
+  `output_key(txid, vout)` and `spends(txid, prev_txid, prev_vout)`;
+  `prevout_spent_once` is removed, since a mark spending its predecessor is
+  what it was standing in for. `verify` recomputes every `x(P_i)` from
+  `pubkeyBase` and the states with solid-pod-rs's walker
+  (`solid_pod_rs::blocktrail::walk_blocktrail`). It reports
+  blocktrails/verify `043e7af`'s verdict: `verified`, `confirmed` (marks
+  on-chain, no `pubkeyBase` to recompute from) or `partial`. L0 accepts
+  `verified` or `confirmed`; L1 accepts only `verified`.
+- **The words.** `TrustLevel::L1SingleUseSeal` is `L1Anchored` (serialised
+  `l1_anchored`; nothing serialised the old name). The "single-use seal"
+  wording and the "C6 reconstruction" label on `blocktrails.json` are gone
+  from `src/web_contract`. A unit test (`no_seal_vocabulary_in_the_module`)
+  is the vocabulary lint the Verification list asks for, over that module.
+  `docs/archive` keeps its historical wording.
+- **The trail type.** `Blocktrails` wraps solid-pod-rs's shared `Blocktrail`,
+  the gitmark profile §5.2 shape (`@type`, `version`, `profile`, `pubkeyBase`,
+  `chain`, `states`, `txo` as TXO URIs
+  `txo:<chain>:<txid>:<vout>?amount=&commit=`). Files in the host's earlier
+  `{txid, vout, address}` form still load and are written back as TXO URIs.
+- **Evidence.** `tests/fixtures/blocktrails/` vendors solid-pod-rs
+  0.5.0-alpha.12's `verify-trail-vectors.json` (blocktrails/verify `043e7af`
+  run as published) and `live-trail-txs.json` (blocktrails/git-mark `b852d7d`'s
+  live trail, captured from mempool.space testnet4). The host walker gives the
+  page's labels and verdict on all 13 cases except two documented ones. On a
+  mark that does not spend its predecessor it says `broken link`, as
+  solid-pod-rs does. It does not check recorded amounts, because the
+  confirmer reports no output values. The live trail is `verified`. With two
+  states swapped it is `partial` (`verified`, `wrong key`, `wrong key`) while
+  its tip stays confirmed.
+- **D9.** `src/web_contract`'s module header now states that it is not
+  `crates/visionclaw-contracts`.
+
+The Verification item on `prevout_spent_once` now reads: `verify` at L1 passes
+a live trail and refuses a reordered one through a confirmer that answers from a
+running `sidestr-node`, with no test double in the path.
+
 ## Disposition — 2026-10-02
 
 - **Suitability:** fits, needs revision

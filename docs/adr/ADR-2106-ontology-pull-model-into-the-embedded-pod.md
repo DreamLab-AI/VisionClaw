@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 80521967954698f729002d5ccbba6302d2fc0ced
+verified_commit: fdcbc9120fda25fd93fdaee744d68d2c00713d6b
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -152,3 +152,7 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-10-02 at 805219679 (exact-SHA corpus dispatch)
 
 **Governed changes since `853c4a069`:** in `.github/workflows/ontology-publish.yml`, `ONTOLOGY_SOURCE_REPO` also reads `client_payload.source_repo`. Both source checkouts are now pinned: `validate-source` uses `client_payload.source_sha || 'main'` and the build job uses `needs.validate-source.outputs.source_sha`. A `corpus-sync` `repository_dispatch` therefore builds exactly the revision the site pipeline validated. The other governed paths are unchanged. **Decision unaffected.** Delivery is still pull-model. `publish-release` attaches the resources and `SHA256SUMS` to `ontology-latest`, the embedded pod pulls and verifies them, and `deploy-jss` is still gated on `vars.SOLID_POD_URL`. Pinning the source revision tightens the provenance of what the pod pulls without changing who moves it. `verified_commit` moved to the landing commit. Source reading only.
+
+## Re-verification — 2026-10-03 at fdcbc9120fda25fd93fdaee744d68d2c00713d6b
+
+`1d3e14a30` adds `inherited: false` to the `AclDocument` literal in `public_read_acl` (`src/services/ontology_pull.rs`), the field solid-pod-rs 0.5.0-alpha.12 added. The document is the container's own sidecar, so `false` is its meaning, and it is never serialised. The ACL the pull writes is byte-identical. Tests: `cargo test -p visionclaw-server --lib -- ontology_pull ontology_generation` (16 pass). The decision holds unchanged.
