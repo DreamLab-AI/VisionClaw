@@ -291,15 +291,6 @@ solid-pod-embed = [
     "dep:solid-pod-rs-server",
 ]
 
-# nostr-bbs-core (via crates/vault) pins solid-pod-rs exactly, and one lockfile
-# holds a single 0.5.x solid-pod-rs. Every published nostr-bbs-core pins an
-# older alpha (1.0.0-beta.12 pins =0.5.0-alpha.10), so take the forum's
-# nostr-bbs-core at the commit that moved to =0.5.0-alpha.12 (b73ec8c). Replace
-# with a plain version pin once a nostr-bbs-core release carrying alpha.12 is
-# on crates.io.
-[patch.crates-io]
-nostr-bbs-core = { git = "https://github.com/DreamLab-AI/nostr-rust-forum", rev = "b73ec8c" }
-
 [profile.release]
 opt-level = 3
 lto = true
