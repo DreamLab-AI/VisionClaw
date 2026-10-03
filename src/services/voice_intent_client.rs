@@ -137,8 +137,10 @@ impl VoiceIntentClient {
     /// honest gating, never a fabricated dispatch). Requires:
     ///  - `AGENTBOX_VOICE_INTENT_URL` (full URL) or `AGENTBOX_MANAGEMENT_URL`
     ///    (base; `/v1/voice-intent` is appended);
-    ///  - `ACSP_PANEL_NOSTR_PRIVKEY` (64-hex) — the same panel identity the ACSP
-    ///    producer already uses, reused as the voice mandate signer.
+    ///  - the panel key, resolved by
+    ///    [`crate::services::acsp::key_file::load_panel_secret`] — the same
+    ///    panel identity the ACSP producer uses, reused as the voice mandate
+    ///    signer.
     pub fn from_env() -> Option<Arc<Self>> {
         let endpoint = std::env::var("AGENTBOX_VOICE_INTENT_URL")
             .ok()
@@ -149,13 +151,23 @@ impl VoiceIntentClient {
                     .filter(|s| !s.is_empty())
                     .map(|base| format!("{}{}", base.trim_end_matches('/'), VOICE_INTENT_PATH))
             })?;
-        let secret = std::env::var("ACSP_PANEL_NOSTR_PRIVKEY")
-            .ok()
-            .filter(|s| !s.is_empty())?;
-        let secret_key = match SecretKey::from_hex(&secret) {
+        let secret = match crate::services::acsp::key_file::load_panel_secret() {
+            Ok(Some(s)) => s,
+            Ok(None) => return None,
+            Err(e) => {
+                warn!(
+                    "[voice-intent] panel signing key unusable, governed voice loop disabled: {e}"
+                );
+                return None;
+            }
+        };
+        let secret_key = match SecretKey::from_hex(secret.secret_hex()) {
             Ok(k) => k,
             Err(e) => {
-                warn!("[voice-intent] ACSP_PANEL_NOSTR_PRIVKEY invalid, governed voice loop disabled: {e}");
+                warn!(
+                    "[voice-intent] panel secret from {} invalid, governed voice loop disabled: {e}",
+                    secret.source()
+                );
                 return None;
             }
         };

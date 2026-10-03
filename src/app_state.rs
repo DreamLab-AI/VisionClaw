@@ -1288,7 +1288,7 @@ impl AppState {
                 info!("[AppState] ElevationActor started (ACSP knowledge-elevation panel live)");
             }
             None => info!(
-                "[AppState] ElevationActor disabled (dev/staging default ON — set ELEVATION_ACTOR_ENABLED=0 to force off, or in production set ELEVATION_ACTOR_ENABLED=1; also requires FORUM_RELAY_URL + ACSP_PANEL_NOSTR_PRIVKEY)"
+                "[AppState] ElevationActor disabled (dev/staging default ON — set ELEVATION_ACTOR_ENABLED=0 to force off, or in production set ELEVATION_ACTOR_ENABLED=1; also requires FORUM_RELAY_URL + a panel key: ACSP_PANEL_NOSTR_KEY_FILE or ACSP_PANEL_NOSTR_PRIVKEY)"
             ),
         }
 
@@ -1354,14 +1354,18 @@ impl AppState {
 
         // gap-close item 2 (ADR-130 Decision 2): connect the shared ACSP client
         // that projects REST/bridge decisions back to the forum as kind-31403.
-        // Same identity + relay as ElevationActor (ACSP_PANEL_NOSTR_PRIVKEY /
-        // VISIONCLAW_NOSTR_PRIVKEY + FORUM_RELAY_URL). Unconfigured or failed
+        // Same identity + relay as ElevationActor (key via
+        // services::acsp::key_file::load_panel_secret + FORUM_RELAY_URL). Unconfigured or failed
         // connect ⇒ None, and the decide path records forum_projection=skipped.
         let acsp_client = {
             let relay = std::env::var("FORUM_RELAY_URL").ok();
-            let secret = std::env::var("ACSP_PANEL_NOSTR_PRIVKEY")
-                .or_else(|_| std::env::var("VISIONCLAW_NOSTR_PRIVKEY"))
-                .ok();
+            let secret = match crate::services::acsp::key_file::load_panel_secret() {
+                Ok(s) => s.map(|s| s.into_secret_hex()),
+                Err(e) => {
+                    error!("[AppState] panel signing key unusable ({e}) — decision-projection client OFF");
+                    None
+                }
+            };
             match (relay, secret) {
                 (Some(relay), Some(secret)) => {
                     match crate::services::acsp::AcspClient::connect(&secret, &relay).await {
@@ -1376,7 +1380,7 @@ impl AppState {
                     }
                 }
                 _ => {
-                    info!("[AppState] ACSP decision-projection client OFF (FORUM_RELAY_URL + ACSP_PANEL_NOSTR_PRIVKEY/VISIONCLAW_NOSTR_PRIVKEY unset) — REST/bridge decisions record forum_projection=skipped");
+                    info!("[AppState] ACSP decision-projection client OFF (FORUM_RELAY_URL or panel key unset: ACSP_PANEL_NOSTR_KEY_FILE / VISIONCLAW_NOSTR_KEY_FILE / ACSP_PANEL_NOSTR_PRIVKEY / VISIONCLAW_NOSTR_PRIVKEY) — REST/bridge decisions record forum_projection=skipped");
                     None
                 }
             }
