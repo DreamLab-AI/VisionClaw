@@ -77,7 +77,7 @@ Re-verified against repository HEADs on day 9 of the 22 Sep–20 Oct cycle ([pla
 | CY-A2 | in progress | Catalogue keys fixed (`8302d8f4d`, `7d22c2f64`, `21882ed78`). No declared-versus-running sidecar check in `scripts/ci/`; voice flag untouched. |
 | CY-A3 | in progress — fixes landed 30 Sep; exit needs three green nights | agentbox nix-flake-update: `lib/rune.nix` read `${src}/Cargo.lock` (IFD); lock vendored (agentbox #7), dispatched run green; update parked on `deps/nix-flake-update` (issue #9) pending a boot rehearsal (X-4). Collector (VisionFlow #5): runs listed unfiltered (the `?branch=` filter hid the forum's green 29 Sep runs), docs-only HEAD carries the last verdict, `ci_by_design` makes knowledgeGraph (publish target) and WasmVOWL (frozen) `exempt`. Forum audit dispatched on HEAD: green. visionGraph red was a 258 ms vs 250 ms smoke threshold; re-run dispatched. Live collect: 10 green, 0 red, 0 none, 2 exempt, rest pending on dispatched runs. Still owner: `ESTATE_READ_TOKEN` scope for visionGraph (G-23). |
 | CY-A4 | **done 30 Sep** | `adr-index-gen --check` now gates CI in all five ledger repos (forum #71 and solid-pod-rs #5 added the missing workflows). `scripts/adr-ratchet.sh` in all five (agentbox #10, VisionClaw #21, VisionFlow #8, forum #71, solid-pod-rs #5), on push and PR: more ADRs added than closed from `proposed` fails until 2026-10-20; the rule's exception is claimed per record with a commit trailer `ADR-Ratchet: ADR-NNNN documents <track item>`. Baseline: agentbox added 12 since 22 Sep, closed 0. |
-| CY-A5 | **in progress — Phase 1 merged 30 Sep** | agentbox #8 (merge commit `69f0c2207`): `POST /v1/exec/record`, dream-engine `journal.rs`, ledger self-commit, seven-day `dream/*` sweep. ADR-2071 proposed/partial/inactive. **Remaining:** image rebuild (deferred by owner), one `dream-engine --target <repo>` run for clauses (a)–(c), then accept. |
+| CY-A5 | **done 4 Oct — ADR-2071 accepted** | agentbox #8 (merge commit `69f0c2207`): `POST /v1/exec/record`, dream-engine `journal.rs`, ledger self-commit, seven-day `dream/*` sweep. All three Phase 1 clauses pass on the live image (receipt `ADR-2087-activation-20261004T100615Z`); ADR-2071 is accepted/complete/live (agentbox `97c1f90b7`). See [Reconciliation 2026-10-04](#reconciliation-2026-10-04). |
 | CY-B6 | parked (owner, 30 Sep) | No payment route calls `lib/authority.js`, and `middleware/spend-policy.js` is registered on no route (`requiresApproval` is never read; the `agentbox.toml:1525` "parks pending ACSP approval" comment describes absent behaviour). Owner: nothing of real value moves yet, so payments stay automatic. **Reopens before any real-value spend** (mainnet, fiat, or a sidestr chain with non-zero declared value, i.e. the ADR-2103 P21 gate), with PLAN-security S-1 as the exit test. |
 | CY-B7 | not started | Augmentation conditions ADR-2087 (agentbox), ADR-2110 (host), ADR-2011 (forum) all `inactive`. |
 | CY-B8 | not started | No ADR-2095 measurement run (last commit `b2389f36d`, cost correction). |
@@ -158,6 +158,23 @@ The Trust residential runs the **prod profile**, not the dev profile with dev mo
 | ID | State | Evidence and remaining boundary |
 |---|---|---|
 | CY-C-D1 | closed | **`launch.sh up prod` refused to start a tunnel-less host.** Fixed in `920401379` (host ADR-2119): `.env.prod` declares `VISIONCLAW_INGRESS=lan` or `tunnel`; `cloudflared` moved to its own `tunnel` compose profile; the token is required only for tunnel ingress, and an undeclared setting keeps the tunnel contract, so a forgotten token still fails loudly. LAN ingress keeps the three secrets and all four forbidden dev flags, and requires an explicit `CORS_ALLOWED_ORIGINS`. Exit test met by `crates/visionclaw-integration-tests/tests/prod_ingress.rs` (9 hermetic cases in CI), notably `lan_prod_without_tunnel_token_plans_a_start_without_cloudflared` and `tunnel_prod_without_token_refuses_before_touching_docker`. Nothing was launched; the first real LAN start on Trust hardware is still to come. |
+
+## Reconciliation 2026-10-04
+
+Day 13 of the cycle. Row change: **CY-A5 done**. This was the cycle's single focus under the day-five abort call (planning cycle §10). Every other row is unchanged.
+
+| ID | State | Evidence and remaining boundary |
+|---|---|---|
+| CY-A5 | **done** | Clause (c) of ADR-2071 ran on 4 Oct at the owner's request, replacing the 6 Oct night arranged under Q9. management-api was stopped from 09:38:39Z to 10:06:04Z, and a full `dream-engine --once` exited 0 inside that window. It produced 4 verdicts: factrail INCONCLUSIVE; dreamlab-ai-website and dream-machine ACCEPT; VisionFlow reused that morning's ACCEPT, the same run id. Meanwhile 130 journal posts failed or were skipped, and each session's breaker opened after 3 failures. The engine still committed its ledger rows locally. `adr-2087-check.sh --api-down-night 2026-10-04` passes C1 (80 pairs across 5 sessions), C2 (chain intact over 11 day files) and C3. The overall ADR-2087 verdict is STAGED only because of B7, as no governance receipt has reached the forum yet; that belongs to CY-B7. ADR-2071 is accepted/complete/live (agentbox `97c1f90b7`). The one-shot's crontab block is removed and the 6 Oct marker is retired. |
+
+Follow-ups, not rows yet:
+
+- The night digest was skipped after the relay returned HTTP 500 (fail-open). Not yet investigated.
+- **Unpushed ledger rows.** The engine's ledger commits are still local: factrail is 3 ahead, dreamlab-ai-website 2 and dream-machine 3. Each of those repos now has two rows dated 2026-10-04. Check them against the row contract before pushing; on 2 Oct, engine-written rows turned dream-machine red (N-13).
+- **Open dream PRs.** VisionFlow #13 and #14, website #52 and #53, and dream-engine #21 and #22 wait on review.
+- **Stale ADR records.** `adr-index-gen --check` fails on agentbox HEAD: 19 records are STALE after the 3 Oct `flake.nix`/`agentbox.toml` commits and need re-verification. Until then the ADR-2071 index row is patched by hand.
+
+ADR census: agentbox has 29 open proposals. ADR-2071 is the first proposal settled this cycle.
 
 ## Removed as resolved in this execution
 
