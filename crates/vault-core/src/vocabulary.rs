@@ -64,6 +64,70 @@ const BUILTIN_PREFIXES: &[(&str, &str)] = &[
     ("ngmi", "https://narrativegoldmine.com/individual/"),
 ];
 
+/// The error code a vocabulary load fails with when an entry would emit a
+/// construct outside OWL 2 EL (ADR-2126 Decision 2). Every such message starts
+/// with this code.
+pub const NON_EL_VOCABULARY: &str = "NON_EL_VOCABULARY";
+
+/// The error code a vocabulary load fails with when a relation that maps onto
+/// a logical or annotation IRI (`rdfs:subClassOf`, `owl:disjointWith`,
+/// `owl:equivalentClass`, `skos:*`) declares a `domain:` or `range:`: the
+/// emitter would have to write `rdfs:domain` onto the OWL vocabulary itself.
+pub const SIGNATURE_ON_LOGICAL_RELATION: &str = "SIGNATURE_ON_LOGICAL_RELATION";
+
+/// The rule a `defines-as` existential fails when its relation is emitted but
+/// not as an existential restriction (`restriction: true` absent): the corpus
+/// then carries no `C ⊑ ∃P.D` axiom over it, so the definition would validate
+/// and never classify anything (ADR-2124).
+pub const NOT_AN_EXISTENTIAL: &str = "DEFINITION_NOT_EXISTENTIAL";
+
+/// The rule a `defines-as` existential fails when its property is transitive,
+/// or has a transitive property among its sub- or super-properties: the
+/// reasoner's `Relevant` mode would then keep every existential over that
+/// hierarchy, and saturating them over a transitive property does not finish
+/// on the real corpus (12,515 kept for `requires`, killed after 600 s;
+/// ADR-2124).
+pub const DEFINITION_OVER_TRANSITIVE: &str = "DEFINITION_OVER_TRANSITIVE";
+
+/// Namespaces whose IRIs are logical or annotation vocabulary, never a corpus
+/// object property.
+const LOGICAL_NAMESPACES: &[&str] = &[
+    "http://www.w3.org/2002/07/owl#",
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "http://www.w3.org/2000/01/rdf-schema#",
+    "http://www.w3.org/2004/02/skos/core#",
+];
+
+/// Local names, in the `owl:` namespace, of the constructs a vocabulary may not
+/// map a key onto: they are outside OWL 2 EL, or inside it but outside what
+/// Whelk implements (`hasValue` and `oneOf` need nominals, which Whelk lacks),
+/// so an axiom built from one either enforces nothing under the open-world
+/// assumption or is silently ignored by the reasoner. Closed-world
+/// requirements belong in `vault validate` rules instead (ADR-2126 Decision 1).
+pub const NON_EL_OWL_TERMS: &[&str] = &[
+    "allValuesFrom",
+    "cardinality",
+    "minCardinality",
+    "maxCardinality",
+    "qualifiedCardinality",
+    "minQualifiedCardinality",
+    "maxQualifiedCardinality",
+    "hasValue",
+    "oneOf",
+    "propertyDisjointWith",
+    "inverseOf",
+    "SymmetricProperty",
+    "complementOf",
+    "unionOf",
+    "disjointUnionOf",
+    "AsymmetricProperty",
+    "IrreflexiveProperty",
+    "FunctionalProperty",
+    "InverseFunctionalProperty",
+];
+
+const OWL_NS: &str = "http://www.w3.org/2002/07/owl#";
+
 fn default_true() -> bool {
     true
 }
@@ -92,7 +156,9 @@ pub struct TypeDef {
 pub enum Characteristic {
     /// `owl:TransitiveProperty`.
     Transitive,
-    /// `owl:SymmetricProperty` — declared, never emitted (outside OWL 2 EL).
+    /// `owl:SymmetricProperty` — outside OWL 2 EL. Parsed only so that a
+    /// vocabulary declaring it fails the load with the named
+    /// [`NON_EL_VOCABULARY`] error (ADR-2126) rather than a serde message.
     Symmetric,
     /// `owl:ReflexiveProperty`.
     Reflexive,
@@ -143,6 +209,16 @@ pub struct RelationDef {
     /// [`Vocabulary::json_key`] derives one.
     #[serde(default)]
     pub json_key: Option<String>,
+    /// `rdfs:domain` of the emitted property, as a class slug (or a full
+    /// IRI). Absent — and `owl:Thing`, which says nothing — means no
+    /// `rdfs:domain` triple (ADR-2128). Under OWL semantics a domain *types*
+    /// every subject that uses the property, so declaring one is a signed
+    /// Schema change, never a validation rule (that lives in `vault validate`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// `rdfs:range` of the emitted property; same rules as [`Self::domain`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<String>,
 }
 
 impl RelationDef {
@@ -158,10 +234,10 @@ impl RelationDef {
 pub struct SuperPropertyDef {
     /// `rdfs:label`.
     pub label: String,
-    /// `rdfs:domain`, usually `owl:Thing`.
+    /// `rdfs:domain`. `owl:Thing` or absent emits no triple (ADR-2128).
     #[serde(default)]
     pub domain: Option<String>,
-    /// `rdfs:range`, usually `owl:Thing`.
+    /// `rdfs:range`. `owl:Thing` or absent emits no triple (ADR-2128).
     #[serde(default)]
     pub range: Option<String>,
     /// The relation keys that declare this as their `sub_property_of`.
@@ -409,8 +485,10 @@ impl Vocabulary {
     ///
     /// # Errors
     /// A human-readable message when the YAML is invalid, a declared inverse
-    /// or relation alias names an undeclared relation, or a key is both a
-    /// relation and a scalar.
+    /// or relation alias names an undeclared relation, a key is both a
+    /// relation and a scalar, or an entry would emit a construct outside
+    /// OWL 2 EL (a message starting [`NON_EL_VOCABULARY`]; see
+    /// [`NON_EL_OWL_TERMS`]).
     pub fn from_yaml_str(yaml: &str) -> std::result::Result<Self, String> {
         let vocab: Self = serde_yaml::from_str(yaml).map_err(|e| e.to_string())?;
         vocab.check()?;
@@ -418,6 +496,7 @@ impl Vocabulary {
     }
 
     fn check(&self) -> std::result::Result<(), String> {
+        self.check_el_profile()?;
         for (key, def) in &self.relations {
             if let Some(inv) = &def.inverse {
                 if !self.relations.contains_key(inv) {
@@ -429,12 +508,96 @@ impl Vocabulary {
             if self.scalars.contains_key(key) {
                 return Err(format!("{key:?} is declared both a relation and a scalar"));
             }
+            if (def.domain.is_some() || def.range.is_some()) && self.is_logical(&def.owl) {
+                return Err(format!(
+                    "{SIGNATURE_ON_LOGICAL_RELATION}: relation {key:?} maps to {}, a logical \
+                     IRI, and cannot carry a domain or range (ADR-2128)",
+                    def.owl
+                ));
+            }
         }
         for def in self.scalars.values() {
             if let (Some(min), Some(max)) = (def.min, def.max) {
                 if min > max {
                     return Err(format!("scalar bound min {min} exceeds max {max}"));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// The `owl:` local name when `iri` (prefixed or absolute) is one of
+    /// [`NON_EL_OWL_TERMS`].
+    #[must_use]
+    pub fn non_el_term(&self, iri: &str) -> Option<&'static str> {
+        let local = self.expand(iri.trim()).strip_prefix(OWL_NS)?.to_owned();
+        NON_EL_OWL_TERMS.iter().copied().find(|t| *t == local)
+    }
+
+    /// ADR-2126 Decision 2: refuse every entry whose OWL mapping or declared
+    /// characteristics would put a non-EL construct into `ontology.ttl`.
+    ///
+    /// Checked sites are every IRI the emitter can write from the vocabulary:
+    /// relation `owl` and `sub_property_of`, type and scalar `owl`, working
+    /// extension `owl`, and super-property names, domains and ranges. A
+    /// relation's `inverse:` is deliberately **not** checked: it names another
+    /// relation key and is a build hint the emitter never turns into
+    /// `owl:inverseOf`.
+    fn check_el_profile(&self) -> std::result::Result<(), String> {
+        let refuse = |site: String, iri: &str| -> std::result::Result<(), String> {
+            let why = |term: &str| match term {
+                "hasValue" | "oneOf" => {
+                    "which needs nominals, and Whelk does not implement nominals"
+                }
+                _ => "which is outside OWL 2 EL",
+            };
+            match self.non_el_term(iri) {
+                Some(term) => Err(format!(
+                    "{NON_EL_VOCABULARY}: {site} maps to owl:{term}, {}; \
+                     express the requirement as a `vault validate` rule (ADR-2126)",
+                    why(term)
+                )),
+                None => Ok(()),
+            }
+        };
+        for (key, def) in &self.types {
+            refuse(format!("type {key:?} owl"), &def.owl)?;
+        }
+        for (key, def) in &self.relations {
+            refuse(format!("relation {key:?} owl"), &def.owl)?;
+            if let Some(sup) = &def.sub_property_of {
+                refuse(format!("relation {key:?} sub_property_of"), sup)?;
+            }
+            if let Some(d) = &def.domain {
+                refuse(format!("relation {key:?} domain"), d)?;
+            }
+            if let Some(r) = &def.range {
+                refuse(format!("relation {key:?} range"), r)?;
+            }
+            if def.characteristics.contains(&Characteristic::Symmetric) {
+                return Err(format!(
+                    "{NON_EL_VOCABULARY}: relation {key:?} declares characteristic `symmetric`, \
+                     which would emit owl:SymmetricProperty, outside OWL 2 EL (ADR-2126)"
+                ));
+            }
+        }
+        for (key, def) in &self.super_properties {
+            refuse(format!("super_property {key:?}"), key)?;
+            if let Some(d) = &def.domain {
+                refuse(format!("super_property {key:?} domain"), d)?;
+            }
+            if let Some(r) = &def.range {
+                refuse(format!("super_property {key:?} range"), r)?;
+            }
+        }
+        for (key, def) in &self.scalars {
+            if let Some(owl) = &def.owl {
+                refuse(format!("scalar {key:?} owl"), owl)?;
+            }
+        }
+        for (key, def) in &self.working_extensions {
+            if let Some(owl) = &def.owl {
+                refuse(format!("working_extension {key:?} owl"), owl)?;
             }
         }
         Ok(())
@@ -553,6 +716,151 @@ impl Vocabulary {
             .map(|(k, _)| k.as_str())
             .collect()
     }
+
+    /// The OWL property IRI a relation key contributes when it is used as an
+    /// existential `∃key.D` inside a `defines-as` definition (ADR-2124), or
+    /// `None` when it cannot be: the key is undeclared, not `emitted`, not
+    /// emitted as an existential (`restriction: true` absent — see
+    /// [`NOT_AN_EXISTENTIAL`]), or maps onto a logical or annotation IRI
+    /// (`rdfs:subClassOf`, `owl:disjointWith`, `owl:equivalentClass`, `skos:*`)
+    /// rather than a corpus object property.
+    ///
+    /// ```
+    /// # use vault_core::vocabulary::Vocabulary;
+    /// let v = Vocabulary::from_yaml_str(r#"
+    /// version: 1
+    /// relations:
+    ///   is-a:       { owl: "rdfs:subClassOf" }
+    ///   has-part:   { owl: "vc:hasPart", restriction: true }
+    ///   related-to: { owl: "vc:relatedTo" }
+    /// "#).unwrap();
+    /// assert_eq!(
+    ///     v.existential_property("has-part").as_deref(),
+    ///     Some("https://narrativegoldmine.com/ns/v1#hasPart")
+    /// );
+    /// assert_eq!(v.existential_property("is-a"), None);
+    /// assert_eq!(v.existential_property("related-to"), None); // no restriction
+    /// ```
+    #[must_use]
+    pub fn existential_property(&self, key: &str) -> Option<String> {
+        let def = self
+            .relations
+            .get(key)
+            .filter(|d| d.emitted && d.restriction)?;
+        let iri = self.expand(def.owl.trim());
+        (!self.is_logical(&iri)).then_some(iri)
+    }
+
+    /// `true` when `iri` (prefixed or absolute) is in a logical or annotation
+    /// namespace (`owl:`, `rdf:`, `rdfs:`, `skos:`).
+    #[must_use]
+    pub fn is_logical(&self, iri: &str) -> bool {
+        let iri = self.expand(iri.trim());
+        LOGICAL_NAMESPACES.iter().any(|ns| iri.starts_with(ns))
+    }
+
+    /// The [`NOT_AN_EXISTENTIAL`] refusal for a relation that is an emitted
+    /// object property but is not emitted as an existential restriction, so a
+    /// definition over it could never classify. `None` for every other key,
+    /// including those [`Self::existential_property`] refuses for another
+    /// reason (undeclared, unemitted, logical).
+    #[must_use]
+    pub fn existential_refusal(&self, key: &str) -> Option<String> {
+        let def = self.relations.get(key)?;
+        (def.emitted && !def.restriction && !self.is_logical(&def.owl)).then(|| {
+            format!(
+                "{NOT_AN_EXISTENTIAL}: relation `{key}` is emitted as a plain property \
+                 assertion, not as an existential restriction (`restriction: true` is \
+                 absent), so no class carries `∃{key}.D` and a definition over it would \
+                 never classify anything (ADR-2124)"
+            )
+        })
+    }
+
+    /// Every transitive property among `property` (prefixed or absolute) and
+    /// the properties reachable from it through the emitted `sub_property_of`
+    /// hierarchy, followed down (sub-properties) or up (super-properties) — the
+    /// same closure `Restrictions::Relevant` keeps existentials over. Sorted by
+    /// IRI and deduplicated; empty when the closure holds no transitive
+    /// property.
+    ///
+    /// A `defines-as` existential over a property whose closure is non-empty
+    /// here makes the reasoner saturate every existential over a transitive
+    /// property, which on the real corpus does not finish (ADR-2124,
+    /// [`DEFINITION_OVER_TRANSITIVE`]). Returning the whole set, rather than
+    /// one member, lets the refusal name every culprit and keeps the answer
+    /// independent of IRI spelling.
+    ///
+    /// ```
+    /// # use vault_core::vocabulary::Vocabulary;
+    /// let v = Vocabulary::from_yaml_str(r#"
+    /// version: 1
+    /// relations:
+    ///   requires:   { owl: vc:requires, characteristics: [transitive], sub_property_of: vc:dependsOn, restriction: true }
+    ///   depends-on: { owl: vc:dependsOn, characteristics: [transitive] }
+    ///   has-part:   { owl: vc:hasPart, restriction: true }
+    /// "#).unwrap();
+    /// assert_eq!(
+    ///     v.transitive_in_closure("vc:requires"),
+    ///     ["https://narrativegoldmine.com/ns/v1#dependsOn", "https://narrativegoldmine.com/ns/v1#requires"]
+    /// );
+    /// assert!(v.transitive_in_closure("vc:hasPart").is_empty());
+    /// ```
+    #[must_use]
+    pub fn transitive_in_closure(&self, property: &str) -> Vec<String> {
+        use std::collections::BTreeSet;
+        let property = self.expand(property.trim());
+        let mut up: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut down: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut transitive = BTreeSet::new();
+        for def in self.relations.values().filter(|d| d.emitted) {
+            let iri = self.expand(def.owl.trim());
+            if def.is_transitive() {
+                transitive.insert(iri.clone());
+            }
+            if let Some(sup) = &def.sub_property_of {
+                let sup = self.expand(sup.trim());
+                up.entry(iri.clone()).or_default().push(sup.clone());
+                down.entry(sup).or_default().push(iri);
+            }
+        }
+        let mut closure = BTreeSet::new();
+        for edges in [&up, &down] {
+            let mut stack = vec![property.clone()];
+            let mut seen = BTreeSet::new();
+            while let Some(p) = stack.pop() {
+                if seen.insert(p.clone()) {
+                    stack.extend(edges.get(&p).into_iter().flatten().cloned());
+                }
+            }
+            closure.extend(seen);
+        }
+        closure
+            .into_iter()
+            .filter(|p| transitive.contains(p))
+            .collect()
+    }
+
+    /// The [`DEFINITION_OVER_TRANSITIVE`] refusal for a relation key whose
+    /// existential property has a transitive property in its sub/super
+    /// closure (see [`Self::transitive_in_closure`]), or `None` when the key is
+    /// not an existential property or its closure holds nothing transitive.
+    #[must_use]
+    pub fn transitive_refusal(&self, key: &str) -> Option<String> {
+        let iri = self.existential_property(key)?;
+        let culprits = self.transitive_in_closure(&iri);
+        (!culprits.is_empty()).then(|| {
+            format!(
+                "{DEFINITION_OVER_TRANSITIVE}: relation `{key}` ({iri}) has the transitive \
+                 propert{} {} in its sub/super-property closure; an existential over it makes \
+                 the reasoner saturate every existential over a transitive property, which \
+                 does not finish on the corpus (ADR-2124). Define the class over a \
+                 non-transitive relation such as `has-part`",
+                if culprits.len() == 1 { "y" } else { "ies" },
+                culprits.join(", ")
+            )
+        })
+    }
 }
 
 /// `has-part` to `hasPart`, `standardized-by` to `standardizedBy`.
@@ -647,6 +955,149 @@ validation:
     }
 
     #[test]
+    fn only_emitted_object_properties_can_be_existentials() {
+        let v = Vocabulary::from_yaml_str(
+            r"
+version: 1
+relations:
+  is-a:          { owl: rdfs:subClassOf }
+  has-part:      { owl: vc:hasPart, restriction: true }
+  produces:      { owl: vc:produces, emitted: false, status: provisional }
+  disjoint-with: { owl: owl:disjointWith }
+  same-as:       { owl: skos:exactMatch }
+  defines-as:    { owl: owl:equivalentClass }
+  typed:         { owl: rdf:type }
+",
+        )
+        .unwrap();
+        assert_eq!(
+            v.existential_property("has-part").as_deref(),
+            Some("https://narrativegoldmine.com/ns/v1#hasPart")
+        );
+        for key in [
+            "is-a",
+            "produces",
+            "disjoint-with",
+            "same-as",
+            "defines-as",
+            "typed",
+            "nope",
+        ] {
+            assert_eq!(v.existential_property(key), None, "{key}");
+        }
+    }
+
+    /// Only relations emitted as existentials (`restriction: true`) can carry
+    /// an existential in a definition: over any other property the corpus has
+    /// no `C ⊑ ∃P.D` axiom, so the definition validates and never classifies.
+    #[test]
+    fn only_restriction_relations_can_be_existentials() {
+        let v = Vocabulary::from_yaml_str(
+            r"
+version: 1
+relations:
+  has-part:   { owl: vc:hasPart, restriction: true }
+  related-to: { owl: vc:relatedTo }
+",
+        )
+        .unwrap();
+        assert!(v.existential_property("has-part").is_some());
+        assert_eq!(v.existential_property("related-to"), None);
+        let refusal = v.existential_refusal("related-to").expect("refused");
+        assert!(refusal.starts_with(NOT_AN_EXISTENTIAL), "{refusal}");
+        assert!(refusal.contains("restriction: true"), "{refusal}");
+        assert_eq!(v.existential_refusal("has-part"), None);
+        // An unemitted or logical relation is not this rule's business.
+        assert_eq!(v.existential_refusal("nope"), None);
+    }
+
+    /// ADR-2124 / defect 1(a): the transitive property found in the
+    /// sub/super-property closure of a definition property, if any.
+    #[test]
+    fn a_transitive_property_in_the_closure_is_found() {
+        let v = Vocabulary::from_yaml_str(
+            r"
+version: 1
+relations:
+  requires:   { owl: vc:requires, characteristics: [transitive], sub_property_of: vc:dependsOn, restriction: true }
+  depends-on: { owl: vc:dependsOn, characteristics: [transitive] }
+  enforces:   { owl: vc:enforces, sub_property_of: vc:dependsOn, restriction: true }
+  needs:      { owl: vc:needs, restriction: true }
+  narrow:     { owl: vc:narrow, sub_property_of: vc:needs, characteristics: [transitive] }
+  has-part:   { owl: vc:hasPart, restriction: true }
+  uses:       { owl: vc:uses, sub_property_of: vc:utilises, restriction: true }
+",
+        )
+        .unwrap();
+        let t = |k: &str| v.transitive_in_closure(&v.relations[k].owl);
+        let iri = |l: &str| format!("https://narrativegoldmine.com/ns/v1#{l}");
+        // itself and its transitive super-property, in IRI order
+        assert_eq!(t("requires"), [iri("dependsOn"), iri("requires")]);
+        // super-property transitive
+        assert_eq!(t("enforces"), [iri("dependsOn")]);
+        // sub-property transitive
+        assert_eq!(t("needs"), [iri("narrow")]);
+        // prefixed and absolute spellings agree
+        assert_eq!(v.transitive_in_closure(&iri("requires")), t("requires"));
+        assert!(t("has-part").is_empty());
+        assert!(t("uses").is_empty());
+        // and the refusal names every culprit under the named code
+        let r = v.transitive_refusal("requires").expect("refused");
+        assert!(r.starts_with(DEFINITION_OVER_TRANSITIVE), "{r}");
+        assert!(
+            r.contains(&iri("dependsOn")) && r.contains(&iri("requires")),
+            "{r}"
+        );
+        assert!(v.transitive_refusal("enforces").is_some());
+        assert_eq!(v.transitive_refusal("has-part"), None);
+        assert_eq!(v.transitive_refusal("nope"), None);
+    }
+
+    #[test]
+    fn the_has_value_refusal_names_nominals_not_the_el_profile() {
+        let err = Vocabulary::from_yaml_str("version: 1\nrelations:\n  r: { owl: owl:hasValue }\n")
+            .unwrap_err();
+        assert!(err.starts_with("NON_EL_VOCABULARY"), "{err}");
+        assert!(err.contains("nominals"), "{err}");
+        assert!(!err.contains("outside OWL 2 EL"), "{err}");
+    }
+
+    #[test]
+    fn one_of_and_property_disjoint_with_are_refused() {
+        for term in ["owl:oneOf", "owl:propertyDisjointWith"] {
+            let err = Vocabulary::from_yaml_str(&format!(
+                "version: 1\nrelations:\n  r: {{ owl: \"{term}\" }}\n"
+            ))
+            .unwrap_err();
+            assert!(err.starts_with("NON_EL_VOCABULARY"), "{term}: {err}");
+        }
+    }
+
+    /// ADR-2128 added `domain`/`range` to relations; the EL check covers them.
+    #[test]
+    fn a_relation_domain_or_range_is_el_checked() {
+        for site in ["domain", "range"] {
+            let err = Vocabulary::from_yaml_str(&format!(
+                "version: 1\nrelations:\n  r: {{ owl: vc:r, {site}: \"owl:unionOf\" }}\n"
+            ))
+            .unwrap_err();
+            assert!(err.starts_with("NON_EL_VOCABULARY"), "{site}: {err}");
+            assert!(err.contains(site), "{site}: {err}");
+        }
+    }
+
+    /// A signature on a relation that maps to a logical IRI (rdfs:subClassOf,
+    /// owl:disjointWith, …) would be emitted onto the OWL vocabulary itself.
+    #[test]
+    fn a_signature_on_a_logical_relation_fails_the_load() {
+        let err = Vocabulary::from_yaml_str(
+            "version: 1\nrelations:\n  is-a: { owl: rdfs:subClassOf, domain: robot }\n",
+        )
+        .unwrap_err();
+        assert!(err.starts_with(SIGNATURE_ON_LOGICAL_RELATION), "{err}");
+    }
+
+    #[test]
     fn restriction_relations_are_listed() {
         let v = flat();
         let mut r = v.restriction_relations();
@@ -670,6 +1121,84 @@ validation:
         )
         .unwrap_err();
         assert!(err.contains("nowhere"), "{err}");
+    }
+
+    /// ADR-2126 Decision 2: a vocabulary entry that maps a key onto a non-EL
+    /// OWL construct fails the load with the named `NON_EL_VOCABULARY` error.
+    #[test]
+    fn a_relation_mapped_to_all_values_from_fails_the_load() {
+        let err = Vocabulary::from_yaml_str(
+            "version: 1\nrelations:\n  only-has-part: { owl: owl:allValuesFrom }\n",
+        )
+        .unwrap_err();
+        assert!(err.starts_with("NON_EL_VOCABULARY"), "{err}");
+        assert!(err.contains("only-has-part"), "{err}");
+        assert!(err.contains("allValuesFrom"), "{err}");
+    }
+
+    #[test]
+    fn every_non_el_construct_is_refused_wherever_an_iri_is_declared() {
+        let terms = [
+            "owl:allValuesFrom",
+            "owl:minCardinality",
+            "owl:maxCardinality",
+            "owl:cardinality",
+            "owl:minQualifiedCardinality",
+            "owl:maxQualifiedCardinality",
+            "owl:qualifiedCardinality",
+            "owl:hasValue",
+            "owl:inverseOf",
+            "owl:SymmetricProperty",
+            "owl:complementOf",
+            // absolute spelling is caught too, not only the CURIE
+            "http://www.w3.org/2002/07/owl#allValuesFrom",
+        ];
+        for term in terms {
+            let sites = [
+                format!("version: 1\nrelations:\n  r: {{ owl: \"{term}\" }}\n"),
+                format!(
+                    "version: 1\nrelations:\n  r: {{ owl: vc:r, sub_property_of: \"{term}\" }}\n"
+                ),
+                format!("version: 1\nscalars:\n  s: {{ type: text, owl: \"{term}\" }}\n"),
+                format!("version: 1\ntypes:\n  T: {{ owl: \"{term}\" }}\n"),
+                format!(
+                    "version: 1\nworking_extensions:\n  w: {{ type: text, owl: \"{term}\" }}\n"
+                ),
+                format!(
+                    "version: 1\nsuper_properties:\n  vc:p: {{ label: p, range: \"{term}\" }}\n"
+                ),
+                format!("version: 1\nsuper_properties:\n  \"{term}\": {{ label: p }}\n"),
+            ];
+            for yaml in &sites {
+                let err = Vocabulary::from_yaml_str(yaml)
+                    .expect_err(&format!("{term} must be refused in:\n{yaml}"));
+                assert!(err.starts_with("NON_EL_VOCABULARY"), "{err}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_symmetric_characteristic_fails_the_load() {
+        let err = Vocabulary::from_yaml_str(
+            "version: 1\nrelations:\n  related-to: { owl: vc:relatedTo, characteristics: [symmetric] }\n",
+        )
+        .unwrap_err();
+        assert!(err.starts_with("NON_EL_VOCABULARY"), "{err}");
+        assert!(err.contains("SymmetricProperty"), "{err}");
+    }
+
+    #[test]
+    fn an_inverse_hint_and_el_constructs_still_load() {
+        // `inverse:` is a build hint the emitter never writes as owl:inverseOf,
+        // and transitive/reflexive properties are inside OWL 2 EL.
+        let v = Vocabulary::from_yaml_str(
+            "version: 1\nrelations:\n  \
+             has-part: { owl: vc:hasPart, inverse: part-of, restriction: true, characteristics: [transitive, reflexive] }\n  \
+             part-of:  { owl: vc:isPartOf, inverse: has-part }\n",
+        )
+        .unwrap();
+        assert!(v.relations["has-part"].is_transitive());
+        assert!(flat().relations.contains_key("requires"));
     }
 
     #[test]

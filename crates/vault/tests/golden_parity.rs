@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use vault::build;
 use vault_core::vocabulary::Vocabulary;
 
-/// The three documented divergences, stated once so a reader does not have to
+/// The four documented divergences, stated once so a reader does not have to
 /// infer them from assertion failures:
 ///
 /// 1. `search-index.json`'s `labels` is a **superset**. Python read one
@@ -27,9 +27,25 @@ use vault_core::vocabulary::Vocabulary;
 ///    build reads both forms, ends the section at the next heading of its own
 ///    level or higher, and prefers the last section on a re-researched page.
 ///    Pages whose heading Python never saw gain a `cl`; no page loses one.
+/// 4. `ontology.ttl` **drops** the blanket `rdfs:domain owl:Thing` /
+///    `rdfs:range owl:Thing` pair Python declared on each of the 14 `vc:`
+///    object properties (28 triples). They said nothing under OWL semantics;
+///    ADR-2128 makes a signature opt-in per property, and the fixture
+///    vocabulary declares none. Every other ground triple still matches, and
+///    the header (which now also carries `owl:versionIRI`) was never compared.
 const DIVERGENCES: &str =
     "search-index labels (superset); ontology-inferred (Whelk, by contract); \
-     prose-index cl (superset: markdown-form Current Landscape headings)";
+     prose-index cl (superset: markdown-form Current Landscape headings); \
+     ontology.ttl drops owl:Thing property domain/range (ADR-2128)";
+
+/// Divergence 4: `true` for a `vc:P rdfs:domain|rdfs:range owl:Thing` line as
+/// [`ground_triples`] renders it.
+fn is_blanket_property_signature(triple: &str) -> bool {
+    triple.starts_with("<https://narrativegoldmine.com/ns/v1#")
+        && (triple.contains("<http://www.w3.org/2000/01/rdf-schema#domain>")
+            || triple.contains("<http://www.w3.org/2000/01/rdf-schema#range>"))
+        && triple.ends_with(" <http://www.w3.org/2002/07/owl#Thing>")
+}
 
 fn golden_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden")
@@ -240,14 +256,29 @@ fn the_asserted_turtle_has_the_same_triples() {
     let golden = golden_dir().join("python/ontology.ttl");
     let produced = out.join("data/ontology.ttl");
 
-    let expected = ground_triples(&golden);
+    let mut expected = ground_triples(&golden);
     let actual = ground_triples(&produced);
+
+    // Divergence 4 (ADR-2128), removed by rule and pinned by count so nothing
+    // else can hide behind it.
+    let before = expected.len();
+    expected.retain(|t| !is_blanket_property_signature(t));
+    assert_eq!(
+        before - expected.len(),
+        28,
+        "the reference declares owl:Thing domain+range on 14 vc: properties ({DIVERGENCES})"
+    );
+    assert!(
+        !actual.iter().any(|t| is_blanket_property_signature(t)),
+        "vault emits no owl:Thing property signature ({DIVERGENCES})"
+    );
 
     let missing: Vec<&String> = expected.difference(&actual).take(5).collect();
     let extra: Vec<&String> = actual.difference(&expected).take(5).collect();
     assert!(
         missing.is_empty() && extra.is_empty(),
-        "turtle diverged: {} missing (first: {missing:?}), {} extra (first: {extra:?})",
+        "turtle diverged: {} missing (first: {missing:?}), {} extra (first: {extra:?})\
+         \n  (documented divergences: {DIVERGENCES})",
         expected.difference(&actual).count(),
         actual.difference(&expected).count()
     );

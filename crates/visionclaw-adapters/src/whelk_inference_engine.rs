@@ -28,6 +28,9 @@ pub struct WhelkInferenceEngine {
 
     last_checksum: Option<u64>,
 
+    /// Bumped on every write to `cached_subsumptions`; see [`Self::generation`].
+    generation: u64,
+
     _phantom: std::marker::PhantomData<()>,
 
     loaded_classes: usize,
@@ -68,6 +71,15 @@ impl ConsistencyOutcome {
 }
 
 impl WhelkInferenceEngine {
+    /// A counter that moves whenever the cached closure is replaced or
+    /// dropped — and so whenever `get_subclass_hierarchy` can answer
+    /// differently — and never otherwise. A caller that derives state from
+    /// the hierarchy keys its cache on this instead of re-reading and hashing
+    /// the whole closure (ADR-2127 query service).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn new() -> Self {
         info!("Initializing WhelkInferenceEngine");
         Self {
@@ -76,6 +88,8 @@ impl WhelkInferenceEngine {
             cached_subsumptions: None,
 
             last_checksum: None,
+
+            generation: 0,
 
             _phantom: std::marker::PhantomData,
 
@@ -376,6 +390,7 @@ impl InferenceEngine for WhelkInferenceEngine {
                 info!("Ontology changed, will perform fresh reasoning");
                 self.last_checksum = Some(checksum);
                 self.cached_subsumptions = None;
+                self.generation += 1;
             } else {
                 info!("Ontology unchanged, reusing cached reasoning results");
             }
@@ -431,6 +446,7 @@ impl InferenceEngine for WhelkInferenceEngine {
             self.inferred_axioms = inferred_axioms.len();
 
             self.cached_subsumptions = Some(inferred_axioms.clone());
+            self.generation += 1;
             self.total_inferences += 1;
 
             let inference_time_ms = start.elapsed().as_millis() as u64;
@@ -573,6 +589,7 @@ impl InferenceEngine for WhelkInferenceEngine {
             self.ontology = None;
             self.cached_subsumptions = None;
             self.last_checksum = None;
+            self.generation += 1;
         }
 
         self.loaded_classes = 0;
@@ -596,6 +613,45 @@ impl InferenceEngine for WhelkInferenceEngine {
 
 #[cfg(test)]
 mod tests {
+    /// The generation counter moves whenever the cached closure (and so
+    /// `get_subclass_hierarchy`) can have changed, and only then.
+    #[tokio::test]
+    async fn generation_moves_with_the_cached_closure() {
+        let class = |iri: &str| OwlClass {
+            iri: iri.into(),
+            ..Default::default()
+        };
+        let sub = |a: &str, b: &str| OwlAxiom {
+            id: None,
+            axiom_type: AxiomType::SubClassOf,
+            subject: a.into(),
+            object: b.into(),
+            annotations: std::collections::HashMap::new(),
+        };
+        let mut engine = WhelkInferenceEngine::new();
+        let g0 = engine.generation();
+        let classes = [class("urn:a"), class("urn:b"), class("urn:c")];
+        let axioms = [sub("urn:a", "urn:b"), sub("urn:b", "urn:c")];
+        engine
+            .load_ontology(classes.to_vec(), axioms.to_vec())
+            .await
+            .unwrap();
+        let g1 = engine.generation();
+        assert_ne!(g0, g1, "a changed ontology drops the cached closure");
+        engine.infer().await.unwrap();
+        let g2 = engine.generation();
+        assert_ne!(g1, g2, "inference fills the cache");
+        engine.infer().await.unwrap();
+        assert_eq!(engine.generation(), g2, "a cache hit changes nothing");
+        engine
+            .load_ontology(classes.to_vec(), axioms.to_vec())
+            .await
+            .unwrap();
+        assert_eq!(engine.generation(), g2, "identical reload keeps the cache");
+        engine.clear().await.unwrap();
+        assert_ne!(engine.generation(), g2, "clear drops it");
+    }
+
     use super::*;
     use visionclaw_domain::ports::inference_engine::InferenceEngine;
     use visionclaw_domain::ports::owl_types::{AxiomType, OwlAxiom, OwlClass};

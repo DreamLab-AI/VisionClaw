@@ -8,7 +8,13 @@
 //!   POST /ontology-agent/traverse
 //!   POST /ontology-agent/propose   (RETIRED — 410 Gone, ADR-2116)
 //!   POST /ontology-agent/validate
+//!   POST /ontology-agent/check     (ADR-2127 tri-valued membership; relation with `property`)
 //!   GET  /ontology-agent/status
+//!
+//! ADR-2127: every answer is open-world. Each response carries `scope`
+//! (`closure: "open"` + the generation it was computed against), every fact
+//! carries a `basis` (asserted | inferred | provenance), and membership is
+//! answered `entailed | entailed_false | not_asserted`, never a boolean.
 
 // ADR-2116: `OntologyMutationService` and its error prefixes are no longer
 // imported HERE — the retired `/propose` is the only route that ever called
@@ -62,6 +68,19 @@ fn default_depth() -> usize {
     3
 }
 
+/// ADR-2127: `{ "subject": iri, "class": iri }` — is subject ⊑ class? With
+/// the optional `property`, the relation form: does subject stand in
+/// `property` to `class` (accepted as `object` too)?
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckRequest {
+    pub subject: String,
+    #[serde(alias = "object")]
+    pub class: String,
+    #[serde(default)]
+    pub property: Option<String>,
+}
+
 // ADR-2116: `ProposeRequest` — the body of the retired `/propose` — is deleted
 // rather than left parked. It had exactly one reader, and a DTO that nothing
 // deserialises is a claim that the route still accepts something. `ProposeInput`
@@ -99,7 +118,8 @@ pub async fn discover(
             ok_json!(serde_json::json!({
                 "success": true,
                 "results": results,
-                "count": results.len()
+                "count": results.len(),
+                "scope": query_service.answer_scope().await
             }))
         }
         Err(e) => {
@@ -146,7 +166,8 @@ pub async fn query(
         Ok(validation) => {
             ok_json!(serde_json::json!({
                 "success": true,
-                "validation": validation
+                "validation": validation,
+                "scope": query_service.answer_scope().await
             }))
         }
         Err(e) => {
@@ -167,14 +188,11 @@ pub async fn traverse(
         req.start_iri, req.depth
     );
 
-    // Traverse by reading the start note and following relationships
-    let result = build_traversal(
-        &query_service,
-        &req.start_iri,
-        req.depth,
-        req.relationship_types.as_deref(),
-    )
-    .await;
+    // Traverse by reading the start note and following relationships; each
+    // edge carries its basis and the result its open-world scope (ADR-2127).
+    let result = query_service
+        .traverse(&req.start_iri, req.depth, req.relationship_types.as_deref())
+        .await;
 
     match result {
         Ok(traversal) => {
@@ -271,6 +289,62 @@ pub async fn validate(
     }))
 }
 
+/// POST /ontology-agent/check — ADR-2127 tri-valued membership or relation
+/// check.
+///
+/// Answers `entailed` (with `basis`), `entailed_false` (with the `witness`),
+/// or `not_asserted`, plus the open-world `scope`. Without `property` it is
+/// the membership check `subject ⊑ class`; with it, the relation check
+/// `(subject, property, class)`, where `entailed_false` needs a declared
+/// domain or range the subject or object is disjoint with.
+pub async fn check(
+    query_service: web::Data<Arc<OntologyQueryService>>,
+    request: web::Json<CheckRequest>,
+) -> Result<HttpResponse, Error> {
+    let req = request.into_inner();
+    if let Some(property) = req.property.as_deref().filter(|p| !p.trim().is_empty()) {
+        info!(
+            "ontology-agent/check: subject='{}', property='{}', object='{}'",
+            req.subject, property, req.class
+        );
+        return match query_service
+            .check_relation(&req.subject, property, &req.class)
+            .await
+        {
+            Ok(check) => {
+                ok_json!(serde_json::json!({
+                    "success": true,
+                    "check": check
+                }))
+            }
+            Err(e) => {
+                error!("ontology-agent/check (relation) failed: {}", e);
+                error_json!("Relation check failed", e)
+            }
+        };
+    }
+    info!(
+        "ontology-agent/check: subject='{}', class='{}'",
+        req.subject, req.class
+    );
+
+    match query_service
+        .check_membership(&req.subject, &req.class)
+        .await
+    {
+        Ok(check) => {
+            ok_json!(serde_json::json!({
+                "success": true,
+                "check": check
+            }))
+        }
+        Err(e) => {
+            error!("ontology-agent/check failed: {}", e);
+            error_json!("Membership check failed", e)
+        }
+    }
+}
+
 /// GET /ontology-agent/status — Service health and capability listing
 pub async fn status() -> Result<HttpResponse, Error> {
     ok_json!(StatusResponse {
@@ -285,76 +359,18 @@ pub async fn status() -> Result<HttpResponse, Error> {
             // through `vault propose` and a human-signed forum 31403, so
             // advertising it here would point an agent at a 410.
             "ontology_validate".to_string(),
+            "ontology_check".to_string(),
+            // ADR-2127 decision 2: `/check` with `property` answers the
+            // tri-valued relation check.
+            "ontology_check_relation".to_string(),
         ],
     })
 }
 
 // ---------- Helpers ----------
 
-/// Build a traversal result by walking the ontology graph via read_note relationships.
-async fn build_traversal(
-    query_service: &OntologyQueryService,
-    start_iri: &str,
-    max_depth: usize,
-    rel_filter: Option<&[String]>,
-) -> Result<TraversalResult, String> {
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-    let mut visited = std::collections::HashSet::new();
-    let mut queue = std::collections::VecDeque::new();
-
-    queue.push_back((start_iri.to_string(), 0usize));
-    visited.insert(start_iri.to_string());
-
-    while let Some((current_iri, depth)) = queue.pop_front() {
-        if depth > max_depth {
-            continue;
-        }
-
-        // Read the note to get relationships
-        match query_service.read_note(&current_iri).await {
-            Ok(note) => {
-                nodes.push(TraversalNode {
-                    iri: note.iri.clone(),
-                    preferred_term: note.preferred_term.clone(),
-                    domain: note.ontology_metadata.domain.clone(),
-                    depth,
-                });
-
-                // Follow related notes
-                for related in &note.related_notes {
-                    let rel_type = &related.relationship_type;
-                    let should_follow = rel_filter
-                        .map(|types| types.iter().any(|t| t == rel_type))
-                        .unwrap_or(true);
-
-                    if should_follow {
-                        edges.push(TraversalEdge {
-                            source_iri: current_iri.clone(),
-                            target_iri: related.iri.clone(),
-                            relationship_type: rel_type.clone(),
-                        });
-
-                        if depth + 1 <= max_depth && !visited.contains(&related.iri) {
-                            visited.insert(related.iri.clone());
-                            queue.push_back((related.iri.clone(), depth + 1));
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                // Skip nodes that can't be read (may not exist)
-                log::debug!("Traversal: skipping {} — {}", current_iri, e);
-            }
-        }
-    }
-
-    Ok(TraversalResult {
-        start_iri: start_iri.to_string(),
-        nodes,
-        edges,
-    })
-}
+// The traversal walk moved to `OntologyQueryService::traverse` (ADR-2127) so
+// its edges' basis and its scope are produced, and tested, with the service.
 
 // ---------- Route Configuration ----------
 
@@ -371,6 +387,7 @@ pub fn configure_ontology_agent_routes(cfg: &mut web::ServiceConfig) {
             .route("/query", web::post().to(query))
             .route("/traverse", web::post().to(traverse))
             .route("/validate", web::post().to(validate))
+            .route("/check", web::post().to(check))
             .route("/status", web::get().to(status))
             // ADR-2116: /propose is retired and answers 410 Gone to every
             // caller, so it carries no auth or rate-limit middleware — it

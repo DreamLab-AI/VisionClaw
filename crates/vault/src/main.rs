@@ -794,6 +794,12 @@ fn run() -> anyhow::Result<ExitCode> {
                         eprintln!("vault: {clash}");
                         return Ok(ExitCode::from(2));
                     }
+                    // A definition the reasoner would not finish on (ADR-2124):
+                    // refused before reasoning, same refusal class.
+                    if let Some(cap) = e.downcast_ref::<vault::whelk::ReasoningError>() {
+                        eprintln!("vault: {cap}; no bundle written");
+                        return Ok(ExitCode::from(2));
+                    }
                     return Err(e);
                 }
             };

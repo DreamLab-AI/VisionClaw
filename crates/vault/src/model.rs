@@ -52,6 +52,38 @@ pub const RELATION_KEYS: &[(&str, &str)] = &[
 pub const IS_A_KEY: &str = "is-a";
 /// The frontmatter key that carries `rdf:type` for individuals.
 pub const INSTANCE_OF_KEY: &str = "instance-of";
+/// The artefact key `disjoint-with` (ADR-2125) is carried under in
+/// [`ClassRecord::relations`]. It is deliberately **not** one of the
+/// [`RELATION_KEYS`]: disjointness is a logical axiom, not a graph edge, so the
+/// page API, OKF bundle and graph tiers never render it. Only the Turtle
+/// emitter (as `owl:disjointWith`) and `vault validate` read it.
+pub const DISJOINT_WITH_JSON_KEY: &str = "disjointWith";
+
+/// One conjunct of a page's `defines-as` definition (ADR-2124), its target
+/// resolved like any other reference. See [`vault_core::definition`] for the
+/// frontmatter shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Conjunct {
+    /// A named class.
+    Named(Ref),
+    /// `∃relation.filler`, `relation` being the frontmatter relation key.
+    Some {
+        /// The relation's frontmatter key, e.g. `has-part`.
+        relation: String,
+        /// The named filler class.
+        filler: Ref,
+    },
+}
+
+impl Conjunct {
+    /// The class this conjunct names: the class itself, or the filler.
+    #[must_use]
+    pub fn target(&self) -> &Ref {
+        match self {
+            Self::Named(r) | Self::Some { filler: r, .. } => r,
+        }
+    }
+}
 
 /// An IRI plus the label the citing page used for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,7 +158,8 @@ pub struct ClassRecord {
     /// `instance-of`.
     pub instance_of: Vec<Ref>,
     /// The twelve typed relations, keyed by camelCase artefact key, in
-    /// [`RELATION_KEYS`] order; empty lists are absent.
+    /// [`RELATION_KEYS`] order, then `disjoint-with` under
+    /// [`DISJOINT_WITH_JSON_KEY`]; empty lists are absent.
     pub relations: IndexMap<&'static str, Vec<Ref>>,
     /// Curated outbound wikilinks.
     pub links: Vec<Ref>,
@@ -136,6 +169,11 @@ pub struct ClassRecord {
     /// `resource` and without `type` is a plain note: it still appears in the
     /// search index but contributes no OWL.
     pub has_ontology: bool,
+    /// The page's `defines-as` definition (ADR-2124): a conjunction that is
+    /// *equivalent* to this class. Empty for a primitive class — every class
+    /// but a curated few — and for a value `vault validate` refuses as
+    /// `NON_EL_DEFINITION`, so a malformed definition never reaches the OWL.
+    pub defines_as: Vec<Conjunct>,
 }
 
 impl ClassRecord {
@@ -242,6 +280,37 @@ fn disambiguate_public_slugs(records: &mut [ClassRecord], declares_slug: &[bool]
     }
 }
 
+/// A page's `defines-as` conjuncts, resolved (ADR-2124). Empty when the key
+/// is absent, unregistered, or not a well-formed EL definition — `vault
+/// validate` reports the last as `NON_EL_DEFINITION`.
+fn definition_of(
+    page: &Page,
+    vocab: &Vocabulary,
+    resolve: &impl Fn(&str, &str) -> Ref,
+) -> Vec<Conjunct> {
+    use vault_core::definition::{self, DEFINES_AS_KEY};
+    if !vocab.is_relation(DEFINES_AS_KEY) {
+        return Vec::new();
+    }
+    let Some(Ok(conjuncts)) = page
+        .frontmatter
+        .get(DEFINES_AS_KEY)
+        .map(|value| definition::parse(value, vocab))
+    else {
+        return Vec::new();
+    };
+    conjuncts
+        .into_iter()
+        .map(|c| match c {
+            definition::Conjunct::Named(w) => Conjunct::Named(resolve(&w.target, w.label())),
+            definition::Conjunct::Some { relation, filler } => Conjunct::Some {
+                relation,
+                filler: resolve(&filler.target, filler.label()),
+            },
+        })
+        .collect()
+}
+
 impl Corpus {
     /// Project a loaded vault through its vocabulary.
     #[must_use]
@@ -286,6 +355,10 @@ impl Corpus {
                 if !refs.is_empty() {
                     relations.insert(json_key, refs);
                 }
+            }
+            let disjoint = links_of(page, vault_core::consistency::DISJOINT_WITH_KEY);
+            if !disjoint.is_empty() {
+                relations.insert(DISJOINT_WITH_JSON_KEY, disjoint);
             }
             let entity_type = if fm.text("type").as_deref() == Some("Individual") {
                 EntityType::Individual
@@ -339,6 +412,7 @@ impl Corpus {
                     .collect(),
                 body: page.body.clone(),
                 has_ontology: fm.has("resource") || fm.has("type"),
+                defines_as: definition_of(page, vocab, &resolve),
             });
         }
 

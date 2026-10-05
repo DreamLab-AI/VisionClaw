@@ -19,7 +19,7 @@ needed to run these tests.
 | `data/graph/stats.json` | **byte-identical** |
 | `data/graph/overview.json` | **byte-identical** (C3 asks only for JSON-equal) |
 | `data/graph/bridges.json` | **byte-identical** |
-| `data/ontology.ttl` | identical ground triple set |
+| `data/ontology.ttl` | identical ground triple set, less the 28 `vc:P rdfs:domain/rdfs:range owl:Thing` triples ADR-2128 removed (documented divergence 4 in `golden_parity.rs`; header triples, now including `owl:versionIRI`, are not compared) |
 | `api/search-index.json` | identical except `labels`, a documented superset |
 
 Thirteen of the fourteen artefacts are byte-identical; `ontology.ttl` is

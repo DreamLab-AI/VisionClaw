@@ -92,6 +92,21 @@ pub trait OntologyRepository: Send + Sync {
 
     async fn list_owl_classes(&self) -> Result<Vec<OwlClass>>;
 
+    /// The IRIs of every class [`Self::list_owl_classes`] returns, sorted.
+    ///
+    /// A cheap probe for callers that only fingerprint the class set; an
+    /// adapter overrides it to avoid materialising each class.
+    async fn class_iris(&self) -> Result<Vec<String>> {
+        let mut iris: Vec<String> = self
+            .list_owl_classes()
+            .await?
+            .into_iter()
+            .map(|c| c.iri)
+            .collect();
+        iris.sort();
+        Ok(iris)
+    }
+
     async fn add_owl_property(&self, property: &OwlProperty) -> Result<String>;
 
     async fn get_owl_property(&self, iri: &str) -> Result<Option<OwlProperty>>;

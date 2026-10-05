@@ -114,7 +114,7 @@ fn synthetic(n: usize, vocab: &Vocabulary) -> Corpus {
 fn time_reason(corpus: &Corpus, vocab: &Vocabulary) -> (Duration, whelk::Reasoning) {
     let graph = turtle::build_graph(corpus, vocab, true);
     let start = Instant::now();
-    let reasoning = whelk::reason(&graph);
+    let reasoning = whelk::reason(&graph).expect("within the Relevant cap");
     (start.elapsed(), reasoning)
 }
 
@@ -191,7 +191,7 @@ fn the_phase_breakdown() {
     eprintln!("{n} classes: build_graph {:?}", t.elapsed());
 
     let t = Instant::now();
-    let reasoning = whelk::reason(&graph);
+    let reasoning = whelk::reason(&graph).expect("within the Relevant cap");
     eprintln!(
         "{n} classes: reason {:?} -> {} inferred, {} classified",
         t.elapsed(),
@@ -244,7 +244,7 @@ fn real_repo_phase_breakdown() {
     eprintln!("build_graph {:?}", t.elapsed());
 
     let t = Instant::now();
-    let reasoning = whelk::reason(&graph);
+    let reasoning = whelk::reason(&graph).expect("within the Relevant cap");
     eprintln!(
         "reason {:?} -> {} classified, {} INFERRED PAIRS, {} unsatisfiable",
         t.elapsed(),
@@ -333,4 +333,56 @@ fn multi_parent_density() {
             );
         }
     }
+}
+
+/// ADR-2124 defect, proven on a **real** repository: a definition over the
+/// transitive `vc:requires` that bypasses `vault validate` (injected straight
+/// into the asserted graph, which is the only way past
+/// `DEFINITION_OVER_TRANSITIVE`) used to hang the reasoner for over 600 s. It
+/// must now fail fast with `WHELK_RELEVANT_CAP` before saturation starts.
+///
+/// ```text
+/// VAULT_SCALING_REPO=/path/to/repo \
+///   cargo test -p vault --release --test whelk_scaling -- --ignored --nocapture definition_over_requires
+/// ```
+#[test]
+#[ignore = "diagnostic: needs VAULT_SCALING_REPO"]
+fn real_repo_definition_over_requires_fails_fast() {
+    use vault::build::turtle::{Subject, Term};
+    let Ok(repo) = std::env::var("VAULT_SCALING_REPO") else {
+        eprintln!("skipped: set VAULT_SCALING_REPO");
+        return;
+    };
+    let repo = std::path::PathBuf::from(repo);
+    let vocab = Vocabulary::load(repo.join("ontology/vocabulary.yaml")).expect("vocabulary");
+    let vault = Vault::load(repo.join("knowledge"), VaultKind::Knowledge).expect("vault");
+    let corpus = Corpus::build(&vault, &vocab);
+    let mut graph = turtle::build_graph(&corpus, &vocab, true);
+
+    let requires = format!("{}requires", turtle::VC);
+    let filler = corpus.records[0].iri.clone();
+    let node = graph.fresh_blank();
+    graph.add(
+        Subject::Blank(node.clone()),
+        "http://www.w3.org/2002/07/owl#onProperty",
+        Term::Iri(requires.clone()),
+    );
+    graph.add(
+        Subject::Blank(node.clone()),
+        "http://www.w3.org/2002/07/owl#someValuesFrom",
+        Term::Iri(filler),
+    );
+    graph.add_iri(
+        "urn:ngm:class:scratch-requires-definition",
+        "http://www.w3.org/2002/07/owl#equivalentClass",
+        Term::Blank(node),
+    );
+
+    let t = Instant::now();
+    let err = whelk::reason(&graph).expect_err("over the Relevant cap");
+    let elapsed = t.elapsed();
+    eprintln!("refused in {elapsed:?}: {err}");
+    assert_eq!(err.code(), whelk::WHELK_RELEVANT_CAP);
+    assert!(err.to_string().contains(&requires), "{err}");
+    assert!(elapsed < Duration::from_secs(30), "not fast: {elapsed:?}");
 }

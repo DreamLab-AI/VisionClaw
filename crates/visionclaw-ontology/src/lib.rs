@@ -25,6 +25,7 @@
 //! - `services::schema_service`             — needs crate::models (not in domain yet)
 
 pub mod inference;
+pub mod open_world;
 pub mod ontology;
 pub mod reasoning;
 pub mod services;

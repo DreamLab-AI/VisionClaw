@@ -13,11 +13,39 @@ use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use crate::services::schema_service::SchemaService;
 use crate::types::ontology_tools::*;
 use log::info;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
-use visionclaw_domain::ports::ontology_repository::OntologyRepository;
+use visionclaw_domain::ports::ontology_repository::{
+    AxiomType, OntologyRepository, OwlAxiom, OwlClass,
+};
+use visionclaw_ontology::open_world::{
+    self, BundleLocation, PropertySignature, RelationIndex, SubsumptionIndex,
+};
+
+/// Where the generation of the loaded ontology comes from (ADR-2127
+/// decision 3).
+#[derive(Debug, Clone)]
+enum GenerationSource {
+    /// Resolve on every reload: the bundle `ONTOLOGY_BUNDLE_DIR` pins, else
+    /// the one the vault root's `vault.toml` names, else the store digest.
+    Environment,
+    /// A fixed bundle location, else the store digest.
+    Bundle(BundleLocation),
+    /// A caller-supplied generation (tests, or a caller that already knows).
+    Fixed(Option<String>),
+}
+
+/// Everything derived from one loaded ontology, rebuilt only when the store
+/// or the Whelk closure changes.
+struct LoadedOntology {
+    fingerprint: u64,
+    index: SubsumptionIndex,
+    relations: RelationIndex,
+    asserted: HashSet<(String, String)>,
+    generation: Option<String>,
+}
 
 pub struct OntologyQueryService {
     ontology_repo: Arc<dyn OntologyRepository>,
@@ -25,6 +53,25 @@ pub struct OntologyQueryService {
     graph_repo: Arc<dyn KnowledgeGraphRepository>,
     whelk: Arc<RwLock<WhelkInferenceEngine>>,
     schema_service: Arc<SchemaService>,
+    generation_source: GenerationSource,
+    /// The index and generation of the ontology last seen, keyed by its
+    /// fingerprint (ADR-2127 decision 3: answers name the generation they
+    /// were computed against, and it refreshes when the ontology reloads).
+    loaded: RwLock<Option<Arc<LoadedOntology>>>,
+}
+
+/// The property a relation axiom is about: the object-property predicate or
+/// the restriction's `onProperty` (both surfaced by the Oxigraph adapter).
+fn axiom_property(a: &OwlAxiom) -> &str {
+    a.annotations
+        .get("predicate")
+        .or_else(|| a.annotations.get("property"))
+        .map(String::as_str)
+        .unwrap_or("")
+}
+
+fn axiom_type_name(a: &OwlAxiom) -> String {
+    format!("{:?}", a.axiom_type)
 }
 
 impl OntologyQueryService {
@@ -39,7 +86,297 @@ impl OntologyQueryService {
             graph_repo,
             whelk,
             schema_service,
+            generation_source: GenerationSource::Environment,
+            loaded: RwLock::new(None),
         }
+    }
+
+    /// Override the generation answers report (tests, or a caller that has
+    /// already resolved it).
+    pub fn with_generation(mut self, generation: Option<String>) -> Self {
+        self.generation_source = GenerationSource::Fixed(generation);
+        self
+    }
+
+    /// Read the generation from this bundle location instead of the
+    /// environment.
+    pub fn with_bundle_location(mut self, location: BundleLocation) -> Self {
+        self.generation_source = GenerationSource::Bundle(location);
+        self
+    }
+
+    /// The loaded ontology's index and generation, rebuilt when the asserted
+    /// axioms, the class set or the Whelk closure changed since the last call.
+    ///
+    /// The cache check is cheap. The class set is probed by IRI only
+    /// ([`OntologyRepository::class_iris`]) rather than by materialising
+    /// every class, and the Whelk closure is keyed on the engine's
+    /// [`WhelkInferenceEngine::generation`] counter rather than cloned and
+    /// hashed; the hierarchy is read only on a rebuild. The axioms are still
+    /// read per call: the Oxigraph store is shared through
+    /// `OxigraphOntologyRepository::store()` with direct writers (GitHub sync,
+    /// the decision handler, the mutation service), so no repository-side
+    /// revision counter would see every change, and a stale index would
+    /// answer for a generation that is gone.
+    async fn loaded(&self) -> Arc<LoadedOntology> {
+        let axioms = self.ontology_repo.get_axioms().await.unwrap_or_default();
+        let class_iris = self.ontology_repo.class_iris().await.unwrap_or_default();
+        self.loaded_from(axioms, &class_iris).await
+    }
+
+    /// The cache key: the asserted axioms, the class set and the Whelk
+    /// closure's generation.
+    fn fingerprint_of(axioms: &[OwlAxiom], class_iris: &[String], whelk_generation: u64) -> u64 {
+        open_world::fingerprint([
+            open_world::fingerprint(
+                axioms
+                    .iter()
+                    .map(|a| (axiom_type_name(a), &a.subject, axiom_property(a), &a.object)),
+            ),
+            open_world::fingerprint(class_iris.iter()),
+            whelk_generation,
+        ])
+    }
+
+    async fn loaded_from(
+        &self,
+        axioms: Vec<OwlAxiom>,
+        class_iris: &[String],
+    ) -> Arc<LoadedOntology> {
+        let probe = Self::fingerprint_of(&axioms, class_iris, self.whelk.read().await.generation());
+        if let Some(current) = self.loaded.read().await.as_ref() {
+            if current.fingerprint == probe {
+                return current.clone();
+            }
+        }
+
+        // Rebuild. The generation and the hierarchy are read under one guard,
+        // so the key stored names exactly the closure the index was built from.
+        let (fingerprint, hierarchy) = {
+            let whelk = self.whelk.read().await;
+            let hierarchy: Vec<(String, String)> =
+                whelk.get_subclass_hierarchy().await.unwrap_or_default();
+            (
+                Self::fingerprint_of(&axioms, class_iris, whelk.generation()),
+                hierarchy,
+            )
+        };
+
+        let of_type = |t: AxiomType| {
+            axioms
+                .iter()
+                .filter(move |a| a.axiom_type == t)
+                .map(|a| (a.subject.clone(), a.object.clone()))
+        };
+        let asserted: Vec<(String, String)> = of_type(AxiomType::SubClassOf).collect();
+        let index = SubsumptionIndex::new(
+            asserted.clone(),
+            hierarchy,
+            of_type(AxiomType::DisjointWith),
+        );
+        let relations = RelationIndex::new(
+            axioms
+                .iter()
+                .filter(|a| {
+                    matches!(
+                        a.axiom_type,
+                        AxiomType::ObjectPropertyAssertion | AxiomType::SomeValuesFrom
+                    ) && !axiom_property(a).is_empty()
+                })
+                .map(|a| {
+                    (
+                        a.subject.clone(),
+                        axiom_property(a).to_string(),
+                        a.object.clone(),
+                    )
+                }),
+            of_type(AxiomType::SubPropertyOf),
+        );
+        let generation = match &self.generation_source {
+            GenerationSource::Fixed(g) => g.clone(),
+            source => {
+                let bundle = match source {
+                    GenerationSource::Bundle(location) => {
+                        open_world::generation_from_location(location)
+                    }
+                    _ => open_world::generation_from_env(),
+                };
+                Some(bundle.unwrap_or_else(|| {
+                    let types: Vec<String> = axioms.iter().map(axiom_type_name).collect();
+                    open_world::store_generation(
+                        class_iris.iter().map(String::as_str),
+                        axioms.iter().zip(&types).map(|(a, t)| {
+                            (
+                                t.as_str(),
+                                a.subject.as_str(),
+                                axiom_property(a),
+                                a.object.as_str(),
+                            )
+                        }),
+                    )
+                }))
+            }
+        };
+        info!(
+            "Ontology query service: loaded generation {:?} ({} axioms, {} classes)",
+            generation,
+            axioms.len(),
+            class_iris.len()
+        );
+        let fresh = Arc::new(LoadedOntology {
+            fingerprint,
+            index,
+            relations,
+            asserted: asserted.into_iter().collect(),
+            generation,
+        });
+        *self.loaded.write().await = Some(fresh.clone());
+        fresh
+    }
+
+    /// ADR-2127 decision 3: the open-world scope every answer carries, so an
+    /// empty result reads as "the corpus is silent at this generation". The
+    /// generation is that of the ontology currently loaded.
+    pub async fn answer_scope(&self) -> AnswerScope {
+        AnswerScope::open(self.loaded().await.generation.clone())
+    }
+
+    /// ADR-2127 decision 2: is `subject` ⊑ `class`? Answers `entailed`
+    /// (asserted or Whelk-entailed, with its basis), `entailed_false` (an
+    /// `owl:disjointWith` between the two sides, with the witness pair), or
+    /// `not_asserted` — never a boolean.
+    pub async fn check_membership(
+        &self,
+        subject: &str,
+        class: &str,
+    ) -> Result<MembershipCheck, String> {
+        info!("Ontology check_membership: '{}' ⊑ '{}'", subject, class);
+        let loaded = self.loaded().await;
+        Ok(loaded
+            .index
+            .membership(subject, class, AnswerScope::open(loaded.generation.clone())))
+    }
+
+    /// ADR-2127 decision 2, relation form: does `subject` stand in `property`
+    /// to `object`? `entailed` when the edge is asserted or follows from one
+    /// through the class and property hierarchies; `entailed_false` only when
+    /// `property` (or a super-property) declares a domain or range the subject
+    /// or object is entailed-disjoint with; otherwise `not_asserted`.
+    pub async fn check_relation(
+        &self,
+        subject: &str,
+        property: &str,
+        object: &str,
+    ) -> Result<RelationCheck, String> {
+        info!(
+            "Ontology check_relation: '{}' {} '{}'",
+            subject, property, object
+        );
+        let loaded = self.loaded().await;
+        let signatures: HashMap<String, PropertySignature> = self
+            .ontology_repo
+            .list_owl_properties()
+            .await
+            .map_err(|e| format!("Failed to list properties: {}", e))?
+            .into_iter()
+            .filter(|p| !p.domain.is_empty() || !p.range.is_empty())
+            .map(|p| {
+                (
+                    p.iri,
+                    PropertySignature {
+                        domain: p.domain,
+                        range: p.range,
+                    },
+                )
+            })
+            .collect();
+        Ok(loaded.relations.relation(
+            &loaded.index,
+            &signatures,
+            subject,
+            property,
+            object,
+            AnswerScope::open(loaded.generation.clone()),
+        ))
+    }
+
+    /// Breadth-first walk from `start_iri` along each note's related notes.
+    /// Every edge carries the basis of the relation it walked (ADR-2127); an
+    /// unknown start yields an empty, open-scoped result rather than an error.
+    pub async fn traverse(
+        &self,
+        start_iri: &str,
+        max_depth: usize,
+        rel_filter: Option<&[String]>,
+    ) -> Result<TraversalResult, String> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        queue.push_back((start_iri.to_string(), 0usize));
+        visited.insert(start_iri.to_string());
+
+        // One snapshot for the whole walk: the classes are listed and the
+        // index looked up once, not once per visited node.
+        let all_classes = self
+            .ontology_repo
+            .list_owl_classes()
+            .await
+            .unwrap_or_default();
+        let loaded = self.loaded_for(&all_classes).await;
+
+        while let Some((current_iri, depth)) = queue.pop_front() {
+            if depth > max_depth {
+                continue;
+            }
+            match self.read_note_in(&loaded, &all_classes, &current_iri).await {
+                Ok(note) => {
+                    nodes.push(TraversalNode {
+                        iri: note.iri.clone(),
+                        preferred_term: note.preferred_term.clone(),
+                        domain: note.ontology_metadata.domain.clone(),
+                        depth,
+                    });
+                    for related in &note.related_notes {
+                        let rel_type = &related.relationship_type;
+                        let should_follow = rel_filter
+                            .map(|types| types.iter().any(|t| t == rel_type))
+                            .unwrap_or(true);
+                        if !should_follow {
+                            continue;
+                        }
+                        edges.push(TraversalEdge {
+                            source_iri: current_iri.clone(),
+                            target_iri: related.iri.clone(),
+                            relationship_type: rel_type.clone(),
+                            basis: related.basis,
+                        });
+                        if depth < max_depth && visited.insert(related.iri.clone()) {
+                            queue.push_back((related.iri.clone(), depth + 1));
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Skip nodes that can't be read (may not exist)
+                    log::debug!("Traversal: skipping {} — {}", current_iri, e);
+                }
+            }
+        }
+
+        Ok(TraversalResult {
+            start_iri: start_iri.to_string(),
+            nodes,
+            edges,
+            scope: AnswerScope::open(loaded.generation.clone()),
+        })
+    }
+
+    /// [`Self::loaded`] for a class list the caller already holds.
+    async fn loaded_for(&self, classes: &[OwlClass]) -> Arc<LoadedOntology> {
+        let axioms = self.ontology_repo.get_axioms().await.unwrap_or_default();
+        let class_iris: Vec<String> = classes.iter().map(|c| c.iri.clone()).collect();
+        self.loaded_from(axioms, &class_iris).await
     }
 
     /// Semantic discovery: find relevant notes via class hierarchy + Whelk inference.
@@ -179,6 +516,11 @@ impl OntologyQueryService {
                     domain: class.source_domain.clone().unwrap_or_default(),
                     relationships: Vec::new(), // Populated in step 3 extension
                     whelk_inferred: inferred,
+                    basis: if inferred {
+                        FactBasis::Inferred
+                    } else {
+                        FactBasis::Asserted
+                    },
                 }
             })
             .collect();
@@ -189,6 +531,22 @@ impl OntologyQueryService {
 
     /// Read a note with full ontology context: markdown, metadata, Whelk axioms, related notes.
     pub async fn read_note(&self, iri: &str) -> Result<EnrichedNote, String> {
+        let all_classes = self
+            .ontology_repo
+            .list_owl_classes()
+            .await
+            .unwrap_or_default();
+        let loaded = self.loaded_for(&all_classes).await;
+        self.read_note_in(&loaded, &all_classes, iri).await
+    }
+
+    /// [`Self::read_note`] against an already-loaded index and class list.
+    async fn read_note_in(
+        &self,
+        loaded: &LoadedOntology,
+        all_classes: &[OwlClass],
+        iri: &str,
+    ) -> Result<EnrichedNote, String> {
         info!("Ontology read_note: iri='{}'", iri);
 
         // Fetch OwlClass from Oxigraph
@@ -199,28 +557,33 @@ impl OntologyQueryService {
             .map_err(|e| format!("Failed to get class: {}", e))?
             .ok_or_else(|| format!("Class not found: {}", iri))?;
 
-        // Fetch Whelk-inferred axioms
-        let whelk = self.whelk.read().await;
-        let hierarchy: Vec<(String, String)> = whelk
-            .get_subclass_hierarchy()
-            .await
-            .unwrap_or_else(|_| Vec::new());
+        // ADR-2127: the closure (Whelk ∪ asserted) gives each axiom and each
+        // related note its basis. An axiom both asserted and in the closure is
+        // reported once, as asserted. The subject's ancestors and descendants
+        // are walked once (`subject_view`), not once per class.
+        let view = loaded.index.subject_view(iri);
 
         let mut whelk_axioms: Vec<InferredAxiomSummary> = Vec::new();
 
-        // Find all SubClassOf axioms where this class is the subject
-        for (child, parent) in &hierarchy {
-            if child == iri {
-                whelk_axioms.push(InferredAxiomSummary {
-                    axiom_type: "SubClassOf".to_string(),
-                    subject: child.clone(),
-                    object: parent.clone(),
-                    is_inferred: true,
-                });
+        // Every SubClassOf this class is entailed into but not asserted with.
+        for ancestor in view.ancestors() {
+            if ancestor == iri
+                || loaded
+                    .asserted
+                    .contains(&(iri.to_string(), ancestor.clone()))
+            {
+                continue;
             }
+            whelk_axioms.push(InferredAxiomSummary {
+                axiom_type: "SubClassOf".to_string(),
+                subject: iri.to_string(),
+                object: ancestor.clone(),
+                is_inferred: true,
+                basis: FactBasis::Inferred,
+            });
         }
 
-        // Also add asserted axioms from the repo
+        // Asserted axioms from the repo
         let asserted = self
             .ontology_repo
             .get_class_axioms(iri)
@@ -233,25 +596,20 @@ impl OntologyQueryService {
                 subject: axiom.subject.clone(),
                 object: axiom.object.clone(),
                 is_inferred: false,
+                basis: FactBasis::Asserted,
             });
         }
 
-        // Fetch related notes (classes connected via relationships)
-        let all_classes = self
-            .ontology_repo
-            .list_owl_classes()
-            .await
-            .unwrap_or_default();
+        // Related notes: classes connected by subsumption either way, each
+        // with the direction and basis of that particular edge.
         let related_notes: Vec<RelatedNote> = all_classes
             .iter()
-            .filter(|c| {
-                // Check if connected via parent/child
-                hierarchy.iter().any(|(child, parent)| {
-                    (child == iri && parent == &c.iri) || (parent == iri && child == &c.iri)
-                })
-            })
-            .take(10) // Limit related notes
-            .map(|c| {
+            .filter(|c| c.iri != iri)
+            .filter_map(|c| {
+                let (direction, basis) = view
+                    .basis_to(&c.iri)
+                    .map(|b| ("outgoing", b))
+                    .or_else(|| view.basis_from(&c.iri).map(|b| ("incoming", b)))?;
                 let summary = c
                     .markdown_content
                     .as_deref()
@@ -259,19 +617,16 @@ impl OntologyQueryService {
                     .chars()
                     .take(150)
                     .collect();
-                let direction = if hierarchy.iter().any(|(child, _)| child == iri) {
-                    "outgoing"
-                } else {
-                    "incoming"
-                };
-                RelatedNote {
+                Some(RelatedNote {
                     iri: c.iri.clone(),
                     preferred_term: c.preferred_term.clone().unwrap_or_default(),
                     relationship_type: "SubClassOf".to_string(),
                     direction: direction.to_string(),
                     summary,
-                }
+                    basis,
+                })
             })
+            .take(10) // Limit related notes
             .collect();
 
         // Get schema context for query grounding

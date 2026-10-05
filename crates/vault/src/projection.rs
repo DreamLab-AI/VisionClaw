@@ -27,7 +27,7 @@ use regex::Regex;
 use vault_core::frontmatter;
 use vault_core::page::is_unpublished;
 
-use crate::model::{ClassRecord, Corpus, Ref};
+use crate::model::{ClassRecord, Conjunct, Corpus, Ref};
 
 /// An input could not safely cross the public build boundary.
 #[derive(Debug, thiserror::Error)]
@@ -312,7 +312,31 @@ impl Redactor {
             links: self.clean_refs(&r.links),
             body: self.redact(&r.body),
             has_ontology: r.has_ontology,
+            defines_as: self.clean_definition(&r.defines_as),
         }
+    }
+
+    /// A definition naming a private class is withheld **whole** (ADR-2124):
+    /// dropping only the private conjunct would weaken the definition and
+    /// classify more public classes under it than its author meant.
+    fn clean_definition(&self, conjuncts: &[Conjunct]) -> Vec<Conjunct> {
+        if conjuncts.iter().any(|c| self.is_private_ref(c.target())) {
+            return Vec::new();
+        }
+        let clean = |r: &Ref| Ref {
+            iri: self.redact(&r.iri),
+            label: self.redact(&r.label),
+        };
+        conjuncts
+            .iter()
+            .map(|c| match c {
+                Conjunct::Named(r) => Conjunct::Named(clean(r)),
+                Conjunct::Some { relation, filler } => Conjunct::Some {
+                    relation: relation.clone(),
+                    filler: clean(filler),
+                },
+            })
+            .collect()
     }
 }
 
@@ -430,6 +454,7 @@ mod tests {
             links: Vec::new(),
             body: String::new(),
             has_ontology: true,
+            defines_as: Vec::new(),
         }
     }
 
@@ -473,6 +498,41 @@ mod tests {
             .map(|r| r.iri.as_str())
             .collect();
         assert_eq!(parents, vec!["urn:ngm:class:open"]);
+    }
+
+    /// ADR-2124: a definition is never weakened by projection. One private
+    /// conjunct withholds the whole definition; an all-public one survives.
+    #[test]
+    fn a_definition_naming_a_private_page_is_withheld_whole() {
+        let r = |slug: &str| Ref {
+            iri: format!("urn:ngm:class:{slug}"),
+            label: slug.to_owned(),
+        };
+        let mut leaky = record("Leaky", true);
+        leaky.defines_as = vec![
+            Conjunct::Named(r("open")),
+            Conjunct::Some {
+                relation: "has-part".into(),
+                filler: r("secret"),
+            },
+        ];
+        let mut clean = record("Clean", true);
+        clean.defines_as = vec![
+            Conjunct::Named(r("open")),
+            Conjunct::Some {
+                relation: "has-part".into(),
+                filler: r("open"),
+            },
+        ];
+        let c = corpus_of(vec![
+            leaky,
+            clean.clone(),
+            record("Secret", false),
+            record("Open", true),
+        ]);
+        let p = project(&c, &HashSet::new()).unwrap();
+        assert!(p.records[0].defines_as.is_empty(), "{:?}", p.records[0]);
+        assert_eq!(p.records[1].defines_as, clean.defines_as);
     }
 
     #[test]

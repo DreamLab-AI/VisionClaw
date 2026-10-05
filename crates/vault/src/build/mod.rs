@@ -93,6 +93,13 @@ pub struct Report {
     pub graph_edges: usize,
     /// Classes Whelk found unsatisfiable. Non-empty is a broken corpus.
     pub unsatisfiable: Vec<String>,
+    /// The restriction mode the reasoner ran under (`skip` or `relevant`;
+    /// ADR-2124): decided by whether any class carries a `defines-as`.
+    pub reasoner_mode: &'static str,
+    /// Existential restrictions the reasoner saturated over.
+    pub restrictions_kept: usize,
+    /// Classes with a `defines-as` definition the reasoner was given.
+    pub defined_classes: usize,
     /// Pages staged under `publish/`, per vault. What `--stats` prints, and
     /// the answer to "did `working/` contribute anything?".
     pub published: std::collections::BTreeMap<String, publish::VaultPublished>,
@@ -276,8 +283,9 @@ fn alias_map(vault: &Vault) -> HashMap<String, Vec<String>> {
 /// Run the whole build.
 ///
 /// # Errors
-/// The census refusing an input, an identity collision, a validation error, or
-/// any I/O failure while staging or promoting the bundle.
+/// The census refusing an input, an identity collision, a validation error,
+/// a [`whelk::ReasoningError`] (a definition the reasoner would not finish
+/// on), or any I/O failure while staging or promoting the bundle.
 #[allow(clippy::too_many_lines)] // The pipeline, in the order it must run.
 pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     let pages_dir = options.vault_root.join("pages");
@@ -320,7 +328,26 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     let structural = closure::compute(&corpus);
     let backlinks = indexes::backlink_index(&corpus);
     let graph = turtle::build_graph(&corpus, vocab, true);
-    let reasoning = whelk::reason(&graph);
+    // ADR-2124: a definition over a transitive hierarchy is refused here,
+    // before the reasoner runs, with the named `WHELK_RELEVANT_CAP` error —
+    // never a hang. The error is returned unwrapped so the CLI can downcast it.
+    let reasoning = whelk::reason(&graph)?;
+    // ADR-2124 decision 4: the mode is decided by the graph, so say which.
+    eprintln!(
+        "vault build: whelk restrictions mode {} ({} kept, {} skipped, {} defined class(es))",
+        reasoning.mode.as_str(),
+        reasoning.restrictions_kept,
+        reasoning.restrictions_skipped,
+        reasoning.defined_classes
+    );
+    // ADR-2125 item 4: the zero-unsatisfiable gate. An unsatisfiable class is
+    // a broken corpus, never a warning; nothing is written and the root causes
+    // (not every class that inherits `owl:Nothing` from them) are named.
+    anyhow::ensure!(
+        reasoning.is_consistent(),
+        "{}",
+        unsatisfiable_message(&reasoning)
+    );
     let generated = now_iso();
 
     let class_count = corpus.public_classes().count();
@@ -483,11 +510,16 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         })
         .collect();
     let content_digest = generation::content_digest(sources);
+    // Pages alone do not fix the Turtle (the vocabulary and the emitter do
+    // too), so the ontology carries its own digest — the tail of its
+    // `owl:versionIRI` — recorded here beside the page digest (ADR-2128).
+    let ontology_digest = turtle::ontology_digest(&graph);
 
     let gen = generation::generation(
         commit,
         dirty,
         content_digest,
+        ontology_digest,
         generated,
         class_count,
         page_count,
@@ -515,6 +547,9 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
         search_entries,
         graph_nodes: tiers.nodes,
         graph_edges: tiers.edges,
+        reasoner_mode: reasoning.mode.as_str(),
+        restrictions_kept: reasoning.restrictions_kept,
+        defined_classes: reasoning.defined_classes,
         unsatisfiable: reasoning.unsatisfiable,
         published: staging.per_vault,
         // Both destinations count: with `--publish-out` the markdown is
@@ -527,6 +562,34 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
             },
         out: options.out.clone(),
     })
+}
+
+/// The refusal `vault build` gives for an unsatisfiable corpus: the count,
+/// then up to twenty root causes. A corpus whose unsatisfiable classes all sit
+/// under one another (a cycle) has no root by that definition, so every
+/// unsatisfiable class is named instead.
+fn unsatisfiable_message(reasoning: &whelk::Reasoning) -> String {
+    const SHOWN: usize = 20;
+    let roots = if reasoning.root_causes.is_empty() {
+        &reasoning.unsatisfiable
+    } else {
+        &reasoning.root_causes
+    };
+    let mut named = roots
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if roots.len() > SHOWN {
+        named = format!("{named} (+{} more)", roots.len() - SHOWN);
+    }
+    format!(
+        "UNSATISFIABLE_CLASSES: {} unsatisfiable class(es); no bundle written. \
+         {} root cause(s): {named}",
+        reasoning.unsatisfiable.len(),
+        roots.len()
+    )
 }
 
 /// Read a JSON artefact back out of a bundle, for `--verify` and the tests.
@@ -657,6 +720,32 @@ scalars:
             .map(|a| a["name"].as_str().unwrap())
             .collect();
         assert!(names.contains(&"data/scaffold-index.json"));
+    }
+
+    #[test]
+    fn the_generation_records_the_ontology_version_iri_digest() {
+        let (dir, report) = build_fixture();
+        let out = dir.path().join("www");
+        let digest = report.generation.ontology_digest.clone();
+        assert!(digest.starts_with("sha256-12-"), "{digest}");
+        assert_ne!(digest, report.generation.content_digest);
+        for marker in [".generation.json", "data/.generation.json"] {
+            let gen: Value = read_artifact(&out, marker).unwrap();
+            assert_eq!(gen["ontology_digest"], digest.as_str(), "{marker}");
+        }
+        let ttl = std::fs::read_to_string(out.join("data/ontology.ttl")).unwrap();
+        assert!(
+            ttl.contains(&format!(
+                "owl:versionIRI <{}/{digest}>",
+                turtle::ONTOLOGY_IRI
+            )),
+            "the Turtle names the digest .generation.json records"
+        );
+        let (_again, rebuilt) = build_fixture();
+        assert_eq!(
+            rebuilt.generation.ontology_digest, digest,
+            "identical rebuild"
+        );
     }
 
     #[test]
@@ -878,6 +967,172 @@ scalars:
             !dir.path().join("www").exists(),
             "nothing is promoted when the build refuses"
         );
+    }
+
+    // ── ADR-2125 item 4: the zero-unsatisfiable build gate ──────────────────
+
+    fn build_with_disjointness(
+        pages: &[(&str, String)],
+    ) -> (tempfile::TempDir, anyhow::Result<Report>) {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource] }
+relations:
+  is-a:          { owl: "rdfs:subClassOf", characteristics: [transitive] }
+  disjoint-with: { owl: "owl:disjointWith", status: provisional }
+scalars:
+  domain:     { type: text, enum: [infrastructure] }
+"#,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("knowledge/pages");
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, text) in pages {
+            std::fs::write(root.join(format!("{id}.md")), text).unwrap();
+        }
+        let options = Options {
+            vault_root: dir.path().join("knowledge"),
+            out: dir.path().join("www"),
+            repo_root: dir.path().to_path_buf(),
+            with_rvdb: false,
+            with_markdown_mirror: false,
+            with_working_publish: false,
+            publish_out: None,
+            embed_endpoint: rvdb::DEFAULT_ENDPOINT.to_owned(),
+            stale_after: None,
+        };
+        let result = run(&options, &vocab);
+        (dir, result)
+    }
+
+    /// `Parent ⊐ A, B`, `A disjoint-with B`, and `P ⊑ A` (plus `P ⊑ B` when
+    /// `clash`), with `Q ⊑ P` hanging below.
+    fn disjoint_corpus(clash: bool) -> Vec<(&'static str, String)> {
+        let p_parents = if clash {
+            "[\"[[A]]\", \"[[B]]\"]"
+        } else {
+            "[\"[[A]]\"]"
+        };
+        vec![
+            ("Parent", class_page("resource: urn:ngm:class:parent\n")),
+            (
+                "A",
+                class_page(
+                    "resource: urn:ngm:class:a\nis-a: [\"[[Parent]]\"]\ndisjoint-with: [\"[[B]]\"]\n",
+                ),
+            ),
+            ("B", class_page("resource: urn:ngm:class:b\nis-a: [\"[[Parent]]\"]\n")),
+            ("P", class_page(&format!("resource: urn:ngm:class:p\nis-a: {p_parents}\n"))),
+            ("Q", class_page("resource: urn:ngm:class:q\nis-a: [\"[[P]]\"]\n")),
+        ]
+    }
+
+    #[test]
+    fn an_unsatisfiable_class_fails_the_build_naming_only_the_root_cause() {
+        let (dir, result) = build_with_disjointness(&disjoint_corpus(true));
+        let error = result.expect_err("P ⊑ A ⊓ B with A disjoint B must refuse the build");
+        let text = error.to_string();
+        assert!(text.contains("UNSATISFIABLE_CLASSES"), "{text}");
+        assert!(text.contains("2 unsatisfiable"), "{text}");
+        assert!(text.contains("/class/p"), "the root cause is named: {text}");
+        let roots = text.split("root cause").nth(1).unwrap_or_default();
+        assert!(
+            !roots.contains("/class/q"),
+            "Q is derived from P, not a root: {text}"
+        );
+        assert!(
+            !dir.path().join("www").exists(),
+            "nothing is promoted when the build refuses"
+        );
+    }
+
+    #[test]
+    fn a_satisfiable_disjointness_builds_and_emits_the_axiom() {
+        let (dir, result) = build_with_disjointness(&disjoint_corpus(false));
+        let report = result.expect("siblings A, B disjoint with no common subclass is fine");
+        assert!(report.unsatisfiable.is_empty());
+        let ttl = std::fs::read_to_string(dir.path().join("www/data/ontology.ttl")).unwrap();
+        assert!(ttl.contains("owl:disjointWith ngm:b"), "{ttl}");
+    }
+
+    /// ADR-2124 end to end: one `defines-as` page, a real `vault build`. The
+    /// derived membership lands in `ontology-inferred.ttl` only (decision 5),
+    /// and the report carries the restriction mode and kept count.
+    #[test]
+    fn a_defined_class_is_classified_into_by_the_build() {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource] }
+relations:
+  is-a:       { owl: "rdfs:subClassOf", characteristics: [transitive] }
+  has-part:   { owl: "vc:hasPart", restriction: true }
+  defines-as: { owl: "owl:equivalentClass", status: provisional }
+scalars:
+  domain:     { type: text, enum: [infrastructure] }
+"#,
+        )
+        .unwrap();
+        let pages = [
+            ("Robot", class_page("resource: urn:ngm:class:robot\n")),
+            ("Gripper", class_page("resource: urn:ngm:class:gripper\n")),
+            (
+                "Arm",
+                class_page(
+                    "resource: urn:ngm:class:arm\nis-a: [\"[[Robot]]\"]\nhas-part: [\"[[Gripper]]\"]\n",
+                ),
+            ),
+            (
+                "Gripping Robot",
+                class_page(
+                    "resource: urn:ngm:class:gripping-robot\ndefines-as:\n  - \"[[Robot]]\"\n  - has-part: \"[[Gripper]]\"\n",
+                ),
+            ),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("knowledge/pages");
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, text) in &pages {
+            std::fs::write(root.join(format!("{id}.md")), text).unwrap();
+        }
+        let options = Options {
+            vault_root: dir.path().join("knowledge"),
+            out: dir.path().join("www"),
+            repo_root: dir.path().to_path_buf(),
+            with_rvdb: false,
+            with_markdown_mirror: false,
+            with_working_publish: false,
+            publish_out: None,
+            embed_endpoint: rvdb::DEFAULT_ENDPOINT.to_owned(),
+            stale_after: None,
+        };
+        let report = run(&options, &vocab).expect("a defined class builds");
+        assert_eq!(report.reasoner_mode, "relevant");
+        assert_eq!(report.restrictions_kept, 1);
+        assert_eq!(report.defined_classes, 1);
+        let www = dir.path().join("www/data");
+        let inferred = std::fs::read_to_string(www.join("ontology-inferred.ttl")).unwrap();
+        assert!(
+            inferred.contains("ngm:arm rdfs:subClassOf ngm:gripping-robot"),
+            "{inferred}"
+        );
+        let asserted = std::fs::read_to_string(www.join("ontology.ttl")).unwrap();
+        assert!(asserted.contains("owl:equivalentClass"), "{asserted}");
+        assert!(!asserted.contains("ngm:gripping-robot ;\n    rdfs:subClassOf"));
+    }
+
+    #[test]
+    fn a_corpus_without_definitions_reasons_with_skip() {
+        let (_dir, report) = build_fixture();
+        assert_eq!(report.reasoner_mode, "skip");
+        assert_eq!(report.restrictions_kept, 0);
+        assert_eq!(report.defined_classes, 0);
     }
 
     #[test]

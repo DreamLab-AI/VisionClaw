@@ -39,7 +39,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_112 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_117 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -155,3 +155,8 @@ _112 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2117](ADR-2117-retire-corpus-format-migration.md) | Retire the completed corpus format migration | — | 2026-10-01 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2118](ADR-2118-append-space-earth-domain-identities.md) | Append space science and Earth observation domain identities | — | 2026-10-01 | accepted | complete | staged | — | — | visionGraph corpus maintainer | visionclaw |
 | [ADR-2119](ADR-2119-prod-ingress-is-declared-lan-or-tunnel.md) | Production ingress is declared, LAN or tunnel | BASELINE-architecture | 2026-10-02 | accepted | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2124](ADR-2124-visiongraph-admits-curated-el-defined-classes.md) | visionGraph admits a curated set of EL defined classes, and the corpus reasoner saturates restrictions whenever one is emitted | VAULT-corpus-format | 2026-10-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2125](ADR-2125-the-whelk-consistency-gate-is-proven-armed.md) | The Whelk consistency gate must be provably armed — register and wire the existing disjoint-with key for sibling partitions, add end-to-end probes, and a zero-unsatisfiable build gate | VAULT-corpus-format | 2026-10-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2126](ADR-2126-corpus-integrity-is-closed-world-validation-not-owl.md) | Corpus integrity requirements are closed-world validation rules, never OWL axioms; the emitted OWL stays inside the EL profile | VAULT-corpus-format | 2026-10-05 | proposed | partial | inactive | — | — | jjohare | visionclaw |
+| [ADR-2127](ADR-2127-ontology-agent-answers-distinguish-not-asserted-from-false.md) | Ontology agent answers state their basis and never report "not asserted" as "false | BASELINE-architecture | 2026-10-05 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2128](ADR-2128-published-ontology-carries-a-version-iri-and-scoped-property-signatures.md) | The published ontology carries an owl:versionIRI per generation, and property domain/range are scoped per property instead of owl:Thing | VAULT-corpus-format | 2026-10-05 | proposed | none | inactive | — | — | jjohare | visionclaw |

@@ -217,6 +217,7 @@ scalars:
             links: Vec::new(),
             body: String::new(),
             has_ontology: true,
+            defines_as: Vec::new(),
         }
     }
 

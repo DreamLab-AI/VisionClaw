@@ -56,6 +56,11 @@ pub struct Generation {
     pub dirty: bool,
     /// SHA-256 over every source page, path-ordered.
     pub content_digest: String,
+    /// `sha256-12-<hex>` over the emitted asserted graph, header excluded
+    /// (ADR-2128): the tail of `data/ontology.ttl`'s `owl:versionIRI`. Unlike
+    /// [`Self::content_digest`] it moves when the vocabulary or the emitter
+    /// changes the Turtle under unchanged pages.
+    pub ontology_digest: String,
     /// ISO-8601 build instant.
     pub generated_at: String,
     /// Public OWL classes in this build.
@@ -163,6 +168,16 @@ pub fn content_digest(mut entries: Vec<(String, Vec<u8>)>) -> String {
     hex::encode(h.finalize())
 }
 
+/// The ADR-2023 content address of `bytes`: `sha256-12-` plus the first 12
+/// lowercase hex characters of their SHA-256, byte-identical to the agentbox
+/// `sha12()` contract (and to `services::proposal_spine::sha256_12` in the
+/// root crate, prefixed).
+#[must_use]
+pub fn sha256_12(bytes: &[u8]) -> String {
+    let full = hex::encode(Sha256::digest(bytes));
+    format!("sha256-12-{}", &full[..12])
+}
+
 /// Assemble the generation stamp.
 #[must_use]
 #[allow(clippy::too_many_arguments)] // The fields of contract C3.
@@ -170,6 +185,7 @@ pub fn generation(
     commit: String,
     dirty: bool,
     content_digest: String,
+    ontology_digest: String,
     generated_at: String,
     class_count: usize,
     page_count: usize,
@@ -182,6 +198,7 @@ pub fn generation(
         commit,
         dirty,
         content_digest,
+        ontology_digest,
         generated_at,
         class_count,
         page_count,
@@ -201,6 +218,7 @@ mod tests {
             "abc1234".into(),
             false,
             "d".into(),
+            "o".into(),
             "t".into(),
             8146,
             8433,
@@ -264,6 +282,7 @@ mod tests {
             "abc1234".into(),
             true,
             "d".into(),
+            "o".into(),
             "t".into(),
             0,
             0,
@@ -283,6 +302,7 @@ mod tests {
             "abc".into(),
             false,
             "d".into(),
+            "o".into(),
             "t".into(),
             3,
             4,
@@ -381,11 +401,39 @@ mod tests {
     }
 
     #[test]
+    fn sha256_12_is_the_adr_2023_content_address() {
+        let full = hex::encode(Sha256::digest(b"abc"));
+        assert_eq!(sha256_12(b"abc"), format!("sha256-12-{}", &full[..12]));
+        assert_eq!(sha256_12(b"abc"), "sha256-12-ba7816bf8f01");
+    }
+
+    #[test]
+    fn the_ontology_digest_sits_beside_the_content_digest() {
+        let g = generation(
+            "abc".into(),
+            false,
+            "pages".into(),
+            "sha256-12-0123456789ab".into(),
+            "t".into(),
+            0,
+            0,
+            1,
+            None,
+            Vec::new(),
+        );
+        let v = serde_json::to_value(&g).unwrap();
+        assert_eq!(v["content_digest"], "pages");
+        assert_eq!(v["ontology_digest"], "sha256-12-0123456789ab");
+        assert_eq!(g.scoped("data").ontology_digest, g.ontology_digest);
+    }
+
+    #[test]
     fn stale_after_is_omitted_when_absent() {
         let g = generation(
             "abc".into(),
             false,
             "d".into(),
+            "o".into(),
             "t".into(),
             0,
             0,

@@ -14,6 +14,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use async_trait::async_trait;
+use visionclaw_domain::ports::inference_engine::InferenceEngine;
+use visionclaw_domain::ports::ontology_repository::{
+    AxiomType, OntologyRepository, OwlAxiom, OwlClass,
+};
 use visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine;
 use visionclaw_server::models::edge::Edge;
 use visionclaw_server::models::graph::GraphData;
@@ -182,7 +186,7 @@ fn test_agent_context() -> AgentContext {
         agent_type: "researcher".to_string(),
         task_description: "Integration test task".to_string(),
         session_id: Some("test-session".to_string()),
-        confidence: 0.85,
+        confidence: Some(0.85),
         user_id: "test-user".to_string(),
     }
 }
@@ -480,4 +484,441 @@ async fn test_quality_score_minimal() {
         "Minimal proposal should have lower quality score, got: {}",
         result.quality_score
     );
+}
+
+// ---------- ADR-2127: open-world answers ----------
+
+fn axiom(axiom_type: AxiomType, subject: &str, object: &str) -> OwlAxiom {
+    OwlAxiom {
+        id: None,
+        axiom_type,
+        subject: subject.to_string(),
+        object: object.to_string(),
+        annotations: HashMap::new(),
+    }
+}
+
+/// Company ⊑ Organization (asserted), Organization ⊑ Agent (asserted, so
+/// Company ⊑ Agent is closure-only), Person disjoint-with Organization.
+async fn build_disjoint_query_service() -> OntologyQueryService {
+    let repo = create_test_ontology_repo();
+    repo.add_owl_class(&OwlClass {
+        iri: "mv:Agent".to_string(),
+        label: Some("Agent".to_string()),
+        preferred_term: Some("Agent".to_string()),
+        ..OwlClass::default()
+    })
+    .await
+    .unwrap();
+    let axioms = vec![
+        axiom(AxiomType::SubClassOf, "mv:Company", "mv:Organization"),
+        axiom(AxiomType::SubClassOf, "mv:Organization", "mv:Agent"),
+        axiom(AxiomType::DisjointWith, "mv:Person", "mv:Organization"),
+    ];
+    for a in &axioms {
+        repo.add_axiom(a).await.unwrap();
+    }
+    let mut engine = WhelkInferenceEngine::new();
+    let classes = repo.list_owl_classes().await.unwrap();
+    engine.load_ontology(classes, axioms).await.unwrap();
+    engine.infer().await.unwrap();
+    let schema_service = Arc::new(SchemaService::new());
+    OntologyQueryService::new(
+        repo,
+        Arc::new(EmptyKGRepo),
+        Arc::new(RwLock::new(engine)),
+        schema_service,
+    )
+    .with_generation(Some(
+        "https://narrativegoldmine.com/ontology/sha256-12-000000000001".to_string(),
+    ))
+}
+
+#[tokio::test]
+async fn test_empty_discover_is_labelled_open_with_its_generation() {
+    let service = build_query_service().with_generation(Some("urn:gen:test".to_string()));
+    let results = service
+        .discover("zzz_nonexistent_xyzzy", 10, None)
+        .await
+        .unwrap();
+    assert!(results.is_empty());
+    let scope = service.answer_scope().await;
+    assert_eq!(scope.closure, Closure::Open);
+    assert_eq!(scope.generation.as_deref(), Some("urn:gen:test"));
+    let json = serde_json::to_value(&scope).unwrap();
+    assert_eq!(json["closure"], "open");
+    assert_eq!(json["generation"], "urn:gen:test");
+}
+
+#[tokio::test]
+async fn test_empty_traversal_is_labelled_open_with_its_generation() {
+    let service = build_query_service().with_generation(Some("urn:gen:test".to_string()));
+    let traversal = service.traverse("mv:NonExistent", 2, None).await.unwrap();
+    assert!(traversal.nodes.is_empty() && traversal.edges.is_empty());
+    assert_eq!(
+        traversal.scope,
+        AnswerScope::open(Some("urn:gen:test".to_string()))
+    );
+}
+
+#[tokio::test]
+async fn test_membership_in_a_disjoint_class_is_entailed_false() {
+    let service = build_disjoint_query_service().await;
+    let check = service
+        .check_membership("mv:Company", "mv:Person")
+        .await
+        .unwrap();
+    assert_eq!(check.verdict, Entailment::EntailedFalse);
+    assert_eq!(
+        check.witness,
+        Some(DisjointnessWitness {
+            subject_side: "mv:Organization".to_string(),
+            class_side: "mv:Person".to_string(),
+        })
+    );
+    assert_eq!(check.scope.closure, Closure::Open);
+    assert!(check.scope.generation.is_some());
+}
+
+#[tokio::test]
+async fn test_membership_distinguishes_asserted_inferred_and_silent() {
+    let service = build_disjoint_query_service().await;
+    let asserted = service
+        .check_membership("mv:Company", "mv:Organization")
+        .await
+        .unwrap();
+    assert_eq!(asserted.verdict, Entailment::Entailed);
+    assert_eq!(asserted.basis, Some(FactBasis::Asserted));
+
+    let inferred = service
+        .check_membership("mv:Company", "mv:Agent")
+        .await
+        .unwrap();
+    assert_eq!(inferred.verdict, Entailment::Entailed);
+    assert_eq!(inferred.basis, Some(FactBasis::Inferred));
+
+    let silent = service
+        .check_membership("mv:Technology", "mv:Person")
+        .await
+        .unwrap();
+    assert_eq!(silent.verdict, Entailment::NotAsserted);
+    assert_eq!(silent.basis, None);
+}
+
+#[tokio::test]
+async fn test_read_and_traverse_carry_a_basis_on_every_edge() {
+    let service = build_disjoint_query_service().await;
+    let note = service.read_note("mv:Company").await.unwrap();
+    let basis_of = |iri: &str| {
+        note.related_notes
+            .iter()
+            .find(|r| r.iri == iri)
+            .map(|r| (r.basis, r.direction.clone()))
+    };
+    assert_eq!(
+        basis_of("mv:Organization"),
+        Some((FactBasis::Asserted, "outgoing".to_string()))
+    );
+    assert_eq!(
+        basis_of("mv:Agent"),
+        Some((FactBasis::Inferred, "outgoing".to_string()))
+    );
+    for ax in &note.whelk_axioms {
+        assert_eq!(ax.basis == FactBasis::Inferred, ax.is_inferred, "{ax:?}");
+    }
+
+    let traversal = service.traverse("mv:Company", 1, None).await.unwrap();
+    let edge = |target: &str| {
+        traversal
+            .edges
+            .iter()
+            .find(|e| e.source_iri == "mv:Company" && e.target_iri == target)
+            .map(|e| e.basis)
+    };
+    assert_eq!(edge("mv:Organization"), Some(FactBasis::Asserted));
+    assert_eq!(edge("mv:Agent"), Some(FactBasis::Inferred));
+}
+
+#[tokio::test]
+async fn test_discovery_results_carry_a_basis_matching_whelk_inferred() {
+    let service = build_disjoint_query_service().await;
+    let results = service.discover("Organization", 10, None).await.unwrap();
+    assert!(!results.is_empty());
+    for r in &results {
+        let expected = if r.whelk_inferred {
+            FactBasis::Inferred
+        } else {
+            FactBasis::Asserted
+        };
+        assert_eq!(r.basis, expected, "{}", r.iri);
+    }
+}
+
+#[actix_web::test]
+async fn test_http_answers_carry_open_scope_and_tri_valued_check() {
+    use actix_web::{test as atest, web, App};
+    use visionclaw_server::handlers::ontology_agent_handler::configure_ontology_agent_routes;
+
+    let service = Arc::new(build_disjoint_query_service().await);
+    let app = atest::init_service(
+        App::new()
+            .app_data(web::Data::new(service))
+            .configure(configure_ontology_agent_routes),
+    )
+    .await;
+
+    let req = atest::TestRequest::post()
+        .uri("/ontology-agent/discover")
+        .set_json(serde_json::json!({ "query": "zzz_nonexistent_xyzzy" }))
+        .to_request();
+    let body: serde_json::Value = atest::call_and_read_body_json(&app, req).await;
+    let body = body.get("data").unwrap_or(&body);
+    assert_eq!(body["count"], 0);
+    assert_eq!(body["scope"]["closure"], "open");
+    assert_eq!(
+        body["scope"]["generation"],
+        "https://narrativegoldmine.com/ontology/sha256-12-000000000001"
+    );
+
+    let req = atest::TestRequest::post()
+        .uri("/ontology-agent/check")
+        .set_json(serde_json::json!({ "subject": "mv:Company", "class": "mv:Person" }))
+        .to_request();
+    let body: serde_json::Value = atest::call_and_read_body_json(&app, req).await;
+    let body = body.get("data").unwrap_or(&body);
+    assert_eq!(body["check"]["verdict"], "entailed_false");
+    assert_eq!(body["check"]["witness"]["subject_side"], "mv:Organization");
+}
+
+// ---------- ADR-2127 decision 2: tri-valued relation check ----------
+
+fn relation(subject: &str, property: &str, object: &str) -> OwlAxiom {
+    let mut a = axiom(AxiomType::ObjectPropertyAssertion, subject, object);
+    a.annotations
+        .insert("predicate".to_string(), property.to_string());
+    a
+}
+
+const HAS_PART: &str = "https://narrativegoldmine.com/ns/v1#hasPart";
+
+/// Car ⊑ Vehicle, Wheel ⊑ Part, Vehicle hasPart Wheel (asserted), Engine
+/// disjoint-with Part; hasPart declares range Part.
+async fn build_relation_query_service() -> OntologyQueryService {
+    let repo = create_test_ontology_repo();
+    for a in [
+        axiom(AxiomType::SubClassOf, "mv:Car", "mv:Vehicle"),
+        axiom(AxiomType::SubClassOf, "mv:Wheel", "mv:Part"),
+        axiom(AxiomType::DisjointWith, "mv:Engine", "mv:Part"),
+        relation("mv:Vehicle", HAS_PART, "mv:Wheel"),
+    ] {
+        repo.add_axiom(&a).await.unwrap();
+    }
+    repo.add_owl_property(&visionclaw_domain::ports::ontology_repository::OwlProperty {
+        iri: HAS_PART.to_string(),
+        range: vec!["mv:Part".to_string()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    OntologyQueryService::new(
+        repo,
+        Arc::new(EmptyKGRepo),
+        Arc::new(RwLock::new(WhelkInferenceEngine::new())),
+        Arc::new(SchemaService::new()),
+    )
+    .with_generation(Some("urn:gen:relations".to_string()))
+}
+
+#[tokio::test]
+async fn test_relation_check_is_tri_valued() {
+    let service = build_relation_query_service().await;
+
+    let asserted = service
+        .check_relation("mv:Vehicle", HAS_PART, "mv:Wheel")
+        .await
+        .unwrap();
+    assert_eq!(asserted.verdict, Entailment::Entailed);
+    assert_eq!(asserted.basis, Some(FactBasis::Asserted));
+
+    let inherited = service
+        .check_relation("mv:Car", HAS_PART, "mv:Part")
+        .await
+        .unwrap();
+    assert_eq!(inherited.verdict, Entailment::Entailed);
+    assert_eq!(inherited.basis, Some(FactBasis::Inferred));
+
+    let contradicts_range = service
+        .check_relation("mv:Car", HAS_PART, "mv:Engine")
+        .await
+        .unwrap();
+    assert_eq!(contradicts_range.verdict, Entailment::EntailedFalse);
+    let witness = contradicts_range.witness.expect("a range witness");
+    assert_eq!(witness.constraint, RelationConstraint::Range);
+    assert_eq!(witness.declared_class, "mv:Part");
+    assert_eq!(witness.disjointness.subject_side, "mv:Engine");
+
+    // No declared signature for this property: silence, never false.
+    let silent = service
+        .check_relation("mv:Car", "urn:p:requires", "mv:Engine")
+        .await
+        .unwrap();
+    assert_eq!(silent.verdict, Entailment::NotAsserted);
+    assert_eq!(silent.basis, None);
+    assert_eq!(silent.witness, None);
+    assert_eq!(
+        silent.scope,
+        AnswerScope::open(Some("urn:gen:relations".to_string()))
+    );
+}
+
+#[actix_web::test]
+async fn test_http_check_with_a_property_is_the_relation_check_and_status_lists_it() {
+    use actix_web::{test as atest, web, App};
+    use visionclaw_server::handlers::ontology_agent_handler::configure_ontology_agent_routes;
+
+    let service = Arc::new(build_relation_query_service().await);
+    let app = atest::init_service(
+        App::new()
+            .app_data(web::Data::new(service))
+            .configure(configure_ontology_agent_routes),
+    )
+    .await;
+
+    let req = atest::TestRequest::post()
+        .uri("/ontology-agent/check")
+        .set_json(serde_json::json!({
+            "subject": "mv:Car", "property": HAS_PART, "object": "mv:Engine"
+        }))
+        .to_request();
+    let body: serde_json::Value = atest::call_and_read_body_json(&app, req).await;
+    let body = body.get("data").unwrap_or(&body);
+    assert_eq!(body["check"]["verdict"], "entailed_false");
+    assert_eq!(body["check"]["property"], HAS_PART);
+    assert_eq!(body["check"]["witness"]["constraint"], "range");
+    assert_eq!(body["check"]["scope"]["closure"], "open");
+
+    // Without `property` the same route is still the membership check.
+    let req = atest::TestRequest::post()
+        .uri("/ontology-agent/check")
+        .set_json(serde_json::json!({ "subject": "mv:Car", "class": "mv:Vehicle" }))
+        .to_request();
+    let body: serde_json::Value = atest::call_and_read_body_json(&app, req).await;
+    let body = body.get("data").unwrap_or(&body);
+    assert_eq!(body["check"]["verdict"], "entailed");
+    assert_eq!(body["check"]["class"], "mv:Vehicle");
+
+    let req = atest::TestRequest::get()
+        .uri("/ontology-agent/status")
+        .to_request();
+    let body: serde_json::Value = atest::call_and_read_body_json(&app, req).await;
+    let body = body.get("data").unwrap_or(&body);
+    let caps: Vec<&str> = body["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
+    assert!(caps.contains(&"ontology_check"), "{caps:?}");
+    assert!(caps.contains(&"ontology_check_relation"), "{caps:?}");
+}
+
+// ---------- ADR-2127 decision 3: the generation of the loaded ontology ----------
+
+#[tokio::test]
+async fn test_a_loaded_bundle_reports_its_version_iri() {
+    use visionclaw_ontology::open_world::BundleLocation;
+    let root = std::env::temp_dir().join(format!("adr2127-it-vault-{}", std::process::id()));
+    let data = root.join("build").join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        root.join("vault.toml"),
+        "[build]\nout = \"build\"\n[build.artifacts]\nontology = \"data/ontology.ttl\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        data.join("ontology.ttl"),
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+         @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+         <urn:ngm:class:x> rdfs:comment \"owl:versionIRI <urn:not:this>\" .\n\
+         <https://narrativegoldmine.com/ontology> a owl:Ontology ;\n\
+             owl:versionIRI <https://narrativegoldmine.com/ontology/sha256-12-0123456789ab> .\n",
+    )
+    .unwrap();
+    let service = build_query_service().with_bundle_location(BundleLocation::VaultRoot(root.clone()));
+    let scope = service.answer_scope().await;
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        scope.generation.as_deref(),
+        Some("https://narrativegoldmine.com/ontology/sha256-12-0123456789ab")
+    );
+}
+
+#[tokio::test]
+async fn test_without_a_bundle_the_generation_is_the_store_digest_and_follows_reloads() {
+    use visionclaw_ontology::open_world::{BundleLocation, STORE_GENERATION_PREFIX};
+    let repo = create_test_ontology_repo();
+    let service = OntologyQueryService::new(
+        repo.clone(),
+        Arc::new(EmptyKGRepo),
+        Arc::new(RwLock::new(WhelkInferenceEngine::new())),
+        Arc::new(SchemaService::new()),
+    )
+    .with_bundle_location(BundleLocation::Dir(
+        std::env::temp_dir().join("adr2127-no-such-bundle"),
+    ));
+    let first = service.answer_scope().await.generation.expect("never null");
+    assert!(first.starts_with(STORE_GENERATION_PREFIX), "{first}");
+    // Stable while the store is unchanged.
+    assert_eq!(
+        service.answer_scope().await.generation.as_deref(),
+        Some(first.as_str())
+    );
+    // A reload that changes the ontology changes the generation, and the
+    // cached index follows it.
+    let before = service
+        .check_membership("mv:Robot", "mv:Agent")
+        .await
+        .unwrap();
+    assert_eq!(before.verdict, Entailment::NotAsserted);
+    repo.add_axiom(&axiom(AxiomType::SubClassOf, "mv:Robot", "mv:Agent"))
+        .await
+        .unwrap();
+    let after = service
+        .check_membership("mv:Robot", "mv:Agent")
+        .await
+        .unwrap();
+    assert_eq!(after.verdict, Entailment::Entailed);
+    let second = after.scope.generation.expect("never null");
+    assert!(second.starts_with(STORE_GENERATION_PREFIX), "{second}");
+    assert_ne!(first, second, "the generation follows the loaded ontology");
+}
+
+#[tokio::test]
+async fn test_read_note_is_unchanged_by_the_cached_index() {
+    // The same note read twice (cache cold, then warm) is identical, and a
+    // reload between reads is reflected.
+    let service = build_disjoint_query_service().await;
+    let cold = service.read_note("mv:Company").await.unwrap();
+    let warm = service.read_note("mv:Company").await.unwrap();
+    let key = |n: &EnrichedNote| {
+        let mut r: Vec<(String, String, FactBasis)> = n
+            .related_notes
+            .iter()
+            .map(|r| (r.iri.clone(), r.direction.clone(), r.basis))
+            .collect();
+        r.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut ax: Vec<(String, String, bool)> = n
+            .whelk_axioms
+            .iter()
+            .map(|a| (a.axiom_type.clone(), a.object.clone(), a.is_inferred))
+            .collect();
+        ax.sort();
+        (r, ax)
+    };
+    assert_eq!(key(&cold), key(&warm));
+    let incoming = service.read_note("mv:Organization").await.unwrap();
+    assert!(incoming
+        .related_notes
+        .iter()
+        .any(|r| r.iri == "mv:Company" && r.direction == "incoming" && r.basis == FactBasis::Asserted));
 }

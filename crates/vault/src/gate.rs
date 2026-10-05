@@ -178,28 +178,25 @@ pub fn run(
                 "whelk",
                 "no asserted graph supplied — run the gate after a build to reason",
             ),
-            Some(g) => {
-                let reasoning = whelk::reason(g);
-                if reasoning.is_consistent() {
-                    Check::pass(
-                        "whelk",
-                        format!(
-                            "{} classes classified, {} inferred subsumptions, 0 unsatisfiable",
-                            reasoning.classified,
-                            reasoning.inferred.len()
-                        ),
-                    )
-                } else {
-                    Check::fail(
-                        "whelk",
-                        format!(
-                            "{} unsatisfiable class(es); first: {}",
-                            reasoning.unsatisfiable.len(),
-                            reasoning.unsatisfiable[0]
-                        ),
-                    )
-                }
-            }
+            Some(g) => match whelk::reason(g) {
+                Err(refusal) => Check::fail("whelk", refusal.to_string()),
+                Ok(reasoning) if reasoning.is_consistent() => Check::pass(
+                    "whelk",
+                    format!(
+                        "{} classes classified, {} inferred subsumptions, 0 unsatisfiable",
+                        reasoning.classified,
+                        reasoning.inferred.len()
+                    ),
+                ),
+                Ok(reasoning) => Check::fail(
+                    "whelk",
+                    format!(
+                        "{} unsatisfiable class(es); first: {}",
+                        reasoning.unsatisfiable.len(),
+                        reasoning.unsatisfiable[0]
+                    ),
+                ),
+            },
         });
     }
 

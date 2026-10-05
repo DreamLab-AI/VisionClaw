@@ -395,6 +395,13 @@ pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
         .collect();
 
     let mut iri_owners: HashMap<&str, Vec<&str>> = HashMap::new();
+    // `disjoint-with` targets resolve to records by IRI, for the sibling rule.
+    let by_iri: HashMap<&str, &ClassRecord> = corpus
+        .records
+        .iter()
+        .filter(|r| r.has_ontology && !r.iri.is_empty())
+        .map(|r| (r.iri.as_str(), r))
+        .collect();
 
     for (page, record) in vault.pages.iter().zip(&corpus.records) {
         let path = page.id.as_str();
@@ -463,6 +470,8 @@ pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
             continue;
         }
         iri_owners.entry(&record.iri).or_default().push(path);
+        check_disjointness(&mut report, path, record, &by_iri);
+        check_definition(&mut report, path, page, record, vocab, &by_iri);
 
         if record.label.is_empty() {
             report.push(path, Severity::Error, "MISSING_LABEL", "no label or title");
@@ -603,6 +612,100 @@ pub fn validate(vault: &Vault, corpus: &Corpus, vocab: &Vocabulary) -> Report {
     }
 
     report
+}
+
+/// ADR-2124: a `defines-as` value is a conjunction of named classes and
+/// existentials over emitted object properties ([`vault_core::definition`]),
+/// on a class page, naming only class pages. Anything else is an error
+/// (`NON_EL_DEFINITION`): the emitter would drop it, and a silently dropped
+/// definition is a classification the author believes exists and does not.
+fn check_definition(
+    report: &mut Report,
+    path: &str,
+    page: &Page,
+    record: &ClassRecord,
+    vocab: &Vocabulary,
+    by_iri: &HashMap<&str, &ClassRecord>,
+) {
+    use vault_core::definition::{
+        parse, refusal_code, strip_code, DEFINES_AS_KEY, NON_EL_DEFINITION,
+    };
+    let Some(value) = page.frontmatter.get(DEFINES_AS_KEY) else {
+        return;
+    };
+    if !vocab.is_relation(DEFINES_AS_KEY) {
+        return; // `UNKNOWN_KEY` already reports an unregistered key.
+    }
+    if let Err(message) = parse(value, vocab) {
+        // `DEFINITION_OVER_TRANSITIVE` and `DEFINITION_NOT_EXISTENTIAL` are
+        // reported under their own code; every other shape is non-EL.
+        report.push(
+            path,
+            Severity::Error,
+            refusal_code(&message),
+            strip_code(&message).to_owned(),
+        );
+        return;
+    }
+    let mut refuse =
+        |message: String| report.push(path, Severity::Error, NON_EL_DEFINITION, message);
+    if record.entity_type == crate::model::EntityType::Individual {
+        refuse("an individual cannot be defined; `defines-as` belongs on a class page".to_owned());
+        return;
+    }
+    let missing: Vec<String> = record
+        .defines_as
+        .iter()
+        .map(crate::model::Conjunct::target)
+        .filter(|t| {
+            by_iri
+                .get(t.iri.as_str())
+                .is_none_or(|r| r.entity_type != crate::model::EntityType::Class)
+        })
+        .map(|t| format!("`{}` ({})", t.label, t.iri))
+        .collect();
+    if !missing.is_empty() {
+        refuse(format!(
+            "the definition names {}, which is not a class page; a definition is over \
+             existing classes",
+            missing.join(", ")
+        ));
+    }
+}
+
+/// ADR-2125: every `disjoint-with` pair is two siblings — a declared class
+/// page sharing a direct parent with this one — and neither member is a domain
+/// root or taxonomy category ([`vault_core::consistency::check_disjoint_pair`],
+/// the rule the elevation actor applies too).
+fn check_disjointness(
+    report: &mut Report,
+    path: &str,
+    record: &ClassRecord,
+    by_iri: &HashMap<&str, &ClassRecord>,
+) {
+    use vault_core::consistency::{check_disjoint_pair, DISJOINT_NOT_SIBLINGS};
+    let parents =
+        |r: &ClassRecord| -> Vec<String> { r.sub_class_of.iter().map(|p| p.iri.clone()).collect() };
+    for target in record.relation(crate::model::DISJOINT_WITH_JSON_KEY) {
+        let outcome = match by_iri.get(target.iri.as_str()) {
+            Some(other) => {
+                check_disjoint_pair(&record.iri, &parents(record), &other.iri, &parents(other))
+            }
+            None if vault_core::consistency::is_taxonomic(&target.iri) => {
+                check_disjoint_pair(&record.iri, &[], &target.iri, &[])
+            }
+            None => Err(vault_core::promotion::Blocker::new(
+                DISJOINT_NOT_SIBLINGS,
+                format!(
+                    "{} disjoint-with {}: the target is not a class page, so it cannot be a sibling",
+                    record.iri, target.iri
+                ),
+            )),
+        };
+        if let Err(blocker) = outcome {
+            report.push(path, Severity::Error, &blocker.code, blocker.detail);
+        }
+    }
 }
 
 fn validate_okf(
@@ -954,5 +1057,321 @@ scalars:
         let r = run(vec![("A", GOOD)], VaultKind::Knowledge);
         assert!(r.summary().issues.is_empty());
         assert_eq!(r.detailed().issues.len(), r.issues.len());
+    }
+
+    // ── ADR-2125: DISJOINT_NOT_SIBLINGS ─────────────────────────────────────
+
+    fn run_disjoint(pages: &[(&str, String)]) -> Report {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource, status] }
+relations:
+  is-a:          { owl: "rdfs:subClassOf" }
+  disjoint-with: { owl: "owl:disjointWith", status: provisional }
+"#,
+        )
+        .unwrap();
+        let pages: Vec<(&str, &str)> = pages.iter().map(|(id, t)| (*id, t.as_str())).collect();
+        let vault = vault_of(pages, VaultKind::Knowledge);
+        let corpus = Corpus::build(&vault, &vocab);
+        validate(&vault, &corpus, &vocab)
+    }
+
+    fn cls(slug: &str, extra: &str) -> String {
+        format!("---\ntype: Class\nresource: urn:ngm:class:{slug}\nstatus: draft\n{extra}---\n")
+    }
+
+    fn not_siblings(r: &Report) -> Vec<&Issue> {
+        r.issues
+            .iter()
+            .filter(|i| i.code == vault_core::consistency::DISJOINT_NOT_SIBLINGS)
+            .collect()
+    }
+
+    #[test]
+    fn disjoint_siblings_validate_cleanly() {
+        let r = run_disjoint(&[
+            ("Parent", cls("parent", "")),
+            (
+                "A",
+                cls("a", "is-a: [\"[[Parent]]\"]\ndisjoint-with: [\"[[B]]\"]\n"),
+            ),
+            ("B", cls("b", "is-a: [\"[[Parent]]\"]\n")),
+        ]);
+        assert!(not_siblings(&r).is_empty(), "{:?}", r.issues);
+        assert!(r.errors().is_empty(), "{:?}", r.errors());
+    }
+
+    #[test]
+    fn disjointness_without_a_shared_parent_is_an_error_on_the_declaring_page() {
+        let r = run_disjoint(&[
+            ("X", cls("x", "")),
+            ("Y", cls("y", "")),
+            (
+                "A",
+                cls("a", "is-a: [\"[[X]]\"]\ndisjoint-with: [\"[[B]]\"]\n"),
+            ),
+            ("B", cls("b", "is-a: [\"[[Y]]\"]\n")),
+        ]);
+        let found = not_siblings(&r);
+        assert_eq!(found.len(), 1, "{:?}", r.issues);
+        assert_eq!(found[0].path, "A");
+        assert_eq!(found[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn a_domain_root_or_category_is_never_a_disjointness_member() {
+        for root in ["Robotics", "AI Technique"] {
+            let slug = vault_core::slug::slugify(root);
+            let r = run_disjoint(&[
+                ("Parent", cls("parent", "")),
+                (root, cls(&slug, "is-a: [\"[[Parent]]\"]\n")),
+                (
+                    "A",
+                    cls(
+                        "a",
+                        &format!("is-a: [\"[[Parent]]\"]\ndisjoint-with: [\"[[{root}]]\"]\n"),
+                    ),
+                ),
+            ]);
+            let found = not_siblings(&r);
+            assert_eq!(found.len(), 1, "{root}: {:?}", r.issues);
+            assert!(
+                found[0]
+                    .message
+                    .contains("domain root or taxonomy category"),
+                "{}",
+                found[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn a_disjoint_target_that_is_not_a_page_is_an_error() {
+        let r = run_disjoint(&[
+            ("Parent", cls("parent", "")),
+            (
+                "A",
+                cls(
+                    "a",
+                    "is-a: [\"[[Parent]]\"]\ndisjoint-with: [\"[[Ghost]]\"]\n",
+                ),
+            ),
+        ]);
+        assert_eq!(not_siblings(&r).len(), 1, "{:?}", r.issues);
+    }
+
+    // ── ADR-2124: NON_EL_DEFINITION ─────────────────────────────────────────
+
+    fn run_defined(defines_as: &str) -> Report {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+types:
+  Class: { owl: "owl:Class", required: [resource, status] }
+  Individual: { owl: "owl:NamedIndividual", required: [resource, status] }
+relations:
+  is-a:          { owl: "rdfs:subClassOf" }
+  has-part:      { owl: "vc:hasPart", restriction: true }
+  requires:      { owl: "vc:requires", characteristics: [transitive], sub_property_of: "vc:dependsOn", restriction: true }
+  depends-on:    { owl: "vc:dependsOn", characteristics: [transitive] }
+  enables:       { owl: "vc:enables" }
+  produces:      { owl: "vc:produces", emitted: false, status: provisional }
+  disjoint-with: { owl: "owl:disjointWith", status: provisional }
+  same-as:       { owl: "skos:exactMatch", emitted: false }
+  defines-as:    { owl: "owl:equivalentClass", status: provisional }
+"#,
+        )
+        .unwrap();
+        let defined = cls("defined", defines_as);
+        let pages = [
+            ("Robot", cls("robot", "")),
+            ("Gripper", cls("gripper", "")),
+            ("Defined", defined),
+        ];
+        let pages: Vec<(&str, &str)> = pages.iter().map(|(id, t)| (*id, t.as_str())).collect();
+        let vault = vault_of(pages, VaultKind::Knowledge);
+        let corpus = Corpus::build(&vault, &vocab);
+        validate(&vault, &corpus, &vocab)
+    }
+
+    fn non_el(r: &Report) -> Vec<&Issue> {
+        r.issues
+            .iter()
+            .filter(|i| i.code == vault_core::definition::NON_EL_DEFINITION)
+            .collect()
+    }
+
+    #[test]
+    fn a_conjunction_of_named_classes_and_existentials_validates_cleanly() {
+        for ok in [
+            "defines-as:\n  - \"[[Robot]]\"\n  - has-part: \"[[Gripper]]\"\n",
+            "defines-as:\n  - has-part: \"[[Gripper]]\"\n",
+            "defines-as: \"[[Robot]]\"\n",
+            "defines-as: [\"[[Robot]]\", {has-part: \"[[Gripper]]\"}]\n",
+        ] {
+            let r = run_defined(ok);
+            assert!(non_el(&r).is_empty(), "{ok}: {:?}", r.issues);
+            assert!(r.errors().is_empty(), "{ok}: {:?}", r.errors());
+        }
+    }
+
+    #[test]
+    fn every_non_el_definition_is_refused_on_the_declaring_page() {
+        for (bad, why) in [
+            (
+                "defines-as:\n  - only: \"[[Gripper]]\"\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - min: \"[[Gripper]]\"\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - not: \"[[Gripper]]\"\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - or: [\"[[Robot]]\", \"[[Gripper]]\"]\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - inverse: \"[[Gripper]]\"\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - value: \"[[Gripper]]\"\n",
+                "outside OWL 2 EL",
+            ),
+            (
+                "defines-as:\n  - \"[[Robot]] or [[Gripper]]\"\n",
+                "named class",
+            ),
+            ("defines-as:\n  - \"not [[Robot]]\"\n", "named class"),
+            ("defines-as: []\n", "empty"),
+            (
+                "defines-as:\n  - has-part: [\"[[Robot]]\", \"[[Gripper]]\"]\n",
+                "one filler",
+            ),
+            (
+                "defines-as:\n  - has-part: {has-part: \"[[Gripper]]\"}\n",
+                "nested",
+            ),
+            (
+                "defines-as:\n  - {has-part: \"[[Gripper]]\", is-a: \"[[Robot]]\"}\n",
+                "exactly one",
+            ),
+            (
+                "defines-as:\n  - produces: \"[[Gripper]]\"\n",
+                "not emitted",
+            ),
+            (
+                "defines-as:\n  - is-a: \"[[Gripper]]\"\n",
+                "not an object property",
+            ),
+            (
+                "defines-as:\n  - disjoint-with: \"[[Gripper]]\"\n",
+                "not an object property",
+            ),
+            ("defines-as:\n  - same-as: \"[[Gripper]]\"\n", "not emitted"),
+            (
+                "defines-as:\n  - frobs: \"[[Gripper]]\"\n",
+                "not a declared relation",
+            ),
+            ("defines-as:\n  - 42\n", "named class"),
+            ("defines-as:\n  - \"[[Ghost]]\"\n", "not a class page"),
+            (
+                "defines-as:\n  - has-part: \"[[Ghost]]\"\n",
+                "not a class page",
+            ),
+        ] {
+            let r = run_defined(bad);
+            let found = non_el(&r);
+            assert_eq!(found.len(), 1, "{bad}: {:?}", r.issues);
+            assert_eq!(found[0].path, "Defined", "{bad}");
+            assert_eq!(found[0].severity, Severity::Error, "{bad}");
+            assert!(
+                found[0].message.contains(why),
+                "{bad}: expected {why:?} in {:?}",
+                found[0].message
+            );
+        }
+    }
+
+    /// ADR-2124 defect: an existential over the transitive `requires` (or its
+    /// transitive super-property `dependsOn`) validated, and the build then
+    /// hung saturating 12,515 existentials. Validation refuses it under its
+    /// own code; a plain emitted property is refused as not an existential.
+    #[test]
+    fn transitive_and_non_restriction_existentials_are_refused_under_their_own_codes() {
+        use vault_core::vocabulary::{DEFINITION_OVER_TRANSITIVE, NOT_AN_EXISTENTIAL};
+        for (bad, code, why) in [
+            (
+                "defines-as:\n  - \"[[Robot]]\"\n  - requires: \"[[Gripper]]\"\n",
+                DEFINITION_OVER_TRANSITIVE,
+                "#dependsOn, https://narrativegoldmine.com/ns/v1#requires",
+            ),
+            (
+                "defines-as:\n  - enables: \"[[Gripper]]\"\n",
+                NOT_AN_EXISTENTIAL,
+                "restriction: true",
+            ),
+            (
+                "defines-as:\n  - depends-on: \"[[Gripper]]\"\n",
+                NOT_AN_EXISTENTIAL,
+                "restriction: true",
+            ),
+        ] {
+            let r = run_defined(bad);
+            let found: Vec<&Issue> = r.issues.iter().filter(|i| i.code == code).collect();
+            assert_eq!(found.len(), 1, "{bad}: {:?}", r.issues);
+            assert_eq!(found[0].severity, Severity::Error, "{bad}");
+            assert!(
+                found[0].message.contains(why),
+                "{bad}: {}",
+                found[0].message
+            );
+            assert!(!found[0].message.starts_with(code), "code printed twice");
+            assert!(non_el(&r).is_empty(), "{bad}: {:?}", r.issues);
+        }
+    }
+
+    #[test]
+    fn an_individual_cannot_be_defined() {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+types:
+  Individual: { owl: "owl:NamedIndividual", required: [resource, status] }
+  Class: { owl: "owl:Class", required: [resource, status] }
+relations:
+  is-a:       { owl: "rdfs:subClassOf" }
+  defines-as: { owl: "owl:equivalentClass", status: provisional }
+"#,
+        )
+        .unwrap();
+        let pages = [
+            ("Robot", cls("robot", "")),
+            (
+                "R2",
+                "---\ntype: Individual\nresource: urn:ngm:class:r2\nstatus: draft\ndefines-as: \"[[Robot]]\"\n---\n".to_owned(),
+            ),
+        ];
+        let pages: Vec<(&str, &str)> = pages.iter().map(|(id, t)| (*id, t.as_str())).collect();
+        let vault = vault_of(pages, VaultKind::Knowledge);
+        let corpus = Corpus::build(&vault, &vocab);
+        let r = validate(&vault, &corpus, &vocab);
+        let found = non_el(&r);
+        assert_eq!(found.len(), 1, "{:?}", r.issues);
+        assert!(
+            found[0].message.contains("individual"),
+            "{}",
+            found[0].message
+        );
     }
 }

@@ -1,12 +1,13 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 2.1.0
+version: 2.2.0
 status: living
 verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
 ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118]
-agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109]
+agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
+proposed: [ADR-2124, ADR-2125, ADR-2126, ADR-2127, ADR-2128]
 ---
 
 # VAULT — authored corpus format
@@ -388,6 +389,31 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 | EXP-V12 | medium | Quartz builds narrativegoldmine.com from `knowledge/` locally, `static/api/search-index.json` and `static/data/ontology.ttl` are present, and only `public: true` pages are rendered. | PRD acceptance 6 |
 | EXP-V13 | medium | `grep -ri logseq` across loom, VisionClaw, agentbox, VisionFlow and visionGraph returns only ADR and history references. | PRD acceptance 7 |
 
+## Proposed amendments — reasoning and integrity (2026-10-05, NOT ratified)
+
+These records are `decision_status: proposed`. They change nothing above; the
+Invariants are the compliance surface until each one is accepted and folded in.
+Scope and sequencing: [PRD-029](proposals/visiongraph-executable-reasoning.md);
+domain model: [DDD-023](proposals/visiongraph-executable-reasoning-domain.md).
+
+- **PROPOSED — ADR-2126: integrity is closed-world validation, never OWL.**
+  "Must have" rules live in `vault validate`; the emitted OWL stays inside EL, and a
+  vocabulary key mapping to `allValuesFrom`, a cardinality or `hasValue` is refused at load.
+- **PROPOSED — ADR-2128: the ontology names its generation.** `owl:versionIRI` from a
+  digest of the emitted ontology (the page-only `content_digest` misses vocabulary changes); property `rdfs:domain`/`rdfs:range` become opt-in per
+  property instead of blanket `owl:Thing` (each a signed Schema change).
+- **PROPOSED — ADR-2125: the Whelk gate is provably armed.** Register and wire the
+  elevation actor's existing `disjoint-with` key, sibling-only, on both write paths (never domain roots — see the `turtle.rs` note on the 98.8% failure),
+  standing probe cases on `vault propose` and the elevation actor, and a
+  zero-unsatisfiable `vault build` gate. Would extend Invariant 9 with "and a probe
+  proves the blocker can fire".
+- **PROPOSED — ADR-2124: curated EL defined classes.** An opt-in `defines-as` key
+  emitted as `owl:equivalentClass`; `whelk::reason` saturates restrictions whenever one
+  is present (relevance-filtered: full saturation does not finish on this corpus). Would amend Invariant 6 (a new emitted construct).
+- **PROPOSED — ADR-2127 / agentbox ADR-2129: answers distinguish silence from "no".**
+  Agent-facing answers carry `basis`, a tri-valued truth and the generation; an empty
+  result is "not asserted", never "false".
+
 ## Change process
 
 This is a living document. Amend it in the same change that alters a reader,
@@ -405,6 +431,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 2.2.0 | 2026-10-05 | Proposed-amendments section for ADR-2124–2128 and agentbox ADR-2129 (PRD-029 / DDD-023, reasoning and integrity). Not ratified; Invariants unchanged. |
 | 2.0.1 | 2026-09-22 | Invariant 11 (no credentials in either vault) and the V4 note that the publish gate is a visibility control, not a safety one, after 14 live credentials were found in `working/`, one on a `public: true` page. |
 | 2.0.0 | 2026-09-22 | **Format break.** Frontmatter-only; the two json-ld fences fold into typed Obsidian Properties; `ontology/vocabulary.yaml` becomes the normative key set and `vault.toml` the manifest; two vault roles with distinct type sets and unknown-key policies (PRD Q9); the `owl-class` gate bypass removed; all legacy tolerance removed — `key::`, `{{embed}}`, `((block-ref))`, `a___b.md` and journals are now validation failures; `vault` (Rust) replaces `vault-migrate`, the Python pipeline and the ontology MCP servers. ADR-2112, supersedes ADR-2040. |
 | 1.4.2 | 2026-09-05 | ADR-2096 remediation: `LocalFileSyncService` gate delegates to `vault::parse`; the last raw carrier scan removed. |

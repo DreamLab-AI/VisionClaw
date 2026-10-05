@@ -14,8 +14,12 @@
 //!   `contrastsWith`/`bridgesTo`/`relatedTo` as plain associative links.
 //! * **Domain-root disjointness stays off.** The corpus is a deliberate
 //!   cross-domain lattice (1,396 multi-parent classes); disjoint roots made
-//!   98.8% of classes unsatisfiable when they were last enabled. Re-enable only
-//!   behind a normalisation pass and a zero-unsatisfiable CI gate.
+//!   98.8% of classes unsatisfiable when they were last enabled. Disjointness
+//!   is admitted only between **siblings** a page declares with
+//!   `disjoint-with` (ADR-2125): it is emitted as `owl:disjointWith`, never
+//!   onto a domain root or taxonomy category, `vault validate` refuses a
+//!   non-sibling pair (`DISJOINT_NOT_SIBLINGS`), and `vault build` refuses any
+//!   unsatisfiable class.
 //! * **The single-ref tail becomes `skos:Concept` stubs**, not dangling
 //!   `owl:Class` references, so the hierarchy stays well-founded for EL
 //!   reasoning while the associative links into the long tail survive.
@@ -40,55 +44,19 @@ const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 const SKOS: &str = "http://www.w3.org/2004/02/skos/core#";
 const DCTERMS: &str = "http://purl.org/dc/terms/";
 
-/// The top-level domain roots; membership never implies disjointness.
-pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
-    "artificial-intelligence",
-    "spatial-computing",
-    "blockchain",
-    "infrastructure",
-    "distributed-collaboration",
-    "robotics",
-    "space-science-and-systems",
-    "earth-observation-and-geospatial-sensing",
-];
+/// The ontology header's IRI. Each emitted graph's `owl:versionIRI` is this
+/// plus `/{ontology_digest}` ([`ontology_digest`], ADR-2128).
+pub const ONTOLOGY_IRI: &str = "https://narrativegoldmine.com/ontology";
+/// `owl:versionInfo` — a human semver for the ontology's shape, distinct from
+/// both the per-generation `owl:versionIRI` and the integer
+/// `vocabulary_version`.
+pub const VERSION_INFO: &str = "3.1.0";
 
-/// The 34 intermediate taxonomy categories.
-pub const CATEGORY_SLUGS: &[&str] = &[
-    "ai-technique",
-    "ai-model-architecture",
-    "ai-application",
-    "ai-governance-and-ethics",
-    "cat-ai-infrastructure",
-    "ai-research-area",
-    "sc-display-and-rendering",
-    "sc-interaction",
-    "sc-content-and-assets",
-    "sc-platform-and-environment",
-    "sc-standards-and-interop",
-    "sc-governance-and-safety",
-    "bc-protocol-and-consensus",
-    "bc-cryptographic-primitive",
-    "bc-token-and-asset",
-    "bc-defi-and-economics",
-    "bc-network-component",
-    "bc-governance-and-regulation",
-    "infra-computing-and-cloud",
-    "infra-network-and-comms",
-    "infra-security-and-identity",
-    "infra-data-management",
-    "infra-legal-and-regulatory",
-    "infra-software-engineering",
-    "robo-perception",
-    "robo-actuation-and-control",
-    "robo-robot-type",
-    "robo-navigation-and-planning",
-    "robo-safety-and-standards",
-    "robo-human-robot-interaction",
-    "dc-communication",
-    "dc-workspace-tools",
-    "dc-telepresence",
-    "dc-protocol-and-infra",
-];
+/// The top-level domain roots and the 34 intermediate taxonomy categories.
+/// Membership never implies disjointness, and neither list may ever be a
+/// member of an `owl:disjointWith` axiom (ADR-2125). They live in
+/// [`vault_core::consistency`] so `vault` and the elevation actor share them.
+pub use vault_core::consistency::{CATEGORY_SLUGS, DOMAIN_ROOT_SLUGS};
 
 /// The maturity levels declared as named individuals, so downstream code
 /// matches an IRI rather than a string.
@@ -232,23 +200,6 @@ impl Graph {
 #[allow(clippy::too_many_lines)] // One faithful port of one Python function.
 pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Graph {
     let mut g = Graph::new();
-    let ontology = "https://narrativegoldmine.com/ontology";
-    g.add_iri(
-        ontology,
-        &format!("{RDF}type"),
-        Term::Iri(format!("{OWL}Ontology")),
-    );
-    g.add_iri(
-        ontology,
-        &format!("{RDFS}label"),
-        Term::lang("NarrativeGoldmine Ontology", "en"),
-    );
-    g.add_iri(ontology, &format!("{OWL}versionInfo"), Term::plain("3.1.0"));
-    g.add_iri(
-        ontology,
-        &format!("{DCTERMS}creator"),
-        Term::plain("Dr John O'Hare"),
-    );
 
     // Imported external vocabulary, declared so the ontology is self-contained
     // and EL-profile conformant (ROBOT and Whelk require every used term).
@@ -270,7 +221,7 @@ pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Gr
         );
     }
 
-    declare_object_properties(&mut g);
+    declare_object_properties(&mut g, vocab);
     declare_annotation_properties(&mut g);
     declare_maturity(&mut g);
 
@@ -411,6 +362,62 @@ pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Gr
         }
     }
 
+    // Sibling disjointness (ADR-2125): `disjoint-with` targets, emitted as
+    // `owl:disjointWith` only when the vocabulary registers the key, both
+    // endpoints are declared classes, and neither is a domain root or taxonomy
+    // category. `vault validate` refuses the non-sibling cases with
+    // `DISJOINT_NOT_SIBLINGS`; this filter guarantees the roots can never
+    // receive the axiom even from an unvalidated corpus.
+    if vocab.is_emitted_relation(vault_core::consistency::DISJOINT_WITH_KEY) {
+        for record in &records {
+            if record.entity_type == EntityType::Individual
+                || vault_core::consistency::is_taxonomic(&record.iri)
+            {
+                continue;
+            }
+            let uri = iri_to_uri(&record.iri);
+            for r in record.relation(crate::model::DISJOINT_WITH_JSON_KEY) {
+                let target = iri_to_uri(&r.iri);
+                if target == uri
+                    || !declared.contains(&target)
+                    || vault_core::consistency::is_taxonomic(&target)
+                {
+                    continue;
+                }
+                g.add_iri(
+                    &uri,
+                    vault_core::consistency::OWL_DISJOINT_WITH,
+                    Term::Iri(target),
+                );
+            }
+        }
+    }
+
+    // Curated EL definitions (ADR-2124): `defines-as` becomes
+    // `C owl:equivalentClass (N₁ ⊓ … ⊓ ∃p.F …)`, only when the vocabulary
+    // registers and emits the key. A definition is all or nothing: one term
+    // over an undeclared class or an unusable relation drops it whole, since a
+    // weakened definition classifies more than its author meant. `vault
+    // validate` refuses those cases as `NON_EL_DEFINITION`. Emitted after
+    // every other blank node, so a corpus without definitions keeps its
+    // blank-node labels — and its version IRI — unchanged.
+    if vocab.is_emitted_relation(vault_core::definition::DEFINES_AS_KEY) {
+        for record in &records {
+            if record.entity_type == EntityType::Individual || record.defines_as.is_empty() {
+                continue;
+            }
+            let Some(members) = definition_members(&record.defines_as, vocab, &declared) else {
+                continue;
+            };
+            let expression = class_expression(&mut g, members);
+            g.add_iri(
+                &iri_to_uri(&record.iri),
+                vault_core::definition::OWL_EQUIVALENT_CLASS,
+                expression,
+            );
+        }
+    }
+
     // Single-ref tail policy: an ngm: IRI that is only ever an object property
     // target becomes a declared skos:Concept stub rather than a dangling class.
     let object_props: BTreeSet<String> = [
@@ -452,7 +459,169 @@ pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Gr
         g.add_iri(&target, &format!("{RDFS}label"), Term::lang(label, "en"));
     }
 
+    // The header goes on last: its `owl:versionIRI` addresses everything
+    // above it, and none of it addresses itself (ADR-2128).
+    let version_iri = format!("{ONTOLOGY_IRI}/{}", ontology_digest(&g));
+    g.add_iri(
+        ONTOLOGY_IRI,
+        &format!("{RDF}type"),
+        Term::Iri(format!("{OWL}Ontology")),
+    );
+    g.add_iri(
+        ONTOLOGY_IRI,
+        &format!("{RDFS}label"),
+        Term::lang("NarrativeGoldmine Ontology", "en"),
+    );
+    g.add_iri(
+        ONTOLOGY_IRI,
+        &format!("{OWL}versionInfo"),
+        Term::plain(VERSION_INFO),
+    );
+    g.add_iri(
+        ONTOLOGY_IRI,
+        &format!("{OWL}versionIRI"),
+        Term::Iri(version_iri),
+    );
+    g.add_iri(
+        ONTOLOGY_IRI,
+        &format!("{DCTERMS}creator"),
+        Term::plain("Dr John O'Hare"),
+    );
+
     g
+}
+
+/// One conjunct of a definition, ready to emit.
+enum Member {
+    Named(String),
+    Some { property: String, filler: String },
+}
+
+/// The conjuncts of `definition` as emittable members, or `None` when any
+/// term names an undeclared class or a relation that is not an emitted object
+/// property ([`Vocabulary::existential_property`]).
+fn definition_members(
+    definition: &[crate::model::Conjunct],
+    vocab: &Vocabulary,
+    declared: &BTreeSet<String>,
+) -> Option<Vec<Member>> {
+    use crate::model::Conjunct;
+    definition
+        .iter()
+        .map(|conjunct| {
+            let target = iri_to_uri(&conjunct.target().iri);
+            if !declared.contains(&target) {
+                return None;
+            }
+            Some(match conjunct {
+                Conjunct::Named(_) => Member::Named(target),
+                Conjunct::Some { relation, .. } => Member::Some {
+                    property: vocab.existential_property(relation)?,
+                    filler: target,
+                },
+            })
+        })
+        .collect()
+}
+
+/// Write `members` as one class expression and return its term: the lone
+/// member itself, or an `owl:intersectionOf` RDF list (OWL 2 requires at least
+/// two operands for an intersection).
+fn class_expression(g: &mut Graph, members: Vec<Member>) -> Term {
+    let mut terms: Vec<Term> = members
+        .into_iter()
+        .map(|member| match member {
+            Member::Named(iri) => Term::Iri(iri),
+            Member::Some { property, filler } => {
+                let b = g.fresh_blank();
+                let node = Subject::Blank(b.clone());
+                g.add(
+                    node.clone(),
+                    format!("{RDF}type"),
+                    Term::Iri(format!("{OWL}Restriction")),
+                );
+                g.add(
+                    node.clone(),
+                    format!("{OWL}onProperty"),
+                    Term::Iri(property),
+                );
+                g.add(node, format!("{OWL}someValuesFrom"), Term::Iri(filler));
+                Term::Blank(b)
+            }
+        })
+        .collect();
+    if terms.len() == 1 {
+        return terms.remove(0);
+    }
+    let mut rest = Term::Iri(format!("{RDF}nil"));
+    for term in terms.into_iter().rev() {
+        let cell = g.fresh_blank();
+        g.add(Subject::Blank(cell.clone()), format!("{RDF}first"), term);
+        g.add(Subject::Blank(cell.clone()), format!("{RDF}rest"), rest);
+        rest = Term::Blank(cell);
+    }
+    let b = g.fresh_blank();
+    let node = Subject::Blank(b.clone());
+    g.add(
+        node.clone(),
+        format!("{RDF}type"),
+        Term::Iri(format!("{OWL}Class")),
+    );
+    g.add(node, format!("{OWL}intersectionOf"), rest);
+    Term::Blank(b)
+}
+
+/// The ADR-2023 content address (`sha256-12-<hex>`) of `g`'s emitted triples,
+/// excluding every triple whose subject is the ontology header
+/// ([`ONTOLOGY_IRI`]) — so the header can carry it as `owl:versionIRI`.
+///
+/// The input is a canonical serialisation: one N-Triples-shaped line per
+/// triple in the graph's own sorted order, so the digest depends on the
+/// triple set (and the deterministic blank-node labels), never on Turtle
+/// pretty-printing. A page change, a vocabulary change and an emitter change
+/// all move it; an identical rebuild does not.
+#[must_use]
+pub fn ontology_digest(g: &Graph) -> String {
+    let header = Subject::Iri(ONTOLOGY_IRI.to_owned());
+    let mut canonical = String::new();
+    for (subject, predicate, object) in g.iter() {
+        if *subject == header {
+            continue;
+        }
+        let s = match subject {
+            Subject::Iri(iri) => format!("<{iri}>"),
+            Subject::Blank(id) => format!("_:{id}"),
+        };
+        let o = match object {
+            Term::Iri(iri) => format!("<{iri}>"),
+            Term::Blank(id) => format!("_:{id}"),
+            Term::Literal {
+                value,
+                lang,
+                datatype,
+            } => {
+                let escaped = escape_literal(value);
+                match (lang, datatype) {
+                    (Some(l), _) => format!("\"{escaped}\"@{l}"),
+                    (None, Some(d)) => format!("\"{escaped}\"^^<{d}>"),
+                    (None, None) => format!("\"{escaped}\""),
+                }
+            }
+        };
+        let _ = writeln!(canonical, "{s} <{predicate}> {o} .");
+    }
+    super::generation::sha256_12(canonical.as_bytes())
+}
+
+/// The version IRI `g`'s header declares, if it has one.
+#[must_use]
+pub fn version_iri(g: &Graph) -> Option<&str> {
+    let header = Subject::Iri(ONTOLOGY_IRI.to_owned());
+    let predicate = format!("{OWL}versionIRI");
+    g.iter().find_map(|(s, p, o)| match o {
+        Term::Iri(iri) if *s == header && p == predicate => Some(iri.as_str()),
+        _ => None,
+    })
 }
 
 /// The OWL property IRI for a relation key: the vocabulary's declaration when
@@ -471,7 +640,7 @@ fn relation_property(vocab: &Vocabulary, fm_key: &str, json_key: &str) -> String
     )
 }
 
-fn declare_object_properties(g: &mut Graph) {
+fn declare_object_properties(g: &mut Graph, vocab: &Vocabulary) {
     let simple = [
         "hasPart",
         "isPartOf",
@@ -487,11 +656,11 @@ fn declare_object_properties(g: &mut Graph) {
         "utilises",
     ];
     for name in simple {
-        declare_property(g, name, false);
+        declare_property(g, vocab, name, false);
     }
     // requires and dependsOn are transitive.
-    declare_property(g, "requires", true);
-    declare_property(g, "dependsOn", true);
+    declare_property(g, vocab, "requires", true);
+    declare_property(g, vocab, "dependsOn", true);
 
     g.add_iri(
         &format!("{VC}requires"),
@@ -505,9 +674,26 @@ fn declare_object_properties(g: &mut Graph) {
             Term::Iri(format!("{VC}utilises")),
         );
     }
+
+    // ADR-2128: a signature on any other emitted relation is emitted too, not
+    // only on the fourteen above. Logical relations cannot carry one (the
+    // vocabulary load refuses `SIGNATURE_ON_LOGICAL_RELATION`); the filter
+    // keeps the emitter safe regardless. The graph deduplicates, so the
+    // fourteen are harmlessly revisited.
+    for def in vocab.relations.values().filter(|d| d.emitted) {
+        if vocab.is_logical(&def.owl) {
+            continue;
+        }
+        let uri = vocab.expand(def.owl.trim());
+        for (predicate, class) in [("domain", &def.domain), ("range", &def.range)] {
+            if let Some(class) = scoped_class(class.as_ref()) {
+                g.add_iri(&uri, &format!("{RDFS}{predicate}"), Term::Iri(class));
+            }
+        }
+    }
 }
 
-fn declare_property(g: &mut Graph, name: &str, transitive: bool) {
+fn declare_property(g: &mut Graph, vocab: &Vocabulary, name: &str, transitive: bool) {
     let uri = format!("{VC}{name}");
     g.add_iri(
         &uri,
@@ -522,16 +708,49 @@ fn declare_property(g: &mut Graph, name: &str, transitive: bool) {
         );
     }
     g.add_iri(&uri, &format!("{RDFS}label"), Term::lang(name, "en"));
-    g.add_iri(
-        &uri,
-        &format!("{RDFS}domain"),
-        Term::Iri(format!("{OWL}Thing")),
-    );
-    g.add_iri(
-        &uri,
-        &format!("{RDFS}range"),
-        Term::Iri(format!("{OWL}Thing")),
-    );
+    // ADR-2128: no blanket `owl:Thing` signature. A domain or range is emitted
+    // only when the vocabulary scopes this property to a class.
+    let (domain, range) = property_signature(vocab, &uri);
+    if let Some(class) = domain {
+        g.add_iri(&uri, &format!("{RDFS}domain"), Term::Iri(class));
+    }
+    if let Some(class) = range {
+        g.add_iri(&uri, &format!("{RDFS}range"), Term::Iri(class));
+    }
+}
+
+/// The `(domain, range)` class IRIs the vocabulary declares for the property
+/// `uri` — from the relation that emits it, else from a super-property entry.
+/// A slug resolves into the class namespace like any page reference; an
+/// absent value or `owl:Thing` (a tautology under OWL) yields `None`.
+fn property_signature(vocab: &Vocabulary, uri: &str) -> (Option<String>, Option<String>) {
+    let scoped = scoped_class;
+    if let Some(def) = vocab
+        .relations
+        .values()
+        .find(|d| vocab.expand(&d.owl) == uri)
+    {
+        return (scoped(def.domain.as_ref()), scoped(def.range.as_ref()));
+    }
+    if let Some((_, def)) = vocab
+        .super_properties
+        .iter()
+        .find(|(key, _)| vocab.expand(key) == uri)
+    {
+        return (scoped(def.domain.as_ref()), scoped(def.range.as_ref()));
+    }
+    (None, None)
+}
+
+/// A declared `domain`/`range` value as a class IRI: a slug resolves into the
+/// class namespace like any page reference; absent, blank or `owl:Thing` (a
+/// tautology under OWL) is no signature.
+fn scoped_class(value: Option<&String>) -> Option<String> {
+    value
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(iri_to_uri)
+        .filter(|class| *class != format!("{OWL}Thing"))
 }
 
 fn declare_annotation_properties(g: &mut Graph) {
@@ -902,6 +1121,7 @@ relations:
             links: Vec::new(),
             body: String::new(),
             has_ontology: true,
+            defines_as: Vec::new(),
         }
     }
 
@@ -1029,10 +1249,269 @@ relations:
         }));
     }
 
+    /// [`vocab`] plus the ADR-2125 `disjoint-with` registration.
+    fn vocab_with_disjointness() -> Vocabulary {
+        Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:          { owl: "rdfs:subClassOf" }
+  requires:      { owl: "vc:requires", restriction: true }
+  disjoint-with: { owl: "owl:disjointWith", status: provisional }
+"#,
+        )
+        .unwrap()
+    }
+
+    /// Every `(subject, object)` of an `owl:disjointWith` triple in `g`.
+    fn disjoint_pairs(g: &Graph) -> BTreeSet<(String, String)> {
+        g.iter()
+            .filter(|(_, p, _)| *p == format!("{OWL}disjointWith"))
+            .filter_map(|(s, _, o)| match (s, o) {
+                (Subject::Iri(s), Term::Iri(o)) => Some((s.clone(), o.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn disjoint_with(r: &mut crate::model::ClassRecord, targets: &[&str]) {
+        r.relations.insert(
+            crate::model::DISJOINT_WITH_JSON_KEY,
+            targets
+                .iter()
+                .map(|t| Ref {
+                    iri: format!("urn:ngm:class:{t}"),
+                    label: (*t).to_owned(),
+                })
+                .collect(),
+        );
+    }
+
     #[test]
-    fn no_domain_disjointness_is_emitted() {
-        let ttl = serialise(&build_graph(&corpus_of(vec![]), &vocab(), true));
-        assert!(!ttl.contains("AllDisjointClasses"));
+    fn disjoint_with_between_declared_classes_is_emitted() {
+        let mut a = record("A");
+        disjoint_with(&mut a, &["b"]);
+        let g = build_graph(
+            &corpus_of(vec![a, record("B")]),
+            &vocab_with_disjointness(),
+            true,
+        );
+        assert_eq!(
+            disjoint_pairs(&g),
+            BTreeSet::from([(format!("{NGM}a"), format!("{NGM}b"))])
+        );
+        assert!(serialise(&g).contains("owl:disjointWith ngm:b"));
+    }
+
+    #[test]
+    fn an_unregistered_disjoint_with_key_emits_nothing() {
+        let mut a = record("A");
+        disjoint_with(&mut a, &["b"]);
+        let g = build_graph(&corpus_of(vec![a, record("B")]), &vocab(), true);
+        assert!(disjoint_pairs(&g).is_empty());
+    }
+
+    #[test]
+    fn an_undeclared_disjoint_target_emits_nothing() {
+        let mut a = record("A");
+        disjoint_with(&mut a, &["nowhere"]);
+        let g = build_graph(&corpus_of(vec![a]), &vocab_with_disjointness(), true);
+        assert!(disjoint_pairs(&g).is_empty());
+    }
+
+    // ── ADR-2124: `defines-as` → owl:equivalentClass ───────────────────────
+
+    fn vocab_with_definitions() -> Vocabulary {
+        Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:       { owl: "rdfs:subClassOf" }
+  has-part:   { owl: "vc:hasPart", restriction: true }
+  produces:   { owl: "vc:produces", emitted: false, status: provisional }
+  defines-as: { owl: "owl:equivalentClass", status: provisional }
+"#,
+        )
+        .unwrap()
+    }
+
+    fn named(slug: &str) -> crate::model::Conjunct {
+        crate::model::Conjunct::Named(Ref {
+            iri: format!("urn:ngm:class:{slug}"),
+            label: slug.to_owned(),
+        })
+    }
+
+    fn some(relation: &str, slug: &str) -> crate::model::Conjunct {
+        crate::model::Conjunct::Some {
+            relation: relation.to_owned(),
+            filler: Ref {
+                iri: format!("urn:ngm:class:{slug}"),
+                label: slug.to_owned(),
+            },
+        }
+    }
+
+    /// The objects of `subject predicate ?o`.
+    fn objects(g: &Graph, subject: &Subject, predicate: &str) -> Vec<Term> {
+        g.iter()
+            .filter(|(s, p, _)| *s == subject && *p == predicate)
+            .map(|(_, _, o)| o.clone())
+            .collect()
+    }
+
+    fn blank(t: &Term) -> Subject {
+        match t {
+            Term::Blank(b) => Subject::Blank(b.clone()),
+            other => panic!("expected a blank node, got {other:?}"),
+        }
+    }
+
+    /// Walk an RDF list from its head cell.
+    fn list_members(g: &Graph, head: &Term) -> Vec<Term> {
+        let mut out = Vec::new();
+        let mut cell = head.clone();
+        while cell != Term::Iri(format!("{RDF}nil")) {
+            let node = blank(&cell);
+            out.push(objects(g, &node, &format!("{RDF}first")).remove(0));
+            cell = objects(g, &node, &format!("{RDF}rest")).remove(0);
+        }
+        out
+    }
+
+    fn defined_corpus(conjuncts: Vec<crate::model::Conjunct>) -> Corpus {
+        let mut d = record("Gripping Robot");
+        d.defines_as = conjuncts;
+        corpus_of(vec![record("Robot"), record("Gripper"), d])
+    }
+
+    #[test]
+    fn a_definition_is_emitted_as_an_equivalent_intersection() {
+        let g = build_graph(
+            &defined_corpus(vec![named("robot"), some("has-part", "gripper")]),
+            &vocab_with_definitions(),
+            true,
+        );
+        let defined = Subject::Iri(format!("{NGM}gripping-robot"));
+        let eq = objects(&g, &defined, &format!("{OWL}equivalentClass"));
+        assert_eq!(eq.len(), 1, "{eq:?}");
+        let node = blank(&eq[0]);
+        assert_eq!(
+            objects(&g, &node, &format!("{RDF}type")),
+            vec![Term::Iri(format!("{OWL}Class"))]
+        );
+        let head = objects(&g, &node, &format!("{OWL}intersectionOf")).remove(0);
+        let members = list_members(&g, &head);
+        assert_eq!(members.len(), 2, "{members:?}");
+        assert_eq!(members[0], Term::Iri(format!("{NGM}robot")));
+        let restriction = blank(&members[1]);
+        assert_eq!(
+            objects(&g, &restriction, &format!("{OWL}onProperty")),
+            vec![Term::Iri(format!("{VC}hasPart"))]
+        );
+        assert_eq!(
+            objects(&g, &restriction, &format!("{OWL}someValuesFrom")),
+            vec![Term::Iri(format!("{NGM}gripper"))]
+        );
+        assert_eq!(
+            objects(&g, &restriction, &format!("{RDF}type")),
+            vec![Term::Iri(format!("{OWL}Restriction"))]
+        );
+        // The definition is not also asserted as a superclass.
+        assert!(objects(&g, &defined, &format!("{RDFS}subClassOf")).is_empty());
+        let ttl = serialise(&g);
+        assert!(ttl.contains("owl:equivalentClass"), "{ttl}");
+        assert!(ttl.contains("owl:intersectionOf"), "{ttl}");
+    }
+
+    #[test]
+    fn a_lone_conjunct_is_the_equivalent_class_itself() {
+        let g = build_graph(
+            &defined_corpus(vec![some("has-part", "gripper")]),
+            &vocab_with_definitions(),
+            true,
+        );
+        let defined = Subject::Iri(format!("{NGM}gripping-robot"));
+        let eq = objects(&g, &defined, &format!("{OWL}equivalentClass"));
+        assert_eq!(eq.len(), 1);
+        let node = blank(&eq[0]);
+        assert!(objects(&g, &node, &format!("{OWL}intersectionOf")).is_empty());
+        assert_eq!(
+            objects(&g, &node, &format!("{OWL}someValuesFrom")),
+            vec![Term::Iri(format!("{NGM}gripper"))]
+        );
+    }
+
+    #[test]
+    fn an_unregistered_defines_as_key_emits_nothing() {
+        let g = build_graph(
+            &defined_corpus(vec![named("robot"), some("has-part", "gripper")]),
+            &vocab(),
+            true,
+        );
+        assert!(!serialise(&g).contains("equivalentClass"));
+    }
+
+    /// A definition is all or nothing: dropping one conjunct would *weaken*
+    /// it and classify more classes than the author meant.
+    #[test]
+    fn a_definition_with_an_undeclared_or_unusable_term_is_dropped_whole() {
+        for conjuncts in [
+            vec![named("robot"), some("has-part", "nowhere")],
+            vec![named("nowhere"), some("has-part", "gripper")],
+            vec![named("robot"), some("produces", "gripper")],
+            vec![named("robot"), some("is-a", "gripper")],
+            vec![named("robot"), some("undeclared", "gripper")],
+        ] {
+            let g = build_graph(
+                &defined_corpus(conjuncts.clone()),
+                &vocab_with_definitions(),
+                true,
+            );
+            let ttl = serialise(&g);
+            assert!(!ttl.contains("equivalentClass"), "{conjuncts:?}");
+            assert!(!ttl.contains("intersectionOf"), "{conjuncts:?}");
+        }
+    }
+
+    #[test]
+    fn an_individual_is_never_defined() {
+        let mut d = record("R2");
+        d.entity_type = EntityType::Individual;
+        d.defines_as = vec![named("robot")];
+        let g = build_graph(
+            &corpus_of(vec![record("Robot"), d]),
+            &vocab_with_definitions(),
+            true,
+        );
+        assert!(!serialise(&g).contains("equivalentClass"));
+    }
+
+    /// Replaces `no_domain_disjointness_is_emitted` (ADR-2125), which only
+    /// checked `AllDisjointClasses` on an empty corpus. Every domain root and
+    /// taxonomy category is declared, each is made disjoint with an ordinary
+    /// class and vice versa, and not one `owl:disjointWith` may reach them.
+    #[test]
+    fn domain_roots_never_receive_owl_disjoint_with() {
+        let taxonomic: Vec<&str> = DOMAIN_ROOT_SLUGS
+            .iter()
+            .chain(CATEGORY_SLUGS)
+            .copied()
+            .collect();
+        let mut x = record("X");
+        disjoint_with(&mut x, &taxonomic);
+        let mut records = vec![x];
+        for slug in &taxonomic {
+            let mut r = record(slug);
+            disjoint_with(&mut r, &["x"]);
+            records.push(r);
+        }
+        let g = build_graph(&corpus_of(records), &vocab_with_disjointness(), true);
+        let pairs = disjoint_pairs(&g);
+        assert!(pairs.is_empty(), "{pairs:?}");
+        assert!(!serialise(&g).contains("AllDisjointClasses"));
     }
 
     #[test]
@@ -1048,6 +1527,195 @@ relations:
         assert_eq!(format_float(0.0), "0.0");
         assert_eq!(format_float(1.0), "1.0");
         assert_eq!(format_float(0.35), "0.35");
+    }
+
+    // ── ADR-2128: version IRI and scoped property signatures ─────────────
+
+    /// The object of the ontology header's `owl:versionIRI`, if any.
+    fn version_iri_of(g: &Graph) -> Option<String> {
+        g.iter().find_map(|(s, p, o)| match (s, o) {
+            (Subject::Iri(s), Term::Iri(o))
+                if s == ONTOLOGY_IRI && p == format!("{OWL}versionIRI") =>
+            {
+                Some(o.clone())
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_header_carries_a_content_addressed_version_iri() {
+        let g = build_graph(&linked_pair(), &vocab(), true);
+        let iri = version_iri_of(&g).expect("owl:versionIRI is emitted");
+        let digest = ontology_digest(&g);
+        assert_eq!(iri, format!("{ONTOLOGY_IRI}/{digest}"));
+        let hex = digest.strip_prefix("sha256-12-").expect("ADR-2023 grammar");
+        assert_eq!(hex.len(), 12);
+        assert!(hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    }
+
+    #[test]
+    fn an_identical_rebuild_keeps_the_version_iri() {
+        let one = build_graph(&linked_pair(), &vocab(), true);
+        let two = build_graph(&linked_pair(), &vocab(), true);
+        assert_eq!(version_iri_of(&one), version_iri_of(&two));
+        assert_eq!(serialise(&one), serialise(&two));
+    }
+
+    #[test]
+    fn a_page_change_changes_the_version_iri() {
+        let before = build_graph(&linked_pair(), &vocab(), true);
+        let mut corpus = linked_pair();
+        corpus.records[0].definition = "A changed definition.".into();
+        let after = build_graph(&corpus, &vocab(), true);
+        assert_ne!(version_iri_of(&before), version_iri_of(&after));
+    }
+
+    #[test]
+    fn a_vocabulary_only_change_changes_the_version_iri() {
+        let corpus = linked_pair();
+        let flagged = build_graph(&corpus, &vocab(), true);
+        let unflagged = build_graph(&corpus, &vocab_without_restrictions(), true);
+        assert_ne!(
+            version_iri_of(&flagged),
+            version_iri_of(&unflagged),
+            "same pages, different vocabulary: a different emitted graph"
+        );
+    }
+
+    #[test]
+    fn the_digest_excludes_the_header_itself() {
+        let g = build_graph(&linked_pair(), &vocab(), true);
+        let mut without_header = Graph::new();
+        for (s, p, o) in g.iter() {
+            if *s != Subject::Iri(ONTOLOGY_IRI.to_owned()) {
+                without_header.add(s.clone(), p, o.clone());
+            }
+        }
+        assert_eq!(ontology_digest(&g), ontology_digest(&without_header));
+    }
+
+    #[test]
+    fn version_info_stays_a_semver_string() {
+        let g = build_graph(&corpus_of(vec![]), &vocab(), true);
+        let info = g
+            .iter()
+            .find_map(|(s, p, o)| match (s, o) {
+                (Subject::Iri(s), Term::Literal { value, .. })
+                    if s == ONTOLOGY_IRI && p == format!("{OWL}versionInfo") =>
+                {
+                    Some(value.clone())
+                }
+                _ => None,
+            })
+            .expect("owl:versionInfo");
+        assert_eq!(info.split('.').count(), 3, "{info} is semver");
+        assert!(info.split('.').all(|n| n.parse::<u32>().is_ok()));
+    }
+
+    #[test]
+    fn no_owl_thing_domain_or_range_is_emitted_by_default() {
+        let g = build_graph(&linked_pair(), &vocab(), true);
+        let thing = Term::Iri(format!("{OWL}Thing"));
+        let blanket: Vec<_> = g
+            .iter()
+            .filter(|(_, p, o)| {
+                (*p == format!("{RDFS}domain") || *p == format!("{RDFS}range")) && **o == thing
+            })
+            .collect();
+        assert!(blanket.is_empty(), "unexpected: {blanket:?}");
+        assert!(!serialise(&g).contains("owl:Thing"));
+        // Every vc: object property is now unsigned; `hasMaturity`'s range
+        // (`ngm:MaturityLevel`) is a real scope and stays.
+        let signed: BTreeSet<String> = g
+            .iter()
+            .filter(|(_, p, _)| *p == format!("{RDFS}domain") || *p == format!("{RDFS}range"))
+            .filter_map(|(s, _, _)| match s {
+                Subject::Iri(i) => Some(i.clone()),
+                Subject::Blank(_) => None,
+            })
+            .collect();
+        assert_eq!(signed, BTreeSet::from([format!("{VC}hasMaturity")]));
+    }
+
+    #[test]
+    fn a_declared_domain_and_range_emit_scoped_signatures() {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:     { owl: "rdfs:subClassOf" }
+  requires: { owl: "vc:requires", domain: a, range: b }
+  has-part: { owl: "vc:hasPart", domain: owl:Thing }
+"#,
+        )
+        .unwrap();
+        let g = build_graph(&linked_pair(), &vocab, true);
+        let has = |s: &str, p: &str, o: &str| {
+            g.iter().any(|(subj, pred, obj)| {
+                *subj == Subject::Iri(s.to_owned()) && pred == p && *obj == Term::Iri(o.to_owned())
+            })
+        };
+        let requires = format!("{VC}requires");
+        assert!(has(&requires, &format!("{RDFS}domain"), &format!("{NGM}a")));
+        assert!(has(&requires, &format!("{RDFS}range"), &format!("{NGM}b")));
+        let has_part = format!("{VC}hasPart");
+        assert!(
+            !g.iter()
+                .any(|(s, p, _)| *s == Subject::Iri(has_part.clone())
+                    && (p == format!("{RDFS}domain") || p == format!("{RDFS}range"))),
+            "owl:Thing is the absence of a signature, not one"
+        );
+        assert_ne!(
+            version_iri_of(&g),
+            version_iri_of(&build_graph(&linked_pair(), &self::vocab(), true)),
+            "declaring a signature is a vocabulary change the version IRI sees"
+        );
+    }
+
+    /// Defect: a signature on an emitted relation outside the fourteen
+    /// hard-coded `vc:` properties was accepted by the vocabulary and then
+    /// silently dropped. Every emitted relation that declares one emits it;
+    /// an unemitted relation emits nothing.
+    #[test]
+    fn a_signature_on_any_emitted_relation_is_emitted() {
+        let vocab = Vocabulary::from_yaml_str(
+            r#"
+version: 1
+namespace: "urn:ngm:class:"
+relations:
+  is-a:    { owl: "rdfs:subClassOf" }
+  governs: { owl: "vc:governs", domain: a, range: b }
+  ext:     { owl: "https://example.org/onto#ext", range: b }
+  drafts:  { owl: "vc:drafts", emitted: false, status: provisional, domain: a }
+"#,
+        )
+        .unwrap();
+        let g = build_graph(&linked_pair(), &vocab, true);
+        let signature = |s: &str| -> BTreeSet<(String, Term)> {
+            g.iter()
+                .filter(|(subj, p, _)| {
+                    **subj == Subject::Iri(s.to_owned())
+                        && (*p == format!("{RDFS}domain") || *p == format!("{RDFS}range"))
+                })
+                .map(|(_, p, o)| (p.to_owned(), o.clone()))
+                .collect()
+        };
+        assert_eq!(
+            signature(&format!("{VC}governs")),
+            BTreeSet::from([
+                (format!("{RDFS}domain"), Term::Iri(format!("{NGM}a"))),
+                (format!("{RDFS}range"), Term::Iri(format!("{NGM}b"))),
+            ])
+        );
+        assert_eq!(
+            signature("https://example.org/onto#ext"),
+            BTreeSet::from([(format!("{RDFS}range"), Term::Iri(format!("{NGM}b")))])
+        );
+        assert!(signature(&format!("{VC}drafts")).is_empty(), "not emitted");
     }
 
     #[test]

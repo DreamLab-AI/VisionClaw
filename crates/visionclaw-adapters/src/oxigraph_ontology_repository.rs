@@ -2152,6 +2152,26 @@ impl OntologyRepository for OxigraphOntologyRepository {
     // OWL Property CRUD
     // ------------------------------------------------------------------
 
+    async fn class_iris(&self) -> RepoResult<Vec<String>> {
+        // The subject set `list_owl_classes` groups, without its `?s ?p ?o`
+        // fan-out (labels, descriptions, markdown bodies).
+        let q = format!(
+            "{PROLOGUE}\
+             SELECT DISTINCT ?s\n\
+             FROM <{GRAPH_ONTOLOGY}>\n\
+             WHERE {{ ?s a <{T_VC_ONTOLOGY_CLASS}> . FILTER(isIRI(?s)) }}\n\
+             ORDER BY ?s\n"
+        );
+        let (_vars, rows) = self.run_select(q).await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| match &row[0] {
+                Some(Term::NamedNode(s)) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect())
+    }
+
     async fn add_owl_property(&self, property: &OwlProperty) -> RepoResult<String> {
         let iri = property_iri(property);
         let ask = format!(
@@ -3277,6 +3297,37 @@ mod tests {
         let iris: Vec<&str> = stored.iter().map(|c| c.iri.as_str()).collect();
         assert!(iris.contains(&"urn:test:Animal"), "Missing Animal");
         assert!(iris.contains(&"urn:test:Dog"), "Missing Dog");
+    }
+
+    /// The cheap class probe the query service fingerprints with returns
+    /// exactly the IRIs `list_owl_classes` does, without materialising every
+    /// class's triples.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn class_iris_match_list_owl_classes() {
+        let repo = in_memory_repo();
+        let classes = vec![
+            make_class("urn:test:Animal", "Animal"),
+            make_class("urn:test:Dog", "Dog"),
+            make_class("urn:test:Cat", "Cat"),
+        ];
+        repo.save_ontology(
+            &classes,
+            &[],
+            &[make_axiom("urn:test:Dog", "urn:test:Animal")],
+        )
+        .await
+        .unwrap();
+        let mut listed: Vec<String> = repo
+            .list_owl_classes()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| c.iri)
+            .collect();
+        listed.sort();
+        let probed = repo.class_iris().await.unwrap();
+        assert_eq!(probed, listed);
+        assert_eq!(probed.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -82,6 +82,10 @@ pub struct Assessment {
     pub conflicts: Vec<(Vec<String>, Blocker)>,
     /// Classes subsumed by `owl:Nothing`.
     pub unsatisfiable: Vec<String>,
+    /// The `WHELK_RELEVANT_CAP` blocker when the reasoner refused to run on
+    /// this state (ADR-2124); [`Self::unsatisfiable`] is then empty because
+    /// nothing was classified, not because nothing is unsatisfiable.
+    pub reasoning: Option<Blocker>,
 }
 
 impl Assessment {
@@ -105,20 +109,32 @@ impl Assessment {
             .map(|c| (c.subjects.clone(), c.to_blocker()))
             .collect();
         let graph = crate::build::turtle::build_graph(corpus, vocab, false);
-        let unsatisfiable = whelk::reason(&graph).unsatisfiable;
+        let (unsatisfiable, reasoning) = whelk_findings(&graph, whelk::RELEVANT_TRANSITIVE_CAP);
         Self {
             validation,
             conflicts,
             unsatisfiable,
+            reasoning,
         }
     }
 }
 
+/// Whelk's unsatisfiable classes on `graph`, or — when the reasoner refuses
+/// to run under `cap` — none and the refusal as a named blocker.
+fn whelk_findings(
+    graph: &crate::build::turtle::Graph,
+    cap: usize,
+) -> (Vec<String>, Option<Blocker>) {
+    match whelk::reason_capped(graph, cap) {
+        Ok(reasoning) => (reasoning.unsatisfiable, None),
+        Err(e) => (Vec::new(), Some(Blocker::new(e.code(), e.detail()))),
+    }
+}
+
+/// The one `WHELK_INCONSISTENT` shape, shared with the elevation actor's
+/// gate (ADR-2125) so the two write paths report the same blocker.
 fn whelk_blocker(class: &str) -> Blocker {
-    Blocker::new(
-        "WHELK_INCONSISTENT",
-        format!("{class} is subsumed by owl:Nothing"),
-    )
+    vault_core::consistency::whelk_inconsistent(class)
 }
 
 fn push_unique(out: &mut Vec<Blocker>, blocker: Blocker) {
@@ -168,6 +184,13 @@ fn delta(
         } else if subjects.iter().any(|s| touched_iris.contains(s)) {
             push_unique(&mut preexisting, blocker.clone());
         }
+    }
+
+    // A state Whelk refused to reason over cannot be shown consistent, so the
+    // refusal blocks whether or not the base state was refused too: an
+    // unassessable change never reaches a human (decision Q6).
+    if let Some(blocker) = &after.reasoning {
+        push_unique(&mut blockers, blocker.clone());
     }
 
     let old_unsat: HashSet<&str> = before.unsatisfiable.iter().map(String::as_str).collect();
@@ -962,6 +985,132 @@ scalars:
             &options(Level::Content, Some(path)),
         )
         .unwrap()
+    }
+
+    // ── ADR-2125 item 5: the Whelk gate is delta-scoped ─────────────────────
+
+    fn unsat(classes: &[&str]) -> Assessment {
+        Assessment {
+            unsatisfiable: classes.iter().map(|c| (*c).to_owned()).collect(),
+            ..Assessment::default()
+        }
+    }
+
+    fn touched(iris: &[&str]) -> (HashSet<String>, HashSet<String>) {
+        (
+            HashSet::from(["P".to_owned()]),
+            iris.iter().map(|i| (*i).to_owned()).collect(),
+        )
+    }
+
+    #[test]
+    fn an_unsatisfiable_class_the_change_introduces_blocks_wherever_it_is() {
+        let (pages, iris) = touched(&["urn:ngm:class:p"]);
+        let (blockers, pre) = delta(
+            &unsat(&[]),
+            &unsat(&["urn:ngm:class:elsewhere"]),
+            &pages,
+            &iris,
+        );
+        assert_eq!(
+            blockers,
+            vec![vault_core::consistency::whelk_inconsistent(
+                "urn:ngm:class:elsewhere"
+            )]
+        );
+        assert!(pre.is_empty());
+    }
+
+    #[test]
+    fn a_preexisting_unsatisfiable_class_the_change_touches_is_reported_not_blamed() {
+        let (pages, iris) = touched(&["urn:ngm:class:p"]);
+        let state = unsat(&["urn:ngm:class:p"]);
+        let (blockers, pre) = delta(&state, &state, &pages, &iris);
+        assert!(blockers.is_empty(), "{blockers:?}");
+        assert_eq!(
+            pre,
+            vec![vault_core::consistency::whelk_inconsistent(
+                "urn:ngm:class:p"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_preexisting_unsatisfiable_class_the_change_does_not_touch_is_silent() {
+        let (pages, iris) = touched(&["urn:ngm:class:p"]);
+        let state = unsat(&["urn:ngm:class:other"]);
+        let (blockers, pre) = delta(&state, &state, &pages, &iris);
+        assert!(
+            blockers.is_empty() && pre.is_empty(),
+            "{blockers:?} {pre:?}"
+        );
+    }
+
+    /// ADR-2124 defect: a definition over a transitive hierarchy used to hang
+    /// the assessment. The reasoner now refuses it with a named error, and
+    /// the proposal carries it as a `WHELK_RELEVANT_CAP` blocker — Whelk could
+    /// not assess the change, so it is never postable.
+    #[test]
+    fn a_reasoner_refusal_is_a_named_blocker_not_a_panic() {
+        use crate::build::turtle::{Graph, Term};
+        const TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+        let mut g = Graph::new();
+        g.add_iri(
+            "urn:p",
+            TYPE,
+            Term::Iri("http://www.w3.org/2002/07/owl#TransitiveProperty".into()),
+        );
+        let restriction = |g: &mut Graph| {
+            let b = g.fresh_blank();
+            g.add(
+                crate::build::turtle::Subject::Blank(b.clone()),
+                "http://www.w3.org/2002/07/owl#onProperty",
+                Term::Iri("urn:p".into()),
+            );
+            g.add(
+                crate::build::turtle::Subject::Blank(b.clone()),
+                "http://www.w3.org/2002/07/owl#someValuesFrom",
+                Term::Iri("urn:f".into()),
+            );
+            b
+        };
+        for c in ["urn:a", "urn:b", "urn:c"] {
+            let b = restriction(&mut g);
+            g.add_iri(
+                c,
+                "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+                Term::Blank(b),
+            );
+        }
+        let b = restriction(&mut g);
+        g.add_iri(
+            "urn:d",
+            "http://www.w3.org/2002/07/owl#equivalentClass",
+            Term::Blank(b),
+        );
+
+        let (unsat, refusal) = whelk_findings(&g, 2);
+        assert!(unsat.is_empty());
+        let blocker = refusal.expect("over the cap");
+        assert_eq!(blocker.code, whelk::WHELK_RELEVANT_CAP);
+        assert!(blocker.detail.contains("urn:p"), "{}", blocker.detail);
+        assert_eq!(whelk_findings(&g, 3).1, None, "at the cap it reasons");
+
+        // In the delta it blocks even when the base was refused too: an
+        // unassessable change never reaches a human (decision Q6).
+        let refused = Assessment {
+            reasoning: Some(blocker.clone()),
+            ..Assessment::default()
+        };
+        let (pages, iris) = touched(&["urn:ngm:class:p"]);
+        let refused_before = Assessment {
+            reasoning: Some(blocker.clone()),
+            ..Assessment::default()
+        };
+        for before in [Assessment::default(), refused_before] {
+            let (blockers, _) = delta(&before, &refused, &pages, &iris);
+            assert_eq!(blockers, vec![blocker.clone()]);
+        }
     }
 
     #[test]
