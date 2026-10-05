@@ -138,34 +138,130 @@ pub fn sign(event: UnsignedEvent, key: &SecretKey) -> Result<NostrEvent, String>
     })
 }
 
-/// Publish a signed event to a relay over a single WebSocket round trip.
+/// NIP-42 client authentication event kind.
+pub const KIND_CLIENT_AUTH: u64 = 22242;
+
+/// Build and sign the NIP-42 kind-22242 answer to a relay's `AUTH` challenge.
 ///
 /// # Errors
-/// Any transport failure, or an `OK` frame whose acceptance flag is `false`.
-pub fn publish(event: &NostrEvent, relay_url: &str) -> anyhow::Result<String> {
+/// When signing fails.
+pub fn auth_event(
+    challenge: &str,
+    relay_url: &str,
+    key: &SecretKey,
+    created_at: u64,
+) -> Result<NostrEvent, String> {
+    sign(
+        UnsignedEvent {
+            pubkey: public_key_hex(key),
+            created_at,
+            kind: KIND_CLIENT_AUTH,
+            tags: vec![
+                vec!["relay".into(), relay_url.to_owned()],
+                vec!["challenge".into(), challenge.to_owned()],
+            ],
+            content: String::new(),
+        },
+        key,
+    )
+}
+
+/// What one relay frame means to [`publish`].
+#[derive(Debug, PartialEq, Eq)]
+enum Frame {
+    /// `["AUTH", <challenge>]`.
+    Challenge(String),
+    /// `["OK", <id>, <accepted>, <message>]`.
+    Ok { id: String, accepted: bool, message: String },
+    /// Anything else (`NOTICE`, `EOSE`, non-JSON).
+    Other,
+}
+
+fn parse_frame(text: &str) -> Frame {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Frame::Other;
+    };
+    match value[0].as_str() {
+        Some("AUTH") => value[1]
+            .as_str()
+            .map_or(Frame::Other, |c| Frame::Challenge(c.to_owned())),
+        Some("OK") => Frame::Ok {
+            id: value[1].as_str().unwrap_or_default().to_owned(),
+            accepted: value[2].as_bool().unwrap_or(false),
+            message: value[3].as_str().unwrap_or_default().to_owned(),
+        },
+        _ => Frame::Other,
+    }
+}
+
+/// Publish a signed event to a relay over one WebSocket connection.
+///
+/// Speaks NIP-42: a relay that rejects the event with `auth-required:` is
+/// answered with a kind-22242 over its challenge, signed by `key`, and the
+/// event is sent once more. The challenge may arrive before or after the
+/// rejection. Without a `key`, an `auth-required` rejection is returned as is.
+///
+/// # Errors
+/// Any transport failure, a rejected `AUTH`, or an `OK` frame whose acceptance
+/// flag is `false`.
+pub fn publish(
+    event: &NostrEvent,
+    relay_url: &str,
+    key: Option<&SecretKey>,
+) -> anyhow::Result<String> {
     use tungstenite::Message;
 
     let (mut socket, _) = tungstenite::connect(relay_url)
         .map_err(|e| anyhow::anyhow!("connecting to {relay_url}: {e}"))?;
-    let frame = serde_json::to_string(&serde_json::json!(["EVENT", event]))?;
-    socket.send(Message::Text(frame))?;
+    let event_frame = serde_json::to_string(&serde_json::json!(["EVENT", event]))?;
+    socket.send(Message::Text(event_frame.clone()))?;
 
-    // The relay answers with ["OK", <id>, <accepted>, <message>].
-    for _ in 0..8 {
-        let Message::Text(text) = socket.read()? else {
-            continue;
-        };
-        let value: serde_json::Value = serde_json::from_str(&text)?;
-        if value[0] == "OK" && value[1] == event.id.as_str() {
-            let accepted = value[2].as_bool().unwrap_or(false);
-            let message = value[3].as_str().unwrap_or_default().to_owned();
-            let _ = socket.close(None);
-            anyhow::ensure!(accepted, "relay rejected the event: {message}");
-            return Ok(event.id.clone());
+    let mut challenge: Option<String> = None;
+    let mut awaiting_auth: Option<String> = None; // id of the 22242 sent
+    let mut needs_auth = false;
+    let mut retried = false;
+
+    let result = (|| -> anyhow::Result<String> {
+        for _ in 0..32 {
+            let Message::Text(text) = socket.read()? else {
+                continue;
+            };
+            match parse_frame(&text) {
+                Frame::Challenge(c) => challenge = Some(c),
+                Frame::Ok { id, accepted, message } if Some(&id) == awaiting_auth.as_ref() => {
+                    anyhow::ensure!(accepted, "relay rejected NIP-42 AUTH: {message}");
+                    awaiting_auth = None;
+                    retried = true;
+                    socket.send(Message::Text(event_frame.clone()))?;
+                }
+                Frame::Ok { id, accepted, message } if id == event.id => {
+                    if accepted {
+                        return Ok(event.id.clone());
+                    }
+                    anyhow::ensure!(
+                        message.starts_with("auth-required") && key.is_some() && !retried,
+                        "relay rejected the event: {message}"
+                    );
+                    needs_auth = true;
+                }
+                _ => {}
+            }
+            if needs_auth && awaiting_auth.is_none() && !retried {
+                if let (Some(c), Some(k)) = (challenge.as_deref(), key) {
+                    let created_at = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())
+                        .unwrap_or_default();
+                    let auth = auth_event(c, relay_url, k, created_at).map_err(anyhow::Error::msg)?;
+                    awaiting_auth = Some(auth.id.clone());
+                    socket.send(Message::Text(serde_json::to_string(&serde_json::json!([
+                        "AUTH", auth
+                    ]))?))?;
+                }
+            }
         }
-    }
+        anyhow::bail!("relay {relay_url} never acknowledged the event")
+    })();
     let _ = socket.close(None);
-    anyhow::bail!("relay {relay_url} never acknowledged the event")
+    result
 }
 
 #[cfg(test)]
@@ -286,5 +382,114 @@ mod tests {
     #[test]
     fn demotion_sits_between_content_and_schema() {
         assert_eq!(task_properties(Level::Demotion).stakes, Stakes::Significant);
+    }
+
+    const SECRET: &str = "0000000000000000000000000000000000000000000000000000000000000003";
+
+    #[test]
+    fn auth_event_is_a_verifiable_22242_over_relay_and_challenge() {
+        let key = signing_key_from_hex(SECRET).unwrap();
+        let e = auth_event("chal-1", "wss://relay.example", &key, 1_700_000_000).unwrap();
+        assert_eq!(e.kind, KIND_CLIENT_AUTH);
+        assert_eq!(e.pubkey, public_key_hex(&key));
+        assert_eq!(e.content, "");
+        assert!(e.tags.contains(&vec!["relay".to_owned(), "wss://relay.example".to_owned()]));
+        assert!(e.tags.contains(&vec!["challenge".to_owned(), "chal-1".to_owned()]));
+        assert!(nostr_bbs_core::event::verify_event(&e));
+    }
+
+    #[test]
+    fn frames_parse_into_challenge_ok_and_other() {
+        assert_eq!(parse_frame(r#"["AUTH","abc"]"#), Frame::Challenge("abc".into()));
+        assert_eq!(
+            parse_frame(r#"["OK","id1",false,"auth-required: x"]"#),
+            Frame::Ok { id: "id1".into(), accepted: false, message: "auth-required: x".into() }
+        );
+        assert_eq!(parse_frame(r#"["NOTICE","hi"]"#), Frame::Other);
+        assert_eq!(parse_frame("not json"), Frame::Other);
+    }
+
+    /// A one-connection relay that demands NIP-42 before accepting an EVENT.
+    /// `challenge_first` sends the challenge on connect; otherwise only after
+    /// the first rejection. Returns the relay URL and a handle yielding the
+    /// AUTH event it accepted.
+    fn auth_relay(challenge_first: bool) -> (String, std::thread::JoinHandle<NostrEvent>) {
+        use tungstenite::Message;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let relay_url = url.clone();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let send = |ws: &mut tungstenite::WebSocket<std::net::TcpStream>, v: serde_json::Value| {
+                ws.send(Message::Text(v.to_string())).unwrap();
+            };
+            if challenge_first {
+                send(&mut ws, serde_json::json!(["AUTH", "chal-xyz"]));
+            }
+            let mut authed: Option<NostrEvent> = None;
+            loop {
+                let Ok(Message::Text(text)) = ws.read() else { break };
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                match v[0].as_str() {
+                    Some("EVENT") => {
+                        let id = v[1]["id"].as_str().unwrap().to_owned();
+                        if authed.is_some() {
+                            send(&mut ws, serde_json::json!(["OK", id, true, ""]));
+                            break;
+                        }
+                        send(&mut ws, serde_json::json!(["OK", id, false, "auth-required: NIP-42 AUTH required to publish"]));
+                        if !challenge_first {
+                            send(&mut ws, serde_json::json!(["AUTH", "chal-xyz"]));
+                        }
+                    }
+                    Some("AUTH") => {
+                        let e: NostrEvent = serde_json::from_value(v[1].clone()).unwrap();
+                        let ok = e.kind == KIND_CLIENT_AUTH
+                            && nostr_bbs_core::event::verify_event(&e)
+                            && e.tags.contains(&vec!["challenge".to_owned(), "chal-xyz".to_owned()])
+                            && e.tags.contains(&vec!["relay".to_owned(), relay_url.clone()]);
+                        send(&mut ws, serde_json::json!(["OK", e.id, ok, if ok { "" } else { "invalid: auth" }]));
+                        if ok {
+                            authed = Some(e);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            authed.expect("relay never saw a valid AUTH")
+        });
+        (url, handle)
+    }
+
+    fn signed_request(key: &SecretKey) -> NostrEvent {
+        let unsigned = action_request(&proposal(Level::Schema, vec![]), &public_key_hex(key), 1).unwrap();
+        sign(unsigned, key).unwrap()
+    }
+
+    #[test]
+    fn publish_answers_nip42_when_the_challenge_comes_first() {
+        let key = signing_key_from_hex(SECRET).unwrap();
+        let (url, relay) = auth_relay(true);
+        let event = signed_request(&key);
+        assert_eq!(publish(&event, &url, Some(&key)).unwrap(), event.id);
+        assert_eq!(relay.join().unwrap().pubkey, public_key_hex(&key));
+    }
+
+    #[test]
+    fn publish_answers_nip42_when_the_challenge_follows_the_rejection() {
+        let key = signing_key_from_hex(SECRET).unwrap();
+        let (url, relay) = auth_relay(false);
+        let event = signed_request(&key);
+        assert_eq!(publish(&event, &url, Some(&key)).unwrap(), event.id);
+        relay.join().unwrap();
+    }
+
+    #[test]
+    fn publish_without_a_key_returns_the_auth_rejection() {
+        let key = signing_key_from_hex(SECRET).unwrap();
+        let (url, _relay) = auth_relay(true);
+        let err = publish(&signed_request(&key), &url, None).unwrap_err().to_string();
+        assert!(err.contains("auth-required"), "{err}");
     }
 }

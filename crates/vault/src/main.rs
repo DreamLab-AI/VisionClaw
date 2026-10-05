@@ -696,7 +696,7 @@ fn run() -> anyhow::Result<ExitCode> {
                 return Ok(ExitCode::SUCCESS);
             }
 
-            let id = nostr::publish(&signed, &args.relay)?;
+            let id = nostr::publish(&signed, &args.relay, Some(&key))?;
             let value = json!({ "proposal": proposal, "event_id": id, "relay": args.relay });
             emit(cli.json, &value, || {
                 println!("posted 31402 {id} to {}", args.relay);
