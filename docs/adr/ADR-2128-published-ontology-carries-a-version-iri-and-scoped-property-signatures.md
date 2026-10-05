@@ -2,12 +2,12 @@
 id: ADR-2128
 title: The published ontology carries an owl:versionIRI per generation, and property domain/range are scoped per property instead of owl:Thing
 date: 2026-10-05
-decision_status: proposed
+decision_status: accepted
 implementation_status: partial
-activation_status: inactive
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself

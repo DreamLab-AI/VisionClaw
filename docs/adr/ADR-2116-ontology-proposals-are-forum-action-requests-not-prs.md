@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs]
 owner: jjohare
 review_trigger: the `vault` binary landing (WS-C), or the first caller reported still POSTing to /api/ontology-agent/propose after the agentbox MCP servers are deleted (WS-G)

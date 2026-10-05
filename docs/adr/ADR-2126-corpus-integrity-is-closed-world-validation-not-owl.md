@@ -2,12 +2,12 @@
 id: ADR-2126
 title: Corpus integrity requirements are closed-world validation rules, never OWL axioms; the emitted OWL stays inside the EL profile
 date: 2026-10-05
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
-activation_status: inactive
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
 review_trigger: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner

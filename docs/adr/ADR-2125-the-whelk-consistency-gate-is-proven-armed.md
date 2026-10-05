@@ -2,12 +2,12 @@
 id: ADR-2125
 title: The Whelk consistency gate must be provably armed — register and wire the existing disjoint-with key for sibling partitions, add end-to-end probes, and a zero-unsatisfiable build gate
 date: 2026-10-05
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
-activation_status: inactive
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal

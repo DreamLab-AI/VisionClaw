@@ -2,12 +2,12 @@
 id: ADR-2127
 title: Ontology agent answers state their basis and never report "not asserted" as "false"
 date: 2026-10-05
-decision_status: proposed
+decision_status: accepted
 implementation_status: partial
-activation_status: inactive
+activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
 verified_paths: [crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
