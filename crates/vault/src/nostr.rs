@@ -63,13 +63,28 @@ pub fn action_request(
             proposal.blockers[0]
         ));
     }
+    // NIP-40 `expiration` is unix seconds. The proposal keeps `stale_after` as
+    // RFC 3339 for humans; the tag must not, or a relay that sweeps with
+    // `CAST(value AS INTEGER) < now` reads "2026-…" as 2026 and deletes the
+    // case on its next cron run (it did: a429e066, 2026-10-05).
+    let expiration = time::OffsetDateTime::parse(
+        &proposal.stale_after,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|e| {
+        format!(
+            "stale_after `{}` is not RFC 3339: {e}",
+            proposal.stale_after
+        )
+    })?
+    .unix_timestamp();
     let mut tags: Vec<Vec<String>> = vec![
         vec!["d".into(), proposal.digest_hex().to_owned()],
         vec!["context_url".into(), proposal.iri.clone()],
         vec!["level".into(), proposal.level.as_str().to_owned()],
         vec!["panel".into(), PANEL_IDENTIFIER.to_owned()],
         vec!["generation".into(), proposal.generation.clone()],
-        vec!["expiration".into(), proposal.stale_after.clone()],
+        vec!["expiration".into(), expiration.to_string()],
     ];
     // A grouped proposal announces its SCOPE in the tags, not only inside the
     // content. The single most decision-relevant fact for a human deciding
@@ -172,7 +187,11 @@ enum Frame {
     /// `["AUTH", <challenge>]`.
     Challenge(String),
     /// `["OK", <id>, <accepted>, <message>]`.
-    Ok { id: String, accepted: bool, message: String },
+    Ok {
+        id: String,
+        accepted: bool,
+        message: String,
+    },
     /// Anything else (`NOTICE`, `EOSE`, non-JSON).
     Other,
 }
@@ -228,13 +247,21 @@ pub fn publish(
             };
             match parse_frame(&text) {
                 Frame::Challenge(c) => challenge = Some(c),
-                Frame::Ok { id, accepted, message } if Some(&id) == awaiting_auth.as_ref() => {
+                Frame::Ok {
+                    id,
+                    accepted,
+                    message,
+                } if Some(&id) == awaiting_auth.as_ref() => {
                     anyhow::ensure!(accepted, "relay rejected NIP-42 AUTH: {message}");
                     awaiting_auth = None;
                     retried = true;
                     socket.send(Message::Text(event_frame.clone()))?;
                 }
-                Frame::Ok { id, accepted, message } if id == event.id => {
+                Frame::Ok {
+                    id,
+                    accepted,
+                    message,
+                } if id == event.id => {
                     if accepted {
                         return Ok(event.id.clone());
                     }
@@ -248,9 +275,11 @@ pub fn publish(
             }
             if needs_auth && awaiting_auth.is_none() && !retried {
                 if let (Some(c), Some(k)) = (challenge.as_deref(), key) {
-                    let created_at = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())
-                        .unwrap_or_default();
-                    let auth = auth_event(c, relay_url, k, created_at).map_err(anyhow::Error::msg)?;
+                    let created_at =
+                        u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())
+                            .unwrap_or_default();
+                    let auth =
+                        auth_event(c, relay_url, k, created_at).map_err(anyhow::Error::msg)?;
                     awaiting_auth = Some(auth.id.clone());
                     socket.send(Message::Text(serde_json::to_string(&serde_json::json!([
                         "AUTH", auth
@@ -307,7 +336,16 @@ mod tests {
         assert_eq!(tag(&e, "level"), Some("content"));
         assert_eq!(tag(&e, "panel"), Some("ontology-governance"));
         assert_eq!(tag(&e, "generation"), Some("visionGraph@abc1234"));
-        assert_eq!(tag(&e, "expiration"), Some("2026-10-06T00:00:00Z"));
+        // 2026-10-06T00:00:00Z as NIP-40 unix seconds, not the RFC 3339 text.
+        assert_eq!(tag(&e, "expiration"), Some("1791244800"));
+    }
+
+    #[test]
+    fn a_stale_after_that_is_not_rfc3339_is_refused_not_posted() {
+        let mut p = proposal(Level::Content, vec![]);
+        p.stale_after = "next tuesday".into();
+        let err = action_request(&p, PUBKEY, 0).unwrap_err();
+        assert!(err.contains("not RFC 3339"), "{err}");
     }
 
     #[test]
@@ -393,17 +431,28 @@ mod tests {
         assert_eq!(e.kind, KIND_CLIENT_AUTH);
         assert_eq!(e.pubkey, public_key_hex(&key));
         assert_eq!(e.content, "");
-        assert!(e.tags.contains(&vec!["relay".to_owned(), "wss://relay.example".to_owned()]));
-        assert!(e.tags.contains(&vec!["challenge".to_owned(), "chal-1".to_owned()]));
+        assert!(e
+            .tags
+            .contains(&vec!["relay".to_owned(), "wss://relay.example".to_owned()]));
+        assert!(e
+            .tags
+            .contains(&vec!["challenge".to_owned(), "chal-1".to_owned()]));
         assert!(nostr_bbs_core::event::verify_event(&e));
     }
 
     #[test]
     fn frames_parse_into_challenge_ok_and_other() {
-        assert_eq!(parse_frame(r#"["AUTH","abc"]"#), Frame::Challenge("abc".into()));
+        assert_eq!(
+            parse_frame(r#"["AUTH","abc"]"#),
+            Frame::Challenge("abc".into())
+        );
         assert_eq!(
             parse_frame(r#"["OK","id1",false,"auth-required: x"]"#),
-            Frame::Ok { id: "id1".into(), accepted: false, message: "auth-required: x".into() }
+            Frame::Ok {
+                id: "id1".into(),
+                accepted: false,
+                message: "auth-required: x".into()
+            }
         );
         assert_eq!(parse_frame(r#"["NOTICE","hi"]"#), Frame::Other);
         assert_eq!(parse_frame("not json"), Frame::Other);
@@ -421,7 +470,8 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = tungstenite::accept(stream).unwrap();
-            let send = |ws: &mut tungstenite::WebSocket<std::net::TcpStream>, v: serde_json::Value| {
+            let send = |ws: &mut tungstenite::WebSocket<std::net::TcpStream>,
+                        v: serde_json::Value| {
                 ws.send(Message::Text(v.to_string())).unwrap();
             };
             if challenge_first {
@@ -429,7 +479,9 @@ mod tests {
             }
             let mut authed: Option<NostrEvent> = None;
             loop {
-                let Ok(Message::Text(text)) = ws.read() else { break };
+                let Ok(Message::Text(text)) = ws.read() else {
+                    break;
+                };
                 let v: serde_json::Value = serde_json::from_str(&text).unwrap();
                 match v[0].as_str() {
                     Some("EVENT") => {
@@ -438,7 +490,15 @@ mod tests {
                             send(&mut ws, serde_json::json!(["OK", id, true, ""]));
                             break;
                         }
-                        send(&mut ws, serde_json::json!(["OK", id, false, "auth-required: NIP-42 AUTH required to publish"]));
+                        send(
+                            &mut ws,
+                            serde_json::json!([
+                                "OK",
+                                id,
+                                false,
+                                "auth-required: NIP-42 AUTH required to publish"
+                            ]),
+                        );
                         if !challenge_first {
                             send(&mut ws, serde_json::json!(["AUTH", "chal-xyz"]));
                         }
@@ -447,9 +507,19 @@ mod tests {
                         let e: NostrEvent = serde_json::from_value(v[1].clone()).unwrap();
                         let ok = e.kind == KIND_CLIENT_AUTH
                             && nostr_bbs_core::event::verify_event(&e)
-                            && e.tags.contains(&vec!["challenge".to_owned(), "chal-xyz".to_owned()])
-                            && e.tags.contains(&vec!["relay".to_owned(), relay_url.clone()]);
-                        send(&mut ws, serde_json::json!(["OK", e.id, ok, if ok { "" } else { "invalid: auth" }]));
+                            && e.tags
+                                .contains(&vec!["challenge".to_owned(), "chal-xyz".to_owned()])
+                            && e.tags
+                                .contains(&vec!["relay".to_owned(), relay_url.clone()]);
+                        send(
+                            &mut ws,
+                            serde_json::json!([
+                                "OK",
+                                e.id,
+                                ok,
+                                if ok { "" } else { "invalid: auth" }
+                            ]),
+                        );
                         if ok {
                             authed = Some(e);
                         }
@@ -463,7 +533,8 @@ mod tests {
     }
 
     fn signed_request(key: &SecretKey) -> NostrEvent {
-        let unsigned = action_request(&proposal(Level::Schema, vec![]), &public_key_hex(key), 1).unwrap();
+        let unsigned =
+            action_request(&proposal(Level::Schema, vec![]), &public_key_hex(key), 1).unwrap();
         sign(unsigned, key).unwrap()
     }
 
@@ -489,7 +560,9 @@ mod tests {
     fn publish_without_a_key_returns_the_auth_rejection() {
         let key = signing_key_from_hex(SECRET).unwrap();
         let (url, _relay) = auth_relay(true);
-        let err = publish(&signed_request(&key), &url, None).unwrap_err().to_string();
+        let err = publish(&signed_request(&key), &url, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("auth-required"), "{err}");
     }
 }
