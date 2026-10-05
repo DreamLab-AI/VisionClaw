@@ -9,6 +9,8 @@
 //! | `find` / `retrieve` / `tree` | the graph over frontmatter links, with per-edge-type expansion depths |
 //! | `edit --expect` | guarded mutation; refused without a declared blast radius |
 //! | `propose` | a contract-C4 `PatchProposal`, Whelk and `conflicts` as blockers, posted as a forum 31402 |
+//! | `apply` | land a human-approved `kind: amend` proposal: its exact diff, plus `--set` keys, in one atomic write |
+//! | `panel publish` | the `ontology-governance` 31400 the proposals are routed to, signed by the proposing key |
 //! | `gate` / `conflicts` | the autonomous continuation gate and the semantic conflict detector |
 //! | `build` | pages to one generation: asserted and inferred TTL, the scaffold / prose / search indexes, the page API, the OKF bundle, the JSON-LD context and the generation stamp |
 //! | `repair fences` / `repair bodies` | close unmatched code fences; rewrite Logseq outliner bodies as Obsidian markdown |
@@ -57,6 +59,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
+pub mod apply;
 pub mod bodies;
 pub mod build;
 pub mod closure;

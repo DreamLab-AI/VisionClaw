@@ -3618,9 +3618,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-bbs-core"
-version = "1.0.0-beta.14"
+version = "1.0.0-beta.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a92a653e8b9fe702f8af8c5ce4143649be75883649df62ec3f97a1bce864add6"
+checksum = "5511e94d7d1387285f66cd6c4359177f9c4332255a212a6351c3761cabe15684"
 dependencies = [
  "aes",
  "async-trait",

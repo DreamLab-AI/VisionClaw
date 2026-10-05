@@ -17,16 +17,62 @@
 //!
 //! A schema-level proposal declares `Stakes::Critical`, which floors the
 //! panel's risk tier at High (decision Q7).
+//!
+//! The 31402s are routed by `["panel", "ontology-governance"]`, and the forum
+//! resolves that panel at the address `31400:<request author>:ontology-governance`
+//! — so the panel definition must be published by the same key that signs the
+//! proposals. [`panel_definition`] builds that 31400 from
+//! `nostr_bbs_core::ontology_governance::ontology_governance_panel()`, so its
+//! content is the forum's own type and cannot drift from what the client parses.
 
 use nostr_bbs_core::event::{compute_event_id, NostrEvent, UnsignedEvent};
 use nostr_bbs_core::governance::{
     Reversibility, Stakes, TaskProperties, Verifiability, KIND_ACTION_REQUEST,
+    KIND_PANEL_DEFINITION,
 };
 use nostr_bbs_core::keys::SecretKey;
+use nostr_bbs_core::ontology_governance::{ontology_governance_panel, PANEL_ONTOLOGY_GOVERNANCE};
 use vault_core::proposal::{Level, PatchProposal};
 
-/// The panel a proposal is filed against.
-pub const PANEL_IDENTIFIER: &str = "ontology-governance";
+/// The panel a proposal is filed against: the `d` tag of its 31400, taken from
+/// the forum's profile rather than restated.
+pub const PANEL_IDENTIFIER: &str = PANEL_ONTOLOGY_GOVERNANCE;
+
+/// The NIP-33 address the forum resolves a proposal's panel at:
+/// `31400:<pubkey>:ontology-governance`.
+#[must_use]
+pub fn panel_address(pubkey_hex: &str) -> String {
+    format!("{KIND_PANEL_DEFINITION}:{pubkey_hex}:{PANEL_IDENTIFIER}")
+}
+
+/// Build the unsigned 31400 that defines the `ontology-governance` panel.
+///
+/// The content is `ontology_governance_panel()` serialised as is — the
+/// `PanelDefinition` the forum client deserialises from a 31400. The tags are
+/// the ones the kit's own fixture and the agentbox panels publish: the `d` tag,
+/// then the panel's task-property triple (`tp-*`) and its policy
+/// (`calibration-sample-rate`, `max-pending-hours`), both of which the client
+/// and the relay read from the tags in preference to the content.
+///
+/// # Errors
+/// When the definition cannot be serialised, or declares no task properties
+/// (the profile always does; a panel without them would constrain nothing).
+pub fn panel_definition(pubkey_hex: &str, created_at: u64) -> Result<UnsignedEvent, String> {
+    let panel = ontology_governance_panel();
+    let properties = panel
+        .task_properties
+        .ok_or("the ontology-governance profile declares no task properties")?;
+    let mut tags = vec![vec!["d".to_owned(), PANEL_IDENTIFIER.to_owned()]];
+    tags.extend(properties.to_tags());
+    tags.extend(panel.policy().to_tags());
+    Ok(UnsignedEvent {
+        pubkey: pubkey_hex.to_owned(),
+        created_at,
+        kind: KIND_PANEL_DEFINITION,
+        tags,
+        content: serde_json::to_string(&panel).map_err(|e| e.to_string())?,
+    })
+}
 
 /// The task properties `vault propose` declares for a given level.
 ///
@@ -124,7 +170,7 @@ pub fn public_key_hex(key: &SecretKey) -> String {
     key.public_key().to_hex()
 }
 
-/// Sign a 31402.
+/// Sign an event built here (a 31402, a 31400 or a NIP-42 22242).
 ///
 /// The event id and the BIP-340 signature both come from `nostr-bbs-core`;
 /// this function only checks that the declared `pubkey` is the one the key
@@ -409,6 +455,51 @@ mod tests {
         .unwrap();
         let event = action_request(&proposal(Level::Content, vec![]), PUBKEY, 0).unwrap();
         assert!(sign(event, &key).is_err());
+    }
+
+    #[test]
+    fn the_panel_definition_is_what_the_forum_client_parses() {
+        use nostr_bbs_core::governance::{PanelDefinition, PanelPolicy};
+
+        let key = signing_key_from_hex(SECRET).unwrap();
+        let pubkey = public_key_hex(&key);
+        let event = sign(panel_definition(&pubkey, 1_790_000_000).unwrap(), &key).unwrap();
+        assert!(nostr_bbs_core::event::verify_event(&event));
+        assert_eq!(event.kind, 31400);
+        assert_eq!(event.pubkey, pubkey);
+
+        // The client's 31400 ingest: `d` tag, then the content as a
+        // `PanelDefinition`.
+        assert_eq!(
+            nostr_bbs_core::governance::extract_d_tag(&event.tags),
+            Some("ontology-governance")
+        );
+        let definition: PanelDefinition = serde_json::from_str(&event.content).unwrap();
+        assert_eq!(definition, ontology_governance_panel());
+
+        // Its panel context: tag-declared properties and policy agree with
+        // the content's, so neither overrides the other.
+        assert_eq!(
+            TaskProperties::from_tags(&event.tags),
+            definition.task_properties
+        );
+        assert_eq!(PanelPolicy::from_tags(&event.tags), definition.policy());
+        assert_eq!(definition.policy().max_pending_hours, 336);
+
+        // And the 31402s this key signs resolve to it.
+        let request = signed_request(&key);
+        assert_eq!(tag_of(&request.tags, "panel"), Some(PANEL_IDENTIFIER));
+        assert_eq!(
+            panel_address(&request.pubkey),
+            format!("31400:{pubkey}:ontology-governance")
+        );
+    }
+
+    fn tag_of<'a>(tags: &'a [Vec<String>], name: &str) -> Option<&'a str> {
+        tags.iter()
+            .find(|t| t.first().map(String::as_str) == Some(name))
+            .and_then(|t| t.get(1))
+            .map(String::as_str)
     }
 
     #[test]

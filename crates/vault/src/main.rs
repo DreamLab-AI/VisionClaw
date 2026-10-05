@@ -16,7 +16,7 @@ use anyhow::Context as _;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
 use vault::{
-    build, conflicts, create, edit, gate, model::Corpus, nostr, propose, repair, validate,
+    apply, build, conflicts, create, edit, gate, model::Corpus, nostr, propose, repair, validate,
 };
 use vault_core::graph::VaultGraph;
 use vault_core::page::{load_vault, Vault, VaultKind};
@@ -56,6 +56,11 @@ enum Command {
     Create(CreateArgs),
     /// Build a `PatchProposal` and post it as a forum 31402.
     Propose(ProposeArgs),
+    /// Apply a human-approved `kind: amend` proposal to its page.
+    Apply(ApplyArgs),
+    /// The forum governance panel the proposals are filed against.
+    #[command(subcommand)]
+    Panel(PanelCommand),
     /// The autonomous continuation gate.
     Gate(GateArgs),
     /// Semantic conflict detection.
@@ -65,6 +70,31 @@ enum Command {
     /// Fix corpus defects in place.
     #[command(subcommand)]
     Repair(RepairCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum PanelCommand {
+    /// Publish the `ontology-governance` panel definition (kind 31400).
+    ///
+    /// The forum resolves a proposal's panel at
+    /// `31400:<proposal author>:ontology-governance`, so this must be signed
+    /// with the same key as `vault propose` — the same `--secret` /
+    /// `VAULT_NOSTR_SECRET`, posted to the same relay with NIP-42 AUTH.
+    /// Needs no repository.
+    Publish(PanelPublishArgs),
+}
+
+#[derive(Debug, Args)]
+struct PanelPublishArgs {
+    /// Print the signed event instead of publishing it.
+    #[arg(long)]
+    dry_run: bool,
+    /// The relay to publish to.
+    #[arg(long, default_value = DEFAULT_RELAY, env = "VAULT_RELAY_URL")]
+    relay: String,
+    /// The 32-byte hex secret key to sign with.
+    #[arg(long, env = "VAULT_NOSTR_SECRET")]
+    secret: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -238,6 +268,40 @@ struct CreateArgs {
     dry_run: bool,
 }
 
+/// The relay `propose` and `panel publish` post to when neither `--relay` nor
+/// `VAULT_RELAY_URL` names one.
+const DEFAULT_RELAY: &str = "ws://localhost:7777";
+
+#[derive(Debug, Args)]
+struct ApplyArgs {
+    /// The approved proposal: the `PatchProposal` JSON (the 31402's content),
+    /// or the whole signed 31402 event.
+    ///
+    /// Only `kind: amend` is applied; a creation goes through `vault create`.
+    /// The proposal's `digest` must be the one `vault propose` computes over
+    /// its fields, its page must exist with the proposal's `iri`, and its
+    /// unified diff must apply EXACTLY to the page as it is now — every context
+    /// and removed line at the line its hunk states, with no fuzz and no offset
+    /// search. That exact context is the staleness guard; the proposal's
+    /// `generation` is deliberately not compared, because generations are
+    /// routinely `+dirty`. Refusals write nothing and exit 2 with a code:
+    /// `MALFORMED`, `NOT_AMEND`, `DIGEST_MISMATCH`, `EXPECT`, `NO_PAGE`,
+    /// `IRI_MISMATCH`, `STALE`, `INVALID` or `ARGUMENT` (a bad `--set`).
+    file: PathBuf,
+    /// `key=value`, or `key+=value` to append to a list, applied to the
+    /// patched page in the same write (`vault edit`'s grammar), e.g.
+    /// `verified+={by: human:npub1…, at: 2026-10-05T19:00:00Z}`.
+    #[arg(long = "set", value_name = "K=V")]
+    sets: Vec<String>,
+    /// Remove a key from the patched page in the same write.
+    #[arg(long = "unset", value_name = "K")]
+    unsets: Vec<String>,
+    /// The declared blast radius: `docs=1`, optionally `,blocks=N` for the
+    /// keys `--set`/`--unset` change. Required.
+    #[arg(long)]
+    expect: Option<String>,
+}
+
 #[derive(Debug, Args)]
 struct ProposeArgs {
     /// The subject: a page id, title or `resource` IRI.
@@ -276,7 +340,7 @@ struct ProposeArgs {
     #[arg(long)]
     dry_run: bool,
     /// The relay to publish to.
-    #[arg(long, default_value = "ws://localhost:7777", env = "VAULT_RELAY_URL")]
+    #[arg(long, default_value = DEFAULT_RELAY, env = "VAULT_RELAY_URL")]
     relay: String,
     /// The 32-byte hex secret key to sign with.
     #[arg(long, env = "VAULT_NOSTR_SECRET")]
@@ -396,6 +460,10 @@ fn emit(json: bool, value: &serde_json::Value, prose: impl FnOnce()) -> anyhow::
 #[allow(clippy::too_many_lines)]
 fn run() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
+    // The one subcommand that touches no corpus: it must work from anywhere.
+    if let Command::Panel(PanelCommand::Publish(args)) = &cli.command {
+        return panel_publish(args, cli.json);
+    }
     let (root, vocab) = resolve_repo(cli.repo.as_deref())?;
 
     match &cli.command {
@@ -704,6 +772,84 @@ fn run() -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
+        Command::Apply(args) => {
+            // Every refusal is exit 2 with nothing written, and under `--json`
+            // stdout is still one JSON document naming why — as `create` does.
+            let refuse = |code: &str,
+                          message: &str,
+                          blockers: &[vault_core::promotion::Blocker]|
+             -> anyhow::Result<ExitCode> {
+                let value = json!({
+                    "applied": false,
+                    "code": code,
+                    "message": message,
+                    "blockers": blockers,
+                });
+                emit(cli.json, &value, || {})?;
+                eprintln!("vault: {message}");
+                Ok(ExitCode::from(2))
+            };
+            let refuse_with = |error: &apply::ApplyError| {
+                refuse(error.code(), &error.to_string(), error.blockers())
+            };
+
+            let Some(expect_raw) = &args.expect else {
+                return refuse_with(&apply::ApplyError::Expect(
+                    "--expect must declare docs=1 for an apply".into(),
+                ));
+            };
+            let expect = match edit::Expectation::parse(expect_raw) {
+                Ok(expect) => expect,
+                Err(e) => return refuse_with(&apply::ApplyError::Expect(e)),
+            };
+            let mut changes: Vec<edit::Change> = Vec::with_capacity(args.sets.len());
+            for set in &args.sets {
+                match edit::Change::parse_set(set) {
+                    Ok(change) => changes.push(change),
+                    Err(e) => return refuse("ARGUMENT", &format!("refused: {e}"), &[]),
+                }
+            }
+            changes.extend(
+                args.unsets
+                    .iter()
+                    .map(|k| edit::Change::Unset { key: k.clone() }),
+            );
+            let text = std::fs::read_to_string(&args.file)
+                .with_context(|| format!("reading {}", args.file.display()))?;
+            let proposal = match apply::read_proposal(&text) {
+                Ok(proposal) => proposal,
+                Err(error) => return refuse_with(&error),
+            };
+            let vault = load(&root, &[VaultKind::Knowledge])?
+                .into_iter()
+                .next()
+                .context("no knowledge vault")?;
+            let outcome = match apply::prepare(&vault, &vocab, &proposal, &changes, expect) {
+                Ok(outcome) => outcome,
+                Err(error) => return refuse_with(&error),
+            };
+            if let Err(e) = apply::write(&outcome) {
+                return match e.downcast_ref::<apply::ApplyError>() {
+                    Some(error) => refuse_with(error),
+                    None => Err(e),
+                };
+            }
+            let value = serde_json::to_value(&outcome)?;
+            emit(cli.json, &value, || {
+                println!("applied {} to {}", outcome.digest, outcome.path);
+                for (key, [before, after]) in &outcome.changes {
+                    println!(
+                        "  {key}: {} -> {}",
+                        before.as_deref().unwrap_or("(absent)"),
+                        after.as_deref().unwrap_or("(removed)")
+                    );
+                }
+            })?;
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Command::Panel(_) => unreachable!("handled before the repository is resolved"),
+
         Command::Gate(args) => {
             let tier = gate::Tier::parse(&args.tier);
             let vault = load(&root, &args.selector.kinds())?
@@ -922,6 +1068,40 @@ fn run() -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// `vault panel publish`: sign the `ontology-governance` 31400 with the
+/// proposing key and post it (or, with `--dry-run`, print it).
+fn panel_publish(args: &PanelPublishArgs, json_out: bool) -> anyhow::Result<ExitCode> {
+    let secret = args
+        .secret
+        .clone()
+        .context("a signing key is required: --secret or VAULT_NOSTR_SECRET")?;
+    let key = nostr::signing_key_from_hex(&secret).map_err(anyhow::Error::msg)?;
+    let pubkey = nostr::public_key_hex(&key);
+    let created_at =
+        u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp()).unwrap_or_default();
+    let unsigned = nostr::panel_definition(&pubkey, created_at).map_err(anyhow::Error::msg)?;
+    let signed = nostr::sign(unsigned, &key).map_err(anyhow::Error::msg)?;
+    let address = nostr::panel_address(&pubkey);
+
+    if args.dry_run {
+        let value = json!({ "address": address, "event": signed });
+        emit(json_out, &value, || {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&signed).unwrap_or_default()
+            );
+        })?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let id = nostr::publish(&signed, &args.relay, Some(&key))?;
+    let value = json!({ "address": address, "event_id": id, "relay": args.relay });
+    emit(json_out, &value, || {
+        println!("posted 31400 {id} ({address}) to {}", args.relay);
+    })?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Parse `is-a=2,requires=1` into per-edge-type depths.
