@@ -41,7 +41,7 @@ oxttl = "0.1"
 oxrdf = "0.2"
 # Nostr 31402 ActionRequest construction + BIP-340 signing. Never hand-rolled:
 # nostr-bbs-core owns the event id/signature and the governance kind constants.
-nostr-bbs-core = "=1.0.0-beta.13"
+nostr-bbs-core = "=1.0.0-beta.14"
 ureq = { version = "2", features = ["json"] }
 tungstenite = { version = "0.21", features = ["native-tls"] }
 
