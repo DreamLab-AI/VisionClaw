@@ -1,0 +1,167 @@
+{
+  "adr": "ADR-2110",
+  "kind": "activation-acceptance",
+  "run_id": "20261002T173924Z-14a46d",
+  "verdict": "FAIL",
+  "repo_head": "3fd97572ad2433f195f5b98a8987355af4c18881",
+  "repo_dirty_rust_paths": 0,
+  "binary_reported_sha": null,
+  "container": "visionclaw_container",
+  "image": "sha256:2f4dd6111bb8b6b46fe60696df8396ee664c7dcaa1ed72c1befffd3e24ee230e",
+  "image_created": "2026-10-02T18:29:51.490576201+01:00",
+  "container_started": "2026-10-02T17:30:13.599165377Z",
+  "probes": [
+    {
+      "probe": "static_no_fabricated_rationale",
+      "verdict": "PASS",
+      "evidence": {
+        "pattern": "via governance UI|via control centre",
+        "hits": []
+      },
+      "notes": []
+    },
+    {
+      "probe": "binding",
+      "verdict": "FAIL",
+      "evidence": {
+        "binary": "/app/target/dev-runtime/visionclaw-server",
+        "binary_mtime_utc": "2026-10-02T16:52:52Z",
+        "sources_newer_than_binary": [
+          "crates/vault-core/Cargo.toml",
+          "crates/vault-core/src/domains.rs",
+          "crates/visionclaw-domain/src/models/edge.rs",
+          "crates/visionclaw-integration-tests/tests/prod_ingress.rs",
+          "src/actors/gpu/force_compute_actor.rs",
+          "src/handlers/api_handler/graph/fold.rs",
+          "src/services/github_sync_service.rs",
+          "src/services/inferred_edge_materialiser.rs",
+          "src/services/semantic_type_registry.rs"
+        ],
+        "sources_newer_count": 9,
+        "backend_health_status": null,
+        "nginx_health_status": 502
+      },
+      "notes": [
+        "binary is older than mounted source: the running server is NOT this tree",
+        "health: backend=None nginx=502 (URLError: <urlopen error [Errno 111] Connection refused>)"
+      ]
+    },
+    {
+      "probe": "trace_intent",
+      "verdict": "FAIL",
+      "evidence": {
+        "db": "/app/data/kpi.sqlite3",
+        "probe_agent": "did:nostr:ad21101a593fc0aa163c6d94cc435f1fdf4e888a8ecb4a5e616c120074661241",
+        "real_rows_with_intent_30d": 0,
+        "http_status": 502,
+        "records_returned": 0,
+        "checks": [
+          {
+            "intent": "op=graph_update target=urn:kg:node-7",
+            "target": "urn:kg:node-7",
+            "expected_intent_match": true,
+            "observed": false
+          },
+          {
+            "intent": "op=graph_update target=urn:kg:node-7",
+            "target": "urn:kg:node-70",
+            "expected_intent_match": false,
+            "observed": false
+          },
+          {
+            "intent": null,
+            "target": "urn:kg:node-7",
+            "expected_intent_match": null,
+            "observed": false
+          }
+        ],
+        "seed_rows_removed": 3
+      },
+      "notes": [
+        "expected 3 probe records, got 0",
+        "seed 1: no record with intent='op=graph_update target=urn:kg:node-7' intent_match=True",
+        "seed 2: no record with intent='op=graph_update target=urn:kg:node-7' intent_match=False",
+        "seed 3: no record with intent=None intent_match=None"
+      ]
+    },
+    {
+      "probe": "hitl_precision",
+      "verdict": "FAIL",
+      "evidence": {
+        "http_status": 502
+      },
+      "notes": [
+        "GET /api/kpi/summary \u2192 502: <html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.30.4</center>\r\n</body>\r\n</html>\r\n"
+      ]
+    },
+    {
+      "probe": "broker_rationale_gate",
+      "verdict": "FAIL",
+      "evidence": {
+        "db": "/app/data/enrichment.sqlite3",
+        "probe_case": "adr2110-acceptance-20261002T173924Z-14a46d",
+        "inbox_status": 502,
+        "refusals": [
+          {
+            "route": "operator",
+            "rationale": "absent",
+            "status": 502,
+            "body": "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.30.4</center>\r\n</body>\r\n</html>\r\n",
+            "verdict": "FAIL"
+          },
+          {
+            "route": "operator",
+            "rationale": "short",
+            "status": 502,
+            "body": "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.30.4</center>\r\n</body>\r\n</html>\r\n",
+            "verdict": "FAIL"
+          },
+          {
+            "route": "operator",
+            "rationale": "whitespace-padded",
+            "status": 502,
+            "body": "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.30.4</center>\r\n</body>\r\n</html>\r\n",
+            "verdict": "FAIL"
+          },
+          {
+            "route": "service",
+            "rationale": "short",
+            "status": 502,
+            "body": "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx/1.30.4</center>\r\n</body>\r\n</html>\r\n",
+            "verdict": "FAIL"
+          }
+        ],
+        "decision_rows_after": 0,
+        "status_after": "pending",
+        "cleanup": {
+          "decision_rows_removed": 0,
+          "proposal_rows_removed": 1
+        }
+      },
+      "notes": [
+        "probe case not served by GET /api/broker/inbox (status 502); a 401/403 means the dev bypass is off \u2014 sign NIP-98 as a power user"
+      ]
+    },
+    {
+      "probe": "elevation_boot_reconciliation",
+      "verdict": "PASS",
+      "evidence": {
+        "log": "/app/logs/rust.log",
+        "segment": "since last 'Starting Rust backend'",
+        "started": [
+          "\u001b[2m2026-10-02T16:54:28.863772Z\u001b[0m \u001b[32m INFO\u001b[0m ThreadId(01) \u001b[2mvisionclaw_server\u001b[0m\u001b[2m:\u001b[0m [main] DecisionElevationActor started (ADR-050 decision-elevation panel live)"
+        ],
+        "disabled": [],
+        "connect_failed": [],
+        "reconciliation": [
+          "\u001b[2m2026-10-02T16:54:35.741577Z\u001b[0m \u001b[32m INFO\u001b[0m ThreadId(01) \u001b[2mvisionclaw_server::actors::elevation_actor\u001b[0m\u001b[2m:\u001b[0m [Elevation] boot reconciliation: 0 case(s) re-armed, 0 timed out"
+        ],
+        "reconciliation_read_failed": [],
+        "re_armed": 0,
+        "timed_out": 0
+      },
+      "notes": []
+    }
+  ],
+  "scope": "Live dev stack, unit fixtures seeded and removed by the probe. Does NOT cover: the owner's live high-tier 31403 on the edge relay (exit test item 4), the forum's effective_tier (VisionClaw does not ingest it; see ADR-2110 follow-on 5), or the case-card UI rendering (browser check)."
+}
