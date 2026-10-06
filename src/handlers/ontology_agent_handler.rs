@@ -20,9 +20,9 @@
 // imported HERE — the retired `/propose` is the only route that ever called
 // them. The service itself is untouched and still used by `decision_handler.rs`
 // and `decision_service.rs`; only this handler's dependency on it is gone.
-use crate::services::ontology_query_service::OntologyQueryService;
+use crate::services::ontology_query_service::{CheckError, OntologyQueryService};
 use crate::types::ontology_tools::*;
-use crate::{error_json, ok_json};
+use crate::{bad_request, error_json, ok_json};
 use actix_web::{web, Error, HttpResponse};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -317,10 +317,11 @@ pub async fn check(
                     "check": check
                 }))
             }
-            Err(e) => {
+            Err(e @ CheckError::Internal(_)) => {
                 error!("ontology-agent/check (relation) failed: {}", e);
                 error_json!("Relation check failed", e)
             }
+            Err(e) => bad_request!("Unresolved term", e.to_string()),
         };
     }
     info!(
@@ -338,10 +339,11 @@ pub async fn check(
                 "check": check
             }))
         }
-        Err(e) => {
+        Err(e @ CheckError::Internal(_)) => {
             error!("ontology-agent/check failed: {}", e);
             error_json!("Membership check failed", e)
         }
+        Err(e) => bad_request!("Unresolved term", e.to_string()),
     }
 }
 

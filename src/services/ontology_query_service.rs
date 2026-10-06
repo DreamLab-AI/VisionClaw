@@ -45,6 +45,81 @@ struct LoadedOntology {
     relations: RelationIndex,
     asserted: HashSet<(String, String)>,
     generation: Option<String>,
+    terms: TermIndex,
+}
+
+/// Why a check could not be asked: a class term names nothing in the loaded
+/// ontology (or names several things), or the store failed. The first is the
+/// caller's question, not the corpus's silence, so it is never answered
+/// `not_asserted`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckError {
+    /// A class term resolves to no class, by IRI or by label.
+    UnknownTerm(String),
+    /// A label matches more than one class; the candidates are listed.
+    AmbiguousTerm(String, Vec<String>),
+    /// The repository or reasoner failed.
+    Internal(String),
+}
+
+impl std::fmt::Display for CheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownTerm(t) => write!(
+                f,
+                "'{t}' names no class in the loaded ontology (give a class IRI or its exact label)"
+            ),
+            Self::AmbiguousTerm(t, iris) => {
+                write!(f, "'{t}' is the label of {} classes: {}", iris.len(), iris.join(", "))
+            }
+            Self::Internal(e) => f.write_str(e),
+        }
+    }
+}
+
+/// How a check's class terms resolve: an IRI the ontology mentions (a declared
+/// class or an axiom endpoint) stands for itself; otherwise a class label,
+/// case-insensitively, when exactly one class carries it.
+#[derive(Debug, Default)]
+struct TermIndex {
+    iris: HashSet<String>,
+    labels: HashMap<String, Vec<String>>,
+}
+
+impl TermIndex {
+    fn new<'a>(
+        classes: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+        axiom_terms: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        let mut terms = Self::default();
+        for (iri, label) in classes {
+            terms.iris.insert(iri.to_owned());
+            if let Some(label) = label.map(str::trim).filter(|l| !l.is_empty()) {
+                let iris = terms.labels.entry(label.to_lowercase()).or_default();
+                if !iris.iter().any(|i| i == iri) {
+                    iris.push(iri.to_owned());
+                }
+            }
+        }
+        terms.iris.extend(axiom_terms.into_iter().map(str::to_owned));
+        terms
+    }
+
+    fn resolve(&self, term: &str) -> Result<String, CheckError> {
+        let term = term.trim();
+        if self.iris.contains(term) {
+            return Ok(term.to_owned());
+        }
+        match self.labels.get(&term.to_lowercase()).map(Vec::as_slice) {
+            Some([only]) => Ok(only.clone()),
+            Some(many) if !many.is_empty() => {
+                let mut iris = many.to_vec();
+                iris.sort();
+                Err(CheckError::AmbiguousTerm(term.to_owned(), iris))
+            }
+            _ => Err(CheckError::UnknownTerm(term.to_owned())),
+        }
+    }
 }
 
 pub struct OntologyQueryService {
@@ -223,12 +298,24 @@ impl OntologyQueryService {
             axioms.len(),
             class_iris.len()
         );
+        // Labels are read only here, on a rebuild: the cache probe stays IRI-only.
+        let classes = self.ontology_repo.list_owl_classes().await.unwrap_or_default();
+        let terms = TermIndex::new(
+            classes
+                .iter()
+                .map(|c| (c.iri.as_str(), c.label.as_deref().or(c.preferred_term.as_deref())))
+                .chain(class_iris.iter().map(|iri| (iri.as_str(), None))),
+            axioms
+                .iter()
+                .flat_map(|a| [a.subject.as_str(), a.object.as_str()]),
+        );
         let fresh = Arc::new(LoadedOntology {
             fingerprint,
             index,
             relations,
             asserted: asserted.into_iter().collect(),
             generation,
+            terms,
         });
         *self.loaded.write().await = Some(fresh.clone());
         fresh
@@ -244,40 +331,68 @@ impl OntologyQueryService {
     /// ADR-2127 decision 2: is `subject` ⊑ `class`? Answers `entailed`
     /// (asserted or Whelk-entailed, with its basis), `entailed_false` (an
     /// `owl:disjointWith` between the two sides, with the witness pair), or
-    /// `not_asserted` — never a boolean.
+    /// `not_asserted` — never a boolean. Each side is a class IRI or a class
+    /// label; a term that names no class is [`CheckError::UnknownTerm`], not
+    /// silence, and the answer echoes the resolved IRIs.
     pub async fn check_membership(
         &self,
         subject: &str,
         class: &str,
-    ) -> Result<MembershipCheck, String> {
+    ) -> Result<MembershipCheck, CheckError> {
         info!("Ontology check_membership: '{}' ⊑ '{}'", subject, class);
         let loaded = self.loaded().await;
+        let subject = loaded.terms.resolve(subject)?;
+        let class = loaded.terms.resolve(class)?;
         Ok(loaded
             .index
-            .membership(subject, class, AnswerScope::open(loaded.generation.clone())))
+            .membership(&subject, &class, AnswerScope::open(loaded.generation.clone())))
     }
 
     /// ADR-2127 decision 2, relation form: does `subject` stand in `property`
     /// to `object`? `entailed` when the edge is asserted or follows from one
     /// through the class and property hierarchies; `entailed_false` only when
     /// `property` (or a super-property) declares a domain or range the subject
-    /// or object is entailed-disjoint with; otherwise `not_asserted`.
+    /// or object is entailed-disjoint with; otherwise `not_asserted`. Subject
+    /// and object resolve as in [`Self::check_membership`]; a property label
+    /// maps to its IRI, and an undeclared property passes through (silence).
     pub async fn check_relation(
         &self,
         subject: &str,
         property: &str,
         object: &str,
-    ) -> Result<RelationCheck, String> {
+    ) -> Result<RelationCheck, CheckError> {
         info!(
             "Ontology check_relation: '{}' {} '{}'",
             subject, property, object
         );
         let loaded = self.loaded().await;
-        let signatures: HashMap<String, PropertySignature> = self
+        let subject = loaded.terms.resolve(subject)?;
+        let object = loaded.terms.resolve(object)?;
+        let properties = self
             .ontology_repo
             .list_owl_properties()
             .await
-            .map_err(|e| format!("Failed to list properties: {}", e))?
+            .map_err(|e| CheckError::Internal(format!("Failed to list properties: {}", e)))?;
+        let wanted = property.trim();
+        let property = if properties.iter().any(|p| p.iri == wanted) {
+            wanted.to_owned()
+        } else {
+            let by_label: Vec<&str> = properties
+                .iter()
+                .filter(|p| p.label.as_deref().is_some_and(|l| l.trim().eq_ignore_ascii_case(wanted)))
+                .map(|p| p.iri.as_str())
+                .collect();
+            match by_label.as_slice() {
+                [only] => (*only).to_owned(),
+                [] => wanted.to_owned(),
+                many => {
+                    let mut iris: Vec<String> = many.iter().map(|i| (*i).to_owned()).collect();
+                    iris.sort();
+                    return Err(CheckError::AmbiguousTerm(wanted.to_owned(), iris));
+                }
+            }
+        };
+        let signatures: HashMap<String, PropertySignature> = properties
             .into_iter()
             .filter(|p| !p.domain.is_empty() || !p.range.is_empty())
             .map(|p| {
@@ -293,9 +408,9 @@ impl OntologyQueryService {
         Ok(loaded.relations.relation(
             &loaded.index,
             &signatures,
-            subject,
-            property,
-            object,
+            &subject,
+            &property,
+            &object,
             AnswerScope::open(loaded.generation.clone()),
         ))
     }
@@ -768,4 +883,52 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
 
     matrix[a_len][b_len]
+}
+
+#[cfg(test)]
+mod term_index_tests {
+    use super::{CheckError, TermIndex};
+
+    fn index() -> TermIndex {
+        TermIndex::new(
+            [
+                ("urn:ngm:class:1-inch", Some("1inch")),
+                ("urn:ngm:class:bias", Some("Bias")),
+                ("urn:a:bias", Some("bias ")),
+                ("urn:ngm:class:token", None),
+            ],
+            ["urn:axiom:only"],
+        )
+    }
+
+    #[test]
+    fn an_iri_stands_for_itself() {
+        let terms = index();
+        assert_eq!(terms.resolve("urn:ngm:class:token").unwrap(), "urn:ngm:class:token");
+        assert_eq!(terms.resolve(" urn:axiom:only ").unwrap(), "urn:axiom:only");
+    }
+
+    #[test]
+    fn a_unique_label_resolves_whatever_its_case() {
+        assert_eq!(index().resolve("1INCH").unwrap(), "urn:ngm:class:1-inch");
+    }
+
+    #[test]
+    fn a_shared_label_is_ambiguous_and_lists_its_classes() {
+        assert_eq!(
+            index().resolve("bias").unwrap_err(),
+            CheckError::AmbiguousTerm(
+                "bias".into(),
+                vec!["urn:a:bias".into(), "urn:ngm:class:bias".into()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_term_naming_nothing_is_unknown() {
+        assert_eq!(
+            index().resolve("Decentralized Exchange").unwrap_err(),
+            CheckError::UnknownTerm("Decentralized Exchange".into())
+        );
+    }
 }

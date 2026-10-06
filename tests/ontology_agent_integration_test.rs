@@ -27,7 +27,7 @@ use visionclaw_server::ports::knowledge_graph_repository::{
 };
 use visionclaw_server::services::github_pr_service::GitHubPRService;
 use visionclaw_server::services::ontology_mutation_service::OntologyMutationService;
-use visionclaw_server::services::ontology_query_service::OntologyQueryService;
+use visionclaw_server::services::ontology_query_service::{CheckError, OntologyQueryService};
 use visionclaw_server::services::proposal_spine::{InMemoryIdempotencyStore, InMemoryIntentLog};
 use visionclaw_server::services::schema_service::SchemaService;
 use visionclaw_server::test_helpers::create_test_ontology_repo;
@@ -597,12 +597,34 @@ async fn test_membership_distinguishes_asserted_inferred_and_silent() {
     assert_eq!(inferred.verdict, Entailment::Entailed);
     assert_eq!(inferred.basis, Some(FactBasis::Inferred));
 
+    // Two known classes with no path and no disjointness: silence.
     let silent = service
-        .check_membership("mv:Technology", "mv:Person")
+        .check_membership("mv:Person", "mv:Agent")
         .await
         .unwrap();
     assert_eq!(silent.verdict, Entailment::NotAsserted);
     assert_eq!(silent.basis, None);
+}
+
+#[tokio::test]
+async fn test_check_terms_resolve_by_label_and_unknown_terms_are_refused() {
+    let service = build_disjoint_query_service().await;
+
+    // A class label (any case) resolves to its IRI, and the answer echoes it.
+    let by_label = service.check_membership("mv:Company", "agent").await.unwrap();
+    assert_eq!(by_label.class, "mv:Agent");
+    assert_eq!(by_label.verdict, Entailment::Entailed);
+    assert_eq!(by_label.basis, Some(FactBasis::Inferred));
+
+    // A term naming nothing is the caller's error, never `not_asserted`.
+    assert_eq!(
+        service.check_membership("mv:Nowhere", "mv:Person").await.unwrap_err(),
+        CheckError::UnknownTerm("mv:Nowhere".to_string())
+    );
+    assert_eq!(
+        service.check_relation("Nowhere", "urn:p:requires", "mv:Agent").await.unwrap_err(),
+        CheckError::UnknownTerm("Nowhere".to_string())
+    );
 }
 
 #[tokio::test]
@@ -874,12 +896,12 @@ async fn test_without_a_bundle_the_generation_is_the_store_digest_and_follows_re
         Some(first.as_str())
     );
     // A reload that changes the ontology changes the generation, and the
-    // cached index follows it.
-    let before = service
-        .check_membership("mv:Robot", "mv:Agent")
-        .await
-        .unwrap();
-    assert_eq!(before.verdict, Entailment::NotAsserted);
+    // cached indexes follow it: before the axiom neither term names anything,
+    // so the question is refused; after it, both resolve and it is entailed.
+    assert_eq!(
+        service.check_membership("mv:Robot", "mv:Agent").await.unwrap_err(),
+        CheckError::UnknownTerm("mv:Robot".to_string())
+    );
     repo.add_axiom(&axiom(AxiomType::SubClassOf, "mv:Robot", "mv:Agent"))
         .await
         .unwrap();
