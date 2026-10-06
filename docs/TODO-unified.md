@@ -176,6 +176,25 @@ Follow-ups, not rows yet:
 
 ADR census: agentbox has 29 open proposals. ADR-2071 is the first proposal settled this cycle.
 
+## Reconciliation 2026-10-06
+
+Day 15 of the cycle. Row changes: **N-15 added (closed)**, **N-16 added (open)**, CY-A2 annotated. The 4 Oct follow-ups grew while unattended; they are being cleared now (see below). Every other row is unchanged.
+
+| ID | State | Evidence and remaining boundary |
+|---|---|---|
+| N-15 | closed (live) | **sealmap evidence programme and diagram review cadence.** sealmap (DreamLab-AI/sealmap) ran pre-registered experiments E0, E0b–d, EH, EK, ER, ER-glm, ES and ES2; records under `docs/evidence/`. Verdict: sealmap is a deterministic Rust code lens (extraction, generated views, `dense`, `pack`); seals and staleness tracking are frozen as experimental; the TypeScript adapter, sequence-only corpora and pack-in-place-of-source are dropped. Every deterministic narrower lost real changes (symbol 0.76 recall, region 0.66, call-flow 0.45, line overlap 0.38); per-file flags batched weekly cut re-checks 88% at full recall. sealmap 0.2.1 published; README repositioned (`c547433`). agentbox: ADR-2131 diagram review cadence (`525ee4a47`, spend bound and baked runtime `feb608318`) and skills integration (`e635071c3`): sealmap 0.2.1 on PATH, `references/evidence.md`, two-family finding merge, authoring guidance. Live after the 6 Oct rebuild: `diagram-review-cron` RUNNING, discovers VisionFlow, campaignbuilder and sealmap; GLM triage 05:17 and review 02:47 UTC, Gemini audit gated and capped at $10/month. First runs night of 6–7 Oct. |
+| N-16 | open | **Dream PR titles lose their leading characters** (dream-engine #22 "eCell`", #23 "andidatesPerGeneration"; seen across VisionFlow and website PRs). Cosmetic, but the title is the reviewer's first read. Locate the title builder in dream-engine and fix with a test. |
+| CY-A2 | in progress (annotated) | `tests/config/declared-vs-running.test.js` is 10/11 after the rebuild: the committed runtime snapshot predates `diagram-review` (recapture clears it), and `sidechain-dreamlab-txbt4` is declared but not running, a real disagreement and a sidechain-demo precondition. Still no CI gate in `scripts/ci/`. |
+
+Follow-ups from 4 Oct, state on 6 Oct:
+
+- **Unpushed ledger rows** grew to factrail 5 and dream-machine 5 ahead (website 0). Being checked against the row contract and pushed.
+- **Open dream PRs** grew from 6 to 15: VisionFlow #13–16, website #52–55, dream-engine #12, #14, #16, #17 (dependabot) and #21–23. Under review.
+- **Stale ADR records:** 23 (from 19); `adr-index-gen.js` still refuses. ADR-2131 has no README row until it passes.
+- Night digest HTTP 500: still not investigated.
+
+Next: clear the dream output, close CY-A2, then the sidechain demo prerequisites (ADR-2078 pods signer first, then the settlement gate and the rust-bitcoin port).
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
