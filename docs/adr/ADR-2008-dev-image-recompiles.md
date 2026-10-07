@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -182,3 +182,7 @@ fires. `verified_commit` moved to the CI-repair commit.
 **Governed changes since `b39b1a626`:** `docker-compose.unified.yml` moved the `cloudflared` service from the `production`/`prod` profiles to its own `tunnel` profile (host ADR-2119). The `visionclaw` dev service is untouched.
 
 **Decision unaffected.** Nothing in how the dev image builds or recompiles changed. `verified_commit` moved to `920401379`.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `docker-compose.unified.yml` adds `RUVECTOR_PG_CONNINFO` (empty default) and five `MEMORY_CLOUD_*` variables to the `visionclaw` and `visionclaw-production` environment blocks, after `FORUM_RELAY_URL`; no other key, profile, port, volume or build argument changes. **Decision unaffected.** The dev image's recompile-on-start behaviour is unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -313,3 +313,7 @@ moved down by six lines. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `780eb3edb` (W8v, VisionClaw's own K_broker) inserts eight lines at `src/main.rs:195-202`: `visionclaw-server mint-nostr-key --out <path>` is dispatched first and exits. That path loads no `.env`, reads no environment, binds no listener, and rejects every argument other than `--out`/`--help` with exit 2, so `--allow-skip-auth` cannot ride along. Every path that serves still runs `enforce_release_env_hygiene()` (now `:209`) and `assert_effective_profile_or_exit` (now `:931`) before `HttpServer::new` (`:951`) and `.bind()` (`:1232`). Every `main.rs` citation after `:195` in this record moves down by eight lines. No profile flag, selector or compose service changed. The decision holds.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `docker-compose.unified.yml` adds `RUVECTOR_PG_CONNINFO` (empty default) and five `MEMORY_CLOUD_*` variables to the `visionclaw` and `visionclaw-production` environment blocks, after `FORUM_RELAY_URL`; no other key, profile, port, volume or build argument changes. `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. **Decision unaffected.** The three profiles and their flag sets are unchanged; the new private reads require `PowerUser` under every profile, including `demo-open`. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

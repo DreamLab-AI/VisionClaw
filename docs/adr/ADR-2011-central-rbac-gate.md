@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -130,3 +130,7 @@ matching or level-mapping logic changed.** `src/utils/auth.rs` is unchanged.
 ## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
 
 **Governed changes:** `src/utils/auth.rs` gains `nip98_request_url` (`:153`), which is the URL reconstruction that `verify_access` previously did inline: `X-Forwarded-Proto`/`X-Forwarded-Host` first, then `connection_info`. Empty forwarded headers now fall through to `connection_info`. The settings extractor and the `/wss` and `/ws/speech` authenticate URLs share it, and `nip98_proxy_tests` (`:544`) were added. The change exists so that the headset's NIP-98 writes validate behind the prod nginx (owner decision 2026-10-02, Q3). **Decision unaffected.** `RbacGate` still delegates to `verify_access`, and `required_level` is unchanged. The new helper sits on the NIP-98 branch only. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `src/utils/auth.rs` adds `effective_access_level(pubkey, nostr)` after `resolve_access_level` (+17 lines after line 75; later citations such as `dev_bypass_permitted_for_addr`, cited at `:122`, now sit at `:139`). It resolves the role of a pubkey the gate has *already* verified, using the same `resolve_access_level` path as `verify_access`, so a handler can demand a higher level without re-verifying a single-use NIP-98 token. It maps the dev-mode sentinel to `Admin` only when `dev_full_bypass_active()` is true, which is compile-gated to dev builds. `/api/memory-cloud{,/vectors,/query}` add a handler-level `PowerUser` check (`src/handlers/memory_cloud_handler.rs`) **above** the gate. **Decision unaffected.** `RbacGate` remains the enforcement floor for the whole `/api` scope, and the handler only raises the bar for private memory, as `RequireAuth::power_user()` already does for the broker inbox. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

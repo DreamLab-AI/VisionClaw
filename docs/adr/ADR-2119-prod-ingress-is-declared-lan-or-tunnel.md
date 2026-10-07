@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 920401379719cff87023be5bab6c7c6233fc63ed
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -82,3 +82,7 @@ that records every call, so nothing is launched:
 (the two refusal cases already held). `docker compose config --services` lists
 `visionclaw-production` alone for `--profile prod`, and adds `cloudflared` only with
 `--profile tunnel`. Activation is staged: no Trust host has started yet.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `docker-compose.unified.yml` adds `RUVECTOR_PG_CONNINFO` (empty default) and five `MEMORY_CLOUD_*` variables to the `visionclaw` and `visionclaw-production` environment blocks, after `FORUM_RELAY_URL`; no other key, profile, port, volume or build argument changes. **Decision unaffected.** Ingress (LAN or tunnel) is untouched; the sidecar is reached over the internal `visionclaw_network`. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
