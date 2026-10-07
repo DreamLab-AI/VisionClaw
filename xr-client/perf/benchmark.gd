@@ -38,6 +38,25 @@ var _tri_counts: PackedInt32Array = PackedInt32Array()
 var _static_mem_kb: PackedInt32Array = PackedInt32Array()
 var _started_at_us: int = 0
 var _fixture: Dictionary = {}
+# WP4: the cluster-hull layer at its maximum (32 hulls), rendered for the whole
+# run so the measured draw-call/triangle maxima include it.
+const HULL_MAX := 32
+const ParityScript := preload("res://scripts/graph_parity.gd")
+var _hull_report: Dictionary = {"enabled": false}
+# Node-mesh LOD on the production path: fixture (or synthetic) nodes go through
+# the Rust render store and lod::split_node_tiers every frame, exactly as in
+# GraphScene._update_multimesh. Worst case by default: the near radius is
+# unbounded, so the gem cap is always full.
+#   XR_BENCH_NODES=<n>          synthesise n nodes (13164 = production density)
+#   XR_BENCH_NEAR_RADIUS=<m>    gem-tier radius in metres (default: unbounded)
+const NodeLod := preload("res://scripts/node_lod.gd")
+var _client: RefCounted = null
+var _ids := PackedInt32Array()
+var _impostors: MultiMeshInstance3D = null
+var _near_radius: float = INF
+var _lod_report: Dictionary = {"enabled": false}
+var _node_source: String = "fixture"
+var _lod_build_ms := PackedFloat32Array()   # CPU cost of the per-frame LOD pack
 
 func _ready() -> void:
 	if has_meta("duration_seconds"):
@@ -47,11 +66,20 @@ func _ready() -> void:
 	if has_meta("memory_cloud_rows"):
 		memory_cloud_rows = int(get_meta("memory_cloud_rows"))
 	_fixture = _load_fixture(fixture_path)
-	_populate_scene_from_fixture(_fixture)
+	var synth: int = int(OS.get_environment("XR_BENCH_NODES")) if OS.has_environment("XR_BENCH_NODES") else 0
+	if synth > 0:
+		_fixture = _synthetic_fixture(synth)
+		_node_source = "synthetic"
+	if OS.has_environment("XR_BENCH_NEAR_RADIUS"):
+		_near_radius = float(OS.get_environment("XR_BENCH_NEAR_RADIUS"))
+	if not _populate_lod_path(_fixture):
+		_populate_scene_from_fixture(_fixture)
+	_add_hull_layer(_fixture)
 	_populate_memory_layers(memory_cloud_rows)
 	_started_at_us = Time.get_ticks_usec()
 
 func _process(delta: float) -> void:
+	_lod_rebuild()
 	_frame_times_ms.append(delta * 1000.0)
 	_draw_calls.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)))
 	_tri_counts.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)))
@@ -98,6 +126,10 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"schema_version": 1,
 		"fixture": fixture_path,
 		"node_count": int(_fixture.get("node_count", 0)),
+		"node_source": _node_source,
+		"node_lod": _lod_report,
+		"lod_build_ms_p50": _percentile(_sorted(_lod_build_ms), 0.50),
+		"lod_build_ms_p99": _percentile(_sorted(_lod_build_ms), 0.99),
 		"edge_count": int(_fixture.get("edge_count", 0)),
 		"avatar_count": int(_fixture.get("avatar_count", 0)),
 		"duration_s": elapsed_s,
@@ -116,6 +148,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"draw_calls_max": draw_max,
 		"tri_count_max": tri_max,
 		"static_mem_kb_max": _max_int(_static_mem_kb),
+		"hull_layer": _hull_report,
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
 		"pass": pass_p99 and pass_dc and pass_tri,
@@ -130,6 +163,115 @@ func _build_report(elapsed_s: float) -> Dictionary:
 			"max_triangles": MAX_TRIANGLES,
 		},
 	}
+
+# Build the hull layer from the fixture's node positions, split round-robin into
+# HULL_MAX groups — overlapping, worst-case hulls, so the measurement is an upper
+# bound. Estimate: one surface = 1 draw call; ≤ 124 triangles per hull (hulls.rs
+# MAX_TRIS_PER_HULL) → ≤ 3 968 triangles at the cap.
+func _add_hull_layer(fixture: Dictionary) -> void:
+	# XR_BENCH_HULLS=0 runs the same scene without the layer (A/B baseline).
+	if OS.get_environment("XR_BENCH_HULLS") == "0":
+		_hull_report = {"enabled": false, "reason": "XR_BENCH_HULLS=0"}
+		return
+	if not ClassDB.class_exists("BinaryProtocolClient"):
+		_hull_report = {"enabled": false, "reason": "gdext library not loaded"}
+		return
+	var pts := PackedVector3Array()
+	var groups := PackedInt32Array()
+	var i := 0
+	for n in fixture.get("nodes", []):
+		var p: Array = n.get("position", [0.0, 0.0, 0.0])
+		pts.append(Vector3(float(p[0]), float(p[1]), float(p[2])))
+		groups.append(1 + i % HULL_MAX)
+		i += 1
+	var client: RefCounted = BinaryProtocolClient.create()
+	var d: Dictionary = client.hull_mesh_from_points(pts, groups, 0.15, HULL_MAX)
+	var mesh: ArrayMesh = ParityScript.make_hull_mesh(d)
+	if mesh != null:
+		var inst := MeshInstance3D.new()
+		inst.name = "ClusterHulls"
+		inst.mesh = mesh
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://materials/cluster_hull.gdshader")
+		inst.material_override = mat
+		add_child(inst)
+	_hull_report = {
+		"enabled": mesh != null,
+		"hulls": int(d.get("hulls", 0)),
+		"triangles": int(d.get("triangles", 0)),
+		"draw_calls_est": 1 if mesh != null else 0,
+		"triangles_est_max": HULL_MAX * 124,
+	}
+
+# Deterministic production-density stand-in: n nodes in the fixture's ±10 m
+# volume (same seed every run).
+func _synthetic_fixture(n: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0xC0FFEE
+	var nodes: Array = []
+	for i in range(n):
+		var p := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1)).normalized() * 10.0 * pow(rng.randf(), 1.0 / 3.0)
+		nodes.append({"id": i + 1, "kind": "knowledge", "position": [p.x, p.y, p.z]})
+	return {"node_count": n, "edge_count": 0, "avatar_count": 0, "nodes": nodes}
+
+
+# Feed every node through the real decode door (a V3 frame into ingest) and set
+# up the gem + impostor MultiMeshes. False when the gdext library is missing, in
+# which case the legacy direct-transform population runs instead.
+func _populate_lod_path(fixture: Dictionary) -> bool:
+	if not ClassDB.class_exists("BinaryProtocolClient"):
+		_lod_report = {"enabled": false, "reason": "gdext library not loaded"}
+		return false
+	var nodes_multi := get_node_or_null("NodesMulti") as MultiMeshInstance3D
+	if nodes_multi == null or nodes_multi.multimesh == null:
+		return false
+	_client = BinaryProtocolClient.create()
+	var b := StreamPeerBuffer.new()
+	b.big_endian = false
+	b.put_u8(3)
+	for n in fixture.get("nodes", []):
+		var p: Array = n.get("position", [0.0, 0.0, 0.0])
+		var id: int = int(n.get("id", 0))
+		b.put_u32(id)
+		b.put_float(float(p[0])); b.put_float(float(p[1])); b.put_float(float(p[2]))
+		for _k in range(4):
+			b.put_float(0.0)
+		b.put_32(-1)
+		b.put_u32(0)
+		b.put_float(0.0)
+		b.put_u32(0)
+		b.put_float(0.5)
+		_ids.append(id)
+	_client.ingest(b.data_array)
+	var mm: MultiMesh = nodes_multi.multimesh
+	mm.instance_count = 0
+	mm.use_colors = true
+	mm.use_custom_data = true
+	_impostors = NodeLod.make_impostor_instance()
+	add_child(_impostors)
+	_lod_rebuild()
+	return true
+
+
+func _lod_rebuild() -> void:
+	if _client == null:
+		return
+	var cam := get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam != null else Vector3.ZERO
+	var t0 := Time.get_ticks_usec()
+	var near: PackedFloat32Array = _client.build_node_buffer_lod(_ids, 1.0, 0.7, 1.9, eye, NodeLod.NEAR_CAP, _near_radius)
+	var near_count: int = NodeLod.assign(get_node("NodesMulti") as MultiMeshInstance3D, near)
+	var far_count: int = NodeLod.assign(_impostors, _client.impostor_node_buffer())
+	_lod_build_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	_lod_report = {
+		"enabled": true,
+		"near": near_count,
+		"impostors": far_count,
+		"near_cap": NodeLod.NEAR_CAP,
+		"near_radius_m": _near_radius if is_finite(_near_radius) else -1.0,
+		"triangles_est": near_count * 576 + far_count * 2,
+	}
+
 
 func _load_fixture(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
@@ -175,6 +317,12 @@ func _apply_to_multimesh(mm_inst: MultiMeshInstance3D, nodes: Array) -> void:
 		var p: Array = nodes[i].get("position", [0.0, 0.0, 0.0])
 		var t := Transform3D(Basis(), Vector3(float(p[0]), float(p[1]), float(p[2])))
 		mm.set_instance_transform(i, t)
+
+func _sorted(arr: PackedFloat32Array) -> PackedFloat32Array:
+	var c := arr.duplicate()
+	c.sort()
+	return c
+
 
 # The cloud sits under a holder scaled like a fitted GraphRoot (±500 server units
 # → ±5 m) in front of the camera; reduced motion off so the route animates.

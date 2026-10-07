@@ -1,11 +1,13 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.4
+version: 0.1.6
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.4 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame"
+  - "0.1.6 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame; memory layers held to the 16k triangle headroom the node LOD leaves"
+  - "0.1.5 (2026-10-07): node-mesh LOD (gem tier capped at 96, 2-triangle impostors beyond) brings the benchmark under the PRD-008 triangle budget at 1k and 13k nodes; dev profile optimised because the editor/headset run loads target/debug; GUT 9.7.1 vendored, CI on Godot 4.6.1. No invariant changed."
+  - "0.1.4 (2026-10-07): desktop parity — domain palette (default) with community toggle, inbound settingsUpdated/filter/graphUpdated sync incl. physics read-back, cluster hulls as one ArrayMesh; project.godot comment corrected; benchmark triangle-budget divergence recorded. No invariant changed."
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1: flag self-contradictory docstring on is_directed_hierarchy_relation (excludes vs accepts 'hierarchical')"
@@ -15,6 +17,15 @@ sources:
   - xr-client/scripts/hud.gd
   - xr-client/scripts/graph_scene.gd
   - xr-client/rust/src/render_store.rs
+  - xr-client/rust/src/domain_palette.rs
+  - xr-client/rust/src/settings_sync.rs
+  - xr-client/rust/src/hulls.rs
+  - xr-client/scripts/graph_parity.gd
+  - xr-client/materials/cluster_hull.gdshader
+  - xr-client/rust/src/lod.rs
+  - xr-client/scripts/node_lod.gd
+  - xr-client/materials/node_impostor.gdshader
+  - xr-client/perf/benchmark.gd
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/rust/src/memory_cloud.rs
   - xr-client/rust/src/memory_route.rs
@@ -252,15 +263,130 @@ bare label was accepted, so from `7b6330608` each domain root ranked as the
 child of its own members (live census: 6400 membership edges in a 16196-edge
 rank set; every root at rank 1 below 36-533 of its members).
 
+### Node-mesh LOD and the triangle budget (2026-10-07)
+The gem node (16×8 sphere plus the halo `next_pass`) costs 576 triangles, so the
+PRD-008 budget (≤ 100k triangles, ≤ 50 draw calls, `perf/README.md`) failed at
+1 000 nodes (576 000) and the 13k production graph would be ≈ 7.5 M. Two tiers fix
+it without touching the near look:
+- **Gem tier**: the nearest `NEAR_CAP = 96` drawn nodes within `NEAR_RADIUS_M =
+  1.0` m of the eye keep the full gem material — 96 × 576 = 55 296 triangles, under
+  a ~60k near-field ceiling. Labelled (faded) nodes stay on the full mesh and count
+  against the cap. Selection is Rust `lod::split_node_tiers` (O(n) partial select,
+  10 % distance hysteresis so boundary nodes do not flicker), called through
+  `BinaryProtocolClient.build_node_buffer_lod`; camera and radius are converted
+  into GraphRoot space, so the fit scale and two-hand manipulation are respected.
+- **Impostor tier**: every other drawn node is one camera-facing quad
+  (`materials/node_impostor.gdshader`: analytic lit sphere with specular, rim and
+  the centrality/query rim tells; opaque with discard; billboarded with the main
+  camera basis as Godot's own billboard mode does, so both eyes agree) in a single
+  `NodesImpostorMulti` under GraphRoot (`scripts/node_lod.gd`) — +1 draw call.
+  Same 20-float instance layout, and every node keeps its render position, so ray
+  picking, edges, labels and hulls ignore the tier.
+
+`perf/benchmark_scene.tscn` now measures this production path (fixture → V3 frame
+→ `ingest` → LOD split every frame, worst case: gem cap always full) and reports
+`node_lod`, `lod_build_ms_p50/p99` and `hull_layer`; `XR_BENCH_NODES=13164` runs
+production density, `XR_BENCH_HULLS=0` drops the hull layer. Measured on HP
+(Godot 4.6.1, opengl3, `--xr-mode off`, dev-profile library, 2026-10-07):
+
+| Run | Draw calls | Triangles | Frame p50 / p99 | LOD pack p99 | Result |
+|---|---|---|---|---|---|
+| 1 000 nodes + 32 hulls | 4 | 58 030 | 0.31 / 0.93 ms | 0.23 ms | pass |
+| 1 000 nodes, no hulls | 3 | 57 104 | 0.31 / 0.93 ms | 0.16 ms | pass |
+| 13 164 nodes + 32 hulls | 4 | 84 370 | 2.02 / 2.22 ms | 2.17 ms | pass |
+| 13 164 nodes, no hulls | 3 | 81 432 | 2.02 / 2.47 ms | 2.13 ms | pass |
+
+Before the LOD the 1 000-node scene measured 576 000 triangles. The benchmark
+renders nodes (and hulls) only: edges are not in it. The live scene's edge
+cylinders (8-sided, capped, up to `EDGE_SAFETY_CEILING`) are an open item below.
+
+**The headset runs the debug library.** `visionclaw_xr_gdext.gdextension` maps
+the editor (`linux.debug.x86_64`) to `target/debug`, and the desktop-OpenXR launch
+is the editor binary. Unoptimised, the 13k node pack took 18–20 ms per frame
+(p99 20.3 ms, failing 90 fps); the crate's `[profile.dev]` is now `opt-level = 2`
+(debug assertions and overflow checks kept), which gives the numbers above.
+
+### Desktop parity: domain colour, settings sync, cluster hulls (2026-10-07)
+Three desktop behaviours ported under the existing invariants (audit WP1, WP2,
+WP4). Rust owns every rule; `scripts/graph_parity.gd` is the only scene-side
+owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
+
+- **Domain palette (default).** `domain_palette.rs` is a deliberate copy of
+  `client/src/features/graph/utils/domainColors.ts` (`DOMAIN_COLORS`,
+  `getDomainColor` alias rules, fallback `#90A4AE`) plus the `GemNodes.tsx` hub
+  lift (saturation `+min(cc/30, 0.1)` ≤ 0.95, lightness `+min(cc/40, 0.06)` ≤ 0.8;
+  no authority term — the XR wire has none). The lift runs in three.js's
+  *linear* HSL and is returned sRGB-encoded, matching what the desktop displays;
+  ground-truth hexes come from the worktree's three.js 0.183.0.
+  `tests/domain_palette_parity.rs` parses the TS file **and** `hud.gd`'s
+  `KEY_DOMAIN_SWATCHES` / `KEY_HULL_SWATCHES`, so the table, its desktop source
+  and the Key tab cannot drift apart. Domain comes from `initialGraphLoad`
+  `metadata.domain ?? metadata.source_domain`. Precedence is unchanged: query
+  mark, then agent status, then the base colour; the anomaly red blend applies
+  in both modes (`render_store::anomaly_blend`). The Graph tab's
+  **Colour: Domain / Community** button switches the base colour.
+- **Inbound settings and filter sync.** `settings_sync.rs` mirrors
+  `textMessageHandler.ts`: `settingsUpdated` (ADR-2047) is dropped when its
+  timestamp is ≤ the last applied for that category, or when `updatedBy` is this
+  session's pubkey (`set_own_pubkey`); `nodeFilter` is applied to the render
+  store's draw domain with the desktop `useGraphFiltering` predicate (linked_page
+  gate, quality `quality_score ?? quality ?? qualityScore` else `min(1, degree/10)`,
+  authority else 1.0, AND/OR — note the desktop/server OR mode admits everything
+  when only one check is on); agents are never filtered; filter-hidden nodes also
+  drop their edges and search hits. `physics` triggers a `GET
+  /api/settings/physics` whose body updates the HUD's tracked values (repelK,
+  restLength, Hierarchy, shells, planes, 3D/Flat) — this closes the old one-way
+  write, where a peer's change left stale button faces. The read waits while a
+  local write is in flight. `graphUpdated` is coalesced by `RefetchGate` into
+  `requestInitialData`, held to the server's 30 s per-connection cooldown
+  (`position_updates.rs:382`) so the last change is never dropped. Receipt never
+  writes back; writes stay on the HUD-press NIP-98 path (Invariant 6).
+- **Cluster hulls.** `hulls.rs` follows `ClusterHulls.tsx`: group by
+  `cluster_id` (V3 offset 36) when any node has one, otherwise — only in
+  *Communities* mode, the desktop's opt-in `communityFallback` — by Louvain
+  community; drop clusters < 4, keep the 32 largest; pad 15 % from the centroid;
+  extrude flat clusters ±35 along the thinnest axis; desktop palettes
+  (`GPU_CLUSTER_COLORS`, community HSL in linear space). Each cluster is reduced
+  to its extreme points along 64 fixed directions, so a hull is ≤ 124 triangles
+  and the layer ≤ 3 968; all hulls are one `ArrayMesh` surface under `GraphRoot`
+  (**one draw call**), drawn by `materials/cluster_hull.gdshader` (unshaded,
+  `blend_mix`, no depth write, double-sided, opacity 0.08 plus a fresnel edge —
+  no post-process, no screen texture). Only drawn nodes are hulled. The scene
+  polls at 2 Hz and Rust skips the build unless a drawn position moved ≥ 1
+  server unit. HUD **Hulls: Off / Clusters / Communities** cycles the source;
+  without a server clustering run, *Clusters* honestly shows nothing (ADR-031 D6).
+  Measured on HP (Godot 4.6.1, opengl3, `perf/benchmark_scene.tscn` at the 32-hull
+  cap): draw calls 6 → 7, triangles +926.
+
 ## Known divergences & open items
-- **project.godot vs runtime.** File says Godot 4.3 / Forward Mobile
-  (`project.godot:12`); the working build is 4.6.1-stable Compatibility. Still
-  open, and deliberately so: `config/features` is editor-managed metadata, Godot
-  is **not installed in this environment**, and hand-editing it cannot be
-  verified — the editor rewrites that array on save. Re-pinning is a task for the
-  next session on a machine with the 4.6.1 editor, not a text edit. Documented in
-  `xr-client/README.md:15-18` ("read 4.3 as the pinned editor of the day") as
-  well as here. Assessed 2026-09-05 (ADR-2079 scope review).
+- **project.godot vs runtime.** `config/features` still says Godot 4.3 / Forward
+  Mobile; the working build is 4.6.1-stable Compatibility. The header comment was
+  corrected in text on 2026-10-07 (it now states the verified runtime). The array
+  itself stays open: it is editor-managed metadata (4.6.1 `--import` on HP leaves
+  the file byte-identical), and its renderer tag is the Quest renderer decision
+  (`rendering_method.mobile="mobile"` vs the Compatibility runtime that works),
+  which belongs to audit WP0 with an ADR and a headset receipt (Invariant 1). A
+  hand-edit would pre-empt that decision. Documented in `xr-client/README.md:15-18`
+  as well as here.
+- **Benchmark triangle budget — Resolved 2026-10-07.** It failed at baseline
+  (576 000 triangles for 1 000 gem nodes); the node-mesh LOD above brings 1k to
+  58 030 and 13k to 84 370 with ≤ 4 draw calls. **Still open: edges.** The live
+  scene draws up to 20 000 edge cylinders (8 radial segments plus caps ≈ 32
+  triangles each, ≈ 640k at the ceiling), which the benchmark does not render;
+  an edge LOD (uncapped or ribbon impostors beyond the near field) is the next
+  budget item.
+- **Instance colour is treated as linear.** `gem.tres` uses
+  `vertex_color_use_as_albedo` without `vertex_color_is_srgb`, so every node palette
+  (community, query, agent, and now domain) shows lighter than its sRGB swatch and
+  than the desktop hex. Domain colours and hulls keep that convention, so a hull
+  and its nodes read as one hue. Flipping the flag changes every palette at once
+  and needs a headset look review.
+- **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
+  Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
+  `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
+  runs the suite on Godot 4.6.1 with the vendored copy. Both documented invocations
+  (`-gdir=res://tests/unit -ginclude_subdirs -gexit` and
+  `-gconfig=res://.gutconfig.json`) pass on HP (121/121).
 - **Quest 3 is unmeasured.** Quest 3 is the sole *ship* target
   (`project.godot:2`, README) but the APK is **unbuilt** and the cross-build is
   frozen — no Android NDK is provisioned in this environment (README line 6).
@@ -298,19 +424,15 @@ rank set; every root at rank 1 below 36-533 of its members).
   (`render_store.rs`), agent status halo + Swarm dot (`SWARM_STATUS_COLORS`),
   edge tints (`edge_flow.gdshader`), wand ray + panel states, avatar states.
   The swatch constants are duplicated from their sources by design (same
-  posture as `SWARM_STATUS_COLORS`); a palette change must update both.
+  posture as `SWARM_STATUS_COLORS`); a palette change must update both. Since
+  2026-10-07 the Key also lists the domain palette (default colour mode) and the
+  hull palette, and those two tables are parity-tested from Rust.
 - **Memory cloud — not yet seen in a headset.** The layers are exercised by
   GUT on Godot 4.6.1 (HP) and by screenshots in a desktop GL window
   (`tests/visual/memory_cloud_capture.gd`). Stereo agreement of the main-camera
   billboards, sprite legibility at fit scale, label reach and the route's
   additive brightness need a VIVE Pro session. The server relay of `memoryRoute`
   and the desktop sender are owned by the beat-clock relay work (WP5).
-- **Graph triangles exceed the budget.** `perf/benchmark_scene.tscn` with
-  `memory_rows=0` measures 576 000 triangles for 1000 nodes: every SphereMesh
-  16×8 node (288 triangles) draws twice because `gem.tres` carries the
-  `node_halo` `next_pass`. The 100k budget in `perf/README.md` cannot hold at any
-  real graph size until node tessellation or the halo pass is reduced. That is a
-  graph-render decision that needs a headset receipt, so it is left open here.
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
@@ -336,8 +458,10 @@ rank set; every root at rank 1 below 36-533 of its members).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(285 headless library tests as of 2026-10-07, <1 s, no headset/Godot/network needed; the
-README's "141" is stale — ADR-2076). Any change
+(364 headless tests — 259 library + 105 integration — as of 2026-10-07, no
+headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
+(`tests/unit`, vendored 9.7.1) needs the 4.6.1 editor and the native library
+built for the host (`cargo build -p visionclaw-xr-gdext`). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

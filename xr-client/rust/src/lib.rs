@@ -21,7 +21,9 @@
 
 pub mod avatar_state;
 pub mod binary_protocol;
+pub mod domain_palette;
 pub mod gaze;
+pub mod hulls;
 pub mod interaction;
 pub mod lod;
 pub mod memory_cloud;
@@ -32,6 +34,7 @@ pub mod proxemics;
 pub mod render_store;
 pub mod runtime;
 pub mod selection;
+pub mod settings_sync;
 pub mod signer;
 pub mod transport;
 pub mod webrtc_audio;
