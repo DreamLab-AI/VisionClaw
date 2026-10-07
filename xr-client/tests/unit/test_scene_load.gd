@@ -134,13 +134,37 @@ func test_avatar_apply_pose_updates_head_transform():
 	var target_rot := Quaternion(Vector3.UP, deg_to_rad(90.0))
 	avatar.apply_pose(target_pos, target_rot, false, false)
 
-	# After apply_pose sets targets, process a few frames so interpolation converges.
-	for i in range(120):
-		await get_tree().process_frame
+	# Interpolation weight is INTERPOLATION_SPEED * delta, so convergence is a
+	# function of elapsed time, not frame count: 120 frames is ~2 s at 60 fps but a
+	# small fraction of a second in an uncapped GL window (CI's Xvfb run), where the
+	# head reached only ~48 % of the way. Wait real time instead (1 s at speed 12
+	# leaves a residual of ~e^-12).
+	await wait_seconds(1.0)
 
 	var head: MeshInstance3D = avatar.get_node("Head")
 	assert_almost_eq(head.transform.origin, target_pos, Vector3(0.05, 0.05, 0.05), "head position must converge to target")
 
+	avatar.queue_free()
+	await get_tree().process_frame
+
+
+# At high frame rates (tiny delta, many frames) repeated Basis.slerp drifted off
+# orthonormal and Godot logged "Basis ... must be normalized in order to be casted
+# to a Quaternion" every frame (seen in the uncapped GL GUT run, 2026-10-07).
+func test_avatar_rotation_stays_normalised_at_high_frame_rate():
+	var packed: PackedScene = load("res://scenes/Avatar.tscn")
+	var avatar: Node3D = packed.instantiate()
+	add_child(avatar)
+	await get_tree().process_frame
+	avatar.set_process(false)  # drive _process by hand with an uncapped-rate delta
+	avatar.apply_pose(Vector3(1, 2, 3), Quaternion(Vector3.UP, deg_to_rad(90.0)), true, true)
+	for i in range(3000):
+		avatar._process(0.0005)
+	for part in ["Head", "LeftHand", "RightHand"]:
+		var b: Basis = (avatar.get_node(part) as Node3D).transform.basis
+		assert_true(b.is_equal_approx(b.orthonormalized()), "%s basis stays orthonormal" % part)
+	var head_q: Quaternion = (avatar.get_node("Head") as Node3D).transform.basis.get_rotation_quaternion()
+	assert_almost_eq(head_q.angle_to(Quaternion(Vector3.UP, deg_to_rad(90.0))), 0.0, 0.01, "head converges to the target rotation")
 	avatar.queue_free()
 	await get_tree().process_frame
 

@@ -321,12 +321,17 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   triangles each, ≈ 640k at the ceiling), which the benchmark does not render;
   an edge LOD (uncapped or ribbon impostors beyond the near field) is the next
   budget item.
-- **Instance colour is treated as linear.** `gem.tres` uses
-  `vertex_color_use_as_albedo` without `vertex_color_is_srgb`, so every node palette
-  (community, query, agent, and now domain) shows lighter than its sRGB swatch and
-  than the desktop hex. Domain colours and hulls keep that convention, so a hull
-  and its nodes read as one hue. Flipping the flag changes every palette at once
-  and needs a headset look review.
+- **Instance colour convention — Corrected 2026-10-07.** Version 0.1.4 said the
+  gem material showed instance colours lighter than their sRGB swatch. That was
+  inferred from the StandardMaterial flags, not measured, and it is wrong: on HP
+  (Godot 4.6.1, Compatibility/opengl3) unlit `gem.tres` renders `#646b9f` as exactly
+  `#646b9f` on both a SubViewport and the root window, with `vertex_color_is_srgb`
+  off *or* on. Instance colours pass through unchanged, so the palette hexes, the
+  Key swatches and the desktop's displayed colours already agree. The convention is
+  "COLOR is used raw"; `tests/unit/test_instance_color_space.gd` renders the gem,
+  the impostor and the hull shader under GL and compares pixels with the hex
+  (pending under the headless dummy renderer, enforced in CI's Xvfb job). The OpenXR
+  swapchain path is not measured here and needs a headset check.
 - **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
   Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
   `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
@@ -401,7 +406,10 @@ Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
 (364 headless tests — 259 library + 105 integration — as of 2026-10-07, no
 headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
 (`tests/unit`, vendored 9.7.1) needs the 4.6.1 editor and the native library
-built for the host (`cargo build -p visionclaw-xr-gdext`). Any change
+built for the host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off`
+(as CI does), because the project enables OpenXR and a headless run otherwise
+probes the installed runtime — on HP it crashes at startup whenever SteamVR is the
+active runtime but not running. Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than
