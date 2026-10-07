@@ -77,10 +77,10 @@ async fn resolve_access_level(pubkey: &str, is_power_user: bool) -> AccessLevel 
 /// **already** been verified upstream (by `RbacGate` or `RequireAuth`, which
 /// leave an `AuthenticatedUser` in the request extensions).
 ///
-/// Handlers that need a higher level than the gate enforced must use this
-/// rather than calling [`verify_access`] again: NIP-98 tokens are single-use,
-/// so a second verification of the same `Authorization` header is rejected as
-/// a replay. The dev-mode sentinel principal resolves to `Admin`, mirroring
+/// NIP-98 tokens are single-use, so a layered check must not verify the same
+/// `Authorization` header twice; [`verify_access`] calls this instead whenever
+/// the request already carries a verified identity. Handlers may also call it
+/// directly. The dev-mode sentinel principal resolves to `Admin`, mirroring
 /// the bypass in [`verify_access`].
 pub async fn effective_access_level(pubkey: &str, nostr_service: &NostrService) -> AccessLevel {
     if pubkey == DEV_MODE_PUBKEY && dev_full_bypass_active() {
@@ -263,6 +263,31 @@ pub async fn verify_access(
         .and_then(|h| h.to_str().ok())
     {
         if auth_value.starts_with("Nostr ") {
+            // NIP-98 event ids are single-use. When an outer layer (`RbacGate`
+            // over `/api`, or an enclosing `RequireAuth`) has already verified
+            // this request's token, it left the signer in the request
+            // extensions — which only server-side middleware can populate.
+            // Verifying the same header again would be rejected as a replay,
+            // so reuse that identity and check only the level required here.
+            if let Some(identity) = crate::middleware::auth::get_authenticated_user(req) {
+                let user_level = effective_access_level(&identity.pubkey, nostr_service).await;
+                if user_level.has_permission(&required_level) {
+                    debug!(
+                        request_id = %request_id,
+                        pubkey = %identity.pubkey,
+                        "NIP-98 identity reused from an outer verification"
+                    );
+                    return Ok(identity.pubkey);
+                }
+                warn!(
+                    "User {} with level {:?} lacks required {:?}",
+                    identity.pubkey, user_level, required_level
+                );
+                return Err(
+                    HttpResponse::Forbidden().body("Insufficient permissions for this operation")
+                );
+            }
+
             let url = nip98_request_url(req);
             let method = req.method().as_str();
 
