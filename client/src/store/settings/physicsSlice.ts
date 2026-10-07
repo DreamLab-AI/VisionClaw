@@ -77,6 +77,10 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
     if (validatedParams.springKAgent !== undefined) {
       validatedParams.springKAgent = Math.max(0.0, Math.min(10.0, validatedParams.springKAgent));
     }
+    if (validatedParams.broadcastFps !== undefined) {
+      // Integer Hz, server-validated 1-60 (physics_bounds::BROADCAST_FPS).
+      validatedParams.broadcastFps = Math.round(Math.max(1, Math.min(60, validatedParams.broadcastFps)));
+    }
     if (validatedParams.repelK !== undefined) {
       validatedParams.repelK = Math.max(0.001, Math.min(2000.0, validatedParams.repelK));
     }

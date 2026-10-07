@@ -13,6 +13,19 @@ pub const CANONICAL_MAX_VELOCITY: f32 = 200.0;
 /// Canonical maximum force (from `src/config/mod.rs`).
 pub const CANONICAL_MAX_FORCE: f32 = 50.0;
 
+/// Default position-broadcast rate in Hz (`PhysicsSettings::broadcast_fps`).
+///
+/// 8 Hz is the cadence live clients received before the broadcast rate
+/// limiter was corrected, so keeping it keeps per-client bandwidth unchanged.
+/// Every broadcast is a full snapshot (~52 B per node, ~490 KB for the
+/// ~9.5k-node corpus graph), so bandwidth per client scales with the rate:
+/// 8 Hz is ~3.9 MB/s, 25 Hz is ~12 MB/s.
+pub const DEFAULT_BROADCAST_FPS: u32 = 8;
+
+fn default_broadcast_fps() -> u32 {
+    DEFAULT_BROADCAST_FPS
+}
+
 fn default_auto_balance_interval() -> u32 {
     500
 }
@@ -422,6 +435,16 @@ pub struct PhysicsSettings {
     pub spring_k_ontology: f32,
     #[serde(default = "default_spring_pop_scale", alias = "spring_k_agent")]
     pub spring_k_agent: f32,
+
+    /// Position-broadcast rate in Hz, 1-60 (default [`DEFAULT_BROADCAST_FPS`]).
+    /// Not a simulation parameter: it sets how often the server sends each
+    /// client a full position snapshot, which clients tween between. Cost per
+    /// client is linear in the rate: ~3.9 MB/s at 8 Hz, ~12 MB/s at 25 Hz for
+    /// the ~9.5k-node graph. Applied live through
+    /// `ConfigureBroadcastOptimization`.
+    #[serde(default = "default_broadcast_fps", alias = "broadcast_fps")]
+    #[validate(range(min = 1, max = 60))]
+    pub broadcast_fps: u32,
 }
 
 impl Default for PhysicsSettings {
@@ -502,6 +525,7 @@ impl Default for PhysicsSettings {
             spring_k_knowledge: 1.0,
             spring_k_ontology: 1.0,
             spring_k_agent: 1.0,
+            broadcast_fps: DEFAULT_BROADCAST_FPS,
         }
     }
 }
@@ -619,6 +643,36 @@ pub struct PhysicsUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The position-broadcast rate is a physics setting with default 8 Hz,
+    /// and a blob persisted before the field existed still deserialises.
+    #[test]
+    fn broadcast_fps_defaults_to_8_and_round_trips() {
+        assert_eq!(DEFAULT_BROADCAST_FPS, 8);
+        assert_eq!(
+            PhysicsSettings::default().broadcast_fps,
+            DEFAULT_BROADCAST_FPS
+        );
+
+        let mut legacy = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("broadcastFps");
+        let ps: PhysicsSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(ps.broadcast_fps, DEFAULT_BROADCAST_FPS);
+
+        let mut ps = PhysicsSettings::default();
+        ps.broadcast_fps = 25;
+        let json = serde_json::to_value(&ps).unwrap();
+        assert_eq!(json["broadcastFps"], 25);
+        let back: PhysicsSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.broadcast_fps, 25);
+
+        let mut snake = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        let obj = snake.as_object_mut().unwrap();
+        obj.remove("broadcastFps");
+        obj.insert("broadcast_fps".into(), serde_json::json!(12));
+        let snake: PhysicsSettings = serde_json::from_value(snake).unwrap();
+        assert_eq!(snake.broadcast_fps, 12);
+    }
 
     #[test]
     fn test_physics_settings_default() {

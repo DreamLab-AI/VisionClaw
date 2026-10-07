@@ -160,6 +160,8 @@ export interface PhysicsSettings {
   cluster_count: number;
   clustering_resolution: number;
   clustering_iterations: number;
+  /** Position-broadcast rate in Hz, 1-60 (default 8); ~0.49 MB per client per broadcast. */
+  broadcast_fps: number;
 }
 
 // Rendering settings

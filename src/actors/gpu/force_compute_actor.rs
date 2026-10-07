@@ -4039,43 +4039,21 @@ impl Handler<crate::actors::messages::ConfigureBroadcastOptimization> for ForceC
         msg: crate::actors::messages::ConfigureBroadcastOptimization,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        info!("ForceComputeActor: ConfigureBroadcastOptimization received");
-
-        // Get current stats before update
-        let old_stats = self.broadcast_optimizer.get_performance_stats();
-
-        // Build new config from current + updates.
         // NOTE: `delta_threshold` is accepted on the wire for backward
         // compatibility but ignored — the broadcast is full-snapshot only
         // (BROADCAST-001). There is no delta path to configure.
         if msg.delta_threshold.is_some() {
-            info!("  delta_threshold ignored — broadcast is full-snapshot only (BROADCAST-001)");
+            debug!("ConfigureBroadcastOptimization: delta_threshold ignored (BROADCAST-001)");
         }
-        let new_config = BroadcastConfig {
-            target_fps: msg.target_fps.unwrap_or(old_stats.target_fps),
-            enable_spatial_culling: msg
-                .enable_spatial_culling
-                .unwrap_or(self.broadcast_optimizer.config().enable_spatial_culling),
-            camera_bounds: None, // Updated separately via UpdateCameraFrustum
-        };
-
-        // Validate parameters
-        if new_config.target_fps == 0 || new_config.target_fps > 60 {
-            return Err(format!(
-                "Invalid target_fps: {} (must be 1-60)",
-                new_config.target_fps
-            ));
-        }
-
+        let old_fps = self.broadcast_optimizer.config().target_fps;
+        self.broadcast_optimizer
+            .configure(msg.target_fps, msg.enable_spatial_culling)?;
         info!(
-            "  Target FPS: {} -> {}",
-            old_stats.target_fps, new_config.target_fps
+            "ForceComputeActor: broadcast rate {} -> {} Hz, spatial culling {}",
+            old_fps,
+            self.broadcast_optimizer.config().target_fps,
+            self.broadcast_optimizer.config().enable_spatial_culling
         );
-        info!("  Spatial culling: {}", new_config.enable_spatial_culling);
-
-        // Apply new configuration
-        self.broadcast_optimizer.update_config(new_config);
-
         Ok(())
     }
 }

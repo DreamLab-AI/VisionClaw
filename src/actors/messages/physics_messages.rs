@@ -516,6 +516,17 @@ pub struct ConfigureBroadcastOptimization {
     pub enable_spatial_culling: Option<bool>,
 }
 
+impl ConfigureBroadcastOptimization {
+    /// Change only the broadcast rate; culling stays as it is.
+    pub fn rate_only(target_fps: u32) -> Self {
+        Self {
+            target_fps: Some(target_fps),
+            delta_threshold: None,
+            enable_spatial_culling: None,
+        }
+    }
+}
+
 /// Update camera frustum for spatial culling
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<(), String>")]

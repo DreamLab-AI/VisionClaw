@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 235,
+  "count": 236,
   "groups": [
     {
       "id": "motion",
@@ -57,7 +57,7 @@
       "label": "System & Developer",
       "testid": "group-system",
       "hotkey": "8",
-      "fieldCount": 16
+      "fieldCount": 17
     },
     {
       "id": "agents",
@@ -2320,6 +2320,20 @@
       "clientOnly": true,
       "server": null,
       "subgroup": "Network"
+    },
+    {
+      "key": "broadcastFps",
+      "path": "visualisation.graphs.knowledge.physics.broadcastFps",
+      "testid": "setting-visualisation.graphs.knowledge.physics.broadcastFps",
+      "control": "slider",
+      "group": "system",
+      "label": "Position Broadcast Rate (Hz)",
+      "clientOnly": false,
+      "server": "physics",
+      "subgroup": "Network",
+      "min": 1,
+      "max": 60,
+      "step": 1
     },
     {
       "key": "enableDebug",

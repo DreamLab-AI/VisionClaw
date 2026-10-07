@@ -1018,6 +1018,11 @@ impl AppState {
                 // making the separation/compression/adaptive-speed controls appear dead.
                 let startup_sim_params =
                     crate::models::simulation_params::SimulationParams::from(&physics_settings);
+                // The persisted broadcast rate is not a SimParams field; push it too.
+                let startup_broadcast_rate =
+                    crate::settings::api::settings_routes::broadcast_rate_message(
+                        &physics_settings,
+                    );
 
                 // Re-project after the post-sync Oxigraph reload. The reload resets
                 // GraphStateActor to the stored (un-separated) layout AFTER the boot
@@ -1081,6 +1086,11 @@ impl AppState {
                                     startup_sim_params.enable_dual_disc_layout,
                                     startup_sim_params.adaptive_speed
                                 );
+                                info!(
+                                    "[AppState] Pushing persisted broadcast rate to ForceComputeActor ({:?} Hz)",
+                                    startup_broadcast_rate.target_fps
+                                );
+                                force_compute_actor.do_send(startup_broadcast_rate.clone());
                                 let mut guard = gpu_compute_addr_clone.write().await;
                                 *guard = Some(force_compute_actor);
                                 info!("[AppState] ForceComputeActor address stored - GPU physics now available via AppState");

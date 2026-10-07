@@ -251,6 +251,12 @@ impl OptimizedSettingsActor {
                 bounds::ITERATIONS.1,
             ),
             (
+                "visualisation.graphs.knowledge.physics.broadcast_fps",
+                FieldType::Int32,
+                bounds::BROADCAST_FPS.0,
+                bounds::BROADCAST_FPS.1,
+            ),
+            (
                 "visualisation.graphs.knowledge.physics.enabled",
                 FieldType::Bool,
                 0.0,

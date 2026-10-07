@@ -90,6 +90,12 @@ pub const SSSP_ALPHA: Bound = (0.0, 5.0);
 /// Physics solver iterations (`iterations`). Canonical default 50.
 pub const ITERATIONS: Bound = (1.0, 1000.0);
 
+// --- Network ---------------------------------------------------------------
+
+/// Position-broadcast rate in Hz (`broadcast_fps`). Canonical default 8
+/// (`visionclaw_domain::types::physics_config::DEFAULT_BROADCAST_FPS`).
+pub const BROADCAST_FPS: Bound = (1.0, 60.0);
+
 /// `true` if `value` is within `[bound.0, bound.1]` inclusive and finite.
 #[inline]
 pub fn within(value: f32, bound: Bound) -> bool {
@@ -138,6 +144,12 @@ mod tests {
             DAMPING
         );
         assert!(within(d.dt, DT), "dt {} outside {:?}", d.dt, DT);
+        assert!(
+            within(d.broadcast_fps as f32, BROADCAST_FPS),
+            "broadcast_fps {} outside {:?}",
+            d.broadcast_fps,
+            BROADCAST_FPS
+        );
         assert!(
             within(d.cooling_rate, COOLING_RATE),
             "cooling_rate {} outside {:?}",

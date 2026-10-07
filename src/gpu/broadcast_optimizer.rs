@@ -14,7 +14,9 @@ use glam::Vec3;
 use log::{debug, info};
 use std::time::{Duration, Instant};
 
-/// Default broadcast rate in Hz.
+/// Default broadcast rate in Hz, defined with the setting that overrides it
+/// (`PhysicsSettings::broadcast_fps`, exposed as `broadcastFps` on
+/// `/api/settings/physics`).
 ///
 /// 8 Hz is the cadence live clients actually received before the rate
 /// limiter was corrected: the old limiter re-armed from "now" after every
@@ -24,9 +26,8 @@ use std::time::{Duration, Instant};
 /// ~490 KB for the ~9.5k-node corpus graph), so per-client bandwidth scales
 /// linearly with the rate: 8 Hz is ~3.9 MB/s, 25 Hz is ~12 MB/s. Clients
 /// tween between snapshots, so a higher rate buys smoothness, not
-/// correctness. Change it at runtime with `ConfigureBroadcastOptimization`
-/// (`target_fps`, 1-60).
-pub const DEFAULT_BROADCAST_FPS: u32 = 8;
+/// correctness.
+pub use visionclaw_domain::types::physics_config::DEFAULT_BROADCAST_FPS;
 
 /// Configuration for broadcast optimization
 #[derive(Debug, Clone)]
@@ -277,6 +278,33 @@ impl BroadcastOptimizer {
         }
     }
 
+    /// Change the rate and/or culling at runtime, leaving any field passed as
+    /// `None` as it is. Rejects a rate outside
+    /// [`physics_bounds::BROADCAST_FPS`](crate::actors::gpu::physics_bounds::BROADCAST_FPS)
+    /// without changing anything. Camera bounds are kept.
+    pub fn configure(
+        &mut self,
+        target_fps: Option<u32>,
+        enable_spatial_culling: Option<bool>,
+    ) -> Result<(), String> {
+        use crate::actors::gpu::physics_bounds::{within, BROADCAST_FPS};
+        let target_fps = target_fps.unwrap_or(self.config.target_fps);
+        if !within(target_fps as f32, BROADCAST_FPS) {
+            return Err(format!(
+                "Invalid target_fps: {} (must be {}-{})",
+                target_fps, BROADCAST_FPS.0, BROADCAST_FPS.1
+            ));
+        }
+        let config = BroadcastConfig {
+            target_fps,
+            enable_spatial_culling: enable_spatial_culling
+                .unwrap_or(self.config.enable_spatial_culling),
+            camera_bounds: self.config.camera_bounds,
+        };
+        self.update_config(config);
+        Ok(())
+    }
+
     /// Update configuration at runtime
     pub fn update_config(&mut self, config: BroadcastConfig) {
         info!("BroadcastOptimizer: Updating configuration");
@@ -439,6 +467,37 @@ mod tests {
     #[test]
     fn default_rate_is_8_hz() {
         assert_eq!(BroadcastConfig::default().target_fps, 8);
+    }
+
+    /// The runtime setter (what `ConfigureBroadcastOptimization` and the
+    /// physics settings route drive) changes the measured rate live, keeps
+    /// spatial culling unless told otherwise, and rejects out-of-range rates.
+    #[test]
+    fn configure_changes_the_rate_live_and_validates() {
+        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig {
+            enable_spatial_culling: true,
+            ..BroadcastConfig::default()
+        });
+        optimizer.configure(Some(12), None).unwrap();
+        assert_eq!(optimizer.config().target_fps, 12);
+        assert!(optimizer.config().enable_spatial_culling, "culling kept");
+
+        let start = Instant::now();
+        optimizer.rate_limiter = BroadcastRateLimiter::new_at(optimizer.config(), start);
+        let n = broadcasts_over(&mut optimizer.rate_limiter, start, 16, 10);
+        assert!(n.abs_diff(120) <= 1, "12 Hz for 10 s gave {n}");
+
+        for bad in [0, 61] {
+            assert!(optimizer.configure(Some(bad), None).is_err());
+            assert_eq!(
+                optimizer.config().target_fps,
+                12,
+                "a rejected rate changes nothing"
+            );
+        }
+        optimizer.configure(None, Some(false)).unwrap();
+        assert_eq!(optimizer.config().target_fps, 12, "rate kept");
+        assert!(!optimizer.config().enable_spatial_culling);
     }
 
     #[test]
