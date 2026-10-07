@@ -210,7 +210,7 @@ impl Default for DevConfig {
                 boundary_extreme_multiplier: 2.0,
                 boundary_extreme_force_multiplier: 10.0,
                 boundary_velocity_damping: 0.5,
-                golden_ratio: 1.618033988749895,
+                golden_ratio: std::f32::consts::GOLDEN_RATIO,
                 initial_radius_min: 100.0,
                 initial_radius_range: 300.0,
                 cross_graph_repulsion_scale: 0.3,
@@ -358,4 +358,16 @@ pub fn performance() -> &'static PerformanceInternals {
 
 pub fn debug() -> &'static DebugInternals {
     &DevConfig::get().debug
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_golden_ratio_is_phi() {
+        let phi = (1.0_f64 + 5.0_f64.sqrt()) / 2.0;
+        let got = DevConfig::default().physics.golden_ratio;
+        assert_eq!(got, phi as f32);
+    }
 }
