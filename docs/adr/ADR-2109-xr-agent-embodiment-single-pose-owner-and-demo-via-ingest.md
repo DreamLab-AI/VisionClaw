@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 015bd642f76e6fb4089713437427ef5470aebe3a
+verified_commit: c5723490b2d86655acaf4b4c88ccbb2b96b785b2
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -91,3 +91,7 @@ The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`
 ## Re-verification — 2026-10-07 (feat/xr-graph pack plans)
 
 The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed files without updating this ADR, so its changes were checked against the decision. `render_store.rs` now caches node colour in a pack plan and calls `touch()` from mutating setters (agent expiry included); attention heat moved from `emit_node` to the per-frame `live_tint`. Beam anchors, the single pose writer and the demo-via-ingest path are unchanged; the beam and embodiment tests pass. **Still holds.**
+
+## Re-verification — 2026-10-07 (feat/xr-graph 4978356e5)
+
+The merge of `feat/xr-graph` 4978356e5 (c5723490b) moves one `graph_scene.gd` declaration and adds a heat test to `render_store.rs`; no pose writer, beam anchor or demo-ingest code changed. **Still holds.**
