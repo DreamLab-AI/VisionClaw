@@ -14,10 +14,25 @@ use glam::Vec3;
 use log::{debug, info};
 use std::time::{Duration, Instant};
 
+/// Default broadcast rate in Hz.
+///
+/// 8 Hz is the cadence live clients actually received before the rate
+/// limiter was corrected: the old limiter re-armed from "now" after every
+/// broadcast, which rounded each interval up to whole physics frames and
+/// turned a configured 10 Hz into ~8 Hz. Keeping 8 Hz keeps per-client
+/// bandwidth where it was. Each broadcast is a full snapshot (~52 B per node;
+/// ~490 KB for the ~9.5k-node corpus graph), so per-client bandwidth scales
+/// linearly with the rate: 8 Hz is ~3.9 MB/s, 25 Hz is ~12 MB/s. Clients
+/// tween between snapshots, so a higher rate buys smoothness, not
+/// correctness. Change it at runtime with `ConfigureBroadcastOptimization`
+/// (`target_fps`, 1-60).
+pub const DEFAULT_BROADCAST_FPS: u32 = 8;
+
 /// Configuration for broadcast optimization
 #[derive(Debug, Clone)]
 pub struct BroadcastConfig {
-    /// Target broadcast rate in Hz (below the physics tick rate)
+    /// Target broadcast rate in Hz (below the physics tick rate). See
+    /// [`DEFAULT_BROADCAST_FPS`] for the bandwidth each rate costs.
     pub target_fps: u32,
 
     /// Enable spatial visibility culling
@@ -30,7 +45,7 @@ pub struct BroadcastConfig {
 impl Default for BroadcastConfig {
     fn default() -> Self {
         Self {
-            target_fps: 25, // 25fps broadcast, 60fps physics
+            target_fps: DEFAULT_BROADCAST_FPS,
             enable_spatial_culling: false,
             camera_bounds: None,
         }
@@ -42,35 +57,71 @@ impl Default for BroadcastConfig {
 /// This purely controls broadcast *timing* — it decides on which frames a
 /// full snapshot should be emitted. It does not track or diff positions;
 /// the broadcast is always a full snapshot (BROADCAST-001).
+///
+/// Broadcast slots are phase-locked to the configured interval: each
+/// broadcast schedules the next slot one interval after the *previous slot*,
+/// not after the frame that happened to take it, so the long-run rate equals
+/// `target_fps` even when the physics frame period does not divide the
+/// interval. After a stall longer than one interval the limiter re-phases
+/// from the late frame rather than bursting to catch up.
 pub struct BroadcastRateLimiter {
-    last_broadcast_time: Instant,
+    /// The earliest instant at which the next broadcast may go out.
+    next_due: Instant,
     broadcast_interval: Duration,
     frames_since_broadcast: u32,
 }
 
 impl BroadcastRateLimiter {
+    /// A limiter whose first frame broadcasts immediately.
     pub fn new(config: &BroadcastConfig) -> Self {
-        let broadcast_interval = Duration::from_micros((1_000_000 / config.target_fps) as u64);
+        Self::new_at(config, Instant::now())
+    }
 
+    /// [`new`](Self::new) against an explicit clock.
+    pub fn new_at(config: &BroadcastConfig, now: Instant) -> Self {
+        let fps = u64::from(config.target_fps.max(1));
         Self {
-            last_broadcast_time: Instant::now(),
-            broadcast_interval,
+            next_due: now,
+            broadcast_interval: Duration::from_micros(1_000_000 / fps),
             frames_since_broadcast: 0,
         }
     }
 
     /// Check if we should broadcast this frame
     pub fn should_broadcast(&mut self) -> bool {
-        self.frames_since_broadcast += 1;
-        let elapsed = self.last_broadcast_time.elapsed();
+        self.should_broadcast_at(Instant::now())
+    }
 
-        if elapsed >= self.broadcast_interval {
-            self.last_broadcast_time = Instant::now();
-            self.frames_since_broadcast = 0;
-            true
-        } else {
-            false
+    /// [`should_broadcast`](Self::should_broadcast) against an explicit clock.
+    pub fn should_broadcast_at(&mut self, now: Instant) -> bool {
+        self.frames_since_broadcast += 1;
+        if now < self.next_due {
+            return false;
         }
+        self.next_due += self.broadcast_interval;
+        if self.next_due <= now {
+            // More than one interval behind (a stall): re-phase, no burst.
+            self.next_due = now + self.broadcast_interval;
+        }
+        self.frames_since_broadcast = 0;
+        true
+    }
+
+    /// Let the very next frame broadcast.
+    pub fn reset(&mut self) {
+        self.next_due = Instant::now();
+    }
+
+    /// Record a snapshot sent outside `should_broadcast` (a forced or
+    /// periodic full broadcast) so the next one waits a full interval.
+    pub fn mark_broadcast(&mut self) {
+        self.mark_broadcast_at(Instant::now());
+    }
+
+    /// [`mark_broadcast`](Self::mark_broadcast) against an explicit clock.
+    pub fn mark_broadcast_at(&mut self, now: Instant) {
+        self.next_due = now + self.broadcast_interval;
+        self.frames_since_broadcast = 0;
     }
 
     /// Get rate-limiter statistics
@@ -251,10 +302,23 @@ impl BroadcastOptimizer {
     /// Reset the broadcast rate-limit timer so the next frame broadcasts
     /// immediately. Call this when simulation parameters change or a new
     /// client connects, so the next full snapshot is emitted without waiting
-    /// for the rate-limit interval.
+    /// for the rate-limit interval. Not for use after a broadcast that was
+    /// just sent: that is [`mark_broadcast`](Self::mark_broadcast).
     pub fn reset_broadcast_timer(&mut self) {
-        info!("BroadcastOptimizer: Resetting broadcast timer — next frame will broadcast a full snapshot");
-        self.rate_limiter = BroadcastRateLimiter::new(&self.config);
+        debug!("BroadcastOptimizer: broadcast timer reset — next frame broadcasts a full snapshot");
+        self.rate_limiter.reset();
+    }
+
+    /// Record a full snapshot sent outside `process_frame` (FastSettle final,
+    /// periodic or `ForceFullBroadcast`), so the rate limiter waits a full
+    /// interval before the next one instead of duplicating it.
+    pub fn mark_broadcast(&mut self) {
+        self.rate_limiter.mark_broadcast();
+    }
+
+    /// The configuration currently in force.
+    pub fn config(&self) -> &BroadcastConfig {
+        &self.config
     }
 }
 
@@ -270,6 +334,112 @@ pub struct BroadcastPerformanceStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Drive the limiter with frames every `frame_ms` for `secs` seconds of
+    /// simulated time and return how many broadcasts it allowed.
+    fn broadcasts_over(
+        limiter: &mut BroadcastRateLimiter,
+        start: Instant,
+        frame_ms: u64,
+        secs: u64,
+    ) -> u64 {
+        let frames = secs * 1000 / frame_ms;
+        (1..=frames)
+            .filter(|i| limiter.should_broadcast_at(start + Duration::from_millis(i * frame_ms)))
+            .count() as u64
+    }
+
+    /// The measured broadcast interval matches the configured rate even when
+    /// the physics frame period does not divide it. 8 Hz over 40 ms frames
+    /// (25 Hz physics, the live cadence) must give 8 broadcasts a second, not
+    /// the 6.25 a reset-to-now limiter produces by rounding every interval up
+    /// to a whole number of frames.
+    #[test]
+    fn measured_interval_matches_configured_rate() {
+        for (target_fps, frame_ms) in [(8u32, 40u64), (10, 40), (25, 16), (8, 16), (60, 5)] {
+            let config = BroadcastConfig {
+                target_fps,
+                ..BroadcastConfig::default()
+            };
+            let start = Instant::now();
+            let mut limiter = BroadcastRateLimiter::new_at(&config, start);
+            let secs = 30;
+            let n = broadcasts_over(&mut limiter, start, frame_ms, secs);
+            let expected = u64::from(target_fps) * secs;
+            assert!(
+                n.abs_diff(expected) <= 1,
+                "{target_fps} Hz over {frame_ms} ms frames: {n} broadcasts in {secs} s, expected {expected}"
+            );
+        }
+    }
+
+    /// After a stall longer than one interval the limiter broadcasts once and
+    /// re-phases; it does not fire a burst to catch up on missed slots.
+    #[test]
+    fn a_stall_does_not_cause_a_catch_up_burst() {
+        let config = BroadcastConfig {
+            target_fps: 8,
+            ..BroadcastConfig::default()
+        };
+        let start = Instant::now();
+        let mut limiter = BroadcastRateLimiter::new_at(&config, start);
+        assert!(limiter.should_broadcast_at(start));
+        let after_stall = start + Duration::from_secs(2);
+        assert!(limiter.should_broadcast_at(after_stall));
+        assert!(!limiter.should_broadcast_at(after_stall + Duration::from_millis(40)));
+        assert!(!limiter.should_broadcast_at(after_stall + Duration::from_millis(80)));
+    }
+
+    /// `reset_broadcast_timer` does what its doc says: the very next frame
+    /// broadcasts, even when one was sent a moment ago.
+    #[test]
+    fn reset_makes_the_next_frame_broadcast() {
+        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig::default());
+        let positions = vec![(Vec3::ZERO, Vec3::ZERO)];
+        let ids = vec![0];
+        std::thread::sleep(Duration::from_millis(130));
+        assert!(
+            optimizer.process_frame(&positions, &ids).0,
+            "interval elapsed"
+        );
+        assert!(
+            !optimizer.process_frame(&positions, &ids).0,
+            "inside the interval"
+        );
+        optimizer.reset_broadcast_timer();
+        assert!(
+            optimizer.process_frame(&positions, &ids).0,
+            "next frame after a reset"
+        );
+        assert!(
+            !optimizer.process_frame(&positions, &ids).0,
+            "then rate-limited again"
+        );
+    }
+
+    /// `mark_broadcast` records an out-of-band snapshot (FastSettle final,
+    /// periodic, ForceFullBroadcast) so the limiter waits a full interval
+    /// instead of sending a duplicate on the next frame.
+    #[test]
+    fn mark_broadcast_starts_a_full_interval() {
+        let config = BroadcastConfig {
+            target_fps: 8,
+            ..BroadcastConfig::default()
+        };
+        let start = Instant::now();
+        let mut limiter = BroadcastRateLimiter::new_at(&config, start);
+        limiter.mark_broadcast_at(start + Duration::from_millis(500));
+        assert!(!limiter.should_broadcast_at(start + Duration::from_millis(540)));
+        assert!(!limiter.should_broadcast_at(start + Duration::from_millis(620)));
+        assert!(limiter.should_broadcast_at(start + Duration::from_millis(625)));
+    }
+
+    /// The default is the ~8 Hz live clients have always received, so fixing
+    /// the limiter does not change per-client bandwidth.
+    #[test]
+    fn default_rate_is_8_hz() {
+        assert_eq!(BroadcastConfig::default().target_fps, 8);
+    }
 
     #[test]
     fn test_spatial_culling() {

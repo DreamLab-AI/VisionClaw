@@ -505,7 +505,9 @@ pub struct GetEquilibriumStatus;
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<(), String>")]
 pub struct ConfigureBroadcastOptimization {
-    /// Target broadcast frequency in Hz (recommended: 20-30)
+    /// Target broadcast frequency in Hz, 1-60 (default 8). Each broadcast is
+    /// a full snapshot (~490 KB for the ~9.5k-node graph), so 8 Hz costs
+    /// ~3.9 MB/s per client and 25 Hz ~12 MB/s.
     pub target_fps: Option<u32>,
     /// Deprecated: accepted for compatibility, ignored. The broadcast is
     /// full-snapshot only, so there is no delta threshold (BROADCAST-001).
