@@ -57,8 +57,18 @@ pub const MARK_R: f32 = 1.7;
 pub const RADIAL: usize = 6;
 /// Desktop samples per hop.
 pub const ROUTE_SAMPLES: usize = 16;
-/// Most centreline samples a route may use; long routes get fewer per hop.
-pub const ROUTE_RING_CAP: usize = 320;
+/// Most centreline samples a route may use; long routes get fewer per hop
+/// (a 12-hop route keeps 10 per hop). Sized so the longest route stays inside
+/// `ROUTE_TRIANGLE_BUDGET`.
+pub const ROUTE_RING_CAP: usize = 121;
+/// The route's share of the memory-layer triangle headroom
+/// (`memory_cloud::MEMORY_TRIANGLE_BUDGET`). The longest route
+/// (`route_worst_triangles`) stays below it; the test pins the margin.
+pub const ROUTE_TRIANGLE_BUDGET: usize = 7_500;
+/// Beads, halos and the comet head/glow are camera-facing discs, the cloud's
+/// one-triangle sprite: unshaded and additive, a sphere would draw as the same
+/// flat disc, and a coarse sphere shows its facets.
+pub const BEAD_TRIANGLES: usize = crate::memory_cloud::TRIANGLES_PER_SPRITE;
 /// Longest path accepted from the wire.
 pub const MAX_PATH: usize = 64;
 /// Longest echoed query text.
@@ -504,6 +514,43 @@ pub fn route_triangles(samples: usize) -> usize {
     LAYERS * samples.saturating_sub(1) * RADIAL * 2
 }
 
+/// Spheres in the bead MultiMesh for a route with `knots` path nodes: bead +
+/// halo per knot, then comet head + glow (`bead_buffer`).
+pub fn bead_instances(knots: usize) -> usize {
+    2 * knots + 2
+}
+
+/// Billboard quads in the ring MultiMesh: root, answer and pulse rings plus a
+/// gold mark per sidecar row (`ring_buffer`).
+pub fn ring_instances(sidecar: usize) -> usize {
+    3 + sidecar
+}
+
+/// Everything a shown route spends: tube surface, bead discs, ring quads.
+pub fn route_total_triangles(r: &ActiveRoute) -> usize {
+    if r.samples.pts.len() < 2 {
+        return 0;
+    }
+    route_triangles(r.samples.pts.len())
+        + bead_instances(r.samples.knots.len()) * BEAD_TRIANGLES
+        + ring_instances(r.sidecar_pts.len()) * 2
+}
+
+/// Triangles of a route with `rows` path nodes and `sidecar` marks.
+pub fn route_triangles_for(rows: usize, sidecar: usize) -> usize {
+    if rows < 2 {
+        return 0;
+    }
+    let samples = (rows - 1) * samples_per_hop(rows) + 1;
+    route_triangles(samples) + bead_instances(rows) * BEAD_TRIANGLES + ring_instances(sidecar) * 2
+}
+
+/// The costliest acceptable route: the maximum over every path length up to
+/// `MAX_PATH`, with a full sidecar (`MAX_SIDECAR` marks).
+pub fn route_worst_triangles() -> usize {
+    (2..=MAX_PATH).map(|rows| route_triangles_for(rows, MAX_SIDECAR)).max().unwrap_or(0)
+}
+
 // ── animation ──
 
 /// One frame of the route animation, in route-sample units.
@@ -567,7 +614,7 @@ fn push_instance(buf: &mut Vec<f32>, p: Vec3, s: f32, c: [f32; 4]) {
 }
 
 /// Bead + halo per knot (the root bead stays hidden), then the comet head and
-/// its glow — one additive sphere MultiMesh, stride 16.
+/// its glow — one additive disc MultiMesh, stride 16.
 pub fn bead_buffer(r: &RouteSamples, st: &RouteFrameState, beat_pulse: f32) -> Vec<f32> {
     let mut buf = Vec::with_capacity((r.knots.len() * 2 + 2) * STRIDE);
     let last = r.pts.len().saturating_sub(1).max(1) as f32;
@@ -761,7 +808,13 @@ impl MemoryRoute {
 
     #[func]
     fn triangle_estimate(&self) -> i64 {
-        route_triangles(self.route.samples.pts.len()) as i64
+        route_total_triangles(&self.route) as i64
+    }
+
+    /// Triangles per bead disc (`BEAD_TRIANGLES`), for the scene's mesh check.
+    #[func]
+    fn bead_triangles(&self) -> i64 {
+        BEAD_TRIANGLES as i64
     }
 
     /// Mesh arrays for the route surface (Mesh.ARRAY_MAX-sized Array).
@@ -1028,13 +1081,62 @@ mod tests {
 
     #[test]
     fn long_routes_stay_within_the_ring_cap() {
+        // up to seven hops keep the desktop's 16 samples; longer routes share the cap
         assert_eq!(samples_per_hop(2), ROUTE_SAMPLES);
+        assert_eq!(samples_per_hop(5), ROUTE_SAMPLES);
         assert_eq!(samples_per_hop(8), ROUTE_SAMPLES);
-        for rows in [2usize, 10, 21, 40, 100, MAX_PATH] {
+        assert_eq!(samples_per_hop(13), 10, "a 12-hop route keeps smooth curves");
+        for rows in [2usize, 10, 21, 40, 50, MAX_PATH] {
             let total = (rows - 1) * samples_per_hop(rows) + 1;
             assert!(total <= ROUTE_RING_CAP, "{rows} rows → {total} samples");
         }
-        assert!(route_triangles(ROUTE_RING_CAP) <= 20_000);
+        assert!(route_triangles(ROUTE_RING_CAP) <= 7_200);
+    }
+
+    #[test]
+    fn longest_route_fits_its_triangle_budget() {
+        assert_eq!(BEAD_TRIANGLES, 1, "beads are one-triangle discs");
+        let w = route_worst_triangles();
+        assert!(w <= ROUTE_TRIANGLE_BUDGET, "worst route {w}");
+        // every real route length costs what the formula says, and the worst is reached
+        let pos: Vec<f32> = (0..(MAX_PATH + MAX_SIDECAR) * 3).map(|i| (i % 97) as f32).collect();
+        let mut max_seen = 0;
+        for rows in 2..=MAX_PATH {
+            let mut r = ActiveRoute::default();
+            r.set(
+                RouteFrame {
+                    snapshot_id: "s".into(),
+                    seq: 1,
+                    sent_at: 0.0,
+                    path: (0..rows as u32).collect(),
+                    sidecar: (MAX_PATH as u32..(MAX_PATH + MAX_SIDECAR) as u32).collect(),
+                    query: String::new(),
+                },
+                &pos,
+            );
+            let got = route_total_triangles(&r);
+            assert_eq!(got, route_triangles_for(rows, MAX_SIDECAR), "{rows} rows");
+            max_seen = max_seen.max(got);
+        }
+        assert_eq!(max_seen, w, "worst case is exact, not padded");
+    }
+
+    #[test]
+    fn total_counts_tube_beads_and_rings() {
+        let pos = vec![0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0];
+        let mut r = ActiveRoute::default();
+        assert_eq!(route_total_triangles(&r), 0, "no route, no cost");
+        r.set(
+            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: vec![0, 1, 2], sidecar: vec![1], query: String::new() },
+            &pos,
+        );
+        let tube = route_triangles(r.samples.pts.len());
+        let beads = (2 * r.samples.knots.len() + 2) * BEAD_TRIANGLES;
+        let rings = (3 + 1) * 2;
+        assert_eq!(route_total_triangles(&r), tube + beads + rings);
+        let st = animate(r.samples.pts.len(), 1.0, 1.0, None, false);
+        assert_eq!(bead_buffer(&r.samples, &st, 0.0).len() / STRIDE, 2 * r.samples.knots.len() + 2);
+        assert_eq!(ring_buffer(&r.samples, &st, &r.sidecar_pts, 1.0).len() / STRIDE, 4);
     }
 
     #[test]

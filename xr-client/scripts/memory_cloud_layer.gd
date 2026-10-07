@@ -34,6 +34,7 @@ const ENDPOINT := "/api/memory-cloud"
 const POINT_SHADER := preload("res://materials/memory_point.gdshader")
 const ROUTE_SHADER := preload("res://materials/memory_route.gdshader")
 const RING_SHADER := preload("res://materials/memory_ring.gdshader")
+const BEAD_SHADER := preload("res://materials/memory_bead.gdshader")
 const STRIDE := 16
 ## desktop `routeGlow` default
 const ROUTE_GLOW := 1.2
@@ -88,7 +89,7 @@ var _opacity: float = 0.6
 var _rotation_per_sec: float = 0.03
 var _hover_accum: float = 0.0
 var _hover_row: int = -1
-var _bead_tris: int = 0   # triangles per bead sphere, read from the mesh
+var _bead_tris: int = 0   # triangles per bead disc, read from the mesh
 
 
 func _ready() -> void:
@@ -114,14 +115,13 @@ func _build_nodes() -> void:
 	_cloud_root.scale = Vector3(cs, cs, cs)
 	add_child(_cloud_root)
 
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.0, 1.0)
+	var sprite := _sprite_triangle_mesh()
 	var pmat := ShaderMaterial.new()
 	pmat.shader = POINT_SHADER
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
-	mm.mesh = quad
+	mm.mesh = sprite
 	_points = MultiMeshInstance3D.new()
 	_points.name = "Points"
 	_points.multimesh = mm
@@ -142,23 +142,14 @@ func _build_nodes() -> void:
 	_tube.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_route_root.add_child(_tube)
 
-	var sphere := SphereMesh.new()
-	sphere.radius = 1.0
-	sphere.height = 2.0
-	sphere.radial_segments = 8
-	sphere.rings = 4
-	var bmat := StandardMaterial3D.new()
-	bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bmat.vertex_color_use_as_albedo = true
-	bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	bmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	bmat.no_depth_test = false
-	bmat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var bmat := ShaderMaterial.new()
+	bmat.shader = BEAD_SHADER
 	var bmm := MultiMesh.new()
 	bmm.transform_format = MultiMesh.TRANSFORM_3D
 	bmm.use_colors = true
-	bmm.mesh = sphere
-	_bead_tris = sphere.get_faces().size() / 3
+	# bead_buffer scales by radius: a diameter-2 disc
+	bmm.mesh = _sprite_triangle_mesh(2.0)
+	_bead_tris = bmm.mesh.get_faces().size() / 3
 	_beads = MultiMeshInstance3D.new()
 	_beads.name = "Beads"
 	_beads.multimesh = bmm
@@ -611,15 +602,42 @@ static func _ellipsis(s: String, n: int) -> String:
 
 # --- budget ------------------------------------------------------------------
 
+## One equilateral triangle whose incircle is the shader's disc (of
+## `diameter`): half a quad's triangles per sprite (memory_cloud.rs
+## SPRITE_TRIANGLE_UV); the fragment mask discards the corners.
+func _sprite_triangle_mesh(diameter: float = 1.0) -> ArrayMesh:
+	var uvs: PackedVector2Array = _cloud.sprite_triangle_uv() if _cloud != null else PackedVector2Array([Vector2(0.5, -0.5), Vector2(-0.3660254, 1.0), Vector2(1.3660254, 1.0)])
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	for uv in uvs:
+		verts.append(Vector3(uv.x - 0.5, 0.5 - uv.y, 0.0) * diameter)
+		normals.append(Vector3(0, 0, 1))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Test seam: triangles in the sprite and bead meshes as built.
+func mesh_triangles() -> Dictionary:
+	return {
+		"sprite": _points.multimesh.mesh.get_faces().size() / 3 if _points != null else 0,
+		"bead": _bead_tris,
+		"bead_expected": int(_route.bead_triangles()) if _route != null else -1,
+	}
+
+
 ## Draw calls and triangles these layers add (benchmark.gd).
 func budget() -> Dictionary:
 	var cloud_tris: int = int(_cloud.triangle_estimate()) if _cloud != null and _enabled else 0
 	var route_tris: int = 0
 	var route_calls: int = 0
 	if route_active() and _enabled:
-		route_tris = int(_route.triangle_estimate())
-		route_tris += _beads.multimesh.instance_count * _bead_tris
-		route_tris += _rings.multimesh.instance_count * 2
+		route_tris = int(_route.triangle_estimate())  # tube + beads + rings
 		route_calls = 3
 	return {
 		"cloud_draw_calls": 1 if cloud_tris > 0 else 0,

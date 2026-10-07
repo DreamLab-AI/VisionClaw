@@ -40,12 +40,32 @@ pub const DESKTOP_ROTATION_PER_FRAME: f32 = 0.0005;
 /// Hard ceiling on a snapshot the headset will accept (the server clamps its
 /// sample to 20 000; anything far past that is a malformed or hostile payload).
 pub const MAX_SNAPSHOT_ROWS: usize = 50_000;
-/// Default sprite cap. Each sprite is a two-triangle quad, so 12 000 sprites
-/// spend 24 000 of the 100 000-triangle frame budget. The server's default
-/// sample (6000) draws in full; a 20 000-row sample is subsampled.
-pub const DEFAULT_SPRITE_CAP: usize = 12_000;
-/// Triangles per sprite (one camera-facing quad).
-pub const TRIANGLES_PER_SPRITE: usize = 2;
+/// Frame triangle budget (`perf/README.md`, PRD-008).
+pub const FRAME_TRIANGLE_BUDGET: usize = 100_000;
+/// Graph worst case the memory layers must leave room for: node LOD + hulls at
+/// production density (13 164 nodes), measured with `perf/benchmark_scene.tscn`
+/// and `XR_BENCH_NODES=13164`: 84 370 on 2026-10-07 (Godot 4.6.1, HP GL).
+pub const GRAPH_WORST_TRIANGLES: usize = 84_370;
+/// What the graph leaves for the memory cloud and the route together.
+pub const MEMORY_TRIANGLE_BUDGET: usize = FRAME_TRIANGLE_BUDGET - GRAPH_WORST_TRIANGLES;
+/// The cloud's share of that headroom (the route takes the rest,
+/// `memory_route::ROUTE_TRIANGLE_BUDGET`).
+pub const CLOUD_TRIANGLE_BUDGET: usize = 8_000;
+/// Triangles per sprite: one equilateral triangle circumscribing the disc
+/// (`SPRITE_TRIANGLE_UV`), half a quad's cost for ~30 % more covered pixels,
+/// all but the disc discarded.
+pub const TRIANGLES_PER_SPRITE: usize = 1;
+/// Default sprite cap: the cloud's triangle share. The server's default sample
+/// (6000) draws in full; larger samples are level-of-detail subsampled.
+pub const DEFAULT_SPRITE_CAP: usize = CLOUD_TRIANGLE_BUDGET / TRIANGLES_PER_SPRITE;
+/// UVs of the sprite triangle; the mesh position is `uv - 0.5` (unit-diameter
+/// disc). Its incircle is the shader's disc (radius 0.5 about (0.5, 0.5)), so
+/// the round mask never loses a pixel.
+pub const SPRITE_TRIANGLE_UV: [[f32; 2]; 3] = [
+    [0.5, -0.5],
+    [0.5 - 0.866_025_4, 1.0],
+    [0.5 + 0.866_025_4, 1.0],
+];
 /// MultiMesh stride: 12 transform floats + 4 colour floats (`use_colors`).
 pub const CLOUD_STRIDE: usize = 16;
 
@@ -816,6 +836,13 @@ impl MemoryCloud {
         sprite_local_size(DESKTOP_POINT_SIZE, DESKTOP_FOV_DEG, DESKTOP_CLOUD_SCALE)
     }
 
+    /// UVs of the one-triangle sprite (`SPRITE_TRIANGLE_UV`); the mesh
+    /// vertex is `Vector3(u - 0.5, 0.5 - v, 0)`.
+    #[func]
+    fn sprite_triangle_uv(&self) -> PackedVector2Array {
+        SPRITE_TRIANGLE_UV.iter().map(|&[u, v]| Vector2::new(u, v)).collect()
+    }
+
     #[func]
     fn cloud_scale(&self) -> f32 {
         DESKTOP_CLOUD_SCALE
@@ -1181,8 +1208,38 @@ mod tests {
         let mut st = CloudState::new();
         st.load(snap_json(20_000).as_bytes()).unwrap();
         assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP);
-        assert_eq!(st.triangle_estimate(), 24_000);
-        assert!(st.triangle_estimate() <= 25_000, "cloud's share of the 100k frame budget");
+        assert_eq!(st.triangle_estimate(), 8_000);
+        assert!(st.triangle_estimate() <= CLOUD_TRIANGLE_BUDGET, "cloud's share of the memory headroom");
+    }
+
+    #[test]
+    fn memory_layers_fit_the_headroom_the_graph_leaves() {
+        assert_eq!(FRAME_TRIANGLE_BUDGET - GRAPH_WORST_TRIANGLES, MEMORY_TRIANGLE_BUDGET);
+        assert!(CLOUD_TRIANGLE_BUDGET + crate::memory_route::ROUTE_TRIANGLE_BUDGET <= MEMORY_TRIANGLE_BUDGET);
+        assert!(DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE <= CLOUD_TRIANGLE_BUDGET);
+        let worst = GRAPH_WORST_TRIANGLES
+            + DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE
+            + crate::memory_route::route_worst_triangles();
+        assert!(worst <= FRAME_TRIANGLE_BUDGET, "graph + cloud + longest route = {worst}");
+    }
+
+    #[test]
+    fn sprite_triangle_circumscribes_the_disc() {
+        // The fragment shader keeps UV distance <= 0.5 from (0.5, 0.5); every
+        // edge must sit exactly 0.5 from the centre so no disc pixel is lost.
+        let v = SPRITE_TRIANGLE_UV;
+        let c = [0.5f32, 0.5];
+        let cen = [(v[0][0] + v[1][0] + v[2][0]) / 3.0, (v[0][1] + v[1][1] + v[2][1]) / 3.0];
+        assert!((cen[0] - c[0]).abs() < 1e-6 && (cen[1] - c[1]).abs() < 1e-6, "centred");
+        for i in 0..3 {
+            let (a, b) = (v[i], v[(i + 1) % 3]);
+            let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+            let len = (ex * ex + ey * ey).sqrt();
+            let dist = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex).abs() / len;
+            assert!((dist - 0.5).abs() < 1e-5, "edge {i} sits {dist} from the centre");
+            let r = ((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt();
+            assert!((r - 1.0).abs() < 1e-5, "vertex {i} at circumradius {r}");
+        }
     }
 
     // ── buffer ──

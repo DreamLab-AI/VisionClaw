@@ -198,15 +198,25 @@ func test_budget_reports_layer_costs() -> void:
 	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":1,"path":[0,3,5]}')
 	var b: Dictionary = l.budget()
 	assert_eq(int(b["cloud_draw_calls"]), 1)
-	assert_eq(int(b["cloud_triangles"]), 12)
+	assert_eq(int(b["cloud_triangles"]), 6, "one triangle per sprite")
 	assert_eq(int(b["route_draw_calls"]), 3)
 	assert_gt(int(b["route_triangles"]), 0)
+	assert_lte(int(b["route_triangles"]), 7500, "route stays inside ROUTE_TRIANGLE_BUDGET")
 	l.queue_free()
 
 
 func test_shaders_compile_in_this_renderer() -> void:
-	for path in ["res://materials/memory_point.gdshader", "res://materials/memory_route.gdshader", "res://materials/memory_ring.gdshader"]:
+	for path in ["res://materials/memory_point.gdshader", "res://materials/memory_route.gdshader", "res://materials/memory_ring.gdshader", "res://materials/memory_bead.gdshader"]:
 		var sh: Shader = load(path)
 		assert_not_null(sh, path)
 		assert_eq(sh.get_mode(), Shader.MODE_SPATIAL, path)
 		assert_gt(sh.get_shader_uniform_list().size() + 1, 0, path)
+
+
+func test_meshes_match_the_rust_triangle_budget() -> void:
+	var layer = await _make()
+	var t: Dictionary = layer.mesh_triangles()
+	assert_eq(t["sprite"], 1, "one triangle per sprite")
+	assert_eq(t["bead"], t["bead_expected"], "bead disc matches BEAD_TRIANGLES")
+	assert_eq(t["bead"], 1, "beads are one-triangle discs")
+

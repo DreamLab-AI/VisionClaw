@@ -202,13 +202,15 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   a malformed or short body is rejected in Rust and the previous snapshot stays.
 - **Placement and look.** The layer sits under `GraphRoot` at the server origin
   and `CloudRoot` carries the desktop `cloudScale` (5), so the cloud surrounds
-  the graph as it does on desktop. One MultiMesh of camera-facing quads
-  (`memory_point.gdshader`, billboarded on the main camera so both eyes agree;
+  the graph as it does on desktop. One MultiMesh of camera-facing sprites, each
+  a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
+  round mask discards the corners), billboarded on the main camera so both eyes
+  agree (`memory_point.gdshader`;
   stride 16 = 12 transform + 4 colour). Sprite diameter is the desktop
   size-attenuated point converted to world units (`7.5 · tan(37.5°) / 5`
   cloud-local). Colours come from the `cloudData.ts` tables (namespace / source
   type / age); a Rust test parses the TS source so they cannot drift. Level of
-  detail: at most 12 000 sprites (24 000 triangles), namespace-stratified, route
+  detail: at most 8 000 sprites (8 000 triangles), namespace-stratified, route
   and sidecar rows always kept. The cloud turns slowly only when reduced motion
   is off and no route is shown.
 - **HUD.** Graph tab, Layers grid: `Memory: Off/<count>/Locked/Waiting/Error`
@@ -232,13 +234,22 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   The answer ring pulses to xr-pulse's beat clock when it is locked. Under
   reduced motion the route is shown converged, with no comet, pulse ring or
   rotation. Glow is emissive/additive geometry only (Invariant 2).
-- **Budget.** Measured on HP (desktop GL window, 1k-node benchmark): +4 draw
-  calls (6 → 10). The cloud adds 12 000 triangles at 6 000 rows and 24 000 at
-  20 000 rows (capped). A 12-hop route adds 13 776 triangles; a 64-hop route
-  is bounded at about 30 000 (tube ≤ 19 200 at 320 samples, beads 80 per sphere).
-  The graph-only baseline of that benchmark is already 576 000 triangles (288 per
-  node sphere × 2 passes for the halo `next_pass`), far above the 100k budget;
-  see the open item below.
+- **Budget.** The graph's worst case (node LOD + hulls at 13 164 nodes) is
+  84 370 triangles, so the memory layers share the remaining 15 630: the cloud
+  8 000 (`CLOUD_TRIANGLE_BUDGET`) and the route 7 500 (`ROUTE_TRIANGLE_BUDGET`).
+  Beads, halos and the comet are one-triangle camera-facing discs
+  (`memory_bead.gdshader`); unshaded and additive, a sphere would draw as the
+  same disc, and the coarse sphere the budget allowed showed its facets. The
+  costliest acceptable route (61 nodes, 64 sidecar marks) is 7 458: tube ≤ 7 200
+  at 121 centreline samples, 124 discs, 67 ring quads. Rust tests pin graph +
+  cloud + costliest route ≤ 100 000 (99 828) and check the formula against every
+  path length; a GUT test checks the built sprite and bead meshes against the
+  Rust counts. Measured on HP (GL window, 2026-10-07): +4 draw calls (4 → 8). At
+  13 164 nodes: graph only 84 370; +6 000 rows and a 12-hop route 97 614;
+  +20 000 rows (capped at 8 000 sprites) 99 614. At 1 000 nodes: 58 200 / 71 444 /
+  73 444. p99 ≤ 3.2 ms on the desktop GPU in every case. About 170 triangles of
+  worst-case headroom remain, so further memory-layer effects (bursts, heat)
+  must restyle existing sprites, not add geometry.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the

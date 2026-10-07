@@ -93,10 +93,19 @@ godot --path xr-client --rendering-driver opengl3 --script perf/run_benchmark.gd
 ```
 
 Headless runs use the dummy renderer, so draw calls and triangles read 0; count them with a
-display. Measured on HP-Desktop (GL window, 2026-10-07): graph only 6 draw calls / 576 000
-triangles; +6000-row cloud and route 10 / 601 776; +20 000-row cloud (capped at 12 000
-sprites) 10 / 613 776. The graph-only figure already exceeds the triangle budget: see
-`docs/XR-client.md` "Graph triangles exceed the budget".
+display. Measured on HP-Desktop (GL window, 2026-10-07, node LOD on):
+
+| Nodes | Memory rows | Draw calls | Triangles | Cloud | Route (12 hops) |
+|---|---|---|---|---|---|
+| 1 000 | 0 | 4 | 58 200 | — | — |
+| 1 000 | 6 000 | 8 | 71 444 | 6 000 | 7 244 |
+| 1 000 | 20 000 | 8 | 73 444 | 8 000 (capped) | 7 244 |
+| 13 164 | 0 | 4 | 84 370 | — | — |
+| 13 164 | 6 000 | 8 | 97 614 | 6 000 | 7 244 |
+| 13 164 | 20 000 | 8 | 99 614 | 8 000 (capped) | 7 244 |
+
+`XR_BENCH_NODES=13164` gives production density. The memory layers are held to the 15 630
+triangles the graph leaves (`memory_cloud.rs` budget constants and their tests).
 
 ### Godot benchmark — on-device Quest 3
 
