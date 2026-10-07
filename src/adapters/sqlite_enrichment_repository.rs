@@ -123,6 +123,18 @@ pub enum EnrichmentStoreError {
 
 pub type Result<T> = std::result::Result<T, EnrichmentStoreError>;
 
+/// One `enrichment_proposals` row as read: case_id, category, source_iri,
+/// proposal_json, status, created_at, updated_at.
+type RawProposalRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    i64,
+    i64,
+);
+
 fn map_db_err(e: tokio_rusqlite::Error) -> EnrichmentStoreError {
     EnrichmentStoreError::Database(e.to_string())
 }
@@ -445,7 +457,7 @@ impl SqliteEnrichmentRepository {
     /// Fetch one proposal by `case_id`.
     pub async fn get(&self, case_id: &str) -> Result<Option<EnrichmentProposal>> {
         let case_id_owned = case_id.to_string();
-        let row: Option<(String, Option<String>, Option<String>, String, String, i64, i64)> = self
+        let row: Option<RawProposalRow> = self
             .conn
             .call(move |c| {
                 let mut stmt = c.prepare_cached(
@@ -505,7 +517,7 @@ impl SqliteEnrichmentRepository {
         offset: i64,
     ) -> Result<Vec<EnrichmentProposal>> {
         let status_owned = status.map(|s| s.to_string());
-        let rows: Vec<(String, Option<String>, Option<String>, String, String, i64, i64)> = self
+        let rows: Vec<RawProposalRow> = self
             .conn
             .call(move |c| {
                 // `?1 IS NULL OR status = ?1` collapses the optional filter into

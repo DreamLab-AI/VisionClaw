@@ -211,5 +211,10 @@ pub struct SetNodeAnalytics {
 #[derive(Message, Clone)]
 #[rtype(result = "()")]
 pub struct SetNodeSSSP {
-    pub node_sssp: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>>,
+    pub node_sssp: SharedNodeSssp,
 }
+
+/// The shared per-node SSSP map carried by [`SetNodeSSSP`]: compact node_id ->
+/// (distance, parent_id).
+pub type SharedNodeSssp =
+    std::sync::Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>>;

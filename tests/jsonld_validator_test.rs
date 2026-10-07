@@ -106,13 +106,16 @@ fn valid_fixtures_pass() {
     println!("valid fixtures: {}/{} passed", passed, files.len());
 }
 
+/// A predicate on the error category a fixture must produce.
+type CategoryCheck = fn(&ErrorCategory) -> bool;
+
 /// Per-file mapping from `tests/fixtures/data-model/invalid/README.md`.
 /// Tuples are (filename, predicate-on-category).
-fn expected_invalid_mapping() -> Vec<(&'static str, fn(&ErrorCategory) -> bool)> {
+fn expected_invalid_mapping() -> Vec<(&'static str, CategoryCheck)> {
     vec![
         (
             "100-missing-schema-version.md",
-            (|c| matches!(c, ErrorCategory::SchemaVersionMissing)) as fn(&ErrorCategory) -> bool,
+            (|c| matches!(c, ErrorCategory::SchemaVersionMissing)) as CategoryCheck,
         ),
         ("101-missing-context.md", |c| {
             matches!(c, ErrorCategory::ContextMissing)

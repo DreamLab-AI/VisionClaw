@@ -141,7 +141,10 @@ mod sssp;
 mod types;
 
 // Re-export all public types from types module
-pub use types::{curandState, ComputeMode, GPUPerformanceMetrics};
+pub use types::{
+    curandState, ComputeMode, GPUPerformanceMetrics, GpuCommunityOutput, GpuKMeansMetricsOutput,
+    GpuKMeansOutput,
+};
 
 // Re-export the main struct from construction
 pub use construction::UnifiedGPUCompute;

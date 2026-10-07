@@ -1124,12 +1124,10 @@ impl ForceComputeActor {
             }
         };
         match compute.initialize_graph(
-            row_offsets.iter().map(|&x| x as i32).collect(),
-            col_indices.iter().map(|&x| x as i32).collect(),
-            edge_weights,
-            positions_x,
-            positions_y,
-            positions_z,
+            &row_offsets.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+            &col_indices.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+            &edge_weights,
+            [&positions_x, &positions_y, &positions_z],
             num_nodes,
             edge_count as usize,
         ) {

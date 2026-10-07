@@ -421,18 +421,20 @@ impl ClientManager {
             &std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
         >,
     ) -> Vec<u8> {
-        use crate::utils::binary_protocol::encode_node_data_extended_with_sssp;
+        use crate::utils::binary_protocol::{encode_node_data_extended_with_sssp, NodeClassIds};
         use crate::utils::socket_flow_messages::BinaryNodeData;
         // Convert to (u32, BinaryNodeData) format for V3 protocol encoding
         let nodes: Vec<(u32, BinaryNodeData)> =
             positions.iter().map(|pos| (pos.node_id, *pos)).collect();
         let encoded = encode_node_data_extended_with_sssp(
             &nodes,
-            &nta.agent_ids,
-            &nta.knowledge_ids,
-            &nta.ontology_class_ids,
-            &nta.ontology_individual_ids,
-            &nta.ontology_property_ids,
+            NodeClassIds {
+                agent: &nta.agent_ids,
+                knowledge: &nta.knowledge_ids,
+                ontology_class: &nta.ontology_class_ids,
+                ontology_individual: &nta.ontology_individual_ids,
+                ontology_property: &nta.ontology_property_ids,
+            },
             None,
             analytics_data,
         );

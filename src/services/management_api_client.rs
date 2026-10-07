@@ -182,6 +182,18 @@ impl std::fmt::Display for ManagementApiError {
 
 impl std::error::Error for ManagementApiError {}
 
+/// Optional user scoping for [`ManagementApiClient::create_task_with_context`].
+/// The default is an unscoped task with no Beads tracking.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TaskContext<'a> {
+    /// Scope the task to this user's workspace and environment.
+    pub user_context: Option<&'a UserContext>,
+    /// Create a Beads epic to track the task.
+    pub with_beads: bool,
+    /// Parent Beads issue for the epic.
+    pub parent_bead_id: Option<&'a str>,
+}
+
 impl ManagementApiClient {
     pub fn new(host: String, port: u16, api_key: String) -> Self {
         let base_url = format!("http://{}:{}", host, port);
@@ -215,9 +227,7 @@ impl ManagementApiClient {
             agent,
             task,
             provider,
-            None,
-            false,
-            None,
+            TaskContext::default(),
             claude_flow_agent_id,
         )
         .await
@@ -242,11 +252,14 @@ impl ManagementApiClient {
         agent: &str,
         task: &str,
         provider: &str,
-        user_context: Option<&UserContext>,
-        with_beads: bool,
-        parent_bead_id: Option<&str>,
+        context: TaskContext<'_>,
         claude_flow_agent_id: Option<&str>,
     ) -> Result<TaskResponse, ManagementApiError> {
+        let TaskContext {
+            user_context,
+            with_beads,
+            parent_bead_id,
+        } = context;
         let url = format!("{}/v1/tasks", self.base_url);
 
         let mut request_body = serde_json::json!({

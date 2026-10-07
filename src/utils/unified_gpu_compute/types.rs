@@ -224,3 +224,16 @@ unsafe extern "C" {
         stream: *mut ::std::os::raw::c_void,
     );
 }
+
+/// K-means result: per-node cluster assignment, cluster centroids and final
+/// inertia.
+pub type GpuKMeansOutput = (Vec<i32>, Vec<(f32, f32, f32)>, f32);
+
+/// K-means result with run metrics: assignments, centroids, final inertia,
+/// iterations performed and whether it converged.
+pub type GpuKMeansMetricsOutput = (Vec<i32>, Vec<(f32, f32, f32)>, f32, u32, bool);
+
+/// Community-detection result: per-node community label, community count,
+/// modularity, iterations performed, compact community sizes and whether it
+/// converged.
+pub type GpuCommunityOutput = (Vec<i32>, usize, f32, u32, Vec<i32>, bool);

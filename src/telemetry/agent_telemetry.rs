@@ -71,35 +71,6 @@ impl AgentTelemetryLogger {
         }
     }
 
-    pub fn from_client_session(
-        &self,
-        client_session_id: &str,
-        _bridge: Option<()>,
-        level: LogLevel,
-        category: &str,
-        event_type: &str,
-        message: &str,
-        component: &str,
-    ) -> TelemetryEvent {
-        let correlation_id = {
-            debug!(
-                "Creating fallback correlation ID for client session {}",
-                client_session_id
-            );
-            CorrelationId::from_client_session(client_session_id)
-        };
-
-        TelemetryEvent::new(
-            correlation_id,
-            level,
-            category,
-            event_type,
-            message,
-            component,
-        )
-        .with_client_session_id(client_session_id)
-    }
-
     pub fn log_agent_spawn(
         &self,
         agent_id: &str,

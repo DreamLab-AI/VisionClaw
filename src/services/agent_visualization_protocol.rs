@@ -647,24 +647,13 @@ impl AgentVisualizationProtocol {
         to_json(&message).unwrap_or_default()
     }
 
-    pub fn add_position_update(
-        &mut self,
-        id: String,
-        x: f32,
-        y: f32,
-        z: f32,
-        vx: f32,
-        vy: f32,
-        vz: f32,
-    ) {
+    /// Buffer a position update; a missing velocity component is sent as 0.
+    pub fn add_position_update(&mut self, update: PositionUpdate) {
         self.position_buffer.push(PositionUpdate {
-            id,
-            x,
-            y,
-            z,
-            vx: Some(vx),
-            vy: Some(vy),
-            vz: Some(vz),
+            vx: Some(update.vx.unwrap_or(0.0)),
+            vy: Some(update.vy.unwrap_or(0.0)),
+            vz: Some(update.vz.unwrap_or(0.0)),
+            ..update
         });
     }
 

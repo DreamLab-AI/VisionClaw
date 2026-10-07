@@ -1143,10 +1143,12 @@ mod tests {
             .avatar_id
     }
 
+    type Collected<T> = Arc<Mutex<Vec<T>>>;
+
     fn collector() -> (
         Addr<CollectActor>,
-        Arc<Mutex<Vec<BroadcastFrame>>>,
-        Arc<Mutex<Vec<RoomEventEnvelope>>>,
+        Collected<BroadcastFrame>,
+        Collected<RoomEventEnvelope>,
     ) {
         let frames = Arc::new(Mutex::new(Vec::<BroadcastFrame>::new()));
         let events = Arc::new(Mutex::new(Vec::<RoomEventEnvelope>::new()));

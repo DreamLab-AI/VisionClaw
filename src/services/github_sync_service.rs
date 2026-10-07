@@ -1471,9 +1471,7 @@ impl GitHubSyncService {
         fn create_fetch_future(
             source: Arc<dyn CorpusSource>,
             file: CorpusPage,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = (CorpusPage, Result<String, String>)> + Send>,
-        > {
+        ) -> futures::future::BoxFuture<'static, (CorpusPage, Result<String, String>)> {
             Box::pin(async move {
                 let result = source.fetch_page(&file).await;
                 (file, result)

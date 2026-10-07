@@ -379,7 +379,7 @@ pub struct AppState {
     /// ComputeSSP run. Maps compact node_id -> (distance, parent_id). Read by the
     /// binary broadcast path to fill V3 wire slot 28 (sssp_distance@28). Absent
     /// nodes default to (INFINITY, -1).
-    pub node_sssp: Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>>,
+    pub node_sssp: crate::actors::messages::SharedNodeSssp,
 }
 
 impl AppState {
@@ -679,7 +679,7 @@ impl AppState {
 
         // ADR-031 D2b: shared SSSP map fed by ShortestPathActor, read by the
         // binary broadcast path to fill wire slot 28.
-        let node_sssp: Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>> =
+        let node_sssp: crate::actors::messages::SharedNodeSssp =
             Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         info!("[AppState::new] Starting ClientCoordinatorActor");

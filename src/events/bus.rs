@@ -129,8 +129,11 @@ async fn execute_handler_concurrent(
     }
 }
 
+/// Event type -> the handlers subscribed to it.
+type SubscriberMap = HashMap<String, Vec<Arc<dyn EventHandler>>>;
+
 pub struct EventBus {
-    subscribers: Arc<RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>>,
+    subscribers: Arc<RwLock<SubscriberMap>>,
 
     middleware: Arc<RwLock<Vec<Arc<dyn EventMiddleware>>>>,
 

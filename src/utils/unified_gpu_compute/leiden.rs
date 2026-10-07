@@ -31,6 +31,7 @@
 use super::clustering::safe_download;
 use super::community::modularity_csr;
 use super::construction::UnifiedGPUCompute;
+use super::types::GpuCommunityOutput;
 use anyhow::{anyhow, Result};
 use cust::context::Context;
 use cust::launch;
@@ -67,6 +68,14 @@ fn compact_with_sizes(raw: &[i32]) -> (Vec<i32>, Vec<i32>) {
     (dense, sizes)
 }
 
+/// A weighted graph in CSR form: row offsets, column indices, edge weights.
+#[derive(Clone, Copy)]
+struct CsrView<'a> {
+    off: &'a [i32],
+    idx: &'a [i32],
+    wt: &'a [f32],
+}
+
 /// Leiden refinement of a single level.
 ///
 /// `p` is the (dense) community per current-level node from the local move.
@@ -81,15 +90,14 @@ fn compact_with_sizes(raw: &[i32]) -> (Vec<i32>, Vec<i32>) {
 /// the merge chains to depth one. Connectivity is guaranteed because a source is
 /// only ever merged into a sub-community it shares an edge with.
 fn leiden_refine(
-    off: &[i32],
-    idx: &[i32],
-    wt: &[f32],
+    graph: CsrView<'_>,
     nw: &[f32],
     p: &[i32],
     num_comm: usize,
     total_weight: f32,
     resolution: f32,
 ) -> (Vec<i32>, usize, Vec<i32>) {
+    let CsrView { off, idx, wt } = graph;
     let n = p.len();
     let m2 = 2.0 * total_weight as f64; // 2m
 
@@ -183,7 +191,7 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         resolution: f32,
         _seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
+    ) -> Result<GpuCommunityOutput> {
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for Leiden: {}", e))?;
 
@@ -362,9 +370,11 @@ impl UnifiedGPUCompute {
 
             // --- Phase 2: refinement into connected sub-communities. ---
             let (refined_dense, num_refined, p_of_refined) = leiden_refine(
-                &off,
-                &idx,
-                &wt,
+                CsrView {
+                    off: &off,
+                    idx: &idx,
+                    wt: &wt,
+                },
                 &nw,
                 &p_dense,
                 num_comm,

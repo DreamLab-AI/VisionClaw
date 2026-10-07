@@ -1421,7 +1421,7 @@ mod enhanced_safety_tests {
         for (scenario_name, base_size, _increment) in memory_scenarios {
             println!("  Testing {} scenario...", scenario_name);
 
-            let mut total_allocated = 0usize;
+            let total_allocated = 0usize;
             let memory_limit = 1024 * 1024 * 1024; // 1GB limit for testing
 
             // Simulate memory allocation
@@ -1450,7 +1450,6 @@ mod enhanced_safety_tests {
 
                 println!("    ✓ {} - OOM handled: {}", scenario_name, error_message);
             } else {
-                total_allocated += allocation_size;
                 println!(
                     "    ✓ {} - Allocation succeeded: {} bytes",
                     scenario_name, allocation_size

@@ -176,12 +176,22 @@ impl GPUResourceActor {
                 if let Some(ref mut compute) = self.unified_compute {
                     compute
                         .initialize_graph(
-                            csr_result.row_offsets.iter().map(|&x| x as i32).collect(),
-                            csr_result.col_indices.iter().map(|&x| x as i32).collect(),
-                            csr_result.edge_weights,
-                            csr_result.positions_x,
-                            csr_result.positions_y,
-                            csr_result.positions_z,
+                            &csr_result
+                                .row_offsets
+                                .iter()
+                                .map(|&x| x as i32)
+                                .collect::<Vec<_>>(),
+                            &csr_result
+                                .col_indices
+                                .iter()
+                                .map(|&x| x as i32)
+                                .collect::<Vec<_>>(),
+                            &csr_result.edge_weights,
+                            [
+                                &csr_result.positions_x,
+                                &csr_result.positions_y,
+                                &csr_result.positions_z,
+                            ],
                             csr_result.num_nodes as usize,
                             csr_result.num_edges as usize,
                         )
@@ -652,12 +662,22 @@ impl GPUResourceActor {
 
             unified_compute
                 .initialize_graph(
-                    csr_result.row_offsets.iter().map(|&x| x as i32).collect(),
-                    csr_result.col_indices.iter().map(|&x| x as i32).collect(),
-                    csr_result.edge_weights,
-                    csr_result.positions_x,
-                    csr_result.positions_y,
-                    csr_result.positions_z,
+                    &csr_result
+                        .row_offsets
+                        .iter()
+                        .map(|&x| x as i32)
+                        .collect::<Vec<_>>(),
+                    &csr_result
+                        .col_indices
+                        .iter()
+                        .map(|&x| x as i32)
+                        .collect::<Vec<_>>(),
+                    &csr_result.edge_weights,
+                    [
+                        &csr_result.positions_x,
+                        &csr_result.positions_y,
+                        &csr_result.positions_z,
+                    ],
                     csr_result.num_nodes as usize,
                     csr_result.num_edges as usize,
                 )

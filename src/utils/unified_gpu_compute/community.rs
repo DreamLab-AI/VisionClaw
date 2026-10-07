@@ -2,6 +2,7 @@
 
 use super::clustering::{safe_download, safe_upload};
 use super::construction::UnifiedGPUCompute;
+use super::types::GpuCommunityOutput;
 use anyhow::{anyhow, Result};
 use cust::context::Context;
 use cust::launch;
@@ -72,7 +73,7 @@ impl UnifiedGPUCompute {
         &mut self,
         max_iterations: u32,
         seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
+    ) -> Result<GpuCommunityOutput> {
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for community detection: {}", e))?;
 
@@ -289,7 +290,7 @@ impl UnifiedGPUCompute {
         &mut self,
         max_iterations: u32,
         seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
+    ) -> Result<GpuCommunityOutput> {
         self.run_community_detection(max_iterations, seed)
     }
 
@@ -305,7 +306,7 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         resolution: f32,
         _seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
+    ) -> Result<GpuCommunityOutput> {
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for Louvain: {}", e))?;
 
@@ -988,7 +989,8 @@ mod tests {
 
     #[test]
     fn matches_independent_oracle_on_all_fixtures_and_partitions() {
-        let cases: &[(usize, &[(usize, usize)], Vec<i32>)] = &[
+        type Case = (usize, &'static [(usize, usize)], Vec<i32>);
+        let cases: &[Case] = &[
             (3, TRIANGLE, vec![0, 0, 0]),
             (3, TRIANGLE, vec![0, 1, 2]),
             (3, TRIANGLE, vec![0, 0, 1]),

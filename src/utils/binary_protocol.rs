@@ -402,14 +402,28 @@ pub fn encode_node_data_extended(
 ) -> Vec<u8> {
     encode_node_data_extended_with_sssp(
         nodes,
-        agent_node_ids,
-        knowledge_node_ids,
-        ontology_class_ids,
-        ontology_individual_ids,
-        ontology_property_ids,
+        NodeClassIds {
+            agent: agent_node_ids,
+            knowledge: knowledge_node_ids,
+            ontology_class: ontology_class_ids,
+            ontology_individual: ontology_individual_ids,
+            ontology_property: ontology_property_ids,
+        },
         None,
         None,
     )
+}
+
+/// Node ids to stamp with each class flag while encoding. An id in none of
+/// the sets is forwarded as-is (callers that pre-stamp pass the default,
+/// all-empty sets).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NodeClassIds<'a> {
+    pub agent: &'a [u32],
+    pub knowledge: &'a [u32],
+    pub ontology_class: &'a [u32],
+    pub ontology_individual: &'a [u32],
+    pub ontology_property: &'a [u32],
 }
 
 /// Encode node data with optional per-node SSSP distances and analytics.
@@ -418,14 +432,17 @@ pub fn encode_node_data_extended(
 /// When absent for a node, defaults to (INFINITY, -1) / NodeAnalytics::default().
 pub fn encode_node_data_extended_with_sssp(
     nodes: &[(u32, BinaryNodeData)],
-    agent_node_ids: &[u32],
-    knowledge_node_ids: &[u32],
-    ontology_class_ids: &[u32],
-    ontology_individual_ids: &[u32],
-    ontology_property_ids: &[u32],
+    class_ids: NodeClassIds<'_>,
     sssp_data: Option<&HashMap<u32, (f32, i32)>>,
     analytics_data: Option<&HashMap<u32, NodeAnalytics>>,
 ) -> Vec<u8> {
+    let NodeClassIds {
+        agent: agent_node_ids,
+        knowledge: knowledge_node_ids,
+        ontology_class: ontology_class_ids,
+        ontology_individual: ontology_individual_ids,
+        ontology_property: ontology_property_ids,
+    } = class_ids;
     // Always use V3 as the default protocol (P0-4 Analytics Extension)
     let protocol_version = PROTOCOL_V3;
     let item_size = WIRE_V3_ITEM_SIZE;
@@ -572,7 +589,7 @@ pub fn encode_node_data_with_live_analytics(
     analytics_data: Option<&HashMap<u32, NodeAnalytics>>,
     sssp_data: Option<&HashMap<u32, (f32, i32)>>,
 ) -> Vec<u8> {
-    encode_node_data_extended_with_sssp(nodes, &[], &[], &[], &[], &[], sssp_data, analytics_data)
+    encode_node_data_extended_with_sssp(nodes, NodeClassIds::default(), sssp_data, analytics_data)
 }
 
 pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String> {
@@ -1257,7 +1274,7 @@ mod tests {
         let nodes: Vec<(u32, BinaryNodeData)> = stamped.iter().map(|&id| (id, mk(id))).collect();
 
         let encoded =
-            encode_node_data_extended_with_sssp(&nodes, &[], &[], &[], &[], &[], None, None);
+            encode_node_data_extended_with_sssp(&nodes, NodeClassIds::default(), None, None);
         assert_eq!(encoded[0], PROTOCOL_V3);
         assert_eq!(encoded.len(), 1 + stamped.len() * WIRE_V3_ITEM_SIZE);
         // Read the id straight off the wire: the decoder is free to strip flags,

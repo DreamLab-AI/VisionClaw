@@ -757,11 +757,8 @@ pub(crate) fn handle_subscribe_position_updates(
                 let analytics_ref = analytics.as_deref();
                 let binary_data = binary_protocol::encode_node_data_extended_with_sssp(
                     &nodes,
-                    &[], // agent_node_ids — fetch_nodes() already flagged IDs
-                    &[], // knowledge_node_ids — fetch_nodes() already flagged IDs
-                    &[], // ontology_class_ids
-                    &[], // ontology_individual_ids
-                    &[], // ontology_property_ids
+                    // fetch_nodes() already flagged the IDs.
+                    binary_protocol::NodeClassIds::default(),
                     None, // sssp_data
                     analytics_ref,
                 );

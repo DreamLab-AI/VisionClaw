@@ -139,15 +139,7 @@ impl Handler<UpdatePositions> for AgentVisualizationWs {
 
     fn handle(&mut self, msg: UpdatePositions, _ctx: &mut Self::Context) {
         for update in msg.0 {
-            self.protocol.add_position_update(
-                update.id,
-                update.x,
-                update.y,
-                update.z,
-                update.vx.unwrap_or(0.0),
-                update.vy.unwrap_or(0.0),
-                update.vz.unwrap_or(0.0),
-            );
+            self.protocol.add_position_update(update);
         }
     }
 }

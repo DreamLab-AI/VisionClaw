@@ -11,7 +11,6 @@ use visionclaw_domain::models::metadata::Metadata;
 use visionclaw_domain::models::node::Node;
 // GraphService direct import is no longer needed as we use actors
 // use crate::services::graph_service::GraphService;
-use crate::actors::graph_actor::PhysicsState;
 use crate::actors::messages::{
     AddNodesFromMetadata, GetSettings, GetSettlementState, SettlementSnapshot,
 };
@@ -19,7 +18,7 @@ use crate::application::graph::queries::{
     GetAutoBalanceNotifications, GetGraphData, GetNodeMap, GetPhysicsState,
 };
 use crate::handlers::utils::execute_in_thread;
-use hexser::{Hexserror, QueryHandler};
+use hexser::QueryHandler;
 use visionclaw_domain::models::graph::GraphData;
 
 /// Fold-level ladder (Wave 3) — server-side fold-plan computation.
@@ -211,12 +210,7 @@ pub async fn get_graph_data(
     // queries. `None` ⇒ GPU actor not up / no tick yet ⇒ run-state fallback.
     let settlement_future = fetch_settlement(&state);
 
-    let (graph_result, node_map_result, physics_result, settlement): (
-        Result<Result<Arc<GraphData>, Box<Hexserror>>, String>,
-        Result<Result<Arc<HashMap<u32, Node>>, Box<Hexserror>>, String>,
-        Result<Result<PhysicsState, Box<Hexserror>>, String>,
-        Option<SettlementSnapshot>,
-    ) = tokio::join!(
+    let (graph_result, node_map_result, physics_result, settlement) = tokio::join!(
         graph_future,
         node_map_future,
         physics_future,

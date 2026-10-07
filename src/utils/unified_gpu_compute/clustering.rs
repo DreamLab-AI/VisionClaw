@@ -2,6 +2,7 @@
 
 use super::construction::UnifiedGPUCompute;
 use super::types::int3;
+use super::types::{GpuKMeansMetricsOutput, GpuKMeansOutput};
 use anyhow::{anyhow, Result};
 use cust::context::Context;
 use cust::launch;
@@ -43,7 +44,7 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         tolerance: f32,
         seed: u32,
-    ) -> Result<(Vec<i32>, Vec<(f32, f32, f32)>, f32)> {
+    ) -> Result<GpuKMeansOutput> {
         // Make CUDA context current for this thread (required when called from spawn_blocking)
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for k-means: {}", e))?;
@@ -189,7 +190,7 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         tolerance: f32,
         seed: u32,
-    ) -> Result<(Vec<i32>, Vec<(f32, f32, f32)>, f32, u32, bool)> {
+    ) -> Result<GpuKMeansMetricsOutput> {
         let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for k-means: {}", e))?;
 
@@ -468,7 +469,7 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         tolerance: f32,
         seed: u32,
-    ) -> Result<(Vec<i32>, Vec<(f32, f32, f32)>, f32)> {
+    ) -> Result<GpuKMeansOutput> {
         self.run_kmeans(num_clusters, max_iterations, tolerance, seed)
     }
 
