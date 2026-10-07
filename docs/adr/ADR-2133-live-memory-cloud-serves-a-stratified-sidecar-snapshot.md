@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4f705ccacc07984797b8f6417f90f48b2756299c
+verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -159,3 +159,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/handlers/memory_cloud_handler.rs`: `cargo fmt` only (it arrived from main unformatted).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at a9d587976 (dev inputs, compose-hash label)
+
+**Governed change (a9d587976, ADR-2008 amendment):** `docker-compose.unified.yml`: the dev `visionclaw` service's six single-file bind mounts (`Cargo.toml`, `Cargo.lock`, `build.rs`, `client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`) are replaced by one read-only directory bind of the gitignored `.dev-inputs/` at `/app/.dev-inputs` (`create_host_path: false`), and both `visionclaw` and `visionclaw-production` gain the label `visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}`. No environment key, profile, port, network or build argument changes. The `RUVECTOR_PG_CONNINFO` and `MEMORY_CLOUD_*` variables are unchanged. **Still holds.**
