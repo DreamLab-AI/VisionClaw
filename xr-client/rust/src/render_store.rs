@@ -589,6 +589,10 @@ pub struct RenderStore {
     filter_inputs: HashMap<u32, crate::settings_sync::FilterInputs>,
     filter_hidden: HashSet<u32>,
     filter_dirty: bool,
+    // Node-mesh LOD: the impostor-tier buffer from the last LOD build and the
+    // gem-tier ids it chose (hysteresis input for the next build).
+    impostor_buf: Vec<f32>,
+    lod_prev_near: HashSet<u32>,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -652,6 +656,8 @@ impl RenderStore {
         self.filter_inputs.clear();
         self.filter_hidden.clear();
         self.filter_dirty = self.node_filter.is_some();
+        self.impostor_buf.clear();
+        self.lod_prev_near.clear();
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
@@ -1855,6 +1861,49 @@ impl RenderStore {
             percentile(&ys, hi_q),
             percentile(&zs, hi_q),
         ])
+    }
+}
+
+// --- Node-mesh LOD -----------------------------------------------------------
+impl RenderStore {
+    /// `build_node_buffer` split into LOD tiers (see `lod::split_node_tiers`):
+    /// returns the gem-tier buffer and keeps the impostor tier for
+    /// [`impostor_node_buffer`](Self::impostor_node_buffer). Labelled nodes stay
+    /// in the faded full-mesh pass and count against `near_cap`. `cam` and
+    /// `near_max_dist` are in server units (GraphRoot space). Every drawn node
+    /// keeps its render position, so ray picking ignores the tier.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_node_buffer_lod(
+        &mut self,
+        ids: &[i32],
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) -> Vec<f32> {
+        let buf = self.build_node_buffer(ids, scale_comp, size_lo, size_hi);
+        // `buf` holds the drawn ids without a live label fade, in emission order.
+        let main_ids: Vec<u32> = self
+            .render_ids
+            .iter()
+            .copied()
+            .filter(|id| !self.label_alpha.contains_key(id))
+            .collect();
+        let faded = self.faded_buf.len() / NODE_STRIDE;
+        let cap = near_cap.saturating_sub(faded);
+        let (near, far, near_ids) =
+            crate::lod::split_node_tiers(&buf, &main_ids, cam, cap, near_max_dist, &self.lod_prev_near);
+        self.impostor_buf = far;
+        self.lod_prev_near = near_ids;
+        near
+    }
+
+    /// Impostor-tier instances from the last `build_node_buffer_lod` (same
+    /// 20-float layout as the node buffer).
+    pub fn impostor_node_buffer(&self) -> &[f32] {
+        &self.impostor_buf
     }
 }
 

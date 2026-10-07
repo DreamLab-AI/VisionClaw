@@ -1513,6 +1513,42 @@ impl BinaryProtocolClient {
         PackedFloat32Array::from(self.store.faded_node_buffer())
     }
 
+    /// Node-mesh LOD build (PRD-008 triangle budget): like `build_node_buffer`,
+    /// but returns only the gem tier — the `near_cap` nodes nearest `cam` within
+    /// `near_max_dist` (both in GraphRoot/server space; labelled nodes count
+    /// against the cap). Read the remaining drawn nodes with
+    /// `impostor_node_buffer()` for the 2-triangle impostor MultiMesh.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn build_node_buffer_lod(
+        &mut self,
+        ids: PackedInt32Array,
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+        cam: Vector3,
+        near_cap: i64,
+        near_max_dist: f32,
+    ) -> PackedFloat32Array {
+        let v = self.store.build_node_buffer_lod(
+            ids.as_slice(),
+            scale_comp,
+            size_lo,
+            size_hi,
+            [cam.x, cam.y, cam.z],
+            near_cap.max(0) as usize,
+            near_max_dist,
+        );
+        PackedFloat32Array::from(v.as_slice())
+    }
+
+    /// Impostor-tier instances from the last `build_node_buffer_lod` (20-float
+    /// stride, same layout as the node buffer).
+    #[func]
+    fn impostor_node_buffer(&self) -> PackedFloat32Array {
+        PackedFloat32Array::from(self.store.impostor_node_buffer())
+    }
+
     /// Pack the edge MultiMesh buffer for the ranked `pairs` (16 floats/instance:
     /// 12 transform + 4 INSTANCE_CUSTOM, custom `.a` = relation-type style code).
     /// Only edges with both endpoints in the last node buffer's drawn set survive.

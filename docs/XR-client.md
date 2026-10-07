@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.4
+version: 0.1.5
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.5 (2026-10-07): node-mesh LOD (gem tier capped at 96, 2-triangle impostors beyond) brings the benchmark under the PRD-008 triangle budget at 1k and 13k nodes; dev profile optimised because the editor/headset run loads target/debug; GUT 9.7.1 vendored, CI on Godot 4.6.1. No invariant changed."
   - "0.1.4 (2026-10-07): desktop parity — domain palette (default) with community toggle, inbound settingsUpdated/filter/graphUpdated sync incl. physics read-back, cluster hulls as one ArrayMesh; project.godot comment corrected; benchmark triangle-budget divergence recorded. No invariant changed."
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
@@ -20,6 +21,10 @@ sources:
   - xr-client/rust/src/hulls.rs
   - xr-client/scripts/graph_parity.gd
   - xr-client/materials/cluster_hull.gdshader
+  - xr-client/rust/src/lod.rs
+  - xr-client/scripts/node_lod.gd
+  - xr-client/materials/node_impostor.gdshader
+  - xr-client/perf/benchmark.gd
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/README.md
   - src/handlers/layout_handler.rs
@@ -204,6 +209,49 @@ bare label was accepted, so from `7b6330608` each domain root ranked as the
 child of its own members (live census: 6400 membership edges in a 16196-edge
 rank set; every root at rank 1 below 36-533 of its members).
 
+### Node-mesh LOD and the triangle budget (2026-10-07)
+The gem node (16×8 sphere plus the halo `next_pass`) costs 576 triangles, so the
+PRD-008 budget (≤ 100k triangles, ≤ 50 draw calls, `perf/README.md`) failed at
+1 000 nodes (576 000) and the 13k production graph would be ≈ 7.5 M. Two tiers fix
+it without touching the near look:
+- **Gem tier**: the nearest `NEAR_CAP = 96` drawn nodes within `NEAR_RADIUS_M =
+  1.0` m of the eye keep the full gem material — 96 × 576 = 55 296 triangles, under
+  a ~60k near-field ceiling. Labelled (faded) nodes stay on the full mesh and count
+  against the cap. Selection is Rust `lod::split_node_tiers` (O(n) partial select,
+  10 % distance hysteresis so boundary nodes do not flicker), called through
+  `BinaryProtocolClient.build_node_buffer_lod`; camera and radius are converted
+  into GraphRoot space, so the fit scale and two-hand manipulation are respected.
+- **Impostor tier**: every other drawn node is one camera-facing quad
+  (`materials/node_impostor.gdshader`: analytic lit sphere with specular, rim and
+  the centrality/query rim tells; opaque with discard; billboarded with the main
+  camera basis as Godot's own billboard mode does, so both eyes agree) in a single
+  `NodesImpostorMulti` under GraphRoot (`scripts/node_lod.gd`) — +1 draw call.
+  Same 20-float instance layout, and every node keeps its render position, so ray
+  picking, edges, labels and hulls ignore the tier.
+
+`perf/benchmark_scene.tscn` now measures this production path (fixture → V3 frame
+→ `ingest` → LOD split every frame, worst case: gem cap always full) and reports
+`node_lod`, `lod_build_ms_p50/p99` and `hull_layer`; `XR_BENCH_NODES=13164` runs
+production density, `XR_BENCH_HULLS=0` drops the hull layer. Measured on HP
+(Godot 4.6.1, opengl3, `--xr-mode off`, dev-profile library, 2026-10-07):
+
+| Run | Draw calls | Triangles | Frame p50 / p99 | LOD pack p99 | Result |
+|---|---|---|---|---|---|
+| 1 000 nodes + 32 hulls | 4 | 58 030 | 0.31 / 0.93 ms | 0.23 ms | pass |
+| 1 000 nodes, no hulls | 3 | 57 104 | 0.31 / 0.93 ms | 0.16 ms | pass |
+| 13 164 nodes + 32 hulls | 4 | 84 370 | 2.02 / 2.22 ms | 2.17 ms | pass |
+| 13 164 nodes, no hulls | 3 | 81 432 | 2.02 / 2.47 ms | 2.13 ms | pass |
+
+Before the LOD the 1 000-node scene measured 576 000 triangles. The benchmark
+renders nodes (and hulls) only: edges are not in it. The live scene's edge
+cylinders (8-sided, capped, up to `EDGE_SAFETY_CEILING`) are an open item below.
+
+**The headset runs the debug library.** `visionclaw_xr_gdext.gdextension` maps
+the editor (`linux.debug.x86_64`) to `target/debug`, and the desktop-OpenXR launch
+is the editor binary. Unoptimised, the 13k node pack took 18–20 ms per frame
+(p99 20.3 ms, failing 90 fps); the crate's `[profile.dev]` is now `opt-level = 2`
+(debug assertions and overflow checks kept), which gives the numbers above.
+
 ### Desktop parity: domain colour, settings sync, cluster hulls (2026-10-07)
 Three desktop behaviours ported under the existing invariants (audit WP1, WP2,
 WP4). Rust owns every rule; `scripts/graph_parity.gd` is the only scene-side
@@ -266,23 +314,25 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   which belongs to audit WP0 with an ADR and a headset receipt (Invariant 1). A
   hand-edit would pre-empt that decision. Documented in `xr-client/README.md:15-18`
   as well as here.
-- **Benchmark triangle budget fails before any feature layer.**
-  `perf/benchmark_scene.tscn` uses the production node mesh (16×8 sphere plus the
-  halo `next_pass`, ≈ 576 triangles per node): measured on HP (opengl3, 2026-10-07)
-  at 576 000 triangles for the 1 000-node fixture, so the scene exits 1 against
-  the PRD-008 100 k budget with or without hulls (`XR_BENCH_HULLS=0` for the A/B
-  baseline). At the 13k-node production density the node layer alone is ≈ 7.5 M.
-  The budget and the node geometry disagree; resolving it (LOD, impostors or a
-  restated budget) is an owner decision, not recorded here as done.
+- **Benchmark triangle budget — Resolved 2026-10-07.** It failed at baseline
+  (576 000 triangles for 1 000 gem nodes); the node-mesh LOD above brings 1k to
+  58 030 and 13k to 84 370 with ≤ 4 draw calls. **Still open: edges.** The live
+  scene draws up to 20 000 edge cylinders (8 radial segments plus caps ≈ 32
+  triangles each, ≈ 640k at the ceiling), which the benchmark does not render;
+  an edge LOD (uncapped or ribbon impostors beyond the near field) is the next
+  budget item.
 - **Instance colour is treated as linear.** `gem.tres` uses
   `vertex_color_use_as_albedo` without `vertex_color_is_srgb`, so every node palette
   (community, query, agent, and now domain) shows lighter than its sRGB swatch and
   than the desktop hex. Domain colours and hulls keep that convention, so a hull
   and its nodes read as one hue. Flipping the flag changes every palette at once
   and needs a headset look review.
-- **GUT on Godot 4.6.** GUT 9.3.0 does not compile on Godot ≥ 4.5 (its `Logger`
-  shadows the new native class); GUT 9.7.1 runs the suite (118/118 on HP,
-  2026-10-07). Install the newer GUT wherever the suite runs.
+- **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
+  Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
+  `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
+  runs the suite on Godot 4.6.1 with the vendored copy. Both documented invocations
+  (`-gdir=res://tests/unit -ginclude_subdirs -gexit` and
+  `-gconfig=res://.gutconfig.json`) pass on HP (121/121).
 - **Quest 3 is unmeasured.** Quest 3 is the sole *ship* target
   (`project.godot:2`, README) but the APK is **unbuilt** and the cross-build is
   frozen — no Android NDK is provisioned in this environment (README line 6).
@@ -348,10 +398,10 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(358 headless tests — 259 library + 99 integration — as of 2026-10-07, <1 s, no
+(364 headless tests — 259 library + 105 integration — as of 2026-10-07, no
 headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
-(`tests/unit`) needs the 4.6.1 editor, the native library built for the host, and
-GUT ≥ 9.5. Any change
+(`tests/unit`, vendored 9.7.1) needs the 4.6.1 editor and the native library
+built for the host (`cargo build -p visionclaw-xr-gdext`). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

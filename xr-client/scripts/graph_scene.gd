@@ -362,6 +362,9 @@ const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
 # WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
 const GraphParityScript := preload("res://scripts/graph_parity.gd")
 var _parity: Node = null
+# Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
+const NodeLod := preload("res://scripts/node_lod.gd")
+var _impostors: MultiMeshInstance3D = null
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -558,6 +561,9 @@ func _ready() -> void:
 	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
 		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
 	_parity.setup(self, _binary_client, graph_root, hud)
+	if graph_root != null:
+		_impostors = NodeLod.make_impostor_instance()
+		graph_root.add_child(_impostors)
 	_connect_from_env()
 
 
@@ -1872,7 +1878,18 @@ func _update_multimesh() -> void:
 		_recompute_drawn_ids()
 		_selection_dirty = false
 	var comp: float = NODE_WORLD_RADIUS * _node_size_factor / (NODE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
+	var buf: PackedFloat32Array
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if _impostors != null and cam != null and _binary_client.has_method("build_node_buffer_lod"):
+		# Gem mesh for the nearest NEAR_CAP nodes within NEAR_RADIUS_M of the eye;
+		# every other drawn node is a 2-triangle impostor (one extra draw call).
+		var inv: Transform3D = graph_root.global_transform.affine_inverse()
+		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
+		buf = _binary_client.build_node_buffer_lod(_drawn_ids, comp, 0.7, 1.9,
+			inv * cam.global_position, NodeLod.NEAR_CAP, NodeLod.NEAR_RADIUS_M / world_per_server)
+		NodeLod.assign(_impostors, _binary_client.impostor_node_buffer())
+	else:
+		buf = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
 	var mm: MultiMesh = nodes_multi.multimesh
 	var count: int = buf.size() / 20
 	if mm.instance_count != count:

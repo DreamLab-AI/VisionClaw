@@ -68,8 +68,10 @@ xr-client/
 ## Build steps (manual)
 
 ```bash
-# 1. Build the gdext .so for the host OS (for editor preview)
-cargo build -p visionclaw-xr-gdext --release
+# 1. Build the gdext .so for the host OS. The editor and the desktop-OpenXR run
+#    load target/debug (the .gdextension debug entry); the dev profile is
+#    optimised (Cargo.toml [profile.dev]) so this is also the headset build.
+cd xr-client/rust && cargo build -p visionclaw-xr-gdext && cd ../..
 
 # 2. Build for Quest 3 (arm64 Android)
 cd xr-client/rust
