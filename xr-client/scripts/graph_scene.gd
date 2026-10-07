@@ -367,6 +367,14 @@ const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
 # WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
 const GraphParityScript := preload("res://scripts/graph_parity.gd")
 var _parity: Node = null
+## HUD Graph Separation writes (ADR-2135): ≤ 4 Hz while the wand drags the
+## slider, a final write on release, all through _put_physics_body.
+const SeparationControlScript := preload("res://scripts/separation_control.gd")
+var _separation = SeparationControlScript.new()
+## Memory search from the HUD Query page (POST /api/memory-cloud/query, the
+## route through its sampled top hits). Created with the memory cloud.
+const MemorySearchScript := preload("res://scripts/memory_search.gd")
+var _memory_search: Node = null
 # Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
@@ -559,6 +567,10 @@ func _ready() -> void:
 		_memory_cloud.route_stats_changed.connect(func(line: String) -> void:
 			if hud != null and hud.has_method("set_memory_route_line"):
 				hud.set_memory_route_line(line))
+		_memory_search = MemorySearchScript.new()
+		_memory_search.name = "MemorySearch"
+		add_child(_memory_search)
+		_memory_search.setup(_http_base(), Callable(self, "_auth_headers"), _memory_cloud, hud)
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -815,6 +827,20 @@ func _on_hud_control(action: String) -> void:
 	if action.begins_with("teleport:"):
 		_teleport_to_node(int(action.substr(9)))
 		return
+	if action.begins_with("memory_preset:") or action.begins_with("memory_hit:"):
+		if _memory_search != null and _memory_search.handle_control(action):
+			_refresh_memory_cloud_hud()
+		return
+	# Graph Separation slider (hud.gd): "separation_drag:<v>" while the wand drags,
+	# "separation_release:<v>" when it lets go. The per-frame _pump_separation
+	# (in _physics_process) sends them.
+	if action.begins_with("separation_drag:"):
+		_separation.drag(float(action.get_slice(":", 1)))
+		return
+	if action.begins_with("separation_release:"):
+		_separation.release(float(action.get_slice(":", 1)))
+		_refresh_controls_status()
+		return
 	# Comfort toggles are owned by spatial_environment.gd (its own connection to
 	# control_pressed); not unknown, so no warning.
 	if action.begins_with("visual_motion:") or action.begins_with("visual_quality:"):
@@ -865,6 +891,10 @@ func _on_hud_control(action: String) -> void:
 			_request_flat_toggle()
 		"layout_mode_cycle":
 			_request_layout_mode_cycle()
+		"separation_plus":
+			_separation.step(SeparationControlScript.STEP, _graph_separation)
+		"separation_minus":
+			_separation.step(-SeparationControlScript.STEP, _graph_separation)
 		"fold_plus":
 			_request_fold(1)
 		"fold_minus":
@@ -934,6 +964,8 @@ func _refresh_controls_status() -> void:
 		hud.set_control_states(_dag_bias_on, _z_compression < Z_COMPRESSION_FULL_3D, _pinned_ids.size(), not is_zero_approx(_plane_bias_k))
 	if hud.has_method("set_layout_mode_label"):
 		hud.set_layout_mode_label(LAYOUT_MODE_LABELS[_layout_mode_idx])
+	if hud.has_method("set_graph_separation"):
+		hud.set_graph_separation(_separation.display_value(_graph_separation))
 	if hud.has_method("set_fold_state"):
 		hud.set_fold_state(_fold_level)
 	# Populate the Pins tab list (cheap; press/ack-only, no per-frame cost).
@@ -1195,6 +1227,7 @@ func _on_physics_completed(result: int, response_code: int, _headers: PackedStri
 	# Discard staged on either outcome: on failure the member vars were never
 	# touched, so the HUD stays in sync with the backend (no divergence).
 	_physics_staged = {}
+	_separation.settled()
 	_refresh_controls_status()
 
 
@@ -1230,6 +1263,22 @@ func _post_physics_reset() -> bool:
 		return false
 	_physics_pending = true
 	return true
+
+
+# Send the Graph Separation value the coalescer releases this frame, if any,
+# through the shared physics PUT (?graph=knowledge, ADR-2041) and its one-in-
+# flight gate. Committed to _graph_separation only on 2xx, like every physics
+# write. `now_ms` is injectable for tests; -1 reads the engine clock.
+func _pump_separation(now_ms: int = -1) -> void:
+	if now_ms < 0:
+		now_ms = Time.get_ticks_msec()
+	var v: float = _separation.take(now_ms, _physics_pending, _graph_separation)
+	if is_nan(v):
+		return
+	if _put_physics_body({"graphSeparationX": v}):
+		_physics_staged = {"_graph_separation": v}
+	else:
+		_separation.requeue(v)
 
 
 # PUT {base}/api/settings/physics?graph=knowledge with the given params. Returns true
@@ -1405,6 +1454,7 @@ func _physics_process(delta: float) -> void:
 	_update_hud_grab()
 	_arbitrate_pointers()
 	_update_hud_pointer()
+	_pump_separation()
 	_update_radial_menu()
 	_update_query_count(delta)
 	_update_teleport(delta)

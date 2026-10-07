@@ -266,6 +266,37 @@ mod tests {
         k
     }
 
+    /// The headset's query parser (`xr-client/rust/src/memory_query.rs`)
+    /// reads the same fixture in `tests/memory_query_parity.rs`. This half
+    /// pins the fixture to these types: it must round-trip field for field,
+    /// so a renamed, added or removed field fails here before the headset
+    /// silently stops reading it.
+    #[test]
+    fn query_response_matches_the_headset_fixture() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../xr-client/rust/tests/fixtures/memory_query_response.json");
+        let text =
+            std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()));
+        let fixture: Value = serde_json::from_str(&text).unwrap();
+        let resp: MemoryCloudQueryResponse = serde_json::from_str(&text).unwrap();
+        // via text: f32 fields serialise in their shortest f32 form
+        let back: Value = serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
+        assert_eq!(
+            back, fixture,
+            "fixture drifted from MemoryCloudQueryResponse"
+        );
+        assert!(resp
+            .sidecar
+            .results
+            .iter()
+            .any(|h| h.sample_index.is_none()));
+        assert!(resp
+            .sidecar
+            .results
+            .iter()
+            .any(|h| h.sample_index.is_some()));
+    }
+
     #[test]
     fn wire_matches_typescript_contract() {
         let snap = MemoryCloudSnapshot {

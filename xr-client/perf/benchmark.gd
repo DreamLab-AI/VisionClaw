@@ -50,6 +50,9 @@ var fixture_path: String = DEFAULT_FIXTURE
 var memory_cloud_rows: int = DEFAULT_MEMORY_ROWS
 var memory_route_hops: int = MEMORY_ROUTE_HOPS
 var memory_route_sidecar: int = 5
+## "relay" (a desktop memoryRoute frame) or "query" (a headset memory query's
+## sidecar top-k route through route_hops+1 sampled hits, memory_search.gd).
+var memory_route_source: String = "relay"
 # FrameBudget (rust frame_budget.rs) caps for the graph's near tiers; the
 # lod.rs defaults until the allocator runs.
 const GRAPH_DRAW_CALLS := 6  # graph-only benchmark, measured (gems, halos, impostors, cylinders, ribbons, hulls)
@@ -136,6 +139,8 @@ func _ready() -> void:
 		memory_route_hops = int(get_meta("memory_route_hops"))
 	if has_meta("memory_route_sidecar"):
 		memory_route_sidecar = int(get_meta("memory_route_sidecar"))
+	if has_meta("memory_route_source"):
+		memory_route_source = str(get_meta("memory_route_source"))
 	if has_meta("extras"):
 		with_extras = bool(get_meta("extras"))
 	if has_meta("bursts"):
@@ -302,6 +307,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"hull_layer": _hull_report,
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
+		"memory_route_source": _memory.route_source() if _memory != null else "",
 		"cloud_placement": str(_memory.placement()) if _memory != null else "",
 		"frame_budget": _budget_report,
 		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc, "hud_pages": _page_cost},
@@ -772,6 +778,12 @@ func _populate_memory_layers(rows: int) -> void:
 		push_warning("benchmark: synthetic memory snapshot rejected: %s" % _memory.state_detail())
 		return
 	_memory.set_enabled(true)
+	if memory_route_source == "query":
+		var verdict: String = _memory.apply_query_response(synthetic_query_response(sid, rows, memory_route_hops + 1))
+		if verdict != "apply":
+			push_warning("benchmark: headset query route not applied (%s)" % verdict)
+		_memory.flush()
+		return
 	var path := PackedStringArray()
 	for h in memory_route_hops + 1:
 		path.append(str((h * 7919) % rows))
@@ -780,6 +792,16 @@ func _populate_memory_layers(rows: int) -> void:
 		side.append(str((k * 104729 + 13) % rows))
 	_memory.apply_route_json('{"type":"memoryRoute","snapshotId":"%s","seq":1,"sentAt":1,"path":[%s],"sidecar":[%s]}' % [sid, ",".join(path), ",".join(side)])
 	_memory.flush()
+
+
+## A `POST /api/memory-cloud/query` response shaped like the server's
+## (wire.rs MemoryCloudQueryResponse) with `hits` sampled hits on spread rows.
+static func synthetic_query_response(sid: String, rows: int, hits: int) -> String:
+	var res := PackedStringArray()
+	for k in hits:
+		var row: int = (k * 7919) % rows
+		res.append('{"id":"q%d","key":"bench-hit-%d","namespace":"ns-%02d","sourceType":"agent","score":%.3f,"snippet":"","sampleIndex":%d}' % [k, k, row % MEMORY_NAMESPACES, 0.9 - 0.005 * k, row])
+	return '{"snapshotId":"%s","embedModel":"bench","query":{"text":"benchmark query","vector":[]},"sidecar":{"results":[%s],"tookMs":1.0,"method":"hnsw"}}' % [sid, ",".join(res)]
 
 
 ## Deterministic snapshot shaped like the server's: rows clustered per

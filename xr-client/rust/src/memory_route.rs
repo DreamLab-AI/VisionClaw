@@ -269,6 +269,21 @@ pub struct RouteFrame {
     /// Sidecar agreement counts relayed by the desktop, when present and
     /// consistent (decoration: a bad value drops the stats, never the frame).
     pub stats: Option<SidecarStats>,
+    /// Where the path came from; decides the HUD caption.
+    pub source: RouteSource,
+}
+
+/// Where a route's path came from. The HUD caption names it, so a rank-order
+/// line through the sidecar's hits is never passed off as a search traversal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RouteSource {
+    /// The desktop's local HNSW traversal, relayed as a `memoryRoute` frame.
+    #[default]
+    Relay,
+    /// Built in the headset from `POST /api/memory-cloud/query`: the response
+    /// carries no traversal, so the path runs through the sampled sidecar hits
+    /// in rank order, the top hit last (`memory_query::sidecar_route`).
+    SidecarTopK,
 }
 
 /// The desktop's honest sidecar accounting (`memoryCloudStore.ts`
@@ -333,6 +348,13 @@ pub fn agreement_line(f: Option<&RouteFrame>) -> String {
     let Some(f) = f.filter(|f| f.path.len() >= 2) else {
         return String::new();
     };
+    if f.source == RouteSource::SidecarTopK {
+        // no local top-k to agree with: the route IS the sidecar's ranking
+        return match f.stats {
+            Some(s) => format!("Route: sidecar top-k in rank order · {}", s.coverage_text()),
+            None => "Route: sidecar top-k in rank order".into(),
+        };
+    }
     match f.stats {
         Some(s) => format!("Route: {} · {}", s.coverage_text(), s.agreement_text()),
         None => format!(
@@ -411,6 +433,7 @@ pub fn parse_route(json: &str) -> Result<RouteFrame, RouteError> {
         sidecar,
         query,
         stats,
+        source: RouteSource::Relay,
     })
 }
 
@@ -963,6 +986,7 @@ pub fn bead_buffer(
     beat_pulse: f32,
     cue_origin: Option<CueOrigin>,
     cue: Option<Cue>,
+    cue_target: Option<Vec3>,
 ) -> Vec<f32> {
     let mut buf = Vec::with_capacity(bead_instances(r.knots.len()) * STRIDE);
     let last = r.pts.len().saturating_sub(1).max(1) as f32;
@@ -1011,7 +1035,7 @@ pub fn bead_buffer(
         (COMET_R * 5.0 * size * st.glow.min(1.6) * pulse).max(1e-5),
         [tip[0], tip[1], tip[2], 0.6],
     );
-    let answer = r.pts.last().copied().unwrap_or([0.0; 3]);
+    let answer = cue_target.unwrap_or_else(|| r.pts.last().copied().unwrap_or([0.0; 3]));
     push_cue_dots(
         &mut buf,
         answer,
@@ -1092,6 +1116,9 @@ pub struct ActiveRoute {
     pub cue_age: Option<f32>,
     /// Centreline sample cap from `frame_budget`; 0 = `ROUTE_RING_CAP`.
     pub ring_cap: usize,
+    /// A point the operator picked from the HUD hit list: the guide cue runs
+    /// there instead of to the answer (`None` = the answer).
+    pub focus: Option<Vec3>,
 }
 
 impl ActiveRoute {
@@ -1137,6 +1164,7 @@ impl ActiveRoute {
             );
             self.el = 0.0;
             self.cue_age = Some(0.0);
+            self.focus = None;
         }
         self.sidecar_pts = f
             .sidecar
@@ -1149,6 +1177,40 @@ impl ActiveRoute {
             .collect();
         self.frame = Some(f);
         !same
+    }
+
+    /// Point the guide cue at snapshot row `row` (a hit picked on the HUD) and
+    /// replay it. False when there is no route or the row is out of range.
+    pub fn focus_row(&mut self, row: u32, positions: &[f32]) -> bool {
+        let o = row as usize * 3;
+        if self.samples.pts.len() < 2 || o + 2 >= positions.len() {
+            return false;
+        }
+        self.focus = Some([positions[o], positions[o + 1], positions[o + 2]]);
+        self.cue_age = Some(0.0);
+        true
+    }
+
+    /// The cue as the rings see it: a cue sent to a picked hit leaves the
+    /// answer ring unhighlighted (the dots point elsewhere).
+    pub fn ring_cue(&self, reduced_motion: bool) -> Option<Cue> {
+        let c = self.cue(reduced_motion)?;
+        Some(if self.focus.is_some() {
+            Cue {
+                highlight: 0.0,
+                grow: false,
+                ..c
+            }
+        } else {
+            c
+        })
+    }
+
+    /// Where the guide cue points: the picked hit, else the answer.
+    pub fn cue_target(&self) -> Vec3 {
+        self.focus
+            .or_else(|| self.samples.pts.last().copied())
+            .unwrap_or([0.0; 3])
     }
 
     /// Advance the trace and cue clocks.
@@ -1199,6 +1261,8 @@ pub struct MemoryRoute {
     /// reduced-motion flag of the last `tick`, for the cue
     reduced: bool,
     last_error: String,
+    /// Sequence of routes built in the headset (`offer_query_response`).
+    local_seq: u64,
     base: Base<RefCounted>,
 }
 
@@ -1213,7 +1277,55 @@ impl MemoryRoute {
             state: None,
             reduced: true,
             last_error: String::new(),
+            local_seq: 0,
             base,
+        })
+    }
+
+    /// Offer a `POST /api/memory-cloud/query` response from this headset as a
+    /// sidecar top-k route (`memory_query::sidecar_route`), through the same
+    /// gate and verdicts as `offer_json`. `sent_at_ms` is now in Unix ms, so a
+    /// later desktop relay still replaces it.
+    #[func]
+    fn offer_query_response(
+        &mut self,
+        json: GString,
+        loaded_snapshot: GString,
+        positions: PackedFloat32Array,
+        sent_at_ms: f64,
+    ) -> GString {
+        let a = match crate::memory_query::parse_query_response(&json.to_string()) {
+            Ok(a) => a,
+            Err(e) => {
+                self.last_error = e.to_string();
+                return GString::from("error");
+            }
+        };
+        self.local_seq += 1;
+        let f = crate::memory_query::sidecar_route(&a, sent_at_ms, self.local_seq);
+        let loaded = loaded_snapshot.to_string();
+        let d = self.gate.offer(
+            f,
+            (!loaded.is_empty()).then_some(loaded.as_str()),
+            positions.len() / 3,
+        );
+        self.apply_decision(d, positions.as_slice())
+    }
+
+    /// Send the guide cue to snapshot row `row` (a hit picked on the HUD).
+    /// False without a route or for a row outside the cloud.
+    #[func]
+    fn focus_row(&mut self, row: i64, positions: PackedFloat32Array) -> bool {
+        u32::try_from(row).is_ok_and(|r| self.route.focus_row(r, positions.as_slice()))
+    }
+
+    /// "relay" (desktop traversal), "sidecar_top_k" (built here) or "".
+    #[func]
+    fn route_source(&self) -> GString {
+        GString::from(match self.route.frame.as_ref().map(|f| f.source) {
+            Some(RouteSource::Relay) => "relay",
+            Some(RouteSource::SidecarTopK) => "sidecar_top_k",
+            None => "",
         })
     }
 
@@ -1440,7 +1552,15 @@ impl MemoryRoute {
         });
         let cue = self.route.cue(self.reduced);
         PackedFloat32Array::from(
-            bead_buffer(&self.route.samples, &st, clamp01(beat_pulse), origin, cue).as_slice(),
+            bead_buffer(
+                &self.route.samples,
+                &st,
+                clamp01(beat_pulse),
+                origin,
+                cue,
+                Some(self.route.cue_target()),
+            )
+            .as_slice(),
         )
     }
 
@@ -1449,7 +1569,7 @@ impl MemoryRoute {
         let Some(st) = self.state else {
             return PackedFloat32Array::new();
         };
-        let cue = self.route.cue(self.reduced);
+        let cue = self.route.ring_cue(self.reduced);
         PackedFloat32Array::from(
             ring_buffer(
                 &self.route.samples,
@@ -1529,7 +1649,54 @@ mod tests {
             sidecar: vec![],
             query: String::new(),
             stats: None,
+            source: RouteSource::Relay,
         }
+    }
+
+    // ── headset-picked cue target ──
+
+    #[test]
+    fn a_picked_hit_takes_the_cue_and_leaves_the_answer_ring_plain() {
+        let pos: Vec<f32> = vec![
+            0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0, -30.0, 5.0, 2.0,
+        ];
+        let mut r = ActiveRoute::default();
+        assert!(!r.focus_row(3, &pos), "no route: nothing to cue");
+        r.set(frame("s", 1, 1.0, &[0, 1, 2]), &pos);
+        assert_eq!(r.cue_target(), [10.0, 10.0, 0.0], "the answer by default");
+        r.advance(3.0);
+        assert!(!r.focus_row(9, &pos), "row outside the cloud");
+        assert!(r.focus_row(3, &pos));
+        assert_eq!(r.cue_target(), [-30.0, 5.0, 2.0]);
+        assert_eq!(r.cue_age, Some(0.0), "the cue replays");
+        let c = r.ring_cue(false).expect("cue showing");
+        assert_eq!(
+            (c.highlight, c.grow),
+            (0.0, false),
+            "answer ring not highlighted"
+        );
+        assert!(r.cue(false).unwrap().alpha >= 0.0);
+        // the dots end at the picked point, not the answer
+        let st = animate(r.samples.pts.len(), 10.0, 1.2, None, false);
+        let o = Some(CueOrigin {
+            from: [0.0, 0.0, 60.0],
+            local_per_m: 20.0,
+        });
+        r.advance(1.0);
+        let b = bead_buffer(&r.samples, &st, 0.0, o, r.cue(false), Some(r.cue_target()));
+        let dots = &b[(r.samples.knots.len() * 2 + 2) * STRIDE..];
+        let last = &dots[(CUE_DOTS - 1) * STRIDE..];
+        let (lx, ly, lz) = (last[3], last[7], last[11]);
+        let to_pick = ((lx + 30.0).powi(2) + (ly - 5.0).powi(2) + (lz - 2.0).powi(2)).sqrt();
+        let to_answer = ((lx - 10.0).powi(2) + (ly - 10.0).powi(2) + lz.powi(2)).sqrt();
+        assert!(
+            to_pick < to_answer,
+            "last dot near the pick ({to_pick} vs {to_answer})"
+        );
+        // a new route clears the pick
+        r.set(frame("s", 2, 2.0, &[2, 1]), &pos);
+        assert_eq!(r.focus, None);
+        assert_eq!(r.cue_target(), [10.0, 0.0, 0.0]);
     }
 
     // ── parse ──
@@ -1835,6 +2002,7 @@ mod tests {
                     sidecar: (MAX_PATH as u32..(MAX_PATH + MAX_SIDECAR) as u32).collect(),
                     query: String::new(),
                     stats: None,
+                    source: RouteSource::Relay,
                 },
                 &pos,
             );
@@ -1886,6 +2054,7 @@ mod tests {
                 sidecar: vec![],
                 query: String::new(),
                 stats: None,
+                source: RouteSource::Relay,
             },
             &pos,
         );
@@ -1910,6 +2079,7 @@ mod tests {
                 sidecar: vec![],
                 query: String::new(),
                 stats: None,
+                source: RouteSource::Relay,
             },
             &pos,
         );
@@ -1932,6 +2102,7 @@ mod tests {
                 sidecar: vec![1],
                 query: String::new(),
                 stats: None,
+                source: RouteSource::Relay,
             },
             &pos,
         );
@@ -1941,7 +2112,7 @@ mod tests {
         assert_eq!(route_total_triangles(&r), tube + beads + rings);
         let st = animate(r.samples.pts.len(), 1.0, 1.0, None, false);
         assert_eq!(
-            bead_buffer(&r.samples, &st, 0.0, None, None).len() / STRIDE,
+            bead_buffer(&r.samples, &st, 0.0, None, None, None).len() / STRIDE,
             2 * r.samples.knots.len() + 2 + CUE_DOTS
         );
         assert_eq!(
@@ -2039,7 +2210,7 @@ mod tests {
         let pos = [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0];
         let r = sample_route(&[0, 1, 2], &pos, 16);
         let st = animate(r.pts.len(), 1.0, 1.2, None, false);
-        let b = bead_buffer(&r, &st, 0.0, None, None);
+        let b = bead_buffer(&r, &st, 0.0, None, None, None);
         assert_eq!(b.len(), (r.knots.len() * 2 + 2 + CUE_DOTS) * STRIDE);
         assert!(b[0] < 1e-4, "root bead hidden");
         let rings = ring_buffer(&r, &st, &[[1.0, 1.0, 1.0]], 1.0, None);
@@ -2138,8 +2309,8 @@ mod tests {
             from: [0.0, -30.0, 40.0],
             local_per_m: 5.0,
         });
-        let a = bead_buffer(&r, &st, 0.0, o, cue_at(1.5, true));
-        let b = bead_buffer(&r, &st, 0.0, o, cue_at(2.5, true));
+        let a = bead_buffer(&r, &st, 0.0, o, cue_at(1.5, true), None);
+        let b = bead_buffer(&r, &st, 0.0, o, cue_at(2.5, true), None);
         let dots = (r.knots.len() * 2 + 2) * STRIDE;
         assert_eq!(a[dots..], b[dots..], "steady dots");
         // the answer ring brightens but keeps its size
@@ -2173,6 +2344,7 @@ mod tests {
                 local_per_m: lpm,
             }),
             cue_at(2.0, false),
+            None,
         );
         let dots = &b[(r.knots.len() * 2 + 2) * STRIDE..];
         assert_eq!(dots.len(), CUE_DOTS * STRIDE);
@@ -2217,7 +2389,7 @@ mod tests {
                 cue_at(2.0, false),
             ),
         ] {
-            let h = bead_buffer(&r, &st, 0.0, o, c);
+            let h = bead_buffer(&r, &st, 0.0, o, c, None);
             assert_eq!(h.len(), b.len());
             let hd = &h[(r.knots.len() * 2 + 2) * STRIDE..];
             assert!((0..CUE_DOTS).all(|i| hd[i * STRIDE] < 1e-4), "hidden");
