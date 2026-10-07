@@ -8,12 +8,28 @@ shader_type spatial;
 // TIME: zero per-frame GDScript/material touches. Restyle of edge_flow.gdshader — same
 // render_mode (safe on gl_compatibility + multiview), but INSTANCE_CUSTOM.a now carries
 // the AGENT STATUS CODE (1 working / 2 blocked) rather than the edge relation grammar.
+//
+// Semantic encoding (desktop parity, client/.../semanticEncoding.ts): INSTANCE_CUSTOM.r
+// is the AgentActionType code (0 Query .. 5 Transform, 6 = unknown → white), .g/.b the
+// beam taper at the TARGET (+Y) and AGENT (−Y) ends. The colour comes from the
+// action, as on the desktop: Create widens green into the node, Delete narrows red
+// into it, Query is a thin blue probe. The status still shapes the motion: a BLOCKED
+// beam keeps its action hue but is pulled toward amber-red, slowed and dimmed.
+// The action_*_color defaults are pinned to AGENT_ACTION_COLORS by the Rust test
+// semantic::tests::beam_shader_uniform_defaults_match_the_action_palette.
 render_mode blend_add, unshaded, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
 
-// Working: a bright green-cyan energetic stream (the healthy "agent at work" look).
-uniform vec3 working_color : source_color = vec3(0.30, 0.90, 0.72);
 // Blocked: a stalled amber-red beam, slower and dimmer, so a stuck agent reads apart.
 uniform vec3 blocked_color : source_color = vec3(1.0, 0.35, 0.20);
+// AGENT_ACTION_COLORS (frameTypes.ts), sRGB hex / 255.
+uniform vec3 action_query_color : source_color = vec3(0.231373, 0.509804, 0.964706);     // #3b82f6
+uniform vec3 action_update_color : source_color = vec3(0.917647, 0.701961, 0.031373);    // #eab308
+uniform vec3 action_create_color : source_color = vec3(0.133333, 0.772549, 0.368627);    // #22c55e
+uniform vec3 action_delete_color : source_color = vec3(0.937255, 0.266667, 0.266667);    // #ef4444
+uniform vec3 action_link_color : source_color = vec3(0.658824, 0.333333, 0.968627);      // #a855f7
+uniform vec3 action_transform_color : source_color = vec3(0.023529, 0.713725, 0.831373); // #06b6d4
+// How far a blocked beam's hue is pulled toward blocked_color.
+uniform float blocked_tint = 0.6;
 // Faint baseline so the beam's path is visible between pulse heads.
 uniform float base_alpha = 0.12;
 // Several pulse heads travel the beam at once for a particle-stream feel.
@@ -31,10 +47,27 @@ uniform float blocked_speed_scale = 0.35;
 uniform float blocked_dim = 0.55;
 
 varying flat float v_status;
+varying flat float v_action;
+
+vec3 action_color(float code) {
+	if (code < 0.5) return action_query_color;
+	if (code < 1.5) return action_update_color;
+	if (code < 2.5) return action_create_color;
+	if (code < 3.5) return action_delete_color;
+	if (code < 4.5) return action_link_color;
+	if (code < 5.5) return action_transform_color;
+	return vec3(1.0);
+}
 
 void vertex() {
-	// Latch the per-instance status code once; fragment reads the flat varying.
+	// Latch the per-instance status and action codes once; fragment reads the flat varyings.
 	v_status = INSTANCE_CUSTOM.a;
+	v_action = INSTANCE_CUSTOM.r;
+	// Taper: the unit cylinder spans local y in [-0.5, 0.5], agent (−Y) to target (+Y).
+	// A zero taper (an old buffer with r/g/b = 0) falls back to the authored radius.
+	float top = INSTANCE_CUSTOM.g > 0.0 ? INSTANCE_CUSTOM.g : 1.0;
+	float bottom = INSTANCE_CUSTOM.b > 0.0 ? INSTANCE_CUSTOM.b : 1.0;
+	VERTEX.xz *= mix(bottom, top, clamp(VERTEX.y + 0.5, 0.0, 1.0));
 }
 
 void fragment() {
@@ -59,7 +92,8 @@ void fragment() {
 	d = min(d, 1.0 - d); // wrap so heads loop seamlessly along the beam
 	float pulse = is_side ? smoothstep(head_width, 0.0, d) : 0.0;
 
-	vec3 tint = is_blocked ? blocked_color : working_color;
+	vec3 hue = action_color(v_action);
+	vec3 tint = is_blocked ? mix(hue, blocked_color, blocked_tint) : hue;
 	ALBEDO = tint * (1.0 + pulse * (head_gain - 1.0));
 
 	float alpha = base_alpha + pulse * head_energy;

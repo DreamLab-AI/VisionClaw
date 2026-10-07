@@ -952,6 +952,10 @@ pub struct BinaryProtocolClient {
     /// Godot packed array (the benchmark's `pack_ms`).
     last_node_pack: std::time::Duration,
     last_edge_pack: std::time::Duration,
+    /// Origin of the render store's local millisecond clock (attention-heat decay).
+    heat_epoch: Instant,
+    /// Last heat sweep, so cold entries are dropped at ~1 Hz.
+    last_heat_sweep: Instant,
     base: Base<RefCounted>,
 }
 
@@ -1000,6 +1004,8 @@ impl BinaryProtocolClient {
             created: Instant::now(),
             last_node_pack: std::time::Duration::ZERO,
             last_edge_pack: std::time::Duration::ZERO,
+            heat_epoch: Instant::now(),
+            last_heat_sweep: Instant::now(),
             base,
         })
     }
@@ -1118,6 +1124,34 @@ impl BinaryProtocolClient {
         // stops claiming to be working and its beam disappears, rather than
         // hanging on the last action it ever sent.
         let _ = self.expire_stale_agents(0);
+        // Attention heat decays on a local clock; advance it once per frame.
+        self.store.set_clock_ms(self.heat_epoch.elapsed().as_secs_f64() * 1000.0);
+        if self.last_heat_sweep.elapsed().as_millis() >= 1000 {
+            self.last_heat_sweep = Instant::now();
+            self.store.sweep_heat();
+        }
+    }
+
+    /// Send a raw JSON text frame on the graph socket (e.g. the beat-clock
+    /// ping). No-op before `connect_to_url`.
+    #[func]
+    fn send_text(&mut self, json: GString) {
+        if let Some(tx) = self.outbound.as_ref() {
+            let _ = tx.send(json.to_string());
+        }
+    }
+
+    /// Attention heat (desktop parity, on by default): agent touches brighten
+    /// their target nodes and cool with a 20 s half-life.
+    #[func]
+    fn set_attention_heat(&mut self, on: bool) {
+        self.store.set_heat_enabled(on);
+    }
+
+    /// Current normalised attention heat (0..1) of a node.
+    #[func]
+    fn get_node_heat(&self, node_id: u32) -> f32 {
+        self.store.heat_of(node_id) as f32
     }
 
     /// Flattened edge topology `[src0, tgt0, src1, tgt1, ...]` from the most

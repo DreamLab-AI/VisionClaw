@@ -1,11 +1,14 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.6
+version: 0.1.9
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.6 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
+  - "0.1.9 (2026-10-07): FrameBudget allocator (rust/src/frame_budget.rs) shared by the graph LOD tiers, memory cloud, route and burst pool; one-triangle sprites and bead discs; 5 % variance reserve; row emphasis for memory_flash on cloud sprites"
+  - "0.1.8 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
+  - "0.1.7 (2026-10-07): beat clock (relayed desktop clock, tap tempo, opt-in mic), memory_flash bursts, attention heat and desktop beam action encoding (ADR-2134); Swarm-roster teleport routed; Invariant 10 (mic opt-in, never recorded)"
+  - "0.1.6 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame; memory layers held to the 16k triangle headroom the node LOD leaves"
   - "0.1.5 (2026-10-07): node-mesh LOD (gem tier capped at 96, 2-triangle impostors beyond) brings the benchmark under the PRD-008 triangle budget at 1k and 13k nodes; dev profile optimised because the editor/headset run loads target/debug; GUT 9.7.1 vendored, CI on Godot 4.6.1. No invariant changed."
   - "0.1.4 (2026-10-07): desktop parity — domain palette (default) with community toggle, inbound settingsUpdated/filter/graphUpdated sync incl. physics read-back, cluster hulls as one ArrayMesh; project.godot comment corrected; benchmark triangle-budget divergence recorded. No invariant changed."
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
@@ -29,7 +32,15 @@ sources:
   - xr-client/materials/edge_ribbon.gdshader
   - xr-client/materials/edge_flow_common.gdshaderinc
   - xr-client/perf/benchmark.gd
+  - xr-client/rust/src/beat.rs
+  - xr-client/rust/src/semantic.rs
+  - xr-client/rust/src/attention.rs
+  - xr-client/scripts/beat_pulse.gd
+  - xr-client/scripts/memory_bursts.gd
   - xr-client/rust/src/webrtc_audio.rs
+  - xr-client/rust/src/memory_cloud.rs
+  - xr-client/rust/src/memory_route.rs
+  - xr-client/scripts/memory_cloud_layer.gd
   - xr-client/README.md
   - src/handlers/layout_handler.rs
   - src/actors/gpu/force_compute_actor.rs
@@ -106,6 +117,51 @@ alone: it produces real `0x23` frames into `ingest()` (wire ids
 play as real ones — no name, roster or payload marker; the HUD's Start/Stop
 Agent Demo button is the only visible sign. Reduced motion (comfort default)
 turns travel into fade/relocate/fade.
+
+### Memory activity, attention heat and the beat clock (ADR-2134)
+These are ports of desktop behaviour, pinned to it by
+`xr-client/rust/tests/fixtures/desktop_parity.json`. The desktop's own functions write that file
+(`client/.../__tests__/xrParityFixtures.test.ts`), and the Rust tests read the same file. They
+also parse the TS source tables and the beam shader uniforms.
+- **Beam action encoding** (`semantic.rs`): work beams take the desktop's per-action colour and
+  taper (`semanticEncoding.ts`). `INSTANCE_CUSTOM` holds r = action code, g/b = target/agent
+  radius and a = status, so the stride stays 16. Blocked beams are pulled toward amber, slowed
+  and dimmed.
+- **memory_flash bursts** (`memory_bursts.gd` under `AgentEffectsRoot`): colour, size,
+  lifetime, implode motion and ring count follow the verb, with the namespace hue jitter
+  computed in three.js linear space. The triangle budget decides how they are drawn:
+  - **Memory cloud shown and loaded.** The scene is at ~99.6k of 100k triangles (xr-cloud,
+    13k nodes), so a flash adds **no geometry**. `resolve_flash` names the cloud rows (desktop
+    rule; an unmatched flash draws nothing), and `set_row_emphasis` restyles those sprites
+    with the desktop tint, a brightness envelope (1–2.5×) and a size envelope (1–2×, held at
+    1 under reduced motion). At most 64 rows are live at once.
+  - **No cloud on screen.** One pooled ring MultiMesh of ≤ 64 slots draws the rings (≤ 4,096
+    triangles, one draw call), recycling the oldest slot, on a hashed 0.45 m shell around the
+    graph centre. Reduced motion holds the ring size and only fades it.
+- **Attention heat** (`attention.rs`, render store): every applied `0x23` action touches its
+  target. The heat has a 20 s half-life, saturation 1.5 and 512 entries, and brightens the node
+  colour in place without recolouring it. It never touches the edge buffer.
+- **Beat clock** (`beat.rs`, `pulse.rs`, `beat_pulse.gd`): the arbiter chooses a mic lock first,
+  then a tap until the desktop's clock changes, then the relayed desktop `beatClock` (fresh
+  within 6.5 s), then the last tap.
+  - The server offset comes from the JSON ping/pong round trip every 2 s (the minimum-RTT
+    sample of eight).
+  - One `beat_pulse` uniform per frame drives the live materials of the node-halo
+    quads (`NodesHaloMulti`), the edge cylinders and far ribbons (both through
+    `edge_flow_common.gdshaderinc`) and the burst opacity. It is an emission swell, not a post-process (Invariant 2), and
+    under reduced motion (the comfort default) it is held at exactly 0, so
+    halos, edges and bursts keep steady brightness and only the HUD Beat
+    readout shows the tempo (ADR-2107).
+  - Tap tempo uses **B/Y**, or a click of the **left trackpad/stick centre** (inside the
+    locomotion dead zone). Neither is bound elsewhere; Vive wands have no B/Y.
+- **Microphone** (WP8, off by default): the Session-tab Mic toggle starts an
+  `AudioStreamMicrophone` on a muted `BeatMic` capture bus. On Android it asks for
+  `RECORD_AUDIO` on that press, never at start-up. A red `● MIC` header badge shows while it is
+  listening. Audio is analysed in memory over an 8 s window (port of `beat.ts`
+  `onsetEnvelope`/`estimateTempo`) and discarded. The mic may drive the pulse only after two
+  consecutive estimates agree at confidence ≥ 0.6; noise scores ≈ 0.23.
+- **HUD**: the Session page has one Beat row (status · Tap · Mic · Bursts) inside the 532 px
+  host. The Key tab lists beam actions and burst verbs.
 
 ### HUD structure (hud.gd)
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
@@ -189,6 +245,82 @@ resource stride is **16 floats/instance** — 12 transform + 4 INSTANCE_CUSTOM
 `set_buffer` rejects every frame and edges vanish (fixed in commit 63d9bb9b8).
 The work-beam MultiMesh (agent→target links, ADR-140 Pillar 2) uses the same
 stride 16 (`graph_scene.gd:1818-1830`, `render_store.rs:1362`).
+
+### Memory cloud and query route (ADR-2133, WP6/WP7)
+The headset draws the same live RuVector sample as the desktop explorer
+(`EmbeddingCloudLayer.tsx`), owned end to end by `scripts/memory_cloud_layer.gd`
+with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
+- **Load.** `GET /api/memory-cloud` only (positions + metadata). The vectors blob
+  is never fetched and the headset never runs HNSW. The request is signed by the
+  scene's `_auth_headers` for the exact URL fetched (Invariant 6). 401/403 hides
+  the cloud quietly ("Memory: Locked" on the button, no toast, no polling); 503
+  reloads at `Retry-After`, else 5 s doubling to 60 s; 409 reloads once at once;
+  a malformed or short body is rejected in Rust and the previous snapshot stays.
+- **Placement and look.** The layer sits under `GraphRoot` at the server origin
+  and `CloudRoot` carries the desktop `cloudScale` (5), so the cloud surrounds
+  the graph as it does on desktop. One MultiMesh of camera-facing sprites, each
+  a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
+  round mask discards the corners), billboarded on the main camera so both eyes
+  agree (`memory_point.gdshader`;
+  stride 16 = 12 transform + 4 colour). Sprite diameter is the desktop
+  size-attenuated point converted to world units (`7.5 · tan(37.5°) / 5`
+  cloud-local). Colours come from the `cloudData.ts` tables (namespace / source
+  type / age); a Rust test parses the TS source so they cannot drift. Level of
+  detail: at most 8 000 sprites (8 000 triangles), namespace-stratified, route
+  and sidecar rows always kept. The cloud turns slowly only when reduced motion
+  is off and no route is shown.
+- **HUD.** Graph tab, Layers grid: `Memory: Off/<count>/Locked/Waiting/Error`
+  and `Cloud: Namespace/Source/Age` (both `_press_fire`). The pointer ray picks
+  a sprite at 15 Hz and a world-size `Label3D` (top-level, not fit-scaled) shows
+  its key and namespace / source type.
+- **Flashes.** `resolve_flash(key, ns)` follows `resolveFlashTargets` (exact
+  `namespace:key`, bare key, up to three namespace rows, else none) and
+  `world_point(row)` gives the burst position, so `memory_flash` bursts land on
+  real rows.
+- **Route.** A `memoryRoute` text frame (`{type, snapshotId, seq, sentAt,
+  path[], sidecar[], query}`; rows root → answer; `path: []` clears) relayed from
+  the desktop is gated in Rust by `(sentAt, seq)`. A frame naming another
+  snapshot reloads the cloud once and is then applied or dropped. The route is
+  sampled as the desktop space view does (quadratic Bézier, quarter-back,
+  0.12·length lift) and drawn in three draw calls: one additive surface
+  holding five tubes (outer/inner sheath, root #6f9bff → white → tip #ff7a3d
+  body, white core, comet tail; `memory_route.gdshader` reveals the trace and
+  tapers the 18 % tail on the GPU), beads + comet head/glow, and billboard
+  rings (root, answer, pulse, sidecar gold). Off-route sprites dim by 0.75.
+  The answer ring pulses to xr-pulse's beat clock when it is locked. Under
+  reduced motion the route is shown converged, with no comet, pulse ring or
+  rotation. Glow is emissive/additive geometry only (Invariant 2).
+- **Budget: one allocator for every layer.** `rust/src/frame_budget.rs`
+  (`FrameBudget.allocate`) divides the 100 000-triangle / 50-call frame between
+  the graph's LOD tiers, the cloud and the route, in two passes. Minimums, in
+  priority order: triangles outside the budgeted layers (`other_tris`: HUD,
+  avatars, controllers, measured by the scene), the graph's far tiers (an
+  impostor quad per node, a ribbon quad per edge, labelled nodes on the full
+  mesh), the route at one sample per hop, 2 000 cloud sprites, 16 gem nodes.
+  Then growth to demand in the same order: route curve detail (up to 121
+  centreline samples), cloud (up to 8 000 one-triangle sprites), hulls, gem
+  nodes (to 80), cylinder edges (to 96). Costs are imported from `lod.rs`,
+  `hulls.rs` and `memory_*.rs`, never copied. If the minimums alone overrun,
+  the minimums are returned with `over_budget` set. Route and sidecar rows are
+  always drawn, even past the cloud cap (at most 128, under the 2 000 floor).
+  Beads, halos and the comet are one-triangle camera-facing discs
+  (`memory_bead.gdshader`); an unshaded additive sphere draws as the same disc.
+  Rust tests recount every allocation independently and sweep a growing graph
+  to check the layers give way in priority order. The benchmark runs the
+  allocator once and applies its caps to all layers. Measured on HP (GL window,
+  Godot 4.6.1, 2026-10-07; the allocator's estimate equals the renderer's
+  count in every row):
+
+  | Nodes | Edges | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Gems / cylinders / hulls |
+  |---|---|---|---|---|---|---|---|
+  | 13 164 | 20 000 | — | — | 6 | 95 186 | 5.56 ms | 80 / 96 / 32 |
+  | 13 164 | 20 000 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | 60 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | 53 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | 64 / 8 / 32 |
+
+  The benchmark scene has no HUD, avatars or controllers, so the headset fills
+  the same budget only once GraphScene passes their measured triangles as
+  `other_tris`.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the
@@ -400,6 +532,12 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   posture as `SWARM_STATUS_COLORS`); a palette change must update both. Since
   2026-10-07 the Key also lists the domain palette (default colour mode) and the
   hull palette, and those two tables are parity-tested from Rust.
+- **Memory cloud — not yet seen in a headset.** The layers are exercised by
+  GUT on Godot 4.6.1 (HP) and by screenshots in a desktop GL window
+  (`tests/visual/memory_cloud_capture.gd`). Stereo agreement of the main-camera
+  billboards, sprite legibility at fit scale, label reach and the route's
+  additive brightness need a VIVE Pro session. The server relay of `memoryRoute`
+  and the desktop sender are owned by the beat-clock relay work (WP5).
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
@@ -422,16 +560,20 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 9. Demo mode enters only through the real registry doors (`ingest`,
    `apply_agent_state`, `retire_agents`) from `agent_demo_director.gd`; no
    scene-side demo rendering branch, no synthetic position frames (ADR-2109).
+10. Microphone capture is opt-in per session (HUD Mic toggle, off by default),
+    shows the `● MIC` header badge while active, and its audio is only analysed
+    in memory: never recorded, stored or transmitted (ADR-2134,
+    `permissions-required.md`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(369 headless tests — 259 library + 110 integration — as of 2026-10-07, no
-headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
-(`tests/unit`, vendored 9.7.1) needs the 4.6.1 editor and the native library
-built for the host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off`
-(as CI does), because the project enables OpenXR and a headless run otherwise
-probes the installed runtime — on HP it crashes at startup whenever SteamVR is the
-active runtime but not running. Any change
+(455 headless tests — 344 library + 111 integration — as of 2026-10-07, no
+headset/Godot/network needed). GUT (`tests/unit`, vendored 9.7.1) needs the
+4.6.1 editor, a `--headless --import` pass and the native library built for the
+host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off` (as CI does),
+because the project enables OpenXR and a headless run otherwise probes the
+installed runtime and crashes on HP when SteamVR is active (161 tests on HP,
+2026-10-07: 158 pass, 3 GL-only tests pending headless). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

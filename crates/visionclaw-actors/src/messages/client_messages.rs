@@ -60,6 +60,19 @@ pub struct SendToClientBinary(pub Vec<u8>);
 #[rtype(result = "()")]
 pub struct SendToClientText(pub String);
 
+/// Deliver a text frame to every OTHER session authenticated as `pubkey`
+/// (ADR-2134 same-user relay: the desktop's beat clock and memory route to the
+/// same user's headset). Never reaches a session with a different or no
+/// pubkey. Returns how many sessions it was handed to.
+#[derive(Message)]
+#[rtype(result = "usize")]
+pub struct RelayToUserSessions {
+    pub pubkey: String,
+    /// The sending session, excluded from delivery.
+    pub exclude_client_id: Option<usize>,
+    pub message: String,
+}
+
 // ---------------------------------------------------------------------------
 // Client authentication
 // ---------------------------------------------------------------------------

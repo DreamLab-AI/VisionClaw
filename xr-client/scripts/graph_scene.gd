@@ -366,6 +366,10 @@ var _parity: Node = null
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
+# Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
+# scripts/memory_cloud_layer.gd; the scene only wires it.
+const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
+var _memory_cloud = null  # MemoryCloudLayerScript instance (under GraphRoot)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -528,6 +532,13 @@ func _ready() -> void:
 		var node_mat: Material = nodes_multi.material_override if nodes_multi != null else null
 		var edge_mat: Material = edges_multi.material_override if edges_multi != null else null
 		_planes.configure(_binary_client, node_mesh, edge_mesh, node_mat, edge_mat)
+	_memory_cloud = MemoryCloudLayerScript.new()
+	_memory_cloud.name = "MemoryCloud"
+	if graph_root != null:
+		graph_root.add_child(_memory_cloud)
+		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
+		_memory_cloud.pointer = right_controller
+		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -569,6 +580,7 @@ func _ready() -> void:
 		graph_root.add_child(_impostors)
 		_ribbons = NodeLod.make_ribbon_instance()
 		graph_root.add_child(_ribbons)
+	_ensure_beat()
 	_connect_from_env()
 
 
@@ -729,6 +741,18 @@ func _probe_eye_gaze() -> void:
 		print("GraphScene: eye-gaze unsupported by this OpenXR runtime -- head-gaze primary")
 
 
+func _ensure_beat() -> void:
+	if _beat != null:
+		return
+	_beat = BeatPulseScript.new()
+	_beat.name = "BeatPulse"
+	add_child(_beat)
+	_beat.setup(self, _binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
+	# The memory cloud's route pulses on the same beat (is_locked/beat_phase/beat_pulse).
+	if _memory_cloud != null:
+		_memory_cloud.beat_source = _beat
+
+
 func _wire_hud() -> void:
 	if hud == null:
 		return
@@ -761,6 +785,20 @@ func _on_hud_control(action: String) -> void:
 		_apply_type_toggle(action.substr(12))
 		return
 	if _parity != null and _parity.handle_control(action):
+		return
+	if action.begins_with("beat_") or action.begins_with("memory_bursts:"):
+		if _beat != null:
+			_beat.on_hud_action(action)
+		return
+	# Swarm roster rows emit "teleport:<wire id>" (hud.gd _mk_swarm_row); only the
+	# radial-menu path used to handle it, so a roster tap did nothing.
+	if action.begins_with("teleport:"):
+		_teleport_to_node(int(action.substr(9)))
+		return
+	# Comfort toggles are owned by spatial_environment.gd (its own connection to
+	# control_pressed); not unknown, so no warning.
+	if action.begins_with("visual_motion:") or action.begins_with("visual_quality:"):
+		_refresh_reduced_motion.call_deferred()
 		return
 	match action:
 		"reset_layout":
@@ -815,9 +853,23 @@ func _on_hud_control(action: String) -> void:
 			_unpin_all()
 		"toggle_demo":
 			_toggle_demo()
+		"memory_cloud_toggle":
+			if _memory_cloud != null:
+				_memory_cloud.set_enabled(not _memory_cloud.is_enabled())
+				_refresh_memory_cloud_hud()
+		"memory_cloud_colour":
+			if _memory_cloud != null:
+				_memory_cloud.cycle_colour_mode()
+				_refresh_memory_cloud_hud()
 		_:
 			push_warning("GraphScene: unknown HUD control '%s'" % action)
 	_refresh_controls_status()
+
+
+# Push the memory-cloud button labels (state, colour mode) to the HUD.
+func _refresh_memory_cloud_hud() -> void:
+	if hud != null and _memory_cloud != null and hud.has_method("set_memory_cloud_state"):
+		hud.set_memory_cloud_state(_memory_cloud.is_enabled(), _memory_cloud.status_label(), _memory_cloud.colour_mode_label())
 
 
 # Apply a type show/hide toggle "<class>:<1|0>" to the render store. Class codes
@@ -2247,6 +2299,9 @@ var _swarm_sig: String = ""
 # Server owns WHICH node / status / task; the client owns WHERE in the room.
 const AgentChoreography := preload("res://scripts/agent_choreography.gd")
 const AgentEffects := preload("res://scripts/agent_effects.gd")
+# WP3/WP5/WP8: beat clock, memory_flash bursts and attention heat (beat_pulse.gd
+# owns the behaviour; the hooks here only create it and route frames/intents).
+const BeatPulseScript := preload("res://scripts/beat_pulse.gd")
 const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
 const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
@@ -2257,6 +2312,7 @@ const RIM_FALLBACK_RADIUS_M: float = 1.5
 
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
+var _beat: Node = null
 var _demo: RefCounted = AgentDemoDirector.new()
 var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
 var _selected_agent_id: String = ""  # last agent the arbiter resolved (caption stays up)
@@ -2447,8 +2503,12 @@ func _refresh_reduced_motion() -> void:
 		var state: Dictionary = comfort.call("get_visual_comfort")
 		_reduced_motion = bool(state.get("reduced_motion", true))
 	_choreo.reduced_motion = _reduced_motion
+	if _memory_cloud != null:
+		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
 		_effects.reduced_motion = _reduced_motion
+	if _beat != null:
+		_beat.reduced_motion = _reduced_motion
 
 
 func _ensure_effects() -> void:
@@ -2640,7 +2700,11 @@ func _on_graph_text(json: String) -> void:
 	# settingsUpdated / filter_update_success / graphUpdated (WP2, ADR-2047).
 	if _parity != null and _parity.route_text(json, str(msg.get("type", ""))):
 		return
-	match str(msg.get("type", "")):
+	var msg_type: String = str(msg.get("type", ""))
+	# beatClock / pong / memory_flash: the beat clock and memory bursts (ADR-2134).
+	if _beat != null and _beat.on_text(json, msg_type):
+		return
+	match msg_type:
 		"broker:new_case":
 			# A malformed frame can carry a non-Dictionary payload (string, null,
 			# array); passing that to a Dictionary-typed param crashes
@@ -2648,6 +2712,10 @@ func _on_graph_text(json: String) -> void:
 			var p: Variant = msg.get("payload", {})
 			if typeof(p) == TYPE_DICTIONARY:
 				_handle_broker_new_case(p)
+		"memoryRoute":
+			# Desktop query route relayed per session (WP7); the layer gates it.
+			if _memory_cloud != null:
+				_memory_cloud.apply_route_json(json)
 		"nodeUnpinAck":
 			# Server confirmed the release (position_updates.rs handle_node_unpin →
 			# {"type":"nodeUnpinAck","data":{"nodeId":N}}). Drop the id from the

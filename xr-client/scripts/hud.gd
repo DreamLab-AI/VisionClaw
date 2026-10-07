@@ -139,6 +139,10 @@ var _type_knowledge_button: Button = null
 var _type_ontology_button: Button = null
 var _type_agent_button: Button = null
 var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": true}
+# Memory cloud (XR WP6): on/off + colour-mode cycle. GraphScene owns the state
+# and pushes labels back through set_memory_cloud_state.
+var _memory_cloud_button: Button = null
+var _memory_colour_button: Button = null
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
@@ -159,6 +163,15 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
+# Beat row (Session page) + header mic badge (WP5/WP8).
+const MIC_BADGE_COLOR: Color = Color(1.0, 0.32, 0.30)
+var _beat_label: Label = null
+var _beat_tap_button: Button = null
+var _beat_mic_button: Button = null
+var _bursts_button: Button = null
+var _mic_badge: Label = null
+var _beat_mic_on: bool = false
+var _bursts_on: bool = true
 
 const TAB_ORDER: Array[String] = ["graph", "layout", "query", "pins", "swarm", "key", "session", "help"]
 const TAB_LABELS: Dictionary = {
@@ -212,6 +225,18 @@ const KEY_DOMAIN_SWATCHES: Array = [
 const KEY_DOMAIN_FALLBACK: Color = Color("#90A4AE")
 # WP4 hull swatches: the first four of hulls.rs GPU_CLUSTER_COLORS (parity-tested).
 const KEY_HULL_SWATCHES: Array = [Color("#4FC3F7"), Color("#81C784"), Color("#FFB74D"), Color("#CE93D8")]
+# Work-beam action colours: semantic.rs AGENT_ACTION_COLORS = materials/agent_beam.gdshader
+# action_*_color = desktop frameTypes.ts AGENT_ACTION_COLORS (Query..Transform).
+const KEY_BEAM_ACTIONS: Array[Color] = [
+	Color("#3b82f6"), Color("#eab308"), Color("#22c55e"), Color("#ef4444"), Color("#a855f7"), Color("#06b6d4"),
+]
+# memory_flash burst verbs: semantic.rs MEMORY_ACTION_PROFILES = desktop semanticEncoding.ts.
+const KEY_BURST_STORE: Color = Color("#39ff14")
+const KEY_BURST_RETRIEVE: Color = Color("#4fc3f7")
+const KEY_BURST_SEARCH: Color = Color("#00fff7")
+const KEY_BURST_LIST: Color = Color("#ffd54f")
+const KEY_BURST_DELETE: Color = Color("#ff4444")
+const KEY_BURST_ACCESS: Color = Color("#9ad6ff")
 const KEY_META: StringName = &"key"                          # set on every key row (label text) — tests count these
 const SWATCH_PX: int = 34
 const KEY_REGION_H: int = 452                                # header + region must fit the 532px page host
@@ -306,6 +331,12 @@ func _build_header() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fps_header = _mk_label("FPS --", "Render framerate")
 	header.add_child(_conn_dot)
+	# WP8: unmistakable while the microphone is listening (beat sync, opt-in).
+	_mic_badge = _mk_label("● MIC", "Microphone is listening for the beat (audio is analysed in memory and never recorded or sent)")
+	_mic_badge.name = "MicBadge"
+	_mic_badge.add_theme_color_override("font_color", MIC_BADGE_COLOR)
+	_mic_badge.visible = false
+	header.add_child(_mic_badge)
 	header.add_child(_room_header)
 	header.add_child(spacer)
 	header.add_child(_fps_header)
@@ -429,6 +460,11 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_knowledge_button)
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
+	_memory_cloud_button = _action_btn("Memory: Off", "memory_cloud_toggle", "Show / hide the live memory cloud (RuVector sample); point at a dot for its key")
+	_memory_cloud_button.add_theme_color_override("font_color", IDLE)
+	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
+	g3.add_child(_memory_cloud_button)
+	g3.add_child(_memory_colour_button)
 	page.add_child(g3)
 
 	page.add_child(_group_header("Status"))
@@ -657,9 +693,25 @@ func _key_sections() -> Array:
 		]},
 		{"title": "Agents — node halo and Swarm dot", "rows": [
 			[[SWARM_STATUS_COLORS[0]], "Idle", "Agent with no active work"],
-			[[SWARM_STATUS_COLORS[1]], "Working (beam to target)", "Agent acting on a node — a beam links it to the node it is working on"],
+			[[SWARM_STATUS_COLORS[1]], "Working", "Agent acting on a node — a work beam links it to that node"],
 			[[SWARM_STATUS_COLORS[2]], "Blocked / error", "Agent blocked or errored — needs attention"],
 			[[SWARM_STATUS_COLORS[3]], "Done", "Agent finished or offline"],
+		]},
+		{"title": "Work beam — action (desktop colours)", "rows": [
+			[[KEY_BEAM_ACTIONS[0]], "Query (thin probe)", "Agent reading a node"],
+			[[KEY_BEAM_ACTIONS[1]], "Update", "Agent updating a node"],
+			[[KEY_BEAM_ACTIONS[2]], "Create (widens in)", "Agent creating a node — the beam widens into it"],
+			[[KEY_BEAM_ACTIONS[3]], "Delete (narrows in)", "Agent deleting a node — the beam narrows into it; blocked beams turn amber and slow"],
+			[[KEY_BEAM_ACTIONS[4]], "Link (thick tie)", "Agent linking nodes"],
+			[[KEY_BEAM_ACTIONS[5]], "Transform", "Agent transforming data"],
+		]},
+		{"title": "Memory bursts (RuVector access)", "rows": [
+			[[KEY_BURST_STORE], "Store", "A memory was written — two rings punch outward"],
+			[[KEY_BURST_RETRIEVE], "Retrieve", "A memory was read"],
+			[[KEY_BURST_SEARCH], "Search", "A memory search — three wide rings"],
+			[[KEY_BURST_LIST], "List", "Memories enumerated"],
+			[[KEY_BURST_DELETE], "Delete (implodes)", "A memory was removed — the ring contracts"],
+			[[KEY_BURST_ACCESS], "Other access", "Any other memory access; the namespace nudges the hue"],
 		]},
 		{"title": "Edges", "rows": [
 			[[KEY_EDGE_FLOW], "Link", "Ordinary graph edge (flow pulses along it)"],
@@ -756,10 +808,54 @@ func _build_session_page() -> VBoxContainer:
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
 	page.add_child(reconnect)
+	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
 	page.add_child(_debug_stats)
 	return page
+
+
+# One compact row so the Session page stays inside the 532px host: the beat
+# readout (source · bpm · confidence), Tap, the opt-in Mic toggle and the
+# memory-burst toggle. GraphScene → beat_pulse.gd owns every effect.
+func _build_beat_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "BeatRow"
+	row.add_theme_constant_override("separation", 8)
+	_beat_label = _mk_label("Beat: off", "Beat clock: source · tempo · confidence (desktop relay, tap tempo or mic)")
+	_beat_label.name = "BeatStatus"
+	_beat_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_beat_label.clip_text = true
+	_beat_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(_beat_label)
+	_beat_tap_button = _action_btn("Tap", "beat_tap", "Tap the beat — or press B/Y, or click the centre of the left trackpad/stick")
+	_beat_tap_button.name = "BeatTap"
+	_beat_tap_button.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(_beat_tap_button)
+	_beat_mic_button = _press_fire(Button.new()) as Button
+	_beat_mic_button.name = "BeatMic"
+	_beat_mic_button.custom_minimum_size = Vector2(0, BTN_H)
+	_beat_mic_button.set_meta(HINT_META, "Listen for the beat with the microphone (off by default; nothing is recorded or sent)")
+	_beat_mic_button.pressed.connect(func() -> void:
+		emit_signal("control_pressed", "beat_mic:%d" % (0 if _beat_mic_on else 1)))
+	row.add_child(_beat_mic_button)
+	_bursts_button = _press_fire(Button.new()) as Button
+	_bursts_button.name = "MemoryBursts"
+	_bursts_button.custom_minimum_size = Vector2(0, BTN_H)
+	_bursts_button.set_meta(HINT_META, "Show / hide memory access bursts (memory_flash)")
+	_bursts_button.pressed.connect(func() -> void:
+		_bursts_on = not _bursts_on
+		_style_toggle(_bursts_button, "Bursts", _bursts_on)
+		emit_signal("control_pressed", "memory_bursts:%d" % (1 if _bursts_on else 0)))
+	row.add_child(_bursts_button)
+	_style_toggle(_beat_mic_button, "Mic", false)
+	_style_toggle(_bursts_button, "Bursts", true)
+	return row
+
+
+func _style_toggle(b: Button, label: String, on: bool) -> void:
+	b.text = "%s %s" % [label, "☑" if on else "☐"]
+	b.add_theme_color_override("font_color", ACCENT if on else IDLE)
 
 
 func _build_help_page() -> VBoxContainer:
@@ -813,6 +909,9 @@ func _cheat_sheet_bbcode() -> String:
 		["One grip while near this panel", "Pick up & move the panel"],
 		["Trackpad / thumbstick", "Fly through the graph"],
 		["Point at the panel + trigger", "Click a button"],
+		["", ""],
+		["[b]BEAT[/b]", ""],
+		["B/Y, or click the LEFT pad/stick centre", "Tap the tempo (Session tab shows it)"],
 	]
 	var lines: Array[String] = []
 	for r: Array in rows:
@@ -1010,6 +1109,16 @@ func flash_notice(text: String, seconds: float = NOTICE_SEC) -> void:
 ## Whether a flashed notice is still on screen. Public-ish for tests.
 func _notice_active() -> bool:
 	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
+
+
+## Memory-cloud button state: `label` is the layer's status ("Memory: 6000",
+## "Memory: Locked", …), `colour_mode` its colour mode name.
+func set_memory_cloud_state(on: bool, label: String, colour_mode: String) -> void:
+	if _memory_cloud_button != null:
+		_memory_cloud_button.text = label
+		_memory_cloud_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
+	if _memory_colour_button != null:
+		_memory_colour_button.text = "Cloud: %s" % colour_mode
 
 
 ## Reflect the Hierarchy/View toggle state and pinned-node count on the button
@@ -1465,6 +1574,22 @@ func _on_decide_completed(
 	emit_signal("case_decided", decided_case, _last_outcome, accepted)
 	if accepted and _current_case_id == decided_case:
 		clear_case()
+
+
+## Beat readout from beat_pulse.gd (~4 Hz). `mic_on` is the real capture state
+## (a refused permission leaves it off), so the toggle never claims to listen
+## when it is not; the header badge shows whenever it is.
+func set_beat_status(line: String, mic_on: bool, mic_state: String = "off") -> void:
+	if _beat_label != null and _beat_label.text != line:
+		_beat_label.text = line
+	if mic_on != _beat_mic_on and _beat_mic_button != null:
+		_style_toggle(_beat_mic_button, "Mic", mic_on)
+	_beat_mic_on = mic_on
+	if _mic_badge != null:
+		_mic_badge.visible = mic_on
+		var badge: String = "● MIC" if mic_state == "off" or mic_state.is_empty() else "● MIC %s" % mic_state
+		if _mic_badge.text != badge:
+			_mic_badge.text = badge
 
 
 func set_demo_active(active: bool) -> void:

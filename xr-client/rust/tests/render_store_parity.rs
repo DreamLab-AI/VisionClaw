@@ -156,3 +156,34 @@ fn hull_mesh_groups_drawn_nodes_by_cluster() {
     assert_eq!(a, s.hull_signature(HullSource::Clusters, HullParams::default()));
     assert_ne!(a, s.hull_signature(HullSource::Communities, HullParams::default()));
 }
+
+#[test]
+fn attention_heat_keeps_animating_while_the_pack_plan_is_reused() {
+    // Heat decays every frame while nothing else changes — exactly when the pack
+    // plan is reused. The tint must follow the clock, not the cached colour.
+    let mut s = RenderStore::new();
+    s.upsert(5, [0.0; 3], 0, 0.0, 0.0); // agent
+    s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0);
+    s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0);
+    s.set_clock_ms(1_000.0);
+    assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+    let col = |b: &[f32], i: usize| [b[i * NODE_STRIDE + 12], b[i * NODE_STRIDE + 13], b[i * NODE_STRIDE + 14]];
+    let hot = s.build_node_buffer(&ids(&[20, 21]), 1.0, 0.7, 1.9);
+    assert_ne!(col(&hot, 0), col(&hot, 1), "touched node is brighter");
+    // Five half-lives later, positions only: the plan is reused, the heat is gone.
+    s.set_clock_ms(1_000.0 + 5.0 * visionclaw_xr_gdext::attention::DEFAULT_HEAT_HALF_LIFE_MS);
+    let cool = s.build_node_buffer(&ids(&[20, 21]), 1.0, 0.7, 1.9);
+    let (a, b) = (col(&cool, 0), col(&cool, 1));
+    for k in 0..3 {
+        assert!((a[k] - b[k]).abs() < 0.03, "heat must decay on the plan path: {a:?} vs {b:?}");
+    }
+    // Turning heat off drops the tint at once, also on the plan path.
+    s.set_clock_ms(1_000.0);
+    s.set_heat_enabled(false);
+    let off = s.build_node_buffer(&ids(&[20, 21]), 1.0, 0.7, 1.9);
+    assert_eq!(col(&off, 0), col(&off, 1), "heat off: no tint");
+    // The LOD path too.
+    s.set_heat_enabled(true);
+    let near = s.build_node_buffer_lod(&ids(&[20, 21]), 1.0, 0.7, 1.9, [0.0; 3], 80, f32::INFINITY).to_vec();
+    assert_eq!(near.len() / NODE_STRIDE, 2);
+}

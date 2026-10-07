@@ -104,7 +104,14 @@ impl RenderStore {
     /// Per-frame colour modulation that must not invalidate the plan (e.g. a
     /// time-decaying highlight). Applied identically on the plan and full paths.
     #[inline]
-    fn live_tint(&self, _id: u32, _slot: usize, _col: &mut [f32; 4]) {}
+    fn live_tint(&self, id: u32, _slot: usize, col: &mut [f32; 4]) {
+        // Attention heat (attention.rs, desktop attentionHeat.ts) brightens —
+        // never recolours — a node agents are touching, and decays on the store
+        // clock every frame.
+        if self.heat.enabled() {
+            self.heat.brighten(id, self.clock_ms, &mut col[..3]);
+        }
+    }
 
     fn fold_animating(&self) -> bool {
         !self.folding.is_empty() || !self.unfolding.is_empty()

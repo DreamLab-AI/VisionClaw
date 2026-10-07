@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -162,3 +162,7 @@ deleted type re-stales this record instead of passing silently.
 `implementation_status` stays `complete`: the deletions themselves were correct
 and are unchanged — what was incomplete was the *verification*, which is what
 this section repairs.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:** in `src/handlers/socket_flow_handler/`, `mod.rs` registers `session_relay`, and `types.rs` adds the relay throttles, a one-shot unauthenticated-relay flag and `serverTime` on the pong. In `actor_messages.rs`, `SetClientId` now forwards an upgrade-time pubkey to the coordinator. **Decision unaffected.** No code removed by ADR-2054 comes back, and every `REMOVED (ADR-2054):` marker is intact (grep). The new fields are read on the live relay path, with unit and probe-actor tests. Verified with `cargo check --lib --tests` and the 11 relay/coordinator tests.
