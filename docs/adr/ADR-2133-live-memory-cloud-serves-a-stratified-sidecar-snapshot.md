@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c16b257741b980d4599122ab77aa2f5980f94f31
-verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml]
+verified_commit: 5b9ad7cf869933781f4826e59b7d2e5258c45378
+verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
 repo: visionclaw
@@ -48,19 +48,28 @@ duplicate embedding.
    with k = 10. It checks both plans with `EXPLAIN` and caches tie-aware recall@10 (a hit counts
    when its distance ≤ the 10th exact distance + 1e-6) and the mean latencies.
    `GET /api/memory-cloud/health` reports it with per-namespace counts, the extension version and
-   embedder reachability.
+   embedder reachability, all served from state cached by the refresh cycle: health never runs a
+   `GROUP BY` or calls the embedder per request, so it cannot be used to load either.
 4. **Privacy.** `MEMORY_CLOUD_EXCLUDE_NAMESPACES` (default `personal-context`; an empty value keeps
    the default) is never sampled, searched, probed or listed in health. Sidecar sessions run with
-   `default_transaction_read_only=on`. The connection string comes only from
+   `default_transaction_read_only=on` and connect as the SELECT-only `ruvector_reader` role that the
+   sidecar's owner (agentbox) provisions. The connection string comes only from
    `RUVECTOR_PG_CONNINFO`. No password default appears anywhere. Without it, the data endpoints
-   return 503 and health returns 200 with `reachable:false`.
-5. **Access.** Snapshot, vectors and query require `PowerUser` (Admin role or power-user pubkey),
-   the broker-inbox bar, whatever `RBAC_PUBLIC_READS` says. Any fresh NIP-98 keypair already
-   reaches the default `Editor` tier, so `ReadOnly` would protect nothing. When `RbacGate` has
-   verified the request, the handler resolves that pubkey's role with `effective_access_level`.
-   A second verification would trip the single-use replay cache. Health carries aggregates only
-   and follows the central read policy. Under `VISIONCLAW_DEV_MODE=1` the dev bypass admits
-   everything, as elsewhere.
+   return 503 and health returns 200 with `error: "not_configured"`.
+5. **Access.** Every endpoint, health included, requires a **NIP-98-signed power user** (Admin
+   role or a `POWER_USER_PUBKEYS` key), the broker-inbox bar, regardless of `RBAC_PUBLIC_READS`
+   **and of the dev shortcuts**. Any fresh keypair already reaches the default `Editor` tier, so
+   `ReadOnly` would protect nothing. `VISIONCLAW_DEV_MODE` admits every caller as one sentinel
+   identity, and `DEV_AUTH_LOOPBACK` trusts a header-chosen pubkey. Neither proves who the caller
+   is, so the handler reuses the gate's identity only for a `Nostr` header and a non-sentinel
+   identity, and otherwise verifies the signature itself. Dev mode is unchanged for the rest of
+   the API; a dev operator adds their own pubkey to `POWER_USER_PUBKEYS`. `POST /query` carries a
+   per-pubkey budget (`MEMORY_CLOUD_QUERY_PER_MINUTE`, default 30) on the existing `RateLimit`
+   middleware. Admission runs before the limiter, so refused callers spend nothing and dev mode's
+   shared identity cannot pool the budget.
+   **Disclosure.** Clients get fixed messages (`memory store unavailable`, …), with driver detail
+   logged only. `health.sidecar.error` is one of `not_configured`, `building` or `unreachable`. The
+   embedder URL is not on the wire, and the vectors blob is `Cache-Control: no-store`.
 6. **Wire types.** The contract is hand-written in
    `client/src/features/visualisation/memoryCloud/types.ts` and mirrored by
    `visionclaw_memory_cloud::wire`, which has a field-name test. `generate_types` emits only a
@@ -71,10 +80,11 @@ duplicate embedding.
   knowledge corpora, and every query names the store's own neighbours.
 - Anonymous and Editor viewers no longer see a cloud. That is the price of private content. A
   public deployment needs a separate, explicitly public namespace list.
-- The recall figure is a property of the sidecar's index, not of this code. It currently reads
-  about 0.70, because some rows are unreachable in the graph, and it only improves when the agentbox
-  owner rebuilds the index serially (the workspace index law). This feature never writes to the
-  index.
+- The recall figure is a property of the sidecar's index, not of this code. It read about 0.70
+  before ab-ruvector's serial reindex and 0.94 after it. It only improves when the agentbox owner
+  rebuilds the index (the workspace index law). This feature never writes to the index.
+- The pool stays at 4 connections. Eight concurrent live queries complete in 396 ms wall (max
+  395 ms each), and a power-user-only, rate-limited surface does not justify more.
 - Snapshot cost: about 1.5 s per rebuild (counts 83 ms, stratified sample 0.9–1.2 s, PCA and
   encoding 0.4 s with the crate at `opt-level = 3`). The payload is 1.4 MiB of JSON plus a 9 MiB
   blob, both encoded once per snapshot.
@@ -90,6 +100,15 @@ the sidecar and returned 10 hits. A `project-state`-restricted query returned 5/
 probe measured recall@10 = 0.700 over 20 queries, HNSW 96 ms/query against exact 390 ms/query,
 and both `EXPLAIN` checks held. An independent psql self-recall check found 89/100 rows. Clippy
 and rustfmt are clean on the new files. The client side is not yet implemented, hence `partial`.
+
+At `5a32cbac7` (security review M1, M2, L2, L3): `tests/memory_cloud_auth_test.rs` failed before the
+change (an anonymous caller under dev mode reached the handler, 503 instead of 401). It now
+passes: with `VISIONCLAW_DEV_MODE=1`, `DEV_AUTH_LOOPBACK=1` and `RBAC_PUBLIC_READS=1`, all four
+endpoints answer 401 to anonymous and dev-token callers, 403 to an Editor signer, and admit a
+signed power user. A power user's third query in a minute gets 429 against a budget of 2, while a
+second power user is unaffected. The live test passed over HTTP through the real gate: the
+snapshot, a `no-store` vectors blob, 409 on a stale id, and health with no URL and no excluded
+namespace. Recall@10 was 0.940 (HNSW 21 ms/query against exact 370 ms/query).
 
 ## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
 
