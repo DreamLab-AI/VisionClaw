@@ -165,22 +165,31 @@ pub fn select_top_by_centrality(centrality: &[f32], cap: usize) -> Vec<u32> {
 
 // --- Node-mesh LOD (PRD-008 §6: ≤ 100k triangles, ≤ 50 draw calls) ---------
 //
-// The full gem node (16×8 sphere + the halo `next_pass`) measured 576 triangles
-// per node on HP (Godot 4.6.1, opengl3, 2026-10-07), so 1 000 gem nodes alone
-// are 576k triangles and 13k are ≈ 7.5M. Two tiers fix that without touching
-// the near look: the nearest `near_cap` nodes inside `near_max_dist` keep the
-// gem, and every other drawn node is a 2-triangle camera-facing impostor
+// The full gem node was a 16×8 sphere drawn twice (the halo `next_pass`): 576
+// triangles per node on HP (Godot 4.6.1, opengl3, 2026-10-07), so 1 000 gem
+// nodes alone were 576k triangles and 13k ≈ 7.5M. The halo is now a quad layer
+// (290 per gem node), and two tiers bound the rest without touching the near
+// look: the nearest `near_cap` nodes inside `near_max_dist` keep the gem, and
+// every other drawn node is a 2-triangle camera-facing impostor
 // (`materials/node_impostor.gdshader`) in one extra MultiMesh — one more draw
 // call, whatever the node count.
 
-/// Measured triangles per gem node (sphere + halo pass).
-pub const GEM_TRIS_PER_NODE: usize = 576;
+/// 16×8 SphereMesh (GraphScene `SphereMesh_node`), measured.
+pub const SPHERE_TRIS: usize = 288;
+/// The halo is one camera-facing quad per gem node (`NodesHaloMulti`,
+/// `node_halo_quad.gdshader`), not a second sphere pass: the old `next_pass`
+/// shell doubled the gem to 576 triangles.
+pub const HALO_TRIS_PER_NODE: usize = 2;
+/// Triangles per gem-tier node: one sphere pass plus its halo quad.
+pub const GEM_TRIS_PER_NODE: usize = SPHERE_TRIS + HALO_TRIS_PER_NODE;
 /// One quad per impostor.
 pub const IMPOSTOR_TRIS_PER_NODE: usize = 2;
 /// Near-field triangle ceiling the cap is sized for.
 pub const NEAR_TRI_BUDGET: usize = 60_000;
-/// Default gem cap: 96 · 576 = 55 296 triangles.
-pub const DEFAULT_NEAR_CAP: usize = 96;
+/// Default gem cap: 80 · 290 = 23 200 triangles. Sized with the edge tier and
+/// hulls so the whole scene stays ≥ 3 % under 100k at 13 164 nodes / 20 000
+/// edges (see `scene_triangle_estimate`).
+pub const DEFAULT_NEAR_CAP: usize = 80;
 /// Default near radius in world metres (the graph is fitted to ~2.4 m, a node
 /// is ~3 cm): past ~1 m a node subtends under 2°, where the impostor's shaded
 /// disc and the sphere are indistinguishable.
@@ -188,6 +197,15 @@ pub const DEFAULT_NEAR_RADIUS_M: f32 = 1.0;
 /// A node that was in the gem tier last build competes with its squared
 /// distance scaled by this, so boundary nodes do not flip tiers every frame.
 pub const NEAR_HYSTERESIS_SQ: f32 = 0.81; // ≈ 10 % in distance
+
+/// Worst-case triangles for nodes plus edges with both near tiers full (hulls
+/// excluded — add `hulls::DEFAULT_MAX_HULLS * hulls::MAX_TRIS_PER_HULL`).
+pub fn scene_triangle_estimate(nodes: usize, edges: usize, near_cap: usize, near_edge_cap: usize) -> usize {
+    let near_edges = edges.min(near_edge_cap);
+    node_triangle_estimate(nodes, near_cap)
+        + near_edges * CYLINDER_TRIS_PER_EDGE
+        + (edges - near_edges) * RIBBON_TRIS_PER_EDGE
+}
 
 /// Worst-case node triangles for `nodes` drawn with a full gem cap.
 pub fn node_triangle_estimate(nodes: usize, near_cap: usize) -> usize {

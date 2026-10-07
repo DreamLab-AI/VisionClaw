@@ -19,6 +19,8 @@ var _low_cost: bool = false
 var _node_materials: Array[Material] = []
 var _node_meshes: Array[MultiMeshInstance3D] = []
 var _edge_material: ShaderMaterial
+var _halo_mesh: MultiMeshInstance3D      # NodesHaloMulti (camera-facing halo quads)
+var _halo_material: ShaderMaterial
 
 func _ready() -> void:
     add_to_group("xr_visual_environment")
@@ -31,6 +33,10 @@ func _ready() -> void:
             mesh.material_override = material
             _node_meshes.append(mesh)
             _node_materials.append(material)
+    _halo_mesh = _scene.get_node_or_null("GraphRoot/NodesHaloMulti")
+    if _halo_mesh != null and _halo_mesh.material_override is ShaderMaterial:
+        _halo_material = _halo_mesh.material_override.duplicate(true) as ShaderMaterial
+        _halo_mesh.material_override = _halo_material
     var edge_mesh: MultiMeshInstance3D = _scene.get_node_or_null("GraphRoot/EdgesMulti")
     if edge_mesh != null and edge_mesh.material_override is ShaderMaterial:
         _edge_material = edge_mesh.material_override.duplicate(true) as ShaderMaterial
@@ -121,6 +127,12 @@ func set_visual_comfort(reduced_motion: bool, low_cost: bool) -> void:
             local_halo.set_shader_parameter("query_pulse_depth", 0.0 if reduced_motion else 0.12)
             material.next_pass = local_halo
         _node_meshes[i].material_override = material
+    # The node halo is its own quad layer (NodesHaloMulti): low cost hides it,
+    # reduced motion stops the query-variable pulse.
+    if _halo_mesh != null:
+        _halo_mesh.visible = not low_cost
+    if _halo_material != null:
+        _halo_material.set_shader_parameter("query_pulse_depth", 0.0 if reduced_motion else 0.12)
     if _edge_material != null:
         _edge_material.set_shader_parameter("pulse_energy", 0.0 if reduced_motion or low_cost else 0.20)
         _edge_material.set_shader_parameter("base_alpha", 0.09 if low_cost else 0.16)

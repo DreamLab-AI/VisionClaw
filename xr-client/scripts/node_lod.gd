@@ -21,8 +21,9 @@ const EDGE_FLOW_PARAMS: Array[String] = ["flow_color", "base_alpha", "pulse_spee
 	"pulse_energy", "pulse_gain", "subclass_dash_gap", "subclass_dash_freq", "subclass_dim",
 	"untyped_dim", "subclass_color", "inferred_color", "inferred_dash_gap", "inferred_dash_freq",
 	"inferred_dim"]
-## Gem-tier cap: 96 × 576 measured triangles = 55 296 (rust lod::DEFAULT_NEAR_CAP).
-const NEAR_CAP: int = 96
+## Gem-tier cap: 80 × (288 sphere + 2 halo quad) = 23 200 triangles
+## (rust lod::DEFAULT_NEAR_CAP; sized with edges + hulls for ≥ 3 % headroom).
+const NEAR_CAP: int = 80
 ## Gem-tier radius in world metres (rust lod::DEFAULT_NEAR_RADIUS_M).
 const NEAR_RADIUS_M: float = 1.0
 const STRIDE: int = 20
@@ -103,3 +104,14 @@ static func sync_edge_params(src: Material, dst: Material) -> void:
 		var v: Variant = a.get_shader_parameter(p)
 		if v != null and b.get_shader_parameter(p) != v:
 			b.set_shader_parameter(p, v)
+
+
+## Fill the halo quad layer with one instance per full-mesh node: the gem tier
+## (`near`) followed by the labelled/faded nodes (`faded`, whose COLOR.a fades
+## the halo with the sphere). Same 20-float layout as the node buffer.
+static func assign_halo(inst: MultiMeshInstance3D, near: PackedFloat32Array, faded: PackedFloat32Array) -> int:
+	if faded.is_empty():
+		return assign(inst, near)
+	var both := near.duplicate()
+	both.append_array(faded)
+	return assign(inst, both)

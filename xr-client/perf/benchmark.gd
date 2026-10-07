@@ -56,6 +56,7 @@ const EDGE_SAFETY_CEILING := 20000
 var _edge_pairs := PackedInt32Array()
 var _edges: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null
+var _halos: MultiMeshInstance3D = null       # node halo quads, as GraphScene NodesHaloMulti
 var _edge_report: Dictionary = {"enabled": false}
 
 func _ready() -> void:
@@ -252,6 +253,16 @@ func _populate_lod_path(fixture: Dictionary) -> bool:
 	mm.use_custom_data = true
 	_impostors = NodeLod.make_impostor_instance()
 	add_child(_impostors)
+	var hmm := MultiMesh.new()
+	hmm.transform_format = MultiMesh.TRANSFORM_3D
+	hmm.use_colors = true
+	hmm.use_custom_data = true
+	hmm.mesh = QuadMesh.new()
+	_halos = MultiMeshInstance3D.new()
+	_halos.name = "NodesHaloMulti"
+	_halos.multimesh = hmm
+	_halos.material_override = load("res://materials/node_halo_quad.tres")
+	add_child(_halos)
 	_lod_rebuild()
 	return true
 
@@ -308,6 +319,8 @@ func _lod_rebuild() -> void:
 	var t0 := Time.get_ticks_usec()
 	var near: PackedFloat32Array = _client.build_node_buffer_lod(_ids, 1.0, 0.7, 1.9, eye, NodeLod.NEAR_CAP, _near_radius)
 	var near_count: int = NodeLod.assign(get_node("NodesMulti") as MultiMeshInstance3D, near)
+	if _halos != null:
+		NodeLod.assign_halo(_halos, near, _client.faded_node_buffer())
 	var far_count: int = NodeLod.assign(_impostors, _client.impostor_node_buffer())
 	var edge_count: int = 0
 	var ribbon_count: int = 0
@@ -329,7 +342,7 @@ func _lod_rebuild() -> void:
 		"impostors": far_count,
 		"near_cap": NodeLod.NEAR_CAP,
 		"near_radius_m": _near_radius if is_finite(_near_radius) else -1.0,
-		"triangles_est": near_count * 576 + far_count * 2,
+		"triangles_est": near_count * 290 + far_count * 2,
 	}
 
 

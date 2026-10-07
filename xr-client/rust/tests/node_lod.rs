@@ -194,3 +194,24 @@ fn edge_budget_at_the_safety_ceiling() {
     let tris = DEFAULT_NEAR_EDGE_CAP * CYLINDER_TRIS_PER_EDGE + (edges - DEFAULT_NEAR_EDGE_CAP) * RIBBON_TRIS_PER_EDGE;
     assert!(tris < 45_000, "{tris}");
 }
+
+// --- whole-scene budget (nodes + halo quads + edges + hulls) --------------------
+
+use visionclaw_xr_gdext::hulls::{DEFAULT_MAX_HULLS, MAX_TRIS_PER_HULL};
+use visionclaw_xr_gdext::lod::{scene_triangle_estimate, HALO_TRIS_PER_NODE, SPHERE_TRIS};
+
+#[test]
+fn gem_is_one_sphere_pass_plus_a_halo_quad() {
+    assert_eq!(SPHERE_TRIS, 288, "16x8 SphereMesh, measured");
+    assert_eq!(HALO_TRIS_PER_NODE, 2, "halo is a camera-facing quad, not a second sphere pass");
+    assert_eq!(GEM_TRIS_PER_NODE, SPHERE_TRIS + HALO_TRIS_PER_NODE);
+}
+
+#[test]
+fn whole_scene_worst_case_stays_under_100k_at_production_density() {
+    let hull_max = DEFAULT_MAX_HULLS * MAX_TRIS_PER_HULL;
+    for (nodes, edges) in [(1_000usize, 1_500usize), (13_164, 20_000)] {
+        let t = scene_triangle_estimate(nodes, edges, DEFAULT_NEAR_CAP, DEFAULT_NEAR_EDGE_CAP) + hull_max;
+        assert!(t <= 97_000, "{nodes} nodes / {edges} edges: {t} (keep ≥ 3 % headroom under 100k)");
+    }
+}

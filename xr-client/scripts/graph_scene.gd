@@ -403,6 +403,8 @@ var _teleport_pulse_applied: bool = false
 # reads through the sphere. Optional — the scene works without it (no fade).
 @onready var nodes_faded_multi: MultiMeshInstance3D = get_node_or_null("GraphRoot/NodesFadedMulti")
 @onready var edges_multi: MultiMeshInstance3D = $GraphRoot/EdgesMulti
+# Node halo as camera-facing quads (replaces gem.tres's sphere next_pass).
+@onready var nodes_halo_multi: MultiMeshInstance3D = get_node_or_null("GraphRoot/NodesHaloMulti")
 # Work-beam layer (ADR-140, Pillar 2 / P3): the reserved AgentMulti MultiMesh, now
 # carrying one cylinder per active agent→target-node beam (agent_beam material).
 @onready var agent_multi: MultiMeshInstance3D = $GraphRoot/AgentMulti
@@ -1912,6 +1914,9 @@ func _update_multimesh() -> void:
 		fmm.instance_count = fcount
 	if fcount > 0:
 		fmm.buffer = fbuf
+	# Halo quads (NodesHaloMulti) for every full-mesh node: the gem tier + faded.
+	if nodes_halo_multi != null:
+		NodeLod.assign_halo(nodes_halo_multi, buf, fbuf)
 
 
 # Edge MultiMesh: Rust filters the ranked pairs to both-endpoints-drawn and packs

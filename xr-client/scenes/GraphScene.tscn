@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://b3xrgraph01vc"]
+[gd_scene load_steps=24 format=3 uid="uid://b3xrgraph01vc"]
 
 [ext_resource type="Script" path="res://scripts/graph_scene.gd" id="1_graph"]
 [ext_resource type="PackedScene" uid="uid://b3xravatar01vc" path="res://scenes/Avatar.tscn" id="2_avatar"]
@@ -11,6 +11,7 @@
 [ext_resource type="Material" path="res://materials/gem_faded.tres" id="9_gemf"]
 
 [ext_resource type="Script" path="res://scripts/spatial_environment.gd" id="10_spatial"]
+[ext_resource type="Material" path="res://materials/node_halo_quad.tres" id="20_haloq"]
 
 [sub_resource type="SphereMesh" id="SphereMesh_node"]
 radius = 0.5
@@ -30,6 +31,15 @@ transform_format = 1
 use_colors = true
 use_custom_data = true
 mesh = SubResource("SphereMesh_node")
+instance_count = 0
+
+[sub_resource type="QuadMesh" id="QuadMesh_halo"]
+
+[sub_resource type="MultiMesh" id="MultiMesh_halo"]
+transform_format = 1
+use_colors = true
+use_custom_data = true
+mesh = SubResource("QuadMesh_halo")
 instance_count = 0
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_edge"]
@@ -112,6 +122,11 @@ multimesh = SubResource("MultiMesh_nodes")
 [node name="NodesFadedMulti" type="MultiMeshInstance3D" parent="GraphRoot"]
 material_override = ExtResource("9_gemf")
 multimesh = SubResource("MultiMesh_nodes_faded")
+
+[node name="NodesHaloMulti" type="MultiMeshInstance3D" parent="GraphRoot"]
+cast_shadow = 0
+material_override = ExtResource("20_haloq")
+multimesh = SubResource("MultiMesh_halo")
 
 [node name="OntologyMulti" type="MultiMeshInstance3D" parent="GraphRoot"]
 material_override = ExtResource("4_orb")
