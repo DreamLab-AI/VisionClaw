@@ -1090,8 +1090,6 @@ async fn main() -> std::io::Result<()> {
                 .app_data(pay_exchange_data.clone())
                 .configure(visionclaw_server::handlers::pay_handler::configure_pay_routes);
 
-            
-
             app
             // Root-level k8s/Docker probes (the /api/* variants below are kept for back-compat)
             .route("/healthz", web::get().to(consolidated_health_handler::liveness_probe))

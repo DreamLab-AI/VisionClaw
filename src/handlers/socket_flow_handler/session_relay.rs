@@ -115,12 +115,18 @@ pub fn validate_beat_clock(msg: &Value, server_now_ms: f64) -> Result<String, Re
     if !(0.0..=1.0).contains(&confidence) {
         return Err(RelayReject::Field("confidence"));
     }
-    let source = msg.get("source").and_then(Value::as_str).ok_or(RelayReject::Field("source"))?;
+    let source = msg
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or(RelayReject::Field("source"))?;
     if !BEAT_SOURCES.contains(&source) {
         return Err(RelayReject::Field("source"));
     }
     if let Some(sent) = msg.get("sentAt") {
-        let sent_at = sent.as_f64().filter(|x| x.is_finite() && *x > 0.0).ok_or(RelayReject::Field("sentAt"))?;
+        let sent_at = sent
+            .as_f64()
+            .filter(|x| x.is_finite() && *x > 0.0)
+            .ok_or(RelayReject::Field("sentAt"))?;
         // Rebase the phase onto the server clock; the one-way uplink latency is
         // the only residual error. A locked phase never rebases below 1 ms
         // (0 means "not locked" on the wire).
@@ -155,14 +161,25 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
     if snapshot_id.trim().is_empty() {
         return Err(RelayReject::Field("snapshotId"));
     }
-    let raw = msg.get("path").and_then(Value::as_array).ok_or(RelayReject::Field("path"))?;
+    let raw = msg
+        .get("path")
+        .and_then(Value::as_array)
+        .ok_or(RelayReject::Field("path"))?;
     if raw.len() > MAX_ROUTE_PATH {
         return Err(RelayReject::Field("path"));
     }
-    let path = raw.iter().map(as_row).collect::<Option<Vec<u32>>>().ok_or(RelayReject::Field("path"))?;
+    let path = raw
+        .iter()
+        .map(as_row)
+        .collect::<Option<Vec<u32>>>()
+        .ok_or(RelayReject::Field("path"))?;
     let sidecar: Vec<u32> = match msg.get("sidecar") {
         None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(a)) => a.iter().filter_map(as_row).take(MAX_ROUTE_SIDECAR).collect(),
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(as_row)
+            .take(MAX_ROUTE_SIDECAR)
+            .collect(),
         Some(_) => return Err(RelayReject::Field("sidecar")),
     };
     let query: String = match msg.get("query") {
@@ -173,7 +190,10 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
     let non_neg = |key: &'static str| -> Result<f64, RelayReject> {
         match msg.get(key) {
             None | Some(Value::Null) => Ok(0.0),
-            Some(v) => v.as_f64().filter(|x| x.is_finite() && *x >= 0.0).ok_or(RelayReject::Field(key)),
+            Some(v) => v
+                .as_f64()
+                .filter(|x| x.is_finite() && *x >= 0.0)
+                .ok_or(RelayReject::Field(key)),
         }
     };
     let seq = non_neg("seq")?.floor();
@@ -192,7 +212,12 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
 }
 
 /// Validate a relay frame of `kind` from its raw text and parsed value.
-pub fn validate(kind: RelayKind, raw_len: usize, msg: &Value, server_now_ms: f64) -> Result<String, RelayReject> {
+pub fn validate(
+    kind: RelayKind,
+    raw_len: usize,
+    msg: &Value,
+    server_now_ms: f64,
+) -> Result<String, RelayReject> {
     if raw_len > MAX_RELAY_FRAME_BYTES {
         return Err(RelayReject::TooLarge(raw_len));
     }
@@ -225,7 +250,10 @@ pub struct RelayThrottle {
 
 impl RelayThrottle {
     pub fn offer(&mut self, now_ms: f64, frame: String) -> ThrottleDecision {
-        let since = self.last_sent_ms.map(|t| now_ms - t).unwrap_or(f64::INFINITY);
+        let since = self
+            .last_sent_ms
+            .map(|t| now_ms - t)
+            .unwrap_or(f64::INFINITY);
         if since >= RELAY_MIN_INTERVAL_MS && !self.flush_scheduled {
             self.last_sent_ms = Some(now_ms);
             return ThrottleDecision::Send(frame);
@@ -235,7 +263,9 @@ impl RelayThrottle {
             return ThrottleDecision::Coalesced;
         }
         self.flush_scheduled = true;
-        ThrottleDecision::Schedule { delay_ms: (RELAY_MIN_INTERVAL_MS - since).max(0.0) }
+        ThrottleDecision::Schedule {
+            delay_ms: (RELAY_MIN_INTERVAL_MS - since).max(0.0),
+        }
     }
 
     /// The scheduled flush fired: the newest pending frame, if any.
@@ -264,12 +294,18 @@ fn deliver(act: &SocketFlowServer, kind: RelayKind, frame: String) {
     let Some(pubkey) = act.pubkey.clone() else {
         return;
     };
-    debug!("[relay] {} from client {:?} to other sessions of {}", kind.as_str(), act.client_id, pubkey);
-    act.client_manager_addr.do_send(crate::actors::messages::RelayToUserSessions {
-        pubkey,
-        exclude_client_id: act.client_id,
-        message: frame,
-    });
+    debug!(
+        "[relay] {} from client {:?} to other sessions of {}",
+        kind.as_str(),
+        act.client_id,
+        pubkey
+    );
+    act.client_manager_addr
+        .do_send(crate::actors::messages::RelayToUserSessions {
+            pubkey,
+            exclude_client_id: act.client_id,
+            message: frame,
+        });
 }
 
 /// Route one `beatClock` / `memoryRoute` client frame: authenticate, validate,
@@ -284,7 +320,10 @@ pub(crate) fn handle_relay(
     if act.pubkey.is_none() {
         if !act.relay_unauth_reported {
             act.relay_unauth_reported = true;
-            warn!("[relay] {} from an unauthenticated session dropped", kind.as_str());
+            warn!(
+                "[relay] {} from an unauthenticated session dropped",
+                kind.as_str()
+            );
             ctx.text(json!({"type": "error", "message": format!("{}: {}", kind.as_str(), RelayReject::Unauthenticated)}).to_string());
         }
         return;
@@ -294,18 +333,28 @@ pub(crate) fn handle_relay(
         Ok(f) => f,
         Err(e) => {
             warn!("[relay] {} rejected: {}", kind.as_str(), e);
-            ctx.text(json!({"type": "error", "message": format!("{} rejected: {}", kind.as_str(), e)}).to_string());
+            ctx.text(
+                json!({"type": "error", "message": format!("{} rejected: {}", kind.as_str(), e)})
+                    .to_string(),
+            );
             return;
         }
     };
-    let decision = act.relay_throttles.entry(kind).or_default().offer(now, frame);
+    let decision = act
+        .relay_throttles
+        .entry(kind)
+        .or_default()
+        .offer(now, frame);
     match decision {
         ThrottleDecision::Send(f) => deliver(act, kind, f),
         ThrottleDecision::Schedule { delay_ms } => {
             let delay = std::time::Duration::from_millis(delay_ms.ceil() as u64);
             ctx.run_later(delay, move |act, _ctx| {
                 let now = server_now_ms();
-                let pending = act.relay_throttles.get_mut(&kind).and_then(|t| t.flush(now));
+                let pending = act
+                    .relay_throttles
+                    .get_mut(&kind)
+                    .and_then(|t| t.flush(now));
                 if let Some(f) = pending {
                     deliver(act, kind, f);
                 }
@@ -342,9 +391,17 @@ mod tests {
         let skew = 5_000.0;
         let m = json!({"bpm":120,"phaseAt":NOW + skew - 300.0,"confidence":1,"source":"file","sentAt":NOW + skew});
         let out = parse(&validate_beat_clock(&m, NOW).unwrap());
-        assert_eq!(out["phaseAt"], NOW - 300.0, "beat lands 300 ms before receipt on the server clock");
+        assert_eq!(
+            out["phaseAt"],
+            NOW - 300.0,
+            "beat lands 300 ms before receipt on the server clock"
+        );
         let unlocked = json!({"bpm":120,"phaseAt":0,"confidence":0,"source":"tap","sentAt":NOW});
-        assert_eq!(parse(&validate_beat_clock(&unlocked, NOW).unwrap())["phaseAt"], 0.0, "0 = not locked stays 0");
+        assert_eq!(
+            parse(&validate_beat_clock(&unlocked, NOW).unwrap())["phaseAt"],
+            0.0,
+            "0 = not locked stays 0"
+        );
     }
 
     #[test]
@@ -352,20 +409,57 @@ mod tests {
         let ok = json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"spotify"});
         assert!(validate_beat_clock(&ok, NOW).is_ok());
         let cases: Vec<(Value, &str)> = vec![
-            (json!({"bpm":39.9,"phaseAt":NOW,"confidence":0.5,"source":"tap"}), "bpm"),
-            (json!({"bpm":220.1,"phaseAt":NOW,"confidence":0.5,"source":"tap"}), "bpm"),
-            (json!({"bpm":"120","phaseAt":NOW,"confidence":0.5,"source":"tap"}), "bpm"),
-            (json!({"phaseAt":NOW,"confidence":0.5,"source":"tap"}), "bpm"),
-            (json!({"bpm":120,"phaseAt":-1,"confidence":0.5,"source":"tap"}), "phaseAt"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":1.01,"source":"tap"}), "confidence"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":-0.1,"source":"tap"}), "confidence"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"mic"}), "source"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":7}), "source"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"tap","sentAt":"x"}), "sentAt"),
-            (json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"tap","sentAt":-5}), "sentAt"),
+            (
+                json!({"bpm":39.9,"phaseAt":NOW,"confidence":0.5,"source":"tap"}),
+                "bpm",
+            ),
+            (
+                json!({"bpm":220.1,"phaseAt":NOW,"confidence":0.5,"source":"tap"}),
+                "bpm",
+            ),
+            (
+                json!({"bpm":"120","phaseAt":NOW,"confidence":0.5,"source":"tap"}),
+                "bpm",
+            ),
+            (
+                json!({"phaseAt":NOW,"confidence":0.5,"source":"tap"}),
+                "bpm",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":-1,"confidence":0.5,"source":"tap"}),
+                "phaseAt",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":1.01,"source":"tap"}),
+                "confidence",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":-0.1,"source":"tap"}),
+                "confidence",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"mic"}),
+                "source",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":7}),
+                "source",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"tap","sentAt":"x"}),
+                "sentAt",
+            ),
+            (
+                json!({"bpm":120,"phaseAt":NOW,"confidence":0.5,"source":"tap","sentAt":-5}),
+                "sentAt",
+            ),
         ];
         for (m, field) in cases {
-            assert_eq!(validate_beat_clock(&m, NOW), Err(RelayReject::Field(field)), "{m}");
+            assert_eq!(
+                validate_beat_clock(&m, NOW),
+                Err(RelayReject::Field(field)),
+                "{m}"
+            );
         }
         // serde_json cannot represent NaN/∞ from JSON text; a 1e400 literal parses
         // to ∞ only through f64 overflow, which serde rejects at parse time.
@@ -378,8 +472,15 @@ mod tests {
             "path":[3,1,4],"sidecar":[2,-1,"x",9.5,5],"query":"q".repeat(200),"x":1});
         let out = parse(&validate_memory_route(&m, NOW).unwrap());
         assert_eq!(out["path"], json!([3, 1, 4]));
-        assert_eq!(out["sidecar"], json!([2, 5]), "bad sidecar marks dropped, like parse_route");
-        assert_eq!(out["query"].as_str().unwrap().chars().count(), MAX_ROUTE_QUERY_CHARS);
+        assert_eq!(
+            out["sidecar"],
+            json!([2, 5]),
+            "bad sidecar marks dropped, like parse_route"
+        );
+        assert_eq!(
+            out["query"].as_str().unwrap().chars().count(),
+            MAX_ROUTE_QUERY_CHARS
+        );
         assert_eq!(out["seq"], 7.0);
         assert_eq!(out["sentAt"], NOW - 5.0);
         assert_eq!(out["serverTime"], NOW);
@@ -387,28 +488,49 @@ mod tests {
         let clear = json!({"snapshotId":"s-1","path":[]});
         let c = parse(&validate_memory_route(&clear, NOW).unwrap());
         assert_eq!(c["path"], json!([]), "empty path clears");
-        assert_eq!((c["seq"].clone(), c["sentAt"].clone(), c["query"].clone()), (json!(0.0), json!(0.0), json!("")));
+        assert_eq!(
+            (c["seq"].clone(), c["sentAt"].clone(), c["query"].clone()),
+            (json!(0.0), json!(0.0), json!(""))
+        );
 
         let too_long: Vec<u32> = (0..=MAX_ROUTE_PATH as u32).collect();
         let bad: Vec<(Value, &str)> = vec![
             (json!({"path":[1,2]}), "snapshotId"),
             (json!({"snapshotId":"   ","path":[1,2]}), "snapshotId"),
-            (json!({"snapshotId":"x".repeat(MAX_RELAY_ID_LEN + 1),"path":[1,2]}), "snapshotId"),
+            (
+                json!({"snapshotId":"x".repeat(MAX_RELAY_ID_LEN + 1),"path":[1,2]}),
+                "snapshotId",
+            ),
             (json!({"snapshotId":"s"}), "path"),
             (json!({"snapshotId":"s","path":too_long}), "path"),
             (json!({"snapshotId":"s","path":[1,-2]}), "path"),
             (json!({"snapshotId":"s","path":[1,2.5]}), "path"),
             (json!({"snapshotId":"s","path":["1"]}), "path"),
-            (json!({"snapshotId":"s","path":[1],"sidecar":"2"}), "sidecar"),
+            (
+                json!({"snapshotId":"s","path":[1],"sidecar":"2"}),
+                "sidecar",
+            ),
             (json!({"snapshotId":"s","path":[1],"query":5}), "query"),
             (json!({"snapshotId":"s","path":[1],"seq":-1}), "seq"),
-            (json!({"snapshotId":"s","path":[1],"sentAt":"now"}), "sentAt"),
+            (
+                json!({"snapshotId":"s","path":[1],"sentAt":"now"}),
+                "sentAt",
+            ),
         ];
         for (m, field) in bad {
-            assert_eq!(validate_memory_route(&m, NOW), Err(RelayReject::Field(field)), "{m}");
+            assert_eq!(
+                validate_memory_route(&m, NOW),
+                Err(RelayReject::Field(field)),
+                "{m}"
+            );
         }
         assert_eq!(
-            validate(RelayKind::MemoryRoute, MAX_RELAY_FRAME_BYTES + 1, &json!({}), NOW),
+            validate(
+                RelayKind::MemoryRoute,
+                MAX_RELAY_FRAME_BYTES + 1,
+                &json!({}),
+                NOW
+            ),
             Err(RelayReject::TooLarge(MAX_RELAY_FRAME_BYTES + 1))
         );
     }
@@ -438,14 +560,28 @@ mod tests {
     fn throttle_caps_at_four_hz_and_always_delivers_the_last_state() {
         let mut t = RelayThrottle::default();
         assert_eq!(t.offer(0.0, "a".into()), ThrottleDecision::Send("a".into()));
-        assert_eq!(t.offer(100.0, "b".into()), ThrottleDecision::Schedule { delay_ms: 150.0 });
+        assert_eq!(
+            t.offer(100.0, "b".into()),
+            ThrottleDecision::Schedule { delay_ms: 150.0 }
+        );
         assert_eq!(t.offer(180.0, "c".into()), ThrottleDecision::Coalesced);
         assert_eq!(t.offer(240.0, "d".into()), ThrottleDecision::Coalesced);
-        assert_eq!(t.flush(250.0), Some("d".into()), "the newest pending frame flushes");
+        assert_eq!(
+            t.flush(250.0),
+            Some("d".into()),
+            "the newest pending frame flushes"
+        );
         // The flush counts as a send: the next frame inside 250 ms is held again.
-        assert!(matches!(t.offer(300.0, "e".into()), ThrottleDecision::Schedule { .. }));
+        assert!(matches!(
+            t.offer(300.0, "e".into()),
+            ThrottleDecision::Schedule { .. }
+        ));
         assert_eq!(t.flush(500.0), Some("e".into()));
-        assert_eq!(t.offer(2500.0, "hb".into()), ThrottleDecision::Send("hb".into()), "2 s heartbeat passes");
+        assert_eq!(
+            t.offer(2500.0, "hb".into()),
+            ThrottleDecision::Send("hb".into()),
+            "2 s heartbeat passes"
+        );
         // Simulate 10 s of a 60 Hz sender: no more than 4 relays per second.
         let mut t = RelayThrottle::default();
         let mut sent = 0;

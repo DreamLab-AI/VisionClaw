@@ -713,11 +713,13 @@ async fn build_relation_query_service() -> OntologyQueryService {
     ] {
         repo.add_axiom(&a).await.unwrap();
     }
-    repo.add_owl_property(&visionclaw_domain::ports::ontology_repository::OwlProperty {
-        iri: HAS_PART.to_string(),
-        range: vec!["mv:Part".to_string()],
-        ..Default::default()
-    })
+    repo.add_owl_property(
+        &visionclaw_domain::ports::ontology_repository::OwlProperty {
+            iri: HAS_PART.to_string(),
+            range: vec!["mv:Part".to_string()],
+            ..Default::default()
+        },
+    )
     .await
     .unwrap();
     OntologyQueryService::new(
@@ -844,7 +846,8 @@ async fn test_a_loaded_bundle_reports_its_version_iri() {
              owl:versionIRI <https://narrativegoldmine.com/ontology/sha256-12-0123456789ab> .\n",
     )
     .unwrap();
-    let service = build_query_service().with_bundle_location(BundleLocation::VaultRoot(root.clone()));
+    let service =
+        build_query_service().with_bundle_location(BundleLocation::VaultRoot(root.clone()));
     let scope = service.answer_scope().await;
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(
@@ -917,8 +920,7 @@ async fn test_read_note_is_unchanged_by_the_cached_index() {
     };
     assert_eq!(key(&cold), key(&warm));
     let incoming = service.read_note("mv:Organization").await.unwrap();
-    assert!(incoming
-        .related_notes
-        .iter()
-        .any(|r| r.iri == "mv:Company" && r.direction == "incoming" && r.basis == FactBasis::Asserted));
+    assert!(incoming.related_notes.iter().any(|r| r.iri == "mv:Company"
+        && r.direction == "incoming"
+        && r.basis == FactBasis::Asserted));
 }
