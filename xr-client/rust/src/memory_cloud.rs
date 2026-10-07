@@ -326,19 +326,23 @@ pub fn build_colours(snap: &CloudSnapshot, mode: ColourMode) -> Vec<[f32; 3]> {
 /// and sidecar hits must stay visible), then the remaining budget split across
 /// namespaces in proportion to their size (largest remainder, one row floor
 /// per namespace while budget lasts), each namespace taking evenly spaced
-/// rows. Deterministic, sorted ascending, never longer than `cap`.
+/// rows. Deterministic, sorted ascending, never longer than `cap` unless the
+/// pinned rows alone exceed it.
 pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec<u32> {
     let n = metadata.len();
     if n <= cap {
         return (0..n as u32).collect();
     }
+    // Pinned rows (the shown route and its sidecar hits) always draw, even past
+    // the cap: a route must land on visible points. At most MAX_PATH +
+    // MAX_SIDECAR rows, far under frame_budget::CLOUD_MIN_SPRITES.
     let mut chosen: HashSet<usize> = HashSet::new();
     for &p in pinned {
-        if p < n && chosen.len() < cap {
+        if p < n {
             chosen.insert(p);
         }
     }
-    let budget = cap - chosen.len();
+    let budget = cap.saturating_sub(chosen.len());
     // namespace → rows not already pinned, in row order; namespaces in first-seen order
     let mut order: Vec<&str> = Vec::new();
     let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -398,7 +402,6 @@ pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec
     }
     let mut out: Vec<u32> = chosen.into_iter().map(|i| i as u32).collect();
     out.sort_unstable();
-    out.truncate(cap);
     out
 }
 
@@ -1186,11 +1189,23 @@ mod tests {
     }
 
     #[test]
-    fn lod_with_more_pins_than_cap_truncates_to_cap() {
+    fn lod_with_more_pins_than_cap_draws_exactly_the_pins() {
         let m = meta_ns(&[("a", 100)]);
         let pins: Vec<usize> = (0..50).collect();
         let d = select_drawn(&m, 10, &pins);
-        assert_eq!(d.len(), 10);
+        assert_eq!(d, (0..50).collect::<Vec<u32>>(), "pins win over the cap, nothing else added");
+    }
+
+    #[test]
+    fn pinned_rows_draw_even_past_the_cap() {
+        let m = meta_ns(&[("a", 20), ("b", 20), ("c", 10)]);
+        let pins = [3usize, 17, 29, 44];
+        let d = select_drawn(&m, 2, &pins);
+        assert_eq!(d.len(), 4);
+        for p in pins {
+            assert!(d.contains(&(p as u32)), "{p} drawn");
+        }
+        assert!(crate::memory_route::MAX_PATH + crate::memory_route::MAX_SIDECAR < crate::frame_budget::CLOUD_MIN_SPRITES);
     }
 
     #[test]

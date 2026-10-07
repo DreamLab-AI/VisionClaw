@@ -93,19 +93,26 @@ godot --path xr-client --rendering-driver opengl3 --script perf/run_benchmark.gd
 ```
 
 Headless runs use the dummy renderer, so draw calls and triangles read 0; count them with a
-display. Measured on HP-Desktop (GL window, 2026-10-07, node LOD on):
+display. `rust/src/frame_budget.rs` allocates the frame between the graph tiers, the cloud
+and the route, and the scene applies its caps. Measured on HP-Desktop (GL window, Godot 4.6.1,
+2026-10-07, synthetic graph with 20 000 edges and 32 hulls); the allocator's estimate equals the
+renderer's count in every row:
 
-| Nodes | Memory rows | Draw calls | Triangles | Cloud | Route (12 hops) |
-|---|---|---|---|---|---|
-| 1 000 | 0 | 4 | 58 200 | — | — |
-| 1 000 | 6 000 | 8 | 71 444 | 6 000 | 7 244 |
-| 1 000 | 20 000 | 8 | 73 444 | 8 000 (capped) | 7 244 |
-| 13 164 | 0 | 4 | 84 370 | — | — |
-| 13 164 | 6 000 | 8 | 97 614 | 6 000 | 7 244 |
-| 13 164 | 20 000 | 8 | 99 614 | 8 000 (capped) | 7 244 |
+| Nodes | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Result |
+|---|---|---|---|---|---|---|
+| 1 000 | 0 | — | 6 | 69 016 | 3.70 ms | pass |
+| 1 000 | 6 000 | 13 / 5 | 10 | 82 260 | 3.70 ms | pass |
+| 1 000 | 20 000 | 13 / 5 | 10 | 84 260 | 4.44 ms | pass |
+| 1 000 | 20 000 | 64 / 64 | 10 | 81 060 | 3.55 ms | pass |
+| 13 164 | 0 | — | 6 | 95 186 | 5.56 ms | pass |
+| 13 164 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | pass |
+| 13 164 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | pass |
+| 13 164 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | pass |
 
-`XR_BENCH_NODES=13164` gives production density. The memory layers are held to the 15 630
-triangles the graph leaves (`memory_cloud.rs` budget constants and their tests).
+```
+XR_BENCH_NODES=13164 godot --path xr-client --rendering-method gl_compatibility --xr-mode off \
+  -s res://perf/run_benchmark.gd -- duration=8 memory_rows=20000 route_hops=63 route_sidecar=64
+```
 
 ### Godot benchmark — on-device Quest 3
 

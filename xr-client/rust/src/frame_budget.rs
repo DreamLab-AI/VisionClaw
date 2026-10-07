@@ -8,7 +8,8 @@
 //!
 //! Two passes:
 //!
-//! 1. **Minimums**, in priority order: the graph's far tiers (an impostor quad
+//! 1. **Minimums**, in priority order: triangles outside every budgeted layer
+//!    (HUD, avatars, controllers; measured by the scene), the graph's far tiers (an impostor quad
 //!    per node, a ribbon quad per edge, labelled nodes on the full mesh), the
 //!    route at one sample per hop, a cloud floor that still reads as a cloud,
 //!    and a minimum near field of gem nodes.
@@ -61,6 +62,9 @@ pub struct GraphDemand {
     pub faded: usize,
     /// The graph's own draw calls.
     pub draw_calls: usize,
+    /// Triangles outside every budgeted layer (HUD, avatars, controllers,
+    /// labels), measured by the scene; reserved before anything else.
+    pub other_tris: usize,
 }
 
 /// The query route being shown.
@@ -114,7 +118,7 @@ pub struct FrameCaps {
 /// Divide the frame budget between the layers (see the module docs).
 pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     let faded = g.faded.min(g.nodes);
-    let far = g.nodes * IMPOSTOR_TRIS_PER_NODE + g.edges * RIBBON_TRIS_PER_EDGE + faded * GEM_STEP;
+    let far = g.other_tris + g.nodes * IMPOSTOR_TRIS_PER_NODE + g.edges * RIBBON_TRIS_PER_EDGE + faded * GEM_STEP;
 
     let route_min = m.route.map_or(0, |r| route_triangles_at(r.rows, r.sidecar, 0));
     let cloud_want = m.cloud_rows.min(DEFAULT_SPRITE_CAP);
@@ -193,8 +197,9 @@ pub struct FrameBudget {
 #[cfg(not(test))]
 #[godot_api]
 impl FrameBudget {
-    /// Caps for one frame. `route_rows` 0 = no route shown; `cloud_rows` 0 =
-    /// cloud hidden. Returns gem_nodes, cylinder_edges, max_hulls,
+    /// Caps for one frame. `other_tris` = triangles outside the budgeted layers
+    /// (HUD, avatars, controllers); `route_rows` 0 = no route shown;
+    /// `cloud_rows` 0 = cloud hidden. Returns gem_nodes, cylinder_edges, max_hulls,
     /// cloud_sprites, route_tris, route_ring_cap, tris_total, draw_calls,
     /// over_budget.
     #[func]
@@ -206,6 +211,7 @@ impl FrameBudget {
         hulls: i64,
         hull_tris: i64,
         faded: i64,
+        other_tris: i64,
         graph_draw_calls: i64,
         cloud_rows: i64,
         route_rows: i64,
@@ -219,6 +225,7 @@ impl FrameBudget {
             hull_tris: u(hull_tris),
             faded: u(faded),
             draw_calls: u(graph_draw_calls),
+            other_tris: u(other_tris),
         };
         let route = (route_rows >= 2).then(|| RouteShape { rows: u(route_rows), sidecar: u(route_sidecar) });
         let c = allocate(&g, &MemoryDemand { cloud_rows: u(cloud_rows), route });
@@ -244,7 +251,7 @@ mod tests {
     /// Production graph as xr-graph measures it: 13 164 nodes, 20 000 edges,
     /// 32 hulls (2 938 triangles), 6 draw calls.
     fn production() -> GraphDemand {
-        GraphDemand { nodes: 13_164, edges: 20_000, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6 }
+        GraphDemand { nodes: 13_164, edges: 20_000, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6, other_tris: 0 }
     }
 
     fn full_memory() -> MemoryDemand {
@@ -258,7 +265,8 @@ mod tests {
         let cyl = c.graph.cylinder_edges.min(g.edges);
         let hull = if c.graph.max_hulls >= g.hulls { g.hull_tris } else { c.graph.max_hulls * MAX_TRIS_PER_HULL };
         let route = m.route.map_or(0, |r| route_triangles_at(r.rows, r.sidecar, c.route_ring_cap));
-        (faded + gem) * GEM_TRIS_PER_NODE
+        g.other_tris
+            + (faded + gem) * GEM_TRIS_PER_NODE
             + (g.nodes - faded - gem) * IMPOSTOR_TRIS_PER_NODE
             + cyl * CYLINDER_TRIS_PER_EDGE
             + (g.edges - cyl) * RIBBON_TRIS_PER_EDGE
@@ -286,7 +294,7 @@ mod tests {
 
     #[test]
     fn small_graph_without_memory_layers_gets_the_defaults() {
-        let g = GraphDemand { nodes: 1_000, edges: 1_500, hulls: 12, hull_tris: 1_100, faded: 0, draw_calls: 6 };
+        let g = GraphDemand { nodes: 1_000, edges: 1_500, hulls: 12, hull_tris: 1_100, faded: 0, draw_calls: 6, other_tris: 0 };
         let c = allocate(&g, &MemoryDemand::default());
         assert_eq!(c.graph, GraphCaps { gem_nodes: DEFAULT_NEAR_CAP, cylinder_edges: DEFAULT_NEAR_EDGE_CAP, max_hulls: 12 });
         assert_eq!(c.cloud_sprites, 0);
@@ -303,7 +311,7 @@ mod tests {
         let route_full = route_triangles_for(MAX_PATH, MAX_SIDECAR);
         let mut prev: Option<FrameCaps> = None;
         for nodes in (1_000..40_000).step_by(250) {
-            let g = GraphDemand { nodes, edges: nodes * 3 / 2, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6 };
+            let g = GraphDemand { nodes, edges: nodes * 3 / 2, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6, other_tris: 0 };
             let c = allocate(&g, &m);
             // A higher-priority layer below its demand could not afford its next
             // step from what the lower layers took (leftovers trickle down).
@@ -335,7 +343,7 @@ mod tests {
     #[test]
     fn a_thinner_route_is_used_before_it_overruns() {
         // a 13-row route wants 10 samples per hop; with little room it drops detail
-        let g = GraphDemand { nodes: 21_625, edges: 21_625, hulls: 0, hull_tris: 0, faded: 0, draw_calls: 6 };
+        let g = GraphDemand { nodes: 21_625, edges: 21_625, hulls: 0, hull_tris: 0, faded: 0, draw_calls: 6, other_tris: 0 };
         let m = MemoryDemand { cloud_rows: 20_000, route: Some(RouteShape { rows: 13, sidecar: 5 }) };
         let c = allocate(&g, &m);
         assert!(!c.over_budget);
@@ -356,7 +364,7 @@ mod tests {
 
     #[test]
     fn impossible_graph_reports_over_budget_with_minimums() {
-        let g = GraphDemand { nodes: 60_000, edges: 0, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6 };
+        let g = GraphDemand { nodes: 60_000, edges: 0, hulls: 32, hull_tris: 2_938, faded: 0, draw_calls: 6, other_tris: 0 };
         let c = allocate(&g, &full_memory());
         assert!(c.over_budget);
         assert_eq!(c.graph, GraphCaps { gem_nodes: GEM_MIN, cylinder_edges: 0, max_hulls: 0 });
@@ -374,6 +382,19 @@ mod tests {
         assert_eq!(cost(&f, &m, &b), b.tris_total);
         assert!(b.tris_total <= TRI_BUDGET);
         assert_eq!(a.graph.gem_nodes - b.graph.gem_nodes, 10, "each faded node displaces one gem");
+    }
+
+    #[test]
+    fn other_triangles_are_reserved_first() {
+        let m = full_memory();
+        let base = allocate(&production(), &m);
+        let hud = GraphDemand { other_tris: 3_000, ..production() };
+        let c = allocate(&hud, &m);
+        assert!(!c.over_budget);
+        assert_eq!(cost(&hud, &m, &c), c.tris_total);
+        assert!(c.tris_total <= TRI_BUDGET);
+        assert!(c.graph.gem_nodes < base.graph.gem_nodes, "near detail pays for the HUD");
+        assert_eq!((c.cloud_sprites, c.route_tris), (base.cloud_sprites, base.route_tris), "memory layers keep priority");
     }
 
     #[test]

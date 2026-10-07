@@ -238,22 +238,37 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   The answer ring pulses to xr-pulse's beat clock when it is locked. Under
   reduced motion the route is shown converged, with no comet, pulse ring or
   rotation. Glow is emissive/additive geometry only (Invariant 2).
-- **Budget.** The graph's worst case (node LOD + hulls at 13 164 nodes) is
-  84 370 triangles, so the memory layers share the remaining 15 630: the cloud
-  8 000 (`CLOUD_TRIANGLE_BUDGET`) and the route 7 500 (`ROUTE_TRIANGLE_BUDGET`).
+- **Budget: one allocator for every layer.** `rust/src/frame_budget.rs`
+  (`FrameBudget.allocate`) divides the 100 000-triangle / 50-call frame between
+  the graph's LOD tiers, the cloud and the route, in two passes. Minimums, in
+  priority order: triangles outside the budgeted layers (`other_tris`: HUD,
+  avatars, controllers, measured by the scene), the graph's far tiers (an
+  impostor quad per node, a ribbon quad per edge, labelled nodes on the full
+  mesh), the route at one sample per hop, 2 000 cloud sprites, 16 gem nodes.
+  Then growth to demand in the same order: route curve detail (up to 121
+  centreline samples), cloud (up to 8 000 one-triangle sprites), hulls, gem
+  nodes (to 80), cylinder edges (to 96). Costs are imported from `lod.rs`,
+  `hulls.rs` and `memory_*.rs`, never copied. If the minimums alone overrun,
+  the minimums are returned with `over_budget` set. Route and sidecar rows are
+  always drawn, even past the cloud cap (at most 128, under the 2 000 floor).
   Beads, halos and the comet are one-triangle camera-facing discs
-  (`memory_bead.gdshader`); unshaded and additive, a sphere would draw as the
-  same disc, and the coarse sphere the budget allowed showed its facets. The
-  costliest acceptable route (61 nodes, 64 sidecar marks) is 7 458: tube ≤ 7 200
-  at 121 centreline samples, 124 discs, 67 ring quads. Rust tests pin graph +
-  cloud + costliest route ≤ 100 000 (99 828) and check the formula against every
-  path length; a GUT test checks the built sprite and bead meshes against the
-  Rust counts. Measured on HP (GL window, 2026-10-07): +4 draw calls (4 → 8). At
-  13 164 nodes: graph only 84 370; +6 000 rows and a 12-hop route 97 614;
-  +20 000 rows (capped at 8 000 sprites) 99 614. At 1 000 nodes: 58 200 / 71 444 /
-  73 444. p99 ≤ 3.2 ms on the desktop GPU in every case. About 170 triangles of
-  worst-case headroom remain, so further memory-layer effects (bursts, heat)
-  must restyle existing sprites, not add geometry.
+  (`memory_bead.gdshader`); an unshaded additive sphere draws as the same disc.
+  Rust tests recount every allocation independently and sweep a growing graph
+  to check the layers give way in priority order. The benchmark runs the
+  allocator once and applies its caps to all layers. Measured on HP (GL window,
+  Godot 4.6.1, 2026-10-07; the allocator's estimate equals the renderer's
+  count in every row):
+
+  | Nodes | Edges | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Gems / cylinders / hulls |
+  |---|---|---|---|---|---|---|---|
+  | 13 164 | 20 000 | — | — | 6 | 95 186 | 5.56 ms | 80 / 96 / 32 |
+  | 13 164 | 20 000 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | 60 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | 53 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | 64 / 8 / 32 |
+
+  The benchmark scene has no HUD, avatars or controllers, so the headset fills
+  the same budget only once GraphScene passes their measured triangles as
+  `other_tris`.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the

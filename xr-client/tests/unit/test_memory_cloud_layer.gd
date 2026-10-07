@@ -220,3 +220,32 @@ func test_meshes_match_the_rust_triangle_budget() -> void:
 	assert_eq(t["bead"], t["bead_expected"], "bead disc matches BEAD_TRIANGLES")
 	assert_eq(t["bead"], 1, "beads are one-triangle discs")
 
+
+
+func test_frame_budget_demand_and_caps() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	_load(l, "s1", 6)
+	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":1,"path":[0,3,5],"sidecar":[1]}')
+	var d: Dictionary = l.frame_demand()
+	assert_eq(int(d["cloud_rows"]), 6)
+	assert_eq(int(d["route_rows"]), 3)
+	assert_eq(int(d["route_sidecar"]), 1)
+	var full: int = int(l._route.sample_count())
+	assert_eq(full, 2 * 16 + 1, "short route at full detail")
+	var caps: Dictionary = FrameBudget.new().allocate(1000, 1500, 0, 0, 0, 0, 6, int(d["cloud_rows"]), int(d["route_rows"]), int(d["route_sidecar"]))
+	assert_false(bool(caps["over_budget"]))
+	assert_eq(int(caps["cloud_sprites"]), 6)
+	# a starved budget: fewest sprites the keep rows allow, one sample per hop
+	l.apply_frame_caps({"cloud_sprites": 2, "route_ring_cap": 3})
+	l.flush()
+	assert_eq(l.drawn_count(), 4, "route + sidecar rows stay drawn under any cap")
+	assert_eq(int(l._route.sample_count()), 3)
+	assert_true(l.route_active(), "route still shown")
+	l.apply_frame_caps({"cloud_sprites": 8000, "route_ring_cap": 121})
+	l.flush()
+	assert_eq(l.drawn_count(), 6)
+	assert_eq(int(l._route.sample_count()), full)
+	l.set_enabled(false)
+	assert_eq(int(l.frame_demand()["cloud_rows"]), 0, "hidden cloud demands nothing")
+	l.queue_free()

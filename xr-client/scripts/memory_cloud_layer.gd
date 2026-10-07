@@ -90,6 +90,7 @@ var _rotation_per_sec: float = 0.03
 var _hover_accum: float = 0.0
 var _hover_row: int = -1
 var _bead_tris: int = 0   # triangles per bead disc, read from the mesh
+var _sprite_cap: int = -1  # last FrameBudget cloud cap applied
 
 
 func _ready() -> void:
@@ -426,18 +427,24 @@ func _handle_route_verdict(verdict: String) -> void:
 
 
 func _build_route() -> void:
-	var arrays: Array = _route.mesh_arrays(ROUTE_GLOW)
-	if arrays.size() <= Mesh.ARRAY_INDEX or arrays[Mesh.ARRAY_VERTEX] == null:
+	if not _rebuild_route_mesh():
 		_clear_route()
 		return
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	_tube.mesh = mesh
 	_cloud.set_keep(_route.keep_rows())
 	_buffer_dirty = true
 	_route_root.visible = true
 	_tick_route(0.0)
 	route_changed.emit(true, int(_route.hop_count()))
+
+
+func _rebuild_route_mesh() -> bool:
+	var arrays: Array = _route.mesh_arrays(ROUTE_GLOW)
+	if arrays.size() <= Mesh.ARRAY_INDEX or arrays[Mesh.ARRAY_VERTEX] == null:
+		return false
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_tube.mesh = mesh
+	return true
 
 
 func _clear_route() -> void:
@@ -601,6 +608,36 @@ static func _ellipsis(s: String, n: int) -> String:
 
 
 # --- budget ------------------------------------------------------------------
+
+# --- frame budget -------------------------------------------------------------
+
+## This layer's demand for FrameBudget.allocate(): snapshot rows to draw (0
+## when hidden) and the shown route's [rows, sidecar].
+func frame_demand() -> Dictionary:
+	var shape: PackedInt32Array = _route.route_shape() if _route != null and _enabled else PackedInt32Array([0, 0])
+	return {
+		"cloud_rows": point_count() if _enabled else 0,
+		"route_rows": shape[0],
+		"route_sidecar": shape[1],
+	}
+
+
+## Apply FrameBudget.allocate()'s caps: the cloud sprite cap (re-selects the
+## drawn rows only when it changes) and the route's centreline cap (rebuilds
+## the tube only when its samples per hop change; the animation keeps going).
+func apply_frame_caps(caps: Dictionary) -> void:
+	if _cloud == null:
+		return
+	var sprites: int = int(caps.get("cloud_sprites", 0))
+	if sprites > 0 and sprites != _sprite_cap:
+		_sprite_cap = sprites
+		_cloud.set_sprite_cap(sprites)
+		_buffer_dirty = true
+	if _route != null and caps.has("route_ring_cap"):
+		if bool(_route.set_ring_cap(int(caps["route_ring_cap"]), _cloud.positions())) and route_active():
+			_rebuild_route_mesh()
+			_tick_route(0.0)
+
 
 ## One equilateral triangle whose incircle is the shader's disc (of
 ## `diameter`): half a quad's triangles per sprite (memory_cloud.rs
