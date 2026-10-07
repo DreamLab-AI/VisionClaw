@@ -143,6 +143,9 @@ async fn rec11_trace_joins_two_live_source_kinds_over_real_stores() {
         handoff_id: Some("urn:agentbox:activity:chain-7".into()),
         token_count: Some(1234),
         verification: Some("pass".into()),
+        // This fixture models a P1 envelope that declares no intent (FR5.1,
+        // added after REC-11): it must persist as NULL, never synthesised.
+        intent: None,
         observed_at_ms: 1_700_000_002_000,
     })
     .await
@@ -207,6 +210,16 @@ async fn rec11_trace_joins_two_live_source_kinds_over_real_stores() {
     assert!(join.sources.contains(&SOURCE_BROKER_DECISION));
     assert_eq!(join.record_count, 2);
     assert_eq!(trace.total_records, 2);
+
+    // FR5.1/FR5.2 over the real stores: an undeclared intent reads back as
+    // absent and yields no verdict — "no claim" is never reported as "false".
+    let agent_record = trace
+        .records
+        .iter()
+        .find(|r| r.source == SOURCE_AGENT_EVENT)
+        .expect("the agent-event record");
+    assert_eq!(agent_record.intent, None);
+    assert_eq!(agent_record.intent_match, None);
 
     // The did filter narrows to the same identity and still joins.
     let filtered = service.query(i64::MAX, Some(did)).await.expect("filtered");
