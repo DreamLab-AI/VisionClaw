@@ -60,6 +60,7 @@ func test_memory_flash_frames_spawn_bursts_and_the_toggle_stops_them() -> void:
 func test_relayed_beat_clock_drives_the_shared_shader_uniforms() -> void:
 	var scene: Node3D = await _make_scene()
 	var beat: Node = scene.get_node("BeatPulse")
+	var default_reduced: bool = beat.reduced_motion
 	scene._on_graph_text(_beat_frame(120.0, "tap"))
 	var st: Dictionary = beat.beat().status()
 	assert_eq(String(st["active"]), "desktop", "the relayed clock is driving")
@@ -73,12 +74,30 @@ func test_relayed_beat_clock_drives_the_shared_shader_uniforms() -> void:
 		hi = maxf(hi, p)
 		lo = minf(lo, p)
 	assert_gt(hi, lo, "pulse varies through the beat")
-	var halo: ShaderMaterial = load("res://materials/node_halo.tres")
-	var edge: ShaderMaterial = load("res://materials/edge_flow.tres")
-	assert_almost_eq(float(halo.get_shader_parameter("beat_pulse")), beat.current_pulse(), 0.01)
-	assert_almost_eq(float(edge.get_shader_parameter("beat_pulse")), beat.current_pulse(), 0.01)
+	# The uniform must land on the materials the meshes RENDER with: the scene-
+	# local duplicates spatial_environment.gd makes, not the shared .tres files.
+	var live_halo: ShaderMaterial = (scene.get_node("GraphRoot/NodesMulti") as MultiMeshInstance3D).material_override.next_pass
+	var live_edge: ShaderMaterial = (scene.get_node("GraphRoot/EdgesMulti") as MultiMeshInstance3D).material_override
+	assert_ne(live_edge, load("res://materials/edge_flow.tres"), "edges render with a scene-local duplicate")
+	assert_true(beat.pulse_materials().has(live_halo) and beat.pulse_materials().has(live_edge))
+	# Land exactly on a beat with motion allowed, so the pulse is near 1 and a
+	# stale 0 on the live materials cannot pass by accident.
+	beat.reduced_motion = false
+	scene._reduced_motion = false
+	scene._on_graph_text(_beat_frame(120.0, "tap"))
+	await get_tree().process_frame
+	var p_now: float = beat.current_pulse()
+	assert_gt(p_now, 0.5, "on the beat the pulse is strong")
+	assert_almost_eq(float(live_halo.get_shader_parameter("beat_pulse")), p_now, 0.01, "live halo carries the pulse")
+	assert_almost_eq(float(live_edge.get_shader_parameter("beat_pulse")), p_now, 0.01, "live edges carry the pulse")
+	# A comfort toggle swaps the materials again; the next frame must follow.
+	scene.get_tree().get_first_node_in_group("xr_visual_environment").set_visual_comfort(true, false)
+	await get_tree().process_frame
+	var swapped: ShaderMaterial = (scene.get_node("GraphRoot/NodesMulti") as MultiMeshInstance3D).material_override.next_pass
+	assert_ne(swapped, live_halo, "comfort toggle replaced the halo material")
+	assert_almost_eq(float(swapped.get_shader_parameter("beat_pulse")), beat.current_pulse(), 0.01, "pulse follows the swap")
 	# Reduced motion (the default) scales the pulse down to at most a quarter.
-	assert_true(beat.reduced_motion, "reduced motion is the comfort default")
+	assert_true(default_reduced, "reduced motion is the comfort default")
 	assert_lte(hi, 0.25 + 1e-4, "pulse scaled down under reduced motion")
 	# A source of "off" from the desktop stops the pulse.
 	scene._on_graph_text(_beat_frame(120.0, "off"))

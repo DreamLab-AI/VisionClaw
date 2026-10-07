@@ -716,7 +716,7 @@ func _ensure_beat() -> void:
 	_beat = BeatPulseScript.new()
 	_beat.name = "BeatPulse"
 	add_child(_beat)
-	_beat.setup(_binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
+	_beat.setup(self, _binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
 
 
 func _wire_hud() -> void:

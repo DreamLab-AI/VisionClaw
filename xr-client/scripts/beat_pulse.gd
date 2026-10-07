@@ -7,9 +7,12 @@ extends Node
 ##   * BeatPulse (Rust, pulse.rs/beat.rs): the desktop's relayed `beatClock`,
 ##     server-clock offset from JSON ping/pong (RTT/2, minimum-RTT sample), the
 ##     controller tap tempo and the opt-in microphone analyser;
-##   * one `beat_pulse` uniform per frame on the SHARED node-halo and edge-flow
-##     materials (a uniform swell — no post-process, Invariant 2), scaled down
-##     under reduced motion;
+##   * one `beat_pulse` uniform per frame on the node-halo and edge-flow
+##     materials the meshes are ACTUALLY using (a uniform swell — no
+##     post-process, Invariant 2), scaled down under reduced motion. Those are
+##     scene-local duplicates made by spatial_environment.gd, replaced again on
+##     every comfort toggle, so they are re-read from the meshes rather than
+##     cached or taken from the shared .tres resources;
 ##   * memory_flash bursts (memory_bursts.gd) under the unit-scale effects root.
 ##
 ## Tap tempo: B/Y (Touch, Index, Cosmos, Focus 3) or a centred click of the LEFT
@@ -29,8 +32,8 @@ const PING_INTERVAL_SEC := 2.0
 const HUD_REFRESH_SEC := 0.25
 const TAP_DEADZONE := 0.15           # = graph_scene LOCOMOTION_DEADZONE
 const MIC_BUS := "BeatMic"
-const HALO_MATERIAL := "res://materials/node_halo.tres"
-const EDGE_MATERIAL := "res://materials/edge_flow.tres"
+const HALO_MESHES: Array[String] = ["GraphRoot/NodesMulti", "GraphRoot/NodesFadedMulti"]
+const EDGE_MESH := "GraphRoot/EdgesMulti"
 const PULSE_EPSILON := 0.004
 
 var reduced_motion: bool = true
@@ -43,8 +46,8 @@ var _left: XRController3D = null
 var _right: XRController3D = null
 var _bursts: Node3D = null
 var _centre_fn: Callable = Callable()
-var _halo_mat: ShaderMaterial = null
-var _edge_mat: ShaderMaterial = null
+var _scene: Node = null
+var _pulse_targets: Array = []        # ShaderMaterials last written
 var _last_pulse: float = -1.0
 var _ping_t: float = 0.0
 var _hud_t: float = 0.0
@@ -57,8 +60,9 @@ var _tap_total: int = 0
 
 ## Wire to the scene. `effects_root` must be a unit-scale node (never GraphRoot);
 ## `centre_fn` returns the world position bursts fall back to (graph centre).
-func setup(client: RefCounted, hud: Node, left: XRController3D, right: XRController3D,
+func setup(scene: Node, client: RefCounted, hud: Node, left: XRController3D, right: XRController3D,
 		effects_root: Node3D, centre_fn: Callable) -> void:
+	_scene = scene
 	_client = client
 	_hud = hud
 	_left = left
@@ -66,8 +70,6 @@ func setup(client: RefCounted, hud: Node, left: XRController3D, right: XRControl
 	_centre_fn = centre_fn
 	# gdext classes are no_init: construct through their static create().
 	_bp = BeatPulse.create()
-	_halo_mat = load(HALO_MATERIAL) as ShaderMaterial
-	_edge_mat = load(EDGE_MATERIAL) as ShaderMaterial
 	_bursts = MemoryBursts.new()
 	_bursts.name = "MemoryBursts"
 	if effects_root != null:
@@ -211,12 +213,12 @@ func _process(delta: float) -> void:
 				_bp.push_mic_frames(_mic_capture.get_buffer(n), AudioServer.get_mix_rate())
 		_bp.process()
 	var pulse: float = _bp.pulse(reduced_motion) if _bp != null else 0.0
-	if absf(pulse - _last_pulse) > PULSE_EPSILON:
+	var targets: Array = pulse_materials()
+	if absf(pulse - _last_pulse) > PULSE_EPSILON or targets != _pulse_targets:
 		_last_pulse = pulse
-		if _halo_mat != null:
-			_halo_mat.set_shader_parameter("beat_pulse", pulse)
-		if _edge_mat != null:
-			_edge_mat.set_shader_parameter("beat_pulse", pulse)
+		_pulse_targets = targets
+		for m: ShaderMaterial in targets:
+			m.set_shader_parameter("beat_pulse", pulse)
 	if _bursts != null:
 		_bursts.reduced_motion = reduced_motion
 		_bursts.beat_pulse = pulse
@@ -227,6 +229,21 @@ func _process(delta: float) -> void:
 	if _hud_t >= HUD_REFRESH_SEC:
 		_hud_t = 0.0
 		_refresh_hud()
+
+
+## The halo and edge ShaderMaterials currently assigned to the graph meshes.
+func pulse_materials() -> Array:
+	var out: Array = []
+	if _scene == null:
+		return out
+	for path: String in HALO_MESHES:
+		var mi: MultiMeshInstance3D = _scene.get_node_or_null(path)
+		if mi != null and mi.material_override != null and mi.material_override.next_pass is ShaderMaterial:
+			out.append(mi.material_override.next_pass)
+	var edges: MultiMeshInstance3D = _scene.get_node_or_null(EDGE_MESH)
+	if edges != null and edges.material_override is ShaderMaterial:
+		out.append(edges.material_override)
+	return out
 
 
 ## Current pulse (0..1, reduced-motion scaled) for other layers (xr-cloud's comet).
