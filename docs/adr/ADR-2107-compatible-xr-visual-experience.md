@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
+verified_commit: ed4c9db3c6ee07b1fafe9cc29e10f619425b2adb
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -125,3 +125,7 @@ Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 librar
 ## Re-verification — 2026-10-07 (b63d35f8a)
 
 Merging fix/xr-held-above-route adds a priority layer under this record's comfort rules: memory route 10 < held aim rays 15 < HUD and radial menu 20 (`radial_menu.gd` now sets OVERLAY_RENDER_PRIORITY; a compile-time assert in `memory_route.rs` pins the order). The aim ray keeps its depth test, so it never shows through scene geometry; it only wins against the depth-ignoring route, removing the conflicting depth cue the previous re-verification raised as an open item. No head-moving behaviour, colour, MSAA or reduced-motion rule changed. Decision holds; open item closed.
+
+## Re-verification — 2026-10-07 at ed4c9db3c
+
+New HUD controls (the separation row on the Layout page, and Memory Search mode on the Query page) are press-fire and fit the 532 px host (Layout 529 px, memory search ≤532 px, GUT-tested); `xr_theme.gd` adds a larger slider grab only. No post-processing or renderer change. Decision holds.

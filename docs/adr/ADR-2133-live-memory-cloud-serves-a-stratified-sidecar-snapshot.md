@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
+verified_commit: ed4c9db3c6ee07b1fafe9cc29e10f619425b2adb
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -163,3 +163,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at a9d587976 (dev inputs, compose-hash label)
 
 **Governed change (a9d587976, ADR-2008 amendment):** `docker-compose.unified.yml`: the dev `visionclaw` service's six single-file bind mounts (`Cargo.toml`, `Cargo.lock`, `build.rs`, `client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`) are replaced by one read-only directory bind of the gitignored `.dev-inputs/` at `/app/.dev-inputs` (`create_host_path: false`), and both `visionclaw` and `visionclaw-production` gain the label `visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}`. No environment key, profile, port, network or build argument changes. The `RUVECTOR_PG_CONNINFO` and `MEMORY_CLOUD_*` variables are unchanged. **Still holds.**
+
+## Re-verification — 2026-10-07 at ed4c9db3c
+
+`wire.rs` gains only a test pinning `MemoryCloudQueryResponse` to the headset's shared fixture (`xr-client/rust/tests/fixtures/memory_query_response.json`); the wire types themselves are unchanged. Decision holds.
