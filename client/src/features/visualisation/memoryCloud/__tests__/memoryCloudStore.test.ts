@@ -1,0 +1,252 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createMemoryCloudStore, sidecarAgreement, type MemoryCloudDeps, type TrajectoryModule } from '../memoryCloudStore';
+import type { MemoryCloudSnapshot, MemoryCloudQueryResponse, MemoryCloudHit } from '../types';
+import type { QueryRun, SearchTree, LayoutResult, LearningState, VectorSet } from '../../memoryTrajectory/types';
+import { MemoryCloudApiError } from '../api';
+
+const DIM = 4;
+
+function snapshot(id: string, count = 3): MemoryCloudSnapshot {
+  return {
+    version: 1, snapshotId: id, generatedAt: 1, dim: DIM, count,
+    positions: Array.from({ length: count * 3 }, (_, i) => i),
+    metadata: Array.from({ length: count }, (_, i) => ({ id: `id${i}`, key: `k${i}`, namespace: 'ns', sourceType: 'memory', updatedAt: i })),
+    namespaces: ['ns'], sourceTypes: ['memory'], strata: [], excludedNamespaces: [],
+    vectorsUrl: `/api/memory-cloud/vectors?snapshot=${id}`,
+  };
+}
+
+const vectors = (count: number): VectorSet => ({ count, dim: DIM, data: new Float32Array(count * DIM) });
+
+function hit(sampleIndex: number | null, key = 'k'): MemoryCloudHit {
+  return { id: key, key, namespace: 'ns', sourceType: 'memory', score: 0.9, snippet: 's', sampleIndex };
+}
+
+function response(snapshotId = 's1', results: MemoryCloudHit[] = [hit(0), hit(2), hit(null)]): MemoryCloudQueryResponse {
+  return {
+    snapshotId, embedModel: 'bge',
+    query: { text: 'q', vector: [1, 0, 0, 0] },
+    sidecar: { results, tookMs: 3 },
+  };
+}
+
+const tree = { root: 0, nodes: new Map(), list: [], path: [0, 2], maxDepth: 1, leaves: 1, keptTotal: 2 } as unknown as SearchTree;
+const run = (recall = 0.5): QueryRun => ({
+  result: { top: [2, 1], beam: [2, 1], hops: [0], distanceEvals: 12, trace: [] },
+  tree, exactTop: [2, 0], recall, breadth: 32, hintsUsed: [],
+});
+const layoutFor = (view: string): LayoutResult => ({
+  positions: new Map([[0, [view.length, 0, 0]]]), controls: new Map(),
+});
+
+function learning(): LearningState {
+  return {
+    enabled: true, memory: [], capacity: 64, hintsPerQuery: 3, targetRecall: 0.9, learningRate: 0.2,
+    breadth: null, controller: 'ewma', ewma: null, hubCounts: new Map(),
+  };
+}
+
+function makeDeps() {
+  const engines: Array<{ dispose: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn>; learning: LearningState; storageKey?: string; resetLearning: ReturnType<typeof vi.fn>; emit: (p: number) => void }> = [];
+  const traj: TrajectoryModule = {
+    createTrajectoryEngine: vi.fn((_vs: VectorSet, opts?: { storageKey?: string }) => {
+      let cb: ((p: unknown) => void) | null = null;
+      const e = {
+        ready: Promise.resolve(),
+        onProgress: (f: (p: unknown) => void) => { cb = f; return () => { cb = null; }; },
+        query: vi.fn(async () => run()),
+        learning: learning(),
+        resetLearning: vi.fn(),
+        dispose: vi.fn(),
+        graph: () => null,
+        storageKey: opts?.storageKey,
+        emit: (p: number) => cb?.(p),
+      };
+      engines.push(e);
+      return e as never;
+    }),
+    layoutTree: vi.fn((_t: SearchTree, o: { view: string }) => layoutFor(o.view)),
+    interpolateLayouts: vi.fn((a: LayoutResult) => a),
+  } as unknown as TrajectoryModule;
+  const deps: MemoryCloudDeps = {
+    fetchSnapshot: vi.fn(async () => snapshot('s1')),
+    fetchVectors: vi.fn(async (s: MemoryCloudSnapshot) => ({ snapshot: s, vectors: vectors(s.count) })),
+    postQuery: vi.fn(async () => response()),
+    fetchHealth: vi.fn(async () => ({ snapshotId: 's1' } as never)),
+    loadTrajectory: vi.fn(async () => traj),
+  };
+  return { deps, traj, engines };
+}
+
+describe('memoryCloudStore', () => {
+  let env: ReturnType<typeof makeDeps>;
+  beforeEach(() => { env = makeDeps(); });
+
+  it('loads snapshot and vectors, then builds one engine keyed by snapshot', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    expect(store.getState().status).toBe('idle');
+    const p = store.getState().loadSnapshot();
+    expect(store.getState().status).toBe('loading');
+    await p;
+    const s = store.getState();
+    expect(s.status).toBe('ready');
+    expect(s.snapshot?.snapshotId).toBe('s1');
+    expect(s.vectors?.count).toBe(3);
+    expect(env.engines.length).toBe(1);
+    expect(env.engines[0].storageKey).toBe('vc-memory-learning:s1');
+  });
+
+  it('records build progress from the engine', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    env.engines[0].emit(0.4);
+    expect(store.getState().buildProgress).toBeCloseTo(0.4);
+    (env.engines[0] as unknown as { emit: (p: unknown) => void }).emit({ done: 3, total: 4 } as never);
+    expect(store.getState().buildProgress).toBeCloseTo(0.75);
+  });
+
+  it('reuses the engine for the same snapshot and disposes it on change', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    await store.getState().loadSnapshot();
+    expect(env.engines.length).toBe(1);
+    (env.deps.fetchSnapshot as ReturnType<typeof vi.fn>).mockResolvedValueOnce(snapshot('s2', 5));
+    await store.getState().loadSnapshot();
+    expect(env.engines[0].dispose).toHaveBeenCalledTimes(1);
+    expect(env.engines.length).toBe(2);
+    expect(env.engines[1].storageKey).toBe('vc-memory-learning:s2');
+  });
+
+  it('uses the snapshot returned with the vectors after a 409 refresh', async () => {
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => ({ snapshot: snapshot('s9', 2), vectors: vectors(2) }));
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().snapshot?.snapshotId).toBe('s9');
+    expect(env.engines[0].storageKey).toBe('vc-memory-learning:s9');
+  });
+
+  it('surfaces load errors', async () => {
+    (env.deps.fetchSnapshot as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new MemoryCloudApiError('http', 'HTTP 503: down', 503));
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().status).toBe('error');
+    expect(store.getState().error).toContain('503');
+  });
+
+  it('runs a query: sidecar, local route, layout, recall history, playback from zero', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    store.getState().seek(5);
+    await store.getState().runQuery('what did we decide', { k: 7, namespace: 'ns' });
+    const s = store.getState();
+    expect(env.deps.postQuery).toHaveBeenCalledWith({ text: 'what did we decide', k: 7, namespace: 'ns' }, expect.objectContaining({ expectDim: DIM }));
+    const [q, opts] = env.engines[0].query.mock.calls[0];
+    expect(q).toBeInstanceOf(Float32Array);
+    expect(opts).toMatchObject({ k: 7, learn: true });
+    expect(s.query.status).toBe('done');
+    expect(s.query.run?.recall).toBe(0.5);
+    expect(s.query.layout).toEqual(layoutFor('canopy'));
+    expect(s.recallHistory).toEqual([0.5]);
+    expect(s.playback.el).toBe(0);
+    expect(s.playback.playing).toBe(true);
+  });
+
+  it('reloads the snapshot when the sidecar answers for a newer one', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    (env.deps.postQuery as ReturnType<typeof vi.fn>).mockResolvedValueOnce(response('s2'));
+    (env.deps.fetchSnapshot as ReturnType<typeof vi.fn>).mockResolvedValueOnce(snapshot('s2'));
+    await store.getState().runQuery('x');
+    expect(store.getState().snapshot?.snapshotId).toBe('s2');
+    expect(env.engines.length).toBe(2);
+    expect(env.engines[1].query).toHaveBeenCalled();
+    expect(store.getState().query.status).toBe('done');
+  });
+
+  it('a newer query aborts the older one', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    const signals: AbortSignal[] = [];
+    (env.deps.postQuery as ReturnType<typeof vi.fn>).mockImplementation(async (_r: unknown, o: { signal: AbortSignal }) => {
+      signals.push(o.signal);
+      await new Promise((r) => setTimeout(r, 5));
+      if (o.signal.aborted) throw new MemoryCloudApiError('abort', 'aborted');
+      return response();
+    });
+    const a = store.getState().runQuery('first');
+    const b = store.getState().runQuery('second');
+    await Promise.all([a, b]);
+    expect(signals[0].aborted).toBe(true);
+    expect(store.getState().query.text).toBe('second');
+    expect(store.getState().query.status).toBe('done');
+  });
+
+  it('switching view keeps the previous layout for the morph', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    await store.getState().runQuery('x');
+    store.getState().setView('tree');
+    const s = store.getState();
+    expect(s.view).toBe('tree');
+    expect(s.query.layout).toEqual(layoutFor('tree'));
+    expect(s.query.prevLayout).toEqual(layoutFor('canopy'));
+    expect(s.query.morphSeq).toBe(1);
+  });
+
+  it('mirrors learning settings onto the engine and resets it', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    store.getState().setLearning({ enabled: false, targetRecall: 0.8, learningRate: 0.5 });
+    expect(env.engines[0].learning).toMatchObject({ enabled: false, targetRecall: 0.8, learningRate: 0.5 });
+    await store.getState().runQuery('x');
+    expect(env.engines[0].query.mock.calls[0][1]).toMatchObject({ learn: false });
+    store.getState().resetLearning();
+    expect(env.engines[0].resetLearning).toHaveBeenCalled();
+  });
+
+  it('playback: seek bumps the seek sequence, speed clamps, tick advances only while playing', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().seek(3);
+    expect(store.getState().playback).toMatchObject({ el: 3, seekSeq: 1 });
+    store.getState().setSpeed(100);
+    expect(store.getState().playback.speed).toBe(4);
+    store.getState().setSpeed(0);
+    expect(store.getState().playback.speed).toBe(0.25);
+    store.getState().reportPlayback(4.2, false);
+    expect(store.getState().playback).toMatchObject({ el: 4.2, playing: false, seekSeq: 1 });
+  });
+
+  it('counts flashes by match kind', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().recordFlash('key');
+    store.getState().recordFlash('none');
+    store.getState().recordFlash('none');
+    store.getState().recordFlash('namespace');
+    expect(store.getState().flashes).toEqual({ key: 1, namespace: 1, none: 2 });
+  });
+
+  it('caps recall history at 30', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    for (let i = 0; i < 35; i++) await store.getState().runQuery(`q${i}`);
+    expect(store.getState().recallHistory.length).toBe(30);
+  });
+
+  it('dispose releases the engine', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    store.getState().dispose();
+    expect(env.engines[0].dispose).toHaveBeenCalled();
+    expect(store.getState().engine).toBeNull();
+  });
+});
+
+describe('sidecarAgreement', () => {
+  it('compares the sidecar top-k with the local and exact top-k over the sample', () => {
+    const a = sidecarAgreement(response('s1', [hit(0), hit(2), hit(null), hit(1)]).sidecar.results, run());
+    expect(a).toEqual({ total: 4, inSample: 3, inLocal: 2, inExact: 2 });
+  });
+  it('handles a missing run', () => {
+    expect(sidecarAgreement([hit(0)], null)).toEqual({ total: 1, inSample: 1, inLocal: 0, inExact: 0 });
+  });
+});
