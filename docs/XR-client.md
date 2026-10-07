@@ -126,12 +126,17 @@ also parse the TS source tables and the beam shader uniforms.
   taper (`semanticEncoding.ts`). `INSTANCE_CUSTOM` holds r = action code, g/b = target/agent
   radius and a = status, so the stride stays 16. Blocked beams are pulled toward amber, slowed
   and dimmed.
-- **memory_flash bursts** (`memory_bursts.gd` under `AgentEffectsRoot`): one pooled ring
-  MultiMesh of ≤ 64 slots, recycling the oldest, in one draw call. Colour, scale, lifetime,
-  implode motion and ring count follow the verb, with a namespace hue jitter computed in
-  three.js linear space. A burst lands on the memory cloud's point when the
-  `xr_memory_cloud` layer resolves it, else on a hashed 0.45 m shell around the graph centre.
-  Reduced motion holds the ring size and only fades it.
+- **memory_flash bursts** (`memory_bursts.gd` under `AgentEffectsRoot`): colour, size,
+  lifetime, implode motion and ring count follow the verb, with the namespace hue jitter
+  computed in three.js linear space. The triangle budget decides how they are drawn:
+  - **Memory cloud shown and loaded.** The scene is at ~99.6k of 100k triangles (xr-cloud,
+    13k nodes), so a flash adds **no geometry**. `resolve_flash` names the cloud rows (desktop
+    rule; an unmatched flash draws nothing), and `set_row_emphasis` restyles those sprites
+    with the desktop tint, a brightness envelope (1–2.5×) and a size envelope (1–2×, held at
+    1 under reduced motion). At most 64 rows are live at once.
+  - **No cloud on screen.** One pooled ring MultiMesh of ≤ 64 slots draws the rings (≤ 4,096
+    triangles, one draw call), recycling the oldest slot, on a hashed 0.45 m shell around the
+    graph centre. Reduced motion holds the ring size and only fades it.
 - **Attention heat** (`attention.rs`, render store): every applied `0x23` action touches its
   target. The heat has a 20 s half-life, saturation 1.5 and 512 entries, and brightens the node
   colour in place without recolouring it. It never touches the edge buffer.

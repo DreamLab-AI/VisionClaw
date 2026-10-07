@@ -60,6 +60,7 @@ var _mic_player: AudioStreamPlayer = null
 var _mic_capture: AudioEffectCapture = null
 var _mic_on: bool = false
 var _tap_total: int = 0
+var _rows_pushed: bool = false
 
 
 ## Wire to the scene. `effects_root` must be a unit-scale node (never GraphRoot);
@@ -111,25 +112,42 @@ func on_memory_flash(json: String) -> void:
 		return
 	# With the memory cloud shown and loaded (xr-cloud, memory_cloud_layer.gd),
 	# a flash lands on its point(s) by the desktop's key → namespace rule and an
-	# unmatched flash draws nothing, exactly as on the desktop; burst size follows
-	# the cloud's scale. With no cloud on screen, a stable stand-in point on a
-	# shell around the graph keeps memory activity visible in the headset.
-	var cloud: Object = _scene.get("_memory_cloud") if _scene != null else null
+	# unmatched flash draws nothing, exactly as on the desktop. The triangle
+	# budget is full with the cloud on, so those points are restyled through the
+	# layer's set_row_emphasis (no new geometry); without that setter the flash
+	# is unmatched. With no cloud on screen, a ring on a stable stand-in point
+	# around the graph keeps memory activity visible in the headset.
+	var cloud: Object = _cloud()
 	var cloud_live: bool = cloud != null and cloud.has_method("resolve_flash") \
 		and bool(cloud.call("is_enabled")) and bool(cloud.call("has_snapshot"))
 	var centre: Vector3 = _centre_fn.call() if _centre_fn.is_valid() else Vector3(0, 1.2, -1.2)
-	if cloud_live:
-		var root: Node3D = cloud.call("cloud_root")
-		if root != null:
-			_bursts.unit_scale = absf(root.global_transform.basis.get_scale().x)
-	else:
-		_bursts.unit_scale = MemoryBursts.DEFAULT_UNIT_SCALE
 	for d: Dictionary in descs:
 		if cloud_live:
-			for row: int in cloud.call("resolve_flash", String(d["key"]), String(d["namespace"])):
-				_bursts.spawn(cloud.call("world_point", row), d)
+			if cloud.has_method("set_row_emphasis"):
+				_bursts.spawn_rows(cloud.call("resolve_flash", String(d["key"]), String(d["namespace"])), d)
 		else:
 			_bursts.spawn(MemoryBursts.ambient_position(String(d["key"]), String(d["namespace"]), centre), d)
+
+
+func _cloud() -> Object:
+	return _scene.get("_memory_cloud") if _scene != null else null
+
+
+# Push live row emphasis to the cloud each frame, and one empty call when the
+# last flash ends so the sprites return to normal.
+func _push_row_emphasis() -> void:
+	if _bursts == null:
+		return
+	var live: bool = _bursts.rows_live()
+	if not live and not _rows_pushed:
+		return
+	var cloud: Object = _cloud()
+	if cloud == null or not cloud.has_method("set_row_emphasis"):
+		_rows_pushed = false
+		return
+	var e: Dictionary = _bursts.row_emphasis()
+	cloud.call("set_row_emphasis", e["rows"], e["tints"], e["gains"], e["scales"])
+	_rows_pushed = live
 
 
 ## HUD intents: "beat_tap", "beat_mic:1|0", "memory_bursts:1|0".
@@ -238,6 +256,7 @@ func _process(delta: float) -> void:
 		var cam: Node3D = get_viewport().get_camera_3d() if is_inside_tree() else null
 		if cam != null:
 			_bursts.set_head(cam.global_position)
+		_push_row_emphasis()
 	_hud_t += delta
 	if _hud_t >= HUD_REFRESH_SEC:
 		_hud_t = 0.0

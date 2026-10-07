@@ -217,3 +217,53 @@ func test_mic_badge_shows_only_while_listening() -> void:
 	hud.queue_free()
 	await get_tree().process_frame
 
+
+
+func test_flash_with_the_cloud_shown_restyles_sprites_instead_of_drawing_rings() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	var fake_scene := FakeScene.new()
+	root.add_child(fake_scene)
+	var effects := Node3D.new()
+	root.add_child(effects)
+	var beat: Node = (load("res://scripts/beat_pulse.gd") as GDScript).new()
+	root.add_child(beat)
+	beat.setup(fake_scene, null, null, null, null, effects, func() -> Vector3: return Vector3.ZERO)
+	beat.on_text('{"type":"memory_flash","data":{"key":"k","action":"store"}}', "memory_flash")
+	var bursts: Node = effects.get_node("MemoryBursts")
+	assert_eq(bursts.slot_count(), 0, "no ring geometry while the cloud is shown (triangle budget)")
+	await get_tree().process_frame
+	var cloud: FakeCloud = fake_scene._memory_cloud
+	assert_gt(cloud.calls.size(), 0, "emphasis pushed to the cloud layer")
+	assert_eq(Array(cloud.calls[-1]["rows"]), [3, 8], "the rows resolve_flash named")
+	var tint: Color = cloud.calls[-1]["tints"][0]
+	assert_eq(tint.to_html(false), "39ff14", "desktop store colour")
+	await get_tree().create_timer(2.2).timeout
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_eq((cloud.calls[-1]["rows"] as PackedInt32Array).size(), 0, "a final empty call clears the emphasis")
+	var n: int = cloud.calls.size()
+	await get_tree().process_frame
+	assert_eq(cloud.calls.size(), n, "no calls while nothing is live")
+	# Cloud hidden: back to the ring pool.
+	cloud.enabled = false
+	beat.on_text('{"type":"memory_flash","data":{"key":"k","action":"store"}}', "memory_flash")
+	assert_eq(bursts.slot_count(), 2, "rings when no cloud is on screen")
+	root.queue_free()
+	await get_tree().process_frame
+
+
+class FakeCloud extends RefCounted:
+	var enabled := true
+	var calls: Array = []
+	func is_enabled() -> bool: return enabled
+	func has_snapshot() -> bool: return true
+	func resolve_flash(_key: String, _ns: String) -> PackedInt32Array: return PackedInt32Array([8, 3])
+	func world_point(row: int) -> Vector3: return Vector3(row, 0, 0)
+	func cloud_root() -> Node3D: return null
+	func set_row_emphasis(rows: PackedInt32Array, tints: PackedColorArray, gains: PackedFloat32Array, scales: PackedFloat32Array) -> void:
+		calls.append({"rows": rows, "tints": tints, "gains": gains, "scales": scales})
+
+
+class FakeScene extends Node3D:
+	var _memory_cloud = FakeCloud.new()

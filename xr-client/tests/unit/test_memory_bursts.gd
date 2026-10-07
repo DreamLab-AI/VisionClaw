@@ -102,3 +102,46 @@ func test_codec_decodes_single_and_batch_with_semantic_colour() -> void:
 	assert_eq(int(del[1]["rings"]), 3, "search ripples three rings")
 	assert_eq(MemoryFlashCodec.parse('{"type":"other"}').size(), 0)
 	assert_eq(MemoryFlashCodec.parse("junk").size(), 0)
+
+
+# Budget rule (xr-cloud measured 99.6k of 100k triangles with the cloud on):
+# while the memory cloud is shown, a flash restyles the cloud's own sprites
+# (row emphasis) and adds no geometry; rings are only for the no-cloud case.
+func test_row_emphasis_envelopes_follow_the_desktop_curves_and_add_no_geometry() -> void:
+	var b: Node3D = await _make()
+	b.reduced_motion = false
+	b.spawn_rows(PackedInt32Array([4, 9]), _desc(3))
+	b.spawn_rows(PackedInt32Array([9]), _desc(1, true))     # same row twice: one entry
+	assert_eq(b.slot_count(), 0, "row bursts are not ring slots")
+	await get_tree().process_frame
+	var mm: MultiMesh = (b.get_node("BurstMulti") as MultiMeshInstance3D).multimesh
+	assert_eq(mm.instance_count, 0, "no ring instances while emphasising rows")
+	var e: Dictionary = b.row_emphasis()
+	assert_eq(Array(e["rows"]), [4, 9], "one entry per row, ascending")
+	for k: String in ["tints", "gains", "scales"]:
+		assert_eq((e[k] as Array).size(), 2, "%s parallel to rows" % k)
+	for g: float in e["gains"]:
+		assert_true(g >= 1.0 and g <= Bursts.ROW_MAX_GAIN, "gain in [1, max]")
+	for s: float in e["scales"]:
+		assert_true(s >= 1.0 and s <= Bursts.ROW_MAX_SCALE, "scale in [1, max]")
+	await get_tree().create_timer(0.5 + 2.0 * Bursts.RING_STAGGER + 0.15).timeout
+	await get_tree().process_frame
+	assert_eq((b.row_emphasis()["rows"] as PackedInt32Array).size(), 0, "emphasis expires")
+	b.queue_free()
+	await get_tree().process_frame
+
+
+func test_row_emphasis_holds_size_under_reduced_motion_and_caps_rows() -> void:
+	var b: Node3D = await _make()
+	b.reduced_motion = true
+	var rows := PackedInt32Array()
+	for i: int in range(100):
+		rows.append(i)
+	b.spawn_rows(rows, _desc(2))
+	await get_tree().process_frame
+	var e: Dictionary = b.row_emphasis()
+	assert_eq((e["rows"] as PackedInt32Array).size(), Bursts.POOL_SIZE, "at most 64 rows at once")
+	for s: float in e["scales"]:
+		assert_eq(s, 1.0, "no sprite growth under reduced motion")
+	b.queue_free()
+	await get_tree().process_frame

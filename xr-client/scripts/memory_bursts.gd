@@ -10,6 +10,13 @@ extends Node3D
 ## staggered by RING_STAGGER like the desktop. The pool never exceeds POOL_SIZE
 ## (64, the desktop's BURST_POOL_SIZE): when full, the oldest slot is recycled.
 ##
+## Triangle budget: with the memory cloud on screen the scene sits at ~99.6k of
+## 100k triangles (xr-cloud, 13k nodes), so a flash that lands on a cloud point
+## adds NO geometry: `spawn_rows` records a per-row envelope and `row_emphasis()`
+## hands tint / gain / scale arrays to the cloud layer's `set_row_emphasis`,
+## which restyles the existing sprites. Rings are drawn only when no cloud is
+## shown (then the cloud's ~15k triangles are absent).
+##
 ## Flat additive annulus with vertex-colour alpha — emission only, no
 ## post-process (Invariant 2 / ADR-2107), one draw call. Reduced motion (the
 ## comfort default) disables ring expansion: the ring holds a fixed size and
@@ -23,9 +30,10 @@ const RING_SEGMENTS := 32
 const PEAK_ALPHA := 0.85            # desktop opacity = (1 - t²) · 0.85
 const REDUCED_SCALE := 0.6          # fraction of max_scale held under reduced motion
 const BEAT_ALPHA_GAIN := 0.35
-## Metres per desktop cloud unit. beat_pulse.gd sets it to the memory cloud
-## root's scale while the cloud is shown, so bursts keep the desktop's size
-## relative to the points; the default sizes the stand-in bursts.
+## Row emphasis bounds: brightness multiplier and sprite size multiplier at peak.
+const ROW_MAX_GAIN := 2.5
+const ROW_MAX_SCALE := 2.0
+## Metres per desktop cloud unit for the stand-in rings (no cloud on screen).
 const DEFAULT_UNIT_SCALE := 0.02
 var unit_scale: float = DEFAULT_UNIT_SCALE
 
@@ -36,6 +44,7 @@ var _mmi: MultiMeshInstance3D = null
 var _slots: Array = []   # [{pos, color, max, dur, implode, t, delay}] oldest first
 var _head: Vector3 = Vector3.ZERO
 var _spawned_total: int = 0
+var _rows: Dictionary = {}    # row -> {color, dur, implode, t}; insertion order = age
 
 
 func _ready() -> void:
@@ -106,6 +115,46 @@ func spawn(pos: Vector3, desc: Dictionary) -> void:
 	_spawned_total += 1
 
 
+## Emphasise cloud rows instead of drawing rings (cloud shown). A row flashed
+## again restarts; at most POOL_SIZE rows are live, the oldest dropped first.
+## The desktop's ring stagger is folded into one envelope per row.
+func spawn_rows(rows: PackedInt32Array, desc: Dictionary) -> void:
+	var rings: int = clampi(int(desc.get("rings", 1)), 1, 3)
+	var dur: float = maxf(float(desc.get("duration", 1.6)), 0.05) + float(rings - 1) * RING_STAGGER
+	for row: int in rows:
+		_rows.erase(row)
+		while _rows.size() >= POOL_SIZE:
+			_rows.erase(_rows.keys()[0])
+		_rows[row] = {"color": desc.get("color", Color(0.6, 0.84, 1.0)), "dur": dur,
+			"implode": bool(desc.get("implode", false)), "t": 0.0}
+	_spawned_total += 1
+
+
+## Parallel arrays for the cloud layer's set_row_emphasis: rows ascending, the
+## desktop burst tint, a brightness gain in [1, ROW_MAX_GAIN] following the
+## desktop fade, and a size multiplier in [1, ROW_MAX_SCALE] following the
+## desktop ease (held at 1 under reduced motion).
+func row_emphasis() -> Dictionary:
+	var rows := PackedInt32Array(_rows.keys())
+	rows.sort()
+	var tints := PackedColorArray()
+	var gains := PackedFloat32Array()
+	var scales := PackedFloat32Array()
+	var swell: float = 1.0 + BEAT_ALPHA_GAIN * clampf(beat_pulse, 0.0, 1.0)
+	for row: int in rows:
+		var r: Dictionary = _rows[row]
+		var u: float = clampf(float(r["t"]) / float(r["dur"]), 0.0, 1.0)
+		tints.append(r["color"])
+		gains.append(clampf(1.0 + (ROW_MAX_GAIN - 1.0) * burst_alpha(u) / PEAK_ALPHA * swell, 1.0, ROW_MAX_GAIN))
+		var grow: float = 0.0 if reduced_motion else burst_scale(u, 1.0, bool(r["implode"]))
+		scales.append(clampf(1.0 + (ROW_MAX_SCALE - 1.0) * grow, 1.0, ROW_MAX_SCALE))
+	return {"rows": rows, "tints": tints, "gains": gains, "scales": scales}
+
+
+func rows_live() -> bool:
+	return not _rows.is_empty()
+
+
 ## Live slots (≤ POOL_SIZE) — for tests and the HUD.
 func slot_count() -> int:
 	return _slots.size()
@@ -117,6 +166,7 @@ func spawned_total() -> int:
 
 func clear_all() -> void:
 	_slots.clear()
+	_rows.clear()
 
 
 ## Desktop scale curve (EmbeddingCloudLayer): cubic ease-out expand, cubic implode.
@@ -165,6 +215,12 @@ static func ambient_position(key: String, ns: String, centre: Vector3, radius: f
 
 
 func _process(delta: float) -> void:
+	if not _rows.is_empty():
+		for row: int in _rows.keys():
+			var r: Dictionary = _rows[row]
+			r["t"] = float(r["t"]) + delta
+			if float(r["t"]) >= float(r["dur"]):
+				_rows.erase(row)
 	if _slots.is_empty():
 		if _mmi != null and _mmi.multimesh.instance_count != 0:
 			_mmi.multimesh.instance_count = 0
