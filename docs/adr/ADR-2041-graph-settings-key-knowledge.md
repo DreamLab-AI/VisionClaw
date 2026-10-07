@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: c5723490b2d86655acaf4b4c88ccbb2b96b785b2
+verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -117,3 +117,7 @@ The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`
 ## Re-verification — 2026-10-07 (feat/xr-graph 4978356e5)
 
 The merge of `feat/xr-graph` 4978356e5 (c5723490b) touches `graph_scene.gd` only by moving the `_ribbons` declaration; no settings key, sync path or HUD setting changed. **Still holds.**
+
+## Re-verification — 2026-10-07 (integration merge)
+
+At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into the memory-cloud-explorer integration branch. `git diff c5723490b..HEAD -- xr-client/scripts/graph_scene.gd` (+40/-14) removes the 45 Hz `_mm_phase` alternation, so both packs now run every frame (`:1407-1408`). It also adds the FrameBudget pass, `_tick_frame_budget` (`:1976`), which caps the near gem and cylinder tiers (`:1945`, `:2014`) and the hull count (`:1997`). The diff contains no `logseq`, `graph_type` or `graphs.` line. The physics writes still target `?graph=knowledge` (`:1216`, `:1241`, `:1250`). Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). **Decision unaffected** (record remains superseded by ADR-2115).

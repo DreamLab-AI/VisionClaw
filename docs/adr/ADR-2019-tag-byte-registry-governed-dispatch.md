@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 015bd642f76e6fb4089713437427ef5470aebe3a
+verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -231,3 +231,7 @@ The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`
 ## Re-verification — 2026-10-07 (feat/xr-graph pack plans)
 
 The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed files without updating this ADR, so its changes were checked against the decision. No tag byte, dispatch arm or registry entry changed; the diff is pack instrumentation only. **Still holds.**
+
+## Re-verification — 2026-10-07 (integration merge)
+
+At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into the memory-cloud-explorer integration branch. The only governed change is `xr-client/rust/src/binary_protocol.rs` (+48/-10 since 015bd642f). That change is pack-timing instrumentation and the `graph_layer_triangles` FrameBudget accessor (`:1631`), recorded under ADR-2018. No tag byte, dispatch arm or registry entry changed. `DecodeError::BadVersion` is still raised for an unknown version (`:477`), and the freshness path still refuses it (`:763`). The server codec, the settings codec and both presence codecs are untouched. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). **Decision unaffected.**

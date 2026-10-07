@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
+verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -85,3 +85,19 @@ Those branches did not move this record's `verified_commit`, so the combined sta
 The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
 
 The halo is now an unshaded, additive camera-facing quad and the far edges are ribbons, with no screen-space effect, texture or renderer dependency. Under reduced motion `spatial_environment.gd` zeroes `query_pulse_depth` on the halo material and `pulse_energy` on the cylinders. `NodeLod.sync_edge_params` copies the cylinder parameters to the ribbons every frame, so the ribbons stop pulsing too. The beat swell lives in `edge_flow_common.gdshaderinc` and `node_halo_quad.gdshader` and is held at 0 under reduced motion. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (integration merge)
+
+At 8f375c132, which merges `feat/xr-graph` (f1ef384dc, carrying f65c69e24 and f08192d1c) into the memory-cloud-explorer integration branch. Governed changes since 944cba88c are in `hud.gd` (+30/-9) and `xr_theme.gd` (+10). They are draw-call work on the HUD.
+
+- `hud.gd` attaches `hud_batching.gd` and `hud_render_on_demand.gd` to the HUD viewport (`:268-269`). It drops the page-host clip (`:412`) and throttles the FPS readout to 2 s (`:57`). It also gives the cheat-sheet headings the palette cyan.
+- `xr_theme.gd` sets a bundled font, `fonts/HudSans-SemiBold.ttf` (`:15`, `:31`; Open Sans plus symbol glyphs, licences in `fonts/LICENSE-HudSans.txt`). RichText bold now uses the same face (`:58`).
+
+**Decision holds.**
+- The palette and the opaque boxes survive. `hud_batching.gd` draws each control's current-state box, including hover and focus (`:125-129`), as nine-patches from one runtime-generated atlas rather than as `StyleBoxFlat` polygons.
+- A font is not a texture or a renderer dependency, and there is still no screen-space effect or shadow map.
+- Status text stays text. Headings keep their capitalised labels, and colour adds emphasis without replacing them.
+- MSAA is still off under XR (`spatial_environment.gd:117`).
+- Removing the clip moves the guard against page overflow onto the GUT fit tests (`test_no_page_overflows_its_host`).
+
+**Drift noted, not edited.** The Decision says "seven-tab HUD", but `TAB_ORDER` has had eight tabs since the Key tab was added before 944cba88c (`hud.gd:183`: graph … key, session, help). The palette covers all eight, so the commitment stands. The tab count in the accepted text is out of date. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). The acceptance boundary is unchanged.
