@@ -93,21 +93,29 @@ godot --path xr-client --rendering-driver opengl3 --script perf/run_benchmark.gd
 ```
 
 Headless runs use the dummy renderer, so draw calls and triangles read 0; count them with a
-display. `rust/src/frame_budget.rs` allocates the frame between the graph tiers, the cloud
-and the route, and the scene applies its caps. Measured on HP-Desktop (GL window, Godot 4.6.1,
-2026-10-07, synthetic graph with 20 000 edges and 32 hulls); the allocator's estimate equals the
-renderer's count in every row:
+display. `rust/src/frame_budget.rs` allocates the frame (95 000 triangles / 48 calls after a
+5 % reserve) between the graph tiers, the cloud, the route and the burst ring pool, and the
+scene applies its caps. The scene also carries the HUD, two controller aim rays and two
+avatars (measured in a calibration phase as `other_tris`) and live memory_flash load. "Scene"
+counts are the root viewport (the eye buffer); "total" adds offscreen SubViewport renders
+(the HUD canvas, about 1 frame a second). Measured on HP-Desktop (GL window, Godot 4.6.1,
+2026-10-07, synthetic graph with 20 000 edges and 32 hulls); the scene count equals the
+allocator's estimate in every row:
 
-| Nodes | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Result |
+| Nodes | Cloud rows | Route nodes / sidecar | Flash load | Scene calls / triangles | Total calls / triangles (HUD frames) | p99 |
 |---|---|---|---|---|---|---|
-| 1 000 | 0 | — | 6 | 69 016 | 3.70 ms | pass |
-| 1 000 | 6 000 | 13 / 5 | 10 | 82 260 | 3.70 ms | pass |
-| 1 000 | 20 000 | 13 / 5 | 10 | 84 260 | 4.44 ms | pass |
-| 1 000 | 20 000 | 64 / 64 | 10 | 81 060 | 3.55 ms | pass |
-| 13 164 | 0 | — | 6 | 95 186 | 5.56 ms | pass |
-| 13 164 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | pass |
-| 13 164 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | pass |
-| 13 164 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | pass |
+| 1 000 | 0 | — | 64 rings | 20 / 73 834 | 78 / 82 078 | 4.04 ms |
+| 1 000 | 6 000 | 13 / 5 | 64 rows | 23 / 82 982 | 81 / 91 226 | 4.04 ms |
+| 1 000 | 20 000 | 13 / 5 | 64 rows | 23 / 84 982 | 81 / 93 226 | 6.38 ms |
+| 1 000 | 20 000 | 64 / 64 | 64 rows | 23 / 81 782 | 81 / 90 026 | 4.17 ms |
+| 13 164 | 0 | — | 64 rings | 20 / 95 000 | 78 / 103 244 | 6.94 ms |
+| 13 164 | 6 000 | 13 / 5 | 64 rows | 23 / 94 992 | 81 / 103 236 | 6.67 ms |
+| 13 164 | 20 000 | 13 / 5 | 64 rows | 23 / 94 976 | 81 / 103 220 | 6.06 ms |
+| 13 164 | 20 000 | 64 / 64 | 64 rows | 22 / 94 992 | 80 / 103 236 | 6.06 ms |
+
+`extras=0` drops the HUD/controllers/avatars, `bursts=0` the flash load;
+`XR_BENCH_EXTRAS=hud,controllers,avatars` picks a subset; `XR_BENCH_HUD_ACTIVE=1` re-renders
+the HUD every frame (wand on the panel).
 
 ```
 XR_BENCH_NODES=13164 godot --path xr-client --rendering-method gl_compatibility --xr-mode off \

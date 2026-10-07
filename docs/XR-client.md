@@ -291,36 +291,54 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   reduced motion the route is shown converged, with no comet, pulse ring or
   rotation. Glow is emissive/additive geometry only (Invariant 2).
 - **Budget: one allocator for every layer.** `rust/src/frame_budget.rs`
-  (`FrameBudget.allocate`) divides the 100 000-triangle / 50-call frame between
-  the graph's LOD tiers, the cloud and the route, in two passes. Minimums, in
-  priority order: triangles outside the budgeted layers (`other_tris`: HUD,
-  avatars, controllers, measured by the scene), the graph's far tiers (an
-  impostor quad per node, a ribbon quad per edge, labelled nodes on the full
-  mesh), the route at one sample per hop, 2 000 cloud sprites, 16 gem nodes.
-  Then growth to demand in the same order: route curve detail (up to 121
-  centreline samples), cloud (up to 8 000 one-triangle sprites), hulls, gem
-  nodes (to 80), cylinder edges (to 96). Costs are imported from `lod.rs`,
-  `hulls.rs` and `memory_*.rs`, never copied. If the minimums alone overrun,
-  the minimums are returned with `over_budget` set. Route and sidecar rows are
-  always drawn, even past the cloud cap (at most 128, under the 2 000 floor).
-  Beads, halos and the comet are one-triangle camera-facing discs
-  (`memory_bead.gdshader`); an unshaded additive sphere draws as the same disc.
-  Rust tests recount every allocation independently and sweep a growing graph
-  to check the layers give way in priority order. The benchmark runs the
-  allocator once and applies its caps to all layers. Measured on HP (GL window,
-  Godot 4.6.1, 2026-10-07; the allocator's estimate equals the renderer's
-  count in every row):
+  (`FrameBudget.allocate`) divides the frame between the graph's LOD tiers, the
+  cloud, the route and the memory_flash ring pool. It hands out 95 000
+  triangles and 48 draw calls: 5 % of each budget is held back for
+  frame-to-frame variance. Minimums, in priority order: `other_tris` (HUD,
+  controllers, avatars, measured by the scene on the root viewport), the
+  graph's far tiers (an impostor quad per node, a ribbon quad per edge,
+  labelled nodes on the full mesh), the route at one sample per hop, 2 000
+  cloud sprites, 16 gem nodes. Growth to demand in the same order: route curve
+  detail (up to 121 centreline samples), cloud (up to 8 000 one-triangle
+  sprites), the ring pool (64 × 64 triangles, one call, only while no cloud is
+  shown), hulls, gem nodes (to 80), cylinder edges (to 96). Costs are imported
+  from `lod.rs`, `hulls.rs` and `memory_*.rs`, never copied; if the minimums
+  alone overrun, they are returned with `over_budget` set. Route and sidecar
+  rows always draw, even past the cloud cap (at most 128, under the 2 000
+  floor).
+- **Flashes on the cloud.** With the cloud shown, xr-pulse's bursts call
+  `set_row_emphasis(rows, tints, gains, scales)` each frame (replace-all, gain
+  1–2.5, scale 1–2, at most 64 rows, empty arrays clear). The layer writes the
+  existing sprite buffer: per-instance custom floats carry (tint, gain), which
+  `memory_point.gdshader` blends and brightens, and the basis carries the
+  scale. No geometry is added; the cloud MultiMesh stride is 20 (12 transform
+  + 4 colour + 4 custom).
+- **Measured worst case** (HP, GL window, Godot 4.6.1, 2026-10-07; HUD, two
+  controller aim rays and two avatars in the scene, 64 live flash rows, or the
+  full ring pool with the cloud hidden). "Scene" is the root viewport, the eye
+  buffer FrameBudget governs; its count equals the allocator's estimate in
+  every row:
 
-  | Nodes | Edges | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Gems / cylinders / hulls |
-  |---|---|---|---|---|---|---|---|
-  | 13 164 | 20 000 | — | — | 6 | 95 186 | 5.56 ms | 80 / 96 / 32 |
-  | 13 164 | 20 000 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | 60 / 7 / 32 |
-  | 13 164 | 20 000 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | 53 / 7 / 32 |
-  | 13 164 | 20 000 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | 64 / 8 / 32 |
+  | Nodes / edges / hulls | Cloud | Route nodes / sidecar | Scene calls | Scene triangles | p99 | Gems / cylinders / hulls |
+  |---|---|---|---|---|---|---|
+  | 13 164 / 20 000 / 32 | — (ring pool) | — | 20 | 95 000 | 6.94 ms | 72 / 6 / 32 |
+  | 13 164 / 20 000 / 32 | 6 000 | 13 / 5 | 23 | 94 992 | 6.67 ms | 40 / 8 / 32 |
+  | 13 164 / 20 000 / 32 | 20 000 | 13 / 5 | 23 | 94 976 | 6.06 ms | 33 / 8 / 32 |
+  | 13 164 / 20 000 / 32 | 20 000 | 64 / 64 | 22 | 94 992 | 6.06 ms | 45 / 0 / 32 |
 
-  The benchmark scene has no HUD, avatars or controllers, so the headset fills
-  the same budget only once GraphScene passes their measured triangles as
-  `other_tris`.
+  The HUD, two controllers and two avatars measure 722 triangles and 13 calls.
+  Two existing defects were fixed to get there. The HUD SubViewport rendered
+  every frame (59 calls, about 8 200 triangles) and now renders only when one
+  of its controls redraws (`scripts/hud_render_on_demand.gd`). Avatar heads
+  were default 64 × 32 spheres (4 224 triangles each) and are now 16 × 8.
+- **Open: the HUD canvas render.** When the HUD does re-render, its offscreen
+  2D pass costs 58 calls and about 8 200 triangles in that frame. Its "FPS n"
+  header changes about once a second, so roughly 9 frames in 10 s carry it,
+  and the renderer's global totals reach 103 236 triangles / 80 calls on those
+  frames. Frame time holds: p99 is 6.06 ms even with the HUD forced to render
+  every frame (`XR_BENCH_HUD_ACTIVE=1`). Whether the 50-call / 100k budget
+  covers offscreen 2D renders, and whether the FPS header should update less
+  often, is a product decision recorded here rather than taken silently.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the
