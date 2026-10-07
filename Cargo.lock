@@ -7504,6 +7504,7 @@ dependencies = [
  "specta",
  "specta-typescript",
  "static_assertions",
+ "subtle",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.16",

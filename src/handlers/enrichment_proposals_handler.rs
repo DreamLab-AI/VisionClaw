@@ -129,38 +129,6 @@ struct DecisionBroadcast<'a> {
 // agentbox broker-bridge authenticates against the same `VISIONCLAW_AGENT_KEY`
 // the image-gen agent-submit route uses. Both now fail closed (ADR-2093).
 
-/// Constant-time byte comparison, so a timing side channel cannot recover the
-/// credential one byte at a time (ADR-2093). Dependency-free fold — `subtle`
-/// and `constant_time_eq` are only transitive deps here.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-/// Pure credential check, split out so the fail-closed semantics are unit
-/// testable without constructing an `HttpRequest`.
-///
-/// ADR-2093: authorised **only** when a non-empty `VISIONCLAW_AGENT_KEY` is
-/// configured and the request presents an exactly matching `X-Agent-Key`. The
-/// previous implementation substituted a hardcoded `"changeme-agent-key"` when
-/// the variable was unset, so an unconfigured deployment accepted a
-/// publicly-known literal on the governed decision route.
-fn check_agent_key(expected: Option<&str>, provided: Option<&str>) -> bool {
-    match expected.filter(|s| !s.is_empty()) {
-        Some(key) => match provided {
-            Some(got) => constant_time_eq(key.as_bytes(), got.as_bytes()),
-            None => false,
-        },
-        None => false,
-    }
-}
-
 /// Returns `Ok(())` when the request bears the valid service credential, else
 /// an `Unauthorized` response the caller can short-circuit on.
 fn require_agent_key(req: &HttpRequest) -> Result<(), HttpResponse> {
@@ -168,7 +136,7 @@ fn require_agent_key(req: &HttpRequest) -> Result<(), HttpResponse> {
         .headers()
         .get("x-agent-key")
         .and_then(|v| v.to_str().ok());
-    if !check_agent_key(
+    if !crate::utils::agent_key::check_agent_key(
         std::env::var("VISIONCLAW_AGENT_KEY").ok().as_deref(),
         provided,
     ) {
@@ -1110,7 +1078,31 @@ mod tests {
 
 #[cfg(test)]
 mod agent_key_tests {
-    use super::check_agent_key;
+    use crate::utils::agent_key::check_agent_key;
+
+    /// Comparison contract this call site relies on: equal keys authorise; a
+    /// same-length key differing in any byte (first, middle or last) does not;
+    /// a key of any other length does not, including a strict prefix or
+    /// extension of the configured key and the empty string.
+    #[test]
+    fn comparison_equal_unequal_and_length_mismatch() {
+        let key = "k3y-0123456789";
+        assert!(check_agent_key(Some(key), Some(key)));
+        for wrong in ["X3y-0123456789", "k3y-01234X6789", "k3y-012345678X"] {
+            assert_eq!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+        for wrong in [
+            "",
+            "k",
+            "k3y-012345678",
+            "k3y-01234567890",
+            "k3y-0123456789k3y",
+        ] {
+            assert_ne!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+    }
 
     #[test]
     fn unset_or_empty_key_fails_closed() {
