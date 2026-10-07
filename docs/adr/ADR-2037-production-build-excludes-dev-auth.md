@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -168,3 +168,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/main.rs`: removes the unread `PreReadSocketSettings` construction and its `app_data` registration, and drops dead constructor arguments to `OntologyQueryService` / `OntologyMutationService` (plus earlier lint-only edits since the recorded commit).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`src/main.rs` gains one line, the `on_connect` hook (`:1234`). It is compiled into every build with no `cfg` and contains no auth logic. The dev-auth fences are unchanged: the release `enforce_release_env_hygiene` sits under `#[cfg(not(any(debug_assertions, feature = "dev-auth")))]` (`:117`), the no-op stub under `#[cfg(any(debug_assertions, feature = "dev-auth"))]` (`:167`), and the dev-session-token fence is at `:293` and `:958`. `Dockerfile.production` and `.github/workflows/ci.yml` did not change. No dev bypass reaches release builds. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

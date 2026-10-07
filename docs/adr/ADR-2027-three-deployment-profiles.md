@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -338,3 +338,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at a9d587976 (dev inputs, compose-hash label)
 
 **Governed change (a9d587976, ADR-2008 amendment):** `docker-compose.unified.yml`: the dev `visionclaw` service's six single-file bind mounts (`Cargo.toml`, `Cargo.lock`, `build.rs`, `client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`) are replaced by one read-only directory bind of the gitignored `.dev-inputs/` at `/app/.dev-inputs` (`create_host_path: false`), and both `visionclaw` and `visionclaw-production` gain the label `visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}`. No environment key, profile, port, network or build argument changes. Prod behaviour change: `launch.sh up prod` now recreates a running prod container whose label differs from its resolved config, where it used to leave a compose change unapplied. The RBAC and visibility flags this record ratifies are untouched. **Still holds.**
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`src/main.rs` changes by one line only: the `on_connect` fd-capture hook (`:1234`). It sets no profile and reads no flag. In `position_updates.rs` two unused imports were removed (anchors shift by −2: env const `:24`, `parse_visibility_flag` `:32`, still default-ON). `handle_subscribe_position_updates` (`:596`) now sends one snapshot instead of running a self-re-subscribing loop, and the confirmation reports `"mode": "push"` (`:660`). That snapshot still applies the ADR-060 drop set before encoding (`:705-706`), and an anonymous session still fails closed to public-only. No profile flag, default or gate changed. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

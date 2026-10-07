@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: aa01c5536efd6d65c72dcc644e21472bfd2e223c
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -267,3 +267,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 (aa01c5536)
 
 This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cloud-parity`, and the lint follow-up aa01c5536. Each branch re-verified this record against its own changes (sections above). The merge itself kept both sides; the only code it combined was test code in `client_coordinator_actor.rs`. aa01c5536 is mechanical: rustfmt, an `async-trait` patch bump, `as_chunks`, and test checks made `const`. No wire format, tag byte, settings key, pose owner, crate boundary or relay rule changed. Decision holds. Verified with `cargo test --workspace --tests` (3,244 passed), xr-client `cargo test --workspace` (516 passed) and clippy `-D warnings` clean in both.
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+The merge adds `src/actors/gpu/physics_restore.rs` (boot and supervisor-restart physics push), `socket_flow_handler/heartbeat.rs` and `transport.rs`, and the new message types `SetPhysicsSettingsSource`, `CloseClientSession` and `TransportCloser`. It also adds stall eviction to `client_coordinator_actor.rs` (`record_congestion` `:315`, `evict_stalled` `:329`) and wires `broadcastFps` through `force_compute_actor.rs` and `optimized_settings_actor.rs`. All of this is actor-layer or handler code in the root crate, which already held these modules. The only root-binary change is one `on_connect` registration (`src/main.rs:1234`). No new workspace member was added and nothing moved across a crate boundary. The coordinator still sees the socket actor only through type-erased `ClientRecipients` (ADR-090 A6-S4), now built by `ClientRecipients::new(..)` with a fourth recipient for `CloseClientSession`. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

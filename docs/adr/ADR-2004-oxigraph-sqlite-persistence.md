@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -221,3 +221,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `Cargo.toml`: adds `subtle = "2.6.1"` as a direct dependency for the constant-time `X-Agent-Key` comparison (`utils::agent_key`).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`src/app_state.rs` changes only how the saved physics settings reach the GPU: boot sends `SetPhysicsSettingsSource` carrying the existing SQLite settings repository (`:1022`) and pushes them through `physics_restore::push_physics` (`:1078`); `get_gpu_compute_addr` refreshes a cached `ForceComputeActor` address that a supervisor restart left stale. Oxigraph is still opened once at `data/oxigraph` (`:425-427`), and the graph repository is still derived `from_store` off the same handle (`:431-432`). No store was added and no SQLite file was split or merged. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -151,3 +151,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 (b63d35f8a)
 
 Merging fix/xr-held-above-route touches this record's paths only with a benchmark-only `#[func] pin_thread_to_l3` (no wire, tag, record-size or decode change) and aim-ray/priority wiring in `graph_scene.gd` (no settings key, physics write or pose-owner change). Decision holds.
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`data/settings.yaml` drops 15 dead `system.websocket` keys and keeps only `heartbeatInterval`/`heartbeatTimeout` (`:342-344`), which now drive the server heartbeat. `client/src/features/settings/config/settings.ts` deletes `WebSocketSettings` and `SystemSettings.websocket` and adds `PhysicsSettings.broadcastFps` (`:63`). The graph key is still `graphs.knowledge` (`settings.yaml:67`, `settings.ts:417`, `visualisation.rs:517`). No `logseq` key returned: the alias stays retired per ADR-2115, which supersedes this record's transitional half. The `knowledge` naming decision holds. Note: the gitignored `client/src/types/generated/settings.ts` in this checkout is a stale build artefact (it still lists the removed websocket fields); `npm run build` regenerates it. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

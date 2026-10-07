@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -196,3 +196,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/main.rs`: removes the unread `PreReadSocketSettings` construction and its `app_data` registration, and drops dead constructor arguments to `OntologyQueryService` / `OntologyMutationService` (plus earlier lint-only edits since the recorded commit).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`src/main.rs` gains one line, `.on_connect(socket_flow_handler::transport::capture_transport)` (`:1234`), just before `.bind()` (`:1235`). It keeps a dup of each plain-TCP connection's fd so the coordinator can `shutdown(2)` a `/wss` client that never reads. It reads no env var or flag and grants nothing. The new heartbeat and stall-timeout paths only *close* connections, and the heartbeat config is read after NIP-98 auth has resolved `signed_user` (`http_handler.rs:159-182` before `:391`). `enforce_release_env_hygiene` is unchanged (real `:117-118`, stub `:167-169`, call `:209`), and so are the `RBAC_*` defaults and the owner-less refusal. Fail-closed posture unchanged. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.

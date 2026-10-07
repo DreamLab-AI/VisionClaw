@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -179,3 +179,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/handlers/socket_flow_handler/types.rs`: deletes `PreReadSocketSettings` and eight never-read rate/motion fields; `dev_bypass_ok` is now compiled only in dev/`dev-auth` builds, matching its only reader.
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
+
+`socket_flow_handler/actor_messages.rs` gains `Handler<CloseClientSession>` (`:101`), the coordinator's stall-eviction close. `mod.rs` registers `heartbeat` and `transport` and records inbound liveness (`:35`). `types.rs` adds the `heartbeat` and `transport` fields and replaces the fixed 5 s ping (which counted its own ping as liveness) with a configured `Heartbeat` that closes after `heartbeatTimeout` of inbound silence. All of this is new live code, not resurrected dead code. Every `REMOVED (ADR-2054)` marker is still in place (`mod.rs:17`, `actor_messages.rs:262`, `types.rs:184`, `:482`). The per-socket `run_later` re-subscribe loop removed from `position_updates.rs` is deleted outright, not stubbed, as this record requires. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
