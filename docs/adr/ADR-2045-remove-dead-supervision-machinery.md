@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
+verified_commit: 089f196d67dd3c7351e4a36e6ac1a7827611d4ad
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -190,3 +190,7 @@ discharged — so this record moves from `partial` to `complete` and gains
 ## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
 
 `c0906ed6e` adds one forwarding handler to `graph_service_supervisor.rs` (`UpdateChainPayments` to `GraphStateActor`, the same shape as `UpdateBotsGraph`). It does not touch `parent_supervisor`, `SetParentSupervisor` or the `Escalate` branch, so the coupling this record leaves for follow-up is unchanged. The decision holds unchanged.
+
+## Re-verification — 2026-10-07 (089f196d6)
+
+`tests/orchestration_improvements_test.rs` was only updated for renamed broadcast-result fields (`congested_clients`, `closed_clients`). No supervision machinery returned. The decision holds.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 089f196d67dd3c7351e4a36e6ac1a7827611d4ad
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -232,3 +232,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
 
 **Governed change:** `crates/visionclaw-actors/src/messages/client_messages.rs` adds `RelayToUserSessions` (actix and std only, alongside `SendToClientText`). The root re-exports it (`src/actors/messages/{client_messages,mod}.rs`), and `src/actors/client_coordinator_actor.rs` adds `ClientManager::relay_text_to_pubkey`, its handler and a probe-actor test. **Decision unaffected, and the change follows it.** The new message is domain-safe, so it lives in the domain crate. The coordinator still reaches sessions only through `ClientRecipients`, so no `handlers::*` import enters the actor layer. `implementation: partial` stands. Verified by source reading plus `cargo check --lib --tests` and `cargo test --lib -- session_relay relay_reaches_only client_coordinator` (11 pass).
+
+## Re-verification — 2026-10-07 (089f196d6)
+
+`client_coordinator_actor.rs` changed in how broadcasts handle a full client mailbox: the frame is skipped for that client and it stays registered, and only a closed mailbox is evicted (`settle_broadcast_result`). The crate boundaries this record governs are unchanged. The decision holds.
