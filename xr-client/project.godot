@@ -1,6 +1,10 @@
 ; Engine configuration file.
 ; PRD-008: VisionClaw Quest 3 native APK.
-; Generated for Godot 4.3 stable. Edit only via the editor or alongside an ADR.
+; Generated for Godot 4.3 stable. The verified runtime is Godot 4.6.1-stable with
+; the Compatibility renderer (docs/XR-client.md). config/features below is editor
+; metadata still pinned at 4.3; re-pin it in the 4.6.1 editor together with the
+; Quest renderer decision (audit WP0, Invariant 1), not by hand.
+; Edit only via the editor or alongside an ADR.
 
 config_version=5
 
@@ -12,6 +16,10 @@ run/main_scene="res://scenes/XRBoot.tscn"
 config/features=PackedStringArray("4.3", "Forward Mobile")
 config/icon="res://icon.svg"
 boot_splash/show_image=false
+
+[audio]
+
+driver/enable_input=true
 
 [autoload]
 

@@ -117,19 +117,31 @@ func _process(delta: float) -> void:
 
 	if head != null:
 		head.transform.origin = head.transform.origin.lerp(_target_head_pos, weight)
-		head.transform.basis = head.transform.basis.slerp(_target_head_basis, weight)
+		head.transform.basis = _slerp_rotation(head.transform.basis, _target_head_basis, weight)
 
 	if left_hand != null:
 		left_hand.visible = _has_left and _lod_level < 2
 		if _has_left:
 			left_hand.transform.origin = left_hand.transform.origin.lerp(_target_left_pos, weight)
-			left_hand.transform.basis = left_hand.transform.basis.slerp(_target_left_basis, weight)
+			left_hand.transform.basis = _slerp_rotation(left_hand.transform.basis, _target_left_basis, weight)
 
 	if right_hand != null:
 		right_hand.visible = _has_right and _lod_level < 2
 		if _has_right:
 			right_hand.transform.origin = right_hand.transform.origin.lerp(_target_right_pos, weight)
-			right_hand.transform.basis = right_hand.transform.basis.slerp(_target_right_basis, weight)
+			right_hand.transform.basis = _slerp_rotation(right_hand.transform.basis, _target_right_basis, weight)
+
+
+# Rotation ease via quaternions. Basis.slerp casts both operands to Quaternion
+# and requires them orthonormal; easing a Basis toward a target every frame lets
+# float error accumulate until the cast fails, Godot logs an error per frame and
+# the step is lost — at high frame rates (small delta, many frames) the head
+# never reached its target (86° short after 3 000 frames, 2026-10-07). Slerping
+# the rotation quaternions and rebuilding the basis keeps it orthonormal; any
+# node scale is carried over unchanged.
+static func _slerp_rotation(from: Basis, to: Basis, weight: float) -> Basis:
+	var q: Quaternion = from.get_rotation_quaternion().slerp(to.get_rotation_quaternion(), weight)
+	return Basis(q).scaled(from.get_scale())
 
 
 func set_lod_level(level: int) -> void:

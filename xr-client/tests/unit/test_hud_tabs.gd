@@ -165,7 +165,7 @@ func test_key_tab_lists_swatch_rows() -> void:
 		labels.append(String(r.get_meta("key")))
 		assert_true(r.has_meta("hint"), "key row '%s' carries a hover hint" % r.get_meta("key"))
 		assert_gte(_swatch_count(r), 1, "key row '%s' has a swatch" % r.get_meta("key"))
-	for expected in ["Community hue", "Query mark ?v1…?v8", "Working (beam to target)", "Subclass-of", "Ray firing"]:
+	for expected in ["Community hue", "Query mark ?v1…?v8", "Working", "Create (widens in)", "Delete (implodes)", "Subclass-of", "Ray firing"]:
 		assert_has(labels, expected, "key lists '%s'" % expected)
 	var blocked: Node = _key_row(rows, "Blocked / error")
 	assert_not_null(blocked, "blocked row present")
@@ -222,5 +222,25 @@ func test_flash_notice_overrides_hint_then_expires() -> void:
 	assert_false(hud._notice_active(), "notice expires")
 	await get_tree().process_frame
 	assert_true(bar.text.begins_with("ⓘ "), "hint bar returns to hover hints")
+	hud.queue_free()
+	await get_tree().process_frame
+
+
+func test_memory_cloud_buttons_fire_on_press_and_fit_the_graph_page() -> void:
+	var hud: Node3D = await _make_hud()
+	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
+	var b: Button = hud._memory_cloud_button
+	assert_not_null(b, "Memory button built")
+	assert_true(graph.is_ancestor_of(b), "on the Graph page")
+	assert_eq(b.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "press-fire (Invariant 4)")
+	assert_eq(hud._memory_colour_button.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS)
+	watch_signals(hud)
+	b.pressed.emit()
+	assert_signal_emitted_with_parameters(hud, "control_pressed", ["memory_cloud_toggle"])
+	hud.set_memory_cloud_state(true, "Memory: 6000", "Age")
+	assert_eq(b.text, "Memory: 6000")
+	assert_eq(hud._memory_colour_button.text, "Cloud: Age")
+	var host: Control = hud.get_node(TABS)
+	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Graph page fits its host")
 	hud.queue_free()
 	await get_tree().process_frame

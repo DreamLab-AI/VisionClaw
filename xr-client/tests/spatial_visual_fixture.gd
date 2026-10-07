@@ -26,6 +26,13 @@ func _ready() -> void:
         nodes.set_instance_transform(i, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * size), point))
         nodes.set_instance_color(i, palette[cluster])
         nodes.set_instance_custom_data(i, Color(float(i % 12) / 11.0, 8.0 if i == 0 else 0.0, 1.0 if i == 12 else 0.0, 1.0))
+    # Halo quads mirror the node instances, as GraphScene feeds NodesHaloMulti.
+    var halos: MultiMesh = $GraphRoot/NodesHaloMulti.multimesh
+    halos.instance_count = nodes.instance_count
+    for i: int in range(nodes.instance_count):
+        halos.set_instance_transform(i, nodes.get_instance_transform(i))
+        halos.set_instance_color(i, nodes.get_instance_color(i))
+        halos.set_instance_custom_data(i, nodes.get_instance_custom_data(i))
     var edges: MultiMesh = $GraphRoot/EdgesMulti.multimesh
     edges.instance_count = 60
     for i: int in range(60):
@@ -49,12 +56,12 @@ func _ready() -> void:
     var environment: Node3D = $SpatialEnvironment
     environment.call("set_visual_comfort", false, true)
     assert(not environment.get_node("SpatialFloor").visible, "low-cost removes ground grid")
-    assert($GraphRoot/NodesMulti.material_override.next_pass == null, "low-cost removes node halo pass")
+    assert(not $GraphRoot/NodesHaloMulti.visible, "low-cost removes the node halo layer")
     assert(get_viewport().msaa_3d == Viewport.MSAA_DISABLED, "low-cost removes multisample cost")
     environment.call("set_visual_comfort", true, false)
     assert(environment.get_node("SpatialFloor").visible, "balanced restores ground grid")
-    assert($GraphRoot/NodesMulti.material_override.next_pass != null, "balanced restores halo pass")
-    assert($GraphRoot/NodesMulti.material_override.next_pass.get_shader_parameter("query_pulse_depth") == 0.0, "reduced motion stops query pulsing")
+    assert($GraphRoot/NodesHaloMulti.visible, "balanced restores the node halo layer")
+    assert($GraphRoot/NodesHaloMulti.material_override.get_shader_parameter("query_pulse_depth") == 0.0, "reduced motion stops query pulsing")
     assert($GraphRoot/EdgesMulti.material_override.get_shader_parameter("pulse_energy") == 0.0, "reduced motion stops edge pulses")
     var focus: MeshInstance3D = environment.get_node("GraphFocusRing")
     focus.visible = true

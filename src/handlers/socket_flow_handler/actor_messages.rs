@@ -17,6 +17,20 @@ impl Handler<SetClientId> for SocketFlowServer {
     fn handle(&mut self, msg: SetClientId, _ctx: &mut Self::Context) -> Self::Result {
         self.client_id = Some(msg.0);
         info!("[WebSocket] Client assigned ID: {}", msg.0);
+        // A session authenticated at the upgrade (NIP-98 Authorization header,
+        // or the dev query token) already holds its pubkey, but the coordinator
+        // registered it anonymously and was never told — so anything scoped by
+        // the coordinator's pubkey (the ADR-2134 same-user relay, per-user
+        // filters) missed it until an `authenticate` frame arrived.
+        if let Some(pubkey) = self.pubkey.clone() {
+            use crate::actors::messages::AuthenticateClient;
+            self.client_manager_addr.do_send(AuthenticateClient {
+                client_id: msg.0,
+                pubkey,
+                is_power_user: self.is_power_user,
+                ephemeral: false,
+            });
+        }
     }
 }
 

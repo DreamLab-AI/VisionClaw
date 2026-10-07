@@ -8,6 +8,11 @@ const LINE := Color("375774")
 const TEXT := Color("edf5ff")
 const MUTED := Color("adbed2")
 const CYAN := Color("79dfef")
+## Open Sans SemiBold plus every symbol the HUD shows (fonts/build_hud_font.py).
+## Godot's default font lacks the arrows, shapes and check boxes, and each
+## missing glyph came from a fallback font with its own texture, breaking the
+## canvas batch at every symbol.
+const FONT_PATH := "res://fonts/HudSans-SemiBold.ttf"
 
 static func box(fill: Color, border: Color, radius: int = 10, width: int = 1) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -23,6 +28,7 @@ static func box(fill: Color, border: Color, radius: int = 10, width: int = 1) ->
 
 static func create() -> Theme:
 	var t := Theme.new()
+	t.default_font = load(FONT_PATH) as Font
 	t.default_font_size = 28
 	for kind in ["Label", "Button", "CheckButton", "LineEdit", "RichTextLabel"]:
 		t.set_color("font_color", kind, TEXT)
@@ -46,6 +52,10 @@ static func create() -> Theme:
 	t.set_color("font_placeholder_color", "LineEdit", MUTED)
 	t.set_color("selection_color", "LineEdit", Color("305b73"))
 	t.set_color("default_color", "RichTextLabel", TEXT)
+	# [b] uses the same face (headings carry the accent colour instead): a
+	# separate bold face is a second glyph texture and splits the text batch.
+	t.set_font("normal_font", "RichTextLabel", t.default_font)
+	t.set_font("bold_font", "RichTextLabel", t.default_font)
 	var separator := StyleBoxLine.new()
 	separator.color = LINE
 	separator.thickness = 1

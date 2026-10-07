@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -207,3 +207,23 @@ moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `src/protocols/binary_settings_protocol.rs` moved only by `rustfmt` (import ordering, line wrapping, trailing commas). The other four governed paths are unchanged.
 
 **Decision unaffected.** No tag was allocated, removed or reinterpreted; the `0xFF` compressed-frame marker and the unknown-type rejection arms are byte-for-byte the same after formatting. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:** `xr-client/rust/src/binary_protocol.rs` gains `send_text` and the heat hooks only. The new `/wss` traffic (`beatClock`, `memoryRoute`, the JSON `pong` `serverTime`) is JSON text routed by `type` (ADR-2134), not tagged binary, so no tag byte is allocated and the per-socket registry is untouched. **Decision unaffected.** Unknown binary tags are still rejected. Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83 pass).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+The new traffic is JSON text routed by `type`: `settingsUpdated`, `filter_update_success`, `graphUpdated` and `memoryRoute`. No binary tag is allocated or reinterpreted, and `binary_protocol.rs` has no tag-line changes. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`binary_protocol.rs` adds no tag and changes no decode branch. **Decision unaffected.**

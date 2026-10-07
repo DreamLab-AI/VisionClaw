@@ -30,6 +30,11 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
+// Per-frame pack plans (CPU budget): a child module so it reaches the store's
+// private state without widening any visibility.
+#[path = "render_store_pack.rs"]
+mod pack;
+
 /// One `search_labels` match. `Ord` is defined so that a GREATER value is a WORSE
 /// result (higher rank tier, then lower centrality, then larger id) — a max-heap
 /// of these therefore has the worst-so-far on top, which is exactly what a bounded
@@ -251,15 +256,21 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
 pub fn community_color(community_id: u32, anomaly: f32, node_id: u32) -> [f32; 4] {
     let key = if community_id != 0 { community_id } else { node_id };
     let hue = ((key as f64) * 0.618_033_988_75).fract() as f32;
-    let mut rgb = hsv_to_rgb(hue, 0.6, 0.95);
+    let rgb = hsv_to_rgb(hue, 0.6, 0.95);
+    anomaly_blend([rgb[0], rgb[1], rgb[2], 1.0], anomaly)
+}
+
+/// Warm red blend for anomalous nodes (anomaly > 0.5), shared by the community
+/// and domain colour modes so the anomaly tell survives a palette switch.
+pub fn anomaly_blend(mut rgba: [f32; 4], anomaly: f32) -> [f32; 4] {
     if anomaly > 0.5 {
         let t = ((anomaly - 0.5) * 2.0).clamp(0.0, 0.85);
         let warn = [1.0, 0.15, 0.1];
         for c in 0..3 {
-            rgb[c] = rgb[c] + (warn[c] - rgb[c]) * t;
+            rgba[c] += (warn[c] - rgba[c]) * t;
         }
     }
-    [rgb[0], rgb[1], rgb[2], 1.0]
+    rgba
 }
 
 /// Squared Euclidean distance between two server-space points.
@@ -560,6 +571,12 @@ pub struct RenderStore {
     // position. Lets synthetic (demo) agents and embodied live agents beam from
     // the body the user sees, without ever faking a position frame.
     agent_anchors: HashMap<u32, [f32; 3]>,
+    // File-attention heat (desktop attentionHeat.ts): every applied 0x23 action
+    // touches its target; build_node_buffer brightens hot nodes in place. Its
+    // clock is `clock_ms`, a local monotonic millisecond value the owner advances
+    // each frame (`set_clock_ms`), so tests drive decay deterministically.
+    heat: crate::attention::AttentionHeat,
+    clock_ms: f64,
     // Monotonic count of agent actions ever ingested — a liveness counter for the
     // P1 diagnostics surface (verifiable from the HP log before any visuals exist).
     agent_actions_total: u64,
@@ -568,6 +585,35 @@ pub struct RenderStore {
     agent_actions_stale: u64,
     agent_states_stale: u64,
     agent_expiries_total: u64,
+    // WP1/WP2/WP4 per-slot analytics kept beside `color`: the anomaly (for the
+    // domain-mode blend) and the server cluster/community ids (hull grouping).
+    anomaly: Vec<f32>,
+    cluster: Vec<u32>,
+    community: Vec<u32>,
+    // WP1 domain palette (see the `impl` block at the end of this file).
+    color_mode: crate::domain_palette::ColorMode,
+    domain_hex: HashMap<u32, &'static str>,
+    domain_rgb_cache: HashMap<u32, [f32; 4]>,
+    // WP2 received node filter. `None` until a peer's `nodeFilter` arrives, so
+    // the headset's draw is unchanged until the server says otherwise.
+    node_filter: Option<crate::settings_sync::NodeFilter>,
+    filter_inputs: HashMap<u32, crate::settings_sync::FilterInputs>,
+    filter_hidden: HashSet<u32>,
+    filter_dirty: bool,
+    // Node-mesh LOD: the impostor-tier buffer from the last LOD build and the
+    // gem-tier ids it chose (hysteresis input for the next build).
+    impostor_buf: Vec<f32>,
+    // Edge LOD: ribbon-tier buffer from the last edge LOD build.
+    ribbon_buf: Vec<f32>,
+    // Pack plans (render_store_pack.rs): bumped by every mutation that can
+    // change an instance's look or the drawn set; plans are reused only while
+    // it is unchanged.
+    visual_epoch: u64,
+    node_plan: pack::NodePlan,
+    edge_plan: pack::EdgePlan,
+    scratch: pack::PackScratch,
+    // Edge LOD frame counter: the far ribbon tier is repacked on even frames.
+    edge_frame: u64,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -618,17 +664,30 @@ impl RenderStore {
         self.type_hidden = [false; 4];
         self.degree.clear();
         self.agent_registry.clear();
+        self.heat.clear();
         self.agent_anchors.clear();
         self.agent_actions_total = 0;
         self.agent_actions_stale = 0;
         self.agent_states_stale = 0;
         self.agent_expiries_total = 0;
+        self.anomaly.clear();
+        self.cluster.clear();
+        self.community.clear();
+        self.domain_hex.clear();
+        self.domain_rgb_cache.clear();
+        self.filter_inputs.clear();
+        self.filter_hidden.clear();
+        self.filter_dirty = self.node_filter.is_some();
+        self.impostor_buf.clear();
+        self.ribbon_buf.clear();
+        self.touch();
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
     /// into the existing meta entry (creating an empty one if the label metadata
     /// has not arrived yet), so ordering of the two feeds does not matter.
     pub fn set_file_size(&mut self, node_id: u32, file_size: u64) {
+        self.touch();
         self.meta.entry(node_id).or_default().file_size = file_size;
     }
 
@@ -643,6 +702,9 @@ impl RenderStore {
     /// Additively add degree from a pair list (used after an expansion merge so a
     /// newly-attached edge bumps both endpoints without a full recount).
     pub fn add_degrees(&mut self, pairs: &[i32]) {
+        self.touch();
+        self.domain_rgb_cache.clear();
+        self.filter_dirty = self.node_filter.is_some();
         let n = pairs.len() / 2;
         for i in 0..n {
             let s = pairs[i * 2] as u32;
@@ -688,7 +750,10 @@ impl RenderStore {
     /// Record a node's class code (0 knowledge / 1 ontology / 2 agent / 3 other)
     /// for the type show/hide filter. Set once from the decoded frame's node kind.
     pub fn set_node_kind(&mut self, node_id: u32, class_code: u8) {
-        self.node_kind.insert(node_id, class_code);
+        // Called for every node of every frame: only a real change invalidates.
+        if self.node_kind.insert(node_id, class_code) != Some(class_code) {
+            self.touch();
+        }
     }
 
     // --- Agent-swarm data plane (Pillar 1-3, P1) --------------------------------
@@ -736,6 +801,7 @@ impl RenderStore {
         timestamp: u32,
         task: &str,
     ) -> bool {
+        self.touch();
         let key = source_agent_id & NODE_ID_MASK;
         let rec = self.agent_registry.entry(key).or_default();
 
@@ -755,8 +821,32 @@ impl RenderStore {
         if !task.is_empty() {
             rec.task = task.to_owned();
         }
+        let now = self.clock_ms;
+        self.heat.touch(target_node_id, now);
         self.agent_actions_total = self.agent_actions_total.saturating_add(1);
         true
+    }
+
+    /// Advance the local millisecond clock that attention heat decays on. Call
+    /// once per frame before `build_node_buffer`; any monotonic origin works.
+    pub fn set_clock_ms(&mut self, now_ms: f64) {
+        self.clock_ms = now_ms;
+    }
+
+    /// Current normalised attention heat (0..1) of a node at the store clock.
+    pub fn heat_of(&self, node_id: u32) -> f64 {
+        self.heat.get_heat(node_id, self.clock_ms)
+    }
+
+    /// Turn attention heat on or off (off freezes accumulation and drops the tint).
+    pub fn set_heat_enabled(&mut self, on: bool) {
+        self.heat.configure(None, Some(on), None);
+    }
+
+    /// Drop entries that have cooled to nothing (call at ~1 Hz).
+    pub fn sweep_heat(&mut self) -> usize {
+        let now = self.clock_ms;
+        self.heat.sweep(now)
     }
 
     /// Refine an agent's status + task line from the JSON `state` channel (or a
@@ -795,6 +885,7 @@ impl RenderStore {
         task: &str,
         timestamp: u32,
     ) -> bool {
+        self.touch();
         let key = agent_id & NODE_ID_MASK;
         let rec = self.agent_registry.entry(key).or_default();
         let known = rec.target_node_id != 0 || rec.last_action_ts != 0 || rec.last_state_ts != 0;
@@ -837,6 +928,9 @@ impl RenderStore {
             }
         }
         self.agent_expiries_total = self.agent_expiries_total.saturating_add(demoted as u64);
+        if demoted > 0 {
+            self.touch();
+        }
         demoted
     }
 
@@ -906,6 +1000,7 @@ impl RenderStore {
     /// [`expire_stale_agents`](Self::expire_stale_agents), which only demotes a
     /// live status. Returns how many records were actually removed.
     pub fn retire_agents(&mut self, ids: &[u32]) -> usize {
+        self.touch();
         let mut removed = 0usize;
         for &id in ids {
             let key = id & NODE_ID_MASK;
@@ -921,6 +1016,7 @@ impl RenderStore {
     /// ignored. Hidden-class nodes drop from `build_node_buffer`; their edges then
     /// fail the both-endpoints-drawn test in `build_edge_buffer` and disappear too.
     pub fn set_type_visible(&mut self, class_code: u8, visible: bool) {
+        self.touch();
         if let Some(slot) = self.type_hidden.get_mut(class_code as usize) {
             *slot = !visible;
         }
@@ -937,6 +1033,9 @@ impl RenderStore {
     /// Whether a specific node is visible under the current type filter. A node
     /// with no recorded kind is treated as visible (fail-open).
     fn node_visible(&self, id: u32) -> bool {
+        if self.filter_hidden.contains(&id) {
+            return false;
+        }
         match self.node_kind.get(&id) {
             Some(&c) => self.is_type_visible(c),
             None => true,
@@ -952,6 +1051,7 @@ impl RenderStore {
     /// Additively register per-edge styles (used after an expansion merge) without
     /// dropping the existing map. `codes[i]` styles pair `(pairs[2i],pairs[2i+1])`.
     pub fn merge_edge_styles(&mut self, pairs: &[i32], codes: &[u8]) {
+        self.touch();
         let n = (pairs.len() / 2).min(codes.len());
         for i in 0..n {
             let s = pairs[i * 2] as u32;
@@ -973,6 +1073,7 @@ impl RenderStore {
     /// Mark a node as query variable `palette_idx` (recoloured + rim-flagged on the
     /// next `build_node_buffer`). Re-marking updates the palette slot.
     pub fn set_query_var(&mut self, node_id: u32, palette_idx: u8) {
+        self.touch();
         self.query_vars.insert(node_id, palette_idx);
         self.recompute_effective_fold(); // marking lifts the node out of any fold
     }
@@ -980,12 +1081,14 @@ impl RenderStore {
     /// Unmark a node (restores its community colour on the next build). No-op when
     /// the node was not marked.
     pub fn clear_query_var(&mut self, node_id: u32) {
+        self.touch();
         self.query_vars.remove(&node_id);
         self.recompute_effective_fold(); // unmarking re-folds it if the raw plan had it
     }
 
     /// Clear every query-variable mark (Clear Query).
     pub fn clear_query_vars(&mut self) {
+        self.touch();
         self.query_vars.clear();
         self.recompute_effective_fold(); // all previously-lifted nodes re-fold
     }
@@ -1000,6 +1103,7 @@ impl RenderStore {
     /// next build; a node dropped from the set fades back and rejoins the opaque
     /// buffer once it reaches 1.0. Pass empty to fade everything back.
     pub fn set_labelled(&mut self, ids: &[u32]) {
+        self.touch();
         self.labelled.clear();
         self.labelled.extend(ids.iter().copied());
         for &id in ids {
@@ -1021,6 +1125,14 @@ impl RenderStore {
 
     /// Advance every label fade one step (once per `build_node_buffer`).
     fn step_label_fades(&mut self) {
+        let before = self.label_alpha.len();
+        self.step_label_fades_inner();
+        if self.label_alpha.len() != before {
+            self.touch(); // a node joined or left the faded pass
+        }
+    }
+
+    fn step_label_fades_inner(&mut self) {
         let labelled = &self.labelled;
         self.label_alpha.retain(|id, a| {
             if labelled.contains(id) {
@@ -1053,6 +1165,7 @@ impl RenderStore {
     /// (O(plan)); called on every fold-plan set AND every query-var change so
     /// clearing a mark re-folds its node with no server round-trip.
     fn recompute_effective_fold(&mut self) {
+        self.touch();
         // Snapshot the previous effective remap to diff for animation transitions.
         let old_remap = std::mem::take(&mut self.fold_remap);
 
@@ -1116,6 +1229,7 @@ impl RenderStore {
     /// Routed through `recompute_effective_fold` so the members currently folded
     /// animate OUT (grow from their representative) rather than snapping back.
     pub fn clear_fold_plan(&mut self) {
+        self.touch();
         self.raw_fold_hidden.clear();
         self.raw_fold_members.clear();
         self.raw_fold_reps.clear();
@@ -1205,6 +1319,7 @@ impl RenderStore {
 
     /// Store a node's label metadata (from initialGraphLoad).
     pub fn set_meta(&mut self, node_id: u32, meta_id: String, label: String, node_type: String, detail: String) {
+        self.touch();
         let label_lower = label.to_lowercase();
         // Preserve any file_size already recorded (set_file_size can land before or
         // after the label metadata) so re-setting the label doesn't zero it.
@@ -1298,7 +1413,7 @@ impl RenderStore {
                 continue;
             }
             let canon = self.fold_target(id);
-            if self.fold_hidden.contains(&canon) {
+            if self.fold_hidden.contains(&canon) || !self.node_visible(canon) {
                 continue;
             }
             // Rank/centrality reflect the matching node; the returned id is `canon`
@@ -1369,12 +1484,21 @@ impl RenderStore {
     /// position at the target (no ease-in from origin); existing ids only move
     /// their target — the hunt eases the render position toward it.
     pub fn upsert(&mut self, node_id: u32, position: [f32; 3], community_id: u32, anomaly: f32, centrality: f32) {
-        let color = community_color(community_id, anomaly, node_id);
         match self.id_index.get(&node_id).copied() {
             Some(slot) => {
                 self.targets[slot] = position;
-                self.centrality[slot] = centrality;
-                self.color[slot] = color;
+                // Analytics repeat on every broadcast: only a real change recolours
+                // or invalidates the pack plans (position-only frames stay cheap).
+                if self.community[slot] != community_id
+                    || self.anomaly[slot] != anomaly
+                    || self.centrality[slot] != centrality
+                {
+                    self.centrality[slot] = centrality;
+                    self.color[slot] = community_color(community_id, anomaly, node_id);
+                    self.anomaly[slot] = anomaly;
+                    self.community[slot] = community_id;
+                    self.touch();
+                }
             }
             None => {
                 let slot = self.ids.len();
@@ -1383,11 +1507,17 @@ impl RenderStore {
                 self.targets.push(position);
                 self.positions.push(position);
                 self.centrality.push(centrality);
-                self.color.push(color);
+                self.color.push(community_color(community_id, anomaly, node_id));
+                self.anomaly.push(anomaly);
+                self.cluster.push(0);
+                self.community.push(community_id);
+                self.filter_dirty |= self.node_filter.is_some();
+                self.touch();
             }
         }
         if centrality > self.centrality_max {
             self.centrality_max = centrality;
+            self.touch();
         }
     }
 
@@ -1485,10 +1615,18 @@ impl RenderStore {
     /// drawn set + render positions for the edge builder and the interaction ray.
     /// Ids not present in the store are skipped (buffer shrinks accordingly).
     pub fn build_node_buffer(&mut self, ids: &[i32], scale_comp: f32, size_lo: f32, size_hi: f32) -> Vec<f32> {
+        self.pack_nodes(ids, scale_comp, size_lo, size_hi);
+        self.scratch.node_buf.clone()
+    }
+
+    /// The full node pack: every drawn id through `emit_node`. The pack plan
+    /// (`render_store_pack.rs`) is derived from its output and replays it while
+    /// nothing but positions changes. Label fades and the filter are stepped by
+    /// the caller (`pack_nodes`).
+    fn full_node_pack(&mut self, ids: &[i32], scale_comp: f32, size_lo: f32, size_hi: f32) -> Vec<f32> {
         self.drawn.clear();
         self.render_ids.clear();
         self.render_positions.clear();
-        self.step_label_fades();
         let mut faded = std::mem::take(&mut self.faded_buf);
         faded.clear();
         let mut buf = Vec::with_capacity(ids.len() * NODE_STRIDE);
@@ -1569,7 +1707,7 @@ impl RenderStore {
         let badge = self.fold_badge.get(&id).copied().unwrap_or(0) as f32;
         let (mut col, query_flag) = match self.query_vars.get(&id) {
             Some(&palette_idx) => (query_var_color(palette_idx), 1.0),
-            None => (self.color[slot], 0.0),
+            None => (self.base_color(slot, id), 0.0),
         };
         // Status halo (Pillar 3): an agent node is coloured by its derived status
         // (working/blocked/done/idle) with a floored halo so it always reads as a
@@ -1582,6 +1720,8 @@ impl RenderStore {
                 halo = halo.max(AGENT_HALO_MIN);
             }
         }
+        // Attention heat is applied per frame in `live_tint` (render_store_pack.rs),
+        // not here: it decays every frame, and this colour is cached by the pack plan.
         let target: &mut Vec<f32> = match self.label_alpha.get(&id) {
             Some(&a) => {
                 col[3] = a;
@@ -1600,6 +1740,12 @@ impl RenderStore {
     /// Pack the edge MultiMesh buffer for the ranked `pairs`. An edge is emitted
     /// only when both endpoints are in the drawn set and non-degenerate.
     pub fn build_edge_buffer(&self, pairs: &[i32], radius_comp: f32) -> Vec<f32> {
+        self.pack_edges(pairs, radius_comp, None)
+    }
+
+    /// `build_edge_buffer` body; when `keys` is given, pushes one
+    /// `(min(s,t) << 32 | max(s,t))` per emitted instance (edge-LOD hysteresis).
+    fn pack_edges(&self, pairs: &[i32], radius_comp: f32, mut keys: Option<&mut Vec<u64>>) -> Vec<f32> {
         let mut buf = Vec::new();
         let n = pairs.len() / 2;
         // Fold plan: many member→member edges collapse onto the same
@@ -1643,6 +1789,10 @@ impl RenderStore {
                 let style = self.edge_style_of(os, ot) as f32;
                 buf.extend_from_slice(&tf);
                 buf.extend_from_slice(&[0.0, 0.0, 0.0, style]);
+                if let Some(k) = keys.as_deref_mut() {
+                    let (a, b) = if s < t { (s, t) } else { (t, s) };
+                    k.push(((a as u64) << 32) | b as u64);
+                }
             }
         }
         buf
@@ -1659,8 +1809,10 @@ impl RenderStore {
     /// Pack the **work-beam** MultiMesh buffer (Pillar 2, P3): one cylinder per
     /// active agent→target-node link, ready for the restyled `edge_flow`
     /// (`agent_beam`) material on the reserved `AgentMulti` MultiMesh. Stride 16
-    /// (12 transform + 4 INSTANCE_CUSTOM: r/g/b reserved, **a = agent status code**
-    /// so the beam shader tints working/blocked and animates the flowing stream).
+    /// (12 transform + 4 INSTANCE_CUSTOM: **r = AgentActionType code, g/b = beam
+    /// taper at the target/agent end** — the desktop's `semanticEncoding.ts`
+    /// colour and shape — and **a = agent status code** so the beam shader
+    /// slows and dims a blocked agent's stream).
     ///
     /// The beam's source is the agent's embodiment anchor when the scene has
     /// published one ([`set_agent_anchors`](Self::set_agent_anchors)), else the
@@ -1699,7 +1851,10 @@ impl RenderStore {
             };
             if let Some(tf) = edge_transform12(source, self.positions[ts], radius_comp) {
                 buf.extend_from_slice(&tf);
-                buf.extend_from_slice(&[0.0, 0.0, 0.0, rec.status as f32]);
+                // r = action code, g/b = target/agent taper (desktop semantic
+                // encoding); a = status. Still 16 floats per instance.
+                let [code, top, bottom] = crate::semantic::beam_custom_rgb(rec.action_type as u32);
+                buf.extend_from_slice(&[code, top, bottom, rec.status as f32]);
             }
         }
         buf
@@ -1817,6 +1972,190 @@ impl RenderStore {
     }
 }
 
+// --- Node-mesh LOD -----------------------------------------------------------
+impl RenderStore {
+    /// `build_node_buffer` split into LOD tiers (see `lod::split_node_tiers`):
+    /// returns the gem-tier buffer and keeps the impostor tier for
+    /// [`impostor_node_buffer`](Self::impostor_node_buffer). Labelled nodes stay
+    /// in the faded full-mesh pass and count against `near_cap`. `cam` and
+    /// `near_max_dist` are in server units (GraphRoot space). Every drawn node
+    /// keeps its render position, so ray picking ignores the tier.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_node_buffer_lod(
+        &mut self,
+        ids: &[i32],
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) -> &[f32] {
+        self.pack_nodes_lod(ids, scale_comp, size_lo, size_hi, cam, near_cap, near_max_dist);
+        &self.scratch.near_buf
+    }
+
+    /// Impostor-tier instances from the last `build_node_buffer_lod` (same
+    /// 20-float layout as the node buffer).
+    pub fn impostor_node_buffer(&self) -> &[f32] {
+        &self.impostor_buf
+    }
+
+    /// `build_edge_buffer` split into LOD tiers: returns the cylinder tier (the
+    /// `near_cap` edges whose midpoint is nearest `cam` within `near_max_dist`,
+    /// server units) and keeps every other drawn edge for
+    /// [`ribbon_edge_buffer`](Self::ribbon_edge_buffer). Both stay 16 floats per
+    /// instance with the style code in custom `.a` (Invariant 3).
+    pub fn build_edge_buffer_lod(
+        &mut self,
+        pairs: &[i32],
+        radius_comp: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) -> &[f32] {
+        self.pack_edges_lod(pairs, radius_comp, cam, near_cap, near_max_dist);
+        &self.scratch.edge_near_buf
+    }
+
+    /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).
+    pub fn ribbon_edge_buffer(&self) -> &[f32] {
+        &self.ribbon_buf
+    }
+}
+
+// --- WP1 domain palette / WP2 received node filter / WP4 cluster hulls -------
+//
+// Kept in one block so the XR-parity work stays a hook-sized diff against the
+// rest of the store. Colour precedence in `emit_node` is unchanged: query mark,
+// then agent status, then this base colour (with the anomaly blend in both modes).
+impl RenderStore {
+    /// Select the node colour scheme (desktop default: domain).
+    pub fn set_color_mode(&mut self, mode: crate::domain_palette::ColorMode) {
+        self.touch();
+        self.color_mode = mode;
+    }
+
+    pub fn color_mode(&self) -> crate::domain_palette::ColorMode {
+        self.color_mode
+    }
+
+    /// Record a node's corpus domain (from `initialGraphLoad`). Order-independent
+    /// with `upsert`: the colour resolves at pack time.
+    pub fn set_node_domain(&mut self, node_id: u32, domain: &str) {
+        self.touch();
+        let hex = crate::domain_palette::domain_hex(Some(domain));
+        self.domain_hex.insert(node_id, hex);
+        self.domain_rgb_cache.remove(&node_id);
+    }
+
+    /// Server cluster id (V3 record offset 36) for the hull grouping.
+    pub fn set_cluster(&mut self, node_id: u32, cluster_id: u32) {
+        if let Some(&slot) = self.id_index.get(&node_id) {
+            self.cluster[slot] = cluster_id;
+        }
+    }
+
+    fn base_color(&mut self, slot: usize, id: u32) -> [f32; 4] {
+        use crate::domain_palette::ColorMode;
+        match self.color_mode {
+            ColorMode::Community => self.color[slot],
+            ColorMode::Domain => {
+                let rgba = match self.domain_rgb_cache.get(&id) {
+                    Some(&c) => c,
+                    None => {
+                        let degree = self.degree_of(id);
+                        let hex = self
+                            .domain_hex
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(crate::domain_palette::DEFAULT_DOMAIN_COLOR);
+                        let c = crate::domain_palette::hex_node_color(hex, degree);
+                        self.domain_rgb_cache.insert(id, c);
+                        c
+                    }
+                };
+                anomaly_blend(rgba, self.anomaly[slot])
+            }
+        }
+    }
+
+    /// Per-node filter inputs (quality / authority / linked_page) from topology.
+    pub fn set_filter_inputs(&mut self, node_id: u32, inputs: crate::settings_sync::FilterInputs) {
+        self.touch();
+        self.filter_inputs.insert(node_id, inputs);
+        self.filter_dirty |= self.node_filter.is_some();
+    }
+
+    /// Apply (or with `None`, clear) the received `nodeFilter`. Takes effect on
+    /// the next `build_node_buffer`; agents are never filtered (the desktop and
+    /// server filter graph nodes only).
+    pub fn set_node_filter(&mut self, filter: Option<crate::settings_sync::NodeFilter>) {
+        self.touch();
+        self.node_filter = filter;
+        self.filter_dirty = true;
+    }
+
+    pub fn node_filter(&self) -> Option<crate::settings_sync::NodeFilter> {
+        self.node_filter
+    }
+
+    /// Nodes the current filter hides (as of the last buffer build).
+    pub fn filter_hidden_count(&self) -> usize {
+        self.filter_hidden.len()
+    }
+
+    fn refresh_filter(&mut self) {
+        if !self.filter_dirty {
+            return;
+        }
+        self.filter_dirty = false;
+        self.filter_hidden.clear();
+        let Some(f) = self.node_filter else {
+            return;
+        };
+        for &id in &self.ids {
+            if self.node_kind.get(&id) == Some(&KIND_AGENT) {
+                continue;
+            }
+            let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
+            if !f.passes(&inp, self.degree_of(id)) {
+                self.filter_hidden.insert(id);
+            }
+        }
+    }
+
+    fn hull_points(&self) -> Vec<crate::hulls::HullPoint> {
+        self.render_ids
+            .iter()
+            .zip(self.render_positions.iter())
+            .filter_map(|(id, &pos)| {
+                let slot = *self.id_index.get(id)?;
+                Some(crate::hulls::HullPoint {
+                    cluster_id: self.cluster[slot],
+                    community_id: self.community[slot],
+                    pos,
+                })
+            })
+            .collect()
+    }
+
+    /// Hulls over the nodes drawn by the last `build_node_buffer`, so a hull never
+    /// wraps nodes the user cannot see (LOD-, type- or filter-hidden).
+    pub fn hull_mesh(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> crate::hulls::HullMesh {
+        if source == crate::hulls::HullSource::Off {
+            return crate::hulls::HullMesh::default();
+        }
+        crate::hulls::build_hull_mesh(&self.hull_points(), source, params)
+    }
+
+    /// Fingerprint of the hull input at 1-server-unit resolution: the scene
+    /// rebuilds the mesh only when this changes (positions settle → no rebuilds).
+    pub fn hull_signature(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> u64 {
+        crate::hulls::input_signature(&self.hull_points(), source, params, 1.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1845,6 +2184,15 @@ mod tests {
         assert_eq!(buf.len(), EDGE_STRIDE_TYPED, "one beam, stride 16");
         // INSTANCE_CUSTOM.a (index 15) carries the status code = WORKING.
         assert!(approx(buf[15], AGENT_WORKING as f32));
+        // INSTANCE_CUSTOM.rgb carries the desktop semantic encoding: action code 0
+        // (Query) and its thin-probe taper (semanticEncoding.ts AGENT_ACTION_SHAPES).
+        assert_eq!(&buf[12..15], &[0.0, 0.5, 0.5], "Query: code 0, 0.5/0.5 taper");
+        // A Create action widens into the node; a Delete narrows into it.
+        s.record_agent_action(5, 20, 2, 200, "");
+        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[2.0, 1.8, 0.4], "Create taper");
+        s.record_agent_action(5, 20, 3, 300, "");
+        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[3.0, 0.3, 1.6], "Delete taper");
+        s.record_agent_action(5, 20, 0, 400, "");
 
         // DONE / IDLE agents draw no beam; BLOCKED still does (stalled but owning).
         s.set_agent_state(5, "done", "");
@@ -1853,6 +2201,43 @@ mod tests {
         let blocked = s.build_beam_buffer(1.0);
         assert_eq!(blocked.len(), EDGE_STRIDE_TYPED, "blocked agent still beams");
         assert!(approx(blocked[15], AGENT_BLOCKED as f32));
+    }
+
+    #[test]
+    fn attention_heat_brightens_touched_nodes_and_cools_with_the_half_life() {
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0); // agent
+        s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0); // target
+        s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0); // same community, untouched
+        s.set_clock_ms(1_000.0);
+        let base = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        let col = |buf: &[f32], i: usize| buf[i * NODE_STRIDE + 12..i * NODE_STRIDE + 15].to_vec();
+        assert_eq!(col(&base, 0), col(&base, 1), "same community, same colour before any touch");
+        let edges_before = s.build_edge_buffer(&[20, 21], 1.0);
+
+        // A 0x23 action on node 20 (KNOWLEDGE flag on the wire) heats it.
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+        let hot = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        let (h, c) = (col(&hot, 0), col(&hot, 1));
+        assert!(h[0] > c[0] || h[1] > c[1] || h[2] > c[2], "touched node is brighter: {h:?} vs {c:?}");
+        let ratio = |v: &[f32]| v[0] / v.iter().cloned().fold(f32::MIN, f32::max);
+        assert!((ratio(&h) - ratio(&c)).abs() < 1e-4, "hue preserved");
+        assert!(h.iter().all(|&x| x <= 1.0 + 1e-6), "never past full brightness");
+        assert_eq!(s.build_edge_buffer(&[20, 21], 1.0), edges_before, "edge buffer untouched (Invariant 3)");
+        assert!(s.heat_of(20) > 0.4);
+
+        // A replayed (stale) action is dropped and adds no heat.
+        let before = s.heat_of(20);
+        assert!(!s.record_agent_action(5, 20, 1, 100, ""));
+        assert_eq!(s.heat_of(20), before);
+
+        // Five half-lives later it has nearly cooled; disabled heat reads nothing.
+        s.set_clock_ms(1_000.0 + 5.0 * crate::attention::DEFAULT_HEAT_HALF_LIFE_MS);
+        assert!(s.heat_of(20) < 0.03);
+        s.set_heat_enabled(false);
+        s.set_clock_ms(1_000.0);
+        let off = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        assert_eq!(col(&off, 0), col(&off, 1), "heat off: no tint");
     }
 
     #[test]
@@ -2475,6 +2860,8 @@ mod tests {
     #[test]
     fn query_var_overlay_recolours_and_flags_then_restores() {
         let mut s = RenderStore::new();
+        // This test pins the community path; domain is the default since WP1.
+        s.set_color_mode(crate::domain_palette::ColorMode::Community);
         s.upsert(1, [0.0, 0.0, 0.0], 3, 0.0, 1.0); // community colour, max centrality
         s.upsert(2, [1.0, 0.0, 0.0], 3, 0.0, 1.0);
         let base = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);

@@ -89,6 +89,10 @@ pub struct SocketFlowServer {
     pub(crate) dev_bypass_ok: bool,
     // HTTP-equivalent URL of the WebSocket connection (for NIP-98 validation)
     pub(crate) connection_url: String,
+    /// ADR-2134 same-user relay throttles (beatClock, memoryRoute), ≤ 4 Hz each.
+    pub(crate) relay_throttles: HashMap<super::session_relay::RelayKind, super::session_relay::RelayThrottle>,
+    /// One `error` frame per session for relay attempts before authentication.
+    pub(crate) relay_unauth_reported: bool,
 
     // Server-side drag handling state
     /// Set of node IDs currently being dragged by this client.
@@ -195,6 +199,8 @@ impl SocketFlowServer {
             is_power_user: false,
             dev_bypass_ok: false,
             connection_url: String::new(),
+            relay_throttles: HashMap::new(),
+            relay_unauth_reported: false,
             dragged_nodes: HashSet::new(),
             drag_last_update: HashMap::new(),
             drag_timeout_ms: 500,
@@ -227,6 +233,9 @@ impl SocketFlowServer {
         crate::utils::socket_flow_messages::PongMessage {
             type_: "pong".to_string(),
             timestamp: msg.timestamp,
+            // ADR-2134: the server clock at reply, so a client can estimate its
+            // offset to the server from the round trip (XR beat clock sync).
+            server_time: Some(chrono::Utc::now().timestamp_millis().max(0) as u64),
         }
     }
 

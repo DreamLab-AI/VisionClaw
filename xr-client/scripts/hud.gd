@@ -50,6 +50,11 @@ extends Node3D
 @onready var scroll_down_button: Button = $HudViewport/HudControl/DocumentPanel/DVBox/DScroll/ScrollDownButton
 @onready var doc_http: HTTPRequest = $DocHttp
 
+const HudRenderOnDemandScript := preload("res://scripts/hud_render_on_demand.gd")
+const HudBatchingScript := preload("res://scripts/hud_batching.gd")
+## FPS readouts refresh at most this often, and only when the value changes:
+## each change re-renders the whole HUD canvas.
+const FPS_REFRESH_MS := 2000
 const NG_PAGE_BASE: String = "https://narrativegoldmine.com/api/pages/"
 const DOC_TIMEOUT_SEC: float = 10.0
 const DOC_SCROLL_STEP: int = 140
@@ -117,6 +122,8 @@ var _hint_bar: Label = null
 var _conn_dot: Label = null
 var _room_header: Label = null
 var _fps_header: Label = null
+var _fps_shown: int = -1
+var _fps_next_ms: int = 0
 var _pages: Dictionary = {}          # tab id → page Control
 var _tab_buttons: Dictionary = {}    # tab id → Button
 var _active_tab: String = "graph"
@@ -131,12 +138,18 @@ var _hierarchy_button: Button = null
 var _flat_toggle_button: Button = null
 var _planes_toggle_button: Button = null
 var _layout_mode_button: Button = null
+var _color_mode_button: Button = null   # WP1 domain/community toggle (Graph page)
+var _hulls_button: Button = null        # WP4 hull source cycle (Graph page)
 # Wave 2, Feature 3 — type show/hide toggles (Graph tab). Each tracks its own
 # visible bool so the label/tint reflects state; the class code is in the action.
 var _type_knowledge_button: Button = null
 var _type_ontology_button: Button = null
 var _type_agent_button: Button = null
 var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": true}
+# Memory cloud (XR WP6): on/off + colour-mode cycle. GraphScene owns the state
+# and pushes labels back through set_memory_cloud_state.
+var _memory_cloud_button: Button = null
+var _memory_colour_button: Button = null
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
@@ -157,6 +170,15 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
+# Beat row (Session page) + header mic badge (WP5/WP8).
+const MIC_BADGE_COLOR: Color = Color(1.0, 0.32, 0.30)
+var _beat_label: Label = null
+var _beat_tap_button: Button = null
+var _beat_mic_button: Button = null
+var _bursts_button: Button = null
+var _mic_badge: Label = null
+var _beat_mic_on: bool = false
+var _bursts_on: bool = true
 
 const TAB_ORDER: Array[String] = ["graph", "layout", "query", "pins", "swarm", "key", "session", "help"]
 const TAB_LABELS: Dictionary = {
@@ -193,6 +215,35 @@ const KEY_AVATAR_SPEAKING: Color = Color(0.7, 0.85, 1.0)     # agent_avatar.gd C
 const KEY_ROLE_COLORS: Array[Color] = [
 	Color("#56CFE1"), Color("#F6BD60"), Color("#7B9EFF"), Color("#D98ACD"), Color("#8FD175"), Color("#F08A62"),
 ]
+# WP1 domain swatches: a deliberate copy of render_store's palette
+# (xr-client/rust/src/domain_palette.rs ← client/.../domainColors.ts). The Rust
+# test tests/domain_palette_parity.rs parses these two tables and fails on drift.
+# Rows: [domain key, short label, colour].
+const KEY_DOMAIN_SWATCHES: Array = [
+	["artificial-intelligence", "AI", Color("#4FC3F7")],
+	["blockchain", "Blockchain", Color("#81C784")],
+	["robotics", "Robotics", Color("#FFB74D")],
+	["spatial-computing", "Spatial", Color("#CE93D8")],
+	["distributed-collaboration", "Collab", Color("#4DB6AC")],
+	["infrastructure", "Infra", Color("#FFD54F")],
+	["space-science-and-systems", "Space", Color("#646b9f")],
+	["earth-observation-and-geospatial-sensing", "Earth obs", Color("#438273")],
+]
+const KEY_DOMAIN_FALLBACK: Color = Color("#90A4AE")
+# WP4 hull swatches: the first four of hulls.rs GPU_CLUSTER_COLORS (parity-tested).
+const KEY_HULL_SWATCHES: Array = [Color("#4FC3F7"), Color("#81C784"), Color("#FFB74D"), Color("#CE93D8")]
+# Work-beam action colours: semantic.rs AGENT_ACTION_COLORS = materials/agent_beam.gdshader
+# action_*_color = desktop frameTypes.ts AGENT_ACTION_COLORS (Query..Transform).
+const KEY_BEAM_ACTIONS: Array[Color] = [
+	Color("#3b82f6"), Color("#eab308"), Color("#22c55e"), Color("#ef4444"), Color("#a855f7"), Color("#06b6d4"),
+]
+# memory_flash burst verbs: semantic.rs MEMORY_ACTION_PROFILES = desktop semanticEncoding.ts.
+const KEY_BURST_STORE: Color = Color("#39ff14")
+const KEY_BURST_RETRIEVE: Color = Color("#4fc3f7")
+const KEY_BURST_SEARCH: Color = Color("#00fff7")
+const KEY_BURST_LIST: Color = Color("#ffd54f")
+const KEY_BURST_DELETE: Color = Color("#ff4444")
+const KEY_BURST_ACCESS: Color = Color("#9ad6ff")
 const KEY_META: StringName = &"key"                          # set on every key row (label text) — tests count these
 const SWATCH_PX: int = 34
 const KEY_REGION_H: int = 452                                # header + region must fit the 532px page host
@@ -212,6 +263,10 @@ func _ready() -> void:
 	# Bind after attachment: nested PackedScene textures have no viewport yet.
 	($HudPanel.material_override as StandardMaterial3D).albedo_texture = $HudViewport.get_texture()
 	_build_ui()
+	# Batch the canvas (boxes as atlas nine-patches under the text), then render
+	# the panel only when a control redraws (perf: was every frame, 59+ calls).
+	HudBatchingScript.attach($HudViewport)
+	HudRenderOnDemandScript.attach($HudViewport)
 	# Overlay wiring (nodes from HUD.tscn).
 	approve_button.pressed.connect(_on_approve_pressed)
 	deny_button.pressed.connect(_on_deny_pressed)
@@ -287,6 +342,12 @@ func _build_header() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fps_header = _mk_label("FPS --", "Render framerate")
 	header.add_child(_conn_dot)
+	# WP8: unmistakable while the microphone is listening (beat sync, opt-in).
+	_mic_badge = _mk_label("● MIC", "Microphone is listening for the beat (audio is analysed in memory and never recorded or sent)")
+	_mic_badge.name = "MicBadge"
+	_mic_badge.add_theme_color_override("font_color", MIC_BADGE_COLOR)
+	_mic_badge.visible = false
+	header.add_child(_mic_badge)
 	header.add_child(_room_header)
 	header.add_child(spacer)
 	header.add_child(_fps_header)
@@ -345,7 +406,10 @@ func _build_pages_host() -> void:
 	_tabs_host.name = "Tabs"
 	_tabs_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tabs_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tabs_host.clip_contents = true
+	# No clip: a clip region splits every canvas batch on both sides of it (4 draw
+	# calls per HUD render, measured). Pages are held inside the 532 px host by
+	# the GUT fit tests, so the clip only guarded against a layout bug.
+	_tabs_host.clip_contents = false
 	_root.add_child(_tabs_host)
 
 	_pages["graph"] = _build_graph_page()
@@ -391,6 +455,11 @@ func _build_graph_page() -> VBoxContainer:
 	g1.add_child(_action_btn("Edges -", "edges_minus", "Show fewer edges"))
 	g1.add_child(_action_btn("Node +", "node_size_plus", "Enlarge node markers"))
 	g1.add_child(_action_btn("Node -", "node_size_minus", "Shrink node markers"))
+	# WP1/WP4: the two free cells of the 3x3 grid, so the page grows by 0px.
+	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default) or by community")
+	_hulls_button = _action_btn("Hulls: Off", "hulls_cycle", "Translucent hulls around server clusters: off, clusters, or communities")
+	g1.add_child(_color_mode_button)
+	g1.add_child(_hulls_button)
 	page.add_child(g1)
 
 	# Wave 2, Feature 3 — type show/hide filter. One wand-clickable toggle per node
@@ -405,6 +474,11 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_knowledge_button)
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
+	_memory_cloud_button = _action_btn("Memory: Off", "memory_cloud_toggle", "Show / hide the live memory cloud (RuVector sample); point at a dot for its key")
+	_memory_cloud_button.add_theme_color_override("font_color", IDLE)
+	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
+	g3.add_child(_memory_cloud_button)
+	g3.add_child(_memory_colour_button)
 	page.add_child(g3)
 
 	page.add_child(_group_header("Status"))
@@ -622,18 +696,36 @@ func _build_key_page() -> VBoxContainer:
 # The key's content, grouped. Each row: [Array[Color] swatches, label, hover hint].
 func _key_sections() -> Array:
 	return [
+		{"title": "Nodes — Colour: Domain (default)", "rows": _domain_key_rows()},
 		{"title": "Nodes", "rows": [
 			[[community_swatch(1), community_swatch(2), community_swatch(3), community_swatch(4)],
-				"Community hue", "Each node takes a golden-ratio hue keyed by its community — same colour = same cluster"],
+				"Community hue", "Colour: Community — each node takes a golden-ratio hue keyed by its community"],
+			[KEY_HULL_SWATCHES, "Cluster hulls", "Hulls: translucent shell around each server cluster (largest 32, at least 4 members)"],
 			[[KEY_ANOMALY], "Anomaly (blends to red)", "Anomalous nodes blend toward warning red; brighter rim = higher centrality"],
 			[[query_swatch(0), query_swatch(1), query_swatch(2), query_swatch(3)],
 				"Query mark ?v1…?v8", "Nodes marked as query variables take a saturated palette colour and a rim flag"],
 		]},
 		{"title": "Agents — node halo and Swarm dot", "rows": [
 			[[SWARM_STATUS_COLORS[0]], "Idle", "Agent with no active work"],
-			[[SWARM_STATUS_COLORS[1]], "Working (beam to target)", "Agent acting on a node — a beam links it to the node it is working on"],
+			[[SWARM_STATUS_COLORS[1]], "Working", "Agent acting on a node — a work beam links it to that node"],
 			[[SWARM_STATUS_COLORS[2]], "Blocked / error", "Agent blocked or errored — needs attention"],
 			[[SWARM_STATUS_COLORS[3]], "Done", "Agent finished or offline"],
+		]},
+		{"title": "Work beam — action (desktop colours)", "rows": [
+			[[KEY_BEAM_ACTIONS[0]], "Query (thin probe)", "Agent reading a node"],
+			[[KEY_BEAM_ACTIONS[1]], "Update", "Agent updating a node"],
+			[[KEY_BEAM_ACTIONS[2]], "Create (widens in)", "Agent creating a node — the beam widens into it"],
+			[[KEY_BEAM_ACTIONS[3]], "Delete (narrows in)", "Agent deleting a node — the beam narrows into it; blocked beams turn amber and slow"],
+			[[KEY_BEAM_ACTIONS[4]], "Link (thick tie)", "Agent linking nodes"],
+			[[KEY_BEAM_ACTIONS[5]], "Transform", "Agent transforming data"],
+		]},
+		{"title": "Memory bursts (RuVector access)", "rows": [
+			[[KEY_BURST_STORE], "Store", "A memory was written — two rings punch outward"],
+			[[KEY_BURST_RETRIEVE], "Retrieve", "A memory was read"],
+			[[KEY_BURST_SEARCH], "Search", "A memory search — three wide rings"],
+			[[KEY_BURST_LIST], "List", "Memories enumerated"],
+			[[KEY_BURST_DELETE], "Delete (implodes)", "A memory was removed — the ring contracts"],
+			[[KEY_BURST_ACCESS], "Other access", "Any other memory access; the namespace nudges the hue"],
 		]},
 		{"title": "Edges", "rows": [
 			[[KEY_EDGE_FLOW], "Link", "Ordinary graph edge (flow pulses along it)"],
@@ -679,6 +771,15 @@ func _key_row(colors: Array, label: String, hint: String) -> HBoxContainer:
 	return row
 
 
+## Key rows for the domain palette: one per canonical domain plus the fallback.
+func _domain_key_rows() -> Array:
+	var rows: Array = []
+	for r: Array in KEY_DOMAIN_SWATCHES:
+		rows.append([[r[2]], String(r[1]), "Domain %s — highly connected nodes are a little lighter and more saturated" % String(r[0])])
+	rows.append([[KEY_DOMAIN_FALLBACK], "Other / none", "Nodes with no or an unrecognised domain"])
+	return rows
+
+
 ## Sample community colour for community `k` (k ≥ 1). Mirrors
 ## render_store::community_color / graph_scene._community_color (no anomaly).
 static func community_swatch(k: int) -> Color:
@@ -721,10 +822,54 @@ func _build_session_page() -> VBoxContainer:
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
 	page.add_child(reconnect)
+	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
 	page.add_child(_debug_stats)
 	return page
+
+
+# One compact row so the Session page stays inside the 532px host: the beat
+# readout (source · bpm · confidence), Tap, the opt-in Mic toggle and the
+# memory-burst toggle. GraphScene → beat_pulse.gd owns every effect.
+func _build_beat_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "BeatRow"
+	row.add_theme_constant_override("separation", 8)
+	_beat_label = _mk_label("Beat: off", "Beat clock: source · tempo · confidence (desktop relay, tap tempo or mic)")
+	_beat_label.name = "BeatStatus"
+	_beat_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_beat_label.clip_text = true
+	_beat_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(_beat_label)
+	_beat_tap_button = _action_btn("Tap", "beat_tap", "Tap the beat — or press B/Y, or click the centre of the left trackpad/stick")
+	_beat_tap_button.name = "BeatTap"
+	_beat_tap_button.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(_beat_tap_button)
+	_beat_mic_button = _press_fire(Button.new()) as Button
+	_beat_mic_button.name = "BeatMic"
+	_beat_mic_button.custom_minimum_size = Vector2(0, BTN_H)
+	_beat_mic_button.set_meta(HINT_META, "Listen for the beat with the microphone (off by default; nothing is recorded or sent)")
+	_beat_mic_button.pressed.connect(func() -> void:
+		emit_signal("control_pressed", "beat_mic:%d" % (0 if _beat_mic_on else 1)))
+	row.add_child(_beat_mic_button)
+	_bursts_button = _press_fire(Button.new()) as Button
+	_bursts_button.name = "MemoryBursts"
+	_bursts_button.custom_minimum_size = Vector2(0, BTN_H)
+	_bursts_button.set_meta(HINT_META, "Show / hide memory access bursts (memory_flash)")
+	_bursts_button.pressed.connect(func() -> void:
+		_bursts_on = not _bursts_on
+		_style_toggle(_bursts_button, "Bursts", _bursts_on)
+		emit_signal("control_pressed", "memory_bursts:%d" % (1 if _bursts_on else 0)))
+	row.add_child(_bursts_button)
+	_style_toggle(_beat_mic_button, "Mic", false)
+	_style_toggle(_bursts_button, "Bursts", true)
+	return row
+
+
+func _style_toggle(b: Button, label: String, on: bool) -> void:
+	b.text = "%s %s" % [label, "☑" if on else "☐"]
+	b.add_theme_color_override("font_color", ACCENT if on else IDLE)
 
 
 func _build_help_page() -> VBoxContainer:
@@ -762,22 +907,25 @@ func _build_help_page() -> VBoxContainer:
 
 func _cheat_sheet_bbcode() -> String:
 	var rows: Array[Array] = [
-		["[b]NODE[/b]", ""],
+		["[b][color=#79dfef]NODE[/color][/b]", ""],
 		["Trigger — point at a node & pull", "Grab it"],
 		["…release the trigger", "Pins the node in place"],
 		["Trigger — double-pull on a node", "Open its page card"],
 		["Menu button (or A/X)", "Node menu (mark variable…)"],
 		["", ""],
-		["[b]GRAPH[/b]", ""],
+		["[b][color=#79dfef]GRAPH[/color][/b]", ""],
 		["BOTH grips (two hands)", "Seize the whole graph"],
 		["  hands apart / together", "Scale"],
 		["  twist your hands", "Rotate"],
 		["  move hands together", "Carry"],
 		["", ""],
-		["[b]PANEL & MOVE[/b]", ""],
+		["[b][color=#79dfef]PANEL & MOVE[/color][/b]", ""],
 		["One grip while near this panel", "Pick up & move the panel"],
 		["Trackpad / thumbstick", "Fly through the graph"],
 		["Point at the panel + trigger", "Click a button"],
+		["", ""],
+		["[b][color=#79dfef]BEAT[/color][/b]", ""],
+		["B/Y, or click the LEFT pad/stick centre", "Tap the tempo (Session tab shows it)"],
 	]
 	var lines: Array[String] = []
 	for r: Array in rows:
@@ -977,6 +1125,16 @@ func _notice_active() -> bool:
 	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
 
 
+## Memory-cloud button state: `label` is the layer's status ("Memory: 6000",
+## "Memory: Locked", …), `colour_mode` its colour mode name.
+func set_memory_cloud_state(on: bool, label: String, colour_mode: String) -> void:
+	if _memory_cloud_button != null:
+		_memory_cloud_button.text = label
+		_memory_cloud_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
+	if _memory_colour_button != null:
+		_memory_colour_button.text = "Cloud: %s" % colour_mode
+
+
 ## Reflect the Hierarchy/View toggle state and pinned-node count on the button
 ## faces + Pins tab. Press-only, no per-frame cost.
 func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, planes_on: bool = false) -> void:
@@ -993,6 +1151,19 @@ func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, pl
 		_unpin_all_button.text = "Unpin All (%d)" % pinned_count if pinned_count > 0 else "Unpin All"
 	if _pins_count_label != null:
 		_pins_count_label.text = "%d pinned" % pinned_count
+
+
+## WP1/WP4: reflect the colour mode (0 domain, 1 community) and hull source
+## (0 off, 1 clusters, 2 communities) on the Graph-page button faces.
+func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -> void:
+	if _color_mode_button != null:
+		_color_mode_button.text = "Colour: Community" if color_mode == 1 else "Colour: Domain"
+	if _hulls_button != null:
+		var label: String = ["Hulls: Off", "Hulls: Clusters", "Hulls: Communities"][clampi(hull_source, 0, 2)]
+		if hull_source > 0 and hull_count >= 0:
+			label += " (%d)" % hull_count
+		_hulls_button.text = label
+		_hulls_button.add_theme_color_override("font_color", ACCENT if hull_source > 0 else IDLE)
 
 
 ## Reflect the active layout mode on the Layout Mode cycling button face.
@@ -1226,12 +1397,19 @@ func _bb(s: String) -> String:
 
 func _process(delta: float) -> void:
 	# Header + Session diagnostics (per-frame, cheap).
-	var conn_str: String = "OK" if _connected else "OFF"
-	if _fps_header != null:
-		_fps_header.text = "FPS %d" % Engine.get_frames_per_second()
+	# FPS is sampled at most every FPS_REFRESH_MS and shown only when the integer
+	# changes; the other diagnostics update as they change. Label skips identical
+	# text, so an unchanged readout costs no HUD render.
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms >= _fps_next_ms:
+		_fps_next_ms = now_ms + FPS_REFRESH_MS
+		var fps: int = int(Engine.get_frames_per_second())
+		if _fps_header != null and fps != _fps_shown:
+			_fps_header.text = "FPS %d" % fps
+		_fps_shown = fps
 	if _debug_stats != null:
 		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s" % [
-			Engine.get_frames_per_second(), _mtp_ms, _avatar_count, conn_str,
+			maxi(_fps_shown, 0), _mtp_ms, _avatar_count, "OK" if _connected else "OFF",
 		]
 	# Hover-hint bar: resolve the control under the (synthetic) wand pointer via
 	# gui_get_hovered_control — which the pushed InputEventMouseMotion updates, so
@@ -1417,6 +1595,22 @@ func _on_decide_completed(
 	emit_signal("case_decided", decided_case, _last_outcome, accepted)
 	if accepted and _current_case_id == decided_case:
 		clear_case()
+
+
+## Beat readout from beat_pulse.gd (~4 Hz). `mic_on` is the real capture state
+## (a refused permission leaves it off), so the toggle never claims to listen
+## when it is not; the header badge shows whenever it is.
+func set_beat_status(line: String, mic_on: bool, mic_state: String = "off") -> void:
+	if _beat_label != null and _beat_label.text != line:
+		_beat_label.text = line
+	if mic_on != _beat_mic_on and _beat_mic_button != null:
+		_style_toggle(_beat_mic_button, "Mic", mic_on)
+	_beat_mic_on = mic_on
+	if _mic_badge != null:
+		_mic_badge.visible = mic_on
+		var badge: String = "● MIC" if mic_state == "off" or mic_state.is_empty() else "● MIC %s" % mic_state
+		if _mic_badge.text != badge:
+			_mic_badge.text = badge
 
 
 func set_demo_active(active: bool) -> void:

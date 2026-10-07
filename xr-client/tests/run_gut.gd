@@ -12,19 +12,19 @@ extends SceneTree
 #
 # CANONICAL INVOCATION — call gut_cmdln.gd directly (this is what CI runs):
 #
-#   godot --headless --path xr-client \
+#   godot --headless --xr-mode off --path xr-client \
 #     -s res://addons/gut/gut_cmdln.gd \
 #     -gdir=res://tests/unit -ginclude_subdirs \
 #     -gexit -gjunit_xml_file=res://tests/report/junit.xml
 #
 # or, equivalently, using the checked-in config so the flags stay in one place:
 #
-#   godot --headless --path xr-client \
+#   godot --headless --xr-mode off --path xr-client \
 #     -s res://addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
 #
 # `-gexit` makes GUT quit with a non-zero status on any failure; the JUnit XML
-# lands under res://tests/report/ for CI to collect. GUT is installed under
-# res://addons/gut/ by CI (not vendored in the repo).
+# lands under res://tests/report/ for CI to collect. GUT 9.6.1 is vendored under
+# res://addons/gut/ (pinned upstream tag; see addons/README.md).
 #
 # This shim exists only so `-s res://tests/run_gut.gd` fails LOUDLY with the
 # correct command instead of silently hanging. It never reports a false pass.

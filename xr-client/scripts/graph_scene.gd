@@ -269,9 +269,6 @@ var _edge_show_count: int = 0
 # the ceiling) rather than an arbitrary constant.
 var _node_budget: int = NODE_SAFETY_CEILING
 var _edge_budget: int = EDGE_SAFETY_CEILING
-# Alternating-frame phase for the node/edge multimesh rebuilds (see
-# _physics_process): true → nodes, false → edges.
-var _mm_phase: bool = false
 # Set of node ids that appear as an edge endpoint (built from _edge_pairs_full on
 # topology arrival). The LOD draw domain and the edge-ranking domain are both
 # restricted to these, so drawn nodes and drawable edges stay coherent.
@@ -359,6 +356,21 @@ var _radial_owner: XRController3D = null
 const PLANE_LIMIT: int = 24
 const PLANE_GAP_M: float = 0.5   # target world-metre gap between layers (pre-fit-scaled)
 const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
+# WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
+const GraphParityScript := preload("res://scripts/graph_parity.gd")
+var _parity: Node = null
+# Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
+const NodeLod := preload("res://scripts/node_lod.gd")
+var _impostors: MultiMeshInstance3D = null
+var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
+# One FrameBudget pass (xr-cloud's frame_budget.rs) shared by the graph's near
+# tiers, hulls, memory cloud and route; caps applied each frame below.
+const FrameBudgetPass := preload("res://scripts/frame_budget_pass.gd")
+var _budget = FrameBudgetPass.new()
+# Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
+# scripts/memory_cloud_layer.gd; the scene only wires it.
+const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
+var _memory_cloud = null  # MemoryCloudLayerScript instance (under GraphRoot)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -396,6 +408,8 @@ var _teleport_pulse_applied: bool = false
 # reads through the sphere. Optional — the scene works without it (no fade).
 @onready var nodes_faded_multi: MultiMeshInstance3D = get_node_or_null("GraphRoot/NodesFadedMulti")
 @onready var edges_multi: MultiMeshInstance3D = $GraphRoot/EdgesMulti
+# Node halo as camera-facing quads (replaces gem.tres's sphere next_pass).
+@onready var nodes_halo_multi: MultiMeshInstance3D = get_node_or_null("GraphRoot/NodesHaloMulti")
 # Work-beam layer (ADR-140, Pillar 2 / P3): the reserved AgentMulti MultiMesh, now
 # carrying one cylinder per active agent→target-node beam (agent_beam material).
 @onready var agent_multi: MultiMeshInstance3D = $GraphRoot/AgentMulti
@@ -519,6 +533,13 @@ func _ready() -> void:
 		var node_mat: Material = nodes_multi.material_override if nodes_multi != null else null
 		var edge_mat: Material = edges_multi.material_override if edges_multi != null else null
 		_planes.configure(_binary_client, node_mesh, edge_mesh, node_mat, edge_mat)
+	_memory_cloud = MemoryCloudLayerScript.new()
+	_memory_cloud.name = "MemoryCloud"
+	if graph_root != null:
+		graph_root.add_child(_memory_cloud)
+		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
+		_memory_cloud.pointer = right_controller
+		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -549,6 +570,18 @@ func _ready() -> void:
 	_init_label_pool()
 	_probe_eye_gaze()
 	_wire_hud()
+	_parity = GraphParityScript.new()
+	_parity.name = "GraphParity"
+	add_child(_parity)
+	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
+		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
+	_parity.setup(self, _binary_client, graph_root, hud)
+	if graph_root != null:
+		_impostors = NodeLod.make_impostor_instance()
+		graph_root.add_child(_impostors)
+		_ribbons = NodeLod.make_ribbon_instance()
+		graph_root.add_child(_ribbons)
+	_ensure_beat()
 	_connect_from_env()
 
 
@@ -709,6 +742,18 @@ func _probe_eye_gaze() -> void:
 		print("GraphScene: eye-gaze unsupported by this OpenXR runtime -- head-gaze primary")
 
 
+func _ensure_beat() -> void:
+	if _beat != null:
+		return
+	_beat = BeatPulseScript.new()
+	_beat.name = "BeatPulse"
+	add_child(_beat)
+	_beat.setup(self, _binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
+	# The memory cloud's route pulses on the same beat (is_locked/beat_phase/beat_pulse).
+	if _memory_cloud != null:
+		_memory_cloud.beat_source = _beat
+
+
 func _wire_hud() -> void:
 	if hud == null:
 		return
@@ -739,6 +784,22 @@ func _on_hud_control(action: String) -> void:
 	# Feature 3 — type show/hide filter. "type_toggle:<class>:<1|0>" (1 = visible).
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
+		return
+	if _parity != null and _parity.handle_control(action):
+		return
+	if action.begins_with("beat_") or action.begins_with("memory_bursts:"):
+		if _beat != null:
+			_beat.on_hud_action(action)
+		return
+	# Swarm roster rows emit "teleport:<wire id>" (hud.gd _mk_swarm_row); only the
+	# radial-menu path used to handle it, so a roster tap did nothing.
+	if action.begins_with("teleport:"):
+		_teleport_to_node(int(action.substr(9)))
+		return
+	# Comfort toggles are owned by spatial_environment.gd (its own connection to
+	# control_pressed); not unknown, so no warning.
+	if action.begins_with("visual_motion:") or action.begins_with("visual_quality:"):
+		_refresh_reduced_motion.call_deferred()
 		return
 	match action:
 		"reset_layout":
@@ -793,9 +854,23 @@ func _on_hud_control(action: String) -> void:
 			_unpin_all()
 		"toggle_demo":
 			_toggle_demo()
+		"memory_cloud_toggle":
+			if _memory_cloud != null:
+				_memory_cloud.set_enabled(not _memory_cloud.is_enabled())
+				_refresh_memory_cloud_hud()
+		"memory_cloud_colour":
+			if _memory_cloud != null:
+				_memory_cloud.cycle_colour_mode()
+				_refresh_memory_cloud_hud()
 		_:
 			push_warning("GraphScene: unknown HUD control '%s'" % action)
 	_refresh_controls_status()
+
+
+# Push the memory-cloud button labels (state, colour mode) to the HUD.
+func _refresh_memory_cloud_hud() -> void:
+	if hud != null and _memory_cloud != null and hud.has_method("set_memory_cloud_state"):
+		hud.set_memory_cloud_state(_memory_cloud.is_enabled(), _memory_cloud.status_label(), _memory_cloud.colour_mode_label())
 
 
 # Apply a type show/hide toggle "<class>:<1|0>" to the render store. Class codes
@@ -1325,15 +1400,13 @@ func _physics_process(delta: float) -> void:
 	if _binary_client != null and _binary_client.has_method("hunt"):
 		_binary_client.hunt(POSITION_HUNT_EASE, _grabbed_id, _grab_target_server)
 	_fit_graph_to_view(delta)
-	# At the desktop-Vive instance budgets the two multimesh rebuilds are the
-	# frame-cost hot spot (GDScript loops over ~6k instances). Alternate them so
-	# each runs at 45 Hz while the compositor holds 90 — position hunting eases
-	# per frame, so half-rate transform refresh is visually indistinguishable.
-	_mm_phase = not _mm_phase
-	if _mm_phase:
-		_update_multimesh()
-	else:
-		_update_edge_multimesh()
+	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
+	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
+	# when GDScript looped over the instances) is gone — it also left edge ends a
+	# frame behind their nodes. The far ribbon tier refreshes half per frame.
+	_update_multimesh()
+	_update_edge_multimesh()
+	_tick_frame_budget(delta)
 	# Work beams (ADR-140, Pillar 2 / P3) refresh every frame: the buffer is a short
 	# walk of the agent registry (tens of instances), not the node/edge domain, so it
 	# is not part of the 45 Hz alternation — the flowing stream stays crisp at 90 Hz.
@@ -1861,7 +1934,18 @@ func _update_multimesh() -> void:
 		_recompute_drawn_ids()
 		_selection_dirty = false
 	var comp: float = NODE_WORLD_RADIUS * _node_size_factor / (NODE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
+	var buf: PackedFloat32Array
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if _impostors != null and cam != null and _binary_client.has_method("build_node_buffer_lod"):
+		# Gem mesh for the nearest NEAR_CAP nodes within NEAR_RADIUS_M of the eye;
+		# every other drawn node is a 2-triangle impostor (one extra draw call).
+		var inv: Transform3D = graph_root.global_transform.affine_inverse()
+		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
+		buf = _binary_client.build_node_buffer_lod(_drawn_ids, comp, 0.7, 1.9,
+			inv * cam.global_position, int(_budget.caps["gem_nodes"]), NodeLod.NEAR_RADIUS_M / world_per_server)
+		NodeLod.assign(_impostors, _binary_client.impostor_node_buffer())
+	else:
+		buf = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
 	var mm: MultiMesh = nodes_multi.multimesh
 	var count: int = buf.size() / 20
 	if mm.instance_count != count:
@@ -1881,6 +1965,36 @@ func _update_multimesh() -> void:
 		fmm.instance_count = fcount
 	if fcount > 0:
 		fmm.buffer = fbuf
+	# Halo quads (NodesHaloMulti) for every full-mesh node: the gem tier + faded.
+	if nodes_halo_multi != null:
+		NodeLod.assign_halo(nodes_halo_multi, buf, fbuf)
+
+
+# FrameBudget pass (frame_budget_pass.gd) from what was actually drawn this frame:
+# instance counts per layer, the hull mesh, the memory layer's demand, and the
+# renderer's frame total for everything outside the budgeted layers.
+func _tick_frame_budget(delta: float) -> void:
+	if _binary_client == null:
+		return
+	var n := func(mmi: MultiMeshInstance3D) -> int:
+		return mmi.multimesh.instance_count if mmi != null and mmi.multimesh != null and mmi.visible else 0
+	var layers := {
+		"gems": n.call(nodes_multi), "faded": n.call(nodes_faded_multi), "halos": n.call(nodes_halo_multi),
+		"impostors": n.call(_impostors), "cylinders": n.call(edges_multi), "ribbons": n.call(_ribbons),
+		"hulls": _parity.hull_count if _parity != null else 0,
+		"hull_tris": _parity.hull_triangles if _parity != null else 0,
+	}
+	var calls: int = 0
+	for mmi in [nodes_multi, nodes_faded_multi, nodes_halo_multi, _impostors, edges_multi, _ribbons, agent_multi]:
+		if n.call(mmi) > 0:
+			calls += 1
+	if int(layers["hulls"]) > 0:
+		calls += 1
+	layers["draw_calls"] = calls
+	var measured: int = int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+	var bursts_on: bool = _beat != null and bool(_beat.get("bursts_enabled"))
+	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured, bursts_on) and _parity != null:
+		_parity.max_hulls = int(_budget.caps["max_hulls"])
 
 
 # Edge MultiMesh: Rust filters the ranked pairs to both-endpoints-drawn and packs
@@ -1889,7 +2003,19 @@ func _update_edge_multimesh() -> void:
 	if edges_multi == null or edges_multi.multimesh == null or _binary_client == null:
 		return
 	var er: float = EDGE_WORLD_RADIUS / (EDGE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array = _binary_client.build_edge_buffer(_edge_pairs, er)
+	var buf: PackedFloat32Array
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if _ribbons != null and cam != null and _binary_client.has_method("build_edge_buffer_lod"):
+		# Cylinders for the NEAR_EDGE_CAP edges whose midpoint is nearest the eye;
+		# every other drawn edge is a 2-triangle ribbon (one extra draw call).
+		var inv: Transform3D = graph_root.global_transform.affine_inverse()
+		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
+		buf = _binary_client.build_edge_buffer_lod(_edge_pairs, er, inv * cam.global_position,
+			int(_budget.caps["cylinder_edges"]), NodeLod.NEAR_EDGE_RADIUS_M / world_per_server)
+		NodeLod.sync_edge_params(edges_multi.material_override, _ribbons.material_override)
+		NodeLod.assign_stride(_ribbons, _binary_client.ribbon_edge_buffer(), 16)
+	else:
+		buf = _binary_client.build_edge_buffer(_edge_pairs, er)
 	var mm: MultiMesh = edges_multi.multimesh
 	# 16 floats/instance: 12 transform + 4 INSTANCE_CUSTOM (style code in .a).
 	# MultiMesh_edges has use_custom_data=true, so the resource stride is 16 — the
@@ -2199,6 +2325,9 @@ var _swarm_sig: String = ""
 # Server owns WHICH node / status / task; the client owns WHERE in the room.
 const AgentChoreography := preload("res://scripts/agent_choreography.gd")
 const AgentEffects := preload("res://scripts/agent_effects.gd")
+# WP3/WP5/WP8: beat clock, memory_flash bursts and attention heat (beat_pulse.gd
+# owns the behaviour; the hooks here only create it and route frames/intents).
+const BeatPulseScript := preload("res://scripts/beat_pulse.gd")
 const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
 const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
@@ -2209,6 +2338,7 @@ const RIM_FALLBACK_RADIUS_M: float = 1.5
 
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
+var _beat: Node = null
 var _demo: RefCounted = AgentDemoDirector.new()
 var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
 var _selected_agent_id: String = ""  # last agent the arbiter resolved (caption stays up)
@@ -2399,8 +2529,12 @@ func _refresh_reduced_motion() -> void:
 		var state: Dictionary = comfort.call("get_visual_comfort")
 		_reduced_motion = bool(state.get("reduced_motion", true))
 	_choreo.reduced_motion = _reduced_motion
+	if _memory_cloud != null:
+		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
 		_effects.reduced_motion = _reduced_motion
+	if _beat != null:
+		_beat.reduced_motion = _reduced_motion
 
 
 func _ensure_effects() -> void:
@@ -2589,7 +2723,14 @@ func _on_graph_text(json: String) -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	var msg: Dictionary = parsed
-	match str(msg.get("type", "")):
+	# settingsUpdated / filter_update_success / graphUpdated (WP2, ADR-2047).
+	if _parity != null and _parity.route_text(json, str(msg.get("type", ""))):
+		return
+	var msg_type: String = str(msg.get("type", ""))
+	# beatClock / pong / memory_flash: the beat clock and memory bursts (ADR-2134).
+	if _beat != null and _beat.on_text(json, msg_type):
+		return
+	match msg_type:
 		"broker:new_case":
 			# A malformed frame can carry a non-Dictionary payload (string, null,
 			# array); passing that to a Dictionary-typed param crashes
@@ -2597,6 +2738,10 @@ func _on_graph_text(json: String) -> void:
 			var p: Variant = msg.get("payload", {})
 			if typeof(p) == TYPE_DICTIONARY:
 				_handle_broker_new_case(p)
+		"memoryRoute":
+			# Desktop query route relayed per session (WP7); the layer gates it.
+			if _memory_cloud != null:
+				_memory_cloud.apply_route_json(json)
 		"nodeUnpinAck":
 			# Server confirmed the release (position_updates.rs handle_node_unpin →
 			# {"type":"nodeUnpinAck","data":{"nodeId":N}}). Drop the id from the

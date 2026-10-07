@@ -14,23 +14,38 @@
 //! - Hall's-zones proxemics arc solver (`proxemics`)
 //! - per-agent activity + gaze-attention model (`avatar_state`)
 //! - distance-bucket LOD policy (`lod`)
+//! - desktop semantic encoding, attention heat and beat clock ports
+//!   (`semantic`, `attention`, `beat`) and their Godot glue (`pulse`)
 //! - spatial voice routing surface (`webrtc_audio`)
 //!
 //! GDScript drives scene composition only; this crate owns every byte that
 //! crosses the wire and every threshold that gates a pose / hit / level.
 
+pub mod attention;
 pub mod avatar_state;
+pub mod beat;
 pub mod binary_protocol;
+pub mod domain_palette;
+pub mod frame_budget;
 pub mod gaze;
+pub mod hulls;
 pub mod interaction;
 pub mod lod;
+pub mod perf_fixture;
+pub mod memory_cloud;
+pub mod memory_route;
 pub mod ports;
 pub mod presence;
 pub mod proxemics;
+#[cfg(not(test))]
+pub mod pulse;
 pub mod render_store;
 pub mod runtime;
 pub mod selection;
+pub mod semantic;
+pub mod settings_sync;
 pub mod signer;
+pub mod thread_cpu;
 pub mod transport;
 pub mod webrtc_audio;
 

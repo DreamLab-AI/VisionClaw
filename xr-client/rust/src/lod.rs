@@ -163,6 +163,185 @@ pub fn select_top_by_centrality(centrality: &[f32], cap: usize) -> Vec<u32> {
     idx
 }
 
+// --- Node-mesh LOD (PRD-008 §6: ≤ 100k triangles, ≤ 50 draw calls) ---------
+//
+// The full gem node was a 16×8 sphere drawn twice (the halo `next_pass`): 576
+// triangles per node on HP (Godot 4.6.1, opengl3, 2026-10-07), so 1 000 gem
+// nodes alone were 576k triangles and 13k ≈ 7.5M. The halo is now a quad layer
+// (290 per gem node), and two tiers bound the rest without touching the near
+// look: the nearest `near_cap` nodes inside `near_max_dist` keep the gem, and
+// every other drawn node is a 2-triangle camera-facing impostor
+// (`materials/node_impostor.gdshader`) in one extra MultiMesh — one more draw
+// call, whatever the node count.
+
+/// 16×8 SphereMesh (GraphScene `SphereMesh_node`), measured.
+pub const SPHERE_TRIS: usize = 288;
+/// The halo is one camera-facing quad per gem node (`NodesHaloMulti`,
+/// `node_halo_quad.gdshader`), not a second sphere pass: the old `next_pass`
+/// shell doubled the gem to 576 triangles.
+pub const HALO_TRIS_PER_NODE: usize = 2;
+/// Triangles per gem-tier node: one sphere pass plus its halo quad.
+pub const GEM_TRIS_PER_NODE: usize = SPHERE_TRIS + HALO_TRIS_PER_NODE;
+/// One quad per impostor.
+pub const IMPOSTOR_TRIS_PER_NODE: usize = 2;
+/// Near-field triangle ceiling the cap is sized for.
+pub const NEAR_TRI_BUDGET: usize = 60_000;
+/// Default gem cap: 80 · 290 = 23 200 triangles. Sized with the edge tier and
+/// hulls so the whole scene stays ≥ 3 % under 100k at 13 164 nodes / 20 000
+/// edges (see `scene_triangle_estimate`).
+pub const DEFAULT_NEAR_CAP: usize = 80;
+/// Default near radius in world metres (the graph is fitted to ~2.4 m, a node
+/// is ~3 cm): past ~1 m a node subtends under 2°, where the impostor's shaded
+/// disc and the sphere are indistinguishable.
+pub const DEFAULT_NEAR_RADIUS_M: f32 = 1.0;
+/// A node that was in the gem tier last build competes with its squared
+/// distance scaled by this, so boundary nodes do not flip tiers every frame.
+pub const NEAR_HYSTERESIS_SQ: f32 = 0.81; // ≈ 10 % in distance
+
+/// Worst-case triangles for nodes plus edges with both near tiers full (hulls
+/// excluded — add `hulls::DEFAULT_MAX_HULLS * hulls::MAX_TRIS_PER_HULL`).
+pub fn scene_triangle_estimate(nodes: usize, edges: usize, near_cap: usize, near_edge_cap: usize) -> usize {
+    let near_edges = edges.min(near_edge_cap);
+    node_triangle_estimate(nodes, near_cap)
+        + near_edges * CYLINDER_TRIS_PER_EDGE
+        + (edges - near_edges) * RIBBON_TRIS_PER_EDGE
+}
+
+/// Triangles the graph's layers draw for the given instance counts: gem spheres
+/// (gem tier + faded), halo quads, impostors, cylinders, ribbons, plus the
+/// measured hull mesh. The live FrameBudget pass subtracts this (and the memory
+/// layers) from the renderer's frame total to measure everything else.
+pub fn graph_layer_triangles(
+    gems: usize,
+    faded: usize,
+    halos: usize,
+    impostors: usize,
+    cylinders: usize,
+    ribbons: usize,
+    hull_tris: usize,
+) -> usize {
+    (gems + faded) * SPHERE_TRIS
+        + halos * HALO_TRIS_PER_NODE
+        + impostors * IMPOSTOR_TRIS_PER_NODE
+        + cylinders * CYLINDER_TRIS_PER_EDGE
+        + ribbons * RIBBON_TRIS_PER_EDGE
+        + hull_tris
+}
+
+/// Worst-case node triangles for `nodes` drawn with a full gem cap.
+pub fn node_triangle_estimate(nodes: usize, near_cap: usize) -> usize {
+    let near = nodes.min(near_cap);
+    near * GEM_TRIS_PER_NODE + (nodes - near) * IMPOSTOR_TRIS_PER_NODE
+}
+
+/// Uncapped 8-sided edge cylinder (GraphScene `CylinderMesh_edge`, caps off —
+/// the ends sit inside the node spheres): measured 32 triangles (48 with caps).
+pub const CYLINDER_TRIS_PER_EDGE: usize = 32;
+/// One camera-facing ribbon quad per far edge.
+pub const RIBBON_TRIS_PER_EDGE: usize = 2;
+/// Default near-field cylinder cap: 96 · 32 = 3 072 triangles.
+pub const DEFAULT_NEAR_EDGE_CAP: usize = 96;
+
+/// Split a packed instance buffer (`stride` floats per instance, row-major 3×4
+/// transform first, origin at floats 3/7/11 — node centre or edge midpoint) into
+/// a near tier and a far tier, writing into caller-owned buffers so a steady
+/// frame allocates nothing.
+///
+/// `prev_near[i]` (missing ⇒ false) says instance i was in the near tier last
+/// build; such an instance competes with its squared distance scaled by
+/// [`NEAR_HYSTERESIS_SQ`]. The near tier is the `near_cap` instances nearest
+/// `cam` within `near_max_dist`; both outputs keep scene order and every float of
+/// an instance travels with it. `near_flags` receives the per-instance result.
+/// O(n): a partial select, not a sort. A truncated trailing instance is dropped.
+#[allow(clippy::too_many_arguments)]
+pub fn split_tiers_into(
+    buf: &[f32],
+    stride: usize,
+    prev_near: &[bool],
+    cam: [f32; 3],
+    near_cap: usize,
+    near_max_dist: f32,
+    near: &mut Vec<f32>,
+    far: &mut Vec<f32>,
+    near_flags: &mut Vec<bool>,
+    cand: &mut Vec<(f32, usize)>,
+) {
+    near.clear();
+    far.clear();
+    near_flags.clear();
+    cand.clear();
+    if stride < 12 {
+        far.extend_from_slice(buf);
+        return;
+    }
+    let n = buf.len() / stride;
+    let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
+    for i in 0..n {
+        let o = i * stride;
+        let d2 = distance_squared(cam, [buf[o + 3], buf[o + 7], buf[o + 11]]);
+        if d2.is_nan() || d2 > max_sq {
+            continue; // beyond the radius, or NaN
+        }
+        let was_near = prev_near.get(i).copied().unwrap_or(false);
+        cand.push((if was_near { d2 * NEAR_HYSTERESIS_SQ } else { d2 }, i));
+    }
+    let take = near_cap.min(cand.len());
+    near_flags.resize(n, false);
+    if take > 0 {
+        if take < cand.len() {
+            cand.select_nth_unstable_by(take - 1, |a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        }
+        for &(_, i) in &cand[..take] {
+            near_flags[i] = true;
+        }
+    }
+    for (i, &flag) in near_flags.iter().enumerate() {
+        let chunk = &buf[i * stride..(i + 1) * stride];
+        if flag {
+            near.extend_from_slice(chunk);
+        } else {
+            far.extend_from_slice(chunk);
+        }
+    }
+}
+
+/// [`split_tiers_into`] keyed by stable instance identities (node id, endpoint
+/// pair) with hysteresis against the previous near set; allocating convenience
+/// form for callers without a pack plan.
+#[allow(clippy::type_complexity)]
+pub fn split_tiers<K: Copy + Eq + std::hash::Hash>(
+    buf: &[f32],
+    stride: usize,
+    keys: &[K],
+    cam: [f32; 3],
+    near_cap: usize,
+    near_max_dist: f32,
+    prev_near: &std::collections::HashSet<K>,
+) -> (Vec<f32>, Vec<f32>, std::collections::HashSet<K>) {
+    let prev: Vec<bool> = keys.iter().map(|k| prev_near.contains(k)).collect();
+    let (mut near, mut far, mut flags, mut cand) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    split_tiers_into(buf, stride, &prev, cam, near_cap, near_max_dist, &mut near, &mut far, &mut flags, &mut cand);
+    let near_keys = flags
+        .iter()
+        .enumerate()
+        .filter(|(_, &f)| f)
+        .filter_map(|(i, _)| keys.get(i).copied())
+        .collect();
+    (near, far, near_keys)
+}
+
+/// [`split_tiers`] for the 20-float node buffer keyed by node id.
+pub fn split_node_tiers(
+    buf: &[f32],
+    ids: &[u32],
+    cam: [f32; 3],
+    near_cap: usize,
+    near_max_dist: f32,
+    prev_near: &std::collections::HashSet<u32>,
+) -> (Vec<f32>, Vec<f32>, std::collections::HashSet<u32>) {
+    split_tiers(buf, 20, ids, cam, near_cap, near_max_dist, prev_near)
+}
+
 #[cfg(not(test))]
 #[derive(GodotClass)]
 #[class(no_init, base = RefCounted)]
