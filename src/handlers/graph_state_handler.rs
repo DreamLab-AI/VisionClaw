@@ -68,7 +68,7 @@ pub async fn get_graph_state(state: web::Data<AppState>) -> impl Responder {
 
     let load_handler = LoadGraphHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || load_handler.handle(LoadGraph)).await;
+    let result = execute_in_thread(move || load_handler.handle(LoadGraph).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(query_result)) => {
@@ -127,7 +127,8 @@ pub async fn get_graph_statistics(state: web::Data<AppState>) -> impl Responder 
 
     let handler = GetGraphStatisticsHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetGraphStatistics)).await;
+    let result =
+        execute_in_thread(move || handler.handle(GetGraphStatistics).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(query_result)) => {
@@ -167,7 +168,8 @@ pub async fn add_node(
 
     let handler = AddNodeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(AddNode { node })).await;
+    let result =
+        execute_in_thread(move || handler.handle(AddNode { node }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -198,7 +200,8 @@ pub async fn update_node(
 
     let handler = UpdateNodeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(UpdateNode { node })).await;
+    let result =
+        execute_in_thread(move || handler.handle(UpdateNode { node }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -228,7 +231,9 @@ pub async fn remove_node(
 
     let handler = RemoveNodeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(RemoveNode { node_id: id })).await;
+    let result =
+        execute_in_thread(move || handler.handle(RemoveNode { node_id: id }).map_err(Box::new))
+            .await;
 
     match result {
         Ok(Ok(())) => {
@@ -254,7 +259,8 @@ pub async fn get_node(state: web::Data<AppState>, node_id: web::Path<u32>) -> im
 
     let handler = GetNodeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetNode { node_id: id })).await;
+    let result =
+        execute_in_thread(move || handler.handle(GetNode { node_id: id }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(query_result)) => {
@@ -304,7 +310,8 @@ pub async fn add_edge(
 
     let handler = AddEdgeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(AddEdge { edge })).await;
+    let result =
+        execute_in_thread(move || handler.handle(AddEdge { edge }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -335,7 +342,8 @@ pub async fn update_edge(
 
     let handler = UpdateEdgeHandler::new(state.graph_adapter.clone());
 
-    let result = execute_in_thread(move || handler.handle(UpdateEdge { edge })).await;
+    let result =
+        execute_in_thread(move || handler.handle(UpdateEdge { edge }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -368,8 +376,12 @@ pub async fn batch_update_positions(
 
     let handler = BatchUpdatePositionsHandler::new(state.graph_adapter.clone());
 
-    let result =
-        execute_in_thread(move || handler.handle(BatchUpdatePositions { positions })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(BatchUpdatePositions { positions })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {

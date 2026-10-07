@@ -271,6 +271,20 @@ impl std::fmt::Display for DetailedValidationError {
 
 impl std::error::Error for DetailedValidationError {}
 
+// `ValidationResult` boxes its error; these let `?` lift the unboxed
+// sources straight into it.
+impl From<crate::utils::validation::ValidationError> for Box<DetailedValidationError> {
+    fn from(err: crate::utils::validation::ValidationError) -> Self {
+        Box::new(err.into())
+    }
+}
+
+impl From<ValidationErrorType> for Box<DetailedValidationError> {
+    fn from(error_type: ValidationErrorType) -> Self {
+        Box::new(error_type.into())
+    }
+}
+
 impl From<crate::utils::validation::ValidationError> for DetailedValidationError {
     fn from(err: crate::utils::validation::ValidationError) -> Self {
         Self {

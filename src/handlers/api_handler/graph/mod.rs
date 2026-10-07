@@ -200,18 +200,21 @@ pub async fn get_graph_data(
     let node_map_handler = state.graph_query_handlers.get_node_map.clone();
     let physics_handler = state.graph_query_handlers.get_physics_state.clone();
 
-    let graph_future = execute_in_thread(move || graph_handler.handle(GetGraphData));
-    let node_map_future = execute_in_thread(move || node_map_handler.handle(GetNodeMap));
-    let physics_future = execute_in_thread(move || physics_handler.handle(GetPhysicsState));
+    let graph_future =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new));
+    let node_map_future =
+        execute_in_thread(move || node_map_handler.handle(GetNodeMap).map_err(Box::new));
+    let physics_future =
+        execute_in_thread(move || physics_handler.handle(GetPhysicsState).map_err(Box::new));
 
     // Live physics settlement telemetry, fetched concurrently with the CQRS
     // queries. `None` ⇒ GPU actor not up / no tick yet ⇒ run-state fallback.
     let settlement_future = fetch_settlement(&state);
 
     let (graph_result, node_map_result, physics_result, settlement): (
-        Result<Result<Arc<GraphData>, Hexserror>, String>,
-        Result<Result<Arc<HashMap<u32, Node>>, Hexserror>, String>,
-        Result<Result<PhysicsState, Hexserror>, String>,
+        Result<Result<Arc<GraphData>, Box<Hexserror>>, String>,
+        Result<Result<Arc<HashMap<u32, Node>>, Box<Hexserror>>, String>,
+        Result<Result<PhysicsState, Box<Hexserror>>, String>,
         Option<SettlementSnapshot>,
     ) = tokio::join!(
         graph_future,
@@ -347,7 +350,8 @@ pub async fn get_paginated_graph_data(
     }
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
-    let graph_result = execute_in_thread(move || graph_handler.handle(GetGraphData)).await;
+    let graph_result =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new)).await;
 
     let graph_data_owned = match graph_result {
         Ok(Ok(g_owned)) => g_owned,
@@ -435,7 +439,8 @@ pub async fn refresh_graph(state: web::Data<AppState>) -> impl Responder {
     info!("Received request to refresh graph (CQRS Phase 1D)");
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
-    let graph_result = execute_in_thread(move || graph_handler.handle(GetGraphData)).await;
+    let graph_result =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new)).await;
 
     match graph_result {
         Ok(Ok(graph_data_owned)) => {
@@ -577,7 +582,7 @@ pub async fn get_auto_balance_notifications(
         .clone();
     let query_obj = GetAutoBalanceNotifications { since_timestamp };
 
-    let result = execute_in_thread(move || handler.handle(query_obj)).await;
+    let result = execute_in_thread(move || handler.handle(query_obj).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(notifications)) => ok_json!(serde_json::json!({

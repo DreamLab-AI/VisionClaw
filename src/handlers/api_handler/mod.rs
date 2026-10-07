@@ -41,7 +41,7 @@ async fn get_app_config(state: web::Data<crate::AppState>) -> impl Responder {
 
     let handler = LoadAllSettingsHandler::new(state.settings_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(LoadAllSettings)).await;
+    let result = execute_in_thread(move || handler.handle(LoadAllSettings).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(Some(settings))) => ok_json!(json!({

@@ -5,6 +5,7 @@ use crate::types::speech::SpeechOptions;
 use crate::utils::validation::errors::DetailedValidationError;
 use crate::utils::validation::rate_limit::{extract_client_id, EndpointRateLimits, RateLimiter};
 use crate::utils::validation::sanitization::Sanitizer;
+use crate::utils::validation::ValidationResult;
 use crate::utils::validation::MAX_REQUEST_SIZE;
 use crate::AppState;
 use crate::{error_json, ok_json, service_unavailable, too_many_requests};
@@ -337,7 +338,7 @@ impl EnhancedRagFlowHandler {
             .and_then(|t| t.as_bool())
             .unwrap_or(false);
 
-        self.validate_question_content(question)?;
+        self.validate_question_content(question).map_err(|e| *e)?;
 
         let ragflow_service = match &state.ragflow_service {
             Some(service) => service,
@@ -436,7 +437,7 @@ impl EnhancedRagFlowHandler {
 
         let sanitized_user_id = Sanitizer::sanitize_string(user_id).map_err(|e| {
             warn!("User ID sanitization failed: {}", e);
-            e
+            *e
         })?;
 
         let ragflow_service = match &state.ragflow_service {
@@ -494,7 +495,7 @@ impl EnhancedRagFlowHandler {
 
         let sanitized_session_id = Sanitizer::sanitize_string(&session_id).map_err(|e| {
             warn!("Session ID sanitization failed: {}", e);
-            e
+            *e
         })?;
 
         debug!(
@@ -534,7 +535,7 @@ impl EnhancedRagFlowHandler {
         }
     }
 
-    fn validate_question_content(&self, question: &str) -> Result<(), DetailedValidationError> {
+    fn validate_question_content(&self, question: &str) -> ValidationResult<()> {
         let injection_patterns = [
             "ignore previous instructions",
             "forget everything above",
@@ -553,7 +554,8 @@ impl EnhancedRagFlowHandler {
                 return Err(DetailedValidationError::malicious_content(
                     "question",
                     "prompt_injection",
-                ));
+                )
+                .into());
             }
         }
 
@@ -562,7 +564,8 @@ impl EnhancedRagFlowHandler {
                 "question",
                 "Question contains excessive repetition",
                 "EXCESSIVE_REPETITION",
-            ));
+            )
+            .into());
         }
 
         if question.len() > 8000 {
@@ -570,7 +573,8 @@ impl EnhancedRagFlowHandler {
                 "question",
                 "Question is too long",
                 "QUESTION_TOO_LONG",
-            ));
+            )
+            .into());
         }
 
         Ok(())

@@ -81,7 +81,8 @@ pub async fn get_ontology_graph(
 
     let handler = LoadOntologyGraphHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(LoadOntologyGraph)).await;
+    let result =
+        execute_in_thread(move || handler.handle(LoadOntologyGraph).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(graph)) => {
@@ -109,7 +110,12 @@ pub async fn save_ontology_graph(
 
     let handler = SaveOntologyGraphHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(SaveOntologyGraph { graph })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(SaveOntologyGraph { graph })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -139,7 +145,12 @@ pub async fn get_owl_class(
     let handler = GetOwlClassHandler::new(state.ontology_repository.clone());
 
     let iri_clone = class_iri.clone();
-    let result = execute_in_thread(move || handler.handle(GetOwlClass { iri: iri_clone })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(GetOwlClass { iri: iri_clone })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(Some(class))) => {
@@ -168,7 +179,7 @@ pub async fn list_owl_classes(
 
     let handler = ListOwlClassesHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(ListOwlClasses)).await;
+    let result = execute_in_thread(move || handler.handle(ListOwlClasses).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(classes)) => {
@@ -214,7 +225,7 @@ pub async fn get_class_hierarchy(
     }
 
     let handler = ListOwlClassesHandler::new(state.ontology_repository.clone());
-    let result = execute_in_thread(move || handler.handle(ListOwlClasses)).await;
+    let result = execute_in_thread(move || handler.handle(ListOwlClasses).map_err(Box::new)).await;
 
     let classes = match result {
         Ok(Ok(c)) => c,
@@ -325,7 +336,8 @@ pub async fn add_owl_class(
     let handler = AddOwlClassHandler::new(state.ontology_repository.clone());
 
     let class_iri = class.iri.clone();
-    let result = execute_in_thread(move || handler.handle(AddOwlClass { class })).await;
+    let result =
+        execute_in_thread(move || handler.handle(AddOwlClass { class }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -356,7 +368,8 @@ pub async fn update_owl_class(
 
     let handler = UpdateOwlClassHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(UpdateOwlClass { class })).await;
+    let result =
+        execute_in_thread(move || handler.handle(UpdateOwlClass { class }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -386,7 +399,12 @@ pub async fn remove_owl_class(
 
     let handler = RemoveOwlClassHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(RemoveOwlClass { iri: class_iri })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(RemoveOwlClass { iri: class_iri })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -420,8 +438,12 @@ pub async fn get_owl_property(
     // from within a runtime" on the actix worker (same defect as the 2026-08-10
     // hierarchy fix; this and add_owl_property were the last two bare calls).
     let iri_for_query = property_iri.clone();
-    let result =
-        execute_in_thread(move || handler.handle(GetOwlProperty { iri: iri_for_query })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(GetOwlProperty { iri: iri_for_query })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(Some(property))) => {
@@ -450,7 +472,8 @@ pub async fn list_owl_properties(
 
     let handler = ListOwlPropertiesHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(ListOwlProperties)).await;
+    let result =
+        execute_in_thread(move || handler.handle(ListOwlProperties).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(properties)) => {
@@ -486,7 +509,12 @@ pub async fn add_owl_property(
 
     let property_iri = property.iri.clone();
     // Off the async worker — see get_owl_property.
-    let result = execute_in_thread(move || handler.handle(AddOwlProperty { property })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(AddOwlProperty { property })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -523,7 +551,12 @@ pub async fn update_owl_property(
 
     let handler = UpdateOwlPropertyHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(UpdateOwlProperty { property })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(UpdateOwlProperty { property })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -552,7 +585,12 @@ pub async fn get_class_axioms(
 
     let handler = GetClassAxiomsHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetClassAxioms { class_iri })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(GetClassAxioms { class_iri })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(axioms)) => {
@@ -591,7 +629,8 @@ pub async fn add_axiom(
     // on an actix worker panics with "Cannot start a runtime from within a
     // runtime" and drops the connection. Run it on a dedicated thread, exactly
     // as remove_axiom below already does.
-    let result = execute_in_thread(move || handler.handle(AddAxiom { axiom })).await;
+    let result =
+        execute_in_thread(move || handler.handle(AddAxiom { axiom }).map_err(Box::new)).await;
     match result {
         Ok(Ok(())) => {
             info!("Axiom added successfully via CQRS: type={}", axiom_type);
@@ -629,7 +668,12 @@ pub async fn remove_axiom(
 
     let handler = RemoveAxiomHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(RemoveAxiom { axiom_id: id })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(RemoveAxiom { axiom_id: id })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -662,7 +706,8 @@ pub async fn get_inference_results(
 
     let handler = GetInferenceResultsHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetInferenceResults)).await;
+    let result =
+        execute_in_thread(move || handler.handle(GetInferenceResults).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(Some(results))) => {
@@ -697,7 +742,12 @@ pub async fn store_inference_results(
 
     let handler = StoreInferenceResultsHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(StoreInferenceResults { results })).await;
+    let result = execute_in_thread(move || {
+        handler
+            .handle(StoreInferenceResults { results })
+            .map_err(Box::new)
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -732,7 +782,8 @@ pub async fn validate_ontology(
 
     let handler = ValidateOntologyHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(ValidateOntology)).await;
+    let result =
+        execute_in_thread(move || handler.handle(ValidateOntology).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(report)) => {
@@ -925,7 +976,8 @@ pub async fn query_ontology(
 
     let handler = QueryOntologyHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(QueryOntology { query })).await;
+    let result =
+        execute_in_thread(move || handler.handle(QueryOntology { query }).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(results)) => {
@@ -1020,7 +1072,8 @@ pub async fn get_ontology_metrics(
 
     let handler = GetOntologyMetricsHandler::new(state.ontology_repository.clone());
 
-    let result = execute_in_thread(move || handler.handle(GetOntologyMetrics)).await;
+    let result =
+        execute_in_thread(move || handler.handle(GetOntologyMetrics).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(metrics)) => {
@@ -1082,17 +1135,19 @@ mod owl_property_dispatch_tests {
 
         let add = AddOwlPropertyHandler::new(repo.clone());
         let p = property(&iri);
-        let added = execute_in_thread(move || add.handle(AddOwlProperty { property: p }))
-            .await
-            .expect("blocking task joined");
+        let added =
+            execute_in_thread(move || add.handle(AddOwlProperty { property: p }).map_err(Box::new))
+                .await
+                .expect("blocking task joined");
         assert!(added.is_ok(), "add failed: {:?}", added.err());
 
         let get = GetOwlPropertyHandler::new(repo.clone());
         let q = iri.clone();
-        let got = execute_in_thread(move || get.handle(GetOwlProperty { iri: q }))
-            .await
-            .expect("blocking task joined")
-            .expect("query ok");
+        let got =
+            execute_in_thread(move || get.handle(GetOwlProperty { iri: q }).map_err(Box::new))
+                .await
+                .expect("blocking task joined")
+                .expect("query ok");
         assert_eq!(got.map(|p| p.iri), Some(iri.clone()));
 
         let get = GetOwlPropertyHandler::new(repo);
@@ -1100,6 +1155,7 @@ mod owl_property_dispatch_tests {
             get.handle(GetOwlProperty {
                 iri: "http://example.org/absent".into(),
             })
+            .map_err(Box::new)
         })
         .await
         .expect("blocking task joined")
@@ -1120,6 +1176,7 @@ mod owl_property_dispatch_tests {
                 get.handle(GetOwlProperty {
                     iri: "http://example.org/x".into(),
                 })
+                .map_err(Box::new)
             }))
         })
         .await

@@ -329,7 +329,7 @@ impl ErrorResponse {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-async fn check_feature_enabled() -> Result<(), ErrorResponse> {
+async fn check_feature_enabled() -> Result<(), Box<ErrorResponse>> {
     let flags = FEATURE_FLAGS.lock().await;
 
     if !flags.ontology_validation {
@@ -343,7 +343,8 @@ async fn check_feature_enabled() -> Result<(), ErrorResponse> {
             "Ontology validation feature is disabled",
             "FEATURE_DISABLED",
         )
-        .with_details(details));
+        .with_details(details)
+        .into());
     }
 
     Ok(())
@@ -354,7 +355,7 @@ fn actor_timeout() -> StdDuration {
     StdDuration::from_secs(30)
 }
 
-async fn extract_property_graph(state: &AppState) -> Result<PropertyGraph, ErrorResponse> {
+async fn extract_property_graph(state: &AppState) -> Result<PropertyGraph, Box<ErrorResponse>> {
     use crate::services::owl_validator::{GraphEdge, GraphNode};
 
     match state.ontology_repository.load_ontology_graph().await {
@@ -397,7 +398,8 @@ async fn extract_property_graph(state: &AppState) -> Result<PropertyGraph, Error
         Err(e) => Err(ErrorResponse::new(
             &format!("Failed to extract property graph: {}", e),
             "PROPERTY_GRAPH_EXTRACTION_FAILED",
-        )),
+        )
+        .into()),
     }
 }
 
