@@ -1,5 +1,7 @@
 use crate::config::feature_access::FeatureAccess;
 use crate::models::protected_settings::{ApiKeys, NostrUser};
+#[cfg(feature = "redis")]
+use crate::utils::json::from_json;
 use crate::utils::json::to_json;
 use crate::utils::nip98::{parse_auth_header, validate_nip98_token, Nip98ValidationResult};
 use crate::utils::time;
@@ -149,7 +151,7 @@ impl NostrService {
                 Ok(client) => {
                     info!(
                         "[NostrService] Connected to Redis for session persistence: {}",
-                        url.split('@').last().unwrap_or(&url)
+                        url.rsplit('@').next().unwrap_or(&url)
                     );
                     Some(client)
                 }
@@ -181,7 +183,7 @@ impl NostrService {
     pub async fn initialize(&self) -> Result<usize, NostrError> {
         #[cfg(feature = "redis")]
         {
-            if let Some(ref client) = self.redis_client {
+            if self.redis_client.is_some() {
                 return self.restore_sessions_from_redis().await;
             }
         }
@@ -516,7 +518,8 @@ impl NostrService {
             let new_token = Uuid::new_v4().to_string();
             user.session_token = Some(new_token.clone());
             user.last_seen = now;
-            let _updated_user = user.clone();
+            #[cfg(feature = "redis")]
+            let updated_user = user.clone();
             drop(users);
 
             // Persist refreshed session to Redis
@@ -539,7 +542,8 @@ impl NostrService {
         let mut users = self.users.write().await;
 
         if let Some(user) = users.get_mut(pubkey) {
-            let _old_token = user.session_token.clone();
+            #[cfg(feature = "redis")]
+            let old_token = user.session_token.clone();
             user.session_token = None;
             user.last_seen = time::timestamp_seconds();
             drop(users);
