@@ -41,6 +41,43 @@ export interface LayoutStatusResponse {
 }
 
 // ============================================================================
+// Vocabulary bridge
+// ============================================================================
+
+/**
+ * The persisted `qualityGates.layoutMode` vocabulary, validated by the server's
+ * settings route (src/settings/api/settings_routes.rs `valid_modes`).
+ */
+export const QUALITY_GATE_LAYOUT_MODES = [
+  'force-directed',
+  'dag-topdown',
+  'dag-radial',
+  'dag-leftright',
+  'type-clustering',
+] as const;
+
+/**
+ * Quality-gate mode → the layout engine's `LayoutMode` serde name, which is
+ * what POST /api/layout/mode deserialises (camelCase; see
+ * crates/visionclaw-domain/src/types/layout.rs). The DAG variants share the
+ * GPU-resident Sugiyama layer spring (`hierarchical`) except the radial one;
+ * `type-clustering` acts through the quality-gate physics overrides
+ * (cluster_strength), so the engine runs its force-directed baseline.
+ */
+const QUALITY_GATE_TO_ENGINE: Record<string, string> = {
+  'force-directed': 'forceDirected',
+  'dag-topdown': 'hierarchical',
+  'dag-leftright': 'hierarchical',
+  'dag-radial': 'radial',
+  'type-clustering': 'forceDirected',
+};
+
+/** Translate a quality-gate layout mode; engine-vocabulary names pass through. */
+export function toEngineLayoutMode(mode: string): string {
+  return QUALITY_GATE_TO_ENGINE[mode] ?? mode;
+}
+
+// ============================================================================
 // API Client
 // ============================================================================
 
@@ -52,7 +89,10 @@ export const layoutApi = {
     mode: string,
     transitionMs = 500
   ): Promise<AxiosResponse<LayoutModeResponse>> =>
-    axios.post<LayoutModeResponse>(`${API_BASE}/layout/mode`, { mode, transitionMs }),
+    axios.post<LayoutModeResponse>(`${API_BASE}/layout/mode`, {
+      mode: toEngineLayoutMode(mode),
+      transitionMs,
+    }),
 
   getStatus: (): Promise<AxiosResponse<LayoutStatusResponse>> =>
     axios.get(`${API_BASE}/layout/status`),
