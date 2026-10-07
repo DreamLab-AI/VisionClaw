@@ -299,7 +299,7 @@ impl NetworkBackpressure {
         }
 
         // Periodic logging
-        if skipped % self.config.log_interval_frames == 0 {
+        if skipped.is_multiple_of(self.config.log_interval_frames) {
             if let Ok(mut last_log) = self.last_log.lock() {
                 let elapsed = last_log.elapsed();
                 if elapsed >= Duration::from_secs(1) {
@@ -463,11 +463,7 @@ mod tests {
 
         // Should have gained ~15 tokens (100 * 0.15)
         let available = bucket.available();
-        assert!(
-            available >= 10 && available <= 20,
-            "Got {} tokens",
-            available
-        );
+        assert!((10..=20).contains(&available), "Got {} tokens", available);
     }
 
     #[test]

@@ -341,7 +341,7 @@ mod tests {
             label: "Nowhere".into(),
         }];
         let doc = build(&corpus_of(vec![a]));
-        assert!(doc["property"].as_array().unwrap().is_empty());
+        assert_eq!(doc["property"].as_array().unwrap(), &[] as &[Value]);
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         let mut r = record("Secret");
         r.public = false;
         let doc = build(&corpus_of(vec![r]));
-        assert!(doc["class"].as_array().unwrap().is_empty());
+        assert_eq!(doc["class"].as_array().unwrap(), &[] as &[Value]);
     }
 
     #[test]

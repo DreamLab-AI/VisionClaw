@@ -1611,8 +1611,10 @@ mod upsert_tests {
     use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 
     fn test_node(id: u32, type_value: &str) -> Node {
-        let mut node = Node::default();
-        node.id = id;
+        let mut node = Node {
+            id,
+            ..Default::default()
+        };
         node.metadata_id = format!("node-{id}");
         node.label = format!("Node {id}");
         node.node_type = Some(type_value.to_string());

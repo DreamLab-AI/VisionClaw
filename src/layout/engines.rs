@@ -348,12 +348,12 @@ fn spectral_layout(
     for ev_idx in 0..3usize {
         let mut v = seed_vec(ev_idx as u64 * 17 + 42, n);
         // Orthogonalize against constant and prior eigenvectors
-        deflate(&mut v, &[constant_vec.clone()]);
+        deflate(&mut v, std::slice::from_ref(&constant_vec));
         deflate(&mut v, &eigenvecs);
         let n_v = norm(&v);
         if n_v < 1e-9 {
             v = seed_vec(ev_idx as u64 * 1337, n);
-            deflate(&mut v, &[constant_vec.clone()]);
+            deflate(&mut v, std::slice::from_ref(&constant_vec));
             deflate(&mut v, &eigenvecs);
         }
         let n_v = norm(&v);
@@ -364,7 +364,7 @@ fn spectral_layout(
         for _ in 0..iters {
             let mut mv = matvec(&v);
             // Re-deflate each iteration for numerical stability
-            deflate(&mut mv, &[constant_vec.clone()]);
+            deflate(&mut mv, std::slice::from_ref(&constant_vec));
             deflate(&mut mv, &eigenvecs);
             let n_mv = norm(&mv);
             if n_mv < 1e-9 {
@@ -533,13 +533,13 @@ fn clustered_layout(
 
     // Collect clusters
     let mut cluster_members: HashMap<usize, Vec<usize>> = HashMap::new();
-    for i in 0..n {
-        cluster_members.entry(labels[i]).or_default().push(i);
+    for (i, &label) in labels.iter().enumerate().take(n) {
+        cluster_members.entry(label).or_default().push(i);
     }
 
     // Sort clusters by size descending for stable ordering
     let mut clusters: Vec<(usize, Vec<usize>)> = cluster_members.into_iter().collect();
-    clusters.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    clusters.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
     let num_clusters = clusters.len();
 
     // Place cluster centroids on a Fibonacci sphere

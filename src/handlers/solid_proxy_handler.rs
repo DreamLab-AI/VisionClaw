@@ -60,7 +60,7 @@ use solid_pod_rs::ldp::{
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::provision::{provision_pod, ProvisionPlan};
 #[cfg(feature = "solid-pod-embed")]
-use solid_pod_rs::wac::{evaluate_access, method_to_mode, AccessMode};
+use solid_pod_rs::wac::{evaluate_access, method_to_mode};
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::Storage;
 
@@ -1398,28 +1398,32 @@ async fn get_user_from_request(
 
     // Try NIP-98 first (primary authentication path)
     if auth_str.starts_with("Nostr ") {
-        let conn_info = req.connection_info();
-        let scheme = req
-            .headers()
-            .get("X-Forwarded-Proto")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_else(|| conn_info.scheme());
-        let host = req
-            .headers()
-            .get("X-Forwarded-Host")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_else(|| conn_info.host());
-        let path = req
-            .headers()
-            .get("X-Forwarded-URI")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_else(|| {
-                req.uri()
-                    .path_and_query()
-                    .map(|pq| pq.as_str())
-                    .unwrap_or("/")
-            });
-        let request_url = format!("{}://{}{}", scheme, host, path);
+        // Scope the connection-info borrow (a RefCell guard) so it is released
+        // before the verification await below.
+        let request_url = {
+            let conn_info = req.connection_info();
+            let scheme = req
+                .headers()
+                .get("X-Forwarded-Proto")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_else(|| conn_info.scheme());
+            let host = req
+                .headers()
+                .get("X-Forwarded-Host")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_else(|| conn_info.host());
+            let path = req
+                .headers()
+                .get("X-Forwarded-URI")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_else(|| {
+                    req.uri()
+                        .path_and_query()
+                        .map(|pq| pq.as_str())
+                        .unwrap_or("/")
+                });
+            format!("{}://{}{}", scheme, host, path)
+        };
         let request_method = req.method().as_str();
 
         match nostr_service
@@ -1435,8 +1439,7 @@ async fn get_user_from_request(
     }
 
     // Fall back to Bearer session token (legacy path)
-    if auth_str.starts_with("Bearer ") {
-        let token = &auth_str[7..];
+    if let Some(token) = auth_str.strip_prefix("Bearer ") {
         nostr_service.get_session(token).await
     } else {
         None

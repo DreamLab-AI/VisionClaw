@@ -129,8 +129,11 @@ async fn execute_handler_concurrent(
     }
 }
 
+/// Event type -> the handlers subscribed to it.
+type SubscriberMap = HashMap<String, Vec<Arc<dyn EventHandler>>>;
+
 pub struct EventBus {
-    subscribers: Arc<RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>>,
+    subscribers: Arc<RwLock<SubscriberMap>>,
 
     middleware: Arc<RwLock<Vec<Arc<dyn EventMiddleware>>>>,
 
@@ -348,7 +351,7 @@ mod tests {
     use crate::events::domain_events::NodeAddedEvent;
     use crate::utils::time;
     use async_trait::async_trait;
-    use chrono::Utc;
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestHandler {

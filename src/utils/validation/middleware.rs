@@ -171,8 +171,6 @@ where
 
 pub struct RateLimit {
     limiter: Rc<RateLimiter>,
-    #[allow(dead_code)]
-    config: RateLimitConfig,
 }
 
 impl RateLimit {
@@ -180,7 +178,6 @@ impl RateLimit {
         let limiter = RateLimiter::new(config.clone());
         Self {
             limiter: Rc::new(limiter),
-            config,
         }
     }
 }
@@ -318,7 +315,7 @@ where
                         Ok(()) => match serde_json::to_vec(&json_value) {
                             Ok(sanitized_bytes) => {
                                 let new_payload = actix_web::dev::Payload::from(sanitized_bytes);
-                                req.set_payload(new_payload.into());
+                                req.set_payload(new_payload);
 
                                 debug!("Request payload sanitized successfully");
                             }

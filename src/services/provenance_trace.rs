@@ -8,7 +8,8 @@
 //!     fields since P1), keyed on `did:nostr`; and
 //!   * **broker decisions** (`enrichment_decisions`), keyed on the deciding
 //!     `did:nostr` (`owner_did`) with the PROV-O activity URN;
-//! and it JOINS them on the `did:nostr` `agent_did` attribution the solid-pod
+//!
+//! It then JOINS them on the `did:nostr` `agent_did` attribution the solid-pod
 //! provenance-trace contract fixes as the shared key
 //! (`solid-pod-rs/.../reference/provenance-trace-contract.md` §2.3).
 //!
@@ -278,11 +279,11 @@ pub fn build_trace(
             record_count,
         })
         .collect();
-    joins.sort_by(|a, b| b.sources.len().cmp(&a.sources.len()));
+    joins.sort_by_key(|a| std::cmp::Reverse(a.sources.len()));
     let max_join_span = joins.iter().map(|j| j.sources.len()).max().unwrap_or(0);
 
     // Newest first for the wire.
-    records.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+    records.sort_by_key(|a| std::cmp::Reverse(a.at_ms));
     let total_records = records.len();
 
     ProvenanceTrace {

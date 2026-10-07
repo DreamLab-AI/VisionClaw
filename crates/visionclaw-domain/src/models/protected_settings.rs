@@ -3,7 +3,7 @@ use crate::utils::time;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeys {
     pub perplexity: Option<String>,
@@ -94,16 +94,9 @@ pub struct WebSocketServerSettings {
     pub url: String,
 }
 
-impl Default for ApiKeys {
-    fn default() -> Self {
-        Self {
-            perplexity: None,
-            openai: None,
-            ragflow: None,
-        }
-    }
-}
-
+// The deprecated fields still round-trip through stored settings, so the
+// owning type's Default has to populate them.
+#[allow(deprecated)]
 impl Default for ProtectedSettings {
     fn default() -> Self {
         Self {

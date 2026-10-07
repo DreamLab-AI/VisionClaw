@@ -2,6 +2,7 @@
 
 use super::clustering::{safe_download, safe_upload};
 use super::construction::UnifiedGPUCompute;
+use super::types::GpuCommunityOutput;
 use anyhow::{anyhow, Result};
 use cust::context::Context;
 use cust::launch;
@@ -72,12 +73,12 @@ impl UnifiedGPUCompute {
         &mut self,
         max_iterations: u32,
         seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
-        let _ctx = Context::new(self.device.clone())
+    ) -> Result<GpuCommunityOutput> {
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for community detection: {}", e))?;
 
         let block_size = 256;
-        let grid_size = (self.num_nodes + block_size - 1) / block_size;
+        let grid_size = self.num_nodes.div_ceil(block_size);
         let stream = &self.stream;
 
         // Label-propagation kernels (init_random_states, init_labels,
@@ -289,7 +290,7 @@ impl UnifiedGPUCompute {
         &mut self,
         max_iterations: u32,
         seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
+    ) -> Result<GpuCommunityOutput> {
         self.run_community_detection(max_iterations, seed)
     }
 
@@ -305,8 +306,8 @@ impl UnifiedGPUCompute {
         max_iterations: u32,
         resolution: f32,
         _seed: u32,
-    ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
-        let _ctx = Context::new(self.device.clone())
+    ) -> Result<GpuCommunityOutput> {
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for Louvain: {}", e))?;
 
         info!(
@@ -319,7 +320,7 @@ impl UnifiedGPUCompute {
         }
 
         let block_size: u32 = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
         let stream = &self.stream;
 
         // louvain_local_pass_kernel, louvain_aggregate_edges_kernel live in the
@@ -392,7 +393,7 @@ impl UnifiedGPUCompute {
         const MAX_AGG_BYTES: u64 = 512 * 1024 * 1024;
 
         for level in 0..MAX_LEVELS {
-            let grid = (cur_n as u32 + block_size - 1) / block_size;
+            let grid = (cur_n as u32).div_ceil(block_size);
 
             // Level init: each node its own community; community weight = degree.
             let mut comm_host: Vec<i32> = (0..cur_n as i32).collect();
@@ -606,13 +607,13 @@ impl UnifiedGPUCompute {
     }
 
     pub fn run_dbscan_clustering(&mut self, eps: f32, min_pts: i32) -> Result<Vec<i32>> {
-        let _ctx = Context::new(self.device.clone())
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for DBSCAN: {}", e))?;
 
         info!("Running REAL DBSCAN clustering on GPU");
 
         let block_size = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         let mut labels = vec![0i32; self.num_nodes];
         let neighbor_counts = vec![0i32; self.num_nodes];
@@ -988,7 +989,8 @@ mod tests {
 
     #[test]
     fn matches_independent_oracle_on_all_fixtures_and_partitions() {
-        let cases: &[(usize, &[(usize, usize)], Vec<i32>)] = &[
+        type Case = (usize, &'static [(usize, usize)], Vec<i32>);
+        let cases: &[Case] = &[
             (3, TRIANGLE, vec![0, 0, 0]),
             (3, TRIANGLE, vec![0, 1, 2]),
             (3, TRIANGLE, vec![0, 0, 1]),

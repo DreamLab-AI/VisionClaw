@@ -16,6 +16,10 @@
 //! Inbound multi-avatar broadcast ("sibling") frames differ from the single
 //! `wire::encode` layout — see [`decode_sibling_frame`].
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -264,10 +268,10 @@ fn sanitize_transform(mut t: Transform) -> Option<Transform> {
 fn read_transform(slice: &[u8]) -> Transform {
     let mut position = [0f32; 3];
     let mut rotation = [0f32; 4];
-    for (i, chunk) in slice[..12].chunks_exact(4).enumerate() {
+    for (i, chunk) in slice[..12].as_chunks::<4>().0.iter().enumerate() {
         position[i] = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
     }
-    for (i, chunk) in slice[12..28].chunks_exact(4).enumerate() {
+    for (i, chunk) in slice[12..28].as_chunks::<4>().0.iter().enumerate() {
         rotation[i] = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
     }
     Transform { position, rotation }

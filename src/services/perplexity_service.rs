@@ -147,10 +147,10 @@ impl PerplexityService {
                 "Perplexity API error: Status: {}, Error: {}",
                 status, error_text
             );
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Perplexity API error: {}", error_text),
-            )));
+            return Err(Box::new(std::io::Error::other(format!(
+                "Perplexity API error: {}",
+                error_text
+            ))));
         }
 
         let perplexity_response: PerplexityResponse = response.json().await?;
@@ -208,10 +208,10 @@ impl PerplexityService {
                 "Perplexity API error: Status: {}, Error: {}",
                 status, error_text
             );
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Perplexity API error: {}", error_text),
-            )));
+            return Err(Box::new(std::io::Error::other(format!(
+                "Perplexity API error: {}",
+                error_text
+            ))));
         }
 
         let perplexity_response: PerplexityResponse = response.json().await?;
@@ -253,5 +253,11 @@ impl PerplexityService {
             is_public: true,
             metadata,
         })
+    }
+}
+
+impl Default for PerplexityService {
+    fn default() -> Self {
+        Self::new()
     }
 }

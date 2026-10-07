@@ -48,6 +48,7 @@ impl Default for TimeoutConfig {
     }
 }
 
+#[derive(Default)]
 pub struct TimeoutMiddleware {
     config: TimeoutConfig,
 }
@@ -61,12 +62,6 @@ impl TimeoutMiddleware {
 
     pub fn with_config(config: TimeoutConfig) -> Self {
         Self { config }
-    }
-
-    pub fn default() -> Self {
-        Self {
-            config: TimeoutConfig::default(),
-        }
     }
 }
 

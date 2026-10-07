@@ -136,10 +136,6 @@ pub enum OntologyConstraintGroup {
 #[derive(Debug, Clone)]
 struct ConstraintCacheEntry {
     constraints: Vec<Constraint>,
-    #[allow(dead_code)]
-    axiom_hash: u64,
-    #[allow(dead_code)]
-    last_updated: std::time::Instant,
 }
 
 pub struct OntologyConstraintTranslator {
@@ -216,8 +212,10 @@ impl OntologyConstraintTranslator {
         let mut inference_constraints = Vec::new();
 
         for inference in inferences {
-            let mut single_inference_constraints =
-                self.axioms_to_constraints(&[inference.inferred_axiom.clone()], &graph.nodes)?;
+            let mut single_inference_constraints = self.axioms_to_constraints(
+                std::slice::from_ref(&inference.inferred_axiom),
+                &graph.nodes,
+            )?;
 
             for constraint in &mut single_inference_constraints {
                 constraint.weight *= inference.reasoning_confidence;
@@ -558,8 +556,8 @@ impl OntologyConstraintTranslator {
         node_lookup
             .values()
             .filter(|node| {
-                node.node_type.as_ref().map_or(false, |t| t == type_name)
-                    || node.group.as_ref().map_or(false, |g| g == type_name)
+                node.node_type.as_ref().is_some_and(|t| t == type_name)
+                    || node.group.as_ref().is_some_and(|g| g == type_name)
                     || node.metadata.values().any(|v| v == type_name)
                     || node.metadata_id.contains(type_name)
             })
@@ -596,7 +594,7 @@ impl OntologyConstraintTranslator {
                 _ => OntologyConstraintGroup::OntologyAlignment,
             };
 
-            groups.entry(group).or_insert_with(Vec::new).push(idx);
+            groups.entry(group).or_default().push(idx);
         }
 
         debug!(
@@ -639,7 +637,7 @@ pub struct OntologyConstraintCacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::vec3::Vec3Data;
+
     use visionclaw_domain::models::node::Node;
     // ADR-090: Node.data is domain's BinaryNodeData, not webxr's BinaryNodeDataClient.
     use visionclaw_domain::types::vec3::BinaryNodeData;

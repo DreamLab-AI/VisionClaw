@@ -90,7 +90,7 @@ unsafe extern "C" {
 // Define AABB and int3 structs to match CUDA
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, DeviceCopy)]
-pub(crate) struct AABB {
+pub(crate) struct Aabb {
     pub min: [f32; 3],
     pub max: [f32; 3],
 }
@@ -99,14 +99,14 @@ pub(crate) struct AABB {
 // 1. It is repr(C) with a deterministic memory layout
 // 2. All fields are f32 arrays which have valid zero representations
 // 3. An AABB with all zeros (min=[0,0,0], max=[0,0,0]) is a valid degenerate bounding box
-unsafe impl bytemuck::Zeroable for AABB {}
+unsafe impl bytemuck::Zeroable for Aabb {}
 
 // SAFETY: AABB is safe to implement Pod because:
 // 1. It is repr(C) ensuring no padding or alignment surprises
 // 2. All fields are f32 which is itself Pod (plain old data)
 // 3. The struct has no invariants that could be violated by arbitrary bit patterns
 // 4. Any bit pattern can be safely interpreted as an AABB (may represent invalid geometry but won't cause UB)
-unsafe impl bytemuck::Pod for AABB {}
+unsafe impl bytemuck::Pod for Aabb {}
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, DeviceCopy)]
@@ -122,26 +122,6 @@ pub enum ComputeMode {
     DualGraph,
     Advanced,
     Constraints,
-}
-
-// Additional Thrust wrapper function for scanning
-//
-// SAFETY: This extern block declares the thrust_exclusive_scan FFI function.
-// The function is safe to call when:
-// 1. d_in is a valid CUDA device pointer to at least num_items elements
-// 2. d_out is a valid CUDA device pointer to at least num_items elements
-// 3. d_in and d_out may alias (in-place scan is supported)
-// 4. num_items is a non-negative count of elements to scan
-// 5. stream is a valid CUDA stream handle or null for default stream
-// 6. The caller ensures synchronization before reading d_out
-#[allow(dead_code)]
-unsafe extern "C" {
-    pub(crate) fn thrust_exclusive_scan(
-        d_in: *const ::std::os::raw::c_void,
-        d_out: *mut ::std::os::raw::c_void,
-        num_items: ::std::os::raw::c_int,
-        stream: *mut ::std::os::raw::c_void,
-    );
 }
 
 // PageRank GPU kernel FFI functions from pagerank.cu
@@ -224,3 +204,16 @@ unsafe extern "C" {
         stream: *mut ::std::os::raw::c_void,
     );
 }
+
+/// K-means result: per-node cluster assignment, cluster centroids and final
+/// inertia.
+pub type GpuKMeansOutput = (Vec<i32>, Vec<(f32, f32, f32)>, f32);
+
+/// K-means result with run metrics: assignments, centroids, final inertia,
+/// iterations performed and whether it converged.
+pub type GpuKMeansMetricsOutput = (Vec<i32>, Vec<(f32, f32, f32)>, f32, u32, bool);
+
+/// Community-detection result: per-node community label, community count,
+/// modularity, iterations performed, compact community sizes and whether it
+/// converged.
+pub type GpuCommunityOutput = (Vec<i32>, usize, f32, u32, Vec<i32>, bool);

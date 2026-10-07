@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -175,3 +175,7 @@ the end|SIMPARAMS_MANIFEST|AbiDrift|offset_of`; `grep -n
 The CUDA changes add a hard positional clamp and a separate connected-node extent kernel, with no SimParams field, type or offset changes. The actual nvcc integration fixture compiles the production CUDA declaration and passes on a GPU; default-feature Rust binary checking passes. Existing host manifest/offset tests remain in the full library suite.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/models/simulation_params.rs`: calls the renamed `AutoBalanceConfig::recommended()` / `AutoPauseConfig::recommended()` (the inherent constructors formerly spelled `default()`; same values). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

@@ -68,9 +68,6 @@ impl RetryableError for McpError {
 }
 
 pub struct MultiMcpVisualizationWs {
-    #[allow(dead_code)]
-    app_state: web::Data<AppState>,
-    _hybrid_manager: Option<()>,
     client_id: String,
 
     last_heartbeat: Instant,
@@ -122,11 +119,12 @@ impl Default for SubscriptionFilters {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PerformanceMode {
     HighFrequency,
 
+    #[default]
     Normal,
 
     LowFrequency,
@@ -134,14 +132,14 @@ pub enum PerformanceMode {
     OnDemand,
 }
 
-impl Default for PerformanceMode {
+impl Default for MultiMcpVisualizationWs {
     fn default() -> Self {
-        Self::Normal
+        Self::new()
     }
 }
 
 impl MultiMcpVisualizationWs {
-    pub fn new(app_state: web::Data<AppState>, _hybrid_manager: Option<()>) -> Self {
+    pub fn new() -> Self {
         let client_id = Uuid::new_v4().to_string();
         info!(
             "Creating new Multi-MCP WebSocket client with resilience and hybrid integration: {}",
@@ -153,8 +151,6 @@ impl MultiMcpVisualizationWs {
         let health_manager_network = std::sync::Arc::new(HealthCheckManager::new());
 
         Self {
-            app_state,
-            _hybrid_manager: None,
             client_id,
 
             last_heartbeat: Instant::now(),
@@ -401,69 +397,6 @@ impl MultiMcpVisualizationWs {
 
         self.last_discovery_request = now;
         self.send_discovery_data(ctx);
-    }
-
-    #[allow(dead_code)]
-    fn should_send_message(
-        &self,
-        message_type: &str,
-        _message_content: &serde_json::Value,
-    ) -> bool {
-        match message_type {
-            "discovery" => true,
-            "multi_agent_update" => true,
-            "topology_update" => self.subscription_filters.include_topology,
-            "neural_update" => self.subscription_filters.include_neural,
-            "performance_analysis" => self.subscription_filters.include_performance,
-            _ => true,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn filter_agent_data(&self, data: &mut serde_json::Value) {
-        if let Some(agents_array) = data.get_mut("agents").and_then(|a| a.as_array_mut()) {
-            agents_array.retain(|agent| {
-                if let Some(server_source) = agent.get("server_source") {
-                    if let Ok(server_type) =
-                        serde_json::from_value::<McpServerType>(server_source.clone())
-                    {
-                        return self
-                            .subscription_filters
-                            .server_types
-                            .contains(&server_type);
-                    }
-                }
-                false
-            });
-        }
-
-        if !self.subscription_filters.agent_types.is_empty() {
-            if let Some(agents_array) = data.get_mut("agents").and_then(|a| a.as_array_mut()) {
-                agents_array.retain(|agent| {
-                    if let Some(agent_type) = agent.get("agent_type").and_then(|t| t.as_str()) {
-                        return self
-                            .subscription_filters
-                            .agent_types
-                            .contains(&agent_type.to_string());
-                    }
-                    false
-                });
-            }
-        }
-
-        if !self.subscription_filters.swarm_ids.is_empty() {
-            if let Some(agents_array) = data.get_mut("agents").and_then(|a| a.as_array_mut()) {
-                agents_array.retain(|agent| {
-                    if let Some(swarm_id) = agent.get("swarm_id").and_then(|s| s.as_str()) {
-                        return self
-                            .subscription_filters
-                            .swarm_ids
-                            .contains(&swarm_id.to_string());
-                    }
-                    false
-                });
-            }
-        }
     }
 }
 
@@ -824,7 +757,6 @@ pub async fn multi_mcp_visualization_ws(
     req: HttpRequest,
     stream: web::Payload,
     app_state: web::Data<AppState>,
-    _hybrid_manager: Option<()>,
 ) -> ActixResult<HttpResponse> {
     debug!("Starting Multi-MCP visualization WebSocket connection");
 
@@ -905,7 +837,7 @@ pub async fn multi_mcp_visualization_ws(
         }
     }
 
-    ws::start(MultiMcpVisualizationWs::new(app_state, None), &req, stream)
+    ws::start(MultiMcpVisualizationWs::new(), &req, stream)
 }
 
 pub fn configure_multi_mcp_routes(cfg: &mut web::ServiceConfig) {

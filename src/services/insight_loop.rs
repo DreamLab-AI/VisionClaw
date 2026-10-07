@@ -11,12 +11,12 @@
 //! The five stages (ADR presentation diagram `03-insight-ingestion-loop`):
 //!   1. **propose**            — the `ontology_propose` capture instant.
 //!   2. **queued**             — the insight entered the governed write-back
-//!                               queue (the broker case, P0 kernel + P1 queue).
+//!      queue (the broker case, P0 kernel + P1 queue).
 //!   3. **broker_decision**    — a broker decided the case.
 //!   4. **merged_enrichment**  — the fenced Oxigraph `:summary` write landed.
 //!   5. **amplification**      — *planned*. The insight propagates/amplifies
-//!                               across the mesh; labelled `planned`, never a
-//!                               fabricated value.
+//!      across the mesh; labelled `planned`, never a
+//!      fabricated value.
 //!
 //! The assembler is a pure function over one [`LoopTraceRow`]
 //! (`crate::adapters::sqlite_enrichment_repository`), so the loop contract is

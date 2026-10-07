@@ -33,13 +33,6 @@ struct TextToSpeechRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-struct SetProviderRequest {
-    provider: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct STTActionRequest {
     action: String,
     language: Option<String>,
@@ -89,7 +82,6 @@ enum GovernedVoiceResult {
 pub struct SpeechSocket {
     id: String,
     app_state: Arc<AppState>,
-    _hybrid_manager: Option<()>,
     heartbeat: Instant,
     audio_rx: Option<broadcast::Receiver<Vec<u8>>>,
     transcription_rx: Option<broadcast::Receiver<String>>,
@@ -102,7 +94,8 @@ pub struct SpeechSocket {
     /// (`socket_flow_handler/http_handler.rs:357-366`).
     connection_url: String,
     /// True only when `DEV_AUTH_LOOPBACK=1` and the peer is loopback. Gates the
-    /// literal `dev-session-token`, never accepted ungated.
+    /// literal `dev-session-token`, never accepted ungated. Dev/dev-auth builds only.
+    #[cfg(any(debug_assertions, feature = "dev-auth"))]
     dev_bypass_ok: bool,
 }
 
@@ -110,9 +103,8 @@ impl SpeechSocket {
     pub fn new(
         id: String,
         app_state: Arc<AppState>,
-        _hybrid_manager: Option<()>,
         connection_url: String,
-        dev_bypass_ok: bool,
+        #[cfg(any(debug_assertions, feature = "dev-auth"))] dev_bypass_ok: bool,
     ) -> Self {
         let (audio_rx, transcription_rx) = if let Some(speech_service) = &app_state.speech_service {
             (
@@ -126,12 +118,12 @@ impl SpeechSocket {
         Self {
             id,
             app_state,
-            _hybrid_manager: None,
             heartbeat: Instant::now(),
             audio_rx,
             transcription_rx,
             pubkey: None,
             connection_url,
+            #[cfg(any(debug_assertions, feature = "dev-auth"))]
             dev_bypass_ok,
         }
     }
@@ -985,7 +977,6 @@ pub async fn speech_socket_handler(
     req: HttpRequest,
     stream: web::Payload,
     app_state: web::Data<AppState>,
-    _hybrid_manager: Option<()>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // ADR-2075: authentication happens AFTER the upgrade, via the estate's
     // `{"type":"authenticate","event":"<base64 NIP-98>"}` frame — the same shape
@@ -999,15 +990,13 @@ pub async fn speech_socket_handler(
 
     #[cfg(any(debug_assertions, feature = "dev-auth"))]
     let dev_bypass_ok = crate::utils::auth::dev_bypass_permitted(&req);
-    #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
-    let dev_bypass_ok = false;
 
     let socket_id = format!("speech_{}", uuid::Uuid::new_v4());
     let socket = SpeechSocket::new(
         socket_id,
         app_state.into_inner(),
-        None,
         connection_url,
+        #[cfg(any(debug_assertions, feature = "dev-auth"))]
         dev_bypass_ok,
     );
 

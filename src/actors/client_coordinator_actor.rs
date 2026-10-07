@@ -134,7 +134,7 @@ impl DisconnectedClientQueue {
 
     /// Start buffering for a newly disconnected client.
     fn track_disconnect(&mut self, client_id: usize) {
-        self.buffers.entry(client_id).or_insert_with(VecDeque::new);
+        self.buffers.entry(client_id).or_default();
         self.disconnected_at.insert(client_id, Instant::now());
     }
 
@@ -417,18 +417,20 @@ impl ClientManager {
             &std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
         >,
     ) -> Vec<u8> {
-        use crate::utils::binary_protocol::encode_node_data_extended_with_sssp;
+        use crate::utils::binary_protocol::{encode_node_data_extended_with_sssp, NodeClassIds};
         use crate::utils::socket_flow_messages::BinaryNodeData;
         // Convert to (u32, BinaryNodeData) format for V3 protocol encoding
         let nodes: Vec<(u32, BinaryNodeData)> =
             positions.iter().map(|pos| (pos.node_id, *pos)).collect();
         let encoded = encode_node_data_extended_with_sssp(
             &nodes,
-            &nta.agent_ids,
-            &nta.knowledge_ids,
-            &nta.ontology_class_ids,
-            &nta.ontology_individual_ids,
-            &nta.ontology_property_ids,
+            NodeClassIds {
+                agent: &nta.agent_ids,
+                knowledge: &nta.knowledge_ids,
+                ontology_class: &nta.ontology_class_ids,
+                ontology_individual: &nta.ontology_individual_ids,
+                ontology_property: &nta.ontology_property_ids,
+            },
             None,
             analytics_data,
         );
@@ -444,8 +446,8 @@ impl ClientManager {
 
     pub fn broadcast_message(&self, message: String) -> usize {
         let mut broadcast_count = 0;
-        for (_, client_state) in &self.clients {
-            let _ = client_state
+        for client_state in self.clients.values() {
+            client_state
                 .addr
                 .text
                 .do_send(SendToClientText(message.clone()));
@@ -493,6 +495,12 @@ impl ClientManager {
             .filter(|client| !client.initial_sync_completed)
             .map(|client| client.client_id)
             .collect()
+    }
+}
+
+impl Default for ClientManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -636,7 +644,7 @@ impl ClientCoordinatorActor {
                 old_client_id
             );
             for msg in messages {
-                let _ = addr.binary.do_send(SendToClientBinary(msg));
+                addr.binary.do_send(SendToClientBinary(msg));
             }
         }
     }
@@ -748,7 +756,7 @@ impl ClientCoordinatorActor {
 
         if !self.position_cache.is_empty() && self.should_broadcast() {
             let mut position_data = Vec::new();
-            for (_, node_data) in &self.position_cache {
+            for node_data in self.position_cache.values() {
                 position_data.push(*node_data);
             }
 
@@ -832,7 +840,7 @@ impl ClientCoordinatorActor {
         }
 
         let mut position_data = Vec::new();
-        for (_, node_data) in &self.position_cache {
+        for node_data in self.position_cache.values() {
             position_data.push(*node_data);
         }
 
@@ -976,7 +984,7 @@ impl ClientCoordinatorActor {
         }
 
         let mut position_data = Vec::new();
-        for (_, node_data) in &self.position_cache {
+        for node_data in self.position_cache.values() {
             position_data.push(*node_data);
         }
 
@@ -1142,6 +1150,12 @@ impl ClientCoordinatorActor {
     }
 }
 
+impl Default for ClientCoordinatorActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCoordinatorStats {
     pub active_clients: usize,
@@ -1233,7 +1247,7 @@ impl Handler<RegisterClient> for ClientCoordinatorActor {
                 Ok(manager) => manager,
                 Err(e) => {
                     error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e).into());
+                    return Err(format!("Failed to acquire client manager lock: {}", e));
                 }
             };
             manager.register_client(msg.recipients)
@@ -1748,7 +1762,7 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
             });
 
             // Log at trace level to avoid spam (every 100th ACK at debug)
-            if msg.sequence_id % 100 == 0 {
+            if msg.sequence_id.is_multiple_of(100) {
                 debug!(
                     "ClientBroadcastAck: seq={}, nodes={}, client_timestamp={}ms, client_id={:?}",
                     msg.sequence_id, msg.nodes_received, msg.timestamp, msg.client_id
@@ -1756,7 +1770,7 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
             }
         } else {
             // GPU address not set, log warning once per 1000 ACKs
-            if msg.sequence_id % 1000 == 0 {
+            if msg.sequence_id.is_multiple_of(1000) {
                 warn!("ClientBroadcastAck: GPU compute address not set, cannot forward ACK");
             }
         }
@@ -2010,7 +2024,7 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
                                           client_id, filtered_nodes.len(), filtered_edges.len());
 
                                     // Send filtered graph data to this specific client
-                                    let _ = client.addr.initial_load.do_send(SendInitialGraphLoad {
+                                    client.addr.initial_load.do_send(SendInitialGraphLoad {
                                         nodes: filtered_nodes,
                                         edges: filtered_edges,
                                     });
@@ -2248,7 +2262,7 @@ mod tests {
 
     #[test]
     fn test_client_manager_registration() {
-        let mut manager = ClientManager::new();
+        let manager = ClientManager::new();
         assert_eq!(manager.get_client_count(), 0);
     }
 

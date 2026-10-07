@@ -884,7 +884,7 @@ mod tests {
     fn without_the_disjointness_the_probe_is_consistent() {
         let r = reason(&probe(false)).unwrap();
         assert!(r.is_consistent(), "{:?}", r.unsatisfiable);
-        assert!(r.root_causes.is_empty());
+        assert_eq!(r.root_causes, [] as [String; 0]);
     }
 
     /// Q is unsatisfiable only because it sits under P; P is the root cause.
@@ -1281,7 +1281,7 @@ mod tests {
     fn an_empty_graph_classifies_cleanly() {
         let r = reason(&Graph::new()).unwrap();
         assert!(r.is_consistent());
-        assert!(r.inferred.is_empty());
+        assert_eq!(r.inferred, []);
         assert_eq!(r.classified, 0);
     }
 

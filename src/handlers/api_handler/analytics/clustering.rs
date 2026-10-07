@@ -1,6 +1,6 @@
 use log::{error, info};
 
-use super::{Cluster, ClusteringParams, ClusteringRequest};
+use super::{Cluster, ClusteringRequest};
 use crate::AppState;
 
 pub async fn perform_clustering(
@@ -91,7 +91,7 @@ fn validate_clustering_params(request: &ClusteringRequest) -> Result<(), String>
     match request.method.as_str() {
         "kmeans" | "spectral" => {
             if let Some(num_clusters) = request.params.num_clusters {
-                if num_clusters < 2 || num_clusters > 1000 {
+                if !(2..=1000).contains(&num_clusters) {
                     return Err("num_clusters must be between 2 and 1000".to_string());
                 }
             }
@@ -103,7 +103,7 @@ fn validate_clustering_params(request: &ClusteringRequest) -> Result<(), String>
                 }
             }
             if let Some(min_samples) = request.params.min_samples {
-                if min_samples < 1 || min_samples > 1000 {
+                if !(1..=1000).contains(&min_samples) {
                     return Err("min_samples must be between 1 and 1000".to_string());
                 }
             }

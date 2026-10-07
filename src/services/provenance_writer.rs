@@ -508,13 +508,10 @@ pub fn build_retraction_update(
 /// half-open `[validFrom, validTo)`, boundary-exact (start inclusive, end
 /// exclusive). This is the projection the asserted graph materialises for
 /// `t = now`.
-pub fn state_at<'a>(
-    versions: &'a [AssertionVersion],
-    t: DateTime<Utc>,
-) -> Vec<&'a AssertionVersion> {
+pub fn state_at(versions: &[AssertionVersion], t: DateTime<Utc>) -> Vec<&AssertionVersion> {
     versions
         .iter()
-        .filter(|v| v.valid_from <= t && v.valid_to.map_or(true, |end| t < end))
+        .filter(|v| v.valid_from <= t && v.valid_to.is_none_or(|end| t < end))
         .collect()
 }
 

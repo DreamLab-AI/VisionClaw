@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use std::time::Instant;
 
 use cudarc::driver::sys::CUdevice_attribute_enum;
 use cudarc::driver::{CudaDevice, CudaStream};
@@ -18,11 +17,6 @@ use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::utils::unified_gpu_compute::UnifiedGPUCompute;
 use visionclaw_domain::models::graph::GraphData;
 
-#[allow(dead_code)]
-const MAX_NODES: u32 = 1_000_000;
-#[allow(dead_code)]
-const MAX_GPU_FAILURES: u32 = 5;
-
 pub struct GPUResourceActor {
     device: Option<Arc<CudaDevice>>,
 
@@ -31,9 +25,6 @@ pub struct GPUResourceActor {
     unified_compute: Option<UnifiedGPUCompute>,
 
     gpu_state: GPUState,
-
-    #[allow(dead_code)]
-    last_failure_reset: Instant,
 }
 
 impl GPUResourceActor {
@@ -44,7 +35,6 @@ impl GPUResourceActor {
             cuda_stream: None,
             unified_compute: None,
             gpu_state: GPUState::default(),
-            last_failure_reset: Instant::now(),
         }
     }
 
@@ -176,12 +166,22 @@ impl GPUResourceActor {
                 if let Some(ref mut compute) = self.unified_compute {
                     compute
                         .initialize_graph(
-                            csr_result.row_offsets.iter().map(|&x| x as i32).collect(),
-                            csr_result.col_indices.iter().map(|&x| x as i32).collect(),
-                            csr_result.edge_weights,
-                            csr_result.positions_x,
-                            csr_result.positions_y,
-                            csr_result.positions_z,
+                            &csr_result
+                                .row_offsets
+                                .iter()
+                                .map(|&x| x as i32)
+                                .collect::<Vec<_>>(),
+                            &csr_result
+                                .col_indices
+                                .iter()
+                                .map(|&x| x as i32)
+                                .collect::<Vec<_>>(),
+                            &csr_result.edge_weights,
+                            [
+                                &csr_result.positions_x,
+                                &csr_result.positions_y,
+                                &csr_result.positions_z,
+                            ],
                             csr_result.num_nodes as usize,
                             csr_result.num_edges as usize,
                         )
@@ -282,7 +282,7 @@ impl GPUResourceActor {
             }
             Err(e) => {
                 error!("Failed to get CUDA device count: {}", e);
-                Err(Error::new(ErrorKind::Other, format!("CUDA error: {}", e)))
+                Err(Error::other(format!("CUDA error: {}", e)))
             }
         }
     }
@@ -397,6 +397,12 @@ impl GPUResourceActor {
         }
 
         hasher.finish()
+    }
+}
+
+impl Default for GPUResourceActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -646,12 +652,22 @@ impl GPUResourceActor {
 
             unified_compute
                 .initialize_graph(
-                    csr_result.row_offsets.iter().map(|&x| x as i32).collect(),
-                    csr_result.col_indices.iter().map(|&x| x as i32).collect(),
-                    csr_result.edge_weights,
-                    csr_result.positions_x,
-                    csr_result.positions_y,
-                    csr_result.positions_z,
+                    &csr_result
+                        .row_offsets
+                        .iter()
+                        .map(|&x| x as i32)
+                        .collect::<Vec<_>>(),
+                    &csr_result
+                        .col_indices
+                        .iter()
+                        .map(|&x| x as i32)
+                        .collect::<Vec<_>>(),
+                    &csr_result.edge_weights,
+                    [
+                        &csr_result.positions_x,
+                        &csr_result.positions_y,
+                        &csr_result.positions_z,
+                    ],
                     csr_result.num_nodes as usize,
                     csr_result.num_edges as usize,
                 )

@@ -512,7 +512,7 @@ impl PresenceActor {
             if !sub.frame_recipient.connected() {
                 continue;
             }
-            let _ = sub.frame_recipient.do_send(envelope.clone());
+            sub.frame_recipient.do_send(envelope.clone());
         }
     }
 
@@ -541,7 +541,7 @@ impl PresenceActor {
             let envelope = RoomEventEnvelope::AgentPresenceExpired { local_id };
             for sub in self.subscribers.values() {
                 if sub.event_recipient.connected() {
-                    let _ = sub.event_recipient.do_send(envelope.clone());
+                    sub.event_recipient.do_send(envelope.clone());
                 }
             }
         }
@@ -1143,10 +1143,12 @@ mod tests {
             .avatar_id
     }
 
+    type Collected<T> = Arc<Mutex<Vec<T>>>;
+
     fn collector() -> (
         Addr<CollectActor>,
-        Arc<Mutex<Vec<BroadcastFrame>>>,
-        Arc<Mutex<Vec<RoomEventEnvelope>>>,
+        Collected<BroadcastFrame>,
+        Collected<RoomEventEnvelope>,
     ) {
         let frames = Arc::new(Mutex::new(Vec::<BroadcastFrame>::new()));
         let events = Arc::new(Mutex::new(Vec::<RoomEventEnvelope>::new()));

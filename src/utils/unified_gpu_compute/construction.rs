@@ -1,6 +1,6 @@
 //! Construction and initialization of the `UnifiedGPUCompute` struct.
 
-use super::types::{curandState, GPUPerformanceMetrics, AABB};
+use super::types::{curandState, Aabb, GPUPerformanceMetrics};
 use crate::models::constraints::ConstraintData;
 pub use crate::models::simulation_params::SimParams;
 use anyhow::{anyhow, Result};
@@ -27,7 +27,6 @@ use log::{error, info};
 /// few-fps rates seen on large graphs.
 pub const COHESION_REFRESH_INTERVAL: u32 = 3600;
 
-#[allow(dead_code)]
 pub struct UnifiedGPUCompute {
     pub(crate) device: Device,
     pub(crate) _context: Context,
@@ -99,8 +98,6 @@ pub struct UnifiedGPUCompute {
     pub(crate) sort_values_out: DeviceBuffer<i32>,
     pub(crate) cell_start: DeviceBuffer<i32>,
     pub(crate) cell_end: DeviceBuffer<i32>,
-
-    pub(crate) cub_temp_storage: DeviceBuffer<u8>,
 
     pub num_nodes: usize,
     pub num_edges: usize,
@@ -208,7 +205,7 @@ pub struct UnifiedGPUCompute {
     pub(crate) pos_transfer_pending: bool,
     pub(crate) vel_transfer_pending: bool,
 
-    pub(crate) aabb_block_results: DeviceBuffer<AABB>,
+    pub(crate) aabb_block_results: DeviceBuffer<Aabb>,
     pub(crate) aabb_num_blocks: usize,
 
     /// Pre-computed degree weights for degree-weighted gravity.
@@ -370,8 +367,6 @@ impl UnifiedGPUCompute {
         let cell_start = DeviceBuffer::zeroed(max_grid_cells)?;
         let cell_end = DeviceBuffer::zeroed(max_grid_cells)?;
 
-        let cub_temp_storage = Self::calculate_cub_temp_storage(num_nodes, max_grid_cells)?;
-
         let dist = DeviceBuffer::from_slice(&vec![f32::INFINITY; num_nodes])?;
         let current_frontier = DeviceBuffer::zeroed(num_nodes)?;
         let next_frontier_flags = DeviceBuffer::zeroed(num_nodes)?;
@@ -391,7 +386,7 @@ impl UnifiedGPUCompute {
         let community_centroids_y = DeviceBuffer::zeroed(num_nodes.max(1))?;
         let community_centroids_z = DeviceBuffer::zeroed(num_nodes.max(1))?;
 
-        let num_blocks = (num_nodes + 255) / 256;
+        let num_blocks = num_nodes.div_ceil(256);
         let partial_inertia = DeviceBuffer::zeroed(num_blocks)?;
         let min_distances = DeviceBuffer::zeroed(num_nodes)?;
         let selected_nodes = DeviceBuffer::zeroed(max_clusters)?;
@@ -467,7 +462,6 @@ impl UnifiedGPUCompute {
             sort_values_out,
             cell_start,
             cell_end,
-            cub_temp_storage,
             num_nodes,
             num_edges,
             allocated_nodes: num_nodes,
@@ -482,7 +476,7 @@ impl UnifiedGPUCompute {
             parents: None,
             sssp_stream,
 
-            constraint_data: DeviceBuffer::from_slice(&vec![])?,
+            constraint_data: DeviceBuffer::from_slice(&[])?,
             num_constraints: 0,
             sssp_available: false,
             sssp_device_distances: None,
@@ -536,7 +530,7 @@ impl UnifiedGPUCompute {
             resize_count: 0,
             total_memory_allocated: initial_memory,
 
-            partial_kinetic_energy: DeviceBuffer::zeroed((num_nodes + 255) / 256)?,
+            partial_kinetic_energy: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
             active_node_count: DeviceBuffer::zeroed(1)?,
             should_skip_physics: DeviceBuffer::zeroed(1)?,
             system_kinetic_energy: DeviceBuffer::zeroed(1)?,
@@ -573,8 +567,8 @@ impl UnifiedGPUCompute {
             pos_transfer_pending: false,
             vel_transfer_pending: false,
 
-            aabb_num_blocks: (num_nodes + 255) / 256,
-            aabb_block_results: DeviceBuffer::zeroed((num_nodes + 255) / 256)?,
+            aabb_num_blocks: num_nodes.div_ceil(256),
+            aabb_block_results: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
 
             degree_weight: DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?,
             degree_weights_available: false,
@@ -592,53 +586,12 @@ impl UnifiedGPUCompute {
         Ok(gpu_compute)
     }
 
-    pub(crate) fn calculate_cub_temp_storage(
-        num_nodes: usize,
-        num_cells: usize,
-    ) -> Result<DeviceBuffer<u8>> {
-        // CUB DeviceRadixSort and DeviceScan require temporary workspace whose
-        // exact size depends on the input length.  Ideally we would call the CUB
-        // API with a nullptr output to query the required size, but there is no
-        // Rust FFI wrapper for that today.  Instead we use a conservative
-        // heuristic derived from CUB internals:
-        //
-        //   RadixSort: ~2 * num_items * sizeof(key+value) + fixed overhead
-        //   ExclusiveSum: ~num_items * sizeof(value) + fixed overhead
-        //
-        // We take the maximum and add a generous safety margin.
-
-        let num_items = num_nodes.max(num_cells);
-
-        // Sort temp: each key-value pair is (i32, i32) = 8 bytes.
-        // CUB double-buffers internally, so ~2x the data plus per-bin counters.
-        let sort_bytes = num_items * 2 * std::mem::size_of::<i32>() * 2 + 2048;
-
-        // Scan temp: one pass over i32 values plus block-level partial sums.
-        let scan_bytes = num_items * std::mem::size_of::<i32>() + 2048;
-
-        // Use the larger of the two so the buffer can serve both operations.
-        let total_bytes = sort_bytes.max(scan_bytes).max(4096);
-
-        info!(
-            "CUB temp storage: sort={} bytes, scan={} bytes, allocated={} bytes (num_items={})",
-            sort_bytes, scan_bytes, total_bytes, num_items
-        );
-
-        DeviceBuffer::zeroed(total_bytes).map_err(|e| {
-            anyhow!(
-                "Failed to allocate CUB temp storage ({} bytes): {}",
-                total_bytes,
-                e
-            )
-        })
-    }
-
     pub(crate) fn calculate_memory_usage(
         num_nodes: usize,
         num_edges: usize,
         max_grid_cells: usize,
     ) -> usize {
-        let node_memory = num_nodes * (12 * 4 + 1 * 4 + 1 * 4);
+        let node_memory = num_nodes * (12 * 4 + 4 + 4);
 
         let edge_memory = (num_nodes + 1) * 4 + num_edges * (4 + 4);
 

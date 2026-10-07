@@ -952,7 +952,7 @@ where
     }
 }
 
-/// Helper macros for common error patterns
+// Helper macros for common error patterns
 
 /// Create a validation error
 #[macro_export]
@@ -1166,16 +1166,14 @@ mod tests {
 
     #[test]
     fn test_error_context_actor_and_gpu() {
-        let io_result: Result<(), std::io::Error> =
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "gpu fail"));
+        let io_result: Result<(), std::io::Error> = Err(std::io::Error::other("gpu fail"));
         let vf = io_result.with_gpu_context("test_kernel").unwrap_err();
         assert!(matches!(
             vf,
             VisionClawError::GPU(GPUError::KernelExecutionFailed { .. })
         ));
 
-        let io_result2: Result<(), std::io::Error> =
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "actor fail"));
+        let io_result2: Result<(), std::io::Error> = Err(std::io::Error::other("actor fail"));
         let vf2 = io_result2.with_actor_context("MyActor").unwrap_err();
         assert!(matches!(
             vf2,

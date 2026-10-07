@@ -15,7 +15,7 @@ use visionclaw_domain::models::node::Node;
 #[derive(Debug, Clone, Serialize)]
 pub enum QueryResult {
     Graph(#[serde(serialize_with = "serialize_arc")] Arc<GraphData>),
-    Node(Option<Node>),
+    Node(Option<Box<Node>>),
     Nodes(Vec<Node>),
     Edges(Vec<Edge>),
     Statistics(GraphStatistics),
@@ -94,7 +94,7 @@ impl<R: KnowledgeGraphRepository + Send + Sync + 'static> QueryHandler<GetNode, 
                 Hexserror::adapter("E_KG_GET_NODE", &format!("Failed to get node: {}", e))
             })?;
 
-            Ok(QueryResult::Node(node))
+            Ok(QueryResult::Node(node.map(Box::new)))
         })
     }
 }

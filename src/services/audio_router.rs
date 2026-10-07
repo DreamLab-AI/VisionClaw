@@ -443,6 +443,12 @@ impl AudioRouter {
     }
 }
 
+impl Default for AudioRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Accept `claim` as a PTT target only if it is a canonical `did:nostr`
 /// (ADR-125 I1). A non-DID is refused (returns `None`, warn-logged) so a
 /// spoofable label never becomes the target of a governed voice command

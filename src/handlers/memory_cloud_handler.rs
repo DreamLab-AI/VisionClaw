@@ -39,8 +39,7 @@ use crate::middleware::{get_authenticated_user, AuthenticatedUser, RateLimit};
 use crate::services::memory_cloud_service::{MemoryCloudError, MemoryCloudService};
 use crate::services::nostr_service::NostrService;
 use crate::utils::auth::{
-    dev_full_bypass_active, effective_access_level, nip98_request_url, AccessLevel,
-    DEV_MODE_PUBKEY,
+    dev_full_bypass_active, effective_access_level, nip98_request_url, AccessLevel, DEV_MODE_PUBKEY,
 };
 use visionclaw_memory_cloud::validate::validate_query;
 use visionclaw_memory_cloud::wire::{ErrorBody, MemoryCloudQueryRequest};

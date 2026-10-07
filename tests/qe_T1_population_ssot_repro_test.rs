@@ -19,7 +19,7 @@
 //! Two writers desynchronise the fields for an ontology-elevated page:
 //!
 //!   * knowledge_graph_parser.rs:109/:152 — sets metadata["type"]="page", then sets
-//!                                          node_type="ontology_node" WITHOUT touching metadata
+//!     node_type="ontology_node" WITHOUT touching metadata
 //!   * ontology_enrichment_service.rs:240 — sets node_type="ontology_node" only
 //!
 //! Live data (GET /api/graph/data, 10676 nodes): 2505 nodes (23.5%) have

@@ -20,7 +20,7 @@ use crate::ok_json;
 use crate::services::liveness_harness::{current_sha, LivenessHarness};
 
 /// HTTP header carrying the service credential for the write routes (#2).
-#[cfg_attr(any(debug_assertions, feature = "dev-auth"), allow(dead_code))]
+#[cfg(not(any(debug_assertions, feature = "dev-auth")))]
 const AGENT_KEY_HEADER: &str = "X-Agent-Key";
 
 /// Whether a canary write request (`register` / `observe`) is authorised.
@@ -38,43 +38,7 @@ fn canary_write_authorised(req: &HttpRequest) -> bool {
         .headers()
         .get(AGENT_KEY_HEADER)
         .and_then(|v| v.to_str().ok());
-    check_agent_key(expected.as_deref(), provided)
-}
-
-/// Pure credential check, split out so the fail-closed semantics are unit
-/// testable without constructing an `HttpRequest` or depending on the build cfg.
-///
-/// Authorised **only** when a non-empty `VISIONCLAW_AGENT_KEY` is configured and
-/// the request presents an exactly matching `X-Agent-Key`. An unset/empty key or
-/// a missing/mismatched header both fail closed.
-#[cfg_attr(any(debug_assertions, feature = "dev-auth"), allow(dead_code))]
-fn check_agent_key(expected: Option<&str>, provided: Option<&str>) -> bool {
-    match expected.filter(|s| !s.is_empty()) {
-        // #3 (codex): compare in constant time so an attacker cannot recover the
-        // key byte-by-byte from response-timing differences. Dependency-free
-        // byte-wise fold (`subtle`/`constant_time_eq` are only transitive deps).
-        Some(key) => match provided {
-            Some(got) => constant_time_eq(key.as_bytes(), got.as_bytes()),
-            None => false,
-        },
-        None => false,
-    }
-}
-
-/// Constant-time byte-slice equality. The comparison time depends only on the
-/// input lengths, never on how many leading bytes match — so it does not leak
-/// the secret via timing. (Length inequality short-circuits, matching the
-/// `constant_time_eq` crate; the credential's length is not itself sensitive.)
-#[cfg_attr(any(debug_assertions, feature = "dev-auth"), allow(dead_code))]
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    crate::utils::agent_key::check_agent_key(expected.as_deref(), provided)
 }
 
 /// Dev / `dev-auth` builds preserve the existing unauthenticated dev flow: the
@@ -218,7 +182,31 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod auth_tests {
-    use super::check_agent_key;
+    use crate::utils::agent_key::check_agent_key;
+
+    /// Comparison contract this call site relies on: equal keys authorise; a
+    /// same-length key differing in any byte (first, middle or last) does not;
+    /// a key of any other length does not, including a strict prefix or
+    /// extension of the configured key and the empty string.
+    #[test]
+    fn comparison_equal_unequal_and_length_mismatch() {
+        let key = "k3y-0123456789";
+        assert!(check_agent_key(Some(key), Some(key)));
+        for wrong in ["X3y-0123456789", "k3y-01234X6789", "k3y-012345678X"] {
+            assert_eq!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+        for wrong in [
+            "",
+            "k",
+            "k3y-012345678",
+            "k3y-01234567890",
+            "k3y-0123456789k3y",
+        ] {
+            assert_ne!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+    }
 
     #[test]
     fn missing_key_config_fails_closed() {

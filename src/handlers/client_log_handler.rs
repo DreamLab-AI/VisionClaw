@@ -28,6 +28,7 @@ pub struct ClientLogsPayload {
     logs: Vec<LogEntry>,
     #[serde(rename = "sessionId")]
     session_id: String,
+    // Required by the payload contract: a batch without it is rejected (400).
     #[allow(dead_code)]
     timestamp: String,
 }

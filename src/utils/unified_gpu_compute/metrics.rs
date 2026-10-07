@@ -23,7 +23,7 @@ impl UnifiedGPUCompute {
             .performance_metrics
             .kernel_times
             .entry(kernel_name.to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
         times.push(execution_time_ms);
         if times.len() > 100 {
             times.remove(0);
@@ -202,11 +202,7 @@ impl UnifiedGPUCompute {
         let use_landmarks = n > 2000;
         let sources: Vec<usize> = if use_landmarks {
             let num_landmarks = (n as f64).sqrt().ceil() as usize;
-            let step = if num_landmarks > 0 {
-                n / num_landmarks
-            } else {
-                1
-            };
+            let step = n.checked_div(num_landmarks).unwrap_or(1);
             (0..num_landmarks).map(|i| (i * step).min(n - 1)).collect()
         } else {
             (0..n).collect()
@@ -227,8 +223,12 @@ impl UnifiedGPUCompute {
                 } else {
                     col_indices.len()
                 };
-                for idx in start..end.min(col_indices.len()) {
-                    let v = col_indices[idx] as usize;
+                for &col in col_indices
+                    .iter()
+                    .take(end.min(col_indices.len()))
+                    .skip(start)
+                {
+                    let v = col as usize;
                     if v < n && dist[v] < 0 {
                         dist[v] = dist[u] + 1;
                         queue.push_back(v);
@@ -273,7 +273,7 @@ impl UnifiedGPUCompute {
         info!("Running GPU stress majorization with convergence detection");
 
         let block_size = 256u32;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
         let n = self.num_nodes;
 
         // Resolve the clustering module (stress kernels live in GpuClusteringKernels PTX)
@@ -419,7 +419,7 @@ impl UnifiedGPUCompute {
         }
 
         let block_size = 256u32;
-        let grid_size = (n as u32 + block_size - 1) / block_size;
+        let grid_size = (n as u32).div_ceil(block_size);
 
         let module = if let Some(ref clustering_mod) = self.clustering_module {
             clustering_mod
@@ -548,8 +548,8 @@ impl UnifiedGPUCompute {
         for src in 0..num_nodes {
             let edge_start = row_offsets[src] as usize;
             let edge_end = row_offsets[src + 1] as usize;
-            for e in edge_start..edge_end {
-                let dst = col_indices_host[e] as usize;
+            for &col in col_indices_host.iter().take(edge_end).skip(edge_start) {
+                let dst = col as usize;
                 if dst < num_nodes {
                     let pos = write_pos[dst] as usize;
                     csc_row_indices[pos] = src as i32;
@@ -567,7 +567,7 @@ impl UnifiedGPUCompute {
         let mut d_pagerank_new = DeviceBuffer::<f32>::zeroed(num_nodes)?;
         let d_out_degree = DeviceBuffer::from_slice(&out_degrees)?;
 
-        let num_blocks = (num_nodes + 255) / 256;
+        let num_blocks = num_nodes.div_ceil(256);
         let d_diff_buffer = DeviceBuffer::<f32>::zeroed(num_blocks)?;
 
         let stream_ptr = self.stream.as_inner() as *mut ::std::os::raw::c_void;

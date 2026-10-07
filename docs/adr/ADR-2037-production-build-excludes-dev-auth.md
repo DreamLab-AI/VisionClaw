@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -156,3 +156,15 @@ that run was red. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
 
 **Governed change:** `src/main.rs` gains a shared `memory_cloud_query_limit` (+4 lines after line 890) and passes it to `configure_memory_cloud_routes(..)` (+2 lines near line 1206); later citations shift by up to +6. Current anchors: `assert_effective_profile_or_exit` call `:942` (block `:937-947`), `HttpServer::new` `:962`, `.bind()` `:1250`. No dev-auth code path is added; the memory cloud explicitly refuses the dev shortcuts. The decision holds.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/main.rs`: `io::Error::new(Other, ..)` becomes `io::Error::other(..)`; a `let app = ..; app` binding inlined. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/main.rs`: removes the unread `PreReadSocketSettings` construction and its `app_data` registration, and drops dead constructor arguments to `OntologyQueryService` / `OntologyMutationService` (plus earlier lint-only edits since the recorded commit).
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

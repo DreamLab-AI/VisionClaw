@@ -14,6 +14,10 @@
 //! adapts its cutoff to signal speed: near-still gaze is smoothed hard (low
 //! jitter), fast saccades pass through with low lag.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use tracing::trace;
 
 #[cfg(not(test))]

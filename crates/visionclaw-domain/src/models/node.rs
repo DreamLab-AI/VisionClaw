@@ -216,12 +216,12 @@ impl Node {
         };
 
         let id_hash = id as f32;
-        let angle = id_hash * 0.618033988749895;
+        let angle = id_hash * 0.618_034;
         let radius = (id_hash * 0.1).min(100.0);
 
         let pos_x = radius * angle.cos() * 2.0;
         let pos_y = radius * angle.sin() * 2.0;
-        let pos_z = (id_hash * 0.01 - 50.0).max(-100.0).min(100.0);
+        let pos_z = (id_hash * 0.01 - 50.0).clamp(-100.0, 100.0);
 
         Self {
             id,
@@ -272,7 +272,7 @@ impl Node {
         self.metadata
             .get("type")
             .map(|s| s.as_str())
-            .or_else(|| self.node_type.as_deref())
+            .or(self.node_type.as_deref())
     }
 
     /// Classify this node into its graph [`Population`] — the SINGLE source of
@@ -300,7 +300,7 @@ impl Node {
 
     pub fn calculate_mass(file_size: u64) -> u8 {
         let base_mass = ((file_size + 1) as f32).log10() / 4.0;
-        let mass = base_mass.max(0.1).min(10.0);
+        let mass = base_mass.clamp(0.1, 10.0);
         (mass * 255.0 / 10.0) as u8
     }
 

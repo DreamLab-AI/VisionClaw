@@ -5,7 +5,7 @@ use log::{debug, error, info, warn};
 use crate::app_state::AppState;
 use crate::utils::validation::rate_limit::{create_rate_limit_response, extract_client_id};
 
-use super::types::{PreReadSocketSettings, SocketFlowServer, WEBSOCKET_RATE_LIMITER};
+use super::types::{SocketFlowServer, WEBSOCKET_RATE_LIMITER};
 
 const PUBLIC_WS_PROTOCOLS: &[&str] = &["visionclaw", "permessage-deflate"];
 
@@ -54,7 +54,6 @@ pub async fn socket_flow_handler(
     req: HttpRequest,
     stream: web::Payload,
     app_state_data: web::Data<AppState>,
-    pre_read_ws_settings: web::Data<PreReadSocketSettings>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let client_ip = extract_client_id(&req);
 
@@ -383,7 +382,6 @@ pub async fn socket_flow_handler(
 
     let mut ws_server = SocketFlowServer::new(
         app_state_arc.clone(),
-        pre_read_ws_settings.get_ref().clone(),
         client_manager_addr,
         client_ip.clone(),
     );

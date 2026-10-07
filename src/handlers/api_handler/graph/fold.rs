@@ -290,8 +290,8 @@ fn subclass_groups(visible: &HashSet<u32>, edges: &[Edge]) -> Vec<FoldGroup> {
             continue;
         }
         for id in [e.source, e.target] {
-            if !index.contains_key(&id) {
-                index.insert(id, ids.len());
+            if let std::collections::hash_map::Entry::Vacant(e) = index.entry(id) {
+                e.insert(ids.len());
                 ids.push(id);
             }
         }

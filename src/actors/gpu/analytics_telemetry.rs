@@ -248,7 +248,7 @@ mod tests {
         assert!(path.is_fallback());
         assert!(!path.is_gpu());
         assert!(
-            total_cpu_fallbacks() >= before + 1,
+            total_cpu_fallbacks() > before,
             "CPU fallback must increment the gated fallback counter"
         );
         assert_eq!(path.as_str(), "cpu_fallback");

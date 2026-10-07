@@ -7,7 +7,7 @@ use std::collections::HashMap;
 #[serde(tag = "type")]
 pub enum AgentVisualizationMessage {
     #[serde(rename = "init")]
-    Initialize(InitializeMessage),
+    Initialize(Box<InitializeMessage>),
 
     #[serde(rename = "positions")]
     PositionUpdate(PositionUpdateMessage),
@@ -198,21 +198,16 @@ pub struct EffectsConfig {
 /// Mass-derivation strategy (ADR-01 D6 / R3). `Log` is the recommended
 /// default; `Linear` and `Sqrt` are exposed so the empirical choice can be
 /// re-evaluated per graph topology without recompiling.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MassFunction {
     /// `mass = 1.0 + log2(1 + degree)` — ADR-01 D6 default.
+    #[default]
     Log,
     /// `mass = 1.0 + degree as f32`.
     Linear,
     /// `mass = 1.0 + (degree as f32).sqrt()`.
     Sqrt,
-}
-
-impl Default for MassFunction {
-    fn default() -> Self {
-        MassFunction::Log
-    }
 }
 
 impl MassFunction {
@@ -436,7 +431,6 @@ pub struct AgentVisualizationProtocol {
     position_buffer: Vec<PositionUpdate>,
     mcp_servers: std::collections::HashMap<String, McpServerInfo>,
     agent_cache: std::collections::HashMap<String, MultiMcpAgentStatus>,
-    topology_cache: std::collections::HashMap<String, SwarmTopologyData>,
     last_discovery: Option<chrono::DateTime<chrono::Utc>>,
 
     session_uuid_map: std::collections::HashMap<String, String>,
@@ -460,7 +454,6 @@ impl AgentVisualizationProtocol {
             position_buffer: Vec::new(),
             mcp_servers: std::collections::HashMap::new(),
             agent_cache: std::collections::HashMap::new(),
-            topology_cache: std::collections::HashMap::new(),
             last_discovery: None,
             session_uuid_map: std::collections::HashMap::new(),
             session_metadata: std::collections::HashMap::new(),
@@ -526,9 +519,8 @@ impl AgentVisualizationProtocol {
     }
 
     pub fn needs_discovery(&self) -> bool {
-        self.last_discovery.map_or(true, |last| {
-            time::now().signed_duration_since(last).num_seconds() > 30
-        })
+        self.last_discovery
+            .is_none_or(|last| time::now().signed_duration_since(last).num_seconds() > 30)
     }
 
     pub fn create_init_message(
@@ -649,28 +641,17 @@ impl AgentVisualizationProtocol {
             positions: HashMap::new(),
         };
 
-        let message = AgentVisualizationMessage::Initialize(init_msg);
+        let message = AgentVisualizationMessage::Initialize(Box::new(init_msg));
         to_json(&message).unwrap_or_default()
     }
 
-    pub fn add_position_update(
-        &mut self,
-        id: String,
-        x: f32,
-        y: f32,
-        z: f32,
-        vx: f32,
-        vy: f32,
-        vz: f32,
-    ) {
+    /// Buffer a position update; a missing velocity component is sent as 0.
+    pub fn add_position_update(&mut self, update: PositionUpdate) {
         self.position_buffer.push(PositionUpdate {
-            id,
-            x,
-            y,
-            z,
-            vx: Some(vx),
-            vy: Some(vy),
-            vz: Some(vz),
+            vx: Some(update.vx.unwrap_or(0.0)),
+            vy: Some(update.vy.unwrap_or(0.0)),
+            vz: Some(update.vz.unwrap_or(0.0)),
+            ..update
         });
     }
 
@@ -696,5 +677,11 @@ impl AgentVisualizationProtocol {
 
         let message = AgentVisualizationMessage::StateUpdate(msg);
         to_json(&message).unwrap_or_default()
+    }
+}
+
+impl Default for AgentVisualizationProtocol {
+    fn default() -> Self {
+        Self::new()
     }
 }

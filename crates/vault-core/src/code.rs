@@ -270,8 +270,8 @@ mod tests {
     #[test]
     fn a_page_with_no_code_scans_clean() {
         let map = CodeMap::scan("just prose\nand more prose\n");
-        assert!(map.fenced().is_empty());
-        assert!(map.inline().is_empty());
+        assert_eq!(map.fenced(), [] as [std::ops::Range<usize>; 0]);
+        assert_eq!(map.inline(), [] as [std::ops::Range<usize>; 0]);
         assert!(!map.has_unterminated_fence());
     }
 

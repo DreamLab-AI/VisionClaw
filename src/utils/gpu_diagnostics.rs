@@ -251,7 +251,7 @@ pub fn diagnose_ptx_error(error: &str) -> String {
         diagnosis.push_str("    - Check CUDA compilation warnings\n");
     }
 
-    diagnosis.push_str("\n");
+    diagnosis.push('\n');
     error!("PTX Error Diagnosed: {}", diagnosis);
     diagnosis
 }
@@ -331,30 +331,21 @@ pub fn fix_cuda_environment() -> Result<(), Error> {
                 alternative_path
             );
 
-            let alt_path_abs = std::fs::canonicalize(alternative_path).map_err(|e| {
-                Error::new(
-                    ErrorKind::Other,
-                    format!("Failed to get canonical path: {}", e),
-                )
-            })?;
+            let alt_path_abs = std::fs::canonicalize(alternative_path)
+                .map_err(|e| Error::other(format!("Failed to get canonical path: {}", e)))?;
 
             let dir_path = Path::new(primary_path)
                 .parent()
-                .ok_or_else(|| Error::new(ErrorKind::Other, "Invalid PTX path"))?;
+                .ok_or_else(|| Error::other("Invalid PTX path"))?;
 
             if !dir_path.exists() {
-                std::fs::create_dir_all(dir_path).map_err(|e| {
-                    Error::new(
-                        ErrorKind::Other,
-                        format!("Failed to create PTX directory: {}", e),
-                    )
-                })?;
+                std::fs::create_dir_all(dir_path)
+                    .map_err(|e| Error::other(format!("Failed to create PTX directory: {}", e)))?;
             }
 
             #[cfg(unix)]
-            std::os::unix::fs::symlink(&alt_path_abs, primary_path).map_err(|e| {
-                Error::new(ErrorKind::Other, format!("Failed to create symlink: {}", e))
-            })?;
+            std::os::unix::fs::symlink(&alt_path_abs, primary_path)
+                .map_err(|e| Error::other(format!("Failed to create symlink: {}", e)))?;
 
             #[cfg(not(unix))]
             std::fs::copy(&alt_path_abs, primary_path).map_err(|e| {

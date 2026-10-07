@@ -3,8 +3,9 @@
 
 use super::physics_constraint::*;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BlendingStrategy {
+    #[default]
     WeightedAverage,
 
     Maximum,
@@ -14,12 +15,6 @@ pub enum BlendingStrategy {
     HighestPriority,
 
     Median,
-}
-
-impl Default for BlendingStrategy {
-    fn default() -> Self {
-        Self::WeightedAverage
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -316,7 +311,7 @@ impl ConstraintBlender {
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mid = sorted.len() / 2;
-        if sorted.len() % 2 == 0 {
+        if sorted.len().is_multiple_of(2) {
             (sorted[mid - 1] + sorted[mid]) / 2.0
         } else {
             sorted[mid]
@@ -347,7 +342,7 @@ mod tests {
         let blender = ConstraintBlender::new();
         let constraint = PhysicsConstraint::separation(vec![1, 2], 10.0, 0.5, 5);
 
-        let result = blender.blend_constraints(&[constraint.clone()]);
+        let result = blender.blend_constraints(std::slice::from_ref(&constraint));
         assert!(result.is_some());
         assert_eq!(result.unwrap().nodes, vec![1, 2]);
     }

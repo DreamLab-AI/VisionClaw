@@ -4,7 +4,7 @@
 //! Implements proper error propagation, automatic cleanup, and fallback mechanisms.
 
 use log::{debug, error, info, warn};
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_int, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -204,8 +204,6 @@ pub enum RecoveryStrategy {
 pub struct CudaErrorHandler {
     error_count: Arc<AtomicU32>,
     last_error_time: Arc<std::sync::Mutex<Option<Instant>>>,
-    #[allow(dead_code)]
-    max_errors_per_minute: u32,
     fallback_threshold: u32,
     context_reset_threshold: u32,
     /// Flag signaling that GPU compute actors must tear down all RAII wrappers
@@ -218,7 +216,6 @@ impl CudaErrorHandler {
         Self {
             error_count: Arc::new(AtomicU32::new(0)),
             last_error_time: Arc::new(std::sync::Mutex::new(None)),
-            max_errors_per_minute: 10,
             fallback_threshold: 5,
             context_reset_threshold: 15,
             needs_reinit: Arc::new(AtomicBool::new(false)),
@@ -265,14 +262,14 @@ impl CudaErrorHandler {
                 unsafe {
                     cudaGetLastError();
                 }
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::FallbackToCPU => {
                 warn!(
                     "Falling back to CPU for {} due to repeated CUDA errors",
                     operation_name
                 );
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::ResetContext => {
                 warn!(
@@ -280,14 +277,14 @@ impl CudaErrorHandler {
                     operation_name
                 );
                 self.reset_cuda_context();
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::Abort => {
                 error!(
                     "Aborting {} due to unrecoverable CUDA error",
                     operation_name
                 );
-                return Err(cuda_error);
+                Err(cuda_error)
             }
         }
     }
@@ -582,13 +579,9 @@ impl Drop for CudaMemoryGuard {
 extern "C" {
     fn cudaGetLastError() -> c_int;
     fn cudaDeviceSynchronize() -> c_int;
-    #[allow(dead_code)]
-    fn cudaDeviceReset() -> c_int;
     fn cudaMalloc(devPtr: *mut *mut c_void, size: usize) -> c_int;
     fn cudaFree(devPtr: *mut c_void) -> c_int;
     fn cudaMemcpy(dst: *mut c_void, src: *const c_void, count: usize, kind: c_int) -> c_int;
-    #[allow(dead_code)]
-    fn cudaGetErrorString(error: c_int) -> *const c_char;
 }
 
 // CUDA memory copy directions
@@ -596,9 +589,6 @@ extern "C" {
 const cudaMemcpyHostToDevice: c_int = 1;
 #[allow(non_upper_case_globals)]
 const cudaMemcpyDeviceToHost: c_int = 2;
-#[allow(non_upper_case_globals)]
-#[allow(dead_code)]
-const cudaMemcpyDeviceToDevice: c_int = 3;
 
 #[macro_export]
 macro_rules! cuda_check {

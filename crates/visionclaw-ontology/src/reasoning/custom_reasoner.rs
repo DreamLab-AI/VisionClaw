@@ -60,7 +60,7 @@ impl CustomReasoner {
     fn compute_transitive_closure(&mut self, ontology: &Ontology) {
         self.transitive_cache.clear();
 
-        for (child, _) in &ontology.classes {
+        for child in ontology.classes.keys() {
             let mut ancestors = HashSet::new();
             self.collect_ancestors(child, ontology, &mut ancestors);
             self.transitive_cache.insert(child.clone(), ancestors);

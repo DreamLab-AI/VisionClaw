@@ -20,22 +20,10 @@ struct GraphCache {
 }
 
 #[derive(Debug, Clone)]
-struct NodeInfo {
-    #[allow(dead_code)]
-    label: String,
-    #[allow(dead_code)]
-    node_type: String,
-}
+struct NodeInfo {}
 
 #[derive(Debug, Clone)]
-struct EdgeInfo {
-    #[allow(dead_code)]
-    source_id: String,
-    #[allow(dead_code)]
-    target_id: String,
-    #[allow(dead_code)]
-    edge_type: String,
-}
+struct EdgeInfo {}
 
 #[derive(Debug, Default, Clone)]
 struct GraphStats {
@@ -71,13 +59,7 @@ impl GraphEventHandler {
             .map_err(|e| EventError::Handler(format!("Failed to parse NodeAddedEvent: {}", e)))?;
 
         let mut cache = self.cache.write().await;
-        cache.nodes.insert(
-            data.node_id.clone(),
-            NodeInfo {
-                label: data.label,
-                node_type: data.node_type,
-            },
-        );
+        cache.nodes.insert(data.node_id.clone(), NodeInfo {});
         cache.graph_stats.node_count += 1;
 
         Ok(())
@@ -100,14 +82,7 @@ impl GraphEventHandler {
             .map_err(|e| EventError::Handler(format!("Failed to parse EdgeAddedEvent: {}", e)))?;
 
         let mut cache = self.cache.write().await;
-        cache.edges.insert(
-            data.edge_id.clone(),
-            EdgeInfo {
-                source_id: data.source_id,
-                target_id: data.target_id,
-                edge_type: data.edge_type,
-            },
-        );
+        cache.edges.insert(data.edge_id.clone(), EdgeInfo {});
         cache.graph_stats.edge_count += 1;
 
         Ok(())

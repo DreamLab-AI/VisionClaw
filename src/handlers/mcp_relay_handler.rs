@@ -225,8 +225,7 @@ impl Actor for MCPRelayActor {
             actix::spawn(async move {
                 let health_result = health_manager.check_service_now("orchestrator").await;
 
-                if health_result.is_none() || !health_result.map_or(false, |r| r.status.is_usable())
-                {
+                if health_result.is_none() || !health_result.is_some_and(|r| r.status.is_usable()) {
                     warn!("[MCP Relay] Orchestrator health check failed");
                 }
             });
@@ -317,18 +316,15 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MCPRelayActor {
 
                 if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&text) {
                     if let Some(msg_type) = msg.get("type").and_then(|t| t.as_str()) {
-                        match msg_type {
-                            "ping" => {
-                                ctx.text(
-                                    serde_json::json!({
-                                        "type": "pong",
-                                        "timestamp": chrono::Utc::now().timestamp_millis()
-                                    })
-                                    .to_string(),
-                                );
-                                return;
-                            }
-                            _ => {}
+                        if msg_type == "ping" {
+                            ctx.text(
+                                serde_json::json!({
+                                    "type": "pong",
+                                    "timestamp": chrono::Utc::now().timestamp_millis()
+                                })
+                                .to_string(),
+                            );
+                            return;
                         }
                     }
                 }

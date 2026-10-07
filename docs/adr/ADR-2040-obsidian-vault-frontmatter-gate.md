@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -160,3 +160,17 @@ and legacy support cannot be retired on this evidence.
 `8a501fbbc` changes only domain-root materialisation, which runs after
 ingest over nodes already admitted. It does not touch frontmatter parsing or
 the conformance gate this record governs. The decision holds unchanged.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/services/file_service.rs`: `io::Error::other`, `is_some_and`, an unused import removed; `src/services/github_sync_service.rs`: `div_ceil`, `BoxFuture` for the fetch future, a `matches!` filter, a useless `.into()` removed; `src/services/ontology_mutation_service.rs`: `split(..).last()` becomes `next_back()`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/services/file_service.rs`: deletes the uncalled `should_process_file`.
+- `src/services/github_sync_service.rs`: deletes two uncalled private filter methods.
+- `src/services/ontology_mutation_service.rs`: drops the never-read `whelk` field and its constructor parameter (callers updated).
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

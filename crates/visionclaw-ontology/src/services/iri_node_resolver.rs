@@ -152,13 +152,14 @@ mod tests {
     use visionclaw_domain::models::node::Node;
 
     fn node_with(id: u32, metadata_id: &str, owl_iri: Option<&str>, group: Option<&str>) -> Node {
-        let mut n = Node::default();
-        n.id = id;
-        n.metadata_id = metadata_id.to_string();
-        n.owl_class_iri = owl_iri.map(|s| s.to_string());
-        n.group = group.map(|s| s.to_string());
-        n.metadata = HashMap::new();
-        n
+        Node {
+            id,
+            metadata_id: metadata_id.to_string(),
+            owl_class_iri: owl_iri.map(|s| s.to_string()),
+            group: group.map(|s| s.to_string()),
+            metadata: HashMap::new(),
+            ..Default::default()
+        }
     }
 
     /// The lifted resolver returns IDENTICAL results to the old inline closure

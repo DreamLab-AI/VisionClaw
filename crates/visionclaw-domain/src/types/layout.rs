@@ -4,10 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum LayoutMode {
     /// ForceAtlas2 with LinLog (default)
+    #[default]
     ForceDirected,
     /// Sugiyama DAG layers
     Hierarchical,
@@ -21,32 +22,21 @@ pub enum LayoutMode {
     Clustered,
 }
 
-impl Default for LayoutMode {
-    fn default() -> Self {
-        LayoutMode::ForceDirected
-    }
-}
-
 /// Source keying the radial shells of the `dag_radial_bias` term (ADR-141 P3).
 /// The shell radius per node is `key * dag_level_distance`; only the CPU-side key
 /// source (and, for Ego, the shell centre) differs between modes. The GPU term is
 /// unchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum RadialMode {
     /// Shell key = DAG hierarchy rank (existing behaviour); centre = origin.
+    #[default]
     DagRank,
     /// Shell key = node-type tier (Agent inner → Knowledge → Ontology outer);
     /// centre = origin.
     TypeTier,
     /// Shell key = BFS hop-distance from a focus node; centre = focus position.
     Ego,
-}
-
-impl Default for RadialMode {
-    fn default() -> Self {
-        RadialMode::DagRank
-    }
 }
 
 impl LayoutMode {

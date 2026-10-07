@@ -318,7 +318,7 @@ impl SemanticConstraintGenerator {
         metadata_store: Option<&MetadataStore>,
     ) -> NodeSimilarity {
         let mut semantic_sim = 0.0;
-        let structural_sim;
+
         let mut shared_topics = Vec::new();
         let mut metadata_factors = HashMap::new();
 
@@ -358,7 +358,7 @@ impl SemanticConstraintGenerator {
             }
         }
 
-        structural_sim = self.compute_structural_similarity(node_a, node_b);
+        let structural_sim = self.compute_structural_similarity(node_a, node_b);
 
         let name_sim = self.compute_string_similarity(&node_a.label, &node_b.label);
         metadata_factors.insert("name".to_string(), name_sim);
@@ -464,7 +464,7 @@ impl SemanticConstraintGenerator {
         let norm_b: f32 = vec_b.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         if norm_a > 0.0 && norm_b > 0.0 {
-            (dot_product / (norm_a * norm_b)).max(0.0).min(1.0)
+            (dot_product / (norm_a * norm_b)).clamp(0.0, 1.0)
         } else {
             0.0
         }
@@ -601,7 +601,7 @@ impl SemanticConstraintGenerator {
         }
 
         let mut sorted_topics: Vec<_> = topic_counts.into_iter().collect();
-        sorted_topics.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_topics.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         sorted_topics
             .into_iter()
@@ -808,7 +808,7 @@ impl SemanticConstraintGenerator {
         for relation in hierarchical_relations {
             hierarchy_groups
                 .entry(relation.relation_type.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .extend([relation.parent_id, relation.child_id]);
         }
 
@@ -923,7 +923,7 @@ impl Default for SemanticConstraintGenerator {
 mod tests {
     use super::*;
     use crate::models::{edge::Edge, graph::GraphData, metadata::Metadata, node::Node};
-    use crate::utils::socket_flow_messages::BinaryNodeData;
+
     use std::collections::HashMap;
 
     fn create_test_graph_with_metadata() -> (GraphData, MetadataStore) {
@@ -1105,7 +1105,7 @@ mod tests {
             + result.boundary_constraints.len();
         assert!(total_constraints > 0);
 
-        assert!(result.clusters.len() >= 1);
+        assert!(!result.clusters.is_empty());
     }
 
     #[test]

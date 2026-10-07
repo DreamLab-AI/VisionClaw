@@ -239,3 +239,15 @@ At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into 
 ## Re-verification — 2026-10-07 (35bd7c6bc)
 
 `xr-client/rust/src/binary_protocol.rs` changed at 48e1bf327 (+12/-0) only by adding the `graph_robust_bounds` `#[func]` (`:1778`), a getter over the render store that frames the memory cloud. No tag is allocated, matched or dispatched differently, and the version bytes are unchanged (`PROTOCOL_V5 = 0x05`, `:25`). The new `memoryRoute` fields `sidecarTotal`/`sidecarAgree` are JSON text frames on `/wss`, outside the tag-byte space (recorded under ADR-2134). Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-xr-presence/src/wire.rs`: `chunks_exact(4)` becomes `as_chunks::<4>()` (same chunks, remainder still dropped); `src/utils/binary_protocol.rs`: `encode_node_data_extended_with_sssp` takes the five class-id sets as one `NodeClassIds` struct; the flag precedence and encoded bytes are unchanged; `xr-client/rust/src/binary_protocol.rs`: `chunks_exact` becomes `as_chunks` (same 52-byte records); a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/utils/binary_protocol.rs`: deletes the unused V2 item-size and alias constants; the V3 52-byte `const` assertion and all encoders/decoders are untouched.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

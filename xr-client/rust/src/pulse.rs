@@ -12,6 +12,10 @@
 //! analysis worker thread. Mic samples exist only in memory (the analyser's
 //! rolling window and one analysis snapshot) and are never written or sent.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{SystemTime, UNIX_EPOCH};
 

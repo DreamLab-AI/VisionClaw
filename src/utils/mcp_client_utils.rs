@@ -241,7 +241,7 @@ impl McpConnection {
             }
         });
 
-        let msg = format!("{}\n", init_request.to_string());
+        let msg = format!("{}\n", init_request);
         debug!("Sending MCP init: {}", msg.trim());
 
         let mut stream = self.stream.lock().await;
@@ -321,7 +321,7 @@ impl McpConnection {
             "params": params
         });
 
-        let msg = format!("{}\n", request.to_string());
+        let msg = format!("{}\n", request);
         debug!("Sending MCP command: {}", msg.trim());
 
         let mut stream = self.stream.lock().await;
@@ -330,7 +330,7 @@ impl McpConnection {
 
         // Read response (skip notifications)
         loop {
-            let response_line = Self::read_line(&mut *stream, self.config.timeout).await?;
+            let response_line = Self::read_line(&mut stream, self.config.timeout).await?;
             let trimmed = response_line.trim();
 
             if trimmed.is_empty() {

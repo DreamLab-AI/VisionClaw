@@ -14,7 +14,7 @@ pub use visionclaw_actors::messages::analytics_messages::{
     AnomalyParams, ClearPageRankCache, CommunityDetectionAlgorithm, CommunityDetectionParams,
     ComputeAllPairsShortestPaths, ComputeSSSP, DBSCANParams, DBSCANStats, ExportClusterAssignments,
     GetClusteringResults, GetClusteringStatus, KMeansParams, SetNodeAnalytics, SetNodeSSSP,
-    StartGPUClustering,
+    SharedNodeSssp, StartGPUClustering,
 };
 
 // ---------------------------------------------------------------------------

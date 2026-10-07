@@ -323,7 +323,7 @@ impl SemanticPathfindingService {
             .nodes
             .iter()
             .find(|n| n.id == start_id)
-            .and_then(|n| n.node_type.as_ref().map(|s| s.as_str()));
+            .and_then(|n| n.node_type.as_deref());
 
         while let Some(current) = queue.pop() {
             if results.len() >= max_nodes {
@@ -378,18 +378,16 @@ impl SemanticPathfindingService {
         for edge in &graph.edges {
             let edge_type = self.edge_type_to_int(&edge.edge_type);
 
-            adjacency.entry(edge.source).or_insert_with(Vec::new).push((
-                edge.target,
-                edge.weight,
-                edge_type,
-            ));
+            adjacency
+                .entry(edge.source)
+                .or_default()
+                .push((edge.target, edge.weight, edge_type));
 
             // Undirected - add reverse edge
-            adjacency.entry(edge.target).or_insert_with(Vec::new).push((
-                edge.source,
-                edge.weight,
-                edge_type,
-            ));
+            adjacency
+                .entry(edge.target)
+                .or_default()
+                .push((edge.source, edge.weight, edge_type));
         }
 
         adjacency

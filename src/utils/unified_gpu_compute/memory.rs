@@ -552,7 +552,7 @@ impl UnifiedGPUCompute {
         self.community_count_active = 0;
         self.last_cohesion_refresh_iter = 0;
 
-        let new_num_blocks = (actual_new_nodes + 255) / 256;
+        let new_num_blocks = actual_new_nodes.div_ceil(256);
         self.partial_inertia = DeviceBuffer::zeroed(new_num_blocks)?;
         self.min_distances = DeviceBuffer::zeroed(actual_new_nodes)?;
 
@@ -598,7 +598,7 @@ impl UnifiedGPUCompute {
         let current_iteration = self.iteration;
         for constraint in &mut constraints {
             if constraint.activation_frame == 0 {
-                constraint.activation_frame = current_iteration as i32;
+                constraint.activation_frame = current_iteration;
                 debug!(
                     "Setting activation frame {} for constraint type {}",
                     current_iteration, constraint.kind
@@ -745,14 +745,14 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Upload a CSR graph and its initial `[x, y, z]` positions, resizing the
+    /// device buffers first if the node or edge count changed.
     pub fn initialize_graph(
         &mut self,
-        row_offsets: Vec<i32>,
-        col_indices: Vec<i32>,
-        edge_weights: Vec<f32>,
-        positions_x: Vec<f32>,
-        positions_y: Vec<f32>,
-        positions_z: Vec<f32>,
+        row_offsets: &[i32],
+        col_indices: &[i32],
+        edge_weights: &[f32],
+        positions: [&[f32]; 3],
         num_nodes: usize,
         num_edges: usize,
     ) -> Result<()> {
@@ -760,9 +760,10 @@ impl UnifiedGPUCompute {
             self.resize_buffers(num_nodes, num_edges)?;
         }
 
-        self.upload_edges_csr(&row_offsets, &col_indices, &edge_weights)?;
+        self.upload_edges_csr(row_offsets, col_indices, edge_weights)?;
 
-        self.upload_positions(&positions_x, &positions_y, &positions_z)?;
+        let [positions_x, positions_y, positions_z] = positions;
+        self.upload_positions(positions_x, positions_y, positions_z)?;
 
         info!(
             "Graph initialized with {} nodes and {} edges",

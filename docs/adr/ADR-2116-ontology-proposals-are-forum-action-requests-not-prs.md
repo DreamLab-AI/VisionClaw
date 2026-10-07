@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs]
 owner: jjohare
 review_trigger: the `vault` binary landing (WS-C), or the first caller reported still POSTing to /api/ontology-agent/propose after the agentbox MCP servers are deleted (WS-G)
@@ -55,3 +55,7 @@ At `verified_commit`:
 **Governed changes since `06dfe97a5`:** `src/handlers/ontology_agent_handler.rs` and `tests/rec1_route_guard.rs` now carry the retirement this record decides: `/propose` answers 410 Gone with a body naming `vault propose`, the `ProposeRequest` DTO and the handler's `OntologyMutationService`/`RequireAuth`/`RateLimit` imports are deleted, `ontology_propose` is gone from the status capability list, and the REC-1 guard asserts the route stays retired for authenticated and anonymous callers alike.
 
 **Decision unaffected — the code caught up with the record.** `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/handlers/ontology_agent_handler.rs`: `split(..).last()` becomes `next_back()` (same element). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

@@ -55,7 +55,7 @@ pub fn positions_to_gpu(positions: &[(f32, f32, f32)]) -> Vec<f32> {
 /// # Errors
 /// Returns error if buffer length is not divisible by 3
 pub fn gpu_to_positions(buffer: &[f32]) -> Result<Vec<(f32, f32, f32)>> {
-    if buffer.len() % 3 != 0 {
+    if !buffer.len().is_multiple_of(3) {
         return Err(ConversionError::InvalidStride {
             stride: 3,
             length: buffer.len(),
@@ -81,7 +81,7 @@ pub fn positions_4d_to_gpu(positions: &[(f32, f32, f32, f32)]) -> Vec<f32> {
 /// # Errors
 /// Returns error if buffer length is not divisible by 4
 pub fn gpu_to_positions_4d(buffer: &[f32]) -> Result<Vec<(f32, f32, f32, f32)>> {
-    if buffer.len() % 4 != 0 {
+    if !buffer.len().is_multiple_of(4) {
         return Err(ConversionError::InvalidStride {
             stride: 4,
             length: buffer.len(),
@@ -145,7 +145,7 @@ pub fn validate_buffer_size(buffer: &[f32], expected_elements: usize, stride: us
 
 /// Validate buffer can be divided into chunks of given stride
 pub fn validate_buffer_stride(buffer: &[f32], stride: usize) -> Result<()> {
-    if buffer.len() % stride != 0 {
+    if !buffer.len().is_multiple_of(stride) {
         return Err(ConversionError::InvalidStride {
             stride,
             length: buffer.len(),
@@ -327,7 +327,7 @@ pub fn calculate_buffer_size(element_count: usize, stride: usize) -> usize {
 
 /// Calculate memory footprint in bytes for buffer
 pub fn calculate_memory_footprint(buffer: &[f32]) -> usize {
-    buffer.len() * std::mem::size_of::<f32>()
+    std::mem::size_of_val(buffer)
 }
 
 /// Allocate zeroed GPU buffer with given capacity

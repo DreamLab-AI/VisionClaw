@@ -382,7 +382,7 @@ impl RoleStore {
     ) -> Result<UserRole, RoleStoreError> {
         let key = validate_pubkey(pubkey)?;
         let role_str = role.as_str().to_string();
-        let assigned_by = assigned_by.map(|s| canonicalise_pubkey(s));
+        let assigned_by = assigned_by.map(canonicalise_pubkey);
         self.conn
             .call(move |c| {
                 c.execute(
@@ -770,7 +770,6 @@ enum TxRemoval {
 /// the `conn.call` closure (whose error type cannot carry our variants).
 enum TxOutcome {
     Ok,
-    NoOp,
     Forbidden(String),
     LastOwner,
     InvalidExisting {
@@ -788,7 +787,7 @@ enum TxOutcome {
 impl TxOutcome {
     fn into_result(self, ok_role: UserRole) -> Result<UserRole, RoleStoreError> {
         match self {
-            TxOutcome::Ok | TxOutcome::NoOp => Ok(ok_role),
+            TxOutcome::Ok => Ok(ok_role),
             TxOutcome::Forbidden(m) => Err(RoleStoreError::Forbidden(m)),
             TxOutcome::LastOwner => Err(RoleStoreError::LastOwner),
             TxOutcome::InvalidExisting { pubkey, role } => {

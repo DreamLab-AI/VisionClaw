@@ -226,10 +226,8 @@ impl TimeoutGuard {
             TimeoutType::Total => return self.remaining_time(),
         };
 
-        match self.remaining_time() {
-            Some(remaining) => Some(operation_timeout.min(remaining)),
-            None => None,
-        }
+        self.remaining_time()
+            .map(|remaining| operation_timeout.min(remaining))
     }
 
     pub fn is_expired(&self) -> bool {
@@ -355,7 +353,7 @@ where
             return Poll::Ready(Ok(output));
         }
 
-        if let Poll::Ready(_) = self.sleep.as_mut().poll(cx) {
+        if self.sleep.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(TimeoutError::Timeout));
         }
 

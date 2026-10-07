@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 1ad881cab5ed786fc112f6e50db03fd587e23ec0
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -138,3 +138,7 @@ Governed paths changed in the doc-sync commit: docs/GPU-wire-abi.md — frontmat
 The governed ABI document now reports the corrected LOF fixture. Coordinator/supervisor source is unchanged by this commit; the existing coordinator ownership decision is unaffected by the analytics numerical fix.
 
 Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [VisionClaw execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). The embedded-pod library suite passed 1,364 tests (six ignored); a subsequent focused three-test handshake suite also passes. Source verification does not assert deployment activation. Earlier dated observations remain historical.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/actors/gpu/context_bus.rs`: a `match` on `send` becomes `unwrap_or_default()` (0 when no receivers, as before); `src/actors/gpu/gpu_manager_actor.rs`: `Default` delegating to `new()` added. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

@@ -961,7 +961,7 @@ where
     }
 }
 
-/// Helper macros for common error patterns
+// Helper macros for common error patterns
 
 /// Create a validation error
 #[macro_export]

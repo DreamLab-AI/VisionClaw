@@ -465,7 +465,8 @@ mod tests {
     fn test_parse_message_invalid() {
         #[derive(serde::Deserialize)]
         struct TestData {
-            value: String,
+            #[serde(rename = "value")]
+            _value: String,
         }
 
         let json = r#"{"invalid": "data"}"#;

@@ -113,7 +113,8 @@ impl ValidationService {
                         "physics.parameters",
                         "Low damping with high max velocity may cause instability",
                         "UNSTABLE_PARAMETERS",
-                    ));
+                    )
+                    .into());
                 }
             }
         }
@@ -125,7 +126,7 @@ impl ValidationService {
                         "physics.forces",
                         "Spring force significantly stronger than repulsion may cause clustering issues",
                         "FORCE_IMBALANCE"
-                    ));
+                    ).into());
                 }
             }
         }
@@ -149,7 +150,8 @@ impl ValidationService {
                 "visualisation.graphs",
                 "At least one graph (knowledge or visionclaw) must be specified",
                 "MISSING_GRAPHS",
-            ));
+            )
+            .into());
         }
 
         if let (Some(knowledge), Some(visionclaw)) =
@@ -184,7 +186,8 @@ impl ValidationService {
                 "physics.autoBalance",
                 "Auto-balance setting should be consistent across graphs",
                 "INCONSISTENT_AUTO_BALANCE",
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -199,7 +202,8 @@ impl ValidationService {
                             "xr.renderScale",
                             "Render scale above 2.0 may cause performance issues in VR",
                             "PERFORMANCE_WARNING",
-                        ));
+                        )
+                        .into());
                     }
                 }
 
@@ -230,7 +234,8 @@ impl ValidationService {
                     "rendering.bloom.enabled",
                     "Bloom/glow enabled must be a boolean",
                     "INVALID_TYPE",
-                ));
+                )
+                .into());
             }
         }
 
@@ -243,14 +248,16 @@ impl ValidationService {
                             val,
                             0.0,
                             10.0,
-                        ));
+                        )
+                        .into());
                     }
                 } else {
                     return Err(DetailedValidationError::new(
                         &format!("rendering.bloom.{}", field_name),
                         "Must be a number",
                         "INVALID_TYPE",
-                    ));
+                    )
+                    .into());
                 }
             }
         }
@@ -263,14 +270,16 @@ impl ValidationService {
                         val,
                         0.0,
                         5.0,
-                    ));
+                    )
+                    .into());
                 }
             } else {
                 return Err(DetailedValidationError::new(
                     "rendering.bloom.radius",
                     "Must be a number",
                     "INVALID_TYPE",
-                ));
+                )
+                .into());
             }
         }
 
@@ -282,14 +291,16 @@ impl ValidationService {
                         val,
                         0.0,
                         2.0,
-                    ));
+                    )
+                    .into());
                 }
             } else {
                 return Err(DetailedValidationError::new(
                     "rendering.bloom.threshold",
                     "Must be a number",
                     "INVALID_TYPE",
-                ));
+                )
+                .into());
             }
         }
 
@@ -306,14 +317,16 @@ impl ValidationService {
                             val,
                             0.0,
                             1.0,
-                        ));
+                        )
+                        .into());
                     }
                 } else {
                     return Err(DetailedValidationError::new(
                         &format!("rendering.bloom.{}", field_name),
                         "Must be a number",
                         "INVALID_TYPE",
-                    ));
+                    )
+                    .into());
                 }
             }
         }

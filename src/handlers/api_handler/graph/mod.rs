@@ -11,7 +11,6 @@ use visionclaw_domain::models::metadata::Metadata;
 use visionclaw_domain::models::node::Node;
 // GraphService direct import is no longer needed as we use actors
 // use crate::services::graph_service::GraphService;
-use crate::actors::graph_actor::PhysicsState;
 use crate::actors::messages::{
     AddNodesFromMetadata, GetSettings, GetSettlementState, SettlementSnapshot,
 };
@@ -19,7 +18,7 @@ use crate::application::graph::queries::{
     GetAutoBalanceNotifications, GetGraphData, GetNodeMap, GetPhysicsState,
 };
 use crate::handlers::utils::execute_in_thread;
-use hexser::{Hexserror, QueryHandler};
+use hexser::QueryHandler;
 use visionclaw_domain::models::graph::GraphData;
 
 /// Fold-level ladder (Wave 3) — server-side fold-plan computation.
@@ -200,20 +199,18 @@ pub async fn get_graph_data(
     let node_map_handler = state.graph_query_handlers.get_node_map.clone();
     let physics_handler = state.graph_query_handlers.get_physics_state.clone();
 
-    let graph_future = execute_in_thread(move || graph_handler.handle(GetGraphData));
-    let node_map_future = execute_in_thread(move || node_map_handler.handle(GetNodeMap));
-    let physics_future = execute_in_thread(move || physics_handler.handle(GetPhysicsState));
+    let graph_future =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new));
+    let node_map_future =
+        execute_in_thread(move || node_map_handler.handle(GetNodeMap).map_err(Box::new));
+    let physics_future =
+        execute_in_thread(move || physics_handler.handle(GetPhysicsState).map_err(Box::new));
 
     // Live physics settlement telemetry, fetched concurrently with the CQRS
     // queries. `None` ⇒ GPU actor not up / no tick yet ⇒ run-state fallback.
     let settlement_future = fetch_settlement(&state);
 
-    let (graph_result, node_map_result, physics_result, settlement): (
-        Result<Result<Arc<GraphData>, Hexserror>, String>,
-        Result<Result<Arc<HashMap<u32, Node>>, Hexserror>, String>,
-        Result<Result<PhysicsState, Hexserror>, String>,
-        Option<SettlementSnapshot>,
-    ) = tokio::join!(
+    let (graph_result, node_map_result, physics_result, settlement) = tokio::join!(
         graph_future,
         node_map_future,
         physics_future,
@@ -347,7 +344,8 @@ pub async fn get_paginated_graph_data(
     }
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
-    let graph_result = execute_in_thread(move || graph_handler.handle(GetGraphData)).await;
+    let graph_result =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new)).await;
 
     let graph_data_owned = match graph_result {
         Ok(Ok(g_owned)) => g_owned,
@@ -378,7 +376,7 @@ pub async fn get_paginated_graph_data(
         });
     }
 
-    let total_pages = (total_items + page_size - 1) / page_size;
+    let total_pages = total_items.div_ceil(page_size);
 
     if page >= total_pages {
         warn!(
@@ -435,7 +433,8 @@ pub async fn refresh_graph(state: web::Data<AppState>) -> impl Responder {
     info!("Received request to refresh graph (CQRS Phase 1D)");
 
     let graph_handler = state.graph_query_handlers.get_graph_data.clone();
-    let graph_result = execute_in_thread(move || graph_handler.handle(GetGraphData)).await;
+    let graph_result =
+        execute_in_thread(move || graph_handler.handle(GetGraphData).map_err(Box::new)).await;
 
     match graph_result {
         Ok(Ok(graph_data_owned)) => {
@@ -577,7 +576,7 @@ pub async fn get_auto_balance_notifications(
         .clone();
     let query_obj = GetAutoBalanceNotifications { since_timestamp };
 
-    let result = execute_in_thread(move || handler.handle(query_obj)).await;
+    let result = execute_in_thread(move || handler.handle(query_obj).map_err(Box::new)).await;
 
     match result {
         Ok(Ok(notifications)) => ok_json!(serde_json::json!({
@@ -696,7 +695,7 @@ fn edge_group_key(edge: &visionclaw_domain::models::edge::Edge) -> &str {
 /// anything already spaced is title-cased word-by-word.
 fn prettify_edge_label(key: &str) -> String {
     let words: Vec<String> = key
-        .split(|c| c == '_' || c == '-' || c == ' ')
+        .split(['_', '-', ' '])
         .filter(|w| !w.is_empty())
         .map(|w| {
             let mut chars = w.chars();

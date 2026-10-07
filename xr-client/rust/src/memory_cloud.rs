@@ -13,6 +13,10 @@
 //! Everything above the `MemoryCloud` Godot class is plain Rust so the headless
 //! `cargo test` covers it; the class is a thin adapter.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
@@ -536,7 +540,7 @@ pub fn resolve_flash(key: &str, namespace: &str, maps: &IndexMaps, seed: u64) ->
 /// cloud-local; `dir` need not be normalised.
 pub fn pick_ray(snap: &CloudSnapshot, drawn: &[u32], origin: [f32; 3], dir: [f32; 3], max_angle: f32) -> Option<u32> {
     let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
-    if !(len > 1e-9) {
+    if len.is_nan() || len <= 1e-9 {
         return None;
     }
     let d = [dir[0] / len, dir[1] / len, dir[2] / len];
@@ -551,7 +555,7 @@ pub fn pick_ray(snap: &CloudSnapshot, drawn: &[u32], origin: [f32; 3], dir: [f32
         }
         let perp2 = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - t * t).max(0.0);
         let ratio = perp2.sqrt() / t;
-        if ratio <= tan_max && best.map_or(true, |(_, b)| ratio < b) {
+        if ratio <= tan_max && best.is_none_or(|(_, b)| ratio < b) {
             best = Some((row, ratio));
         }
     }
@@ -1228,7 +1232,10 @@ mod tests {
         for p in pins {
             assert!(d.contains(&(p as u32)), "{p} drawn");
         }
-        assert!(crate::memory_route::MAX_PATH + crate::memory_route::MAX_SIDECAR < crate::frame_budget::CLOUD_MIN_SPRITES);
+        const _: () = assert!(
+            crate::memory_route::MAX_PATH + crate::memory_route::MAX_SIDECAR
+                < crate::frame_budget::CLOUD_MIN_SPRITES
+        );
     }
 
     #[test]

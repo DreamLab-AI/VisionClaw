@@ -84,6 +84,24 @@ pub enum CanaryStoreError {
 
 pub type Result<T> = std::result::Result<T, CanaryStoreError>;
 
+/// One `liveness_canaries` row as read: canary_id, description, kind,
+/// owner_repo, wave, sha_at_registration, registered_at_ms.
+type RawCanaryRow = (String, String, String, String, Option<String>, String, i64);
+
+/// A canary joined with its fires: canary_id, description, kind, owner_repo,
+/// wave, sha_at_registration, obs_count, last_fired, has_fresh.
+type RawCanaryStatusRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    i64,
+    Option<i64>,
+    Option<i64>,
+);
+
 fn map_db_err(e: tokio_rusqlite::Error) -> CanaryStoreError {
     CanaryStoreError::Database(e.to_string())
 }
@@ -193,7 +211,7 @@ impl SqliteCanaryRepository {
     /// Fetch one canary registration by id.
     pub async fn get(&self, canary_id: &str) -> Result<Option<CanaryRegistration>> {
         let id = canary_id.to_string();
-        let row: Option<(String, String, String, String, Option<String>, String, i64)> = self
+        let row: Option<RawCanaryRow> = self
             .conn
             .call(move |c| {
                 let mut stmt = c.prepare_cached(
@@ -284,17 +302,7 @@ impl SqliteCanaryRepository {
     ) -> Result<Vec<CanaryStatus>> {
         let current_sha = current_sha.to_string();
         let cutoff = now_ms.saturating_sub(window_ms);
-        let rows: Vec<(
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            i64,
-            Option<i64>,
-            Option<i64>,
-        )> = self
+        let rows: Vec<RawCanaryStatusRow> = self
             .conn
             .call(move |c| {
                 let mut stmt = c.prepare_cached(

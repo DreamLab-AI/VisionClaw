@@ -695,10 +695,7 @@ impl SemanticTypeRegistry {
     /// for the dynamic relationship system in semantic_forces.cu
     pub fn build_dynamic_gpu_buffer(&self) -> Vec<DynamicForceConfigGPU> {
         let configs = self.read_configs();
-        configs
-            .iter()
-            .map(|c| DynamicForceConfigGPU::from(c))
-            .collect()
+        configs.iter().map(DynamicForceConfigGPU::from).collect()
     }
 
     /// Get the buffer version (incremented on each registration/update)
@@ -754,7 +751,7 @@ mod tests {
     fn test_registry_creation() {
         let registry = SemanticTypeRegistry::new();
         // Should have default types registered
-        assert!(registry.len() > 0);
+        assert!(!registry.is_empty());
     }
 
     #[test]

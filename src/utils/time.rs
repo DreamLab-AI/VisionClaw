@@ -201,7 +201,7 @@ mod tests {
 
         // Should have elapsed at least 50ms (but allow some tolerance)
         assert!(
-            elapsed >= 45 && elapsed <= 200,
+            (45..=200).contains(&elapsed),
             "Elapsed time should be reasonable: {}ms",
             elapsed
         );

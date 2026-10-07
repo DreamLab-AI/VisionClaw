@@ -114,17 +114,17 @@ impl GraphSerializationService {
         ));
         fs::rename(export_path, &shared_path)?;
 
-        let mut shared_graph = SharedGraph::new(
-            request.title.clone(),
-            request.description.clone(),
-            None,
-            shared_path.to_string_lossy().to_string(),
-            export_response.file_size,
-            true,
-            request.export_format.clone(),
-            graph.nodes.len() as u32,
-            graph.edges.len() as u32,
-        );
+        let mut shared_graph = SharedGraph::new(NewSharedGraph {
+            title: request.title.clone(),
+            description: request.description.clone(),
+            creator_id: None,
+            file_path: shared_path.to_string_lossy().to_string(),
+            file_size: export_response.file_size,
+            compressed: true,
+            original_format: request.export_format.clone(),
+            node_count: graph.nodes.len() as u32,
+            edge_count: graph.edges.len() as u32,
+        });
 
         shared_graph.id = share_id;
         shared_graph.is_public = request.is_public;
@@ -337,15 +337,11 @@ impl GraphSerializationService {
             std::time::SystemTime::now() - std::time::Duration::from_secs(max_age_seconds);
 
         if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Ok(metadata) = entry.metadata() {
-                        if let Ok(created) = metadata.created() {
-                            if created < cutoff_time {
-                                if fs::remove_file(entry.path()).is_ok() {
-                                    count += 1;
-                                }
-                            }
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(created) = metadata.created() {
+                        if created < cutoff_time && fs::remove_file(entry.path()).is_ok() {
+                            count += 1;
                         }
                     }
                 }
@@ -359,7 +355,7 @@ impl GraphSerializationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::json::{from_json, to_json};
+
     use tempfile::tempdir;
 
     #[tokio::test]

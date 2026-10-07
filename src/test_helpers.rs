@@ -12,9 +12,8 @@ use tokio::sync::RwLock;
 
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::ontology_repository::{
-    AxiomType, InferenceResults, OntologyMetrics, OntologyRepository, OntologyRepositoryError,
-    OwlAxiom, OwlClass, OwlProperty, PathfindingCacheEntry, PropertyType, Result as OntResult,
-    ValidationReport,
+    InferenceResults, OntologyMetrics, OntologyRepository, OwlAxiom, OwlClass, OwlProperty,
+    Result as OntResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ pub async fn oxigraph_available() -> bool {
 #[macro_export]
 macro_rules! skip_without_oxigraph {
     () => {
-        if !crate::test_helpers::oxigraph_available().await {
+        if !$crate::test_helpers::oxigraph_available().await {
             eprintln!("SKIPPED: Oxigraph store not available");
             return;
         }
@@ -65,6 +64,12 @@ impl MockOntologyRepository {
             graph: RwLock::new(None),
             inference_results: RwLock::new(None),
         }
+    }
+}
+
+impl Default for MockOntologyRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -253,9 +258,8 @@ pub fn create_test_ontology_repo() -> Arc<MockOntologyRepository> {
 
 /// Create an `OntologyReasoner` backed by a mock repository for unit testing.
 pub fn create_test_reasoner() -> crate::services::ontology_reasoner::OntologyReasoner {
-    let engine = Arc::new(crate::adapters::whelk_inference_engine::WhelkInferenceEngine::new());
     let repo = create_test_ontology_repo();
-    crate::services::ontology_reasoner::OntologyReasoner::new(engine, repo)
+    crate::services::ontology_reasoner::OntologyReasoner::new(repo)
 }
 
 /// Create an `OntologyEnrichmentService` backed by mock implementations for unit testing.
@@ -271,7 +275,6 @@ pub fn create_test_enrichment_service(
 /// Create an `OntologyReasoningService` backed by a mock repository for unit testing.
 pub fn create_test_reasoning_service(
 ) -> crate::services::ontology_reasoning_service::OntologyReasoningService {
-    let engine = Arc::new(crate::adapters::whelk_inference_engine::WhelkInferenceEngine::new());
     let repo = create_test_ontology_repo();
-    crate::services::ontology_reasoning_service::OntologyReasoningService::new(engine, repo)
+    crate::services::ontology_reasoning_service::OntologyReasoningService::new(repo)
 }

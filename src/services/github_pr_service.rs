@@ -86,9 +86,10 @@ struct CreatePRRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct PRResponse {
     html_url: String,
+    // Required: a create-PR response without `number` is treated as malformed.
+    #[allow(dead_code)]
     number: u64,
 }
 
@@ -593,6 +594,12 @@ impl GitHubPRService {
                 head_branch
             )
         })
+    }
+}
+
+impl Default for GitHubPRService {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

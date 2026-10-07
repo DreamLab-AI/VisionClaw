@@ -73,11 +73,8 @@ impl Handler<BroadcastPositionUpdate> for SocketFlowServer {
             let analytics_ref = analytics_guard.as_deref();
             binary_protocol::encode_node_data_extended_with_sssp(
                 &msg.0,
-                &[],  // agent_node_ids — flags already set on node IDs by callers
-                &[],  // knowledge_node_ids
-                &[],  // ontology_class_ids
-                &[],  // ontology_individual_ids
-                &[],  // ontology_property_ids
+                // Class flags are already set on node IDs by callers.
+                binary_protocol::NodeClassIds::default(),
                 None, // sssp_data
                 analytics_ref,
             )

@@ -47,12 +47,14 @@ struct McpRequest {
 
 #[derive(Debug, serde::Deserialize)]
 struct McpResponse {
+    // Required JSON-RPC 2.0 envelope member; a reply without it fails to parse.
     #[allow(dead_code)]
     jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<McpError>,
+    // Required JSON-RPC 2.0 envelope member; a reply without it fails to parse.
     #[allow(dead_code)]
     id: u64,
 }
@@ -461,7 +463,7 @@ impl McpTcpClient {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let performance = self.parse_performance_data(agent_data.get("performance"))?;
 
@@ -600,7 +602,7 @@ impl McpTcpClient {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         Ok(AgentExtendedMetadata {
             session_id: meta
@@ -681,7 +683,7 @@ impl McpTcpClient {
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect()
                     })
-                    .unwrap_or_else(Vec::new),
+                    .unwrap_or_default(),
             },
         )
     }

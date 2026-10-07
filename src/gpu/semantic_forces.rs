@@ -259,7 +259,7 @@ impl Default for CrossDomainConfig {
 }
 
 /// Unified semantic configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SemanticConfig {
     pub dag: DAGConfig,
     pub type_cluster: TypeClusterConfig,
@@ -270,22 +270,6 @@ pub struct SemanticConfig {
     pub role_cluster: RoleClusterConfig,
     pub maturity_layout: MaturityLayoutConfig,
     pub cross_domain: CrossDomainConfig,
-}
-
-impl Default for SemanticConfig {
-    fn default() -> Self {
-        Self {
-            dag: DAGConfig::default(),
-            type_cluster: TypeClusterConfig::default(),
-            collision: CollisionConfig::default(),
-            attribute_spring: AttributeSpringConfig::default(),
-            ontology_relationship: OntologyRelationshipConfig::default(),
-            physicality_cluster: PhysicalityClusterConfig::default(),
-            role_cluster: RoleClusterConfig::default(),
-            maturity_layout: MaturityLayoutConfig::default(),
-            cross_domain: CrossDomainConfig::default(),
-        }
-    }
 }
 
 // =============================================================================
@@ -588,10 +572,7 @@ impl SemanticForcesEngine {
 
         for edge in &graph.edges {
             if edge.edge_type.as_deref() == Some("hierarchy") {
-                children
-                    .entry(edge.source)
-                    .or_insert_with(Vec::new)
-                    .push(edge.target);
+                children.entry(edge.source).or_default().push(edge.target);
                 has_parent.insert(edge.target, true);
             }
         }
@@ -659,10 +640,7 @@ impl SemanticForcesEngine {
         for (i, node) in graph.nodes.iter().enumerate() {
             let node_type = self.node_types[i];
             let pos = (node.data.x, node.data.y, node.data.z);
-            type_positions
-                .entry(node_type)
-                .or_insert_with(Vec::new)
-                .push(pos);
+            type_positions.entry(node_type).or_default().push(pos);
         }
 
         // Calculate centroids
@@ -697,7 +675,7 @@ impl SemanticForcesEngine {
                 let pos = (node.data.x, node.data.y, node.data.z);
                 physicality_positions
                     .entry(physicality)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(pos);
             }
         }
@@ -732,10 +710,7 @@ impl SemanticForcesEngine {
             let role = self.node_role[i];
             if role > 0 {
                 let pos = (node.data.x, node.data.y, node.data.z);
-                role_positions
-                    .entry(role)
-                    .or_insert_with(Vec::new)
-                    .push(pos);
+                role_positions.entry(role).or_default().push(pos);
             }
         }
 
@@ -1168,7 +1143,7 @@ impl SemanticForcesEngine {
         let node_count = graph.nodes.len();
         let mut forces: Vec<(f32, f32, f32)> = vec![(0.0, 0.0, 0.0); node_count];
 
-        for i in 0..node_count {
+        for (i, acc) in forces.iter_mut().enumerate() {
             let physicality = self.node_physicality[i];
             if physicality == 0 {
                 continue;
@@ -1186,9 +1161,9 @@ impl SemanticForcesEngine {
 
                 if dist > self.config.physicality_cluster.cluster_radius {
                     let force = self.config.physicality_cluster.cluster_attraction * 0.01;
-                    forces[i].0 += dx * force;
-                    forces[i].1 += dy * force;
-                    forces[i].2 += dz * force;
+                    acc.0 += dx * force;
+                    acc.1 += dy * force;
+                    acc.2 += dz * force;
                 }
             }
 
@@ -1211,9 +1186,9 @@ impl SemanticForcesEngine {
                     let force = self.config.physicality_cluster.inter_physicality_repulsion
                         / (dist * dist)
                         * 0.01;
-                    forces[i].0 += dx * force / dist;
-                    forces[i].1 += dy * force / dist;
-                    forces[i].2 += dz * force / dist;
+                    acc.0 += dx * force / dist;
+                    acc.1 += dy * force / dist;
+                    acc.2 += dz * force / dist;
                 }
             }
         }
@@ -1229,7 +1204,7 @@ impl SemanticForcesEngine {
         let node_count = graph.nodes.len();
         let mut forces: Vec<(f32, f32, f32)> = vec![(0.0, 0.0, 0.0); node_count];
 
-        for i in 0..node_count {
+        for (i, acc) in forces.iter_mut().enumerate() {
             let role = self.node_role[i];
             if role == 0 {
                 continue;
@@ -1247,9 +1222,9 @@ impl SemanticForcesEngine {
 
                 if dist > self.config.role_cluster.cluster_radius {
                     let force = self.config.role_cluster.cluster_attraction * 0.01;
-                    forces[i].0 += dx * force;
-                    forces[i].1 += dy * force;
-                    forces[i].2 += dz * force;
+                    acc.0 += dx * force;
+                    acc.1 += dy * force;
+                    acc.2 += dz * force;
                 }
             }
 
@@ -1271,9 +1246,9 @@ impl SemanticForcesEngine {
                 if dist < self.config.role_cluster.cluster_radius * 2.0 && dist > 0.001 {
                     let force =
                         self.config.role_cluster.inter_role_repulsion / (dist * dist) * 0.01;
-                    forces[i].0 += dx * force / dist;
-                    forces[i].1 += dy * force / dist;
-                    forces[i].2 += dz * force / dist;
+                    acc.0 += dx * force / dist;
+                    acc.1 += dy * force / dist;
+                    acc.2 += dz * force / dist;
                 }
             }
         }
@@ -1443,10 +1418,8 @@ impl DynamicRelationshipBufferManager {
     /// Call this whenever ontology changes to enable new relationship types
     pub fn upload_from_registry(&mut self, registry: &SemanticTypeRegistry) -> Result<(), String> {
         let buffer = registry.build_gpu_buffer();
-        let gpu_buffer: Vec<DynamicForceConfigGPU> = buffer
-            .iter()
-            .map(|c| DynamicForceConfigGPU::from(c))
-            .collect();
+        let gpu_buffer: Vec<DynamicForceConfigGPU> =
+            buffer.iter().map(DynamicForceConfigGPU::from).collect();
 
         self.upload_buffer(&gpu_buffer)
     }

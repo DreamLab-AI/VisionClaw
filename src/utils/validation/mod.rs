@@ -19,7 +19,9 @@ pub const MAX_ARRAY_SIZE: usize = 1000;
 
 pub const MAX_NESTING_DEPTH: usize = 10;
 
-pub type ValidationResult<T> = Result<T, DetailedValidationError>;
+/// Result of a validation step. The error is boxed: `DetailedValidationError`
+/// is ~192 bytes and would otherwise bloat every `Ok` path that carries it.
+pub type ValidationResult<T> = Result<T, Box<DetailedValidationError>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationError {
@@ -143,7 +145,8 @@ impl ValidationContext {
                 &self.get_path(),
                 "Maximum nesting depth exceeded",
                 "MAX_DEPTH_EXCEEDED",
-            ));
+            )
+            .into());
         }
         self.field_path.push(field.to_string());
         self.current_depth += 1;
@@ -189,7 +192,8 @@ impl ValidationUtils {
                 field,
                 &format!("Maximum length is {} characters", max_length),
                 "TOO_LONG",
-            ));
+            )
+            .into());
         }
         Ok(())
     }
@@ -204,7 +208,8 @@ impl ValidationUtils {
                 value.into(),
                 min.into(),
                 max.into(),
-            ));
+            )
+            .into());
         }
         Ok(())
     }
@@ -212,7 +217,7 @@ impl ValidationUtils {
     pub fn validate_required<'a, T>(value: &'a Option<T>, field: &str) -> ValidationResult<&'a T> {
         match value {
             Some(v) => Ok(v),
-            None => Err(DetailedValidationError::missing_required_field(field)),
+            None => Err(DetailedValidationError::missing_required_field(field).into()),
         }
     }
 
@@ -226,7 +231,8 @@ impl ValidationUtils {
                 field,
                 &format!("Array exceeds maximum size of {}", max_size),
                 "ARRAY_TOO_LARGE",
-            ));
+            )
+            .into());
         }
         Ok(())
     }
@@ -242,18 +248,15 @@ impl ValidationUtils {
                 field,
                 "valid email address",
                 email,
-            ));
+            )
+            .into());
         }
         Ok(())
     }
 
     pub fn validate_url(url: &str, field: &str) -> ValidationResult<()> {
         if url.parse::<url::Url>().is_err() {
-            return Err(DetailedValidationError::pattern_mismatch(
-                field,
-                "valid URL",
-                url,
-            ));
+            return Err(DetailedValidationError::pattern_mismatch(field, "valid URL", url).into());
         }
         Ok(())
     }
@@ -268,18 +271,17 @@ impl ValidationUtils {
                 field,
                 "hex color (e.g., #ffffff)",
                 color,
-            ));
+            )
+            .into());
         }
         Ok(())
     }
 
     pub fn validate_uuid(uuid: &str, field: &str) -> ValidationResult<()> {
         if uuid::Uuid::parse_str(uuid).is_err() {
-            return Err(DetailedValidationError::pattern_mismatch(
-                field,
-                "valid UUID",
-                uuid,
-            ));
+            return Err(
+                DetailedValidationError::pattern_mismatch(field, "valid UUID", uuid).into(),
+            );
         }
         Ok(())
     }

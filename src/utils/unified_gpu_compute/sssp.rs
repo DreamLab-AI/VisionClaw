@@ -60,7 +60,7 @@ impl UnifiedGPUCompute {
                             self.next_frontier_flags.copy_from(&zeros)?;
 
                             let block = 256u32;
-                            let grid = (frontier_len as u32 + block - 1) / block;
+                            let grid = (frontier_len as u32).div_ceil(block);
 
                             let func = self._module.get_function("relaxation_step_kernel")?;
                             // SAFETY: Same invariants as the original Bellman-Ford loop.
@@ -83,7 +83,7 @@ impl UnifiedGPUCompute {
                             let d_frontier_counter = DeviceBuffer::from_slice(&[0i32])?;
                             let compact_func =
                                 self._module.get_function("compact_frontier_kernel")?;
-                            let compact_grid = ((self.num_nodes as u32 + 255) / 256, 1, 1);
+                            let compact_grid = ((self.num_nodes as u32).div_ceil(256), 1, 1);
                             let compact_block = (256, 1, 1);
 
                             // SAFETY: Same invariants as the original compact kernel launch.
@@ -156,7 +156,7 @@ impl UnifiedGPUCompute {
                         self.next_frontier_flags.copy_from(&zeros)?;
 
                         let block = 256u32;
-                        let grid = (frontier_len as u32 + block - 1) / block;
+                        let grid = (frontier_len as u32).div_ceil(block);
 
                         let func = self._module.get_function("relaxation_step_kernel")?;
                         // SAFETY: Same invariants as documented in the original implementation.
@@ -176,7 +176,7 @@ impl UnifiedGPUCompute {
 
                         let d_frontier_counter = DeviceBuffer::from_slice(&[0i32])?;
                         let compact_func = self._module.get_function("compact_frontier_kernel")?;
-                        let compact_grid = ((self.num_nodes as u32 + 255) / 256, 1, 1);
+                        let compact_grid = ((self.num_nodes as u32).div_ceil(256), 1, 1);
                         let compact_block = (256, 1, 1);
 
                         // SAFETY: Same invariants as documented in the original implementation.
@@ -280,7 +280,7 @@ impl UnifiedGPUCompute {
 
                 // Launch relaxation kernel
                 let block = 256;
-                let grid = ((frontier_len as u32 + block - 1) / block) as u32;
+                let grid = (frontier_len as u32).div_ceil(block);
 
                 let func = self._module.get_function("relaxation_step_kernel")?;
                 // SAFETY: Same invariants as run_sssp - all buffers valid, bounds checked
@@ -301,7 +301,7 @@ impl UnifiedGPUCompute {
                 // Compact frontier
                 let d_frontier_counter = DeviceBuffer::from_slice(&[0i32])?;
                 let compact_func = self._module.get_function("compact_frontier_kernel")?;
-                let compact_grid = ((self.num_nodes as u32 + 255) / 256, 1, 1);
+                let compact_grid = ((self.num_nodes as u32).div_ceil(256), 1, 1);
                 let compact_block = (256, 1, 1);
 
                 // SAFETY: Same invariants as run_sssp compact step

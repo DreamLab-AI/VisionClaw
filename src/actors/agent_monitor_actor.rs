@@ -48,7 +48,7 @@ fn task_to_agent_status(task: TaskInfo, telemetry: &ContainerTelemetry) -> Agent
     let timestamp = chrono::Utc
         .timestamp_millis_opt(task.start_time as i64)
         .single()
-        .unwrap_or_else(|| time::now());
+        .unwrap_or_else(time::now);
 
     let age = (time::timestamp_millis() - task.start_time as i64) / 1000;
 
@@ -207,8 +207,6 @@ pub struct AgentMonitorActor {
     is_connected: bool,
 
     polling_interval: Duration,
-    #[allow(dead_code)]
-    last_poll: DateTime<Utc>,
 
     agent_cache: HashMap<String, AgentStatus>,
 
@@ -336,7 +334,6 @@ impl AgentMonitorActor {
             // TaskOrchestratorActor, so on-demand responsiveness is unaffected;
             // this only governs the idle telemetry refresh.
             polling_interval: Duration::from_secs(15),
-            last_poll: time::now(),
             agent_cache: HashMap::new(),
             consecutive_poll_failures: 0,
             last_successful_poll: None,

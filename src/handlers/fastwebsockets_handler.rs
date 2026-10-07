@@ -426,9 +426,7 @@ fn current_timestamp_ms() -> u64 {
 
 /// Standalone WebSocket handler using fastwebsockets
 /// Can be integrated with actix-web via raw socket handling
-#[allow(dead_code)]
 pub struct StandaloneFastWsHandler {
-    session_id: String,
     app_state: Arc<AppState>,
     use_postcard: bool,
     last_activity: Instant,
@@ -439,7 +437,6 @@ pub struct StandaloneFastWsHandler {
 impl StandaloneFastWsHandler {
     pub fn new(app_state: Arc<AppState>, use_postcard: bool) -> Self {
         Self {
-            session_id: uuid::Uuid::new_v4().to_string(),
             app_state,
             use_postcard,
             last_activity: Instant::now(),

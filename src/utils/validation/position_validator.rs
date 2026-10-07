@@ -14,7 +14,8 @@ impl PositionValidator {
                             field,
                             "Position value cannot be NaN or Infinity",
                             "INVALID_POSITION",
-                        ));
+                        )
+                        .into());
                     }
 
                     if f.abs() > 1_000_000.0 {
@@ -22,7 +23,8 @@ impl PositionValidator {
                             field,
                             "Position value exceeds reasonable bounds",
                             "POSITION_OUT_OF_BOUNDS",
-                        ));
+                        )
+                        .into());
                     }
                     Ok(f as f32)
                 } else {
@@ -30,7 +32,8 @@ impl PositionValidator {
                         field,
                         "Invalid numeric value",
                         "INVALID_NUMBER",
-                    ))
+                    )
+                    .into())
                 }
             }
             Value::String(s) => match s.parse::<f64>() {
@@ -40,14 +43,16 @@ impl PositionValidator {
                             field,
                             "Position value cannot be NaN or Infinity",
                             "INVALID_POSITION",
-                        ));
+                        )
+                        .into());
                     }
                     if f.abs() > 1_000_000.0 {
                         return Err(DetailedValidationError::new(
                             field,
                             "Position value exceeds reasonable bounds",
                             "POSITION_OUT_OF_BOUNDS",
-                        ));
+                        )
+                        .into());
                     }
                     Ok(f as f32)
                 }
@@ -55,13 +60,15 @@ impl PositionValidator {
                     field,
                     "Invalid numeric string",
                     "INVALID_NUMBER_FORMAT",
-                )),
+                )
+                .into()),
             },
             _ => Err(DetailedValidationError::new(
                 field,
                 "Position must be a number or numeric string",
                 "INVALID_TYPE",
-            )),
+            )
+            .into()),
         }
     }
 
@@ -73,21 +80,33 @@ impl PositionValidator {
         let x = obj
             .get("x")
             .ok_or_else(|| {
-                DetailedValidationError::new("position.x", "Missing x coordinate", "MISSING_FIELD")
+                Box::new(DetailedValidationError::new(
+                    "position.x",
+                    "Missing x coordinate",
+                    "MISSING_FIELD",
+                ))
             })
             .and_then(|v| Self::validate_position_value(v, "position.x"))?;
 
         let y = obj
             .get("y")
             .ok_or_else(|| {
-                DetailedValidationError::new("position.y", "Missing y coordinate", "MISSING_FIELD")
+                Box::new(DetailedValidationError::new(
+                    "position.y",
+                    "Missing y coordinate",
+                    "MISSING_FIELD",
+                ))
             })
             .and_then(|v| Self::validate_position_value(v, "position.y"))?;
 
         let z = obj
             .get("z")
             .ok_or_else(|| {
-                DetailedValidationError::new("position.z", "Missing z coordinate", "MISSING_FIELD")
+                Box::new(DetailedValidationError::new(
+                    "position.z",
+                    "Missing z coordinate",
+                    "MISSING_FIELD",
+                ))
             })
             .and_then(|v| Self::validate_position_value(v, "position.z"))?;
 
@@ -103,7 +122,8 @@ impl PositionValidator {
                             field,
                             "Velocity value cannot be NaN or Infinity",
                             "INVALID_VELOCITY",
-                        ));
+                        )
+                        .into());
                     }
 
                     if f.abs() > 10_000.0 {
@@ -111,7 +131,8 @@ impl PositionValidator {
                             field,
                             "Velocity value exceeds reasonable bounds",
                             "VELOCITY_OUT_OF_BOUNDS",
-                        ));
+                        )
+                        .into());
                     }
                     Ok(f as f32)
                 } else {
@@ -119,7 +140,8 @@ impl PositionValidator {
                         field,
                         "Invalid numeric value",
                         "INVALID_NUMBER",
-                    ))
+                    )
+                    .into())
                 }
             }
             Value::String(s) => match s.parse::<f64>() {
@@ -129,14 +151,16 @@ impl PositionValidator {
                             field,
                             "Velocity value cannot be NaN or Infinity",
                             "INVALID_VELOCITY",
-                        ));
+                        )
+                        .into());
                     }
                     if f.abs() > 10_000.0 {
                         return Err(DetailedValidationError::new(
                             field,
                             "Velocity value exceeds reasonable bounds",
                             "VELOCITY_OUT_OF_BOUNDS",
-                        ));
+                        )
+                        .into());
                     }
                     Ok(f as f32)
                 }
@@ -144,13 +168,15 @@ impl PositionValidator {
                     field,
                     "Invalid numeric string",
                     "INVALID_NUMBER_FORMAT",
-                )),
+                )
+                .into()),
             },
             _ => Err(DetailedValidationError::new(
                 field,
                 "Velocity must be a number or numeric string",
                 "INVALID_TYPE",
-            )),
+            )
+            .into()),
         }
     }
 }

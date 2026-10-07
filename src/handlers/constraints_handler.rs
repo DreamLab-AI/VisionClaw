@@ -155,7 +155,7 @@ async fn apply_constraints(
         .iter()
         .map(|v| v.as_u64().map(|n| n as u32))
         .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| "Invalid node IDs");
+        .ok_or("Invalid node IDs");
 
     let nodes = match nodes {
         Ok(n) => n,
@@ -341,12 +341,8 @@ fn validate_single_constraint(constraint: &LegacyConstraintData) -> Result<(), S
                 );
             }
         }
-        4 => {
-            if constraint.param1.abs() > 1000.0 || constraint.param2.abs() > 1000.0 {
-                return Err(
-                    "cluster center coordinates must be within reasonable bounds".to_string(),
-                );
-            }
+        4 if (constraint.param1.abs() > 1000.0 || constraint.param2.abs() > 1000.0) => {
+            return Err("cluster center coordinates must be within reasonable bounds".to_string());
         }
         _ => {}
     }

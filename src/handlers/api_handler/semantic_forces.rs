@@ -646,7 +646,7 @@ pub async fn reload_relationship_buffer(
     // SemanticForcesActor is not yet routed through the supervisor hierarchy,
     // so we call through the buffer manager directly.
     let mut buffer_manager = crate::gpu::semantic_forces::DynamicRelationshipBufferManager::new();
-    match buffer_manager.upload_from_registry(&*SEMANTIC_TYPE_REGISTRY) {
+    match buffer_manager.upload_from_registry(&SEMANTIC_TYPE_REGISTRY) {
         Ok(()) => {
             let count = SEMANTIC_TYPE_REGISTRY.len();
             info!(

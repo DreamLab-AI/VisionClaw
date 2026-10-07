@@ -258,7 +258,6 @@ impl OntologyEnrichmentService {
 // Uses Oxigraph test helpers from test_helpers (ADR-11)
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_extract_frontmatter() {

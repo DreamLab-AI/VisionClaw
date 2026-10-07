@@ -466,7 +466,7 @@ fn load_precompiled_ptx(module: PTXModule) -> Result<String, String> {
             }
         }
     }
-    build_outputs.sort_by(|a, b| b.0.cmp(&a.0));
+    build_outputs.sort_by_key(|b| std::cmp::Reverse(b.0));
     ptx_paths.extend(build_outputs.into_iter().map(|(_, p)| p));
 
     // 3. Pre-compiled source tree copies (may be stale in Docker overlay).

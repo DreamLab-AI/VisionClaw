@@ -13,8 +13,8 @@ use super::params_handlers::set_focus;
 use super::real_gpu_functions::*;
 use super::state::CLUSTERING_TASKS;
 use super::types::{
-    Cluster, ClusterFocusRequest, ClusteringParams, ClusteringRequest, ClusteringResponse,
-    ClusteringStatusResponse, ClusteringTask, FocusRegion, SetFocusRequest,
+    Cluster, ClusterFocusRequest, ClusteringRequest, ClusteringResponse, ClusteringStatusResponse,
+    ClusteringTask, FocusRegion, SetFocusRequest,
 };
 
 pub async fn run_clustering(
@@ -370,20 +370,15 @@ pub(crate) async fn perform_clustering(
 
     let clusters = match request.method.as_str() {
         "spectral" => {
-            perform_gpu_spectral_clustering(&**app_state, &graph_data, &agents, &request.params)
-                .await
+            perform_gpu_spectral_clustering(app_state, &graph_data, &agents, &request.params).await
         }
         "kmeans" => {
-            perform_gpu_kmeans_clustering(&**app_state, &graph_data, &agents, &request.params).await
+            perform_gpu_kmeans_clustering(app_state, &graph_data, &agents, &request.params).await
         }
         "louvain" => {
-            perform_gpu_louvain_clustering(&**app_state, &graph_data, &agents, &request.params)
-                .await
+            perform_gpu_louvain_clustering(app_state, &graph_data, &agents, &request.params).await
         }
-        _ => {
-            perform_gpu_default_clustering(&**app_state, &graph_data, &agents, &request.params)
-                .await
-        }
+        _ => perform_gpu_default_clustering(app_state, &graph_data, &agents, &request.params).await,
     };
 
     let mut tasks = CLUSTERING_TASKS.lock().await;
@@ -421,11 +416,11 @@ pub(crate) fn generate_agent_based_clusters(
     for agent in agents {
         agent_type_groups
             .entry(agent.agent_type.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(agent);
     }
 
-    let colors = vec![
+    let colors = [
         "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
     ];
 
@@ -490,7 +485,7 @@ pub(crate) fn generate_agent_based_clusters(
             .cloned()
             .collect();
 
-        let coherence = (avg_health / 100.0).min(1.0).max(0.0);
+        let coherence = (avg_health / 100.0).clamp(0.0, 1.0);
 
         clusters.push(Cluster {
             id: format!("cluster_{}_{}", method, cluster_id),
@@ -696,7 +691,6 @@ pub(crate) fn generate_label_propagation_clusters(
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn generate_graph_based_clusters(
     graph_data: &visionclaw_domain::models::graph::GraphData,
     num_clusters: u32,
@@ -707,10 +701,10 @@ pub(crate) fn generate_graph_based_clusters(
     } else {
         graph_data.nodes.len() / num_clusters as usize
     };
-    let colors = vec![
+    let colors = [
         "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
     ];
-    let labels = vec![
+    let labels = [
         "Core Concepts",
         "Implementation",
         "Documentation",

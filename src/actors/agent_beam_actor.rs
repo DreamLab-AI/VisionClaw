@@ -293,7 +293,7 @@ impl Actor for AgentBeamActor {
                         }
                         Err(actix::prelude::SendError::Full(_)) => {
                             let now = Instant::now();
-                            let due = last_warn.map_or(true, |t| {
+                            let due = last_warn.is_none_or(|t| {
                                 now.duration_since(t) >= BACKPRESSURE_WARN_INTERVAL
                             });
                             if due {
@@ -323,46 +323,6 @@ impl Actor for AgentBeamActor {
         info!("AgentBeamActor: started — subscribed to agent-events hub (ADR-059 Phase 2b)");
     }
 }
-
-/// GLUON (attractive force) — DEFERRED (ADR-059 §4, gluon sub-feature).
-///
-/// This is a documentation anchor, not dead production code. The intended visual
-/// is a transient attractive edge tugging the agent node toward `target_node_id`
-/// for `duration_ms`, which the existing spring kernel would naturally turn into
-/// attraction. The mechanism that *would* implement it: inject a CSR edge
-/// (weight > 0) between the two ids, TTL = `envelope.duration_ms`, keyed off the
-/// beam, then auto-remove.
-///
-/// Deferred — NOT low-risk on the current GPU substrate:
-///   1. GPU edges live in a PACKED CSR layout (`row_offsets` / `col_indices` /
-///      `edge_weights`), uploaded wholesale by
-///      `unified_gpu_compute::memory::initialize_graph` / `upload_edges_csr`.
-///      There is no incremental edge-insert path — a single transient edge forces
-///      a `resize_buffers` reallocation and a full re-upload of all three CSR
-///      arrays.
-///   2. `AddEdge` / `RemoveEdge` (`graph_state_actor.rs`) only mutate the
-///      in-memory `node_map`; they do NOT propagate to the GPU until a full
-///      `BuildGraphFromMetadata`-style rebuild. No clean per-edge GPU mutation
-///      message exists today.
-///   3. The SSSP and Louvain/community kernels read the SAME CSR buffers; a
-///      mid-flight resize/re-upload would race concurrent kernels and destabilise
-///      the simulation.
-///   4. The stale ADR `class_charge` modulation buffer does NOT exist — only
-///      `class_id` / `class_charge` / `class_mass` per-node device buffers passed to
-///      `force_pass_kernel` by `UnifiedGPUCompute`, none of which is a per-edge
-///      attractive force. (The `PhysicsGpuBuffers` struct this note used to cite was
-///      removed with the `physics-v2` feature — ADR-2055.)
-///
-/// Correct fix (future increment): add an incremental
-/// `UpsertTransientEdge { src, tgt, weight, ttl_ms }` GPU message that appends
-/// into a SEPARATE transient-edge buffer the spring kernel sums alongside the
-/// static CSR, plus a TTL sweep that zeroes expired entries — avoiding any
-/// reallocation of the static CSR. Left out here so the beam broadcast lands as a
-/// correct, self-contained increment (correctness over completeness). The beam
-/// alone already embodies the action visually.
-#[allow(dead_code)]
-#[inline]
-fn gluon_deferral_note() {}
 
 #[cfg(test)]
 mod tests {

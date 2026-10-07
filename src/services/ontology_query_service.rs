@@ -9,7 +9,6 @@
 //! subsumption reasoning, and relationship fan-out (has-part, requires, enables, bridges-to).
 
 use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
-use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use crate::services::schema_service::SchemaService;
 use crate::types::ontology_tools::*;
 use log::info;
@@ -49,8 +48,6 @@ struct LoadedOntology {
 
 pub struct OntologyQueryService {
     ontology_repo: Arc<dyn OntologyRepository>,
-    #[allow(dead_code)]
-    graph_repo: Arc<dyn KnowledgeGraphRepository>,
     whelk: Arc<RwLock<WhelkInferenceEngine>>,
     schema_service: Arc<SchemaService>,
     generation_source: GenerationSource,
@@ -77,13 +74,11 @@ fn axiom_type_name(a: &OwlAxiom) -> String {
 impl OntologyQueryService {
     pub fn new(
         ontology_repo: Arc<dyn OntologyRepository>,
-        graph_repo: Arc<dyn KnowledgeGraphRepository>,
         whelk: Arc<RwLock<WhelkInferenceEngine>>,
         schema_service: Arc<SchemaService>,
     ) -> Self {
         Self {
             ontology_repo,
-            graph_repo,
             whelk,
             schema_service,
             generation_source: GenerationSource::Environment,
@@ -744,11 +739,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let b_len = b.len();
     let mut matrix = vec![vec![0usize; b_len + 1]; a_len + 1];
 
-    for i in 0..=a_len {
-        matrix[i][0] = i;
+    for (i, row) in matrix.iter_mut().enumerate() {
+        row[0] = i;
     }
-    for j in 0..=b_len {
-        matrix[0][j] = j;
+    for (j, cell) in matrix[0].iter_mut().enumerate() {
+        *cell = j;
     }
 
     let a_chars: Vec<char> = a.chars().collect();

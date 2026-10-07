@@ -14,7 +14,7 @@ use visionclaw_server::{
         presence_handler::{
             new_room_registry, new_seen_nonce_cache, ws_presence, PresenceHandlerState,
         },
-        socket_flow_handler::{socket_flow_handler, PreReadSocketSettings},
+        socket_flow_handler::socket_flow_handler,
         speech_socket_handler::speech_socket_handler,
         validation_handler, workspace_handler,
     },
@@ -258,10 +258,10 @@ async fn main() -> std::io::Result<()> {
     // REMOVED: init_logging()? call - using advanced_logging instead
     if let Err(e) = init_advanced_logging() {
         error!("Failed to initialize advanced logging: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Advanced logging initialization failed: {}", e),
-        ));
+        return Err(std::io::Error::other(format!(
+            "Advanced logging initialization failed: {}",
+            e
+        )));
     } else {
         info!("Advanced logging system initialized successfully");
     }
@@ -350,10 +350,10 @@ async fn main() -> std::io::Result<()> {
         }
         Err(e) => {
             error!("❌ Failed to load AppFullSettings: {:?}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize AppFullSettings: {:?}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize AppFullSettings: {:?}",
+                e
+            )));
         }
     };
 
@@ -383,10 +383,10 @@ async fn main() -> std::io::Result<()> {
         Ok(repo) => Arc::new(repo),
         Err(e) => {
             error!("Failed to open SQLite settings repository: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to open SQLite settings repository: {}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to open SQLite settings repository: {}",
+                e
+            )));
         }
     };
     let settings_repo_data = web::Data::new(settings_repository.clone());
@@ -408,10 +408,10 @@ async fn main() -> std::io::Result<()> {
     let github_client = match GitHubClient::new(github_config, settings.clone()).await {
         Ok(client) => Arc::new(client),
         Err(e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize GitHub client: {}", e),
-            ))
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize GitHub client: {}",
+                e
+            )))
         }
     };
 
@@ -461,10 +461,10 @@ async fn main() -> std::io::Result<()> {
             state
         }
         Err(e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize app state: {}", e),
-            ))
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize app state: {}",
+                e
+            )))
         }
     };
 
@@ -528,12 +528,13 @@ async fn main() -> std::io::Result<()> {
     ));
     let github_pr_service =
         Arc::new(visionclaw_server::services::github_pr_service::GitHubPRService::new());
-    let ontology_query_service = Arc::new(visionclaw_server::services::ontology_query_service::OntologyQueryService::new(
-        app_state.ontology_repository.clone(),
-        app_state.graph_adapter.clone() as Arc<dyn visionclaw_server::ports::knowledge_graph_repository::KnowledgeGraphRepository>,
-        whelk_engine.clone(),
-        schema_service.clone(),
-    ));
+    let ontology_query_service = Arc::new(
+        visionclaw_server::services::ontology_query_service::OntologyQueryService::new(
+            app_state.ontology_repository.clone(),
+            whelk_engine.clone(),
+            schema_service.clone(),
+        ),
+    );
     // W-E transaction spine (ADR-049): idempotency store + write-ahead intent log.
     // In-memory by default (real, thread-safe); a durable SQLite-backed impl can
     // drop in behind the same traits without touching the propose pipeline.
@@ -544,7 +545,6 @@ async fn main() -> std::io::Result<()> {
     let ontology_mutation_service = Arc::new(
         visionclaw_server::services::ontology_mutation_service::OntologyMutationService::new(
             app_state.ontology_repository.clone(),
-            whelk_engine.clone(),
             github_pr_service.clone(),
             proposal_idempotency,
             proposal_intents,
@@ -805,10 +805,9 @@ async fn main() -> std::io::Result<()> {
                     }
                     Err(e) => {
                         error!("[rbac] FATAL: could not determine Owner presence: {e}");
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("RBAC: owner check failed: {e}"),
-                        ));
+                        return Err(std::io::Error::other(format!(
+                            "RBAC: owner check failed: {e}"
+                        )));
                     }
                 }
                 if set_global_role_store(std::sync::Arc::new(store)).is_err() {
@@ -823,10 +822,9 @@ async fn main() -> std::io::Result<()> {
                 // back to the legacy power-user→Admin mapping — a fail-OPEN
                 // downgrade. Refuse to start instead.
                 error!("[rbac] FATAL: failed to initialise role store: {e}");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("RBAC: role store initialisation failed: {e}"),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "RBAC: role store initialisation failed: {e}"
+                )));
             }
         }
     }
@@ -851,19 +849,6 @@ async fn main() -> std::io::Result<()> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(4000);
     let bind_address = format!("{}:{}", bind_address, port);
-
-    let pre_read_ws_settings = {
-        let s = settings.read().await;
-        PreReadSocketSettings {
-            min_update_rate: s.system.websocket.min_update_rate,
-            max_update_rate: s.system.websocket.max_update_rate,
-            motion_threshold: s.system.websocket.motion_threshold,
-            motion_damping: s.system.websocket.motion_damping,
-            heartbeat_interval_ms: s.system.websocket.heartbeat_interval,
-            heartbeat_timeout_ms: s.system.websocket.heartbeat_timeout,
-        }
-    };
-    let pre_read_ws_settings_data = web::Data::new(pre_read_ws_settings);
 
     info!("Starting HTTP server on {}", bind_address);
 
@@ -1052,7 +1037,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(app_state_data.liveness_harness.clone()))
             // REC-4: the KpiComputeService backs /api/kpi/{summary,lineage}.
             .app_data(web::Data::from(app_state_data.kpi_compute_service.clone()))
-            .app_data(pre_read_ws_settings_data.clone())
             .app_data(web::Data::new(metrics_handler::ProcessStartTime(process_start_time)))
 
             .app_data(web::Data::new(app_state_data.graph_service_addr.clone()))
@@ -1092,7 +1076,7 @@ async fn main() -> std::io::Result<()> {
                 .app_data(pay_exchange_data.clone())
                 .configure(visionclaw_server::handlers::pay_handler::configure_pay_routes);
 
-            let app = app
+            app
             // Root-level k8s/Docker probes (the /api/* variants below are kept for back-compat)
             .route("/healthz", web::get().to(consolidated_health_handler::liveness_probe))
             .route("/readyz", web::get().to(consolidated_health_handler::readiness_probe))
@@ -1243,9 +1227,7 @@ async fn main() -> std::io::Result<()> {
                     // Layout mode system (ADR-031)
                     .configure(visionclaw_server::handlers::configure_layout_routes)
 
-            );
-
-            app
+            )
         })
         .bind(&bind_address)?
         .workers(4)

@@ -413,7 +413,7 @@ mod tests {
     fn test_hierarchical_always_active() {
         let mut lod = ConstraintLOD::new();
 
-        let mut constraints = vec![
+        let constraints = vec![
             PhysicsConstraint::hierarchical_layer(vec![1, 2], 100.0, 0.7, 10),
             PhysicsConstraint::separation(vec![3, 4], 10.0, 0.5, 10),
         ];

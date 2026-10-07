@@ -27,6 +27,10 @@
 //! the minimums are still returned, with `over_budget` set, so the benchmark
 //! reports it rather than a layer silently vanishing.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use crate::hulls::{DEFAULT_MAX_HULLS, MAX_TRIS_PER_HULL};
 use crate::lod::{
     CYLINDER_TRIS_PER_EDGE, DEFAULT_NEAR_CAP, DEFAULT_NEAR_EDGE_CAP, GEM_TRIS_PER_NODE, IMPOSTOR_TRIS_PER_NODE,
@@ -220,9 +224,19 @@ use godot::prelude::*;
 /// Godot face of [`allocate`]: `FrameBudget.new().allocate(...)`.
 #[cfg(not(test))]
 #[derive(GodotClass)]
-#[class(base = RefCounted, init)]
+#[class(base = RefCounted)]
 pub struct FrameBudget {
     base: Base<RefCounted>,
+}
+
+// Hand-written so `FrameBudget.new()` still works; the derive's generated
+// `init` spelled the struct literal `base: base`.
+#[cfg(not(test))]
+#[godot_api]
+impl IRefCounted for FrameBudget {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self { base }
+    }
 }
 
 #[cfg(not(test))]

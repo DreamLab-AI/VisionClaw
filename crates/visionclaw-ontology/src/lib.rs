@@ -13,7 +13,7 @@
 //! - `validation` — actor-state validation helpers
 //! - `types`      — ontology MCP tool surface types
 //! - `services`   — json-ld ingest pipeline, json-ld validator, OWL validator
-//!                  service, ontology content analyser, ontology parser
+//!   service, ontology content analyser, ontology parser
 //! - `utils`      — local copy of time utilities (chrono wrappers)
 //!
 //! ## What stays in webxr (needs actors / GPU / config)
@@ -25,8 +25,8 @@
 //! - `services::schema_service`             — needs crate::models (not in domain yet)
 
 pub mod inference;
-pub mod open_world;
 pub mod ontology;
+pub mod open_world;
 pub mod reasoning;
 pub mod services;
 pub mod types;

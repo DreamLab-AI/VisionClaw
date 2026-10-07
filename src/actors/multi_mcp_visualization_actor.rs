@@ -128,7 +128,7 @@ pub enum MultiMcpVisualizationMessage {
     UpdateAgentStatus {
         server_id: String,
         agent_id: String,
-        status: AgentStatus,
+        status: Box<AgentStatus>,
         metadata: HashMap<String, serde_json::Value>,
     },
 
@@ -165,7 +165,7 @@ pub enum MultiMcpVisualizationResponse {
         connections: HashMap<String, ConnectionInit>,
         servers: HashMap<String, McpServerConfig>,
         metrics: HashMap<String, McpServerMetrics>,
-        topology: SwarmTopologyData,
+        topology: Box<SwarmTopologyData>,
         global_metrics: GlobalPerformanceMetrics,
     },
 
@@ -281,7 +281,7 @@ impl Handler<MultiMcpVisualizationMessage> for MultiMcpVisualizationActor {
                 agent_id,
                 status,
                 metadata,
-            } => self.update_agent_status(server_id, agent_id, status, metadata),
+            } => self.update_agent_status(server_id, agent_id, *status, metadata),
 
             MultiMcpVisualizationMessage::AddConnection { connection } => {
                 self.add_connection(connection)
@@ -311,7 +311,7 @@ impl Handler<MultiMcpVisualizationMessage> for MultiMcpVisualizationActor {
                     connections: self.connections.clone(),
                     servers: self.mcp_servers.clone(),
                     metrics: self.server_metrics.clone(),
-                    topology: self.topology_data.clone(),
+                    topology: Box::new(self.topology_data.clone()),
                     global_metrics: self.global_metrics.clone(),
                 };
 

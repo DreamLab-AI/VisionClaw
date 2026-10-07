@@ -589,7 +589,7 @@ mod tests {
         }];
         let extra: HashSet<String> = ["urn:ngm:class:held".to_owned()].into_iter().collect();
         let p = project(&corpus_of(vec![pub_rec]), &extra).unwrap();
-        assert!(p.records[0].links.is_empty());
+        assert_eq!(p.records[0].links, []);
     }
 
     #[test]

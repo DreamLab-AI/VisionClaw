@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself
@@ -53,3 +53,7 @@ Commands (`CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`), 2026
 - Real corpus: `vault build --repo /home/devuser/workspace/visionGraph` run twice. Both builds produced `owl:versionIRI <https://narrativegoldmine.com/ontology/sha256-12-f1366a5adcc8>` and the same `ontology_digest` in both markers. They had zero `vc:` domain/range triples; the only remaining signature is `vc:hasMaturity rdfs:range ngm:MaturityLevel`.
 
 - Defect fix 6 (2026-10-05): `declare_object_properties` previously emitted a `domain:`/`range:` only for the 14 hard-coded `vc:` properties, and silently dropped one on any other emitted relation. It now emits `rdfs:domain`/`rdfs:range` for every emitted, non-logical relation that declares one. Unemitted relations emit nothing. `build::turtle::tests::a_signature_on_any_emitted_relation_is_emitted` was red first (`left: {}`), then green. `golden_parity` is 15 passed. The real-corpus build still carries only `vc:hasMaturity rdfs:range ngm:MaturityLevel`.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/mod.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/turtle.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

@@ -2,7 +2,7 @@ use crate::actors::messages::{GetGPUStatus, GetGraphData, GetMetadata, GetSettin
 use crate::ok_json;
 use crate::services::mcp_relay_manager::McpRelayManager;
 use crate::AppState;
-use actix_web::{web, Error, HttpResponse, Result};
+use actix_web::{web, HttpResponse, Result};
 use chrono::Utc;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -431,7 +431,7 @@ pub async fn start_mcp_relay() -> Result<HttpResponse> {
             "success": true,
             "message": "MCP relay started successfully"
         })),
-        Err(e) => Err(Error::from(actix_web::error::ErrorInternalServerError(e))),
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
     }
 }
 
@@ -448,7 +448,7 @@ pub async fn get_mcp_logs(query: web::Query<LogQuery>) -> Result<HttpResponse> {
             "success": true,
             "logs": logs
         })),
-        Err(e) => Err(Error::from(actix_web::error::ErrorInternalServerError(e))),
+        Err(e) => Err(actix_web::error::ErrorInternalServerError(e)),
     }
 }
 

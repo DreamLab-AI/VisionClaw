@@ -141,12 +141,6 @@ fn map_db_err(e: tokio_rusqlite::Error) -> SettingsRepositoryError {
     SettingsRepositoryError::DatabaseError(e.to_string())
 }
 
-/// Map a raw `rusqlite::Error` (occurring inside a `call` closure) into
-/// the trait error type.
-fn map_rusqlite_err(e: rusqlite::Error) -> SettingsRepositoryError {
-    SettingsRepositoryError::DatabaseError(e.to_string())
-}
-
 /// Map a JSON (de)serialisation error into the trait error type.
 fn map_json_err<E: std::fmt::Display>(e: E) -> SettingsRepositoryError {
     SettingsRepositoryError::SerializationError(e.to_string())
@@ -536,7 +530,7 @@ impl SettingsRepository for SqliteSettingsRepository {
                 }
                 let tagged: Vec<(String, String)> = out
                     .into_iter()
-                    .zip(owners.into_iter())
+                    .zip(owners)
                     .map(|((k, v), owner)| {
                         let tag = if !owner.is_empty() { "U" } else { "G" };
                         (k, format!("{}\u{0}{}", tag, v))
@@ -1031,18 +1025,6 @@ fn stage_row_entry(entry: &serde_json::Value) -> RepoResult<(String, Option<Stri
     let sv = SettingValue::Json(entry.clone());
     let value_json = serde_json::to_string(&sv).map_err(map_json_err)?;
     Ok((value_json, None))
-}
-
-// Silence unused-error-variant warnings in scaffold builds where some
-// error variants are not yet exercised by the code paths above.
-#[allow(dead_code)]
-fn _silence_unused_error_variant() -> SettingsRepositoryError {
-    SettingsRepositoryError::NotFound(String::new())
-}
-
-#[allow(dead_code)]
-fn _silence_unused_rusqlite_helper(e: rusqlite::Error) -> SettingsRepositoryError {
-    map_rusqlite_err(e)
 }
 
 #[cfg(test)]

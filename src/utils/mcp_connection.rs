@@ -10,8 +10,6 @@ use uuid::Uuid;
 
 pub struct PersistentMCPConnection {
     stream: Arc<Mutex<TcpStream>>,
-    #[allow(dead_code)]
-    session_id: String,
     initialized: bool,
 }
 
@@ -46,7 +44,7 @@ impl PersistentMCPConnection {
             }
         });
 
-        let msg = format!("{}\n", init_request.to_string());
+        let msg = format!("{}\n", init_request);
         debug!("Sending MCP init: {}", msg.trim());
         stream.write_all(msg.as_bytes()).await?;
         stream.flush().await?;
@@ -92,7 +90,6 @@ impl PersistentMCPConnection {
 
                         return Ok(PersistentMCPConnection {
                             stream: Arc::new(Mutex::new(stream)),
-                            session_id,
                             initialized: true,
                         });
                     } else if let Some(error) = response.get("error") {
@@ -121,7 +118,7 @@ impl PersistentMCPConnection {
             "params": params
         });
 
-        let msg = format!("{}\n", request.to_string());
+        let msg = format!("{}\n", request);
         debug!("Sending MCP command: {}", msg.trim());
 
         let mut stream = self.stream.lock().await;

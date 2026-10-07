@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
 review_trigger: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner
@@ -49,3 +49,7 @@ Commands (`CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`):
 - `vault --repo /home/devuser/workspace/visionGraph validate`: exit 0, 9380 pages, 0 errors. Same CLI over a fixture vocabulary mapping `only-has-part` to `owl:allValuesFrom`: exit 1, `NON_EL_VOCABULARY: relation "only-has-part" owl maps to owl:allValuesFrom, which is outside OWL 2 EL`.
 
 - Defect fix 5 (2026-10-05): the `el_profile.rs` deny-list now includes `owl:oneOf` and `owl:propertyDisjointWith`. The real-corpus test reads `VAULT_CORPUS_DIR` (default `/home/devuser/workspace/visionGraph`) and, when that path is absent, prints `SKIP the_real_corpus_graph_contains_no_non_el_construct: no corpus at …` to stderr and still passes. Both paths were exercised: `VAULT_CORPUS_DIR=/nonexistent` printed the SKIP line and the default corpus path ran the check, 2 passed each time.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

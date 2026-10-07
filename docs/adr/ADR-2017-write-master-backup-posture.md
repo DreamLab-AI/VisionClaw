@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -237,3 +237,15 @@ restore paths this record governs. The decision holds unchanged.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `scripts/backup-secrets.sh` drops `embedding-cloud.json` from `INCLUDE_NAMES`, because the file is no longer generated (`scripts/compute-umap-projection.mjs` was deleted; the cloud is served live). **Decision unaffected.** The SQLite online-backup posture and the write-master per data class are unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/services/github_sync_service.rs`: `div_ceil`, `BoxFuture` for the fetch future, a `matches!` filter, a useless `.into()` removed. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/services/github_sync_service.rs`: deletes two uncalled private filter methods.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

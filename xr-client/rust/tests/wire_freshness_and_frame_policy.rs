@@ -9,6 +9,8 @@
 //! handles them per the documented policy.
 
 #[path = "../../../crates/visionclaw-protocol/src/wire_fixtures.rs"]
+// Shared server-side fixture module; this test uses only part of it.
+#[allow(dead_code)]
 mod wire_fixtures;
 
 use visionclaw_xr_gdext::binary_protocol::{

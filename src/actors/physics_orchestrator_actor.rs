@@ -585,7 +585,7 @@ impl PhysicsOrchestratorActor {
             correlation_id: None,
         });
 
-        if self.current_iteration % 300 == 0 {
+        if self.current_iteration.is_multiple_of(300) {
             info!(
                 "PhysicsOrchestratorActor: step {} dispatched ComputeForces to GPU",
                 self.current_iteration
@@ -593,77 +593,10 @@ impl PhysicsOrchestratorActor {
         }
     }
 
-    #[allow(dead_code)]
-    fn handle_physics_step_completion(&mut self) {
-        debug!("Physics step {} completed", self.current_iteration);
-    }
-
     fn execute_cpu_physics_step(&mut self, _ctx: &mut Context<Self>) {
         if !self.cpu_fallback_warned {
             warn!("CPU physics fallback not implemented — GPU compute is mandatory");
             self.cpu_fallback_warned = true;
-        }
-    }
-
-    #[allow(dead_code)]
-    fn broadcast_position_updates(
-        &mut self,
-        positions: Vec<(u32, BinaryNodeData)>,
-        _ctx: &mut Context<Self>,
-    ) {
-        // Throttle broadcasts to 60 FPS max
-        let now = Instant::now();
-        let broadcast_interval = Duration::from_millis(16); // 60 FPS
-        if now.duration_since(self.last_broadcast_time) < broadcast_interval {
-            return;
-        }
-        self.last_broadcast_time = now;
-
-        // Check if client coordinator is available
-        if let Some(ref client_coord_addr) = self.client_coordinator_addr {
-            // Apply user pinning - override server physics for nodes being dragged
-            let mut final_positions = Vec::with_capacity(positions.len());
-            for (node_id, mut node_data) in positions {
-                if let Some(&(pin_x, pin_y, pin_z)) = self.user_pinned_nodes.get(&node_id) {
-                    // User is dragging this node - use client-specified position
-                    node_data.x = pin_x;
-                    node_data.y = pin_y;
-                    node_data.z = pin_z;
-                    // Zero out velocity while pinned
-                    node_data.vx = 0.0;
-                    node_data.vy = 0.0;
-                    node_data.vz = 0.0;
-                }
-                final_positions.push((node_id, node_data));
-            }
-
-            // Convert to client format (BinaryNodeDataClient has same layout)
-            let client_positions: Vec<BinaryNodeDataClient> = final_positions
-                .iter()
-                .map(|(node_id, data)| BinaryNodeDataClient {
-                    node_id: *node_id,
-                    x: data.x,
-                    y: data.y,
-                    z: data.z,
-                    vx: data.vx,
-                    vy: data.vy,
-                    vz: data.vz,
-                })
-                .collect();
-
-            // Send broadcast message to client coordinator
-            use crate::actors::messages::BroadcastPositions;
-            client_coord_addr.do_send(BroadcastPositions {
-                positions: client_positions,
-            });
-
-            debug!(
-                "Broadcasted {} node positions to clients ({} pinned by users)",
-                final_positions.len(),
-                self.user_pinned_nodes.len()
-            );
-        } else {
-            debug!("No client coordinator available for broadcasting positions");
         }
     }
 
@@ -766,21 +699,21 @@ impl PhysicsOrchestratorActor {
         if is_equilibrium {
             self.simulation_params.equilibrium_stability_counter += 1;
 
-            if self.simulation_params.equilibrium_stability_counter >= check_frames {
-                if !self.simulation_params.is_physics_paused && config.pause_on_equilibrium {
-                    info!("Auto-pause: System reached equilibrium, pausing physics");
-                    self.simulation_params.is_physics_paused = true;
+            if self.simulation_params.equilibrium_stability_counter >= check_frames
+                && !self.simulation_params.is_physics_paused
+                && config.pause_on_equilibrium
+            {
+                info!("Auto-pause: System reached equilibrium, pausing physics");
+                self.simulation_params.is_physics_paused = true;
 
-                    // Genuine equilibrium rest: latch settlement telemetry so it
-                    // reports settled once ticks stop (Continuous-mode analogue of
-                    // the FastSettle convergence latch).
-                    if let Some(ref gpu_addr) = self.gpu_compute_addr {
-                        gpu_addr
-                            .do_send(crate::actors::messages::SetPhysicsSettled { settled: true });
-                    }
-
-                    self.broadcast_physics_paused();
+                // Genuine equilibrium rest: latch settlement telemetry so it
+                // reports settled once ticks stop (Continuous-mode analogue of
+                // the FastSettle convergence latch).
+                if let Some(ref gpu_addr) = self.gpu_compute_addr {
+                    gpu_addr.do_send(crate::actors::messages::SetPhysicsSettled { settled: true });
                 }
+
+                self.broadcast_physics_paused();
             }
         } else {
             if !self.simulation_params.is_physics_paused {
@@ -1226,7 +1159,7 @@ impl Handler<UpdateNodePositions> for PhysicsOrchestratorActor {
                     positions: client_positions,
                 });
 
-                if self.current_iteration % 300 == 0 {
+                if self.current_iteration.is_multiple_of(300) {
                     info!(
                         "PhysicsOrchestratorActor: Broadcasted {} GPU-computed positions to clients (step {}, {} pinned)",
                         node_count, self.current_iteration, self.user_pinned_nodes.len()
@@ -1267,7 +1200,7 @@ impl Handler<RequestPositionSnapshot> for PhysicsOrchestratorActor {
                 .nodes
                 .iter()
                 .map(|node| {
-                    let mut data: BinaryNodeData = node.data.clone().into();
+                    let mut data: BinaryNodeData = node.data.into();
                     data.node_id = node.id;
                     (node.id, data)
                 })
@@ -1371,7 +1304,7 @@ impl Handler<StoreGPUComputeAddress> for PhysicsOrchestratorActor {
             let old_is_stale = self
                 .gpu_compute_addr
                 .as_ref()
-                .map_or(true, |a| !a.connected());
+                .is_none_or(|a| !a.connected());
             if old_is_stale {
                 info!("PhysicsOrchestratorActor: ForceComputeActor address replaced (old disconnected) — resetting gpu_initialized for re-init");
                 self.gpu_initialized = false;
@@ -1985,7 +1918,7 @@ impl Handler<crate::actors::messages::PhysicsStepCompleted> for PhysicsOrchestra
                 );
                 self.fast_settle_iteration_count = 0;
                 self.settle_rest_run = 0;
-            } else if self.fast_settle_iteration_count % 100 == 0 {
+            } else if self.fast_settle_iteration_count.is_multiple_of(100) {
                 debug!(
                     "PhysicsOrchestratorActor: FastSettle progress: iter={}/{}, energy={:.6}",
                     self.fast_settle_iteration_count, max_settle_iterations, energy
@@ -2067,13 +2000,14 @@ mod tests {
         energy_threshold: f64,
         damping_override: f32,
     ) -> SimulationParams {
-        let mut params = SimulationParams::default();
-        params.settle_mode = SettleMode::FastSettle {
-            damping_override,
-            max_settle_iterations: max_iters,
-            energy_threshold,
-        };
-        params
+        SimulationParams {
+            settle_mode: SettleMode::FastSettle {
+                damping_override,
+                max_settle_iterations: max_iters,
+                energy_threshold,
+            },
+            ..Default::default()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2248,8 +2182,10 @@ mod tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn parameter_interpolation_blends_toward_target() {
-        let mut params = SimulationParams::default();
-        params.settle_mode = SettleMode::Continuous; // interpolation only in Continuous
+        let params = SimulationParams {
+            settle_mode: SettleMode::Continuous, // interpolation only in Continuous
+            ..Default::default()
+        };
         let mut actor = PhysicsOrchestratorActor::new(params, None, None);
 
         // Set current repel_k to 100, target to 200

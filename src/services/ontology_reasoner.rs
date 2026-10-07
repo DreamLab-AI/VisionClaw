@@ -11,12 +11,10 @@
 //! - Pre-caches inference results to avoid repeated reasoning
 //! - Pre-computes transitive closure for efficient subclass queries
 
-use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
 use dashmap::DashMap;
 use log::{debug, info, warn};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use visionclaw_domain::ports::ontology_repository::{
     OntologyRepository, OwlClass, Result as OntResult,
 };
@@ -25,9 +23,6 @@ use visionclaw_domain::ports::ontology_repository::{
 /// Thread-safe implementation using DashMap for lock-free concurrent access
 /// during parallel GitHub sync operations.
 pub struct OntologyReasoner {
-    /// The whelk inference engine (protected by RwLock for mutable operations)
-    #[allow(dead_code)]
-    inference_engine: Arc<RwLock<WhelkInferenceEngine>>,
     /// Ontology repository for persistence
     ontology_repo: Arc<dyn OntologyRepository>,
     /// Cache of classes that have been verified to exist (DashMap for lock-free access)
@@ -40,47 +35,10 @@ pub struct OntologyReasoner {
 }
 
 impl OntologyReasoner {
-    /// Create a new OntologyReasoner
-    /// # Arguments
-    /// * `inference_engine` - The whelk inference engine (will be wrapped in RwLock)
-    /// * `ontology_repo` - The ontology repository for persistence
-    pub fn new(
-        inference_engine: Arc<WhelkInferenceEngine>,
-        ontology_repo: Arc<dyn OntologyRepository>,
-    ) -> Self {
+    /// Create a new OntologyReasoner backed by `ontology_repo` for persistence.
+    pub fn new(ontology_repo: Arc<dyn OntologyRepository>) -> Self {
         info!("Initializing OntologyReasoner with whelk-rs inference engine (thread-safe)");
-
-        // Extract the inner engine from Arc and wrap in RwLock
-        // This requires the caller to pass ownership; if they have the only Arc reference,
-        // we can use try_unwrap, otherwise we need to clone
-        let engine = match Arc::try_unwrap(inference_engine) {
-            Ok(engine) => engine,
-            Err(_arc) => {
-                // If there are other references, we need to accept this limitation
-                // In practice, the caller should pass sole ownership
-                warn!("WhelkInferenceEngine has multiple Arc references; using shared state");
-                // Create a new engine since we can't extract the shared one
-                WhelkInferenceEngine::new()
-            }
-        };
-
         Self {
-            inference_engine: Arc::new(RwLock::new(engine)),
-            ontology_repo,
-            verified_classes: Arc::new(DashMap::new()),
-            inference_cache: Arc::new(DashMap::new()),
-            transitive_closure: Arc::new(DashMap::new()),
-        }
-    }
-
-    /// Create from an existing RwLock-wrapped engine (for testing/advanced use)
-    pub fn with_engine(
-        inference_engine: Arc<RwLock<WhelkInferenceEngine>>,
-        ontology_repo: Arc<dyn OntologyRepository>,
-    ) -> Self {
-        info!("Initializing OntologyReasoner with pre-wrapped inference engine");
-        Self {
-            inference_engine,
             ontology_repo,
             verified_classes: Arc::new(DashMap::new()),
             inference_cache: Arc::new(DashMap::new()),
@@ -182,6 +140,7 @@ impl OntologyReasoner {
     /// 2. Content analysis (keywords, structure)
     /// 3. Frontmatter/metadata
     /// 4. Reasoning over existing ontology
+    ///
     /// Thread-safe: Uses read lock on inference cache, write lock only on cache miss.
     /// # Arguments
     /// * `file_path` - Path to the markdown file
@@ -563,11 +522,10 @@ impl OntologyReasoner {
     /// Extract human-readable label from IRI
     fn extract_label_from_iri(&self, iri: &str) -> String {
         iri.split(':')
-            .last()
-            .or(iri.split('/').last())
+            .next_back()
+            .or(iri.split('/').next_back())
             .unwrap_or(iri)
-            .replace('_', " ")
-            .replace('-', " ")
+            .replace(['_', '-'], " ")
     }
 }
 
@@ -582,7 +540,6 @@ pub struct FileContext {
 // Uses Oxigraph test helpers from test_helpers (ADR-11)
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_infer_from_path_person() {

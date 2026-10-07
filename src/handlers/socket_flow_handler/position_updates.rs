@@ -141,10 +141,11 @@ pub(crate) async fn fetch_nodes(
     }
 
     // Fetch node type classification arrays for binary protocol flags (already remapped to compact wire IDs)
-    let nta = match app_state.graph_service_addr.send(GetNodeTypeArrays).await {
-        Ok(arrays) => arrays,
-        Err(_) => crate::actors::messages::NodeTypeArrays::default(),
-    };
+    let nta = app_state
+        .graph_service_addr
+        .send(GetNodeTypeArrays)
+        .await
+        .unwrap_or_default();
     let agent_set: HashSet<u32> = nta.agent_ids.iter().copied().collect();
     let knowledge_set: HashSet<u32> = nta.knowledge_ids.iter().copied().collect();
     let ontology_class_set: HashSet<u32> = nta.ontology_class_ids.iter().copied().collect();
@@ -203,11 +204,8 @@ pub(crate) async fn fetch_nodes(
         if filter_on {
             visibility.push(node_visibility(flagged_id, node));
         }
-        let node_data = BinaryNodeDataClient::new(
-            flagged_id,
-            node.data.position().into(),
-            node.data.velocity().into(),
-        );
+        let node_data =
+            BinaryNodeDataClient::new(flagged_id, node.data.position(), node.data.velocity());
         nodes.push((flagged_id, node_data));
     }
 
@@ -226,10 +224,9 @@ pub(crate) fn handle_request_full_snapshot(
     debug!("Client requested full position snapshot");
 
     let graphs = msg.get("graphs").and_then(|g| g.as_array());
-    let include_knowledge = graphs.map_or(true, |arr| {
-        arr.iter().any(|v| v.as_str() == Some("knowledge"))
-    });
-    let include_agent = graphs.map_or(true, |arr| arr.iter().any(|v| v.as_str() == Some("agent")));
+    let include_knowledge =
+        graphs.is_none_or(|arr| arr.iter().any(|v| v.as_str() == Some("knowledge")));
+    let include_agent = graphs.is_none_or(|arr| arr.iter().any(|v| v.as_str() == Some("agent")));
 
     let app_state = _act.app_state.clone();
     // ADR-060: the drop-set filter must also cover the snapshot path, not just
@@ -501,11 +498,9 @@ pub(crate) fn handle_request_bots_graph(
                         minimal_nodes.len(),
                         minimal_edges.len(),
                         optimized_size,
-                        if original_size > 0 {
-                            100 - (optimized_size * 100 / original_size)
-                        } else {
-                            0
-                        }
+                        (optimized_size * 100)
+                            .checked_div(original_size)
+                            .map_or(0, |pct| 100 - pct)
                     );
                     ctx.text(msg_str);
                 }
@@ -762,11 +757,8 @@ pub(crate) fn handle_subscribe_position_updates(
                 let analytics_ref = analytics.as_deref();
                 let binary_data = binary_protocol::encode_node_data_extended_with_sssp(
                     &nodes,
-                    &[], // agent_node_ids — fetch_nodes() already flagged IDs
-                    &[], // knowledge_node_ids — fetch_nodes() already flagged IDs
-                    &[], // ontology_class_ids
-                    &[], // ontology_individual_ids
-                    &[], // ontology_property_ids
+                    // fetch_nodes() already flagged the IDs.
+                    binary_protocol::NodeClassIds::default(),
                     None, // sssp_data
                     analytics_ref,
                 );
@@ -855,7 +847,7 @@ pub(crate) fn handle_request_swarm_telemetry(
 
     ctx.spawn(
         actix::fut::wrap_future::<_, SocketFlowServer>(async move {
-            match crate::handlers::bots_handler::fetch_hive_mind_agents(&app_state, None).await {
+            match crate::handlers::bots_handler::fetch_hive_mind_agents(&app_state).await {
                 Ok(agents) => {
                     let mut nodes_data = Vec::new();
                     let mut swarm_metrics = serde_json::json!({

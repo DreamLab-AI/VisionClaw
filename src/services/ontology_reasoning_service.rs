@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::instrument;
 
-use crate::adapters::whelk_inference_engine::WhelkInferenceEngine; // Currently used for initialization only
+// Currently used for initialization only
 use crate::utils::time;
 use visionclaw_domain::ports::ontology_repository::{
     AxiomType, OntologyRepository, OntologyRepositoryError, OwlAxiom,
@@ -72,22 +72,16 @@ struct InferenceCacheEntry {
 /// Uses CustomReasoner for actual inference operations. The WhelkInferenceEngine
 /// is currently maintained for API compatibility but will be phased out.
 /// All ontology data is persisted in Oxigraph via OxigraphOntologyRepository (ADR-11).
-#[allow(dead_code)]
 pub struct OntologyReasoningService {
-    inference_engine: Arc<WhelkInferenceEngine>, // Legacy - to be removed
     ontology_repo: Arc<dyn OntologyRepository>,
     cache: tokio::sync::RwLock<HashMap<String, InferenceCacheEntry>>,
 }
 
 impl OntologyReasoningService {
     /// Create a new OntologyReasoningService
-    pub fn new(
-        inference_engine: Arc<WhelkInferenceEngine>,
-        ontology_repo: Arc<dyn OntologyRepository>,
-    ) -> Self {
+    pub fn new(ontology_repo: Arc<dyn OntologyRepository>) -> Self {
         info!("Initializing OntologyReasoningService");
         Self {
-            inference_engine,
             ontology_repo,
             cache: tokio::sync::RwLock::new(HashMap::new()),
         }
@@ -232,7 +226,7 @@ impl OntologyReasoningService {
             if axiom.axiom_type == AxiomType::SubClassOf {
                 parent_map
                     .entry(axiom.object.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(axiom.subject.clone());
                 child_map.insert(axiom.subject.clone(), axiom.object.clone());
             }
@@ -391,23 +385,6 @@ impl OntologyReasoningService {
         Ok(())
     }
 
-    /// Convert axiom type enum to string
-    #[allow(dead_code)]
-    fn axiom_type_to_string(&self, axiom_type: &AxiomType) -> String {
-        match axiom_type {
-            AxiomType::SubClassOf => "SubClassOf".to_string(),
-            AxiomType::EquivalentClass => "EquivalentClass".to_string(),
-            AxiomType::DisjointWith => "DisjointWith".to_string(),
-            AxiomType::ObjectPropertyAssertion => "ObjectPropertyAssertion".to_string(),
-            AxiomType::DataPropertyAssertion => "DataPropertyAssertion".to_string(),
-            AxiomType::SubPropertyOf => "SubPropertyOf".to_string(),
-            AxiomType::TransitiveProperty => "TransitiveProperty".to_string(),
-            AxiomType::SymmetricProperty => "SymmetricProperty".to_string(),
-            AxiomType::InverseProperties => "InverseProperties".to_string(),
-            AxiomType::SomeValuesFrom => "SomeValuesFrom".to_string(),
-        }
-    }
-
     /// Convert string to axiom type enum
     fn string_to_axiom_type(&self, s: &str) -> AxiomType {
         match s {
@@ -463,7 +440,7 @@ impl OntologyReasoningService {
 // Uses Oxigraph test helpers from test_helpers (ADR-11)
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -497,10 +474,8 @@ mod tests {
         );
         parent_map.insert("child1".to_string(), vec!["grandchild".to_string()]);
 
-        let count = service.count_descendants(
-            &vec!["child1".to_string(), "child2".to_string()],
-            &parent_map,
-        );
+        let count =
+            service.count_descendants(&["child1".to_string(), "child2".to_string()], &parent_map);
 
         // 2 children + 1 grandchild = 3 total descendants
         assert_eq!(count, 3);

@@ -395,7 +395,7 @@ impl AgentVisualizationProcessor {
         for agent in agents {
             type_groups
                 .entry(agent.agent_type.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(agent.id.clone());
         }
 
@@ -478,5 +478,11 @@ impl AgentVisualizationProcessor {
 
         history.reverse();
         history
+    }
+}
+
+impl Default for AgentVisualizationProcessor {
+    fn default() -> Self {
+        Self::new()
     }
 }

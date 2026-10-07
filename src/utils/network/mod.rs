@@ -9,7 +9,6 @@
 
 pub mod circuit_breaker;
 pub mod connection_pool;
-pub mod graceful_degradation;
 pub mod health_check;
 pub mod retry;
 pub mod timeout;
@@ -38,10 +37,6 @@ pub use timeout::{
     connect_with_timeout, read_with_timeout, request_with_timeout, with_config_timeout,
     with_timeout, write_with_timeout, AdaptiveTimeout, BatchTimeoutManager, TimeoutConfig,
     TimeoutError, TimeoutGuard, TimeoutResult, TimeoutType,
-};
-
-pub use graceful_degradation::{
-    DegradationLevel, DegradationStrategy, GracefulDegradationConfig, GracefulDegradationManager,
 };
 
 use log::info;
@@ -172,10 +167,10 @@ impl NetworkResilienceManager {
                                     as std::sync::Arc<dyn std::error::Error + Send + Sync>
                             }
                             CircuitBreakerError::OperationFailed(original_error) => {
-                                std::sync::Arc::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("Operation failed: {:?}", original_error),
-                                ))
+                                std::sync::Arc::new(std::io::Error::other(format!(
+                                    "Operation failed: {:?}",
+                                    original_error
+                                )))
                                     as std::sync::Arc<dyn std::error::Error + Send + Sync>
                             }
                         })
@@ -334,7 +329,6 @@ pub enum ResilienceError<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{sleep, Duration};
 
     #[tokio::test]
     async fn test_resilience_manager_creation() {

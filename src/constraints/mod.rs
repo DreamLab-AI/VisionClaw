@@ -150,7 +150,7 @@ mod tests {
 
         let buffer = pipeline.process(&axioms, 5.0);
 
-        assert!(buffer.len() > 0);
+        assert!(!buffer.is_empty());
         assert_eq!(pipeline.get_lod_level(), LODLevel::Close);
     }
 

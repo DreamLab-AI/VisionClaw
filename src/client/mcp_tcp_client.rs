@@ -333,7 +333,6 @@ pub struct PerformanceSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::json::{from_json, to_json};
 
     #[tokio::test]
     async fn test_mcp_client_creation() {

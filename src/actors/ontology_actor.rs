@@ -111,6 +111,7 @@ pub struct ActorStatistics {
 /// - Report caching and eviction
 /// - Health monitoring and stuck job detection
 /// - Integration with physics and semantic actors
+///
 /// For CustomReasoner inference, use ReasoningActor instead.
 pub struct OntologyActor {
     /// OWL validator service for ontology validation
@@ -246,60 +247,6 @@ impl OntologyActor {
         addr: Addr<crate::actors::client_coordinator_actor::ClientCoordinatorActor>,
     ) {
         self.client_manager_addr = Some(addr);
-    }
-
-    #[allow(dead_code)]
-    fn calculate_graph_signature(&self, graph: &PropertyGraph) -> String {
-        use blake3::Hasher;
-        let mut hasher = Hasher::new();
-
-        hasher.update(graph.nodes.len().to_string().as_bytes());
-        hasher.update(graph.edges.len().to_string().as_bytes());
-
-        for (i, node) in graph.nodes.iter().enumerate().take(100) {
-            hasher.update(node.id.as_bytes());
-            hasher.update(format!("{}", i).as_bytes());
-        }
-
-        for (i, edge) in graph.edges.iter().enumerate().take(100) {
-            hasher.update(edge.id.as_bytes());
-            hasher.update(edge.source.as_bytes());
-            hasher.update(edge.target.as_bytes());
-            hasher.update(format!("{}", i).as_bytes());
-        }
-
-        hasher.finalize().to_hex().to_string()
-    }
-
-    #[allow(dead_code)]
-    fn can_perform_incremental_validation(&self, ontology_id: &str, graph: &PropertyGraph) -> bool {
-        if !self.config.enable_incremental_validation {
-            return false;
-        }
-
-        let current_signature = self.calculate_graph_signature(graph);
-
-        if let Some((_cached_graph, cached_signature, _)) = self.graph_cache.get(ontology_id) {
-            let similarity = self.calculate_graph_similarity(&current_signature, cached_signature);
-            similarity > 0.8
-        } else {
-            false
-        }
-    }
-
-    #[allow(dead_code)]
-    fn calculate_graph_similarity(&self, sig1: &str, sig2: &str) -> f32 {
-        if sig1.len() != sig2.len() {
-            return 0.0;
-        }
-
-        let matches = sig1
-            .chars()
-            .zip(sig2.chars())
-            .filter(|(a, b)| a == b)
-            .count();
-
-        matches as f32 / sig1.len() as f32
     }
 
     fn enqueue_validation_job(

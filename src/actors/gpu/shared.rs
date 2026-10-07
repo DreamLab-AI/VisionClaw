@@ -98,6 +98,7 @@ impl GPUOperationBatch {
 /// 1. GPU operations are inherently blocking (they wait for GPU kernels to complete)
 /// 2. CUDA streams and compute kernels are not async-aware
 /// 3. Holding a `tokio::sync::Mutex` across `.await` points would be incorrect
+///
 /// To prevent Tokio worker thread starvation, callers MUST wrap blocking GPU operations
 /// in `tokio::task::spawn_blocking()`. This moves the blocking work to a dedicated thread pool
 /// while keeping async executor threads responsive.
@@ -293,11 +294,10 @@ impl StressMajorizationSafety {
             stress_value: 0.0,
             iterations_performed: self.total_runs as u32,
             converged: !self.is_emergency_stopped,
-            computation_time_ms: if self.successful_runs > 0 {
-                self.total_computation_time_ms / self.successful_runs
-            } else {
-                0
-            },
+            computation_time_ms: self
+                .total_computation_time_ms
+                .checked_div(self.successful_runs)
+                .unwrap_or(0),
         }
     }
 
@@ -309,6 +309,12 @@ impl StressMajorizationSafety {
 
     pub fn should_disable(&self) -> bool {
         self.is_emergency_stopped
+    }
+}
+
+impl Default for StressMajorizationSafety {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

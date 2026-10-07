@@ -7,7 +7,7 @@
 //!
 //!   * `broker:new_case`      — a case entered the queue (channel `inbox`).
 //!   * `broker:case_decided`  — a queued case reached a decision
-//!                              (channel `case:{id}`).
+//!     (channel `case:{id}`).
 //!
 //! The envelope shape (`{type, channel, payload}`) is carried forward verbatim
 //! from the superseded `crashbug` `BrokerActor` broadcast so a future consumer

@@ -169,7 +169,6 @@ impl Default for AISemanticFeatures {
     }
 }
 
-#[allow(dead_code)]
 pub struct SemanticProcessorActor {
     semantic_analyzer: Option<SemanticAnalyzer>,
 
@@ -189,15 +188,7 @@ pub struct SemanticProcessorActor {
 
     graph_data: Option<Arc<GraphData>>,
 
-    last_semantic_analysis: Option<Instant>,
-
-    constraint_cache: HashMap<String, Vec<Constraint>>,
-
-    active_tasks: HashMap<String, SemanticTask>,
-
     relationship_threshold: f32,
-
-    enable_ai_processing: bool,
 
     clustering_params: SemanticClusteringParams,
 
@@ -341,10 +332,10 @@ impl SemanticProcessorActor {
         metadata: &FileMetadata,
         base_features: &SemanticFeatures,
     ) -> Result<AISemanticFeatures, String> {
-        let mut ai_features = AISemanticFeatures::default();
-
-        ai_features.content_embedding =
-            Self::generate_content_embedding_static(&metadata.file_name)?;
+        let mut ai_features = AISemanticFeatures {
+            content_embedding: Self::generate_content_embedding_static(&metadata.file_name)?,
+            ..Default::default()
+        };
 
         ai_features.topic_classifications =
             Self::classify_topics_static(&metadata.file_name, base_features)?;
@@ -536,7 +527,7 @@ impl SemanticProcessorActor {
             let readability = 206.835 - (1.015 * avg_sentence_length);
             metrics.insert(
                 "readability_score".to_string(),
-                readability.max(0.0).min(100.0),
+                readability.clamp(0.0, 100.0),
             );
         }
 
@@ -673,11 +664,7 @@ impl SemanticProcessorActor {
             config,
             stats: SemanticStats::default(),
             graph_data: None,
-            last_semantic_analysis: None,
-            constraint_cache: HashMap::new(),
-            active_tasks: HashMap::new(),
             relationship_threshold: 0.7,
-            enable_ai_processing: true,
             clustering_params: SemanticClusteringParams::default(),
             performance_metrics: HashMap::new(),
             gpu_analyzer: Some(GpuSemanticAnalyzerAdapter::new()),
@@ -726,9 +713,10 @@ impl SemanticProcessorActor {
         metadata: &FileMetadata,
         base_features: &SemanticFeatures,
     ) -> Result<AISemanticFeatures, String> {
-        let mut ai_features = AISemanticFeatures::default();
-
-        ai_features.content_embedding = self.generate_content_embedding(&metadata.file_name)?;
+        let mut ai_features = AISemanticFeatures {
+            content_embedding: self.generate_content_embedding(&metadata.file_name)?,
+            ..Default::default()
+        };
 
         ai_features.topic_classifications =
             self.classify_topics(&metadata.file_name, base_features)?;
@@ -920,7 +908,7 @@ impl SemanticProcessorActor {
             let readability = 206.835 - (1.015 * avg_sentence_length);
             metrics.insert(
                 "readability_score".to_string(),
-                readability.max(0.0).min(100.0),
+                readability.clamp(0.0, 100.0),
             );
         }
 
@@ -1042,10 +1030,10 @@ impl SemanticProcessorActor {
 
         let mut constraints = Vec::new();
 
-        constraints.extend(self.generate_similarity_constraints(&graph_data)?);
-        constraints.extend(self.generate_clustering_constraints(&graph_data)?);
-        constraints.extend(self.generate_importance_constraints(&graph_data)?);
-        constraints.extend(self.generate_topic_constraints(&graph_data)?);
+        constraints.extend(self.generate_similarity_constraints(graph_data)?);
+        constraints.extend(self.generate_clustering_constraints(graph_data)?);
+        constraints.extend(self.generate_importance_constraints(graph_data)?);
+        constraints.extend(self.generate_topic_constraints(graph_data)?);
 
         constraints.truncate(self.config.max_constraints_per_cycle);
 
@@ -1176,7 +1164,7 @@ impl SemanticProcessorActor {
         let mut similarity = 0.0;
         let mut comparisons = 0;
 
-        let _struct_sim = if features1.structural.complexity_score > 0.0
+        if features1.structural.complexity_score > 0.0
             || features2.structural.complexity_score > 0.0
         {
             let max_complexity = features1
@@ -1193,7 +1181,7 @@ impl SemanticProcessorActor {
             }
         };
 
-        let _content_sim = if features1.content.documentation_score > 0.0
+        if features1.content.documentation_score > 0.0
             || features2.content.documentation_score > 0.0
         {
             let max_doc_score = features1

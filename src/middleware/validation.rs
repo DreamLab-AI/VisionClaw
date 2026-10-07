@@ -60,13 +60,6 @@ impl Default for ValidationConfig {
 }
 
 impl ValidateInput {
-    /// Create validator with default config (1MB limit)
-    pub fn default() -> Self {
-        Self {
-            config: ValidationConfig::default(),
-        }
-    }
-
     /// Create validator for ontology uploads (10MB limit)
     pub fn for_ontology() -> Self {
         Self {
@@ -81,6 +74,15 @@ impl ValidateInput {
     /// Create validator with custom config
     pub fn with_config(config: ValidationConfig) -> Self {
         Self { config }
+    }
+}
+
+impl Default for ValidateInput {
+    /// Create validator with default config (1MB limit)
+    fn default() -> Self {
+        Self {
+            config: ValidationConfig::default(),
+        }
     }
 }
 

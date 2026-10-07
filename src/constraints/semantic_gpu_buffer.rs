@@ -68,10 +68,11 @@ impl SemanticGPUConstraint {
         constraint: &SemanticPhysicsConstraint,
         iri_to_index: &std::collections::HashMap<String, i32>,
     ) -> Self {
-        let mut gpu_constraint = Self::default();
-
-        gpu_constraint.priority = constraint.priority() as i32;
-        gpu_constraint.weight = constraint.priority_weight();
+        let mut gpu_constraint = Self {
+            priority: constraint.priority() as i32,
+            weight: constraint.priority_weight(),
+            ..Default::default()
+        };
 
         match constraint {
             SemanticPhysicsConstraint::Separation {
@@ -268,8 +269,10 @@ impl SemanticGPUConstraintBuffer {
 
     /// Get constraint statistics
     pub fn get_stats(&self) -> SemanticConstraintStats {
-        let mut stats = SemanticConstraintStats::default();
-        stats.total_constraints = self.count;
+        let mut stats = SemanticConstraintStats {
+            total_constraints: self.count,
+            ..Default::default()
+        };
 
         for constraint in &self.data {
             match constraint.constraint_type {

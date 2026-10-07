@@ -234,9 +234,7 @@ fn v4_no_runtime_env_reads_of_bypass_vars() {
                             if c == '{' {
                                 brace_depth += 1;
                             } else if c == '}' {
-                                if brace_depth > 0 {
-                                    brace_depth -= 1;
-                                }
+                                brace_depth = brace_depth.saturating_sub(1);
                                 if in_dev_cfg_block && brace_depth == brace_depth_at_cfg {
                                     in_dev_cfg_block = false;
                                 }

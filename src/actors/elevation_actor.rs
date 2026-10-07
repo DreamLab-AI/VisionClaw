@@ -1917,11 +1917,13 @@ mod tests {
     }
 
     fn node(id: u32, label: &str, node_type: &str, authored: bool, domain: Option<&str>) -> Node {
-        let mut n = Node::default();
-        n.id = id;
-        n.label = label.into();
-        n.metadata_id = slugify(label);
-        n.node_type = Some(node_type.into());
+        let mut n = Node {
+            id,
+            label: label.into(),
+            metadata_id: slugify(label),
+            node_type: Some(node_type.into()),
+            ..Default::default()
+        };
         if authored {
             n.metadata
                 .insert("source_file".into(), format!("{label}.md"));

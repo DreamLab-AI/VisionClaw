@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable
@@ -144,3 +144,15 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-10-07 at e48099f28 (401 for missing credentials; dev bypass on the memory cloud)
 
 **Governed change:** in `verify_access` (`src/utils/auth.rs`, legacy-header branch) a request with no credentials at all (no `X-Nostr-Pubkey` or no `X-Nostr-Token`) now gets **401** "Authentication required" instead of 403; 403 stays for an identified caller below the required level. The memory-cloud handler admits every caller under `dev_full_bypass_active()` (ADR-2133 amendment); that predicate is unchanged, compile-gated to debug/`dev-auth` builds and refused at boot in release. Every caller in the tree accepts 401 or 403 alike (`UnifiedApiClient` retry rule, the memory-cloud client, `adr142_rbac_gate`, `rec1_route_guard`, the stacking test). Verified with `cargo test --lib -- auth rbac memory_cloud` (69 pass) and those integration tests plus `memory_cloud_auth_test` (all pass). The decision holds.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/services/nostr_service.rs`: `io::Error::other`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/services/nostr_service.rs`: since the recorded commit: `io::Error::other` (lint), plus a repair of the `redis` feature build (cfg-gated locals that the redis path reads, a missing import); the default build is unchanged.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

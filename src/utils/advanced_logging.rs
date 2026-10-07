@@ -205,7 +205,7 @@ impl AdvancedLogger {
 
         metrics_guard
             .entry(kernel_name.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(execution_time_us);
 
         if let Some(kernel_metrics) = metrics_guard.get_mut(kernel_name) {
@@ -362,7 +362,7 @@ impl AdvancedLogger {
                         Err(poisoned) => {
                             self.dropped_logs.fetch_add(1, Ordering::Relaxed);
                             let prev = self.dropped_logs.load(Ordering::Relaxed);
-                            if prev % 1000 == 0 {
+                            if prev.is_multiple_of(1000) {
                                 warn!(
                                     "Log writer mutex poisoned for {:?}, {} logs dropped so far",
                                     component, prev
@@ -480,15 +480,6 @@ impl AdvancedLogger {
                     let _ = remove_file(file_entry.path());
                 }
             }
-        }
-    }
-
-    #[allow(dead_code)]
-    fn detect_performance_anomaly(&self, kernel_name: &str, execution_time_us: f64) -> bool {
-        if let Ok(metrics) = self.performance_metrics.try_lock() {
-            self.detect_performance_anomaly_with_metrics(kernel_name, execution_time_us, &metrics)
-        } else {
-            false
         }
     }
 

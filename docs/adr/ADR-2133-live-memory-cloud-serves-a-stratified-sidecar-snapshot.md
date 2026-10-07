@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 006332e88e12c5247b566e3e34205fd31d066588
+verified_commit: 4f705ccacc07984797b8f6417f90f48b2756299c
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -145,3 +145,17 @@ otherwise report `hnsw`, and restricted queries report `exact`. The live test pa
 ## Re-verification — 2026-10-07 (006332e88)
 
 `wire.rs` gains only `client_fixture_round_trips`, a test that round-trips the client wire fixture through every wire struct so that a field added or removed on either side fails. No wire shape changed. The client now shows `sidecar.method`, the health error category and a 429 rate-limit state, and leaves unsampled sidecar hits out of the agreement count; all of these match this record. The decision holds.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/middleware/rate_limit.rs`: the inherent `RateLimit::default()` becomes `impl Default` (still 100 req/min). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 4f705ccac (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `crates/visionclaw-memory-cloud/src/wire.rs`: test-only `type RoundTrip` alias (clippy `type_complexity`).
+- `src/middleware/rate_limit.rs`: since the recorded commit: `entry().or_default()`, the inherent `default()` becomes `impl Default`, and the uncalled `extract_identifier` is deleted.
+- `src/handlers/memory_cloud_handler.rs`: `cargo fmt` only (it arrived from main unformatted).
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

@@ -20,6 +20,10 @@
 //! the graph wire (see [`crate::binary_protocol::parse_agent_identities`] — the
 //! additive `initialGraphLoad` extension and its named server-side emit point).
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use std::collections::HashMap;
 
 use crate::gaze::GazeRay;
@@ -190,7 +194,7 @@ impl DwellCharger {
             for c in candidates {
                 let r = acquire_radius(c, cfg);
                 if let Some(along) = ray_hit(gaze.origin, dir, c.position, r, cfg.max_distance_m) {
-                    if best.map_or(true, |(_, d)| along < d) {
+                    if best.is_none_or(|(_, d)| along < d) {
                         best = Some((c.node_id, along));
                     }
                 }
@@ -317,8 +321,8 @@ impl SelectionArbiter {
             self.prev_trigger[h] = p.trigger_down;
             self.prev_pinch[h] = pinch_now;
         }
-        for h in 0..2 {
-            if !present[h] {
+        for (h, &is_present) in present.iter().enumerate() {
+            if !is_present {
                 self.prev_trigger[h] = false;
                 self.prev_pinch[h] = false;
             }

@@ -1501,8 +1501,10 @@ pub async fn get_user_filter(
                     "Stored user filter for {} failed to deserialize ({}); returning default",
                     auth.pubkey, e
                 );
-                let mut filter = UserFilter::default();
-                filter.pubkey = auth.pubkey.clone();
+                let filter = UserFilter {
+                    pubkey: auth.pubkey.clone(),
+                    ..Default::default()
+                };
                 HttpResponse::Ok().json(filter)
             }
         },
@@ -1511,8 +1513,10 @@ pub async fn get_user_filter(
                 "GET /api/user/filter no stored filter for user {}; returning default",
                 auth.pubkey
             );
-            let mut filter = UserFilter::default();
-            filter.pubkey = auth.pubkey.clone();
+            let filter = UserFilter {
+                pubkey: auth.pubkey.clone(),
+                ..Default::default()
+            };
             HttpResponse::Ok().json(filter)
         }
         Err(e) => {

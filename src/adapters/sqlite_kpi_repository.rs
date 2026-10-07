@@ -131,10 +131,10 @@ fn map_db_err(e: tokio_rusqlite::Error) -> KpiStoreError {
     KpiStoreError::Database(e.to_string())
 }
 
-/// Idempotent additive migrations for a store created before the REC-11 identity
-/// + CTC columns existed. `CREATE_SCHEMA`'s `IF NOT EXISTS` cannot alter an
-/// existing table, so a pre-REC-11 `kpi.sqlite3` needs them added explicitly.
-/// Guarded by a `PRAGMA table_info` check so it is a no-op once applied.
+/// Idempotent additive migrations for a store created before the REC-11
+/// identity and CTC columns existed. `CREATE_SCHEMA`'s `IF NOT EXISTS` cannot
+/// alter an existing table, so a pre-REC-11 `kpi.sqlite3` needs them added
+/// explicitly. Guarded by a `PRAGMA table_info` check so it is a no-op once applied.
 fn apply_additive_migrations(c: &rusqlite::Connection) -> rusqlite::Result<()> {
     for (col, decl) in [
         ("agent_did", "TEXT"),

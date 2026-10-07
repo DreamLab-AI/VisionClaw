@@ -274,6 +274,12 @@ impl GraphAnalyticsSupervisor {
     }
 }
 
+impl Default for GraphAnalyticsSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for GraphAnalyticsSupervisor {
     type Context = Context<Self>;
 

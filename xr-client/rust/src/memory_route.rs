@@ -19,6 +19,10 @@
 //!
 //! Glow is additive geometry only — no post-process (XR-client Invariant 2).
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use serde::Deserialize;
 use thiserror::Error;
 

@@ -6,6 +6,7 @@
 //! structures have different fields than the actual types. The tests use:
 //!   - PhysicsState { is_settled, stable_frame_count, kinetic_energy, current_state }
 //!   - AutoBalanceNotification { timestamp, parameter_name, old_value, new_value, reason }
+//!
 //! But the actual types are:
 //!   - PhysicsState { is_running, params }
 //!   - AutoBalanceNotification { message, timestamp, severity }

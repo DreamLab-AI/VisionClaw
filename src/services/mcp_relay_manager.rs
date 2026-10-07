@@ -2,7 +2,7 @@ use crate::telemetry::agent_telemetry::{
     get_telemetry_logger, CorrelationId, LogLevel, TelemetryEvent,
 };
 use crate::utils::network::{
-    CircuitBreaker, CircuitBreakerConfig, HealthCheckManager, RetryableError, TimeoutConfig,
+    CircuitBreaker, CircuitBreakerConfig, HealthCheckManager, RetryableError,
 };
 use log::{debug, error, info, warn};
 use serde_json;
@@ -13,8 +13,6 @@ use std::time::Instant;
 pub struct McpRelayManager {
     circuit_breaker: Arc<CircuitBreaker>,
     health_manager: Arc<HealthCheckManager>,
-    #[allow(dead_code)]
-    timeout_config: TimeoutConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,7 +55,6 @@ impl McpRelayManager {
         Self {
             circuit_breaker,
             health_manager,
-            timeout_config: TimeoutConfig::default(),
         }
     }
 
@@ -90,7 +87,7 @@ impl McpRelayManager {
         }
 
         let output = Command::new("docker")
-            .args(&["exec", "multi-agent-container", "pgrep", "-f", "mcp-server"])
+            .args(["exec", "multi-agent-container", "pgrep", "-f", "mcp-server"])
             .output();
 
         let duration_ms = start_time.elapsed().as_millis() as f64;
@@ -179,7 +176,7 @@ impl McpRelayManager {
         info!("Starting MCP relay in multi-agent-container...");
 
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "exec",
                 "-d",
                 "multi-agent-container",
@@ -212,7 +209,7 @@ impl McpRelayManager {
 
     pub fn get_relay_logs(lines: usize) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "exec",
                 "multi-agent-container",
                 "tail",
@@ -264,13 +261,19 @@ impl McpRelayManager {
 
     pub fn check_mcp_container() -> bool {
         let output = Command::new("docker")
-            .args(&["ps", "-q", "-f", "name=multi-agent-container"])
+            .args(["ps", "-q", "-f", "name=multi-agent-container"])
             .output();
 
         match output {
             Ok(result) => !result.stdout.is_empty(),
             Err(_) => false,
         }
+    }
+}
+
+impl Default for McpRelayManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

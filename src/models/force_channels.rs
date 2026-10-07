@@ -33,9 +33,11 @@
 //!     ramp-capped by `constraint_max_force_per_node`.
 //!   * DAG radial bias (Phase 2) — `dag_bias_k` + `dag_level_distance`, self-gated
 //!     on `dag_bias_k > 0`.
+//!
 //! Terms in `integrate_pass_kernel`:
 //!   * Boundary — soft push, `viewport_bounds` + `boundary_damping`.
 //!   * Annealing — velocity jitter, `temperature` + `cooling_rate`.
+//!
 //! Separate kernels:
 //!   * Gravity — `degree_weighted_gravity_kernel`, `gravity`.
 //!   * Cluster cohesion — `cluster_cohesion_kernel`, `cluster_strength`.
@@ -44,7 +46,7 @@
 //! **bounded**: adding a force term to the kernels means adding a variant here,
 //! which the exhaustive `match`es make impossible to forget.
 
-use crate::models::simulation_params::{FeatureFlags, SimParams, SimulationParams, ToSimParams};
+use crate::models::simulation_params::{FeatureFlags, SimParams, SimulationParams};
 
 /// A named, togglable force term in the layout engine. Bounded set — one variant
 /// per force term the CUDA kernels evaluate.
@@ -514,6 +516,7 @@ mod adr_2029_dispatch_authority {
     //! observe the word that is actually uploaded — not the converter's word,
     //! which is overwritten before every execute.
     use super::*;
+    use crate::models::simulation_params::ToSimParams;
 
     fn base() -> ForceDispatchInputs {
         ForceDispatchInputs {

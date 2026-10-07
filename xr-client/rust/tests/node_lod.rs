@@ -25,7 +25,7 @@ fn packed(xs: &[f32]) -> Vec<f32> {
 }
 
 fn origins_x(buf: &[f32]) -> Vec<f32> {
-    buf.chunks_exact(NODE_STRIDE).map(|c| c[3]).collect()
+    buf.as_chunks::<NODE_STRIDE>().0.iter().map(|c| c[3]).collect()
 }
 
 #[test]
@@ -87,7 +87,10 @@ fn degenerate_inputs_are_safe() {
 
 #[test]
 fn budget_arithmetic_holds_for_the_fixture_and_production_density() {
-    assert!(DEFAULT_NEAR_CAP * GEM_TRIS_PER_NODE <= NEAR_TRI_BUDGET, "near field ≤ ~60k");
+    const _: () = assert!(
+        DEFAULT_NEAR_CAP * GEM_TRIS_PER_NODE <= NEAR_TRI_BUDGET,
+        "near field ≤ ~60k"
+    );
     assert_eq!(IMPOSTOR_TRIS_PER_NODE, 2);
     // Worst case: the cap is full.
     let fixture = node_triangle_estimate(1_000, DEFAULT_NEAR_CAP);
@@ -144,9 +147,9 @@ fn edge_split_keeps_the_16_float_stride_and_the_style_channel() {
     assert_eq!(near.len(), 2 * 16);
     assert_eq!(far.len(), 2 * 16);
     assert_eq!(near_keys, HashSet::from([11, 13]));
-    let mids: Vec<f32> = near.chunks_exact(16).map(|c| c[3]).collect();
+    let mids: Vec<f32> = near.as_chunks::<16>().0.iter().map(|c| c[3]).collect();
     assert_eq!(mids, vec![1.0, 2.0], "nearest midpoints, scene order");
-    let far_styles: Vec<f32> = far.chunks_exact(16).map(|c| c[15]).collect();
+    let far_styles: Vec<f32> = far.as_chunks::<16>().0.iter().map(|c| c[15]).collect();
     assert_eq!(far_styles, vec![0.0, 2.0], "style code travels with the ribbon");
 }
 
@@ -171,7 +174,7 @@ fn render_store_edge_lod_splits_cylinders_from_ribbons() {
     let ribbons = s.ribbon_edge_buffer().len() / 16;
     assert_eq!(near.len() / 16, 5);
     assert_eq!(ribbons, 45);
-    let mids: Vec<f32> = near.chunks_exact(16).map(|c| c[3]).collect();
+    let mids: Vec<f32> = near.as_chunks::<16>().0.iter().map(|c| c[3]).collect();
     assert_eq!(mids, vec![1.0, 3.0, 5.0, 7.0, 9.0], "the five edges nearest the eye stay cylinders");
     // Radius bound.
     let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 96, 4.5).to_vec();
@@ -235,7 +238,7 @@ fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
         // Never an edge drawn twice or dropped: the tiers always partition the drawn set.
         assert_eq!(near + ribbons.len() / 16, total(&mut f.store, &f.pairs), "frame {frame}");
         if prev.len() == ribbons.len() {
-            history.push(ribbons.chunks_exact(16).zip(prev.chunks_exact(16)).map(|(a, b)| a != b).collect());
+            history.push(ribbons.as_chunks::<16>().0.iter().zip(prev.as_chunks::<16>().0).map(|(a, b)| a != b).collect());
         }
         prev = ribbons;
     }
@@ -245,8 +248,9 @@ fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
         assert!(n * 10 <= h.len() * 6, "frame {k}: about half the far tier repacked per frame, got {n}/{}", h.len());
     }
     for w in history.windows(2) {
-        for i in 0..w[0].len() {
-            assert!(w[0][i] || w[1][i], "ribbon {i} stale for two frames running");
+        assert!(w[1].len() >= w[0].len());
+        for (i, (&now, &next)) in w[0].iter().zip(&w[1]).enumerate() {
+            assert!(now || next, "ribbon {i} stale for two frames running");
         }
     }
     // Moving the eye across the graph changes tier membership: the far tier is

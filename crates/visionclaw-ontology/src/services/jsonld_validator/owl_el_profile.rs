@@ -35,7 +35,7 @@ pub fn scan_for_forbidden(value: &Value) -> Option<String> {
     match value {
         Value::Object(map) => {
             for key in map.keys() {
-                if FORBIDDEN_CONSTRUCTS.iter().any(|f| *f == key.as_str()) {
+                if FORBIDDEN_CONSTRUCTS.contains(&key.as_str()) {
                     return Some(key.clone());
                 }
                 // Type declarations: `@type: owl:AllDisjointClasses` etc.
@@ -60,7 +60,7 @@ pub fn scan_for_forbidden(value: &Value) -> Option<String> {
 fn scan_type_for_forbidden(value: &Value) -> Option<String> {
     match value {
         Value::String(s) => {
-            if FORBIDDEN_CONSTRUCTS.iter().any(|f| *f == s.as_str()) {
+            if FORBIDDEN_CONSTRUCTS.contains(&s.as_str()) {
                 Some(s.clone())
             } else {
                 None

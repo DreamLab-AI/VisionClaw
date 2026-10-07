@@ -21,13 +21,9 @@ use super::shared::{GPUState, SharedGPUContext};
 use crate::actors::messages::*;
 use crate::models::constraints::{ConstraintData, ConstraintSetGpuExt};
 use crate::physics::ontology_constraint_mapper::map_axioms_to_constraints;
-use crate::physics::ontology_constraints::{
-    OWLAxiom, OWLAxiomType, OntologyConstraintTranslator, OntologyReasoningReport,
-};
+use crate::physics::ontology_constraints::{OWLAxiom, OntologyConstraintTranslator};
 use visionclaw_domain::models::constraints::{Constraint, ConstraintSet};
-use visionclaw_domain::ports::owl_types::{
-    AxiomType as DomainAxiomType, OwlAxiom as DomainOwlAxiom,
-};
+use visionclaw_domain::ports::owl_types::OwlAxiom as DomainOwlAxiom;
 use visionclaw_ontology::services::iri_node_resolver::IriNodeResolver;
 
 /// Default global force strength applied to the mapper output at dispatch.
@@ -70,7 +66,7 @@ fn reject_nonfinite_constraints(
         .collect();
 
     let (kept, rejected) = partition_finite_constraints(&inputs, &pos_by_id);
-    let survivors: Vec<ConstraintData> = kept.iter().map(|&i| buffer[i].clone()).collect();
+    let survivors: Vec<ConstraintData> = kept.iter().map(|&i| buffer[i]).collect();
     (survivors, rejected.len())
 }
 
@@ -81,7 +77,7 @@ fn scale_constraint_buffer(base: &[ConstraintData], strength: f32) -> Vec<Constr
     let s = strength.clamp(0.0, 1.0);
     base.iter()
         .map(|c| {
-            let mut scaled = c.clone();
+            let mut scaled = *c;
             scaled.weight = c.weight * s;
             scaled
         })
@@ -180,37 +176,6 @@ impl OntologyConstraintActor {
         Ok(())
     }
 
-    fn apply_ontology_constraints(
-        &mut self,
-        reasoning_report: &OntologyReasoningReport,
-        graph_data: &visionclaw_domain::models::graph::GraphData,
-    ) -> Result<(), String> {
-        info!(
-            "OntologyConstraintActor: Applying ontology constraints - {} axioms, {} inferences",
-            reasoning_report.axioms.len(),
-            reasoning_report.inferences.len()
-        );
-
-        // Translator pass populates `ontology_constraints` for the stats/CRUD
-        // surface (GetConstraintStats). The GPU buffer itself is produced by the
-        // canonical live-kernel mapper in `ingest_domain_axioms`, NOT by
-        // `constraint_set.to_gpu_data()` (ADR-098 break #3).
-        let constraint_set = self
-            .translator
-            .apply_ontology_constraints(graph_data, reasoning_report)
-            .map_err(|e| format!("Failed to translate ontology constraints: {}", e))?;
-        self.ontology_constraints = constraint_set.constraints.clone();
-        self.stats.active_ontology_constraints = self
-            .ontology_constraints
-            .iter()
-            .filter(|c| c.active)
-            .count() as u32;
-
-        let domain_axioms = Self::report_axioms_to_domain(reasoning_report);
-        self.ingest_domain_axioms(domain_axioms, graph_data)?;
-        Ok(())
-    }
-
     /// Canonical OWL-axiom → live-kernel constraint ingestion (ADR-098 D1).
     ///
     /// Resolves both endpoints of every materialised axiom through the shared
@@ -220,8 +185,8 @@ impl OntologyConstraintActor {
     /// `set_constraints`, and notifies ForceComputeActor so the live
     /// `force_pass_kernel` consumes it once ENABLE_CONSTRAINTS is set. Buffered +
     /// retried when the GPU context is not yet attached. Returns the number of
-    /// constraints produced. Shared by the report-based entry and the post-sync
-    /// `ApplyMaterializedAxioms` entry so the mapper is the single source of truth.
+    /// constraints produced. The post-sync `ApplyMaterializedAxioms` entry
+    /// calls it, so the mapper is the single source of truth.
     fn ingest_domain_axioms(
         &mut self,
         domain_axioms: Vec<DomainOwlAxiom>,
@@ -360,54 +325,6 @@ impl OntologyConstraintActor {
         Ok(())
     }
 
-    /// Convert the reasoning report's physics `OWLAxiom`s into the domain
-    /// `OwlAxiom` form the live-kernel mapper consumes (ADR-098 D1). Only the
-    /// axiom kinds the mapper recognises are emitted; `sameAs` is carried as an
-    /// `ObjectPropertyAssertion` with a `predicate` annotation so the mapper
-    /// classifies it as a colocation.
-    fn report_axioms_to_domain(report: &OntologyReasoningReport) -> Vec<DomainOwlAxiom> {
-        let mut out = Vec::with_capacity(report.axioms.len() + report.inferences.len());
-
-        let mut push = |ax: &OWLAxiom| {
-            let object = match &ax.object {
-                Some(o) => o.clone(),
-                None => return, // pairwise constraints require both endpoints
-            };
-            let (axiom_type, predicate) = match ax.axiom_type {
-                OWLAxiomType::SubClassOf => (DomainAxiomType::SubClassOf, None),
-                OWLAxiomType::EquivalentClasses => (DomainAxiomType::EquivalentClass, None),
-                OWLAxiomType::DisjointClasses => (DomainAxiomType::DisjointWith, None),
-                OWLAxiomType::SameAs => (
-                    DomainAxiomType::ObjectPropertyAssertion,
-                    Some("owl:sameAs".to_string()),
-                ),
-                // Other axiom kinds (InverseOf, FunctionalProperty, …) do not map
-                // to a pairwise layout force in the WS-3 table; skip them.
-                _ => return,
-            };
-            let mut annotations = std::collections::HashMap::new();
-            if let Some(pred) = predicate {
-                annotations.insert("predicate".to_string(), pred);
-            }
-            out.push(DomainOwlAxiom {
-                id: None,
-                axiom_type,
-                subject: ax.subject.clone(),
-                object,
-                annotations,
-            });
-        };
-
-        for ax in &report.axioms {
-            push(ax);
-        }
-        for inf in &report.inferences {
-            push(&inf.inferred_axiom);
-        }
-
-        out
-    }
-
     fn get_ontology_stats(&self) -> OntologyConstraintStats {
         self.stats.clone()
     }
@@ -430,6 +347,12 @@ impl OntologyConstraintActor {
 
         info!("OntologyConstraintActor: Cleanup completed");
         Ok(())
+    }
+}
+
+impl Default for OntologyConstraintActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -691,7 +614,7 @@ impl Handler<UpdateConstraints> for OntologyConstraintActor {
             .ontology_constraints
             .iter()
             .filter(|c| c.active)
-            .map(|c| ConstraintData::from_constraint(c))
+            .map(ConstraintData::from_constraint)
             .collect();
 
         if self.gpu_initialized && self.shared_context.is_some() {
@@ -772,7 +695,6 @@ impl Handler<AdjustConstraintWeights> for OntologyConstraintActor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::physics::ontology_constraints::OWLAxiomType;
 
     #[test]
     fn test_actor_creation() {
@@ -855,7 +777,7 @@ mod tests {
         actor.constraint_buffer = actor
             .ontology_constraints
             .iter()
-            .map(|c| ConstraintData::from_constraint(c))
+            .map(ConstraintData::from_constraint)
             .collect();
 
         assert_eq!(actor.constraint_buffer.len(), 2);

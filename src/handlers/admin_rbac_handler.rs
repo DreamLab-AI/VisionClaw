@@ -55,8 +55,9 @@ struct UsersResponse {
     users: Vec<UserRoleView>,
 }
 
+/// Body of `PUT /api/admin/rbac/users/{pubkey}/role`.
 #[derive(Deserialize)]
-struct AssignRoleRequest {
+pub struct AssignRoleRequest {
     role: String,
 }
 

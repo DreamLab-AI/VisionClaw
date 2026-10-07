@@ -67,15 +67,14 @@ impl PhysicsOrchestratorAdapter {
     }
 
     fn convert_params_to_actor(params: &SimulationParams) -> ActorSimulationParams {
-        let mut actor_params = ActorSimulationParams::default();
-
-        actor_params.repel_k = params.settings.repel_k;
-        actor_params.spring_k = params.settings.spring_k;
-        actor_params.damping = params.settings.damping;
-        actor_params.max_velocity = params.settings.max_velocity;
-        actor_params.enabled = params.settings.enabled;
-
-        actor_params
+        ActorSimulationParams {
+            repel_k: params.settings.repel_k,
+            spring_k: params.settings.spring_k,
+            damping: params.settings.damping,
+            max_velocity: params.settings.max_velocity,
+            enabled: params.settings.enabled,
+            ..Default::default()
+        }
     }
 
     fn convert_position_to_port(
@@ -112,7 +111,7 @@ impl PhysicsSimulator for PhysicsOrchestratorAdapter {
             .iter()
             .map(|node| {
                 let client_data: crate::utils::socket_flow_messages::BinaryNodeDataClient =
-                    node.data.clone().into();
+                    node.data.into();
                 (node.id, Self::convert_position_to_port(&client_data))
             })
             .collect();
@@ -162,7 +161,7 @@ impl PhysicsSimulator for PhysicsOrchestratorAdapter {
         let actor_constraints: Vec<visionclaw_domain::models::constraints::Constraint> =
             constraints
                 .iter()
-                .map(|c| Self::convert_constraint_to_actor(c))
+                .map(Self::convert_constraint_to_actor)
                 .collect();
 
         let mut constraint_set = ConstraintSet::default();

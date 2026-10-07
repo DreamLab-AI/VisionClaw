@@ -75,3 +75,7 @@ No frame that was valid before is rejected now. `memory_route::WIRE_FIELDS` (`me
 - `vitest run …/memoryCloud/__tests__/xrRelay.test.ts` passes 7.
 
 Same-pubkey scoping, the throttle, rebasing and the frame cap are unchanged. `activation_status` stays `staged`.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-protocol/src/socket_flow_messages.rs`: rustfmt only; `src/actors/client_coordinator_actor.rs`: the V3 encoder call passes its five class-id sets as one `NodeClassIds` (same sets, same bytes); struct-literal `ClientFilter` in tests; `src/handlers/socket_flow_handler/session_relay.rs`: rustfmt only; `xr-client/rust/src/beat.rs`: the NaN-rejecting `!(x > 0.0)` guards are written as explicit `is_nan() ||` checks (same truth table); `xr-client/rust/src/pulse.rs`: a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**

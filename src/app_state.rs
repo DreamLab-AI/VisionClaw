@@ -90,10 +90,11 @@ pub(crate) fn validate_security_env_vars(
             if INSECURE_DEFAULT_KEYS.iter().any(|&insecure| {
                 !insecure.is_empty() && (key_lower == insecure || key_lower.contains(insecure))
             }) {
-                errors.push(format!(
+                errors.push(
                     "MANAGEMENT_API_KEY contains an insecure default value. \
                      Please set a strong, unique API key (minimum 32 characters recommended)."
-                ));
+                        .to_string(),
+                );
                 None
             } else if key.len() < 16 {
                 errors.push(format!(
@@ -123,10 +124,11 @@ pub(crate) fn validate_security_env_vars(
         if INSECURE_DEFAULT_KEYS.iter().any(|&insecure| {
             !insecure.is_empty() && (jwt_lower == insecure || jwt_lower.contains(insecure))
         }) {
-            errors.push(format!(
+            errors.push(
                 "JWT_SECRET contains an insecure default value. \
                  Please set a strong, unique secret (minimum 32 characters recommended)."
-            ));
+                    .to_string(),
+            );
         } else if jwt_secret.len() < 32 {
             warn!(
                 "[Security] JWT_SECRET is shorter than recommended ({} chars). \
@@ -188,7 +190,7 @@ pub struct GraphQueryHandlers {
 // Independent subsystems that receive GPU context via event bus
 
 /// Physics simulation subsystem actors
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PhysicsSubsystem {
     pub force_compute: Option<Addr<gpu::ForceComputeActor>>,
     pub stress_major: Option<Addr<gpu::StressMajorizationActor>>,
@@ -196,7 +198,7 @@ pub struct PhysicsSubsystem {
 }
 
 /// Analytics and ML subsystem actors
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AnalyticsSubsystem {
     pub clustering: Option<Addr<gpu::ClusteringActor>>,
     pub anomaly: Option<Addr<gpu::AnomalyDetectionActor>>,
@@ -204,39 +206,10 @@ pub struct AnalyticsSubsystem {
 }
 
 /// Graph algorithm subsystem actors
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GraphSubsystem {
     pub shortest_path: Option<Addr<gpu::ShortestPathActor>>,
     pub components: Option<Addr<gpu::ConnectedComponentsActor>>,
-}
-
-impl Default for PhysicsSubsystem {
-    fn default() -> Self {
-        Self {
-            force_compute: None,
-            stress_major: None,
-            constraint: None,
-        }
-    }
-}
-
-impl Default for AnalyticsSubsystem {
-    fn default() -> Self {
-        Self {
-            clustering: None,
-            anomaly: None,
-            pagerank: None,
-        }
-    }
-}
-
-impl Default for GraphSubsystem {
-    fn default() -> Self {
-        Self {
-            shortest_path: None,
-            components: None,
-        }
-    }
 }
 
 impl PhysicsSubsystem {
@@ -406,7 +379,7 @@ pub struct AppState {
     /// ComputeSSP run. Maps compact node_id -> (distance, parent_id). Read by the
     /// binary broadcast path to fill V3 wire slot 28 (sssp_distance@28). Absent
     /// nodes default to (INFINITY, -1).
-    pub node_sssp: Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>>,
+    pub node_sssp: crate::actors::messages::SharedNodeSssp,
 }
 
 impl AppState {
@@ -706,7 +679,7 @@ impl AppState {
 
         // ADR-031 D2b: shared SSSP map fed by ShortestPathActor, read by the
         // binary broadcast path to fill wire slot 28.
-        let node_sssp: Arc<std::sync::RwLock<std::collections::HashMap<u32, (f32, i32)>>> =
+        let node_sssp: crate::actors::messages::SharedNodeSssp =
             Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         info!("[AppState::new] Starting ClientCoordinatorActor");
@@ -1601,7 +1574,7 @@ impl AppState {
 
     pub fn decrement_connections(&self) -> usize {
         self.active_connections
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
                 if current > 0 {
                     Some(current - 1)
                 } else {

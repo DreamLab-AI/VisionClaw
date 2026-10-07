@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -339,3 +339,7 @@ raised 2026-10-02 (owner decision Q7).
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `780eb3edb` changes only how `src/actors/elevation_actor.rs` obtains its panel secret, at `:199-206`. It now goes through `services::acsp::key_file::load_panel_secret`, so a 0600 key file named by `ACSP_PANEL_NOSTR_KEY_FILE` wins over the inline env value, and an unusable file disables the actor with a logged error. Case handling, the approve path and the relay-admission trust noted in Consequences item 2 are unchanged. The other seven governed paths are unchanged. The decision holds. Tests: `--lib elevation` 62 pass.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/actors/elevation_actor.rs`: a test helper builds `Node` with a struct literal; `src/adapters/sqlite_enrichment_repository.rs`: a `RawProposalRow` alias for the row tuple; `src/adapters/sqlite_kpi_repository.rs`: a doc comment rewrapped so a `+` no longer renders as a bullet. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

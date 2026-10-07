@@ -118,3 +118,7 @@ Governed changes since 37eb1a24b all come from 48e1bf327:
 - `graph_scene.gd` +6, the memory-cloud bounds source and HUD route line (`:544`, `:546`).
 
 None of them writes an embodiment transform, moves a beam anchor or touches the demo ingest doors. `agent_choreography.gd`, `agent_demo_director.gd`, `agent_effects.gd`, `agent_role.gd` and `GraphScene.tscn` are unchanged. Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `xr-client/rust/src/binary_protocol.rs`: `chunks_exact` becomes `as_chunks` (same 52-byte records); a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**

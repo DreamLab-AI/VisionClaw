@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::types::vec3::Vec3Data;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use log::{debug, error, trace};
@@ -70,8 +69,6 @@ const WIRE_VEC3_SIZE: usize = 12;
 const WIRE_F32_SIZE: usize = 4;
 const WIRE_I32_SIZE: usize = 4;
 const WIRE_U32_SIZE: usize = 4;
-const WIRE_V2_ITEM_SIZE: usize =
-    WIRE_V2_ID_SIZE + WIRE_VEC3_SIZE + WIRE_VEC3_SIZE + WIRE_F32_SIZE + WIRE_I32_SIZE; // 4+12+12+4+4 = 36
 const WIRE_V3_ITEM_SIZE: usize = WIRE_V2_ID_SIZE
     + WIRE_VEC3_SIZE
     + WIRE_VEC3_SIZE
@@ -103,10 +100,6 @@ const _: () = assert!(
     WIRE_V5_SEQ_SIZE == 8,
     "ADR-2057: V5 envelope sequence prefix must be exactly 8 bytes"
 );
-
-// Backwards compatibility alias - now defaults to V3
-const WIRE_ID_SIZE: usize = WIRE_V2_ID_SIZE;
-const WIRE_ITEM_SIZE: usize = WIRE_V3_ITEM_SIZE;
 
 // Binary format (explicit):
 //
@@ -402,14 +395,28 @@ pub fn encode_node_data_extended(
 ) -> Vec<u8> {
     encode_node_data_extended_with_sssp(
         nodes,
-        agent_node_ids,
-        knowledge_node_ids,
-        ontology_class_ids,
-        ontology_individual_ids,
-        ontology_property_ids,
+        NodeClassIds {
+            agent: agent_node_ids,
+            knowledge: knowledge_node_ids,
+            ontology_class: ontology_class_ids,
+            ontology_individual: ontology_individual_ids,
+            ontology_property: ontology_property_ids,
+        },
         None,
         None,
     )
+}
+
+/// Node ids to stamp with each class flag while encoding. An id in none of
+/// the sets is forwarded as-is (callers that pre-stamp pass the default,
+/// all-empty sets).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NodeClassIds<'a> {
+    pub agent: &'a [u32],
+    pub knowledge: &'a [u32],
+    pub ontology_class: &'a [u32],
+    pub ontology_individual: &'a [u32],
+    pub ontology_property: &'a [u32],
 }
 
 /// Encode node data with optional per-node SSSP distances and analytics.
@@ -418,14 +425,17 @@ pub fn encode_node_data_extended(
 /// When absent for a node, defaults to (INFINITY, -1) / NodeAnalytics::default().
 pub fn encode_node_data_extended_with_sssp(
     nodes: &[(u32, BinaryNodeData)],
-    agent_node_ids: &[u32],
-    knowledge_node_ids: &[u32],
-    ontology_class_ids: &[u32],
-    ontology_individual_ids: &[u32],
-    ontology_property_ids: &[u32],
+    class_ids: NodeClassIds<'_>,
     sssp_data: Option<&HashMap<u32, (f32, i32)>>,
     analytics_data: Option<&HashMap<u32, NodeAnalytics>>,
 ) -> Vec<u8> {
+    let NodeClassIds {
+        agent: agent_node_ids,
+        knowledge: knowledge_node_ids,
+        ontology_class: ontology_class_ids,
+        ontology_individual: ontology_individual_ids,
+        ontology_property: ontology_property_ids,
+    } = class_ids;
     // Always use V3 as the default protocol (P0-4 Analytics Extension)
     let protocol_version = PROTOCOL_V3;
     let item_size = WIRE_V3_ITEM_SIZE;
@@ -532,7 +542,7 @@ pub fn encode_node_data_extended_with_sssp(
         buffer.extend_from_slice(&a.centrality.to_le_bytes());
     }
 
-    if nodes.len() > 0 {
+    if !nodes.is_empty() {
         trace!(
             "Encoded binary data with agent flags (v{}): {} bytes for {} nodes",
             protocol_version,
@@ -553,8 +563,8 @@ pub fn encode_node_data_with_flags(
 // NOTE (task #70 D8b analytics consolidation): the duplicate analytics writers
 // `encode_node_data_with_analytics` and its sole delegate `encode_node_data_with_all`
 // were removed. Both had zero callers anywhere in `src/` or `crates/` and were
-// masked only by this module's `#![allow(dead_code)]`. The single live full-feature
-// writer is `encode_node_data_extended_with_sssp` (used by the client coordinator
+// masked by the module-wide `allow(dead_code)` this file used to carry. The single
+// live full-feature writer is `encode_node_data_extended_with_sssp` (used by the client coordinator
 // and `encode_node_data_with_live_analytics`), which produces the identical V3
 // 52-byte wire frame. The independent `visionclaw-protocol` crate copy is unaffected.
 
@@ -572,7 +582,7 @@ pub fn encode_node_data_with_live_analytics(
     analytics_data: Option<&HashMap<u32, NodeAnalytics>>,
     sssp_data: Option<&HashMap<u32, (f32, i32)>>,
 ) -> Vec<u8> {
-    encode_node_data_extended_with_sssp(nodes, &[], &[], &[], &[], &[], sssp_data, analytics_data)
+    encode_node_data_extended_with_sssp(nodes, NodeClassIds::default(), sssp_data, analytics_data)
 }
 
 pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String> {
@@ -588,7 +598,7 @@ pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, Strin
         ));
     }
 
-    if data.len() < 1 {
+    if data.is_empty() {
         return Err("Data too small for protocol version".to_string());
     }
 
@@ -618,7 +628,7 @@ pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, Strin
 /// Decode Protocol V3 with analytics data (P0-4)
 /// Returns standard BinaryNodeData (analytics data is discarded in basic decode)
 fn decode_node_data_v3(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String> {
-    if data.len() % WIRE_V3_ITEM_SIZE != 0 {
+    if !data.len().is_multiple_of(WIRE_V3_ITEM_SIZE) {
         return Err(format!(
             "Data size {} is not a multiple of V3 wire item size {}",
             data.len(),
@@ -644,7 +654,7 @@ fn decode_node_data_v3(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String
     let max_samples = 3;
     let mut samples_logged = 0;
 
-    for chunk in data.chunks_exact(WIRE_V3_ITEM_SIZE) {
+    for chunk in data.as_chunks::<WIRE_V3_ITEM_SIZE>().0 {
         let mut cursor = 0;
 
         // Node ID (4 bytes)
@@ -1081,13 +1091,10 @@ mod tests {
     #[test]
     fn test_wire_format_size() {
         // V1 REMOVED - was 34 bytes, caused node ID truncation
-        // V2: 4 + 12 + 12 + 4 + 4 = 36 bytes
-        assert_eq!(WIRE_V2_ITEM_SIZE, 36);
         // V3: 4 + 12 + 12 + 4 + 4 + 4 + 4 + 4 + 4 = 52 bytes (CURRENT, ADR-031 D2 centrality@48)
         assert_eq!(WIRE_V3_ITEM_SIZE, 52);
-        assert_eq!(WIRE_ITEM_SIZE, WIRE_V3_ITEM_SIZE); // Default is now V3
         assert_eq!(
-            WIRE_ID_SIZE
+            WIRE_V2_ID_SIZE
                 + WIRE_VEC3_SIZE
                 + WIRE_VEC3_SIZE
                 + WIRE_F32_SIZE
@@ -1257,7 +1264,7 @@ mod tests {
         let nodes: Vec<(u32, BinaryNodeData)> = stamped.iter().map(|&id| (id, mk(id))).collect();
 
         let encoded =
-            encode_node_data_extended_with_sssp(&nodes, &[], &[], &[], &[], &[], None, None);
+            encode_node_data_extended_with_sssp(&nodes, NodeClassIds::default(), None, None);
         assert_eq!(encoded[0], PROTOCOL_V3);
         assert_eq!(encoded.len(), 1 + stamped.len() * WIRE_V3_ITEM_SIZE);
         // Read the id straight off the wire: the decoder is free to strip flags,

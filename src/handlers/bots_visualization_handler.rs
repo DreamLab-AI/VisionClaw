@@ -36,7 +36,6 @@ impl AgentVisualizationWs {
         }
     }
 
-    #[allow(dead_code)]
     /// Sends the initialisation frame.
     ///
     /// ADR-2066 addendum: this still reports an EMPTY roster, and that is now
@@ -139,15 +138,7 @@ impl Handler<UpdatePositions> for AgentVisualizationWs {
 
     fn handle(&mut self, msg: UpdatePositions, _ctx: &mut Self::Context) {
         for update in msg.0 {
-            self.protocol.add_position_update(
-                update.id,
-                update.x,
-                update.y,
-                update.z,
-                update.vx.unwrap_or(0.0),
-                update.vy.unwrap_or(0.0),
-                update.vz.unwrap_or(0.0),
-            );
+            self.protocol.add_position_update(update);
         }
     }
 }
@@ -207,8 +198,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for AgentVisualizatio
 #[derive(Deserialize)]
 struct ClientRequest {
     action: String,
-    #[allow(dead_code)]
-    params: Option<serde_json::Value>,
 }
 
 pub async fn agent_visualization_ws(
@@ -545,7 +534,7 @@ async fn get_real_agents_from_app_state(
                     memory: Some(agent.memory_usage),
                     activity: Some(agent.workload),
                     tasks_active: Some(1),
-                    current_task: Some(format!("Agent running")),
+                    current_task: Some("Agent running".to_string()),
                 },
             )
             .collect();

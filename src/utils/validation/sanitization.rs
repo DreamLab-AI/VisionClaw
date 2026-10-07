@@ -221,7 +221,7 @@ impl Sanitizer {
     fn is_suspicious_key(key: &str) -> bool {
         let dangerous_exact_keys = ["__proto__", "constructor", "prototype"];
 
-        if dangerous_exact_keys.iter().any(|&k| key == k) {
+        if dangerous_exact_keys.contains(&key) {
             return true;
         }
 
@@ -389,7 +389,7 @@ impl CSPUtils {
 
     /// Generate CSP header with a specific nonce
     pub fn generate_csp_header_with_nonce(nonce: &str) -> String {
-        vec![
+        [
             "default-src 'self'",
             &format!("script-src 'self' 'nonce-{}'", nonce),
             "style-src 'self' 'unsafe-inline'", // inline styles less dangerous than scripts

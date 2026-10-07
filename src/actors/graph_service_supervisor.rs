@@ -380,7 +380,7 @@ pub enum BufferedMessage {
     StartSimulation,
     StopSimulation,
     SimulationStep,
-    UpdateSimulationParams(msgs::UpdateSimulationParams),
+    UpdateSimulationParams(Box<msgs::UpdateSimulationParams>),
     UpdateNodePositions(msgs::UpdateNodePositions),
     // Client operations
     BroadcastMessage(msgs::BroadcastMessage),
@@ -443,8 +443,6 @@ pub struct GraphServiceSupervisor {
     health_check_interval: Duration,
     last_health_check: Instant,
 
-    #[allow(dead_code)]
-    message_buffer_size: usize,
     total_messages_routed: u64,
 
     supervision_stats: SupervisionStats,
@@ -520,7 +518,6 @@ impl GraphServiceSupervisor {
             actor_info: HashMap::new(),
             health_check_interval: Duration::from_secs(30),
             last_health_check: Instant::now(),
-            message_buffer_size: 1000,
             total_messages_routed: 0,
             supervision_stats: SupervisionStats::default(),
             auto_community_in_flight: false,
@@ -829,21 +826,6 @@ impl GraphServiceSupervisor {
         self.start_actor(ActorType::ClientCoordinator, ctx);
     }
 
-    #[allow(dead_code)]
-    fn buffer_message(&mut self, actor_type: ActorType, message: SupervisedMessage) {
-        if let Some(info) = self.actor_info.get_mut(&actor_type) {
-            if info.message_buffer.len() < self.message_buffer_size {
-                info.message_buffer.push(message);
-                self.supervision_stats.messages_buffered += 1;
-            } else {
-                warn!(
-                    "Message buffer full for actor {:?}, dropping message",
-                    actor_type
-                );
-            }
-        }
-    }
-
     fn replay_buffered_messages(&mut self, actor_type: ActorType) {
         if let Some(info) = self.actor_info.get_mut(&actor_type) {
             let messages = std::mem::take(&mut info.message_buffer);
@@ -899,7 +881,7 @@ impl GraphServiceSupervisor {
                     }
                     BufferedMessage::UpdateSimulationParams(msg) => {
                         if let Some(ref addr) = self.physics {
-                            addr.do_send(msg);
+                            addr.do_send(*msg);
                             true
                         } else {
                             false
@@ -1023,7 +1005,7 @@ impl GraphServiceSupervisor {
             SupervisorMessage::UpdateSimulationParams(msg) => {
                 if let Some(ref addr) = self.physics {
                     debug!("Forwarding UpdateSimulationParams to PhysicsOrchestratorActor");
-                    addr.do_send(msg);
+                    addr.do_send(*msg);
                     Ok(())
                 } else {
                     Err(VisionClawError::Actor(ActorError::ActorNotAvailable(
@@ -1259,9 +1241,9 @@ impl GraphServiceSupervisor {
             info!("Auto-analytics: '{}' channel disabled by config", name);
             return;
         }
-        ctx.run_later(cadence.initial_delay, move |act, ctx| trigger(act, ctx));
+        ctx.run_later(cadence.initial_delay, trigger);
         if let Some(interval) = cadence.refresh_interval {
-            ctx.run_interval(interval, move |act, ctx| trigger(act, ctx));
+            ctx.run_interval(interval, trigger);
         }
     }
 }
@@ -1313,19 +1295,17 @@ impl Actor for GraphServiceSupervisor {
                 ctx.spawn(
                     async move {
                         match gpu_manager_clone.send(msgs::GetForceComputeActor).await {
-                            Ok(Ok(force_compute_addr)) => {
-                                if force_compute_addr.connected() {
-                                    // Update PhysicsOrchestratorActor
-                                    if let Some(physics) = physics_clone {
-                                        physics.do_send(msgs::StoreGPUComputeAddress {
-                                            addr: Some(force_compute_addr.clone()),
-                                        });
-                                    }
-                                    // Update AppState's gpu_compute_addr
-                                    if let Some(app_addr) = app_gpu_addr_clone {
-                                        let mut guard = app_addr.write().await;
-                                        *guard = Some(force_compute_addr);
-                                    }
+                            Ok(Ok(force_compute_addr)) if force_compute_addr.connected() => {
+                                // Update PhysicsOrchestratorActor
+                                if let Some(physics) = physics_clone {
+                                    physics.do_send(msgs::StoreGPUComputeAddress {
+                                        addr: Some(force_compute_addr.clone()),
+                                    });
+                                }
+                                // Update AppState's gpu_compute_addr
+                                if let Some(app_addr) = app_gpu_addr_clone {
+                                    let mut guard = app_addr.write().await;
+                                    *guard = Some(force_compute_addr);
                                 }
                             }
                             _ => {} // GPU not ready yet, will retry next interval
@@ -1356,7 +1336,7 @@ pub enum SupervisorMessage {
     StartSimulation,
     StopSimulation,
     SimulationStep,
-    UpdateSimulationParams(msgs::UpdateSimulationParams),
+    UpdateSimulationParams(Box<msgs::UpdateSimulationParams>),
     UpdateNodePositions(msgs::UpdateNodePositions),
     // --- Client operations (→ ClientCoordinatorActor) ---
     BroadcastMessage(msgs::BroadcastMessage),
@@ -1543,7 +1523,7 @@ impl Handler<msgs::ReloadGraphFromDatabase> for GraphServiceSupervisor {
 
         let graph_state_addr = self.graph_state.clone();
         let physics_addr = self.physics.clone();
-        let gpu_manager_addr = self.gpu_manager.clone();
+        let _gpu_manager_addr = self.gpu_manager.clone();
         // Live linkage: notify clients AFTER the reload completes (a full
         // GitHub-sync reload can take minutes; signalling up-front would make
         // clients refetch the pre-reload graph and then miss the real change).
@@ -2001,7 +1981,7 @@ impl Handler<msgs::UpdateNodePositions> for GraphServiceSupervisor {
         if let Some(ref graph_state_addr) = self.graph_state {
             graph_state_addr.do_send(msgs::UpdateNodePositions {
                 positions: msg.positions.clone(),
-                correlation_id: msg.correlation_id.clone(),
+                correlation_id: msg.correlation_id,
             });
         }
 

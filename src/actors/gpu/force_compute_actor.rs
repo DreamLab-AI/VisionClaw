@@ -207,7 +207,6 @@ pub struct PhysicsStats {
     pub total_force_calculations: u32,
 }
 
-#[allow(dead_code)]
 pub struct ForceComputeActor {
     gpu_state: GPUState,
 
@@ -219,7 +218,6 @@ pub struct ForceComputeActor {
 
     compute_mode: ComputeMode,
 
-    last_step_start: Option<Instant>,
     last_step_duration_ms: f32,
 
     is_computing: bool,
@@ -236,14 +234,8 @@ pub struct ForceComputeActor {
 
     graph_service_addr: Option<Addr<crate::actors::GraphServiceSupervisor>>,
 
-    ontology_constraint_addr:
-        Option<Addr<super::ontology_constraint_actor::OntologyConstraintActor>>,
-
     /// Cached constraint buffer from OntologyConstraintActor for GPU upload
     cached_constraint_buffer: Vec<crate::models::constraints::ConstraintData>,
-
-    /// Semantic forces actor for DAG layout, type clustering, and collision
-    semantic_forces_addr: Option<Addr<super::semantic_forces_actor::SemanticForcesActor>>,
 
     /// Broadcast optimizer for delta compression and spatial culling
     broadcast_optimizer: BroadcastOptimizer,
@@ -387,7 +379,6 @@ impl ForceComputeActor {
             simulation_params: initial_params,
             unified_params: SimParams::default(),
             compute_mode: ComputeMode::Basic,
-            last_step_start: None,
             last_step_duration_ms: 0.0,
             is_computing: false,
             skipped_frames: 0,
@@ -403,9 +394,7 @@ impl ForceComputeActor {
             stability_warmup_remaining: 600,
             last_full_broadcast_iteration: 0,
             graph_service_addr: None,
-            ontology_constraint_addr: None,
             cached_constraint_buffer: Vec::new(),
-            semantic_forces_addr: None,
             broadcast_optimizer: BroadcastOptimizer::new(broadcast_config),
             suppress_intermediate_broadcasts: false,
             force_full_broadcast: false,
@@ -1124,12 +1113,10 @@ impl ForceComputeActor {
             }
         };
         match compute.initialize_graph(
-            row_offsets.iter().map(|&x| x as i32).collect(),
-            col_indices.iter().map(|&x| x as i32).collect(),
-            edge_weights,
-            positions_x,
-            positions_y,
-            positions_z,
+            &row_offsets.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+            &col_indices.iter().map(|&x| x as i32).collect::<Vec<_>>(),
+            &edge_weights,
+            [&positions_x, &positions_y, &positions_z],
             num_nodes,
             edge_count as usize,
         ) {
@@ -1173,7 +1160,7 @@ impl ForceComputeActor {
                 if let Some(ref graph_data) = self.pending_graph_data {
                     let mut class_ids = Vec::with_capacity(num_nodes);
                     let mut class_charges = Vec::with_capacity(num_nodes);
-                    let mut class_masses = vec![1.0f32; num_nodes];
+                    let class_masses = vec![1.0f32; num_nodes];
 
                     for node in &graph_data.nodes {
                         let domain = node
@@ -1559,7 +1546,7 @@ impl ForceComputeActor {
             iteration_count: self.gpu_state.iteration_count,
             gpu_failure_count: self.gpu_state.gpu_failure_count,
             current_params: self.simulation_params.clone(),
-            compute_mode: self.compute_mode.clone(),
+            compute_mode: self.compute_mode,
             nodes_count: self.gpu_state.num_nodes,
             edges_count: self.gpu_state.num_edges,
 
@@ -1581,7 +1568,7 @@ impl ForceComputeActor {
         // Use try_lock() to avoid blocking - if GPU is busy, return estimates
         if let Some(ctx) = &self.shared_context {
             if let Ok(unified_compute) = ctx.unified_compute.try_lock() {
-                return self.extract_gpu_metrics(&*unified_compute);
+                return self.extract_gpu_metrics(&unified_compute);
             }
             // GPU mutex busy, fall through to estimates
         }
@@ -1656,7 +1643,7 @@ impl ForceComputeActor {
 
         let utilization_percent = (execution_time_ms / TARGET_FRAME_TIME_MS * 100.0) as f32;
 
-        utilization_percent.min(100.0).max(0.0)
+        utilization_percent.clamp(0.0, 100.0)
     }
 
     /// Recover from a tripped divergence circuit breaker.
@@ -1745,6 +1732,7 @@ impl ForceComputeActor {
     /// 1. Retrieves constraint buffer from OntologyConstraintActor (via shared memory/coordination)
     /// 2. Uploads constraints to GPU via UnifiedGPUCompute::upload_constraints()
     /// 3. Constraints are automatically applied during execute_physics_step()
+    ///
     /// The constraint buffer contains ConstraintData structs generated from OWL axioms
     /// by OntologyConstraintTranslator, which are processed by ontology_constraints.cu kernels.
     /// # Thread Safety
@@ -1805,6 +1793,12 @@ impl ForceComputeActor {
         // during the next execute_physics_step() call
         trace!("ForceComputeActor: Ontology constraint upload complete");
         Ok(())
+    }
+}
+
+impl Default for ForceComputeActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1872,7 +1866,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
         // or an explicit reset) re-arms it.
         if self.simulation_halted {
             self.skipped_frames += 1;
-            if self.skipped_frames % 300 == 0 {
+            if self.skipped_frames.is_multiple_of(300) {
                 error!(
                     "ForceComputeActor: simulation HALTED (divergence circuit breaker tripped) — \
                      stepping suspended, last-known-good positions retained. \
@@ -1886,7 +1880,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
         // Early checks that don't need async
         if self.gpu_state.is_gpu_overloaded() {
             self.skipped_frames += 1;
-            if self.skipped_frames % 60 == 0 {
+            if self.skipped_frames.is_multiple_of(60) {
                 debug!("ForceComputeActor: Skipped {} frames due to GPU overload (utilization: {:.1}%, concurrent ops: {})",
                       self.skipped_frames, self.gpu_state.get_average_utilization(), self.gpu_state.concurrent_access_count);
             }
@@ -1896,7 +1890,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
         if self.is_computing {
             self.skipped_frames += 1;
-            if self.skipped_frames % 60 == 0 {
+            if self.skipped_frames.is_multiple_of(60) {
                 info!(
                     "ForceComputeActor: Skipped {} frames due to ongoing GPU computation",
                     self.skipped_frames
@@ -1914,7 +1908,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
             Some(ctx) => ctx.clone(),
             None => {
                 // GPU init failed — this is a hard error, not transient
-                if self.skipped_frames % 300 == 0 {
+                if self.skipped_frames.is_multiple_of(300) {
                     error!(
                         "ForceComputeActor: GPU context unavailable after init attempt (frame {})",
                         self.skipped_frames
@@ -1931,7 +1925,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
         // Guard: skip compute when graph data hasn't been uploaded to GPU yet
         if self.gpu_state.num_nodes == 0 {
-            if self.skipped_frames % 60 == 0 {
+            if self.skipped_frames.is_multiple_of(60) {
                 debug!("ForceComputeActor: Skipping compute — no graph data uploaded to GPU yet (waiting for InitializeGPU)");
             }
             self.skipped_frames += 1;
@@ -1952,7 +1946,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
         let correlation_id = CorrelationId::new();
         let iteration = self.iteration_count();
 
-        if iteration % 60 == 0 {
+        if iteration.is_multiple_of(60) {
             info!(
                 "ForceComputeActor: Computing forces (iteration {}), nodes: {}",
                 iteration, self.gpu_state.num_nodes
@@ -2704,9 +2698,10 @@ impl Handler<SetLayoutMode> for ForceComputeActor {
 /// the shell CENTRE (`SimulationParams.radial_center`) change per RadialMode:
 ///   - DagRank : key = cached DAG hierarchy rank;      centre = origin (legacy).
 ///   - TypeTier: key = node-type tier (Agent 0 → Knowledge 1 → Ontology 2);
-///               centre = origin.
+///     centre = origin.
 ///   - Ego     : key = BFS hop-distance from `focus_node`; centre = the focus
-///               node's live GPU position (origin if unreadable).
+///     node's live GPU position (origin if unreadable).
+///
 /// The centre is actor-authoritative (preserved through settings PUTs by the
 /// UpdateSimulationParams handler). Applied through the same UpdateSimulationParams
 /// path as SetLayoutMode so validation, resync and reheat behave identically.
@@ -3226,7 +3221,7 @@ impl Handler<SetComputeMode> for ForceComputeActor {
 
         self.compute_mode = msg.mode;
 
-        let mut temp_params = self.unified_params.clone();
+        let mut temp_params = self.unified_params;
         self.sync_simulation_to_unified_params(&mut temp_params);
         self.unified_params = temp_params;
 
@@ -4364,7 +4359,7 @@ impl Handler<crate::actors::messages::PositionBroadcastAck> for ForceComputeActo
             .acknowledge(msg.clients_delivered as usize);
 
         // Log token restoration at debug level (every 300 acks to avoid spam)
-        if msg.correlation_id % 300 == 0 {
+        if msg.correlation_id.is_multiple_of(300) {
             let metrics = self.backpressure.metrics();
             debug!("ForceComputeActor: Broadcast ack received (correlation_id: {}, clients: {}), tokens: {}/{}, congestion: {:.1}ms",
                    msg.correlation_id, msg.clients_delivered,

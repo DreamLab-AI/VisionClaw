@@ -33,7 +33,6 @@ pub mod iri;
 pub mod owl_el_profile;
 pub mod shacl;
 pub mod shacl_lite;
-pub mod signature;
 
 pub use errors::{ErrorCategory, Severity};
 pub use shacl::{builtin as builtin_shapes, ShaclSeverity, ShapeFinding, ShapesGraph};
@@ -183,15 +182,10 @@ fn suggest(c: &ErrorCategory) -> Option<String> {
 /// is implemented; the enum exists so the validator constructor reads
 /// naturally and so DL/QL/RL paths can be added without renaming the
 /// public API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OwlProfile {
+    #[default]
     El,
-}
-
-impl Default for OwlProfile {
-    fn default() -> Self {
-        Self::El
-    }
 }
 
 /// Canonical `@context` representation. Owns the parsed JSON of
@@ -332,7 +326,6 @@ impl Validator {
     ///
     /// Gated behind `persistence-oxigraph` since `Quad` is an Oxigraph
     /// type and the pre-commit binary does not need it.
-
     pub fn validate_quads(&self, quads: &[Quad]) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
         for q in quads {

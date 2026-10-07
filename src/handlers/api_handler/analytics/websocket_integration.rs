@@ -139,7 +139,7 @@ impl GpuAnalyticsWebSocket {
                     Ok(Ok(stats)) => {
                         let metrics = GpuMetricsUpdate {
                             gpu_utilization: 75.0,
-                            memory_usage_percent: (1000 as f32 * 0.5) / 8192.0 * 100.0,
+                            memory_usage_percent: (1000_f32 * 0.5) / 8192.0 * 100.0,
                             temperature: 68.0,
                             power_draw: 120.0,
                             active_kernels: 3,
@@ -358,8 +358,7 @@ impl GpuAnalyticsWebSocket {
         let clamped_ms = self
             .subscription_prefs
             .update_interval_ms
-            .max(MIN_UPDATE_INTERVAL_MS)
-            .min(MAX_UPDATE_INTERVAL_MS);
+            .clamp(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS);
         let interval = std::time::Duration::from_millis(clamped_ms);
 
         ctx.run_interval(interval, |act, ctx| {
@@ -435,8 +434,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GpuAnalyticsWebSo
                                 {
                                     prefs.update_interval_ms = prefs
                                         .update_interval_ms
-                                        .max(MIN_UPDATE_INTERVAL_MS)
-                                        .min(MAX_UPDATE_INTERVAL_MS);
+                                        .clamp(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS);
                                     self.subscription_prefs = prefs;
                                     info!(
                                         "Updated subscription preferences for client: {}",

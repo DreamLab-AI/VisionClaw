@@ -21,19 +21,10 @@ pub mod graph_actor {
 
     // PhysicsState type alias - represents the state of physics simulation
     // Contains simulation parameters and running status
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
     pub struct PhysicsState {
         pub is_running: bool,
         pub params: crate::models::simulation_params::SimulationParams,
-    }
-
-    impl Default for PhysicsState {
-        fn default() -> Self {
-            Self {
-                is_running: false,
-                params: crate::models::simulation_params::SimulationParams::default(),
-            }
-        }
     }
 }
 pub mod metadata_actor;

@@ -93,8 +93,8 @@ impl OntologyConverter {
         let metadata_id = class
             .iri
             .split(':')
-            .last()
-            .or(class.iri.split('/').last())
+            .next_back()
+            .or(class.iri.split('/').next_back())
             .unwrap_or(&class.iri)
             .to_string();
 

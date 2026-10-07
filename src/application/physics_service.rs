@@ -158,9 +158,11 @@ impl PhysicsService {
         graph: Arc<GraphData>,
         request: LayoutOptimizationRequest,
     ) -> PhysicsResult<Vec<Node>> {
-        let mut params = PhysicsParameters::default();
-        params.max_iterations = request.max_iterations;
-        params.convergence_threshold = request.target_energy;
+        let params = PhysicsParameters {
+            max_iterations: request.max_iterations,
+            convergence_threshold: request.target_energy,
+            ..Default::default()
+        };
 
         let nodes = self.compute_layout(graph, params).await?;
 

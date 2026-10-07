@@ -332,12 +332,12 @@ mod poll_offset_tests {
 
     #[test]
     fn spiral_index_rotated_by_offset() {
-        let agents = vec!["a", "b", "c", "d"];
+        let agents = ["a", "b", "c", "d"];
         let n = agents.len();
         let mut seen_first: Vec<&str> = Vec::new();
 
         for poll in 0..n {
-            let first_idx = (0 + poll) % n;
+            let first_idx = poll % n;
             seen_first.push(agents[first_idx]);
         }
 

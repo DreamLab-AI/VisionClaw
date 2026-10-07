@@ -6,15 +6,13 @@
 #[cfg(test)]
 mod tests {
     use crate::models::{
-        constraints::{AdvancedParams, ConstraintSet},
+        constraints::ConstraintSet,
         edge::Edge,
         graph::GraphData,
         metadata::{Metadata, MetadataStore},
         node::Node,
     };
     use crate::physics::{SemanticConstraintGenerator, StressMajorizationSolver};
-    use crate::utils::socket_flow_messages::BinaryNodeData;
-    use std::collections::HashMap;
 
     #[test]
     fn test_full_physics_pipeline() {
@@ -26,8 +24,8 @@ mod tests {
             .generate_constraints(&graph, Some(&metadata))
             .expect("Failed to generate constraints");
 
-        assert!(constraint_result.clusters.len() >= 1);
-        assert!(constraint_result.clustering_constraints.len() > 0);
+        assert!(!constraint_result.clusters.is_empty());
+        assert!(!constraint_result.clustering_constraints.is_empty());
 
         let mut constraint_set = ConstraintSet::default();
         constraint_generator.apply_to_constraint_set(&mut constraint_set, &constraint_result);
@@ -65,7 +63,7 @@ mod tests {
             assert!(cluster.node_ids.len() >= 2);
         }
 
-        assert!(result.separation_constraints.len() > 0);
+        assert!(!result.separation_constraints.is_empty());
     }
 
     #[test]
@@ -84,9 +82,9 @@ mod tests {
             .generate_constraints(&graph, Some(&metadata))
             .expect("Failed to generate constraints");
 
-        assert!(result.hierarchical_relations.len() > 0);
+        assert!(!result.hierarchical_relations.is_empty());
 
-        assert!(result.alignment_constraints.len() > 0);
+        assert!(!result.alignment_constraints.is_empty());
     }
 
     #[test]
@@ -101,7 +99,7 @@ mod tests {
 
         assert!(!result.constraint_scores.is_empty());
 
-        for (_, score) in &result.constraint_scores {
+        for score in result.constraint_scores.values() {
             assert!(*score >= 0.0 && *score <= 1.0);
         }
     }

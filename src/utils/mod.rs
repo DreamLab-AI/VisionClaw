@@ -2,19 +2,15 @@
 // REMOVED: gpu_compute module - legacy implementation replaced by unified_gpu_compute
 pub mod actor_timeout;
 pub mod advanced_logging;
-pub mod async_improvements;
+pub mod agent_key;
 pub mod audio_processor;
 pub mod auth;
 pub mod binary_protocol;
 pub mod cache;
 pub mod client_message_extractor;
+pub mod cuda_error_handling;
 pub mod edge_data;
 pub mod gpu_diagnostics;
-// ADR-090: GPU memory canonical at visionclaw_gpu::memory. The `gpu_memory`
-// alias is preserved so existing `crate::utils::gpu_memory::*` paths in tests
-// and downstream crates continue to resolve.
-pub use visionclaw_gpu::memory as gpu_memory;
-pub mod cuda_error_handling;
 pub mod gpu_safety;
 pub mod handler_commons;
 pub mod response_macros;

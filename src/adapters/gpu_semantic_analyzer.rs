@@ -49,7 +49,7 @@ impl GpuSemanticAnalyzerAdapter {
     }
 
     fn initialize_gpu(&mut self, num_nodes: usize, num_edges: usize) -> Result<()> {
-        let ptx_paths = vec![
+        let ptx_paths = [
             include_str!("../utils/ptx/sssp_compact.ptx"),
             include_str!("../utils/ptx/gpu_landmark_apsp.ptx"),
             include_str!("../utils/ptx/gpu_clustering_kernels.ptx"),
@@ -183,9 +183,9 @@ impl GpuSemanticAnalyzerAdapter {
             for j in (i + 1)..num_nodes {
                 let mut min_dist = f32::INFINITY;
 
-                for k in 0..num_landmarks {
-                    let dist_ik = landmark_distances[k][i];
-                    let dist_kj = landmark_distances[k][j];
+                for from_landmark in landmark_distances.iter().take(num_landmarks) {
+                    let dist_ik = from_landmark[i];
+                    let dist_kj = from_landmark[j];
 
                     if !dist_ik.is_infinite() && !dist_kj.is_infinite() {
                         min_dist = min_dist.min(dist_ik + dist_kj);
@@ -199,6 +199,12 @@ impl GpuSemanticAnalyzerAdapter {
 
         info!("Landmark APSP computation complete");
         Ok(distance_matrix)
+    }
+}
+
+impl Default for GpuSemanticAnalyzerAdapter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -237,7 +243,7 @@ impl GpuSemanticAnalyzer for GpuSemanticAnalyzerAdapter {
         }
         edge_row_offsets[num_nodes] = offset;
 
-        let mut edge_list: Vec<_> = graph.edges.iter().cloned().collect();
+        let mut edge_list: Vec<_> = graph.edges.to_vec();
         edge_list.sort_by_key(|e| e.source);
 
         for edge in edge_list {
@@ -379,9 +385,9 @@ impl GpuSemanticAnalyzer for GpuSemanticAnalyzerAdapter {
 
         let mut all_paths = HashMap::new();
 
-        for i in 0..num_nodes {
-            for j in 0..num_nodes {
-                if i != j && !distance_matrix[i][j].is_infinite() {
+        for (i, row) in distance_matrix.iter().enumerate().take(num_nodes) {
+            for (j, distance) in row.iter().enumerate().take(num_nodes) {
+                if i != j && !distance.is_infinite() {
                     let path = vec![i as u32, j as u32];
                     all_paths.insert((i as u32, j as u32), path);
                 }

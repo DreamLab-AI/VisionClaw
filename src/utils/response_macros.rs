@@ -1,15 +1,15 @@
-/// HTTP Response Standardization Macros
-/// These macros provide a consistent interface for creating HTTP responses
-/// using the HandlerResponse trait. All handlers MUST use these macros
-/// instead of direct HttpResponse construction.
-/// Author: API Specialist Agent
-/// Task: Phase 1, Task 1.4 - HTTP Response Standardization
-/// # Usage
-/// These macros are exported at crate level with `#[macro_export]`.
-/// Import them directly from crate root:
-/// ```ignore
-/// use crate::{ok_json, error_json, service_unavailable};
-/// ```
+//! HTTP Response Standardization Macros
+//! These macros provide a consistent interface for creating HTTP responses
+//! using the HandlerResponse trait. All handlers MUST use these macros
+//! instead of direct HttpResponse construction.
+//! Author: API Specialist Agent
+//! Task: Phase 1, Task 1.4 - HTTP Response Standardization
+//! # Usage
+//! These macros are exported at crate level with `#[macro_export]`.
+//! Import them directly from crate root:
+//! ```ignore
+//! use crate::{ok_json, error_json, service_unavailable};
+//! ```
 
 /// Success response with JSON data (200 OK)
 /// # Examples
@@ -21,14 +21,14 @@
 #[macro_export]
 macro_rules! ok_json {
     ($data:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
+        use $crate::utils::handler_commons::StandardResponse;
 
         Ok::<HttpResponse, Error>(HttpResponse::Ok().json(StandardResponse {
             success: true,
             data: Some($data),
             error: None,
-            timestamp: crate::time::now(),
+            timestamp: $crate::time::now(),
             request_id: None,
         }))
     }};
@@ -44,14 +44,14 @@ macro_rules! ok_json {
 #[macro_export]
 macro_rules! created_json {
     ($data:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
+        use $crate::utils::handler_commons::StandardResponse;
 
         Ok::<HttpResponse, Error>(HttpResponse::Created().json(StandardResponse {
             success: true,
             data: Some($data),
             error: None,
-            timestamp: crate::time::now(),
+            timestamp: $crate::time::now(),
             request_id: None,
         }))
     }};
@@ -68,7 +68,7 @@ macro_rules! created_json {
 macro_rules! error_json {
     ($msg:expr) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::internal_error($msg.to_string())
         }
     };
@@ -87,7 +87,7 @@ macro_rules! error_json {
     };
     ($fmt:expr, $($arg:tt)*) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::internal_error(format!($fmt, $($arg)*))
         }
     };
@@ -104,7 +104,7 @@ macro_rules! error_json {
 macro_rules! bad_request {
     ($msg:expr) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::bad_request($msg.to_string())
         }
     };
@@ -122,7 +122,7 @@ macro_rules! bad_request {
     };
     ($fmt:expr, $($arg:tt)*) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::bad_request(format!($fmt, $($arg)*))
         }
     };
@@ -139,7 +139,7 @@ macro_rules! bad_request {
 macro_rules! not_found {
     ($msg:expr) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::not_found($msg.to_string())
         }
     };
@@ -157,7 +157,7 @@ macro_rules! not_found {
     };
     ($fmt:expr, $($arg:tt)*) => {
         {
-            use crate::utils::handler_commons::HandlerResponse;
+            use $crate::utils::handler_commons::HandlerResponse;
             <()>::not_found(format!($fmt, $($arg)*))
         }
     };
@@ -173,14 +173,14 @@ macro_rules! not_found {
 #[macro_export]
 macro_rules! success_msg {
     ($data:expr, $msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
+        use $crate::utils::handler_commons::StandardResponse;
 
         Ok::<HttpResponse, Error>(HttpResponse::Ok().json(StandardResponse {
             success: true,
             data: Some($data),
             error: None,
-            timestamp: crate::time::now(),
+            timestamp: $crate::time::now(),
             request_id: None,
         }))
     }};
@@ -198,14 +198,14 @@ macro_rules! unauthorized {
         {
             use actix_web::{HttpResponse, Error};
             use log::warn;
-            use crate::utils::handler_commons::StandardResponse;
+            use $crate::utils::handler_commons::StandardResponse;
 
             warn!("Unauthorized access: {}", $msg);
             Ok::<HttpResponse, Error>(HttpResponse::Unauthorized().json(StandardResponse::<()> {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),
-                timestamp: crate::time::now(),
+                timestamp: $crate::time::now(),
                 request_id: None,
             }))
         }
@@ -214,7 +214,7 @@ macro_rules! unauthorized {
         {
             use actix_web::{HttpResponse, Error};
             use log::warn;
-            use crate::utils::handler_commons::StandardResponse;
+            use $crate::utils::handler_commons::StandardResponse;
 
             let msg = format!($fmt, $($arg)*);
             warn!("Unauthorized access: {}", msg);
@@ -222,7 +222,7 @@ macro_rules! unauthorized {
                 success: false,
                 data: None,
                 error: Some(msg),
-                timestamp: crate::time::now(),
+                timestamp: $crate::time::now(),
                 request_id: None,
             }))
         }
@@ -238,16 +238,16 @@ macro_rules! unauthorized {
 #[macro_export]
 macro_rules! forbidden {
     ($msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
         use log::warn;
+        use $crate::utils::handler_commons::StandardResponse;
 
         warn!("Forbidden access: {}", $msg);
         Ok::<HttpResponse, Error>(HttpResponse::Forbidden().json(StandardResponse::<()> {
             success: false,
             data: None,
             error: Some($msg.to_string()),
-            timestamp: crate::time::now(),
+            timestamp: $crate::time::now(),
             request_id: None,
         }))
     }};
@@ -262,16 +262,16 @@ macro_rules! forbidden {
 #[macro_export]
 macro_rules! conflict {
     ($msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
         use log::warn;
+        use $crate::utils::handler_commons::StandardResponse;
 
         warn!("Conflict: {}", $msg);
         Ok::<HttpResponse, Error>(HttpResponse::Conflict().json(StandardResponse::<()> {
             success: false,
             data: None,
             error: Some($msg.to_string()),
-            timestamp: crate::time::now(),
+            timestamp: $crate::time::now(),
             request_id: None,
         }))
     }};
@@ -300,9 +300,9 @@ macro_rules! no_content {
 #[macro_export]
 macro_rules! too_many_requests {
     ($msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::HttpResponse;
         use log::warn;
+        use $crate::utils::handler_commons::StandardResponse;
 
         warn!("Too many requests: {}", $msg);
         Ok::<HttpResponse, actix_web::Error>(HttpResponse::TooManyRequests().json(
@@ -310,7 +310,7 @@ macro_rules! too_many_requests {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),
-                timestamp: crate::utils::time::now(),
+                timestamp: $crate::utils::time::now(),
                 request_id: None,
             },
         ))
@@ -326,9 +326,9 @@ macro_rules! too_many_requests {
 #[macro_export]
 macro_rules! service_unavailable {
     ($msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::HttpResponse;
         use log::warn;
+        use $crate::utils::handler_commons::StandardResponse;
 
         warn!("Service unavailable: {}", $msg);
         Ok::<HttpResponse, actix_web::Error>(HttpResponse::ServiceUnavailable().json(
@@ -336,7 +336,7 @@ macro_rules! service_unavailable {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),
-                timestamp: crate::utils::time::now(),
+                timestamp: $crate::utils::time::now(),
                 request_id: None,
             },
         ))
@@ -352,9 +352,9 @@ macro_rules! service_unavailable {
 #[macro_export]
 macro_rules! payload_too_large {
     ($msg:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
         use log::warn;
+        use $crate::utils::handler_commons::StandardResponse;
 
         warn!("Payload too large: {}", $msg);
         Ok::<HttpResponse, Error>(
@@ -362,7 +362,7 @@ macro_rules! payload_too_large {
                 success: false,
                 data: None,
                 error: Some($msg.to_string()),
-                timestamp: crate::utils::time::now(),
+                timestamp: $crate::utils::time::now(),
                 request_id: None,
             }),
         )
@@ -378,14 +378,14 @@ macro_rules! payload_too_large {
 #[macro_export]
 macro_rules! accepted {
     ($data:expr) => {{
-        use crate::utils::handler_commons::StandardResponse;
         use actix_web::{Error, HttpResponse};
+        use $crate::utils::handler_commons::StandardResponse;
 
         Ok::<HttpResponse, Error>(HttpResponse::Accepted().json(StandardResponse {
             success: true,
             data: Some($data),
             error: None,
-            timestamp: crate::utils::time::now(),
+            timestamp: $crate::utils::time::now(),
             request_id: None,
         }))
     }};
@@ -393,8 +393,7 @@ macro_rules! accepted {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::utils::time;
+
     use actix_web::http::StatusCode;
     use serde::{Deserialize, Serialize};
 

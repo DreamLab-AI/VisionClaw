@@ -38,7 +38,7 @@ impl ValidationSchema {
 
         for field_name in &self.required_fields {
             if !obj.contains_key(field_name) {
-                return Err(DetailedValidationError::missing_required_field(field_name));
+                return Err(DetailedValidationError::missing_required_field(field_name).into());
             }
         }
 
@@ -52,7 +52,8 @@ impl ValidationSchema {
                     field_name,
                     "Unknown field",
                     "UNKNOWN_FIELD",
-                ));
+                )
+                .into());
             }
         }
 
@@ -202,15 +203,15 @@ impl ValidationRule {
         expected_type: &FieldType,
         ctx: &ValidationContext,
     ) -> ValidationResult<()> {
-        let matches = match (expected_type, value) {
-            (FieldType::String, Value::String(_)) => true,
-            (FieldType::Number, Value::Number(_)) => true,
-            (FieldType::Boolean, Value::Bool(_)) => true,
-            (FieldType::Array, Value::Array(_)) => true,
-            (FieldType::Object, Value::Object(_)) => true,
-            (FieldType::Null, Value::Null) => true,
-            _ => false,
-        };
+        let matches = matches!(
+            (expected_type, value),
+            (FieldType::String, Value::String(_))
+                | (FieldType::Number, Value::Number(_))
+                | (FieldType::Boolean, Value::Bool(_))
+                | (FieldType::Array, Value::Array(_))
+                | (FieldType::Object, Value::Object(_))
+                | (FieldType::Null, Value::Null)
+        );
 
         if !matches {
             return Err(DetailedValidationError::new(
@@ -221,7 +222,8 @@ impl ValidationRule {
                     self.get_value_type(value)
                 ),
                 "TYPE_MISMATCH",
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -241,7 +243,8 @@ impl ValidationRule {
                     &ctx.get_path(),
                     "Length validation only applies to strings and arrays",
                     "INVALID_TYPE",
-                ))
+                )
+                .into())
             }
         };
 
@@ -250,7 +253,8 @@ impl ValidationRule {
                 &ctx.get_path(),
                 &format!("Minimum length is {}, got {}", min, length),
                 "TOO_SHORT",
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -270,7 +274,8 @@ impl ValidationRule {
                     &ctx.get_path(),
                     "Length validation only applies to strings and arrays",
                     "INVALID_TYPE",
-                ))
+                )
+                .into())
             }
         };
 
@@ -279,7 +284,8 @@ impl ValidationRule {
                 &ctx.get_path(),
                 &format!("Maximum length is {}, got {}", max, length),
                 "TOO_LONG",
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -305,7 +311,8 @@ impl ValidationRule {
                 number,
                 min,
                 f64::INFINITY,
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -331,7 +338,8 @@ impl ValidationRule {
                 number,
                 f64::NEG_INFINITY,
                 max,
-            ));
+            )
+            .into());
         }
 
         Ok(())
@@ -364,7 +372,8 @@ impl ValidationRule {
                 &ctx.get_path(),
                 pattern,
                 string,
-            ));
+            )
+            .into());
         }
 
         Ok(())

@@ -20,11 +20,7 @@ pub struct MemoryBounds {
 
 impl MemoryBounds {
     pub fn new(name: String, size: usize, element_size: usize, alignment: usize) -> Self {
-        let element_count = if element_size > 0 {
-            size / element_size
-        } else {
-            0
-        };
+        let element_count = size.checked_div(element_size).unwrap_or(0);
 
         Self {
             base_address: 0,
@@ -72,7 +68,7 @@ impl MemoryBounds {
     }
 
     pub fn is_properly_aligned(&self, address: usize) -> bool {
-        address % self.alignment == 0
+        address.is_multiple_of(self.alignment)
     }
 }
 
@@ -343,7 +339,7 @@ impl MemoryUsageReport {
 
     pub fn format_report(&self) -> String {
         let mut report = String::new();
-        report.push_str(&format!("Memory Usage Report:\n"));
+        report.push_str("Memory Usage Report:\n");
         report.push_str(&format!(
             "  Total Allocated: {} bytes ({:.1}% of limit)\n",
             self.total_allocated,

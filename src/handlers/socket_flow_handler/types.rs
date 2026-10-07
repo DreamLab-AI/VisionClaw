@@ -7,7 +7,6 @@ use actix_web_actors::ws;
 use log::{debug, error, info, trace, warn};
 
 use crate::app_state::AppState;
-use crate::types::vec3::Vec3Data;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
 
@@ -15,11 +14,6 @@ use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
 pub(crate) const DEBUG_LOG_SAMPLE_RATE: usize = 10;
 
 // Default values for deadbands if not provided in settings
-pub(crate) const DEFAULT_POSITION_DEADBAND: f32 = 0.01;
-pub(crate) const DEFAULT_VELOCITY_DEADBAND: f32 = 0.005;
-
-#[allow(dead_code)]
-pub(crate) const BATCH_UPDATE_WINDOW_MS: u64 = 200;
 
 // Create a global rate limiter for WebSocket position updates
 lazy_static::lazy_static! {
@@ -28,17 +22,6 @@ lazy_static::lazy_static! {
     };
 }
 
-#[derive(Clone, Debug)]
-pub struct PreReadSocketSettings {
-    pub min_update_rate: u32,
-    pub max_update_rate: u32,
-    pub motion_threshold: f32,
-    pub motion_damping: f32,
-    pub heartbeat_interval_ms: u64,
-    pub heartbeat_timeout_ms: u64,
-}
-
-#[allow(dead_code)]
 pub struct SocketFlowServer {
     pub(crate) app_state: Arc<AppState>,
     pub(crate) client_id: Option<usize>,
@@ -50,28 +33,14 @@ pub struct SocketFlowServer {
     pub(crate) heartbeat_timer_set: bool,
 
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
-    pub(crate) last_sent_positions: HashMap<String, Vec3Data>,
-    pub(crate) last_sent_velocities: HashMap<String, Vec3Data>,
-    pub(crate) position_deadband: f32,
-    pub(crate) velocity_deadband: f32,
 
     pub(crate) last_transfer_size: usize,
-    pub(crate) last_transfer_time: Instant,
     pub(crate) total_bytes_sent: usize,
     pub(crate) update_count: usize,
     pub(crate) nodes_sent_count: usize,
 
-    pub(crate) last_batch_time: Instant,
-    pub(crate) current_update_rate: u32,
-
-    pub(crate) min_update_rate: u32,
-    pub(crate) max_update_rate: u32,
-    pub(crate) motion_threshold: f32,
-    pub(crate) motion_damping: f32,
-
     pub(crate) nodes_in_motion: usize,
     pub(crate) total_node_count: usize,
-    pub(crate) last_motion_check: Instant,
 
     pub(crate) client_ip: String,
     pub(crate) is_reconnection: bool,
@@ -85,12 +54,13 @@ pub struct SocketFlowServer {
     /// `crate::utils::auth::dev_bypass_permitted_for_addr`, so the WS auth path
     /// routes through the same single gate as the REST paths. Always `false` in
     /// release builds. (ADR-142 hardening, Codex round-2.)
-    #[allow(dead_code)] // only read in dev/dev-auth builds
+    #[cfg(any(debug_assertions, feature = "dev-auth"))]
     pub(crate) dev_bypass_ok: bool,
     // HTTP-equivalent URL of the WebSocket connection (for NIP-98 validation)
     pub(crate) connection_url: String,
     /// ADR-2134 same-user relay throttles (beatClock, memoryRoute), ≤ 4 Hz each.
-    pub(crate) relay_throttles: HashMap<super::session_relay::RelayKind, super::session_relay::RelayThrottle>,
+    pub(crate) relay_throttles:
+        HashMap<super::session_relay::RelayKind, super::session_relay::RelayThrottle>,
     /// One `error` frame per session for relay attempts before authentication.
     pub(crate) relay_unauth_reported: bool,
 
@@ -149,22 +119,11 @@ pub struct SocketFlowServer {
 impl SocketFlowServer {
     pub fn new(
         app_state: Arc<AppState>,
-        pre_read_settings: PreReadSocketSettings,
         client_manager_addr: actix::Addr<
             crate::actors::client_coordinator_actor::ClientCoordinatorActor,
         >,
         client_ip: String,
     ) -> Self {
-        let min_update_rate = pre_read_settings.min_update_rate;
-        let max_update_rate = pre_read_settings.max_update_rate;
-        let motion_threshold = pre_read_settings.motion_threshold;
-        let motion_damping = pre_read_settings.motion_damping;
-
-        let position_deadband = DEFAULT_POSITION_DEADBAND;
-        let velocity_deadband = DEFAULT_VELOCITY_DEADBAND;
-
-        let current_update_rate = max_update_rate;
-
         Self {
             app_state,
             client_id: None,
@@ -174,29 +133,18 @@ impl SocketFlowServer {
             last_activity: std::time::Instant::now(),
             heartbeat_timer_set: false,
             _node_position_cache: HashMap::new(),
-            last_sent_positions: HashMap::new(),
-            last_sent_velocities: HashMap::new(),
-            position_deadband,
-            velocity_deadband,
             last_transfer_size: 0,
-            last_transfer_time: Instant::now(),
             total_bytes_sent: 0,
-            last_batch_time: Instant::now(),
             update_count: 0,
             nodes_sent_count: 0,
-            current_update_rate,
-            min_update_rate,
-            max_update_rate,
-            motion_threshold,
-            motion_damping,
             nodes_in_motion: 0,
             total_node_count: 0,
-            last_motion_check: Instant::now(),
             client_ip,
             is_reconnection: false,
             state_synced: false,
             pubkey: None,
             is_power_user: false,
+            #[cfg(any(debug_assertions, feature = "dev-auth"))]
             dev_bypass_ok: false,
             connection_url: String::new(),
             relay_throttles: HashMap::new(),
@@ -242,84 +190,6 @@ impl SocketFlowServer {
     pub(crate) fn should_log_update(&mut self) -> bool {
         self.update_counter = (self.update_counter + 1) % DEBUG_LOG_SAMPLE_RATE;
         self.update_counter == 0
-    }
-
-    pub(crate) fn has_node_changed_significantly(
-        &mut self,
-        node_id: &str,
-        new_position: Vec3Data,
-        new_velocity: Vec3Data,
-    ) -> bool {
-        let position_changed = if let Some(last_position) = self.last_sent_positions.get(node_id) {
-            let dx = new_position.x - last_position.x;
-            let dy = new_position.y - last_position.y;
-            let dz = new_position.z - last_position.z;
-            let distance_squared = dx * dx + dy * dy + dz * dz;
-            distance_squared > self.position_deadband * self.position_deadband
-        } else {
-            true
-        };
-
-        let velocity_changed = if let Some(last_velocity) = self.last_sent_velocities.get(node_id) {
-            let dvx = new_velocity.x - last_velocity.x;
-            let dvy = new_velocity.y - last_velocity.y;
-            let dvz = new_velocity.z - last_velocity.z;
-            let velocity_change_squared = dvx * dvx + dvy * dvy + dvz * dvz;
-            velocity_change_squared > self.velocity_deadband * self.velocity_deadband
-        } else {
-            true
-        };
-
-        if position_changed || velocity_changed {
-            self.last_sent_positions
-                .insert(node_id.to_string(), new_position);
-            self.last_sent_velocities
-                .insert(node_id.to_string(), new_velocity);
-            return true;
-        }
-
-        false
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn get_current_update_interval(&self) -> std::time::Duration {
-        let millis = (1000.0 / self.current_update_rate as f64) as u64;
-        std::time::Duration::from_millis(millis)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn calculate_motion_percentage(&self) -> f32 {
-        if self.total_node_count == 0 {
-            return 0.0;
-        }
-        (self.nodes_in_motion as f32) / (self.total_node_count as f32)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn update_dynamic_rate(&mut self) {
-        let now = Instant::now();
-        let batch_window = std::time::Duration::from_millis(BATCH_UPDATE_WINDOW_MS);
-        let elapsed = now.duration_since(self.last_batch_time);
-
-        if elapsed >= batch_window {
-            let motion_pct = self.calculate_motion_percentage();
-
-            if motion_pct > self.motion_threshold {
-                self.current_update_rate = ((self.current_update_rate as f32) * self.motion_damping
-                    + (self.max_update_rate as f32) * (1.0 - self.motion_damping))
-                    as u32;
-            } else {
-                self.current_update_rate = ((self.current_update_rate as f32) * self.motion_damping
-                    + (self.min_update_rate as f32) * (1.0 - self.motion_damping))
-                    as u32;
-            }
-
-            self.current_update_rate = self
-                .current_update_rate
-                .clamp(self.min_update_rate, self.max_update_rate);
-
-            self.last_motion_check = now;
-        }
     }
 
     /// Send full state sync to a newly connected client (graph data + initial load).
@@ -584,21 +454,10 @@ impl SocketFlowServer {
 // ---------------------------------------------------------------------------
 impl crate::utils::websocket_heartbeat::WebSocketHeartbeat for SocketFlowServer {
     fn get_client_id(&self) -> &str {
-        // client_id is usize; return a static fallback when not yet assigned.
-        // The heartbeat trait needs a &str — we leak a tiny string for the
-        // lifetime of the session. In practice this is fine because sessions
-        // are short-lived and the string is tiny.
-        // A better approach is to store a String client_id, but that would
-        // change more code than necessary for this gap fix.
-        static UNKNOWN: &str = "unknown";
-        // We can't return &str from usize, so this trait method is unused
-        // by the SocketFlowServer's own heartbeat (it uses its own timer).
-        // Provide a best-effort impl for completeness.
-        if self.client_id.is_some() {
-            UNKNOWN // The numeric ID is used elsewhere; this trait path is informational only.
-        } else {
-            UNKNOWN
-        }
+        // client_id is a usize and the heartbeat trait wants a &str, so this
+        // informational path always reports "unknown". SocketFlowServer's own
+        // heartbeat runs on its own timer and does not use it.
+        "unknown"
     }
 
     fn get_last_heartbeat(&self) -> Instant {

@@ -510,7 +510,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_merge_mode_parsing() {

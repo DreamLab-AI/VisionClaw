@@ -44,43 +44,11 @@ fn solid_base() -> String {
         .unwrap_or_else(|_| "http://127.0.0.1:4001/api/solid".to_string())
 }
 
-/// Constant-time byte comparison, so a timing side channel cannot recover the
-/// agent key one byte at a time. Dependency-free fold — `subtle` and
-/// `constant_time_eq` are only transitive deps here. Mirrors
-/// `liveness_harness_handler::constant_time_eq` (ADR-2093).
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-/// Pure credential check, split out so the fail-closed semantics are unit
-/// testable without constructing an `HttpRequest`.
-///
-/// ADR-2093: authorised **only** when a non-empty `VISIONCLAW_AGENT_KEY` is
-/// configured and the request presents an exactly matching `X-Agent-Key`. An
-/// unset or empty key fails closed — it is never substituted with a default, so
-/// an unconfigured deployment cannot be driven with a publicly-known literal.
-fn check_agent_key(expected: Option<&str>, provided: Option<&str>) -> bool {
-    match expected.filter(|s| !s.is_empty()) {
-        Some(key) => match provided {
-            Some(got) => constant_time_eq(key.as_bytes(), got.as_bytes()),
-            None => false,
-        },
-        None => false,
-    }
-}
-
 /// Release posture: the key must be configured, and it is compared in constant
 /// time. There is no bypass codepath here (ADR-2093, estate fail-closed posture).
 #[cfg(not(any(debug_assertions, feature = "dev-auth")))]
 fn agent_key_authorised(provided: Option<&str>) -> bool {
-    check_agent_key(
+    crate::utils::agent_key::check_agent_key(
         std::env::var("VISIONCLAW_AGENT_KEY").ok().as_deref(),
         provided,
     )
@@ -675,7 +643,7 @@ pub async fn submit_image_job(
     let solid_url = format!(
         "{}{}",
         solid_base().trim_end_matches("/api/solid"),
-        &pod_path
+        pod_path
     );
 
     let client = Client::builder()
@@ -944,7 +912,31 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod agent_key_tests {
-    use super::{check_agent_key, constant_time_eq};
+    use crate::utils::agent_key::check_agent_key;
+
+    /// Comparison contract this call site relies on: equal keys authorise; a
+    /// same-length key differing in any byte (first, middle or last) does not;
+    /// a key of any other length does not, including a strict prefix or
+    /// extension of the configured key and the empty string.
+    #[test]
+    fn comparison_equal_unequal_and_length_mismatch() {
+        let key = "k3y-0123456789";
+        assert!(check_agent_key(Some(key), Some(key)));
+        for wrong in ["X3y-0123456789", "k3y-01234X6789", "k3y-012345678X"] {
+            assert_eq!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+        for wrong in [
+            "",
+            "k",
+            "k3y-012345678",
+            "k3y-01234567890",
+            "k3y-0123456789k3y",
+        ] {
+            assert_ne!(wrong.len(), key.len());
+            assert!(!check_agent_key(Some(key), Some(wrong)));
+        }
+    }
 
     #[test]
     fn unset_key_fails_closed() {
@@ -972,14 +964,6 @@ mod agent_key_tests {
         assert!(!check_agent_key(Some("real-key"), Some("real-ke")));
         assert!(!check_agent_key(Some("real-key"), Some("real-keyy")));
         assert!(!check_agent_key(Some("real-key"), Some("REAL-KEY")));
-    }
-
-    #[test]
-    fn constant_time_eq_matches_equality_semantics() {
-        assert!(constant_time_eq(b"abc", b"abc"));
-        assert!(!constant_time_eq(b"abc", b"abd"));
-        assert!(!constant_time_eq(b"abc", b"ab"));
-        assert!(constant_time_eq(b"", b""));
     }
 }
 

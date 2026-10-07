@@ -243,19 +243,9 @@ impl StressMajorizationActor {
         }
     }
 
-    #[allow(dead_code)]
-    fn get_stress_majorization_stats(&self) -> StressMajorizationStats {
-        self.safety.get_stats()
-    }
-
     fn reset_safety_state(&mut self) {
         self.safety.reset_safety_state();
         info!("StressMajorizationActor: Safety state has been reset");
-    }
-
-    #[allow(dead_code)]
-    fn should_disable_stress_majorization(&self) -> bool {
-        self.safety.should_disable()
     }
 
     // Stress computation is now handled entirely on GPU via
@@ -295,6 +285,12 @@ impl StressMajorizationActor {
         }
 
         Ok(max_displacement)
+    }
+}
+
+impl Default for StressMajorizationActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -443,7 +439,7 @@ impl Handler<ConfigureStressMajorization> for StressMajorizationActor {
 
         // Validate and apply max_iterations
         if let Some(mi) = msg.max_iterations {
-            if mi < 10 || mi > 1000 {
+            if !(10..=1000).contains(&mi) {
                 return Err(format!(
                     "Invalid max_iterations: {}. Must be between 10 and 1000",
                     mi
@@ -455,7 +451,7 @@ impl Handler<ConfigureStressMajorization> for StressMajorizationActor {
 
         // Validate and apply auto_run_interval
         if let Some(interval) = msg.auto_run_interval {
-            if interval < 30 || interval > 600 {
+            if !(30..=600).contains(&interval) {
                 return Err(format!(
                     "Invalid auto_run_interval: {}. Must be between 30 and 600 frames",
                     interval

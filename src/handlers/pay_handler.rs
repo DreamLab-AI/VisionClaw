@@ -164,17 +164,17 @@ impl VcPayConfig {
             "tiers": {
                 "inference": {
                     "cost_sats": self.inference_cost_sats,
-                    "multiplier": if self.cost_sats > 0 { self.inference_cost_sats / self.cost_sats } else { 10 },
+                    "multiplier": self.inference_cost_sats.checked_div(self.cost_sats).unwrap_or(10),
                     "endpoints": ["/api/inference/*"]
                 },
                 "image-gen": {
                     "cost_sats": self.image_gen_cost_sats,
-                    "multiplier": if self.cost_sats > 0 { self.image_gen_cost_sats / self.cost_sats } else { 100 },
+                    "multiplier": self.image_gen_cost_sats.checked_div(self.cost_sats).unwrap_or(100),
                     "endpoints": ["/api/image-gen/*"]
                 },
                 "analytics": {
                     "cost_sats": self.analytics_cost_sats,
-                    "multiplier": if self.cost_sats > 0 { self.analytics_cost_sats / self.cost_sats } else { 5 },
+                    "multiplier": self.analytics_cost_sats.checked_div(self.cost_sats).unwrap_or(5),
                     "endpoints": ["/api/analytics/*"]
                 }
             }
@@ -204,7 +204,7 @@ pub struct FsPaymentStore {
 
 /// RAII guard for an advisory file lock. Releases on drop.
 #[cfg(unix)]
-struct FileLockGuard {
+pub(crate) struct FileLockGuard {
     file: std::fs::File,
 }
 
@@ -824,8 +824,6 @@ async fn pay_pool_liquidity_handler(
 #[derive(Debug, Deserialize)]
 struct EstimateRequest {
     endpoint: String,
-    #[serde(default)]
-    params: Option<serde_json::Value>,
 }
 
 async fn pay_estimate_handler(

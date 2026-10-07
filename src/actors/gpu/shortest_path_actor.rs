@@ -13,8 +13,7 @@
 use actix::prelude::*;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::analytics_telemetry::{record_execution, AnalyticsKernel, ExecutionPath};
@@ -124,7 +123,7 @@ pub struct ShortestPathActor {
     /// ADR-031 D2b: shared SSSP map (compact node_id -> (distance, parent_id))
     /// published after each ComputeSSP run and read by the binary broadcast path
     /// to fill V3 wire slot 28.
-    node_sssp: Option<Arc<RwLock<HashMap<u32, (f32, i32)>>>>,
+    node_sssp: Option<SharedNodeSssp>,
 }
 
 impl ShortestPathActor {

@@ -121,20 +121,20 @@ pub enum AgentType {
     Generic,
 }
 
-impl ToString for AgentType {
-    fn to_string(&self) -> String {
-        match self {
-            AgentType::Coordinator => "coordinator".to_string(),
-            AgentType::Researcher => "researcher".to_string(),
-            AgentType::Coder => "coder".to_string(),
-            AgentType::Analyst => "analyst".to_string(),
-            AgentType::Architect => "architect".to_string(),
-            AgentType::Tester => "tester".to_string(),
-            AgentType::Reviewer => "reviewer".to_string(),
-            AgentType::Optimizer => "optimizer".to_string(),
-            AgentType::Documenter => "documenter".to_string(),
-            AgentType::Generic => "generic".to_string(),
-        }
+impl std::fmt::Display for AgentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            AgentType::Coordinator => "coordinator",
+            AgentType::Researcher => "researcher",
+            AgentType::Coder => "coder",
+            AgentType::Analyst => "analyst",
+            AgentType::Architect => "architect",
+            AgentType::Tester => "tester",
+            AgentType::Reviewer => "reviewer",
+            AgentType::Optimizer => "optimizer",
+            AgentType::Documenter => "documenter",
+            AgentType::Generic => "generic",
+        })
     }
 }
 
@@ -204,7 +204,7 @@ impl ClaudeFlowClient {
             "id": 1
         });
 
-        let request_str = format!("{}\n", request.to_string());
+        let request_str = format!("{}\n", request);
         stream.write_all(request_str.as_bytes()).await?;
 
         let mut buffer = vec![0; 8192];
@@ -262,14 +262,12 @@ impl ClaudeFlowClient {
                 y: y as f32,
                 z: z as f32,
             })
-        } else if let Some(pos) = agent_data.get("position") {
-            Some(Vec3 {
+        } else {
+            agent_data.get("position").map(|pos| Vec3 {
                 x: pos.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                 y: pos.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                 z: pos.get("z").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
             })
-        } else {
-            None
         };
 
         let current_task_description = agent_data
@@ -460,7 +458,7 @@ impl ClaudeFlowClient {
             "id": uuid::Uuid::new_v4().to_string()
         });
 
-        let request_str = format!("{}\n", json_request.to_string());
+        let request_str = format!("{}\n", json_request);
         stream.write_all(request_str.as_bytes()).await?;
 
         let mut buffer = vec![0; 16384];

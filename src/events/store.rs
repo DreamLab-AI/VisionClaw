@@ -377,7 +377,7 @@ mod tests {
     use super::*;
     use crate::events::domain_events::NodeAddedEvent;
     use crate::utils::time;
-    use chrono::Utc;
+
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -437,7 +437,7 @@ mod tests {
         }
 
         let events = store.get_events_after(2).await.unwrap();
-        assert!(events.len() > 0);
+        assert!(!events.is_empty());
     }
 
     #[tokio::test]

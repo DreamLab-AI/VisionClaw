@@ -317,12 +317,13 @@ mod tests {
     use visionclaw_domain::models::node::Node;
 
     fn node(id: u32, iri: &str) -> Node {
-        let mut n = Node::default();
-        n.id = id;
-        n.metadata_id = iri.to_string();
-        n.owl_class_iri = Some(iri.to_string());
-        n.metadata = HashMap::new();
-        n
+        Node {
+            id,
+            metadata_id: iri.to_string(),
+            owl_class_iri: Some(iri.to_string()),
+            metadata: HashMap::new(),
+            ..Default::default()
+        }
     }
 
     fn axiom(axiom_type: AxiomType, subject: &str, object: &str) -> OwlAxiom {

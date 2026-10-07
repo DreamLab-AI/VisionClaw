@@ -101,7 +101,10 @@ pub struct AutoPauseConfig {
 }
 
 impl AutoPauseConfig {
-    pub fn default() -> Self {
+    /// The tuned auto-pause settings the physics engine ships with. Distinct
+    /// from the derived `Default` (all zero/false), which serde uses for an
+    /// absent field.
+    pub fn recommended() -> Self {
         Self {
             enabled: true,
             equilibrium_velocity_threshold: 0.1,
@@ -186,7 +189,10 @@ pub struct AutoBalanceConfig {
 }
 
 impl AutoBalanceConfig {
-    pub fn default() -> Self {
+    /// The tuned auto-balance settings the physics engine ships with. Distinct
+    /// from the derived `Default` (all zero/false), which serde uses for an
+    /// absent field.
+    pub fn recommended() -> Self {
         Self {
             stability_variance_threshold: 100.0,
             stability_frame_count: 180,
@@ -364,8 +370,8 @@ pub struct PhysicsSettings {
 
     /// DAG radial hierarchy bias strength (PHASE 2). `0` = off (default). When
     /// > 0, ranked nodes are pulled onto concentric shells (radius =
-    /// `rank * dag_level_distance`) around the hierarchy root, giving a radialout
-    /// tree layout over SUBCLASS_OF / namespace hierarchy edges.
+    /// > `rank * dag_level_distance`) around the hierarchy root, giving a radialout
+    /// > tree layout over SUBCLASS_OF / namespace hierarchy edges.
     #[serde(default = "default_dag_bias_k", alias = "dag_bias_k")]
     pub dag_bias_k: f32,
 
@@ -376,7 +382,7 @@ pub struct PhysicsSettings {
 
     /// Stratified-plane bias strength (ADR-141 P2). `0` = off (default). When
     /// > 0, each node is sprung along Z toward its assigned plane (target_z =
-    /// plane_offset * plane_spacing), separating node types into parallel strata.
+    /// > plane_offset * plane_spacing), separating node types into parallel strata.
     #[serde(default = "default_plane_bias_k", alias = "plane_bias_k")]
     pub plane_bias_k: f32,
 
@@ -423,8 +429,8 @@ impl Default for PhysicsSettings {
         Self {
             auto_balance: false,
             auto_balance_interval_ms: 500,
-            auto_balance_config: AutoBalanceConfig::default(),
-            auto_pause: AutoPauseConfig::default(),
+            auto_balance_config: AutoBalanceConfig::recommended(),
+            auto_pause: AutoPauseConfig::recommended(),
             // Canonical compact profile (single source of truth). The YAML
             // visualisation.graphs.knowledge.physics block is NOT applied to the
             // running simulation — boot uses these defaults whenever the sqlite
@@ -645,8 +651,10 @@ mod tests {
 
     #[test]
     fn test_physics_settings_camelcase_sssp_alpha() {
-        let mut ps = PhysicsSettings::default();
-        ps.sssp_alpha = 3.0;
+        let ps = PhysicsSettings {
+            sssp_alpha: 3.0,
+            ..Default::default()
+        };
         let stored = serde_json::to_value(&ps).unwrap();
         // serde rename_all = camelCase emits ssspAlpha.
         assert!(stored.get("ssspAlpha").is_some());
@@ -656,14 +664,14 @@ mod tests {
 
     #[test]
     fn test_auto_pause_default() {
-        let ap = AutoPauseConfig::default();
+        let ap = AutoPauseConfig::recommended();
         assert!(ap.enabled);
         assert!(ap.resume_on_interaction);
     }
 
     #[test]
     fn test_auto_balance_default() {
-        let ab = AutoBalanceConfig::default();
+        let ab = AutoBalanceConfig::recommended();
         assert_eq!(ab.stability_frame_count, 180);
         assert_eq!(ab.min_oscillation_changes, 8);
     }

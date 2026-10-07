@@ -2,7 +2,6 @@
 
 use actix::prelude::*;
 use log::{error, info, warn};
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -494,13 +493,13 @@ impl ClusteringActor {
             } else {
                 0.0
             },
-            largest_community: actual_community_sizes.iter().max().copied().unwrap_or(0) as usize,
-            smallest_community: actual_community_sizes.iter().min().copied().unwrap_or(0) as usize,
+            largest_community: actual_community_sizes.iter().max().copied().unwrap_or(0),
+            smallest_community: actual_community_sizes.iter().min().copied().unwrap_or(0),
             computation_time_ms: computation_time.as_millis() as u64,
         };
 
         Ok(CommunityDetectionResult {
-            node_labels: node_labels,
+            node_labels,
             num_communities,
             modularity,
             iterations,
@@ -606,10 +605,7 @@ impl ClusteringActor {
                 continue;
             }
             let graph_node_id = self.translate_gpu_index(gpu_idx);
-            cluster_nodes
-                .entry(label)
-                .or_insert_with(Vec::new)
-                .push(graph_node_id);
+            cluster_nodes.entry(label).or_default().push(graph_node_id);
         }
 
         let num_clusters = cluster_nodes.len();
@@ -756,7 +752,7 @@ impl ClusteringActor {
             let graph_node_id = self.translate_gpu_index(gpu_idx);
             community_nodes
                 .entry(community_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(graph_node_id);
         }
 
@@ -780,30 +776,6 @@ impl ClusteringActor {
             communities.len()
         );
         Ok(communities)
-    }
-
-    #[allow(dead_code)]
-    fn generate_cluster_color(cluster_id: usize) -> [f32; 3] {
-        let mut rng = rand::thread_rng();
-
-        let hue = (cluster_id as f32 * 137.5) % 360.0;
-        let saturation = 0.7 + (rng.gen::<f32>() * 0.3);
-        let value = 0.8 + (rng.gen::<f32>() * 0.2);
-
-        let c = value * saturation;
-        let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
-        let m = value - c;
-
-        let (r, g, b) = match hue as i32 / 60 {
-            0 => (c, x, 0.0),
-            1 => (x, c, 0.0),
-            2 => (0.0, c, x),
-            3 => (0.0, x, c),
-            4 => (x, 0.0, c),
-            _ => (c, 0.0, x),
-        };
-
-        [r + m, g + m, b + m]
     }
 
     fn calculate_silhouette_score(
@@ -989,7 +961,13 @@ impl ClusteringActor {
         if pair_count > 0 {
             let avg_distance = total_distance / pair_count as f32;
             // Inverse relationship: smaller avg distance = higher coherence
-            (1.0 / (1.0 + avg_distance)).max(0.1).min(1.0)
+            let coherence = 1.0 / (1.0 + avg_distance);
+            // A NaN position yields a NaN distance; score it at the floor.
+            if coherence.is_nan() {
+                0.1
+            } else {
+                coherence.clamp(0.1, 1.0)
+            }
         } else {
             1.0
         }
@@ -1139,6 +1117,12 @@ impl ClusteringActor {
         let actual_edges = self.calculate_internal_edges(nodes);
 
         (actual_edges as f32 / max_possible_edges as f32).min(1.0)
+    }
+}
+
+impl Default for ClusteringActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1459,7 +1443,7 @@ fn gpu_position_spread(
     // refusal even when the GPU holds a valid spread layout. Retaining + making the
     // primary context current (mirrors `get_node_positions`, execution.rs:836) is
     // what makes the read observe real positions. Hold it for the copies' lifetime.
-    let _thread_context = match cust::context::Context::new(uc.device.clone()) {
+    let _thread_context = match cust::context::Context::new(uc.device) {
         Ok(ctx) => ctx,
         Err(e) => {
             log::warn!(
@@ -1542,8 +1526,10 @@ mod gate_tests {
         let mut m = HashMap::new();
         for &id in ids {
             // Seed a stale non-zero community_id to prove the reset path runs.
-            let mut e = NodeAnalytics::default();
-            e.community_id = 999;
+            let e = NodeAnalytics {
+                community_id: 999,
+                ..Default::default()
+            };
             m.insert(id, e);
         }
         m

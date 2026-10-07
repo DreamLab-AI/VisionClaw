@@ -118,7 +118,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix::prelude::*;
 
     #[derive(Message)]
     #[rtype(result = "Result<String, String>")]

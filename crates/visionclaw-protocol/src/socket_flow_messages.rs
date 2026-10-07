@@ -136,7 +136,11 @@ pub struct PongMessage {
     /// `timestamp` a client derives its offset to the server clock as
     /// `serverTime − (timestamp + rtt/2)`. Omitted when unset; old clients
     /// ignore it.
-    #[serde(rename = "serverTime", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "serverTime",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub server_time: Option<u64>,
 }
 

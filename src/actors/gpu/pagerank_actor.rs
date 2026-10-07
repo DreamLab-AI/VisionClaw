@@ -241,78 +241,6 @@ impl PageRankActor {
         );
     }
 
-    /// Perform PageRank computation on GPU
-    #[allow(dead_code)]
-    async fn compute_pagerank(&mut self, params: PageRankParams) -> Result<PageRankResult, String> {
-        info!("PageRankActor: Starting PageRank computation");
-
-        let mut unified_compute = match &self.shared_context {
-            Some(ctx) => ctx
-                .unified_compute
-                .lock()
-                .map_err(|e| format!("Failed to acquire GPU compute lock: {}", e))?,
-            None => {
-                return Err("GPU context not initialized".to_string());
-            }
-        };
-
-        let start_time = Instant::now();
-
-        // Extract parameters with defaults
-        let damping = params.damping_factor.unwrap_or(0.85);
-        let max_iter = params.max_iterations.unwrap_or(100) as usize;
-        let epsilon = params.epsilon.unwrap_or(1e-6);
-        let normalize = params.normalize.unwrap_or(true);
-        let use_optimized = params.use_optimized.unwrap_or(true);
-
-        // Call GPU PageRank computation
-        let gpu_result = unified_compute
-            .run_pagerank_centrality(damping, max_iter, epsilon, normalize, use_optimized)
-            .map_err(|e| {
-                error!("GPU PageRank computation failed: {}", e);
-                format!("PageRank computation failed: {}", e)
-            })?;
-
-        // Task #74: PageRank is GPU-only (a kernel failure above returns Err — there is
-        // no silent CPU substitute). Record the GPU path on the success branch.
-        record_execution(AnalyticsKernel::Pagerank, ExecutionPath::Gpu);
-
-        let computation_time = start_time.elapsed();
-        info!(
-            "PageRankActor: PageRank computation completed in {:?}",
-            computation_time
-        );
-
-        // Unpack GPU result and convert iterations to u32 for PageRankResult
-        let (pagerank_values, iterations, converged, convergence_value) = gpu_result;
-        let iterations = iterations as u32;
-
-        // Compute statistics
-        let stats = self.calculate_statistics(
-            &pagerank_values,
-            iterations,
-            converged,
-            computation_time.as_millis() as u64,
-        );
-
-        // Extract top K nodes (top 10 by default)
-        let top_nodes = self.extract_top_nodes(&pagerank_values, 10);
-
-        let result = PageRankResult {
-            pagerank_values,
-            iterations,
-            converged,
-            convergence_value,
-            top_nodes,
-            stats,
-        };
-
-        // Cache result
-        self.last_result = Some(result.clone());
-
-        Ok(result)
-    }
-
     /// Calculate statistics from PageRank values
     fn calculate_statistics(
         &self,
@@ -344,7 +272,7 @@ impl PageRankActor {
         // Calculate median
         let mut sorted_values = values.to_vec();
         sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_pagerank = if sorted_values.len() % 2 == 0 {
+        let median_pagerank = if sorted_values.len().is_multiple_of(2) {
             let mid = sorted_values.len() / 2;
             (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
         } else {

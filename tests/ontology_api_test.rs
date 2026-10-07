@@ -9,53 +9,9 @@ mod integration_tests {
     #[allow(unused_imports)]
     use actix_web::{test, web, App};
     use serde_json::json;
-    #[allow(unused_imports)]
-    use std::collections::HashMap;
 
     #[cfg(feature = "ontology")]
     use visionclaw_server::handlers::api_handler::ontology::config as ontology_config;
-
-    #[cfg(feature = "ontology")]
-    use visionclaw_server::services::owl_validator::{GraphEdge, GraphNode, PropertyGraph};
-
-    #[cfg(feature = "ontology")]
-    fn create_test_graph() -> PropertyGraph {
-        PropertyGraph {
-            nodes: vec![
-                GraphNode {
-                    id: "person1".to_string(),
-                    labels: vec!["Person".to_string()],
-                    properties: {
-                        let mut props = HashMap::new();
-                        props.insert("name".to_string(), serde_json::json!("Alice"));
-                        props.insert("age".to_string(), serde_json::json!(30));
-                        props
-                    },
-                },
-                GraphNode {
-                    id: "company1".to_string(),
-                    labels: vec!["Company".to_string()],
-                    properties: {
-                        let mut props = HashMap::new();
-                        props.insert("name".to_string(), serde_json::json!("ACME Corp"));
-                        props
-                    },
-                },
-            ],
-            edges: vec![GraphEdge {
-                id: "edge1".to_string(),
-                source: "person1".to_string(),
-                target: "company1".to_string(),
-                relationship_type: "WORKS_FOR".to_string(),
-                properties: {
-                    let mut props = HashMap::new();
-                    props.insert("since".to_string(), serde_json::json!("2020-01-01"));
-                    props
-                },
-            }],
-            metadata: HashMap::new(),
-        }
-    }
 
     #[cfg(feature = "ontology")]
     fn create_test_app() -> App<
@@ -534,7 +490,7 @@ mod api_documentation {
         assert_eq!(status_codes.len(), 5);
 
         for (code, _description) in status_codes {
-            assert!(code >= 200 && code < 600);
+            assert!((200..600).contains(&code));
         }
     }
 }

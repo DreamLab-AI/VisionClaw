@@ -78,9 +78,10 @@ impl ActixPhysicsAdapter {
         M::Result: Send,
         PhysicsOrchestratorActor: Handler<M>,
     {
-        let addr = self.actor_addr.as_ref().ok_or_else(|| {
-            crate::ports::gpu_physics_adapter::GpuPhysicsAdapterError::GraphNotLoaded
-        })?;
+        let addr = self
+            .actor_addr
+            .as_ref()
+            .ok_or(crate::ports::gpu_physics_adapter::GpuPhysicsAdapterError::GraphNotLoaded)?;
 
         tokio::time::timeout(self.timeout, addr.send(msg))
             .await

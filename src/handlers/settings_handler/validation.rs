@@ -74,7 +74,7 @@ fn validate_physics_settings(physics: &Value) -> Result<(), String> {
             .as_u64()
             .or_else(|| auto_balance_interval.as_f64().map(|f| f.round() as u64))
             .ok_or("autoBalanceIntervalMs must be a positive integer")?;
-        if val < 10 || val > 60000 {
+        if !(10..=60000).contains(&val) {
             return Err("autoBalanceIntervalMs must be between 10 and 60000 ms".to_string());
         }
     }

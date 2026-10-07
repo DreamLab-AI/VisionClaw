@@ -481,6 +481,12 @@ impl PhysicsSupervisor {
     }
 }
 
+impl Default for PhysicsSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for PhysicsSupervisor {
     type Context = Context<Self>;
 
@@ -539,7 +545,6 @@ impl Actor for PhysicsSupervisor {
                     warn!("PhysicsSupervisor: SemanticForcesActor mailbox disconnected — triggering restart");
                     act.semantic_forces_state.is_running = false;
                     act.handle_actor_failure("SemanticForcesActor", "Mailbox disconnected (detected by health check)", ctx);
-                    return;
                 }
             }
         });

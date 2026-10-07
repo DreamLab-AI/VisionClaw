@@ -313,8 +313,8 @@ impl PriorityResolver {
             }
         }
 
-        for i in 0..6 {
-            blended_bounds[i] /= total_weight;
+        for bound in &mut blended_bounds {
+            *bound /= total_weight;
         }
         blended_strength /= total_weight;
 

@@ -23,9 +23,10 @@ pub const CHAIN_PAYMENT_EDGE_TYPE: &str = "chain_payment";
 /// Maps relationship strings from Oxigraph/OntologyParser to a compact u8
 /// discriminant suitable for GPU buffers and spring-force differentiation.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum SemanticEdgeType {
     /// [[wikilink]] — standard spring
+    #[default]
     ExplicitLink = 0,
     /// is-subclass-of (rdfs:subClassOf) — strong hierarchy pull
     Hierarchical = 1,
@@ -142,12 +143,6 @@ impl SemanticEdgeType {
             16 => Self::Standardisation,
             _ => Self::ExplicitLink,
         }
-    }
-}
-
-impl Default for SemanticEdgeType {
-    fn default() -> Self {
-        Self::ExplicitLink
     }
 }
 

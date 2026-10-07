@@ -268,69 +268,6 @@ pub async fn perform_gpu_default_clustering(
     }
 }
 
-#[allow(dead_code)]
-fn convert_gpu_clusters_to_response(
-    gpu_results: Vec<Cluster>,
-    graph_data: &visionclaw_domain::models::graph::GraphData,
-    method: &str,
-) -> Vec<Cluster> {
-    let colors = vec![
-        "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
-    ];
-
-    gpu_results
-        .into_iter()
-        .enumerate()
-        .map(|(i, cluster)| {
-            let centroid = if !cluster.nodes.is_empty() {
-                let sum_x: f32 = cluster
-                    .nodes
-                    .iter()
-                    .filter_map(|&id| graph_data.nodes.get(id as usize))
-                    .map(|n| n.data.x)
-                    .sum();
-                let sum_y: f32 = cluster
-                    .nodes
-                    .iter()
-                    .filter_map(|&id| graph_data.nodes.get(id as usize))
-                    .map(|n| n.data.y)
-                    .sum();
-                let sum_z: f32 = cluster
-                    .nodes
-                    .iter()
-                    .filter_map(|&id| graph_data.nodes.get(id as usize))
-                    .map(|n| n.data.z)
-                    .sum();
-                let count = cluster.nodes.len() as f32;
-
-                if count > 0.0 {
-                    Some([sum_x / count, sum_y / count, sum_z / count])
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            Cluster {
-                id: format!("gpu_cluster_{}_{}", method, i),
-                label: format!(
-                    "GPU {} Cluster {} ({} nodes)",
-                    method,
-                    i + 1,
-                    cluster.nodes.len()
-                ),
-                node_count: cluster.nodes.len() as u32,
-                coherence: cluster.coherence,
-                color: colors.get(i).unwrap_or(&"#888888").to_string(),
-                keywords: cluster.keywords,
-                nodes: cluster.nodes,
-                centroid,
-            }
-        })
-        .collect()
-}
-
 fn generate_cpu_fallback_clustering(
     graph_data: &visionclaw_domain::models::graph::GraphData,
     agents: &[crate::services::agent_visualization_protocol::MultiMcpAgentStatus],

@@ -2,6 +2,10 @@
 //! from `client/src/immersive/hooks/useVRHandTracking.ts` so behaviour matches
 //! the deprecated browser path until QE re-grounds them.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use tracing::trace;
 
 #[cfg(not(test))]

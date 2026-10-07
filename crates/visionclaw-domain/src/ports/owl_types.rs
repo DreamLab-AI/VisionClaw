@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// OWL Class with rich metadata support (Schema V2)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OwlClass {
     // Core identification
     pub iri: String,
@@ -62,47 +62,6 @@ pub struct OwlClass {
     // Additional metadata
     pub properties: HashMap<String, String>,
     pub additional_metadata: Option<String>,
-}
-
-impl Default for OwlClass {
-    fn default() -> Self {
-        Self {
-            iri: String::new(),
-            term_id: None,
-            preferred_term: None,
-            label: None,
-            description: None,
-            parent_classes: Vec::new(),
-            source_domain: None,
-            version: None,
-            class_type: None,
-            status: None,
-            maturity: None,
-            quality_score: None,
-            authority_score: None,
-            public_access: None,
-            content_status: None,
-            owl_physicality: None,
-            owl_role: None,
-            belongs_to_domain: None,
-            bridges_to_domain: None,
-            source_file: None,
-            file_sha1: None,
-            markdown_content: None,
-            last_synced: None,
-            has_part: Vec::new(),
-            is_part_of: Vec::new(),
-            requires: Vec::new(),
-            depends_on: Vec::new(),
-            enables: Vec::new(),
-            relates_to: Vec::new(),
-            bridges_to: Vec::new(),
-            bridges_from: Vec::new(),
-            other_relationships: HashMap::new(),
-            properties: HashMap::new(),
-            additional_metadata: None,
-        }
-    }
 }
 
 /// OWL Property with quality metrics (Schema V2)
