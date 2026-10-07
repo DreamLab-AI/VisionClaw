@@ -47,16 +47,17 @@ func test_defaults_until_the_first_pass() -> void:
 	assert_eq(int(p.caps["max_hulls"]), 32)
 
 
-func test_graph_alone_keeps_full_near_tiers() -> void:
+func test_graph_alone_fills_the_budget_with_near_detail() -> void:
 	var client := _client()
 	var p = FrameBudgetPass.new()
 	var layers := _production_layers()
 	assert_true(p.tick(1.0, client, layers, null, _measured(client, layers, 0, 0)))
-	assert_eq(int(p.caps["gem_nodes"]), NodeLod.NEAR_CAP)
-	assert_eq(int(p.caps["cylinder_edges"]), NodeLod.NEAR_EDGE_CAP)
+	# 95 186 at full caps is just over the 95k (5 % reserve) limit: near detail
+	# trims a little, nothing else gives way.
+	assert_gt(int(p.caps["gem_nodes"]), 16)
 	assert_eq(int(p.caps["max_hulls"]), 32)
 	assert_false(bool(p.caps["over_budget"]))
-	assert_lte(int(p.caps["tris_total"]), 100000)
+	assert_lte(int(p.caps["tris_total"]), 95000)
 
 
 func test_showing_the_cloud_shrinks_the_graph_near_tiers() -> void:
@@ -68,16 +69,21 @@ func test_showing_the_cloud_shrinks_the_graph_near_tiers() -> void:
 	mem.route_rows = 64
 	mem.route_sidecar = 64
 	assert_true(p.tick(1.0, client, layers, mem, _measured(client, layers, 0, 0)))
-	assert_lt(int(p.caps["gem_nodes"]) + int(p.caps["cylinder_edges"]), NodeLod.NEAR_CAP + NodeLod.NEAR_EDGE_CAP,
-		"near tiers give way to the cloud")
+	var alone0 = FrameBudgetPass.new()
+	alone0.tick(1.0, client, layers, null, _measured(client, layers, 0, 0))
+	assert_lt(int(p.caps["gem_nodes"]) + int(p.caps["cylinder_edges"]),
+		int(alone0.caps["gem_nodes"]) + int(alone0.caps["cylinder_edges"]), "near tiers give way to the cloud")
 	assert_gt(int(p.caps["cloud_sprites"]), 0)
 	assert_eq(mem.applied.size(), 1, "memory layer receives its caps")
-	assert_lte(int(p.caps["tris_total"]), 100000)
-	# Hiding the cloud gives the near tiers back.
+	assert_lte(int(p.caps["tris_total"]), 95000, "95k: FrameBudget keeps a 5 % reserve")
+	# Hiding the cloud gives the near tiers back (to the graph-alone allocation).
+	var alone = FrameBudgetPass.new()
+	alone.tick(1.0, client, layers, null, _measured(client, layers, 0, 0))
 	mem.rows = 0
 	mem.route_rows = 0
 	assert_true(p.tick(1.0, client, layers, mem, _measured(client, layers, 0, 0)))
-	assert_eq(int(p.caps["gem_nodes"]), NodeLod.NEAR_CAP)
+	assert_eq(int(p.caps["gem_nodes"]), int(alone.caps["gem_nodes"]))
+	assert_eq(int(p.caps["cylinder_edges"]), int(alone.caps["cylinder_edges"]))
 
 
 func test_measured_other_triangles_are_reserved_first() -> void:
@@ -90,6 +96,38 @@ func test_measured_other_triangles_are_reserved_first() -> void:
 	assert_eq(int(b.last_report["other_tris"]), 9000)
 	assert_lt(int(b.caps["gem_nodes"]) + int(b.caps["cylinder_edges"]) + int(b.caps["max_hulls"]),
 		int(a.caps["gem_nodes"]) + int(a.caps["cylinder_edges"]) + int(a.caps["max_hulls"]))
+
+
+func test_hud_dirty_frames_are_reserved_not_averaged_away() -> void:
+	# The HUD canvas re-renders about once a second (~8k triangles on that frame).
+	# A pass sampling one frame in four would mostly miss it and caps would
+	# oscillate; the pass keeps a 2 s peak of the measured other_tris instead.
+	var client := _client()
+	var layers := _production_layers()
+	var p = FrameBudgetPass.new()
+	var base := _measured(client, layers, 700, 0)       # idle HUD + controllers + avatars
+	var dirty := _measured(client, layers, 8900, 0)     # the frame the HUD canvas re-renders
+	p.tick(0.011, client, layers, null, dirty)
+	for i in range(60):                                 # ~0.7 s of idle frames
+		p.tick(0.011, client, layers, null, base)
+	assert_eq(int(p.last_report["other_tris"]), 8900, "dirty-frame cost held inside the window")
+	for i in range(240):                                # > 2 s later the peak has expired
+		p.tick(0.011, client, layers, null, base)
+	assert_eq(int(p.last_report["other_tris"]), 700)
+
+
+func test_burst_pool_is_budgeted_only_while_the_cloud_is_hidden() -> void:
+	var client := _client()
+	var layers := _production_layers()
+	var p = FrameBudgetPass.new()
+	p.tick(1.0, client, layers, null, 0, true)
+	assert_eq(int(p.caps["burst_slots"]), 64, "bursts on, no cloud: the pool is reserved")
+	var mem := FakeMemory.new()
+	mem.rows = 20000
+	p.tick(1.0, client, layers, mem, 0, true)
+	assert_eq(int(p.caps["burst_slots"]), 0, "cloud shown: bursts restyle sprites, no rings")
+	p.tick(1.0, client, layers, null, 0, false)
+	assert_eq(int(p.caps["burst_slots"]), 0)
 
 
 func test_runs_at_a_low_rate() -> void:

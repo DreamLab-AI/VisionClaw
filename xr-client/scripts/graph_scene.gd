@@ -1992,7 +1992,8 @@ func _tick_frame_budget(delta: float) -> void:
 		calls += 1
 	layers["draw_calls"] = calls
 	var measured: int = int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
-	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured) and _parity != null:
+	var bursts_on: bool = _beat != null and bool(_beat.get("bursts_enabled"))
+	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured, bursts_on) and _parity != null:
 		_parity.max_hulls = int(_budget.caps["max_hulls"])
 
 
