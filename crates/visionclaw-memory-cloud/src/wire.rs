@@ -433,7 +433,9 @@ mod tests {
         fn round_trip<T: serde::de::DeserializeOwned + Serialize>(v: &Value) -> Value {
             serde_json::to_value(serde_json::from_value::<T>(v.clone()).unwrap()).unwrap()
         }
-        let cases: [(&str, fn(&Value) -> Value); 5] = [
+        /// Deserialises a fixture value as `T` and serialises it back.
+        type RoundTrip = fn(&Value) -> Value;
+        let cases: [(&str, RoundTrip); 5] = [
             ("snapshot", round_trip::<MemoryCloudSnapshot>),
             ("queryRequest", round_trip::<MemoryCloudQueryRequest>),
             ("queryResponse", round_trip::<MemoryCloudQueryResponse>),
