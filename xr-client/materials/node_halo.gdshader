@@ -44,6 +44,12 @@ uniform float query_pulse_depth = 0.12; // 0..1 fraction the pulse swings energy
 // tint follows the node's colour exactly like the base pass. COLOR.a is the
 // co-proximate label fade (render_store.rs LABEL_FADE_ALPHA, 1.0 when no label is
 // showing): the rim dims with the sphere so the text inside stays legible.
+// Beat pulse (see edge_flow.gdshader): set once per frame on the shared halo
+// material by scripts/beat_pulse.gd. Swells the rim energy on the beat; additive
+// emission only, never a post-process (ADR-2107 / XR-client Invariant 2).
+uniform float beat_pulse = 0.0;
+uniform float beat_halo_gain = 0.6;
+
 varying vec3 halo_tint;
 varying float halo_alpha;
 varying float halo_cen;
@@ -82,6 +88,7 @@ void fragment() {
 	}
 	// Unshaded + additive: ALBEDO is the emitted colour, ALPHA (with SRC_ALPHA,ONE)
 	// scales how much is added, so a thin bright rim fades to nothing face-on.
-	ALBEDO = halo_tint * halo_energy * cen_mul * badge_mul * query_mul;
+	float beat_mul = 1.0 + beat_halo_gain * clamp(beat_pulse, 0.0, 1.0);
+	ALBEDO = halo_tint * halo_energy * cen_mul * badge_mul * query_mul * beat_mul;
 	ALPHA = fres * cen_mul * query_mul * halo_alpha;
 }

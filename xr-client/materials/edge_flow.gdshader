@@ -44,6 +44,13 @@ uniform float inferred_dash_gap = 0.5;
 uniform float inferred_dash_freq = 22.0;
 uniform float inferred_dim = 0.7;
 
+// Beat pulse (desktop memory-explorer beat clock, relayed to the headset). Set once
+// per frame on the shared material by scripts/beat_pulse.gd: 1 on the beat,
+// decaying through it, already scaled down under reduced motion; 0 = no clock.
+// It brightens the whole edge network on the beat — a uniform swell, no motion.
+uniform float beat_pulse = 0.0;
+uniform float beat_edge_gain = 0.5;
+
 varying flat float v_style;
 varying flat float v_phase;
 
@@ -86,5 +93,5 @@ void fragment() {
 	} else if (is_untyped) {
 		alpha *= untyped_dim;
 	}
-	ALPHA = clamp(alpha, 0.0, 1.0);
+	ALPHA = clamp(alpha * (1.0 + beat_edge_gain * clamp(beat_pulse, 0.0, 1.0)), 0.0, 1.0);
 }

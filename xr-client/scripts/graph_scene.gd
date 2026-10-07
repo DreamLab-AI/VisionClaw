@@ -549,6 +549,7 @@ func _ready() -> void:
 	_init_label_pool()
 	_probe_eye_gaze()
 	_wire_hud()
+	_ensure_beat()
 	_connect_from_env()
 
 
@@ -709,6 +710,15 @@ func _probe_eye_gaze() -> void:
 		print("GraphScene: eye-gaze unsupported by this OpenXR runtime -- head-gaze primary")
 
 
+func _ensure_beat() -> void:
+	if _beat != null:
+		return
+	_beat = BeatPulseScript.new()
+	_beat.name = "BeatPulse"
+	add_child(_beat)
+	_beat.setup(_binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
+
+
 func _wire_hud() -> void:
 	if hud == null:
 		return
@@ -739,6 +749,20 @@ func _on_hud_control(action: String) -> void:
 	# Feature 3 — type show/hide filter. "type_toggle:<class>:<1|0>" (1 = visible).
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
+		return
+	if action.begins_with("beat_") or action.begins_with("memory_bursts:"):
+		if _beat != null:
+			_beat.on_hud_action(action)
+		return
+	# Swarm roster rows emit "teleport:<wire id>" (hud.gd _mk_swarm_row); only the
+	# radial-menu path used to handle it, so a roster tap did nothing.
+	if action.begins_with("teleport:"):
+		_teleport_to_node(int(action.substr(9)))
+		return
+	# Comfort toggles are owned by spatial_environment.gd (its own connection to
+	# control_pressed); not unknown, so no warning.
+	if action.begins_with("visual_motion:") or action.begins_with("visual_quality:"):
+		_refresh_reduced_motion.call_deferred()
 		return
 	match action:
 		"reset_layout":
@@ -2199,6 +2223,9 @@ var _swarm_sig: String = ""
 # Server owns WHICH node / status / task; the client owns WHERE in the room.
 const AgentChoreography := preload("res://scripts/agent_choreography.gd")
 const AgentEffects := preload("res://scripts/agent_effects.gd")
+# WP3/WP5/WP8: beat clock, memory_flash bursts and attention heat (beat_pulse.gd
+# owns the behaviour; the hooks here only create it and route frames/intents).
+const BeatPulseScript := preload("res://scripts/beat_pulse.gd")
 const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
 const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
@@ -2209,6 +2236,7 @@ const RIM_FALLBACK_RADIUS_M: float = 1.5
 
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
+var _beat: Node = null
 var _demo: RefCounted = AgentDemoDirector.new()
 var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
 var _selected_agent_id: String = ""  # last agent the arbiter resolved (caption stays up)
@@ -2401,6 +2429,8 @@ func _refresh_reduced_motion() -> void:
 	_choreo.reduced_motion = _reduced_motion
 	if _effects != null:
 		_effects.reduced_motion = _reduced_motion
+	if _beat != null:
+		_beat.reduced_motion = _reduced_motion
 
 
 func _ensure_effects() -> void:
@@ -2589,7 +2619,17 @@ func _on_graph_text(json: String) -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	var msg: Dictionary = parsed
-	match str(msg.get("type", "")):
+	var msg_type: String = str(msg.get("type", ""))
+	# beatClock / pong / memory_flash: the beat clock and memory bursts.
+	if _beat != null and _beat.on_text(json, msg_type):
+		return
+	match msg_type:
+		"memoryRoute":
+			# The desktop memory explorer's current route (same-user relay);
+			# drawn by xr-cloud's memory cloud layer when it is present.
+			var cloud: Node = get_tree().get_first_node_in_group("xr_memory_cloud")
+			if cloud != null and cloud.has_method("on_memory_route"):
+				cloud.on_memory_route(msg)
 		"broker:new_case":
 			# A malformed frame can carry a non-Dictionary payload (string, null,
 			# array); passing that to a Dictionary-typed param crashes

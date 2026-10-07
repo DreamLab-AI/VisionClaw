@@ -13,6 +13,10 @@ config/features=PackedStringArray("4.3", "Forward Mobile")
 config/icon="res://icon.svg"
 boot_splash/show_image=false
 
+[audio]
+
+driver/enable_input=true
+
 [autoload]
 
 [debug]

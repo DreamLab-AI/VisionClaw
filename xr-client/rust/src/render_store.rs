@@ -560,6 +560,12 @@ pub struct RenderStore {
     // position. Lets synthetic (demo) agents and embodied live agents beam from
     // the body the user sees, without ever faking a position frame.
     agent_anchors: HashMap<u32, [f32; 3]>,
+    // File-attention heat (desktop attentionHeat.ts): every applied 0x23 action
+    // touches its target; build_node_buffer brightens hot nodes in place. Its
+    // clock is `clock_ms`, a local monotonic millisecond value the owner advances
+    // each frame (`set_clock_ms`), so tests drive decay deterministically.
+    heat: crate::attention::AttentionHeat,
+    clock_ms: f64,
     // Monotonic count of agent actions ever ingested — a liveness counter for the
     // P1 diagnostics surface (verifiable from the HP log before any visuals exist).
     agent_actions_total: u64,
@@ -618,6 +624,7 @@ impl RenderStore {
         self.type_hidden = [false; 4];
         self.degree.clear();
         self.agent_registry.clear();
+        self.heat.clear();
         self.agent_anchors.clear();
         self.agent_actions_total = 0;
         self.agent_actions_stale = 0;
@@ -755,8 +762,32 @@ impl RenderStore {
         if !task.is_empty() {
             rec.task = task.to_owned();
         }
+        let now = self.clock_ms;
+        self.heat.touch(target_node_id, now);
         self.agent_actions_total = self.agent_actions_total.saturating_add(1);
         true
+    }
+
+    /// Advance the local millisecond clock that attention heat decays on. Call
+    /// once per frame before `build_node_buffer`; any monotonic origin works.
+    pub fn set_clock_ms(&mut self, now_ms: f64) {
+        self.clock_ms = now_ms;
+    }
+
+    /// Current normalised attention heat (0..1) of a node at the store clock.
+    pub fn heat_of(&self, node_id: u32) -> f64 {
+        self.heat.get_heat(node_id, self.clock_ms)
+    }
+
+    /// Turn attention heat on or off (off freezes accumulation and drops the tint).
+    pub fn set_heat_enabled(&mut self, on: bool) {
+        self.heat.configure(None, Some(on), None);
+    }
+
+    /// Drop entries that have cooled to nothing (call at ~1 Hz).
+    pub fn sweep_heat(&mut self) -> usize {
+        let now = self.clock_ms;
+        self.heat.sweep(now)
     }
 
     /// Refine an agent's status + task line from the JSON `state` channel (or a
@@ -1582,6 +1613,10 @@ impl RenderStore {
                 halo = halo.max(AGENT_HALO_MIN);
             }
         }
+        // Attention heat brightens (never recolours) a node agents are touching.
+        if self.heat.enabled() {
+            self.heat.brighten(id, self.clock_ms, &mut col[..3]);
+        }
         let target: &mut Vec<f32> = match self.label_alpha.get(&id) {
             Some(&a) => {
                 col[3] = a;
@@ -1867,6 +1902,43 @@ mod tests {
         let blocked = s.build_beam_buffer(1.0);
         assert_eq!(blocked.len(), EDGE_STRIDE_TYPED, "blocked agent still beams");
         assert!(approx(blocked[15], AGENT_BLOCKED as f32));
+    }
+
+    #[test]
+    fn attention_heat_brightens_touched_nodes_and_cools_with_the_half_life() {
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0); // agent
+        s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0); // target
+        s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0); // same community, untouched
+        s.set_clock_ms(1_000.0);
+        let base = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        let col = |buf: &[f32], i: usize| buf[i * NODE_STRIDE + 12..i * NODE_STRIDE + 15].to_vec();
+        assert_eq!(col(&base, 0), col(&base, 1), "same community, same colour before any touch");
+        let edges_before = s.build_edge_buffer(&[20, 21], 1.0);
+
+        // A 0x23 action on node 20 (KNOWLEDGE flag on the wire) heats it.
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+        let hot = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        let (h, c) = (col(&hot, 0), col(&hot, 1));
+        assert!(h[0] > c[0] || h[1] > c[1] || h[2] > c[2], "touched node is brighter: {h:?} vs {c:?}");
+        let ratio = |v: &[f32]| v[0] / v.iter().cloned().fold(f32::MIN, f32::max);
+        assert!((ratio(&h) - ratio(&c)).abs() < 1e-4, "hue preserved");
+        assert!(h.iter().all(|&x| x <= 1.0 + 1e-6), "never past full brightness");
+        assert_eq!(s.build_edge_buffer(&[20, 21], 1.0), edges_before, "edge buffer untouched (Invariant 3)");
+        assert!(s.heat_of(20) > 0.4);
+
+        // A replayed (stale) action is dropped and adds no heat.
+        let before = s.heat_of(20);
+        assert!(!s.record_agent_action(5, 20, 1, 100, ""));
+        assert_eq!(s.heat_of(20), before);
+
+        // Five half-lives later it has nearly cooled; disabled heat reads nothing.
+        s.set_clock_ms(1_000.0 + 5.0 * crate::attention::DEFAULT_HEAT_HALF_LIFE_MS);
+        assert!(s.heat_of(20) < 0.03);
+        s.set_heat_enabled(false);
+        s.set_clock_ms(1_000.0);
+        let off = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        assert_eq!(col(&off, 0), col(&off, 1), "heat off: no tint");
     }
 
     #[test]
