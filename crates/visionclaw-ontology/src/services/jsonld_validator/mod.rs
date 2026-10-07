@@ -33,7 +33,6 @@ pub mod iri;
 pub mod owl_el_profile;
 pub mod shacl;
 pub mod shacl_lite;
-pub mod signature;
 
 pub use errors::{ErrorCategory, Severity};
 pub use shacl::{builtin as builtin_shapes, ShaclSeverity, ShapeFinding, ShapesGraph};
