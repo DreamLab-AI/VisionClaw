@@ -952,6 +952,9 @@ pub struct BinaryProtocolClient {
     /// Godot packed array (the benchmark's `pack_ms`).
     last_node_pack: std::time::Duration,
     last_edge_pack: std::time::Duration,
+    /// Thread-CPU time of the same spans (the timing gate; immune to preemption).
+    last_node_pack_cpu: std::time::Duration,
+    last_edge_pack_cpu: std::time::Duration,
     /// Origin of the render store's local millisecond clock (attention-heat decay).
     heat_epoch: Instant,
     /// Last heat sweep, so cold entries are dropped at ~1 Hz.
@@ -1004,6 +1007,8 @@ impl BinaryProtocolClient {
             created: Instant::now(),
             last_node_pack: std::time::Duration::ZERO,
             last_edge_pack: std::time::Duration::ZERO,
+            last_node_pack_cpu: std::time::Duration::ZERO,
+            last_edge_pack_cpu: std::time::Duration::ZERO,
             heat_epoch: Instant::now(),
             last_heat_sweep: Instant::now(),
             base,
@@ -1570,7 +1575,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
-        let t0 = Instant::now();
+        let t0 = crate::thread_cpu::CpuStopwatch::start();
         let v = self.store.build_node_buffer_lod(
             ids.as_slice(),
             scale_comp,
@@ -1581,7 +1586,7 @@ impl BinaryProtocolClient {
             near_max_dist,
         );
         let out = PackedFloat32Array::from(v);
-        self.last_node_pack = t0.elapsed();
+        (self.last_node_pack_cpu, self.last_node_pack) = t0.stop();
         out
     }
 
@@ -1606,7 +1611,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
-        let t0 = Instant::now();
+        let t0 = crate::thread_cpu::CpuStopwatch::start();
         let v = self.store.build_edge_buffer_lod(
             pairs.as_slice(),
             radius_comp,
@@ -1615,7 +1620,7 @@ impl BinaryProtocolClient {
             near_max_dist,
         );
         let out = PackedFloat32Array::from(v);
-        self.last_edge_pack = t0.elapsed();
+        (self.last_edge_pack_cpu, self.last_edge_pack) = t0.stop();
         out
     }
 
@@ -1643,6 +1648,20 @@ impl BinaryProtocolClient {
     #[func]
     fn last_pack_ms(&self) -> f64 {
         (self.last_node_pack + self.last_edge_pack).as_secs_f64() * 1000.0
+    }
+
+    /// Thread-CPU milliseconds of the last node + edge LOD pack: the timing gate
+    /// (`thread_cpu.rs`), unaffected by time the thread spent descheduled.
+    #[func]
+    fn last_pack_cpu_ms(&self) -> f64 {
+        (self.last_node_pack_cpu + self.last_edge_pack_cpu).as_secs_f64() * 1000.0
+    }
+
+    /// The calling thread's CPU clock in milliseconds, for bracketing a span in
+    /// GDScript (`CLOCK_THREAD_CPUTIME_ID`; wall clock where unavailable).
+    #[func]
+    fn thread_cpu_ms(&self) -> f64 {
+        crate::thread_cpu::thread_cpu_ns() as f64 / 1.0e6
     }
 
     /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).

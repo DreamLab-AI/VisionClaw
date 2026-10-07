@@ -45,6 +45,7 @@ pub mod selection;
 pub mod semantic;
 pub mod settings_sync;
 pub mod signer;
+pub mod thread_cpu;
 pub mod transport;
 pub mod webrtc_audio;
 
