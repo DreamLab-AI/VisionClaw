@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tubeIndices, writeTube, tubeVertexCount, writeEdgeSegments, edgeSegmentCount } from '../routeGeometry';
+import { tubeIndices, writeTube, tubeVertexCount, writeEdgeSegments } from '../routeGeometry';
 import type { Vec3 } from '../../memoryTrajectory/types';
 
 describe('tube geometry', () => {
@@ -54,7 +54,6 @@ describe('tube geometry', () => {
 describe('edge segments', () => {
   it('writes each polyline as consecutive line-segment pairs', () => {
     const polys: Vec3[][] = [[[0, 0, 0], [1, 0, 0], [2, 0, 0]], [[0, 1, 0], [0, 2, 0]]];
-    expect(edgeSegmentCount(polys)).toBe(3);
     const pos = new Float32Array(3 * 2 * 3);
     const col = new Float32Array(pos.length);
     const n = writeEdgeSegments(polys, (e) => (e === 0 ? [1, 0, 0] : [0, 0, 1]), pos, col);

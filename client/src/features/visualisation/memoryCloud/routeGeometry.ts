@@ -105,9 +105,6 @@ export function writeTube(
   }
 }
 
-export const edgeSegmentCount = (polys: Vec3[][]): number =>
-  polys.reduce((s, p) => s + Math.max(0, p.length - 1), 0);
-
 /**
  * Write polylines as LineSegments pairs. Returns the number of segments
  * written; the caller sets the draw range to `2 * segments` vertices.

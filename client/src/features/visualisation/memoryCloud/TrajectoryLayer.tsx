@@ -33,7 +33,6 @@ import {
   beatState,
   directorClock,
   routeChannel,
-  trajectoryClock,
   LAYOUT_RADIUS,
 } from './memoryCloudStore';
 import {
@@ -385,8 +384,6 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     }
     const el = reducedMotion ? TOTAL_DUR + GROW_DUR : elRef.current;
     const ph = revealPhases(el, reducedMotion);
-    trajectoryClock.el = el;
-    trajectoryClock.done = ph.done;
     if (!directorClock.active && now - lastReport.current > REPORT_MS) {
       lastReport.current = now;
       const playing = st.playback.playing && !(ph.done && el >= TOTAL_DUR + GROW_DUR);

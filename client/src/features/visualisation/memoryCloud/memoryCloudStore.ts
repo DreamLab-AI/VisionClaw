@@ -45,9 +45,6 @@ export interface MemoryCloudDeps {
 // Written every frame by the scene, read every frame by other scene parts.
 // Kept out of zustand so 60 Hz updates never re-render React.
 
-/** live playback clock (normalised seconds), written by TrajectoryLayer */
-export const trajectoryClock = { el: 0, done: false };
-
 /** beat state, written by the cinematic controller, read for glow and comet pulse */
 export const beatState = { on: false, pulse: 0, bar: 0, phase: 0 };
 
