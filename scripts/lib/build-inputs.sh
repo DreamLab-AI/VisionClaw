@@ -30,7 +30,9 @@
 # fixture trees.
 
 # Directories that never contain build inputs, however deep the tree goes.
-BUILD_INPUT_PRUNE_DIRS="${BUILD_INPUT_PRUNE_DIRS:-target node_modules .git .venv dist}"
+# .dev-inputs holds the published copies of the root files (dev-inputs.sh); they
+# are installed into /app, and walking the directory would double-count them.
+BUILD_INPUT_PRUNE_DIRS="${BUILD_INPUT_PRUNE_DIRS:-target node_modules .git .venv dist .dev-inputs}"
 
 # File names/extensions that ARE build inputs, relative to the source roots.
 #   *.rs            — Rust sources, including every crate's build.rs

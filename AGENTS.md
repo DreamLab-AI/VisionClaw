@@ -11,7 +11,7 @@ The ADR pack for any domain = its living governing document in `docs/` (BASELINE
 - **Rust backend**: `cargo test` (unit); workspace crates live in `crates/` (`visionclaw-*`, `vault`). GPU and ontology features are on by default.
 - **Client**: `cd client && npm install && npm run dev` (Vite); `npm test` runs Vitest; `npm run build` regenerates types first.
 - **Type generation**: `cargo run --bin generate_types` updates `client/src/types/` from Rust structs — run it after changing any API or data struct; never hand-edit generated types.
-- **Docker**: `./scripts/launch.sh up dev` (source-only) or `rebuild dev` (Dockerfile/deps) — never plain `docker compose`. From inside the agentbox container, launch it in the host shell (see the workspace environment notes), never directly.
+- **Docker**: `./scripts/launch.sh up dev` (source-only) or `rebuild dev` (Dockerfile/deps) — never plain `docker compose`. To deploy code into a running dev container use `./scripts/launch.sh redeploy dev`, not a raw `supervisorctl restart rust-backend`: only redeploy republishes the root build files (`.dev-inputs/`, ADR-2008). From inside the agentbox container, launch it in the host shell (see the workspace environment notes), never directly.
 - **Env**: `.env` is not committed; start from `env.development.template` or `env.example`.
 
 ## Code conventions

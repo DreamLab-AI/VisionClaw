@@ -47,6 +47,11 @@ services:
   # Unified VisionClaw service with profile-based configuration
   visionclaw:
     container_name: ${CONTAINER_NAME:-visionclaw_container}
+    # ADR-2008 (2026-10-07): sha256 of this service's resolved compose config,
+    # set by launch.sh; `up` recreates a running container whose label differs,
+    # so a compose change is never silently left unapplied.
+    labels:
+      visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}
     hostname: ${HOSTNAME:-visionclaw-server}
     build:
       context: .
@@ -141,10 +146,28 @@ services:
       # SOURCE CODE MOUNTS - Live sync from host for development hot-reload
       # These override the COPY'd source in the image with current host files
       # HOST_PROJECT_ROOT resolves DinD path translation (defaults to "." for native Docker)
+      #
+      # DIRECTORIES ONLY (ADR-2008, 2026-10-07). Never bind-mount a single host
+      # file: that pins the host inode at container start, and git replaces files
+      # with a new inode, so after a merge the container kept the old Cargo.toml
+      # while src/ showed the new code. Never mount the checkout root either: it
+      # holds .env, .env.prod, GH and cth.env. The seven root files (Cargo.toml,
+      # Cargo.lock, build.rs, client/{index.html,vite.config.ts,tsconfig.json,
+      # postcss.config.cjs}) are published by the host into the gitignored
+      # .dev-inputs/ (launch.sh up|restart|build|redeploy, and the post-checkout/
+      # post-merge/post-rewrite git hooks) with a stamp naming the source commit;
+      # scripts/lib/dev-inputs.sh installs them into /app when the stamp verifies:
+      # at boot, before every Rust build, and every 2s for Vite. Cargo builds
+      # --locked. create_host_path: false makes a missing .dev-inputs fail the
+      # start instead of Docker creating an empty root-owned directory.
+      # scripts/tests/test-dev-inputs.sh fails on a single-file or root mount.
+      - type: bind
+        source: ${HOST_PROJECT_ROOT:-.}/.dev-inputs
+        target: /app/.dev-inputs
+        read_only: true
+        bind:
+          create_host_path: false
       - ${HOST_PROJECT_ROOT:-.}/src:/app/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/Cargo.toml:/app/Cargo.toml:ro
-      - ${HOST_PROJECT_ROOT:-.}/Cargo.lock:/app/Cargo.lock:rw
-      - ${HOST_PROJECT_ROOT:-.}/build.rs:/app/build.rs:ro
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
       - ${HOST_PROJECT_ROOT:-.}/docs:/app/docs:ro
       # src/uri/mod.rs include_str!s agentbox/schema/federation-kinds.json at COMPILE
@@ -160,9 +183,6 @@ services:
       # solid-pod-rs + whelk-rs are crates.io deps — fetched into cargo cache, no bind mount needed.
       - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
       - ${HOST_PROJECT_ROOT:-.}/client/public:/app/client/public:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/index.html:/app/client/index.html:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/vite.config.ts:/app/client/vite.config.ts:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/tsconfig.json:/app/client/tsconfig.json:ro
       # Cache volumes for build optimization
       - npm-cache:/root/.npm
       - cargo-cache:/root/.cargo/registry
@@ -206,6 +226,11 @@ services:
   # Production profile configuration
   visionclaw-production:
     container_name: ${CONTAINER_NAME:-visionclaw_prod_container}
+    # ADR-2008 (2026-10-07): sha256 of this service's resolved compose config,
+    # set by launch.sh; `up` recreates a running container whose label differs,
+    # so a compose change is never silently left unapplied.
+    labels:
+      visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}
     hostname: ${HOSTNAME:-visionclaw-server-prod}
     build:
       context: .

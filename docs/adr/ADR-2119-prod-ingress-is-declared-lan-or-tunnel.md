@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
+verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -90,3 +90,7 @@ that records every call, so nothing is launched:
 ## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
 
 **Governed change:** `docker-compose.unified.yml` adds `MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}` to the visionclaw (after line 135) and visionclaw-production (after line 253) environment blocks; nothing else changes. Ingress declaration and ports are unchanged. The decision holds.
+
+## Re-verification — 2026-10-07 at a9d587976 (dev inputs, compose-hash label)
+
+**Governed change (a9d587976, ADR-2008 amendment):** `docker-compose.unified.yml`: the dev `visionclaw` service's six single-file bind mounts (`Cargo.toml`, `Cargo.lock`, `build.rs`, `client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`) are replaced by one read-only directory bind of the gitignored `.dev-inputs/` at `/app/.dev-inputs` (`create_host_path: false`), and both `visionclaw` and `visionclaw-production` gain the label `visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}`. No environment key, profile, port, network or build argument changes. `scripts/launch.sh`: `start_environment` hashes the app service's resolved config and recreates a running container whose `visionclaw.compose-hash` differs (prod too); new dev-only `redeploy`; dev-only `.dev-inputs/` publishing; `detect_dind` no longer dies silently under `pipefail` when a container vanishes between `ps` and `inspect`. Ingress resolution, profiles, the tunnel/LAN split and the prod pre-flight are unchanged; `cargo test -p visionclaw-integration-tests --test prod_ingress` passes 9/9. **Still holds.**

@@ -151,7 +151,8 @@ Docker-in-Docker, and picks the Cargo feature set (`gpu,ontology`, plus
 
 | Command | Action |
 |---------|--------|
-| `up` | Start the environment. Auto-detects source/config changes and takes the fast path (see below) |
+| `up` | Start the environment. Auto-detects source/config changes and takes the fast path (see below); recreates a running container whose compose config changed |
+| `redeploy` | `dev` only, the code-deploy path: publish the root build files into `.dev-inputs/`, then restart only `rust-backend` in the running container (no recreate). Refuses, naming `up dev`, when the compose config changed |
 | `down` | Stop and remove containers (`--remove-orphans`) |
 | `build` | Build images using the Docker layer cache |
 | `rebuild` | Full rebuild: `--no-cache` image build + clears all cargo cache volumes |
@@ -191,6 +192,7 @@ instead (ADR-2119). `dev` never starts the tunnel.
 ./scripts/launch.sh                       # start dev (default command + env)
 ./scripts/launch.sh up dev                # start dev explicitly
 ./scripts/launch.sh up dev --with-agent   # start dev + restart the agent sidecar
+./scripts/launch.sh redeploy dev          # after a merge/pull: rebuild + restart the backend in place
 ./scripts/launch.sh build prod            # build prod images (layer cache)
 ./scripts/launch.sh rebuild prod          # prod rebuild, no cache
 ./scripts/launch.sh logs dev              # follow dev logs
@@ -203,16 +205,20 @@ instead (ADR-2119). `dev` never starts the tunnel.
 
 In `dev`, the Rust and client source trees are volume-mounted, so source-only
 edits never require an image rebuild — the in-container wrapper recompiles the
-touched crates on restart (~2 min incremental). `up` inspects file modification
-times to decide what to do:
+touched crates on restart (~2 min incremental). `up` first publishes the root
+build files and hashes the app service's resolved compose config, then inspects
+the container label and file modification times to decide what to do:
 
 ```mermaid
 flowchart TD
-    Start["./scripts/launch.sh up dev"] --> Running{"Container<br/>running and<br/>healthy?"}
+    Start["./scripts/launch.sh up dev"] --> Publish["Publish .dev-inputs/<br/>hash compose config"]
+    Publish --> Running{"Container<br/>running and<br/>healthy?"}
     Running -->|no| ImgCheck{"Dockerfile or<br/>deps changed?"}
-    Running -->|yes| SrcCheck{"Source files<br/>changed?"}
+    Running -->|yes| Drift{"compose-hash label<br/>matches?"}
+    Drift -->|"no (mounts/env/image changed)"| ImgCheck
+    Drift -->|yes| SrcCheck{"Build inputs newer than<br/>start or last redeploy?"}
     SrcCheck -->|no| Tail["Attach to logs<br/>(no work)"]
-    SrcCheck -->|yes| Restart["Restart container<br/>wrapper recompiles webxr"]
+    SrcCheck -->|yes| Restart["redeploy: restart rust-backend<br/>wrapper recompiles"]
     ImgCheck -->|"critical (Dockerfile/deps)"| Rebuild["Rebuild image"]
     ImgCheck -->|"config only (dev)"| Hotpatch["docker cp config<br/>then restart"]
     ImgCheck -->|no| Reuse["Reuse image<br/>(source is mounted)"]
@@ -221,6 +227,28 @@ flowchart TD
     Reuse --> Restart
     Restart --> Tail
 ```
+
+### Root build files: `.dev-inputs/`
+
+The dev container never bind-mounts a single host file (a single-file mount pins
+the inode, and git replaces files with new inodes, so after a merge the container
+kept a stale `Cargo.toml`) and never mounts the checkout root (it holds `.env`,
+`.env.prod` and other untracked secrets). Instead the launcher publishes the
+seven root files the container needs — `Cargo.toml`, `Cargo.lock`, `build.rs`,
+`client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`,
+`client/postcss.config.cjs` — into the gitignored `.dev-inputs/`, with a
+`.stamp` naming the source commit. Compose mounts only that directory, read-only,
+at `/app/.dev-inputs`; `scripts/lib/dev-inputs.sh` copies the files into `/app`
+when the stamp verifies (at boot, before every Rust build, and every 2 s for
+Vite) and the wrapper logs `Building from published inputs: source_sha=…`.
+Cargo builds `--locked` against the committed lock.
+
+Publishing happens on `up`, `restart`, `build` and `redeploy`, and from the
+`post-checkout`, `post-merge` and `post-rewrite` git hooks
+(`./scripts/install-hooks.sh`). `git reset` and `git stash pop` run no hook:
+follow them with `redeploy dev`. A missing `.dev-inputs/` fails the container
+start (`create_host_path: false`) and a missing or mismatched stamp makes the
+wrapper refuse to build, rather than either running against stale files.
 
 `rebuild` forces a clean image build with `--no-cache` and removes the
 `visionclaw-cargo-target-cache`, `-cargo-cache`, and `-cargo-git-cache` volumes —

@@ -147,6 +147,16 @@ start_nginx() {
 # --- Main Execution ---
 log "Starting development environment services..."
 
+# ADR-2008 (2026-10-07): bring the host's current root files (Cargo.toml,
+# Cargo.lock, build.rs, Vite root files) into /app before any service reads
+# them. They arrive by copy from /app/.dev-inputs (published and stamped by
+# launch.sh on the host; only those seven files are mounted), never by a
+# single-file bind mount, which would pin a stale inode after a git operation.
+# The supervisord program dev-inputs-sync keeps them current afterwards.
+if ! bash /app/scripts/lib/dev-inputs.sh --once; then
+    log "ERROR: root build files are not verified; builds refuse until the host runs ./scripts/launch.sh redeploy dev."
+fi
+
 # Check if we should use supervisord
 if [ -f /etc/supervisor/conf.d/services.conf ] || [ -f /app/supervisord.dev.conf ]; then
     log "Starting services with supervisord..."

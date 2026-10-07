@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# post-checkout / post-merge / post-rewrite — republish the dev container's root
+# build files after git changes them (ADR-2008, 2026-10-07).
+#
+# The dev container mounts only <checkout>/.dev-inputs, which holds published
+# copies of Cargo.toml, Cargo.lock, build.rs and the Vite root files plus a
+# stamp naming the source commit. A checkout, merge, pull or rebase rewrites
+# those files; this hook republishes them so the next in-container build and
+# Vite reload see the new versions. `git reset` and `git stash pop` run no hook:
+# after those, run ./scripts/launch.sh redeploy dev (which always republishes).
+#
+# Contract (docs/CONTRIBUTING.md § Git hooks): it NEVER fails the git operation
+# and every path exits 0. It does nothing in a checkout that has never been
+# deployed (no .dev-inputs/), so worktrees and fresh clones are untouched.
+# The three hook names are the same file; install with ./scripts/install-hooks.sh.
+
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[[ -d "$top/.dev-inputs" && -f "$top/scripts/lib/dev-inputs.sh" ]] || exit 0
+bash "$top/scripts/lib/dev-inputs.sh" --publish-if-deployed "$top" >/dev/null 2>&1 \
+    || echo "$(basename "$0"): could not republish .dev-inputs; run ./scripts/launch.sh redeploy dev" >&2
+exit 0

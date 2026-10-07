@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
-verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
+verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
+verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
 repo: visionclaw
@@ -190,3 +190,15 @@ fires. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
 
 **Governed change:** `docker-compose.unified.yml` adds `MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}` to the visionclaw (after line 135) and visionclaw-production (after line 253) environment blocks; nothing else changes. Dev-image recompilation is unaffected. The decision holds.
+
+## Amendment — 2026-10-07 at a9d587976: root files arrive through `.dev-inputs/`, never a single-file mount
+
+**Defect.** The dev service bind-mounted six single host files, `Cargo.lock` read-write. A single-file mount pins the host inode at container start; git replaces files with new inodes, so after a merge the container kept the old `Cargo.toml` while the directory-mounted `src/` showed new code, and the wrapper failed with `error[E0432]: unresolved import subtle`. Only a stop/start re-resolved it. The container could also write a `Cargo.lock` the host never saw.
+
+**Change.** The host publishes exactly seven root files (the six plus `client/postcss.config.cjs`) into the gitignored `.dev-inputs/` with a `.stamp` holding `source_sha`, `source_dirty` and the set's digest (`scripts/lib/dev-inputs.sh --publish`: content-compared, copy-then-rename, stamp last). `launch.sh` publishes on `up`, `restart`, `build` and the new `redeploy dev`; `.githooks/post-checkout`, `post-merge` and `post-rewrite` republish in a checkout that already has `.dev-inputs/`. Compose mounts only that directory, read-only. In the container the same script installs the files into `/app` only when the digest matches the stamp: at boot, before every build in the wrapper, and every 2 s from the supervisord program `dev-inputs-sync` for Vite. The wrapper refuses to build without a verified stamp, logs `Building from published inputs: source_sha=…`, builds `--locked`, and stops with the remedy instead of `cargo clean` on a lock mismatch. Copies, not symlinks: Vite 6.4.1 resolves a symlinked `vite.config.ts` to its realpath, moving `__dirname` and the `@` alias out of `/app/client` (measured; cargo keeps the link path). `BUILD_INPUT_PRUNE_DIRS` gains `.dev-inputs`.
+
+**Not mounted, and why.** The checkout root (it holds `.env`, `.env.prod`, `GH`, `cth.env`); host `client/` (it holds `client/.env`, and would shadow the image's `node_modules`); `.git` (`config` can hold credentials, and a worktree's `.git` is a file). The container therefore cannot compare the stamp with the host's HEAD; the stamp's `source_sha` in the backend log is the operator's check, and `redeploy` always republishes first.
+
+**Deploy path.** `./scripts/launch.sh redeploy dev` publishes, then runs `supervisorctl -c /app/supervisord.dev.conf restart rust-backend` in the running container; it refuses, naming `up dev`, when the compose config drifted. `up` on a running container with newer build inputs now redeploys instead of stopping and starting the container. Pre-existing defect fixed alongside: `up` against a running healthy container never applied compose changes. Both app services carry `visionclaw.compose-hash` (sha256 of the service's resolved `docker compose config`, computed with the label empty), and `up` recreates on mismatch. `needs_recompile` reads this record's build-input inventory and counts a redeploy since start.
+
+**Verification.** `bash scripts/tests/test-dev-inputs.sh`: 83 pass; against the parent's compose file the mount checks fail. `SECRETS_ROOT=<main checkout>` runs the secret scan over the real checkout's mount sources (clean). `python3 scripts/tests/test_dev_launcher.py`: 2 pass (8 consecutive runs). `cargo test -p visionclaw-integration-tests --test dev_build_inputs` 18/18 and `--test prod_ingress` 9/9. No container operation ran. Activation needs a recreate for the new mounts and label (`launch.sh up dev` does it); `LIVE=1 bash scripts/tests/test-dev-inputs.sh` then checks the running container read-only.

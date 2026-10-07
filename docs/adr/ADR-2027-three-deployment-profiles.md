@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -334,3 +334,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/main.rs`: removes the unread `PreReadSocketSettings` construction and its `app_data` registration, and drops dead constructor arguments to `OntologyQueryService` / `OntologyMutationService` (plus earlier lint-only edits since the recorded commit).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-07 at a9d587976 (dev inputs, compose-hash label)
+
+**Governed change (a9d587976, ADR-2008 amendment):** `docker-compose.unified.yml`: the dev `visionclaw` service's six single-file bind mounts (`Cargo.toml`, `Cargo.lock`, `build.rs`, `client/index.html`, `client/vite.config.ts`, `client/tsconfig.json`) are replaced by one read-only directory bind of the gitignored `.dev-inputs/` at `/app/.dev-inputs` (`create_host_path: false`), and both `visionclaw` and `visionclaw-production` gain the label `visionclaw.compose-hash: ${VISIONCLAW_COMPOSE_HASH:-}`. No environment key, profile, port, network or build argument changes. Prod behaviour change: `launch.sh up prod` now recreates a running prod container whose label differs from its resolved config, where it used to leave a compose change unapplied. The RBAC and visibility flags this record ratifies are untouched. **Still holds.**
