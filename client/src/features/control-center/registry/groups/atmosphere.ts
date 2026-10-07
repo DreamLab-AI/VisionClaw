@@ -1,7 +1,8 @@
 /**
- * Group 5 — Effects & Atmosphere (id `atmosphere`, hotkey 5, 22 fields).
- * All from the legacy Effects tab: WASM scene particles, wisps, fog, the
- * embedding point cloud, and node animations.
+ * Group 5 — Effects & Atmosphere (id `atmosphere`, hotkey 5, 32 fields).
+ * From the legacy Effects tab: WASM scene particles, wisps, fog, the
+ * embedding point cloud, and node animations; plus the memory explorer
+ * (query trajectory, learning defaults, cinematic mode) on the live cloud.
  */
 import type { GroupData, RegistryField } from '../types';
 
@@ -30,6 +31,17 @@ const fields: RegistryField[] = [
   { key: 'embeddingPointSize', subgroup: 'Embedding Cloud', label: 'Point Size', type: 'slider', min: 0.5, max: 25, step: 0.5, path: `${E}pointSize`, description: 'Size of embedding points' },
   { key: 'embeddingOpacity', subgroup: 'Embedding Cloud', label: 'Cloud Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${E}opacity`, description: 'Transparency of embedding points' },
   { key: 'embeddingRotation', subgroup: 'Embedding Cloud', label: 'Rotation Speed', type: 'slider', min: 0, max: 0.005, step: 0.0001, path: `${E}rotationSpeed`, description: 'Auto-rotation speed' },
+  { key: 'embeddingColorBy', subgroup: 'Embedding Cloud', label: 'Colour By', type: 'select', options: ['namespace', 'sourceType', 'age'], path: `${E}colorBy`, description: 'Colour memory points by namespace, source type, or age (newest brightest)' },
+  // Memory Explorer
+  { key: 'trajectoryView', subgroup: 'Memory Explorer', label: 'Route View', type: 'select', options: ['space', 'canopy', 'tree', 'hyper'], path: `${E}trajectoryView`, description: 'Where a query route is drawn: in the cloud itself, or as a canopy, tree or hyperbolic layout of the search' },
+  { key: 'routeGlow', subgroup: 'Memory Explorer', label: 'Route Glow', type: 'slider', min: 0, max: 3, step: 0.1, path: `${E}routeGlow`, description: 'Brightness of the route, comet and beads (feeds bloom)' },
+  { key: 'trajectoryPlaybackSpeed', subgroup: 'Memory Explorer', label: 'Playback Speed', type: 'slider', min: 0.25, max: 4, step: 0.25, path: `${E}playbackSpeed`, description: 'Speed of the search replay' },
+  { key: 'showRejected', subgroup: 'Memory Explorer', label: 'Rejected Twigs', type: 'toggle', path: `${E}showRejected`, description: 'Show candidates the search evaluated and rejected' },
+  { key: 'dimOffRoute', subgroup: 'Memory Explorer', label: 'Focus Dimming', type: 'slider', min: 0, max: 1, step: 0.05, path: `${E}dimOffRoute`, description: 'How far points off the route dim while a query is shown' },
+  { key: 'learningEnabled', subgroup: 'Memory Explorer', label: 'Learning', type: 'toggle', path: `${E}learningEnabled`, description: 'Remember past queries as search hints and adapt the beam breadth' },
+  { key: 'learningTargetRecall', subgroup: 'Memory Explorer', label: 'Target Recall', type: 'slider', min: 0.5, max: 1, step: 0.01, path: `${E}learningTargetRecall`, description: 'Recall the breadth controller aims for' },
+  { key: 'learningRate', subgroup: 'Memory Explorer', label: 'Learning Rate', type: 'slider', min: 0.01, max: 1, step: 0.01, path: `${E}learningRate`, description: 'How fast the breadth controller reacts' },
+  { key: 'memoryCinematic', subgroup: 'Memory Explorer', label: 'Cinematic Mode', type: 'toggle', path: `${E}cinematic`, description: 'Director camera, audio beat sync and video export for query routes' },
   // Animation
   { key: 'nodeAnimations', subgroup: 'Animation', label: 'Node Animations', type: 'toggle', path: `${A}enableNodeAnimations`, description: 'Enable node animations' },
   { key: 'pulseEnabled', subgroup: 'Animation', label: 'Pulse Effect', type: 'toggle', path: `${A}pulseEnabled`, description: 'Pulsing effect on nodes' },
@@ -42,7 +54,7 @@ const fields: RegistryField[] = [
 export const atmosphere: GroupData = {
   id: 'atmosphere',
   label: 'Effects & Atmosphere',
-  description: 'Ambient particles, energy wisps, nebula fog, the embedding cloud, and node animations.',
+  description: 'Ambient particles, energy wisps, nebula fog, the live memory cloud and its query explorer, and node animations.',
   hotkey: '5',
   loadPaths: ['visualisation.sceneEffects', 'visualisation.embeddingCloud', 'visualisation.animations'],
   fields,
