@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -87,3 +87,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `client_coordinator_actor.rs` adds congestion tracking and stall eviction (`record_congestion` `:315`, `evict_stalled` `:329`, called per broadcast at `:639`, plus a 1 s sweep at `:1232`). A client congested past its heartbeat timeout is unregistered, sent `CloseClientSession`, and has its transport shut. `relay_text_to_pubkey` (`:521`) is unchanged, so the same-pubkey routing, validation and 4 Hz limit hold. An evicted session simply stops receiving relays, as a disconnected one already did. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 makes two changes here. `MemoryFlashCodec.parse` (`pulse.rs`) adds `agent_id` to each burst descriptor, taken from the frame's optional `agentId`. `beat_pulse.gd` `on_memory_flash` hands each flash to `record_memory_flash` for the separated-layout agent drift before the burst gating. The beat clock, the `memoryRoute` relay, tap tempo and microphone rules are untouched, and bursts render as before. Decision holds. The GUT test `test_memory_flashes_feed_the_agent_drift_even_with_bursts_off` was not run (no Godot). Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

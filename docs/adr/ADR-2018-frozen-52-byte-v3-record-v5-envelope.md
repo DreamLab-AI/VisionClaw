@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -254,3 +254,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 (b63d35f8a)
 
 Merging fix/xr-held-above-route touches this record's paths only with a benchmark-only `#[func] pin_thread_to_l3` (no wire, tag, record-size or decode change) and aim-ray/priority wiring in `graph_scene.gd` (no settings key, physics write or pose-owner change). Decision holds.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` in three ways. `graph_robust_bounds(separation)` folds the graph bounds for the memory cloud. Applied `0x23` actions also feed the render-store agent drift. Three `#[func]`s are added (`record_memory_flash`, `step_agent_drift`, `agent_drift_offset`). The 52-byte V3 record, the V5 envelope and every decoder are untouched. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

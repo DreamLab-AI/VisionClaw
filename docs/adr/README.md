@@ -39,7 +39,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_119 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_120 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -162,3 +162,4 @@ _119 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2128](ADR-2128-published-ontology-carries-a-version-iri-and-scoped-property-signatures.md) | The published ontology carries an owl:versionIRI per generation, and property domain/range are scoped per property instead of owl:Thing | VAULT-corpus-format | 2026-10-05 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2133](ADR-2133-live-memory-cloud-serves-a-stratified-sidecar-snapshot.md) | The memory cloud serves a live stratified snapshot of the RuVector sidecar, and query results come from the sidecar's own index | PROTOCOL-registry | 2026-10-07 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2134](ADR-2134-relay-the-memory-explorer-beat-clock-and-route-to-the-same-users-sessions.md) | The graph socket relays the memory explorer's beat clock and route to the same user's other sessions | PROTOCOL-registry | 2026-10-07 | proposed | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2135](ADR-2135-graph-separation-opens-a-three-body-triangle-with-agents-at-the-centre.md) | Graph Separation opens a ground-plane triangle of knowledge, ontology and memory, with agents drifting at its centre | XR-client | 2026-10-07 | accepted | complete | staged | — | — | jjohare | visionclaw |

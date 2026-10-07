@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.6
+version: 0.1.7
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.7 (2026-10-07): ADR-2135 — /api/memory-flash{,/batch} rows; optional agentId (alias agent_id) accepted and relayed in the memory_flash frame (omitted when absent) so clients drift that agent towards the memory cloud; additive"
   - "0.1.6 (2026-10-07): ADR-2134 amendment — memoryRoute gains optional sidecarTotal/sidecarAgree, relayed only as a consistent pair (sidecar.len() ≤ total, agree ≤ sidecar.len()) else both dropped; additive, older peers unaffected"
   - "0.1.5 (2026-10-07): ADR-2134 — /wss beatClock and memoryRoute client text frames relayed to the same pubkey's other sessions; JSON pong gains serverTime"
   - "0.1.4 (2026-10-07): ADR-2133 — /api/memory-cloud{,/vectors,/query,/health} rows; memory cloud wire types; PowerUser gate on private memory reads"
@@ -193,6 +194,7 @@ Routes registered in `src/main.rs:986-1016`:
 | `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
 | `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); validation 400 |
 | `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
+| `/api/memory-flash`, `/api/memory-flash/batch` | POST | central `/api` policy | `{key, namespace?, action?, agentId?}` (batch: `{events: [...]}`) → `memory_flash` text frame `{type, data: {key, namespace, action, timestamp, agentId?}}` to every client; `agentId` (an agent wire id, flag bits allowed) is relayed only when given and names the agent the clients drift towards the memory cloud (ADR-2135) |
 
 **RBAC posture (open by *deployment*, fail-closed in code).** `RbacGate` middleware enforces
 Owner>Admin>Editor>Viewer on NIP-98 pubkeys. The enforcement code **fails closed**:

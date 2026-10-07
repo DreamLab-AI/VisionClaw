@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -271,3 +271,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 The merge adds `src/actors/gpu/physics_restore.rs` (boot and supervisor-restart physics push), `socket_flow_handler/heartbeat.rs` and `transport.rs`, and the new message types `SetPhysicsSettingsSource`, `CloseClientSession` and `TransportCloser`. It also adds stall eviction to `client_coordinator_actor.rs` (`record_congestion` `:315`, `evict_stalled` `:329`) and wires `broadcastFps` through `force_compute_actor.rs` and `optimized_settings_actor.rs`. All of this is actor-layer or handler code in the root crate, which already held these modules. The only root-binary change is one `on_connect` registration (`src/main.rs:1234`). No new workspace member was added and nothing moved across a crate boundary. The coordinator still sees the socket actor only through type-erased `ClientRecipients` (ADR-090 A6-S4), now built by `ClientRecipients::new(..)` with a fourth recipient for `CloseClientSession`. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 adds a pure workspace crate, `crates/visionclaw-tri-layout` (no dependencies, MIT), which the server and the XR client both link. It moves the display projection out of `force_compute_actor.rs` into `src/actors/gpu/display_projection.rs` (registered in `gpu/mod.rs`). New domain logic lives in a crate and the root keeps the actor glue, as this record asks. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

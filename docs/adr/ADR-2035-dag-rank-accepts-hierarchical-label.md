@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -355,3 +355,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `force_compute_actor.rs` changes only the broadcast limiter. `BroadcastConfig::default()` replaces an inline 10 fps literal, `mark_broadcast()` replaces `reset_broadcast_timer()`, `ConfigureBroadcastOptimization` validates through `broadcast_optimizer.configure(..)`, and a test-only `headless()` constructor is added. The DAG ranker's subsumption filter is untouched (`.filter(|edge| edge.asserts_subsumption())` at `:582`), and so are its tests (`:4619-4657`). **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 moves the display-only projection out of `force_compute_actor.rs` into `display_projection.rs`. `hierarchy_pairs`, the DAG ranker and `Edge::asserts_subsumption` are untouched. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

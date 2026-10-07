@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -225,3 +225,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `src/app_state.rs` changes only how the saved physics settings reach the GPU: boot sends `SetPhysicsSettingsSource` carrying the existing SQLite settings repository (`:1022`) and pushes them through `physics_restore::push_physics` (`:1078`); `get_gpu_compute_addr` refreshes a cached `ForceComputeActor` address that a supervisor restart left stale. Oxigraph is still opened once at `data/oxigraph` (`:425-427`), and the graph repository is still derived `from_store` off the same handle (`:431-432`). No store was added and no SQLite file was split or merged. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 adds the path dependency `visionclaw-tri-layout` to the root `Cargo.toml`. No store, persistence or SQLite/Oxigraph code changed. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
