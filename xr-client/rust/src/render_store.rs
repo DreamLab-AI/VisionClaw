@@ -2279,6 +2279,34 @@ mod tests {
     }
 
     #[test]
+    fn attention_heat_is_applied_exactly_once_per_pack() {
+        // Two branches moved the brighten from emit_node to live_tint in
+        // parallel; a merge that kept both would double it. The drawn colour of
+        // a heated node must equal its unheated base brightened ONCE.
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0);
+        s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0); // same community = same base colour
+        s.set_clock_ms(1_000.0);
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+        let col = |buf: &[f32], i: usize| [buf[i * NODE_STRIDE + 12], buf[i * NODE_STRIDE + 13], buf[i * NODE_STRIDE + 14]];
+        for lod in [false, true] {
+            let buf = if lod {
+                s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec()
+            } else {
+                s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9)
+            };
+            let mut once = col(&buf, 1);
+            s.heat.brighten(20, s.clock_ms, &mut once);
+            let drawn = col(&buf, 0);
+            assert_ne!(drawn, col(&buf, 1), "heat is applied at all (lod={lod})");
+            for k in 0..3 {
+                assert!((drawn[k] - once[k]).abs() < 1e-6, "heat applied once (lod={lod}): drawn {drawn:?}, once {once:?}");
+            }
+        }
+    }
+
+    #[test]
     fn beam_starts_at_the_embodiment_anchor_when_one_is_published() {
         let mut s = RenderStore::new();
         // Target node 20 is on the wire and drawn; agent 0xD001 is a synthetic

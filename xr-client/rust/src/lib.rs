@@ -26,6 +26,7 @@ pub mod avatar_state;
 pub mod beat;
 pub mod binary_protocol;
 pub mod domain_palette;
+pub mod frame_budget;
 pub mod gaze;
 pub mod hulls;
 pub mod interaction;

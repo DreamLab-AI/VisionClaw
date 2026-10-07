@@ -37,6 +37,14 @@ const LOD_BUILD_BUDGET_MS_P99 := 3.0
 var duration_s: float = DEFAULT_DURATION_S
 var fixture_path: String = DEFAULT_FIXTURE
 var memory_cloud_rows: int = DEFAULT_MEMORY_ROWS
+var memory_route_hops: int = MEMORY_ROUTE_HOPS
+var memory_route_sidecar: int = 5
+# FrameBudget (rust frame_budget.rs) caps for the graph's near tiers; the
+# lod.rs defaults until the allocator runs.
+const GRAPH_DRAW_CALLS := 6  # graph-only benchmark, measured (gems, halos, impostors, cylinders, ribbons, hulls)
+var _gem_cap: int = NodeLod.NEAR_CAP
+var _edge_cap: int = NodeLod.NEAR_EDGE_CAP
+var _budget_report: Dictionary = {"enabled": false}
 var _memory: Node3D = null
 
 var _frame_times_ms: PackedFloat32Array = PackedFloat32Array()
@@ -83,6 +91,10 @@ func _ready() -> void:
 		fixture_path = String(get_meta("fixture_path"))
 	if has_meta("memory_cloud_rows"):
 		memory_cloud_rows = int(get_meta("memory_cloud_rows"))
+	if has_meta("memory_route_hops"):
+		memory_route_hops = int(get_meta("memory_route_hops"))
+	if has_meta("memory_route_sidecar"):
+		memory_route_sidecar = int(get_meta("memory_route_sidecar"))
 	_fixture = _load_fixture(fixture_path)
 	var synth: int = int(OS.get_environment("XR_BENCH_NODES")) if OS.has_environment("XR_BENCH_NODES") else 0
 	if synth > 0:
@@ -94,6 +106,7 @@ func _ready() -> void:
 		_populate_scene_from_fixture(_fixture)
 	_add_hull_layer(_fixture)
 	_populate_memory_layers(memory_cloud_rows)
+	_apply_frame_budget()
 	_started_at_us = Time.get_ticks_usec()
 
 func _process(delta: float) -> void:
@@ -177,6 +190,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"hull_layer": _hull_report,
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
+		"frame_budget": _budget_report,
 		"pass": pass_p99 and pass_dc and pass_tri and pass_pack and pass_lod,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
@@ -198,7 +212,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 # HULL_MAX groups — overlapping, worst-case hulls, so the measurement is an upper
 # bound. Estimate: one surface = 1 draw call; ≤ 124 triangles per hull (hulls.rs
 # MAX_TRIS_PER_HULL) → ≤ 3 968 triangles at the cap.
-func _add_hull_layer(fixture: Dictionary) -> void:
+func _add_hull_layer(fixture: Dictionary, max_hulls: int = HULL_MAX) -> void:
 	# XR_BENCH_HULLS=0 runs the same scene without the layer (A/B baseline).
 	if OS.get_environment("XR_BENCH_HULLS") == "0":
 		_hull_report = {"enabled": false, "reason": "XR_BENCH_HULLS=0"}
@@ -215,7 +229,7 @@ func _add_hull_layer(fixture: Dictionary) -> void:
 		groups.append(1 + i % HULL_MAX)
 		i += 1
 	var client: RefCounted = BinaryProtocolClient.create()
-	var d: Dictionary = client.hull_mesh_from_points(pts, groups, 0.15, HULL_MAX)
+	var d: Dictionary = client.hull_mesh_from_points(pts, groups, 0.15, max_hulls)
 	var mesh: ArrayMesh = ParityScript.make_hull_mesh(d)
 	if mesh != null:
 		var inst := MeshInstance3D.new()
@@ -230,8 +244,37 @@ func _add_hull_layer(fixture: Dictionary) -> void:
 		"hulls": int(d.get("hulls", 0)),
 		"triangles": int(d.get("triangles", 0)),
 		"draw_calls_est": 1 if mesh != null else 0,
-		"triangles_est_max": HULL_MAX * 124,
+		"triangles_est_max": max_hulls * 124,
 	}
+
+# One FrameBudget pass for the whole scene, as GraphScene runs it: the graph's
+# far tiers, the route, the cloud, then hulls, gems and cylinders.
+func _apply_frame_budget() -> void:
+	if not ClassDB.class_exists("FrameBudget"):
+		return
+	var demand: Dictionary = _memory.frame_demand() if _memory != null else {"cloud_rows": 0, "route_rows": 0, "route_sidecar": 0}
+	var hulls: int = int(_hull_report.get("hulls", 0))
+	var nodes: int = _ids.size()
+	var edges: int = _edge_pairs.size() / 2 if _edges != null else 0
+	# faded 0 (no labels), other_tris 0 (no HUD/avatars/controllers in the benchmark scene)
+	var caps: Dictionary = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, 0,
+		GRAPH_DRAW_CALLS, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]))
+	_gem_cap = int(caps["gem_nodes"])
+	_edge_cap = int(caps["cylinder_edges"])
+	if int(caps["max_hulls"]) < hulls:
+		var old := get_node_or_null("ClusterHulls")
+		if old != null:
+			remove_child(old)
+			old.free()
+		_add_hull_layer(_fixture, int(caps["max_hulls"]))
+	if _memory != null:
+		_memory.apply_frame_caps(caps)
+		_memory.flush()
+	_lod_rebuild()
+	_budget_report = caps.duplicate()
+	_budget_report["enabled"] = true
+	_budget_report["demand"] = {"nodes": nodes, "edges": edges, "hulls": hulls, "hull_tris": int(_hull_report.get("triangles", 0))}
+
 
 # Deterministic production-density stand-in: n nodes in the fixture's ±10 m
 # volume (same seed every run).
@@ -350,7 +393,7 @@ func _lod_rebuild() -> void:
 	var cam := get_node_or_null("Camera3D") as Camera3D
 	var eye: Vector3 = cam.global_position if cam != null else Vector3.ZERO
 	var t0 := Time.get_ticks_usec()
-	var near: PackedFloat32Array = _client.build_node_buffer_lod(_ids, 1.0, 0.7, 1.9, eye, NodeLod.NEAR_CAP, _near_radius)
+	var near: PackedFloat32Array = _client.build_node_buffer_lod(_ids, 1.0, 0.7, 1.9, eye, _gem_cap, _near_radius)
 	var near_count: int = NodeLod.assign(get_node("NodesMulti") as MultiMeshInstance3D, near)
 	if _halos != null:
 		NodeLod.assign_halo(_halos, near, _client.faded_node_buffer())
@@ -360,7 +403,7 @@ func _lod_rebuild() -> void:
 	if _edges != null:
 		var eb: PackedFloat32Array
 		if _ribbons != null:
-			eb = _client.build_edge_buffer_lod(_edge_pairs, 1.0, eye, NodeLod.NEAR_EDGE_CAP, _near_radius)
+			eb = _client.build_edge_buffer_lod(_edge_pairs, 1.0, eye, _edge_cap, _near_radius)
 			NodeLod.sync_edge_params(_edges.material_override, _ribbons.material_override)
 			ribbon_count = NodeLod.assign_stride(_ribbons, _client.ribbon_edge_buffer(), 16)
 		else:
@@ -370,12 +413,12 @@ func _lod_rebuild() -> void:
 	if _client.has_method("last_pack_ms"):
 		_pack_ms.append(float(_client.last_pack_ms()))
 	_edge_report = {"enabled": _edges != null, "pairs": _edge_pairs.size() / 2, "cylinders": edge_count,
-		"ribbons": ribbon_count, "near_edge_cap": NodeLod.NEAR_EDGE_CAP}
+		"ribbons": ribbon_count, "near_edge_cap": _edge_cap}
 	_lod_report = {
 		"enabled": true,
 		"near": near_count,
 		"impostors": far_count,
-		"near_cap": NodeLod.NEAR_CAP,
+		"near_cap": _gem_cap,
 		"near_radius_m": _near_radius if is_finite(_near_radius) else -1.0,
 		"triangles_est": near_count * 290 + far_count * 2,
 	}
@@ -455,9 +498,12 @@ func _populate_memory_layers(rows: int) -> void:
 		return
 	_memory.set_enabled(true)
 	var path := PackedStringArray()
-	for h in MEMORY_ROUTE_HOPS + 1:
+	for h in memory_route_hops + 1:
 		path.append(str((h * 7919) % rows))
-	_memory.apply_route_json('{"type":"memoryRoute","snapshotId":"%s","seq":1,"sentAt":1,"path":[%s],"sidecar":[%s]}' % [sid, ",".join(path), ",".join(path.slice(0, 5))])
+	var side := PackedStringArray()
+	for k in memory_route_sidecar:
+		side.append(str((k * 104729 + 13) % rows))
+	_memory.apply_route_json('{"type":"memoryRoute","snapshotId":"%s","seq":1,"sentAt":1,"path":[%s],"sidecar":[%s]}' % [sid, ",".join(path), ",".join(side)])
 	_memory.flush()
 
 

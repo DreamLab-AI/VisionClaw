@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.8
+version: 0.1.9
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.9 (2026-10-07): FrameBudget allocator (rust/src/frame_budget.rs) shared by the graph LOD tiers, memory cloud, route and burst pool; one-triangle sprites and bead discs; 5 % variance reserve; row emphasis for memory_flash on cloud sprites"
   - "0.1.8 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
   - "0.1.7 (2026-10-07): beat clock (relayed desktop clock, tap tempo, opt-in mic), memory_flash bursts, attention heat and desktop beam action encoding (ADR-2134); Swarm-roster teleport routed; Invariant 10 (mic opt-in, never recorded)"
   - "0.1.6 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame; memory layers held to the 16k triangle headroom the node LOD leaves"
@@ -257,13 +258,15 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   a malformed or short body is rejected in Rust and the previous snapshot stays.
 - **Placement and look.** The layer sits under `GraphRoot` at the server origin
   and `CloudRoot` carries the desktop `cloudScale` (5), so the cloud surrounds
-  the graph as it does on desktop. One MultiMesh of camera-facing quads
-  (`memory_point.gdshader`, billboarded on the main camera so both eyes agree;
+  the graph as it does on desktop. One MultiMesh of camera-facing sprites, each
+  a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
+  round mask discards the corners), billboarded on the main camera so both eyes
+  agree (`memory_point.gdshader`;
   stride 16 = 12 transform + 4 colour). Sprite diameter is the desktop
   size-attenuated point converted to world units (`7.5 · tan(37.5°) / 5`
   cloud-local). Colours come from the `cloudData.ts` tables (namespace / source
   type / age); a Rust test parses the TS source so they cannot drift. Level of
-  detail: at most 12 000 sprites (24 000 triangles), namespace-stratified, route
+  detail: at most 8 000 sprites (8 000 triangles), namespace-stratified, route
   and sidecar rows always kept. The cloud turns slowly only when reduced motion
   is off and no route is shown.
 - **HUD.** Graph tab, Layers grid: `Memory: Off/<count>/Locked/Waiting/Error`
@@ -287,13 +290,37 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   The answer ring pulses to xr-pulse's beat clock when it is locked. Under
   reduced motion the route is shown converged, with no comet, pulse ring or
   rotation. Glow is emissive/additive geometry only (Invariant 2).
-- **Budget.** Measured on HP (desktop GL window, 1k-node benchmark): +4 draw
-  calls (6 → 10). The cloud adds 12 000 triangles at 6 000 rows and 24 000 at
-  20 000 rows (capped). A 12-hop route adds 13 776 triangles; a 64-hop route
-  is bounded at about 30 000 (tube ≤ 19 200 at 320 samples, beads 80 per sphere).
-  The graph-only baseline of that benchmark is already 576 000 triangles (288 per
-  node sphere × 2 passes for the halo `next_pass`), far above the 100k budget;
-  see the open item below.
+- **Budget: one allocator for every layer.** `rust/src/frame_budget.rs`
+  (`FrameBudget.allocate`) divides the 100 000-triangle / 50-call frame between
+  the graph's LOD tiers, the cloud and the route, in two passes. Minimums, in
+  priority order: triangles outside the budgeted layers (`other_tris`: HUD,
+  avatars, controllers, measured by the scene), the graph's far tiers (an
+  impostor quad per node, a ribbon quad per edge, labelled nodes on the full
+  mesh), the route at one sample per hop, 2 000 cloud sprites, 16 gem nodes.
+  Then growth to demand in the same order: route curve detail (up to 121
+  centreline samples), cloud (up to 8 000 one-triangle sprites), hulls, gem
+  nodes (to 80), cylinder edges (to 96). Costs are imported from `lod.rs`,
+  `hulls.rs` and `memory_*.rs`, never copied. If the minimums alone overrun,
+  the minimums are returned with `over_budget` set. Route and sidecar rows are
+  always drawn, even past the cloud cap (at most 128, under the 2 000 floor).
+  Beads, halos and the comet are one-triangle camera-facing discs
+  (`memory_bead.gdshader`); an unshaded additive sphere draws as the same disc.
+  Rust tests recount every allocation independently and sweep a growing graph
+  to check the layers give way in priority order. The benchmark runs the
+  allocator once and applies its caps to all layers. Measured on HP (GL window,
+  Godot 4.6.1, 2026-10-07; the allocator's estimate equals the renderer's
+  count in every row):
+
+  | Nodes | Edges | Cloud rows | Route nodes / sidecar | Draw calls | Triangles | p99 | Gems / cylinders / hulls |
+  |---|---|---|---|---|---|---|---|
+  | 13 164 | 20 000 | — | — | 6 | 95 186 | 5.56 ms | 80 / 96 / 32 |
+  | 13 164 | 20 000 | 6 000 | 13 / 5 | 10 | 100 000 | 6.06 ms | 60 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 13 / 5 | 10 | 99 984 | 5.56 ms | 53 / 7 / 32 |
+  | 13 164 | 20 000 | 20 000 | 64 / 64 | 10 | 99 982 | 5.64 ms | 64 / 8 / 32 |
+
+  The benchmark scene has no HUD, avatars or controllers, so the headset fills
+  the same budget only once GraphScene passes their measured triangles as
+  `other_tris`.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the

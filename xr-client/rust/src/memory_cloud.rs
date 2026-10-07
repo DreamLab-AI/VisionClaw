@@ -40,12 +40,22 @@ pub const DESKTOP_ROTATION_PER_FRAME: f32 = 0.0005;
 /// Hard ceiling on a snapshot the headset will accept (the server clamps its
 /// sample to 20 000; anything far past that is a malformed or hostile payload).
 pub const MAX_SNAPSHOT_ROWS: usize = 50_000;
-/// Default sprite cap. Each sprite is a two-triangle quad, so 12 000 sprites
-/// spend 24 000 of the 100 000-triangle frame budget. The server's default
-/// sample (6000) draws in full; a 20 000-row sample is subsampled.
-pub const DEFAULT_SPRITE_CAP: usize = 12_000;
-/// Triangles per sprite (one camera-facing quad).
-pub const TRIANGLES_PER_SPRITE: usize = 2;
+/// Triangles per sprite: one equilateral triangle circumscribing the disc
+/// (`SPRITE_TRIANGLE_UV`), half a quad's cost for ~30 % more covered pixels,
+/// all but the disc discarded.
+pub const TRIANGLES_PER_SPRITE: usize = 1;
+/// Most sprites the cloud draws (its demand in `frame_budget`, which may cap
+/// it lower). The server's default sample (6000) draws in full; larger samples
+/// are level-of-detail subsampled.
+pub const DEFAULT_SPRITE_CAP: usize = 8_000;
+/// UVs of the sprite triangle; the mesh position is `uv - 0.5` (unit-diameter
+/// disc). Its incircle is the shader's disc (radius 0.5 about (0.5, 0.5)), so
+/// the round mask never loses a pixel.
+pub const SPRITE_TRIANGLE_UV: [[f32; 2]; 3] = [
+    [0.5, -0.5],
+    [0.5 - 0.866_025_4, 1.0],
+    [0.5 + 0.866_025_4, 1.0],
+];
 /// MultiMesh stride: 12 transform floats + 4 colour floats (`use_colors`).
 pub const CLOUD_STRIDE: usize = 16;
 
@@ -316,19 +326,23 @@ pub fn build_colours(snap: &CloudSnapshot, mode: ColourMode) -> Vec<[f32; 3]> {
 /// and sidecar hits must stay visible), then the remaining budget split across
 /// namespaces in proportion to their size (largest remainder, one row floor
 /// per namespace while budget lasts), each namespace taking evenly spaced
-/// rows. Deterministic, sorted ascending, never longer than `cap`.
+/// rows. Deterministic, sorted ascending, never longer than `cap` unless the
+/// pinned rows alone exceed it.
 pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec<u32> {
     let n = metadata.len();
     if n <= cap {
         return (0..n as u32).collect();
     }
+    // Pinned rows (the shown route and its sidecar hits) always draw, even past
+    // the cap: a route must land on visible points. At most MAX_PATH +
+    // MAX_SIDECAR rows, far under frame_budget::CLOUD_MIN_SPRITES.
     let mut chosen: HashSet<usize> = HashSet::new();
     for &p in pinned {
-        if p < n && chosen.len() < cap {
+        if p < n {
             chosen.insert(p);
         }
     }
-    let budget = cap - chosen.len();
+    let budget = cap.saturating_sub(chosen.len());
     // namespace → rows not already pinned, in row order; namespaces in first-seen order
     let mut order: Vec<&str> = Vec::new();
     let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
@@ -388,7 +402,6 @@ pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec
     }
     let mut out: Vec<u32> = chosen.into_iter().map(|i| i as u32).collect();
     out.sort_unstable();
-    out.truncate(cap);
     out
 }
 
@@ -816,6 +829,13 @@ impl MemoryCloud {
         sprite_local_size(DESKTOP_POINT_SIZE, DESKTOP_FOV_DEG, DESKTOP_CLOUD_SCALE)
     }
 
+    /// UVs of the one-triangle sprite (`SPRITE_TRIANGLE_UV`); the mesh
+    /// vertex is `Vector3(u - 0.5, 0.5 - v, 0)`.
+    #[func]
+    fn sprite_triangle_uv(&self) -> PackedVector2Array {
+        SPRITE_TRIANGLE_UV.iter().map(|&[u, v]| Vector2::new(u, v)).collect()
+    }
+
     #[func]
     fn cloud_scale(&self) -> f32 {
         DESKTOP_CLOUD_SCALE
@@ -1169,11 +1189,23 @@ mod tests {
     }
 
     #[test]
-    fn lod_with_more_pins_than_cap_truncates_to_cap() {
+    fn lod_with_more_pins_than_cap_draws_exactly_the_pins() {
         let m = meta_ns(&[("a", 100)]);
         let pins: Vec<usize> = (0..50).collect();
         let d = select_drawn(&m, 10, &pins);
-        assert_eq!(d.len(), 10);
+        assert_eq!(d, (0..50).collect::<Vec<u32>>(), "pins win over the cap, nothing else added");
+    }
+
+    #[test]
+    fn pinned_rows_draw_even_past_the_cap() {
+        let m = meta_ns(&[("a", 20), ("b", 20), ("c", 10)]);
+        let pins = [3usize, 17, 29, 44];
+        let d = select_drawn(&m, 2, &pins);
+        assert_eq!(d.len(), 4);
+        for p in pins {
+            assert!(d.contains(&(p as u32)), "{p} drawn");
+        }
+        assert!(crate::memory_route::MAX_PATH + crate::memory_route::MAX_SIDECAR < crate::frame_budget::CLOUD_MIN_SPRITES);
     }
 
     #[test]
@@ -1181,8 +1213,27 @@ mod tests {
         let mut st = CloudState::new();
         st.load(snap_json(20_000).as_bytes()).unwrap();
         assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP);
-        assert_eq!(st.triangle_estimate(), 24_000);
-        assert!(st.triangle_estimate() <= 25_000, "cloud's share of the 100k frame budget");
+        assert_eq!(st.triangle_estimate(), 8_000);
+        assert_eq!(st.triangle_estimate(), DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE);
+    }
+
+    #[test]
+    fn sprite_triangle_circumscribes_the_disc() {
+        // The fragment shader keeps UV distance <= 0.5 from (0.5, 0.5); every
+        // edge must sit exactly 0.5 from the centre so no disc pixel is lost.
+        let v = SPRITE_TRIANGLE_UV;
+        let c = [0.5f32, 0.5];
+        let cen = [(v[0][0] + v[1][0] + v[2][0]) / 3.0, (v[0][1] + v[1][1] + v[2][1]) / 3.0];
+        assert!((cen[0] - c[0]).abs() < 1e-6 && (cen[1] - c[1]).abs() < 1e-6, "centred");
+        for i in 0..3 {
+            let (a, b) = (v[i], v[(i + 1) % 3]);
+            let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+            let len = (ex * ex + ey * ey).sqrt();
+            let dist = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex).abs() / len;
+            assert!((dist - 0.5).abs() < 1e-5, "edge {i} sits {dist} from the centre");
+            let r = ((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt();
+            assert!((r - 1.0).abs() < 1e-5, "vertex {i} at circumradius {r}");
+        }
     }
 
     // ── buffer ──

@@ -365,11 +365,11 @@ var _parity: Node = null
 # Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
+var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 # Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
 # scripts/memory_cloud_layer.gd; the scene only wires it.
 const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
 var _memory_cloud = null  # MemoryCloudLayerScript instance (under GraphRoot)
-var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
