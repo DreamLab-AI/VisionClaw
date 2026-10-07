@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 37eb1a24b715f0cc63d2253f9b1e57162e98779d
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -109,3 +109,7 @@ At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into 
 `beam_starts_at_the_embodiment_anchor_when_one_is_published` and `retire_agents_removes_records_and_anchors_outright` pass. One code comment has gone stale: `graph_scene.gd:1410-1412` still contrasts the beams with "the 45 Hz alternation" that this merge removed. That is a code-comment fix, outside this record. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68).
 
 At 37eb1a24b, `graph_scene.gd` changes only in a comment: the beam-refresh note no longer cites the removed 45 Hz alternation. No code changed. **Still holds.**
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `xr-client/rust/src/binary_protocol.rs`: `chunks_exact` becomes `as_chunks` (same 52-byte records); a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 697df7350f474b3dfbba4eed1b3bd976dd35b061
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -48,3 +48,7 @@ Still unverified: a desktop and headset filmed side by side (phase error < 30 ms
 The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
 
 `beat_pulse.gd` now writes `beat_pulse` to the live `NodesHaloMulti`, `EdgesMulti` and `EdgesRibbonMulti` materials, plus any remaining sphere-shell `next_pass`. The GUT test asserts that each live layer declares the uniform and carries the pulse, and it was red before this change. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-protocol/src/socket_flow_messages.rs`: rustfmt only; `src/actors/client_coordinator_actor.rs`: the V3 encoder call passes its five class-id sets as one `NodeClassIds` (same sets, same bytes); struct-literal `ClientFilter` in tests; `src/handlers/socket_flow_handler/session_relay.rs`: rustfmt only; `xr-client/rust/src/beat.rs`: the NaN-rejecting `!(x > 0.0)` guards are written as explicit `is_nan() ||` checks (same truth table); `xr-client/rust/src/pulse.rs`: a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**

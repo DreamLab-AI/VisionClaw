@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/utils/binary_protocol.rs]
 owner: jjohare
 review_trigger: node count approaching 2^26, or promotion of the debug_assert ceiling to a runtime guard
@@ -186,3 +186,7 @@ takes the loud path — the added test asserts `get_node_type(0x2000_0001)` is
 `Unknown` and that `remap_wire_id` still reports the overflow. The
 debug_assert-plus-`log::error!`-then-mask behaviour for genuine over-range ids
 stands. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/utils/binary_protocol.rs`: `encode_node_data_extended_with_sssp` takes the five class-id sets as one `NodeClassIds` struct; the flag precedence and encoded bytes are unchanged. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

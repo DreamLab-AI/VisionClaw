@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -166,3 +166,7 @@ this section repairs.
 ## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
 
 **Governed change:** in `src/handlers/socket_flow_handler/`, `mod.rs` registers `session_relay`, and `types.rs` adds the relay throttles, a one-shot unauthenticated-relay flag and `serverTime` on the pong. In `actor_messages.rs`, `SetClientId` now forwards an upgrade-time pubkey to the coordinator. **Decision unaffected.** No code removed by ADR-2054 comes back, and every `REMOVED (ADR-2054):` marker is intact (grep). The new fields are read on the live relay path, with unit and probe-actor tests. Verified with `cargo check --lib --tests` and the 11 relay/coordinator tests.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/gpu/mod.rs`: the deprecated, unused `dynamic_buffer_manager` module deleted; `src/handlers/socket_flow_handler/actor_messages.rs`: the V3 encoder call passes `NodeClassIds::default()` for the five empty class sets; `src/handlers/socket_flow_handler/types.rs`: the never-called change-detection method, its two maps and deadband fields deleted; `get_client_id`'s identical branches merged; `tests/gpu_safety_tests.rs`: a never-read accumulator and index loops tidied. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

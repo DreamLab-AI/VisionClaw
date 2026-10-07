@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/services/data_reconciliation.rs, crates/visionclaw-adapters/src/provenance_emitter.rs, crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs, src/services/ontology_mutation_service.rs]
 owner: jjohare
 review_trigger: a GDPR/right-to-erasure obligation landing on provenance-recorded subjects, or introduction of a redaction/crypto-shred mechanism
@@ -230,3 +230,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-10-02 at 7b6330608 (fresh-store ingestion fix)
 
 **Governed changes since `853c4a069`:** `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs` changes in two places. First, the assert rebuild (`:1594`) and `clear_inferred_graph` (`:695`) use `CLEAR SILENT GRAPH`, so a first ingest into a store with no assert graph reaches its `INSERT`. Second, the assert rebuild also writes `sourceDomain`/`maturity` literals per node. `provenance_emitter.rs`, `data_reconciliation.rs` and `ontology_mutation_service.rs` are unchanged. **Decision unaffected.** Both `CLEAR`s target `GRAPH_ONTOLOGY` / `GRAPH_ONTOLOGY_INFERRED`, never `GRAPH_PROVENANCE` (`:57`). No `CLEAR`, `DROP` or `DELETE` in the file names the provenance graph, and no PROV-O write changed. `verified_commit` moved to the landing commit. Source reading only; no gate ran for this re-anchor.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs`: struct-literal `OwlClass` defaults, a `SelectRows` type alias, `or_default()`, a collapsed `if`, the unused `P_COMMENT` constant deleted; `src/services/ontology_mutation_service.rs`: `split(..).last()` becomes `next_back()`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

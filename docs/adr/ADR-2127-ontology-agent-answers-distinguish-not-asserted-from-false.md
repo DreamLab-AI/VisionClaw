@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -49,3 +49,7 @@ Not implemented. Evidence of the current state at `c4570c081`: `ontology_tools.r
 
 - Defect fix 7 (2026-10-05): fixed `clippy::redundant_closure` at `open_world.rs:478` (`.and_then(expand)`). `cargo clippy -p visionclaw-ontology --no-deps --all-targets -- -D warnings 2>&1 | grep -c open_world` now prints 0. The remaining errors are pre-existing debt in other modules. `cargo test -p visionclaw-ontology --lib`: 148 passed.
 - Defect fix 8, a cheap cache check (2026-10-05): the repository exposes no sound store revision. The Oxigraph `Store` is shared through `store()` with direct writers (GitHub sync, the decision handler, the mutation service), so a repository-side counter would serve a stale generation. `loaded()` therefore still reads the axioms, but it no longer materialises every class. The new `OntologyRepository::class_iris` (a default method, overridden in Oxigraph with a `SELECT DISTINCT ?s` probe) supplies the class set. The Whelk closure is keyed on the new `WhelkInferenceEngine::generation` counter, which is bumped on every write to the cached closure, instead of being cloned and hashed. The hierarchy is read only on a rebuild, under the same guard as the generation it is keyed by. In place, `cargo test -p visionclaw-adapters --lib` gives 78 passed (the 2 new tests were red first). The root service was checked in a /dev/shm scratch harness compiling `loaded`, `fingerprint_of`, `loaded_from` and `loaded_for` verbatim over an in-memory Oxigraph store. It shows no rebuild when nothing changed (`Arc::ptr_eq`), and a rebuild on a new axiom, a new class or a Whelk reload, with the answers following the change. On 9,000 classes with 2 KB bodies, the cache check per request fell from 378–413 ms to 135 ms. Host run still owed: `cargo test --test ontology_agent_integration_test`.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-ontology/src/lib.rs`: crate-doc list indentation; `src/handlers/ontology_agent_handler.rs`: `split(..).last()` becomes `next_back()` (same element); `src/services/ontology_query_service.rs`: Levenshtein matrix initialised with iterator loops (same cells); `tests/ontology_agent_integration_test.rs`: rustfmt only. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

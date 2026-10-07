@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
@@ -194,3 +194,7 @@ failure modes and the final panic when neither compilation nor fallback yields
 PTX are all present and unchanged (`build.rs:161-240`). Dropping a kernel-free
 translation unit removes a module that could never have been a tested kernel.
 `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-gpu/build.rs`: `expect(&format!(..))` becomes `unwrap_or_else(|_| panic!(..))` (same message). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**

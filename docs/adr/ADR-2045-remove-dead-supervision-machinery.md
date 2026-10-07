@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c0906ed6e201dd09b3e9baab642c0b0b67adca88
+verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express
@@ -190,3 +190,7 @@ discharged — so this record moves from `partial` to `complete` and gains
 ## Re-verification — 2026-10-02 at c0906ed6e201dd09b3e9baab642c0b0b67adca88
 
 `c0906ed6e` adds one forwarding handler to `graph_service_supervisor.rs` (`UpdateChainPayments` to `GraphStateActor`, the same shape as `UpdateBotsGraph`). It does not touch `parent_supervisor`, `SetParentSupervisor` or the `Escalate` branch, so the coupling this record leaves for follow-up is unchanged. The decision holds unchanged.
+
+## Re-verification — 2026-10-07 (clippy sweep)
+
+At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-actors/src/supervisor.rs`: a needless borrow and an unused test import removed; `src/actors/graph_service_supervisor.rs`: `UpdateSimulationParams` is boxed in the two message enums and unboxed when forwarded; auto-trigger scheduling passes the fn pointer directly; `src/actors/mod.rs`: `PhysicsState`'s field-wise `Default` becomes `#[derive(Default)]`; `tests/orchestration_improvements_test.rs`: `vec!` to array; `(0 + poll)` to `poll`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
