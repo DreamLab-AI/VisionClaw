@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.3
+version: 0.1.4
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.4 (2026-10-07): desktop parity — domain palette (default) with community toggle, inbound settingsUpdated/filter/graphUpdated sync incl. physics read-back, cluster hulls as one ArrayMesh; project.godot comment corrected; benchmark triangle-budget divergence recorded. No invariant changed."
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1: flag self-contradictory docstring on is_directed_hierarchy_relation (excludes vs accepts 'hierarchical')"
@@ -14,6 +15,11 @@ sources:
   - xr-client/scripts/hud.gd
   - xr-client/scripts/graph_scene.gd
   - xr-client/rust/src/render_store.rs
+  - xr-client/rust/src/domain_palette.rs
+  - xr-client/rust/src/settings_sync.rs
+  - xr-client/rust/src/hulls.rs
+  - xr-client/scripts/graph_parity.gd
+  - xr-client/materials/cluster_hull.gdshader
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/README.md
   - src/handlers/layout_handler.rs
@@ -198,15 +204,85 @@ bare label was accepted, so from `7b6330608` each domain root ranked as the
 child of its own members (live census: 6400 membership edges in a 16196-edge
 rank set; every root at rank 1 below 36-533 of its members).
 
+### Desktop parity: domain colour, settings sync, cluster hulls (2026-10-07)
+Three desktop behaviours ported under the existing invariants (audit WP1, WP2,
+WP4). Rust owns every rule; `scripts/graph_parity.gd` is the only scene-side
+owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
+
+- **Domain palette (default).** `domain_palette.rs` is a deliberate copy of
+  `client/src/features/graph/utils/domainColors.ts` (`DOMAIN_COLORS`,
+  `getDomainColor` alias rules, fallback `#90A4AE`) plus the `GemNodes.tsx` hub
+  lift (saturation `+min(cc/30, 0.1)` ≤ 0.95, lightness `+min(cc/40, 0.06)` ≤ 0.8;
+  no authority term — the XR wire has none). The lift runs in three.js's
+  *linear* HSL and is returned sRGB-encoded, matching what the desktop displays;
+  ground-truth hexes come from the worktree's three.js 0.183.0.
+  `tests/domain_palette_parity.rs` parses the TS file **and** `hud.gd`'s
+  `KEY_DOMAIN_SWATCHES` / `KEY_HULL_SWATCHES`, so the table, its desktop source
+  and the Key tab cannot drift apart. Domain comes from `initialGraphLoad`
+  `metadata.domain ?? metadata.source_domain`. Precedence is unchanged: query
+  mark, then agent status, then the base colour; the anomaly red blend applies
+  in both modes (`render_store::anomaly_blend`). The Graph tab's
+  **Colour: Domain / Community** button switches the base colour.
+- **Inbound settings and filter sync.** `settings_sync.rs` mirrors
+  `textMessageHandler.ts`: `settingsUpdated` (ADR-2047) is dropped when its
+  timestamp is ≤ the last applied for that category, or when `updatedBy` is this
+  session's pubkey (`set_own_pubkey`); `nodeFilter` is applied to the render
+  store's draw domain with the desktop `useGraphFiltering` predicate (linked_page
+  gate, quality `quality_score ?? quality ?? qualityScore` else `min(1, degree/10)`,
+  authority else 1.0, AND/OR — note the desktop/server OR mode admits everything
+  when only one check is on); agents are never filtered; filter-hidden nodes also
+  drop their edges and search hits. `physics` triggers a `GET
+  /api/settings/physics` whose body updates the HUD's tracked values (repelK,
+  restLength, Hierarchy, shells, planes, 3D/Flat) — this closes the old one-way
+  write, where a peer's change left stale button faces. The read waits while a
+  local write is in flight. `graphUpdated` is coalesced by `RefetchGate` into
+  `requestInitialData`, held to the server's 30 s per-connection cooldown
+  (`position_updates.rs:382`) so the last change is never dropped. Receipt never
+  writes back; writes stay on the HUD-press NIP-98 path (Invariant 6).
+- **Cluster hulls.** `hulls.rs` follows `ClusterHulls.tsx`: group by
+  `cluster_id` (V3 offset 36) when any node has one, otherwise — only in
+  *Communities* mode, the desktop's opt-in `communityFallback` — by Louvain
+  community; drop clusters < 4, keep the 32 largest; pad 15 % from the centroid;
+  extrude flat clusters ±35 along the thinnest axis; desktop palettes
+  (`GPU_CLUSTER_COLORS`, community HSL in linear space). Each cluster is reduced
+  to its extreme points along 64 fixed directions, so a hull is ≤ 124 triangles
+  and the layer ≤ 3 968; all hulls are one `ArrayMesh` surface under `GraphRoot`
+  (**one draw call**), drawn by `materials/cluster_hull.gdshader` (unshaded,
+  `blend_mix`, no depth write, double-sided, opacity 0.08 plus a fresnel edge —
+  no post-process, no screen texture). Only drawn nodes are hulled. The scene
+  polls at 2 Hz and Rust skips the build unless a drawn position moved ≥ 1
+  server unit. HUD **Hulls: Off / Clusters / Communities** cycles the source;
+  without a server clustering run, *Clusters* honestly shows nothing (ADR-031 D6).
+  Measured on HP (Godot 4.6.1, opengl3, `perf/benchmark_scene.tscn` at the 32-hull
+  cap): draw calls 6 → 7, triangles +926.
+
 ## Known divergences & open items
-- **project.godot vs runtime.** File says Godot 4.3 / Forward Mobile
-  (`project.godot:12`); the working build is 4.6.1-stable Compatibility. Still
-  open, and deliberately so: `config/features` is editor-managed metadata, Godot
-  is **not installed in this environment**, and hand-editing it cannot be
-  verified — the editor rewrites that array on save. Re-pinning is a task for the
-  next session on a machine with the 4.6.1 editor, not a text edit. Documented in
-  `xr-client/README.md:15-18` ("read 4.3 as the pinned editor of the day") as
-  well as here. Assessed 2026-09-05 (ADR-2079 scope review).
+- **project.godot vs runtime.** `config/features` still says Godot 4.3 / Forward
+  Mobile; the working build is 4.6.1-stable Compatibility. The header comment was
+  corrected in text on 2026-10-07 (it now states the verified runtime). The array
+  itself stays open: it is editor-managed metadata (4.6.1 `--import` on HP leaves
+  the file byte-identical), and its renderer tag is the Quest renderer decision
+  (`rendering_method.mobile="mobile"` vs the Compatibility runtime that works),
+  which belongs to audit WP0 with an ADR and a headset receipt (Invariant 1). A
+  hand-edit would pre-empt that decision. Documented in `xr-client/README.md:15-18`
+  as well as here.
+- **Benchmark triangle budget fails before any feature layer.**
+  `perf/benchmark_scene.tscn` uses the production node mesh (16×8 sphere plus the
+  halo `next_pass`, ≈ 576 triangles per node): measured on HP (opengl3, 2026-10-07)
+  at 576 000 triangles for the 1 000-node fixture, so the scene exits 1 against
+  the PRD-008 100 k budget with or without hulls (`XR_BENCH_HULLS=0` for the A/B
+  baseline). At the 13k-node production density the node layer alone is ≈ 7.5 M.
+  The budget and the node geometry disagree; resolving it (LOD, impostors or a
+  restated budget) is an owner decision, not recorded here as done.
+- **Instance colour is treated as linear.** `gem.tres` uses
+  `vertex_color_use_as_albedo` without `vertex_color_is_srgb`, so every node palette
+  (community, query, agent, and now domain) shows lighter than its sRGB swatch and
+  than the desktop hex. Domain colours and hulls keep that convention, so a hull
+  and its nodes read as one hue. Flipping the flag changes every palette at once
+  and needs a headset look review.
+- **GUT on Godot 4.6.** GUT 9.3.0 does not compile on Godot ≥ 4.5 (its `Logger`
+  shadows the new native class); GUT 9.7.1 runs the suite (118/118 on HP,
+  2026-10-07). Install the newer GUT wherever the suite runs.
 - **Quest 3 is unmeasured.** Quest 3 is the sole *ship* target
   (`project.godot:2`, README) but the APK is **unbuilt** and the cross-build is
   frozen — no Android NDK is provisioned in this environment (README line 6).
@@ -244,7 +320,9 @@ rank set; every root at rank 1 below 36-533 of its members).
   (`render_store.rs`), agent status halo + Swarm dot (`SWARM_STATUS_COLORS`),
   edge tints (`edge_flow.gdshader`), wand ray + panel states, avatar states.
   The swatch constants are duplicated from their sources by design (same
-  posture as `SWARM_STATUS_COLORS`); a palette change must update both.
+  posture as `SWARM_STATUS_COLORS`); a palette change must update both. Since
+  2026-10-07 the Key also lists the domain palette (default colour mode) and the
+  hull palette, and those two tables are parity-tested from Rust.
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
@@ -270,8 +348,10 @@ rank set; every root at rank 1 below 36-533 of its members).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(226 headless tests as of 2026-09-05, <1 s, no headset/Godot/network needed; the
-README's "141" is stale — ADR-2076). Any change
+(358 headless tests — 259 library + 99 integration — as of 2026-10-07, <1 s, no
+headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
+(`tests/unit`) needs the 4.6.1 editor, the native library built for the host, and
+GUT ≥ 9.5. Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

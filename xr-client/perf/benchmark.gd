@@ -129,6 +129,10 @@ func _build_report(elapsed_s: float) -> Dictionary:
 # bound. Estimate: one surface = 1 draw call; ≤ 124 triangles per hull (hulls.rs
 # MAX_TRIS_PER_HULL) → ≤ 3 968 triangles at the cap.
 func _add_hull_layer(fixture: Dictionary) -> void:
+	# XR_BENCH_HULLS=0 runs the same scene without the layer (A/B baseline).
+	if OS.get_environment("XR_BENCH_HULLS") == "0":
+		_hull_report = {"enabled": false, "reason": "XR_BENCH_HULLS=0"}
+		return
 	if not ClassDB.class_exists("BinaryProtocolClient"):
 		_hull_report = {"enabled": false, "reason": "gdext library not loaded"}
 		return

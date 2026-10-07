@@ -194,7 +194,7 @@ pub fn group_points(points: &[HullPoint], source: HullSource, max_hulls: usize) 
         .filter(|(_, pts)| pts.len() >= MIN_CLUSTER_SIZE)
         .collect();
     // Stable sort on size only: BTreeMap order already breaks ties by key.
-    ranked.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    ranked.sort_by_key(|g| std::cmp::Reverse(g.1.len()));
     ranked.truncate(max_hulls.min(MAX_HULLS_CEILING));
     ranked
 }
