@@ -38,7 +38,12 @@ pub fn thread_cpu_ns() -> u64 {
 /// Malformed or reversed ranges are skipped rather than panicking.
 pub fn parse_cpu_list(list: &str) -> Vec<usize> {
     let mut cpus = Vec::new();
-    for part in list.trim().split(',').map(str::trim).filter(|p| !p.is_empty()) {
+    for part in list
+        .trim()
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
         match part.split_once('-') {
             Some((a, b)) => {
                 if let (Ok(a), Ok(b)) = (a.parse::<usize>(), b.parse::<usize>()) {
@@ -142,11 +147,18 @@ mod tests {
 
     #[test]
     fn cpu_lists_parse_like_sysfs_writes_them() {
-        assert_eq!(parse_cpu_list("0-5,24-29"), vec![0, 1, 2, 3, 4, 5, 24, 25, 26, 27, 28, 29]);
+        assert_eq!(
+            parse_cpu_list("0-5,24-29"),
+            vec![0, 1, 2, 3, 4, 5, 24, 25, 26, 27, 28, 29]
+        );
         assert_eq!(parse_cpu_list("7"), vec![7]);
         assert_eq!(parse_cpu_list("0,2-3\n"), vec![0, 2, 3]);
         assert_eq!(parse_cpu_list(""), Vec::<usize>::new());
-        assert_eq!(parse_cpu_list("3-1,x,4"), vec![4], "malformed ranges are skipped, never panic");
+        assert_eq!(
+            parse_cpu_list("3-1,x,4"),
+            vec![4],
+            "malformed ranges are skipped, never panic"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -158,12 +170,22 @@ mod tests {
                 return; // no sysfs cache topology (some containers): nothing to pin
             };
             let cpu = unsafe { libc::sched_getcpu() };
-            assert!(cpu >= 0 && domain.contains(&(cpu as usize)), "still on a CPU of the domain");
+            assert!(
+                cpu >= 0 && domain.contains(&(cpu as usize)),
+                "still on a CPU of the domain"
+            );
             let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
-            let rc = unsafe { libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &mut set) };
+            let rc = unsafe {
+                libc::sched_getaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &mut set)
+            };
             assert_eq!(rc, 0);
-            let allowed: Vec<usize> = (0..libc::CPU_SETSIZE as usize).filter(|&c| unsafe { libc::CPU_ISSET(c, &set) }).collect();
-            assert_eq!(allowed, domain, "affinity is exactly the returned set (L3 domain within the cpuset)");
+            let allowed: Vec<usize> = (0..libc::CPU_SETSIZE as usize)
+                .filter(|&c| unsafe { libc::CPU_ISSET(c, &set) })
+                .collect();
+            assert_eq!(
+                allowed, domain,
+                "affinity is exactly the returned set (L3 domain within the cpuset)"
+            );
         })
         .join()
         .unwrap();
