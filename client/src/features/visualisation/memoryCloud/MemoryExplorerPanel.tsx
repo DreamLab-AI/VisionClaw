@@ -23,8 +23,10 @@ import { useMemoryCloudStore } from './memoryCloudInstance';
 import { sidecarAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
 import { focusMemoryPoint } from '../cameraFocus';
 import { ROUTE_PALETTE, TOTAL_DUR, GROW_DUR } from './routeMath';
-import { loadAudioFile, clearAudio, startDirector, stopDirector } from './cinematicSession';
+import { startDirector, stopDirector } from './cinematicSession';
 import { pickRecorderMime } from './recorder';
+import { css, pct } from './panelStyles';
+import { SoundSection, SpotifyChip, SpotifyPopover, useTapKey } from './SoundControls';
 import type { TrajectoryView } from '../memoryTrajectory/types';
 
 const E = 'visualisation.embeddingCloud.';
@@ -36,50 +38,7 @@ const VIEWS: Array<{ id: TrajectoryView; label: string; hint: string }> = [
 ];
 const HEALTH_POLL_MS = 30_000;
 
-const css = {
-  panel: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 368,
-    maxWidth: 'calc(100vw - 28px)',
-    maxHeight: 'calc(100% - 84px)',
-    overflowY: 'auto',
-    zIndex: 20,
-    padding: 12,
-    color: '#e9edf5',
-    fontSize: 12,
-    fontFamily: 'Inter, system-ui, sans-serif',
-    background: 'rgba(5, 6, 10, 0.78)',
-  } as React.CSSProperties,
-  row: { display: 'flex', gap: 6, alignItems: 'center' } as React.CSSProperties,
-  label: { color: '#8b93a7', fontSize: 11 } as React.CSSProperties,
-  mono: { fontFamily: '"Geist Mono", ui-monospace, monospace', fontSize: 11 } as React.CSSProperties,
-  input: {
-    flex: 1,
-    minWidth: 0,
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 6,
-    color: '#e9edf5',
-    padding: '6px 8px',
-    fontSize: 12,
-  } as React.CSSProperties,
-  button: (on = false): React.CSSProperties => ({
-    background: on ? 'rgba(126, 240, 207, 0.16)' : 'rgba(255,255,255,0.06)',
-    border: `1px solid ${on ? ROUTE_PALETTE.mint : 'rgba(255,255,255,0.14)'}`,
-    color: on ? ROUTE_PALETTE.mint : '#e9edf5',
-    borderRadius: 6,
-    padding: '5px 9px',
-    fontSize: 12,
-    cursor: 'pointer',
-  }),
-  section: { borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10, marginTop: 10 } as React.CSSProperties,
-  stat: { display: 'flex', flexDirection: 'column', minWidth: 0 } as React.CSSProperties,
-};
-
 const fmtMs = (ms: number) => (ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : `${ms.toFixed(ms < 10 ? 2 : 0)} ms`);
-const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
 const recallColour = (r: number) => (r >= 0.9 ? ROUTE_PALETTE.mint : r >= 0.7 ? ROUTE_PALETTE.tip : ROUTE_PALETTE.miss);
 
 /** Recall sparkline over recent queries (0..1 axis). */
@@ -468,7 +427,6 @@ const CinematicSection: React.FC = () => {
   const cinematic = useMemoryCloudStore((s) => s.cinematic);
   const hasRun = useMemoryCloudStore((s) => !!s.query.run);
   const recorder = useMemo(() => pickRecorderMime(), []);
-  const ids = useId();
 
   return (
     <div style={css.section} aria-label="Cinematic">
@@ -509,31 +467,8 @@ const CinematicSection: React.FC = () => {
         </div>
       )}
 
-      <div style={{ ...css.row, marginTop: 8 }}>
-        <label htmlFor={`${ids}-audio`} style={css.label}>Beat sync</label>
-        <input
-          id={`${ids}-audio`}
-          type="file"
-          accept="audio/*"
-          style={{ fontSize: 11, flex: 1, minWidth: 0 }}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void loadAudioFile(f);
-            e.target.value = '';
-          }}
-        />
-      </div>
-      {cinematic.audio && (
-        <div style={{ ...css.row, marginTop: 4, justifyContent: 'space-between' }}>
-          <span style={css.mono}>
-            {cinematic.audio.name} · {cinematic.audio.bpm.toFixed(1)} bpm · confidence {cinematic.audio.confidence.toFixed(2)}
-          </span>
-          <button type="button" style={css.button()} onClick={clearAudio}>Remove</button>
-        </div>
-      )}
-      {cinematic.audioError && <div role="alert" style={{ color: ROUTE_PALETTE.miss, marginTop: 4 }}>{cinematic.audioError}</div>}
       <p style={{ ...css.label, marginTop: 6 }}>
-        The audio file is decoded on this device and never uploaded.{' '}
+        Beat sync follows the sound source above.{' '}
         {recorder ? `Video exports as ${recorder.ext.toUpperCase()}.` : 'Video export is unavailable in this browser.'}
       </p>
     </div>
@@ -544,6 +479,9 @@ const MemoryExplorerPanel: React.FC = () => {
   const cfg = useSettingsStore((s) => s.settings?.visualisation?.embeddingCloud) as EmbeddingCloudSettings | undefined;
   const [tab, setTab] = useState<'explore' | 'health'>('explore');
   const [collapsed, setCollapsed] = useState(false);
+  const [spotifyOpen, setSpotifyOpen] = useState(false);
+  const spotifyId = useId();
+  useTapKey();
   const setSetting = (key: string, value: unknown) => useSettingsStore.getState().set(`${E}${key}`, value);
 
   return (
@@ -552,6 +490,8 @@ const MemoryExplorerPanel: React.FC = () => {
         <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>
           <span style={{ color: ROUTE_PALETTE.mint }}>●</span> Memory explorer
         </span>
+        <div style={css.row}>
+        <SpotifyChip open={spotifyOpen} onToggle={() => setSpotifyOpen((o) => !o)} popoverId={spotifyId} />
         <div style={css.row} role="tablist" aria-label="Explorer sections">
           {!collapsed && (['explore', 'health'] as const).map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} style={css.button(tab === t)} onClick={() => setTab(t)}>
@@ -562,10 +502,13 @@ const MemoryExplorerPanel: React.FC = () => {
             {collapsed ? '▸' : '▾'}
           </button>
         </div>
+        </div>
       </div>
+      <SpotifyPopover open={spotifyOpen} id={spotifyId} />
       {!collapsed && (
         <div role="tabpanel">
           {tab === 'explore' ? <ExploreTab cfg={cfg} setSetting={setSetting} /> : <HealthTab />}
+          {tab === 'explore' && <SoundSection cinematicOn={!!cfg?.cinematic} />}
           {tab === 'explore' && cfg?.cinematic && <CinematicSection />}
         </div>
       )}

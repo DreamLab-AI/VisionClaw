@@ -8,14 +8,13 @@
  * anywhere.
  */
 
-import { analyseAudioBuffer, beatClock, decodeAudioFile, type BeatClock, type TempoEstimate } from './beat';
+import { analyseAudioBuffer, decodeAudioFile, type TempoEstimate } from './beat';
 import { useMemoryCloudStore } from './memoryCloudInstance';
 
 export interface CinematicSession {
   audioCtx: AudioContext | null;
   audioBuffer: AudioBuffer | null;
   tempo: TempoEstimate | null;
-  clock: BeatClock | null;
   /** set by the panel before startCinematic() to record the run */
   recordRequested: boolean;
   /** aborts an export in progress */
@@ -26,7 +25,6 @@ export const cinematicSession: CinematicSession = {
   audioCtx: null,
   audioBuffer: null,
   tempo: null,
-  clock: null,
   recordRequested: false,
   exportAbort: null,
 };
@@ -52,7 +50,6 @@ export async function loadAudioFile(file: File): Promise<void> {
     const tempo = analyseAudioBuffer(buffer);
     cinematicSession.audioBuffer = buffer;
     cinematicSession.tempo = tempo;
-    cinematicSession.clock = beatClock(tempo);
     store.setCinematic({
       audio: { name: file.name, duration: buffer.duration, bpm: tempo.bpm, offset: tempo.offset, confidence: tempo.confidence },
       audioError: null,
@@ -66,7 +63,6 @@ export async function loadAudioFile(file: File): Promise<void> {
 export function clearAudio(): void {
   cinematicSession.audioBuffer = null;
   cinematicSession.tempo = null;
-  cinematicSession.clock = null;
   useMemoryCloudStore.getState().setCinematic({ audio: null });
 }
 

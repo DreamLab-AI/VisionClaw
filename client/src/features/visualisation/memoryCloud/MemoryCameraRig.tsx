@@ -7,7 +7,7 @@
  *  - Cinematic director: when the store's cinematic run starts, it compiles a
  *    shot timeline over the current route (director.ts), drives the camera and
  *    the route's playback clock from it, plays the loaded audio file with
- *    beat sync (beat.ts → beatState → glow and comet pulse), and optionally
+ *    beat sync (store.beat via beatClock.ts → beatState → glow and comet pulse), and optionally
  *    records the canvas (recorder.ts) for download.
  *
  * Renders nothing; lives inside the cloud group only to share its transform.
@@ -21,6 +21,7 @@ import { useMemoryCloudStore } from './memoryCloudInstance';
 import { beatState, directorClock, routeChannel } from './memoryCloudStore';
 import { compileDirector, type Director } from './director';
 import { cinematicSession, ensureAudioContext } from './cinematicSession';
+import { beatAt, fromTempoEstimate } from './beatClock';
 import { recordCanvas, exportFilename, downloadBlob, RecorderError } from './recorder';
 import { useReducedMotion } from './useReducedMotion';
 import type { Vec3 } from '../memoryTrajectory/types';
@@ -46,7 +47,6 @@ interface Run {
   t0: number;
   source: AudioBufferSourceNode | null;
   gain: GainNode | null;
-  audioT0: number;
   controlsWereEnabled: boolean;
   /** reached the end of the timeline (a recording then finishes on its own) */
   completed: boolean;
@@ -155,9 +155,10 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
     // audio (optional): play the decoded file; with recording, also into the capture stream
     let source: AudioBufferSourceNode | null = null;
     let gain: GainNode | null = null;
-    let audioT0 = 0;
     let streamDest: MediaStreamAudioDestinationNode | null = null;
-    const ctx = cinematicSession.audioBuffer ? ensureAudioContext() : null;
+    // the file plays only when it is the chosen beat source
+    const playFile = store.beat.source === 'file' && cinematicSession.audioBuffer !== null;
+    const ctx = playFile ? ensureAudioContext() : null;
     if (ctx && cinematicSession.audioBuffer) {
       void ctx.resume();
       source = ctx.createBufferSource();
@@ -171,8 +172,12 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
         streamDest = ctx.createMediaStreamDestination();
         gain.connect(streamDest);
       }
-      audioT0 = ctx.currentTime;
       source.start();
+      if (cinematicSession.tempo) {
+        // lock the shared beat clock to when the audio reaches the speakers
+        const latencyMs = ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
+        store.setBeat(fromTempoEstimate(cinematicSession.tempo, Date.now() + latencyMs));
+      }
     }
 
     run.current = {
@@ -180,7 +185,6 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
       t0: performance.now(),
       source,
       gain,
-      audioT0,
       controlsWereEnabled: controls?.enabled ?? true,
       completed: false,
     };
@@ -235,8 +239,9 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
       // an early stop cancels a recording still running
       if (!r?.completed) cinematicSession.exportAbort?.abort();
       directorClock.active = false;
-      beatState.on = false;
-      beatState.pulse = beatState.bar = beatState.phase = 0;
+      const beatNow = useMemoryCloudStore.getState().beat;
+      // the file is silent again: unlock its clock
+      if (beatNow.source === 'file' && beatNow.phaseAt > 0) useMemoryCloudStore.getState().setBeat({ ...beatNow, phaseAt: 0 });
       if (controls) {
         controls.enabled = r?.controlsWereEnabled ?? true;
         controls.update();
@@ -251,6 +256,12 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
 
   useFrame(() => {
     const now = performance.now();
+    // one beat driver for every source (file during the director, tap, Spotify + tap)
+    const sample = reducedMotion ? null : beatAt(useMemoryCloudStore.getState().beat, Date.now());
+    beatState.on = sample?.on ?? false;
+    beatState.pulse = sample?.pulse ?? 0;
+    beatState.bar = sample?.bar ?? 0;
+    beatState.phase = sample?.phase ?? 0;
     const r = run.current;
     if (r) {
       const t = (now - r.t0) / 1000;
@@ -262,17 +273,6 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
       }
       directorClock.el = r.director.playbackAt(t);
       applyPose(r.director.poseAt(t));
-      const clk = cinematicSession.clock;
-      const ctx = cinematicSession.audioCtx;
-      if (clk && r.source && ctx && !reducedMotion) {
-        const at = ctx.currentTime - r.audioT0;
-        beatState.on = true;
-        beatState.pulse = clk.pulse(at);
-        beatState.bar = clk.barPulse(at);
-        beatState.phase = clk.phase(at);
-      } else {
-        beatState.on = false;
-      }
       return;
     }
     const f = flight.current;

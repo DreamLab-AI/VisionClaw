@@ -12,6 +12,15 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type * as api from './api';
 import { isAbortError, MemoryCloudApiError, type VectorBundle } from './api';
+import {
+  OFF_BEAT,
+  createTapTempo,
+  nudgeBpm,
+  nudgePhase,
+  type BeatClockState,
+  type BeatSource,
+} from './beatClock';
+import { parseSpotifyLink, type SpotifyLink } from './spotifyLink';
 import type {
   MemoryCloudHealth,
   MemoryCloudHit,
@@ -149,6 +158,9 @@ export interface MemoryCloudState {
   recallHistory: number[];
   flashes: Record<FlashTargets['match'], number>;
   cinematic: CinematicState;
+  /** serialisable beat clock: { bpm, phaseAt (epoch ms), confidence, source } */
+  beat: BeatClockState;
+  spotify: { link: SpotifyLink | null; error: string | null };
 
   loadSnapshot(): Promise<void>;
   refreshHealth(): Promise<void>;
@@ -165,6 +177,16 @@ export interface MemoryCloudState {
   resetLearning(): void;
   recordFlash(match: FlashTargets['match']): void;
   setCinematic(patch: Partial<CinematicState>): void;
+  /** choose the beat source; tap and Spotify resume the tapped tempo, file unlocks until the director plays it */
+  setBeatSource(source: BeatSource): void;
+  /** tap tempo (key B): locks phase to the tap; switches off/file to tap, keeps Spotify */
+  tapBeat(atMs?: number): void;
+  nudgeBeat(n: { bpm?: number; phaseMs?: number }): void;
+  /** publish a whole clock state (the director's file lock) */
+  setBeat(beat: BeatClockState): void;
+  /** validate and adopt a pasted Spotify link (selects the Spotify source) */
+  setSpotifyLink(input: string): void;
+  clearSpotify(): void;
   startCinematic(): void;
   stopCinematic(): void;
   dispose(): void;
@@ -225,6 +247,9 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   /** consecutive 503s without Retry-After, for the doubling backoff */
   let unavailableStreak = 0;
+  const tapTempo = createTapTempo();
+  /** the tapped clock, kept across source switches */
+  let tapClock: Omit<BeatClockState, 'source'> = { bpm: OFF_BEAT.bpm, phaseAt: 0, confidence: 0 };
 
   const cancelRetry = () => {
     if (retryTimer !== null) clearTimeout(retryTimer);
@@ -357,6 +382,8 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       learning: { enabled: true, targetRecall: 0.9, learningRate: 0.2 },
       recallHistory: [],
       flashes: { key: 0, namespace: 0, none: 0 },
+      beat: { ...OFF_BEAT },
+      spotify: { link: null, error: null },
       cinematic: {
         active: false,
         runSeq: 0,
@@ -507,6 +534,51 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
 
       recordFlash(match) {
         set((s) => ({ flashes: { ...s.flashes, [match]: s.flashes[match] + 1 } }));
+      },
+
+      setBeatSource(source) {
+        const cur = get().beat;
+        if (source === 'tap' || source === 'spotify') set({ beat: { ...tapClock, source } });
+        else if (source === 'file') {
+          const audio = get().cinematic.audio;
+          set({ beat: { bpm: audio?.bpm ?? cur.bpm, phaseAt: 0, confidence: audio?.confidence ?? 0, source: 'file' } });
+        } else set({ beat: { ...cur, source: 'off' } });
+      },
+
+      tapBeat(atMs = Date.now()) {
+        const reading = tapTempo.tap(atMs);
+        tapClock = reading
+          ? { bpm: reading.bpm, phaseAt: reading.phaseAt, confidence: reading.confidence }
+          : { ...tapClock, phaseAt: atMs };
+        const source: BeatSource = get().beat.source === 'spotify' ? 'spotify' : 'tap';
+        set({ beat: { ...tapClock, source } });
+      },
+
+      nudgeBeat({ bpm, phaseMs }) {
+        let b = get().beat;
+        if (bpm) b = nudgeBpm(b, bpm);
+        if (phaseMs) b = nudgePhase(b, phaseMs);
+        if (b.source === 'tap' || b.source === 'spotify') tapClock = { bpm: b.bpm, phaseAt: b.phaseAt, confidence: b.confidence };
+        set({ beat: b });
+      },
+
+      setBeat(beat) {
+        set({ beat: { bpm: beat.bpm, phaseAt: beat.phaseAt, confidence: beat.confidence, source: beat.source } });
+      },
+
+      setSpotifyLink(input) {
+        const link = parseSpotifyLink(input);
+        if (!link) {
+          set({ spotify: { link: get().spotify.link, error: 'Paste an open.spotify.com track, album, playlist or episode link.' } });
+          return;
+        }
+        set({ spotify: { link, error: null } });
+        get().setBeatSource('spotify');
+      },
+
+      clearSpotify() {
+        set({ spotify: { link: null, error: null } });
+        if (get().beat.source === 'spotify') get().setBeatSource('off');
       },
 
       setCinematic(patch) {

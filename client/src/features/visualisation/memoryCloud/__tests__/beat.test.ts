@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { onsetEnvelope, estimateTempo, analyseAudioBuffer, beatClock, mixdown } from '../beat';
+import { onsetEnvelope, estimateTempo, analyseAudioBuffer, mixdown } from '../beat';
 
 const SR = 11025;
 
@@ -80,21 +80,3 @@ describe('analyseAudioBuffer', () => {
   });
 });
 
-describe('beatClock', () => {
-  const clk = beatClock({ bpm: 120, offset: 0.1 });
-  it('has phase 0 on each beat and a decaying pulse', () => {
-    expect(clk.phase(0.1)).toBeCloseTo(0, 6);
-    expect(clk.phase(0.35)).toBeCloseTo(0.5, 6);
-    expect(clk.pulse(0.1)).toBeCloseTo(1, 6);
-    expect(clk.pulse(0.3)).toBeLessThan(clk.pulse(0.15));
-    expect(clk.beatIndex(0.1 + 0.5 * 5 + 0.01)).toBe(5);
-  });
-  it('bar pulse fires only on the first beat of each bar of four', () => {
-    expect(clk.barPulse(0.1)).toBeCloseTo(1, 6);
-    expect(clk.barPulse(0.6)).toBe(0);
-    expect(clk.barPulse(0.1 + 2)).toBeCloseTo(1, 6);
-  });
-  it('handles times before the offset', () => {
-    expect(clk.phase(0)).toBeCloseTo(0.8, 6);
-  });
-});

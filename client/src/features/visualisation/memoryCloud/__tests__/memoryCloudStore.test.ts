@@ -349,3 +349,81 @@ describe('memoryCloudStore — backend availability', () => {
     expect(store.getState().retryAt).toBeNull();
   });
 });
+
+describe('memoryCloudStore — beat clock and Spotify', () => {
+  const ID = '4uLU6hMCjMI75M1A2tKUQC';
+  const T0 = 1_760_000_000_000;
+  let env: ReturnType<typeof makeDeps>;
+  beforeEach(() => { env = makeDeps(); });
+
+  it('starts off, with a serialisable wire state', () => {
+    const store = createMemoryCloudStore(env.deps);
+    const b = store.getState().beat;
+    expect(b.source).toBe('off');
+    expect(JSON.parse(JSON.stringify(b))).toEqual(b);
+    expect(Object.keys(b).sort()).toEqual(['bpm', 'confidence', 'phaseAt', 'source']);
+  });
+
+  it('a tap from off switches to tap tempo and locks phase on every tap', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().tapBeat(T0);
+    expect(store.getState().beat).toMatchObject({ source: 'tap', phaseAt: T0, bpm: 120 });
+    store.getState().tapBeat(T0 + 400);
+    expect(store.getState().beat.phaseAt).toBe(T0 + 400);
+    store.getState().tapBeat(T0 + 800);
+    expect(store.getState().beat).toMatchObject({ source: 'tap', bpm: 150, phaseAt: T0 + 800 });
+    expect(store.getState().beat.confidence).toBeGreaterThan(0);
+  });
+
+  it('taps under Spotify keep the Spotify source', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().setSpotifyLink(`https://open.spotify.com/track/${ID}`);
+    for (let i = 0; i < 4; i++) store.getState().tapBeat(T0 + i * 500);
+    expect(store.getState().beat).toMatchObject({ source: 'spotify', bpm: 120, phaseAt: T0 + 1500 });
+  });
+
+  it('a valid link selects Spotify; an invalid one is refused and leaves the source alone', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().setSpotifyLink('https://open.spotify.com.evil.com/track/' + ID);
+    expect(store.getState().spotify.link).toBeNull();
+    expect(store.getState().spotify.error).toMatch(/open\.spotify\.com/);
+    expect(store.getState().beat.source).toBe('off');
+    store.getState().setSpotifyLink(`https://open.spotify.com/album/${ID}?si=x`);
+    expect(store.getState().spotify).toEqual({ link: { kind: 'album', id: ID, url: `https://open.spotify.com/album/${ID}` }, error: null });
+    expect(store.getState().beat.source).toBe('spotify');
+    store.getState().clearSpotify();
+    expect(store.getState().spotify.link).toBeNull();
+    expect(store.getState().beat.source).toBe('off');
+  });
+
+  it('switching sources keeps the tapped tempo for tap and Spotify, unlocks for file, keeps bpm for off', () => {
+    const store = createMemoryCloudStore(env.deps);
+    for (let i = 0; i < 4; i++) store.getState().tapBeat(T0 + i * 600);
+    expect(store.getState().beat.bpm).toBe(100);
+    store.getState().setBeatSource('spotify');
+    expect(store.getState().beat).toMatchObject({ source: 'spotify', bpm: 100, phaseAt: T0 + 1800 });
+    store.getState().setBeatSource('file');
+    expect(store.getState().beat).toMatchObject({ source: 'file', phaseAt: 0 });
+    store.getState().setBeatSource('tap');
+    expect(store.getState().beat).toMatchObject({ source: 'tap', bpm: 100, phaseAt: T0 + 1800 });
+    store.getState().setBeatSource('off');
+    expect(store.getState().beat).toMatchObject({ source: 'off', bpm: 100 });
+  });
+
+  it('nudges bpm and phase and keeps them for the tap clock', () => {
+    const store = createMemoryCloudStore(env.deps);
+    for (let i = 0; i < 4; i++) store.getState().tapBeat(T0 + i * 500);
+    store.getState().nudgeBeat({ bpm: 0.5, phaseMs: -20 });
+    expect(store.getState().beat).toMatchObject({ bpm: 120.5, phaseAt: T0 + 1500 - 20 });
+    store.getState().setBeatSource('off');
+    store.getState().setBeatSource('tap');
+    expect(store.getState().beat).toMatchObject({ bpm: 120.5, phaseAt: T0 + 1480 });
+  });
+
+  it('setBeat publishes a file lock from the director', () => {
+    const store = createMemoryCloudStore(env.deps);
+    store.getState().setBeatSource('file');
+    store.getState().setBeat({ bpm: 96, phaseAt: T0 + 120, confidence: 0.8, source: 'file' });
+    expect(store.getState().beat).toEqual({ bpm: 96, phaseAt: T0 + 120, confidence: 0.8, source: 'file' });
+  });
+});

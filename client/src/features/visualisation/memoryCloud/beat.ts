@@ -1,8 +1,8 @@
 /**
  * Audio-file beat sync for the cinematic mode: decode a local file, estimate
- * its tempo and beat phase from an onset envelope, and expose a beat clock
- * that drives glow and the comet pulse. The file is decoded in the browser
- * and never uploaded.
+ * its tempo and beat phase from an onset envelope. The estimate feeds the
+ * shared beat clock (beatClock.ts) that drives glow and the comet pulse. The
+ * file is decoded in the browser and never uploaded.
  *
  * Adapted from the RuVector Explorer music sync (`analyzeBuffer`,
  * https://github.com/ruvnet/RuVector, docs/explorer/explorer.js, MIT
@@ -231,39 +231,6 @@ export function analyseAudioBuffer(buf: AudioBufferLike & { sampleRate: number }
   const { data, rate } = decimate(capped, buf.sampleRate);
   const { env, frameRate, lag } = onsetEnvelope(data, rate);
   return estimateTempo(env, frameRate, { lag });
-}
-
-export interface BeatClock {
-  bpm: number;
-  offset: number;
-  period: number;
-  /** 0..1 position within the current beat */
-  phase(t: number): number;
-  /** sharp attack, exponential decay; 1 on the beat */
-  pulse(t: number): number;
-  beatIndex(t: number): number;
-  /** pulse on the first beat of each 4-beat bar, 0 otherwise */
-  barPulse(t: number): number;
-}
-
-export function beatClock({ bpm, offset }: { bpm: number; offset: number }): BeatClock {
-  const period = 60 / bpm;
-  const pos = (t: number) => (t - offset) / period;
-  const phase = (t: number) => {
-    const p = pos(t);
-    return p - Math.floor(p);
-  };
-  const pulse = (t: number) => Math.exp(-phase(t) * 6);
-  const beatIndex = (t: number) => Math.floor(pos(t) + 1e-9);
-  return {
-    bpm,
-    offset,
-    period,
-    phase,
-    pulse,
-    beatIndex,
-    barPulse: (t: number) => (((beatIndex(t) % 4) + 4) % 4 === 0 ? pulse(t) : 0),
-  };
 }
 
 /** Decode a local audio file with Web Audio. Browser only; the bytes stay on this machine. */

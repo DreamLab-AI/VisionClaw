@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { MemoryCloudSnapshot, MemoryCloudQueryResponse, MemoryCloudHealth } from '../types';
 import type { QueryRun, SearchTree } from '../../memoryTrajectory/types';
@@ -85,6 +85,7 @@ beforeEach(() => {
   h.settings.visualisation.embeddingCloud.cinematic = false;
   useMemoryCloudStore.setState({
     status: 'idle', retryAt: null, error: null, snapshot: null, health: null, healthError: null, recallHistory: [],
+    beat: { bpm: 120, phaseAt: 0, confidence: 0, source: 'off' }, spotify: { link: null, error: null },
     flashes: { key: 0, namespace: 0, none: 0 },
   });
 });
@@ -196,7 +197,7 @@ describe('MemoryExplorerPanel — explore', () => {
     h.settings.visualisation.embeddingCloud.cinematic = true;
     render(<MemoryExplorerPanel />);
     expect(screen.getByLabelText('Cinematic')).toBeInTheDocument();
-    expect(screen.getByText(/decoded on this device and never uploaded/)).toBeInTheDocument();
+    expect(screen.getByText(/Beat sync follows the sound source/)).toBeInTheDocument();
   });
 });
 
@@ -252,5 +253,102 @@ describe('RecallSparkline', () => {
   it('degrades to text with fewer than two points', () => {
     render(<RecallSparkline values={[]} />);
     expect(screen.getByText('no queries yet')).toBeInTheDocument();
+  });
+});
+
+describe('MemoryExplorerPanel — sound and Spotify', () => {
+  const ID = '4uLU6hMCjMI75M1A2tKUQC';
+  const T0 = 1_760_000_000_000;
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const tapAt = (ms: number, how: () => void) => {
+    vi.setSystemTime(ms);
+    act(how);
+  };
+
+  it('offers Off / My audio file / Tap tempo / Spotify as the sound source', () => {
+    render(<MemoryExplorerPanel />);
+    const group = screen.getByRole('group', { name: 'Sound source' });
+    const names = within(group).getAllByRole('button').map((b) => b.textContent);
+    expect(names).toEqual(['Off', 'My audio file', 'Tap tempo', 'Spotify']);
+    expect(within(group).getByRole('button', { name: 'Off' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(group).getByRole('button', { name: 'My audio file' }));
+    expect(useMemoryCloudStore.getState().beat.source).toBe('file');
+    expect(screen.getByText(/decoded on this device and never uploaded/)).toBeInTheDocument();
+  });
+
+  it('tap button sets the tempo and shows bpm', () => {
+    render(<MemoryExplorerPanel />);
+    fireEvent.click(within(screen.getByRole('group', { name: 'Sound source' })).getByRole('button', { name: 'Tap tempo' }));
+    const tap = screen.getByRole('button', { name: 'Tap (B)' });
+    for (let i = 0; i < 4; i++) tapAt(T0 + 10_000 + i * 500, () => { fireEvent.click(tap); });
+    expect(useMemoryCloudStore.getState().beat).toMatchObject({ source: 'tap', bpm: 120 });
+    expect(screen.getByText(/120\.0 bpm/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Faster' }));
+    expect(useMemoryCloudStore.getState().beat.bpm).toBe(120.5);
+    const before = useMemoryCloudStore.getState().beat.phaseAt;
+    fireEvent.click(screen.getByRole('button', { name: 'Shift beat earlier' }));
+    expect(useMemoryCloudStore.getState().beat.phaseAt).toBe(before - 20);
+  });
+
+  it('key B taps, but not while typing in a field or with a modifier', () => {
+    render(<MemoryExplorerPanel />);
+    for (let i = 0; i < 3; i++) tapAt(T0 + 30_000 + i * 600, () => { fireEvent.keyDown(window, { key: 'b' }); });
+    expect(useMemoryCloudStore.getState().beat).toMatchObject({ source: 'tap', bpm: 100 });
+    const phase = useMemoryCloudStore.getState().beat.phaseAt;
+    const input = screen.getByRole('textbox', { name: 'Query' });
+    tapAt(T0 + 32_000, () => { fireEvent.keyDown(input, { key: 'b' }); });
+    tapAt(T0 + 32_100, () => { fireEvent.keyDown(window, { key: 'b', ctrlKey: true }); });
+    expect(useMemoryCloudStore.getState().beat.phaseAt).toBe(phase);
+  });
+
+  it('the Spotify chip opens a popover; a valid link mounts the official embed with a rebuilt src', () => {
+    render(<MemoryExplorerPanel />);
+    const chip = screen.getByRole('button', { name: 'Spotify player' });
+    expect(chip).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    const field = screen.getByRole('textbox', { name: 'Spotify link' });
+    fireEvent.change(field, { target: { value: `https://open.spotify.com/track/${ID}?si=abc"onload=x` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    expect(screen.queryByTitle('Spotify player')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent(/open\.spotify\.com/);
+
+    fireEvent.change(field, { target: { value: `https://open.spotify.com/track/${ID}?si=abc` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    const frame = screen.getByTitle('Spotify player') as HTMLIFrameElement;
+    expect(frame.getAttribute('src')).toBe(`https://open.spotify.com/embed/track/${ID}?utm_source=generator&theme=0`);
+    expect(frame.getAttribute('allow')).toContain('encrypted-media');
+    expect(useMemoryCloudStore.getState().beat.source).toBe('spotify');
+    // the popover carries its own tap control for syncing to the embed
+    expect(within(screen.getByRole('dialog', { name: 'Spotify' })).getByRole('button', { name: 'Tap (B)' })).toBeInTheDocument();
+    expect(screen.getByText(/cannot be analysed/)).toBeInTheDocument();
+  });
+
+  it('closing the popover or collapsing the panel keeps the embed mounted so playback continues', () => {
+    render(<MemoryExplorerPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Spotify player' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Spotify link' }), { target: { value: `https://open.spotify.com/playlist/${ID}` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+    const frame = screen.getByTitle('Spotify player');
+    fireEvent.click(screen.getByRole('button', { name: 'Spotify player' }));
+    expect(screen.getByTitle('Spotify player')).toBe(frame);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse explorer' }));
+    expect(screen.getByTitle('Spotify player')).toBe(frame);
+  });
+
+  it('removing the link unmounts the embed and returns the source to off', () => {
+    useMemoryCloudStore.getState().setSpotifyLink(`https://open.spotify.com/album/${ID}`);
+    render(<MemoryExplorerPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Spotify player' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove link' }));
+    expect(screen.queryByTitle('Spotify player')).toBeNull();
+    expect(useMemoryCloudStore.getState().beat.source).toBe('off');
   });
 });
