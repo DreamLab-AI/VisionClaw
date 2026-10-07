@@ -78,3 +78,7 @@ issuer/delegation design with principal mapping, audience, operation scope,
 expiry, revocation, custody and durable audit correlation, and the signed
 grant → mutation → receipt → revocation → denied retry demonstration before any
 activation.
+
+## Review — 2026-10-07: NIP-26 proposal declined
+
+An external synthesis proposed replacing bridge re-signing with NIP-26 delegation tokens. Owner decision 2026-10-07: deferral retained, and NIP-26 is not the mechanism to reopen with. Loom ADR-135 retires NIP-26 in favour of per-consumer NIP-59 capabilities, and NIP-26 is marked unrecommended upstream. If the review trigger fires, the bounded design the acceptance condition names should start from that direction. The underlying need, tracing an agent action to its authorising human, is tracked as X-3 in `docs/TODO-unified.md`. No code changed.
