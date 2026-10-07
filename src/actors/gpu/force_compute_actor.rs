@@ -1656,7 +1656,7 @@ impl ForceComputeActor {
 
         let utilization_percent = (execution_time_ms / TARGET_FRAME_TIME_MS * 100.0) as f32;
 
-        utilization_percent.min(100.0).max(0.0)
+        utilization_percent.clamp(0.0, 100.0)
     }
 
     /// Recover from a tripped divergence circuit breaker.

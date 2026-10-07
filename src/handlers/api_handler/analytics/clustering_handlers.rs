@@ -485,7 +485,7 @@ pub(crate) fn generate_agent_based_clusters(
             .cloned()
             .collect();
 
-        let coherence = (avg_health / 100.0).min(1.0).max(0.0);
+        let coherence = (avg_health / 100.0).clamp(0.0, 1.0);
 
         clusters.push(Cluster {
             id: format!("cluster_{}_{}", method, cluster_id),

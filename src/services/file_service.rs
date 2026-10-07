@@ -1,6 +1,5 @@
 use super::github::{ContentAPI, GitHubClient, GitHubConfig};
 use crate::config::AppFullSettings;
-use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use crate::time;
 use actix_web::web;
 use chrono::Utc;

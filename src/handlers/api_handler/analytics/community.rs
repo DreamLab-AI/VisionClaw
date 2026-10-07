@@ -185,7 +185,7 @@ fn convert_gpu_result_to_communities(
         });
     }
 
-    communities.sort_by(|a, b| b.size.cmp(&a.size));
+    communities.sort_by_key(|a| std::cmp::Reverse(a.size));
 
     Ok(communities)
 }

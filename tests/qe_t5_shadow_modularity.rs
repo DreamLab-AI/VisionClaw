@@ -163,7 +163,7 @@ fn calculate_modularity_shadow(communities: &[Community]) -> f32 {
         modularity += e_in - a_sq;
     }
 
-    modularity.max(0.0).min(1.0)
+    modularity.clamp(0.0, 1.0)
 }
 
 // ============================================================================

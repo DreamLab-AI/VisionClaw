@@ -415,10 +415,7 @@ impl EnhancedSettingsHandler {
             0
         };
 
-        let settings_healthy = match state.settings_addr.send(GetSettings).await {
-            Ok(Ok(_)) => true,
-            _ => false,
-        };
+        let settings_healthy = matches!(state.settings_addr.send(GetSettings).await, Ok(Ok(_)));
 
         ok_json!(json!({
             "status": if settings_healthy { "healthy" } else { "degraded" },

@@ -533,13 +533,13 @@ fn clustered_layout(
 
     // Collect clusters
     let mut cluster_members: HashMap<usize, Vec<usize>> = HashMap::new();
-    for i in 0..n {
-        cluster_members.entry(labels[i]).or_default().push(i);
+    for (i, &label) in labels.iter().enumerate().take(n) {
+        cluster_members.entry(label).or_default().push(i);
     }
 
     // Sort clusters by size descending for stable ordering
     let mut clusters: Vec<(usize, Vec<usize>)> = cluster_members.into_iter().collect();
-    clusters.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    clusters.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
     let num_clusters = clusters.len();
 
     // Place cluster centroids on a Fibonacci sphere

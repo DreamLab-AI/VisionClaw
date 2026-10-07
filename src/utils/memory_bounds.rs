@@ -20,11 +20,7 @@ pub struct MemoryBounds {
 
 impl MemoryBounds {
     pub fn new(name: String, size: usize, element_size: usize, alignment: usize) -> Self {
-        let element_count = if element_size > 0 {
-            size / element_size
-        } else {
-            0
-        };
+        let element_count = size.checked_div(element_size).unwrap_or(0);
 
         Self {
             base_address: 0,

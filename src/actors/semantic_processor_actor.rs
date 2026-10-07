@@ -536,7 +536,7 @@ impl SemanticProcessorActor {
             let readability = 206.835 - (1.015 * avg_sentence_length);
             metrics.insert(
                 "readability_score".to_string(),
-                readability.max(0.0).min(100.0),
+                readability.clamp(0.0, 100.0),
             );
         }
 
@@ -921,7 +921,7 @@ impl SemanticProcessorActor {
             let readability = 206.835 - (1.015 * avg_sentence_length);
             metrics.insert(
                 "readability_score".to_string(),
-                readability.max(0.0).min(100.0),
+                readability.clamp(0.0, 100.0),
             );
         }
 

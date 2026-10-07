@@ -294,11 +294,10 @@ impl StressMajorizationSafety {
             stress_value: 0.0,
             iterations_performed: self.total_runs as u32,
             converged: !self.is_emergency_stopped,
-            computation_time_ms: if self.successful_runs > 0 {
-                self.total_computation_time_ms / self.successful_runs
-            } else {
-                0
-            },
+            computation_time_ms: self
+                .total_computation_time_ms
+                .checked_div(self.successful_runs)
+                .unwrap_or(0),
         }
     }
 

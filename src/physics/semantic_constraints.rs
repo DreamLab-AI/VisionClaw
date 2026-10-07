@@ -464,7 +464,7 @@ impl SemanticConstraintGenerator {
         let norm_b: f32 = vec_b.iter().map(|x| x * x).sum::<f32>().sqrt();
 
         if norm_a > 0.0 && norm_b > 0.0 {
-            (dot_product / (norm_a * norm_b)).max(0.0).min(1.0)
+            (dot_product / (norm_a * norm_b)).clamp(0.0, 1.0)
         } else {
             0.0
         }
@@ -601,7 +601,7 @@ impl SemanticConstraintGenerator {
         }
 
         let mut sorted_topics: Vec<_> = topic_counts.into_iter().collect();
-        sorted_topics.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_topics.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         sorted_topics
             .into_iter()

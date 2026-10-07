@@ -224,22 +224,20 @@ pub async fn get_bots_data(state: web::Data<AppState>) -> Result<impl Responder>
         .await
         .unwrap_or_default();
 
-    if let Ok(graph_data) = state.graph_service_addr.send(GetBotsGraphData).await {
-        if let Ok(graph) = graph_data {
-            let nodes = &graph.nodes;
-            let edges = &graph.edges;
-            if !nodes.is_empty() {
-                info!(
-                    "Retrieved bots data from graph actor: {} nodes",
-                    nodes.len()
-                );
-                return ok_json!(json!({
-                    "success": true,
-                    "nodes": nodes,
-                    "edges": edges,
-                    "chain": chain,
-                }));
-            }
+    if let Ok(Ok(graph)) = state.graph_service_addr.send(GetBotsGraphData).await {
+        let nodes = &graph.nodes;
+        let edges = &graph.edges;
+        if !nodes.is_empty() {
+            info!(
+                "Retrieved bots data from graph actor: {} nodes",
+                nodes.len()
+            );
+            return ok_json!(json!({
+                "success": true,
+                "nodes": nodes,
+                "edges": edges,
+                "chain": chain,
+            }));
         }
     }
 

@@ -59,7 +59,6 @@ pub async fn get_pages(app_state: web::Data<AppState>) -> Result<HttpResponse> {
             let file_name = meta.file_name.clone();
             let id = id.clone();
             let meta = meta.clone();
-            let debug_enabled = debug_enabled;
 
             async move {
                 if debug_enabled {

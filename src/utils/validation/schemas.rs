@@ -203,15 +203,15 @@ impl ValidationRule {
         expected_type: &FieldType,
         ctx: &ValidationContext,
     ) -> ValidationResult<()> {
-        let matches = match (expected_type, value) {
-            (FieldType::String, Value::String(_)) => true,
-            (FieldType::Number, Value::Number(_)) => true,
-            (FieldType::Boolean, Value::Bool(_)) => true,
-            (FieldType::Array, Value::Array(_)) => true,
-            (FieldType::Object, Value::Object(_)) => true,
-            (FieldType::Null, Value::Null) => true,
-            _ => false,
-        };
+        let matches = matches!(
+            (expected_type, value),
+            (FieldType::String, Value::String(_))
+                | (FieldType::Number, Value::Number(_))
+                | (FieldType::Boolean, Value::Bool(_))
+                | (FieldType::Array, Value::Array(_))
+                | (FieldType::Object, Value::Object(_))
+                | (FieldType::Null, Value::Null)
+        );
 
         if !matches {
             return Err(DetailedValidationError::new(

@@ -311,9 +311,9 @@ impl StressMajorizationSolver {
             for j in 0..n {
                 if i != j {
                     let mut min_dist = f32::INFINITY;
-                    for k_idx in 0..num_landmarks {
-                        let dist_ki = landmark_distances[k_idx][i];
-                        let dist_kj = landmark_distances[k_idx][j];
+                    for from_landmark in landmark_distances.iter().take(num_landmarks) {
+                        let dist_ki = from_landmark[i];
+                        let dist_kj = from_landmark[j];
                         if dist_ki < f32::INFINITY && dist_kj < f32::INFINITY {
                             min_dist = min_dist.min(dist_ki + dist_kj);
                         }
@@ -701,8 +701,8 @@ impl StressMajorizationSolver {
                     }
 
                     if valid_nodes > 0 {
-                        for dim in 0..3 {
-                            centroid[dim] /= valid_nodes as f32;
+                        for coord in &mut centroid {
+                            *coord /= valid_nodes as f32;
                         }
 
                         for &node_idx in &constraint.node_indices {
@@ -798,7 +798,7 @@ impl StressMajorizationSolver {
                     + (positions[(node_idx, 2)] - constraint.params[2]).powi(2))
                 .sqrt();
 
-                return Ok((1.0 / (1.0 + distance / 10.0)).max(0.0).min(1.0));
+                return Ok(unit_score(1.0 / (1.0 + distance / 10.0)));
             }
         }
         Ok(0.0)
@@ -846,7 +846,7 @@ impl StressMajorizationSolver {
 
             if count > 0 {
                 let avg_deviation = total_deviation / count as f32;
-                return Ok((1.0 / (1.0 + avg_deviation / 10.0)).max(0.0).min(1.0));
+                return Ok(unit_score(1.0 / (1.0 + avg_deviation / 10.0)));
             }
         }
         Ok(0.0)
@@ -876,7 +876,7 @@ impl StressMajorizationSolver {
             if count > 0 {
                 let avg_distance = total_distance / count as f32;
 
-                return Ok((1.0 / (1.0 + avg_distance / 50.0)).max(0.0).min(1.0));
+                return Ok(unit_score(1.0 / (1.0 + avg_distance / 50.0)));
             }
         }
         Ok(0.0)
@@ -902,6 +902,16 @@ impl StressMajorizationSolver {
 impl Default for StressMajorizationSolver {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Clamp a satisfaction score to `[0, 1]`. A NaN score (from a NaN position)
+/// counts as unsatisfied rather than propagating.
+fn unit_score(score: f32) -> f32 {
+    if score.is_nan() {
+        0.0
+    } else {
+        score.clamp(0.0, 1.0)
     }
 }
 

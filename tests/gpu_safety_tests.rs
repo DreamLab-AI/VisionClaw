@@ -1291,8 +1291,8 @@ mod phase2_analytics_tests {
 
             // Mock true anomalies for AUC calculation
             let mut true_anomalies = vec![false; total_nodes];
-            for i in 0..anomaly_count {
-                true_anomalies[i] = true;
+            for anomaly in true_anomalies.iter_mut().take(anomaly_count) {
+                *anomaly = true;
             }
 
             // Mock AUC calculation

@@ -46,7 +46,7 @@
 //! **bounded**: adding a force term to the kernels means adding a variant here,
 //! which the exhaustive `match`es make impossible to forget.
 
-use crate::models::simulation_params::{FeatureFlags, SimParams, SimulationParams, ToSimParams};
+use crate::models::simulation_params::{FeatureFlags, SimParams, SimulationParams};
 
 /// A named, togglable force term in the layout engine. Bounded set — one variant
 /// per force term the CUDA kernels evaluate.
@@ -516,6 +516,7 @@ mod adr_2029_dispatch_authority {
     //! observe the word that is actually uploaded — not the converter's word,
     //! which is overwritten before every execute.
     use super::*;
+    use crate::models::simulation_params::ToSimParams;
 
     fn base() -> ForceDispatchInputs {
         ForceDispatchInputs {

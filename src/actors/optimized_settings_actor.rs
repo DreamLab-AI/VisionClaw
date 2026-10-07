@@ -638,7 +638,7 @@ impl OptimizedSettingsActor {
         let mut warmed_count = 0;
 
         for path in common_paths {
-            if let Ok(_) = self.get_optimized_path_value(path).await {
+            if self.get_optimized_path_value(path).await.is_ok() {
                 warmed_count += 1;
                 debug!("Warmed cache for path: {}", path);
             }

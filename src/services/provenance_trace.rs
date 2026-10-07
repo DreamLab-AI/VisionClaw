@@ -279,11 +279,11 @@ pub fn build_trace(
             record_count,
         })
         .collect();
-    joins.sort_by(|a, b| b.sources.len().cmp(&a.sources.len()));
+    joins.sort_by_key(|a| std::cmp::Reverse(a.sources.len()));
     let max_join_span = joins.iter().map(|j| j.sources.len()).max().unwrap_or(0);
 
     // Newest first for the wire.
-    records.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+    records.sort_by_key(|a| std::cmp::Reverse(a.at_ms));
     let total_records = records.len();
 
     ProvenanceTrace {

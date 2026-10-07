@@ -1143,7 +1143,7 @@ impl SemanticForcesEngine {
         let node_count = graph.nodes.len();
         let mut forces: Vec<(f32, f32, f32)> = vec![(0.0, 0.0, 0.0); node_count];
 
-        for i in 0..node_count {
+        for (i, acc) in forces.iter_mut().enumerate() {
             let physicality = self.node_physicality[i];
             if physicality == 0 {
                 continue;
@@ -1161,9 +1161,9 @@ impl SemanticForcesEngine {
 
                 if dist > self.config.physicality_cluster.cluster_radius {
                     let force = self.config.physicality_cluster.cluster_attraction * 0.01;
-                    forces[i].0 += dx * force;
-                    forces[i].1 += dy * force;
-                    forces[i].2 += dz * force;
+                    acc.0 += dx * force;
+                    acc.1 += dy * force;
+                    acc.2 += dz * force;
                 }
             }
 
@@ -1186,9 +1186,9 @@ impl SemanticForcesEngine {
                     let force = self.config.physicality_cluster.inter_physicality_repulsion
                         / (dist * dist)
                         * 0.01;
-                    forces[i].0 += dx * force / dist;
-                    forces[i].1 += dy * force / dist;
-                    forces[i].2 += dz * force / dist;
+                    acc.0 += dx * force / dist;
+                    acc.1 += dy * force / dist;
+                    acc.2 += dz * force / dist;
                 }
             }
         }
@@ -1204,7 +1204,7 @@ impl SemanticForcesEngine {
         let node_count = graph.nodes.len();
         let mut forces: Vec<(f32, f32, f32)> = vec![(0.0, 0.0, 0.0); node_count];
 
-        for i in 0..node_count {
+        for (i, acc) in forces.iter_mut().enumerate() {
             let role = self.node_role[i];
             if role == 0 {
                 continue;
@@ -1222,9 +1222,9 @@ impl SemanticForcesEngine {
 
                 if dist > self.config.role_cluster.cluster_radius {
                     let force = self.config.role_cluster.cluster_attraction * 0.01;
-                    forces[i].0 += dx * force;
-                    forces[i].1 += dy * force;
-                    forces[i].2 += dz * force;
+                    acc.0 += dx * force;
+                    acc.1 += dy * force;
+                    acc.2 += dz * force;
                 }
             }
 
@@ -1246,9 +1246,9 @@ impl SemanticForcesEngine {
                 if dist < self.config.role_cluster.cluster_radius * 2.0 && dist > 0.001 {
                     let force =
                         self.config.role_cluster.inter_role_repulsion / (dist * dist) * 0.01;
-                    forces[i].0 += dx * force / dist;
-                    forces[i].1 += dy * force / dist;
-                    forces[i].2 += dz * force / dist;
+                    acc.0 += dx * force / dist;
+                    acc.1 += dy * force / dist;
+                    acc.2 += dz * force / dist;
                 }
             }
         }

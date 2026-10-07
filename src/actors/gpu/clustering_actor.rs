@@ -986,7 +986,13 @@ impl ClusteringActor {
         if pair_count > 0 {
             let avg_distance = total_distance / pair_count as f32;
             // Inverse relationship: smaller avg distance = higher coherence
-            (1.0 / (1.0 + avg_distance)).max(0.1).min(1.0)
+            let coherence = 1.0 / (1.0 + avg_distance);
+            // A NaN position yields a NaN distance; score it at the floor.
+            if coherence.is_nan() {
+                0.1
+            } else {
+                coherence.clamp(0.1, 1.0)
+            }
         } else {
             1.0
         }

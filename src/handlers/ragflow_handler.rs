@@ -96,7 +96,6 @@ pub async fn send_message(
                 }
             }
 
-            let enable_tts = enable_tts;
             let mapped_stream = response_stream.map(move |result| {
                 result
                     .map(|answer| {

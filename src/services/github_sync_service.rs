@@ -1934,10 +1934,9 @@ impl GitHubSyncService {
         // re-stamping their (id-colliding) node triples on every run.
         Ok(files
             .iter()
-            .filter(|f| match existing.get(&f.path) {
-                Some(marker) if marker == &f.change_marker => false,
-                _ => true,
-            })
+            .filter(
+                |f| !matches!(existing.get(&f.path), Some(marker) if marker == &f.change_marker),
+            )
             .cloned()
             .collect())
     }

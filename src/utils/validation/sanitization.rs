@@ -389,7 +389,7 @@ impl CSPUtils {
 
     /// Generate CSP header with a specific nonce
     pub fn generate_csp_header_with_nonce(nonce: &str) -> String {
-        vec![
+        [
             "default-src 'self'",
             &format!("script-src 'self' 'nonce-{}'", nonce),
             "style-src 'self' 'unsafe-inline'", // inline styles less dangerous than scripts

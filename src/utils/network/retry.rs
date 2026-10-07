@@ -101,17 +101,17 @@ pub trait RetryableError {
 
 impl RetryableError for std::io::Error {
     fn is_retryable(&self) -> bool {
-        match self.kind() {
+        matches!(
+            self.kind(),
             std::io::ErrorKind::ConnectionRefused
-            | std::io::ErrorKind::ConnectionAborted
-            | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::TimedOut
-            | std::io::ErrorKind::Interrupted
-            | std::io::ErrorKind::WouldBlock
-            | std::io::ErrorKind::UnexpectedEof
-            | std::io::ErrorKind::BrokenPipe => true,
-            _ => false,
-        }
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::Interrupted
+                | std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::UnexpectedEof
+                | std::io::ErrorKind::BrokenPipe
+        )
     }
 }
 

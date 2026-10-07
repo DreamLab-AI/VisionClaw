@@ -202,11 +202,7 @@ impl UnifiedGPUCompute {
         let use_landmarks = n > 2000;
         let sources: Vec<usize> = if use_landmarks {
             let num_landmarks = (n as f64).sqrt().ceil() as usize;
-            let step = if num_landmarks > 0 {
-                n / num_landmarks
-            } else {
-                1
-            };
+            let step = n.checked_div(num_landmarks).unwrap_or(1);
             (0..num_landmarks).map(|i| (i * step).min(n - 1)).collect()
         } else {
             (0..n).collect()
@@ -227,8 +223,12 @@ impl UnifiedGPUCompute {
                 } else {
                     col_indices.len()
                 };
-                for idx in start..end.min(col_indices.len()) {
-                    let v = col_indices[idx] as usize;
+                for &col in col_indices
+                    .iter()
+                    .take(end.min(col_indices.len()))
+                    .skip(start)
+                {
+                    let v = col as usize;
                     if v < n && dist[v] < 0 {
                         dist[v] = dist[u] + 1;
                         queue.push_back(v);
@@ -548,8 +548,8 @@ impl UnifiedGPUCompute {
         for src in 0..num_nodes {
             let edge_start = row_offsets[src] as usize;
             let edge_end = row_offsets[src + 1] as usize;
-            for e in edge_start..edge_end {
-                let dst = col_indices_host[e] as usize;
+            for &col in col_indices_host.iter().take(edge_end).skip(edge_start) {
+                let dst = col as usize;
                 if dst < num_nodes {
                     let pos = write_pos[dst] as usize;
                     csc_row_indices[pos] = src as i32;

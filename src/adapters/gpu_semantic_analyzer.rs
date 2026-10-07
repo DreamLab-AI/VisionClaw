@@ -183,9 +183,9 @@ impl GpuSemanticAnalyzerAdapter {
             for j in (i + 1)..num_nodes {
                 let mut min_dist = f32::INFINITY;
 
-                for k in 0..num_landmarks {
-                    let dist_ik = landmark_distances[k][i];
-                    let dist_kj = landmark_distances[k][j];
+                for from_landmark in landmark_distances.iter().take(num_landmarks) {
+                    let dist_ik = from_landmark[i];
+                    let dist_kj = from_landmark[j];
 
                     if !dist_ik.is_infinite() && !dist_kj.is_infinite() {
                         min_dist = min_dist.min(dist_ik + dist_kj);
@@ -385,9 +385,9 @@ impl GpuSemanticAnalyzer for GpuSemanticAnalyzerAdapter {
 
         let mut all_paths = HashMap::new();
 
-        for i in 0..num_nodes {
-            for j in 0..num_nodes {
-                if i != j && !distance_matrix[i][j].is_infinite() {
+        for (i, row) in distance_matrix.iter().enumerate().take(num_nodes) {
+            for (j, distance) in row.iter().enumerate().take(num_nodes) {
+                if i != j && !distance.is_infinite() {
                     let path = vec![i as u32, j as u32];
                     all_paths.insert((i as u32, j as u32), path);
                 }

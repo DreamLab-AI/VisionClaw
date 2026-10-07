@@ -358,8 +358,7 @@ impl GpuAnalyticsWebSocket {
         let clamped_ms = self
             .subscription_prefs
             .update_interval_ms
-            .max(MIN_UPDATE_INTERVAL_MS)
-            .min(MAX_UPDATE_INTERVAL_MS);
+            .clamp(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS);
         let interval = std::time::Duration::from_millis(clamped_ms);
 
         ctx.run_interval(interval, |act, ctx| {
@@ -435,8 +434,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for GpuAnalyticsWebSo
                                 {
                                     prefs.update_interval_ms = prefs
                                         .update_interval_ms
-                                        .max(MIN_UPDATE_INTERVAL_MS)
-                                        .min(MAX_UPDATE_INTERVAL_MS);
+                                        .clamp(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS);
                                     self.subscription_prefs = prefs;
                                     info!(
                                         "Updated subscription preferences for client: {}",

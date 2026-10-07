@@ -100,10 +100,7 @@ impl GPUContextBus {
         device_ordinal: u32,
     ) -> usize {
         let event = GPUContextReady::new(context, device_ordinal);
-        match self.sender.send(event) {
-            Ok(count) => count,
-            Err(_) => 0, // No receivers subscribed
-        }
+        self.sender.send(event).unwrap_or_default()
     }
 
     /// Subscribe to GPU context events

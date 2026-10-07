@@ -158,7 +158,7 @@ fn leiden_refine(
     let mut remap: HashMap<i32, i32> = HashMap::new();
     let mut p_of_refined: Vec<i32> = Vec::new();
     let mut dense = vec![0i32; n];
-    for v in 0..n {
+    for (v, slot) in dense.iter_mut().enumerate() {
         let mut r = v as i32;
         while refined[r as usize] != r {
             r = refined[r as usize];
@@ -168,7 +168,7 @@ fn leiden_refine(
         if id as usize >= p_of_refined.len() {
             p_of_refined.push(p[r as usize]);
         }
-        dense[v] = id;
+        *slot = id;
     }
     (dense, remap.len(), p_of_refined)
 }

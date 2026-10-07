@@ -141,10 +141,11 @@ pub(crate) async fn fetch_nodes(
     }
 
     // Fetch node type classification arrays for binary protocol flags (already remapped to compact wire IDs)
-    let nta = match app_state.graph_service_addr.send(GetNodeTypeArrays).await {
-        Ok(arrays) => arrays,
-        Err(_) => crate::actors::messages::NodeTypeArrays::default(),
-    };
+    let nta = app_state
+        .graph_service_addr
+        .send(GetNodeTypeArrays)
+        .await
+        .unwrap_or_default();
     let agent_set: HashSet<u32> = nta.agent_ids.iter().copied().collect();
     let knowledge_set: HashSet<u32> = nta.knowledge_ids.iter().copied().collect();
     let ontology_class_set: HashSet<u32> = nta.ontology_class_ids.iter().copied().collect();
@@ -497,11 +498,9 @@ pub(crate) fn handle_request_bots_graph(
                         minimal_nodes.len(),
                         minimal_edges.len(),
                         optimized_size,
-                        if original_size > 0 {
-                            100 - (optimized_size * 100 / original_size)
-                        } else {
-                            0
-                        }
+                        (optimized_size * 100)
+                            .checked_div(original_size)
+                            .map_or(0, |pct| 100 - pct)
                     );
                     ctx.text(msg_str);
                 }
