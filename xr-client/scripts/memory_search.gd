@@ -17,7 +17,10 @@ extends Node
 ## analyser, whose audio never leaves the device (Invariant 10).
 
 const ENDPOINT := "/api/memory-cloud/query"
-const K := 10
+## The server's ceiling (memory_query.rs HEADSET_K): the cloud samples thinly,
+## so a top-10 rarely has two hits with a point to route through. The HUD
+## lists the top 8.
+const K := 50
 ## How often the preset list checks for a new snapshot's namespaces.
 const PRESET_POLL_SEC := 1.0
 const TIMEOUT_SEC := 15.0
@@ -88,9 +91,11 @@ func presets() -> Array:
 func refresh_presets() -> void:
 	_presets_for = _snapshot_id()
 	var ns := PackedStringArray()
+	var counts := PackedInt32Array()
 	if _layer != null and _layer.has_method("namespaces"):
 		ns = _layer.namespaces()
-	_presets = _query.presets(ns) if _query != null else []
+		counts = _layer.namespace_row_counts()
+	_presets = _query.presets(ns, counts) if _query != null else []
 	if _hud != null and _hud.has_method("set_memory_presets"):
 		_hud.set_memory_presets(_presets.map(func(p: Dictionary) -> String: return str(p["label"])))
 

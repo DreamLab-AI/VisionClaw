@@ -70,7 +70,8 @@ func test_presets_are_curated_plus_one_per_snapshot_namespace() -> void:
 	var layer: Node3D = await _make_layer("snap-7f3a", 40)
 	var s := _search(layer, null)
 	var labels: Array = s.presets().map(func(p: Dictionary) -> String: return str(p["label"]))
-	assert_true(labels.has("recent architecture decisions"), "curated set: %s" % str(labels))
+	assert_true(labels.has("recent architecture decisions (in project-state)"), "curated, scoped to a loaded namespace: %s" % str(labels))
+	assert_true(labels.has("agent coordination and swarms"), "curated, global without its namespace")
 	for ns in ["dream-cycle", "patterns", "project-state"]:
 		assert_true(labels.has("what does %s hold" % ns), "a question per namespace (%s)" % ns)
 	var ns_preset: Dictionary = s.presets().filter(func(p: Dictionary) -> bool: return str(p["text"]) == "what does patterns hold")[0]
@@ -87,7 +88,7 @@ func test_a_preset_posts_the_signed_query_and_becomes_recent() -> void:
 	assert_eq(s.posts.size(), 1)
 	assert_eq(str(s.posts[0]["url"]), "http://backend:4000/api/memory-cloud/query", "the desktop explorer's endpoint")
 	var body: Dictionary = JSON.parse_string(str(s.posts[0]["body"]))
-	assert_eq(body, {"text": "what does patterns hold", "k": 10.0, "namespace": "patterns"})
+	assert_eq(body, {"text": "what does patterns hold", "k": 50.0, "namespace": "patterns"}, "k = the server ceiling, the HUD lists 8")
 	assert_true(str((s.posts[0]["headers"] as PackedStringArray)[0]).begins_with("Authorization: Nostr test POST http://backend:4000/api/memory-cloud/query"),
 		"signed for the exact POST URL (ADR-2076, Invariant 6)")
 	assert_false(s.run_preset(0), "one query in flight at a time")

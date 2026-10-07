@@ -328,6 +328,20 @@ pub fn age_colour(u: f32) -> [f32; 3] {
     hex_rgb(AGE_STOPS[AGE_STOPS.len() - 1].1)
 }
 
+/// Sampled rows per namespace in `snap`, most rows first, ties by name.
+pub fn namespace_rows(snap: &CloudSnapshot) -> Vec<(String, usize)> {
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for m in &snap.metadata {
+        *counts.entry(m.namespace.as_str()).or_default() += 1;
+    }
+    let mut out: Vec<(String, usize)> = counts
+        .into_iter()
+        .map(|(ns, n)| (ns.to_string(), n))
+        .collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
 /// Base RGB per row (`buildCloudColours`): categories index the server's
 /// sorted `namespaces` / `sourceTypes` list; an unlisted category takes slot 0.
 pub fn build_colours(snap: &CloudSnapshot, mode: ColourMode) -> Vec<[f32; 3]> {
@@ -913,14 +927,27 @@ impl MemoryCloud {
         )
     }
 
-    /// The loaded snapshot's namespaces (sorted, as the server sends them);
-    /// empty before a snapshot. Feeds the HUD's memory-search presets.
+    /// The loaded snapshot's namespaces, most sampled rows first (see
+    /// [`namespace_rows`]); empty before a snapshot. Feeds the HUD's
+    /// memory-search presets with [`Self::namespace_row_counts`].
     #[func]
     fn namespaces(&self) -> PackedStringArray {
         let mut out = PackedStringArray::new();
         if let Some(s) = self.state.snapshot.as_ref() {
-            for ns in &s.namespaces {
+            for (ns, _) in namespace_rows(s) {
                 out.push(ns.as_str());
+            }
+        }
+        out
+    }
+
+    /// Sampled rows per namespace, parallel to [`Self::namespaces`].
+    #[func]
+    fn namespace_row_counts(&self) -> PackedInt32Array {
+        let mut out = PackedInt32Array::new();
+        if let Some(s) = self.state.snapshot.as_ref() {
+            for (_, n) in namespace_rows(s) {
+                out.push(i32::try_from(n).unwrap_or(i32::MAX));
             }
         }
         out
@@ -1450,6 +1477,21 @@ mod tests {
             }
         }
         v
+    }
+
+    #[test]
+    fn namespace_rows_counts_sampled_rows_largest_first() {
+        let mut snap = CloudSnapshot::parse(snap_json(3).as_bytes()).unwrap();
+        snap.metadata = meta_ns(&[("b", 2), ("big", 5), ("a", 2), ("one", 1)]);
+        assert_eq!(
+            namespace_rows(&snap),
+            vec![
+                ("big".to_string(), 5),
+                ("a".to_string(), 2),
+                ("b".to_string(), 2),
+                ("one".to_string(), 1)
+            ]
+        );
     }
 
     #[test]

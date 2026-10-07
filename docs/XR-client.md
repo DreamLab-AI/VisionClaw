@@ -310,15 +310,22 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   `rust/src/memory_query.rs`).** The relay above needs the desktop and the
   headset on the same key; this path does not. The Query page's Memory mode
   lists presets — the last four queries run on this headset (persisted to
-  `user://memory_search_recent.json`), five curated questions, and "what does
-  <namespace> hold" per namespace of the loaded snapshot (searched within that
-  namespace) — because text entry in VR is impractical. A press POSTs
-  `/api/memory-cloud/query {text, k: 10, namespace?}` signed by
+  `user://memory_search_recent.json`), five curated questions (each searched
+  within its estate namespace when the snapshot has it, else globally), and
+  "what does <namespace> hold" for the eight namespaces with the most sampled
+  rows (at least two, and no whitespace in the name: the live store holds
+  stray sentence-length values there) — because text entry in VR is
+  impractical. A press POSTs `/api/memory-cloud/query {text, k: 50,
+  namespace?}` signed by
   `_auth_headers` for the exact URL (ADR-2076, Invariant 6), one query in
   flight; 401/403 (power user or dev mode needed, ADR-2133), 429, 503, 400 and
   transport failures are spelled out on the caption line. The hits list shows
   rank · key · namespace · score and ● (sampled, has a point) or — (not
-  sampled). **The route is the sidecar top-k, not a search path:** the
+  sampled) for the top eight. k is the server's ceiling because the cloud
+  samples a few thousand rows of a much larger store: measured live on
+  2026-10-07, a namespace-scoped top-10 had 0–3 sampled hits and a top-50 had
+  2–11, while a global query (dominated by the thinly sampled `ruvnet-kb`) had
+  none. **The route is the sidecar top-k, not a search path:** the
   response carries no traversal, and the headset holds neither the vectors nor
   the snapshot's PCA basis, so it cannot place the query vector. The path runs
   through the sampled hits in rank order with the top hit last (where the
@@ -339,7 +346,9 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   (`tests/memory_query_parity.rs`) and round-tripped by the server's
   `MemoryCloudQueryResponse` (`crates/visionclaw-memory-cloud/src/wire.rs`);
   the request limits are pinned to `validate.rs`. `perf/run_benchmark.gd
-  route_source=query` measures a route built this way.
+  route_source=query` measures a route built this way, and
+  `tests/visual/live_memory_search_capture.gd` runs one preset against a live
+  backend through the HUD intent path.
 - **Separated layout (ADR-2135).** `graph_separation` (from the physics read-back
   of `graphSeparationX`, `graph_parity.gd` → `GraphScene._graph_separation` →
   the layer) moves `CloudRoot` by the memory vertex of the shared triangle

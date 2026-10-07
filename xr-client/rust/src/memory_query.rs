@@ -40,20 +40,30 @@ pub const DEFAULT_K: u32 = 10;
 pub const MAX_K: u32 = 50;
 /// The server's ceiling on query text (`validate.rs::MAX_QUERY_CHARS`).
 pub const MAX_QUERY_CHARS: usize = 2000;
+/// Hits a headset query asks for: the server's ceiling. The cloud samples a
+/// few thousand rows of a much larger store, so a top-10 rarely has two hits
+/// with a point to route through (measured live 2026-10-07: 0–3 of 10 within
+/// a namespace, 2–11 of 50); the HUD still lists only [`HUD_HITS`].
+pub const HEADSET_K: u32 = MAX_K;
 /// Hits shown on the HUD Query page.
 pub const HUD_HITS: usize = 8;
+/// Namespace questions offered: the largest sampled namespaces.
+pub const NAMESPACE_PRESETS: usize = 8;
 /// Recent queries remembered on this headset.
 pub const RECENT_MAX: usize = 4;
 /// Longest key shown on a HUD hit row before it is ellipsised.
 pub const HIT_KEY_CHARS: usize = 34;
 
-/// Curated presets, chosen to land in the estate's busiest namespaces.
-pub const CURATED: &[&str] = &[
-    "recent architecture decisions",
-    "open bugs and known issues",
-    "XR headset rendering and the HUD",
-    "memory and embedding pipeline",
-    "agent coordination and swarms",
+/// Curated presets: (question, namespace to search within when the loaded
+/// snapshot has it). A global query lands in the largest corpus, which the
+/// cloud samples thinly, so it rarely has hits to route through; scoped to an
+/// estate namespace it does. Absent namespace → searched globally.
+pub const CURATED: &[(&str, &str)] = &[
+    ("recent architecture decisions", "project-state"),
+    ("open bugs and known issues", "project-state"),
+    ("lessons and patterns that worked", "patterns"),
+    ("agent coordination and swarms", "coordination"),
+    ("XR headset rendering and the HUD", "project-state"),
 ];
 
 /// How the sidecar produced the hits (`SearchMethod`).
@@ -291,8 +301,12 @@ pub fn namespace_question(ns: &str) -> String {
 }
 
 /// The preset list: recent queries first (newest first), then the curated
-/// set, then one per namespace in the loaded snapshot. No duplicates.
-pub fn presets(namespaces: &[String], recent: &[Preset]) -> Vec<Preset> {
+/// set, then a question for each of the [`NAMESPACE_PRESETS`] largest
+/// namespaces in the loaded snapshot. `namespaces` is (name, sampled rows).
+/// A namespace needs two sampled rows (a route needs two points) and a name
+/// without whitespace (the live store holds stray sentence-length values in
+/// that column). No duplicates.
+pub fn presets(namespaces: &[(String, usize)], recent: &[Preset]) -> Vec<Preset> {
     let mut out: Vec<Preset> = Vec::new();
     let mut push = |p: Preset| {
         if !out.iter().any(|q| q.same(&p.text, p.namespace.as_deref())) {
@@ -302,10 +316,16 @@ pub fn presets(namespaces: &[String], recent: &[Preset]) -> Vec<Preset> {
     for r in recent.iter().take(RECENT_MAX) {
         push(r.clone());
     }
-    for c in CURATED {
-        push(Preset::query(c, None));
+    for (text, ns) in CURATED {
+        let scoped = namespaces.iter().any(|(n, _)| n == ns);
+        push(Preset::query(text, scoped.then_some(*ns)));
     }
-    for ns in namespaces.iter().filter(|ns| !ns.trim().is_empty()) {
+    let mut usable: Vec<&(String, usize)> = namespaces
+        .iter()
+        .filter(|(ns, n)| *n >= 2 && !ns.is_empty() && !ns.chars().any(char::is_whitespace))
+        .collect();
+    usable.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (ns, _) in usable.into_iter().take(NAMESPACE_PRESETS) {
         push(Preset::query(&namespace_question(ns), Some(ns)));
     }
     out
@@ -406,14 +426,16 @@ impl MemoryQuery {
         })
     }
 
-    /// Presets for the loaded snapshot's namespaces: Array of Dictionaries
-    /// {label, text, namespace ("" = all)}.
+    /// Presets for the loaded snapshot: `namespaces` with their sampled row
+    /// `counts` (parallel; MemoryCloud.namespaces / namespace_row_counts).
+    /// Array of Dictionaries {label, text, namespace ("" = all)}.
     #[func]
-    fn presets(&self, namespaces: PackedStringArray) -> VariantArray {
-        let ns: Vec<String> = namespaces
+    fn presets(&self, namespaces: PackedStringArray, counts: PackedInt32Array) -> VariantArray {
+        let ns: Vec<(String, usize)> = namespaces
             .as_slice()
             .iter()
-            .map(|s| s.to_string())
+            .zip(counts.as_slice())
+            .map(|(s, &n)| (s.to_string(), n.max(0) as usize))
             .collect();
         let mut arr = VariantArray::new();
         for p in presets(&ns, &self.recent) {
@@ -707,17 +729,20 @@ mod tests {
         }
     }
 
+    fn ns(list: &[(&str, usize)]) -> Vec<(String, usize)> {
+        list.iter().map(|(n, c)| (n.to_string(), *c)).collect()
+    }
+
     #[test]
     fn presets_put_recent_first_then_curated_then_namespaces() {
         let mut recent = Vec::new();
         push_recent(&mut recent, "first", None);
         push_recent(&mut recent, "what does patterns hold", Some("patterns"));
-        let ns = vec!["patterns".to_string(), "project-state".to_string()];
-        let p = presets(&ns, &recent);
+        let p = presets(&ns(&[("project-state", 9), ("patterns", 4)]), &recent);
         assert_eq!(p[0].text, "what does patterns hold", "newest recent first");
         assert_eq!(p[0].namespace.as_deref(), Some("patterns"));
         assert_eq!(p[1].text, "first");
-        assert_eq!(p[2].text, CURATED[0]);
+        assert_eq!(p[2].text, CURATED[0].0);
         assert_eq!(
             p.len(),
             2 + CURATED.len() + 1,
@@ -728,6 +753,60 @@ mod tests {
         assert_eq!(last.namespace.as_deref(), Some("project-state"));
         assert_eq!(last.label, "what does project-state hold");
         assert_eq!(Preset::query("x", Some("n")).label, "x (in n)");
+    }
+
+    #[test]
+    fn curated_presets_search_their_namespace_only_when_it_is_loaded() {
+        let p = presets(&ns(&[("project-state", 9)]), &[]);
+        let decisions = p
+            .iter()
+            .find(|p| p.text == "recent architecture decisions")
+            .unwrap();
+        assert_eq!(decisions.namespace.as_deref(), Some("project-state"));
+        assert_eq!(
+            decisions.label,
+            "recent architecture decisions (in project-state)"
+        );
+        let swarms = p
+            .iter()
+            .find(|p| p.text == "agent coordination and swarms")
+            .unwrap();
+        assert_eq!(
+            swarms.namespace, None,
+            "no coordination namespace: searched globally"
+        );
+    }
+
+    #[test]
+    fn namespace_questions_take_the_largest_usable_namespaces() {
+        let names: Vec<String> = (0..12).map(|i| format!("ns{i:02}")).collect();
+        let mut list: Vec<(String, usize)> = vec![
+            ("tiny".into(), 1),
+            ("Batch 1.1 COMPLETE. 9 files migrated".into(), 400),
+            (String::new(), 300),
+        ];
+        for (i, n) in names.iter().enumerate() {
+            list.push((n.clone(), 100 - i));
+        }
+        let p = presets(&list, &[]);
+        let qs: Vec<&str> = p[CURATED.len()..]
+            .iter()
+            .map(|p| p.namespace.as_deref().unwrap())
+            .collect();
+        assert_eq!(qs.len(), NAMESPACE_PRESETS, "capped");
+        let want: Vec<&str> = names[..NAMESPACE_PRESETS]
+            .iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(qs, want, "largest first");
+        assert!(
+            !p.iter().any(|p| p.text.contains("tiny")),
+            "one sampled row cannot route"
+        );
+        assert!(
+            !p.iter().any(|p| p.text.contains("Batch")),
+            "not a namespace name"
+        );
     }
 
     #[test]

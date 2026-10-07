@@ -505,9 +505,14 @@ func route_source() -> String:
 	return str(_route.route_source()) if _route != null and route_active() else ""
 
 
-## Namespaces of the loaded snapshot (sorted), for the search presets.
+## Namespaces of the loaded snapshot, most sampled rows first, and their row
+## counts (parallel), for the search presets.
 func namespaces() -> PackedStringArray:
 	return _cloud.namespaces() if _cloud != null else PackedStringArray()
+
+
+func namespace_row_counts() -> PackedInt32Array:
+	return _cloud.namespace_row_counts() if _cloud != null else PackedInt32Array()
 
 
 func _route_after_reload() -> void:
