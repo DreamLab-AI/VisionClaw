@@ -19,9 +19,18 @@ const LEGACY_MARKER := "BENCHMARK_RESULT"
 const FRAME_BUDGET_MS_P99 := 11.1
 const MAX_DRAW_CALLS := 50
 const MAX_TRIANGLES := 100000
+# Memory cloud + route layers (XR WP6/WP7): a synthetic snapshot fed through the
+# real parse path and a relayed route through the real memoryRoute gate.
+# metadata/memory_cloud_rows = 0 turns them off (graph-only baseline).
+const MemoryCloudLayer := preload("res://scripts/memory_cloud_layer.gd")
+const DEFAULT_MEMORY_ROWS := 6000
+const MEMORY_NAMESPACES := 40
+const MEMORY_ROUTE_HOPS := 12
 
 var duration_s: float = DEFAULT_DURATION_S
 var fixture_path: String = DEFAULT_FIXTURE
+var memory_cloud_rows: int = DEFAULT_MEMORY_ROWS
+var _memory: Node3D = null
 
 var _frame_times_ms: PackedFloat32Array = PackedFloat32Array()
 var _draw_calls: PackedInt32Array = PackedInt32Array()
@@ -35,8 +44,11 @@ func _ready() -> void:
 		duration_s = float(get_meta("duration_seconds"))
 	if has_meta("fixture_path"):
 		fixture_path = String(get_meta("fixture_path"))
+	if has_meta("memory_cloud_rows"):
+		memory_cloud_rows = int(get_meta("memory_cloud_rows"))
 	_fixture = _load_fixture(fixture_path)
 	_populate_scene_from_fixture(_fixture)
+	_populate_memory_layers(memory_cloud_rows)
 	_started_at_us = Time.get_ticks_usec()
 
 func _process(delta: float) -> void:
@@ -104,6 +116,8 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"draw_calls_max": draw_max,
 		"tri_count_max": tri_max,
 		"static_mem_kb_max": _max_int(_static_mem_kb),
+		"memory_cloud_rows": memory_cloud_rows,
+		"memory_layers": _memory.budget() if _memory != null else {},
 		"pass": pass_p99 and pass_dc and pass_tri,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
@@ -161,6 +175,52 @@ func _apply_to_multimesh(mm_inst: MultiMeshInstance3D, nodes: Array) -> void:
 		var p: Array = nodes[i].get("position", [0.0, 0.0, 0.0])
 		var t := Transform3D(Basis(), Vector3(float(p[0]), float(p[1]), float(p[2])))
 		mm.set_instance_transform(i, t)
+
+# The cloud sits under a holder scaled like a fitted GraphRoot (±500 server units
+# → ±5 m) in front of the camera; reduced motion off so the route animates.
+func _populate_memory_layers(rows: int) -> void:
+	if rows <= 0:
+		return
+	var holder := Node3D.new()
+	holder.name = "MemoryHolder"
+	holder.scale = Vector3.ONE * 0.01
+	holder.position = Vector3(0.0, 1.7, 0.0)
+	add_child(holder)
+	_memory = MemoryCloudLayer.new()
+	_memory.reduced_motion = false
+	holder.add_child(_memory)
+	var sid := "bench-%d" % rows
+	if not _memory.ingest_snapshot(synthetic_snapshot(sid, rows).to_utf8_buffer()):
+		push_warning("benchmark: synthetic memory snapshot rejected: %s" % _memory.state_detail())
+		return
+	_memory.set_enabled(true)
+	var path := PackedStringArray()
+	for h in MEMORY_ROUTE_HOPS + 1:
+		path.append(str((h * 7919) % rows))
+	_memory.apply_route_json('{"type":"memoryRoute","snapshotId":"%s","seq":1,"sentAt":1,"path":[%s],"sidecar":[%s]}' % [sid, ",".join(path), ",".join(path.slice(0, 5))])
+	_memory.flush()
+
+
+## Deterministic snapshot shaped like the server's: rows clustered per
+## namespace within ±100, 40 namespaces, three source types.
+static func synthetic_snapshot(sid: String, rows: int) -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2133
+	var centres: Array = []
+	for i in MEMORY_NAMESPACES:
+		centres.append(Vector3(rng.randf_range(-70, 70), rng.randf_range(-70, 70), rng.randf_range(-70, 70)))
+	var pos := PackedStringArray()
+	var meta := PackedStringArray()
+	var names := PackedStringArray()
+	for i in MEMORY_NAMESPACES:
+		names.append('"ns-%02d"' % i)
+	for r in rows:
+		var ns: int = r % MEMORY_NAMESPACES
+		var p: Vector3 = centres[ns] + Vector3(rng.randfn(0, 12), rng.randfn(0, 12), rng.randfn(0, 12))
+		pos.append("%.2f,%.2f,%.2f" % [p.x, p.y, p.z])
+		meta.append('{"id":"r%d","key":"key-%d","namespace":"ns-%02d","sourceType":"%s","updatedAt":%d}' % [r, r, ns, ["agent", "hook", "ingest"][r % 3], 1_700_000_000_000 + r * 1000])
+	return '{"version":1,"snapshotId":"%s","generatedAt":1,"dim":384,"count":%d,"positions":[%s],"metadata":[%s],"namespaces":[%s],"sourceTypes":["agent","hook","ingest"],"strata":[],"excludedNamespaces":[],"vectorsUrl":""}' % [sid, rows, ",".join(pos), ",".join(meta), ",".join(names)]
+
 
 func _mean(arr: PackedFloat32Array) -> float:
 	if arr.is_empty():

@@ -137,6 +137,10 @@ var _type_knowledge_button: Button = null
 var _type_ontology_button: Button = null
 var _type_agent_button: Button = null
 var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": true}
+# Memory cloud (XR WP6): on/off + colour-mode cycle. GraphScene owns the state
+# and pushes labels back through set_memory_cloud_state.
+var _memory_cloud_button: Button = null
+var _memory_colour_button: Button = null
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
@@ -405,6 +409,11 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_knowledge_button)
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
+	_memory_cloud_button = _action_btn("Memory: Off", "memory_cloud_toggle", "Show / hide the live memory cloud (RuVector sample); point at a dot for its key")
+	_memory_cloud_button.add_theme_color_override("font_color", IDLE)
+	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
+	g3.add_child(_memory_cloud_button)
+	g3.add_child(_memory_colour_button)
 	page.add_child(g3)
 
 	page.add_child(_group_header("Status"))
@@ -975,6 +984,16 @@ func flash_notice(text: String, seconds: float = NOTICE_SEC) -> void:
 ## Whether a flashed notice is still on screen. Public-ish for tests.
 func _notice_active() -> bool:
 	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
+
+
+## Memory-cloud button state: `label` is the layer's status ("Memory: 6000",
+## "Memory: Locked", …), `colour_mode` its colour mode name.
+func set_memory_cloud_state(on: bool, label: String, colour_mode: String) -> void:
+	if _memory_cloud_button != null:
+		_memory_cloud_button.text = label
+		_memory_cloud_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
+	if _memory_colour_button != null:
+		_memory_colour_button.text = "Cloud: %s" % colour_mode
 
 
 ## Reflect the Hierarchy/View toggle state and pinned-node count on the button

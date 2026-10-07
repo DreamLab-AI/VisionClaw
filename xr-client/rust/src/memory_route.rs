@@ -60,7 +60,7 @@ pub const ROUTE_SAMPLES: usize = 16;
 /// Most centreline samples a route may use; long routes get fewer per hop.
 pub const ROUTE_RING_CAP: usize = 320;
 /// Longest path accepted from the wire.
-pub const MAX_PATH: usize = 256;
+pub const MAX_PATH: usize = 64;
 /// Longest echoed query text.
 pub const MAX_QUERY_CHARS: usize = 120;
 /// Sidecar marks accepted (the sidecar returns at most 50).

@@ -359,6 +359,10 @@ var _radial_owner: XRController3D = null
 const PLANE_LIMIT: int = 24
 const PLANE_GAP_M: float = 0.5   # target world-metre gap between layers (pre-fit-scaled)
 const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
+# Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
+# scripts/memory_cloud_layer.gd; the scene only wires it.
+const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
+var _memory_cloud = null  # MemoryCloudLayerScript instance (under GraphRoot)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -519,6 +523,13 @@ func _ready() -> void:
 		var node_mat: Material = nodes_multi.material_override if nodes_multi != null else null
 		var edge_mat: Material = edges_multi.material_override if edges_multi != null else null
 		_planes.configure(_binary_client, node_mesh, edge_mesh, node_mat, edge_mat)
+	_memory_cloud = MemoryCloudLayerScript.new()
+	_memory_cloud.name = "MemoryCloud"
+	if graph_root != null:
+		graph_root.add_child(_memory_cloud)
+		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
+		_memory_cloud.pointer = right_controller
+		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -793,9 +804,23 @@ func _on_hud_control(action: String) -> void:
 			_unpin_all()
 		"toggle_demo":
 			_toggle_demo()
+		"memory_cloud_toggle":
+			if _memory_cloud != null:
+				_memory_cloud.set_enabled(not _memory_cloud.is_enabled())
+				_refresh_memory_cloud_hud()
+		"memory_cloud_colour":
+			if _memory_cloud != null:
+				_memory_cloud.cycle_colour_mode()
+				_refresh_memory_cloud_hud()
 		_:
 			push_warning("GraphScene: unknown HUD control '%s'" % action)
 	_refresh_controls_status()
+
+
+# Push the memory-cloud button labels (state, colour mode) to the HUD.
+func _refresh_memory_cloud_hud() -> void:
+	if hud != null and _memory_cloud != null and hud.has_method("set_memory_cloud_state"):
+		hud.set_memory_cloud_state(_memory_cloud.is_enabled(), _memory_cloud.status_label(), _memory_cloud.colour_mode_label())
 
 
 # Apply a type show/hide toggle "<class>:<1|0>" to the render store. Class codes
@@ -2399,6 +2424,8 @@ func _refresh_reduced_motion() -> void:
 		var state: Dictionary = comfort.call("get_visual_comfort")
 		_reduced_motion = bool(state.get("reduced_motion", true))
 	_choreo.reduced_motion = _reduced_motion
+	if _memory_cloud != null:
+		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
 		_effects.reduced_motion = _reduced_motion
 
@@ -2597,6 +2624,10 @@ func _on_graph_text(json: String) -> void:
 			var p: Variant = msg.get("payload", {})
 			if typeof(p) == TYPE_DICTIONARY:
 				_handle_broker_new_case(p)
+		"memoryRoute":
+			# Desktop query route relayed per session (WP7); the layer gates it.
+			if _memory_cloud != null:
+				_memory_cloud.apply_route_json(json)
 		"nodeUnpinAck":
 			# Server confirmed the release (position_updates.rs handle_node_unpin →
 			# {"type":"nodeUnpinAck","data":{"nodeId":N}}). Drop the id from the
