@@ -211,7 +211,7 @@ describe('postQuery', () => {
     snapshotId: 's1',
     embedModel: 'bge-small-en-v1.5',
     query: { text: 'hello', vector: Array.from({ length: dim }, (_, i) => (i === 0 ? 1 : 0)) },
-    sidecar: { results: [], tookMs: 4 },
+    sidecar: { results: [], tookMs: 4, method: 'hnsw' },
   });
 
   it('POSTs the body, signs it, and returns the response', async () => {
@@ -243,13 +243,48 @@ describe('fetchHealth', () => {
       snapshotId: 's1',
       generatedAt: 1,
       sidecar: { reachable: true, extensionVersion: '2.0.4', error: null },
-      embedder: { url: 'http://x', model: 'bge', reachable: true },
+      embedder: { model: 'bge', reachable: true },
       namespaces: [],
       recallProbe: null,
     };
     fetchMock.mockResolvedValueOnce(jsonResponse(h));
     expect(await fetchHealth()).toEqual(h);
     expect(fetchMock.mock.calls[0][0]).toBe(`${window.location.origin}/api/memory-cloud/health`);
+  });
+
+  it('signs the health request like every other endpoint (ADR-2133: health exposes private counts)', async () => {
+    const auth = vi.mocked(computeAuthHeaders);
+    auth.mockClear();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'a NIP-98 signature from a power user is required' }, 401));
+    const e = await fetchHealth().catch((x) => x);
+    const url = `${window.location.origin}/api/memory-cloud/health`;
+    expect(auth).toHaveBeenCalledWith(url, 'GET', undefined);
+    expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe(`Nostr signed:GET:${url}`);
+    expect(e.kind).toBe('forbidden');
+  });
+});
+
+describe('query rate limit (429)', () => {
+  it('maps the limiter\'s plain-text 429 to a rate_limited error, not a JSON parse failure', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('memory cloud query budget exhausted; retry in a minute', {
+        status: 429,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      }),
+    );
+    const e = await postQuery({ text: 'hello' }).catch((x) => x);
+    expect(e).toBeInstanceOf(MemoryCloudApiError);
+    expect(e.kind).toBe('rate_limited');
+    expect(e.status).toBe(429);
+    expect(e.message).toContain('query budget exhausted');
+    expect(e.retryAfterMs).toBeUndefined();
+  });
+
+  it('honours Retry-After on a 429 when the server sends one', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('slow down', { status: 429, headers: { 'Retry-After': '12' } }));
+    const e = await postQuery({ text: 'hello' }).catch((x) => x);
+    expect(e.kind).toBe('rate_limited');
+    expect(e.retryAfterMs).toBe(12_000);
   });
 });
 

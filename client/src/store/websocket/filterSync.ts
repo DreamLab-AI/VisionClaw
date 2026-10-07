@@ -60,92 +60,94 @@ export function clearFilterSnapshot() {
   lastFilterSnapshot = null;
 }
 
+// ── Filter sync (single, de-duplicated send path) ─────────────────────
+//
+// Every `filter_update` costs the server a full graph read and costs the
+// client a full `initialGraphLoad` (~30 MB of JSON at 9.5k nodes / 145k
+// edges). The send path is therefore de-duplicated against the last snapshot
+// actually sent: only a real change to a filter field, or a forced sync on
+// (re)connect — the server keeps the filter per connection — reaches the wire.
+
+type FilterSyncGet = () => {
+  isConnected: boolean;
+  sendFilterUpdate: (filter: FilterUpdateParams) => void;
+};
+
+function currentFilterSnapshot(): FilterSnapshot | null {
+  const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
+  if (!nodeFilter) return null;
+  return {
+    enabled: nodeFilter.enabled,
+    qualityThreshold: nodeFilter.qualityThreshold,
+    authorityThreshold: nodeFilter.authorityThreshold,
+    filterByQuality: nodeFilter.filterByQuality,
+    filterByAuthority: nodeFilter.filterByAuthority,
+    filterMode: nodeFilter.filterMode,
+    includeLinkedPages: nodeFilter.includeLinkedPages,
+  };
+}
+
+function sameSnapshot(a: FilterSnapshot | null, b: FilterSnapshot): boolean {
+  return (
+    !!a &&
+    a.enabled === b.enabled &&
+    a.qualityThreshold === b.qualityThreshold &&
+    a.authorityThreshold === b.authorityThreshold &&
+    a.filterByQuality === b.filterByQuality &&
+    a.filterByAuthority === b.filterByAuthority &&
+    a.filterMode === b.filterMode &&
+    a.includeLinkedPages === b.includeLinkedPages
+  );
+}
+
+/**
+ * Send the current node filter to the server if it differs from the last one
+ * sent. `force` resends an unchanged filter (used on connect, because a new
+ * connection starts with the server's default filter).
+ */
+export function syncFilterToServer(get: FilterSyncGet, opts: { force?: boolean } = {}) {
+  const wsState = get();
+  if (!wsState.isConnected) return;
+  const snapshot = currentFilterSnapshot();
+  if (!snapshot) return;
+  if (!opts.force && sameSnapshot(lastFilterSnapshot, snapshot)) return;
+  lastFilterSnapshot = snapshot;
+  wsState.sendFilterUpdate(snapshot);
+}
+
+/**
+ * Arm the shrink-guard acceptance window only when the filter can NARROW the
+ * graph. A disabled filter is answered with the full graph, so nothing smaller
+ * may be accepted on its behalf — otherwise the capped connect-time
+ * initialGraphLoad would replace a full REST topology.
+ */
+export function expectFilterResponseFor(filter: Pick<FilterUpdateParams, 'enabled'>) {
+  if (filter.enabled) {
+    expectFilterResponse();
+  }
+}
+
 // ── Filter subscription setup ──────────────────────────────────────────
 
-export function setupFilterSubscription(
-  get: () => { isConnected: boolean; sendFilterUpdate: (filter: FilterUpdateParams) => void },
-) {
+export function setupFilterSubscription(get: FilterSyncGet) {
   if (filterSubscriptionSet) return;
   filterSubscriptionSet = true;
 
-  const filterPaths = [
-    'nodeFilter.enabled',
-    'nodeFilter.qualityThreshold',
-    'nodeFilter.authorityThreshold',
-    'nodeFilter.filterByQuality',
-    'nodeFilter.filterByAuthority',
-    'nodeFilter.filterMode',
-    'nodeFilter.includeLinkedPages',
-  ] as const;
-
-  filterPaths.forEach(path => {
-    const store = useSettingsStore.getState();
-    if (store.subscribe) {
-      const unsub = store.subscribe(path as Parameters<typeof store.subscribe>[0], () => {
-        handleFilterChange(get);
-      });
-      filterUnsubscribers.push(unsub);
-    }
-  });
-
-  const zustandUnsub = useSettingsStore.subscribe((state) => {
-    const nodeFilter = state.settings?.nodeFilter;
-    const wsState = get();
-    if (nodeFilter && wsState.isConnected) {
-      const prev = lastFilterSnapshot;
-      if (
-        !prev ||
-        prev.enabled !== nodeFilter.enabled ||
-        prev.qualityThreshold !== nodeFilter.qualityThreshold ||
-        prev.authorityThreshold !== nodeFilter.authorityThreshold ||
-        prev.filterByQuality !== nodeFilter.filterByQuality ||
-        prev.filterByAuthority !== nodeFilter.filterByAuthority ||
-        prev.filterMode !== nodeFilter.filterMode ||
-        prev.includeLinkedPages !== nodeFilter.includeLinkedPages
-      ) {
-        lastFilterSnapshot = {
-          enabled: nodeFilter.enabled,
-          qualityThreshold: nodeFilter.qualityThreshold,
-          authorityThreshold: nodeFilter.authorityThreshold,
-          filterByQuality: nodeFilter.filterByQuality,
-          filterByAuthority: nodeFilter.filterByAuthority,
-          filterMode: nodeFilter.filterMode,
-          includeLinkedPages: nodeFilter.includeLinkedPages,
-        };
-        wsState.sendFilterUpdate(lastFilterSnapshot);
-      }
-    }
+  // One whole-store subscription, de-duplicated by syncFilterToServer. The
+  // former seven per-path subscriptions fired immediately on registration
+  // (the settings store's `subscribe` defaults to immediate) and each sent an
+  // undeduplicated filter_update — nine full-graph round trips per connect.
+  const zustandUnsub = useSettingsStore.subscribe(() => {
+    syncFilterToServer(get);
   });
   filterUnsubscribers.push(zustandUnsub);
 
   logger.info('Filter subscription set up - changes will sync to server');
 }
 
-function handleFilterChange(
-  get: () => { isConnected: boolean; sendFilterUpdate: (filter: FilterUpdateParams) => void },
-) {
-  const state = get();
-  if (!state.isConnected) return;
-
-  const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
-  if (nodeFilter) {
-    state.sendFilterUpdate({
-      enabled: nodeFilter.enabled,
-      qualityThreshold: nodeFilter.qualityThreshold,
-      authorityThreshold: nodeFilter.authorityThreshold,
-      filterByQuality: nodeFilter.filterByQuality,
-      filterByAuthority: nodeFilter.filterByAuthority,
-      filterMode: nodeFilter.filterMode,
-      includeLinkedPages: nodeFilter.includeLinkedPages,
-    });
-  }
-}
-
 // ── Force refresh ──────────────────────────────────────────────────────
 
-export async function forceRefreshFilter(
-  get: () => { isConnected: boolean; sendFilterUpdate: (filter: FilterUpdateParams) => void },
-) {
+export async function forceRefreshFilter(get: FilterSyncGet) {
   const state = get();
   if (!state.isConnected) {
     logger.warn('Cannot force refresh filter: WebSocket not connected');
@@ -154,22 +156,12 @@ export async function forceRefreshFilter(
 
   const nodeFilter = useSettingsStore.getState().settings?.nodeFilter;
   if (nodeFilter) {
-    lastFilterSnapshot = null;
-
     logger.info('[Refresh] Clearing local graph and requesting fresh filtered data', nodeFilter);
 
     await graphDataManager.setGraphData({ nodes: [], edges: [] });
     logger.info('[Refresh] Local graph cleared, awaiting server response...');
 
-    state.sendFilterUpdate({
-      enabled: nodeFilter.enabled,
-      qualityThreshold: nodeFilter.qualityThreshold,
-      authorityThreshold: nodeFilter.authorityThreshold,
-      filterByQuality: nodeFilter.filterByQuality,
-      filterByAuthority: nodeFilter.filterByAuthority,
-      filterMode: nodeFilter.filterMode,
-      includeLinkedPages: nodeFilter.includeLinkedPages,
-    });
+    syncFilterToServer(get, { force: true });
   } else {
     logger.warn('No nodeFilter settings found in store');
   }

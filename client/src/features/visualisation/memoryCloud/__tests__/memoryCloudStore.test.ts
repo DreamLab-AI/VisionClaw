@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryCloudApiError } from '../api';
-import { createMemoryCloudStore, sidecarAgreement, type MemoryCloudDeps, type TrajectoryModule } from '../memoryCloudStore';
+import { createMemoryCloudStore, sidecarAgreement, describeAgreement, QUERY_RETRY_DEFAULT_MS, type MemoryCloudDeps, type TrajectoryModule } from '../memoryCloudStore';
 import type { MemoryCloudSnapshot, MemoryCloudQueryResponse, MemoryCloudHit } from '../types';
 import type { QueryRun, SearchTree, LayoutResult, LearningState, VectorSet } from '../../memoryTrajectory/types';
-import { MemoryCloudApiError } from '../api';
 
 const DIM = 4;
 
@@ -27,7 +26,7 @@ function response(snapshotId = 's1', results: MemoryCloudHit[] = [hit(0), hit(2)
   return {
     snapshotId, embedModel: 'bge',
     query: { text: 'q', vector: [1, 0, 0, 0] },
-    sidecar: { results, tookMs: 3 },
+    sidecar: { results, tookMs: 3, method: 'hnsw' },
   };
 }
 
@@ -254,6 +253,26 @@ describe('sidecarAgreement', () => {
   });
 });
 
+describe('describeAgreement', () => {
+  it('states coverage over all hits and agreement over the sampled ones only', () => {
+    const d = describeAgreement({ total: 10, inSample: 4, inLocal: 3, inExact: 4 });
+    expect(d.coverage).toBe('4 of 10 sidecar hits are in the sample');
+    expect(d.agreement).toBe('3 of 4 sampled agree with the local top-k');
+  });
+
+  it('never reports 0/0: with no sampled hit there is no agreement to measure', () => {
+    // real queries mostly return ruvnet-kb rows the 6k sample does not hold
+    const d = describeAgreement({ total: 10, inSample: 0, inLocal: 0, inExact: 0 });
+    expect(d.coverage).toBe('0 of 10 sidecar hits are in the sample');
+    expect(d.agreement).toBe('no sampled hit to compare with the local top-k');
+    expect(d.agreement).not.toMatch(/0\s*\/\s*0|0 of 0/);
+  });
+
+  it('uses the singular for one hit', () => {
+    expect(describeAgreement({ total: 1, inSample: 1, inLocal: 1, inExact: 1 }).coverage).toBe('1 of 1 sidecar hit is in the sample');
+  });
+});
+
 describe('memoryCloudStore — backend availability', () => {
   let env: ReturnType<typeof makeDeps>;
   beforeEach(() => { env = makeDeps(); });
@@ -280,6 +299,33 @@ describe('memoryCloudStore — backend availability', () => {
     expect(store.getState().status).toBe('forbidden');
     expect(store.getState().query.status).toBe('idle');
     expect(store.getState().query.error).toBeNull();
+  });
+
+  it('a 429 is a rate-limited query state with a retry time, not an error or a load failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000);
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    env.deps.postQuery = vi.fn(async () => {
+      throw new MemoryCloudApiError('rate_limited', 'HTTP 429: memory cloud query budget exhausted; retry in a minute', 429);
+    });
+    await store.getState().runQuery('anything');
+    const q = store.getState().query;
+    expect(q.status).toBe('rate_limited');
+    expect(q.retryAt).toBe(2_000_000 + QUERY_RETRY_DEFAULT_MS);
+    expect(q.error).toMatch(/rate limited.*retry/i);
+    expect(store.getState().status).toBe('ready');
+
+    env.deps.postQuery = vi.fn(async () => {
+      throw new MemoryCloudApiError('rate_limited', 'HTTP 429', 429, { retryAfterMs: 9000 });
+    });
+    await store.getState().runQuery('again');
+    expect(store.getState().query.retryAt).toBe(2_000_000 + 9000);
+
+    env.deps.postQuery = vi.fn(async () => response());
+    await store.getState().runQuery('later');
+    expect(store.getState().query.status).toBe('done');
+    expect(store.getState().query.retryAt).toBeNull();
   });
 
   it('on 503 waits Retry-After, then reloads once by itself', async () => {

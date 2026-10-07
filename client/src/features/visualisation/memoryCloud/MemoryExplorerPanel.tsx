@@ -20,7 +20,7 @@ import { GlassPanel } from '../../control-center/primitives/GlassPanel';
 import { useSettingsStore } from '@/store/settingsStore';
 import type { EmbeddingCloudSettings } from '../../settings/config/settings';
 import { useMemoryCloudStore } from './memoryCloudInstance';
-import { sidecarAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
+import { sidecarAgreement, describeAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
 import { focusMemoryPoint } from '../cameraFocus';
 import { ROUTE_PALETTE, TOTAL_DUR, GROW_DUR } from './routeMath';
 import { startDirector, stopDirector } from './cinematicSession';
@@ -28,6 +28,7 @@ import { pickRecorderMime } from './recorder';
 import { css, pct } from './panelStyles';
 import { SoundSection, SpotifyChip, SpotifyPopover, useTapKey } from './SoundControls';
 import type { TrajectoryView } from '../memoryTrajectory/types';
+import type { MemoryCloudSearchMethod, MemoryCloudSidecarIssue } from './types';
 
 const E = 'visualisation.embeddingCloud.';
 const VIEWS: Array<{ id: TrajectoryView; label: string; hint: string }> = [
@@ -37,6 +38,39 @@ const VIEWS: Array<{ id: TrajectoryView; label: string; hint: string }> = [
   { id: 'hyper', label: 'Hyper', hint: 'Search tree in the Poincaré disk' },
 ];
 const HEALTH_POLL_MS = 30_000;
+
+const METHOD_LABEL: Record<MemoryCloudSearchMethod, { short: string; title: string }> = {
+  hnsw: { short: 'HNSW', title: "Answered by the sidecar's HNSW index, as an agent's memory_search would be" },
+  exact: {
+    short: 'exact',
+    title: 'Answered by an exact scan: namespace-restricted queries, or too few HNSW candidates survived the exclusions',
+  },
+};
+
+/** Health tab wording for the sidecar's closed error categories (wire.rs `SidecarIssue`). */
+export const SIDECAR_ISSUE_TEXT: Record<MemoryCloudSidecarIssue, { label: string; detail: string }> = {
+  not_configured: {
+    label: 'Not configured',
+    detail: 'RUVECTOR_PG_CONNINFO is unset or invalid on the server, so the cloud cannot reach the sidecar.',
+  },
+  building: { label: 'Building', detail: 'The first snapshot is still building; this clears by itself.' },
+  unreachable: {
+    label: 'Unreachable',
+    detail: 'The latest snapshot build could not reach or query the sidecar; the server log has the cause.',
+  },
+};
+
+/** Whole seconds until `at`, ticking once a second; null when `at` is null. */
+function useCountdown(at: number | null): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (at === null) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [at]);
+  return at === null ? null : Math.max(0, Math.ceil((at - now) / 1000));
+}
 
 const fmtMs = (ms: number) => (ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : `${ms.toFixed(ms < 10 ? 2 : 0)} ms`);
 const recallColour = (r: number) => (r >= 0.9 ? ROUTE_PALETTE.mint : r >= 0.7 ? ROUTE_PALETTE.tip : ROUTE_PALETTE.miss);
@@ -70,16 +104,22 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; title?: string }> 
 const RetryNote: React.FC = () => {
   const retryAt = useMemoryCloudStore((s) => s.retryAt);
   const reason = useMemoryCloudStore((s) => s.error);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = retryAt === null ? null : Math.max(0, Math.ceil((retryAt - now) / 1000));
+  const secs = useCountdown(retryAt);
   return (
     <div style={{ ...css.label, marginTop: 8 }} aria-live="polite">
       {secs === null ? 'Memory cloud unavailable.' : `Memory cloud unavailable; retrying in ${secs} s.`}
       {reason && <div style={css.mono}>{reason}</div>}
+    </div>
+  );
+};
+
+/** 429: the per-signer query budget is spent; a quiet note, not an error. */
+const RateLimitNote: React.FC<{ retryAt: number | null }> = ({ retryAt }) => {
+  const secs = useCountdown(retryAt);
+  return (
+    <div role="status" aria-label="Query rate limit" style={{ ...css.label, marginTop: 8, color: ROUTE_PALETTE.tip }}>
+      Rate limited: the memory-cloud query budget is spent.{' '}
+      {secs === null || secs === 0 ? 'You can retry now.' : `You can retry in ${secs} s.`}
     </div>
   );
 };
@@ -102,6 +142,8 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
   const run = query.run;
   const results = query.response?.sidecar.results ?? [];
   const agreement = useMemo(() => sidecarAgreement(results, run), [results, run]);
+  const agreementText = describeAgreement(agreement);
+  const method = query.response?.sidecar.method;
   const local = useMemo(() => new Set(run?.result.top ?? []), [run]);
   const n = snapshot?.count ?? 0;
   const busy = query.status === 'running';
@@ -157,6 +199,7 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
       )}
       {status === 'unavailable' && <RetryNote />}
       {query.status === 'error' && <div role="alert" style={{ color: ROUTE_PALETTE.miss, marginTop: 8 }}>{query.error}</div>}
+      {query.status === 'rate_limited' && <RateLimitNote retryAt={query.retryAt} />}
       {(status === 'building' || status === 'loading') && (
         <div style={{ marginTop: 8 }} aria-live="polite">
           <span style={css.label}>{status === 'loading' ? 'Loading sample…' : `Building local index ${pct(buildProgress)}`}</span>
@@ -226,7 +269,11 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
             <Stat label={`recall@${query.k}`} value={<span style={{ color: recallColour(run.recall) }}>{run.recall.toFixed(2)}</span>} title="Local HNSW top-k against exact search over the same sample" />
             <Stat label="ef / breadth" value={run.breadth} />
             <Stat label="hints used" value={run.hintsUsed.length} title="Remembered queries that seeded this search" />
-            <Stat label="sidecar" value={query.response ? fmtMs(query.response.sidecar.tookMs) : '—'} />
+            <Stat
+              label="sidecar"
+              value={query.response ? `${fmtMs(query.response.sidecar.tookMs)}${method ? ` · ${METHOD_LABEL[method]?.short ?? method}` : ''}` : '—'}
+              title={method ? METHOD_LABEL[method]?.title : undefined}
+            />
           </div>
           <div style={{ ...css.row, marginTop: 8, justifyContent: 'space-between' }}>
             <RecallSparkline values={recallHistory} />
@@ -237,11 +284,13 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
 
       {query.response && (
         <div style={css.section}>
-          <div style={{ ...css.row, justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600 }}>Sidecar results</span>
-            <span style={css.label} title="Sidecar results present in the sample that the local route also returned">
-              {agreement.inLocal}/{agreement.inSample} sampled agree with the local top-k
-            </span>
+          <div style={{ fontWeight: 600 }}>Sidecar results</div>
+          <div
+            style={{ ...css.label, marginTop: 2, lineHeight: 1.45 }}
+            title="Hits outside the sample have no point in the cloud, so only sampled hits are compared with the local route"
+          >
+            <div>{agreementText.coverage}</div>
+            <div>{agreementText.agreement}</div>
           </div>
           <ol style={{ listStyle: 'none', padding: 0, margin: '6px 0 0' }} aria-label="Sidecar results">
             {results.map((h, i) => {
@@ -357,7 +406,18 @@ const HealthTab: React.FC = () => {
               {ok(health.sidecar.reachable)}
               {health.sidecar.extensionVersion && <span style={css.mono}> · ruvector {health.sidecar.extensionVersion}</span>}
             </span>
-            {health.sidecar.error && (<><span /><span style={{ color: ROUTE_PALETTE.miss }}>{health.sidecar.error}</span></>)}
+            {health.sidecar.error && (
+              <>
+                <span style={css.label}>issue</span>
+                <span aria-label="Sidecar issue" style={{ color: ROUTE_PALETTE.miss }}>
+                  <strong>{SIDECAR_ISSUE_TEXT[health.sidecar.error]?.label ?? 'Unknown issue'}</strong>{' '}
+                  <span style={css.mono}>({health.sidecar.error})</span>
+                  {SIDECAR_ISSUE_TEXT[health.sidecar.error] && (
+                    <div style={{ color: '#c9cfdc', marginTop: 2 }}>{SIDECAR_ISSUE_TEXT[health.sidecar.error].detail}</div>
+                  )}
+                </span>
+              </>
+            )}
             <span style={css.label}>embedder</span>
             <span>{ok(health.embedder.reachable)} <span style={css.mono}>· {health.embedder.model}</span></span>
             <span style={css.label}>snapshot</span>

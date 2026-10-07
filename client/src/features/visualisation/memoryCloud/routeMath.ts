@@ -256,3 +256,44 @@ export function morphFade(
   if (a === undefined || !Number.isFinite(a)) return 1;
   return Math.max(0, Math.min(1, a));
 }
+
+/** Beat sample as published on `beatState` (memoryCloudStore). */
+export interface BeatLike {
+  on: boolean;
+  pulse: number;
+  bar: number;
+  phase: number;
+}
+
+export interface BeatModulation {
+  /** multiplier on the route glow */
+  glow: number;
+  /** comet lead ahead of the head, as a fraction of the route length */
+  cometLead: number;
+  /** multiplier on the comet size */
+  cometScale: number;
+  /** root ring scale; null leaves the caller's own idle breathing */
+  rootScale: number | null;
+  /** answer pulse-ring phase locked to the beat; null leaves its own clock */
+  pulsePhase: number | null;
+}
+
+const NEUTRAL: BeatModulation = { glow: 1, cometLead: 0, cometScale: 1, rootScale: null, pulsePhase: null };
+const STILL: BeatModulation = { glow: 1, cometLead: 0, cometScale: 1, rootScale: 1, pulsePhase: null };
+
+/**
+ * How the beat modulates the route. Under reduced motion the beat changes
+ * nothing at all, as in the XR client (ADR-2107: the swell is held at exactly
+ * 0); only the panel's beat readout still shows the tempo.
+ */
+export function beatModulation(beat: BeatLike, reducedMotion: boolean): BeatModulation {
+  if (reducedMotion) return { ...STILL };
+  if (!beat.on) return { ...NEUTRAL };
+  return {
+    glow: 1 + 0.2 * beat.pulse,
+    cometLead: 0.015 * beat.pulse,
+    cometScale: 1 + 0.35 * beat.pulse,
+    rootScale: 1 + 0.12 * beat.bar,
+    pulsePhase: beat.phase,
+  };
+}

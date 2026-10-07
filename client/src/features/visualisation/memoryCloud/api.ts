@@ -28,6 +28,12 @@ export type MemoryCloudErrorKind =
   | 'forbidden'
   /** 503: the sample is building or the cloud is disabled; honour `retryAfterMs` */
   | 'unavailable'
+  /**
+   * 429: the per-signer query budget is spent. The limiter answers with a
+   * plain-text body and usually no `Retry-After`; `retryAfterMs` is set only
+   * when the header is present.
+   */
+  | 'rate_limited'
   /** the request never produced a response */
   | 'network'
   /** the caller aborted */
@@ -40,7 +46,7 @@ export type MemoryCloudErrorKind =
 export class MemoryCloudApiError extends Error {
   readonly kind: MemoryCloudErrorKind;
   readonly status?: number;
-  /** 503 only: the server's `Retry-After`, in milliseconds */
+  /** 503 and 429 only: the server's `Retry-After`, in milliseconds */
   readonly retryAfterMs?: number;
   /** 409 only: the snapshot the server says is current */
   readonly currentSnapshotId?: string;
@@ -147,9 +153,12 @@ async function httpError(res: Response): Promise<MemoryCloudApiError> {
         ? 'forbidden'
         : res.status === 503
           ? 'unavailable'
-          : 'http';
+          : res.status === 429
+            ? 'rate_limited'
+            : 'http';
   return new MemoryCloudApiError(kind, `HTTP ${res.status}: ${detail}`, res.status, {
-    retryAfterMs: res.status === 503 ? parseRetryAfter(res.headers.get('Retry-After')) : undefined,
+    retryAfterMs:
+      res.status === 503 || res.status === 429 ? parseRetryAfter(res.headers.get('Retry-After')) : undefined,
     currentSnapshotId,
   });
 }

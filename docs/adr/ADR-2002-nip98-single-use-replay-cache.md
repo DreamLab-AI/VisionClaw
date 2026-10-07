@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
+verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -174,3 +174,7 @@ and the fail-closed ceiling. The horizontal-scaling review trigger is unchanged.
 ## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
 
 **Governed change:** `docs/SECURITY-profiles.md` (0.1.2 → 0.1.3). Invariant 4 now also states that a NIP-98 token is verified once per request: layered checks reuse the identity the first verification left in the request extensions (`src/utils/auth.rs:265-289`, test `tests/rbac_gate_require_auth_stacking_test.rs`). The flag matrix gains the ADR-2133 memory-cloud variables, and invariants 6 and 7 are updated. Replay protection is unchanged: the first verification still records the event id, and a replayed token is still refused (asserted by that test). The decision holds.
+
+## Re-verification — 2026-10-07 at e48099f28 (401 for missing credentials; dev bypass on the memory cloud)
+
+**Governed change:** in `verify_access` (`src/utils/auth.rs`, legacy-header branch) a request with no credentials at all (no `X-Nostr-Pubkey` or no `X-Nostr-Token`) now gets **401** "Authentication required" instead of 403; 403 stays for an identified caller below the required level. The memory-cloud handler admits every caller under `dev_full_bypass_active()` (ADR-2133 amendment); that predicate is unchanged, compile-gated to debug/`dev-auth` builds and refused at boot in release. Every caller in the tree accepts 401 or 403 alike (`UnifiedApiClient` retry rule, the memory-cloud client, `adr142_rbac_gate`, `rec1_route_guard`, the stacking test). Verified with `cargo test --lib -- auth rbac memory_cloud` (69 pass) and those integration tests plus `memory_cloud_auth_test` (all pass). The decision holds.

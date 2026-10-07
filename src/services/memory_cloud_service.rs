@@ -811,6 +811,22 @@ fn visible_counts(
 fn build_pool(conninfo: &str) -> Result<Pool, String> {
     let mut pg = tokio_postgres::Config::from_str(conninfo)
         .map_err(|e| format!("{CONNINFO_ENV} is not a valid connection string: {e}"))?;
+    // A key=value string parses even when cut short, e.g. an unquoted .env
+    // value split at its first space leaves only `host=…`; fail here, by name,
+    // rather than later as an opaque "unreachable".
+    let missing: Vec<&str> = [
+        ("user", pg.get_user().is_none()),
+        ("dbname", pg.get_dbname().is_none()),
+    ]
+    .into_iter()
+    .filter_map(|(k, absent)| absent.then_some(k))
+    .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "{CONNINFO_ENV} has no {}; if it is a key=value string in .env, quote the whole value",
+            missing.join(" or ")
+        ));
+    }
     pg.connect_timeout(POOL_TIMEOUT)
         .application_name("visionclaw-memory-cloud")
         .options(SESSION_OPTIONS);
@@ -859,6 +875,30 @@ mod tests {
 
     fn cfg() -> MemoryCloudConfig {
         MemoryCloudConfig::from_lookup(|_| None)
+    }
+
+    #[tokio::test]
+    async fn conninfo_truncated_at_first_space_is_rejected_with_a_quoting_hint() {
+        // An unquoted .env value split at its spaces arrives as host only.
+        let svc = MemoryCloudService::new(cfg(), Some("host=ruvector-postgres".into()));
+        match svc.snapshot().await {
+            Err(MemoryCloudError::Unconfigured(msg)) => {
+                assert!(msg.contains("user"), "{msg}");
+                assert!(msg.contains("quote"), "{msg}");
+            }
+            other => panic!("expected Unconfigured, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn conninfo_with_user_and_dbname_builds_a_pool() {
+        assert!(build_pool(
+            "host=ruvector-postgres port=5432 dbname=ruvector user=ruvector_reader password=x"
+        )
+        .is_ok());
+        assert!(
+            build_pool("postgresql://ruvector_reader:x@ruvector-postgres:5432/ruvector").is_ok()
+        );
     }
 
     #[actix_rt::test]

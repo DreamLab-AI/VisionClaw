@@ -8,10 +8,15 @@
  * when only the namespace is, and nothing otherwise — unmatched flashes are
  * counted for the explorer HUD rather than landing on a random point.
  *
+ * The cloud frames itself on the graph (cloudFrame.ts): an outer group sits at
+ * the graph's robust centre and scales the cloud's robust radius to the
+ * graph's (times cloudScale / 5); an inner group recentres the cloud on its
+ * dense core. Points draw as round sprites.
+ *
  * While a query route is shown the cloud stops rotating, points off the route
- * dim (focus pull), and TrajectoryLayer draws the route inside this group so
- * it scales and turns with the cloud. MemoryCameraRig flies the camera to a
- * point on request and runs the cinematic director.
+ * dim (focus pull), and TrajectoryLayer draws the route inside the inner group
+ * so it scales and turns with the cloud. MemoryCameraRig flies the camera to a
+ * point on request, frames each new route, and runs the cinematic director.
  */
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
@@ -27,11 +32,15 @@ import {
   type BurstProfile,
 } from '../semanticEncoding';
 import { useMemoryCloudStore } from '../memoryCloud/memoryCloudInstance';
-import { buildCloudColours, buildIndexMaps, resolveFlashTargets, applyFocusDim, type IndexMaps } from '../memoryCloud/cloudData';
+import { buildCloudColours, buildIndexMaps, resolveFlashTargets, applyFocusDim, burstFrame, type IndexMaps } from '../memoryCloud/cloudData';
 import { directorClock } from '../memoryCloud/memoryCloudStore';
 import TrajectoryLayer from '../memoryCloud/TrajectoryLayer';
 import MemoryCameraRig from '../memoryCloud/MemoryCameraRig';
 import { useReducedMotion } from '../memoryCloud/useReducedMotion';
+import { cloudPlacement, cloudPointSize, discSpritePixels } from '../memoryCloud/cloudFrame';
+import { robustBounds, type RobustBounds } from '@/utils/robustBounds';
+import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
+import { graphDataManager } from '../../graph/managers/graphDataManager';
 
 interface EmbeddingCloudProps {
   enabled: boolean;
@@ -53,6 +62,36 @@ const BURST_INIT_COLOR = 0x9ad6ff; // neutral colour for idle pool meshes
 const RING_STAGGER = 0.14;
 /** seconds for the focus-pull dimming to fade in or out */
 const DIM_FADE = 0.6;
+/** seconds between re-reads of the graph's extent while physics settles */
+const GRAPH_BOUNDS_EVERY = 1;
+/** seconds for the cloud to glide to a new placement */
+const PLACE_GLIDE = 0.8;
+const SPRITE_SIZE = 64;
+
+/**
+ * The graph's robust bounds: the live position buffer while physics runs,
+ * else the positions in the cached graph data (no binary stream yet, or the
+ * socket is down). Null when there is no graph.
+ */
+function readGraphBounds(): RobustBounds | null {
+  const n = sharedNodeIdToIndexMap.size;
+  if (sharedNodePositions && n > 0) {
+    const b = robustBounds(sharedNodePositions, n);
+    if (b) return b;
+  }
+  const nodes = graphDataManager.getLastGraphData()?.nodes;
+  if (!nodes?.length) return null;
+  const flat = new Float32Array(nodes.length * 3);
+  let k = 0;
+  for (const node of nodes) {
+    const p = node.position;
+    if (!p) continue;
+    flat[k++] = p.x;
+    flat[k++] = p.y;
+    flat[k++] = p.z;
+  }
+  return robustBounds(flat, k / 3);
+}
 
 interface BurstSlot {
   mesh: THREE.Mesh;
@@ -73,7 +112,11 @@ const statusBox = (colour: string, background: string): React.CSSProperties => (
 });
 
 const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
+  /** outer: graph centre, scale, rotation */
+  const placeRef = useRef<THREE.Group>(null);
+  /** inner: cloud-local frame (recentred on the dense core); the route and rig use this */
   const groupRef = useRef<THREE.Group>(null);
+  const placeState = useRef({ graph: null as RobustBounds | null, sinceRead: Infinity, placed: false });
   const pointsRef = useRef<THREE.Points>(null);
   const [hovered, setHovered] = useState<{ index: number; point: THREE.Vector3 } | null>(null);
   const reducedMotion = useReducedMotion();
@@ -153,6 +196,27 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   }, [snapshot, baseColours, maxPoints]);
 
   useEffect(() => () => geometry?.dispose(), [geometry]);
+
+  // the cloud's own robust frame, cloud-local
+  const cloudBounds = useMemo(
+    () => (snapshot ? robustBounds(snapshot.positions, snapshot.count) : null),
+    [snapshot],
+  );
+  useEffect(() => {
+    placeState.current.sinceRead = Infinity;
+    placeState.current.placed = false;
+  }, [cloudBounds, cloudScale]);
+
+  // round point sprite: a white disc, so vertex colours and size still apply
+  const sprite = useMemo(() => {
+    const t = new THREE.DataTexture(discSpritePixels(SPRITE_SIZE), SPRITE_SIZE, SPRITE_SIZE, THREE.RGBAFormat);
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    return t;
+  }, []);
+  useEffect(() => () => sprite.dispose(), [sprite]);
 
   // Rows that stay lit while a query is shown: the search tree, both top-k sets
   // and every sampled sidecar hit.
@@ -245,9 +309,31 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
 
   // Per-frame: rotation (paused while a route is shown), focus dimming, bursts.
   useFrame(({ camera }, dt) => {
+    // placement: frame the cloud on the graph, re-reading its extent at 1 Hz
+    const ps = placeState.current;
+    const outer = placeRef.current;
+    if (outer) {
+      ps.sinceRead += dt;
+      if (ps.sinceRead >= GRAPH_BOUNDS_EVERY) {
+        ps.sinceRead = 0;
+        ps.graph = readGraphBounds();
+      }
+      const place = cloudPlacement(cloudBounds, ps.graph, cloudScale);
+      // glide while physics settles; snap on first placement or under reduced motion
+      const f = !ps.placed || reducedMotion ? 1 : Math.min(1, dt / PLACE_GLIDE);
+      outer.position.x += (place.position[0] - outer.position.x) * f;
+      outer.position.y += (place.position[1] - outer.position.y) * f;
+      outer.position.z += (place.position[2] - outer.position.z) * f;
+      outer.scale.setScalar(outer.scale.x + (place.scale - outer.scale.x) * f);
+      groupRef.current?.position.set(...place.offset);
+      ps.placed = true;
+      const mat = pointsRef.current?.material as THREE.PointsMaterial | undefined;
+      if (mat) mat.size = cloudPointSize(pointSize, outer.scale.x);
+    }
+
     const routeShown = !!run;
-    if (groupRef.current && rotationSpeed > 0 && !routeShown && !cinematicActive && !directorClock.active && !reducedMotion) {
-      groupRef.current.rotation.y += rotationSpeed;
+    if (outer && rotationSpeed > 0 && !routeShown && !cinematicActive && !directorClock.active && !reducedMotion) {
+      outer.rotation.y += rotationSpeed;
     }
 
     // focus pull: fade the dim amount in/out and rewrite colours only while it moves
@@ -268,7 +354,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     const now = performance.now();
     for (const slot of burstPool.current) {
       if (!slot.active) continue;
-      const { duration, maxScale, motion } = slot.profile;
+      const { duration } = slot.profile;
       const elapsed = (now - slot.startTime) / 1000 - slot.delay;
       if (elapsed < 0) {
         slot.mesh.visible = false;
@@ -280,13 +366,9 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
         continue;
       }
       slot.mesh.visible = true;
-      const t = elapsed / duration;
-      const scale = motion === 'implode'
-        ? maxScale * Math.pow(1 - t, 3)
-        : maxScale * (1 - Math.pow(1 - t, 3));
-      const alpha = 1.0 - t * t;
-      slot.mesh.scale.setScalar(Math.max(scale, 0.01));
-      (slot.mesh.material as THREE.MeshBasicMaterial).opacity = alpha * 0.85;
+      const f = burstFrame(elapsed / duration, slot.profile, reducedMotion);
+      slot.mesh.scale.setScalar(f.scale);
+      (slot.mesh.material as THREE.MeshBasicMaterial).opacity = f.alpha;
       slot.mesh.quaternion.copy(camera.quaternion);
     }
   });
@@ -329,7 +411,8 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   const worldHover = hovered && groupRef.current ? groupRef.current.worldToLocal(hovered.point.clone()) : null;
 
   return (
-    <group ref={groupRef} name="embedding-cloud-layer" scale={cloudScale}>
+    <group ref={placeRef} name="embedding-cloud-layer">
+    <group ref={groupRef} name="embedding-cloud-local">
       <points
         ref={pointsRef}
         geometry={geometry}
@@ -337,8 +420,10 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
         onPointerOut={onPointerOut}
       >
         <pointsMaterial
-          size={pointSize}
+          size={cloudPointSize(pointSize, placeRef.current?.scale.x ?? cloudScale)}
           opacity={opacity}
+          map={sprite}
+          alphaTest={0.02}
           transparent
           vertexColors
           sizeAttenuation
@@ -377,6 +462,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
           </div>
         </Html>
       )}
+    </group>
     </group>
   );
 };

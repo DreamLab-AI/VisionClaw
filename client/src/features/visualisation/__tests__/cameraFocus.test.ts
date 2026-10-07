@@ -5,6 +5,7 @@ import {
   focusNodeById,
   CAMERA_FOCUS_EVENT,
   type CameraFocusDetail,
+  frameRoutePose,
 } from '../cameraFocus';
 import { KNOWLEDGE_NODE_FLAG, AGENT_NODE_FLAG, getActualNodeId } from '@/types/binaryProtocol';
 
@@ -130,5 +131,93 @@ describe('flyPose', () => {
     expect(flyPose(from, to, 1)).toEqual(to);
     const mid = flyPose(from, to, 0.5);
     expect(mid.target[0]).toBeCloseTo(25, 6);
+  });
+});
+
+describe('frameRoutePose', () => {
+  const from = { position: [0, 0, 1000] as [number, number, number], target: [0, 0, 0] as [number, number, number] };
+  const route: Array<[number, number, number]> = [[100, 0, 0], [140, 30, 10], [160, -20, 0], [120, 10, -30]];
+
+  it('targets the route centre and keeps the current viewing direction', () => {
+    const p = frameRoutePose(from, route, 75, 1.6);
+    expect(p.target[0]).toBeCloseTo(130);
+    expect(p.target[1]).toBeCloseTo(5);
+    expect(p.target[2]).toBeCloseTo(-10);
+    const d = [p.position[0] - p.target[0], p.position[1] - p.target[1], p.position[2] - p.target[2]];
+    const n = Math.hypot(d[0], d[1], d[2]);
+    expect(d[2] / n).toBeCloseTo(1);
+  });
+
+  it('puts every route point inside both the vertical and horizontal field of view', () => {
+    for (const aspect of [0.5, 1, 2.2]) {
+      const fov = 60;
+      const p = frameRoutePose(from, route, fov, aspect);
+      const halfV = (fov * Math.PI) / 360;
+      const halfH = Math.atan(Math.tan(halfV) * aspect);
+      const dist = Math.hypot(p.position[0] - p.target[0], p.position[1] - p.target[1], p.position[2] - p.target[2]);
+      for (const q of route) {
+        const r = Math.hypot(q[0] - p.target[0], q[1] - p.target[1], q[2] - p.target[2]);
+        const ang = Math.asin(Math.min(1, r / dist));
+        expect(ang).toBeLessThan(Math.min(halfV, halfH));
+      }
+    }
+  });
+
+  it('floors the radius so a one-point route is not framed from inside it', () => {
+    const p = frameRoutePose(from, [[5, 5, 5]], 75, 1, 40);
+    const dist = Math.hypot(p.position[0] - 5, p.position[1] - 5, p.position[2] - 5);
+    expect(dist).toBeGreaterThan(40);
+  });
+
+  it('falls back to a raised front view when the camera sits on the target', () => {
+    const p = frameRoutePose({ position: [1, 1, 1], target: [1, 1, 1] }, route, 75, 1);
+    expect(p.position[2]).toBeGreaterThan(p.target[2]);
+    expect(p.position[1]).toBeGreaterThan(p.target[1]);
+  });
+});
+
+describe('frameRoutePose with screen insets', () => {
+  const route: Array<[number, number, number]> = [[100, 0, 0], [140, 30, 10], [160, -20, 0], [120, 10, -30]];
+  const from = { position: [130, 40, 900] as [number, number, number], target: [130, 5, -10] as [number, number, number] };
+
+  /** NDC of a world point for a camera at pose p looking at its target, world up +y */
+  function ndc(p: { position: number[]; target: number[] }, q: number[], fov: number, aspect: number) {
+    const f = [p.target[0] - p.position[0], p.target[1] - p.position[1], p.target[2] - p.position[2]];
+    const fl = Math.hypot(f[0], f[1], f[2]);
+    const fw = f.map((v) => v / fl);
+    let r = [fw[1] * 0 - fw[2] * 1, fw[2] * 0 - fw[0] * 0, fw[0] * 1 - fw[1] * 0];
+    const rl = Math.hypot(r[0], r[1], r[2]);
+    r = r.map((v) => v / rl);
+    const u = [r[1] * fw[2] - r[2] * fw[1], r[2] * fw[0] - r[0] * fw[2], r[0] * fw[1] - r[1] * fw[0]];
+    const d = [q[0] - p.position[0], q[1] - p.position[1], q[2] - p.position[2]];
+    const z = d[0] * fw[0] + d[1] * fw[1] + d[2] * fw[2];
+    const x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2];
+    const y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+    const t = Math.tan((fov * Math.PI) / 360);
+    return [x / (z * t * aspect), y / (z * t)];
+  }
+
+  it('fits the route inside the area the panel and dock leave free, centred there', () => {
+    const fov = 60;
+    const aspect = 1.6;
+    const insets = { right: 0.28, bottom: 0.12 };
+    const p = frameRoutePose(from, route, fov, aspect, 1, insets);
+    const xs = route.map((q) => ndc(p, q, fov, aspect));
+    for (const [x, y] of xs) {
+      expect(x).toBeGreaterThan(-1);
+      expect(x).toBeLessThan(1 - 2 * insets.right);
+      expect(y).toBeGreaterThan(-1 + 2 * insets.bottom);
+      expect(y).toBeLessThan(1);
+    }
+    const [cx, cy] = ndc(p, [130, 5, -10], fov, aspect);
+    expect(cx).toBeCloseTo(-insets.right, 2);
+    expect(cy).toBeCloseTo(insets.bottom, 2);
+  });
+
+  it('with no insets the route centre projects to the screen centre', () => {
+    const p = frameRoutePose(from, route, 60, 1.6);
+    const [cx, cy] = ndc(p, [130, 5, -10], 60, 1.6);
+    expect(cx).toBeCloseTo(0, 5);
+    expect(cy).toBeCloseTo(0, 5);
   });
 });

@@ -83,7 +83,13 @@ export type LoadStatus = 'idle' | 'loading' | 'building' | 'ready' | 'error' | '
 export const RETRY_DEFAULT_MS = 5000;
 export const RETRY_MIN_MS = 1000;
 export const RETRY_MAX_MS = 60_000;
-export type QueryStatus = 'idle' | 'running' | 'done' | 'error';
+/**
+ * Wait before retrying a query refused with 429 when the server sends no
+ * Retry-After: the query budget is per signer per minute.
+ */
+export const QUERY_RETRY_DEFAULT_MS = 60_000;
+/** `rate_limited`: 429, the per-signer query budget is spent until `query.retryAt` */
+export type QueryStatus = 'idle' | 'running' | 'done' | 'error' | 'rate_limited';
 
 export interface QueryState {
   text: string;
@@ -91,6 +97,8 @@ export interface QueryState {
   namespace: string | null;
   status: QueryStatus;
   error: string | null;
+  /** epoch ms when a rate-limited query may be retried, else null */
+  retryAt: number | null;
   response: MemoryCloudQueryResponse | null;
   run: QueryRun | null;
   layout: LayoutResult | null;
@@ -198,6 +206,7 @@ const emptyQuery = (): QueryState => ({
   namespace: null,
   status: 'idle',
   error: null,
+  retryAt: null,
   response: null,
   run: null,
   layout: null,
@@ -232,6 +241,28 @@ export function sidecarAgreement(results: MemoryCloudHit[], run: QueryRun | null
     if (exact.has(r.sampleIndex)) inExact++;
   }
   return { total: results.length, inSample, inLocal, inExact };
+}
+
+export interface AgreementText {
+  /** how many of the sidecar's hits have a point in the sample */
+  coverage: string;
+  /** agreement with the local top-k, over the sampled hits only */
+  agreement: string;
+}
+
+/**
+ * Panel wording for a {@link SidecarAgreement}. Hits outside the sample have
+ * no point to compare, so they are counted in the coverage but left out of
+ * the agreement denominator; with none sampled the agreement is not measured
+ * rather than reported as 0/0.
+ */
+export function describeAgreement(a: SidecarAgreement): AgreementText {
+  const coverage = `${a.inSample} of ${a.total} sidecar ${a.total === 1 ? 'hit is' : 'hits are'} in the sample`;
+  const agreement =
+    a.inSample === 0
+      ? 'no sampled hit to compare with the local top-k'
+      : `${a.inLocal} of ${a.inSample} sampled agree with the local top-k`;
+  return { coverage, agreement };
 }
 
 const progressFraction = (done: number, total: number): number =>
@@ -421,7 +452,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
         queryCtl = ctl;
         const k = opts.k ?? get().query.k;
         const namespace = opts.namespace === undefined ? get().query.namespace : opts.namespace;
-        set((s) => ({ query: { ...s.query, text, k, namespace, status: 'running', error: null } }));
+        set((s) => ({ query: { ...s.query, text, k, namespace, status: 'running', error: null, retryAt: null } }));
         try {
           if (loadPromise) await loadPromise;
           if (!get().engine) await get().loadSnapshot();
@@ -455,6 +486,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
             query: {
               ...s.query,
               status: 'done',
+              retryAt: null,
               response,
               run,
               layout,
@@ -469,6 +501,19 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
           if (e instanceof MemoryCloudApiError && e.kind === 'forbidden') {
             handleAvailability(e);
             set((s) => ({ query: { ...s.query, status: 'idle', error: null } }));
+            return;
+          }
+          if (e instanceof MemoryCloudApiError && e.kind === 'rate_limited') {
+            const wait = e.retryAfterMs ?? QUERY_RETRY_DEFAULT_MS;
+            const secs = Math.max(1, Math.round(wait / 1000));
+            set((s) => ({
+              query: {
+                ...s.query,
+                status: 'rate_limited',
+                error: `Rate limited: the query budget is spent; retry in about ${secs} s.`,
+                retryAt: Date.now() + wait,
+              },
+            }));
             return;
           }
           const msg =

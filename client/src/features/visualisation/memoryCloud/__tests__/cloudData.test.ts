@@ -6,6 +6,7 @@ import {
   applyFocusDim,
   ageRanks,
   CLOUD_PALETTE,
+  burstFrame,
 } from '../cloudData';
 import type { MemoryCloudMeta } from '../types';
 
@@ -99,5 +100,27 @@ describe('applyFocusDim', () => {
     applyFocusDim(base, out, new Set([1]), 0.75);
     expect(Array.from(out.slice(0, 3)).map((v) => +v.toFixed(4))).toEqual([0.25, 0.25, 0.25]);
     expect(Array.from(out.slice(3))).toEqual([0.5, 0.5, 0.5]);
+  });
+});
+
+describe('burstFrame', () => {
+  const expand = { maxScale: 4, motion: 'expand' as const };
+  const implode = { maxScale: 4, motion: 'implode' as const };
+
+  it('expands or implodes and fades over its life', () => {
+    expect(burstFrame(0, expand, false).scale).toBeCloseTo(0.01);
+    expect(burstFrame(0.5, expand, false).scale).toBeCloseTo(4 * (1 - 0.125));
+    expect(burstFrame(0, implode, false).scale).toBeCloseTo(4);
+    expect(burstFrame(1, implode, false).scale).toBeCloseTo(0.01);
+    expect(burstFrame(0, expand, false).alpha).toBeCloseTo(0.85);
+    expect(burstFrame(0.5, expand, false).alpha).toBeCloseTo(0.85 * 0.75);
+  });
+
+  it('under reduced motion the ring holds one size and only fades', () => {
+    const sizes = [0, 0.25, 0.5, 0.75, 0.99].map((t) => burstFrame(t, expand, true).scale);
+    expect(new Set(sizes).size).toBe(1);
+    expect(sizes[0]).toBeCloseTo(4 * 0.6);
+    expect(burstFrame(0.5, implode, true).scale).toBeCloseTo(4 * 0.6);
+    expect(burstFrame(0.9, expand, true).alpha).toBeLessThan(burstFrame(0.1, expand, true).alpha);
   });
 });

@@ -17,11 +17,15 @@
  *   - a pulsing ring marks the answer; focus pull dims everything off the route;
  *   - the sidecar's own top-k are ringed in gold, with a mint dot where the
  *     local route agrees; exact top-k misses are ringed red;
- *   - view changes glide every node with `interpolateLayouts`.
+ *   - view changes glide every node with `interpolateLayouts`;
+ *   - under `prefers-reduced-motion` the route is drawn converged, and the beat
+ *     swells nothing (`beatModulation`), matching the XR client (ADR-2107):
+ *     only the panel's beat readout shows the tempo.
  *
  * Bright materials are `toneMapped: false` with colours above 1, so the
  * scene-wide threshold bloom in GemPostProcessing picks the route up while
- * the dimmed tree stays below threshold. Tubes, not drei Line2, because Line2
+ * the dimmed tree stays below threshold. The overlay draws without depth
+ * testing so the graph's glass nodes never hide the route. Tubes, not drei Line2, because Line2
  * breaks the WebGPU render pass. Every geometry and material is disposed.
  */
 
@@ -54,17 +58,18 @@ import {
   thinRejected,
   clamp01,
   morphFade,
+  beatModulation,
 } from './routeMath';
 import { tubeIndices, tubeVertexCount, writeTube, writeEdgeSegments } from './routeGeometry';
 import type { LayoutResult, SearchTreeNode, Vec3 } from '../memoryTrajectory/types';
 
 // ── sizes in cloud-local units ──
-const TUBE_R = 0.35;
+const TUBE_R = 0.45;
 const NODE_R = 0.45;
 const REJECT_R = 0.28;
 const BEAD_R = 0.55;
 const COMET_R = 0.5;
-const RING_R = 1.4;
+const RING_R = 2;
 const MARK_R = 1.7;
 const RADIAL = 8;
 const TAIL_SEGMENTS = 18;
@@ -308,9 +313,16 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       markerRings,
       markerDots,
     };
+    // The cloud sits inside the graph, so the graph's opaque glass nodes would
+    // hide the route. While a query is shown the route is the focus: draw the
+    // whole overlay over the scene, in renderOrder, without depth testing.
     for (const o of Object.values(objects)) {
       o.frustumCulled = false;
       o.renderOrder = 10;
+      const m = o.material as THREE.Material;
+      m.depthTest = false;
+      // transparent pass, so glass drawn there cannot paint over it
+      m.transparent = true;
     }
     objects.body.renderOrder = 12;
     objects.core.renderOrder = 13;
@@ -431,7 +443,9 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
 
     const total = structure.list.length;
     const fpull = focusPull(ph.pathT);
-    const glowK = glow * (beatState.on ? 1 + 0.2 * beatState.pulse : 1);
+    // the beat swells glow, comet and rings; under reduced motion it changes nothing
+    const beat = beatModulation(beatState, reducedMotion);
+    const glowK = glow * beat.glow;
     const pts = cache.route.pts;
     const last = pts.length - 1;
     const head = ph.pathT < 1 ? ease.io(ph.pathT) * last : last;
@@ -545,7 +559,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     const showPath = ph.pathT > 0 && pts.length >= 2;
     const o = res.objects;
     for (const m of [o.sheathOuter, o.sheathInner, o.body, o.core, o.beads, o.beadHalos]) m.visible = showPath;
-    if (showPath && (redrawTree || beatState.on)) {
+    if (showPath && (redrawTree || (beatState.on && !reducedMotion))) {
       const hi = Math.floor(head);
       const drawn = pts.slice(0, hi + 1);
       if (hi < last) drawn.push(pointAt(pts, head));
@@ -584,7 +598,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     let cometAt: number | null = null;
     let cometSize = 1;
     if (showPath && ph.pathT < 1) {
-      cometAt = head + (beatState.on ? 0.015 * beatState.pulse * last : 0);
+      cometAt = head + beat.cometLead * last;
     } else if (showPath && !reducedMotion) {
       cometAt = ((clock.elapsedTime / 2.8) % 1) * last;
       cometSize = 0.7;
@@ -592,7 +606,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     o.comet.visible = o.cometGlow.visible = o.tail.visible = cometAt !== null;
     if (cometAt !== null) {
       const hp = pointAt(pts, Math.min(last, cometAt));
-      const pulse = beatState.on ? 1 + 0.35 * beatState.pulse : 1;
+      const pulse = beat.cometScale;
       o.comet.position.set(hp[0], hp[1], hp[2]);
       o.comet.scale.setScalar(COMET_R * cometSize * pulse);
       o.cometGlow.position.copy(o.comet.position);
@@ -620,7 +634,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       o.answer.quaternion.copy(scratch.q);
       o.answer.scale.setScalar(RING_R);
       (o.answer.material as THREE.MeshBasicMaterial).color.setRGB(...mul(C.tip, 1 + 0.6 * glowK));
-      const pr = beatState.on ? beatState.phase : (clock.elapsedTime / 0.9) % 1;
+      const pr = beat.pulsePhase ?? (clock.elapsedTime / 0.9) % 1;
       o.pulse.position.copy(o.answer.position);
       o.pulse.quaternion.copy(scratch.q);
       o.pulse.scale.setScalar(RING_R * (1 + pr * 2.7));
@@ -634,7 +648,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     if (rp) {
       o.rootRing.position.set(rp[0], rp[1], rp[2]);
       o.rootRing.quaternion.copy(scratch.q);
-      const rpulse = beatState.on ? 1 + 0.12 * beatState.bar : reducedMotion ? 1 : 1 + 0.06 * Math.sin(now / 500);
+      const rpulse = beat.rootScale ?? 1 + 0.06 * Math.sin(now / 500);
       o.rootRing.scale.setScalar(1.8 * rpulse);
       o.rootCore.position.copy(o.rootRing.position);
       o.rootCore.scale.setScalar(0.8);

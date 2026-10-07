@@ -1,7 +1,7 @@
 ---
 title: Security Profiles & Flag Matrix
 doc_id: VC-SECURITY
-version: 0.1.3
+version: 0.1.4
 status: draft-for-ratification
 verified_commit: 
 sources:
@@ -219,13 +219,14 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    (ADR-2038).
 7. Every `/api/memory-cloud*` endpoint, health included, requires a
    **NIP-98-signed power user** (Admin role or a `POWER_USER_PUBKEYS` key)
-   **regardless of `RBAC_PUBLIC_READS` and of every dev shortcut**:
-   `VISIONCLAW_DEV_MODE` (sentinel identity) and `DEV_AUTH_LOOPBACK`
-   (header-chosen pubkey) prove nothing about the caller, so the handler
-   verifies the signature itself unless the gate already did
-   (`src/handlers/memory_cloud_handler.rs:56`). A dev operator adds their own
-   pubkey to `POWER_USER_PUBKEYS`. Clients see fixed error strings only, and
-   the vectors blob is `Cache-Control: no-store` (ADR-2133).
+   regardless of `RBAC_PUBLIC_READS` and `DEV_AUTH_LOOPBACK` (a header-chosen
+   pubkey proves nothing), except under the dev bypass: `VISIONCLAW_DEV_MODE=1`
+   admits every caller as a power user (ADR-2133 amendment, operator decision).
+   That bypass is compiled out of release builds, which refuse to boot with the
+   variable set, so production keeps the signed rule. With dev mode on, the
+   dev host's published ports expose non-excluded memory to its network.
+   Clients see fixed error strings only, and the vectors blob is
+   `Cache-Control: no-store` (ADR-2133).
 
 ## Change process
 

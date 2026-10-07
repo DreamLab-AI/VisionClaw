@@ -335,7 +335,7 @@ pub async fn verify_access(
                 request_id = %request_id,
                 "Authentication failed - missing pubkey header"
             );
-            return Err(HttpResponse::Forbidden().body("Authentication required"));
+            return Err(HttpResponse::Unauthorized().body("Authentication required"));
         }
     };
 
@@ -348,7 +348,7 @@ pub async fn verify_access(
                 has_pubkey = true,
                 "Authentication failed - missing token header"
             );
-            return Err(HttpResponse::Forbidden().body("Authentication required"));
+            return Err(HttpResponse::Unauthorized().body("Authentication required"));
         }
     };
 

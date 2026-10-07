@@ -55,6 +55,14 @@ class GraphDataManager {
   // ── Shared retry timer (T6 + WS back-off share this slot) ──────────────
   private retryTimeout: number | null = null;
 
+  // REST topology authority (startup race). While a REST `/graph/data` load
+  // is in flight, a server-pushed WS graph load must neither seed nor replace
+  // the topology: the connect-time push is capped (INITIAL_NODE_LIMIT_DEFAULT)
+  // and would leave the full binary stream full of unknown ids until REST
+  // lands. The latest such load is held here and resolved when REST settles.
+  private restLoadsInFlight: number = 0;
+  private heldServerLoad: { data: GraphData; isFilterResponse: boolean } | null = null;
+
   private updateCount: number = 0;
 
   // ── Live-linkage self-heal state (see maybeSelfHealUnknownNodes) ───────
@@ -192,6 +200,21 @@ class GraphDataManager {
   // ── REST data fetch ───────────────────────────────────────────────────
 
   public async fetchInitialData(): Promise<GraphData> {
+    this.restLoadsInFlight++;
+    let restSucceeded = false;
+    try {
+      const data = await this._fetchInitialDataInner();
+      restSucceeded = true;
+      return data;
+    } finally {
+      this.restLoadsInFlight--;
+      if (this.restLoadsInFlight === 0) {
+        await this.resolveHeldServerLoad(restSucceeded);
+      }
+    }
+  }
+
+  private async _fetchInitialDataInner(): Promise<GraphData> {
     // Drop linked_page stubs at source unless the user has opted to include
     // them — mirrors the ingestion gate in setGraphData and the server param.
     const includeLinkedPages =
@@ -219,6 +242,48 @@ class GraphDataManager {
     }
 
     return currentData;
+  }
+
+  /** True while a REST `/graph/data` load is in flight. */
+  public isRestLoadInFlight(): boolean {
+    return this.restLoadsInFlight > 0;
+  }
+
+  /**
+   * Offer a server-pushed graph load (WS `initialGraphLoad`). Applied at once
+   * when no REST load is in flight; otherwise held (latest wins) until REST
+   * settles, then dropped on REST success unless it answers our own
+   * filter_update (a narrowing of REST), and applied on REST failure.
+   */
+  public async offerServerGraphLoad(
+    data: GraphData,
+    opts: { isFilterResponse: boolean },
+  ): Promise<'applied' | 'deferred'> {
+    if (this.isRestLoadInFlight()) {
+      this.heldServerLoad = { data, isFilterResponse: opts.isFilterResponse };
+      logger.info(
+        `Holding server graph load (${data.nodes.length} nodes, filterResponse=${opts.isFilterResponse}) ` +
+        'until the in-flight REST load settles',
+      );
+      return 'deferred';
+    }
+    await this.setGraphData(data);
+    return 'applied';
+  }
+
+  private async resolveHeldServerLoad(restSucceeded: boolean): Promise<void> {
+    const held = this.heldServerLoad;
+    this.heldServerLoad = null;
+    if (!held) return;
+    if (restSucceeded && !held.isFilterResponse) {
+      logger.info(`Dropping held server graph load (${held.data.nodes.length} nodes): REST topology is authoritative`);
+      return;
+    }
+    try {
+      await this.setGraphData(held.data);
+    } catch (err) {
+      logger.warn('Failed to apply held server graph load:', createErrorMetadata(err));
+    }
   }
 
   // ── Topology management ───────────────────────────────────────────────
@@ -560,6 +625,8 @@ class GraphDataManager {
   // ── Dispose ───────────────────────────────────────────────────────────
 
   public dispose(): void {
+    this.heldServerLoad = null;
+    this.restLoadsInFlight = 0;
     if (this.retryTimeout !== null) {
       window.clearTimeout(this.retryTimeout);
       this.retryTimeout = null;

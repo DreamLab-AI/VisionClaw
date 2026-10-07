@@ -27,7 +27,7 @@ const fields: RegistryField[] = [
   { key: 'atmosphereResolution', subgroup: 'Atmosphere / Fog', label: 'Atmosphere Detail', type: 'slider', min: 64, max: 256, step: 32, path: `${S}atmosphereResolution`, description: 'Texture resolution (higher = more detail)' },
   // Embedding Cloud
   { key: 'embeddingCloudEnabled', subgroup: 'Embedding Cloud', label: 'Embedding Cloud', type: 'toggle', path: `${E}enabled`, description: 'Show RuVector embedding point cloud' },
-  { key: 'embeddingCloudScale', subgroup: 'Embedding Cloud', label: 'Cloud Scale', type: 'slider', min: 0.5, max: 20, step: 0.5, path: `${E}cloudScale`, description: 'Overall scale of embedding cloud' },
+  { key: 'embeddingCloudScale', subgroup: 'Embedding Cloud', label: 'Cloud Scale', type: 'slider', min: 0.5, max: 20, step: 0.5, path: `${E}cloudScale`, description: 'Cloud size relative to the graph: 5 matches the graph radius' },
   { key: 'embeddingPointSize', subgroup: 'Embedding Cloud', label: 'Point Size', type: 'slider', min: 0.5, max: 25, step: 0.5, path: `${E}pointSize`, description: 'Size of embedding points' },
   { key: 'embeddingOpacity', subgroup: 'Embedding Cloud', label: 'Cloud Opacity', type: 'slider', min: 0, max: 1, step: 0.05, path: `${E}opacity`, description: 'Transparency of embedding points' },
   { key: 'embeddingRotation', subgroup: 'Embedding Cloud', label: 'Rotation Speed', type: 'slider', min: 0, max: 0.005, step: 0.0001, path: `${E}rotationSpeed`, description: 'Auto-rotation speed' },

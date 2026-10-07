@@ -14,11 +14,12 @@
 //!
 //! **Access (ADR-2133).** Every endpoint, health included, exposes private
 //! memory or its shape, so each requires a **NIP-98-signed power user**
-//! (`Admin` role or a `POWER_USER_PUBKEYS` key). This holds even with
-//! `RBAC_PUBLIC_READS=1` and with the dev shortcuts: `VISIONCLAW_DEV_MODE`
-//! admits everyone as a sentinel identity and `DEV_AUTH_LOOPBACK` trusts a
-//! header-chosen pubkey, so neither proves who the caller is. A dev operator
-//! adds their own pubkey to `POWER_USER_PUBKEYS` and signs as usual.
+//! (`Admin` role or a `POWER_USER_PUBKEYS` key), even with
+//! `RBAC_PUBLIC_READS=1` or `DEV_AUTH_LOOPBACK` (a header-chosen pubkey proves
+//! nothing). The one exception is the dev bypass, `VISIONCLAW_DEV_MODE=1`:
+//! the operator's choice for a local dev box, it admits every caller as a
+//! power user. It exists only in debug and `dev-auth` builds, and a release
+//! build refuses to boot with the variable set (`utils::auth`).
 //!
 //! **Errors.** Clients get fixed messages; driver and connection detail goes
 //! to the log only.
@@ -37,14 +38,20 @@ use crate::middleware::rate_limit::RateLimitConfig;
 use crate::middleware::{get_authenticated_user, AuthenticatedUser, RateLimit};
 use crate::services::memory_cloud_service::{MemoryCloudError, MemoryCloudService};
 use crate::services::nostr_service::NostrService;
-use crate::utils::auth::{effective_access_level, nip98_request_url, AccessLevel, DEV_MODE_PUBKEY};
+use crate::utils::auth::{
+    dev_full_bypass_active, effective_access_level, nip98_request_url, AccessLevel,
+    DEV_MODE_PUBKEY,
+};
 use visionclaw_memory_cloud::validate::validate_query;
 use visionclaw_memory_cloud::wire::{ErrorBody, MemoryCloudQueryRequest};
 
 /// Required level for every memory-cloud endpoint.
 const PRIVATE_LEVEL: AccessLevel = AccessLevel::PowerUser;
 
-/// Admit a NIP-98-signed power user; every dev shortcut is refused.
+/// Admit a NIP-98-signed power user, or anyone under the dev bypass.
+///
+/// Under `VISIONCLAW_DEV_MODE=1` every caller is admitted as the dev-mode
+/// identity (its query budget is then shared). Other dev shortcuts are refused.
 ///
 /// An `AuthenticatedUser` left by `RbacGate` is reused only when the request
 /// carries a NIP-98 header and the identity is not the dev-mode sentinel:
@@ -54,6 +61,9 @@ const PRIVATE_LEVEL: AccessLevel = AccessLevel::PowerUser;
 /// signature is verified here directly, without `verify_access` and its
 /// dev shortcuts.
 async fn require_power_user(req: &HttpRequest) -> Result<String, HttpResponse> {
+    if dev_full_bypass_active() {
+        return Ok(DEV_MODE_PUBKEY.to_string());
+    }
     let Some(nostr) = req.app_data::<web::Data<NostrService>>() else {
         warn!("[MemoryCloud] NostrService missing from app data; refusing");
         return Err(unauthorised());
