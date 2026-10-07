@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 225,
+  "count": 235,
   "groups": [
     {
       "id": "motion",
@@ -36,7 +36,7 @@
       "label": "Effects & Atmosphere",
       "testid": "group-atmosphere",
       "hotkey": "5",
-      "fieldCount": 22
+      "fieldCount": 32
     },
     {
       "id": "xr",
@@ -1920,6 +1920,131 @@
       "min": 0,
       "max": 0.005,
       "step": 0.0001
+    },
+    {
+      "key": "embeddingColorBy",
+      "path": "visualisation.embeddingCloud.colorBy",
+      "testid": "setting-visualisation.embeddingCloud.colorBy",
+      "control": "select",
+      "group": "atmosphere",
+      "label": "Colour By",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Embedding Cloud"
+    },
+    {
+      "key": "trajectoryView",
+      "path": "visualisation.embeddingCloud.trajectoryView",
+      "testid": "setting-visualisation.embeddingCloud.trajectoryView",
+      "control": "select",
+      "group": "atmosphere",
+      "label": "Route View",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer"
+    },
+    {
+      "key": "routeGlow",
+      "path": "visualisation.embeddingCloud.routeGlow",
+      "testid": "setting-visualisation.embeddingCloud.routeGlow",
+      "control": "slider",
+      "group": "atmosphere",
+      "label": "Route Glow",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer",
+      "min": 0,
+      "max": 3,
+      "step": 0.1
+    },
+    {
+      "key": "trajectoryPlaybackSpeed",
+      "path": "visualisation.embeddingCloud.playbackSpeed",
+      "testid": "setting-visualisation.embeddingCloud.playbackSpeed",
+      "control": "slider",
+      "group": "atmosphere",
+      "label": "Playback Speed",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer",
+      "min": 0.25,
+      "max": 4,
+      "step": 0.25
+    },
+    {
+      "key": "showRejected",
+      "path": "visualisation.embeddingCloud.showRejected",
+      "testid": "setting-visualisation.embeddingCloud.showRejected",
+      "control": "toggle",
+      "group": "atmosphere",
+      "label": "Rejected Twigs",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer"
+    },
+    {
+      "key": "dimOffRoute",
+      "path": "visualisation.embeddingCloud.dimOffRoute",
+      "testid": "setting-visualisation.embeddingCloud.dimOffRoute",
+      "control": "slider",
+      "group": "atmosphere",
+      "label": "Focus Dimming",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer",
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
+    {
+      "key": "learningEnabled",
+      "path": "visualisation.embeddingCloud.learningEnabled",
+      "testid": "setting-visualisation.embeddingCloud.learningEnabled",
+      "control": "toggle",
+      "group": "atmosphere",
+      "label": "Learning",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer"
+    },
+    {
+      "key": "learningTargetRecall",
+      "path": "visualisation.embeddingCloud.learningTargetRecall",
+      "testid": "setting-visualisation.embeddingCloud.learningTargetRecall",
+      "control": "slider",
+      "group": "atmosphere",
+      "label": "Target Recall",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer",
+      "min": 0.5,
+      "max": 1,
+      "step": 0.01
+    },
+    {
+      "key": "learningRate",
+      "path": "visualisation.embeddingCloud.learningRate",
+      "testid": "setting-visualisation.embeddingCloud.learningRate",
+      "control": "slider",
+      "group": "atmosphere",
+      "label": "Learning Rate",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer",
+      "min": 0.01,
+      "max": 1,
+      "step": 0.01
+    },
+    {
+      "key": "memoryCinematic",
+      "path": "visualisation.embeddingCloud.cinematic",
+      "testid": "setting-visualisation.embeddingCloud.cinematic",
+      "control": "toggle",
+      "group": "atmosphere",
+      "label": "Cinematic Mode",
+      "clientOnly": false,
+      "server": "visual",
+      "subgroup": "Memory Explorer"
     },
     {
       "key": "nodeAnimations",

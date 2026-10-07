@@ -1,3 +1,19 @@
+/**
+ * EmbeddingCloudLayer — the live RuVector memory cloud.
+ *
+ * Points come from `GET /api/memory-cloud` (a stratified, PCA-projected sample
+ * of the sidecar's real embeddings) through the memory explorer store; the
+ * retired static `/embedding-cloud.json` is gone. `memory_flash` events light
+ * the flashed entry when it is in the sample, a few rows of its namespace
+ * when only the namespace is, and nothing otherwise — unmatched flashes are
+ * counted for the explorer HUD rather than landing on a random point.
+ *
+ * While a query route is shown the cloud stops rotating, points off the route
+ * dim (focus pull), and TrajectoryLayer draws the route inside this group so
+ * it scales and turns with the cloud. MemoryCameraRig flies the camera to a
+ * point on request and runs the cinematic director.
+ */
+
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
@@ -10,20 +26,12 @@ import {
   semanticBurstColor,
   type BurstProfile,
 } from '../semanticEncoding';
-
-interface EmbeddingMeta {
-  key: string;
-  namespace: string;
-  sourceType: string;
-}
-
-interface EmbeddingCloudData {
-  count: number;
-  positions: number[];
-  metadata: EmbeddingMeta[];
-  namespaces: string[];
-  sourceTypes: string[];
-}
+import { useMemoryCloudStore } from '../memoryCloud/memoryCloudInstance';
+import { buildCloudColours, buildIndexMaps, resolveFlashTargets, applyFocusDim, type IndexMaps } from '../memoryCloud/cloudData';
+import { directorClock } from '../memoryCloud/memoryCloudStore';
+import TrajectoryLayer from '../memoryCloud/TrajectoryLayer';
+import MemoryCameraRig from '../memoryCloud/MemoryCameraRig';
+import { useReducedMotion } from '../memoryCloud/useReducedMotion';
 
 interface EmbeddingCloudProps {
   enabled: boolean;
@@ -41,43 +49,11 @@ interface MemoryFlashEvent {
 // semanticEncoding; only the pool size and neutral init colour live here.
 const BURST_POOL_SIZE = 64;       // max concurrent bursts
 const BURST_INIT_COLOR = 0x9ad6ff; // neutral colour for idle pool meshes
+// Seconds between concentric rings of a multi-ring burst (search/store ripple).
+const RING_STAGGER = 0.14;
+/** seconds for the focus-pull dimming to fade in or out */
+const DIM_FADE = 0.6;
 
-// Distinct palette for categorical coloring (up to 16 categories, then cycles)
-const PALETTE = [
-  0x4fc3f7, 0xaa96da, 0x81c784, 0xffb74d, 0xef5350,
-  0x26c6da, 0xfff176, 0xce93d8, 0xa1887f, 0x90a4ae,
-  0x4db6ac, 0xf06292, 0xaed581, 0x7986cb, 0xffcc80, 0xe0e0e0,
-];
-
-function buildColorAttribute(
-  data: EmbeddingCloudData,
-  colorBy: 'namespace' | 'sourceType',
-): Float32Array {
-  const categories = colorBy === 'namespace' ? data.namespaces : data.sourceTypes;
-  const catMap = new Map<string, number>();
-  categories.forEach((c, i) => catMap.set(c, i));
-
-  const colors = new Float32Array(data.count * 3);
-  const tmpColor = new THREE.Color();
-
-  for (let i = 0; i < data.count; i++) {
-    const meta = data.metadata[i];
-    const cat = colorBy === 'namespace' ? meta.namespace : meta.sourceType;
-    const idx = catMap.get(cat) ?? 0;
-    tmpColor.set(PALETTE[idx % PALETTE.length]);
-    colors[i * 3] = tmpColor.r;
-    colors[i * 3 + 1] = tmpColor.g;
-    colors[i * 3 + 2] = tmpColor.b;
-  }
-  return colors;
-}
-
-// ── Burst ring geometry (shared) ──
-function createBurstRingGeometry(): THREE.RingGeometry {
-  return new THREE.RingGeometry(0.8, 1.0, 32);
-}
-
-// ── Burst pool entry ──
 interface BurstSlot {
   mesh: THREE.Mesh;
   startTime: number;
@@ -86,26 +62,36 @@ interface BurstSlot {
   profile: BurstProfile; // semantic motion/scale/duration for this burst
 }
 
-// Seconds between concentric rings of a multi-ring burst (search/store ripple).
-const RING_STAGGER = 0.14;
+const statusBox = (colour: string, background: string): React.CSSProperties => ({
+  background,
+  color: colour,
+  padding: '8px 16px',
+  borderRadius: 6,
+  fontSize: 12,
+  fontFamily: 'monospace',
+  whiteSpace: 'nowrap',
+});
 
 const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   const groupRef = useRef<THREE.Group>(null);
   const pointsRef = useRef<THREE.Points>(null);
-  const [data, setData] = useState<EmbeddingCloudData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<{ index: number; point: THREE.Vector3 } | null>(null);
+  const reducedMotion = useReducedMotion();
 
-  // Lookup maps for flash targeting
-  const keyIndexMap = useRef<Map<string, number[]>>(new Map());
-  const nsIndexMap = useRef<Map<string, number[]>>(new Map());
+  const snapshot = useMemoryCloudStore((s) => s.snapshot);
+  const status = useMemoryCloudStore((s) => s.status);
+  const loadError = useMemoryCloudStore((s) => s.error);
+  const run = useMemoryCloudStore((s) => s.query.run);
+  const response = useMemoryCloudStore((s) => s.query.response);
+  const cinematicActive = useMemoryCloudStore((s) => s.cinematic.active);
+
+  // Index maps for flash targeting (rebuilt per snapshot)
+  const maps = useRef<IndexMaps>({ byKey: new Map(), byNamespace: new Map() });
 
   // Burst effect pool
   const burstPool = useRef<BurstSlot[]>([]);
   const burstGroupRef = useRef<THREE.Group>(null);
   const burstNextSlot = useRef(0);
-  const burstRingGeo = useRef<THREE.RingGeometry | null>(null);
 
   const settings = useSettingsStore(
     s => s.settings?.visualisation?.embeddingCloud,
@@ -117,72 +103,75 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   const rotationSpeed = settings?.rotationSpeed ?? 0.0005;
   const maxPoints = settings?.maxPoints ?? 50000;
   const cloudScale = settings?.cloudScale ?? 5.0;
+  const routeGlow = settings?.routeGlow ?? 1.2;
+  const showRejected = settings?.showRejected ?? true;
+  const dimOffRoute = settings?.dimOffRoute ?? 0.75;
+  const trajectoryView = settings?.trajectoryView ?? 'canopy';
+  const playbackSpeed = settings?.playbackSpeed ?? 1;
+  const learningEnabled = settings?.learningEnabled ?? true;
+  const learningTargetRecall = settings?.learningTargetRecall ?? 0.9;
+  const learningRate = settings?.learningRate ?? 0.2;
 
-  // Fetch data lazily -- only when the embedding cloud feature is enabled.
-  // The JSON file (~8MB) is never bundled; it lives in public/ and is fetched on demand.
+  // Load the live snapshot when the cloud is switched on.
   useEffect(() => {
     if (!enabled) return;
-    // Avoid re-fetching if we already have data
-    if (data) return;
+    const st = useMemoryCloudStore.getState();
+    if (st.status === 'idle' || (st.status === 'error' && !st.snapshot)) void st.loadSnapshot();
+  }, [enabled]);
 
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
-    fetch(import.meta.env.VITE_EMBEDDING_CLOUD_URL || '/embedding-cloud.json', {
-      signal: controller.signal,
-    })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-      .then((d: EmbeddingCloudData) => {
-        if (d.count > maxPoints) {
-          d.positions = d.positions.slice(0, maxPoints * 3);
-          d.metadata = d.metadata.slice(0, maxPoints);
-          d.count = maxPoints;
-        }
-        const kMap = new Map<string, number[]>();
-        const nMap = new Map<string, number[]>();
-        for (let i = 0; i < d.count; i++) {
-          const m = d.metadata[i];
-          if (m.key) {
-            const arr = kMap.get(m.key);
-            if (arr) arr.push(i); else kMap.set(m.key, [i]);
-          }
-          if (m.namespace) {
-            const arr = nMap.get(m.namespace);
-            if (arr) arr.push(i); else nMap.set(m.namespace, [i]);
-          }
-        }
-        keyIndexMap.current = kMap;
-        nsIndexMap.current = nMap;
-        setData(d);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (err.name !== 'AbortError') {
-          setError('Failed to load embedding cloud data');
-          setLoading(false);
-        }
-      });
-
-    return () => { controller.abort(); };
-  }, [enabled, maxPoints, data]);
-
-  // Build point cloud geometry
-  const geometry = useMemo(() => {
-    if (!data) return null;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(data.positions), 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(buildColorAttribute(data, colorBy), 3));
-    return geo;
-  }, [data, colorBy]);
-
-  // Initialize burst pool (ring meshes that expand + fade)
+  // Settings are the persisted source for the explorer's view, speed and learning.
+  useEffect(() => { useMemoryCloudStore.getState().setView(trajectoryView); }, [trajectoryView]);
+  useEffect(() => { useMemoryCloudStore.getState().setSpeed(playbackSpeed); }, [playbackSpeed]);
   useEffect(() => {
-    if (!enabled || !data) return;
-    if (!burstRingGeo.current) {
-      burstRingGeo.current = createBurstRingGeometry();
-    }
-    const geo = burstRingGeo.current;
+    useMemoryCloudStore.getState().setLearning({
+      enabled: learningEnabled,
+      targetRecall: learningTargetRecall,
+      learningRate,
+    });
+  }, [learningEnabled, learningTargetRecall, learningRate]);
+
+  useEffect(() => {
+    maps.current = snapshot ? buildIndexMaps(snapshot.metadata) : { byKey: new Map(), byNamespace: new Map() };
+    setHovered(null);
+  }, [snapshot]);
+
+  // Base colours per mode; the displayed buffer is base × focus dimming.
+  const baseColours = useMemo(
+    () => (snapshot ? buildCloudColours(snapshot, colorBy) : null),
+    [snapshot, colorBy],
+  );
+
+  // Build point cloud geometry. The engine indexes every row, so rows past
+  // maxPoints are hidden with the draw range rather than dropped.
+  const geometry = useMemo(() => {
+    if (!snapshot || !baseColours) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(snapshot.positions), 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(baseColours), 3));
+    geo.setDrawRange(0, Math.min(snapshot.count, maxPoints));
+    return geo;
+  }, [snapshot, baseColours, maxPoints]);
+
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+
+  // Rows that stay lit while a query is shown: the search tree, both top-k sets
+  // and every sampled sidecar hit.
+  const focusSet = useMemo(() => {
+    if (!run) return null;
+    const keep = new Set<number>();
+    for (const n of run.tree.list) if (n.kept) keep.add(n.id);
+    for (const i of run.result.top) keep.add(i);
+    for (const i of run.exactTop) keep.add(i);
+    for (const h of response?.sidecar.results ?? []) if (h.sampleIndex !== null) keep.add(h.sampleIndex);
+    return keep;
+  }, [run, response]);
+
+  const dimRef = useRef({ current: 0, applied: -1, set: null as Set<number> | null });
+
+  // Initialise burst pool (ring meshes that expand + fade)
+  useEffect(() => {
+    if (!enabled || !snapshot) return;
+    const geo = new THREE.RingGeometry(0.8, 1.0, 32);
     const pool: BurstSlot[] = [];
     for (let i = 0; i < BURST_POOL_SIZE; i++) {
       const mat = new THREE.MeshBasicMaterial({
@@ -196,33 +185,26 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.visible = false;
       mesh.renderOrder = 999;
-      // Face camera by default (billboard in useFrame)
       pool.push({ mesh, startTime: 0, active: false, delay: 0, profile: memoryActionProfile('access') });
     }
     burstPool.current = pool;
-
-    // Add meshes to burst group
-    if (burstGroupRef.current) {
-      // Clear previous
-      while (burstGroupRef.current.children.length > 0) {
-        burstGroupRef.current.remove(burstGroupRef.current.children[0]);
-      }
-      pool.forEach(s => burstGroupRef.current!.add(s.mesh));
+    const group = burstGroupRef.current;
+    if (group) {
+      while (group.children.length > 0) group.remove(group.children[0]);
+      pool.forEach(s => group.add(s.mesh));
     }
-
     return () => {
-      pool.forEach(s => {
-        (s.mesh.material as THREE.MeshBasicMaterial).dispose();
-      });
+      if (group) pool.forEach(s => group.remove(s.mesh));
+      pool.forEach(s => (s.mesh.material as THREE.MeshBasicMaterial).dispose());
       geo.dispose();
-      burstRingGeo.current = null;
+      burstPool.current = [];
     };
-  }, [enabled, data]);
+  }, [enabled, snapshot]);
 
-  // Spawn a burst at a world position, coloured + animated by the memory action
-  // verb (store/retrieve/search/list/delete) and tinted by namespace identity.
+  // Spawn a burst at a cloud-local position, coloured + animated by the memory
+  // action verb (store/retrieve/search/list/delete) and tinted by namespace.
   // High-weight verbs ripple as `profile.rings` staggered concentric rings.
-  const spawnBurst = useCallback((worldPos: THREE.Vector3, action?: string, namespace?: string) => {
+  const spawnBurst = useCallback((localPos: THREE.Vector3, action?: string, namespace?: string) => {
     const pool = burstPool.current;
     if (pool.length === 0) return;
     const profile = memoryActionProfile(action);
@@ -230,13 +212,11 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     for (let r = 0; r < profile.rings; r++) {
       const slot = pool[burstNextSlot.current % pool.length];
       burstNextSlot.current++;
-
       slot.profile = profile;
       slot.delay = r * RING_STAGGER;
-      slot.mesh.position.copy(worldPos);
-      // implode bursts start at full radius and contract; expand bursts start tiny
+      slot.mesh.position.copy(localPos);
       slot.mesh.scale.setScalar(profile.motion === 'implode' ? profile.maxScale : 0.01);
-      slot.mesh.visible = false; // shown once its stagger delay elapses
+      slot.mesh.visible = false;
       const mat = slot.mesh.material as THREE.MeshBasicMaterial;
       mat.opacity = 1.0;
       semanticBurstColor(mat.color, action, namespace);
@@ -245,60 +225,43 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     }
   }, []);
 
-  // Subscribe to memory_flash WebSocket events
+  // memory_flash → real keys, then namespace stand-ins, else counted as unmatched.
   useEffect(() => {
-    if (!enabled || !data) return;
-
-    const positions = data.positions;
-
+    if (!enabled || !snapshot) return;
+    const positions = snapshot.positions;
+    const limit = Math.min(snapshot.count, maxPoints);
     const unsubscribe = useWebSocketStore.getState().on('memoryFlash', (raw: unknown) => {
       const event = raw as MemoryFlashEvent;
-      if (!event?.key) return;
-
-      // Find point indices for this key
-      let indices = keyIndexMap.current.get(event.key);
-
-      // Fallback: pick random points from namespace
-      if (!indices || indices.length === 0) {
-        if (event.namespace) {
-          const nsIndices = nsIndexMap.current.get(event.namespace);
-          if (nsIndices && nsIndices.length > 0) {
-            // Pick 1-3 random from namespace
-            const picks = Math.min(3, nsIndices.length);
-            indices = [];
-            for (let i = 0; i < picks; i++) {
-              indices.push(nsIndices[Math.floor(Math.random() * nsIndices.length)]);
-            }
-          }
-        }
-      }
-
-      // Final fallback: random position in the cloud
-      if (!indices || indices.length === 0) {
-        const count = data.count;
-        if (count > 0) {
-          indices = [Math.floor(Math.random() * count)];
-        } else {
-          return;
-        }
-      }
-
-      // Spawn burst rings at each matched position, encoded by action + namespace
+      if (!event?.key && !event?.namespace) return;
+      const { indices, match } = resolveFlashTargets(event, maps.current);
+      useMemoryCloudStore.getState().recordFlash(match);
       for (const idx of indices) {
-        const px = positions[idx * 3];
-        const py = positions[idx * 3 + 1];
-        const pz = positions[idx * 3 + 2];
-        spawnBurst(new THREE.Vector3(px, py, pz), event.action, event.namespace);
+        if (idx >= limit) continue;
+        spawnBurst(new THREE.Vector3(positions[idx * 3], positions[idx * 3 + 1], positions[idx * 3 + 2]), event.action, event.namespace);
       }
     });
-
     return unsubscribe;
-  }, [enabled, data, spawnBurst]);
+  }, [enabled, snapshot, maxPoints, spawnBurst]);
 
-  // Per-frame: rotation + burst animation
-  useFrame(({ camera }) => {
-    if (groupRef.current && rotationSpeed > 0) {
+  // Per-frame: rotation (paused while a route is shown), focus dimming, bursts.
+  useFrame(({ camera }, dt) => {
+    const routeShown = !!run;
+    if (groupRef.current && rotationSpeed > 0 && !routeShown && !cinematicActive && !directorClock.active && !reducedMotion) {
       groupRef.current.rotation.y += rotationSpeed;
+    }
+
+    // focus pull: fade the dim amount in/out and rewrite colours only while it moves
+    const d = dimRef.current;
+    if (focusSet) d.set = focusSet;
+    const goal = focusSet ? dimOffRoute : 0;
+    const step = reducedMotion ? 1 : Math.min(1, dt / DIM_FADE);
+    d.current += (goal - d.current) * (Math.abs(goal - d.current) < 0.005 ? 1 : step);
+    if (geometry && baseColours && (Math.abs(d.current - d.applied) > 0.002 || d.applied < 0)) {
+      const attr = geometry.getAttribute('color') as THREE.BufferAttribute;
+      applyFocusDim(baseColours, attr.array as Float32Array, d.set, d.current);
+      attr.needsUpdate = true;
+      d.applied = d.current;
+      if (!focusSet && d.current === 0) d.set = null;
     }
 
     // Animate burst rings: expand/implode + fade + billboard, per-slot semantic
@@ -308,7 +271,6 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       const { duration, maxScale, motion } = slot.profile;
       const elapsed = (now - slot.startTime) / 1000 - slot.delay;
       if (elapsed < 0) {
-        // staggered concentric ring not started yet
         slot.mesh.visible = false;
         continue;
       }
@@ -319,68 +281,52 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       }
       slot.mesh.visible = true;
       const t = elapsed / duration;
-      // expand: tiny → max (ease-out cubic). implode: max → tiny (ease-in cubic).
       const scale = motion === 'implode'
         ? maxScale * Math.pow(1 - t, 3)
         : maxScale * (1 - Math.pow(1 - t, 3));
-      const alpha = 1.0 - t * t; // quadratic fade
+      const alpha = 1.0 - t * t;
       slot.mesh.scale.setScalar(Math.max(scale, 0.01));
       (slot.mesh.material as THREE.MeshBasicMaterial).opacity = alpha * 0.85;
-      // Billboard: face camera
       slot.mesh.quaternion.copy(camera.quaternion);
     }
   });
 
-  // Raycaster hover handler
+  // Colours change when the base changes: force a rewrite next frame.
+  useEffect(() => { dimRef.current.applied = -1; }, [baseColours, geometry]);
+
   const onPointerMove = useCallback(
     (e: THREE.Event & { index?: number; point?: THREE.Vector3 }) => {
-      if (e.index != null && e.point && data) {
+      if (e.index != null && e.point && snapshot) {
         setHovered({ index: e.index, point: e.point.clone() });
       }
     },
-    [data],
+    [snapshot],
   );
 
   const onPointerOut = useCallback(() => setHovered(null), []);
 
   if (!enabled) return null;
 
-  // Show loading indicator while fetching the ~8MB embedding data
-  if (loading) {
+  if (!snapshot && (status === 'loading' || status === 'idle')) {
     return (
       <Html center>
-        <div style={{
-          background: 'rgba(0,0,0,0.7)',
-          color: '#7df9ff',
-          padding: '8px 16px',
-          borderRadius: 6,
-          fontSize: 12,
-          fontFamily: 'monospace',
-        }}>
-          Loading embedding cloud...
-        </div>
+        <div style={statusBox('#7ef0cf', 'rgba(0,0,0,0.7)')}>Loading memory cloud…</div>
       </Html>
     );
   }
 
-  if (error) {
+  if (!snapshot && status === 'error') {
     return (
       <Html center>
-        <div style={{
-          background: 'rgba(80,0,0,0.7)',
-          color: '#ff6666',
-          padding: '8px 16px',
-          borderRadius: 6,
-          fontSize: 12,
-          fontFamily: 'monospace',
-        }}>
-          {error}
-        </div>
+        <div style={statusBox('#ff6666', 'rgba(80,0,0,0.7)')}>Memory cloud unavailable: {loadError}</div>
       </Html>
     );
   }
 
-  if (!data || !geometry) return null;
+  if (!snapshot || !geometry) return null;
+
+  const hoveredMeta = hovered ? snapshot.metadata[hovered.index] : undefined;
+  const worldHover = hovered && groupRef.current ? groupRef.current.worldToLocal(hovered.point.clone()) : null;
 
   return (
     <group ref={groupRef} name="embedding-cloud-layer" scale={cloudScale}>
@@ -401,8 +347,15 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       </points>
       {/* Burst ring pool — lives inside the cloud group so it scales/rotates with it */}
       <group ref={burstGroupRef} />
-      {hovered && data.metadata[hovered.index] && (
-        <Html position={hovered.point} center style={{ pointerEvents: 'none' }}>
+      <TrajectoryLayer
+        cloudPositions={snapshot.positions}
+        glow={routeGlow}
+        showRejected={showRejected}
+        reducedMotion={reducedMotion}
+      />
+      <MemoryCameraRig cloudGroup={groupRef} positions={snapshot.positions} />
+      {hoveredMeta && worldHover && (
+        <Html position={worldHover} center style={{ pointerEvents: 'none' }}>
           <div
             style={{
               background: 'rgba(0,0,0,0.85)',
@@ -416,9 +369,10 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
               textOverflow: 'ellipsis',
             }}
           >
-            <div><b>{data.metadata[hovered.index].key}</b></div>
+            <div><b>{hoveredMeta.key}</b></div>
             <div style={{ opacity: 0.7 }}>
-              {data.metadata[hovered.index].namespace} / {data.metadata[hovered.index].sourceType}
+              {hoveredMeta.namespace} / {hoveredMeta.sourceType}
+              {hoveredMeta.updatedAt ? ` · ${new Date(hoveredMeta.updatedAt).toLocaleDateString('en-GB')}` : ''}
             </div>
           </div>
         </Html>
