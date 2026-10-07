@@ -229,31 +229,42 @@ function handleInitialGraphLoad(message: WebSocketMessage) {
   const edges = msgData.edges || [];
   logger.info(`[WebSocket] Received initialGraphLoad with ${nodes.length} nodes, ${edges.length} edges`);
 
-  const existingNodeCount = graphDataManager.nodeIdMap.size;
-  if (existingNodeCount > 0 && nodes.length < existingNodeCount) {
-    // Shrink-guard: the connect-time initialGraphLoad is capped (~200 nodes)
-    // and must not clobber a full REST load. BUT a smaller payload arriving
-    // right after WE sent a filter_update is the server's FILTERED graph —
-    // the authoritative answer to the user's quality gates — and must land.
-    // Without this exception every filter response was silently discarded
-    // and the quality-gate UI appeared dead.
-    if (isFilterResponseExpected()) {
-      clearFilterResponseExpectation();
-      logger.info(
-        `[WebSocket] Accepting filtered initialGraphLoad: ${nodes.length} nodes ` +
-        `(down from ${existingNodeCount}) in response to filter_update`
-      );
-    } else {
-      logger.info(
-        `[WebSocket] Skipping initialGraphLoad setGraphData: REST already loaded ${existingNodeCount} nodes, ` +
-        `WS only has ${nodes.length}. Positions will arrive via binary stream.`
-      );
-      emit('graphDataUpdated', {
-        nodeCount: existingNodeCount,
-        edgeCount: 0,
-        source: 'websocket_filter_skipped'
-      });
-      return;
+  // A REST `/graph/data` load in flight is authoritative: hand the payload to
+  // the manager, which holds it until REST settles (see offerServerGraphLoad).
+  // The shrink-guard below only applies once no REST load is pending.
+  const restInFlight = graphDataManager.isRestLoadInFlight();
+  let isFilterResponse = false;
+  if (restInFlight) {
+    isFilterResponse = isFilterResponseExpected();
+    if (isFilterResponse) clearFilterResponseExpectation();
+  } else {
+    const existingNodeCount = graphDataManager.nodeIdMap.size;
+    if (existingNodeCount > 0 && nodes.length < existingNodeCount) {
+      // Shrink-guard: the connect-time initialGraphLoad is capped (3,000 nodes)
+      // and must not clobber a full REST load. BUT a smaller payload arriving
+      // right after WE sent a filter_update is the server's FILTERED graph —
+      // the authoritative answer to the user's quality gates — and must land.
+      // Without this exception every filter response was silently discarded
+      // and the quality-gate UI appeared dead.
+      if (isFilterResponseExpected()) {
+        clearFilterResponseExpectation();
+        isFilterResponse = true;
+        logger.info(
+          `[WebSocket] Accepting filtered initialGraphLoad: ${nodes.length} nodes ` +
+          `(down from ${existingNodeCount}) in response to filter_update`
+        );
+      } else {
+        logger.info(
+          `[WebSocket] Skipping initialGraphLoad setGraphData: REST already loaded ${existingNodeCount} nodes, ` +
+          `WS only has ${nodes.length}. Positions will arrive via binary stream.`
+        );
+        emit('graphDataUpdated', {
+          nodeCount: existingNodeCount,
+          edgeCount: 0,
+          source: 'websocket_filter_skipped'
+        });
+        return;
+      }
     }
   }
 
@@ -302,10 +313,11 @@ function handleInitialGraphLoad(message: WebSocketMessage) {
     };
   }).filter((edge: { source: string; target: string }) => edge.source !== 'undefined' && edge.target !== 'undefined');
 
-  graphDataManager.setGraphData({
-    nodes: transformedNodes,
-    edges: transformedEdges,
-  }).then(() => {
+  graphDataManager.offerServerGraphLoad(
+    { nodes: transformedNodes, edges: transformedEdges },
+    { isFilterResponse },
+  ).then(outcome => {
+    if (outcome === 'deferred') return;
     logger.info(`[WebSocket] Graph updated with ${transformedNodes.length} nodes from server filter`);
     emit('graphDataUpdated', {
       nodeCount: transformedNodes.length,

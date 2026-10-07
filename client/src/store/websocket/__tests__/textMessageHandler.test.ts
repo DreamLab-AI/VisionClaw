@@ -20,11 +20,16 @@ vi.mock('../../../utils/clientDebugState', () => ({
   },
 }));
 
+const mockIsRestLoadInFlight = vi.fn(() => false);
+const mockOfferServerGraphLoad = vi.fn().mockResolvedValue('applied');
+const { mockNodeIdMap } = vi.hoisted(() => ({ mockNodeIdMap: new Map<string, number>() }));
 vi.mock('../../../features/graph/managers/graphDataManager', () => ({
   graphDataManager: {
-    nodeIdMap: new Map(),
+    nodeIdMap: mockNodeIdMap,
     fetchInitialData: vi.fn().mockResolvedValue(undefined),
     setGraphData: vi.fn().mockResolvedValue(undefined),
+    isRestLoadInFlight: () => mockIsRestLoadInFlight(),
+    offerServerGraphLoad: (...a: unknown[]) => mockOfferServerGraphLoad(...a),
   },
 }));
 
@@ -75,9 +80,11 @@ vi.mock('../binaryProtocol', () => ({
   handleErrorFrame: vi.fn(),
 }));
 
+const mockIsFilterResponseExpected = vi.fn(() => false);
+const mockClearFilterResponseExpectation = vi.fn();
 vi.mock('../filterSync', () => ({
-  isFilterResponseExpected: vi.fn(() => false),
-  clearFilterResponseExpectation: vi.fn(),
+  isFilterResponseExpected: () => mockIsFilterResponseExpected(),
+  clearFilterResponseExpectation: () => mockClearFilterResponseExpectation(),
 }));
 
 // Need to import AFTER mocks are set up
@@ -202,5 +209,45 @@ describe('handleTextMessage — settingsUpdated (ADR-2047)', () => {
 
     expect(mockGetSettingsByPaths).not.toHaveBeenCalled();
     expect(mockSet).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleTextMessage — initialGraphLoad defers to an in-flight REST load', () => {
+  const capped = {
+    type: 'initialGraphLoad',
+    nodes: [{ id: 0, label: 'a' }, { id: 1, label: 'b' }],
+    edges: [{ id: '0-1', source: 0, target: 1 }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockNodeIdMap.clear();
+    mockIsRestLoadInFlight.mockReturnValue(false);
+    mockIsFilterResponseExpected.mockReturnValue(false);
+    mockOfferServerGraphLoad.mockResolvedValue('applied');
+  });
+
+  it('hands the capped load to the manager instead of seeding the topology while REST is in flight', () => {
+    mockIsRestLoadInFlight.mockReturnValue(true);
+    mockOfferServerGraphLoad.mockResolvedValue('deferred');
+    dispatch(capped);
+    expect(mockOfferServerGraphLoad).toHaveBeenCalledTimes(1);
+    const [data, opts] = mockOfferServerGraphLoad.mock.calls[0];
+    expect((data as { nodes: unknown[] }).nodes).toHaveLength(2);
+    expect(opts).toEqual({ isFilterResponse: false });
+  });
+
+  it('marks the load as a filter response and consumes the expectation while REST is in flight', () => {
+    mockIsRestLoadInFlight.mockReturnValue(true);
+    mockIsFilterResponseExpected.mockReturnValue(true);
+    dispatch(capped);
+    expect(mockClearFilterResponseExpectation).toHaveBeenCalledTimes(1);
+    expect(mockOfferServerGraphLoad.mock.calls[0][1]).toEqual({ isFilterResponse: true });
+  });
+
+  it('still skips a smaller unsolicited load once REST has settled', () => {
+    for (let i = 0; i < 9; i++) mockNodeIdMap.set(String(i), i);
+    dispatch(capped);
+    expect(mockOfferServerGraphLoad).not.toHaveBeenCalled();
   });
 });
