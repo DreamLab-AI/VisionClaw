@@ -365,6 +365,7 @@ var _parity: Node = null
 # Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
+var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -564,6 +565,8 @@ func _ready() -> void:
 	if graph_root != null:
 		_impostors = NodeLod.make_impostor_instance()
 		graph_root.add_child(_impostors)
+		_ribbons = NodeLod.make_ribbon_instance()
+		graph_root.add_child(_ribbons)
 	_connect_from_env()
 
 
@@ -1917,7 +1920,19 @@ func _update_edge_multimesh() -> void:
 	if edges_multi == null or edges_multi.multimesh == null or _binary_client == null:
 		return
 	var er: float = EDGE_WORLD_RADIUS / (EDGE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array = _binary_client.build_edge_buffer(_edge_pairs, er)
+	var buf: PackedFloat32Array
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if _ribbons != null and cam != null and _binary_client.has_method("build_edge_buffer_lod"):
+		# Cylinders for the NEAR_EDGE_CAP edges whose midpoint is nearest the eye;
+		# every other drawn edge is a 2-triangle ribbon (one extra draw call).
+		var inv: Transform3D = graph_root.global_transform.affine_inverse()
+		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
+		buf = _binary_client.build_edge_buffer_lod(_edge_pairs, er, inv * cam.global_position,
+			NodeLod.NEAR_EDGE_CAP, NodeLod.NEAR_EDGE_RADIUS_M / world_per_server)
+		NodeLod.sync_edge_params(edges_multi.material_override, _ribbons.material_override)
+		NodeLod.assign_stride(_ribbons, _binary_client.ribbon_edge_buffer(), 16)
+	else:
+		buf = _binary_client.build_edge_buffer(_edge_pairs, er)
 	var mm: MultiMesh = edges_multi.multimesh
 	# 16 floats/instance: 12 transform + 4 INSTANCE_CUSTOM (style code in .a).
 	# MultiMesh_edges has use_custom_data=true, so the resource stride is 16 — the

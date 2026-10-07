@@ -1549,6 +1549,36 @@ impl BinaryProtocolClient {
         PackedFloat32Array::from(self.store.impostor_node_buffer())
     }
 
+    /// Edge LOD build: like `build_edge_buffer`, but returns only the cylinder
+    /// tier — the `near_cap` edges whose midpoint is nearest `cam` within
+    /// `near_max_dist` (GraphRoot/server space). Read the rest with
+    /// `ribbon_edge_buffer()` for the 2-triangle ribbon MultiMesh. Both buffers
+    /// are 16 floats per instance (Invariant 3).
+    #[func]
+    fn build_edge_buffer_lod(
+        &mut self,
+        pairs: PackedInt32Array,
+        radius_comp: f32,
+        cam: Vector3,
+        near_cap: i64,
+        near_max_dist: f32,
+    ) -> PackedFloat32Array {
+        let v = self.store.build_edge_buffer_lod(
+            pairs.as_slice(),
+            radius_comp,
+            [cam.x, cam.y, cam.z],
+            near_cap.max(0) as usize,
+            near_max_dist,
+        );
+        PackedFloat32Array::from(v.as_slice())
+    }
+
+    /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).
+    #[func]
+    fn ribbon_edge_buffer(&self) -> PackedFloat32Array {
+        PackedFloat32Array::from(self.store.ribbon_edge_buffer())
+    }
+
     /// Pack the edge MultiMesh buffer for the ranked `pairs` (16 floats/instance:
     /// 12 transform + 4 INSTANCE_CUSTOM, custom `.a` = relation-type style code).
     /// Only edges with both endpoints in the last node buffer's drawn set survive.

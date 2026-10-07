@@ -75,3 +75,49 @@ func test_graph_scene_creates_the_impostor_tier_under_graph_root() -> void:
 	var src: String = FileAccess.get_file_as_string("res://scripts/graph_scene.gd")
 	assert_true(src.contains("NodeLod.make_impostor_instance()"), "GraphScene builds the impostor tier")
 	assert_true(src.contains("build_node_buffer_lod("), "GraphScene packs nodes through the LOD split")
+
+
+# --- edge LOD ------------------------------------------------------------------
+
+func test_ribbon_instance_keeps_the_edge_stride() -> void:
+	var inst: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
+	autofree(inst)
+	var mm: MultiMesh = inst.multimesh
+	assert_eq(mm.transform_format, MultiMesh.TRANSFORM_3D)
+	assert_true(mm.use_custom_data, "style code in custom.a like EdgesMulti")
+	assert_false(mm.use_colors, "12 + 4 = 16 floats per instance (Invariant 3)")
+	assert_true(mm.mesh is QuadMesh)
+	assert_eq((inst.material_override as ShaderMaterial).shader, NodeLod.RIBBON_SHADER)
+
+
+func test_edge_lod_build_caps_cylinders_and_ribbons_take_the_rest() -> void:
+	assert_true(ClassDB.class_exists("BinaryProtocolClient"), "gdext library loaded")
+	var client: RefCounted = BinaryProtocolClient.create()
+	client.ingest(_v3_line(60))
+	var ids := PackedInt32Array()
+	for i in range(60):
+		ids.append(i + 1)
+	client.build_node_buffer(ids, 1.0, 0.7, 1.9)
+	var pairs := PackedInt32Array()
+	for i in range(50):
+		pairs.append(i + 1)
+		pairs.append(i + 2)
+	var near: PackedFloat32Array = client.build_edge_buffer_lod(pairs, 1.0, Vector3.ZERO, 5, INF)
+	assert_eq(near.size() / 16, 5)
+	assert_eq(client.ribbon_edge_buffer().size() / 16, 45)
+	var ribbons: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
+	autofree(ribbons)
+	assert_eq(NodeLod.assign_stride(ribbons, client.ribbon_edge_buffer(), 16), 45)
+
+
+func test_ribbon_material_follows_the_cylinder_comfort_settings() -> void:
+	var cyl := (load("res://materials/edge_flow.tres") as ShaderMaterial).duplicate() as ShaderMaterial
+	cyl.set_shader_parameter("pulse_energy", 0.0)   # reduced motion
+	cyl.set_shader_parameter("base_alpha", 0.09)    # low cost
+	var ribbons: MultiMeshInstance3D = NodeLod.make_ribbon_instance()
+	autofree(ribbons)
+	NodeLod.sync_edge_params(cyl, ribbons.material_override)
+	var r := ribbons.material_override as ShaderMaterial
+	assert_eq(r.get_shader_parameter("pulse_energy"), 0.0)
+	assert_almost_eq(float(r.get_shader_parameter("base_alpha")), 0.09, 1e-6)
+	assert_eq(r.get_shader_parameter("flow_color"), cyl.get_shader_parameter("flow_color"))

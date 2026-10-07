@@ -38,6 +38,8 @@ bottom_radius = 0.03
 height = 1.0
 radial_segments = 8
 rings = 1
+cap_top = false
+cap_bottom = false
 
 [sub_resource type="MultiMesh" id="MultiMesh_edges"]
 transform_format = 1
