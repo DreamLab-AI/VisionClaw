@@ -420,6 +420,33 @@ mod tests {
         );
     }
 
+    /// The client's wire fixture (`wire.test.ts` checks it against the
+    /// TypeScript types) must survive a round trip through these structs
+    /// unchanged: a field the structs lack is dropped and a field they add is
+    /// missing from the fixture, so either drift fails the equality.
+    #[test]
+    fn client_fixture_round_trips() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../client/src/features/visualisation/memoryCloud/__tests__/fixtures/wire.json"
+        ))
+        .unwrap();
+        fn round_trip<T: serde::de::DeserializeOwned + Serialize>(v: &Value) -> Value {
+            serde_json::to_value(serde_json::from_value::<T>(v.clone()).unwrap()).unwrap()
+        }
+        let cases: [(&str, fn(&Value) -> Value); 5] = [
+            ("snapshot", round_trip::<MemoryCloudSnapshot>),
+            ("queryRequest", round_trip::<MemoryCloudQueryRequest>),
+            ("queryResponse", round_trip::<MemoryCloudQueryResponse>),
+            ("health", round_trip::<MemoryCloudHealth>),
+            ("error", round_trip::<ErrorBody>),
+        ];
+        for (name, rt) in cases {
+            let v = &fixture[name];
+            assert!(v.is_object(), "fixture lacks {name}");
+            assert_eq!(&rt(v), v, "{name} drifted from wire.rs");
+        }
+    }
+
     #[test]
     fn query_request_fields_are_optional() {
         let r: MemoryCloudQueryRequest = serde_json::from_value(json!({"text": "hi"})).unwrap();

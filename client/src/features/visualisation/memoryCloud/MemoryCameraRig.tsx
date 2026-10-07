@@ -4,6 +4,10 @@
  *  - Click-to-focus: listens for MEMORY_FOCUS_EVENT (dispatched by the
  *    explorer panel through cameraFocus.focusMemoryPoint) and eases the
  *    camera and orbit target to that cloud point.
+ *  - Route framing: when a query's route is drawn, and again after a view
+ *    change, eases the camera to frame the whole route (cameraFocus
+ *    .frameRoutePose, cloudFrame.createRouteFramer); between those moments
+ *    the camera is the user's.
  *  - Cinematic director: when the store's cinematic run starts, it compiles a
  *    shot timeline over the current route (director.ts), drives the camera and
  *    the route's playback clock from it, plays the loaded audio file with
@@ -16,7 +20,8 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { MEMORY_FOCUS_EVENT, flyPose, type CameraPoseLike, type MemoryFocusDetail } from '../cameraFocus';
+import { MEMORY_FOCUS_EVENT, flyPose, frameRoutePose, type CameraPoseLike, type MemoryFocusDetail, type ScreenInsets } from '../cameraFocus';
+import { createRouteFramer } from './cloudFrame';
 import { useMemoryCloudStore } from './memoryCloudInstance';
 import { beatState, directorClock, routeChannel } from './memoryCloudStore';
 import { compileDirector, type Director } from './director';
@@ -35,6 +40,25 @@ interface ControlsLike {
 const FLY_SECONDS = 0.9;
 /** distance from a focused point, in cloud-local units */
 const FOCUS_DISTANCE = 18;
+/** smallest radius framed around a route, in cloud-local units */
+const ROUTE_MIN_RADIUS = 12;
+/** share of the canvas height kept clear for the bottom control dock */
+const DOCK_INSET = 0.1;
+
+/**
+ * Screen insets for route framing: the explorer panel's share of the canvas
+ * width when it hugs the right edge, and the bottom control dock.
+ */
+function overlayInsets(canvas: HTMLElement): ScreenInsets {
+  const c = canvas.getBoundingClientRect();
+  const panel = document.querySelector('[data-testid="memory-explorer-panel"]')?.getBoundingClientRect();
+  let right = 0;
+  // a collapsed panel is a short header strip: it hides nothing worth avoiding
+  if (panel && c.width > 0 && panel.height > c.height * 0.3 && panel.right > c.left + c.width * 0.5 && panel.left < c.right) {
+    right = Math.max(0, Math.min(0.6, (c.right - panel.left) / c.width));
+  }
+  return { right, bottom: DOCK_INSET };
+}
 
 interface Flight {
   from: CameraPoseLike;
@@ -67,6 +91,7 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
 
   const flight = useRef<Flight | null>(null);
   const run = useRef<Run | null>(null);
+  const framer = useRef(createRouteFramer());
 
   const currentPose = (): CameraPoseLike => {
     const tgt = controls?.target ?? new THREE.Vector3(0, 0, 0);
@@ -263,6 +288,40 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
     beatState.bar = sample?.bar ?? 0;
     beatState.phase = sample?.phase ?? 0;
     const r = run.current;
+    // frame each newly drawn route (not while the director owns the camera)
+    const q = useMemoryCloudStore.getState().query;
+    const frameNow = framer.current.update({
+      querySeq: q.seq,
+      morphSeq: q.morphSeq,
+      hasRun: !!q.run,
+      routeSeq: routeChannel.seq,
+      routeLength: routeChannel.pts.length,
+    });
+    const g = cloudGroup.current;
+    if (frameNow && !r && g && camera instanceof THREE.PerspectiveCamera) {
+      g.updateMatrixWorld();
+      const v = new THREE.Vector3();
+      const world = routeChannel.pts.map((p) => {
+        v.set(p[0], p[1], p[2]).applyMatrix4(g.matrixWorld);
+        return [v.x, v.y, v.z] as [number, number, number];
+      });
+      const scale = new THREE.Vector3();
+      g.getWorldScale(scale);
+      const to = frameRoutePose(
+        currentPose(),
+        world,
+        camera.fov,
+        camera.aspect,
+        ROUTE_MIN_RADIUS * scale.x,
+        overlayInsets(gl.domElement),
+      );
+      if (reducedMotion) {
+        applyPose(to);
+        flight.current = null;
+      } else {
+        flight.current = { from: currentPose(), to, t0: now };
+      }
+    }
     if (r) {
       const t = (now - r.t0) / 1000;
       if (t >= r.director.duration) {

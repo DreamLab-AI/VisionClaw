@@ -1,8 +1,10 @@
 /**
  * Wire contract for the live RuVector memory cloud (`/api/memory-cloud*`).
  *
- * The Rust handler (`src/handlers/memory_cloud_handler.rs`) serialises these
- * shapes with `#[serde(rename_all = "camelCase")]`; keep the two in step.
+ * The Rust structs in `crates/visionclaw-memory-cloud/src/wire.rs` serialise
+ * these shapes with `#[serde(rename_all = "camelCase")]`; keep the two in
+ * step. `__tests__/fixtures/wire.json` is checked against both sides (Vitest
+ * `wire.test.ts`, Rust `client_fixture_round_trips`).
  *
  * The snapshot keeps the field names of the retired static
  * `embedding-cloud.json` (`count`, `positions`, `metadata`, `namespaces`,
@@ -80,6 +82,15 @@ export interface MemoryCloudHit {
   sampleIndex: number | null;
 }
 
+/** How the sidecar produced a result list (`wire.rs` `SearchMethod`). */
+export const SEARCH_METHODS = ['hnsw', 'exact'] as const;
+/**
+ * `hnsw`: the sidecar's HNSW index, what an agent's `memory_search` sees.
+ * `exact`: a sequential scan, used for namespace-restricted queries and for a
+ * global query whose HNSW candidates were mostly excluded.
+ */
+export type MemoryCloudSearchMethod = (typeof SEARCH_METHODS)[number];
+
 /** `POST /api/memory-cloud/query` response */
 export interface MemoryCloudQueryResponse {
   snapshotId: string;
@@ -92,6 +103,7 @@ export interface MemoryCloudQueryResponse {
   sidecar: {
     results: MemoryCloudHit[];
     tookMs: number;
+    method: MemoryCloudSearchMethod;
   };
 }
 
@@ -109,7 +121,14 @@ export interface MemoryCloudRecallProbe {
   measuredAt: number;
 }
 
-/** `GET /api/memory-cloud/health` */
+/**
+ * Why the sidecar is not serving (`wire.rs` `SidecarIssue`). A closed set:
+ * driver and connection detail stays in the server log.
+ */
+export const SIDECAR_ISSUES = ['not_configured', 'building', 'unreachable'] as const;
+export type MemoryCloudSidecarIssue = (typeof SIDECAR_ISSUES)[number];
+
+/** `GET /api/memory-cloud/health` (power-user signed, like every endpoint) */
 export interface MemoryCloudHealth {
   snapshotId: string | null;
   generatedAt: number | null;
@@ -117,11 +136,12 @@ export interface MemoryCloudHealth {
     reachable: boolean;
     /** `pg_extension.extversion` for `ruvector` */
     extensionVersion: string | null;
-    error: string | null;
+    /** null while the sidecar is serving */
+    error: MemoryCloudSidecarIssue | null;
   };
   embedder: {
-    url: string;
     model: string;
+    /** whether the embedder answered on the latest refresh cycle */
     reachable: boolean;
   };
   namespaces: Array<{

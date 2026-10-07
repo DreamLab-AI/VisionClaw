@@ -591,7 +591,7 @@ export interface EmbeddingCloudSettings {
   colorBy: 'namespace' | 'sourceType' | 'age';
   rotationSpeed: number;   // rad/frame, default 0.0005 (paused while a query route is shown)
   maxPoints: number;       // cap on rendered points, default 50000
-  cloudScale: number;      // overall scale multiplier, default 5.0
+  cloudScale: number;      // size relative to the graph, default 5.0 = cloud radius equals the graph's (cloudFrame.ts)
   // Memory explorer (query trajectory over the in-browser HNSW of the sample)
   trajectoryView?: 'space' | 'canopy' | 'tree' | 'hyper'; // default 'canopy'
   routeGlow?: number;            // 0-3, route / comet / bead brightness, default 1.2
