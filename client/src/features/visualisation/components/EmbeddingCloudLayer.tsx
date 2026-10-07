@@ -27,7 +27,7 @@ import {
   type BurstProfile,
 } from '../semanticEncoding';
 import { useMemoryCloudStore } from '../memoryCloud/memoryCloudInstance';
-import { buildCloudColours, buildIndexMaps, resolveFlashTargets, applyFocusDim, type IndexMaps } from '../memoryCloud/cloudData';
+import { buildCloudColours, buildIndexMaps, resolveFlashTargets, applyFocusDim, burstFrame, type IndexMaps } from '../memoryCloud/cloudData';
 import { directorClock } from '../memoryCloud/memoryCloudStore';
 import TrajectoryLayer from '../memoryCloud/TrajectoryLayer';
 import MemoryCameraRig from '../memoryCloud/MemoryCameraRig';
@@ -268,7 +268,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     const now = performance.now();
     for (const slot of burstPool.current) {
       if (!slot.active) continue;
-      const { duration, maxScale, motion } = slot.profile;
+      const { duration } = slot.profile;
       const elapsed = (now - slot.startTime) / 1000 - slot.delay;
       if (elapsed < 0) {
         slot.mesh.visible = false;
@@ -280,13 +280,9 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
         continue;
       }
       slot.mesh.visible = true;
-      const t = elapsed / duration;
-      const scale = motion === 'implode'
-        ? maxScale * Math.pow(1 - t, 3)
-        : maxScale * (1 - Math.pow(1 - t, 3));
-      const alpha = 1.0 - t * t;
-      slot.mesh.scale.setScalar(Math.max(scale, 0.01));
-      (slot.mesh.material as THREE.MeshBasicMaterial).opacity = alpha * 0.85;
+      const f = burstFrame(elapsed / duration, slot.profile, reducedMotion);
+      slot.mesh.scale.setScalar(f.scale);
+      (slot.mesh.material as THREE.MeshBasicMaterial).opacity = f.alpha;
       slot.mesh.quaternion.copy(camera.quaternion);
     }
   });

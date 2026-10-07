@@ -173,3 +173,16 @@ export function applyFocusDim(base: Float32Array, out: Float32Array, keep: Set<n
     out[i * 3 + 2] = base[i * 3 + 2] * k;
   }
 }
+
+/** Burst ring size and opacity at life fraction `t` ∈ [0, 1). */
+export function burstFrame(
+  t: number,
+  profile: { maxScale: number; motion: 'expand' | 'implode' },
+  reducedMotion: boolean,
+): { scale: number; alpha: number } {
+  const alpha = (1 - t * t) * 0.85;
+  // reduced motion: no expanding or imploding ring, a fixed marker that fades
+  if (reducedMotion) return { scale: profile.maxScale * 0.6, alpha };
+  const scale = profile.motion === 'implode' ? profile.maxScale * Math.pow(1 - t, 3) : profile.maxScale * (1 - Math.pow(1 - t, 3));
+  return { scale: Math.max(scale, 0.01), alpha };
+}

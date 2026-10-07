@@ -18,6 +18,7 @@ import {
   hexToRgb01,
   ROUTE_PALETTE,
   thinRejected,
+  beatModulation,
 } from '../routeMath';
 import type { LayoutResult, Vec3 } from '../../memoryTrajectory/types';
 
@@ -238,5 +239,32 @@ describe('morphFade', () => {
     expect(morphFade(frame, 1)).toBe(0);
     expect(morphFade(frame, 2)).toBe(1);
     expect(morphFade(frame, 3)).toBe(1);
+  });
+});
+
+describe('beatModulation (ADR-2107 reduced-motion parity with XR)', () => {
+  const beat = { on: true, pulse: 0.8, bar: 0.8, phase: 0.1 };
+  const idle = { on: false, pulse: 0, bar: 0, phase: 0 };
+
+  it('drives glow, comet lead and size, root ring and pulse phase from the beat', () => {
+    const m = beatModulation(beat, false);
+    expect(m.glow).toBeCloseTo(1 + 0.2 * 0.8);
+    expect(m.cometLead).toBeCloseTo(0.015 * 0.8);
+    expect(m.cometScale).toBeCloseTo(1 + 0.35 * 0.8);
+    expect(m.rootScale).toBeCloseTo(1 + 0.12 * 0.8);
+    expect(m.pulsePhase).toBeCloseTo(0.1);
+  });
+
+  it('with no beat, everything is neutral and the pulse ring keeps its own clock', () => {
+    expect(beatModulation(idle, false)).toEqual({ glow: 1, cometLead: 0, cometScale: 1, rootScale: null, pulsePhase: null });
+  });
+
+  it('under reduced motion the beat changes nothing on the route, glow, comet or rings', () => {
+    const m = beatModulation(beat, true);
+    expect(m).toEqual({ glow: 1, cometLead: 0, cometScale: 1, rootScale: 1, pulsePhase: null });
+    // and it is the same whatever the beat is doing
+    for (const pulse of [0, 0.3, 1]) {
+      expect(beatModulation({ on: true, pulse, bar: pulse, phase: pulse }, true)).toEqual(m);
+    }
   });
 });
