@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.3
+version: 0.1.4
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.4 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame"
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1: flag self-contradictory docstring on is_directed_hierarchy_relation (excludes vs accepts 'hierarchical')"
@@ -15,6 +16,9 @@ sources:
   - xr-client/scripts/graph_scene.gd
   - xr-client/rust/src/render_store.rs
   - xr-client/rust/src/webrtc_audio.rs
+  - xr-client/rust/src/memory_cloud.rs
+  - xr-client/rust/src/memory_route.rs
+  - xr-client/scripts/memory_cloud_layer.gd
   - xr-client/README.md
   - src/handlers/layout_handler.rs
   - src/actors/gpu/force_compute_actor.rs
@@ -175,6 +179,56 @@ resource stride is **16 floats/instance** — 12 transform + 4 INSTANCE_CUSTOM
 The work-beam MultiMesh (agent→target links, ADR-140 Pillar 2) uses the same
 stride 16 (`graph_scene.gd:1818-1830`, `render_store.rs:1362`).
 
+### Memory cloud and query route (ADR-2133, WP6/WP7)
+The headset draws the same live RuVector sample as the desktop explorer
+(`EmbeddingCloudLayer.tsx`), owned end to end by `scripts/memory_cloud_layer.gd`
+with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
+- **Load.** `GET /api/memory-cloud` only (positions + metadata). The vectors blob
+  is never fetched and the headset never runs HNSW. The request is signed by the
+  scene's `_auth_headers` for the exact URL fetched (Invariant 6). 401/403 hides
+  the cloud quietly ("Memory: Locked" on the button, no toast, no polling); 503
+  reloads at `Retry-After`, else 5 s doubling to 60 s; 409 reloads once at once;
+  a malformed or short body is rejected in Rust and the previous snapshot stays.
+- **Placement and look.** The layer sits under `GraphRoot` at the server origin
+  and `CloudRoot` carries the desktop `cloudScale` (5), so the cloud surrounds
+  the graph as it does on desktop. One MultiMesh of camera-facing quads
+  (`memory_point.gdshader`, billboarded on the main camera so both eyes agree;
+  stride 16 = 12 transform + 4 colour). Sprite diameter is the desktop
+  size-attenuated point converted to world units (`7.5 · tan(37.5°) / 5`
+  cloud-local). Colours come from the `cloudData.ts` tables (namespace / source
+  type / age); a Rust test parses the TS source so they cannot drift. Level of
+  detail: at most 12 000 sprites (24 000 triangles), namespace-stratified, route
+  and sidecar rows always kept. The cloud turns slowly only when reduced motion
+  is off and no route is shown.
+- **HUD.** Graph tab, Layers grid: `Memory: Off/<count>/Locked/Waiting/Error`
+  and `Cloud: Namespace/Source/Age` (both `_press_fire`). The pointer ray picks
+  a sprite at 15 Hz and a world-size `Label3D` (top-level, not fit-scaled) shows
+  its key and namespace / source type.
+- **Flashes.** `resolve_flash(key, ns)` follows `resolveFlashTargets` (exact
+  `namespace:key`, bare key, up to three namespace rows, else none) and
+  `world_point(row)` gives the burst position, so `memory_flash` bursts land on
+  real rows.
+- **Route.** A `memoryRoute` text frame (`{type, snapshotId, seq, sentAt,
+  path[], sidecar[], query}`; rows root → answer; `path: []` clears) relayed from
+  the desktop is gated in Rust by `(sentAt, seq)`. A frame naming another
+  snapshot reloads the cloud once and is then applied or dropped. The route is
+  sampled as the desktop space view does (quadratic Bézier, quarter-back,
+  0.12·length lift) and drawn in three draw calls: one additive surface
+  holding five tubes (outer/inner sheath, root #6f9bff → white → tip #ff7a3d
+  body, white core, comet tail; `memory_route.gdshader` reveals the trace and
+  tapers the 18 % tail on the GPU), beads + comet head/glow, and billboard
+  rings (root, answer, pulse, sidecar gold). Off-route sprites dim by 0.75.
+  The answer ring pulses to xr-pulse's beat clock when it is locked. Under
+  reduced motion the route is shown converged, with no comet, pulse ring or
+  rotation. Glow is emissive/additive geometry only (Invariant 2).
+- **Budget.** Measured on HP (desktop GL window, 1k-node benchmark): +4 draw
+  calls (6 → 10). The cloud adds 12 000 triangles at 6 000 rows and 24 000 at
+  20 000 rows (capped). A 12-hop route adds 13 776 triangles; a 64-hop route
+  is bounded at about 30 000 (tube ≤ 19 200 at 320 samples, beads 80 per sphere).
+  The graph-only baseline of that benchmark is already 576 000 triangles (288 per
+  node sphere × 2 passes for the halo `next_pass`), far above the 100k budget;
+  see the open item below.
+
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the
 `LAYOUT_MODES` enum, POSTed to `/api/layout/mode`
@@ -245,6 +299,18 @@ rank set; every root at rank 1 below 36-533 of its members).
   edge tints (`edge_flow.gdshader`), wand ray + panel states, avatar states.
   The swatch constants are duplicated from their sources by design (same
   posture as `SWARM_STATUS_COLORS`); a palette change must update both.
+- **Memory cloud — not yet seen in a headset.** The layers are exercised by
+  GUT on Godot 4.6.1 (HP) and by screenshots in a desktop GL window
+  (`tests/visual/memory_cloud_capture.gd`). Stereo agreement of the main-camera
+  billboards, sprite legibility at fit scale, label reach and the route's
+  additive brightness need a VIVE Pro session. The server relay of `memoryRoute`
+  and the desktop sender are owned by the beat-clock relay work (WP5).
+- **Graph triangles exceed the budget.** `perf/benchmark_scene.tscn` with
+  `memory_rows=0` measures 576 000 triangles for 1000 nodes: every SphereMesh
+  16×8 node (288 triangles) draws twice because `gem.tres` carries the
+  `node_halo` `next_pass`. The 100k budget in `perf/README.md` cannot hold at any
+  real graph size until node tessellation or the halo pass is reduced. That is a
+  graph-render decision that needs a headset receipt, so it is left open here.
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
@@ -270,7 +336,7 @@ rank set; every root at rank 1 below 36-533 of its members).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(226 headless tests as of 2026-09-05, <1 s, no headset/Godot/network needed; the
+(285 headless library tests as of 2026-10-07, <1 s, no headset/Godot/network needed; the
 README's "141" is stale — ADR-2076). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump

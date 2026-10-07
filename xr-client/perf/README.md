@@ -83,6 +83,21 @@ cargo run --quiet --release --manifest-path xr-client/rust/Cargo.toml \
     --baseline crates/visionclaw-xr-presence/benches/baseline.json
 ```
 
+The scene also mounts the memory cloud and a 12-hop query route (XR WP6/WP7) from a
+synthetic snapshot fed through the real parse path; `memory_layers` in the result reports
+their draw calls and triangles. Overrides go after `--`:
+
+```bash
+godot --path xr-client --rendering-driver opengl3 --script perf/run_benchmark.gd -- duration=8 memory_rows=0      # graph only
+godot --path xr-client --rendering-driver opengl3 --script perf/run_benchmark.gd -- duration=8 memory_rows=20000  # capped cloud
+```
+
+Headless runs use the dummy renderer, so draw calls and triangles read 0; count them with a
+display. Measured on HP-Desktop (GL window, 2026-10-07): graph only 6 draw calls / 576 000
+triangles; +6000-row cloud and route 10 / 601 776; +20 000-row cloud (capped at 12 000
+sprites) 10 / 613 776. The graph-only figure already exceeds the triangle budget: see
+`docs/XR-client.md` "Graph triangles exceed the budget".
+
 ### Godot benchmark — on-device Quest 3
 
 ```bash
