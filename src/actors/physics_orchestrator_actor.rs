@@ -1291,6 +1291,25 @@ impl Handler<ForceResumePhysics> for PhysicsOrchestratorActor {
     }
 }
 
+/// A supervisor restart replaced the ForceComputeActor. The new actor has no
+/// graph: re-initialise it with ours, whether or not the old one still answers.
+impl Handler<crate::actors::messages::ForceComputeActorReplaced> for PhysicsOrchestratorActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: crate::actors::messages::ForceComputeActorReplaced,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        info!("PhysicsOrchestratorActor: ForceComputeActor replaced — re-sending the graph");
+        self.gpu_initialized = false;
+        self.gpu_init_in_progress = false;
+        self.gpu_init_started_at = None;
+        self.gpu_compute_addr = Some(msg.addr);
+        self.initialize_gpu_if_needed(ctx);
+    }
+}
+
 impl Handler<StoreGPUComputeAddress> for PhysicsOrchestratorActor {
     type Result = ();
 

@@ -516,6 +516,23 @@ pub struct ConfigureBroadcastOptimization {
     pub enable_spatial_culling: Option<bool>,
 }
 
+/// The PhysicsSupervisor replaced its ForceComputeActor (a restart). Sent to
+/// every `SubscribeForceComputeReplaced` subscriber so actors holding the old
+/// address re-point to the new one: the physics orchestrator re-sends its
+/// graph, the client coordinator re-targets its backpressure acks.
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct ForceComputeActorReplaced {
+    pub addr: actix::Addr<crate::actors::gpu::force_compute_actor::ForceComputeActor>,
+}
+
+/// Subscribe to `ForceComputeActorReplaced` on the PhysicsSupervisor.
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct SubscribeForceComputeReplaced {
+    pub recipient: actix::Recipient<ForceComputeActorReplaced>,
+}
+
 /// Tells the physics supervisor where the saved physics settings live, so a
 /// restarted ForceComputeActor can be given them back.
 #[derive(Message, Clone)]

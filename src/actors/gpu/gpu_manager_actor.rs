@@ -713,6 +713,20 @@ impl Handler<GetOntologyConstraintStats> for GPUManagerActor {
 ///
 /// `do_send` is deliberate: this is fire-and-forget configuration sent once
 /// during `AppState::new`, and boot must not block on a supervisor mailbox.
+impl Handler<SubscribeForceComputeReplaced> for GPUManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SubscribeForceComputeReplaced, ctx: &mut Self::Context) {
+        match self.get_supervisors(ctx) {
+            Ok(supervisors) => supervisors.physics.do_send(msg),
+            Err(e) => error!(
+                "GPUManagerActor: SubscribeForceComputeReplaced dropped — supervisors unavailable ({})",
+                e
+            ),
+        }
+    }
+}
+
 impl Handler<SetPhysicsSettingsSource> for GPUManagerActor {
     type Result = ();
 

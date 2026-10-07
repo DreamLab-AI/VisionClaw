@@ -1801,6 +1801,20 @@ impl Handler<UpdateNodeTypeArrays> for ClientCoordinatorActor {
     }
 }
 
+/// A supervisor restart replaced the ForceComputeActor: send acks to the new one.
+impl Handler<crate::actors::messages::ForceComputeActorReplaced> for ClientCoordinatorActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: crate::actors::messages::ForceComputeActorReplaced,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        info!("ClientCoordinatorActor: ForceComputeActor replaced — acks now go to the new actor");
+        self.gpu_compute_addr = Some(msg.addr);
+    }
+}
+
 /// Handler for SetGpuComputeAddress - enables backpressure acknowledgements
 impl Handler<SetGpuComputeAddress> for ClientCoordinatorActor {
     type Result = ();

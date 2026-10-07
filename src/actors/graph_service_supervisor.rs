@@ -428,6 +428,11 @@ pub struct GraphServiceSupervisor {
     // GPU manager address for GPU physics initialization
     gpu_manager: Option<Addr<GPUManagerActor>>,
 
+    // Whether the orchestrator / client coordinator are subscribed to
+    // ForceComputeActorReplaced (restart re-wiring).
+    fc_subscribed_physics: bool,
+    fc_subscribed_client: bool,
+
     // AppState's gpu_compute_addr — kept in sync when ForceComputeActor is respawned
     app_gpu_compute_addr:
         Option<Arc<tokio::sync::RwLock<Option<Addr<crate::actors::gpu::ForceComputeActor>>>>>,
@@ -511,6 +516,8 @@ impl GraphServiceSupervisor {
             semantic: None,
             client: None,
             gpu_manager: None,
+            fc_subscribed_physics: false,
+            fc_subscribed_client: false,
             app_gpu_compute_addr: None,
             kg_repo: Some(kg_repo),
             strategy: GraphSupervisionStrategy::OneForOne,
@@ -575,6 +582,27 @@ impl GraphServiceSupervisor {
         supervisor.restart_policy = restart_policy;
         supervisor.health_check_interval = health_check_interval;
         supervisor
+    }
+
+    /// Subscribe the physics orchestrator and the client coordinator to
+    /// ForceComputeActor replacements, so a supervisor restart re-sends the
+    /// graph to the new actor and re-targets client acks at once.
+    fn wire_force_compute_subscribers(&mut self) {
+        let Some(gpu_manager) = self.gpu_manager.clone() else {
+            return;
+        };
+        if let (false, Some(physics)) = (self.fc_subscribed_physics, &self.physics) {
+            gpu_manager.do_send(msgs::SubscribeForceComputeReplaced {
+                recipient: physics.clone().recipient(),
+            });
+            self.fc_subscribed_physics = true;
+        }
+        if let (false, Some(client)) = (self.fc_subscribed_client, &self.client) {
+            gpu_manager.do_send(msgs::SubscribeForceComputeReplaced {
+                recipient: client.clone().recipient(),
+            });
+            self.fc_subscribed_client = true;
+        }
     }
 
     /// Wire physics and client coordinator together for position broadcasting
@@ -708,6 +736,7 @@ impl GraphServiceSupervisor {
                 let params = SimulationParams::default();
                 let actor = PhysicsOrchestratorActor::new(params, None, None).start();
                 self.physics = Some(actor);
+                self.fc_subscribed_physics = false;
             }
             ActorType::SemanticProcessor => {
                 let config = Some(
@@ -719,6 +748,7 @@ impl GraphServiceSupervisor {
             ActorType::ClientCoordinator => {
                 let actor = ClientCoordinatorActor::new().start();
                 self.client = Some(actor);
+                self.fc_subscribed_client = false;
             }
         }
 
@@ -727,6 +757,7 @@ impl GraphServiceSupervisor {
             || actor_type == ActorType::PhysicsOrchestrator
         {
             self.wire_physics_and_client();
+            self.wire_force_compute_subscribers();
         }
 
         if let Some(info) = self.actor_info.get_mut(&actor_type) {
@@ -1292,10 +1323,17 @@ impl Actor for GraphServiceSupervisor {
                 let gpu_manager_clone = gpu_manager.clone();
                 let physics_clone = act.physics.clone();
                 let app_gpu_addr_clone = act.app_gpu_compute_addr.clone();
+                let client_clone = act.client.clone();
                 ctx.spawn(
                     async move {
                         match gpu_manager_clone.send(msgs::GetForceComputeActor).await {
                             Ok(Ok(force_compute_addr)) if force_compute_addr.connected() => {
+                                // Keep client backpressure acks on the live actor.
+                                if let Some(client) = client_clone {
+                                    client.do_send(msgs::SetGpuComputeAddress {
+                                        addr: force_compute_addr.clone(),
+                                    });
+                                }
                                 // Update PhysicsOrchestratorActor
                                 if let Some(physics) = physics_clone {
                                     physics.do_send(msgs::StoreGPUComputeAddress {
@@ -1506,7 +1544,9 @@ impl Handler<SetClientCoordinatorAddr> for GraphServiceSupervisor {
 
     fn handle(&mut self, msg: SetClientCoordinatorAddr, _ctx: &mut Self::Context) -> Self::Result {
         self.client = Some(msg.addr);
+        self.fc_subscribed_client = false;
         self.wire_physics_and_client();
+        self.wire_force_compute_subscribers();
         info!("GraphServiceSupervisor: client coordinator rebound to application instance");
     }
 }
@@ -1845,6 +1885,8 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
         if let Some(ref gpu_manager) = msg.gpu_manager {
             self.gpu_manager = Some(gpu_manager.clone());
             info!("GraphServiceSupervisor: GPU manager address stored");
+            self.wire_force_compute_subscribers();
+            let client_addr = self.client.clone();
 
             // Get ForceComputeActor from GPUManagerActor and forward to PhysicsOrchestratorActor
             let physics_addr = self.physics.clone();
@@ -1861,6 +1903,12 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
                         Ok(Ok(force_compute_addr)) => {
                             info!("GraphServiceSupervisor: Got ForceComputeActor address from GPUManagerActor");
 
+                            // Client backpressure acks go to this actor.
+                            if let Some(client) = client_addr {
+                                client.do_send(msgs::SetGpuComputeAddress {
+                                    addr: force_compute_addr.clone(),
+                                });
+                            }
                             // Forward to PhysicsOrchestratorActor
                             if let Some(physics) = physics_addr {
                                 physics.do_send(msgs::StoreGPUComputeAddress {

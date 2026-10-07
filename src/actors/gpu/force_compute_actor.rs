@@ -295,6 +295,8 @@ pub struct ForceComputeActor {
     /// Graph data waiting to be uploaded to GPU (set by InitializeGPU/UpdateGPUGraphData,
     /// consumed when shared_context becomes available)
     pending_graph_data: Option<Arc<visionclaw_domain::models::graph::GraphData>>,
+    /// Client backpressure acks received (PositionBroadcastAck).
+    acks_received: u64,
 
     /// Back-channel to PhysicsOrchestratorActor for the sequential pipeline.
     /// When set, a PhysicsStepCompleted message is sent after each ComputeForces
@@ -415,6 +417,7 @@ impl ForceComputeActor {
             pinned_nodes: std::collections::HashMap::new(),
             pinned_mask_dirty: false,
             pending_graph_data: None,
+            acks_received: 0,
             physics_orchestrator_addr: None,
             gpu_self_init_attempts: 0,
             gpu_self_init_max_retries: 3,
@@ -4340,6 +4343,7 @@ impl Handler<crate::actors::messages::PositionBroadcastAck> for ForceComputeActo
         msg: crate::actors::messages::PositionBroadcastAck,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
+        self.acks_received += 1;
         // Acknowledge to backpressure controller - this restores tokens
         self.backpressure
             .acknowledge(msg.clients_delivered as usize);
@@ -4351,6 +4355,36 @@ impl Handler<crate::actors::messages::PositionBroadcastAck> for ForceComputeActo
                    msg.correlation_id, msg.clients_delivered,
                    metrics.available_tokens, metrics.max_tokens,
                    metrics.total_congestion_duration.as_secs_f32() * 1000.0);
+        }
+    }
+}
+
+/// Test probe: what this actor has been given.
+#[cfg(test)]
+#[derive(actix::Message)]
+#[rtype(result = "ProbeReceivedReply")]
+pub(crate) struct ProbeReceived;
+
+#[cfg(test)]
+#[derive(Debug, actix::MessageResponse)]
+pub(crate) struct ProbeReceivedReply {
+    /// Nodes in the graph it was last given (pending or uploaded).
+    pub graph_nodes: Option<usize>,
+    pub acks_received: u64,
+}
+
+#[cfg(test)]
+impl Handler<ProbeReceived> for ForceComputeActor {
+    type Result = ProbeReceivedReply;
+
+    fn handle(&mut self, _: ProbeReceived, _: &mut Self::Context) -> Self::Result {
+        ProbeReceivedReply {
+            graph_nodes: self
+                .pending_graph_data
+                .as_ref()
+                .map(|g| g.nodes.len())
+                .or((self.gpu_state.num_nodes > 0).then_some(self.gpu_state.num_nodes as usize)),
+            acks_received: self.acks_received,
         }
     }
 }

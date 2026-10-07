@@ -122,6 +122,9 @@ pub struct PhysicsSupervisor {
     /// Where the saved physics settings live (the SQLite `physics` row the
     /// settings routes read and write). Set by `SetPhysicsSettingsSource`.
     settings_source: Option<Arc<dyn crate::ports::settings_repository::SettingsRepository>>,
+
+    /// Told about every ForceComputeActor replacement (restart).
+    replacement_subscribers: Vec<Recipient<ForceComputeActorReplaced>>,
 }
 
 impl PhysicsSupervisor {
@@ -150,6 +153,7 @@ impl PhysicsSupervisor {
             window_start: Instant::now(),
             force_compute_factory: factory,
             settings_source: None,
+            replacement_subscribers: Vec::new(),
         }
     }
 
@@ -490,6 +494,19 @@ impl PhysicsSupervisor {
         // The new ForceComputeActor starts on defaults: give it the saved settings.
         self.restore_saved_physics(ctx);
 
+        // Everyone holding the old address re-points: the orchestrator re-sends
+        // the graph, the client coordinator re-targets its acks.
+        if let Some(ref addr) = self.force_compute_actor {
+            self.replacement_subscribers.retain(|r| r.connected());
+            for subscriber in &self.replacement_subscribers {
+                subscriber.do_send(ForceComputeActorReplaced { addr: addr.clone() });
+            }
+            info!(
+                "PhysicsSupervisor: announced the new ForceComputeActor to {} subscriber(s)",
+                self.replacement_subscribers.len()
+            );
+        }
+
         // Re-distribute context if available
         if self.shared_context.is_some() {
             self.distribute_context(ctx);
@@ -800,6 +817,14 @@ impl Handler<ApplyMaterializedAxioms> for PhysicsSupervisor {
 }
 
 /// Get the ForceComputeActor address for direct communication
+impl Handler<SubscribeForceComputeReplaced> for PhysicsSupervisor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SubscribeForceComputeReplaced, _ctx: &mut Self::Context) {
+        self.replacement_subscribers.push(msg.recipient);
+    }
+}
+
 impl Handler<SetPhysicsSettingsSource> for PhysicsSupervisor {
     type Result = ();
 
@@ -1261,6 +1286,86 @@ mod tests {
                 fps,
                 params.spring_k,
                 params.repel_k
+            );
+            actix::clock::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// After a restart the new ForceComputeActor must get the real graph back
+    /// (so physics resumes on it, not on an empty one) and the client
+    /// coordinator must send backpressure acks to it, not to the dead actor.
+    /// The supervisor announces the replacement to its subscribers; the
+    /// physics orchestrator re-sends its graph and the coordinator re-points
+    /// its acks.
+    #[actix::test]
+    async fn a_restarted_force_compute_actor_gets_the_graph_and_the_acks() {
+        use crate::actors::client_coordinator_actor::ClientCoordinatorActor;
+        use crate::actors::physics_orchestrator_actor::PhysicsOrchestratorActor;
+        use visionclaw_domain::models::graph::GraphData;
+        use visionclaw_domain::models::node::Node;
+
+        let mut graph = GraphData::new();
+        for i in 0..7 {
+            graph.nodes.push(Node::new(format!("n{i}")));
+        }
+        let sup =
+            PhysicsSupervisor::with_force_compute_factory(ForceComputeActor::headless).start();
+        let first = sup.send(GetForceComputeActor).await.unwrap().unwrap();
+        let orchestrator = PhysicsOrchestratorActor::new(
+            crate::models::simulation_params::SimulationParams::default(),
+            Some(first.clone()),
+            Some(Arc::new(graph)),
+        )
+        .start();
+        let coordinator = ClientCoordinatorActor::new().start();
+        coordinator.do_send(SetGpuComputeAddress {
+            addr: first.clone(),
+        });
+        for r in [
+            orchestrator
+                .clone()
+                .recipient::<ForceComputeActorReplaced>(),
+            coordinator.clone().recipient::<ForceComputeActorReplaced>(),
+        ] {
+            sup.send(SubscribeForceComputeReplaced { recipient: r })
+                .await
+                .unwrap();
+        }
+
+        sup.send(RestartActor {
+            actor_name: "ForceComputeActor".to_string(),
+            reason: "test".to_string(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let after = sup.send(GetForceComputeActor).await.unwrap().unwrap();
+        assert!(!after.eq(&first));
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut acked = false;
+        loop {
+            if !acked {
+                coordinator.do_send(crate::actors::messages::ClientBroadcastAck {
+                    sequence_id: 1,
+                    nodes_received: 7,
+                    timestamp: 0,
+                    client_id: Some(1),
+                });
+            }
+            let probe = after
+                .send(crate::actors::gpu::force_compute_actor::ProbeReceived)
+                .await
+                .unwrap();
+            acked = probe.acks_received > 0;
+            if probe.graph_nodes == Some(7) && acked {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "new actor: graph_nodes={:?}, acks_received={}",
+                probe.graph_nodes,
+                probe.acks_received
             );
             actix::clock::sleep(Duration::from_millis(50)).await;
         }
