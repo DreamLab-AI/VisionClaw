@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
+verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -153,3 +153,6 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 registers one module, `display_projection`, in `src/actors/gpu/mod.rs`. No supervisor, coordinator or context-bus code changed. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-07 at 67ba41c98
+Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.

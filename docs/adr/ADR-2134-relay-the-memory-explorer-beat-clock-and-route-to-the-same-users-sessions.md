@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
+verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -94,3 +94,6 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 makes two changes here. `MemoryFlashCodec.parse` (`pulse.rs`) adds `agent_id` to each burst descriptor, taken from the frame's optional `agentId`. `beat_pulse.gd` `on_memory_flash` hands each flash to `record_memory_flash` for the separated-layout agent drift before the burst gating. The beat clock, the `memoryRoute` relay, tap tempo and microphone rules are untouched, and bursts render as before. Decision holds. The GUT test `test_memory_flashes_feed_the_agent_drift_even_with_bursts_off` was not run (no Godot). Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-07 at 67ba41c98
+Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.

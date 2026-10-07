@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
+verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -362,3 +362,6 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 moves the display-only projection out of `force_compute_actor.rs` into `display_projection.rs`. `hierarchy_pairs`, the DAG ranker and `Edge::asserts_subsumption` are untouched. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-07 at 67ba41c98
+Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.

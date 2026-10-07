@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
+verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -278,3 +278,6 @@ Commit d38d430e6 adds restart re-wiring inside existing actors (`physics_supervi
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 adds a pure workspace crate, `crates/visionclaw-tri-layout` (no dependencies, MIT), which the server and the XR client both link. It moves the display projection out of `force_compute_actor.rs` into `src/actors/gpu/display_projection.rs` (registered in `gpu/mod.rs`). New domain logic lives in a crate and the root keeps the actor glue, as this record asks. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-07 at 67ba41c98
+Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.
