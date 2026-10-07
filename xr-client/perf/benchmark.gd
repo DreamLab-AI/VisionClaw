@@ -40,16 +40,21 @@ var _edge_cap: int = NodeLod.NEAR_EDGE_CAP
 var _budget_report: Dictionary = {"enabled": false}
 # Everything a headset frame carries outside the budgeted layers: the HUD,
 # both controllers' aim rays (as graph_scene._ensure_controller_rays builds
-# them) and two remote avatars. A calibration phase renders them alone and the
-# renderer's count becomes FrameBudget's other_tris.
+# them) and two remote avatars. A calibration phase renders them alone, with the
+# HUD forced to re-render every frame, and the renderer's global worst-frame
+# count becomes FrameBudget's other_tris (and its draw calls are added to the
+# graph's).
 var with_extras: bool = true
 var bursts_on: bool = true
 const CALIBRATE_SKIP := 5
-const CALIBRATE_FRAMES := 15
+const CALIBRATE_FRAMES := 30  # 3 per HUD page (8 pages) + settle
 var _phase: int = 0          # 0 calibrating extras, 1 measuring
 var _calib_frames: int = 0
 var _other_tris: int = 0
 var _other_dc: int = 0
+var _calib_page: String = ""
+var _prev_page: String = ""
+var _page_cost: Dictionary = {}  # HUD page -> [draw calls, primitives] of its dirty frame (extras included)
 var _bursts: Node3D = null
 var _burst_slots: int = 0
 var _emph_rows := PackedInt32Array()
@@ -129,6 +134,13 @@ func _ready() -> void:
 
 
 func _begin_measurement() -> void:
+	# keep the costliest HUD page open: its re-renders are the run's worst frames
+	if _hud_od != null and not _page_cost.is_empty():
+		var worst := ""
+		for p in _page_cost:
+			if worst == "" or int(_page_cost[p][0]) > int(_page_cost[worst][0]):
+				worst = p
+		_hud_od.get_parent()._show_tab(worst)
 	if not _populate_lod_path(_fixture):
 		_populate_scene_from_fixture(_fixture)
 	_add_hull_layer(_fixture)
@@ -142,11 +154,27 @@ func _process(delta: float) -> void:
 	if _hud_od != null and OS.get_environment("XR_BENCH_HUD_ACTIVE") == "1":
 		_hud_od.request_render()
 	if _phase == 0:
+		# Worst case, not idle: the HUD re-renders on every calibration frame and
+		# the renderer's global count (offscreen HUD pass included) is reserved.
+		if _hud_od != null:
+			# every page in turn: the reserve is the costliest page's dirty frame
+			var hud: Node = _hud_od.get_parent()
+			var order: Array = hud.TAB_ORDER
+			var k: int = maxi(_calib_frames - CALIBRATE_SKIP, 0) / 3
+			if k < order.size() and (_calib_frames - CALIBRATE_SKIP) % 3 == 0:
+				hud._show_tab(order[k])
+				_calib_page = order[k]
+			_hud_od.request_render()
 		_calib_frames += 1
 		if _calib_frames > CALIBRATE_SKIP:
-			var c: Vector2i = _scene_info()
-			_other_dc = maxi(_other_dc, c.x)
-			_other_tris = maxi(_other_tris, c.y)
+			# the counters report the frame just rendered: the page shown last frame
+			var dc := int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME))
+			var tr := int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+			if _prev_page != "" and (not _page_cost.has(_prev_page) or dc > int(_page_cost[_prev_page][0])):
+				_page_cost[_prev_page] = [dc, tr]
+			_prev_page = _calib_page
+			_other_dc = maxi(_other_dc, dc)
+			_other_tris = maxi(_other_tris, tr)
 		if _calib_frames >= CALIBRATE_SKIP + CALIBRATE_FRAMES:
 			_begin_measurement()
 		return
@@ -235,7 +263,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
 		"frame_budget": _budget_report,
-		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc},
+		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc, "hud_pages": _page_cost},
 		"bursts": {"enabled": bursts_on, "ring_slots": _burst_slots, "emphasised_rows": _emph_rows.size(),
 			"ring_instances": _bursts.slot_count() if _bursts != null else 0},
 		"pass": pass_p99 and pass_dc and pass_tri,

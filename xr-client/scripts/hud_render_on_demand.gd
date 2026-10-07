@@ -36,7 +36,7 @@ func _track(n: Node) -> void:
 		(n as CanvasItem).draw.connect(request_render)
 	if not n.child_entered_tree.is_connected(_on_node_added):
 		n.child_entered_tree.connect(_on_node_added)
-	for c in n.get_children():
+	for c in n.get_children(true):  # include internal children (hud_batching backgrounds)
 		_track(c)
 
 

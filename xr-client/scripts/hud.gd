@@ -51,6 +51,10 @@ extends Node3D
 @onready var doc_http: HTTPRequest = $DocHttp
 
 const HudRenderOnDemandScript := preload("res://scripts/hud_render_on_demand.gd")
+const HudBatchingScript := preload("res://scripts/hud_batching.gd")
+## FPS readouts refresh at most this often, and only when the value changes:
+## each change re-renders the whole HUD canvas.
+const FPS_REFRESH_MS := 2000
 const NG_PAGE_BASE: String = "https://narrativegoldmine.com/api/pages/"
 const DOC_TIMEOUT_SEC: float = 10.0
 const DOC_SCROLL_STEP: int = 140
@@ -118,6 +122,8 @@ var _hint_bar: Label = null
 var _conn_dot: Label = null
 var _room_header: Label = null
 var _fps_header: Label = null
+var _fps_shown: int = -1
+var _fps_next_ms: int = 0
 var _pages: Dictionary = {}          # tab id → page Control
 var _tab_buttons: Dictionary = {}    # tab id → Button
 var _active_tab: String = "graph"
@@ -257,7 +263,9 @@ func _ready() -> void:
 	# Bind after attachment: nested PackedScene textures have no viewport yet.
 	($HudPanel.material_override as StandardMaterial3D).albedo_texture = $HudViewport.get_texture()
 	_build_ui()
-	# Render the panel only when a control redraws (perf: was every frame).
+	# Batch the canvas (boxes as atlas nine-patches under the text), then render
+	# the panel only when a control redraws (perf: was every frame, 59+ calls).
+	HudBatchingScript.attach($HudViewport)
 	HudRenderOnDemandScript.attach($HudViewport)
 	# Overlay wiring (nodes from HUD.tscn).
 	approve_button.pressed.connect(_on_approve_pressed)
@@ -398,7 +406,10 @@ func _build_pages_host() -> void:
 	_tabs_host.name = "Tabs"
 	_tabs_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tabs_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tabs_host.clip_contents = true
+	# No clip: a clip region splits every canvas batch on both sides of it (4 draw
+	# calls per HUD render, measured). Pages are held inside the 532 px host by
+	# the GUT fit tests, so the clip only guarded against a layout bug.
+	_tabs_host.clip_contents = false
 	_root.add_child(_tabs_host)
 
 	_pages["graph"] = _build_graph_page()
@@ -896,24 +907,24 @@ func _build_help_page() -> VBoxContainer:
 
 func _cheat_sheet_bbcode() -> String:
 	var rows: Array[Array] = [
-		["[b]NODE[/b]", ""],
+		["[b][color=#79dfef]NODE[/color][/b]", ""],
 		["Trigger — point at a node & pull", "Grab it"],
 		["…release the trigger", "Pins the node in place"],
 		["Trigger — double-pull on a node", "Open its page card"],
 		["Menu button (or A/X)", "Node menu (mark variable…)"],
 		["", ""],
-		["[b]GRAPH[/b]", ""],
+		["[b][color=#79dfef]GRAPH[/color][/b]", ""],
 		["BOTH grips (two hands)", "Seize the whole graph"],
 		["  hands apart / together", "Scale"],
 		["  twist your hands", "Rotate"],
 		["  move hands together", "Carry"],
 		["", ""],
-		["[b]PANEL & MOVE[/b]", ""],
+		["[b][color=#79dfef]PANEL & MOVE[/color][/b]", ""],
 		["One grip while near this panel", "Pick up & move the panel"],
 		["Trackpad / thumbstick", "Fly through the graph"],
 		["Point at the panel + trigger", "Click a button"],
 		["", ""],
-		["[b]BEAT[/b]", ""],
+		["[b][color=#79dfef]BEAT[/color][/b]", ""],
 		["B/Y, or click the LEFT pad/stick centre", "Tap the tempo (Session tab shows it)"],
 	]
 	var lines: Array[String] = []
@@ -1386,12 +1397,19 @@ func _bb(s: String) -> String:
 
 func _process(delta: float) -> void:
 	# Header + Session diagnostics (per-frame, cheap).
-	var conn_str: String = "OK" if _connected else "OFF"
-	if _fps_header != null:
-		_fps_header.text = "FPS %d" % Engine.get_frames_per_second()
+	# FPS is sampled at most every FPS_REFRESH_MS and shown only when the integer
+	# changes; the other diagnostics update as they change. Label skips identical
+	# text, so an unchanged readout costs no HUD render.
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms >= _fps_next_ms:
+		_fps_next_ms = now_ms + FPS_REFRESH_MS
+		var fps: int = int(Engine.get_frames_per_second())
+		if _fps_header != null and fps != _fps_shown:
+			_fps_header.text = "FPS %d" % fps
+		_fps_shown = fps
 	if _debug_stats != null:
 		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s" % [
-			Engine.get_frames_per_second(), _mtp_ms, _avatar_count, conn_str,
+			maxi(_fps_shown, 0), _mtp_ms, _avatar_count, "OK" if _connected else "OFF",
 		]
 	# Hover-hint bar: resolve the control under the (synthetic) wand pointer via
 	# gui_get_hovered_control — which the pushed InputEventMouseMotion updates, so
