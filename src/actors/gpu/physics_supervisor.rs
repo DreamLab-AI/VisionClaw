@@ -816,7 +816,10 @@ impl Handler<ApplyMaterializedAxioms> for PhysicsSupervisor {
     }
 }
 
-/// Get the ForceComputeActor address for direct communication
+/// Register a recipient for `ForceComputeActorReplaced`. Each restart sends
+/// it the new ForceComputeActor's address (subscribers whose mailbox has
+/// closed are pruned then). Used by the physics orchestrator, which re-sends
+/// its graph, and by the client coordinator, which re-targets client acks.
 impl Handler<SubscribeForceComputeReplaced> for PhysicsSupervisor {
     type Result = ();
 
@@ -825,6 +828,9 @@ impl Handler<SubscribeForceComputeReplaced> for PhysicsSupervisor {
     }
 }
 
+/// Set where the saved physics settings live and push them to the current
+/// ForceComputeActor at once (covering a restart that happened before the
+/// source arrived); every later restart reloads them too.
 impl Handler<SetPhysicsSettingsSource> for PhysicsSupervisor {
     type Result = ();
 
@@ -835,6 +841,7 @@ impl Handler<SetPhysicsSettingsSource> for PhysicsSupervisor {
     }
 }
 
+/// Get the ForceComputeActor address for direct communication
 impl Handler<GetForceComputeActor> for PhysicsSupervisor {
     type Result = Result<Addr<ForceComputeActor>, String>;
 

@@ -700,19 +700,13 @@ impl Handler<GetOntologyConstraintStats> for GPUManagerActor {
     }
 }
 
-/// ADR-2053 (landed by vc-core, 2026-09-05): the shared SSSP map, routed to
-/// `GraphAnalyticsSupervisor` so it reaches the *supervised* `ShortestPathActor`
-/// — the one that actually receives a `SharedGPUContext`.
-///
-/// `AppState` holds only this actor's address, not the supervisor's, so without
-/// this hop the map could not reach the supervised child at all. The supervisor's
-/// own forward (`graph_analytics_supervisor.rs:359`) spawns its children first if
-/// the map arrives early and logs loudly rather than dropping silently, because a
-/// lost map means wire slot 28 stops publishing per-node SSSP distances
-/// (ADR-031 D2b) with no other symptom.
-///
-/// `do_send` is deliberate: this is fire-and-forget configuration sent once
-/// during `AppState::new`, and boot must not block on a supervisor mailbox.
+/// Forwards a `ForceComputeActorReplaced` subscription to the
+/// `PhysicsSupervisor`, which owns the ForceComputeActor and announces every
+/// replacement (restart). `GraphServiceSupervisor` subscribes the physics
+/// orchestrator and the client coordinator through here, because it holds
+/// this actor's address, not the supervisor's. Spawns the supervisors if they
+/// are not up yet; logs if that fails, since a lost subscription means a
+/// restarted actor gets no graph and no client acks.
 impl Handler<SubscribeForceComputeReplaced> for GPUManagerActor {
     type Result = ();
 
@@ -727,6 +721,10 @@ impl Handler<SubscribeForceComputeReplaced> for GPUManagerActor {
     }
 }
 
+/// Forwards the saved-physics source (the settings repository) to the
+/// `PhysicsSupervisor`, which reloads it into every restarted ForceComputeActor
+/// (`physics_restore.rs`). Sent once by `AppState::new`; fire-and-forget like
+/// the other boot-time configuration.
 impl Handler<SetPhysicsSettingsSource> for GPUManagerActor {
     type Result = ();
 
@@ -742,6 +740,19 @@ impl Handler<SetPhysicsSettingsSource> for GPUManagerActor {
     }
 }
 
+/// ADR-2053 (landed by vc-core, 2026-09-05): the shared SSSP map, routed to
+/// `GraphAnalyticsSupervisor` so it reaches the *supervised* `ShortestPathActor`
+/// — the one that actually receives a `SharedGPUContext`.
+///
+/// `AppState` holds only this actor's address, not the supervisor's, so without
+/// this hop the map could not reach the supervised child at all. The supervisor's
+/// own forward (`graph_analytics_supervisor.rs:359`) spawns its children first if
+/// the map arrives early and logs loudly rather than dropping silently, because a
+/// lost map means wire slot 28 stops publishing per-node SSSP distances
+/// (ADR-031 D2b) with no other symptom.
+///
+/// `do_send` is deliberate: this is fire-and-forget configuration sent once
+/// during `AppState::new`, and boot must not block on a supervisor mailbox.
 impl Handler<SetNodeSSSP> for GPUManagerActor {
     type Result = ();
 
