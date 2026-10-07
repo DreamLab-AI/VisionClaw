@@ -6,7 +6,7 @@
 //!  2. Capacity-aware claiming (TaskOrchestratorActor)
 //!  3. Observational status inference via TaskStatusChanged
 //!  4. HeartbeatDirective serialisation round-trip
-//!  5. BroadcastResult slow-client eviction struct
+//!  5. BroadcastResult congested/closed client struct
 //!  6. Panic isolation in EventBus handlers
 //!  7. Graceful drain (TaskOrchestratorActor + SupervisorActor)
 
@@ -82,17 +82,20 @@ mod broadcast_result_tests {
     fn default_broadcast_result_is_empty() {
         let r = BroadcastResult::default();
         assert_eq!(r.sent, 0);
-        assert!(r.slow_clients.is_empty());
+        assert!(r.congested_clients.is_empty());
+        assert!(r.closed_clients.is_empty());
     }
 
     #[test]
-    fn broadcast_result_tracks_sent_and_slow_clients() {
+    fn broadcast_result_tracks_sent_congested_and_closed() {
         let r = BroadcastResult {
             sent: 5,
-            slow_clients: vec![2, 4],
+            congested_clients: vec![3],
+            closed_clients: vec![2, 4],
         };
         assert_eq!(r.sent, 5);
-        assert_eq!(r.slow_clients, vec![2, 4]);
+        assert_eq!(r.congested_clients, vec![3]);
+        assert_eq!(r.closed_clients, vec![2, 4]);
     }
 }
 
