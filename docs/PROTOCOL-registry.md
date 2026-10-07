@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.4
+version: 0.1.5
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.5 (2026-10-07): ADR-2134 — /wss beatClock and memoryRoute client text frames relayed to the same pubkey's other sessions; JSON pong gains serverTime"
   - "0.1.4 (2026-10-07): ADR-2133 — /api/memory-cloud{,/vectors,/query,/health} rows; memory cloud wire types; PowerUser gate on private memory reads"
   - "0.1.3 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.2: 2026-09-05 remediation — ADR-2057 compile-time 52-byte and V5-seq locks (assertion language corrected); ADR-2058 header-only WS auth (?token= divergence resolved); ADR-2060 citation corrections after line drift (V5 :513→:592, 0x23 :1354/:1125-1135/:1501→:1721/:1490/:1500, 52B asserts :712,809→compile-time :93 plus tests :1077,1174); TS client V5/V2 parity recorded as open"
@@ -21,6 +22,8 @@ sources:
   - crates/visionclaw-xr-presence/src/agent_presence.rs
   - xr-client/rust/src/binary_protocol.rs
   - xr-client/rust/src/presence.rs
+  - src/handlers/socket_flow_handler/session_relay.rs
+  - xr-client/rust/src/beat.rs
 date: 2026-08-31
 ---
 
@@ -150,6 +153,29 @@ LE][u16 agent_count LE]` then per agent `[u32 local_id LE][u8 field_mask]` with 
 `+u32 node_id` when tag==2). Two logical channels (reliable for state/attention, high-rate
 10–20 Hz for gaze-only) share this one codec (`agent_presence.rs:6-12`).
 
+### `/wss` JSON text frames — same-user relay and clock (ADR-2134)
+
+The graph socket also carries JSON text frames routed by `type`
+(`message_routing.rs`). Two of them are **client→server→same user's other
+sessions** relays. They exist so the desktop memory explorer can drive the
+user's headset. They are never delivered to a different or unauthenticated
+pubkey (`ClientManager::relay_text_to_pubkey`, `client_coordinator_actor.rs`).
+
+| `type` | Direction | Fields (validated, `session_relay.rs`) | Relayed as |
+|--------|-----------|-----------------------------------------|-----------|
+| `beatClock` | desktop → server → same-pubkey sessions | `bpm` 40–220, `phaseAt` epoch ms ≥ 0 (0 = not locked), `confidence` 0–1, `source` ∈ off\|file\|tap\|spotify, `sentAt` sender ms (optional) | same fields plus `serverTime`; `phaseAt` rebased to the server clock as `phaseAt − sentAt + serverNow` when `sentAt` is present |
+| `memoryRoute` | desktop → server → same-pubkey sessions | `snapshotId` 1–128 chars, non-blank; `path` ≤ 64 snapshot row indices, root → answer (`[]` clears; any bad entry rejects the frame); `sidecar` ≤ 64 rows (bad entries dropped); `query` ≤ 120 chars (truncated); `seq`, `sentAt` finite ≥ 0 | same fields plus `serverTime`; the headset orders frames by (`sentAt`, `seq`) and resolves rows against its own copy of the snapshot (`xr-client/rust/src/memory_route.rs`) |
+| `ping` / `pong` | client → server → client | `{type:"ping",timestamp}` | `{type:"pong",timestamp,serverTime}`; `serverTime` (server Unix ms) is additive, so old clients ignore it |
+
+Relay rules:
+- the raw frame is at most 16 KiB;
+- the server and headset agree on `memoryRoute` validity through one shared case file, `xr-client/rust/tests/fixtures/memory_route_cases.json`, read by both suites;
+- frames are rebuilt from the validated fields, so unknown keys are dropped;
+- each session and kind is throttled to 4 Hz, with the newest held frame flushed at the interval end;
+- a sender without an authenticated pubkey receives one `error` frame.
+
+A session authenticated at the upgrade now reports its pubkey to the coordinator on `SetClientId`, so pubkey scoping covers it.
+
 ### REST + WebSocket endpoints and auth
 
 Routes registered in `src/main.rs:986-1016`:
@@ -255,6 +281,8 @@ already versions itself via the leading tag byte, and the decoder branches on it
 - `NODE_ID_MASK = 0x03FF_FFFF`; flag bits 26-31 are stripped before analytics/SSSP map lookups.
 - All multi-byte fields are little-endian.
 - Tag allocation happens only in this registry, scoped per socket.
+- `beatClock` / `memoryRoute` are delivered only to other sessions holding the sender's exact
+  authenticated pubkey, and only as re-serialised validated fields (ADR-2134).
 - The visibility filter default is fail-closed (ON).
 - Memory-cloud wire types (`client/src/features/visualisation/memoryCloud/types.ts`) change only
   together with `crates/visionclaw-memory-cloud/src/wire.rs`, whose field-name test pins them; the

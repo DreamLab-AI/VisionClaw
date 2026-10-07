@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -61,3 +61,27 @@ grid or focus bracket changed; the edit is two lines of row text inside the
 Swarm page. The acceptance boundary (implementation partial, activation staged
 until a fresh headset session) is unchanged and is *not* re-asserted here.
 `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:**
+- `xr-client/materials/edge_flow.gdshader` (and `node_halo.gdshader`) gain a `beat_pulse` uniform: an alpha/emission swell on the beat, set per frame on the scene-local material duplicates by `beat_pulse.gd`.
+- `xr-client/scripts/hud.gd` gains a Session-page Beat row (status, Tap, Mic, Bursts), all through `_press_fire` and the `xr_theme` styles, plus a header MIC badge and Key-tab rows for beam actions and burst verbs.
+
+**Decision holds.** There is no screen-space effect, shadow map, texture or renderer dependency, and the swell is emission only. Reduced motion stops the beat swell entirely, as it stops the travelling edge and query pulses: the uniform is held at exactly 0, and only the HUD Beat readout shows the tempo (Rust `reduced_motion_stops_the_pulse_entirely`, GUT `test_relayed_beat_clock_drives_the_shared_shader_uniforms`). An interim 0.25 cap was withdrawn before merge. Low-cost mode removes the halo pass, and with it the halo swell. Panel fit is covered by GUT `test_no_page_overflows_its_host` and `test_session_beat_row_fires_on_press_and_fits` (123 pass on HP, headless metrics; the rendered-font check stays with the Xvfb CI job).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+`hud.gd` adds xr-graph's domain and hull key rows and xr-cloud's Memory/Cloud toggles. No `Button.new()`/`CheckButton.new()` sits outside `_press_fire`. The new materials (`memory_route.gdshader`, cluster hull, impostor) are additive or unshaded geometry: no `SCREEN_TEXTURE`, depth texture or post-process ("glow" appears only as a uniform name and in comments). The page-fit tests pass. **Decision unaffected.** Reduced motion holds the beat swell at 0 (see above).
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+The halo is now an unshaded, additive camera-facing quad and the far edges are ribbons, with no screen-space effect, texture or renderer dependency. Under reduced motion `spatial_environment.gd` zeroes `query_pulse_depth` on the halo material and `pulse_energy` on the cylinders. `NodeLod.sync_edge_params` copies the cylinder parameters to the ribbons every frame, so the ribbons stop pulsing too. The beat swell lives in `edge_flow_common.gdshaderinc` and `node_halo_quad.gdshader` and is held at 0 under reduced motion. **Decision unaffected.**

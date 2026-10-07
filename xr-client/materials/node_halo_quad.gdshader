@@ -26,6 +26,11 @@ uniform float badge_boost = 0.45;
 uniform float query_width = 0.06;
 uniform float query_pulse_speed = 1.2;
 uniform float query_pulse_depth = 0.12; // 0..1 fraction the pulse swings energy
+// Beat pulse (ADR-2134): set per frame on the live material by beat_pulse.gd; held
+// at 0 under reduced motion (ADR-2107). Swells the rim energy on the beat —
+// additive emission only, never a post-process (Invariant 2).
+uniform float beat_pulse = 0.0;
+uniform float beat_halo_gain = 0.6;
 
 varying float halo_r;      // shell radius in mesh units (sphere radius 0.5)
 varying vec3 halo_tint;
@@ -70,6 +75,7 @@ void fragment() {
 		float pulse = sin(TIME * query_pulse_speed) * 0.5 + 0.5;
 		query_mul = 1.0 + query_pulse_depth * (pulse * 2.0 - 1.0);
 	}
-	ALBEDO = halo_tint * halo_energy * cen_mul * badge_mul * query_mul;
+	float beat_mul = 1.0 + beat_halo_gain * clamp(beat_pulse, 0.0, 1.0);
+	ALBEDO = halo_tint * halo_energy * cen_mul * badge_mul * query_mul * beat_mul;
 	ALPHA = fres * cen_mul * query_mul * halo_alpha;
 }

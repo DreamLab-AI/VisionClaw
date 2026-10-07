@@ -38,6 +38,13 @@ uniform float inferred_dash_gap = 0.5;
 uniform float inferred_dash_freq = 22.0;
 uniform float inferred_dim = 0.7;
 
+// Beat pulse (desktop memory-explorer beat clock relayed to the headset, ADR-2134).
+// Written once per frame on the live materials by scripts/beat_pulse.gd: 1 on the
+// beat, decaying through it; held at 0 under reduced motion (ADR-2107) and with no
+// clock. A uniform brightness swell of the whole edge network — nothing travels.
+uniform float beat_pulse = 0.0;
+uniform float beat_edge_gain = 0.5;
+
 // Each including shader declares nothing else: it latches the per-instance
 // style code and pulse phase into these flat varyings in vertex() and passes them
 // to edge_flow_shade() from fragment().
@@ -77,5 +84,5 @@ void edge_flow_shade(vec2 uv, float time, float style, float phase, out vec3 alb
 	} else if (is_untyped) {
 		alpha *= untyped_dim;
 	}
-	alpha_out = clamp(alpha, 0.0, 1.0);
+	alpha_out = clamp(alpha * (1.0 + beat_edge_gain * clamp(beat_pulse, 0.0, 1.0)), 0.0, 1.0);
 }

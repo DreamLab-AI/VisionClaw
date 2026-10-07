@@ -10,8 +10,8 @@
 
 pub use visionclaw_actors::messages::client_messages::{
     AuthenticateClient, BroadcastMessage, BroadcastNodePositions, ClientBroadcastAck,
-    ForcePositionBroadcast, GetClientCount, InitialClientSync, SendToClientBinary,
-    SendToClientText, UnregisterClient, UpdateClientFilter,
+    ForcePositionBroadcast, GetClientCount, InitialClientSync, RelayToUserSessions,
+    SendToClientBinary, SendToClientText, UnregisterClient, UpdateClientFilter,
 };
 
 // ---------------------------------------------------------------------------

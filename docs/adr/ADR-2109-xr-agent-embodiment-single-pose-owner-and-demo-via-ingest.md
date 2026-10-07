@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -62,3 +62,28 @@ commit.
 ## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
 
 **Governed changes:** `xr-client/scripts/graph_scene.gd` changes only `_describe_write_failure`: the 401/403 text and its comment now name an Owner/Admin `XR_NOSTR_SECRET` as the remedy and mark `VISIONCLAW_DEV_MODE` as dev-only (owner decision 2026-10-02, Q1 and Q3). **Decision unaffected.** No pose ownership, agent rendering or ingest path changed. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:**
+- `render_store.rs` packs the desktop beam encoding into `INSTANCE_CUSTOM.rgb` (action code and taper; `.a` is still status, stride 16), and attention heat brightens the colours of touched nodes.
+- `binary_protocol.rs` advances the heat clock.
+- `graph_scene.gd` creates `BeatPulse`, whose `MemoryBursts` effects live under the unit-scale `AgentEffectsRoot`.
+
+**Decision unaffected.** The beam origin still prefers the embodiment anchor (D4, test `beam_starts_at_the_embodiment_anchor_when_one_is_published`). Bursts sit under a unit-scale root, never `GraphRoot` (D1, GUT `test_scene_creates_the_beat_node_with_bursts_under_the_unit_scale_root`). Choreography remains the only pose writer. Demo `0x23` frames enter through `ingest()`, as before, and now also colour their beams by action and heat their targets like real ones, with no demo branch (D5). Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83) and GUT on HP (123 pass).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+`render_store.rs` adds xr-graph's palette, filter, hull and LOD state in separate fields and impl blocks. `build_beam_buffer`, `agent_anchors` and `set_agent_anchors` are unchanged by the merge. `graph_scene.gd` parents the memory cloud, a data layer and not an embodiment, under `GraphRoot`. Bursts and avatars stay under the unit-scale roots. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`render_store.rs` adds the LOD packers in their own impl block. `build_beam_buffer` and the embodiment anchors are unchanged, and avatars and bursts stay under the unit-scale roots. The avatar rotation fix keeps `agent_choreography.gd` as the only pose writer. **Decision unaffected.**

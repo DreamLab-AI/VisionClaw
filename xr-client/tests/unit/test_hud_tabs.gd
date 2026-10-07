@@ -165,7 +165,7 @@ func test_key_tab_lists_swatch_rows() -> void:
 		labels.append(String(r.get_meta("key")))
 		assert_true(r.has_meta("hint"), "key row '%s' carries a hover hint" % r.get_meta("key"))
 		assert_gte(_swatch_count(r), 1, "key row '%s' has a swatch" % r.get_meta("key"))
-	for expected in ["Community hue", "Query mark ?v1…?v8", "Working (beam to target)", "Subclass-of", "Ray firing"]:
+	for expected in ["Community hue", "Query mark ?v1…?v8", "Working", "Create (widens in)", "Delete (implodes)", "Subclass-of", "Ray firing"]:
 		assert_has(labels, expected, "key lists '%s'" % expected)
 	var blocked: Node = _key_row(rows, "Blocked / error")
 	assert_not_null(blocked, "blocked row present")

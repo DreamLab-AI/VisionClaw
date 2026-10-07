@@ -132,6 +132,12 @@ pub struct PongMessage {
     #[serde(rename = "type")]
     pub type_: String,
     pub timestamp: u64,
+    /// Server Unix-ms clock when the pong was built (ADR-2134). With the echoed
+    /// `timestamp` a client derives its offset to the server clock as
+    /// `serverTime − (timestamp + rtt/2)`. Omitted when unset; old clients
+    /// ignore it.
+    #[serde(rename = "serverTime", default, skip_serializing_if = "Option::is_none")]
+    pub server_time: Option<u64>,
 }
 
 fn default_timestamp() -> u64 {
