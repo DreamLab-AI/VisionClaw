@@ -913,6 +913,19 @@ impl MemoryCloud {
         )
     }
 
+    /// The loaded snapshot's namespaces (sorted, as the server sends them);
+    /// empty before a snapshot. Feeds the HUD's memory-search presets.
+    #[func]
+    fn namespaces(&self) -> PackedStringArray {
+        let mut out = PackedStringArray::new();
+        if let Some(s) = self.state.snapshot.as_ref() {
+            for ns in &s.namespaces {
+                out.push(ns.as_str());
+            }
+        }
+        out
+    }
+
     #[func]
     fn count(&self) -> i64 {
         self.state.snapshot.as_ref().map_or(0, |s| s.count as i64)

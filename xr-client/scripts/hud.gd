@@ -72,6 +72,11 @@ const HINT_DEFAULT: String = "Point at a control for help"
 const SeparationControl := preload("res://scripts/separation_control.gd")
 const SEPARATION_BTN_W: int = 110
 const SEPARATION_VALUE_W: int = 64
+# Memory search lists (Query page): heights hold the page inside 532 px.
+const MEMORY_PRESETS_H: int = 182
+const MEMORY_HITS_H: int = 236
+const MEMORY_LIST_FONT: int = 22
+const MEMORY_PRESET_CHARS: int = 44
 const ACCENT: Color = Color(0.55, 0.80, 1.0)          # active tab / on-state
 const IDLE: Color = Color(0.62, 0.66, 0.75)           # inactive tab
 
@@ -141,6 +146,17 @@ var _hierarchy_button: Button = null
 var _flat_toggle_button: Button = null
 var _planes_toggle_button: Button = null
 var _layout_mode_button: Button = null
+# Query page modes and memory search (memory_search.gd).
+var _query_mode: String = "graph"
+var _query_mode_graph_button: Button = null
+var _query_mode_memory_button: Button = null
+var _query_graph_box: VBoxContainer = null
+var _query_memory_box: VBoxContainer = null
+var _memory_search_status: Label = null
+var _memory_preset_grid: GridContainer = null
+var _memory_hit_list: VBoxContainer = null
+var _memory_preset_buttons: Array = []
+var _memory_hit_buttons: Array = []
 # Graph Separation row (Layout page, ADR-2135).
 var _separation_slider: HSlider = null
 var _separation_value_label: Label = null
@@ -633,7 +649,38 @@ func _on_separation_slider_changed(v: float) -> void:
 func _build_query_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 8)
-	page.add_child(_group_header("Query Builder"))
+	# Two modes share the page: the desktop's graph query builder and memory
+	# search (memory_search.gd). The mode row replaces the old 39 px header, so
+	# graph mode is 522 px and memory mode stays inside 532 px (Invariant 5).
+	var modes := _grid(2)
+	modes.name = "QueryModeRow"
+	_query_mode_graph_button = _press_fire(Button.new()) as Button
+	_query_mode_graph_button.text = "Graph Query"
+	_query_mode_graph_button.custom_minimum_size = Vector2(0, BTN_H)
+	_query_mode_graph_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_query_mode_graph_button.set_meta(HINT_META, "Build a pattern query over the knowledge graph")
+	_query_mode_graph_button.pressed.connect(_show_query_mode.bind("graph"))
+	_query_mode_memory_button = _press_fire(Button.new()) as Button
+	_query_mode_memory_button.text = "Memory Search"
+	_query_mode_memory_button.custom_minimum_size = Vector2(0, BTN_H)
+	_query_mode_memory_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_query_mode_memory_button.set_meta(HINT_META, "Search agent memory and draw the route through its top hits")
+	_query_mode_memory_button.pressed.connect(_show_query_mode.bind("memory"))
+	modes.add_child(_query_mode_graph_button)
+	modes.add_child(_query_mode_memory_button)
+	page.add_child(modes)
+	_query_graph_box = _build_graph_query_box()
+	page.add_child(_query_graph_box)
+	_query_memory_box = _build_memory_search_box()
+	page.add_child(_query_memory_box)
+	_show_query_mode("graph")
+	return page
+
+
+func _build_graph_query_box() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.name = "GraphQuery"
+	page.add_theme_constant_override("separation", 8)
 	_query_summary_label = _mk_label("No active query", "Pattern of the query you are building")
 	page.add_child(_query_summary_label)
 	_query_count_label = _mk_label("—", "Live match count for the current pattern")
@@ -667,6 +714,101 @@ func _build_query_page() -> VBoxContainer:
 	btns.add_child(clr)
 	page.add_child(btns)
 	return page
+
+
+# Memory search (memory_search.gd owns the queries): a one-line caption, the
+# preset list and the top hits, each list in a fixed-height scroll region.
+func _build_memory_search_box() -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.name = "MemorySearch"
+	box.add_theme_constant_override("separation", 6)
+	_memory_search_status = _mk_label("Pick a query", "What was asked, how the sidecar answered, and what the drawn route is")
+	_memory_search_status.name = "MemorySearchStatus"
+	_memory_search_status.add_theme_font_size_override("font_size", MEMORY_ROUTE_FONT)
+	_memory_search_status.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_memory_search_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_memory_search_status.clip_text = true
+	box.add_child(_memory_search_status)
+	var presets := _scroll_region(MEMORY_PRESETS_H)
+	presets.name = "MemoryPresets"
+	_memory_preset_grid = _grid(2)
+	_memory_preset_grid.add_theme_constant_override("v_separation", 6)
+	(presets.get_meta("scroll") as ScrollContainer).add_child(_memory_preset_grid)
+	box.add_child(presets)
+	var hits := _scroll_region(MEMORY_HITS_H)
+	hits.name = "MemoryHits"
+	_memory_hit_list = VBoxContainer.new()
+	_memory_hit_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_memory_hit_list.add_theme_constant_override("separation", 6)
+	_memory_hit_list.add_child(_mk_label("Top hits appear here", "Press a hit to guide your eye to it in the memory cloud"))
+	(hits.get_meta("scroll") as ScrollContainer).add_child(_memory_hit_list)
+	box.add_child(hits)
+	return box
+
+
+## "graph" or "memory": which half of the Query page shows. View state only.
+func _show_query_mode(mode: String) -> void:
+	_query_mode = mode
+	if _query_graph_box != null:
+		_query_graph_box.visible = mode == "graph"
+	if _query_memory_box != null:
+		_query_memory_box.visible = mode == "memory"
+	for pair: Array in [[_query_mode_graph_button, "graph"], [_query_mode_memory_button, "memory"]]:
+		if pair[0] != null:
+			XRTheme.apply_tab(pair[0], mode == pair[1])
+	call_deferred("_update_scroll_arrows")
+
+
+## Preset buttons for memory search (labels in list order). Each press emits
+## control_pressed "memory_preset:<index>".
+func set_memory_presets(labels: Array) -> void:
+	if _memory_preset_grid == null:
+		return
+	for b: Button in _memory_preset_buttons:
+		b.queue_free()
+	_memory_preset_buttons.clear()
+	for i in labels.size():
+		var b := _action_btn(_short(str(labels[i]), MEMORY_PRESET_CHARS), "memory_preset:%d" % i, "Search memory: %s" % str(labels[i]))
+		b.add_theme_font_size_override("font_size", MEMORY_LIST_FONT)
+		b.clip_text = true
+		_memory_preset_grid.add_child(b)
+		_memory_preset_buttons.append(b)
+	call_deferred("_update_scroll_arrows")
+
+
+## The search caption / progress / failure line.
+func set_memory_search_status(text: String) -> void:
+	if _memory_search_status != null:
+		_memory_search_status.text = text
+
+
+## Show a query's caption and hits ([{line, row}], row -1 = not sampled). Each
+## press emits control_pressed "memory_hit:<index>".
+func set_memory_hits(caption: String, hits: Array) -> void:
+	set_memory_search_status(caption)
+	if _memory_hit_list == null:
+		return
+	for c in _memory_hit_list.get_children():
+		c.queue_free()
+	_memory_hit_buttons.clear()
+	for i in hits.size():
+		var h: Dictionary = hits[i]
+		var sampled: bool = int(h.get("row", -1)) >= 0
+		var hint: String = "Guide your eye to this hit in the memory cloud" if sampled else "Not in the sampled cloud: no point to show"
+		var b := _action_btn(str(h.get("line", "")), "memory_hit:%d" % i, hint)
+		b.add_theme_font_size_override("font_size", MEMORY_LIST_FONT)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.add_theme_color_override("font_color", XRTheme.TEXT if sampled else IDLE)
+		_memory_hit_list.add_child(b)
+		_memory_hit_buttons.append(b)
+	if hits.is_empty():
+		_memory_hit_list.add_child(_mk_label("No hits", "The sidecar returned nothing for this query"))
+	call_deferred("_update_scroll_arrows")
+
+
+func _short(s: String, n: int) -> String:
+	return s if s.length() <= n else s.substr(0, n - 1) + "…"
 
 
 func _build_pins_page() -> VBoxContainer:

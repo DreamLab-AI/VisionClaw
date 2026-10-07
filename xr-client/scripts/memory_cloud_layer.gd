@@ -475,6 +475,41 @@ func apply_route_json(json: String) -> String:
 	return verdict
 
 
+## Draw a route from this headset's own `POST /api/memory-cloud/query`
+## response (memory_search.gd): a "sidecar top-k" route through the sampled
+## hits, through the same gate and verdicts as a relayed frame.
+func apply_query_response(json: String) -> String:
+	if _route == null or _cloud == null:
+		return "error"
+	var now_ms: float = Time.get_unix_time_from_system() * 1000.0
+	var verdict := str(_route.offer_query_response(json, _cloud.snapshot_id(), _cloud.positions(), now_ms))
+	_handle_route_verdict(verdict)
+	if verdict == "reload" and _enabled:
+		reload()
+	elif verdict == "error":
+		push_warning("MemoryCloud: %s" % str(_route.last_error()))
+	return verdict
+
+
+## Send the guide cue to snapshot row `row` (a hit picked on the HUD). False
+## without a drawn route or for a row outside the cloud.
+func focus_row(row: int) -> bool:
+	if _route == null or _cloud == null or not route_active():
+		return false
+	return bool(_route.focus_row(row, _cloud.positions()))
+
+
+## "relay" (the desktop's traversal), "sidecar_top_k" (this headset's query)
+## or "" without a route.
+func route_source() -> String:
+	return str(_route.route_source()) if _route != null and route_active() else ""
+
+
+## Namespaces of the loaded snapshot (sorted), for the search presets.
+func namespaces() -> PackedStringArray:
+	return _cloud.namespaces() if _cloud != null else PackedStringArray()
+
+
 func _route_after_reload() -> void:
 	if _route == null or not _route.has_pending():
 		return

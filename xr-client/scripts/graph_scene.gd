@@ -371,6 +371,10 @@ var _parity: Node = null
 ## slider, a final write on release, all through _put_physics_body.
 const SeparationControlScript := preload("res://scripts/separation_control.gd")
 var _separation = SeparationControlScript.new()
+## Memory search from the HUD Query page (POST /api/memory-cloud/query, the
+## route through its sampled top hits). Created with the memory cloud.
+const MemorySearchScript := preload("res://scripts/memory_search.gd")
+var _memory_search: Node = null
 # Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
@@ -563,6 +567,10 @@ func _ready() -> void:
 		_memory_cloud.route_stats_changed.connect(func(line: String) -> void:
 			if hud != null and hud.has_method("set_memory_route_line"):
 				hud.set_memory_route_line(line))
+		_memory_search = MemorySearchScript.new()
+		_memory_search.name = "MemorySearch"
+		add_child(_memory_search)
+		_memory_search.setup(_http_base(), Callable(self, "_auth_headers"), _memory_cloud, hud)
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -818,6 +826,10 @@ func _on_hud_control(action: String) -> void:
 	# radial-menu path used to handle it, so a roster tap did nothing.
 	if action.begins_with("teleport:"):
 		_teleport_to_node(int(action.substr(9)))
+		return
+	if action.begins_with("memory_preset:") or action.begins_with("memory_hit:"):
+		if _memory_search != null and _memory_search.handle_control(action):
+			_refresh_memory_cloud_hud()
 		return
 	# Graph Separation slider (hud.gd): "separation_drag:<v>" while the wand drags,
 	# "separation_release:<v>" when it lets go. The per-frame _pump_separation

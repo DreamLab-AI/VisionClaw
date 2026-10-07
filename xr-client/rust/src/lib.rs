@@ -33,6 +33,7 @@ pub mod hulls;
 pub mod interaction;
 pub mod lod;
 pub mod memory_cloud;
+pub mod memory_query;
 pub mod memory_route;
 pub mod perf_fixture;
 pub mod ports;
