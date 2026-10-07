@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -186,3 +186,7 @@ fires. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `docker-compose.unified.yml` adds `RUVECTOR_PG_CONNINFO` (empty default) and five `MEMORY_CLOUD_*` variables to the `visionclaw` and `visionclaw-production` environment blocks, after `FORUM_RELAY_URL`; no other key, profile, port, volume or build argument changes. **Decision unaffected.** The dev image's recompile-on-start behaviour is unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
+
+**Governed change:** `docker-compose.unified.yml` adds `MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}` to the visionclaw (after line 135) and visionclaw-production (after line 253) environment blocks; nothing else changes. Dev-image recompilation is unaffected. The decision holds.

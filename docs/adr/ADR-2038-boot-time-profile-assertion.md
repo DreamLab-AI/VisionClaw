@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -289,3 +289,7 @@ CI-repair commit.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. **Decision unaffected.** The boot-time profile assertion and its position before the listener binds are unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
+
+**Governed change:** `src/main.rs` gains a shared `memory_cloud_query_limit` (+4 lines after line 890) and passes it to `configure_memory_cloud_routes(..)` (+2 lines near line 1206); later citations shift by up to +6. Current anchors: `assert_effective_profile_or_exit` call `:942` (block `:937-947`), `HttpServer::new` `:962`, `.bind()` `:1250`. The profile assertion still runs before `HttpServer::new` and `.bind()`; SECURITY-profiles invariant 6 now cites the current lines. The decision holds.
