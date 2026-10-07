@@ -242,5 +242,18 @@ func test_memory_cloud_buttons_fire_on_press_and_fit_the_graph_page() -> void:
 	assert_eq(hud._memory_colour_button.text, "Cloud: Age")
 	var host: Control = hud.get_node(TABS)
 	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Graph page fits its host")
+	# the route's sidecar agreement: one line in the Memory row, still inside 532 px
+	var line: Label = hud._memory_route_label
+	assert_not_null(line)
+	assert_false(line.visible, "hidden without a route")
+	hud.set_memory_route_line("Route: 50 of 50 sidecar hits are in the sample · 50 of 50 sampled agree with the local top-k")
+	assert_true(line.visible)
+	assert_true(graph.is_ancestor_of(line), "on the Graph page, under the Memory buttons")
+	assert_eq(line.get_line_count(), 1, "a single line")
+	assert_lte(graph.get_combined_minimum_size().y, host.size.y + 1.0, "Graph page with the line fits its host")
+	assert_lte(graph.get_combined_minimum_size().y, 532.0, "and stays within 532 px")
+	hud.set_memory_route_line("")
+	assert_false(line.visible)
+	assert_eq((hud.get_node("HudPanel").material_override as Material).render_priority, 20, "HUD panel above the route")
 	hud.queue_free()
 	await get_tree().process_frame

@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.11
+version: 0.1.12
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.12 (2026-10-07): desktop memory-explorer parity — cloud framed on the live graph (cloud_frame.rs port of cloudFrame.ts/robustBounds.ts, 1 Hz read, 0.8 s glide); route drawn without depth test below the HUD; framing cue instead of a camera move (ADR-2107); honest sidecar agreement line in the HUD Memory row (sidecarTotal/sidecarAgree on memoryRoute); 10 s route repeats no longer replay the trace; TUBE_R/RING_R re-synced. No invariant changed."
   - "0.1.11 (2026-10-07): pack timing gate on thread CPU time (wall reported beside it; holds at load average 38); GUT 9.6.1 (the Godot 4.6 line) vendored with a CI guard against parse errors and skipped scripts; live FrameBudget pass on the final interface (burst pool, 5 % reserve, 2 s peak of measured other_tris)."
   - "0.1.10 (2026-10-07): per-frame pack plans (13k/20k pack 0.5 ms, zero steady-state allocations, far ribbons half per frame), benchmark asserts pack_ms/lod_build_ms p99; live GraphScene runs the FrameBudget pass (measured other_tris) and both packs every frame; attention heat moved to live_tint."
   - "0.1.9 (2026-10-07): FrameBudget allocator (rust/src/frame_budget.rs) shared by the graph LOD tiers, memory cloud, route and burst pool; one-triangle sprites and bead discs; 5 % variance reserve; row emphasis for memory_flash on cloud sprites"
@@ -44,6 +45,7 @@ sources:
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/rust/src/memory_cloud.rs
   - xr-client/rust/src/memory_route.rs
+  - xr-client/rust/src/cloud_frame.rs
   - xr-client/scripts/memory_cloud_layer.gd
   - xr-client/README.md
   - src/handlers/layout_handler.rs
@@ -260,9 +262,21 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   the cloud quietly ("Memory: Locked" on the button, no toast, no polling); 503
   reloads at `Retry-After`, else 5 s doubling to 60 s; 409 reloads once at once;
   a malformed or short body is rejected in Rust and the previous snapshot stays.
-- **Placement and look.** The layer sits under `GraphRoot` at the server origin
-  and `CloudRoot` carries the desktop `cloudScale` (5), so the cloud surrounds
-  the graph as it does on desktop. One MultiMesh of camera-facing sprites, each
+- **Placement (desktop `cloudFrame.ts`, `rust/src/cloud_frame.rs`).** The layer
+  sits under `GraphRoot` (server space). `CloudRoot` (outer) sits at the graph's
+  robust centre — the 5th–95th percentile box of every node position,
+  `BinaryProtocolClient.graph_robust_bounds()`, the TS `robustBounds` order
+  statistics exactly — and scales the cloud's robust radius to the graph's times
+  `cloud_scale / 5` (the layer's `cloud_scale`, default 5 = equal radii, linear
+  from there); `CloudCore` (inner) shifts the cloud by minus its own robust
+  centre, so rotation turns the core in place. The graph extent is re-read once a
+  second and the outer node glides by `min(1, dt / 0.8)` per frame (snapping on
+  the first placement, on a new snapshot and under reduced motion), so physics
+  never jitters it. Without a graph the old placement holds (origin, ×5). A Rust
+  test parses `cloudFrame.ts`, `robustBounds.ts` and `EmbeddingCloudLayer.tsx`
+  for the constants and formulas. Sprite size follows `cloudPointSize` (constant
+  in cloud-local units above its 0.5 floor).
+- **Look.** One MultiMesh of camera-facing sprites, each
   a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
   round mask discards the corners), billboarded on the main camera so both eyes
   agree (`memory_point.gdshader`;
@@ -291,6 +305,36 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   body, white core, comet tail; `memory_route.gdshader` reveals the trace and
   tapers the 18 % tail on the GPU), beads + comet head/glow, and billboard
   rings (root, answer, pulse, sidecar gold). Off-route sprites dim by 0.75.
+  Like the desktop overlay (`depthTest = false`), the three route materials draw
+  with `depth_test_disabled` at `render_priority` 10 (`ROUTE_RENDER_PRIORITY`,
+  after edges 0 and halos/beams 1), so the opaque glass nodes cannot hide the
+  route; the HUD panel and the hover label sit above it at 20
+  (`OVERLAY_RENDER_PRIORITY`, pinned in `hud.gd` by a Rust test). Depth test and
+  order are pipeline state of the one multiview draw, so both eyes agree; no
+  call or triangle is added.
+- **Route framing cue.** The desktop flies the camera to a new route; the
+  headset never moves the user's head (comfort, ADR-2107). Instead, for 4.5 s
+  after a *new* route (`CUE_SECONDS`, longer than the 2.8 s trace), 12 guide
+  dots run from the right controller (else 0.3 m ahead of and 0.25 m below the
+  camera) to the answer, white to the answer's orange, growing 6 mm → 18 mm, with
+  a brightness wave travelling towards the answer; the answer ring brightens
+  ×(1 + 1.2h) and grows ×(1 + 0.45h). Under reduced motion the dots hold still
+  and the ring only brightens (opacity fades remain). The dots ride the bead
+  MultiMesh (`bead_instances` counts them, hidden at zero size when idle): 12
+  triangles, no draw call. The desktop's 10 s late-joiner repeat of the same
+  route is a `refresh` (marks, query and stats only): it no longer replays the
+  trace or re-fires the cue.
+- **Sidecar agreement.** `memoryRoute` carries optional `sidecarTotal` /
+  `sidecarAgree` (`xrRelay.ts`, from the panel's `sidecarAgreement`); the
+  server relays them only as a consistent pair (`sidecar.len() ≤ total`,
+  `agree ≤ sidecar.len()`), else drops both, as the headset parser does. The HUD
+  Graph page shows one line under the Memory buttons in the desktop's wording —
+  "Route: n of k sidecar hits are in the sample · a of n sampled agree with the
+  local top-k", unsampled hits outside the denominator — or, from a relay
+  without the counts, only the sampled marks. 20 px font in a 2 px box: the page
+  measures 530 px (≤ 532). The sidecar's `method`, `tookMs` and hit objects
+  stay in the HTTP query response, never in the frame (Rust test reads
+  `xrRelay.ts` `MemoryRouteFrame` against `memory_route::WIRE_FIELDS`).
   The answer ring pulses to xr-pulse's beat clock when it is locked. Under
   reduced motion the route is shown converged, with no comet, pulse ring or
   rotation. Glow is emissive/additive geometry only (Invariant 2).
@@ -332,6 +376,13 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   | 20 000 | 13 / 5 | 64 rows | 34 | 94 560 | 6.06 ms | 28 / 9 / 32 |
   | 20 000 | 64 / 64 | 64 rows | 33 | 94 546 | 5.88 ms | 40 / 0 / 32 |
   | same, HUD re-rendered every frame | | | 33 | 94 546 | 6.06 ms | 40 / 0 / 32 |
+
+  Re-measured 2026-10-07 (xr-parity: cloud framed on the bench graph, route
+  without depth test, 12 cue dots; same rig and scene): graph only 31 / 94 554 /
+  2.47 ms; 6 000 + 13/5 34 / 94 558 / 2.95 ms; 20 000 + 13/5 34 / 94 542 /
+  2.78 ms; **20 000 + 64/64 33 / 94 558 / 2.48 ms** (gems 40, cylinders 0, hulls
+  32, 8 000 sprites, route 4 056 triangles); HUD re-rendered every frame 33 /
+  94 558 / 2.78 ms. All pass; pack CPU p99 0.57 ms, lod_build CPU p99 1.11 ms.
 
   Before the HUD fixes the same combined row read 103 236 triangles / 80 calls
   (idle-HUD reserve), then 95 004 / 81 with the dirty frame reserved.

@@ -31,7 +31,7 @@ func _load(l: Node3D, sid: String, n: int) -> void:
 
 
 func _points(l: Node3D) -> MultiMesh:
-	return (l.get_node("CloudRoot/Points") as MultiMeshInstance3D).multimesh
+	return (l.get_node("CloudRoot/CloudCore/Points") as MultiMeshInstance3D).multimesh
 
 
 func test_snapshot_loads_into_one_stride_16_multimesh() -> void:
@@ -47,7 +47,7 @@ func test_snapshot_loads_into_one_stride_16_multimesh() -> void:
 	assert_true(mm.use_custom_data, "flash emphasis per instance")
 	assert_eq(mm.buffer.size(), 9 * 20, "12 transform + 4 colour + 4 custom floats per sprite")
 	var root: Node3D = l.get_node("CloudRoot")
-	assert_almost_eq(root.scale.x, 5.0, 0.0001, "desktop cloudScale")
+	assert_almost_eq(root.scale.x, 5.0, 0.0001, "no graph: the old ×cloudScale placement")
 	l.queue_free()
 
 
@@ -67,7 +67,7 @@ func test_forbidden_hides_quietly_without_retry() -> void:
 	_load(l, "s1", 4)
 	l._on_http_completed(OK_RESULT, 403, PackedStringArray(), PackedByteArray())
 	assert_eq(l.state(), "forbidden")
-	assert_false((l.get_node("CloudRoot/Points") as Node3D).visible, "points hidden")
+	assert_false((l.get_node("CloudRoot/CloudCore/Points") as Node3D).visible, "points hidden")
 	assert_eq(l.retry_in_ms(), -1, "no polling of a locked endpoint")
 	assert_eq(l.status_label(), "Memory: Locked")
 	l.queue_free()
@@ -141,12 +141,12 @@ func test_route_applies_draws_and_dims_off_route() -> void:
 	var v: String = l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5],"sidecar":[5]}')
 	assert_eq(v, "apply")
 	assert_true(l.route_active())
-	var tube: MeshInstance3D = l.get_node("CloudRoot/Route/Tube")
+	var tube: MeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Tube")
 	assert_not_null(tube.mesh)
 	assert_eq(tube.mesh.get_surface_count(), 1, "one surface, one draw call")
-	var beads: MultiMesh = (l.get_node("CloudRoot/Route/Beads") as MultiMeshInstance3D).multimesh
-	assert_eq(beads.instance_count, 3 * 2 + 2, "bead + halo per knot, comet + glow")
-	var rings: MultiMesh = (l.get_node("CloudRoot/Route/Rings") as MultiMeshInstance3D).multimesh
+	var beads: MultiMesh = (l.get_node("CloudRoot/CloudCore/Route/Beads") as MultiMeshInstance3D).multimesh
+	assert_eq(beads.instance_count, 3 * 2 + 2 + 12, "bead + halo per knot, comet + glow, 12 cue dots")
+	var rings: MultiMesh = (l.get_node("CloudRoot/CloudCore/Route/Rings") as MultiMeshInstance3D).multimesh
 	assert_eq(rings.instance_count, 3 + 1, "root, answer, pulse + one sidecar mark")
 	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[1,2]}'), "stale")
 	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":2,"sentAt":11,"path":[]}'), "clear")
@@ -186,7 +186,7 @@ func test_reduced_motion_freezes_the_route() -> void:
 	l.reduced_motion = true
 	_load(l, "s1", 6)
 	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":1,"path":[0,3,5]}')
-	var mat: ShaderMaterial = (l.get_node("CloudRoot/Route/Tube") as MeshInstance3D).material_override
+	var mat: ShaderMaterial = (l.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
 	assert_almost_eq(float(mat.get_shader_parameter("head_u")), 1.0, 0.0001, "shown converged at once")
 	assert_almost_eq(float(mat.get_shader_parameter("comet_u")), -1.0, 0.0001, "no comet")
 	l.queue_free()
@@ -394,3 +394,131 @@ func test_burst_pool_matches_the_allocator() -> void:
 func _assert_colour_near(got: Color, want: Color, label: String) -> void:
 	for k in range(4):
 		assert_almost_eq(got[k], want[k], 1.0 / 255.0, "%s channel %d" % [label, k])
+
+
+# --- xr-parity: placement, route on top, framing cue, agreement line ---------
+
+func _graph_bounds(c: Vector3, r: float) -> Callable:
+	return func() -> PackedFloat32Array: return PackedFloat32Array([c.x, c.y, c.z, r])
+
+
+func test_cloud_is_framed_on_the_graph_centre_and_radius() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.reduced_motion = true  # snap, so one frame places it
+	l.graph_bounds_source = _graph_bounds(Vector3(90, -3, -14), 300.0)
+	_load(l, "s1", 9)
+	l._process(0.016)
+	var p: Dictionary = l.placement()
+	assert_eq(p["position"], Vector3(90, -3, -14), "outer node on the graph's robust centre")
+	var cb: PackedFloat32Array = l._frame.cloud_bounds()
+	assert_almost_eq(float(p["scale"]) * cb[3], 300.0, 0.01, "cloudScale 5: cloud radius = graph radius")
+	assert_eq(p["offset"], -Vector3(cb[0], cb[1], cb[2]), "inner node recentres the cloud on its core")
+	# the cloud's own centre lands on the graph's centre
+	var core_world: Vector3 = l.cloud_root().global_transform * Vector3(cb[0], cb[1], cb[2])
+	assert_true(core_world.is_equal_approx(l.global_transform * Vector3(90, -3, -14)), "%s" % core_world)
+	# the user's scale setting keeps its meaning
+	l.cloud_scale = 2.5
+	l._process(0.016)
+	assert_almost_eq(float(l.placement()["scale"]) * cb[3], 150.0, 0.01, "2.5 = half the graph radius")
+	l.queue_free()
+
+
+func test_placement_glides_when_physics_moves_the_graph() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.reduced_motion = false
+	var centre := [Vector3.ZERO]
+	l.graph_bounds_source = func() -> PackedFloat32Array: return PackedFloat32Array([centre[0].x, centre[0].y, centre[0].z, 200.0])
+	_load(l, "s1", 9)
+	l._process(0.011)
+	assert_eq(l.placement()["position"], Vector3.ZERO, "first placement snaps")
+	centre[0] = Vector3(100, 0, 0)
+	l._process(0.011)  # not yet due: 1 Hz reads
+	assert_eq(l.placement()["position"], Vector3.ZERO, "graph re-read at 1 Hz, not every frame")
+	# ~1 s of 90 Hz frames: the 1 Hz read lands, then each frame moves dt/0.8 of the way
+	for i in 92:
+		l._process(1.0 / 90.0)
+	var x: float = l.placement()["position"].x
+	assert_gt(x, 0.0, "moving towards the new centre")
+	assert_lt(x, 50.0, "glides rather than jumps")
+	l.queue_free()
+
+
+func test_route_draws_on_top_and_hud_label_above_it() -> void:
+	var l: Node3D = await _make()
+	var tube: MeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Tube")
+	var beads: MultiMeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Beads")
+	var rings: MultiMeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Rings")
+	for m in [tube.material_override, beads.material_override, rings.material_override]:
+		assert_eq((m as Material).render_priority, 10, "ROUTE_RENDER_PRIORITY")
+		assert_string_contains((m as ShaderMaterial).shader.code, "depth_test_disabled")
+	var label: Label3D = l.get_node("HoverLabel")
+	assert_eq(label.render_priority, 20, "hover label above the route")
+	l.queue_free()
+
+
+func test_new_route_shows_the_framing_cue_and_a_repeat_does_not() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	l.reduced_motion = false
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.global_position = Vector3(0, 0, 400)
+	_load(l, "s1", 6)
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}'), "apply")
+	for i in 60:
+		l._process(1.0 / 60.0)
+	assert_gt(l.cue_alpha(), 0.9, "cue shows after a new route")
+	var beads: MultiMesh = (l.get_node("CloudRoot/CloudCore/Route/Beads") as MultiMeshInstance3D).multimesh
+	var buf: PackedFloat32Array = beads.buffer
+	var first_dot: int = (3 * 2 + 2) * 16
+	assert_gt(buf[first_dot], 0.0, "guide dots drawn (no extra draw call: same MultiMesh)")
+	for i in 300:
+		l._process(1.0 / 60.0)
+	assert_eq(l.cue_alpha(), 0.0, "cue over after a few seconds")
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":2,"sentAt":20,"path":[0,3,5]}'), "refresh", "10 s repeat")
+	l._process(0.016)
+	assert_eq(l.cue_alpha(), 0.0, "the repeat neither replays the trace nor re-fires the cue")
+	var mat: ShaderMaterial = (l.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
+	assert_almost_eq(float(mat.get_shader_parameter("head_u")), 1.0, 0.0001, "trace stays complete")
+	cam.queue_free()
+	l.queue_free()
+
+
+func test_reduced_motion_cue_is_steady() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	l.reduced_motion = true
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.global_position = Vector3(0, 0, 400)
+	_load(l, "s1", 6)
+	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}')
+	for i in 60:
+		l._process(1.0 / 60.0)
+	var beads: MultiMesh = (l.get_node("CloudRoot/CloudCore/Route/Beads") as MultiMeshInstance3D).multimesh
+	var a: PackedFloat32Array = beads.buffer.slice((3 * 2 + 2) * 16)
+	l._process(1.0 / 60.0)
+	var b: PackedFloat32Array = beads.buffer.slice((3 * 2 + 2) * 16)
+	assert_eq(a, b, "no travelling wave under reduced motion")
+	assert_gt(l.cue_alpha(), 0.9, "but the cue still shows")
+	cam.queue_free()
+	l.queue_free()
+
+
+func test_agreement_line_uses_the_desktop_accounting() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	_load(l, "s1", 6)
+	watch_signals(l)
+	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":1,"path":[0,3,5],"sidecar":[5,1],"sidecarTotal":4,"sidecarAgree":1}')
+	assert_eq(l.agreement_line(), "Route: 2 of 4 sidecar hits are in the sample · 1 of 2 sampled agree with the local top-k")
+	assert_signal_emitted(l, "route_stats_changed")
+	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":2,"sentAt":2,"path":[]}')
+	assert_eq(l.agreement_line(), "", "cleared")
+	l.queue_free()

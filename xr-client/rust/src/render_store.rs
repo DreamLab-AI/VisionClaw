@@ -1930,6 +1930,13 @@ impl RenderStore {
         &self.render_positions
     }
 
+    /// Robust bounds (`cloud_frame::robust_bounds`, the desktop's
+    /// `robustBounds`) of every node position in the store, for framing the
+    /// memory cloud on the graph. `None` when the store is empty.
+    pub fn robust_bounds(&self) -> Option<crate::cloud_frame::RobustBounds> {
+        crate::cloud_frame::robust_bounds(self.positions[..self.ids.len()].iter().copied())
+    }
+
     /// All node ids currently in the store (slot order), for the LOD selection.
     pub fn all_ids(&self) -> &[u32] {
         &self.ids

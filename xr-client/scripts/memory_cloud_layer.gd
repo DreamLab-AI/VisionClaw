@@ -7,13 +7,20 @@ extends Node3D
 ##     never fetched — the headset never runs HNSW), one MultiMesh of
 ##     camera-facing quads (memory_point.gdshader), coloured by namespace /
 ##     source type / age with the desktop palette (Rust MemoryCloud);
-##   * placement: this node sits under GraphRoot at the server origin, and
-##     CloudRoot carries the desktop cloudScale (5), exactly as the desktop
-##     cloud group sits at world origin around the graph;
+##   * placement (desktop cloudFrame.ts, Rust CloudFrame): this node sits under
+##     GraphRoot (server space). CloudRoot (outer) sits at the graph's robust
+##     centre and scales the cloud's robust radius to the graph's, times
+##     cloud_scale / 5; CloudCore (inner) shifts the cloud so its own robust
+##     centre is the pivot. The graph extent is re-read at 1 Hz and the cloud
+##     glides to it (snaps under reduced motion), so physics never jitters it;
 ##   * route: a `memoryRoute` frame relayed from the desktop draws the winning
 ##     path as one additive tube surface + bead/comet and ring MultiMeshes
-##     (Rust MemoryRoute), under CloudRoot so it turns and scales with the
-##     cloud; rows off the route dim (focus pull);
+##     (Rust MemoryRoute), under CloudCore so it turns and scales with the
+##     cloud; rows off the route dim (focus pull). Like the desktop overlay it
+##     draws without depth testing (glass nodes cannot hide it), below the HUD;
+##   * framing cue: the headset never moves the user's head (ADR-2107), so a
+##     new route instead shows guide dots from the controller to the answer and
+##     brightens the answer ring for a few seconds (steady under reduced motion);
 ##   * hover: the pointer ray picks a sprite and a world-size label shows its
 ##     key and namespace / source type;
 ##   * flashes: resolve_flash / world_point let the memory_flash burst pool
@@ -29,6 +36,8 @@ signal cloud_cleared()
 ## state: off | loading | ready | forbidden | unavailable | failed
 signal status_changed(state: String, detail: String)
 signal route_changed(active: bool, hops: int)
+## The desktop's sidecar agreement for the shown route changed (HUD line).
+signal route_stats_changed(line: String)
 
 const ENDPOINT := "/api/memory-cloud"
 const POINT_SHADER := preload("res://materials/memory_point.gdshader")
@@ -61,11 +70,19 @@ var reduced_motion: bool = true
 ## Optional beat clock (xr-pulse). Read with beat_phase()/beat_pulse() and
 ## is_locked(); absent or unlocked → the route pulses on its own clock.
 var beat_source: Object = null
-## Wand whose ray drives hover (set by GraphScene).
+## Wand whose ray drives hover and anchors the framing cue (set by GraphScene).
 var pointer: Node3D = null
+## Returns the graph's robust bounds `[cx, cy, cz, radius]` in GraphRoot space
+## (GraphScene: BinaryProtocolClient.graph_robust_bounds). Unset or empty →
+## the cloud keeps the origin placement.
+var graph_bounds_source: Callable = Callable()
+## The desktop `embeddingCloud.cloudScale`: 5 makes the cloud's radius equal
+## the graph's; linear from there.
+var cloud_scale: float = 5.0
 
 var _cloud: RefCounted = null   # Rust MemoryCloud
 var _route: RefCounted = null   # Rust MemoryRoute
+var _frame: RefCounted = null   # Rust CloudFrame (placement)
 var _http: HTTPRequest = null
 var _http_base: String = ""
 var _auth: Callable = Callable()
@@ -78,7 +95,8 @@ var _stale_retry_used: bool = false
 var _requests_sent: int = 0
 var _in_flight: bool = false
 
-var _cloud_root: Node3D = null
+var _cloud_root: Node3D = null   # outer: graph centre, placement scale, rotation
+var _cloud_core: Node3D = null   # inner: minus the cloud's centre (cloud-local space)
 var _points: MultiMeshInstance3D = null
 var _route_root: Node3D = null
 var _tube: MeshInstance3D = null
@@ -95,6 +113,7 @@ var _opacity: float = 0.6
 var _rotation_per_sec: float = 0.03
 var _hover_accum: float = 0.0
 var _hover_row: int = -1
+var _stats_line: String = ""
 var _bead_tris: int = 0   # triangles per bead disc, read from the mesh
 var _sprite_cap: int = -1  # last FrameBudget cloud cap applied
 var _points_buf := PackedFloat32Array()  # last uploaded cloud buffer, unemphasised
@@ -107,6 +126,7 @@ func _ready() -> void:
 	# gdext classes are no_init: construct through their static create().
 	_cloud = MemoryCloud.create()
 	_route = MemoryRoute.create()
+	_frame = CloudFrame.create()
 	if _cloud != null:
 		_sprite = _cloud.sprite_local_size()
 	_build_nodes()
@@ -124,6 +144,11 @@ func _build_nodes() -> void:
 	var cs: float = _cloud.cloud_scale() if _cloud != null else 5.0
 	_cloud_root.scale = Vector3(cs, cs, cs)
 	add_child(_cloud_root)
+	_cloud_core = Node3D.new()
+	_cloud_core.name = "CloudCore"
+	_cloud_root.add_child(_cloud_core)
+	var route_prio: int = int(_route.route_render_priority()) if _route != null else 10
+	var overlay_prio: int = int(_route.overlay_render_priority()) if _route != null else 20
 
 	var sprite := _sprite_triangle_mesh()
 	var pmat := ShaderMaterial.new()
@@ -138,15 +163,16 @@ func _build_nodes() -> void:
 	_points.multimesh = mm
 	_points.material_override = pmat
 	_points.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_cloud_root.add_child(_points)
+	_cloud_core.add_child(_points)
 
 	_route_root = Node3D.new()
 	_route_root.name = "Route"
 	_route_root.visible = false
-	_cloud_root.add_child(_route_root)
+	_cloud_core.add_child(_route_root)
 
 	_tube_mat = ShaderMaterial.new()
 	_tube_mat.shader = ROUTE_SHADER
+	_tube_mat.render_priority = route_prio
 	_tube = MeshInstance3D.new()
 	_tube.name = "Tube"
 	_tube.material_override = _tube_mat
@@ -155,6 +181,7 @@ func _build_nodes() -> void:
 
 	var bmat := ShaderMaterial.new()
 	bmat.shader = BEAD_SHADER
+	bmat.render_priority = route_prio
 	var bmm := MultiMesh.new()
 	bmm.transform_format = MultiMesh.TRANSFORM_3D
 	bmm.use_colors = true
@@ -172,6 +199,7 @@ func _build_nodes() -> void:
 	ring_quad.size = Vector2(2.0, 2.0)
 	var rmat := ShaderMaterial.new()
 	rmat.shader = RING_SHADER
+	rmat.render_priority = route_prio
 	var rmm := MultiMesh.new()
 	rmm.transform_format = MultiMesh.TRANSFORM_3D
 	rmm.use_colors = true
@@ -190,6 +218,7 @@ func _build_nodes() -> void:
 	_label.top_level = true
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_label.no_depth_test = true
+	_label.render_priority = overlay_prio  # above the depth-test-free route
 	_label.fixed_size = false
 	_label.pixel_size = LABEL_PIXEL
 	_label.font_size = 28
@@ -306,6 +335,9 @@ func _on_http_completed(result: int, code: int, headers: PackedStringArray, body
 			_streak = 0
 			_stale_retry_used = false
 			_buffer_dirty = true
+			if _frame != null:
+				_frame.set_cloud_positions(_cloud.positions())
+				_apply_placement(0.0)
 			_points.visible = _enabled
 			_set_state("ready", "")
 			cloud_loaded.emit(str(_cloud.snapshot_id()), n)
@@ -392,18 +424,33 @@ func last_flash_match() -> String:
 	return str(_cloud.last_flash_match()) if _cloud != null else "none"
 
 
-## Cloud-local position of a row (parent a burst under cloud_root() to use it).
+## Cloud-local position of a row (parent a burst under cloud_root() to use it;
+## cloud_root() is the inner CloudCore, whose space is the snapshot's).
 func point_local(row: int) -> Vector3:
 	return _cloud.point_local(row) if _cloud != null else Vector3.ZERO
 
 
 ## World position of a row (for a pool under a unit-scale effects root).
 func world_point(row: int) -> Vector3:
-	return _cloud_root.global_transform * point_local(row)
+	return _cloud_core.global_transform * point_local(row)
 
 
 func cloud_root() -> Node3D:
+	return _cloud_core
+
+
+## The outer placement node (graph centre, placement scale, rotation).
+func placement_root() -> Node3D:
 	return _cloud_root
+
+
+## Placement as applied: {position, scale, offset} (tests, diagnostics).
+func placement() -> Dictionary:
+	return {
+		"position": _cloud_root.position,
+		"scale": _cloud_root.scale.x,
+		"offset": _cloud_core.position,
+	}
 
 
 # --- route (WP7) -------------------------------------------------------------
@@ -432,8 +479,30 @@ func _handle_route_verdict(verdict: String) -> void:
 	match verdict:
 		"apply":
 			_build_route()
+		"refresh":
+			# the desktop's 10 s repeat: marks, query and stats may have moved;
+			# the trace, geometry and cue stay as they are
+			_cloud.set_keep(_route.keep_rows())
+			_buffer_dirty = true
+			_emit_stats()
 		"clear":
 			_clear_route()
+	if verdict == "apply" or verdict == "clear":
+		_emit_stats()
+
+
+func _emit_stats() -> void:
+	var line := agreement_line()
+	if line != _stats_line:
+		_stats_line = line
+		route_stats_changed.emit(line)
+
+
+## HUD Memory-row text for the shown route: the desktop's honest sidecar
+## agreement ("n of k sidecar hits are in the sample · a of n sampled agree
+## with the local top-k"), "" without a route.
+func agreement_line() -> String:
+	return str(_route.agreement_line()) if _route != null and route_active() else ""
 
 
 func _build_route() -> void:
@@ -463,6 +532,7 @@ func _clear_route() -> void:
 	if _cloud != null:
 		_cloud.set_keep(PackedInt32Array())
 	_buffer_dirty = true
+	_emit_stats()
 	if _route_root != null:
 		_route_root.visible = false
 		_tube.mesh = null
@@ -501,11 +571,38 @@ func _tick_route(delta: float) -> void:
 	_tube_mat.set_shader_parameter("comet_u", float(p.get("comet_u", -1.0)))
 	_tube_mat.set_shader_parameter("tail_u", float(p.get("tail_u", 0.18)))
 	_tube_mat.set_shader_parameter("glow", float(p.get("glow", ROUTE_GLOW)) / ROUTE_GLOW)
-	_write_mm(_beads.multimesh, _route.bead_buffer(pulse))
+	var o := _cue_origin()
+	_write_mm(_beads.multimesh, _route.bead_buffer(pulse, o[0], o[1]))
 	var root_pulse := 1.0
 	if not reduced_motion:
 		root_pulse = 1.0 + 0.12 * pulse if b.size() == 2 else 1.0 + 0.06 * sin(Time.get_ticks_msec() / 500.0)
 	_write_mm(_rings.multimesh, _route.ring_buffer(root_pulse))
+
+
+## Framing-cue anchor in cloud-local space: [from: Vector3, local_per_m: float].
+## The pointer (right controller) tip, else 0.3 m in front of and 0.25 m below
+## the camera; local_per_m 0 hides the cue (no anchor in the tree).
+func _cue_origin() -> Array:
+	if _cloud_core == null or not _cloud_core.is_inside_tree():
+		return [Vector3.ZERO, 0.0]
+	var from_world: Vector3
+	if pointer != null and is_instance_valid(pointer) and pointer.is_inside_tree():
+		from_world = pointer.global_position
+	else:
+		var cam := get_viewport().get_camera_3d() if get_viewport() != null else null
+		if cam == null:
+			return [Vector3.ZERO, 0.0]
+		from_world = cam.global_position - cam.global_transform.basis.z * 0.3 + Vector3(0.0, -0.25, 0.0)
+	var xf: Transform3D = _cloud_core.global_transform
+	var world_per_local: float = xf.basis.get_scale().x
+	if world_per_local <= 0.0:
+		return [Vector3.ZERO, 0.0]
+	return [xf.affine_inverse() * from_world, 1.0 / world_per_local]
+
+
+## Test seam: framing-cue opacity now (0 when not showing).
+func cue_alpha() -> float:
+	return float(_route.cue_alpha()) if _route != null and route_active() else 0.0
 
 
 func _write_mm(mm: MultiMesh, buf: PackedFloat32Array, stride: int = STRIDE) -> void:
@@ -525,6 +622,7 @@ func _process(delta: float) -> void:
 			reload()
 	if not _enabled or not has_snapshot() or _state != "ready":
 		return
+	_apply_placement(delta)
 	# Desktop turns the cloud slowly unless a route is shown; comfort default
 	# (reduced motion) keeps it still.
 	if not reduced_motion and not route_active():
@@ -537,6 +635,29 @@ func _process(delta: float) -> void:
 	if _hover_accum >= 1.0 / HOVER_HZ:
 		_hover_accum = 0.0
 		_update_hover_from_pointer()
+
+
+## Frame the cloud on the graph (desktop cloudPlacement): re-read the graph's
+## robust bounds at 1 Hz, glide the outer node to its centre and scale, shift
+## the inner node by the cloud's own centre. The sprite size follows the
+## desktop's cloudPointSize floor (constant in cloud-local units above it).
+func _apply_placement(delta: float) -> void:
+	if _frame == null or _cloud_root == null:
+		return
+	if bool(_frame.graph_read_due(delta)):
+		var b := PackedFloat32Array()
+		if graph_bounds_source.is_valid():
+			b = graph_bounds_source.call()
+		_frame.set_graph_bounds(b)
+	var p: Dictionary = _frame.step(delta, cloud_scale, reduced_motion)
+	_cloud_root.position = p["position"]
+	var s: float = float(p["scale"])
+	_cloud_root.scale = Vector3(s, s, s)
+	_cloud_core.position = p["offset"]
+	var sprite: float = float(p["sprite"])
+	if absf(sprite - _sprite) > 0.02 * maxf(_sprite, 1e-6):
+		_sprite = sprite
+		_buffer_dirty = true
 
 
 func _step_dim(delta: float) -> void:
@@ -581,7 +702,7 @@ func update_hover(origin_world: Vector3, dir_world: Vector3) -> int:
 	if _cloud == null or not has_snapshot() or not visible:
 		_hide_label()
 		return -1
-	var inv: Transform3D = _cloud_root.global_transform.affine_inverse()
+	var inv: Transform3D = _cloud_core.global_transform.affine_inverse()
 	var o: Vector3 = inv * origin_world
 	var d: Vector3 = inv.basis * dir_world
 	var row: int = _cloud.pick(o, d, HOVER_ANGLE)

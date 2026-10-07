@@ -150,6 +150,14 @@ var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": t
 # and pushes labels back through set_memory_cloud_state.
 var _memory_cloud_button: Button = null
 var _memory_colour_button: Button = null
+# One line under the Layers grid: the shown route's sidecar agreement, worded
+# as the desktop panel (describeAgreement); hidden without a route.
+var _memory_route_label: Label = null
+## Render priority of the panel: above the memory route, which draws without a
+## depth test (memory_route.rs OVERLAY_RENDER_PRIORITY; a Rust test pins it).
+const OVERLAY_RENDER_PRIORITY := 20
+## Font size of that line (the theme's 28 would push the Graph page past 532 px).
+const MEMORY_ROUTE_FONT := 20
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
@@ -262,6 +270,7 @@ var _hint_bar_notice_mode: bool = false
 func _ready() -> void:
 	# Bind after attachment: nested PackedScene textures have no viewport yet.
 	($HudPanel.material_override as StandardMaterial3D).albedo_texture = $HudViewport.get_texture()
+	($HudPanel.material_override as StandardMaterial3D).render_priority = OVERLAY_RENDER_PRIORITY
 	_build_ui()
 	# Batch the canvas (boxes as atlas nine-patches under the text), then render
 	# the panel only when a control redraws (perf: was every frame, 59+ calls).
@@ -479,7 +488,22 @@ func _build_graph_page() -> VBoxContainer:
 	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
 	g3.add_child(_memory_cloud_button)
 	g3.add_child(_memory_colour_button)
-	page.add_child(g3)
+	# The grid and the route line share one tight box: the page is 500 px
+	# without the line and must stay inside 532 px with it (Invariant 5), so
+	# the line costs 2 px spacing plus one 20 px-font row, not the page's 8.
+	var memory_row := VBoxContainer.new()
+	memory_row.name = "MemoryRow"
+	memory_row.add_theme_constant_override("separation", 2)
+	memory_row.add_child(g3)
+	_memory_route_label = _mk_label("", "Sidecar hits outside the sample have no point in the cloud, so only sampled hits are compared with the desktop's local route")
+	_memory_route_label.name = "MemoryRouteStats"
+	_memory_route_label.add_theme_font_size_override("font_size", MEMORY_ROUTE_FONT)
+	_memory_route_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_memory_route_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_memory_route_label.clip_text = true
+	_memory_route_label.visible = false
+	memory_row.add_child(_memory_route_label)
+	page.add_child(memory_row)
 
 	page.add_child(_group_header("Status"))
 	_controls_status = _mk_label("repelK --  restLen --  edges --  node x--", "Live physics & layout state")
@@ -1123,6 +1147,15 @@ func flash_notice(text: String, seconds: float = NOTICE_SEC) -> void:
 ## Whether a flashed notice is still on screen. Public-ish for tests.
 func _notice_active() -> bool:
 	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
+
+
+## The shown route's sidecar agreement line (memory_cloud_layer.gd
+## agreement_line); "" hides the row.
+func set_memory_route_line(text: String) -> void:
+	if _memory_route_label == null:
+		return
+	_memory_route_label.text = text
+	_memory_route_label.visible = not text.is_empty()
 
 
 ## Memory-cloud button state: `label` is the layer's status ("Memory: 6000",

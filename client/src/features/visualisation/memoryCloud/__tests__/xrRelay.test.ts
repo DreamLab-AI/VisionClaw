@@ -117,6 +117,8 @@ describe('xrRelay', () => {
     expect(routes()[0]).toEqual({
       type: 'memoryRoute', snapshotId: 's1', seq: 1, sentAt: T0,
       path: [0, 2, 3], sidecar: [3], query: 'how does auth work',
+      // describeAgreement's counts: 1 of 2 hits sampled, 0 of 1 in the local top-k
+      sidecarTotal: 2, sidecarAgree: 0,
     });
     vi.advanceTimersByTime(ROUTE_REPEAT_MS + BEAT_HEARTBEAT_MS);
     expect(routes().length).toBe(2); // late-joiner repeat
@@ -126,6 +128,7 @@ describe('xrRelay', () => {
     store.getState().clearQuery();
     vi.advanceTimersByTime(RELAY_MIN_INTERVAL_MS);
     expect(routes()[routes().length - 1]).toMatchObject({ type: 'memoryRoute', snapshotId: 's1', path: [], sidecar: [], query: '', seq: 3 });
+    expect(routes()[routes().length - 1]).not.toHaveProperty('sidecarTotal'); // a clear carries no stats
     const n = routes().length;
     vi.advanceTimersByTime(3 * ROUTE_REPEAT_MS);
     expect(routes().length).toBe(n); // no repeats once cleared
@@ -142,6 +145,24 @@ describe('xrRelay', () => {
     expect(Array.from(f.query)).toHaveLength(120);
     const g = routeFrame({ snapshot: snapshot(4), beat, query: { status: 'done', text: '', run: runWithPath([0, 9, 3]) } as never })!;
     expect(g.path).toEqual([0, 3]);
+  });
+
+  it('relays the honest sidecar agreement: unsampled hits stay out of the denominator', () => {
+    const snap = snapshot(10);
+    const beat = { bpm: 120, phaseAt: 0, confidence: 0, source: 'off' as const };
+    const hit = (sampleIndex: number | null) => ({ id: 'x', key: 'x', namespace: 'ns', sourceType: 'm', score: 1, snippet: '', sampleIndex });
+    const run = runWithPath([0, 4, 7]);
+    run.result.top = [7, 4, 1];
+    const response = { sidecar: { tookMs: 1, method: 'hnsw', results: [hit(7), hit(null), hit(5), hit(4), hit(null)] } };
+    const f = routeFrame({ snapshot: snap, beat, query: { status: 'done', text: 'q', run, response } as never })!;
+    expect(f.sidecar).toEqual([7, 5, 4]);
+    expect(f.sidecarTotal).toBe(5);
+    expect(f.sidecarAgree).toBe(2); // 7 and 4 of the 3 sampled
+    expect(f).not.toHaveProperty('method'); // the search method stays in the HTTP response
+    // no sidecar response (query failed over to local only): no stats, no denominator invented
+    const g = routeFrame({ snapshot: snap, beat, query: { status: 'done', text: 'q', run } as never })!;
+    expect(g).not.toHaveProperty('sidecarTotal');
+    expect(g).not.toHaveProperty('sidecarAgree');
   });
 
   it('stops everything on dispose', () => {

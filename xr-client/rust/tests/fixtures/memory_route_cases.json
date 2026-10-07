@@ -14,6 +14,10 @@
     {"accept": false, "frame": {"type":"memoryRoute","snapshotId":"s1","path":[1,2.5]}},
     {"accept": false, "frame": {"type":"memoryRoute","snapshotId":"s1","path":["1"]}},
     {"accept": false, "frame": {"type":"memoryRoute","snapshotId":"s1","path":[1],"query":5}},
-    {"accept": false, "frame": {"type":"memoryRoute","snapshotId":"s1","path":[1],"sentAt":"now"}}
+    {"accept": false, "frame": {"type":"memoryRoute","snapshotId":"s1","path":[1],"sentAt":"now"}},
+    {"accept": true,  "frame": {"type":"memoryRoute","snapshotId":"s1","seq":4,"sentAt":1760000000001,"path":[0,5,9],"sidecar":[9,2],"query":"auth flow","sidecarTotal":6,"sidecarAgree":1}},
+    {"accept": true,  "frame": {"type":"memoryRoute","snapshotId":"s1","path":[0,5],"sidecar":[9,2],"sidecarTotal":1,"sidecarAgree":3}},
+    {"accept": true,  "frame": {"type":"memoryRoute","snapshotId":"s1","path":[0,5],"sidecar":[9],"sidecarTotal":"6","sidecarAgree":-1}},
+    {"accept": true,  "frame": {"type":"memoryRoute","snapshotId":"s1","path":[0,5],"sidecar":[9],"sidecarTotal":6,"sidecarAgree":0,"serverTime":1760000000050}}
   ]
 }

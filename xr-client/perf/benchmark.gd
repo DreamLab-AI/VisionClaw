@@ -286,6 +286,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"hull_layer": _hull_report,
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
+		"cloud_placement": str(_memory.placement()) if _memory != null else "",
 		"frame_budget": _budget_report,
 		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc, "hud_pages": _page_cost},
 		"bursts": {"enabled": bursts_on, "ring_slots": _burst_slots, "emphasised_rows": _emph_rows.size(),
@@ -690,6 +691,19 @@ func _populate_memory_layers(rows: int) -> void:
 	add_child(holder)
 	_memory = MemoryCloudLayer.new()
 	_memory.reduced_motion = false
+	# Frame the cloud on the benchmark graph as GraphScene does (desktop
+	# cloudFrame.ts): the graph is drawn unscaled at the scene root, so its
+	# robust bounds are converted into the holder's space before the layer
+	# places the cloud at the graph's centre and radius (the 1 Hz read + glide
+	# run every frame of the measurement).
+	if _client != null and _client.has_method("graph_robust_bounds"):
+		var client: RefCounted = _client
+		_memory.graph_bounds_source = func() -> PackedFloat32Array:
+			var b: PackedFloat32Array = client.graph_robust_bounds()
+			if b.size() != 4:
+				return PackedFloat32Array()
+			var c: Vector3 = holder.global_transform.affine_inverse() * Vector3(b[0], b[1], b[2])
+			return PackedFloat32Array([c.x, c.y, c.z, b[3] / holder.global_transform.basis.get_scale().x])
 	holder.add_child(_memory)
 	var sid := "bench-%d" % rows
 	if not _memory.ingest_snapshot(synthetic_snapshot(sid, rows).to_utf8_buffer()):
