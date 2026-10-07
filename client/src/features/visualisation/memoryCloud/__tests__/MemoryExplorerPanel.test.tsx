@@ -84,7 +84,7 @@ beforeEach(() => {
   h.fetchHealth.mockReset();
   h.settings.visualisation.embeddingCloud.cinematic = false;
   useMemoryCloudStore.setState({
-    status: 'idle', snapshot: null, health: null, healthError: null, recallHistory: [],
+    status: 'idle', retryAt: null, error: null, snapshot: null, health: null, healthError: null, recallHistory: [],
     flashes: { key: 0, namespace: 0, none: 0 },
   });
 });
@@ -164,6 +164,28 @@ describe('MemoryExplorerPanel — explore', () => {
     useMemoryCloudStore.setState({ status: 'building', buildProgress: 0.42, snapshot });
     render(<MemoryExplorerPanel />);
     expect(screen.getByText('Building local index 42%')).toBeInTheDocument();
+  });
+
+  it('shows a quiet power-user note on 401/403, never an alert', () => {
+    useMemoryCloudStore.setState({ status: 'forbidden', error: null });
+    render(<MemoryExplorerPanel />);
+    expect(screen.getByText('Memory cloud needs power-user access.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('counts down to the scheduled reload while the sample builds (503)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    try {
+      useMemoryCloudStore.setState({ status: 'unavailable', retryAt: 14_200 });
+      render(<MemoryExplorerPanel />);
+      expect(screen.getByText('Memory cloud is building; retrying in 5 s.')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(screen.getByText('Memory cloud is building; retrying in 3 s.')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('hides the cinematic section unless the setting is on', () => {

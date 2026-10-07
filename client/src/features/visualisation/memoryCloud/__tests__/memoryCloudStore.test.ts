@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MemoryCloudApiError } from '../api';
 import { createMemoryCloudStore, sidecarAgreement, type MemoryCloudDeps, type TrajectoryModule } from '../memoryCloudStore';
 import type { MemoryCloudSnapshot, MemoryCloudQueryResponse, MemoryCloudHit } from '../types';
 import type { QueryRun, SearchTree, LayoutResult, LearningState, VectorSet } from '../../memoryTrajectory/types';
@@ -250,5 +251,85 @@ describe('sidecarAgreement', () => {
   });
   it('handles a missing run', () => {
     expect(sidecarAgreement([hit(0)], null)).toEqual({ total: 1, inSample: 1, inLocal: 0, inExact: 0 });
+  });
+});
+
+describe('memoryCloudStore — backend availability', () => {
+  let env: ReturnType<typeof makeDeps>;
+  beforeEach(() => { env = makeDeps(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('treats 401/403 as a quiet forbidden state with no error text', async () => {
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      throw new MemoryCloudApiError('forbidden', 'HTTP 403: power user required', 403);
+    });
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().status).toBe('forbidden');
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().retryAt).toBeNull();
+  });
+
+  it('a query refused with 403 drops to the forbidden state, not a query error', async () => {
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    env.deps.postQuery = vi.fn(async () => {
+      throw new MemoryCloudApiError('forbidden', 'HTTP 403', 403);
+    });
+    await store.getState().runQuery('anything');
+    expect(store.getState().status).toBe('forbidden');
+    expect(store.getState().query.status).toBe('idle');
+    expect(store.getState().query.error).toBeNull();
+  });
+
+  it('on 503 waits Retry-After, then reloads once by itself', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    let calls = 0;
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new MemoryCloudApiError('unavailable', 'HTTP 503', 503, { retryAfterMs: 4000 });
+      return snapshot('s1');
+    });
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().status).toBe('unavailable');
+    expect(store.getState().retryAt).toBe(1_004_000);
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.runAllTimersAsync();
+    expect(calls).toBe(2);
+    expect(store.getState().status).toBe('ready');
+    expect(store.getState().retryAt).toBeNull();
+  });
+
+  it('without Retry-After backs off by the default, clamped to sane bounds', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      throw new MemoryCloudApiError('unavailable', 'HTTP 503', 503);
+    });
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().retryAt).toBe(5000);
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      throw new MemoryCloudApiError('unavailable', 'HTTP 503', 503, { retryAfterMs: 86_400_000 });
+    });
+    await store.getState().loadSnapshot();
+    expect(store.getState().retryAt).toBe(60_000);
+  });
+
+  it('dispose cancels a pending 503 retry', async () => {
+    vi.useFakeTimers();
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      throw new MemoryCloudApiError('unavailable', 'HTTP 503', 503, { retryAfterMs: 2000 });
+    });
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    store.getState().dispose();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(env.deps.fetchSnapshot).toHaveBeenCalledTimes(1);
+    expect(store.getState().retryAt).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import {
   MemoryCloudApiError,
   decodeVectors,
   resolveApiUrl,
+  parseRetryAfter,
 } from '../api';
 import { computeAuthHeaders } from '@/services/api/authInterceptor';
 import type { MemoryCloudSnapshot, MemoryCloudQueryResponse, MemoryCloudHealth } from '../types';
@@ -104,11 +105,11 @@ describe('fetchSnapshot', () => {
   });
 
   it('maps HTTP failures to a typed error carrying the status', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'sidecar unreachable' }, 503));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'sidecar unreachable' }, 500));
     const err = await fetchSnapshot().catch((e) => e);
     expect(err).toBeInstanceOf(MemoryCloudApiError);
     expect(err.kind).toBe('http');
-    expect(err.status).toBe(503);
+    expect(err.status).toBe(500);
     expect(err.message).toContain('sidecar unreachable');
   });
 
@@ -249,5 +250,83 @@ describe('fetchHealth', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(h));
     expect(await fetchHealth()).toEqual(h);
     expect(fetchMock.mock.calls[0][0]).toBe(`${window.location.origin}/api/memory-cloud/health`);
+  });
+});
+
+describe('backend status contract', () => {
+  it('maps 401 and 403 to a quiet forbidden error', async () => {
+    for (const status of [401, 403]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'power user required' }, status));
+      const e = await fetchSnapshot().catch((x) => x);
+      expect(e).toBeInstanceOf(MemoryCloudApiError);
+      expect(e.kind).toBe('forbidden');
+      expect(e.status).toBe(status);
+    }
+  });
+
+  it('maps 503 to unavailable and carries Retry-After in milliseconds', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('building', { status: 503, headers: { 'Retry-After': '7' } }),
+    );
+    const e = await fetchSnapshot().catch((x) => x);
+    expect(e.kind).toBe('unavailable');
+    expect(e.retryAfterMs).toBe(7000);
+  });
+
+  it('leaves retryAfterMs undefined on a 503 without the header', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 503 }));
+    const e = await fetchHealth().catch((x) => x);
+    expect(e.kind).toBe('unavailable');
+    expect(e.retryAfterMs).toBeUndefined();
+  });
+
+  it('signs every attempt afresh on the 409 retry (NIP-98 tokens are single-use)', async () => {
+    const auth = vi.mocked(computeAuthHeaders);
+    auth.mockClear();
+    const a = snapshot('a');
+    const b = snapshot('b');
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'stale', currentSnapshotId: 'b' }, 409))
+      .mockResolvedValueOnce(jsonResponse(b))
+      .mockResolvedValueOnce(binResponse(unitRows(2)));
+    await fetchVectors(a);
+    expect(auth).toHaveBeenCalledTimes(3);
+    const urls = auth.mock.calls.map((c) => c[0]);
+    expect(urls).toEqual([
+      resolveApiUrl(a.vectorsUrl),
+      resolveApiUrl('/api/memory-cloud'),
+      resolveApiUrl(b.vectorsUrl),
+    ]);
+    // each fetch carried the header from its own signing call, never a reused one
+    const sent = fetchMock.mock.calls.map((c) => (c[1].headers as Record<string, string>).Authorization);
+    expect(sent).toEqual(urls.map((u, i) => `Nostr signed:GET:${u}`));
+    expect(new Set(sent).size).toBe(3);
+  });
+
+  it('reports the server-named currentSnapshotId when the retry also conflicts', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ currentSnapshotId: 'b' }, 409))
+      .mockResolvedValueOnce(jsonResponse(snapshot('b')))
+      .mockResolvedValueOnce(jsonResponse({ currentSnapshotId: 'c' }, 409));
+    const e = await fetchVectors(snapshot('a')).catch((x) => x);
+    expect(e.kind).toBe('stale');
+    expect(e.currentSnapshotId).toBe('c');
+  });
+});
+
+describe('parseRetryAfter', () => {
+  const now = Date.UTC(2026, 9, 7, 12, 0, 0);
+  it('reads delta-seconds', () => {
+    expect(parseRetryAfter('0', now)).toBe(0);
+    expect(parseRetryAfter(' 12 ', now)).toBe(12_000);
+  });
+  it('reads an HTTP-date relative to now, never negative', () => {
+    expect(parseRetryAfter(new Date(now + 5000).toUTCString(), now)).toBe(5000);
+    expect(parseRetryAfter(new Date(now - 5000).toUTCString(), now)).toBe(0);
+  });
+  it('ignores absent or malformed values', () => {
+    expect(parseRetryAfter(null, now)).toBeUndefined();
+    expect(parseRetryAfter('soon', now)).toBeUndefined();
+    expect(parseRetryAfter('-3', now)).toBeUndefined();
   });
 });

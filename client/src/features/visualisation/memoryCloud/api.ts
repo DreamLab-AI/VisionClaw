@@ -22,8 +22,12 @@ import type { VectorSet } from '../memoryTrajectory/types';
 export const MEMORY_CLOUD_BASE = '/api/memory-cloud';
 
 export type MemoryCloudErrorKind =
-  /** non-2xx response other than the handled 409 */
+  /** non-2xx response not covered by a more specific kind */
   | 'http'
+  /** 401/403: the cloud needs power-user access; a quiet state, never a toast */
+  | 'forbidden'
+  /** 503: the sample is building or the cloud is disabled; honour `retryAfterMs` */
+  | 'unavailable'
   /** the request never produced a response */
   | 'network'
   /** the caller aborted */
@@ -36,13 +40,37 @@ export type MemoryCloudErrorKind =
 export class MemoryCloudApiError extends Error {
   readonly kind: MemoryCloudErrorKind;
   readonly status?: number;
+  /** 503 only: the server's `Retry-After`, in milliseconds */
+  readonly retryAfterMs?: number;
+  /** 409 only: the snapshot the server says is current */
+  readonly currentSnapshotId?: string;
 
-  constructor(kind: MemoryCloudErrorKind, message: string, status?: number) {
+  constructor(
+    kind: MemoryCloudErrorKind,
+    message: string,
+    status?: number,
+    extra: { retryAfterMs?: number; currentSnapshotId?: string } = {},
+  ) {
     super(message);
     this.name = kind === 'abort' ? 'AbortError' : 'MemoryCloudApiError';
     this.kind = kind;
     this.status = status;
+    this.retryAfterMs = extra.retryAfterMs;
+    this.currentSnapshotId = extra.currentSnapshotId;
   }
+}
+
+/**
+ * `Retry-After` in milliseconds: delta-seconds or an HTTP-date relative to
+ * `now`. Undefined when absent or malformed; a past date is 0.
+ */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (value === null) return undefined;
+  const v = value.trim();
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  if (!/[a-z]/i.test(v)) return undefined;
+  const at = Date.parse(v);
+  return Number.isFinite(at) ? Math.max(0, at - now) : undefined;
 }
 
 export const isAbortError = (e: unknown): boolean =>
@@ -99,19 +127,31 @@ async function request(
 
 async function httpError(res: Response): Promise<MemoryCloudApiError> {
   let detail = res.statusText;
+  let currentSnapshotId: string | undefined;
   try {
     const text = await res.text();
     try {
-      const j = JSON.parse(text) as { error?: string; message?: string };
+      const j = JSON.parse(text) as { error?: string; message?: string; currentSnapshotId?: unknown };
       detail = j.error ?? j.message ?? (text || detail);
+      if (typeof j.currentSnapshotId === 'string') currentSnapshotId = j.currentSnapshotId;
     } catch {
       if (text) detail = text;
     }
   } catch {
     /* body unreadable: keep statusText */
   }
-  const kind: MemoryCloudErrorKind = res.status === 409 ? 'stale' : 'http';
-  return new MemoryCloudApiError(kind, `HTTP ${res.status}: ${detail}`, res.status);
+  const kind: MemoryCloudErrorKind =
+    res.status === 409
+      ? 'stale'
+      : res.status === 401 || res.status === 403
+        ? 'forbidden'
+        : res.status === 503
+          ? 'unavailable'
+          : 'http';
+  return new MemoryCloudApiError(kind, `HTTP ${res.status}: ${detail}`, res.status, {
+    retryAfterMs: res.status === 503 ? parseRetryAfter(res.headers.get('Retry-After')) : undefined,
+    currentSnapshotId,
+  });
 }
 
 async function readJson<T>(res: Response, signal?: AbortSignal): Promise<T> {
@@ -218,8 +258,12 @@ export async function fetchVectors(
 ): Promise<VectorBundle> {
   let current = snapshot;
   for (let attempt = 0; attempt < 2; attempt++) {
+    // request() signs each attempt afresh: NIP-98 tokens are single-use.
     const res = await request(current.vectorsUrl, { accept: 'application/octet-stream' }, opts.signal);
     if (res.status === 409 && attempt === 0) {
+      // The body names the current snapshot, but the vectors must be paired
+      // with that snapshot's positions and metadata, so refetch it whole.
+      await res.body?.cancel().catch(() => undefined);
       current = await fetchSnapshot(opts);
       continue;
     }

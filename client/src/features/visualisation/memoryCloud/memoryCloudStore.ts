@@ -11,7 +11,7 @@
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type * as api from './api';
-import { isAbortError, type VectorBundle } from './api';
+import { isAbortError, MemoryCloudApiError, type VectorBundle } from './api';
 import type {
   MemoryCloudHealth,
   MemoryCloudHit,
@@ -64,7 +64,16 @@ export const RECALL_HISTORY = 30;
 export const MIN_SPEED = 0.25;
 export const MAX_SPEED = 4;
 
-export type LoadStatus = 'idle' | 'loading' | 'building' | 'ready' | 'error';
+/**
+ * `forbidden`: 401/403, the cloud needs power-user access (a quiet state).
+ * `unavailable`: 503, building or disabled; a reload is scheduled for `retryAt`.
+ */
+export type LoadStatus = 'idle' | 'loading' | 'building' | 'ready' | 'error' | 'forbidden' | 'unavailable';
+
+/** reload delay after a 503 without Retry-After, and the bounds any delay is clamped to */
+export const RETRY_DEFAULT_MS = 5000;
+export const RETRY_MIN_MS = 1000;
+export const RETRY_MAX_MS = 60_000;
 export type QueryStatus = 'idle' | 'running' | 'done' | 'error';
 
 export interface QueryState {
@@ -123,6 +132,8 @@ export interface CinematicState {
 export interface MemoryCloudState {
   status: LoadStatus;
   error: string | null;
+  /** epoch ms of the scheduled reload while `unavailable`, else null */
+  retryAt: number | null;
   snapshot: MemoryCloudSnapshot | null;
   vectors: VectorSet | null;
   engine: TrajectoryEngine | null;
@@ -211,6 +222,12 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
   let unsubProgress: (() => void) | null = null;
   let engineSnapshotId: string | null = null;
   let loadPromise: Promise<void> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const cancelRetry = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
 
   return create<MemoryCloudState>()((set, get) => {
     const applyLearning = (engine: TrajectoryEngine | null, l: LearningSettings) => {
@@ -238,11 +255,37 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       });
     };
 
+    /**
+     * Map 401/403 and 503 to their quiet states. Returns true when handled.
+     * A 503 schedules one reload at Retry-After (clamped), replacing any
+     * earlier schedule.
+     */
+    const handleAvailability = (e: unknown): boolean => {
+      if (!(e instanceof MemoryCloudApiError)) return false;
+      if (e.kind === 'forbidden') {
+        cancelRetry();
+        set({ status: 'forbidden', error: null, retryAt: null });
+        return true;
+      }
+      if (e.kind === 'unavailable') {
+        cancelRetry();
+        const delay = Math.max(RETRY_MIN_MS, Math.min(RETRY_MAX_MS, e.retryAfterMs ?? RETRY_DEFAULT_MS));
+        set({ status: 'unavailable', error: null, retryAt: Date.now() + delay });
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          void get().loadSnapshot();
+        }, delay);
+        return true;
+      }
+      return false;
+    };
+
     const doLoad = async (): Promise<void> => {
       loadCtl?.abort();
+      cancelRetry();
       const ctl = new AbortController();
       loadCtl = ctl;
-      set({ status: 'loading', error: null });
+      set({ status: 'loading', error: null, retryAt: null });
       try {
         const snap = await deps.fetchSnapshot({ signal: ctl.signal });
         let bundle: VectorBundle;
@@ -281,6 +324,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
         }
       } catch (e) {
         if (isAbortError(e) || ctl.signal.aborted) return;
+        if (handleAvailability(e)) return;
         set({ status: 'error', error: errorText(e) });
       } finally {
         if (loadCtl === ctl) loadCtl = null;
@@ -290,6 +334,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
     return {
       status: 'idle',
       error: null,
+      retryAt: null,
       snapshot: null,
       vectors: null,
       engine: null,
@@ -344,6 +389,13 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
         try {
           if (loadPromise) await loadPromise;
           if (!get().engine) await get().loadSnapshot();
+          if (ctl.signal.aborted) return;
+          const ls = get().status;
+          if (!get().engine && (ls === 'forbidden' || ls === 'unavailable')) {
+            // the panel already shows the quiet access / building state
+            set((s) => ({ query: { ...s.query, status: 'idle' } }));
+            return;
+          }
           const req: MemoryCloudQueryRequest = { text, k };
           if (namespace) req.namespace = namespace;
           const response = await deps.postQuery(req, { signal: ctl.signal, expectDim: get().snapshot?.dim });
@@ -378,7 +430,16 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
           }));
         } catch (e) {
           if (isAbortError(e) || ctl.signal.aborted) return;
-          set((s) => ({ query: { ...s.query, status: 'error', error: errorText(e) } }));
+          if (e instanceof MemoryCloudApiError && e.kind === 'forbidden') {
+            handleAvailability(e);
+            set((s) => ({ query: { ...s.query, status: 'idle', error: null } }));
+            return;
+          }
+          const msg =
+            e instanceof MemoryCloudApiError && e.kind === 'unavailable'
+              ? 'The memory cloud is rebuilding; try again in a moment.'
+              : errorText(e);
+          set((s) => ({ query: { ...s.query, status: 'error', error: msg } }));
         } finally {
           if (queryCtl === ctl) queryCtl = null;
         }
@@ -455,8 +516,9 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
         loadCtl?.abort();
         queryCtl?.abort();
         healthCtl?.abort();
+        cancelRetry();
         releaseEngine();
-        set({ engine: null, status: 'idle' });
+        set({ engine: null, status: 'idle', retryAt: null });
       },
     };
   });

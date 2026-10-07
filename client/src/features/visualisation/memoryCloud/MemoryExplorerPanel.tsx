@@ -107,6 +107,22 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; title?: string }> 
   </div>
 );
 
+/** Quiet countdown to the store's scheduled reload after a 503. */
+const RetryNote: React.FC = () => {
+  const retryAt = useMemoryCloudStore((s) => s.retryAt);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = retryAt === null ? null : Math.max(0, Math.ceil((retryAt - now) / 1000));
+  return (
+    <div style={{ ...css.label, marginTop: 8 }} aria-live="polite">
+      {secs === null ? 'Memory cloud is building.' : `Memory cloud is building; retrying in ${secs} s.`}
+    </div>
+  );
+};
+
 const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting: (k: string, v: unknown) => void }> = ({ cfg, setSetting }) => {
   const snapshot = useMemoryCloudStore((s) => s.snapshot);
   const status = useMemoryCloudStore((s) => s.status);
@@ -175,6 +191,10 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
       </form>
 
       {status === 'error' && <div role="alert" style={{ color: ROUTE_PALETTE.miss, marginTop: 8 }}>{loadError}</div>}
+      {status === 'forbidden' && (
+        <div style={{ ...css.label, marginTop: 8 }}>Memory cloud needs power-user access.</div>
+      )}
+      {status === 'unavailable' && <RetryNote />}
       {query.status === 'error' && <div role="alert" style={{ color: ROUTE_PALETTE.miss, marginTop: 8 }}>{query.error}</div>}
       {(status === 'building' || status === 'loading') && (
         <div style={{ marginTop: 8 }} aria-live="polite">
