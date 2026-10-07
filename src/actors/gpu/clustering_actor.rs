@@ -494,13 +494,13 @@ impl ClusteringActor {
             } else {
                 0.0
             },
-            largest_community: actual_community_sizes.iter().max().copied().unwrap_or(0) as usize,
-            smallest_community: actual_community_sizes.iter().min().copied().unwrap_or(0) as usize,
+            largest_community: actual_community_sizes.iter().max().copied().unwrap_or(0),
+            smallest_community: actual_community_sizes.iter().min().copied().unwrap_or(0),
             computation_time_ms: computation_time.as_millis() as u64,
         };
 
         Ok(CommunityDetectionResult {
-            node_labels: node_labels,
+            node_labels,
             num_communities,
             modularity,
             iterations,
@@ -606,10 +606,7 @@ impl ClusteringActor {
                 continue;
             }
             let graph_node_id = self.translate_gpu_index(gpu_idx);
-            cluster_nodes
-                .entry(label)
-                .or_insert_with(Vec::new)
-                .push(graph_node_id);
+            cluster_nodes.entry(label).or_default().push(graph_node_id);
         }
 
         let num_clusters = cluster_nodes.len();
@@ -756,7 +753,7 @@ impl ClusteringActor {
             let graph_node_id = self.translate_gpu_index(gpu_idx);
             community_nodes
                 .entry(community_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(graph_node_id);
         }
 
@@ -1142,6 +1139,12 @@ impl ClusteringActor {
     }
 }
 
+impl Default for ClusteringActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for ClusteringActor {
     type Context = Context<Self>;
 
@@ -1459,7 +1462,7 @@ fn gpu_position_spread(
     // refusal even when the GPU holds a valid spread layout. Retaining + making the
     // primary context current (mirrors `get_node_positions`, execution.rs:836) is
     // what makes the read observe real positions. Hold it for the copies' lifetime.
-    let _thread_context = match cust::context::Context::new(uc.device.clone()) {
+    let _thread_context = match cust::context::Context::new(uc.device) {
         Ok(ctx) => ctx,
         Err(e) => {
             log::warn!(

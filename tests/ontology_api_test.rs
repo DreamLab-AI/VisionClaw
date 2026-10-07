@@ -534,7 +534,7 @@ mod api_documentation {
         assert_eq!(status_codes.len(), 5);
 
         for (code, _description) in status_codes {
-            assert!(code >= 200 && code < 600);
+            assert!((200..600).contains(&code));
         }
     }
 }

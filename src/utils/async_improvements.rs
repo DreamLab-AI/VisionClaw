@@ -270,6 +270,12 @@ impl TaskManager {
     }
 }
 
+impl Default for TaskManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 static GLOBAL_TASK_MANAGER: tokio::sync::OnceCell<TaskManager> = tokio::sync::OnceCell::const_new();
 
 pub async fn get_global_task_manager() -> &'static TaskManager {

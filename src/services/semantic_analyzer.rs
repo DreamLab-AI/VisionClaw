@@ -627,7 +627,7 @@ mod tests {
     fn test_semantic_analyzer_creation() {
         let config = SemanticAnalyzerConfig::default();
         let analyzer = SemanticAnalyzer::new(config);
-        assert!(analyzer.domain_patterns.len() > 0);
+        assert!(!analyzer.domain_patterns.is_empty());
     }
 
     #[test]

@@ -1259,9 +1259,9 @@ impl GraphServiceSupervisor {
             info!("Auto-analytics: '{}' channel disabled by config", name);
             return;
         }
-        ctx.run_later(cadence.initial_delay, move |act, ctx| trigger(act, ctx));
+        ctx.run_later(cadence.initial_delay, trigger);
         if let Some(interval) = cadence.refresh_interval {
-            ctx.run_interval(interval, move |act, ctx| trigger(act, ctx));
+            ctx.run_interval(interval, trigger);
         }
     }
 }
@@ -1313,19 +1313,17 @@ impl Actor for GraphServiceSupervisor {
                 ctx.spawn(
                     async move {
                         match gpu_manager_clone.send(msgs::GetForceComputeActor).await {
-                            Ok(Ok(force_compute_addr)) => {
-                                if force_compute_addr.connected() {
-                                    // Update PhysicsOrchestratorActor
-                                    if let Some(physics) = physics_clone {
-                                        physics.do_send(msgs::StoreGPUComputeAddress {
-                                            addr: Some(force_compute_addr.clone()),
-                                        });
-                                    }
-                                    // Update AppState's gpu_compute_addr
-                                    if let Some(app_addr) = app_gpu_addr_clone {
-                                        let mut guard = app_addr.write().await;
-                                        *guard = Some(force_compute_addr);
-                                    }
+                            Ok(Ok(force_compute_addr)) if force_compute_addr.connected() => {
+                                // Update PhysicsOrchestratorActor
+                                if let Some(physics) = physics_clone {
+                                    physics.do_send(msgs::StoreGPUComputeAddress {
+                                        addr: Some(force_compute_addr.clone()),
+                                    });
+                                }
+                                // Update AppState's gpu_compute_addr
+                                if let Some(app_addr) = app_gpu_addr_clone {
+                                    let mut guard = app_addr.write().await;
+                                    *guard = Some(force_compute_addr);
                                 }
                             }
                             _ => {} // GPU not ready yet, will retry next interval
@@ -1543,7 +1541,7 @@ impl Handler<msgs::ReloadGraphFromDatabase> for GraphServiceSupervisor {
 
         let graph_state_addr = self.graph_state.clone();
         let physics_addr = self.physics.clone();
-        let gpu_manager_addr = self.gpu_manager.clone();
+        let _gpu_manager_addr = self.gpu_manager.clone();
         // Live linkage: notify clients AFTER the reload completes (a full
         // GitHub-sync reload can take minutes; signalling up-front would make
         // clients refetch the pre-reload graph and then miss the real change).
@@ -2001,7 +1999,7 @@ impl Handler<msgs::UpdateNodePositions> for GraphServiceSupervisor {
         if let Some(ref graph_state_addr) = self.graph_state {
             graph_state_addr.do_send(msgs::UpdateNodePositions {
                 positions: msg.positions.clone(),
-                correlation_id: msg.correlation_id.clone(),
+                correlation_id: msg.correlation_id,
             });
         }
 

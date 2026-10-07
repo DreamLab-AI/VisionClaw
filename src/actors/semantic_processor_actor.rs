@@ -1042,10 +1042,10 @@ impl SemanticProcessorActor {
 
         let mut constraints = Vec::new();
 
-        constraints.extend(self.generate_similarity_constraints(&graph_data)?);
-        constraints.extend(self.generate_clustering_constraints(&graph_data)?);
-        constraints.extend(self.generate_importance_constraints(&graph_data)?);
-        constraints.extend(self.generate_topic_constraints(&graph_data)?);
+        constraints.extend(self.generate_similarity_constraints(graph_data)?);
+        constraints.extend(self.generate_clustering_constraints(graph_data)?);
+        constraints.extend(self.generate_importance_constraints(graph_data)?);
+        constraints.extend(self.generate_topic_constraints(graph_data)?);
 
         constraints.truncate(self.config.max_constraints_per_cycle);
 
@@ -1176,7 +1176,7 @@ impl SemanticProcessorActor {
         let mut similarity = 0.0;
         let mut comparisons = 0;
 
-        let _struct_sim = if features1.structural.complexity_score > 0.0
+        if features1.structural.complexity_score > 0.0
             || features2.structural.complexity_score > 0.0
         {
             let max_complexity = features1
@@ -1193,7 +1193,7 @@ impl SemanticProcessorActor {
             }
         };
 
-        let _content_sim = if features1.content.documentation_score > 0.0
+        if features1.content.documentation_score > 0.0
             || features2.content.documentation_score > 0.0
         {
             let max_doc_score = features1

@@ -274,7 +274,7 @@ fn convert_gpu_clusters_to_response(
     graph_data: &visionclaw_domain::models::graph::GraphData,
     method: &str,
 ) -> Vec<Cluster> {
-    let colors = vec![
+    let colors = [
         "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
     ];
 

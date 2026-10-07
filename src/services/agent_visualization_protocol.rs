@@ -198,21 +198,16 @@ pub struct EffectsConfig {
 /// Mass-derivation strategy (ADR-01 D6 / R3). `Log` is the recommended
 /// default; `Linear` and `Sqrt` are exposed so the empirical choice can be
 /// re-evaluated per graph topology without recompiling.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MassFunction {
     /// `mass = 1.0 + log2(1 + degree)` — ADR-01 D6 default.
+    #[default]
     Log,
     /// `mass = 1.0 + degree as f32`.
     Linear,
     /// `mass = 1.0 + (degree as f32).sqrt()`.
     Sqrt,
-}
-
-impl Default for MassFunction {
-    fn default() -> Self {
-        MassFunction::Log
-    }
 }
 
 impl MassFunction {
@@ -526,9 +521,8 @@ impl AgentVisualizationProtocol {
     }
 
     pub fn needs_discovery(&self) -> bool {
-        self.last_discovery.map_or(true, |last| {
-            time::now().signed_duration_since(last).num_seconds() > 30
-        })
+        self.last_discovery
+            .is_none_or(|last| time::now().signed_duration_since(last).num_seconds() > 30)
     }
 
     pub fn create_init_message(
@@ -696,5 +690,11 @@ impl AgentVisualizationProtocol {
 
         let message = AgentVisualizationMessage::StateUpdate(msg);
         to_json(&message).unwrap_or_default()
+    }
+}
+
+impl Default for AgentVisualizationProtocol {
+    fn default() -> Self {
+        Self::new()
     }
 }

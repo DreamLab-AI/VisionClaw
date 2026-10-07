@@ -176,6 +176,12 @@ impl ConstraintActor {
     }
 }
 
+impl Default for ConstraintActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for ConstraintActor {
     type Context = Context<Self>;
 

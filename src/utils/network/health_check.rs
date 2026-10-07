@@ -492,11 +492,11 @@ impl HealthCheckManager {
                     info.consecutive_failures = 0;
                     info.last_success = Some(result.timestamp);
 
-                    if info.consecutive_successes >= info.consecutive_successes.max(1) {
-                        if info.current_status != HealthStatus::Healthy {
-                            info!("Service {} is now healthy", result.service_name);
-                            info.current_status = HealthStatus::Healthy;
-                        }
+                    if info.consecutive_successes >= info.consecutive_successes.max(1)
+                        && info.current_status != HealthStatus::Healthy
+                    {
+                        info!("Service {} is now healthy", result.service_name);
+                        info.current_status = HealthStatus::Healthy;
                     }
                 }
                 HealthStatus::Unhealthy => {
@@ -507,14 +507,14 @@ impl HealthCheckManager {
 
                     let services = self.services.read().await;
                     if let Some(endpoint) = services.get(&result.service_name) {
-                        if info.consecutive_failures >= endpoint.config.unhealthy_threshold {
-                            if info.current_status != HealthStatus::Unhealthy {
-                                warn!(
-                                    "Service {} is now unhealthy: {:?}",
-                                    result.service_name, result.message
-                                );
-                                info.current_status = HealthStatus::Unhealthy;
-                            }
+                        if info.consecutive_failures >= endpoint.config.unhealthy_threshold
+                            && info.current_status != HealthStatus::Unhealthy
+                        {
+                            warn!(
+                                "Service {} is now unhealthy: {:?}",
+                                result.service_name, result.message
+                            );
+                            info.current_status = HealthStatus::Unhealthy;
                         }
                     }
                 }
@@ -575,7 +575,7 @@ pub struct SystemHealthSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::Duration;
 
     #[tokio::test]
     async fn test_health_check_manager_creation() {

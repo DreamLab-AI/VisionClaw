@@ -123,7 +123,7 @@ impl RateLimiter {
         let hash = hasher.finish();
 
         // ~1% probability (hash % 100 == 0)
-        if hash % 100 == 0 {
+        if hash.is_multiple_of(100) {
             self.cleanup_if_needed();
         }
     }
@@ -506,7 +506,6 @@ impl EndpointRateLimits {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
 
     #[tokio::test]
     async fn test_rate_limiter_basic() {

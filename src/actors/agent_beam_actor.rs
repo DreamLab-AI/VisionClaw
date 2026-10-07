@@ -293,7 +293,7 @@ impl Actor for AgentBeamActor {
                         }
                         Err(actix::prelude::SendError::Full(_)) => {
                             let now = Instant::now();
-                            let due = last_warn.map_or(true, |t| {
+                            let due = last_warn.is_none_or(|t| {
                                 now.duration_since(t) >= BACKPRESSURE_WARN_INTERVAL
                             });
                             if due {

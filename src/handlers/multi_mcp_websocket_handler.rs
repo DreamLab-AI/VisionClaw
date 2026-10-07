@@ -122,22 +122,17 @@ impl Default for SubscriptionFilters {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PerformanceMode {
     HighFrequency,
 
+    #[default]
     Normal,
 
     LowFrequency,
 
     OnDemand,
-}
-
-impl Default for PerformanceMode {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl MultiMcpVisualizationWs {

@@ -298,6 +298,12 @@ impl StressMajorizationActor {
     }
 }
 
+impl Default for StressMajorizationActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for StressMajorizationActor {
     type Context = Context<Self>;
 
@@ -443,7 +449,7 @@ impl Handler<ConfigureStressMajorization> for StressMajorizationActor {
 
         // Validate and apply max_iterations
         if let Some(mi) = msg.max_iterations {
-            if mi < 10 || mi > 1000 {
+            if !(10..=1000).contains(&mi) {
                 return Err(format!(
                     "Invalid max_iterations: {}. Must be between 10 and 1000",
                     mi
@@ -455,7 +461,7 @@ impl Handler<ConfigureStressMajorization> for StressMajorizationActor {
 
         // Validate and apply auto_run_interval
         if let Some(interval) = msg.auto_run_interval {
-            if interval < 30 || interval > 600 {
+            if !(30..=600).contains(&interval) {
                 return Err(format!(
                     "Invalid auto_run_interval: {}. Must be between 30 and 600 frames",
                     interval

@@ -45,20 +45,15 @@ pub struct SemanticPathResult {
 }
 
 /// Which algorithm to use for a point-to-point query.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PathAlgorithm {
+    #[default]
     Astar,
     Bidirectional,
     Semantic,
     /// Falls back to full SSSP via GPU actor.
     Sssp,
-}
-
-impl Default for PathAlgorithm {
-    fn default() -> Self {
-        Self::Astar
-    }
 }
 
 // ---------------------------------------------------------------------------

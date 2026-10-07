@@ -174,11 +174,8 @@ impl VoiceContextManager {
             session.last_activity = time::now();
 
             if let Some(intent) = intent {
-                match intent {
-                    SwarmIntent::SpawnAgent { agent_type, .. } => {
-                        session.context.current_agents.push(agent_type);
-                    }
-                    _ => {}
+                if let SwarmIntent::SpawnAgent { agent_type, .. } = intent {
+                    session.context.current_agents.push(agent_type);
                 }
             }
 

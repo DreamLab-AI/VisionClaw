@@ -426,23 +426,12 @@ impl Default for AttributeSpringConfig {
 }
 
 /// Combined semantic configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SemanticConfig {
     pub dag: DAGConfig,
     pub type_cluster: TypeClusterConfig,
     pub collision: CollisionConfig,
     pub attribute_spring: AttributeSpringConfig,
-}
-
-impl Default for SemanticConfig {
-    fn default() -> Self {
-        Self {
-            dag: DAGConfig::default(),
-            type_cluster: TypeClusterConfig::default(),
-            collision: CollisionConfig::default(),
-            attribute_spring: AttributeSpringConfig::default(),
-        }
-    }
 }
 
 /// Node hierarchy level assignment
@@ -728,6 +717,12 @@ impl SemanticForcesActor {
             centroids,
             type_counts,
         })
+    }
+}
+
+impl Default for SemanticForcesActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

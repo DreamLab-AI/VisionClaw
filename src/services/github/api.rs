@@ -143,7 +143,7 @@ impl GitHubClient {
                     log::debug!("Path is empty, using base path only: '{}'", raw_base);
                 }
                 raw_base
-            } else if (raw_path == raw_base || raw_path.starts_with(&format!("{raw_base}/"))) {
+            } else if raw_path == raw_base || raw_path.starts_with(&format!("{raw_base}/")) {
                 if debug_enabled {
                     log::debug!(
                         "Path already contains base path, using as-is: '{}'",

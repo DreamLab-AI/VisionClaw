@@ -125,7 +125,7 @@ pub async fn send_message(
                         });
                         Bytes::from(json_response.to_string())
                     })
-                    .map_err(|e| actix_web::error::ErrorInternalServerError(e))
+                    .map_err(actix_web::error::ErrorInternalServerError)
             });
             Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().streaming(mapped_stream))
         }

@@ -258,10 +258,10 @@ async fn main() -> std::io::Result<()> {
     // REMOVED: init_logging()? call - using advanced_logging instead
     if let Err(e) = init_advanced_logging() {
         error!("Failed to initialize advanced logging: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Advanced logging initialization failed: {}", e),
-        ));
+        return Err(std::io::Error::other(format!(
+            "Advanced logging initialization failed: {}",
+            e
+        )));
     } else {
         info!("Advanced logging system initialized successfully");
     }
@@ -350,10 +350,10 @@ async fn main() -> std::io::Result<()> {
         }
         Err(e) => {
             error!("❌ Failed to load AppFullSettings: {:?}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize AppFullSettings: {:?}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize AppFullSettings: {:?}",
+                e
+            )));
         }
     };
 
@@ -383,10 +383,10 @@ async fn main() -> std::io::Result<()> {
         Ok(repo) => Arc::new(repo),
         Err(e) => {
             error!("Failed to open SQLite settings repository: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to open SQLite settings repository: {}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to open SQLite settings repository: {}",
+                e
+            )));
         }
     };
     let settings_repo_data = web::Data::new(settings_repository.clone());
@@ -408,10 +408,10 @@ async fn main() -> std::io::Result<()> {
     let github_client = match GitHubClient::new(github_config, settings.clone()).await {
         Ok(client) => Arc::new(client),
         Err(e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize GitHub client: {}", e),
-            ))
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize GitHub client: {}",
+                e
+            )))
         }
     };
 
@@ -461,10 +461,10 @@ async fn main() -> std::io::Result<()> {
             state
         }
         Err(e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize app state: {}", e),
-            ))
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize app state: {}",
+                e
+            )))
         }
     };
 
@@ -805,10 +805,9 @@ async fn main() -> std::io::Result<()> {
                     }
                     Err(e) => {
                         error!("[rbac] FATAL: could not determine Owner presence: {e}");
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("RBAC: owner check failed: {e}"),
-                        ));
+                        return Err(std::io::Error::other(format!(
+                            "RBAC: owner check failed: {e}"
+                        )));
                     }
                 }
                 if set_global_role_store(std::sync::Arc::new(store)).is_err() {
@@ -823,10 +822,9 @@ async fn main() -> std::io::Result<()> {
                 // back to the legacy power-user→Admin mapping — a fail-OPEN
                 // downgrade. Refuse to start instead.
                 error!("[rbac] FATAL: failed to initialise role store: {e}");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("RBAC: role store initialisation failed: {e}"),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "RBAC: role store initialisation failed: {e}"
+                )));
             }
         }
     }
@@ -1092,7 +1090,9 @@ async fn main() -> std::io::Result<()> {
                 .app_data(pay_exchange_data.clone())
                 .configure(visionclaw_server::handlers::pay_handler::configure_pay_routes);
 
-            let app = app
+            
+
+            app
             // Root-level k8s/Docker probes (the /api/* variants below are kept for back-compat)
             .route("/healthz", web::get().to(consolidated_health_handler::liveness_probe))
             .route("/readyz", web::get().to(consolidated_health_handler::readiness_probe))
@@ -1243,9 +1243,7 @@ async fn main() -> std::io::Result<()> {
                     // Layout mode system (ADR-031)
                     .configure(visionclaw_server::handlers::configure_layout_routes)
 
-            );
-
-            app
+            )
         })
         .bind(&bind_address)?
         .workers(4)

@@ -295,6 +295,12 @@ impl BotsClient {
     }
 }
 
+impl Default for BotsClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

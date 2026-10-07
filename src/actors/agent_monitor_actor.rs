@@ -48,7 +48,7 @@ fn task_to_agent_status(task: TaskInfo, telemetry: &ContainerTelemetry) -> Agent
     let timestamp = chrono::Utc
         .timestamp_millis_opt(task.start_time as i64)
         .single()
-        .unwrap_or_else(|| time::now());
+        .unwrap_or_else(time::now);
 
     let age = (time::timestamp_millis() - task.start_time as i64) / 1000;
 

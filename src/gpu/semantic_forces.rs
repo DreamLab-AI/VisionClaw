@@ -259,7 +259,7 @@ impl Default for CrossDomainConfig {
 }
 
 /// Unified semantic configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SemanticConfig {
     pub dag: DAGConfig,
     pub type_cluster: TypeClusterConfig,
@@ -270,22 +270,6 @@ pub struct SemanticConfig {
     pub role_cluster: RoleClusterConfig,
     pub maturity_layout: MaturityLayoutConfig,
     pub cross_domain: CrossDomainConfig,
-}
-
-impl Default for SemanticConfig {
-    fn default() -> Self {
-        Self {
-            dag: DAGConfig::default(),
-            type_cluster: TypeClusterConfig::default(),
-            collision: CollisionConfig::default(),
-            attribute_spring: AttributeSpringConfig::default(),
-            ontology_relationship: OntologyRelationshipConfig::default(),
-            physicality_cluster: PhysicalityClusterConfig::default(),
-            role_cluster: RoleClusterConfig::default(),
-            maturity_layout: MaturityLayoutConfig::default(),
-            cross_domain: CrossDomainConfig::default(),
-        }
-    }
 }
 
 // =============================================================================
@@ -588,10 +572,7 @@ impl SemanticForcesEngine {
 
         for edge in &graph.edges {
             if edge.edge_type.as_deref() == Some("hierarchy") {
-                children
-                    .entry(edge.source)
-                    .or_insert_with(Vec::new)
-                    .push(edge.target);
+                children.entry(edge.source).or_default().push(edge.target);
                 has_parent.insert(edge.target, true);
             }
         }
@@ -659,10 +640,7 @@ impl SemanticForcesEngine {
         for (i, node) in graph.nodes.iter().enumerate() {
             let node_type = self.node_types[i];
             let pos = (node.data.x, node.data.y, node.data.z);
-            type_positions
-                .entry(node_type)
-                .or_insert_with(Vec::new)
-                .push(pos);
+            type_positions.entry(node_type).or_default().push(pos);
         }
 
         // Calculate centroids
@@ -697,7 +675,7 @@ impl SemanticForcesEngine {
                 let pos = (node.data.x, node.data.y, node.data.z);
                 physicality_positions
                     .entry(physicality)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(pos);
             }
         }
@@ -732,10 +710,7 @@ impl SemanticForcesEngine {
             let role = self.node_role[i];
             if role > 0 {
                 let pos = (node.data.x, node.data.y, node.data.z);
-                role_positions
-                    .entry(role)
-                    .or_insert_with(Vec::new)
-                    .push(pos);
+                role_positions.entry(role).or_default().push(pos);
             }
         }
 
@@ -1443,10 +1418,8 @@ impl DynamicRelationshipBufferManager {
     /// Call this whenever ontology changes to enable new relationship types
     pub fn upload_from_registry(&mut self, registry: &SemanticTypeRegistry) -> Result<(), String> {
         let buffer = registry.build_gpu_buffer();
-        let gpu_buffer: Vec<DynamicForceConfigGPU> = buffer
-            .iter()
-            .map(|c| DynamicForceConfigGPU::from(c))
-            .collect();
+        let gpu_buffer: Vec<DynamicForceConfigGPU> =
+            buffer.iter().map(DynamicForceConfigGPU::from).collect();
 
         self.upload_buffer(&gpu_buffer)
     }

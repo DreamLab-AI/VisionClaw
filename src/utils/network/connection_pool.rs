@@ -106,10 +106,7 @@ impl PooledConnection {
     }
 
     pub async fn validate(&self) -> bool {
-        match self.stream.peer_addr() {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        self.stream.peer_addr().is_ok()
     }
 }
 
@@ -139,7 +136,7 @@ pub struct ConnectionPool {
 
 impl ConnectionPool {
     pub fn new(config: ConnectionPoolConfig) -> Self {
-        let pool = Self {
+        Self {
             connection_semaphore: Arc::new(Semaphore::new(config.max_total_connections)),
             config,
             connections: Arc::new(RwLock::new(HashMap::new())),
@@ -158,9 +155,7 @@ impl ConnectionPool {
                 validations_failed: 0,
             })),
             cleanup_handle: None,
-        };
-
-        pool
+        }
     }
 
     pub fn start_cleanup_task(&mut self) {
@@ -423,27 +418,24 @@ impl ConnectionPool {
         #[cfg(target_os = "linux")]
         {
             use tokio::fs;
-            match fs::read_dir("/proc/self/fd").await {
-                Ok(mut entries) => {
-                    let mut count: usize = 0;
-                    while let Ok(Some(_)) = entries.next_entry().await {
-                        count += 1;
-                    }
-                    let fd_count = count.saturating_sub(1);
-
-                    const FD_WARNING_THRESHOLD: usize = 700;
-                    const FD_ERROR_THRESHOLD: usize = 900;
-
-                    if fd_count > FD_ERROR_THRESHOLD {
-                        return Err(format!(
-                            "File descriptor limit approaching: {} open FDs (limit: {})",
-                            fd_count, FD_ERROR_THRESHOLD
-                        ));
-                    } else if fd_count > FD_WARNING_THRESHOLD {
-                        warn!("High file descriptor usage: {} open FDs", fd_count);
-                    }
+            if let Ok(mut entries) = fs::read_dir("/proc/self/fd").await {
+                let mut count: usize = 0;
+                while let Ok(Some(_)) = entries.next_entry().await {
+                    count += 1;
                 }
-                Err(_) => {}
+                let fd_count = count.saturating_sub(1);
+
+                const FD_WARNING_THRESHOLD: usize = 700;
+                const FD_ERROR_THRESHOLD: usize = 900;
+
+                if fd_count > FD_ERROR_THRESHOLD {
+                    return Err(format!(
+                        "File descriptor limit approaching: {} open FDs (limit: {})",
+                        fd_count, FD_ERROR_THRESHOLD
+                    ));
+                } else if fd_count > FD_WARNING_THRESHOLD {
+                    warn!("High file descriptor usage: {} open FDs", fd_count);
+                }
             }
         }
         Ok(())

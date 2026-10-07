@@ -173,7 +173,7 @@ impl EdgeClassifier {
 
         self.patterns
             .entry(name.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(pattern);
     }
 

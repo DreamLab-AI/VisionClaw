@@ -1084,7 +1084,7 @@ pub async fn get_hierarchy(
                 for parent_iri in &class.parent_classes {
                     children_map
                         .entry(parent_iri.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(class.iri.clone());
                 }
             }
@@ -1182,8 +1182,8 @@ pub async fn get_hierarchy(
                         class
                             .iri
                             .split('#')
-                            .last()
-                            .or_else(|| class.iri.split('/').last())
+                            .next_back()
+                            .or_else(|| class.iri.split('/').next_back())
                             .unwrap_or(&class.iri)
                             .to_string()
                     }),
@@ -1714,8 +1714,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
-    use serde_json::Value;
 
     #[actix_web::test]
     async fn test_health_endpoint_structure() {
@@ -1759,9 +1757,9 @@ mod tests {
         };
 
         let config = ValidationConfig::from(dto);
-        assert_eq!(config.enable_reasoning, true);
+        assert!(config.enable_reasoning);
         assert_eq!(config.reasoning_timeout_seconds, 60);
-        assert_eq!(config.enable_inference, false);
+        assert!(!config.enable_inference);
         assert_eq!(config.max_inference_depth, 5);
     }
 

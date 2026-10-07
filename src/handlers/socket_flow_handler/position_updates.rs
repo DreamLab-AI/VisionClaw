@@ -203,11 +203,8 @@ pub(crate) async fn fetch_nodes(
         if filter_on {
             visibility.push(node_visibility(flagged_id, node));
         }
-        let node_data = BinaryNodeDataClient::new(
-            flagged_id,
-            node.data.position().into(),
-            node.data.velocity().into(),
-        );
+        let node_data =
+            BinaryNodeDataClient::new(flagged_id, node.data.position(), node.data.velocity());
         nodes.push((flagged_id, node_data));
     }
 
@@ -226,10 +223,9 @@ pub(crate) fn handle_request_full_snapshot(
     debug!("Client requested full position snapshot");
 
     let graphs = msg.get("graphs").and_then(|g| g.as_array());
-    let include_knowledge = graphs.map_or(true, |arr| {
-        arr.iter().any(|v| v.as_str() == Some("knowledge"))
-    });
-    let include_agent = graphs.map_or(true, |arr| arr.iter().any(|v| v.as_str() == Some("agent")));
+    let include_knowledge =
+        graphs.is_none_or(|arr| arr.iter().any(|v| v.as_str() == Some("knowledge")));
+    let include_agent = graphs.is_none_or(|arr| arr.iter().any(|v| v.as_str() == Some("agent")));
 
     let app_state = _act.app_state.clone();
     // ADR-060: the drop-set filter must also cover the snapshot path, not just

@@ -627,14 +627,14 @@ pub(crate) async fn apply_decision(
     let (kernel_action, share_plan) = derive_kernel_decision(&record);
     if is_new_case {
         broker_events::broadcast_new_case(
-            &client_coordinator,
+            client_coordinator,
             &case_id,
             &case_id,
             "knowledge_enrichment",
         );
     }
     broker_events::broadcast_case_decided(
-        &client_coordinator,
+        client_coordinator,
         &case_id,
         &record.activity_urn,
         &kernel_action,

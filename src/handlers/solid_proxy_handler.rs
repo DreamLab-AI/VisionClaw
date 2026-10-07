@@ -60,7 +60,7 @@ use solid_pod_rs::ldp::{
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::provision::{provision_pod, ProvisionPlan};
 #[cfg(feature = "solid-pod-embed")]
-use solid_pod_rs::wac::{evaluate_access, method_to_mode, AccessMode};
+use solid_pod_rs::wac::{evaluate_access, method_to_mode};
 #[cfg(feature = "solid-pod-embed")]
 use solid_pod_rs::Storage;
 
@@ -1435,8 +1435,7 @@ async fn get_user_from_request(
     }
 
     // Fall back to Bearer session token (legacy path)
-    if auth_str.starts_with("Bearer ") {
-        let token = &auth_str[7..];
+    if let Some(token) = auth_str.strip_prefix("Bearer ") {
         nostr_service.get_session(token).await
     } else {
         None

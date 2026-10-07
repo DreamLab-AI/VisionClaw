@@ -391,7 +391,7 @@ impl UnifiedGPUCompute {
         let community_centroids_y = DeviceBuffer::zeroed(num_nodes.max(1))?;
         let community_centroids_z = DeviceBuffer::zeroed(num_nodes.max(1))?;
 
-        let num_blocks = (num_nodes + 255) / 256;
+        let num_blocks = num_nodes.div_ceil(256);
         let partial_inertia = DeviceBuffer::zeroed(num_blocks)?;
         let min_distances = DeviceBuffer::zeroed(num_nodes)?;
         let selected_nodes = DeviceBuffer::zeroed(max_clusters)?;
@@ -482,7 +482,7 @@ impl UnifiedGPUCompute {
             parents: None,
             sssp_stream,
 
-            constraint_data: DeviceBuffer::from_slice(&vec![])?,
+            constraint_data: DeviceBuffer::from_slice(&[])?,
             num_constraints: 0,
             sssp_available: false,
             sssp_device_distances: None,
@@ -536,7 +536,7 @@ impl UnifiedGPUCompute {
             resize_count: 0,
             total_memory_allocated: initial_memory,
 
-            partial_kinetic_energy: DeviceBuffer::zeroed((num_nodes + 255) / 256)?,
+            partial_kinetic_energy: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
             active_node_count: DeviceBuffer::zeroed(1)?,
             should_skip_physics: DeviceBuffer::zeroed(1)?,
             system_kinetic_energy: DeviceBuffer::zeroed(1)?,
@@ -573,8 +573,8 @@ impl UnifiedGPUCompute {
             pos_transfer_pending: false,
             vel_transfer_pending: false,
 
-            aabb_num_blocks: (num_nodes + 255) / 256,
-            aabb_block_results: DeviceBuffer::zeroed((num_nodes + 255) / 256)?,
+            aabb_num_blocks: num_nodes.div_ceil(256),
+            aabb_block_results: DeviceBuffer::zeroed(num_nodes.div_ceil(256))?,
 
             degree_weight: DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?,
             degree_weights_available: false,
@@ -638,7 +638,7 @@ impl UnifiedGPUCompute {
         num_edges: usize,
         max_grid_cells: usize,
     ) -> usize {
-        let node_memory = num_nodes * (12 * 4 + 1 * 4 + 1 * 4);
+        let node_memory = num_nodes * (12 * 4 + 4 + 4);
 
         let edge_memory = (num_nodes + 1) * 4 + num_edges * (4 + 4);
 

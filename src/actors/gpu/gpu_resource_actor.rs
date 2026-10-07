@@ -282,7 +282,7 @@ impl GPUResourceActor {
             }
             Err(e) => {
                 error!("Failed to get CUDA device count: {}", e);
-                Err(Error::new(ErrorKind::Other, format!("CUDA error: {}", e)))
+                Err(Error::other(format!("CUDA error: {}", e)))
             }
         }
     }
@@ -397,6 +397,12 @@ impl GPUResourceActor {
         }
 
         hasher.finish()
+    }
+}
+
+impl Default for GPUResourceActor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -205,7 +205,7 @@ impl AdvancedLogger {
 
         metrics_guard
             .entry(kernel_name.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(execution_time_us);
 
         if let Some(kernel_metrics) = metrics_guard.get_mut(kernel_name) {
@@ -362,7 +362,7 @@ impl AdvancedLogger {
                         Err(poisoned) => {
                             self.dropped_logs.fetch_add(1, Ordering::Relaxed);
                             let prev = self.dropped_logs.load(Ordering::Relaxed);
-                            if prev % 1000 == 0 {
+                            if prev.is_multiple_of(1000) {
                                 warn!(
                                     "Log writer mutex poisoned for {:?}, {} logs dropped so far",
                                     component, prev

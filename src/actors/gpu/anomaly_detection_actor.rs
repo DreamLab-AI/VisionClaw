@@ -95,6 +95,12 @@ impl AnomalyDetectionActor {
     }
 }
 
+impl Default for AnomalyDetectionActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for AnomalyDetectionActor {
     type Context = Context<Self>;
 

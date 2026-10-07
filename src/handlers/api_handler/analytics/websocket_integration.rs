@@ -139,7 +139,7 @@ impl GpuAnalyticsWebSocket {
                     Ok(Ok(stats)) => {
                         let metrics = GpuMetricsUpdate {
                             gpu_utilization: 75.0,
-                            memory_usage_percent: (1000 as f32 * 0.5) / 8192.0 * 100.0,
+                            memory_usage_percent: (1000_f32 * 0.5) / 8192.0 * 100.0,
                             temperature: 68.0,
                             power_draw: 120.0,
                             active_kernels: 3,

@@ -184,7 +184,7 @@ impl UnifiedGPUCompute {
         resolution: f32,
         _seed: u32,
     ) -> Result<(Vec<i32>, usize, f32, u32, Vec<i32>, bool)> {
-        let _ctx = Context::new(self.device.clone())
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for Leiden: {}", e))?;
 
         info!(
@@ -209,7 +209,7 @@ impl UnifiedGPUCompute {
 
         // Weighted node degrees (k_i) of the ORIGINAL graph; total_weight (m) is
         // invariant across contraction levels.
-        let grid0 = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid0 = (self.num_nodes as u32).div_ceil(block_size);
         unsafe {
             launch!(
                 compute_degrees_kernel<<<grid0, block_size, 0, stream>>>(
@@ -264,7 +264,7 @@ impl UnifiedGPUCompute {
         const MAX_AGG_BYTES: u64 = 512 * 1024 * 1024;
 
         for level in 0..MAX_LEVELS {
-            let grid = (cur_n as u32 + block_size - 1) / block_size;
+            let grid = (cur_n as u32).div_ceil(block_size);
 
             // --- Phase 1: local move, seeded. Community weights derived from seed. ---
             let mut comm_host = seed_comm.clone();

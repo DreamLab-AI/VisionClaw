@@ -137,6 +137,12 @@ impl GPUManagerActor {
     }
 }
 
+impl Default for GPUManagerActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for GPUManagerActor {
     type Context = Context<Self>;
 

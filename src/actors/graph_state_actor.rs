@@ -677,7 +677,7 @@ impl GraphStateActor {
         // Scope the mutable borrow of node_map
         {
             let node_map_mut = Arc::make_mut(&mut self.node_map);
-            for (_, node) in node_map_mut.iter_mut() {
+            for node in node_map_mut.values_mut() {
                 if node.metadata_id == metadata_id {
                     // Inline configuration to avoid borrowing self
                     node.label = metadata.file_name.clone();

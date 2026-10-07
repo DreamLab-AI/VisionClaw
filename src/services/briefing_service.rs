@@ -252,7 +252,7 @@ mod tests {
                     "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     reply.status,
                     reply.reason,
-                    reply.body.as_bytes().len(),
+                    reply.body.len(),
                     reply.body
                 );
                 let _ = socket.write_all(response.as_bytes()).await;

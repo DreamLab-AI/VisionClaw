@@ -163,7 +163,7 @@ impl AxiomMapper {
     pub fn update_hierarchy_cache(&mut self, subclass: NodeId, superclass: NodeId) {
         self.hierarchy_cache
             .entry(superclass)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(subclass);
     }
 
@@ -486,12 +486,11 @@ mod tests {
     #[test]
     fn test_disjoint_classes_translation() {
         let mapper = AxiomMapper::new();
-        let axiom = OWLAxiom::asserted(AxiomType::DisjointClasses {
+        let _axiom = OWLAxiom::asserted(AxiomType::DisjointClasses {
             classes: vec![1, 2, 3],
         });
 
-        let constraints =
-            mapper.translate_disjoint_classes(&vec![1, 2, 3], PRIORITY_ASSERTED, None);
+        let constraints = mapper.translate_disjoint_classes(&[1, 2, 3], PRIORITY_ASSERTED, None);
 
         assert_eq!(constraints.len(), 3);
 
@@ -541,7 +540,7 @@ mod tests {
     #[test]
     fn test_equivalent_classes_translation() {
         let mapper = AxiomMapper::new();
-        let axiom = OWLAxiom::asserted(AxiomType::EquivalentClasses {
+        let _axiom = OWLAxiom::asserted(AxiomType::EquivalentClasses {
             class1: 5,
             class2: 6,
         });
@@ -592,13 +591,12 @@ mod tests {
     #[test]
     fn test_disjoint_union_translation() {
         let mapper = AxiomMapper::new();
-        let axiom = OWLAxiom::asserted(AxiomType::DisjointUnion {
+        let _axiom = OWLAxiom::asserted(AxiomType::DisjointUnion {
             union_class: 1,
             disjoint_classes: vec![2, 3, 4],
         });
 
-        let constraints =
-            mapper.translate_disjoint_union(1, &vec![2, 3, 4], PRIORITY_ASSERTED, None);
+        let constraints = mapper.translate_disjoint_union(1, &[2, 3, 4], PRIORITY_ASSERTED, None);
 
         assert_eq!(constraints.len(), 6);
     }
@@ -606,7 +604,7 @@ mod tests {
     #[test]
     fn test_part_of_translation() {
         let mapper = AxiomMapper::new();
-        let axiom = OWLAxiom::asserted(AxiomType::PartOf {
+        let _axiom = OWLAxiom::asserted(AxiomType::PartOf {
             part: 10,
             whole: 20,
         });
@@ -654,7 +652,7 @@ mod tests {
         };
 
         let mapper = AxiomMapper::with_config(config);
-        let constraints = mapper.translate_disjoint_classes(&vec![1, 2], PRIORITY_ASSERTED, None);
+        let constraints = mapper.translate_disjoint_classes(&[1, 2], PRIORITY_ASSERTED, None);
 
         match &constraints[0].constraint_type {
             PhysicsConstraintType::Separation {

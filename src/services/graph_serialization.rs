@@ -337,15 +337,11 @@ impl GraphSerializationService {
             std::time::SystemTime::now() - std::time::Duration::from_secs(max_age_seconds);
 
         if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Ok(metadata) = entry.metadata() {
-                        if let Ok(created) = metadata.created() {
-                            if created < cutoff_time {
-                                if fs::remove_file(entry.path()).is_ok() {
-                                    count += 1;
-                                }
-                            }
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(created) = metadata.created() {
+                        if created < cutoff_time && fs::remove_file(entry.path()).is_ok() {
+                            count += 1;
                         }
                     }
                 }
@@ -359,7 +355,7 @@ impl GraphSerializationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::json::{from_json, to_json};
+
     use tempfile::tempdir;
 
     #[tokio::test]

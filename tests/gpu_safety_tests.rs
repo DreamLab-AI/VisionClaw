@@ -14,7 +14,7 @@ use visionclaw_server::utils::gpu_safety::{
     GPUSafetyConfig, GPUSafetyError, GPUSafetyValidator, SafeKernelExecutor,
 };
 use visionclaw_server::utils::memory_bounds::{
-    MemoryBounds, MemoryBoundsError, SafeArrayAccess, ThreadSafeMemoryBoundsChecker,
+    MemoryBounds, SafeArrayAccess, ThreadSafeMemoryBoundsChecker,
 };
 
 #[cfg(test)]
@@ -785,8 +785,7 @@ mod integration_tests {
 
 #[cfg(test)]
 mod ptx_pipeline_tests {
-    use super::*;
-    use std::path::Path;
+
     use std::time::Instant;
 
     #[test]
@@ -894,7 +893,7 @@ mod ptx_pipeline_tests {
 
 #[cfg(test)]
 mod phase1_stability_tests {
-    use super::*;
+
     use std::time::Instant;
 
     #[test]
@@ -925,7 +924,7 @@ mod phase1_stability_tests {
                 let stress_improvement: f64 = 12.0; // Should be >= 10%
                 let frame_overhead: f64 = 8.0; // Should be < 10ms
 
-                let computation_time = start_time.elapsed();
+                let _computation_time = start_time.elapsed();
 
                 // Validate stability criteria
                 assert!(
@@ -1017,7 +1016,7 @@ mod phase1_stability_tests {
             );
 
             // Check return to baseline within 2 seconds (120 frames at 60fps)
-            let frames_to_baseline = 120;
+            let _frames_to_baseline = 120;
             let final_energy = kinetic_energy_samples.last().unwrap();
             let baseline_energy = 0.6;
 
@@ -1102,7 +1101,7 @@ mod phase1_stability_tests {
 
             // Check efficiency target (0.2-0.6)
             assert!(
-                efficiency >= 0.2 && efficiency <= 0.6,
+                (0.2..=0.6).contains(&efficiency),
                 "Hashing efficiency {:.3} should be between 0.2-0.6 for {}",
                 efficiency,
                 name
@@ -1190,7 +1189,7 @@ mod phase1_stability_tests {
 
 #[cfg(test)]
 mod phase2_analytics_tests {
-    use super::*;
+
     use std::time::Instant;
 
     #[test]
@@ -1210,7 +1209,7 @@ mod phase2_analytics_tests {
             );
 
             // Test deterministic seeding
-            let seed = 42;
+            let _seed = 42;
 
             // Mock GPU vs CPU results
             let gpu_ari: f64 = 0.92;
@@ -1242,14 +1241,14 @@ mod phase2_analytics_tests {
 
             if points >= 100000 {
                 assert!(
-                    speedup >= 10.0 && speedup <= 50.0,
+                    (10.0..=50.0).contains(&speedup),
                     "Speedup {:.1}x should be 10-50x for large datasets",
                     speedup
                 );
             }
 
             // Test stability across 3 seeds
-            let seed_results = vec![
+            let seed_results = [
                 (42, vec![0, 1, 0, 1, 2]),
                 (123, vec![0, 1, 0, 1, 2]),
                 (456, vec![0, 1, 0, 1, 2]),
@@ -1287,7 +1286,7 @@ mod phase2_analytics_tests {
             let start_time = Instant::now();
 
             // Mock anomaly detection
-            let anomaly_scores = vec![0.1f32; total_nodes];
+            let _anomaly_scores = vec![0.1f32; total_nodes];
             let detection_time = start_time.elapsed();
 
             // Mock true anomalies for AUC calculation
@@ -1330,13 +1329,13 @@ mod phase2_analytics_tests {
     fn test_deterministic_seed_behavior() {
         println!("🌱 Testing deterministic seed behavior...");
 
-        let test_data = vec![(0.0, 0.0), (1.0, 1.0), (0.1, 0.1), (1.1, 0.9)];
-        let k = 2;
-        let seed = 42;
+        let _test_data = [(0.0, 0.0), (1.0, 1.0), (0.1, 0.1), (1.1, 0.9)];
+        let _k = 2;
+        let _seed = 42;
 
         // Run same clustering 3 times with same seed
         let mut results = Vec::new();
-        for run in 0..3 {
+        for _run in 0..3 {
             // Mock clustering result - should be identical
             let result = vec![0, 1, 0, 1]; // Mock labels
             results.push(result);
@@ -1365,8 +1364,6 @@ mod phase2_analytics_tests {
 
 #[cfg(test)]
 mod enhanced_safety_tests {
-    use super::*;
-    use std::time::Instant;
 
     #[test]
     fn test_nan_inf_detection_extended() {
@@ -1421,7 +1418,7 @@ mod enhanced_safety_tests {
             ("fragmentation", 100, 1000),      // Many small allocations
         ];
 
-        for (scenario_name, base_size, increment) in memory_scenarios {
+        for (scenario_name, base_size, _increment) in memory_scenarios {
             println!("  Testing {} scenario...", scenario_name);
 
             let mut total_allocated = 0usize;

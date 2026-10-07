@@ -233,10 +233,8 @@ impl CircuitBreaker {
                     consecutive
                 );
 
-                if state != CircuitBreakerState::Open {
-                    if self.should_open_circuit().await {
-                        self.transition_to_open().await;
-                    }
+                if state != CircuitBreakerState::Open && self.should_open_circuit().await {
+                    self.transition_to_open().await;
                 }
             }
             RequestOutcome::Rejected => {

@@ -378,7 +378,7 @@ pub async fn get_paginated_graph_data(
         });
     }
 
-    let total_pages = (total_items + page_size - 1) / page_size;
+    let total_pages = total_items.div_ceil(page_size);
 
     if page >= total_pages {
         warn!(
@@ -696,7 +696,7 @@ fn edge_group_key(edge: &visionclaw_domain::models::edge::Edge) -> &str {
 /// anything already spaced is title-cased word-by-word.
 fn prettify_edge_label(key: &str) -> String {
     let words: Vec<String> = key
-        .split(|c| c == '_' || c == '-' || c == ' ')
+        .split(['_', '-', ' '])
         .filter(|w| !w.is_empty())
         .map(|w| {
             let mut chars = w.chars();

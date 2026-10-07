@@ -45,7 +45,7 @@ impl UnifiedGPUCompute {
         seed: u32,
     ) -> Result<(Vec<i32>, Vec<(f32, f32, f32)>, f32)> {
         // Make CUDA context current for this thread (required when called from spawn_blocking)
-        let _ctx = Context::new(self.device.clone())
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for k-means: {}", e))?;
 
         if num_clusters > self.max_clusters {
@@ -63,7 +63,7 @@ impl UnifiedGPUCompute {
         };
 
         let block_size = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         for centroid in 0..num_clusters {
             let init_kernel = module.get_function("init_centroids_kernel")?;
@@ -98,7 +98,7 @@ impl UnifiedGPUCompute {
             let stream = &self.stream;
             unsafe {
                 launch!(
-                    assign_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                    assign_kernel<<<grid_size, block_size, 0, stream>>>(
                     self.pos_in_x.as_device_ptr(),
                     self.pos_in_y.as_device_ptr(),
                     self.pos_in_z.as_device_ptr(),
@@ -175,8 +175,8 @@ impl UnifiedGPUCompute {
 
         let centroids: Vec<(f32, f32, f32)> = centroids_x
             .into_iter()
-            .zip(centroids_y.into_iter())
-            .zip(centroids_z.into_iter())
+            .zip(centroids_y)
+            .zip(centroids_z)
             .map(|((x, y), z)| (x, y, z))
             .collect();
 
@@ -190,7 +190,7 @@ impl UnifiedGPUCompute {
         tolerance: f32,
         seed: u32,
     ) -> Result<(Vec<i32>, Vec<(f32, f32, f32)>, f32, u32, bool)> {
-        let _ctx = Context::new(self.device.clone())
+        let _ctx = Context::new(self.device)
             .map_err(|e| anyhow!("Failed to set CUDA context for k-means: {}", e))?;
 
         if num_clusters > self.max_clusters {
@@ -202,7 +202,7 @@ impl UnifiedGPUCompute {
         }
 
         let block_size = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         for centroid in 0..num_clusters {
             let init_kernel = self._module.get_function("init_centroids_kernel")?;
@@ -241,7 +241,7 @@ impl UnifiedGPUCompute {
             let stream = &self.stream;
             unsafe {
                 launch!(
-                    assign_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                    assign_kernel<<<grid_size, block_size, 0, stream>>>(
                     self.pos_in_x.as_device_ptr(),
                     self.pos_in_y.as_device_ptr(),
                     self.pos_in_z.as_device_ptr(),
@@ -319,8 +319,8 @@ impl UnifiedGPUCompute {
 
         let centroids: Vec<(f32, f32, f32)> = centroids_x
             .into_iter()
-            .zip(centroids_y.into_iter())
-            .zip(centroids_z.into_iter())
+            .zip(centroids_y)
+            .zip(centroids_z)
             .map(|((x, y), z)| (x, y, z))
             .collect();
 
@@ -339,7 +339,7 @@ impl UnifiedGPUCompute {
         radius: f32,
     ) -> Result<(Vec<f32>, Vec<f32>)> {
         let block_size = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         let grid_dims = int3 {
             x: 32,
@@ -357,7 +357,7 @@ impl UnifiedGPUCompute {
         // 5. k_neighbors and radius are validated algorithm parameters
         unsafe {
             launch!(
-                lof_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                lof_kernel<<<grid_size, block_size, 0, stream>>>(
                 self.pos_in_x.as_device_ptr(),
                 self.pos_in_y.as_device_ptr(),
                 self.pos_in_z.as_device_ptr(),
@@ -405,7 +405,7 @@ impl UnifiedGPUCompute {
         }
 
         let block_size = 256;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         let stats_kernel = self._module.get_function("compute_feature_stats_kernel")?;
         let stats_shared_memory = block_size * 2 * 4;
@@ -446,7 +446,7 @@ impl UnifiedGPUCompute {
         // 4. The kernel performs element-wise (value - mean) / std_dev
         unsafe {
             launch!(
-                zscore_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                zscore_kernel<<<grid_size, block_size, 0, stream>>>(
                 self.feature_values.as_device_ptr(),
                 self.zscore_values.as_device_ptr(),
                 mean,

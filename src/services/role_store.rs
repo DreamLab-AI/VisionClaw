@@ -382,7 +382,7 @@ impl RoleStore {
     ) -> Result<UserRole, RoleStoreError> {
         let key = validate_pubkey(pubkey)?;
         let role_str = role.as_str().to_string();
-        let assigned_by = assigned_by.map(|s| canonicalise_pubkey(s));
+        let assigned_by = assigned_by.map(canonicalise_pubkey);
         self.conn
             .call(move |c| {
                 c.execute(

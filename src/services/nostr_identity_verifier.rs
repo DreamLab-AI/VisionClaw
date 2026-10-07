@@ -21,7 +21,7 @@ pub struct NostrIdentityVerifier;
 
 impl NostrIdentityVerifier {
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 }
 

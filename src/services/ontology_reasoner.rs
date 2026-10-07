@@ -563,11 +563,10 @@ impl OntologyReasoner {
     /// Extract human-readable label from IRI
     fn extract_label_from_iri(&self, iri: &str) -> String {
         iri.split(':')
-            .last()
-            .or(iri.split('/').last())
+            .next_back()
+            .or(iri.split('/').next_back())
             .unwrap_or(iri)
-            .replace('_', " ")
-            .replace('-', " ")
+            .replace(['_', '-'], " ")
     }
 }
 
@@ -582,7 +581,6 @@ pub struct FileContext {
 // Uses Oxigraph test helpers from test_helpers (ADR-11)
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_infer_from_path_person() {

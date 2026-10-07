@@ -221,7 +221,7 @@ impl Sanitizer {
     fn is_suspicious_key(key: &str) -> bool {
         let dangerous_exact_keys = ["__proto__", "constructor", "prototype"];
 
-        if dangerous_exact_keys.iter().any(|&k| key == k) {
+        if dangerous_exact_keys.contains(&key) {
             return true;
         }
 

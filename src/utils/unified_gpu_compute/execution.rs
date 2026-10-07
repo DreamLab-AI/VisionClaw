@@ -8,7 +8,6 @@ use cust::context::Context;
 use cust::launch;
 use cust::memory::{CopyDestination, DeviceBuffer, DevicePointer};
 use log::{debug, info, warn};
-use std::ffi::CStr;
 
 /// Fraction of `viewport_bounds` at which the degree-0 peripheral shell sits.
 ///
@@ -123,7 +122,7 @@ impl UnifiedGPUCompute {
             std::env::var("VISIONCLAW_BLOCK_SIZE")
                 .ok()
                 .and_then(|v| v.parse::<u32>().ok())
-                .filter(|&bs| bs >= 32 && bs <= 1024 && bs % 32 == 0)
+                .filter(|&bs| (32..=1024).contains(&bs) && bs % 32 == 0)
                 .unwrap_or(Self::DEFAULT_BLOCK_SIZE)
         })
     }
@@ -172,12 +171,12 @@ impl UnifiedGPUCompute {
     pub fn execute(&mut self, mut params: SimParams) -> Result<()> {
         // Make CUDA context current for this thread (required when called from spawn_blocking threads)
         // Context::new() on the same device retains the primary context and makes it current
-        let _thread_context = Context::new(self.device.clone())
-            .map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
+        let _thread_context =
+            Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
         params.iteration = self.iteration;
         let block_size = Self::kernel_block_size();
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
 
         if self.num_nodes > self.allocated_nodes {
             return Err(anyhow!("CRITICAL: num_nodes ({}) exceeds allocated_nodes ({}). This would cause buffer overflow!", self.num_nodes, self.allocated_nodes));
@@ -203,14 +202,11 @@ impl UnifiedGPUCompute {
 
         self.params = params;
 
-        let mut c_params_global = self._module.get_global(
-            CStr::from_bytes_with_nul(b"c_params\0")
-                .expect("static null-terminated byte literal is always valid"),
-        )?;
+        let mut c_params_global = self._module.get_global(c"c_params")?;
         c_params_global.copy_from(&[params])?;
 
         if self.num_nodes > 0 && params.stability_threshold > 0.0 {
-            let num_blocks = (self.num_nodes + block_size as usize - 1) / block_size as usize;
+            let num_blocks = self.num_nodes.div_ceil(block_size as usize);
             let shared_mem_size =
                 block_size * (std::mem::size_of::<f32>() + std::mem::size_of::<i32>()) as u32;
 
@@ -565,7 +561,7 @@ impl UnifiedGPUCompute {
         unsafe {
             let stream = &self.stream;
             launch!(
-                build_grid_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                build_grid_kernel<<<grid_size, block_size, 0, stream>>>(
                 self.pos_in_x.as_device_ptr(),
                 self.pos_in_y.as_device_ptr(),
                 self.pos_in_z.as_device_ptr(),
@@ -624,7 +620,7 @@ impl UnifiedGPUCompute {
         safe_copy_to_device(&mut self.cell_end, &self.zero_buffer, "cell_end")?;
 
         let cell_block_size = block_size;
-        let grid_cells_blocks = (num_grid_cells as u32 + cell_block_size - 1) / cell_block_size;
+        let grid_cells_blocks = (num_grid_cells as u32).div_ceil(cell_block_size);
         let compute_cell_bounds_kernel = self
             ._module
             .get_function(self.compute_cell_bounds_kernel_name)?;
@@ -692,17 +688,17 @@ impl UnifiedGPUCompute {
             (
                 self.compute_mask.as_device_ptr(),
                 self.compute_mask_len as i32,
-                ((self.compute_mask_len as u32) + block_size as u32 - 1) / block_size as u32,
+                (self.compute_mask_len as u32).div_ceil(block_size),
             )
         } else {
-            (DevicePointer::<i32>::null(), 0i32, grid_size as u32)
+            (DevicePointer::<i32>::null(), 0i32, grid_size)
         };
 
         unsafe {
             if params.stability_threshold > 0.0 {
                 // Force pass with stability checking variant
                 launch!(
-                    force_pass_kernel<<<force_grid_size, block_size as u32, 0, stream>>>(
+                    force_pass_kernel<<<force_grid_size, block_size, 0, stream>>>(
                     self.pos_in_x.as_device_ptr(),
                     self.pos_in_y.as_device_ptr(),
                     self.pos_in_z.as_device_ptr(),
@@ -739,7 +735,7 @@ impl UnifiedGPUCompute {
                 ))?;
             } else {
                 launch!(
-                    force_pass_kernel<<<force_grid_size, block_size as u32, 0, stream>>>(
+                    force_pass_kernel<<<force_grid_size, block_size, 0, stream>>>(
                     self.pos_in_x.as_device_ptr(),
                     self.pos_in_y.as_device_ptr(),
                     self.pos_in_z.as_device_ptr(),
@@ -813,11 +809,11 @@ impl UnifiedGPUCompute {
                     // shared-mem reduction writes mean position + count.
                     if let Ok(update_kernel) = self._module.get_function("update_centroids_kernel")
                     {
-                        let centroid_shared_memory = block_size as u32 * (3 * 4 + 4);
+                        let centroid_shared_memory = block_size * (3 * 4 + 4);
                         let stream = &self.stream;
                         unsafe {
                             launch!(
-                                update_kernel<<<ncomm as u32, block_size as u32, centroid_shared_memory, stream>>>(
+                                update_kernel<<<ncomm as u32, block_size, centroid_shared_memory, stream>>>(
                                 self.pos_in_x.as_device_ptr(),
                                 self.pos_in_y.as_device_ptr(),
                                 self.pos_in_z.as_device_ptr(),
@@ -841,7 +837,7 @@ impl UnifiedGPUCompute {
                         let stream = &self.stream;
                         unsafe {
                             launch!(
-                                cohesion_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                                cohesion_kernel<<<grid_size, block_size, 0, stream>>>(
                                 self.pos_in_x.as_device_ptr(),
                                 self.pos_in_y.as_device_ptr(),
                                 self.pos_in_z.as_device_ptr(),
@@ -892,7 +888,7 @@ impl UnifiedGPUCompute {
                 // 4. All scalar parameters are finite floats
                 unsafe {
                     launch!(
-                        dw_gravity_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                        dw_gravity_kernel<<<grid_size, block_size, 0, stream>>>(
                         self.pos_in_x.as_device_ptr(),
                         self.pos_in_y.as_device_ptr(),
                         self.pos_in_z.as_device_ptr(),
@@ -919,7 +915,7 @@ impl UnifiedGPUCompute {
         // 5. After this kernel, swap_buffers() exchanges input/output for next iteration
         unsafe {
             launch!(
-                integrate_pass_kernel<<<grid_size as u32, block_size as u32, 0, stream>>>(
+                integrate_pass_kernel<<<grid_size, block_size, 0, stream>>>(
                 self.pos_in_x.as_device_ptr(),
                 self.pos_in_y.as_device_ptr(),
                 self.pos_in_z.as_device_ptr(),
@@ -1040,8 +1036,8 @@ impl UnifiedGPUCompute {
     }
 
     pub fn get_node_positions(&mut self) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
-        let _thread_context = Context::new(self.device.clone())
-            .map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
+        let _thread_context =
+            Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
         let mut pos_x = vec![0.0f32; self.allocated_nodes];
         let mut pos_y = vec![0.0f32; self.allocated_nodes];
@@ -1059,8 +1055,8 @@ impl UnifiedGPUCompute {
     }
 
     pub fn get_node_velocities(&mut self) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
-        let _thread_context = Context::new(self.device.clone())
-            .map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
+        let _thread_context =
+            Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
         let mut vel_x = vec![0.0f32; self.allocated_nodes];
         let mut vel_y = vec![0.0f32; self.allocated_nodes];
@@ -1083,8 +1079,8 @@ impl UnifiedGPUCompute {
         // Bind the primary CUDA context to this thread. Called from spawn_blocking
         // worker threads which do not inherit the context, so the device copies below
         // would otherwise fail with CUDA_ERROR_INVALID_CONTEXT and poison the step.
-        let _thread_context = Context::new(self.device.clone())
-            .map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
+        let _thread_context =
+            Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let n = self.num_nodes.min(self.allocated_nodes);
@@ -1110,8 +1106,8 @@ impl UnifiedGPUCompute {
     /// breaker to drain runaway kinetic energy so the layout can re-settle from
     /// its restored (last-known-good) positions instead of re-exploding.
     pub fn reset_velocities(&mut self) -> Result<()> {
-        let _thread_context = Context::new(self.device.clone())
-            .map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
+        let _thread_context =
+            Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
         let zeros = vec![0.0f32; self.allocated_nodes];
         safe_copy_to_device(&mut self.vel_in_x, &zeros, "vel_in_x")?;
         safe_copy_to_device(&mut self.vel_in_y, &zeros, "vel_in_y")?;

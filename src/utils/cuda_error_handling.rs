@@ -265,14 +265,14 @@ impl CudaErrorHandler {
                 unsafe {
                     cudaGetLastError();
                 }
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::FallbackToCPU => {
                 warn!(
                     "Falling back to CPU for {} due to repeated CUDA errors",
                     operation_name
                 );
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::ResetContext => {
                 warn!(
@@ -280,14 +280,14 @@ impl CudaErrorHandler {
                     operation_name
                 );
                 self.reset_cuda_context();
-                return Err(cuda_error);
+                Err(cuda_error)
             }
             RecoveryStrategy::Abort => {
                 error!(
                     "Aborting {} due to unrecoverable CUDA error",
                     operation_name
                 );
-                return Err(cuda_error);
+                Err(cuda_error)
             }
         }
     }

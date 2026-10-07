@@ -99,14 +99,13 @@ impl FileService {
     pub async fn process_file_upload(&self, payload: web::Bytes) -> Result<GraphData, Error> {
         let content = String::from_utf8(payload.to_vec())
             .map_err(|e| Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-        let metadata = Self::load_or_create_metadata()
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
+        let metadata = Self::load_or_create_metadata().map_err(Error::other)?;
         let mut graph_data = GraphData::new();
 
         let temp_filename = format!("temp_{}.md", time::timestamp_seconds());
         let temp_path = format!("{}/{}", MARKDOWN_DIR, temp_filename);
         if let Err(e) = fs::write(&temp_path, &content) {
-            return Err(Error::new(std::io::ErrorKind::Other, e.to_string()));
+            return Err(Error::other(e.to_string()));
         }
 
         let valid_nodes: Vec<String> = metadata
@@ -140,8 +139,7 @@ impl FileService {
     }
 
     pub async fn list_files(&self) -> Result<Vec<String>, Error> {
-        let metadata = Self::load_or_create_metadata()
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
+        let metadata = Self::load_or_create_metadata().map_err(Error::other)?;
         Ok(metadata.keys().cloned().collect())
     }
 
@@ -154,10 +152,8 @@ impl FileService {
             ));
         }
 
-        let content = fs::read_to_string(&file_path)
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        let metadata = Self::load_or_create_metadata()
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e))?;
+        let content = fs::read_to_string(&file_path).map_err(|e| Error::other(e.to_string()))?;
+        let metadata = Self::load_or_create_metadata().map_err(Error::other)?;
         let mut graph_data = GraphData::new();
 
         let valid_nodes: Vec<String> = metadata
@@ -501,7 +497,7 @@ impl FileService {
         if let Ok(entries) = fs::read_dir(MARKDOWN_DIR) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "md") {
+                if path.extension().is_some_and(|ext| ext == "md") {
                     if let Err(e) = fs::remove_file(&path) {
                         warn!("Failed to remove {}: {}", path.display(), e);
                     }
@@ -529,22 +525,18 @@ impl FileService {
 
         if !markdown_dir.exists() {
             info!("Creating markdown directory at {:?}", markdown_dir);
-            fs::create_dir_all(markdown_dir).map_err(|e| {
-                Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create markdown directory: {}", e),
-                )
-            })?;
+            fs::create_dir_all(markdown_dir)
+                .map_err(|e| Error::other(format!("Failed to create markdown directory: {}", e)))?;
 
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 fs::set_permissions(markdown_dir, fs::Permissions::from_mode(0o777)).map_err(
                     |e| {
-                        Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to set markdown directory permissions: {}", e),
-                        )
+                        Error::other(format!(
+                            "Failed to set markdown directory permissions: {}",
+                            e
+                        ))
                     },
                 )?;
             }
@@ -555,21 +547,17 @@ impl FileService {
             .expect("METADATA_PATH constant has a known parent directory");
         if !metadata_dir.exists() {
             info!("Creating metadata directory at {:?}", metadata_dir);
-            fs::create_dir_all(metadata_dir).map_err(|e| {
-                Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create metadata directory: {}", e),
-                )
-            })?;
+            fs::create_dir_all(metadata_dir)
+                .map_err(|e| Error::other(format!("Failed to create metadata directory: {}", e)))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 fs::set_permissions(metadata_dir, fs::Permissions::from_mode(0o777)).map_err(
                     |e| {
-                        Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to set metadata directory permissions: {}", e),
-                        )
+                        Error::other(format!(
+                            "Failed to set metadata directory permissions: {}",
+                            e
+                        ))
                     },
                 )?;
             }
@@ -579,12 +567,8 @@ impl FileService {
         match fs::write(&test_file, "test") {
             Ok(_) => {
                 info!("Successfully wrote test file to {}", test_file);
-                fs::remove_file(&test_file).map_err(|e| {
-                    Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to remove test file: {}", e),
-                    )
-                })?;
+                fs::remove_file(&test_file)
+                    .map_err(|e| Error::other(format!("Failed to remove test file: {}", e)))?;
                 info!("Successfully removed test file");
                 info!("Directory permissions verified");
                 Ok(())
@@ -607,9 +591,8 @@ impl FileService {
 
     pub fn save_metadata(metadata: &MetadataStore) -> Result<(), Error> {
         let json = crate::utils::json::to_json_pretty(metadata)
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        fs::write(METADATA_PATH, json)
-            .map_err(|e| Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| Error::other(e.to_string()))?;
+        fs::write(METADATA_PATH, json).map_err(|e| Error::other(e.to_string()))?;
         Ok(())
     }
 
@@ -656,7 +639,7 @@ impl FileService {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "md") {
+            if path.extension().is_some_and(|ext| ext == "md") {
                 let file_name = match path.file_name().and_then(|n| n.to_str()) {
                     Some(name) => name.to_string(),
                     None => continue,
@@ -991,7 +974,7 @@ impl FileService {
         );
 
         const BATCH_SIZE: usize = 5;
-        let total_batches = (basic_github_files.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+        let total_batches = basic_github_files.len().div_ceil(BATCH_SIZE);
         info!(
             "fetch_and_process_files: Processing files in {} batches of up to {} files each",
             total_batches, BATCH_SIZE

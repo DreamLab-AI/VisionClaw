@@ -346,6 +346,12 @@ impl AnalyticsSupervisor {
     }
 }
 
+impl Default for AnalyticsSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for AnalyticsSupervisor {
     type Context = Context<Self>;
 

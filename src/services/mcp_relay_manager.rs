@@ -90,7 +90,7 @@ impl McpRelayManager {
         }
 
         let output = Command::new("docker")
-            .args(&["exec", "multi-agent-container", "pgrep", "-f", "mcp-server"])
+            .args(["exec", "multi-agent-container", "pgrep", "-f", "mcp-server"])
             .output();
 
         let duration_ms = start_time.elapsed().as_millis() as f64;
@@ -179,7 +179,7 @@ impl McpRelayManager {
         info!("Starting MCP relay in multi-agent-container...");
 
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "exec",
                 "-d",
                 "multi-agent-container",
@@ -212,7 +212,7 @@ impl McpRelayManager {
 
     pub fn get_relay_logs(lines: usize) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "exec",
                 "multi-agent-container",
                 "tail",
@@ -264,13 +264,19 @@ impl McpRelayManager {
 
     pub fn check_mcp_container() -> bool {
         let output = Command::new("docker")
-            .args(&["ps", "-q", "-f", "name=multi-agent-container"])
+            .args(["ps", "-q", "-f", "name=multi-agent-container"])
             .output();
 
         match output {
             Ok(result) => !result.stdout.is_empty(),
             Err(_) => false,
         }
+    }
+}
+
+impl Default for McpRelayManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

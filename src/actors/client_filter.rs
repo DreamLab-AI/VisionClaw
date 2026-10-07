@@ -143,8 +143,8 @@ pub fn node_passes_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use visionclaw_domain::models::metadata::{Metadata, MetadataStore};
+
+    use visionclaw_domain::models::metadata::Metadata;
     use visionclaw_domain::models::node::Node;
 
     fn create_test_graph() -> GraphData {

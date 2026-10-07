@@ -552,7 +552,7 @@ impl UnifiedGPUCompute {
         self.community_count_active = 0;
         self.last_cohesion_refresh_iter = 0;
 
-        let new_num_blocks = (actual_new_nodes + 255) / 256;
+        let new_num_blocks = actual_new_nodes.div_ceil(256);
         self.partial_inertia = DeviceBuffer::zeroed(new_num_blocks)?;
         self.min_distances = DeviceBuffer::zeroed(actual_new_nodes)?;
 
@@ -598,7 +598,7 @@ impl UnifiedGPUCompute {
         let current_iteration = self.iteration;
         for constraint in &mut constraints {
             if constraint.activation_frame == 0 {
-                constraint.activation_frame = current_iteration as i32;
+                constraint.activation_frame = current_iteration;
                 debug!(
                     "Setting activation frame {} for constraint type {}",
                     current_iteration, constraint.kind

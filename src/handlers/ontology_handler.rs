@@ -290,8 +290,8 @@ pub async fn get_class_hierarchy(
             class
                 .iri
                 .split('#')
-                .last()
-                .or_else(|| class.iri.split('/').last())
+                .next_back()
+                .or_else(|| class.iri.split('/').next_back())
                 .unwrap_or(&class.iri)
                 .to_string()
         });

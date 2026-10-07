@@ -159,7 +159,7 @@ fn convert_gpu_result_to_communities(
     for (node_id, &label) in result.node_labels.iter().enumerate() {
         community_nodes
             .entry(label)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node_id as u32);
     }
 

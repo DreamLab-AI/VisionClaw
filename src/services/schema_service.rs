@@ -60,13 +60,13 @@ impl GraphSchema {
         for (node_type, count) in &self.node_types {
             context.push_str(&format!("- {} ({} nodes)\n", node_type, count));
         }
-        context.push_str("\n");
+        context.push('\n');
 
         context.push_str("## Edge Types\n");
         for (edge_type, count) in &self.edge_types {
             context.push_str(&format!("- {} ({} edges)\n", edge_type, count));
         }
-        context.push_str("\n");
+        context.push('\n');
 
         context.push_str("## Available Node Properties\n");
         for (prop, examples) in &self.node_properties {
@@ -78,7 +78,7 @@ impl GraphSchema {
                 .join(", ");
             context.push_str(&format!("- {} (examples: {})\n", prop, example_str));
         }
-        context.push_str("\n");
+        context.push('\n');
 
         if !self.owl_classes.is_empty() {
             context.push_str("## OWL Classes\n");
@@ -88,7 +88,7 @@ impl GraphSchema {
             if self.owl_classes.len() > 10 {
                 context.push_str(&format!("... and {} more\n", self.owl_classes.len() - 10));
             }
-            context.push_str("\n");
+            context.push('\n');
         }
 
         context.push_str("## Sample Cypher Queries\n");
@@ -137,8 +137,7 @@ impl SchemaService {
         for node in &graph.nodes {
             let node_type = node
                 .node_type
-                .as_ref()
-                .map(|s| s.clone())
+                .clone()
                 .unwrap_or_else(|| "generic".to_string());
             *node_type_counts.entry(node_type).or_insert(0) += 1;
 
@@ -159,8 +158,7 @@ impl SchemaService {
         for edge in &graph.edges {
             let edge_type = edge
                 .edge_type
-                .as_ref()
-                .map(|s| s.clone())
+                .clone()
                 .unwrap_or_else(|| "generic".to_string());
             *edge_type_counts.entry(edge_type).or_insert(0) += 1;
 
@@ -178,25 +176,25 @@ impl SchemaService {
             if !node.label.is_empty() {
                 node_props
                     .entry("label".to_string())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(node.label.clone());
             }
             if let Some(ref color) = node.color {
                 node_props
                     .entry("color".to_string())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(color.clone());
             }
             if let Some(ref group) = node.group {
                 node_props
                     .entry("group".to_string())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(group.clone());
             }
             for (key, value) in &node.metadata {
                 node_props
                     .entry(key.clone())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(value.clone());
             }
         }

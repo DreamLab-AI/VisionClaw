@@ -141,7 +141,7 @@ impl<T> PaginatedResponse<T> {
     pub fn new(items: Vec<T>, total_count: u32, params: &PaginationParams) -> Self {
         let limit = params.get_limit();
         let current_page = params.page.unwrap_or(1);
-        let total_pages = (total_count + limit - 1) / limit;
+        let total_pages = total_count.div_ceil(limit);
 
         Self {
             items,

@@ -49,7 +49,7 @@ impl GpuSemanticAnalyzerAdapter {
     }
 
     fn initialize_gpu(&mut self, num_nodes: usize, num_edges: usize) -> Result<()> {
-        let ptx_paths = vec![
+        let ptx_paths = [
             include_str!("../utils/ptx/sssp_compact.ptx"),
             include_str!("../utils/ptx/gpu_landmark_apsp.ptx"),
             include_str!("../utils/ptx/gpu_clustering_kernels.ptx"),
@@ -202,6 +202,12 @@ impl GpuSemanticAnalyzerAdapter {
     }
 }
 
+impl Default for GpuSemanticAnalyzerAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl GpuSemanticAnalyzer for GpuSemanticAnalyzerAdapter {
     #[instrument(skip(self, graph))]
@@ -237,7 +243,7 @@ impl GpuSemanticAnalyzer for GpuSemanticAnalyzerAdapter {
         }
         edge_row_offsets[num_nodes] = offset;
 
-        let mut edge_list: Vec<_> = graph.edges.iter().cloned().collect();
+        let mut edge_list: Vec<_> = graph.edges.to_vec();
         edge_list.sort_by_key(|e| e.source);
 
         for edge in edge_list {

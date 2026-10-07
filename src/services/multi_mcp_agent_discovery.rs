@@ -773,7 +773,7 @@ mod discovery_interval_tests {
     /// so every server is polled at least as often as it configured.
     #[test]
     fn selects_minimum_across_enabled_servers() {
-        let configs = vec![config(3000, true), config(5000, true), config(4000, true)];
+        let configs = [config(3000, true), config(5000, true), config(4000, true)];
         assert_eq!(select_discovery_interval_ms(configs.iter()), 3000);
     }
 
@@ -781,7 +781,7 @@ mod discovery_interval_tests {
     /// misconfigured discovery_interval_ms=0 cannot spin the loop.
     #[test]
     fn floor_is_applied_to_a_too_small_configured_value() {
-        let configs = vec![config(0, true), config(50, true)];
+        let configs = [config(0, true), config(50, true)];
         assert_eq!(
             select_discovery_interval_ms(configs.iter()),
             MIN_DISCOVERY_INTERVAL_MS
@@ -791,7 +791,7 @@ mod discovery_interval_tests {
     /// ADR-2083: a value already above the floor passes through unchanged.
     #[test]
     fn value_above_floor_is_unchanged() {
-        let configs = vec![config(1200, true)];
+        let configs = [config(1200, true)];
         assert_eq!(select_discovery_interval_ms(configs.iter()), 1200);
     }
 
@@ -799,7 +799,7 @@ mod discovery_interval_tests {
     /// the selected interval, even if their configured value is tiny.
     #[test]
     fn disabled_servers_are_ignored() {
-        let configs = vec![config(100, false), config(6000, true)];
+        let configs = [config(100, false), config(6000, true)];
         assert_eq!(select_discovery_interval_ms(configs.iter()), 6000);
     }
 
@@ -807,7 +807,7 @@ mod discovery_interval_tests {
     /// named default rather than a bare literal or a busy-poll floor.
     #[test]
     fn falls_back_to_default_when_no_server_is_enabled() {
-        let configs = vec![config(100, false), config(200, false)];
+        let configs = [config(100, false), config(200, false)];
         assert_eq!(
             select_discovery_interval_ms(configs.iter()),
             DEFAULT_DISCOVERY_INTERVAL_MS

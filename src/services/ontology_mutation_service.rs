@@ -779,7 +779,7 @@ impl OntologyMutationService {
             .filter_map(|c| {
                 c.term_id.as_ref().and_then(|tid| {
                     if tid.starts_with(prefix) {
-                        tid.split('-').last()?.parse::<u32>().ok()
+                        tid.split('-').next_back()?.parse::<u32>().ok()
                     } else {
                         None
                     }

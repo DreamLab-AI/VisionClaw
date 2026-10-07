@@ -909,7 +909,6 @@ impl Default for StressMajorizationSolver {
 mod tests {
     use super::*;
     use crate::models::{edge::Edge, graph::GraphData, node::Node};
-    use crate::utils::socket_flow_messages::BinaryNodeData;
 
     fn create_test_graph() -> GraphData {
         let mut graph = GraphData {
@@ -997,6 +996,6 @@ mod tests {
         assert!(scores.contains_key(&ConstraintKind::Separation));
 
         let sep_score = scores[&ConstraintKind::Separation];
-        assert!(sep_score >= 0.0 && sep_score <= 1.0);
+        assert!((0.0..=1.0).contains(&sep_score));
     }
 }

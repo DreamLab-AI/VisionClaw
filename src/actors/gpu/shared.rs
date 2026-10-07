@@ -312,6 +312,12 @@ impl StressMajorizationSafety {
     }
 }
 
+impl Default for StressMajorizationSafety {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SharedGPUContext {
     pub async fn acquire_gpu_access_qos(
         &self,

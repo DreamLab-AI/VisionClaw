@@ -387,13 +387,13 @@ impl PathAccessible for SystemSettings {
 impl PathAccessible for XRSettings {
     fn get_by_path(&self, path: &str) -> Result<Box<dyn std::any::Any>, String> {
         match path {
-            "enabled" => Ok(Box::new(self.enabled.clone())),
-            "client_side_enable_xr" => Ok(Box::new(self.client_side_enable_xr.clone())),
+            "enabled" => Ok(Box::new(self.enabled)),
+            "client_side_enable_xr" => Ok(Box::new(self.client_side_enable_xr)),
             "mode" => Ok(Box::new(self.mode.clone())),
             "room_scale" => Ok(Box::new(self.room_scale)),
             "space_type" => Ok(Box::new(self.space_type.clone())),
             "quality" => Ok(Box::new(self.quality.clone())),
-            "render_scale" => Ok(Box::new(self.render_scale.clone())),
+            "render_scale" => Ok(Box::new(self.render_scale)),
             "interaction_distance" => Ok(Box::new(self.interaction_distance)),
             "locomotion_method" => Ok(Box::new(self.locomotion_method.clone())),
             "teleport_ray_color" => Ok(Box::new(self.teleport_ray_color.clone())),
@@ -406,7 +406,7 @@ impl PathAccessible for XRSettings {
         match path {
             "enabled" => {
                 if let Some(val) = value.downcast_ref::<Option<bool>>() {
-                    self.enabled = val.clone();
+                    self.enabled = *val;
                     Ok(())
                 } else {
                     Err("Invalid type for enabled, expected Option<bool>".to_string())

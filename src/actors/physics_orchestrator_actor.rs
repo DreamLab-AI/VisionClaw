@@ -585,7 +585,7 @@ impl PhysicsOrchestratorActor {
             correlation_id: None,
         });
 
-        if self.current_iteration % 300 == 0 {
+        if self.current_iteration.is_multiple_of(300) {
             info!(
                 "PhysicsOrchestratorActor: step {} dispatched ComputeForces to GPU",
                 self.current_iteration
@@ -766,21 +766,21 @@ impl PhysicsOrchestratorActor {
         if is_equilibrium {
             self.simulation_params.equilibrium_stability_counter += 1;
 
-            if self.simulation_params.equilibrium_stability_counter >= check_frames {
-                if !self.simulation_params.is_physics_paused && config.pause_on_equilibrium {
-                    info!("Auto-pause: System reached equilibrium, pausing physics");
-                    self.simulation_params.is_physics_paused = true;
+            if self.simulation_params.equilibrium_stability_counter >= check_frames
+                && !self.simulation_params.is_physics_paused
+                && config.pause_on_equilibrium
+            {
+                info!("Auto-pause: System reached equilibrium, pausing physics");
+                self.simulation_params.is_physics_paused = true;
 
-                    // Genuine equilibrium rest: latch settlement telemetry so it
-                    // reports settled once ticks stop (Continuous-mode analogue of
-                    // the FastSettle convergence latch).
-                    if let Some(ref gpu_addr) = self.gpu_compute_addr {
-                        gpu_addr
-                            .do_send(crate::actors::messages::SetPhysicsSettled { settled: true });
-                    }
-
-                    self.broadcast_physics_paused();
+                // Genuine equilibrium rest: latch settlement telemetry so it
+                // reports settled once ticks stop (Continuous-mode analogue of
+                // the FastSettle convergence latch).
+                if let Some(ref gpu_addr) = self.gpu_compute_addr {
+                    gpu_addr.do_send(crate::actors::messages::SetPhysicsSettled { settled: true });
                 }
+
+                self.broadcast_physics_paused();
             }
         } else {
             if !self.simulation_params.is_physics_paused {
@@ -1226,7 +1226,7 @@ impl Handler<UpdateNodePositions> for PhysicsOrchestratorActor {
                     positions: client_positions,
                 });
 
-                if self.current_iteration % 300 == 0 {
+                if self.current_iteration.is_multiple_of(300) {
                     info!(
                         "PhysicsOrchestratorActor: Broadcasted {} GPU-computed positions to clients (step {}, {} pinned)",
                         node_count, self.current_iteration, self.user_pinned_nodes.len()
@@ -1267,7 +1267,7 @@ impl Handler<RequestPositionSnapshot> for PhysicsOrchestratorActor {
                 .nodes
                 .iter()
                 .map(|node| {
-                    let mut data: BinaryNodeData = node.data.clone().into();
+                    let mut data: BinaryNodeData = node.data.into();
                     data.node_id = node.id;
                     (node.id, data)
                 })
@@ -1371,7 +1371,7 @@ impl Handler<StoreGPUComputeAddress> for PhysicsOrchestratorActor {
             let old_is_stale = self
                 .gpu_compute_addr
                 .as_ref()
-                .map_or(true, |a| !a.connected());
+                .is_none_or(|a| !a.connected());
             if old_is_stale {
                 info!("PhysicsOrchestratorActor: ForceComputeActor address replaced (old disconnected) — resetting gpu_initialized for re-init");
                 self.gpu_initialized = false;
@@ -1985,7 +1985,7 @@ impl Handler<crate::actors::messages::PhysicsStepCompleted> for PhysicsOrchestra
                 );
                 self.fast_settle_iteration_count = 0;
                 self.settle_rest_run = 0;
-            } else if self.fast_settle_iteration_count % 100 == 0 {
+            } else if self.fast_settle_iteration_count.is_multiple_of(100) {
                 debug!(
                     "PhysicsOrchestratorActor: FastSettle progress: iter={}/{}, energy={:.6}",
                     self.fast_settle_iteration_count, max_settle_iterations, energy

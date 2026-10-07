@@ -191,7 +191,7 @@ impl SemanticAxiomTranslator {
         // Update hierarchy cache
         self.hierarchy_cache
             .entry(superclass)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(subclass);
 
         let child_class = format!("node_{}", subclass);

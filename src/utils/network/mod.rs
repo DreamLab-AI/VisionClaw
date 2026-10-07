@@ -172,10 +172,10 @@ impl NetworkResilienceManager {
                                     as std::sync::Arc<dyn std::error::Error + Send + Sync>
                             }
                             CircuitBreakerError::OperationFailed(original_error) => {
-                                std::sync::Arc::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("Operation failed: {:?}", original_error),
-                                ))
+                                std::sync::Arc::new(std::io::Error::other(format!(
+                                    "Operation failed: {:?}",
+                                    original_error
+                                )))
                                     as std::sync::Arc<dyn std::error::Error + Send + Sync>
                             }
                         })
@@ -334,7 +334,6 @@ pub enum ResilienceError<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{sleep, Duration};
 
     #[tokio::test]
     async fn test_resilience_manager_creation() {

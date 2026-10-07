@@ -72,7 +72,7 @@ impl MemoryBounds {
     }
 
     pub fn is_properly_aligned(&self, address: usize) -> bool {
-        address % self.alignment == 0
+        address.is_multiple_of(self.alignment)
     }
 }
 
@@ -343,7 +343,7 @@ impl MemoryUsageReport {
 
     pub fn format_report(&self) -> String {
         let mut report = String::new();
-        report.push_str(&format!("Memory Usage Report:\n"));
+        report.push_str("Memory Usage Report:\n");
         report.push_str(&format!(
             "  Total Allocated: {} bytes ({:.1}% of limit)\n",
             self.total_allocated,

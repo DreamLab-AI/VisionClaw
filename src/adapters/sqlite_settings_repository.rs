@@ -536,7 +536,7 @@ impl SettingsRepository for SqliteSettingsRepository {
                 }
                 let tagged: Vec<(String, String)> = out
                     .into_iter()
-                    .zip(owners.into_iter())
+                    .zip(owners)
                     .map(|((k, v), owner)| {
                         let tag = if !owner.is_empty() { "U" } else { "G" };
                         (k, format!("{}\u{0}{}", tag, v))

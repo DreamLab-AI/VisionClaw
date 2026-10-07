@@ -344,6 +344,12 @@ impl ResourceSupervisor {
     }
 }
 
+impl Default for ResourceSupervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for ResourceSupervisor {
     type Context = Context<Self>;
 

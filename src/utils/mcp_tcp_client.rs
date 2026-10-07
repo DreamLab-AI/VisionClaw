@@ -461,7 +461,7 @@ impl McpTcpClient {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let performance = self.parse_performance_data(agent_data.get("performance"))?;
 
@@ -600,7 +600,7 @@ impl McpTcpClient {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         Ok(AgentExtendedMetadata {
             session_id: meta
@@ -681,7 +681,7 @@ impl McpTcpClient {
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect()
                     })
-                    .unwrap_or_else(Vec::new),
+                    .unwrap_or_default(),
             },
         )
     }

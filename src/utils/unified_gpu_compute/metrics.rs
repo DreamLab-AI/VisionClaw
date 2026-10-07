@@ -23,7 +23,7 @@ impl UnifiedGPUCompute {
             .performance_metrics
             .kernel_times
             .entry(kernel_name.to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
         times.push(execution_time_ms);
         if times.len() > 100 {
             times.remove(0);
@@ -273,7 +273,7 @@ impl UnifiedGPUCompute {
         info!("Running GPU stress majorization with convergence detection");
 
         let block_size = 256u32;
-        let grid_size = (self.num_nodes as u32 + block_size - 1) / block_size;
+        let grid_size = (self.num_nodes as u32).div_ceil(block_size);
         let n = self.num_nodes;
 
         // Resolve the clustering module (stress kernels live in GpuClusteringKernels PTX)
@@ -419,7 +419,7 @@ impl UnifiedGPUCompute {
         }
 
         let block_size = 256u32;
-        let grid_size = (n as u32 + block_size - 1) / block_size;
+        let grid_size = (n as u32).div_ceil(block_size);
 
         let module = if let Some(ref clustering_mod) = self.clustering_module {
             clustering_mod
@@ -567,7 +567,7 @@ impl UnifiedGPUCompute {
         let mut d_pagerank_new = DeviceBuffer::<f32>::zeroed(num_nodes)?;
         let d_out_degree = DeviceBuffer::from_slice(&out_degrees)?;
 
-        let num_blocks = (num_nodes + 255) / 256;
+        let num_blocks = num_nodes.div_ceil(256);
         let d_diff_buffer = DeviceBuffer::<f32>::zeroed(num_blocks)?;
 
         let stream_ptr = self.stream.as_inner() as *mut ::std::os::raw::c_void;

@@ -545,7 +545,7 @@ async fn get_real_agents_from_app_state(
                     memory: Some(agent.memory_usage),
                     activity: Some(agent.workload),
                     tasks_active: Some(1),
-                    current_task: Some(format!("Agent running")),
+                    current_task: Some("Agent running".to_string()),
                 },
             )
             .collect();

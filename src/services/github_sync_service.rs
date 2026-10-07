@@ -187,8 +187,7 @@ fn build_node_from_entity(
         vx: 0.0,
         vy: 0.0,
         vz: 0.0,
-    }
-    .into();
+    };
     node
 }
 
@@ -399,7 +398,7 @@ impl GitHubSyncService {
             info!(
                 "Processing batch {}/{} ({} files)",
                 batch_idx + 1,
-                (files_to_process.len() + BATCH_SIZE - 1) / BATCH_SIZE,
+                files_to_process.len().div_ceil(BATCH_SIZE),
                 batch.len()
             );
 

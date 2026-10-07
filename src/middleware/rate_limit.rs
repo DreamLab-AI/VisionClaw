@@ -112,10 +112,7 @@ impl RateLimitState {
         let window_start = now - config.window;
 
         // Get or create request history for this identifier
-        let history = self
-            .requests
-            .entry(identifier.to_string())
-            .or_insert_with(VecDeque::new);
+        let history = self.requests.entry(identifier.to_string()).or_default();
 
         // Pop expired entries from the front (oldest first)
         while let Some(&front) = history.front() {
@@ -218,9 +215,8 @@ impl RateLimit {
         // Priority 3: Check Authorization header for Bearer token
         if let Some(auth_header) = req.headers().get("Authorization") {
             if let Ok(auth) = auth_header.to_str() {
-                if auth.starts_with("Bearer ") {
+                if let Some(token) = auth.strip_prefix("Bearer ") {
                     // Hash or truncate the token for identifier
-                    let token = &auth[7..];
                     let token_prefix = &token[..token.len().min(16)];
                     return format!("bearer:{}", token_prefix);
                 }

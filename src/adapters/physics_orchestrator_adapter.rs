@@ -112,7 +112,7 @@ impl PhysicsSimulator for PhysicsOrchestratorAdapter {
             .iter()
             .map(|node| {
                 let client_data: crate::utils::socket_flow_messages::BinaryNodeDataClient =
-                    node.data.clone().into();
+                    node.data.into();
                 (node.id, Self::convert_position_to_port(&client_data))
             })
             .collect();
@@ -162,7 +162,7 @@ impl PhysicsSimulator for PhysicsOrchestratorAdapter {
         let actor_constraints: Vec<visionclaw_domain::models::constraints::Constraint> =
             constraints
                 .iter()
-                .map(|c| Self::convert_constraint_to_actor(c))
+                .map(Self::convert_constraint_to_actor)
                 .collect();
 
         let mut constraint_set = ConstraintSet::default();

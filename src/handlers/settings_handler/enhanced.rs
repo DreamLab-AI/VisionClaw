@@ -232,7 +232,6 @@ impl EnhancedSettingsHandler {
                 if is_auto_balance_change || !auto_balance_active {
                     propagate_physics_to_gpu(&state, &app_settings, "knowledge").await;
                     if is_auto_balance_change {}
-                } else {
                 }
 
                 let response_dto: SettingsResponseDTO = (&app_settings).into();

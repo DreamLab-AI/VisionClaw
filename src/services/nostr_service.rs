@@ -379,7 +379,7 @@ impl NostrService {
             Err(e) => {
                 error!("Failed to serialize auth event with id {}: {}", event.id, e);
                 return Err(NostrError::JsonError(serde_json::Error::io(
-                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+                    std::io::Error::other(e.to_string()),
                 )));
             }
         };

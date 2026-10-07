@@ -318,7 +318,7 @@ where
                         Ok(()) => match serde_json::to_vec(&json_value) {
                             Ok(sanitized_bytes) => {
                                 let new_payload = actix_web::dev::Payload::from(sanitized_bytes);
-                                req.set_payload(new_payload.into());
+                                req.set_payload(new_payload);
 
                                 debug!("Request payload sanitized successfully");
                             }

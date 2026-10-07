@@ -70,7 +70,10 @@ fn spawn_fake_server(
                 }
                 let lower = trimmed.to_ascii_lowercase();
                 if lower.starts_with("authorization:") {
-                    authorization = trimmed.splitn(2, ':').nth(1).map(|v| v.trim().to_string());
+                    authorization = trimmed
+                        .split_once(':')
+                        .map(|x| x.1)
+                        .map(|v| v.trim().to_string());
                 } else if let Some(v) = lower.strip_prefix("content-length:") {
                     content_length = v.trim().parse().unwrap_or(0);
                 }

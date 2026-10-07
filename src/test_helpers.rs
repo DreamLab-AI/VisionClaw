@@ -12,9 +12,8 @@ use tokio::sync::RwLock;
 
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::ontology_repository::{
-    AxiomType, InferenceResults, OntologyMetrics, OntologyRepository, OntologyRepositoryError,
-    OwlAxiom, OwlClass, OwlProperty, PathfindingCacheEntry, PropertyType, Result as OntResult,
-    ValidationReport,
+    InferenceResults, OntologyMetrics, OntologyRepository, OwlAxiom, OwlClass, OwlProperty,
+    Result as OntResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ pub async fn oxigraph_available() -> bool {
 #[macro_export]
 macro_rules! skip_without_oxigraph {
     () => {
-        if !crate::test_helpers::oxigraph_available().await {
+        if !$crate::test_helpers::oxigraph_available().await {
             eprintln!("SKIPPED: Oxigraph store not available");
             return;
         }
@@ -65,6 +64,12 @@ impl MockOntologyRepository {
             graph: RwLock::new(None),
             inference_results: RwLock::new(None),
         }
+    }
+}
+
+impl Default for MockOntologyRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

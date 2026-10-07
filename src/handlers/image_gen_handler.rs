@@ -675,7 +675,7 @@ pub async fn submit_image_job(
     let solid_url = format!(
         "{}{}",
         solid_base().trim_end_matches("/api/solid"),
-        &pod_path
+        pod_path
     );
 
     let client = Client::builder()

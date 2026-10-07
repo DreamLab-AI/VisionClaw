@@ -596,6 +596,12 @@ impl GitHubPRService {
     }
 }
 
+impl Default for GitHubPRService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

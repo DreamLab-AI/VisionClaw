@@ -512,7 +512,7 @@ impl PresenceActor {
             if !sub.frame_recipient.connected() {
                 continue;
             }
-            let _ = sub.frame_recipient.do_send(envelope.clone());
+            sub.frame_recipient.do_send(envelope.clone());
         }
     }
 
@@ -541,7 +541,7 @@ impl PresenceActor {
             let envelope = RoomEventEnvelope::AgentPresenceExpired { local_id };
             for sub in self.subscribers.values() {
                 if sub.event_recipient.connected() {
-                    let _ = sub.event_recipient.do_send(envelope.clone());
+                    sub.event_recipient.do_send(envelope.clone());
                 }
             }
         }

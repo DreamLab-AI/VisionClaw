@@ -127,7 +127,6 @@ pub async fn initialize_event_coordinator(
 mod tests {
     use super::*;
     use crate::utils::time;
-    use chrono::Utc;
 
     #[tokio::test]
     async fn test_event_coordinator_creation() {}

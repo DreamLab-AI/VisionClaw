@@ -532,7 +532,7 @@ pub fn encode_node_data_extended_with_sssp(
         buffer.extend_from_slice(&a.centrality.to_le_bytes());
     }
 
-    if nodes.len() > 0 {
+    if !nodes.is_empty() {
         trace!(
             "Encoded binary data with agent flags (v{}): {} bytes for {} nodes",
             protocol_version,
@@ -588,7 +588,7 @@ pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, Strin
         ));
     }
 
-    if data.len() < 1 {
+    if data.is_empty() {
         return Err("Data too small for protocol version".to_string());
     }
 
@@ -618,7 +618,7 @@ pub fn decode_node_data(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, Strin
 /// Decode Protocol V3 with analytics data (P0-4)
 /// Returns standard BinaryNodeData (analytics data is discarded in basic decode)
 fn decode_node_data_v3(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String> {
-    if data.len() % WIRE_V3_ITEM_SIZE != 0 {
+    if !data.len().is_multiple_of(WIRE_V3_ITEM_SIZE) {
         return Err(format!(
             "Data size {} is not a multiple of V3 wire item size {}",
             data.len(),
@@ -644,7 +644,7 @@ fn decode_node_data_v3(data: &[u8]) -> Result<Vec<(u32, BinaryNodeData)>, String
     let max_samples = 3;
     let mut samples_logged = 0;
 
-    for chunk in data.chunks_exact(WIRE_V3_ITEM_SIZE) {
+    for chunk in data.as_chunks::<WIRE_V3_ITEM_SIZE>().0 {
         let mut cursor = 0;
 
         // Node ID (4 bytes)

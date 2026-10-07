@@ -151,9 +151,8 @@ pub use client_messages::{
     AuthenticateClient, BroadcastAgentActionFrame, BroadcastMessage, BroadcastNodePositions,
     BroadcastPositions, ClientBroadcastAck, ClientRecipients, ForcePositionBroadcast,
     GetClientCount, InitialClientSync, RegisterClient, RelayToUserSessions, SendInitialGraphLoad,
-    SendPositionUpdate,
-    SendToClientBinary, SendToClientText, SetGraphServiceAddress, UnregisterClient,
-    UpdateClientFilter,
+    SendPositionUpdate, SendToClientBinary, SendToClientText, SetGraphServiceAddress,
+    UnregisterClient, UpdateClientFilter,
 };
 
 // --- analytics_messages ---

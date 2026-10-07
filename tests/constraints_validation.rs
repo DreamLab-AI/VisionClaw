@@ -4,7 +4,6 @@
 #[cfg(test)]
 #[allow(unused_variables)]
 mod constraint_system_tests {
-    use std::collections::HashMap;
 
     // Test the complete constraint translation pipeline
     #[test]
@@ -22,7 +21,7 @@ mod constraint_system_tests {
         println!("  - Containment (PartOf relations)");
 
         // Test priority system
-        let priorities = vec![1, 3, 5, 8]; // User, Inferred, Asserted, Default
+        let priorities = [1, 3, 5, 8]; // User, Inferred, Asserted, Default
         let weights: Vec<f32> = priorities
             .iter()
             .map(|p| 10.0_f32.powf(-(*p as f32 - 1.0) / 9.0))
@@ -117,8 +116,8 @@ mod constraint_system_tests {
     #[test]
     fn test_weighted_blending_formula() {
         // Blended value = Σ(weight_i × value_i) / Σ(weight_i)
-        let values = vec![10.0, 20.0];
-        let weights = vec![1.0, 0.1]; // Priority 1 and 10
+        let values = [10.0, 20.0];
+        let weights = [1.0, 0.1]; // Priority 1 and 10
 
         let total_weight: f32 = weights.iter().sum();
         let weighted_sum: f32 = values.iter().zip(weights.iter()).map(|(v, w)| v * w).sum();
@@ -145,8 +144,8 @@ mod constraint_system_tests {
         let far_reduction = (1.0 - far_active as f32 / total_constraints as f32) * 100.0;
         let medium_reduction = (1.0 - medium_active as f32 / total_constraints as f32) * 100.0;
 
-        assert!(far_reduction >= 60.0 && far_reduction <= 80.0);
-        assert!(medium_reduction >= 40.0 && medium_reduction <= 60.0);
+        assert!((60.0..=80.0).contains(&far_reduction));
+        assert!((40.0..=60.0).contains(&medium_reduction));
     }
 
     #[test]
@@ -196,7 +195,7 @@ mod constraint_system_tests {
     #[test]
     fn test_constraint_types_coverage() {
         // Verify all 6 physics constraint types are implemented
-        let constraint_types = vec![
+        let constraint_types = [
             "Separation",
             "Clustering",
             "Colocation",

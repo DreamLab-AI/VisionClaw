@@ -232,7 +232,7 @@ impl OntologyReasoningService {
             if axiom.axiom_type == AxiomType::SubClassOf {
                 parent_map
                     .entry(axiom.object.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(axiom.subject.clone());
                 child_map.insert(axiom.subject.clone(), axiom.object.clone());
             }
@@ -463,7 +463,7 @@ impl OntologyReasoningService {
 // Uses Oxigraph test helpers from test_helpers (ADR-11)
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -497,10 +497,8 @@ mod tests {
         );
         parent_map.insert("child1".to_string(), vec!["grandchild".to_string()]);
 
-        let count = service.count_descendants(
-            &vec!["child1".to_string(), "child2".to_string()],
-            &parent_map,
-        );
+        let count =
+            service.count_descendants(&["child1".to_string(), "child2".to_string()], &parent_map);
 
         // 2 children + 1 grandchild = 3 total descendants
         assert_eq!(count, 3);

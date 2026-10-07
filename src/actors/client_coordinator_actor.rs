@@ -134,7 +134,7 @@ impl DisconnectedClientQueue {
 
     /// Start buffering for a newly disconnected client.
     fn track_disconnect(&mut self, client_id: usize) {
-        self.buffers.entry(client_id).or_insert_with(VecDeque::new);
+        self.buffers.entry(client_id).or_default();
         self.disconnected_at.insert(client_id, Instant::now());
     }
 
@@ -448,8 +448,8 @@ impl ClientManager {
 
     pub fn broadcast_message(&self, message: String) -> usize {
         let mut broadcast_count = 0;
-        for (_, client_state) in &self.clients {
-            let _ = client_state
+        for client_state in self.clients.values() {
+            client_state
                 .addr
                 .text
                 .do_send(SendToClientText(message.clone()));
@@ -465,7 +465,12 @@ impl ClientManager {
     /// ADR-2134 same-user relay: hand `message` to every session authenticated
     /// as exactly `pubkey`, except `exclude`. Sessions with no pubkey or a
     /// different one never receive it. Returns the delivery count.
-    pub fn relay_text_to_pubkey(&self, pubkey: &str, exclude: Option<usize>, message: &str) -> usize {
+    pub fn relay_text_to_pubkey(
+        &self,
+        pubkey: &str,
+        exclude: Option<usize>,
+        message: &str,
+    ) -> usize {
         if pubkey.is_empty() {
             return 0;
         }
@@ -474,7 +479,12 @@ impl ClientManager {
             if Some(id) == exclude || client.pubkey.as_deref() != Some(pubkey) {
                 continue;
             }
-            if client.addr.text.try_send(SendToClientText(message.to_owned())).is_ok() {
+            if client
+                .addr
+                .text
+                .try_send(SendToClientText(message.to_owned()))
+                .is_ok()
+            {
                 n += 1;
             }
         }
@@ -487,6 +497,12 @@ impl ClientManager {
             .filter(|client| !client.initial_sync_completed)
             .map(|client| client.client_id)
             .collect()
+    }
+}
+
+impl Default for ClientManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -605,7 +621,7 @@ impl ClientCoordinatorActor {
                 old_client_id
             );
             for msg in messages {
-                let _ = addr.binary.do_send(SendToClientBinary(msg));
+                addr.binary.do_send(SendToClientBinary(msg));
             }
         }
     }
@@ -728,7 +744,7 @@ impl ClientCoordinatorActor {
 
         if !self.position_cache.is_empty() && self.should_broadcast() {
             let mut position_data = Vec::new();
-            for (_, node_data) in &self.position_cache {
+            for node_data in self.position_cache.values() {
                 position_data.push(*node_data);
             }
 
@@ -823,7 +839,7 @@ impl ClientCoordinatorActor {
         }
 
         let mut position_data = Vec::new();
-        for (_, node_data) in &self.position_cache {
+        for node_data in self.position_cache.values() {
             position_data.push(*node_data);
         }
 
@@ -978,7 +994,7 @@ impl ClientCoordinatorActor {
         }
 
         let mut position_data = Vec::new();
-        for (_, node_data) in &self.position_cache {
+        for node_data in self.position_cache.values() {
             position_data.push(*node_data);
         }
 
@@ -1155,6 +1171,12 @@ impl ClientCoordinatorActor {
     }
 }
 
+impl Default for ClientCoordinatorActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCoordinatorStats {
     pub active_clients: usize,
@@ -1246,7 +1268,7 @@ impl Handler<RegisterClient> for ClientCoordinatorActor {
                 Ok(manager) => manager,
                 Err(e) => {
                     error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e).into());
+                    return Err(format!("Failed to acquire client manager lock: {}", e));
                 }
             };
             manager.register_client(msg.recipients)
@@ -1794,7 +1816,7 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
             });
 
             // Log at trace level to avoid spam (every 100th ACK at debug)
-            if msg.sequence_id % 100 == 0 {
+            if msg.sequence_id.is_multiple_of(100) {
                 debug!(
                     "ClientBroadcastAck: seq={}, nodes={}, client_timestamp={}ms, client_id={:?}",
                     msg.sequence_id, msg.nodes_received, msg.timestamp, msg.client_id
@@ -1802,7 +1824,7 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
             }
         } else {
             // GPU address not set, log warning once per 1000 ACKs
-            if msg.sequence_id % 1000 == 0 {
+            if msg.sequence_id.is_multiple_of(1000) {
                 warn!("ClientBroadcastAck: GPU compute address not set, cannot forward ACK");
             }
         }
@@ -1872,7 +1894,9 @@ impl Handler<RelayToUserSessions> for ClientCoordinatorActor {
 
     fn handle(&mut self, msg: RelayToUserSessions, _ctx: &mut Self::Context) -> Self::Result {
         match handle_rwlock_error(self.client_manager.read()) {
-            Ok(manager) => manager.relay_text_to_pubkey(&msg.pubkey, msg.exclude_client_id, &msg.message),
+            Ok(manager) => {
+                manager.relay_text_to_pubkey(&msg.pubkey, msg.exclude_client_id, &msg.message)
+            }
             Err(e) => {
                 error!("RwLock error: {}", e);
                 0
@@ -2054,7 +2078,7 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
                                           client_id, filtered_nodes.len(), filtered_edges.len());
 
                                     // Send filtered graph data to this specific client
-                                    let _ = client.addr.initial_load.do_send(SendInitialGraphLoad {
+                                    client.addr.initial_load.do_send(SendInitialGraphLoad {
                                         nodes: filtered_nodes,
                                         edges: filtered_edges,
                                     });
@@ -2098,10 +2122,18 @@ mod tests {
     }
     impl Handler<crate::actors::messages::SendInitialGraphLoad> for Probe {
         type Result = ();
-        fn handle(&mut self, _: crate::actors::messages::SendInitialGraphLoad, _: &mut Self::Context) {}
+        fn handle(
+            &mut self,
+            _: crate::actors::messages::SendInitialGraphLoad,
+            _: &mut Self::Context,
+        ) {
+        }
     }
 
-    fn probe() -> (ClientRecipients, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    fn probe() -> (
+        ClientRecipients,
+        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    ) {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let addr = Probe(seen.clone()).start();
         let r = ClientRecipients {
@@ -2129,17 +2161,27 @@ mod tests {
 
         let n = m.relay_text_to_pubkey("alice", Some(desk_id), "{\"type\":\"beatClock\"}");
         assert_eq!(n, 1, "only alice's other session");
-        assert_eq!(m.relay_text_to_pubkey("", None, "x"), 0, "empty pubkey reaches nobody");
+        assert_eq!(
+            m.relay_text_to_pubkey("", None, "x"),
+            0,
+            "empty pubkey reaches nobody"
+        );
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(xr.lock().unwrap().as_slice(), ["{\"type\":\"beatClock\"}"]);
-        assert!(desk.lock().unwrap().is_empty(), "never echoed to the sender");
+        assert!(
+            desk.lock().unwrap().is_empty(),
+            "never echoed to the sender"
+        );
         assert!(other.lock().unwrap().is_empty(), "never cross-user");
-        assert!(anon.lock().unwrap().is_empty(), "never to an unauthenticated session");
+        assert!(
+            anon.lock().unwrap().is_empty(),
+            "never to an unauthenticated session"
+        );
     }
 
     #[test]
     fn test_client_manager_registration() {
-        let mut manager = ClientManager::new();
+        let manager = ClientManager::new();
         assert_eq!(manager.get_client_count(), 0);
     }
 

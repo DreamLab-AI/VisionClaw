@@ -409,12 +409,12 @@ mod tests {
         settings
             .set_json_by_path("enableHologram", Value::Bool(false))
             .unwrap();
-        assert_eq!(settings.enable_hologram, false);
+        assert!(!settings.enable_hologram);
 
         settings
             .set_json_by_path("autoBalance", Value::Bool(true))
             .unwrap();
-        assert_eq!(settings.auto_balance, true);
+        assert!(settings.auto_balance);
 
         settings
             .set_json_by_path("maxVelocity", Value::Number(safe_json_number(25.5)))
@@ -488,7 +488,7 @@ mod tests {
         assert!(settings
             .set_json_by_path("enableFeature", Value::Bool(false))
             .is_ok());
-        assert_eq!(settings.enable_feature, false);
+        assert!(!settings.enable_feature);
 
         let result = settings.set_json_by_path("nonExistentField", Value::Bool(true));
         assert!(result.is_err());
@@ -539,7 +539,7 @@ mod tests {
             settings.set_json_by_path(path, value).unwrap();
         }
 
-        assert_eq!(settings.visualisation.enable_hologram, true);
+        assert!(settings.visualisation.enable_hologram);
         assert_eq!(settings.visualisation.hologram_settings.ring_count, 5);
 
         let json = serde_json::to_value(&settings).unwrap();

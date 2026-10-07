@@ -269,7 +269,11 @@ pub async fn validate(
         // Validate subject exists
         let subject_check = format!(
             "MATCH (n:{}) RETURN n",
-            axiom.subject.split(':').last().unwrap_or(&axiom.subject)
+            axiom
+                .subject
+                .split(':')
+                .next_back()
+                .unwrap_or(&axiom.subject)
         );
         if let Ok(validation) = query_service
             .validate_and_execute_cypher(&subject_check)

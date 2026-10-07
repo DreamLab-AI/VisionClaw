@@ -70,7 +70,7 @@ fn reject_nonfinite_constraints(
         .collect();
 
     let (kept, rejected) = partition_finite_constraints(&inputs, &pos_by_id);
-    let survivors: Vec<ConstraintData> = kept.iter().map(|&i| buffer[i].clone()).collect();
+    let survivors: Vec<ConstraintData> = kept.iter().map(|&i| buffer[i]).collect();
     (survivors, rejected.len())
 }
 
@@ -81,7 +81,7 @@ fn scale_constraint_buffer(base: &[ConstraintData], strength: f32) -> Vec<Constr
     let s = strength.clamp(0.0, 1.0);
     base.iter()
         .map(|c| {
-            let mut scaled = c.clone();
+            let mut scaled = *c;
             scaled.weight = c.weight * s;
             scaled
         })
@@ -433,6 +433,12 @@ impl OntologyConstraintActor {
     }
 }
 
+impl Default for OntologyConstraintActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actor for OntologyConstraintActor {
     type Context = Context<Self>;
 
@@ -691,7 +697,7 @@ impl Handler<UpdateConstraints> for OntologyConstraintActor {
             .ontology_constraints
             .iter()
             .filter(|c| c.active)
-            .map(|c| ConstraintData::from_constraint(c))
+            .map(ConstraintData::from_constraint)
             .collect();
 
         if self.gpu_initialized && self.shared_context.is_some() {
@@ -772,7 +778,6 @@ impl Handler<AdjustConstraintWeights> for OntologyConstraintActor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::physics::ontology_constraints::OWLAxiomType;
 
     #[test]
     fn test_actor_creation() {
@@ -855,7 +860,7 @@ mod tests {
         actor.constraint_buffer = actor
             .ontology_constraints
             .iter()
-            .map(|c| ConstraintData::from_constraint(c))
+            .map(ConstraintData::from_constraint)
             .collect();
 
         assert_eq!(actor.constraint_buffer.len(), 2);

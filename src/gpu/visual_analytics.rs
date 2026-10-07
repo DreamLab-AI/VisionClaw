@@ -616,6 +616,12 @@ impl VisualAnalyticsBuilder {
     }
 }
 
+impl Default for VisualAnalyticsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -636,7 +642,7 @@ mod tests {
         let layer = IsolationLayer::new(0);
         assert!(layer.validate().is_ok());
 
-        let mut layer = IsolationLayer::new(-1);
+        let layer = IsolationLayer::new(-1);
         assert!(layer.validate().is_err());
 
         let mut layer = IsolationLayer::new(0);

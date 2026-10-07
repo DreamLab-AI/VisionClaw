@@ -86,6 +86,12 @@ impl GPUMemoryTracker {
     }
 }
 
+impl Default for GPUMemoryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub struct KernelTracker {
     executions: HashMap<String, KernelStats>,
@@ -157,6 +163,12 @@ impl KernelTracker {
         } else {
             0.0
         }
+    }
+}
+
+impl Default for KernelTracker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -444,7 +456,7 @@ impl GPUSafetyValidator {
             self.track_allocation(format!("{}_operation", operation_name), memory_required)?;
         }
 
-        let grid_size = ((node_count + 255) / 256) as u32;
+        let grid_size = node_count.div_ceil(256) as u32;
         let block_size = 256u32;
 
         self.validate_kernel_params(

@@ -136,7 +136,7 @@ impl Clone for UpdateGPUGraphData {
     fn clone(&self) -> Self {
         Self {
             graph: self.graph.clone(),
-            correlation_id: self.correlation_id.clone(),
+            correlation_id: self.correlation_id,
         }
     }
 }

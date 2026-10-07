@@ -331,7 +331,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
+
     use tempfile::tempdir;
 
     #[actix_rt::test]

@@ -143,7 +143,7 @@ pub async fn set_layout_mode(
         .collect();
 
     let config = LayoutModeConfig {
-        mode: mode.clone(),
+        mode,
         ..LayoutModeConfig::default()
     };
 

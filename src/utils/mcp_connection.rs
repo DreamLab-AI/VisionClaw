@@ -46,7 +46,7 @@ impl PersistentMCPConnection {
             }
         });
 
-        let msg = format!("{}\n", init_request.to_string());
+        let msg = format!("{}\n", init_request);
         debug!("Sending MCP init: {}", msg.trim());
         stream.write_all(msg.as_bytes()).await?;
         stream.flush().await?;
@@ -121,7 +121,7 @@ impl PersistentMCPConnection {
             "params": params
         });
 
-        let msg = format!("{}\n", request.to_string());
+        let msg = format!("{}\n", request);
         debug!("Sending MCP command: {}", msg.trim());
 
         let mut stream = self.stream.lock().await;
