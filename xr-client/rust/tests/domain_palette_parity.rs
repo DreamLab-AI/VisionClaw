@@ -166,3 +166,57 @@ fn hubs_are_lifted_exactly_like_three_js() {
         }
     }
 }
+
+fn hud_source() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/hud.gd");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// Every `Color("#…")` inside the named GDScript const, in order, plus (for
+/// array-of-rows consts) the first quoted string on each row.
+fn hud_const(src: &str, name: &str) -> Vec<(Option<String>, String)> {
+    let start = src
+        .find(&format!("const {name}"))
+        .unwrap_or_else(|| panic!("hud.gd has no const {name}"));
+    let body = &src[start..];
+    let end = body.find("\n]").map(|i| i + 2).unwrap_or_else(|| body.find('\n').unwrap());
+    let mut out = Vec::new();
+    for line in body[..end].lines() {
+        let mut rest = line;
+        while let Some(i) = rest.find("Color(\"#") {
+            let hex = &rest[i + 7..i + 14];
+            let key = line.trim_start().starts_with("[\"").then(|| line.split('"').nth(1).unwrap().to_string());
+            out.push((key, hex.to_string()));
+            rest = &rest[i + 14..];
+        }
+    }
+    out
+}
+
+#[test]
+fn hud_key_domain_swatches_match_the_palette() {
+    let src = hud_source();
+    let rows = hud_const(&src, "KEY_DOMAIN_SWATCHES");
+    assert_eq!(rows.len(), 8, "one swatch per canonical domain");
+    for (key, hex) in rows {
+        let key = key.expect("row carries its domain key");
+        assert!(
+            domain_hex(Some(&key)).eq_ignore_ascii_case(&hex),
+            "hud.gd swatch for {key} is {hex}, palette says {}",
+            domain_hex(Some(&key))
+        );
+    }
+    let fallback = hud_const(&src, "KEY_DOMAIN_FALLBACK");
+    assert!(fallback[0].1.eq_ignore_ascii_case(DEFAULT_DOMAIN_COLOR));
+}
+
+#[test]
+fn hud_key_hull_swatches_match_the_cluster_palette() {
+    let rows = hud_const(&hud_source(), "KEY_HULL_SWATCHES");
+    let want = &visionclaw_xr_gdext::hulls::GPU_CLUSTER_COLORS[..4];
+    let got: Vec<String> = rows.into_iter().map(|(_, h)| h).collect();
+    assert_eq!(got.len(), 4);
+    for (g, w) in got.iter().zip(want) {
+        assert!(g.eq_ignore_ascii_case(w), "{g} vs {w}");
+    }
+}

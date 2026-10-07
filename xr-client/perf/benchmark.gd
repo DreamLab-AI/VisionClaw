@@ -29,6 +29,11 @@ var _tri_counts: PackedInt32Array = PackedInt32Array()
 var _static_mem_kb: PackedInt32Array = PackedInt32Array()
 var _started_at_us: int = 0
 var _fixture: Dictionary = {}
+# WP4: the cluster-hull layer at its maximum (32 hulls), rendered for the whole
+# run so the measured draw-call/triangle maxima include it.
+const HULL_MAX := 32
+const ParityScript := preload("res://scripts/graph_parity.gd")
+var _hull_report: Dictionary = {"enabled": false}
 
 func _ready() -> void:
 	if has_meta("duration_seconds"):
@@ -37,6 +42,7 @@ func _ready() -> void:
 		fixture_path = String(get_meta("fixture_path"))
 	_fixture = _load_fixture(fixture_path)
 	_populate_scene_from_fixture(_fixture)
+	_add_hull_layer(_fixture)
 	_started_at_us = Time.get_ticks_usec()
 
 func _process(delta: float) -> void:
@@ -104,6 +110,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"draw_calls_max": draw_max,
 		"tri_count_max": tri_max,
 		"static_mem_kb_max": _max_int(_static_mem_kb),
+		"hull_layer": _hull_report,
 		"pass": pass_p99 and pass_dc and pass_tri,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
@@ -115,6 +122,41 @@ func _build_report(elapsed_s: float) -> Dictionary:
 			"max_draw_calls": MAX_DRAW_CALLS,
 			"max_triangles": MAX_TRIANGLES,
 		},
+	}
+
+# Build the hull layer from the fixture's node positions, split round-robin into
+# HULL_MAX groups — overlapping, worst-case hulls, so the measurement is an upper
+# bound. Estimate: one surface = 1 draw call; ≤ 124 triangles per hull (hulls.rs
+# MAX_TRIS_PER_HULL) → ≤ 3 968 triangles at the cap.
+func _add_hull_layer(fixture: Dictionary) -> void:
+	if not ClassDB.class_exists("BinaryProtocolClient"):
+		_hull_report = {"enabled": false, "reason": "gdext library not loaded"}
+		return
+	var pts := PackedVector3Array()
+	var groups := PackedInt32Array()
+	var i := 0
+	for n in fixture.get("nodes", []):
+		var p: Array = n.get("position", [0.0, 0.0, 0.0])
+		pts.append(Vector3(float(p[0]), float(p[1]), float(p[2])))
+		groups.append(1 + i % HULL_MAX)
+		i += 1
+	var client: RefCounted = BinaryProtocolClient.create()
+	var d: Dictionary = client.hull_mesh_from_points(pts, groups, 0.15, HULL_MAX)
+	var mesh: ArrayMesh = ParityScript.make_hull_mesh(d)
+	if mesh != null:
+		var inst := MeshInstance3D.new()
+		inst.name = "ClusterHulls"
+		inst.mesh = mesh
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://materials/cluster_hull.gdshader")
+		inst.material_override = mat
+		add_child(inst)
+	_hull_report = {
+		"enabled": mesh != null,
+		"hulls": int(d.get("hulls", 0)),
+		"triangles": int(d.get("triangles", 0)),
+		"draw_calls_est": 1 if mesh != null else 0,
+		"triangles_est_max": HULL_MAX * 124,
 	}
 
 func _load_fixture(path: String) -> Dictionary:

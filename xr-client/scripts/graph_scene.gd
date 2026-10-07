@@ -359,6 +359,9 @@ var _radial_owner: XRController3D = null
 const PLANE_LIMIT: int = 24
 const PLANE_GAP_M: float = 0.5   # target world-metre gap between layers (pre-fit-scaled)
 const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
+# WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
+const GraphParityScript := preload("res://scripts/graph_parity.gd")
+var _parity: Node = null
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -549,6 +552,12 @@ func _ready() -> void:
 	_init_label_pool()
 	_probe_eye_gaze()
 	_wire_hud()
+	_parity = GraphParityScript.new()
+	_parity.name = "GraphParity"
+	add_child(_parity)
+	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
+		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
+	_parity.setup(self, _binary_client, graph_root, hud)
 	_connect_from_env()
 
 
@@ -739,6 +748,8 @@ func _on_hud_control(action: String) -> void:
 	# Feature 3 — type show/hide filter. "type_toggle:<class>:<1|0>" (1 = visible).
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
+		return
+	if _parity != null and _parity.handle_control(action):
 		return
 	match action:
 		"reset_layout":
@@ -2589,6 +2600,9 @@ func _on_graph_text(json: String) -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	var msg: Dictionary = parsed
+	# settingsUpdated / filter_update_success / graphUpdated (WP2, ADR-2047).
+	if _parity != null and _parity.route_text(json, str(msg.get("type", ""))):
+		return
 	match str(msg.get("type", "")):
 		"broker:new_case":
 			# A malformed frame can carry a non-Dictionary payload (string, null,

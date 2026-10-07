@@ -941,6 +941,13 @@ pub struct BinaryProtocolClient {
     /// server clock, which this client does not otherwise hold, so expiry ages
     /// evidence against this anchor advanced by locally elapsed time.
     clock_anchor: Option<(u32, Instant)>,
+    /// WP2: ADR-2047 receive state for `settingsUpdated` frames.
+    settings: crate::settings_sync::SettingsSync,
+    /// WP2: coalesces `graphUpdated` into `requestInitialData` the server serves.
+    refetch: crate::settings_sync::RefetchGate,
+    /// WP4: signature of the last hull mesh handed to GDScript.
+    hull_sig: Option<u64>,
+    created: Instant,
     base: Base<RefCounted>,
 }
 
@@ -983,6 +990,10 @@ impl BinaryProtocolClient {
             last_agent_action: None,
             freshness: FreshnessGate::new(),
             clock_anchor: None,
+            settings: crate::settings_sync::SettingsSync::new(),
+            refetch: crate::settings_sync::RefetchGate::default(),
+            hull_sig: None,
+            created: Instant::now(),
             base,
         })
     }
@@ -1035,6 +1046,9 @@ impl BinaryProtocolClient {
                     // watermark can no longer be compared against incoming
                     // sequences. Arm a resync — the next full snapshot re-baselines.
                     self.freshness.reconnect();
+                    // A new connection gets a fresh initialGraphLoad and a fresh
+                    // server-side requestInitialData cooldown.
+                    self.refetch.reset_connection();
                     self.base_mut()
                         .emit_signal("connection_changed", &[Variant::from(false)]);
                 }
@@ -1071,6 +1085,15 @@ impl BinaryProtocolClient {
                     for m in metas {
                         // set_meta replaces the whole entry, so set_file_size AFTER
                         // it (merges into the just-inserted entry).
+                        self.store.set_node_domain(m.id, &m.domain);
+                        self.store.set_filter_inputs(
+                            m.id,
+                            crate::settings_sync::FilterInputs {
+                                quality: m.quality,
+                                authority: m.authority,
+                                linked_page: m.population_type == "linked_page",
+                            },
+                        );
                         self.store
                             .set_meta(m.id, m.metadata_id, m.label, m.node_type, m.detail);
                         self.store.set_file_size(m.id, m.file_size);
@@ -1147,6 +1170,176 @@ impl BinaryProtocolClient {
             return;
         };
         let _ = tx.send(build_node_unpin_msg(node_id));
+    }
+
+    // --- WP1 colour mode -------------------------------------------------------
+
+    /// 0 = domain (desktop default), 1 = community.
+    #[func]
+    fn set_color_mode(&mut self, mode: i64) {
+        self.store
+            .set_color_mode(crate::domain_palette::ColorMode::from_code(mode));
+    }
+
+    #[func]
+    fn get_color_mode(&self) -> i64 {
+        self.store.color_mode().code()
+    }
+
+    // --- WP2 settings / filter sync ---------------------------------------------
+
+    /// This session's signing pubkey, so its own `settingsUpdated` echoes drop.
+    #[func]
+    fn set_own_pubkey(&mut self, hex: GString) {
+        self.settings.set_own_pubkey(&hex.to_string());
+    }
+
+    /// Route one `/wss` text frame through the ADR-2047 rules. Applies a
+    /// `nodeFilter` to the render store itself and returns what the scene must
+    /// do: `{kind: "node_filter"|"refetch"|"filter_ack"|"graph_updated"|"ignored",
+    /// …}`. Receipt never writes anything back to the server.
+    #[func]
+    fn handle_settings_text(&mut self, json: GString) -> Dictionary {
+        use crate::settings_sync::TextEvent;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let mut d = Dictionary::new();
+        match self.settings.handle(&json.to_string(), now_ms) {
+            TextEvent::NodeFilter(f) => {
+                self.store.set_node_filter(Some(f));
+                d.set("kind", "node_filter");
+                d.set("enabled", f.enabled);
+                d.set("include_linked_pages", f.include_linked_pages);
+            }
+            TextEvent::Refetch(category) => {
+                d.set("kind", "refetch");
+                d.set("category", GString::from(category));
+            }
+            TextEvent::FilterAck { enabled } => {
+                d.set("kind", "filter_ack");
+                if let Some(e) = enabled {
+                    d.set("enabled", e);
+                }
+            }
+            TextEvent::GraphUpdated { revision, reason } => {
+                let ms = self.created.elapsed().as_millis() as i64;
+                let accepted = self.refetch.note(revision, ms);
+                d.set("kind", "graph_updated");
+                d.set("accepted", accepted);
+                d.set("reason", GString::from(reason));
+            }
+            TextEvent::Ignored(why) => {
+                d.set("kind", "ignored");
+                d.set("reason", why.as_str());
+            }
+        }
+        d
+    }
+
+    /// Send `requestInitialData` when a coalesced `graphUpdated` is due. Call
+    /// once per frame; returns true when a refetch went out.
+    #[func]
+    fn poll_graph_refetch(&mut self) -> bool {
+        let ms = self.created.elapsed().as_millis() as i64;
+        if !self.refetch.poll(ms) {
+            return false;
+        }
+        match self.outbound.as_ref() {
+            Some(tx) => tx.send(r#"{"type":"requestInitialData"}"#.to_string()).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Nodes hidden by the received filter (as of the last node-buffer build).
+    #[func]
+    fn filter_hidden_count(&self) -> i64 {
+        self.store.filter_hidden_count() as i64
+    }
+
+    /// Whether a received `nodeFilter` is active (`enabled` or the linked_page gate).
+    #[func]
+    fn has_node_filter(&self) -> bool {
+        self.store.node_filter().is_some()
+    }
+
+    /// Parse a `GET /api/settings/physics` body into the fields XR tracks
+    /// (`repel_k`, `rest_length`, `dag_bias_k`, `dag_level_distance`,
+    /// `plane_bias_k`, `plane_spacing`, `axis_compression_z`); absent ones are
+    /// omitted, a non-object body yields an empty dictionary.
+    #[func]
+    fn parse_physics_view(&self, body: GString) -> Dictionary {
+        let mut d = Dictionary::new();
+        if let Some(v) = crate::settings_sync::PhysicsView::parse(&body.to_string()) {
+            for (k, x) in v.fields() {
+                d.set(k, x as f64);
+            }
+        }
+        d
+    }
+
+    // --- WP4 cluster hulls ------------------------------------------------------
+
+    /// Hull mesh for `source` (0 off, 1 clusters, 2 communities) over the drawn
+    /// nodes. When `only_if_changed` and the input signature is unchanged, returns
+    /// `{changed: false}` without building anything. Otherwise `{changed: true,
+    /// vertices, normals, colors, hulls, triangles}` for one ArrayMesh surface.
+    #[func]
+    fn build_hull_mesh(&mut self, source: i64, padding: f64, max_hulls: i64, only_if_changed: bool) -> Dictionary {
+        let src = crate::hulls::HullSource::from_code(source);
+        let params = crate::hulls::HullParams {
+            padding: padding as f32,
+            max_hulls: max_hulls.max(0) as usize,
+            ..Default::default()
+        };
+        let sig = self.store.hull_signature(src, params);
+        let mut d = Dictionary::new();
+        if only_if_changed && self.hull_sig == Some(sig) {
+            d.set("changed", false);
+            return d;
+        }
+        self.hull_sig = Some(sig);
+        let mesh = self.store.hull_mesh(src, params);
+        hull_mesh_dict(&mut d, &mesh);
+        d
+    }
+
+    /// Hulls from explicit points and group ids (benchmark/fixture path, no
+    /// live graph needed). `groups[i] > 0` is point i's cluster id.
+    #[func]
+    fn hull_mesh_from_points(&self, points: PackedVector3Array, groups: PackedInt32Array, padding: f64, max_hulls: i64) -> Dictionary {
+        let pts: Vec<crate::hulls::HullPoint> = points
+            .as_slice()
+            .iter()
+            .zip(groups.as_slice().iter())
+            .map(|(p, &g)| crate::hulls::HullPoint {
+                cluster_id: g.max(0) as u32,
+                community_id: 0,
+                pos: [p.x, p.y, p.z],
+            })
+            .collect();
+        let params = crate::hulls::HullParams {
+            padding: padding as f32,
+            max_hulls: max_hulls.max(0) as usize,
+            ..Default::default()
+        };
+        let mesh = crate::hulls::build_hull_mesh(&pts, crate::hulls::HullSource::Clusters, params);
+        let mut d = Dictionary::new();
+        hull_mesh_dict(&mut d, &mesh);
+        d
+    }
+
+    /// Feed one `/wss` text frame through the same classify → poll path the
+    /// socket uses (topology decode or `text_message` signal). Fixture and test
+    /// door: it exercises the real ingest path, never a scene-side shortcut.
+    #[func]
+    fn ingest_text(&mut self, json: GString) {
+        let ev = classify_graph_text(&json.to_string());
+        if let Ok(mut q) = self.inbox.lock() {
+            q.push_back(ev);
+        }
+        self.poll();
     }
 
     /// Decode an explicit frame (e.g. captured fixture) and emit signals.
@@ -1698,6 +1891,7 @@ impl BinaryProtocolClient {
             // nodes was a ~13k-emit-per-frame storm across the gdext boundary.
             self.store
                 .upsert(u.node_id, u.position, u.community_id, u.anomaly, u.centrality);
+            self.store.set_cluster(u.node_id, u.cluster_id);
             // Record the node class for the type show/hide filter (Wave 2, Feature
             // 3). Cheap idempotent insert; the kind rides the wire-id flag bits.
             self.store.set_node_kind(u.node_id, node_class_code(u.kind));
@@ -1717,6 +1911,19 @@ impl BinaryProtocolClient {
             }
         }
     }
+}
+
+#[cfg(not(test))]
+fn hull_mesh_dict(d: &mut Dictionary, mesh: &crate::hulls::HullMesh) {
+    let verts: PackedVector3Array = mesh.vertices.iter().map(|v| Vector3::new(v[0], v[1], v[2])).collect();
+    let norms: PackedVector3Array = mesh.normals.iter().map(|v| Vector3::new(v[0], v[1], v[2])).collect();
+    let cols: PackedColorArray = mesh.colors.iter().map(|c| Color::from_rgba(c[0], c[1], c[2], 1.0)).collect();
+    d.set("changed", true);
+    d.set("vertices", verts);
+    d.set("normals", norms);
+    d.set("colors", cols);
+    d.set("hulls", mesh.hull_count() as i64);
+    d.set("triangles", mesh.triangle_count() as i64);
 }
 
 #[cfg(test)]

@@ -197,7 +197,15 @@ pub fn three_srgb_to_hsl(rgb: [f32; 3]) -> (f32, f32, f32) {
 /// term is absent because the XR wire carries no authority score, so a degree-0
 /// node renders the unmodified palette swatch.
 pub fn domain_node_color(domain: Option<&str>, degree: u32) -> [f32; 4] {
-    let base = hex_to_rgb(domain_hex(domain)).unwrap_or([0.5647, 0.6431, 0.6824]);
+    hex_node_color(domain_hex(domain), degree)
+}
+
+/// [`domain_node_color`] for an already-resolved swatch hex (the render store
+/// resolves the domain once at topology time and keeps the hex).
+pub fn hex_node_color(hex: &str, degree: u32) -> [f32; 4] {
+    let base = hex_to_rgb(hex)
+        .or_else(|| hex_to_rgb(DEFAULT_DOMAIN_COLOR))
+        .unwrap_or([0.5, 0.5, 0.5]);
     if degree == 0 {
         return [base[0], base[1], base[2], 1.0];
     }
