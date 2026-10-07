@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -62,3 +62,12 @@ commit.
 ## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
 
 **Governed changes:** `xr-client/scripts/graph_scene.gd` changes only `_describe_write_failure`: the 401/403 text and its comment now name an Owner/Admin `XR_NOSTR_SECRET` as the remedy and mark `VISIONCLAW_DEV_MODE` as dev-only (owner decision 2026-10-02, Q1 and Q3). **Decision unaffected.** No pose ownership, agent rendering or ingest path changed. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:**
+- `render_store.rs` packs the desktop beam encoding into `INSTANCE_CUSTOM.rgb` (action code and taper; `.a` is still status, stride 16), and attention heat brightens the colours of touched nodes.
+- `binary_protocol.rs` advances the heat clock.
+- `graph_scene.gd` creates `BeatPulse`, whose `MemoryBursts` effects live under the unit-scale `AgentEffectsRoot`.
+
+**Decision unaffected.** The beam origin still prefers the embodiment anchor (D4, test `beam_starts_at_the_embodiment_anchor_when_one_is_published`). Bursts sit under a unit-scale root, never `GraphRoot` (D1, GUT `test_scene_creates_the_beat_node_with_bursts_under_the_unit_scale_root`). Choreography remains the only pose writer. Demo `0x23` frames enter through `ingest()`, as before, and now also colour their beams by action and heat their targets like real ones, with no demo branch (D5). Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83) and GUT on HP (123 pass).

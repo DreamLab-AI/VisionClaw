@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.3
+version: 0.1.4
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.4 (2026-10-07): beat clock (relayed desktop clock, tap tempo, opt-in mic), memory_flash bursts, attention heat and desktop beam action encoding (ADR-2134); Swarm-roster teleport routed; Invariant 10 (mic opt-in, never recorded)"
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1: flag self-contradictory docstring on is_directed_hierarchy_relation (excludes vs accepts 'hierarchical')"
@@ -14,6 +15,11 @@ sources:
   - xr-client/scripts/hud.gd
   - xr-client/scripts/graph_scene.gd
   - xr-client/rust/src/render_store.rs
+  - xr-client/rust/src/beat.rs
+  - xr-client/rust/src/semantic.rs
+  - xr-client/rust/src/attention.rs
+  - xr-client/scripts/beat_pulse.gd
+  - xr-client/scripts/memory_bursts.gd
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/README.md
   - src/handlers/layout_handler.rs
@@ -91,6 +97,43 @@ alone: it produces real `0x23` frames into `ingest()` (wire ids
 play as real ones — no name, roster or payload marker; the HUD's Start/Stop
 Agent Demo button is the only visible sign. Reduced motion (comfort default)
 turns travel into fade/relocate/fade.
+
+### Memory activity, attention heat and the beat clock (ADR-2134)
+These are ports of desktop behaviour, pinned to it by
+`xr-client/rust/tests/fixtures/desktop_parity.json`. The desktop's own functions write that file
+(`client/.../__tests__/xrParityFixtures.test.ts`), and the Rust tests read the same file. They
+also parse the TS source tables and the beam shader uniforms.
+- **Beam action encoding** (`semantic.rs`): work beams take the desktop's per-action colour and
+  taper (`semanticEncoding.ts`). `INSTANCE_CUSTOM` holds r = action code, g/b = target/agent
+  radius and a = status, so the stride stays 16. Blocked beams are pulled toward amber, slowed
+  and dimmed.
+- **memory_flash bursts** (`memory_bursts.gd` under `AgentEffectsRoot`): one pooled ring
+  MultiMesh of ≤ 64 slots, recycling the oldest, in one draw call. Colour, scale, lifetime,
+  implode motion and ring count follow the verb, with a namespace hue jitter computed in
+  three.js linear space. A burst lands on the memory cloud's point when the
+  `xr_memory_cloud` layer resolves it, else on a hashed 0.45 m shell around the graph centre.
+  Reduced motion holds the ring size and only fades it.
+- **Attention heat** (`attention.rs`, render store): every applied `0x23` action touches its
+  target. The heat has a 20 s half-life, saturation 1.5 and 512 entries, and brightens the node
+  colour in place without recolouring it. It never touches the edge buffer.
+- **Beat clock** (`beat.rs`, `pulse.rs`, `beat_pulse.gd`): the arbiter chooses a mic lock first,
+  then a tap until the desktop's clock changes, then the relayed desktop `beatClock` (fresh
+  within 6.5 s), then the last tap.
+  - The server offset comes from the JSON ping/pong round trip every 2 s (the minimum-RTT
+    sample of eight).
+  - One `beat_pulse` uniform per frame drives the shared `node_halo` and `edge_flow` materials
+    and the burst opacity. It is an emission swell, not a post-process (Invariant 2), and
+    reduced motion scales it to ≤ 0.25.
+  - Tap tempo uses **B/Y**, or a click of the **left trackpad/stick centre** (inside the
+    locomotion dead zone). Neither is bound elsewhere; Vive wands have no B/Y.
+- **Microphone** (WP8, off by default): the Session-tab Mic toggle starts an
+  `AudioStreamMicrophone` on a muted `BeatMic` capture bus. On Android it asks for
+  `RECORD_AUDIO` on that press, never at start-up. A red `● MIC` header badge shows while it is
+  listening. Audio is analysed in memory over an 8 s window (port of `beat.ts`
+  `onsetEnvelope`/`estimateTempo`) and discarded. The mic may drive the pulse only after two
+  consecutive estimates agree at confidence ≥ 0.6; noise scores ≈ 0.23.
+- **HUD**: the Session page has one Beat row (status · Tap · Mic · Bursts) inside the 532 px
+  host. The Key tab lists beam actions and burst verbs.
 
 ### HUD structure (hud.gd)
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
@@ -267,11 +310,17 @@ rank set; every root at rank 1 below 36-533 of its members).
 9. Demo mode enters only through the real registry doors (`ingest`,
    `apply_agent_state`, `retire_agents`) from `agent_demo_director.gd`; no
    scene-side demo rendering branch, no synthetic position frames (ADR-2109).
+10. Microphone capture is opt-in per session (HUD Mic toggle, off by default),
+    shows the `● MIC` header badge while active, and its audio is only analysed
+    in memory: never recorded, stored or transmitted (ADR-2134,
+    `permissions-required.md`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(226 headless tests as of 2026-09-05, <1 s, no headset/Godot/network needed; the
-README's "141" is stale — ADR-2076). Any change
+(264 library tests plus 83 integration tests as of 2026-10-07, <1 s, no
+headset/Godot/network needed). Then run GUT on HP Godot 4.6.1: GUT 9.7.1 needs
+a `--headless --import` pass first, and the suite had 123 tests passing on
+2026-10-07. Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

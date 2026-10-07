@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a32abac57f3a7cfe66ab68ea1b0faca013c0d6b2
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -207,3 +207,7 @@ moved to the CI-repair commit.
 **Governed changes since `997440cd0`:** `src/protocols/binary_settings_protocol.rs` moved only by `rustfmt` (import ordering, line wrapping, trailing commas). The other four governed paths are unchanged.
 
 **Decision unaffected.** No tag was allocated, removed or reinterpreted; the `0xFF` compressed-frame marker and the unknown-type rejection arms are byte-for-byte the same after formatting. `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:** `xr-client/rust/src/binary_protocol.rs` gains `send_text` and the heat hooks only. The new `/wss` traffic (`beatClock`, `memoryRoute`, the JSON `pong` `serverTime`) is JSON text routed by `type` (ADR-2134), not tagged binary, so no tag byte is allocated and the per-socket registry is untouched. **Decision unaffected.** Unknown binary tags are still rejected. Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83 pass).

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -202,3 +202,7 @@ client still pins `NODE_RECORD_BYTES: usize = 52`
 `:1785`, and no field was added to the record or the V5 envelope. The new
 `#[func]`s carry anchors and lifecycle out of band, not on the wire.
 `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:** `xr-client/rust/src/binary_protocol.rs` adds three `BinaryProtocolClient` methods (`send_text`, `set_attention_heat`, `get_node_heat`) and advances the render store's heat clock in `poll()`. **Decision unaffected.** No wire constant, record size or decoder branch changed: `NODE_RECORD_BYTES = 52`, `V5_SEQ_BYTES = 8`, and the V3/V5 decode paths are byte-identical. `cargo test -p visionclaw-xr-gdext` passes 264 library and 83 integration tests, including the frozen-layout and V5 fixtures.

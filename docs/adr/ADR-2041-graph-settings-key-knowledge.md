@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: e7e6b61d82fac8232a88229d6edadb198c64ce29
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -93,3 +93,7 @@ CP-01/02/06/08. Owner remains jjohare with settings/client/runtime maintainers. 
 ## Re-verification — 2026-10-02 at e7e6b61d8 (headset NIP-98 behind the prod nginx)
 
 **Governed changes:** `xr-client/scripts/graph_scene.gd` changes only `_describe_write_failure`: the 401/403 text and its comment now name an Owner/Admin `XR_NOSTR_SECRET` as the remedy and mark `VISIONCLAW_DEV_MODE` as dev-only (owner decision 2026-10-02, Q1 and Q3). **Decision unaffected.** The physics writes still target `?graph=knowledge`, and no request URL or body changed. `verified_commit` moved to the landing commit. Source reading, plus the unit tests named in that commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:** `client/src/features/settings/config/settings.ts` gains the memory explorer's embedding-cloud settings (35fd52237, merged from `feat/mce-render`). `xr-client/scripts/graph_scene.gd` gains the ADR-2134 hooks: `_ensure_beat`, the `beatClock`/`pong`/`memory_flash`/`memoryRoute` text routes, and the `beat_*`, `memory_bursts:*`, `teleport:*` and `visual_*` HUD routes. **Decision unaffected.** Neither change reads or writes a graph-type key: `knowledge` stays canonical and `logseq` stays an alias. Checked with `git diff e7e6b61d8..HEAD` on both paths (no `logseq`/`knowledge`/`graphs.` lines) and GUT on HP Godot 4.6.1 (123 pass).

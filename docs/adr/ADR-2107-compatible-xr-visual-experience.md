@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -61,3 +61,11 @@ grid or focus bracket changed; the edit is two lines of row text inside the
 Swarm page. The acceptance boundary (implementation partial, activation staged
 until a fresh headset session) is unchanged and is *not* re-asserted here.
 `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
+
+**Governed change:**
+- `xr-client/materials/edge_flow.gdshader` (and `node_halo.gdshader`) gain a `beat_pulse` uniform: an alpha/emission swell on the beat, set per frame on the scene-local material duplicates by `beat_pulse.gd`.
+- `xr-client/scripts/hud.gd` gains a Session-page Beat row (status, Tap, Mic, Bursts), all through `_press_fire` and the `xr_theme` styles, plus a header MIC badge and Key-tab rows for beam actions and burst verbs.
+
+**Decision holds, with one recorded nuance.** There is no screen-space effect, shadow map, texture or renderer dependency, and the swell is emission only. Reduced motion still stops the travelling edge and query pulses. The beat swell is not motion (nothing travels or scales), but it does modulate brightness at the tempo. Under reduced motion it is therefore capped at 0.25 of full strength, per the WP5 brief, rather than removed. Whether that cap is comfortable in the headset is an open check for the owner on the next VIVE session (ADR-2134). Low-cost mode removes the halo pass, and with it the halo swell. Panel fit is covered by GUT `test_no_page_overflows_its_host` and `test_session_beat_row_fires_on_press_and_fits` (123 pass on HP, headless metrics; the rendered-font check stays with the Xvfb CI job).
