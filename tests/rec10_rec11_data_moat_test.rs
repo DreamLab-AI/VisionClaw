@@ -143,6 +143,8 @@ async fn rec11_trace_joins_two_live_source_kinds_over_real_stores() {
         handoff_id: Some("urn:agentbox:activity:chain-7".into()),
         token_count: Some(1234),
         verification: Some("pass".into()),
+        // FR5.1 added the envelope's declared intent; this trace test has none.
+        intent: None,
         observed_at_ms: 1_700_000_002_000,
     })
     .await

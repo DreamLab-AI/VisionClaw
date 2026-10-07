@@ -150,7 +150,8 @@ pub use ontology_messages::{
 pub use client_messages::{
     AuthenticateClient, BroadcastAgentActionFrame, BroadcastMessage, BroadcastNodePositions,
     BroadcastPositions, ClientBroadcastAck, ClientRecipients, ForcePositionBroadcast,
-    GetClientCount, InitialClientSync, RegisterClient, SendInitialGraphLoad, SendPositionUpdate,
+    GetClientCount, InitialClientSync, RegisterClient, RelayToUserSessions, SendInitialGraphLoad,
+    SendPositionUpdate,
     SendToClientBinary, SendToClientText, SetGraphServiceAddress, UnregisterClient,
     UpdateClientFilter,
 };

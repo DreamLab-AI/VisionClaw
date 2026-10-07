@@ -1,6 +1,6 @@
 use actix::prelude::*;
 use actix_web_actors::ws;
-use log::{info, warn};
+use log::{debug, info, warn};
 
 use crate::utils::socket_flow_messages::PingMessage;
 
@@ -20,7 +20,9 @@ impl SocketFlowServer {
             ctx.text("pong");
             return;
         }
-        info!("Received text message: {}", text);
+        // debug, not info: drag updates and relayed beat frames arrive at up to
+        // tens of Hz and would flood the log (and copy route ids into it).
+        debug!("Received text message: {}", text);
         self.last_activity = std::time::Instant::now();
 
         match serde_json::from_str::<serde_json::Value>(text) {
@@ -88,6 +90,11 @@ impl SocketFlowServer {
                 }
                 Some("nodeUnpin") => {
                     super::position_updates::handle_node_unpin(self, &msg, ctx);
+                }
+                Some(t @ ("beatClock" | "memoryRoute")) => {
+                    if let Some(kind) = super::session_relay::RelayKind::from_type(t) {
+                        super::session_relay::handle_relay(self, kind, text.len(), &msg, ctx);
+                    }
                 }
                 _ => {
                     warn!("[WebSocket] Unknown message type: {:?}", msg);

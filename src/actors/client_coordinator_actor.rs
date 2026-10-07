@@ -462,6 +462,25 @@ impl ClientManager {
         self.clients.len()
     }
 
+    /// ADR-2134 same-user relay: hand `message` to every session authenticated
+    /// as exactly `pubkey`, except `exclude`. Sessions with no pubkey or a
+    /// different one never receive it. Returns the delivery count.
+    pub fn relay_text_to_pubkey(&self, pubkey: &str, exclude: Option<usize>, message: &str) -> usize {
+        if pubkey.is_empty() {
+            return 0;
+        }
+        let mut n = 0;
+        for (&id, client) in &self.clients {
+            if Some(id) == exclude || client.pubkey.as_deref() != Some(pubkey) {
+                continue;
+            }
+            if client.addr.text.try_send(SendToClientText(message.to_owned())).is_ok() {
+                n += 1;
+            }
+        }
+        n
+    }
+
     pub fn get_unsynced_clients(&self) -> Vec<usize> {
         self.clients
             .values()
@@ -1848,6 +1867,20 @@ impl Handler<SetBandwidthLimit> for ClientCoordinatorActor {
     }
 }
 
+impl Handler<RelayToUserSessions> for ClientCoordinatorActor {
+    type Result = usize;
+
+    fn handle(&mut self, msg: RelayToUserSessions, _ctx: &mut Self::Context) -> Self::Result {
+        match handle_rwlock_error(self.client_manager.read()) {
+            Ok(manager) => manager.relay_text_to_pubkey(&msg.pubkey, msg.exclude_client_id, &msg.message),
+            Err(e) => {
+                error!("RwLock error: {}", e);
+                0
+            }
+        }
+    }
+}
+
 /// Handle client authentication
 impl Handler<AuthenticateClient> for ClientCoordinatorActor {
     type Result = Result<(), String>;
@@ -2047,6 +2080,62 @@ impl Handler<UpdateClientFilter> for ClientCoordinatorActor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Records every text frame it is handed (stands in for a SocketFlowServer).
+    struct Probe(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+    impl Actor for Probe {
+        type Context = Context<Self>;
+    }
+    impl Handler<SendToClientText> for Probe {
+        type Result = ();
+        fn handle(&mut self, m: SendToClientText, _: &mut Self::Context) {
+            self.0.lock().unwrap().push(m.0);
+        }
+    }
+    impl Handler<SendToClientBinary> for Probe {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {}
+    }
+    impl Handler<crate::actors::messages::SendInitialGraphLoad> for Probe {
+        type Result = ();
+        fn handle(&mut self, _: crate::actors::messages::SendInitialGraphLoad, _: &mut Self::Context) {}
+    }
+
+    fn probe() -> (ClientRecipients, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let addr = Probe(seen.clone()).start();
+        let r = ClientRecipients {
+            binary: addr.clone().recipient(),
+            text: addr.clone().recipient(),
+            initial_load: addr.recipient(),
+        };
+        (r, seen)
+    }
+
+    #[actix::test]
+    async fn relay_reaches_only_the_same_pubkeys_other_sessions() {
+        let mut m = ClientManager::new();
+        let (r_desk, desk) = probe();
+        let (r_xr, xr) = probe();
+        let (r_other, other) = probe();
+        let (r_anon, anon) = probe();
+        let desk_id = m.register_client(r_desk);
+        let xr_id = m.register_client(r_xr);
+        let other_id = m.register_client(r_other);
+        let _anon_id = m.register_client(r_anon);
+        m.get_client_mut(desk_id).unwrap().pubkey = Some("alice".into());
+        m.get_client_mut(xr_id).unwrap().pubkey = Some("alice".into());
+        m.get_client_mut(other_id).unwrap().pubkey = Some("bob".into());
+
+        let n = m.relay_text_to_pubkey("alice", Some(desk_id), "{\"type\":\"beatClock\"}");
+        assert_eq!(n, 1, "only alice's other session");
+        assert_eq!(m.relay_text_to_pubkey("", None, "x"), 0, "empty pubkey reaches nobody");
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(xr.lock().unwrap().as_slice(), ["{\"type\":\"beatClock\"}"]);
+        assert!(desk.lock().unwrap().is_empty(), "never echoed to the sender");
+        assert!(other.lock().unwrap().is_empty(), "never cross-user");
+        assert!(anon.lock().unwrap().is_empty(), "never to an unauthenticated session");
+    }
 
     #[test]
     fn test_client_manager_registration() {
