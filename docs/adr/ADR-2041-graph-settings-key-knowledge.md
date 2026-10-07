@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 006332e88e12c5247b566e3e34205fd31d066588
+verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -127,3 +127,7 @@ At 37eb1a24b, `graph_scene.gd` changes only in a comment: the beam-refresh note 
 ## Re-verification — 2026-10-07 (006332e88)
 
 `client/src/features/settings/config/settings.ts` changed only in the comment on `cloudScale`, which now documents that 5.0 means the cloud radius equals the graph radius (`cloudFrame.ts`). The settings key, its type and its default are unchanged, so the decision holds.
+
+## Re-verification — 2026-10-07 (35bd7c6bc)
+
+`git diff 006332e88..HEAD -- xr-client/scripts/graph_scene.gd` is +6/-0, from 48e1bf327. It wires the memory cloud's `graph_bounds_source` to `graph_robust_bounds` (`:544`) and routes `route_stats_changed` to the HUD (`:546`). The diff contains no `logseq`, `graph_type` or `graphs.` line, and the physics writes still target `?graph=knowledge` (`:1222`, `:1247`, `:1256`). **Decision unaffected** (the record remains superseded by ADR-2115).

@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.5
+version: 0.1.6
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.6 (2026-10-07): ADR-2134 amendment — memoryRoute gains optional sidecarTotal/sidecarAgree, relayed only as a consistent pair (sidecar.len() ≤ total, agree ≤ sidecar.len()) else both dropped; additive, older peers unaffected"
   - "0.1.5 (2026-10-07): ADR-2134 — /wss beatClock and memoryRoute client text frames relayed to the same pubkey's other sessions; JSON pong gains serverTime"
   - "0.1.4 (2026-10-07): ADR-2133 — /api/memory-cloud{,/vectors,/query,/health} rows; memory cloud wire types; PowerUser gate on private memory reads"
   - "0.1.3 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
@@ -164,7 +165,7 @@ pubkey (`ClientManager::relay_text_to_pubkey`, `client_coordinator_actor.rs`).
 | `type` | Direction | Fields (validated, `session_relay.rs`) | Relayed as |
 |--------|-----------|-----------------------------------------|-----------|
 | `beatClock` | desktop → server → same-pubkey sessions | `bpm` 40–220, `phaseAt` epoch ms ≥ 0 (0 = not locked), `confidence` 0–1, `source` ∈ off\|file\|tap\|spotify, `sentAt` sender ms (optional) | same fields plus `serverTime`; `phaseAt` rebased to the server clock as `phaseAt − sentAt + serverNow` when `sentAt` is present |
-| `memoryRoute` | desktop → server → same-pubkey sessions | `snapshotId` 1–128 chars, non-blank; `path` ≤ 64 snapshot row indices, root → answer (`[]` clears; any bad entry rejects the frame); `sidecar` ≤ 64 rows (bad entries dropped); `query` ≤ 120 chars (truncated); `seq`, `sentAt` finite ≥ 0 | same fields plus `serverTime`; the headset orders frames by (`sentAt`, `seq`) and resolves rows against its own copy of the snapshot (`xr-client/rust/src/memory_route.rs`) |
+| `memoryRoute` | desktop → server → same-pubkey sessions | `snapshotId` 1–128 chars, non-blank; `path` ≤ 64 snapshot row indices, root → answer (`[]` clears; any bad entry rejects the frame); `sidecar` ≤ 64 rows (bad entries dropped); `query` ≤ 120 chars (truncated); `seq`, `sentAt` finite ≥ 0; optional `sidecarTotal` / `sidecarAgree` whole numbers, kept only as a pair with `sidecar.len()` ≤ `sidecarTotal` and `sidecarAgree` ≤ `sidecar.len()` (else both dropped; the frame still relays) | same fields (the agreement pair only when it passed) plus `serverTime`; the headset orders frames by (`sentAt`, `seq`) and resolves rows against its own copy of the snapshot (`xr-client/rust/src/memory_route.rs`) |
 | `ping` / `pong` | client → server → client | `{type:"ping",timestamp}` | `{type:"pong",timestamp,serverTime}`; `serverTime` (server Unix ms) is additive, so old clients ignore it |
 
 Relay rules:

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
+verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -101,3 +101,23 @@ At 8f375c132, which merges `feat/xr-graph` (f1ef384dc, carrying f65c69e24 and f0
 - Removing the clip moves the guard against page overflow onto the GUT fit tests (`test_no_page_overflows_its_host`).
 
 **Drift noted, not edited.** The Decision says "seven-tab HUD", but `TAB_ORDER` has had eight tabs since the Key tab was added before 944cba88c (`hud.gd:183`: graph … key, session, help). The palette covers all eight, so the commitment stands. The tab count in the accepted text is out of date. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). The acceptance boundary is unchanged.
+
+## Re-verification — 2026-10-07 (35bd7c6bc)
+
+Governed change at 48e1bf327 (`feat/xr-cloud-parity`): `xr-client/scripts/hud.gd` +34/-1. Related ungoverned change checked in the same pass: the memory route's depth handling and framing cue (`xr-client/rust/src/memory_route.rs`, `memory_cloud_layer.gd`, `memory_route.gdshader`).
+
+**What changed:**
+- **HUD.** The HUD panel material gets `render_priority = OVERLAY_RENDER_PRIORITY` (20) (`hud.gd:158`, `:273`). The Graph page gains one `MemoryRouteStats` line (20 px font, 2 px separation) under the Memory buttons. It is hidden while there is no route (`:499`, `set_memory_route_line` `:1154`).
+- **Route.** The tube, beads and rings draw with `depth_test_disabled, depth_draw_never` (`memory_route.gdshader:15`) at `ROUTE_RENDER_PRIORITY` 10 (`memory_route.rs:84`; `memory_cloud_layer.gd:175`, `:184`, `:202`). They therefore draw over the glass nodes and anything else in the scene, including controller geometry. The hover label is `no_depth_test` at 20 (`memory_cloud_layer.gd:220-221`).
+- **Framing cue.** Instead of the desktop's camera fly-to, a 4.5 s cue (`CUE_SECONDS`, `memory_route.rs:96`) shows 12 guide dots running from the right controller to the answer and highlights the answer ring.
+
+**Decision holds.**
+- **No screen-space effect or new renderer dependency.** Disabling the depth test and setting draw order are pipeline state of the one multiview draw, so both eyes agree. No pass, texture or draw call is added: the dots ride the bead MultiMesh.
+- **The HUD stays above the route.** `HUD.tscn` `Mat_hud` is `transparency = 1` (`:12`). That puts the panel in the transparent pass, where priority 20 sorts it after the route at 10. A Rust test pins both constants and the `hud.gd` value (`memory_route.rs:1788-1801`).
+- **Comfort: the head is never moved.** The cue replaces the desktop camera move.
+- **Reduced motion.** `cue_at(_, true)` drops the travelling brightness wave (`march: None`) and the ring growth (`memory_route.rs:759-770`). The dots are frame-to-frame identical and the ring only brightens (`reduced_motion_cue_holds_still_and_never_grows_the_ring`, `:1649`). The opacity fade-in and fade-out remain; they change opacity, not position. `animate` shows the route converged with no beat pulse (`:709-725`). This matches XR-client.md 0.1.12.
+- **Fit.** Panel fit (Invariant 5) is recorded as 530 px ≤ 532 in XR-client.md. GUT was not re-run in this pass.
+
+**Open comfort item, not a breach.** Because the route ignores depth, it paints over the right controller's opaque 6 mm `AimRay` (`graph_scene.gd:2163-2176`), the only controller-attached geometry the app renders. It also paints over any runtime-composited hand that sits inside the app layer. A nearer object visibly behind a farther line is a stereo occlusion/disparity conflict. Neither this record nor the XR-client Invariants (1–10) prohibit it, and the focus bracket, the only element this Decision requires to be depth-tested, is unchanged. Whether it is acceptable belongs to the existing acceptance boundary (a headset session checking stereo compositing and both comfort modes). Implementation stays partial and activation staged.
+
+Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed.

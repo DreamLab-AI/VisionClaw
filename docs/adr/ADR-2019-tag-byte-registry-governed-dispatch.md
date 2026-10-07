@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
+verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -235,3 +235,7 @@ The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed fil
 ## Re-verification — 2026-10-07 (integration merge)
 
 At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into the memory-cloud-explorer integration branch. The only governed change is `xr-client/rust/src/binary_protocol.rs` (+48/-10 since 015bd642f). That change is pack-timing instrumentation and the `graph_layer_triangles` FrameBudget accessor (`:1631`), recorded under ADR-2018. No tag byte, dispatch arm or registry entry changed. `DecodeError::BadVersion` is still raised for an unknown version (`:477`), and the freshness path still refuses it (`:763`). The server codec, the settings codec and both presence codecs are untouched. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (35bd7c6bc)
+
+`xr-client/rust/src/binary_protocol.rs` changed at 48e1bf327 (+12/-0) only by adding the `graph_robust_bounds` `#[func]` (`:1778`), a getter over the render store that frames the memory cloud. No tag is allocated, matched or dispatched differently, and the version bytes are unchanged (`PROTOCOL_V5 = 0x05`, `:25`). The new `memoryRoute` fields `sidecarTotal`/`sidecarAgree` are JSON text frames on `/wss`, outside the tag-byte space (recorded under ADR-2134). Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed. **Decision unaffected.**

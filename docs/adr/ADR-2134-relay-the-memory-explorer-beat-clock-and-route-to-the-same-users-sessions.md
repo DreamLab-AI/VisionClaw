@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 089f196d67dd3c7351e4a36e6ac1a7827611d4ad
+verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -52,3 +52,26 @@ The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`
 ## Re-verification — 2026-10-07 (089f196d6)
 
 The position-stream fix reformatted `relay_text_to_pubkey` with rustfmt only: its behaviour, its pubkey scoping, the sender exclusion and `relay_reaches_only_the_same_pubkeys_other_sessions` are unchanged. The decision holds.
+
+## Amendment — 2026-10-07 (35bd7c6bc): optional sidecar agreement counts on `memoryRoute`
+
+The merge of `feat/xr-cloud-parity` (48e1bf327) widens the `memoryRoute` wire contract. The Decision's field list above is left as accepted; this amendment adds to it.
+
+**Fields.** `memoryRoute` may carry `sidecarTotal` (every sidecar hit, sampled or not) and `sidecarAgree` (the sampled hits that are also in the desktop's local top-k). The desktop takes both from the panel's `sidecarAgreement` (`xrRelay.ts:113-117`). It sends them only for a finished route with a non-empty path, and only when the agreement's `inSample` equals the `sidecar` rows actually sent, so the counts never describe rows cut by the 64-row cap (`:115`). Without a sidecar response both are omitted. The sidecar's method, timings and hit objects stay in the HTTP query response and are never relayed (`xrRelay.ts:18-24`).
+
+**Validation.** The counts decorate the frame and never decide whether it relays. `validate_memory_route` (`session_relay.rs:158`) reads each count with the same whole-number rule as a row (`as_row`, `:186`). It re-serialises the counts only as a pair satisfying `sidecar.len() ≤ sidecarTotal` and `sidecarAgree ≤ sidecar.len()`, measured on the filtered, capped `sidecar` (`:187-192`, `:203-206`). Otherwise both counts are dropped and the frame still relays. That covers one count alone, a negative, fractional or string value, total < sampled, or agree > sampled. The headset applies the identical rule in `SidecarStats::from_wire` (`memory_route.rs:249-252`). Four new cases in `memory_route_cases.json` hold the server and the headset to the same verdict. The largest valid route with both counts at `u32::MAX` still fits the 16 KiB frame cap.
+
+**Backward compatibility.** Both counts are optional and additive:
+- An older desktop sends no counts. The headset then shows only the sampled marks.
+- An older server rebuilds frames from its validated fields, so it drops the counts. The headset again shows only the sampled marks.
+- An older headset deserialises into a `WireRoute` without `deny_unknown_fields` (`git show 089f196d6:xr-client/rust/src/memory_route.rs:156`), so it ignores the counts.
+
+No frame that was valid before is rejected now. `memory_route::WIRE_FIELDS` (`memory_route.rs:117-118`) lists the nine field names, and a Rust test checks them against `xrRelay.ts` `MemoryRouteFrame` (`:1763-1765`). PROTOCOL-registry 0.1.6 records the fields.
+
+**Verification at 35bd7c6bc.**
+- `session_relay.rs` tests: the 8 validator tests pass, including `memory_route_matches_the_headset_parser_rules` (pair cases) and `relay_agrees_with_the_headset_parser_on_the_shared_cases`. They were compiled in isolation (lines 1–267 plus the test module, `serde_json` only), because the root crate's `visionclaw-gpu` build script fails in this container: no `cuda_runtime.h`, and the fallback `semantic_forces` PTX has no `.entry`.
+- `relay_reaches_only_the_same_pubkeys_other_sessions` (`client_coordinator_actor.rs`, unchanged) was not re-run.
+- `xr-client/rust` `cargo test --offline` passes 384 library + 118 integration tests.
+- `vitest run …/memoryCloud/__tests__/xrRelay.test.ts` passes 7.
+
+Same-pubkey scoping, the throttle, rebasing and the frame cap are unchanged. `activation_status` stays `staged`.

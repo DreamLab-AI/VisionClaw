@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8f375c132f91ead8a154aa27a7b2d9271a1bd853
+verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -230,3 +230,7 @@ The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed fil
 ## Re-verification — 2026-10-07 (integration merge)
 
 At 8f375c132, which merges `feat/xr-graph` (f1ef384dc) and `feat/xr-pulse` into the memory-cloud-explorer integration branch. `git diff 015bd642f..HEAD -- xr-client/rust/src/binary_protocol.rs` is +48/-10. The change switches the LOD pack timing to a thread-CPU stopwatch (`crate::thread_cpu::CpuStopwatch`, with fields `last_node_pack_cpu`/`last_edge_pack_cpu`), adds three `#[func]`s (`graph_layer_triangles` at `:1631`, `last_pack_cpu_ms` at `:1656` and `thread_cpu_ms` at `:1663`) and reorders the heat-clock fields in the struct. Nothing touches the wire. `PROTOCOL_V5 = 0x05` (`:25`), `V5_SEQ_BYTES = 8` (`:26`) and `NODE_RECORD_BYTES = 52` (`:28`) are unchanged, as are `decode_position_frame_with_sequence` (`:449`) and `FreshnessGate` (`:586`). `record_is_52_bytes` (`:2198`) passes. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext --offline` passes 363 library + 118 integration tests across 17 integration binaries, 0 failed, including `wire_freshness_and_frame_policy.rs`. GUT was not re-run in this pass; the HUD and FrameBudget GUT receipts are those recorded on the sprint branches (f65c69e24, 5f53cba68). **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (35bd7c6bc)
+
+The merge of `feat/xr-cloud-parity` (48e1bf327) adds one `#[func]`, `graph_robust_bounds` (`xr-client/rust/src/binary_protocol.rs:1778`), to `binary_protocol.rs` (+12/-0). It returns the robust bounds `[cx, cy, cz, radius]` of the stored positions so that the memory cloud can be framed on the graph, and it reads `RenderStore::robust_bounds` (`render_store.rs:1936`). It is a local getter and nothing touches the wire. `PROTOCOL_V5 = 0x05` (`:25`), `V5_SEQ_BYTES = 8` (`:26`) and `NODE_RECORD_BYTES = 52` (`:28`) are unchanged, as are `decode_position_frame_with_sequence` (`:449`) and `record_is_52_bytes` (`:2210`). Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed. **Decision unaffected.**
