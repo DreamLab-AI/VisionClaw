@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: c16b257741b980d4599122ab77aa2f5980f94f31
+verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -138,3 +138,7 @@ matching or level-mapping logic changed.** `src/utils/auth.rs` is unchanged.
 ## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
 
 **Governed change:** `verify_access` (`src/utils/auth.rs:191`) no longer verifies a NIP-98 token a second time in one request. When the request carries `Authorization: Nostr …` and an outer layer (`RbacGate`, an enclosing `RequireAuth`) already left an `AuthenticatedUser` in the request extensions, it reuses that identity and checks only the required level via `effective_access_level`; extensions are server-side and cannot be populated from headers. Before this, every `RequireAuth` scope under `/api` answered NIP-98 callers 401 "Token replayed" (proved by `tests/rbac_gate_require_auth_stacking_test.rs`, now green). This completes the central-gate design: the gate verifies the signature once per request and inner `RequireAuth` scopes or handler `verify_*` calls only narrow the level. Replay protection is intact: a replayed token is still refused by the first verification. Line citations into `src/utils/auth.rs` after line 265 shift by +25 (the NIP-98 branch of `verify_access` gains the reuse block; e.g. `nip98_request_url(req)` in that branch moves from `:266` to `:291`); earlier lines are unchanged. The decision holds.
+
+## Re-verification — 2026-10-07 at e48099f28 (401 for missing credentials; dev bypass on the memory cloud)
+
+**Governed change:** in `verify_access` (`src/utils/auth.rs`, legacy-header branch) a request with no credentials at all (no `X-Nostr-Pubkey` or no `X-Nostr-Token`) now gets **401** "Authentication required" instead of 403; 403 stays for an identified caller below the required level. The memory-cloud handler admits every caller under `dev_full_bypass_active()` (ADR-2133 amendment); that predicate is unchanged, compile-gated to debug/`dev-auth` builds and refused at boot in release. Every caller in the tree accepts 401 or 403 alike (`UnifiedApiClient` retry rule, the memory-cloud client, `adr142_rbac_gate`, `rec1_route_guard`, the stacking test). Verified with `cargo test --lib -- auth rbac memory_cloud` (69 pass) and those integration tests plus `memory_cloud_auth_test` (all pass). The decision holds.
