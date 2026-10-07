@@ -292,8 +292,6 @@ impl ClockOffset {
 /// The desktop heartbeats every 2 s; three missed heartbeats drop the relayed
 /// clock so the headset never pulses to a desktop that has gone away.
 pub const REMOTE_STALE_MS: f64 = 6500.0;
-/// Pulse multiplier under reduced motion (the comfort default).
-pub const REDUCED_MOTION_PULSE_SCALE: f64 = 0.25;
 
 /// Which clock is driving the pulse right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -447,15 +445,18 @@ impl BeatSync {
         (src, st, beat_at(&st, local_ms))
     }
 
-    /// Pulse intensity 0..1 for the shaders and bursts, scaled down under
-    /// reduced motion.
+    /// Pulse intensity 0..1 for the shaders and bursts. Exactly 0 under
+    /// reduced motion (the comfort default, ADR-2107): nothing pulses, and the
+    /// tempo is shown only by the HUD readout, which reads `sample` directly.
     pub fn pulse_intensity(&self, local_ms: f64, reduced_motion: bool) -> f64 {
+        if reduced_motion {
+            return 0.0;
+        }
         let (_, _, s) = self.sample(local_ms);
         if !s.on {
             return 0.0;
         }
-        let k = if reduced_motion { REDUCED_MOTION_PULSE_SCALE } else { 1.0 };
-        (s.pulse * k).clamp(0.0, 1.0)
+        s.pulse.clamp(0.0, 1.0)
     }
 }
 
@@ -1184,15 +1185,20 @@ mod tests {
     }
 
     #[test]
-    fn reduced_motion_scales_the_pulse_down() {
+    fn reduced_motion_stops_the_pulse_entirely() {
+        // ADR-2107: reduced motion stops pulsing. Halos, edges and bursts hold
+        // steady brightness; only the HUD readout shows the tempo.
         let mut bs = BeatSync::new();
         for i in 0..4 {
             bs.tap(T0 + i as f64 * 500.0);
         }
         let full = bs.pulse_intensity(T0 + 1500.0, false);
-        let calm = bs.pulse_intensity(T0 + 1500.0, true);
-        assert!((full - 1.0).abs() < 1e-6);
-        assert!((calm - REDUCED_MOTION_PULSE_SCALE).abs() < 1e-6);
+        assert!((full - 1.0).abs() < 1e-6, "on the beat with motion allowed");
+        for k in 0..200 {
+            let t = T0 + 1500.0 + k as f64 * 5.0;
+            assert_eq!(bs.pulse_intensity(t, true), 0.0, "exactly 0 under reduced motion at {t}");
+        }
+        assert!(bs.sample(T0 + 1500.0).2.on, "the clock itself keeps running for the HUD");
         assert_eq!(BeatSync::new().pulse_intensity(T0, false), 0.0, "no clock, no pulse");
     }
 

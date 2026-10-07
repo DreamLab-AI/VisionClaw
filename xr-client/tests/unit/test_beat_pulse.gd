@@ -73,13 +73,17 @@ func test_relayed_beat_clock_drives_the_shared_shader_uniforms() -> void:
 		var p: float = beat.current_pulse()
 		hi = maxf(hi, p)
 		lo = minf(lo, p)
-	assert_gt(hi, lo, "pulse varies through the beat")
+	assert_eq(hi, lo, "steady under reduced motion: no swing through the beat")
 	# The uniform must land on the materials the meshes RENDER with: the scene-
 	# local duplicates spatial_environment.gd makes, not the shared .tres files.
 	var live_halo: ShaderMaterial = (scene.get_node("GraphRoot/NodesMulti") as MultiMeshInstance3D).material_override.next_pass
 	var live_edge: ShaderMaterial = (scene.get_node("GraphRoot/EdgesMulti") as MultiMeshInstance3D).material_override
 	assert_ne(live_edge, load("res://materials/edge_flow.tres"), "edges render with a scene-local duplicate")
 	assert_true(beat.pulse_materials().has(live_halo) and beat.pulse_materials().has(live_edge))
+	assert_eq(float(live_halo.get_shader_parameter("beat_pulse")), 0.0, "reduced motion: halos hold steady")
+	assert_eq(float(live_edge.get_shader_parameter("beat_pulse")), 0.0, "reduced motion: edges hold steady")
+	assert_eq(float(scene.get_node("AgentEffectsRoot/MemoryBursts").beat_pulse), 0.0, "reduced motion: bursts hold steady")
+	assert_string_contains(String(beat.beat().status_line()), "120.0 bpm", "the HUD readout still shows the tempo")
 	# Land exactly on a beat with motion allowed, so the pulse is near 1 and a
 	# stale 0 on the live materials cannot pass by accident.
 	beat.reduced_motion = false
@@ -96,9 +100,9 @@ func test_relayed_beat_clock_drives_the_shared_shader_uniforms() -> void:
 	var swapped: ShaderMaterial = (scene.get_node("GraphRoot/NodesMulti") as MultiMeshInstance3D).material_override.next_pass
 	assert_ne(swapped, live_halo, "comfort toggle replaced the halo material")
 	assert_almost_eq(float(swapped.get_shader_parameter("beat_pulse")), beat.current_pulse(), 0.01, "pulse follows the swap")
-	# Reduced motion (the default) scales the pulse down to at most a quarter.
+	# Reduced motion (the default) stops beat pulsing entirely (ADR-2107).
 	assert_true(default_reduced, "reduced motion is the comfort default")
-	assert_lte(hi, 0.25 + 1e-4, "pulse scaled down under reduced motion")
+	assert_eq(hi, 0.0, "no pulse at all under reduced motion")
 	# A source of "off" from the desktop stops the pulse.
 	scene._on_graph_text(_beat_frame(120.0, "off"))
 	await get_tree().process_frame

@@ -46,7 +46,7 @@ uniform float inferred_dim = 0.7;
 
 // Beat pulse (desktop memory-explorer beat clock, relayed to the headset). Set once
 // per frame on the shared material by scripts/beat_pulse.gd: 1 on the beat,
-// decaying through it, already scaled down under reduced motion; 0 = no clock.
+// decaying through it; 0 under reduced motion (ADR-2107) and with no clock.
 // It brightens the whole edge network on the beat — a uniform swell, no motion.
 uniform float beat_pulse = 0.0;
 uniform float beat_edge_gain = 0.5;

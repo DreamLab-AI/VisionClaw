@@ -138,7 +138,9 @@ also parse the TS source tables and the beam shader uniforms.
     sample of eight).
   - One `beat_pulse` uniform per frame drives the shared `node_halo` and `edge_flow` materials
     and the burst opacity. It is an emission swell, not a post-process (Invariant 2), and
-    reduced motion scales it to ≤ 0.25.
+    under reduced motion (the comfort default) it is held at exactly 0, so
+    halos, edges and bursts keep steady brightness and only the HUD Beat
+    readout shows the tempo (ADR-2107).
   - Tap tempo uses **B/Y**, or a click of the **left trackpad/stick centre** (inside the
     locomotion dead zone). Neither is bound elsewhere; Vive wands have no B/Y.
 - **Microphone** (WP8, off by default): the Session-tab Mic toggle starts an

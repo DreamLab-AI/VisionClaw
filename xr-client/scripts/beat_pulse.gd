@@ -9,7 +9,8 @@ extends Node
 ##     controller tap tempo and the opt-in microphone analyser;
 ##   * one `beat_pulse` uniform per frame on the node-halo and edge-flow
 ##     materials the meshes are ACTUALLY using (a uniform swell — no
-##     post-process, Invariant 2), scaled down under reduced motion. Those are
+##     post-process, Invariant 2), held at 0 under reduced motion (ADR-2107: nothing
+##     pulses; the HUD Beat readout still shows the tempo). Those are
 ##     scene-local duplicates made by spatial_environment.gd, replaced again on
 ##     every comfort toggle, so they are re-read from the meshes rather than
 ##     cached or taken from the shared .tres resources;

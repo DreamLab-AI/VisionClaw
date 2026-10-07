@@ -137,7 +137,7 @@ impl BeatPulse {
         self.sync.set_mic_clock(lock);
     }
 
-    /// Pulse intensity 0..1 now, scaled down under reduced motion.
+    /// Pulse intensity 0..1 now; exactly 0 under reduced motion (ADR-2107).
     #[func]
     fn pulse(&self, reduced_motion: bool) -> f32 {
         self.sync.pulse_intensity(epoch_ms(), reduced_motion) as f32
