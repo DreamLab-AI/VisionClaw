@@ -522,3 +522,27 @@ func test_agreement_line_uses_the_desktop_accounting() -> void:
 	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":2,"sentAt":2,"path":[]}')
 	assert_eq(l.agreement_line(), "", "cleared")
 	l.queue_free()
+
+
+func test_held_aim_ray_draws_above_the_route_and_keeps_its_depth() -> void:
+	var GraphScene: GDScript = load("res://scripts/graph_scene.gd")
+	var ray: MeshInstance3D = GraphScene.make_aim_ray(5.0)
+	var mat := ray.material_override as StandardMaterial3D
+	var anim = MemoryRoute.create()
+	assert_eq(mat.render_priority, int(anim.held_render_priority()), "HELD_RENDER_PRIORITY")
+	assert_gt(mat.render_priority, int(anim.route_render_priority()), "ray above the route")
+	assert_lt(mat.render_priority, int(anim.overlay_render_priority()), "HUD above the ray")
+	# priority only orders the transparent pass, which runs after the opaque one
+	assert_ne(mat.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED, "in the transparent pass")
+	# the route writes no depth, so the ray wins on order alone; keeping the
+	# depth test stops its far end showing through nodes in front of it
+	assert_false(mat.no_depth_test, "ray still occluded by nearer nodes")
+	ray.free()
+
+
+func test_radial_menu_draws_with_the_overlay_above_the_route() -> void:
+	var menu: Node3D = load("res://scenes/RadialMenu.tscn").instantiate()
+	add_child_autofree(menu)
+	await get_tree().process_frame
+	var mat := (menu.get_node("MenuPanel") as MeshInstance3D).material_override as Material
+	assert_eq(mat.render_priority, int(MemoryRoute.create().overlay_render_priority()))

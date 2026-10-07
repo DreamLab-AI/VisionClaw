@@ -375,19 +375,9 @@ func _add_extras() -> void:
 		wand.name = "Controller%s" % ("L" if side < 0.0 else "R")
 		wand.position = Vector3(0.18 * side, -0.3, -0.35)
 		anchor.add_child(wand)
-		# graph_scene._ensure_controller_rays: 0.006 x 0.006 x RAY_LENGTH box,
-		# unshaded emissive, centred half a ray forward.
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.006, 0.006, 5.0)
-		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.emission_enabled = true
-		mat.emission = Color(0.35, 0.7, 1.0)
-		var ray := MeshInstance3D.new()
-		ray.name = "AimRay"
-		ray.mesh = mesh
-		ray.material_override = mat
-		ray.position = Vector3(0.0, 0.0, -2.5)
+		# The real held ray (graph_scene.make_aim_ray): transparent pass at
+		# HELD_RENDER_PRIORITY, above the depth-ignoring route.
+		var ray: MeshInstance3D = (load("res://scripts/graph_scene.gd") as GDScript).make_aim_ray(5.0)
 		wand.add_child(ray)
 	var avatar_scene := load("res://scenes/Avatar.tscn") as PackedScene
 	for i in (2 if pick.contains("avatars") else 0):

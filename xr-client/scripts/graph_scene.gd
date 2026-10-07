@@ -2154,25 +2154,41 @@ const RAY_IDLE_COLOR := Color(0.35, 0.7, 1.0)   # cyan when tracking, idle
 const RAY_ACTIVE_COLOR := Color(0.3, 1.0, 0.4)  # green as the trigger pulls
 
 
+## Render priority of held things (aim rays): above the depth-ignoring memory
+## route (10), below the HUD and menus (20). Mirrors memory_route.rs
+## HELD_RENDER_PRIORITY (pinned by a Rust test).
+const HELD_RENDER_PRIORITY := 15
+
+
+## One wand aim ray. Transparent-pass (alpha 1.0) so `render_priority` orders it
+## after the route, which writes no depth; the depth test stays on so the far
+## end of the 5 m beam is still hidden by nodes in front of it.
+static func make_aim_ray(length: float) -> MeshInstance3D:
+	var mesh := BoxMesh.new()
+	# Thin beam down -Z; the box is centred so offset it forward by half.
+	mesh.size = Vector3(0.006, 0.006, length)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.render_priority = HELD_RENDER_PRIORITY
+	mat.emission_enabled = true
+	mat.emission = RAY_IDLE_COLOR
+	mat.albedo_color = RAY_IDLE_COLOR
+	var ray := MeshInstance3D.new()
+	ray.name = "AimRay"
+	ray.mesh = mesh
+	ray.material_override = mat
+	ray.position = Vector3(0.0, 0.0, -length * 0.5)
+	return ray
+
+
 func _ensure_controller_rays() -> void:
 	for controller: XRController3D in [left_controller, right_controller]:
 		if controller == null:
 			continue
 		var ray: MeshInstance3D = controller.get_node_or_null("AimRay") as MeshInstance3D
 		if ray == null:
-			var mesh := BoxMesh.new()
-			# Thin beam down -Z; the box is centred so offset it forward by half.
-			mesh.size = Vector3(0.006, 0.006, RAY_LENGTH)
-			var mat := StandardMaterial3D.new()
-			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			mat.emission_enabled = true
-			mat.emission = RAY_IDLE_COLOR
-			mat.albedo_color = RAY_IDLE_COLOR
-			ray = MeshInstance3D.new()
-			ray.name = "AimRay"
-			ray.mesh = mesh
-			ray.material_override = mat
-			ray.position = Vector3(0.0, 0.0, -RAY_LENGTH * 0.5)
+			ray = make_aim_ray(RAY_LENGTH)
 			controller.add_child(ray)
 		var active: bool = controller.get_is_active()
 		ray.visible = active

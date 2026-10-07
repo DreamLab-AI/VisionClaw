@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.12
+version: 0.1.13
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.13 (2026-10-07): held things above the route — wand aim rays at HELD_RENDER_PRIORITY 15 in the transparent pass (depth test kept), radial menu with the HUD at 20; ADR review finding (conflicting depth cue). No invariant changed."
   - "0.1.12 (2026-10-07): desktop memory-explorer parity — cloud framed on the live graph (cloud_frame.rs port of cloudFrame.ts/robustBounds.ts, 1 Hz read, 0.8 s glide); route drawn without depth test below the HUD; framing cue instead of a camera move (ADR-2107); honest sidecar agreement line in the HUD Memory row (sidecarTotal/sidecarAgree on memoryRoute); 10 s route repeats no longer replay the trace; TUBE_R/RING_R re-synced. No invariant changed."
   - "0.1.11 (2026-10-07): pack timing gate on thread CPU time (wall reported beside it; holds at load average 38); GUT 9.6.1 (the Godot 4.6 line) vendored with a CI guard against parse errors and skipped scripts; live FrameBudget pass on the final interface (burst pool, 5 % reserve, 2 s peak of measured other_tris)."
   - "0.1.10 (2026-10-07): per-frame pack plans (13k/20k pack 0.5 ms, zero steady-state allocations, far ribbons half per frame), benchmark asserts pack_ms/lod_build_ms p99; live GraphScene runs the FrameBudget pass (measured other_tris) and both packs every frame; attention heat moved to live_tint."
@@ -308,8 +309,18 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   Like the desktop overlay (`depthTest = false`), the three route materials draw
   with `depth_test_disabled` at `render_priority` 10 (`ROUTE_RENDER_PRIORITY`,
   after edges 0 and halos/beams 1), so the opaque glass nodes cannot hide the
-  route; the HUD panel and the hover label sit above it at 20
-  (`OVERLAY_RENDER_PRIORITY`, pinned in `hud.gd` by a Rust test). Depth test and
+  route; the HUD panel, the radial menu and the hover label sit above it at 20
+  (`OVERLAY_RENDER_PRIORITY`, pinned in `hud.gd` and `radial_menu.gd` by a Rust
+  test). What the user holds sits between them: the wand aim rays
+  (`graph_scene.make_aim_ray`) draw at `HELD_RENDER_PRIORITY` 15, because the
+  route painted over the user's own ray is a conflicting depth cue. They are
+  alpha-transparent at alpha 1 so the priority applies (it only orders the
+  transparent pass, which runs after the opaque one), and they keep their depth
+  test: the route writes no depth (`depth_draw_never`), so order alone puts the
+  ray over it, while the far end of the 5 m beam stays hidden by nodes in front
+  of it. This client draws no controller models or hand meshes for the local
+  user; avatar hands are remote peers' and stay ordinary world geometry. GUT
+  asserts the 10 < 15 < 20 ordering on the built materials. Depth test and
   order are pipeline state of the one multiview draw, so both eyes agree; no
   call or triangle is added.
 - **Route framing cue.** The desktop flies the camera to a new route; the
@@ -383,6 +394,15 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   2.78 ms; **20 000 + 64/64 33 / 94 558 / 2.48 ms** (gems 40, cylinders 0, hulls
   32, 8 000 sprites, route 4 056 triangles); HUD re-rendered every frame 33 /
   94 558 / 2.78 ms. All pass; pack CPU p99 0.57 ms, lod_build CPU p99 1.11 ms.
+
+  Re-measured 2026-10-07 with the benchmark's controllers built by
+  `make_aim_ray` (held priority 15, transparent pass): graph only 31 / 94 554 /
+  2.78 ms; 6 000 + 13/5 34 / 94 558 / 2.54 ms; 20 000 + 13/5 34 / 94 542 /
+  2.78 ms; **20 000 + 64/64 33 / 94 558 / 2.78 ms**; HUD re-rendered every frame
+  33 / 94 558 / 3.03 ms. All pass, with calls and triangles identical to the run
+  above. The sweep before it failed its cold first row on the CPU sub-budgets
+  only (pack CPU p99 2.62 ms against 2.0, lod_build CPU p99 3.34 ms against 3.0;
+  frame p99 3.70 ms). That run used the old ray, and the rerun did not repeat it.
 
   Before the HUD fixes the same combined row read 103 236 triangles / 80 calls
   (idle-HUD reserve), then 95 004 / 81 with the dirty frame reserved.

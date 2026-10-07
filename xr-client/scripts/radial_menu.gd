@@ -45,8 +45,14 @@ func set_debug(on: bool) -> void:
 	_debug = on
 
 
+## Same layer as the HUD panel: above the depth-ignoring memory route (10) and
+## the held aim rays (15). Mirrors memory_route.rs OVERLAY_RENDER_PRIORITY.
+const OVERLAY_RENDER_PRIORITY := 20
+
+
 func _ready() -> void:
 	($MenuPanel.material_override as StandardMaterial3D).albedo_texture = _viewport.get_texture()
+	($MenuPanel.material_override as StandardMaterial3D).render_priority = OVERLAY_RENDER_PRIORITY
 	$MenuViewport/MenuControl.theme = preload("res://scripts/xr_theme.gd").create()
 	_backdrop = Control.new()
 	_backdrop.set_script(preload("res://scripts/radial_backdrop.gd"))
