@@ -26,6 +26,7 @@ pub mod gaze;
 pub mod hulls;
 pub mod interaction;
 pub mod lod;
+pub mod perf_fixture;
 pub mod ports;
 pub mod presence;
 pub mod proxemics;

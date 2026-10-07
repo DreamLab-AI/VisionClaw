@@ -948,6 +948,10 @@ pub struct BinaryProtocolClient {
     /// WP4: signature of the last hull mesh handed to GDScript.
     hull_sig: Option<u64>,
     created: Instant,
+    /// Wall time of the last node / edge LOD pack, including the hand-off to a
+    /// Godot packed array (the benchmark's `pack_ms`).
+    last_node_pack: std::time::Duration,
+    last_edge_pack: std::time::Duration,
     base: Base<RefCounted>,
 }
 
@@ -994,6 +998,8 @@ impl BinaryProtocolClient {
             refetch: crate::settings_sync::RefetchGate::default(),
             hull_sig: None,
             created: Instant::now(),
+            last_node_pack: std::time::Duration::ZERO,
+            last_edge_pack: std::time::Duration::ZERO,
             base,
         })
     }
@@ -1530,6 +1536,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
+        let t0 = Instant::now();
         let v = self.store.build_node_buffer_lod(
             ids.as_slice(),
             scale_comp,
@@ -1539,7 +1546,9 @@ impl BinaryProtocolClient {
             near_cap.max(0) as usize,
             near_max_dist,
         );
-        PackedFloat32Array::from(v.as_slice())
+        let out = PackedFloat32Array::from(v);
+        self.last_node_pack = t0.elapsed();
+        out
     }
 
     /// Impostor-tier instances from the last `build_node_buffer_lod` (20-float
@@ -1563,6 +1572,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
+        let t0 = Instant::now();
         let v = self.store.build_edge_buffer_lod(
             pairs.as_slice(),
             radius_comp,
@@ -1570,7 +1580,16 @@ impl BinaryProtocolClient {
             near_cap.max(0) as usize,
             near_max_dist,
         );
-        PackedFloat32Array::from(v.as_slice())
+        let out = PackedFloat32Array::from(v);
+        self.last_edge_pack = t0.elapsed();
+        out
+    }
+
+    /// Milliseconds spent in the last node + edge LOD pack (Rust side, including
+    /// the near-tier hand-off; the far-tier getters are separate calls).
+    #[func]
+    fn last_pack_ms(&self) -> f64 {
+        (self.last_node_pack + self.last_edge_pack).as_secs_f64() * 1000.0
     }
 
     /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).

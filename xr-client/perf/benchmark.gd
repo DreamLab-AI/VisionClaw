@@ -19,6 +19,13 @@ const LEGACY_MARKER := "BENCHMARK_RESULT"
 const FRAME_BUDGET_MS_P99 := 11.1
 const MAX_DRAW_CALLS := 50
 const MAX_TRIANGLES := 100000
+# CPU budget for the per-frame graph pack (Quest XR2 Gen 2 is ~3-4x slower per
+# core than HP's desktop CPU against an 8 ms CPU budget): the Rust pack
+# (`last_pack_ms`: node + edge LOD build and the near-tier hand-off) and the whole
+# GDScript-side rebuild (`lod_build_ms`: pack + far-tier getters + MultiMesh
+# uploads), both p99, measured on the desktop rig.
+const PACK_BUDGET_MS_P99 := 2.0
+const LOD_BUILD_BUDGET_MS_P99 := 3.0
 
 var duration_s: float = DEFAULT_DURATION_S
 var fixture_path: String = DEFAULT_FIXTURE
@@ -48,6 +55,7 @@ var _near_radius: float = INF
 var _lod_report: Dictionary = {"enabled": false}
 var _node_source: String = "fixture"
 var _lod_build_ms := PackedFloat32Array()   # CPU cost of the per-frame LOD pack
+var _pack_ms := PackedFloat32Array()        # Rust-side pack only (last_pack_ms)
 # Edges at production density: the fixture's edges for the 1k fixture, else
 # XR_BENCH_EDGES (default 20 000 = GraphScene EDGE_SAFETY_CEILING) random pairs.
 # Drawn exactly as GraphScene does: Rust build_edge_buffer → EdgesMulti with the
@@ -116,6 +124,11 @@ func _build_report(elapsed_s: float) -> Dictionary:
 	var pass_p99 := p99 <= FRAME_BUDGET_MS_P99
 	var pass_dc := draw_max <= MAX_DRAW_CALLS
 	var pass_tri := tri_max <= MAX_TRIANGLES
+	# Skip the first second of samples: buffers grow and plans are built once.
+	var lod_p99 := _percentile(_sorted(_tail(_lod_build_ms)), 0.99)
+	var pack_p99 := _percentile(_sorted(_tail(_pack_ms)), 0.99)
+	var pass_pack := _client == null or pack_p99 <= PACK_BUDGET_MS_P99
+	var pass_lod := _client == null or lod_p99 <= LOD_BUILD_BUDGET_MS_P99
 
 	# Frame-time -> CPU/GPU split is unavailable from a pure GDScript scene; the
 	# self-hosted runner can supplement via `adb shell dumpsys gfxinfo`. For now
@@ -127,8 +140,10 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"node_source": _node_source,
 		"node_lod": _lod_report,
 		"edges": _edge_report,
-		"lod_build_ms_p50": _percentile(_sorted(_lod_build_ms), 0.50),
-		"lod_build_ms_p99": _percentile(_sorted(_lod_build_ms), 0.99),
+		"lod_build_ms_p50": _percentile(_sorted(_tail(_lod_build_ms)), 0.50),
+		"lod_build_ms_p99": lod_p99,
+		"pack_ms_p50": _percentile(_sorted(_tail(_pack_ms)), 0.50),
+		"pack_ms_p99": pack_p99,
 		"edge_count": int(_fixture.get("edge_count", 0)),
 		"avatar_count": int(_fixture.get("avatar_count", 0)),
 		"duration_s": elapsed_s,
@@ -148,16 +163,20 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"tri_count_max": tri_max,
 		"static_mem_kb_max": _max_int(_static_mem_kb),
 		"hull_layer": _hull_report,
-		"pass": pass_p99 and pass_dc and pass_tri,
+		"pass": pass_p99 and pass_dc and pass_tri and pass_pack and pass_lod,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
 			"draw_calls": pass_dc,
 			"triangles": pass_tri,
+			"pack_ms": pass_pack,
+			"lod_build_ms": pass_lod,
 		},
 		"budgets": {
 			"p99_frame_ms": FRAME_BUDGET_MS_P99,
 			"max_draw_calls": MAX_DRAW_CALLS,
 			"max_triangles": MAX_TRIANGLES,
+			"pack_ms_p99": PACK_BUDGET_MS_P99,
+			"lod_build_ms_p99": LOD_BUILD_BUDGET_MS_P99,
 		},
 	}
 
@@ -334,6 +353,8 @@ func _lod_rebuild() -> void:
 			eb = _client.build_edge_buffer(_edge_pairs, 1.0)
 		edge_count = NodeLod.assign_stride(_edges, eb, 16)
 	_lod_build_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	if _client.has_method("last_pack_ms"):
+		_pack_ms.append(float(_client.last_pack_ms()))
 	_edge_report = {"enabled": _edges != null, "pairs": _edge_pairs.size() / 2, "cylinders": edge_count,
 		"ribbons": ribbon_count, "near_edge_cap": NodeLod.NEAR_EDGE_CAP}
 	_lod_report = {
@@ -390,6 +411,10 @@ func _apply_to_multimesh(mm_inst: MultiMeshInstance3D, nodes: Array) -> void:
 		var p: Array = nodes[i].get("position", [0.0, 0.0, 0.0])
 		var t := Transform3D(Basis(), Vector3(float(p[0]), float(p[1]), float(p[2])))
 		mm.set_instance_transform(i, t)
+
+func _tail(arr: PackedFloat32Array) -> PackedFloat32Array:
+	var skip: int = mini(90, arr.size() / 10)
+	return arr.slice(skip)
 
 func _sorted(arr: PackedFloat32Array) -> PackedFloat32Array:
 	var c := arr.duplicate()

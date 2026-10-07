@@ -223,13 +223,70 @@ pub const DEFAULT_NEAR_EDGE_CAP: usize = 96;
 
 /// Split a packed instance buffer (`stride` floats per instance, row-major 3×4
 /// transform first, origin at floats 3/7/11 — node centre or edge midpoint) into
-/// a near tier and a far tier.
+/// a near tier and a far tier, writing into caller-owned buffers so a steady
+/// frame allocates nothing.
 ///
-/// `keys[i]` identifies instance i across builds (node id, endpoint pair); it is
-/// used only for hysteresis against `prev_near`. The near tier is the `near_cap`
-/// instances nearest `cam` within `near_max_dist`; both outputs keep scene order
-/// and every float of an instance travels with it. O(n): a partial select, not a
-/// sort. A truncated trailing instance is dropped.
+/// `prev_near[i]` (missing ⇒ false) says instance i was in the near tier last
+/// build; such an instance competes with its squared distance scaled by
+/// [`NEAR_HYSTERESIS_SQ`]. The near tier is the `near_cap` instances nearest
+/// `cam` within `near_max_dist`; both outputs keep scene order and every float of
+/// an instance travels with it. `near_flags` receives the per-instance result.
+/// O(n): a partial select, not a sort. A truncated trailing instance is dropped.
+#[allow(clippy::too_many_arguments)]
+pub fn split_tiers_into(
+    buf: &[f32],
+    stride: usize,
+    prev_near: &[bool],
+    cam: [f32; 3],
+    near_cap: usize,
+    near_max_dist: f32,
+    near: &mut Vec<f32>,
+    far: &mut Vec<f32>,
+    near_flags: &mut Vec<bool>,
+    cand: &mut Vec<(f32, usize)>,
+) {
+    near.clear();
+    far.clear();
+    near_flags.clear();
+    cand.clear();
+    if stride < 12 {
+        far.extend_from_slice(buf);
+        return;
+    }
+    let n = buf.len() / stride;
+    let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
+    for i in 0..n {
+        let o = i * stride;
+        let d2 = distance_squared(cam, [buf[o + 3], buf[o + 7], buf[o + 11]]);
+        if d2.is_nan() || d2 > max_sq {
+            continue; // beyond the radius, or NaN
+        }
+        let was_near = prev_near.get(i).copied().unwrap_or(false);
+        cand.push((if was_near { d2 * NEAR_HYSTERESIS_SQ } else { d2 }, i));
+    }
+    let take = near_cap.min(cand.len());
+    near_flags.resize(n, false);
+    if take > 0 {
+        if take < cand.len() {
+            cand.select_nth_unstable_by(take - 1, |a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        }
+        for &(_, i) in &cand[..take] {
+            near_flags[i] = true;
+        }
+    }
+    for (i, &flag) in near_flags.iter().enumerate() {
+        let chunk = &buf[i * stride..(i + 1) * stride];
+        if flag {
+            near.extend_from_slice(chunk);
+        } else {
+            far.extend_from_slice(chunk);
+        }
+    }
+}
+
+/// [`split_tiers_into`] keyed by stable instance identities (node id, endpoint
+/// pair) with hysteresis against the previous near set; allocating convenience
+/// form for callers without a pack plan.
 #[allow(clippy::type_complexity)]
 pub fn split_tiers<K: Copy + Eq + std::hash::Hash>(
     buf: &[f32],
@@ -240,46 +297,15 @@ pub fn split_tiers<K: Copy + Eq + std::hash::Hash>(
     near_max_dist: f32,
     prev_near: &std::collections::HashSet<K>,
 ) -> (Vec<f32>, Vec<f32>, std::collections::HashSet<K>) {
-    if stride < 12 {
-        return (Vec::new(), buf.to_vec(), std::collections::HashSet::new());
-    }
-    let n = buf.len() / stride;
-    let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
-    // (effective d², instance index) for every instance inside the radius.
-    let mut cand: Vec<(f32, usize)> = Vec::new();
-    for i in 0..n {
-        let o = i * stride;
-        let d2 = distance_squared(cam, [buf[o + 3], buf[o + 7], buf[o + 11]]);
-        if !(d2 <= max_sq) {
-            continue; // beyond the radius, or NaN
-        }
-        let was_near = keys.get(i).is_some_and(|k| prev_near.contains(k));
-        cand.push((if was_near { d2 * NEAR_HYSTERESIS_SQ } else { d2 }, i));
-    }
-    let take = near_cap.min(cand.len());
-    let mut is_near = vec![false; n];
-    if take > 0 {
-        if take < cand.len() {
-            cand.select_nth_unstable_by(take - 1, |a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        }
-        for &(_, i) in &cand[..take] {
-            is_near[i] = true;
-        }
-    }
-    let mut near = Vec::with_capacity(take * stride);
-    let mut far = Vec::with_capacity((n - take) * stride);
-    let mut near_keys = std::collections::HashSet::with_capacity(take);
-    for (i, &flag) in is_near.iter().enumerate() {
-        let chunk = &buf[i * stride..(i + 1) * stride];
-        if flag {
-            near.extend_from_slice(chunk);
-            if let Some(&k) = keys.get(i) {
-                near_keys.insert(k);
-            }
-        } else {
-            far.extend_from_slice(chunk);
-        }
-    }
+    let prev: Vec<bool> = keys.iter().map(|k| prev_near.contains(k)).collect();
+    let (mut near, mut far, mut flags, mut cand) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    split_tiers_into(buf, stride, &prev, cam, near_cap, near_max_dist, &mut near, &mut far, &mut flags, &mut cand);
+    let near_keys = flags
+        .iter()
+        .enumerate()
+        .filter(|(_, &f)| f)
+        .filter_map(|(i, _)| keys.get(i).copied())
+        .collect();
     (near, far, near_keys)
 }
 
