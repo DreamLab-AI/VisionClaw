@@ -53,6 +53,10 @@ pub struct ClientState {
     pub settings_override: Option<crate::config::AppFullSettings>,
     /// Whether this client authenticated with an ephemeral (dev-mode) identity
     pub ephemeral_session: bool,
+    /// When the client's mailbox was first found full in the current run of
+    /// congested broadcasts; `None` once a broadcast reaches it again. A
+    /// client congested for longer than `addr.stall_timeout` is evicted.
+    pub congested_since: Option<Instant>,
 }
 
 /// Per-client filter settings for graph visibility
@@ -207,8 +211,10 @@ impl DisconnectedClientQueue {
 /// skipped one. A peer that has gone away stops answering pings and is closed
 /// after `system.websocket.heartbeatTimeout`
 /// (`socket_flow_handler/heartbeat.rs`); its `stopped()` sends
-/// `UnregisterClient`. A peer that stays connected but never reads costs one
-/// full 16-message mailbox, and every frame is skipped for it.
+/// `UnregisterClient`. A peer that stays connected but never reads is
+/// evicted once it has been congested for `stall_timeout` (its heartbeat
+/// timeout): `ClientManager::evict_stalled` closes its transport, because the
+/// session actor does not run while the dispatcher is blocked on its writes.
 ///
 /// `closed_clients` are clients whose socket actor has stopped. Callers MUST
 /// evict these under a write lock AFTER releasing any read lock held during
@@ -282,6 +288,7 @@ impl ClientManager {
             filter: ClientFilter::default(),
             settings_override: None,
             ephemeral_session: false,
+            congested_since: None,
         };
 
         self.clients.insert(client_id, client_state);
@@ -301,6 +308,51 @@ impl ClientManager {
 
     pub fn get_client(&self, client_id: usize) -> Option<&ClientState> {
         self.clients.get(&client_id)
+    }
+
+    /// Track congestion from one broadcast: start the clock for clients whose
+    /// mailbox was full, stop it for every other registered client.
+    pub fn record_congestion(&mut self, result: &BroadcastResult, now: Instant) {
+        for (id, client) in self.clients.iter_mut() {
+            if result.congested_clients.contains(id) {
+                client.congested_since.get_or_insert(now);
+            } else {
+                client.congested_since = None;
+            }
+        }
+    }
+
+    /// Evict every client that has stayed congested for its stall timeout:
+    /// unregister it, close its transport (the session actor cannot run while
+    /// its peer is not reading) and queue a close for the session. Returns the
+    /// evicted ids.
+    pub fn evict_stalled(&mut self, now: Instant) -> Vec<usize> {
+        let stalled: Vec<usize> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| {
+                c.congested_since.is_some_and(|since| {
+                    now.saturating_duration_since(since) >= c.addr.stall_timeout
+                })
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &stalled {
+            if let Some(client) = self.clients.remove(id) {
+                warn!(
+                    "[ClientCoordinator] Client {} congested for {:?} (stall timeout) — evicting and closing",
+                    id, client.addr.stall_timeout
+                );
+                client.addr.close.do_send(CloseClientSession {
+                    reason: "not reading (stall timeout)".to_string(),
+                });
+                if let Some(transport) = &client.addr.transport {
+                    transport.close();
+                }
+            }
+        }
+        self.active_connections = self.clients.len();
+        stalled
     }
 
     pub fn unregister_client(&mut self, client_id: usize) -> bool {
@@ -582,10 +634,10 @@ impl ClientCoordinatorActor {
                 id, site
             );
         }
-        if result.closed_clients.is_empty() {
-            return;
-        }
         if let Ok(mut manager) = self.client_manager.write() {
+            let now = Instant::now();
+            manager.record_congestion(result, now);
+            manager.evict_stalled(now);
             for id in &result.closed_clients {
                 warn!(
                     "[ClientCoordinator] Evicting closed client {} ({})",
@@ -1176,6 +1228,14 @@ impl Actor for ClientCoordinatorActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         info!("ClientCoordinatorActor started - WebSocket communication manager ready");
+
+        // Stall sweep: a client congested past its stall timeout is evicted and
+        // closed even when no broadcast runs to notice it.
+        ctx.run_interval(Duration::from_secs(1), |act, _ctx| {
+            if let Ok(mut manager) = act.client_manager.write() {
+                manager.evict_stalled(Instant::now());
+            }
+        });
 
         // ADR-031 gap 3b: Periodic cleanup of stale disconnected client buffers (every 60s).
         ctx.run_interval(Duration::from_secs(60), |act, _ctx| {
@@ -2065,6 +2125,10 @@ mod tests {
             self.0.lock().unwrap().push(m.0);
         }
     }
+    impl Handler<CloseClientSession> for Probe {
+        type Result = ();
+        fn handle(&mut self, _: CloseClientSession, _: &mut Self::Context) {}
+    }
     impl Handler<SendToClientBinary> for Probe {
         type Result = ();
         fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {}
@@ -2085,11 +2149,12 @@ mod tests {
     ) {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let addr = Probe(seen.clone()).start();
-        let r = ClientRecipients {
-            binary: addr.clone().recipient(),
-            text: addr.clone().recipient(),
-            initial_load: addr.recipient(),
-        };
+        let r = ClientRecipients::new(
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+        );
         (r, seen)
     }
 
@@ -2134,6 +2199,10 @@ mod tests {
     impl Actor for BinaryCounter {
         type Context = Context<Self>;
     }
+    impl Handler<CloseClientSession> for BinaryCounter {
+        type Result = ();
+        fn handle(&mut self, _: CloseClientSession, _: &mut Self::Context) {}
+    }
     impl Handler<SendToClientBinary> for BinaryCounter {
         type Result = ();
         fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {
@@ -2161,11 +2230,12 @@ mod tests {
     ) {
         let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let addr = BinaryCounter(n.clone()).start();
-        let r = ClientRecipients {
-            binary: addr.clone().recipient(),
-            text: addr.clone().recipient(),
-            initial_load: addr.clone().recipient(),
-        };
+        let r = ClientRecipients::new(
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+        );
         (r, addr, n)
     }
 
@@ -2222,6 +2292,124 @@ mod tests {
         assert_eq!(frames.load(std::sync::atomic::Ordering::SeqCst), before + 1);
     }
 
+    /// Records close requests (stands in for a SocketFlowServer).
+    struct CloseProbe(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+    impl Actor for CloseProbe {
+        type Context = Context<Self>;
+    }
+    impl Handler<SendToClientBinary> for CloseProbe {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {}
+    }
+    impl Handler<SendToClientText> for CloseProbe {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientText, _: &mut Self::Context) {}
+    }
+    impl Handler<crate::actors::messages::SendInitialGraphLoad> for CloseProbe {
+        type Result = ();
+        fn handle(
+            &mut self,
+            _: crate::actors::messages::SendInitialGraphLoad,
+            _: &mut Self::Context,
+        ) {
+        }
+    }
+    impl Handler<CloseClientSession> for CloseProbe {
+        type Result = ();
+        fn handle(&mut self, _: CloseClientSession, ctx: &mut Self::Context) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            ctx.stop();
+        }
+    }
+
+    struct Stalled {
+        recipients: ClientRecipients,
+        transport_closes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        session_closes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    fn stalled_client(stall_timeout: Duration) -> Stalled {
+        let session_closes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let transport_closes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let addr = CloseProbe(session_closes.clone()).start();
+        let t = transport_closes.clone();
+        let recipients = ClientRecipients::new(
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.recipient(),
+        )
+        .with_transport(TransportCloser::new(move || {
+            t.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }))
+        .with_stall_timeout(stall_timeout);
+        Stalled {
+            recipients,
+            transport_closes,
+            session_closes,
+        }
+    }
+
+    /// A client that stays connected but never reads used to keep its
+    /// registration forever, skipping every frame. Once it has stayed
+    /// congested for its stall timeout (the heartbeat timeout) it is evicted,
+    /// its transport is closed from outside the session actor (whose mailbox
+    /// it cannot drain) and the session is told to close.
+    #[actix::test]
+    async fn a_client_congested_past_its_stall_timeout_is_evicted_and_closed() {
+        let mut m = ClientManager::new();
+        let c = stalled_client(Duration::from_millis(100));
+        let id = m.register_client(c.recipients);
+
+        // Fill the mailbox without yielding, so the probe never drains it.
+        let t0 = Instant::now();
+        for _ in 0..40 {
+            let r = m.broadcast_to_all(vec![0u8; 8]);
+            m.record_congestion(&r, t0);
+        }
+        assert!(
+            m.evict_stalled(t0 + Duration::from_millis(99)).is_empty(),
+            "not yet"
+        );
+        assert_eq!(m.evict_stalled(t0 + Duration::from_millis(100)), vec![id]);
+        assert!(m.get_client_mut(id).is_none(), "unregistered");
+        assert_eq!(
+            c.transport_closes.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        // The session close was queued past the full mailbox (do_send) and is
+        // handled once the session runs again.
+        actix::clock::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            c.session_closes.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
+    /// A client that drains again before its stall timeout is not evicted.
+    #[actix::test]
+    async fn a_client_that_recovers_before_the_stall_timeout_is_kept() {
+        let mut m = ClientManager::new();
+        let c = stalled_client(Duration::from_millis(100));
+        let id = m.register_client(c.recipients);
+        let t0 = Instant::now();
+        for _ in 0..40 {
+            let r = m.broadcast_to_all(vec![0u8; 8]);
+            m.record_congestion(&r, t0);
+        }
+        actix::clock::sleep(Duration::from_millis(20)).await; // the probe drains
+        let r = m.broadcast_to_all(vec![0u8; 8]);
+        assert_eq!(r.sent, 1);
+        m.record_congestion(&r, t0 + Duration::from_millis(50));
+        assert!(m.evict_stalled(t0 + Duration::from_millis(500)).is_empty());
+        assert!(m.get_client_mut(id).is_some());
+        assert_eq!(
+            c.transport_closes.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
     /// A client whose socket actor has stopped is still reported for eviction.
     #[actix::test]
     async fn closed_mailbox_is_reported_for_eviction() {
@@ -2231,6 +2419,10 @@ mod tests {
             fn started(&mut self, ctx: &mut Self::Context) {
                 ctx.stop();
             }
+        }
+        impl Handler<CloseClientSession> for StopsAtOnce {
+            type Result = ();
+            fn handle(&mut self, _: CloseClientSession, _: &mut Self::Context) {}
         }
         impl Handler<SendToClientBinary> for StopsAtOnce {
             type Result = ();
@@ -2250,11 +2442,12 @@ mod tests {
             }
         }
         let addr = StopsAtOnce.start();
-        let r = ClientRecipients {
-            binary: addr.clone().recipient(),
-            text: addr.clone().recipient(),
-            initial_load: addr.recipient(),
-        };
+        let r = ClientRecipients::new(
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+        );
         let mut m = ClientManager::new();
         let id = m.register_client(r);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;

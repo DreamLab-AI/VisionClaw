@@ -9,6 +9,7 @@ pub mod http_handler;
 pub mod message_routing;
 pub mod position_updates;
 pub mod session_relay;
+pub mod transport;
 pub mod types;
 
 // Re-export public API (preserves all external imports)

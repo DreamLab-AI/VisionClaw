@@ -311,6 +311,17 @@ Each socket runs its own keepalive cadence. All of them treat any inbound frame
 answer pings from the network stack, so a busy tab stays alive; a peer that has
 gone away is closed and unregistered from the broadcast registry.
 
+A peer that stays connected but **never reads** cannot be closed by the
+heartbeat: once its socket buffers fill, actix's dispatcher blocks on the write
+and stops running the session actor, so neither its timer nor any message
+(`do_send` included) is handled. The `ClientCoordinatorActor` therefore tracks
+how long each client's mailbox has been full; after `heartbeatTimeout` of
+continuous congestion (checked on every broadcast and by a 1 s sweep) it
+unregisters the client, queues a `CloseClientSession` (close code 1008) and
+shuts the TCP socket down through a dup of its fd taken in
+`HttpServer::on_connect` (`socket_flow_handler/transport.rs`). A client that
+drains again before the timeout is kept.
+
 The shared `WebSocketHeartbeat` trait (`src/utils/websocket_heartbeat.rs`) also
 piggybacks server-to-client **directives** on pong frames (ADR-031):
 `reload_config`, `force_full_sync`, and `update_available { version }`. Clients

@@ -1,5 +1,5 @@
 use actix::{Handler, Message};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 
 use crate::utils::binary_protocol;
 use crate::utils::socket_flow_messages::BinaryNodeData;
@@ -95,6 +95,27 @@ impl Handler<SendToClientBinary> for SocketFlowServer {
 
     fn handle(&mut self, msg: SendToClientBinary, ctx: &mut Self::Context) {
         ctx.binary(msg.0);
+    }
+}
+
+impl Handler<crate::actors::messages::CloseClientSession> for SocketFlowServer {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: crate::actors::messages::CloseClientSession,
+        ctx: &mut Self::Context,
+    ) {
+        warn!(
+            "[WebSocket] Client {:?} closed by the coordinator: {}",
+            self.client_id, msg.reason
+        );
+        use actix::ActorContext;
+        ctx.close(Some(actix_web_actors::ws::CloseReason {
+            code: actix_web_actors::ws::CloseCode::Policy,
+            description: Some(msg.reason),
+        }));
+        ctx.stop();
     }
 }
 

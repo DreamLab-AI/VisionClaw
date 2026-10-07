@@ -403,6 +403,9 @@ pub async fn socket_flow_handler(
     };
     ws_server.heartbeat =
         super::heartbeat::Heartbeat::new(heartbeat_config, std::time::Instant::now());
+    ws_server.transport = req
+        .conn_data::<super::transport::ConnTransport>()
+        .map(|t| t.closer());
 
     ws_server.is_reconnection = is_reconnection;
     if let Some(user) = signed_user {
