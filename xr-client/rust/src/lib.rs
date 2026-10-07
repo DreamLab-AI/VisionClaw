@@ -24,6 +24,8 @@ pub mod binary_protocol;
 pub mod gaze;
 pub mod interaction;
 pub mod lod;
+pub mod memory_cloud;
+pub mod memory_route;
 pub mod ports;
 pub mod presence;
 pub mod proxemics;
