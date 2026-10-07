@@ -96,23 +96,23 @@ Headless runs use the dummy renderer, so draw calls and triangles read 0; count 
 display. `rust/src/frame_budget.rs` allocates the frame (95 000 triangles / 48 calls after a
 5 % reserve) between the graph tiers, the cloud, the route and the burst ring pool, and the
 scene applies its caps. The scene also carries the HUD, two controller aim rays and two
-avatars (measured in a calibration phase as `other_tris`) and live memory_flash load. "Scene"
-counts are the root viewport (the eye buffer); "total" adds offscreen SubViewport renders
-(the HUD canvas, about 1 frame a second). Measured on HP-Desktop (GL window, Godot 4.6.1,
-2026-10-07, synthetic graph with 20 000 edges and 32 hulls); the scene count equals the
-allocator's estimate in every row:
+avatars; a calibration phase forces a HUD re-render on every page and reserves the worst
+dirty frame as `other_tris` (24 calls, 2 150 triangles), then keeps that page open. Pass is
+the renderer's global worst frame over the run, HUD re-renders included. Measured on
+HP-Desktop (GL window, Godot 4.6.1, 2026-10-07, synthetic graph with 20 000 edges and 32 hulls):
 
-| Nodes | Cloud rows | Route nodes / sidecar | Flash load | Scene calls / triangles | Total calls / triangles (HUD frames) | p99 |
-|---|---|---|---|---|---|---|
-| 1 000 | 0 | — | 64 rings | 20 / 73 834 | 78 / 82 078 | 4.04 ms |
-| 1 000 | 6 000 | 13 / 5 | 64 rows | 23 / 82 982 | 81 / 91 226 | 4.04 ms |
-| 1 000 | 20 000 | 13 / 5 | 64 rows | 23 / 84 982 | 81 / 93 226 | 6.38 ms |
-| 1 000 | 20 000 | 64 / 64 | 64 rows | 23 / 81 782 | 81 / 90 026 | 4.17 ms |
-| 13 164 | 0 | — | 64 rings | 20 / 95 000 | 78 / 103 244 | 6.94 ms |
-| 13 164 | 6 000 | 13 / 5 | 64 rows | 23 / 94 992 | 81 / 103 236 | 6.67 ms |
-| 13 164 | 20 000 | 13 / 5 | 64 rows | 23 / 94 976 | 81 / 103 220 | 6.06 ms |
-| 13 164 | 20 000 | 64 / 64 | 64 rows | 22 / 94 992 | 80 / 103 236 | 6.06 ms |
+| Nodes | Cloud rows | Route nodes / sidecar | Flash load | Draw calls | Triangles | p99 | Result |
+|---|---|---|---|---|---|---|---|
+| 1 000 | 0 | — | 64 rings | 31 | 74 828 | 3.70 ms | pass |
+| 1 000 | 6 000 | 13 / 5 | 64 rows | 34 | 83 976 | 3.70 ms | pass |
+| 1 000 | 20 000 | 13 / 5 | 64 rows | 34 | 85 976 | 4.44 ms | pass |
+| 1 000 | 20 000 | 64 / 64 | 64 rows | 34 | 82 776 | 5.56 ms | pass |
+| 13 164 | 0 | — | 64 rings | 31 | 94 554 | 5.56 ms | pass |
+| 13 164 | 6 000 | 13 / 5 | 64 rows | 34 | 94 546 | 6.67 ms | pass |
+| 13 164 | 20 000 | 13 / 5 | 64 rows | 34 | 94 560 | 6.06 ms | pass |
+| 13 164 | 20 000 | 64 / 64 | 64 rows | 33 | 94 546 | 5.88 ms | pass |
 
+`perf/hud_draw_calls.gd` prints the HUD's re-render cost per page (6–12 calls).
 `extras=0` drops the HUD/controllers/avatars, `bursts=0` the flash load;
 `XR_BENCH_EXTRAS=hud,controllers,avatars` picks a subset; `XR_BENCH_HUD_ACTIVE=1` re-renders
 the HUD every frame (wand on the panel).

@@ -313,32 +313,38 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   `memory_point.gdshader` blends and brightens, and the basis carries the
   scale. No geometry is added; the cloud MultiMesh stride is 20 (12 transform
   + 4 colour + 4 custom).
-- **Measured worst case** (HP, GL window, Godot 4.6.1, 2026-10-07; HUD, two
-  controller aim rays and two avatars in the scene, 64 live flash rows, or the
-  full ring pool with the cloud hidden). "Scene" is the root viewport, the eye
-  buffer FrameBudget governs; its count equals the allocator's estimate in
-  every row:
+- **Measured worst case.** The pass check is the renderer's global per-frame
+  maximum over the whole run, offscreen passes included (the HUD SubViewport).
+  The scene carries the HUD, two controller aim rays and two avatars, and
+  `other_tris` / their draw calls are calibrated from the HUD's *dirty* frame:
+  a forced re-render of every page, the costliest kept (24 calls, 2 150
+  triangles), with that page left open for the run. HP, GL window, Godot 4.6.1,
+  2026-10-07, 13 164 nodes / 20 000 edges / 32 hulls:
 
-  | Nodes / edges / hulls | Cloud | Route nodes / sidecar | Scene calls | Scene triangles | p99 | Gems / cylinders / hulls |
+  | Cloud | Route nodes / sidecar | Flash load | Draw calls | Triangles | p99 | Gems / cylinders / hulls |
   |---|---|---|---|---|---|---|
-  | 13 164 / 20 000 / 32 | — (ring pool) | — | 20 | 95 000 | 6.94 ms | 72 / 6 / 32 |
-  | 13 164 / 20 000 / 32 | 6 000 | 13 / 5 | 23 | 94 992 | 6.67 ms | 40 / 8 / 32 |
-  | 13 164 / 20 000 / 32 | 20 000 | 13 / 5 | 23 | 94 976 | 6.06 ms | 33 / 8 / 32 |
-  | 13 164 / 20 000 / 32 | 20 000 | 64 / 64 | 22 | 94 992 | 6.06 ms | 45 / 0 / 32 |
+  | — | — | 64 rings | 31 | 94 554 | 5.56 ms | 67 / 6 / 32 |
+  | 6 000 | 13 / 5 | 64 rows | 34 | 94 546 | 6.67 ms | 35 / 8 / 32 |
+  | 20 000 | 13 / 5 | 64 rows | 34 | 94 560 | 6.06 ms | 28 / 9 / 32 |
+  | 20 000 | 64 / 64 | 64 rows | 33 | 94 546 | 5.88 ms | 40 / 0 / 32 |
+  | same, HUD re-rendered every frame | | | 33 | 94 546 | 6.06 ms | 40 / 0 / 32 |
 
-  The HUD, two controllers and two avatars measure 722 triangles and 13 calls.
-  Two existing defects were fixed to get there. The HUD SubViewport rendered
-  every frame (59 calls, about 8 200 triangles) and now renders only when one
-  of its controls redraws (`scripts/hud_render_on_demand.gd`). Avatar heads
-  were default 64 × 32 spheres (4 224 triangles each) and are now 16 × 8.
-- **Open: the HUD canvas render.** When the HUD does re-render, its offscreen
-  2D pass costs 58 calls and about 8 200 triangles in that frame. Its "FPS n"
-  header changes about once a second, so roughly 9 frames in 10 s carry it,
-  and the renderer's global totals reach 103 236 triangles / 80 calls on those
-  frames. Frame time holds: p99 is 6.06 ms even with the HUD forced to render
-  every frame (`XR_BENCH_HUD_ACTIVE=1`). Whether the 50-call / 100k budget
-  covers offscreen 2D renders, and whether the FPS header should update less
-  often, is a product decision recorded here rather than taken silently.
+  Before the HUD fixes the same combined row read 103 236 triangles / 80 calls
+  (idle-HUD reserve), then 95 004 / 81 with the dirty frame reserved.
+- **HUD canvas cost.** A HUD re-render cost 59–73 draw calls and up to 8 242
+  primitives; now 6–12 calls and 318–1 430 primitives per page
+  (`perf/hud_draw_calls.gd`). Causes, measured one at a time and fixed:
+  StyleBoxFlat boxes are anti-aliased polygons, a call each, splitting the text
+  batch (`scripts/hud_batching.gd` draws every box as a nine-patch from one
+  atlas in a z −1 background layer; swatches and CheckButton switches join
+  it); glyphs missing from Godot's default font came from fallback fonts with
+  their own textures (`fonts/HudSans-SemiBold.ttf`, Open Sans SemiBold plus
+  the HUD's 15 symbols, built by `fonts/build_hud_font.py`); the page host's
+  clip split every batch (removed; the GUT fit tests hold pages inside it).
+  The SubViewport renders only when a control redraws
+  (`scripts/hud_render_on_demand.gd`), and the FPS header updates at most every
+  2 s, only when the integer changes. Avatar heads went from default 64 × 32
+  spheres (4 224 triangles) to 16 × 8 (288).
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the
