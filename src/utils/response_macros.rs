@@ -1,15 +1,15 @@
-/// HTTP Response Standardization Macros
-/// These macros provide a consistent interface for creating HTTP responses
-/// using the HandlerResponse trait. All handlers MUST use these macros
-/// instead of direct HttpResponse construction.
-/// Author: API Specialist Agent
-/// Task: Phase 1, Task 1.4 - HTTP Response Standardization
-/// # Usage
-/// These macros are exported at crate level with `#[macro_export]`.
-/// Import them directly from crate root:
-/// ```ignore
-/// use crate::{ok_json, error_json, service_unavailable};
-/// ```
+//! HTTP Response Standardization Macros
+//! These macros provide a consistent interface for creating HTTP responses
+//! using the HandlerResponse trait. All handlers MUST use these macros
+//! instead of direct HttpResponse construction.
+//! Author: API Specialist Agent
+//! Task: Phase 1, Task 1.4 - HTTP Response Standardization
+//! # Usage
+//! These macros are exported at crate level with `#[macro_export]`.
+//! Import them directly from crate root:
+//! ```ignore
+//! use crate::{ok_json, error_json, service_unavailable};
+//! ```
 
 /// Success response with JSON data (200 OK)
 /// # Examples

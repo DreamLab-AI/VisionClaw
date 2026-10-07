@@ -51,12 +51,13 @@ struct FakeState {
 /// Bind an ephemeral port and serve the agentbox Management-API `/v1/tasks`
 /// contract from a background thread until the process exits:
 ///   * `POST   /v1/tasks`      → record the create's `claude_flow_agent_id` +
-///                               `agent`, respond 202 with the fixed `task_id`;
+///     `agent`, respond 202 with the fixed `task_id`;
 ///   * `GET    /v1/tasks`      → a one-task active list whose `taskId` is
-///                               `task_id`, `agent` is the recorded role, and
-///                               `claudeFlowAgentId` is present IFF the create
-///                               carried one (never fabricated);
+///     `task_id`, `agent` is the recorded role, and
+///     `claudeFlowAgentId` is present IFF the create
+///     carried one (never fabricated);
 ///   * `DELETE /v1/tasks/{id}` → 200 (task stopped).
+///
 /// Returns the bound port and the shared fake state.
 fn spawn_fake_mgmt_api(task_id: &'static str) -> (u16, Arc<Mutex<FakeState>>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");

@@ -235,8 +235,10 @@ mod t4_ceiling_consistency {
     fn t4_real_validator_rejects_above_ceiling() {
         use visionclaw_server::settings::api::settings_routes::validate_physics_settings;
 
-        let mut d = PhysicsSettings::default();
-        d.max_velocity = physics_bounds::MAX_VELOCITY.1 + 1.0; // one past the ceiling
+        let d = PhysicsSettings {
+            max_velocity: physics_bounds::MAX_VELOCITY.1 + 1.0, // one past the ceiling
+            ..Default::default()
+        };
         let result = validate_physics_settings(&d);
         assert!(
             result.is_err(),

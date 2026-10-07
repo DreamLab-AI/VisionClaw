@@ -67,15 +67,14 @@ impl PhysicsOrchestratorAdapter {
     }
 
     fn convert_params_to_actor(params: &SimulationParams) -> ActorSimulationParams {
-        let mut actor_params = ActorSimulationParams::default();
-
-        actor_params.repel_k = params.settings.repel_k;
-        actor_params.spring_k = params.settings.spring_k;
-        actor_params.damping = params.settings.damping;
-        actor_params.max_velocity = params.settings.max_velocity;
-        actor_params.enabled = params.settings.enabled;
-
-        actor_params
+        ActorSimulationParams {
+            repel_k: params.settings.repel_k,
+            spring_k: params.settings.spring_k,
+            damping: params.settings.damping,
+            max_velocity: params.settings.max_velocity,
+            enabled: params.settings.enabled,
+            ..Default::default()
+        }
     }
 
     fn convert_position_to_port(

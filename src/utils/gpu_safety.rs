@@ -600,8 +600,10 @@ mod tests {
 
     #[test]
     fn test_cpu_fallback() {
-        let mut config = GPUSafetyConfig::default();
-        config.cpu_fallback_threshold = 2;
+        let config = GPUSafetyConfig {
+            cpu_fallback_threshold: 2,
+            ..Default::default()
+        };
         let validator = GPUSafetyValidator::new(config);
 
         assert!(!validator.should_fallback_to_cpu());

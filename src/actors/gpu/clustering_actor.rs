@@ -1545,8 +1545,10 @@ mod gate_tests {
         let mut m = HashMap::new();
         for &id in ids {
             // Seed a stale non-zero community_id to prove the reset path runs.
-            let mut e = NodeAnalytics::default();
-            e.community_id = 999;
+            let e = NodeAnalytics {
+                community_id: 999,
+                ..Default::default()
+            };
             m.insert(id, e);
         }
         m

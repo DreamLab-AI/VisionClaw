@@ -348,8 +348,10 @@ mod gpu_memory_manager_tests {
     fn test_ensure_capacity_growth_factor() {
         let mut manager = GpuMemoryManager::new().expect("Manager creation failed");
 
-        let mut config = BufferConfig::default();
-        config.growth_factor = 2.0; // Double each time
+        let config = BufferConfig {
+            growth_factor: 2.0, // Double each time
+            ..Default::default()
+        };
 
         manager
             .allocate::<f32>("growing_buffer", 100, config)
@@ -553,8 +555,10 @@ mod gpu_memory_manager_tests {
     fn test_ensure_capacity_max_size_enforced() {
         let mut manager = GpuMemoryManager::new().expect("Manager creation failed");
 
-        let mut config = BufferConfig::default();
-        config.max_size_bytes = 4096; // Very small max
+        let config = BufferConfig {
+            max_size_bytes: 4096, // Very small max
+            ..Default::default()
+        };
 
         manager
             .allocate::<f32>("limited_buffer", 100, config)
@@ -616,8 +620,10 @@ mod gpu_memory_manager_tests {
     fn test_async_transfer_on_non_async_buffer_error() {
         let mut manager = GpuMemoryManager::new().expect("Manager creation failed");
 
-        let mut config = BufferConfig::default();
-        config.enable_async = false;
+        let config = BufferConfig {
+            enable_async: false,
+            ..Default::default()
+        };
 
         manager.allocate::<f32>("sync_only", 100, config).unwrap();
 
@@ -634,8 +640,10 @@ mod gpu_memory_manager_tests {
     fn test_wait_for_download_no_pending_error() {
         let mut manager = GpuMemoryManager::new().expect("Manager creation failed");
 
-        let mut config = BufferConfig::default();
-        config.enable_async = true;
+        let config = BufferConfig {
+            enable_async: true,
+            ..Default::default()
+        };
 
         manager.allocate::<f32>("async_buf", 100, config).unwrap();
 
@@ -806,8 +814,10 @@ mod gpu_memory_manager_tests {
     fn test_async_transfer_basic() {
         let mut manager = GpuMemoryManager::new().expect("Manager creation failed");
 
-        let mut config = BufferConfig::default();
-        config.enable_async = true;
+        let config = BufferConfig {
+            enable_async: true,
+            ..Default::default()
+        };
 
         manager
             .allocate::<f32>("async_buffer", 100, config)

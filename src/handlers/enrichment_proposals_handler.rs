@@ -21,6 +21,7 @@
 //! That is deleted. Now the two facts are separated and both persisted:
 //!   * `writeback_triggered` — outcome qualifies (approve) AND attributed.
 //!   * `writeback_committed`  — the Oxigraph derived write actually returned Ok.
+//!
 //! The agentbox broker-bridge should key true closure off `committed`.
 //!
 //! Unattributed approvals are recorded durably (status transitions) but

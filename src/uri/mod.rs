@@ -10,19 +10,19 @@
 //! Grammar (per agentbox/CLAUDE.md "Parallel namespace"):
 //!
 //!   * `urn:visionclaw:concept:<domain>:<slug>`
-//!       domain-scoped — a post-elevation shared ontology class.
+//!     domain-scoped — a post-elevation shared ontology class.
 //!   * `urn:visionclaw:kg:<hex-pubkey>:<sha256-12>`
-//!       owner-scoped, content-addressed — a personal KG node.
+//!     owner-scoped, content-addressed — a personal KG node.
 //!   * `urn:visionclaw:bead:<hex-pubkey>:<sha256-12>`
-//!       owner-scoped, content-addressed.
+//!     owner-scoped, content-addressed.
 //!   * `urn:visionclaw:execution:<sha256-12>`
-//!       content-addressed, **unscoped** — owner travels in `owner_did`.
+//!     content-addressed, **unscoped** — owner travels in `owner_did`.
 //!   * `urn:visionclaw:group:<team>#members`
-//!       team-scoped.
+//!     team-scoped.
 //!   * `urn:visionclaw:room:<sha256-12>`
-//!       content-addressed, unscoped — an XR presence room (DDD-XR §7.2).
+//!     content-addressed, unscoped — an XR presence room (DDD-XR §7.2).
 //!   * `urn:visionclaw:avatar:<hex-pubkey>`
-//!       identity-bound 1:1 with the avatar's DID (DDD-XR §7.2).
+//!     identity-bound 1:1 with the avatar's DID (DDD-XR §7.2).
 //!   * identity is `did:nostr:<hex-pubkey>` — there is **no** `urn:visionclaw:agent`
 //!     kind; an agent's identity *is* its DID.
 //!
@@ -791,10 +791,10 @@ pub struct UrnCrossing {
 ///   * `activity` → `urn:visionclaw:execution:<sha256-12>` (unscoped)
 ///   * `thing`    → `urn:visionclaw:kg:<pubkey>:<sha256-12>`
 ///   * `bead`     → `urn:visionclaw:bead:<pubkey>:<sha256-12>` (structural
-///                  pass-through — ADR-2072 / agentbox ADR-2061: agentbox
-///                  `bead` locals are already
-///                  `sha256-12-<12hex>` content addresses, so the crossing
-///                  preserves the existing address instead of re-hashing)
+///     pass-through — ADR-2072 / agentbox ADR-2061: agentbox
+///     `bead` locals are already
+///     `sha256-12-<12hex>` content addresses, so the crossing
+///     preserves the existing address instead of re-hashing)
 ///
 /// and `memory` is a *recorded* refusal rather than an absent arm: it would
 /// reach `urn:visionclaw:concept:<domain>:<slug>`, but that needs a

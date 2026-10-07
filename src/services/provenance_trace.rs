@@ -8,7 +8,8 @@
 //!     fields since P1), keyed on `did:nostr`; and
 //!   * **broker decisions** (`enrichment_decisions`), keyed on the deciding
 //!     `did:nostr` (`owner_did`) with the PROV-O activity URN;
-//! and it JOINS them on the `did:nostr` `agent_did` attribution the solid-pod
+//!
+//! It then JOINS them on the `did:nostr` `agent_did` attribution the solid-pod
 //! provenance-trace contract fixes as the shared key
 //! (`solid-pod-rs/.../reference/provenance-trace-contract.md` §2.3).
 //!

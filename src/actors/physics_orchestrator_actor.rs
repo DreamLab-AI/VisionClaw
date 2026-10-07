@@ -2067,13 +2067,14 @@ mod tests {
         energy_threshold: f64,
         damping_override: f32,
     ) -> SimulationParams {
-        let mut params = SimulationParams::default();
-        params.settle_mode = SettleMode::FastSettle {
-            damping_override,
-            max_settle_iterations: max_iters,
-            energy_threshold,
-        };
-        params
+        SimulationParams {
+            settle_mode: SettleMode::FastSettle {
+                damping_override,
+                max_settle_iterations: max_iters,
+                energy_threshold,
+            },
+            ..Default::default()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2248,8 +2249,10 @@ mod tests {
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn parameter_interpolation_blends_toward_target() {
-        let mut params = SimulationParams::default();
-        params.settle_mode = SettleMode::Continuous; // interpolation only in Continuous
+        let params = SimulationParams {
+            settle_mode: SettleMode::Continuous, // interpolation only in Continuous
+            ..Default::default()
+        };
         let mut actor = PhysicsOrchestratorActor::new(params, None, None);
 
         // Set current repel_k to 100, target to 200

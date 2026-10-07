@@ -1745,6 +1745,7 @@ impl ForceComputeActor {
     /// 1. Retrieves constraint buffer from OntologyConstraintActor (via shared memory/coordination)
     /// 2. Uploads constraints to GPU via UnifiedGPUCompute::upload_constraints()
     /// 3. Constraints are automatically applied during execute_physics_step()
+    ///
     /// The constraint buffer contains ConstraintData structs generated from OWL axioms
     /// by OntologyConstraintTranslator, which are processed by ontology_constraints.cu kernels.
     /// # Thread Safety
@@ -2710,9 +2711,10 @@ impl Handler<SetLayoutMode> for ForceComputeActor {
 /// the shell CENTRE (`SimulationParams.radial_center`) change per RadialMode:
 ///   - DagRank : key = cached DAG hierarchy rank;      centre = origin (legacy).
 ///   - TypeTier: key = node-type tier (Agent 0 → Knowledge 1 → Ontology 2);
-///               centre = origin.
+///     centre = origin.
 ///   - Ego     : key = BFS hop-distance from `focus_node`; centre = the focus
-///               node's live GPU position (origin if unreadable).
+///     node's live GPU position (origin if unreadable).
+///
 /// The centre is actor-authoritative (preserved through settings PUTs by the
 /// UpdateSimulationParams handler). Applied through the same UpdateSimulationParams
 /// path as SetLayoutMode so validation, resync and reheat behave identically.

@@ -111,6 +111,7 @@ pub struct ActorStatistics {
 /// - Report caching and eviction
 /// - Health monitoring and stuck job detection
 /// - Integration with physics and semantic actors
+///
 /// For CustomReasoner inference, use ReasoningActor instead.
 pub struct OntologyActor {
     /// OWL validator service for ontology validation

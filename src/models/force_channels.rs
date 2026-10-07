@@ -33,9 +33,11 @@
 //!     ramp-capped by `constraint_max_force_per_node`.
 //!   * DAG radial bias (Phase 2) — `dag_bias_k` + `dag_level_distance`, self-gated
 //!     on `dag_bias_k > 0`.
+//!
 //! Terms in `integrate_pass_kernel`:
 //!   * Boundary — soft push, `viewport_bounds` + `boundary_damping`.
 //!   * Annealing — velocity jitter, `temperature` + `cooling_rate`.
+//!
 //! Separate kernels:
 //!   * Gravity — `degree_weighted_gravity_kernel`, `gravity`.
 //!   * Cluster cohesion — `cluster_cohesion_kernel`, `cluster_strength`.

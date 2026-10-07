@@ -341,10 +341,10 @@ impl SemanticProcessorActor {
         metadata: &FileMetadata,
         base_features: &SemanticFeatures,
     ) -> Result<AISemanticFeatures, String> {
-        let mut ai_features = AISemanticFeatures::default();
-
-        ai_features.content_embedding =
-            Self::generate_content_embedding_static(&metadata.file_name)?;
+        let mut ai_features = AISemanticFeatures {
+            content_embedding: Self::generate_content_embedding_static(&metadata.file_name)?,
+            ..Default::default()
+        };
 
         ai_features.topic_classifications =
             Self::classify_topics_static(&metadata.file_name, base_features)?;
@@ -726,9 +726,10 @@ impl SemanticProcessorActor {
         metadata: &FileMetadata,
         base_features: &SemanticFeatures,
     ) -> Result<AISemanticFeatures, String> {
-        let mut ai_features = AISemanticFeatures::default();
-
-        ai_features.content_embedding = self.generate_content_embedding(&metadata.file_name)?;
+        let mut ai_features = AISemanticFeatures {
+            content_embedding: self.generate_content_embedding(&metadata.file_name)?,
+            ..Default::default()
+        };
 
         ai_features.topic_classifications =
             self.classify_topics(&metadata.file_name, base_features)?;

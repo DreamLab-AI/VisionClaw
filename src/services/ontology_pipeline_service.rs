@@ -85,6 +85,7 @@ pub struct OntologyPipelineStats {
 /// - ReasoningActor: Runs CustomReasoner for OWL inference
 /// - OntologyConstraintActor: Applies semantic constraints to GPU physics
 /// - GraphStateActor: Manages Oxigraph-backed graph data
+///
 /// The pipeline automatically triggers after ontology modifications from GitHub sync.
 pub struct OntologyPipelineService {
     config: SemanticPhysicsConfig,
@@ -259,8 +260,10 @@ impl OntologyPipelineService {
     /// - SubClassOf: Hierarchical attraction forces (child → parent clustering)
     /// - EquivalentTo: Strong colocation forces (equivalent classes align)
     /// - DisjointWith: Separation/repulsion forces (disjoint classes separate)
+    ///
     /// All constraints use ConstraintKind::Semantic (= 10) which is processed
     /// by ontology_constraints.cu in the CUDA kernel pipeline.
+    ///
     /// Constraint params format:
     /// - [0]: Semantic constraint sub-type (0=separation, 1=hierarchical, 2=alignment, etc.)
     /// - [1]: Force magnitude

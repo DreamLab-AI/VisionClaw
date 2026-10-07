@@ -49,9 +49,10 @@ impl Default for ConstraintData {
 }
 
 pub fn to_gpu_constraint_data(constraint: &PhysicsConstraint) -> ConstraintData {
-    let mut data = ConstraintData::default();
-
-    data.count = constraint.nodes.len().min(4) as i32;
+    let mut data = ConstraintData {
+        count: constraint.nodes.len().min(4) as i32,
+        ..Default::default()
+    };
     for (i, &node_id) in constraint.nodes.iter().take(4).enumerate() {
         data.node_idx[i] = node_id as i32;
     }

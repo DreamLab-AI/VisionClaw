@@ -98,6 +98,7 @@ impl GPUOperationBatch {
 /// 1. GPU operations are inherently blocking (they wait for GPU kernels to complete)
 /// 2. CUDA streams and compute kernels are not async-aware
 /// 3. Holding a `tokio::sync::Mutex` across `.await` points would be incorrect
+///
 /// To prevent Tokio worker thread starvation, callers MUST wrap blocking GPU operations
 /// in `tokio::task::spawn_blocking()`. This moves the blocking work to a dedicated thread pool
 /// while keeping async executor threads responsive.

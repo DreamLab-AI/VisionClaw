@@ -182,6 +182,7 @@ impl OntologyReasoner {
     /// 2. Content analysis (keywords, structure)
     /// 3. Frontmatter/metadata
     /// 4. Reasoning over existing ontology
+    ///
     /// Thread-safe: Uses read lock on inference cache, write lock only on cache miss.
     /// # Arguments
     /// * `file_path` - Path to the markdown file

@@ -108,11 +108,11 @@ pub struct AgentActionEnvelope {
     /// the untyped blob (WP-7 falsification trigger).
     ///
     ///   * `token_count`  — cumulative model tokens spent to reach this action
-    ///                      (full width; a DAG can burn > u32).
+    ///     (full width; a DAG can burn > u32).
     ///   * `handoff_id`   — the handoff-chain correlation id (an activity URN)
-    ///                      the action closes.
+    ///     the action closes.
     ///   * `verification` — the DAG verification verdict for this action
-    ///                      (e.g. `"pass"` / `"fail"` / `"skipped"`).
+    ///     (e.g. `"pass"` / `"fail"` / `"skipped"`).
     #[serde(default, alias = "token_burden")]
     pub token_count: Option<u64>,
     #[serde(default, alias = "handoff_count")]

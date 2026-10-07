@@ -27,9 +27,9 @@
 //!   * `TYPE_CONFLICT`          → blocks IFF the candidate touches it
 //!   * `RELATION_CONTRADICTION` → blocks IFF the candidate touches it (fail-closed)
 //!   * `DUPLICATE_CONCEPT`      → a FRESH pair the candidate creates is NON-blocking
-//!                                (routes to the `EntityMerger` via `merge_candidates`);
-//!                                a PRE-EXISTING duplicate cluster (≥2 corpus members)
-//!                                the candidate JOINS blocks (resolve/merge first)
+//!     (routes to the `EntityMerger` via `merge_candidates`);
+//!     a PRE-EXISTING duplicate cluster (≥2 corpus members)
+//!     the candidate JOINS blocks (resolve/merge first)
 //!
 //! Rationale: a loaded store may already carry dozens of pre-existing
 //! `DUPLICATE_CONCEPT` / `SUBCLASS_CYCLE` conflicts; scanning corpus-wide made every
@@ -562,15 +562,17 @@ mod tests {
         contrasts: &[&str],
         definition: &str,
     ) -> OwlClass {
-        let mut c = OwlClass::default();
-        c.iri = iri.to_string();
-        c.label = Some(label.to_string());
-        c.class_type = if class_type.is_empty() {
-            None
-        } else {
-            Some(class_type.to_string())
+        let mut c = OwlClass {
+            iri: iri.to_string(),
+            label: Some(label.to_string()),
+            class_type: if class_type.is_empty() {
+                None
+            } else {
+                Some(class_type.to_string())
+            },
+            parent_classes: parents.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
         };
-        c.parent_classes = parents.iter().map(|s| s.to_string()).collect();
         if !contrasts.is_empty() {
             c.other_relationships.insert(
                 CONTRASTS_WITH_KEY.to_string(),

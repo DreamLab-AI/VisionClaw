@@ -152,21 +152,27 @@ mod tests {
 
         // Node 1: High quality, high authority
         let node1 = Node::new_with_id("node1.md".to_string(), Some(1));
-        let mut meta1 = Metadata::default();
-        meta1.quality_score = Some(0.9);
-        meta1.authority_score = Some(0.85);
+        let meta1 = Metadata {
+            quality_score: Some(0.9),
+            authority_score: Some(0.85),
+            ..Default::default()
+        };
 
         // Node 2: Low quality, high authority
         let node2 = Node::new_with_id("node2.md".to_string(), Some(2));
-        let mut meta2 = Metadata::default();
-        meta2.quality_score = Some(0.4);
-        meta2.authority_score = Some(0.9);
+        let meta2 = Metadata {
+            quality_score: Some(0.4),
+            authority_score: Some(0.9),
+            ..Default::default()
+        };
 
         // Node 3: High quality, low authority
         let node3 = Node::new_with_id("node3.md".to_string(), Some(3));
-        let mut meta3 = Metadata::default();
-        meta3.quality_score = Some(0.85);
-        meta3.authority_score = Some(0.3);
+        let meta3 = Metadata {
+            quality_score: Some(0.85),
+            authority_score: Some(0.3),
+            ..Default::default()
+        };
 
         // Node 4: No metadata (should use defaults)
         let node4 = Node::new_with_id("node4.md".to_string(), Some(4));
@@ -186,8 +192,10 @@ mod tests {
     #[test]
     fn test_filter_disabled_shows_all() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = false;
+        let mut filter = ClientFilter {
+            enabled: false,
+            ..Default::default()
+        };
 
         recompute_filtered_nodes(&mut filter, &graph);
 
@@ -197,11 +205,13 @@ mod tests {
     #[test]
     fn test_filter_by_quality_only() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = true;
-        filter.filter_by_quality = true;
-        filter.filter_by_authority = false;
-        filter.quality_threshold = 0.7;
+        let mut filter = ClientFilter {
+            enabled: true,
+            filter_by_quality: true,
+            filter_by_authority: false,
+            quality_threshold: 0.7,
+            ..Default::default()
+        };
         // Use And mode for single-criterion filtering (Or mode with filter_by_authority=false would pass all)
         filter.filter_mode = FilterMode::And;
 
@@ -216,11 +226,13 @@ mod tests {
     #[test]
     fn test_filter_by_authority_only() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = true;
-        filter.filter_by_quality = false;
-        filter.filter_by_authority = true;
-        filter.authority_threshold = 0.7;
+        let mut filter = ClientFilter {
+            enabled: true,
+            filter_by_quality: false,
+            filter_by_authority: true,
+            authority_threshold: 0.7,
+            ..Default::default()
+        };
         // Use And mode for single-criterion filtering (Or mode with filter_by_quality=false would pass all)
         filter.filter_mode = FilterMode::And;
 
@@ -235,13 +247,15 @@ mod tests {
     #[test]
     fn test_filter_and_mode() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = true;
-        filter.filter_by_quality = true;
-        filter.filter_by_authority = true;
-        filter.quality_threshold = 0.7;
-        filter.authority_threshold = 0.7;
-        filter.filter_mode = FilterMode::And;
+        let mut filter = ClientFilter {
+            enabled: true,
+            filter_by_quality: true,
+            filter_by_authority: true,
+            quality_threshold: 0.7,
+            authority_threshold: 0.7,
+            filter_mode: FilterMode::And,
+            ..Default::default()
+        };
 
         recompute_filtered_nodes(&mut filter, &graph);
 
@@ -254,13 +268,15 @@ mod tests {
     #[test]
     fn test_filter_or_mode() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = true;
-        filter.filter_by_quality = true;
-        filter.filter_by_authority = true;
-        filter.quality_threshold = 0.7;
-        filter.authority_threshold = 0.7;
-        filter.filter_mode = FilterMode::Or;
+        let mut filter = ClientFilter {
+            enabled: true,
+            filter_by_quality: true,
+            filter_by_authority: true,
+            quality_threshold: 0.7,
+            authority_threshold: 0.7,
+            filter_mode: FilterMode::Or,
+            ..Default::default()
+        };
 
         recompute_filtered_nodes(&mut filter, &graph);
 
@@ -273,12 +289,14 @@ mod tests {
     #[test]
     fn test_default_values_for_missing_metadata() {
         let graph = create_test_graph();
-        let mut filter = ClientFilter::default();
-        filter.enabled = true;
-        filter.filter_by_quality = true;
-        filter.filter_by_authority = false;
-        filter.quality_threshold = 0.6; // Above default 0.5
-                                        // Use And mode for single-criterion filtering
+        let mut filter = ClientFilter {
+            enabled: true,
+            filter_by_quality: true,
+            filter_by_authority: false,
+            quality_threshold: 0.6, // Above default 0.5
+            ..Default::default()
+        };
+        // Use And mode for single-criterion filtering
         filter.filter_mode = FilterMode::And;
 
         recompute_filtered_nodes(&mut filter, &graph);
@@ -299,9 +317,11 @@ mod tests {
     #[test]
     fn test_include_linked_pages_true_passes_stubs() {
         let graph = create_test_graph_with_linked_pages();
-        let mut filter = ClientFilter::default();
-        filter.enabled = false; // disabled = all pass
-        filter.include_linked_pages = true;
+        let mut filter = ClientFilter {
+            enabled: false, // disabled = all pass
+            include_linked_pages: true,
+            ..Default::default()
+        };
 
         recompute_filtered_nodes(&mut filter, &graph);
 
@@ -314,9 +334,11 @@ mod tests {
     #[test]
     fn test_include_linked_pages_false_excludes_stubs() {
         let graph = create_test_graph_with_linked_pages();
-        let mut filter = ClientFilter::default();
-        filter.enabled = false; // disabled = all pass (except linked_page gate)
-        filter.include_linked_pages = false;
+        let mut filter = ClientFilter {
+            enabled: false, // disabled = all pass (except linked_page gate)
+            include_linked_pages: false,
+            ..Default::default()
+        };
 
         recompute_filtered_nodes(&mut filter, &graph);
 
