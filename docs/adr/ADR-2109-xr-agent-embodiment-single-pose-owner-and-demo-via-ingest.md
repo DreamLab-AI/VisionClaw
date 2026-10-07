@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -71,3 +71,13 @@ commit.
 - `graph_scene.gd` creates `BeatPulse`, whose `MemoryBursts` effects live under the unit-scale `AgentEffectsRoot`.
 
 **Decision unaffected.** The beam origin still prefers the embodiment anchor (D4, test `beam_starts_at_the_embodiment_anchor_when_one_is_published`). Bursts sit under a unit-scale root, never `GraphRoot` (D1, GUT `test_scene_creates_the_beat_node_with_bursts_under_the_unit_scale_root`). Choreography remains the only pose writer. Demo `0x23` frames enter through `ingest()`, as before, and now also colour their beams by action and heat their targets like real ones, with no demo branch (D5). Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83) and GUT on HP (123 pass).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+`render_store.rs` adds xr-graph's palette, filter, hull and LOD state in separate fields and impl blocks. `build_beam_buffer`, `agent_anchors` and `set_agent_anchors` are unchanged by the merge. `graph_scene.gd` parents the memory cloud, a data layer and not an embodiment, under `GraphRoot`. Bursts and avatars stay under the unit-scale roots. **Decision unaffected.**

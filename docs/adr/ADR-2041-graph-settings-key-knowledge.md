@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -97,3 +97,13 @@ CP-01/02/06/08. Owner remains jjohare with settings/client/runtime maintainers. 
 ## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
 
 **Governed change:** `client/src/features/settings/config/settings.ts` gains the memory explorer's embedding-cloud settings (35fd52237, merged from `feat/mce-render`). `xr-client/scripts/graph_scene.gd` gains the ADR-2134 hooks: `_ensure_beat`, the `beatClock`/`pong`/`memory_flash`/`memoryRoute` text routes, and the `beat_*`, `memory_bursts:*`, `teleport:*` and `visual_*` HUD routes. **Decision unaffected.** Neither change reads or writes a graph-type key: `knowledge` stays canonical and `logseq` stays an alias. Checked with `git diff e7e6b61d8..HEAD` on both paths (no `logseq`/`knowledge`/`graphs.` lines) and GUT on HP Godot 4.6.1 (123 pass).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+In `graph_scene.gd` the merged changes are the parity hook, the LOD tier and the memory-cloud layer. None reads or writes a graph-type key (no `logseq`, `graph_type` or `graphs.` lines in `git diff b6fbe772d..HEAD`). **Decision unaffected.**

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -206,3 +206,13 @@ client still pins `NODE_RECORD_BYTES: usize = 52`
 ## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
 
 **Governed change:** `xr-client/rust/src/binary_protocol.rs` adds three `BinaryProtocolClient` methods (`send_text`, `set_attention_heat`, `get_node_heat`) and advances the render store's heat clock in `poll()`. **Decision unaffected.** No wire constant, record size or decoder branch changed: `NODE_RECORD_BYTES = 52`, `V5_SEQ_BYTES = 8`, and the V3/V5 decode paths are byte-identical. `cargo test -p visionclaw-xr-gdext` passes 264 library and 83 integration tests, including the frozen-layout and V5 fixtures.
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+In `xr-client/rust/src/binary_protocol.rs` the merged changes add settings-sync, refetch and hull state to `BinaryProtocolClient`. No wire constant or decode branch changed (`git diff b6fbe772d..HEAD` shows no `NODE_RECORD_BYTES`, `V5_SEQ_BYTES`, `PROTOCOL_V*` or tag line). **Decision unaffected.**

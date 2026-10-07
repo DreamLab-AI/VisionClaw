@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -211,3 +211,13 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at b6fbe772d (XR beat clock, memory bursts, attention heat; ADR-2134)
 
 **Governed change:** `xr-client/rust/src/binary_protocol.rs` gains `send_text` and the heat hooks only. The new `/wss` traffic (`beatClock`, `memoryRoute`, the JSON `pong` `serverTime`) is JSON text routed by `type` (ADR-2134), not tagged binary, so no tag byte is allocated and the per-socket registry is untouched. **Decision unaffected.** Unknown binary tags are still rejected. Verified with `cargo test -p visionclaw-xr-gdext` (264 + 83 pass).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+The new traffic is JSON text routed by `type`: `settingsUpdated`, `filter_update_success`, `graphUpdated` and `memoryRoute`. No binary tag is allocated or reinterpreted, and `binary_protocol.rs` has no tag-line changes. **Decision unaffected.**

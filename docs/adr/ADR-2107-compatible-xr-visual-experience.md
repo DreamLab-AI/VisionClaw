@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: b6fbe772d332f2afd9f4d6817eb7655d031eeb91
+verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -69,3 +69,13 @@ until a fresh headset session) is unchanged and is *not* re-asserted here.
 - `xr-client/scripts/hud.gd` gains a Session-page Beat row (status, Tap, Mic, Bursts), all through `_press_fire` and the `xr_theme` styles, plus a header MIC badge and Key-tab rows for beam actions and burst verbs.
 
 **Decision holds, with one recorded nuance.** There is no screen-space effect, shadow map, texture or renderer dependency, and the swell is emission only. Reduced motion still stops the travelling edge and query pulses. The beat swell is not motion (nothing travels or scales), but it does modulate brightness at the tempo. Under reduced motion it is therefore capped at 0.25 of full strength, per the WP5 brief, rather than removed. Whether that cap is comfortable in the headset is an open check for the owner on the next VIVE session (ADR-2134). Low-cost mode removes the halo pass, and with it the halo swell. Panel fit is covered by GUT `test_no_page_overflows_its_host` and `test_session_beat_row_fires_on_press_and_fits` (123 pass on HP, headless metrics; the rendered-font check stays with the Xvfb CI job).
+
+## Re-verification — 2026-10-07 at 39f580e93 (merged XR parity tree)
+
+The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings these into one tree with the ADR-2134 work:
+- xr-cloud's memory cloud and route layers (WP6/7);
+- xr-graph's palette, settings sync, hulls and node LOD (WP1/2/4).
+
+Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
+
+`hud.gd` adds xr-graph's domain and hull key rows and xr-cloud's Memory/Cloud toggles. No `Button.new()`/`CheckButton.new()` sits outside `_press_fire`. The new materials (`memory_route.gdshader`, cluster hull, impostor) are additive or unshaded geometry: no `SCREEN_TEXTURE`, depth texture or post-process ("glow" appears only as a uniform name and in comments). The page-fit tests pass. **Decision unaffected.** The reduced-motion beat cap noted above still awaits the owner's headset comfort check.
