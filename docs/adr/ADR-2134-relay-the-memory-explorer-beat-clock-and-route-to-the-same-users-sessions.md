@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
+verified_commit: aa01c5536efd6d65c72dcc644e21472bfd2e223c
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -79,3 +79,7 @@ Same-pubkey scoping, the throttle, rebasing and the frame cap are unchanged. `ac
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-protocol/src/socket_flow_messages.rs`: rustfmt only; `src/actors/client_coordinator_actor.rs`: the V3 encoder call passes its five class-id sets as one `NodeClassIds` (same sets, same bytes); struct-literal `ClientFilter` in tests; `src/handlers/socket_flow_handler/session_relay.rs`: rustfmt only; `xr-client/rust/src/beat.rs`: the NaN-rejecting `!(x > 0.0)` guards are written as explicit `is_nan() ||` checks (same truth table); `xr-client/rust/src/pulse.rs`: a module-level allow for gdext's generated `CallError` closures. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record); `cargo test --workspace` in `xr-client/rust`: 495 passed, 0 failed, before and after. **Still holds.**
+
+## Re-verification — 2026-10-07 (aa01c5536)
+
+This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cloud-parity`, and the lint follow-up aa01c5536. Each branch re-verified this record against its own changes (sections above). The merge itself kept both sides; the only code it combined was test code in `client_coordinator_actor.rs`. aa01c5536 is mechanical: rustfmt, an `async-trait` patch bump, `as_chunks`, and test checks made `const`. No wire format, tag byte, settings key, pose owner, crate boundary or relay rule changed. Decision holds. Verified with `cargo test --workspace --tests` (3,244 passed), xr-client `cargo test --workspace` (516 passed) and clippy `-D warnings` clean in both.
