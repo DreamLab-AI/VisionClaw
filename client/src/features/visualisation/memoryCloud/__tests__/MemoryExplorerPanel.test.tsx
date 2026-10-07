@@ -53,6 +53,7 @@ const response: MemoryCloudQueryResponse = {
   query: { text: 'q', vector: [1, 0, 0, 0] },
   sidecar: {
     tookMs: 4.2,
+    method: 'hnsw',
     results: [
       { id: 'a', key: 'adr-2122', namespace: 'project-state', sourceType: 'memory', score: 0.912, snippet: 'role isolation', sampleIndex: 7 },
       { id: 'b', key: 'hook-noise', namespace: 'patterns', sourceType: 'hook', score: 0.801, snippet: '', sampleIndex: 9 },
@@ -121,6 +122,7 @@ describe('MemoryExplorerPanel — explore', () => {
     expect(within(stats).getByText('recall@10').nextSibling).toHaveTextContent('0.50');
     expect(within(stats).getByText('ef / breadth').nextSibling).toHaveTextContent('48');
     expect(within(stats).getByText('hints used').nextSibling).toHaveTextContent('1');
+    expect(within(stats).getByText('sidecar').nextSibling).toHaveTextContent('4.20 ms · HNSW');
     expect(within(stats).getByText(/26% of the sample evaluated/)).toBeInTheDocument();
   });
 
@@ -131,7 +133,8 @@ describe('MemoryExplorerPanel — explore', () => {
     expect(within(list).getByText('in sample · local agrees')).toBeInTheDocument();
     expect(within(list).getByText('in sample')).toBeInTheDocument();
     expect(within(list).getByText('not sampled')).toBeInTheDocument();
-    expect(screen.getByText('1/2 sampled agree with the local top-k')).toBeInTheDocument();
+    expect(screen.getByText('2 of 3 sidecar hits are in the sample')).toBeInTheDocument();
+    expect(screen.getByText('1 of 2 sampled agree with the local top-k')).toBeInTheDocument();
     const seen: number[] = [];
     const onFocus = (e: Event) => seen.push((e as CustomEvent).detail.sampleIndex);
     window.addEventListener(MEMORY_FOCUS_EVENT, onFocus);
@@ -201,11 +204,66 @@ describe('MemoryExplorerPanel — explore', () => {
   });
 });
 
+describe('MemoryExplorerPanel — contract states', () => {
+  beforeEach(() => {
+    useMemoryCloudStore.setState({ status: 'idle', retryAt: null, error: null, snapshot: null, health: null, healthError: null });
+  });
+
+  it('labels an exact-scan answer as such in the HUD', () => {
+    seed({
+      query: {
+        ...useMemoryCloudStore.getState().query, status: 'done', k: 10, run, text: 'q',
+        response: { ...response, sidecar: { ...response.sidecar, method: 'exact' } },
+      },
+    });
+    render(<MemoryExplorerPanel />);
+    const stats = screen.getByLabelText('Search statistics');
+    const v = within(stats).getByText('sidecar').nextSibling as HTMLElement;
+    expect(v).toHaveTextContent('4.20 ms · exact');
+    expect(v.closest('[title]')!.getAttribute('title')).toMatch(/exact scan/i);
+  });
+
+  it('with no sidecar hit in the sample, shows the hits and never reports 0/0', () => {
+    const unsampled = response.sidecar.results.map((r) => ({ ...r, namespace: 'ruvnet-kb', sampleIndex: null }));
+    seed({
+      query: {
+        ...useMemoryCloudStore.getState().query, status: 'done', k: 10, run, text: 'q',
+        response: { ...response, sidecar: { ...response.sidecar, results: unsampled } },
+      },
+    });
+    render(<MemoryExplorerPanel />);
+    const list = screen.getByRole('list', { name: 'Sidecar results' });
+    expect(within(list).getAllByText('not sampled')).toHaveLength(3);
+    expect(screen.getByText('0 of 3 sidecar hits are in the sample')).toBeInTheDocument();
+    expect(screen.getByText('no sampled hit to compare with the local top-k')).toBeInTheDocument();
+    expect(screen.queryByText(/0\/0|0 of 0/)).toBeNull();
+  });
+
+  it('shows a 429 as a polite rate-limit note with a countdown, not an alert', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(50_000);
+    seed({
+      query: {
+        ...useMemoryCloudStore.getState().query, status: 'rate_limited', response: null, run: null, text: 'q',
+        error: 'Rate limited: the query budget is spent; retry in about 60 s.', retryAt: 80_000,
+      },
+    });
+    render(<MemoryExplorerPanel />);
+    expect(screen.queryByRole('alert')).toBeNull();
+    const note = screen.getByRole('status', { name: 'Query rate limit' });
+    expect(note).toHaveTextContent('Rate limited');
+    expect(note).toHaveTextContent('retry in 30 s');
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(note).toHaveTextContent('retry in 20 s');
+    vi.useRealTimers();
+  });
+});
+
 describe('MemoryExplorerPanel — health', () => {
   const health: MemoryCloudHealth = {
     snapshotId: 's1', generatedAt: 1_700_000_000_000,
     sidecar: { reachable: true, extensionVersion: '2.0.4', error: null },
-    embedder: { url: 'http://x', model: 'bge-small-en-v1.5', reachable: false },
+    embedder: { model: 'bge-small-en-v1.5', reachable: false },
     namespaces: [{ namespace: 'patterns', total: 5000, embedded: 4900, sampled: 1200 }],
     recallProbe: { k: 10, probes: 64, recall: 0.957, indexMs: 1.8, exactMs: 41, measuredAt: 1_700_000_000_000 },
   };
@@ -230,6 +288,27 @@ describe('MemoryExplorerPanel — health', () => {
     expect(screen.getByText('unreachable')).toBeInTheDocument();
     expect(screen.getByText(/3 on sampled entries · 1 on namespace stand-ins · 2 unmatched \(33% unmatched\)/)).toBeInTheDocument();
     expect(screen.getByText(/Withheld by server policy: personal-context/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['not_configured', /not configured/i, /RUVECTOR_PG_CONNINFO/],
+    ['building', /building/i, /first snapshot/i],
+    ['unreachable', /unreachable/i, /latest snapshot build/i],
+  ] as const)('names the sidecar error category %s clearly', async (code, label, detail) => {
+    seed();
+    h.fetchHealth.mockResolvedValue({
+      ...health,
+      sidecar: { reachable: false, extensionVersion: null, error: code },
+      embedder: { model: 'bge-small-en-v1.5', reachable: true },
+    });
+    render(<MemoryExplorerPanel />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('tab', { name: 'Health' }));
+    });
+    const issue = screen.getByLabelText('Sidecar issue');
+    expect(issue).toHaveTextContent(label);
+    expect(issue).toHaveTextContent(detail);
+    expect(issue).toHaveTextContent(code);
   });
 
   it('reports a health failure', async () => {

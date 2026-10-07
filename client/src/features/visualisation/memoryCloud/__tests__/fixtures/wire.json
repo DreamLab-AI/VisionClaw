@@ -1,0 +1,45 @@
+{
+  "snapshot": {
+    "version": 1,
+    "snapshotId": "a1aa10d448ea",
+    "generatedAt": 1791381621860,
+    "dim": 4,
+    "count": 2,
+    "positions": [0.0, 1.5, -2.0, 10.0, -20.0, 30.0],
+    "metadata": [
+      { "id": "id-0", "key": "adr-2133", "namespace": "project-state", "sourceType": "memory", "updatedAt": 1791381600000 },
+      { "id": "id-1", "key": "kb-page", "namespace": "ruvnet-kb", "sourceType": "", "updatedAt": 1791381600001 }
+    ],
+    "namespaces": ["project-state", "ruvnet-kb"],
+    "sourceTypes": ["", "memory"],
+    "strata": [
+      { "namespace": "project-state", "total": 120, "sampled": 1 },
+      { "namespace": "ruvnet-kb", "total": 162534, "sampled": 1 }
+    ],
+    "excludedNamespaces": ["personal-context"],
+    "vectorsUrl": "/api/memory-cloud/vectors?snapshot=a1aa10d448ea"
+  },
+  "queryRequest": { "text": "how is the memory cloud sampled", "k": 10, "namespace": "project-state" },
+  "queryResponse": {
+    "snapshotId": "a1aa10d448ea",
+    "embedModel": "bge-small-en-v1.5",
+    "query": { "text": "how is the memory cloud sampled", "vector": [1.0, 0.0, 0.0, 0.0] },
+    "sidecar": {
+      "results": [
+        { "id": "id-0", "key": "adr-2133", "namespace": "project-state", "sourceType": "memory", "score": 0.875, "snippet": "stratified sample", "sampleIndex": 0 },
+        { "id": "id-9", "key": "kb-other", "namespace": "ruvnet-kb", "sourceType": "", "score": 0.5, "snippet": "", "sampleIndex": null }
+      ],
+      "tookMs": 106.5,
+      "method": "hnsw"
+    }
+  },
+  "health": {
+    "snapshotId": "a1aa10d448ea",
+    "generatedAt": 1791381621860,
+    "sidecar": { "reachable": false, "extensionVersion": "0.3.0", "error": "unreachable" },
+    "embedder": { "model": "bge-small-en-v1.5", "reachable": true },
+    "namespaces": [ { "namespace": "ruvnet-kb", "total": 162534, "embedded": 162534, "sampled": 1266 } ],
+    "recallProbe": { "k": 10, "probes": 20, "recall": 0.95, "indexMs": 1.25, "exactMs": 40.5, "measuredAt": 1791381621000 }
+  },
+  "error": { "error": "the memory cloud requires a power user or Admin role" }
+}
