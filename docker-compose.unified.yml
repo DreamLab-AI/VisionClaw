@@ -133,6 +133,7 @@ services:
       MEMORY_CLOUD_EXCLUDE_NAMESPACES: ${MEMORY_CLOUD_EXCLUDE_NAMESPACES:-personal-context}
       MEMORY_CLOUD_EMBED_URL: ${MEMORY_CLOUD_EMBED_URL:-http://xinference:9997/v1}
       MEMORY_CLOUD_EMBED_MODEL: ${MEMORY_CLOUD_EMBED_MODEL:-bge-small-en-v1.5}
+      MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}
     volumes:
       # Data volumes - ALWAYS mounted (both dev and prod)
       - visionclaw-data:/app/data
@@ -251,6 +252,7 @@ services:
       MEMORY_CLOUD_EXCLUDE_NAMESPACES: ${MEMORY_CLOUD_EXCLUDE_NAMESPACES:-personal-context}
       MEMORY_CLOUD_EMBED_URL: ${MEMORY_CLOUD_EMBED_URL:-http://xinference:9997/v1}
       MEMORY_CLOUD_EMBED_MODEL: ${MEMORY_CLOUD_EMBED_MODEL:-bge-small-en-v1.5}
+      MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}
     volumes:
       # Production: ONLY data volumes (no source mounts, no Docker socket)
       - visionclaw-data:/app/data
