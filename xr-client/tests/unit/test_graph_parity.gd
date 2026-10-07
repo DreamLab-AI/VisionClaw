@@ -21,6 +21,7 @@ class StubScene:
 	var _plane_bias_k: float = 0.0
 	var _plane_spacing: float = 60.0
 	var _z_compression: float = 1.0
+	var _graph_separation: float = 0.0
 	var refreshed: int = 0
 	func _refresh_controls_status() -> void:
 		refreshed += 1
@@ -167,13 +168,14 @@ func test_physics_category_queues_a_read_and_the_body_syncs_hud_state() -> void:
 	assert_eq(parity.physics_refetches, 1, "GET dispatched once the gate clears")
 	# The response body maps onto the tracked HUD state; nothing is written back.
 	var view: Dictionary = parity.apply_physics_body(
-		"{\"repelK\":320.0,\"restLength\":70.0,\"dagBiasK\":0.6,\"dagLevelDistance\":100.0,\"axisCompressionZ\":0.3}")
-	assert_eq(view.size(), 5)
+		"{\"repelK\":320.0,\"restLength\":70.0,\"dagBiasK\":0.6,\"dagLevelDistance\":100.0,\"axisCompressionZ\":0.3,\"graphSeparationX\":250.0}")
+	assert_eq(view.size(), 6)
 	assert_almost_eq(scene._repel_k, 320.0, 0.001)
 	assert_almost_eq(scene._rest_length, 70.0, 0.001)
 	assert_true(scene._dag_bias_on)
 	assert_almost_eq(scene._dag_level_distance, 100.0, 0.001)
 	assert_almost_eq(scene._z_compression, 0.3, 0.001)
+	assert_almost_eq(scene._graph_separation, 250.0, 0.001, "separation read back (ADR-2135)")
 	assert_almost_eq(scene._plane_spacing, 60.0, 0.001, "absent field untouched")
 	assert_gt(scene.refreshed, 0, "status line refreshed")
 

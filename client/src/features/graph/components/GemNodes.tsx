@@ -31,6 +31,7 @@ import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
+import { stepAgentOffset } from '../utils/agentNudge';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -107,11 +108,13 @@ const METADATA_TEX_WIDTH = 2048;
 // the eye cannot resolve a faster emissive fade, so we sample it on this cadence.
 const HEAT_UPLOAD_INTERVAL_MS = 500;
 
-// Agent momentum-nudge: per-frame lerp factors controlling how quickly an
-// agent's visual position converges on its work target (NUDGE) or drifts
-// outward from the graph centre when idle (DRIFT).
-const AGENT_NUDGE_SPEED = 0.03;
-const AGENT_DRIFT_SPEED = 0.005;
+// Agent momentum-nudge: see utils/agentNudge.ts (working agents converge on
+// their target; done agents drift outward when merged, or relax back to their
+// server position — the separated layout's centre plus activity drift).
+// Scratch tuples for the per-agent step, reused so the render loop never allocates.
+const _nudgeBase: [number, number, number] = [0, 0, 0];
+const _nudgeTarget: [number, number, number] = [0, 0, 0];
+const _nudgeCentre: [number, number, number] = [0, 0, 0];
 
 // Node scaling delegated to shared computeNodeScale (../utils/nodeScaling.ts)
 
@@ -228,6 +231,10 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   // KG colour scheme: 'type' (per node-type palette), 'domain' (per domain palette),
   // or 'base' (legacy baseColor + label-hash hue jitter). Default 'type'.
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
+  // Graph Separation (ADR-2135): above 0 idle agents relax back to the centre.
+  const graphSeparation = useSettingsStore(s => s.get<number>('visualisation.graphs.knowledge.physics.graphSeparationX'));
+  const separatedRef = useRef(false);
+  separatedRef.current = typeof graphSeparation === 'number' && graphSeparation > 0;
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
@@ -759,7 +766,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       const glowBase = (glow?.intensity as number | undefined) ?? 0.3;
 
       // Read per-type visual settings — no hardcoded multipliers
-      const typeVisuals = (vis as any)?.graphTypeVisuals;
+      const typeVisuals = vis?.graphTypeVisuals as GraphTypeVisualsSettings | undefined;
       const agentVis = typeVisuals?.agent;
       const kgVis = typeVisuals?.knowledgeGraph;
       const ontoVis = typeVisuals?.ontology;
@@ -970,33 +977,24 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         x = p?.x ?? 0; y = p?.y ?? 0; z = p?.z ?? 0;
       }
 
-      // Agent momentum-nudge: visual offset toward work target (working) or
-      // away from graph centre (done/idle). Dragged nodes skip.
+      // Agent momentum-nudge (utils/agentNudge.ts): toward the work target while
+      // working; when done, outward (merged) or home (separated). Dragged nodes skip.
       if (agentOff && i !== dragLocalIdx) {
         const o3 = i * 3;
         const work = getAgentWork(String(currentNodes[i].id));
+        let hasTarget = false;
         if (work && work.state === 'working' && positions) {
           const tIdx = props.nodeIdToIndexMap.get(work.targetNodeId);
-          if (tIdx !== undefined) {
+          if (tIdx !== undefined && tIdx * 3 + 2 < positions.length) {
             const t3 = tIdx * 3;
-            if (t3 + 2 < positions.length) {
-              const dx = positions[t3] - x - agentOff[o3];
-              const dy = positions[t3 + 1] - y - agentOff[o3 + 1];
-              const dz = positions[t3 + 2] - z - agentOff[o3 + 2];
-              agentOff[o3] += dx * AGENT_NUDGE_SPEED;
-              agentOff[o3 + 1] += dy * AGENT_NUDGE_SPEED;
-              agentOff[o3 + 2] += dz * AGENT_NUDGE_SPEED;
-            }
+            _nudgeTarget[0] = positions[t3]; _nudgeTarget[1] = positions[t3 + 1]; _nudgeTarget[2] = positions[t3 + 2];
+            hasTarget = true;
           }
-        } else if (work && work.state === 'done') {
-          const cx = x + agentOff[o3] - graphCX;
-          const cy = y + agentOff[o3 + 1] - graphCY;
-          const cz = z + agentOff[o3 + 2] - graphCZ;
-          const d = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
-          agentOff[o3] += (cx / d) * AGENT_DRIFT_SPEED;
-          agentOff[o3 + 1] += (cy / d) * AGENT_DRIFT_SPEED;
-          agentOff[o3 + 2] += (cz / d) * AGENT_DRIFT_SPEED;
         }
+        _nudgeBase[0] = x; _nudgeBase[1] = y; _nudgeBase[2] = z;
+        _nudgeCentre[0] = graphCX; _nudgeCentre[1] = graphCY; _nudgeCentre[2] = graphCZ;
+        stepAgentOffset(agentOff, o3, _nudgeBase, hasTarget ? _nudgeTarget : null, work?.state ?? null,
+          _nudgeCentre, separatedRef.current);
         x += agentOff[o3];
         y += agentOff[o3 + 1];
         z += agentOff[o3 + 2];

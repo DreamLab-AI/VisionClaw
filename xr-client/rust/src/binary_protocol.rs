@@ -1870,12 +1870,14 @@ impl BinaryProtocolClient {
     }
 
     /// The graph's robust bounds `[cx, cy, cz, radius]` in server (GraphRoot)
-    /// space over every node position — the desktop's `robustBounds` of the
-    /// live position buffer, used to frame the memory cloud. Empty when the
-    /// store holds no finite position.
+    /// space over every node position — the desktop's `graphBoundsFor` of the
+    /// live position buffer, used to frame the memory cloud. `separation` is
+    /// the Graph Separation slider: above 0 the separated layout is folded out
+    /// first so the bounds are one graph's (ADR-2135). Empty when the store
+    /// holds no finite position.
     #[func]
-    fn graph_robust_bounds(&self) -> PackedFloat32Array {
-        match self.store.robust_bounds() {
+    fn graph_robust_bounds(&self, separation: f32) -> PackedFloat32Array {
+        match self.store.robust_bounds_for(separation) {
             Some(b) => {
                 PackedFloat32Array::from(&[b.centre[0], b.centre[1], b.centre[2], b.radius][..])
             }

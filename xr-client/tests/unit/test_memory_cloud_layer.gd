@@ -424,6 +424,28 @@ func test_cloud_is_framed_on_the_graph_centre_and_radius() -> void:
 	l.queue_free()
 
 
+func test_separation_moves_the_cloud_to_the_memory_vertex() -> void:
+	# ADR-2135: the memory vertex sits behind the graphs at radius 2/sqrt(3) x
+	# separation on -Z; the cloud keeps its size relative to one graph.
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.reduced_motion = true  # snap, so one frame places it
+	l.graph_bounds_source = _graph_bounds(Vector3(90, -3, -14), 300.0)
+	_load(l, "s1", 9)
+	l._process(0.016)
+	var merged: Dictionary = l.placement()
+	l.graph_separation = 300.0
+	l._process(0.016)
+	var p: Dictionary = l.placement()
+	var r: float = 300.0 * 2.0 / sqrt(3.0)
+	assert_true(p["position"].is_equal_approx(Vector3(90, -3, -14 - r)), "%s" % p["position"])
+	assert_almost_eq(float(p["scale"]), float(merged["scale"]), 1e-4, "size kept")
+	l.graph_separation = 0.0
+	l._process(0.016)
+	assert_eq(l.placement()["position"], Vector3(90, -3, -14), "0 is the merged placement")
+	l.queue_free()
+
+
 func test_placement_glides_when_physics_moves_the_graph() -> void:
 	var l: Node3D = await _make()
 	l._enabled = true

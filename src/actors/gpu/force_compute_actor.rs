@@ -21,141 +21,11 @@ use glam::Vec3;
 
 use cudarc::driver::CudaDevice;
 
-/// Per-node graph population classification for dual-graph X-axis separation.
-/// Stored per GPU index during graph upload, used during position broadcast.
-///
-/// This is the GPU-local mirror of the canonical
-/// [`visionclaw_domain::models::Population`]; the single source of truth for
-/// classifying a node is [`visionclaw_domain::models::Node::population`], which
-/// reads the authoritative `metadata["type"]` origin field. This enum exists
-/// only because the GPU buffers/centroids index by it; it is produced solely
-/// via the `From<Population>` conversion below — never re-derived from fields.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum GraphPopulation {
-    Knowledge,
-    Ontology,
-    Agent,
-}
-
-impl From<visionclaw_domain::models::Population> for GraphPopulation {
-    fn from(p: visionclaw_domain::models::Population) -> Self {
-        match p {
-            visionclaw_domain::models::Population::Knowledge => GraphPopulation::Knowledge,
-            visionclaw_domain::models::Population::Ontology => GraphPopulation::Ontology,
-            visionclaw_domain::models::Population::Agent => GraphPopulation::Agent,
-        }
-    }
-}
-
-/// Median (x, y) in-plane centroid per population, indexed
-/// [Knowledge, Ontology, Agent]. Index `i` aligns with the i-th (x, y)
-/// returned by `xy`. Median (not mean) so a handful of physics outliers
-/// flung to the simulation boundary can't drag a disc's centre.
-fn population_centroids_xy(
-    populations: &[GraphPopulation],
-    xy: impl Fn(usize) -> (f32, f32),
-    n: usize,
-) -> [(f32, f32); 3] {
-    let mut bx: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    let mut by: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    for i in 0..n {
-        let b = match populations.get(i) {
-            Some(GraphPopulation::Knowledge) => 0,
-            Some(GraphPopulation::Ontology) => 1,
-            Some(GraphPopulation::Agent) => 2,
-            None => continue,
-        };
-        let (x, y) = xy(i);
-        if x.is_finite() && y.is_finite() {
-            bx[b].push(x);
-            by[b].push(y);
-        }
-    }
-    let median = |v: &mut Vec<f32>| -> f32 {
-        if v.is_empty() {
-            return 0.0;
-        }
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        v[v.len() / 2]
-    };
-    let mut out = [(0.0f32, 0.0f32); 3];
-    for b in 0..3 {
-        out[b] = (median(&mut bx[b]), median(&mut by[b]));
-    }
-    out
-}
-
-/// Generous, separation-INDEPENDENT rim-clamp radius for each facing disc.
-///
-/// The rim clamp pulls true outliers back onto the disc so a few stray nodes
-/// can't spray across the gap and visually merge the two populations. It must
-/// NOT be coupled to `graph_separation_x`: previously `r_max = sep * 0.85`
-/// shrank every disc as the user pulled the discs together (sep~100 collapsed
-/// each disc to radius ~85), which is the opposite of the desired "full-size
-/// discs, close together" view. Driving the radius from a fixed generous value
-/// keeps each disc its natural size regardless of how close the two discs sit.
-/// Healthy steady-state layout radius is ~±2400, so this comfortably contains a
-/// normal disc and only clamps genuine runaways.
-const DISC_RIM_RADIUS: f32 = 2600.0;
-
-/// Clamp floor for the continuous `axis_compression_z` Z-scale factor. `1.0` is
-/// no compression (fully 3D, the default); this floor caps how flat the layout
-/// can be squashed. The field is a real user tunable applied in the sim as the
-/// Z multiplier, and — when `enable_dual_disc_layout` is on — as the disc face
-/// scale (thinness) too.
-const Z_SCALE_MIN: f32 = 0.05;
-
-/// Clamp `axis_compression_z` into the valid Z-scale range `[Z_SCALE_MIN, 1.0]`.
-#[inline]
-fn clamp_z_scale(axis_compression_z: f32) -> f32 {
-    axis_compression_z.clamp(Z_SCALE_MIN, 1.0)
-}
-
-/// Re-centre a node onto its population's disc, flatten Z, and offset along Z.
-/// Each disc is centred at its population's median in the X-Y plane, flattened
-/// thin on Z, then translated to its target Z (∓sep for Knowledge/Ontology,
-/// 0 for Agent), so the two discs become parallel X-Y planes facing one another
-/// across a depth gap regardless of where the raw physics layout drifts.
-/// Flatten and separation share the Z axis (the disc normal), which is what
-/// makes the faces point at each other. Nodes beyond `r_max` from the disc
-/// centre are pulled to the rim so each disc stays compact and outliers can't
-/// spray across the gap and merge the two populations. `r_max` is the disc's
-/// own rim radius (see `DISC_RIM_RADIUS`), DECOUPLED from the separation so the
-/// discs keep their full size when pulled close (sep small).
-#[inline]
-fn project_node_xy(
-    pos: &mut Vec3,
-    pop: GraphPopulation,
-    centroids: &[(f32, f32); 3],
-    sep: f32,
-    face_scale: f32,
-    r_max: f32,
-) {
-    // Discs FACE one another: flatten and separate on the SAME axis (Z).
-    // Each disc is centred + rim-clamped in its X-Y plane, flattened thin along
-    // Z, then offset along Z by ±sep. The result is two parallel X-Y discs whose
-    // faces point at each other across a depth gap, with agents on the mid plane
-    // (z=0) and the KG<->ontology cross-links spanning the gap between the faces.
-    let (idx, target_z) = match pop {
-        GraphPopulation::Knowledge => (0usize, -sep),
-        GraphPopulation::Ontology => (1usize, sep),
-        GraphPopulation::Agent => (2usize, 0.0),
-    };
-    let (cx, cy) = centroids[idx];
-    let mut dx = pos.x - cx;
-    let mut dy = pos.y - cy;
-    if r_max > 0.0 {
-        let d2 = dx * dx + dy * dy;
-        if d2 > r_max * r_max {
-            let s = r_max / d2.sqrt();
-            dx *= s;
-            dy *= s;
-        }
-    }
-    pos.x = dx;
-    pos.y = dy;
-    pos.z = pos.z * face_scale + target_z;
-}
+use super::display_projection::{
+    agent_index, agent_indices, project_display, target_vertex, DisplayMode, GraphPopulation,
+    LayoutParams,
+};
+use visionclaw_tri_layout::drift::DriftField;
 
 // ---------------------------------------------------------------------------
 // Divergence hardening constants
@@ -277,6 +147,14 @@ pub struct ForceComputeActor {
     /// Per-node graph population classification for dual-graph X-axis offset.
     /// Indexed by GPU buffer index. Populated during graph upload from node_type field.
     node_population: Vec<GraphPopulation>,
+
+    /// ADR-2135: recent activity of each agent node (keyed by GPU index),
+    /// which drifts it from the centroid towards the graphs it works on in
+    /// the separated layout. Display-only, like the projection it feeds.
+    agent_drift: DriftField,
+
+    /// Monotonic origin of the drift clock.
+    drift_epoch: Instant,
 
     /// ADR-141 P3: cached DAG hierarchy ranks (the `node_rank` key vec computed at
     /// upload). Retained so `SetRadialLayout { DagRank }` can re-key on demand
@@ -409,6 +287,8 @@ impl ForceComputeActor {
             node_id_buffer: Vec::with_capacity(10000),
             gpu_index_to_node_id: Vec::new(),
             node_population: Vec::new(),
+            agent_drift: DriftField::default(),
+            drift_epoch: Instant::now(),
             dag_ranks: Vec::new(),
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
@@ -988,6 +868,9 @@ impl ForceComputeActor {
         let mut node_indices = std::collections::HashMap::new();
         self.gpu_index_to_node_id = Vec::with_capacity(num_nodes);
         self.node_population = Vec::with_capacity(num_nodes);
+        // GPU indices are reassigned on upload; old drift keys would land on
+        // other nodes.
+        self.agent_drift = DriftField::default();
         let mut pop_counts = [0usize; 3]; // [knowledge, ontology, agent]
         for (i, node) in graph_data.nodes.iter().enumerate() {
             node_indices.insert(node.id, i);
@@ -1808,11 +1691,95 @@ impl Default for ForceComputeActor {
     }
 }
 
+/// An agent acted on a node (a `0x23` action), ADR-2135 drift input.
+#[derive(Message, Debug, Clone, Copy)]
+#[rtype(result = "()")]
+pub struct RecordAgentAction {
+    /// Wire id of the acting agent node (flag bits allowed).
+    pub source_agent_id: u32,
+    /// Wire id of the node it acted on (flag bits allowed).
+    pub target_node_id: u32,
+}
+
+/// Memory was accessed (a `memory_flash`), ADR-2135 drift input.
+#[derive(Message, Debug, Clone, Copy)]
+#[rtype(result = "()")]
+pub struct RecordMemoryActivity {
+    /// Wire id of the agent, when the producer named it.
+    pub agent_id: Option<u32>,
+}
+
+impl Handler<RecordAgentAction> for ForceComputeActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: RecordAgentAction, _ctx: &mut Self::Context) {
+        let agent = agent_index(&self.node_population, msg.source_agent_id);
+        let vertex = target_vertex(&self.node_population, msg.target_node_id);
+        if let (Some(a), Some(v)) = (agent, vertex) {
+            let now = self.drift_epoch.elapsed().as_secs_f64();
+            self.agent_drift.record_action(a, v, now);
+        }
+    }
+}
+
+impl Handler<RecordMemoryActivity> for ForceComputeActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: RecordMemoryActivity, _ctx: &mut Self::Context) {
+        let now = self.drift_epoch.elapsed().as_secs_f64();
+        match msg.agent_id {
+            // A named agent that is not an agent node of this graph is ignored.
+            Some(id) => {
+                if let Some(a) = agent_index(&self.node_population, id) {
+                    self.agent_drift.record_memory(Some(a), &[], now);
+                }
+            }
+            None => {
+                let all = agent_indices(&self.node_population);
+                self.agent_drift.record_memory(None, &all, now);
+            }
+        }
+    }
+}
+
 impl Actor for ForceComputeActor {
     type Context = Context<Self>;
 
-    fn started(&mut self, _ctx: &mut Self::Context) {
+    fn started(&mut self, ctx: &mut Self::Context) {
         info!("ForceComputeActor: Started — initializing GPU context");
+
+        // ADR-2135: feed agent drift from the two activity streams. Both hubs
+        // are bounded broadcasts; a lagged receiver skips ahead (drift is a
+        // recency signal) and a closed hub ends its task.
+        let addr = ctx.address();
+        let mut actions = crate::agent_events::hub::subscribe();
+        actix::spawn(async move {
+            use tokio::sync::broadcast::error::RecvError;
+            loop {
+                match actions.recv().await {
+                    Ok(env) => addr.do_send(RecordAgentAction {
+                        source_agent_id: env.source_agent_id,
+                        target_node_id: env.target_node_id,
+                    }),
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        });
+        let addr = ctx.address();
+        let mut memory = crate::agent_events::memory_hub::subscribe();
+        actix::spawn(async move {
+            use tokio::sync::broadcast::error::RecvError;
+            loop {
+                match memory.recv().await {
+                    Ok(m) => addr.do_send(RecordMemoryActivity {
+                        agent_id: m.agent_id,
+                    }),
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        });
 
         // Self-initialize the GPU context immediately on startup.
         // This is the primary init path. The supervisor chain (GPUResourceActor ->
@@ -2174,20 +2141,25 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                 //    compression (fully 3D, default). It drives the disc
                                 //    face thinness when dual-disc is on, and squashes the
                                 //    plain 3D layout when it is off.
-                                //  * `enable_dual_disc_layout` (default OFF) gates the disc
-                                //    re-centre: flatten each population into an X-Y disc and
-                                //    separate along Z (Knowledge -sep, Ontology +sep, agents
-                                //    at 0). OFF → no re-centre, natural 3D.
-                                let sep = actor.simulation_params.graph_separation_x;
-                                let face_scale =
-                                    clamp_z_scale(actor.simulation_params.axis_compression_z);
-                                let project = actor.simulation_params.enable_dual_disc_layout
-                                    && !actor.node_population.is_empty();
+                                //  * `graph_separation_x` > 0 or `enable_dual_disc_layout`
+                                //    opens the ADR-2135 triangle: knowledge, ontology (and,
+                                //    client-side, the memory cloud) on the vertices of a
+                                //    ground-plane triangle, agents at the centroid drifting
+                                //    towards the graphs they work on. Dual-disc adds the
+                                //    in-plane re-centre and rim clamp at every separation.
+                                //    See display_projection.rs.
+                                let layout = LayoutParams::new(
+                                    actor.simulation_params.graph_separation_x,
+                                    actor.simulation_params.axis_compression_z,
+                                    actor.simulation_params.enable_dual_disc_layout,
+                                );
+                                actor.agent_drift.step(actor.drift_epoch.elapsed().as_secs_f64());
                                 // Once-per-300-iter diagnostic to verify the params reach this site.
-                                if actor.gpu_state.iteration_count % 300 == 0 && project {
+                                if actor.gpu_state.iteration_count % 300 == 0 && layout.separation > 0.0 {
                                     info!(
-                                        "ForceComputeActor: facing-disc projection iter={} sep_z={:.1} face_scale={:.2} populations={} (k+o+a)",
-                                        actor.gpu_state.iteration_count, sep, face_scale, actor.node_population.len()
+                                        "ForceComputeActor: triangle projection iter={} separation={:.1} face_scale={:.2} dual_disc={} populations={} drifting_agents={}",
+                                        actor.gpu_state.iteration_count, layout.separation, layout.face_scale,
+                                        layout.dual_disc, actor.node_population.len(), actor.agent_drift.len()
                                     );
                                 }
                                 // NOTE: projection is applied DISPLAY-ONLY, after the
@@ -2259,35 +2231,15 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                         if let Some(_seq) = actor.backpressure.try_acquire() {
                                             let mut node_updates =
                                                 Vec::with_capacity(actor.last_good_positions.len());
-                                            // Compute population centroids from the last-known-good
-                                            // layout so the fallback applies the IDENTICAL projection
-                                            // as the healthy path (Z-separation, per-population median
-                                            // re-centre, fixed DISC_RIM_RADIUS rim-clamp) instead of a
-                                            // divergent Y-separation. A bad frame must not briefly
-                                            // re-orient or collapse the two discs.
-                                            let centroids = if project {
-                                                population_centroids_xy(
-                                                    &actor.node_population,
-                                                    |i| {
-                                                        let (_, p, _) = actor.last_good_positions[i];
-                                                        (p.x, p.y)
-                                                    },
-                                                    actor.last_good_positions.len(),
-                                                )
-                                            } else {
-                                                Default::default()
-                                            };
-                                            let r_max = DISC_RIM_RADIUS;
-                                            for (idx, (node_id, pos, vel)) in actor.last_good_positions.iter().enumerate() {
-                                                let mut p = *pos;
-                                                if project {
-                                                    if let Some(&pop) = actor.node_population.get(idx) {
-                                                        project_node_xy(&mut p, pop, &centroids, sep, face_scale, r_max);
-                                                    }
-                                                }
+                                            // Apply the IDENTICAL display projection as the healthy
+                                            // path to a copy of the last-known-good layout, so a bad
+                                            // frame never briefly re-orients or collapses the layout.
+                                            let mut fallback = actor.last_good_positions.clone();
+                                            project_display(&mut fallback, &actor.node_population, &layout, &actor.agent_drift);
+                                            for (node_id, pos, vel) in fallback.iter() {
                                                 node_updates.push((*node_id, BinaryNodeDataClient::new(
                                                     *node_id,
-                                                    glam_to_vec3data(p),
+                                                    glam_to_vec3data(*pos),
                                                     glam_to_vec3data(*vel),
                                                 )));
                                             }
@@ -2345,38 +2297,17 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     actor.last_good_positions.push((node_id, pos, vel));
                                 }
 
-                                // Display-only dual-graph co-planar projection. The pristine
-                                // physics state is now safely captured in last_good_positions;
-                                // mutate the broadcast buffer in place (separate populations
-                                // along Y, flatten Z into the shared X-Y plane), broadcast,
-                                // then restore the buffer from last_good_positions before the
-                                // next physics step so the integrator never sees the offsets.
-                                if project {
-                                    let centroids = population_centroids_xy(
-                                        &actor.node_population,
-                                        |i| {
-                                            let (p, _) = actor.position_velocity_buffer[i];
-                                            (p.x, p.y)
-                                        },
-                                        actor.position_velocity_buffer.len(),
-                                    );
-                                    // Rim radius is the disc's own fixed size, NOT sep —
-                                    // close discs (small sep) stay full-size.
-                                    let r_max = DISC_RIM_RADIUS;
-                                    for (i, (pos, _vel)) in actor.position_velocity_buffer.iter_mut().enumerate() {
-                                        if let Some(&pop) = actor.node_population.get(i) {
-                                            project_node_xy(pos, pop, &centroids, sep, face_scale, r_max);
-                                        }
-                                    }
-                                } else if (face_scale - 1.0).abs() > f32::EPSILON {
-                                    // Dual-disc OFF but the user set a continuous Z compression:
-                                    // apply the Z-scale directly (display-only, undone before
-                                    // the next step like the disc projection). face_scale==1.0
-                                    // is a no-op → fully 3D.
-                                    for (pos, _vel) in actor.position_velocity_buffer.iter_mut() {
-                                        pos.z *= face_scale;
-                                    }
-                                }
+                                // Display-only projection (ADR-2135). The pristine physics
+                                // state is now safely captured in last_good_positions; rewrite
+                                // the broadcast buffer in place, broadcast, then restore it from
+                                // last_good_positions before the next physics step so the
+                                // integrator never sees the offsets.
+                                let display_mode = project_display(
+                                    &mut actor.position_velocity_buffer,
+                                    &actor.node_population,
+                                    &layout,
+                                    &actor.agent_drift,
+                                );
 
                                 // Diagnostic: log first few positions on early frames (6 decimal places for velocity)
                                 if actor.gpu_state.iteration_count < 5 || actor.gpu_state.iteration_count % 300 == 0 {
@@ -2506,10 +2437,10 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                 // pristine physics positions captured in last_good_positions
                                 // so the next integration step computes forces on the true,
                                 // un-separated, un-flattened layout. CRITICAL: this must
-                                // cover the continuous Z-scale branch too (project == false
-                                // but face_scale != 1.0) — otherwise the compression compounds
+                                // cover the continuous Z-scale branch too (DisplayMode::ZScale:
+                                // separation 0 with face_scale != 1.0) — otherwise the compression compounds
                                 // every frame and collapses the graph to z=0.
-                                if project || (face_scale - 1.0).abs() > f32::EPSILON {
+                                if display_mode != DisplayMode::Identity {
                                     for idx in 0..actor.position_velocity_buffer.len() {
                                         let (_node_id, pos, vel) = actor.last_good_positions[idx];
                                         actor.position_velocity_buffer[idx] = (pos, vel);
@@ -3162,48 +3093,45 @@ impl Handler<ForceFullBroadcast> for ForceComputeActor {
                     // snapshot is consistent with physics-stepped broadcasts. Without
                     // this, a settings change broadcasts raw GPU positions and, if the
                     // sim has converged, the projected positions never overwrite them.
-                    let sep = actor.simulation_params.graph_separation_x;
-                    let face_scale = clamp_z_scale(actor.simulation_params.axis_compression_z);
-                    let project = actor.simulation_params.enable_dual_disc_layout
-                        && !actor.node_population.is_empty();
+                    let layout = LayoutParams::new(
+                        actor.simulation_params.graph_separation_x,
+                        actor.simulation_params.axis_compression_z,
+                        actor.simulation_params.enable_dual_disc_layout,
+                    );
+                    let n = pos_x.len().min(pos_y.len()).min(pos_z.len());
+                    let mut positions: Vec<Vec3> =
+                        (0..n).map(|i| Vec3::new(pos_x[i], pos_y[i], pos_z[i])).collect();
+                    // Centroids are taken over finite rows only (population_centroids
+                    // skips the rest), matching the main loop's guarded buffer.
+                    let mode = project_display(
+                        &mut positions,
+                        &actor.node_population,
+                        &layout,
+                        &actor.agent_drift,
+                    );
 
-                    // Mirror the main loop: per-population median centring + rim clamp.
-                    let centroids = if project {
-                        population_centroids_xy(&actor.node_population, |i| (pos_x[i], pos_y[i]), pos_x.len())
-                    } else {
-                        [(0.0f32, 0.0f32); 3]
-                    };
-                    // Rim radius is the disc's own fixed size, NOT sep, so the
-                    // discs keep full size when the user pulls them close together.
-                    let r_max = DISC_RIM_RADIUS;
-
-                    let mut node_updates = Vec::with_capacity(pos_x.len());
-                    for i in 0..pos_x.len() {
-                        let mut position = Vec3::new(pos_x[i], pos_y[i], pos_z[i]);
-                        let velocity = Vec3::new(vel_x[i], vel_y[i], vel_z[i]);
-                        if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
+                    let mut node_updates = Vec::with_capacity(n);
+                    for (i, position) in positions.iter().enumerate() {
+                        if !position.is_finite() {
                             continue;
                         }
-                        if project {
-                            if let Some(&pop) = actor.node_population.get(i) {
-                                project_node_xy(&mut position, pop, &centroids, sep, face_scale, r_max);
-                            }
-                        } else if (face_scale - 1.0).abs() > f32::EPSILON {
-                            // Dual-disc OFF: apply the continuous Z compression only.
-                            position.z *= face_scale;
-                        }
+                        let velocity = Vec3::new(
+                            vel_x.get(i).copied().unwrap_or(0.0),
+                            vel_y.get(i).copied().unwrap_or(0.0),
+                            vel_z.get(i).copied().unwrap_or(0.0),
+                        );
                         let node_id = actor.gpu_index_to_node_id.get(i).copied().unwrap_or(i as u32);
                         node_updates.push((node_id, BinaryNodeDataClient::new(
                             node_id,
-                            glam_to_vec3data(position),
+                            glam_to_vec3data(*position),
                             glam_to_vec3data(velocity),
                         )));
                     }
 
                     if let Some(ref graph_addr) = actor.graph_service_addr {
                         info!(
-                            "ForceComputeActor: IMMEDIATE full broadcast — {} nodes (pure snapshot, projected={} sep_y={:.1} face_scale={:.2})",
-                            node_updates.len(), project, sep, face_scale
+                            "ForceComputeActor: IMMEDIATE full broadcast — {} nodes (pure snapshot, mode={:?} separation={:.1} face_scale={:.2})",
+                            node_updates.len(), mode, layout.separation, layout.face_scale
                         );
                         graph_addr.do_send(crate::actors::messages::UpdateNodePositions {
                             positions: node_updates,
@@ -4875,47 +4803,5 @@ mod settlement_tests {
     fn counter_saturates_without_overflow() {
         // A graph parked at rest indefinitely must not panic on counter overflow.
         assert_eq!(FCA::next_stable_frames(u32::MAX, 0.0, EPS), u32::MAX);
-    }
-}
-
-#[cfg(test)]
-mod z_scale_tests {
-    use super::{clamp_z_scale, project_node_xy, GraphPopulation, Vec3, Z_SCALE_MIN};
-
-    #[test]
-    fn clamp_z_scale_bounds() {
-        assert_eq!(clamp_z_scale(1.0), 1.0); // default: no compression
-        assert_eq!(clamp_z_scale(0.5), 0.5); // mid: honoured
-        assert_eq!(clamp_z_scale(0.0), Z_SCALE_MIN); // below floor → clamped
-        assert_eq!(clamp_z_scale(-3.0), Z_SCALE_MIN);
-        assert_eq!(clamp_z_scale(2.0), 1.0); // above 1.0 → clamped
-    }
-
-    #[test]
-    fn face_scale_one_preserves_z_in_disc_mode() {
-        // Agent population sits on the z=0 mid-plane (target_z = 0), so with
-        // face_scale = 1.0 the Z coordinate is unchanged → fully 3D.
-        let centroids = [(0.0f32, 0.0f32); 3];
-        let mut p = Vec3::new(1.0, 2.0, 7.5);
-        project_node_xy(&mut p, GraphPopulation::Agent, &centroids, 0.0, 1.0, 0.0);
-        assert!((p.z - 7.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn face_scale_derived_from_axis_compression_flattens_disc() {
-        // face_scale = clamp_z_scale(axis_compression_z). At 0.1 the disc is thin:
-        // Agent z scales by 0.1 (target_z = 0).
-        let centroids = [(0.0f32, 0.0f32); 3];
-        let mut p = Vec3::new(0.0, 0.0, 10.0);
-        let face_scale = clamp_z_scale(0.1);
-        project_node_xy(
-            &mut p,
-            GraphPopulation::Agent,
-            &centroids,
-            0.0,
-            face_scale,
-            0.0,
-        );
-        assert!((p.z - 1.0).abs() < 1e-6);
     }
 }

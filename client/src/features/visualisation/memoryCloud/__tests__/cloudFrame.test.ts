@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, DEFAULT_CLOUD_SCALE } from '../cloudFrame';
+import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, DEFAULT_CLOUD_SCALE, graphBoundsFor } from '../cloudFrame';
+import { triangleFrame, place, Vertex } from '../../../graph/triLayout';
+import { robustBounds } from '@/utils/robustBounds';
 
 const cloud = { centre: [-10, 20, -15] as [number, number, number], radius: 120 };
 const graph = { centre: [90, -3, -14] as [number, number, number], radius: 300 };
@@ -31,6 +33,60 @@ describe('cloudPlacement', () => {
   it('guards a bad scale setting', () => {
     expect(cloudPlacement(cloud, graph, 0).scale).toBeGreaterThan(0);
     expect(cloudPlacement(cloud, graph, NaN).scale).toBeCloseTo(graph.radius / cloud.radius);
+  });
+});
+
+describe('cloudPlacement in the separated layout (ADR-2135)', () => {
+  it('separation 0 is exactly the merged placement', () => {
+    expect(cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0)).toEqual(cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE));
+  });
+
+  it('moves the cloud to the memory vertex, keeping its size relative to the graph', () => {
+    const merged = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0);
+    const apart = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 250);
+    const m = triangleFrame(250).vertices[Vertex.Memory];
+    apart.position.forEach((x, k) => expect(x).toBeCloseTo(graph.centre[k] + m[k], 4));
+    expect(apart.scale).toBeCloseTo(merged.scale);
+    expect(apart.offset).toEqual(merged.offset);
+  });
+
+  it('eases continuously with the slider', () => {
+    let prev = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0).position;
+    for (let sep = 1; sep <= 400; sep += 1) {
+      const p = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, sep).position;
+      expect(Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2])).toBeLessThan(1.5);
+      prev = p;
+    }
+  });
+
+  it('without a graph sits at the memory vertex of an origin-centred triangle', () => {
+    const p = cloudPlacement(cloud, null, 5, 100);
+    const m = triangleFrame(100).vertices[Vertex.Memory];
+    p.position.forEach((x, k) => expect(x).toBeCloseTo(m[k], 4));
+  });
+});
+
+describe('graphBoundsFor', () => {
+  // a 200-node blob of radius ~150 around the origin
+  const blob: [number, number, number][] = [];
+  let s = 1;
+  const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
+  for (let i = 0; i < 200; i++) blob.push([rnd() * 150, rnd() * 150, rnd() * 150]);
+
+  it('measures one graph, not the whole triangle, once separated', () => {
+    const f = triangleFrame(400);
+    const flat: number[] = [];
+    for (const v of [Vertex.Knowledge, Vertex.Ontology]) for (const p of blob) flat.push(...place(f, v, p));
+    const local = robustBounds(blob.flat(), blob.length)!;
+    const folded = graphBoundsFor(flat, flat.length / 3, 400)!;
+    const raw = robustBounds(flat, flat.length / 3)!;
+    expect(folded.radius).toBeCloseTo(local.radius, 0);
+    expect(raw.radius).toBeGreaterThan(2 * local.radius);
+  });
+
+  it('is plain robustBounds at separation 0', () => {
+    const flat = blob.flat();
+    expect(graphBoundsFor(flat, blob.length, 0)).toEqual(robustBounds(flat, blob.length));
   });
 });
 

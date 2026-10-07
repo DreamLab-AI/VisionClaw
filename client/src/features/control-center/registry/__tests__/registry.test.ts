@@ -355,4 +355,20 @@ describe('control-center settings registry', () => {
     const snapped = Math.round(0.0074725277 / outline.step!) * outline.step!;
     expect(Math.abs(snapped - 0.0074725277)).toBeLessThan(0.0001);
   });
+
+  it('(j) the Graph Separation slider describes the three-body triangle (ADR-2135)', () => {
+    const sep = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.physics.graphSeparationX')!;
+    expect(sep.type).toBe('slider');
+    expect(sep.label).toMatch(/knowledge/i);
+    expect(sep.label).toMatch(/ontology/i);
+    expect(sep.label).toMatch(/memory/i);
+    expect(sep.description).toMatch(/triangle/i);
+    expect(sep.description).toMatch(/agents/i);
+    // same range, so saved values keep working; a fine step so the vertices glide
+    expect([sep.min, sep.max]).toEqual([0, 400]);
+    expect(sep.step!).toBeLessThanOrEqual(5);
+    for (const saved of [0, 100, 250, 400]) expect((saved / sep.step!) % 1).toBe(0);
+    const dual = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.physics.enableDualDiscLayout')!;
+    expect(dual.description).toMatch(/centre/i);
+  });
 });

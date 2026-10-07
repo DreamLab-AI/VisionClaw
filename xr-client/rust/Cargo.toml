@@ -20,6 +20,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 godot = "0.2"
 visionclaw-xr-presence = { path = "../../crates/visionclaw-xr-presence" }
+# ADR-2135: the separated-layout triangle, the same crate the server projects with.
+visionclaw-tri-layout = { path = "../../crates/visionclaw-tri-layout" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
 tokio-tungstenite = "0.21"
 bytes = "1.10"

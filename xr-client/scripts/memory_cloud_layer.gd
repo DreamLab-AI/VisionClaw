@@ -73,9 +73,15 @@ var beat_source: Object = null
 ## Wand whose ray drives hover and anchors the framing cue (set by GraphScene).
 var pointer: Node3D = null
 ## Returns the graph's robust bounds `[cx, cy, cz, radius]` in GraphRoot space
-## (GraphScene: BinaryProtocolClient.graph_robust_bounds). Unset or empty →
-## the cloud keeps the origin placement.
+## (GraphScene: BinaryProtocolClient.graph_robust_bounds(graph_separation),
+## which folds the separated layout out so the bounds are one graph's). Unset
+## or empty → the cloud keeps the origin placement.
 var graph_bounds_source: Callable = Callable()
+## The desktop Graph Separation slider (`graphSeparationX`, ADR-2135). Above 0
+## the cloud glides to the memory vertex of the separated-layout triangle,
+## behind the graphs; 0 is the merged placement. Set by GraphScene from the
+## physics read-back.
+var graph_separation: float = 0.0
 ## The desktop `embeddingCloud.cloudScale`: 5 makes the cloud's radius equal
 ## the graph's; linear from there.
 var cloud_scale: float = 5.0
@@ -644,6 +650,7 @@ func _process(delta: float) -> void:
 func _apply_placement(delta: float) -> void:
 	if _frame == null or _cloud_root == null:
 		return
+	_frame.set_separation(graph_separation)  # a change makes the read due now
 	if bool(_frame.graph_read_due(delta)):
 		var b := PackedFloat32Array()
 		if graph_bounds_source.is_valid():

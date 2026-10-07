@@ -14,6 +14,7 @@ members = [
     "crates/vault",
     "crates/visionclaw-integration-tests",
     "crates/visionclaw-memory-cloud",
+    "crates/visionclaw-tri-layout",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
 # (cdylib for the Quest APK, separate target). Exclude it from the server
@@ -54,6 +55,8 @@ vault-core = { path = "crates/vault-core" }
 # delta compression). Consumed by src/handlers/presence_handler.rs and
 # src/actors/presence_actor.rs for the `/ws/presence` WebSocket.
 visionclaw-xr-presence = { path = "crates/visionclaw-xr-presence" }
+# ADR-2135: the separated-layout triangle and agent drift, shared with xr-client.
+visionclaw-tri-layout = { path = "crates/visionclaw-tri-layout" }
 
 # Web framework and WebSocket
 actix-web = { version = "4.11.0", features = ["compress-zstd", "macros"] }

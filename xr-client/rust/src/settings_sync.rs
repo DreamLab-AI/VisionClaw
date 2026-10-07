@@ -125,6 +125,9 @@ pub struct PhysicsView {
     pub plane_bias_k: Option<f32>,
     pub plane_spacing: Option<f32>,
     pub axis_compression_z: Option<f32>,
+    /// `graphSeparationX`, the separated-layout slider (ADR-2135): the memory
+    /// cloud moves to the triangle's memory vertex when it is above 0.
+    pub graph_separation_x: Option<f32>,
 }
 
 impl PhysicsView {
@@ -143,6 +146,7 @@ impl PhysicsView {
             plane_bias_k: num(v.get("planeBiasK")),
             plane_spacing: num(v.get("planeSpacing")),
             axis_compression_z: num(v.get("axisCompressionZ")),
+            graph_separation_x: num(v.get("graphSeparationX")),
         })
     }
 
@@ -156,6 +160,7 @@ impl PhysicsView {
             ("plane_bias_k", self.plane_bias_k),
             ("plane_spacing", self.plane_spacing),
             ("axis_compression_z", self.axis_compression_z),
+            ("graph_separation_x", self.graph_separation_x),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -678,7 +683,7 @@ mod tests {
     #[test]
     fn physics_view_takes_present_numeric_fields_only() {
         let v = PhysicsView::parse(
-            r#"{"repelK":250.5,"restLength":90,"dagBiasK":0.6,"dagLevelDistance":"80","planeSpacing":null,"axisCompressionZ":0.3,"damping":0.9}"#,
+            r#"{"repelK":250.5,"restLength":90,"dagBiasK":0.6,"dagLevelDistance":"80","planeSpacing":null,"axisCompressionZ":0.3,"graphSeparationX":250,"damping":0.9}"#,
         )
         .unwrap();
         assert_eq!(v.repel_k, Some(250.5));
@@ -688,7 +693,8 @@ mod tests {
         assert_eq!(v.plane_spacing, None);
         assert_eq!(v.plane_bias_k, None);
         assert_eq!(v.axis_compression_z, Some(0.3));
-        assert_eq!(v.fields().len(), 4);
+        assert_eq!(v.graph_separation_x, Some(250.0));
+        assert_eq!(v.fields().len(), 5);
         assert!(PhysicsView::parse("[1]").is_none());
         assert!(PhysicsView::parse("<html>").is_none());
     }

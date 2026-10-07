@@ -1,0 +1,16 @@
+[package]
+name = "visionclaw-tri-layout"
+version = "0.1.0"
+edition = "2021"
+description = "Pure geometry for the VisionClaw separated layout: the ground-plane triangle that pulls the knowledge graph, the formal ontology and the memory cloud apart, and the rule that drifts agents between them. No I/O, no dependencies."
+authors = ["jjohare <github@thedreamlab.uk>"]
+# MIT, not the server's AGPL: the Quest XR client (MIT) links this crate.
+license = "MIT"
+repository = "https://github.com/DreamLab-AI/VisionClaw"
+# Project-specific display contract (ADR-2135), mirrored by the desktop TS port.
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+serde_json = "1.0"

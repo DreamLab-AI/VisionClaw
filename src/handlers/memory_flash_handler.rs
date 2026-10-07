@@ -2,7 +2,9 @@
 //!
 //! POST /api/memory-flash accepts { key, namespace, action } and broadcasts a
 //! `memory_flash` WebSocket message to every connected client so the embedding
-//! cloud can animate the corresponding point(s).
+//! cloud can animate the corresponding point(s). Each flash is also published
+//! to `agent_events::memory_hub` so agents in the separated layout drift
+//! towards the memory cloud (ADR-2135); an optional `agentId` names the agent.
 
 use actix_web::{web, HttpResponse};
 use log::{debug, warn};
@@ -20,6 +22,17 @@ pub struct MemoryFlashRequest {
     pub namespace: Option<String>,
     /// Action: "store", "search", "retrieve", "delete", "update"
     pub action: Option<String>,
+    /// Wire id of the agent that touched memory, when the producer knows it
+    /// (flag bits allowed). Without it the access is credited to every agent.
+    #[serde(default, alias = "agent_id", rename = "agentId")]
+    pub agent_id: Option<u32>,
+}
+
+/// Feed the layout's agent drift (ADR-2135).
+fn publish_activity(req: &MemoryFlashRequest) {
+    crate::agent_events::memory_hub::publish(crate::agent_events::memory_hub::MemoryActivity {
+        agent_id: req.agent_id,
+    });
 }
 
 /// WebSocket message broadcast to all clients
@@ -44,6 +57,7 @@ pub async fn handle_memory_flash(
 ) -> HttpResponse {
     let namespace = body.namespace.clone().unwrap_or_default();
     let action = body.action.clone().unwrap_or_else(|| "access".to_string());
+    publish_activity(&body);
 
     let broadcast = MemoryFlashBroadcast {
         type_: "memory_flash",
@@ -111,6 +125,7 @@ pub async fn handle_memory_flash_batch(
 
     let mut count = 0;
     for event in &body.events {
+        publish_activity(event);
         let broadcast = MemoryFlashBroadcast {
             type_: "memory_flash",
             data: MemoryFlashData {
@@ -136,4 +151,32 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             "/memory-flash/batch",
             web::post().to(handle_memory_flash_batch),
         );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_id_is_optional_and_accepts_both_spellings() {
+        let r: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k"}"#).unwrap();
+        assert_eq!(r.agent_id, None);
+        let r: MemoryFlashRequest =
+            serde_json::from_str(r#"{"key":"k","agentId":2147483651}"#).unwrap();
+        assert_eq!(r.agent_id, Some(0x8000_0003));
+        let r: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k","agent_id":5}"#).unwrap();
+        assert_eq!(r.agent_id, Some(5));
+    }
+
+    #[tokio::test]
+    async fn a_flash_reaches_the_memory_hub() {
+        let mut rx = crate::agent_events::memory_hub::subscribe();
+        let req: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k","agentId":77}"#).unwrap();
+        publish_activity(&req);
+        loop {
+            if rx.recv().await.unwrap().agent_id == Some(77) {
+                break;
+            }
+        }
+    }
 }

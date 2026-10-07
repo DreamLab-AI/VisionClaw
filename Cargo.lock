@@ -7535,12 +7535,20 @@ dependencies = [
  "visionclaw-memory-cloud",
  "visionclaw-ontology",
  "visionclaw-protocol",
+ "visionclaw-tri-layout",
  "visionclaw-xr-presence",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "whelk",
  "xml",
+]
+
+[[package]]
+name = "visionclaw-tri-layout"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

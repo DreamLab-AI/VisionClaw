@@ -205,6 +205,14 @@ var _node_size_factor: float = 1.0
 var _dag_bias_on: bool = false
 var _dag_level_distance: float = 60.0
 var _z_compression: float = 1.0
+## Graph Separation (`graphSeparationX`, ADR-2135), read back from the server.
+## The server projects the two graphs onto the triangle; the memory cloud
+## takes the third vertex here.
+var _graph_separation: float = 0.0:
+	set(v):
+		_graph_separation = v
+		if _memory_cloud != null:
+			_memory_cloud.graph_separation = v
 var _plane_bias_k := 0.0
 var _plane_spacing := 60.0
 const DAG_BIAS_ON_K: float = 0.6
@@ -539,9 +547,14 @@ func _ready() -> void:
 		graph_root.add_child(_memory_cloud)
 		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
 		_memory_cloud.pointer = right_controller
-		# frame the cloud on the graph (desktop cloudFrame.ts): robust bounds of every node
+		# frame the cloud on the graph (desktop cloudFrame.ts): robust bounds of every
+		# node, with the separated layout folded out (ADR-2135)
+		_memory_cloud.graph_separation = _graph_separation
 		if _binary_client != null and _binary_client.has_method("graph_robust_bounds"):
-			_memory_cloud.graph_bounds_source = Callable(_binary_client, "graph_robust_bounds")
+			var client: RefCounted = _binary_client
+			var layer: Node3D = _memory_cloud
+			_memory_cloud.graph_bounds_source = func() -> PackedFloat32Array:
+				return client.graph_robust_bounds(layer.graph_separation)
 		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 		_memory_cloud.route_stats_changed.connect(func(line: String) -> void:
 			if hud != null and hud.has_method("set_memory_route_line"):
