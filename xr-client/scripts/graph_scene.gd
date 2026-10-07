@@ -359,6 +359,16 @@ var _radial_owner: XRController3D = null
 const PLANE_LIMIT: int = 24
 const PLANE_GAP_M: float = 0.5   # target world-metre gap between layers (pre-fit-scaled)
 const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
+# WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
+const GraphParityScript := preload("res://scripts/graph_parity.gd")
+var _parity: Node = null
+# Node-mesh LOD (PRD-008 triangle budget): far-tier impostor MultiMesh.
+const NodeLod := preload("res://scripts/node_lod.gd")
+var _impostors: MultiMeshInstance3D = null
+# Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
+# scripts/memory_cloud_layer.gd; the scene only wires it.
+const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
+var _memory_cloud = null  # MemoryCloudLayerScript instance (under GraphRoot)
 var _planes = null  # PlaneManagerScript instance
 var _exec_http: HTTPRequest = null
 var _exec_pending: bool = false
@@ -519,6 +529,13 @@ func _ready() -> void:
 		var node_mat: Material = nodes_multi.material_override if nodes_multi != null else null
 		var edge_mat: Material = edges_multi.material_override if edges_multi != null else null
 		_planes.configure(_binary_client, node_mesh, edge_mesh, node_mat, edge_mat)
+	_memory_cloud = MemoryCloudLayerScript.new()
+	_memory_cloud.name = "MemoryCloud"
+	if graph_root != null:
+		graph_root.add_child(_memory_cloud)
+		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
+		_memory_cloud.pointer = right_controller
+		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)
@@ -549,6 +566,15 @@ func _ready() -> void:
 	_init_label_pool()
 	_probe_eye_gaze()
 	_wire_hud()
+	_parity = GraphParityScript.new()
+	_parity.name = "GraphParity"
+	add_child(_parity)
+	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
+		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
+	_parity.setup(self, _binary_client, graph_root, hud)
+	if graph_root != null:
+		_impostors = NodeLod.make_impostor_instance()
+		graph_root.add_child(_impostors)
 	_ensure_beat()
 	_connect_from_env()
 
@@ -717,6 +743,9 @@ func _ensure_beat() -> void:
 	_beat.name = "BeatPulse"
 	add_child(_beat)
 	_beat.setup(self, _binary_client, hud, left_controller, right_controller, agent_effects_root, _graph_centre_world)
+	# The memory cloud's route pulses on the same beat (is_locked/beat_phase/beat_pulse).
+	if _memory_cloud != null:
+		_memory_cloud.beat_source = _beat
 
 
 func _wire_hud() -> void:
@@ -749,6 +778,8 @@ func _on_hud_control(action: String) -> void:
 	# Feature 3 — type show/hide filter. "type_toggle:<class>:<1|0>" (1 = visible).
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
+		return
+	if _parity != null and _parity.handle_control(action):
 		return
 	if action.begins_with("beat_") or action.begins_with("memory_bursts:"):
 		if _beat != null:
@@ -817,9 +848,23 @@ func _on_hud_control(action: String) -> void:
 			_unpin_all()
 		"toggle_demo":
 			_toggle_demo()
+		"memory_cloud_toggle":
+			if _memory_cloud != null:
+				_memory_cloud.set_enabled(not _memory_cloud.is_enabled())
+				_refresh_memory_cloud_hud()
+		"memory_cloud_colour":
+			if _memory_cloud != null:
+				_memory_cloud.cycle_colour_mode()
+				_refresh_memory_cloud_hud()
 		_:
 			push_warning("GraphScene: unknown HUD control '%s'" % action)
 	_refresh_controls_status()
+
+
+# Push the memory-cloud button labels (state, colour mode) to the HUD.
+func _refresh_memory_cloud_hud() -> void:
+	if hud != null and _memory_cloud != null and hud.has_method("set_memory_cloud_state"):
+		hud.set_memory_cloud_state(_memory_cloud.is_enabled(), _memory_cloud.status_label(), _memory_cloud.colour_mode_label())
 
 
 # Apply a type show/hide toggle "<class>:<1|0>" to the render store. Class codes
@@ -1885,7 +1930,18 @@ func _update_multimesh() -> void:
 		_recompute_drawn_ids()
 		_selection_dirty = false
 	var comp: float = NODE_WORLD_RADIUS * _node_size_factor / (NODE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
+	var buf: PackedFloat32Array
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if _impostors != null and cam != null and _binary_client.has_method("build_node_buffer_lod"):
+		# Gem mesh for the nearest NEAR_CAP nodes within NEAR_RADIUS_M of the eye;
+		# every other drawn node is a 2-triangle impostor (one extra draw call).
+		var inv: Transform3D = graph_root.global_transform.affine_inverse()
+		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
+		buf = _binary_client.build_node_buffer_lod(_drawn_ids, comp, 0.7, 1.9,
+			inv * cam.global_position, NodeLod.NEAR_CAP, NodeLod.NEAR_RADIUS_M / world_per_server)
+		NodeLod.assign(_impostors, _binary_client.impostor_node_buffer())
+	else:
+		buf = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
 	var mm: MultiMesh = nodes_multi.multimesh
 	var count: int = buf.size() / 20
 	if mm.instance_count != count:
@@ -2427,6 +2483,8 @@ func _refresh_reduced_motion() -> void:
 		var state: Dictionary = comfort.call("get_visual_comfort")
 		_reduced_motion = bool(state.get("reduced_motion", true))
 	_choreo.reduced_motion = _reduced_motion
+	if _memory_cloud != null:
+		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
 		_effects.reduced_motion = _reduced_motion
 	if _beat != null:
@@ -2619,17 +2677,14 @@ func _on_graph_text(json: String) -> void:
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	var msg: Dictionary = parsed
+	# settingsUpdated / filter_update_success / graphUpdated (WP2, ADR-2047).
+	if _parity != null and _parity.route_text(json, str(msg.get("type", ""))):
+		return
 	var msg_type: String = str(msg.get("type", ""))
-	# beatClock / pong / memory_flash: the beat clock and memory bursts.
+	# beatClock / pong / memory_flash: the beat clock and memory bursts (ADR-2134).
 	if _beat != null and _beat.on_text(json, msg_type):
 		return
 	match msg_type:
-		"memoryRoute":
-			# The desktop memory explorer's current route (same-user relay);
-			# drawn by xr-cloud's memory cloud layer when it is present.
-			var cloud: Node = get_tree().get_first_node_in_group("xr_memory_cloud")
-			if cloud != null and cloud.has_method("on_memory_route"):
-				cloud.on_memory_route(msg)
 		"broker:new_case":
 			# A malformed frame can carry a non-Dictionary payload (string, null,
 			# array); passing that to a Dictionary-typed param crashes
@@ -2637,6 +2692,10 @@ func _on_graph_text(json: String) -> void:
 			var p: Variant = msg.get("payload", {})
 			if typeof(p) == TYPE_DICTIONARY:
 				_handle_broker_new_case(p)
+		"memoryRoute":
+			# Desktop query route relayed per session (WP7); the layer gates it.
+			if _memory_cloud != null:
+				_memory_cloud.apply_route_json(json)
 		"nodeUnpinAck":
 			# Server confirmed the release (position_updates.rs handle_node_unpin →
 			# {"type":"nodeUnpinAck","data":{"nodeId":N}}). Drop the id from the

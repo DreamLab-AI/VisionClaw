@@ -163,6 +163,95 @@ pub fn select_top_by_centrality(centrality: &[f32], cap: usize) -> Vec<u32> {
     idx
 }
 
+// --- Node-mesh LOD (PRD-008 §6: ≤ 100k triangles, ≤ 50 draw calls) ---------
+//
+// The full gem node (16×8 sphere + the halo `next_pass`) measured 576 triangles
+// per node on HP (Godot 4.6.1, opengl3, 2026-10-07), so 1 000 gem nodes alone
+// are 576k triangles and 13k are ≈ 7.5M. Two tiers fix that without touching
+// the near look: the nearest `near_cap` nodes inside `near_max_dist` keep the
+// gem, and every other drawn node is a 2-triangle camera-facing impostor
+// (`materials/node_impostor.gdshader`) in one extra MultiMesh — one more draw
+// call, whatever the node count.
+
+/// Measured triangles per gem node (sphere + halo pass).
+pub const GEM_TRIS_PER_NODE: usize = 576;
+/// One quad per impostor.
+pub const IMPOSTOR_TRIS_PER_NODE: usize = 2;
+/// Near-field triangle ceiling the cap is sized for.
+pub const NEAR_TRI_BUDGET: usize = 60_000;
+/// Default gem cap: 96 · 576 = 55 296 triangles.
+pub const DEFAULT_NEAR_CAP: usize = 96;
+/// Default near radius in world metres (the graph is fitted to ~2.4 m, a node
+/// is ~3 cm): past ~1 m a node subtends under 2°, where the impostor's shaded
+/// disc and the sphere are indistinguishable.
+pub const DEFAULT_NEAR_RADIUS_M: f32 = 1.0;
+/// A node that was in the gem tier last build competes with its squared
+/// distance scaled by this, so boundary nodes do not flip tiers every frame.
+pub const NEAR_HYSTERESIS_SQ: f32 = 0.81; // ≈ 10 % in distance
+
+/// Worst-case node triangles for `nodes` drawn with a full gem cap.
+pub fn node_triangle_estimate(nodes: usize, near_cap: usize) -> usize {
+    let near = nodes.min(near_cap);
+    near * GEM_TRIS_PER_NODE + (nodes - near) * IMPOSTOR_TRIS_PER_NODE
+}
+
+/// Split a packed node buffer (20 floats per instance, row-major 3×4 transform
+/// with the origin at floats 3/7/11) into the gem tier and the impostor tier.
+///
+/// `ids[i]` is instance i's node id (used only for hysteresis against
+/// `prev_near`). The gem tier is the `near_cap` nearest instances to `cam`
+/// within `near_max_dist`; both outputs keep scene order. Returns the two
+/// buffers and the gem-tier id set for the next call. O(n): a partial select,
+/// not a sort. A truncated trailing instance is dropped.
+pub fn split_node_tiers(
+    buf: &[f32],
+    ids: &[u32],
+    cam: [f32; 3],
+    near_cap: usize,
+    near_max_dist: f32,
+    prev_near: &std::collections::HashSet<u32>,
+) -> (Vec<f32>, Vec<f32>, std::collections::HashSet<u32>) {
+    const STRIDE: usize = 20;
+    let n = buf.len() / STRIDE;
+    let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
+    // (effective d², instance index) for every instance inside the radius.
+    let mut cand: Vec<(f32, usize)> = Vec::new();
+    for i in 0..n {
+        let o = i * STRIDE;
+        let d2 = distance_squared(cam, [buf[o + 3], buf[o + 7], buf[o + 11]]);
+        if !(d2 <= max_sq) {
+            continue; // beyond the radius, or NaN
+        }
+        let was_near = ids.get(i).is_some_and(|id| prev_near.contains(id));
+        cand.push((if was_near { d2 * NEAR_HYSTERESIS_SQ } else { d2 }, i));
+    }
+    let take = near_cap.min(cand.len());
+    let mut is_near = vec![false; n];
+    if take > 0 {
+        if take < cand.len() {
+            cand.select_nth_unstable_by(take - 1, |a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        }
+        for &(_, i) in &cand[..take] {
+            is_near[i] = true;
+        }
+    }
+    let mut near = Vec::with_capacity(take * STRIDE);
+    let mut far = Vec::with_capacity((n - take) * STRIDE);
+    let mut near_ids = std::collections::HashSet::with_capacity(take);
+    for (i, &flag) in is_near.iter().enumerate() {
+        let chunk = &buf[i * STRIDE..(i + 1) * STRIDE];
+        if flag {
+            near.extend_from_slice(chunk);
+            if let Some(&id) = ids.get(i) {
+                near_ids.insert(id);
+            }
+        } else {
+            far.extend_from_slice(chunk);
+        }
+    }
+    (near, far, near_ids)
+}
+
 #[cfg(not(test))]
 #[derive(GodotClass)]
 #[class(no_init, base = RefCounted)]

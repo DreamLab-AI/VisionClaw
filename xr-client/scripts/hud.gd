@@ -131,12 +131,18 @@ var _hierarchy_button: Button = null
 var _flat_toggle_button: Button = null
 var _planes_toggle_button: Button = null
 var _layout_mode_button: Button = null
+var _color_mode_button: Button = null   # WP1 domain/community toggle (Graph page)
+var _hulls_button: Button = null        # WP4 hull source cycle (Graph page)
 # Wave 2, Feature 3 — type show/hide toggles (Graph tab). Each tracks its own
 # visible bool so the label/tint reflects state; the class code is in the action.
 var _type_knowledge_button: Button = null
 var _type_ontology_button: Button = null
 var _type_agent_button: Button = null
 var _type_visible: Dictionary = {"knowledge": true, "ontology": true, "agent": true}
+# Memory cloud (XR WP6): on/off + colour-mode cycle. GraphScene owns the state
+# and pushes labels back through set_memory_cloud_state.
+var _memory_cloud_button: Button = null
+var _memory_colour_button: Button = null
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
@@ -202,6 +208,23 @@ const KEY_AVATAR_SPEAKING: Color = Color(0.7, 0.85, 1.0)     # agent_avatar.gd C
 const KEY_ROLE_COLORS: Array[Color] = [
 	Color("#56CFE1"), Color("#F6BD60"), Color("#7B9EFF"), Color("#D98ACD"), Color("#8FD175"), Color("#F08A62"),
 ]
+# WP1 domain swatches: a deliberate copy of render_store's palette
+# (xr-client/rust/src/domain_palette.rs ← client/.../domainColors.ts). The Rust
+# test tests/domain_palette_parity.rs parses these two tables and fails on drift.
+# Rows: [domain key, short label, colour].
+const KEY_DOMAIN_SWATCHES: Array = [
+	["artificial-intelligence", "AI", Color("#4FC3F7")],
+	["blockchain", "Blockchain", Color("#81C784")],
+	["robotics", "Robotics", Color("#FFB74D")],
+	["spatial-computing", "Spatial", Color("#CE93D8")],
+	["distributed-collaboration", "Collab", Color("#4DB6AC")],
+	["infrastructure", "Infra", Color("#FFD54F")],
+	["space-science-and-systems", "Space", Color("#646b9f")],
+	["earth-observation-and-geospatial-sensing", "Earth obs", Color("#438273")],
+]
+const KEY_DOMAIN_FALLBACK: Color = Color("#90A4AE")
+# WP4 hull swatches: the first four of hulls.rs GPU_CLUSTER_COLORS (parity-tested).
+const KEY_HULL_SWATCHES: Array = [Color("#4FC3F7"), Color("#81C784"), Color("#FFB74D"), Color("#CE93D8")]
 # Work-beam action colours: semantic.rs AGENT_ACTION_COLORS = materials/agent_beam.gdshader
 # action_*_color = desktop frameTypes.ts AGENT_ACTION_COLORS (Query..Transform).
 const KEY_BEAM_ACTIONS: Array[Color] = [
@@ -418,6 +441,11 @@ func _build_graph_page() -> VBoxContainer:
 	g1.add_child(_action_btn("Edges -", "edges_minus", "Show fewer edges"))
 	g1.add_child(_action_btn("Node +", "node_size_plus", "Enlarge node markers"))
 	g1.add_child(_action_btn("Node -", "node_size_minus", "Shrink node markers"))
+	# WP1/WP4: the two free cells of the 3x3 grid, so the page grows by 0px.
+	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default) or by community")
+	_hulls_button = _action_btn("Hulls: Off", "hulls_cycle", "Translucent hulls around server clusters: off, clusters, or communities")
+	g1.add_child(_color_mode_button)
+	g1.add_child(_hulls_button)
 	page.add_child(g1)
 
 	# Wave 2, Feature 3 — type show/hide filter. One wand-clickable toggle per node
@@ -432,6 +460,11 @@ func _build_graph_page() -> VBoxContainer:
 	g3.add_child(_type_knowledge_button)
 	g3.add_child(_type_ontology_button)
 	g3.add_child(_type_agent_button)
+	_memory_cloud_button = _action_btn("Memory: Off", "memory_cloud_toggle", "Show / hide the live memory cloud (RuVector sample); point at a dot for its key")
+	_memory_cloud_button.add_theme_color_override("font_color", IDLE)
+	_memory_colour_button = _action_btn("Cloud: Namespace", "memory_cloud_colour", "Colour the memory cloud by namespace, source type or age")
+	g3.add_child(_memory_cloud_button)
+	g3.add_child(_memory_colour_button)
 	page.add_child(g3)
 
 	page.add_child(_group_header("Status"))
@@ -649,9 +682,11 @@ func _build_key_page() -> VBoxContainer:
 # The key's content, grouped. Each row: [Array[Color] swatches, label, hover hint].
 func _key_sections() -> Array:
 	return [
+		{"title": "Nodes — Colour: Domain (default)", "rows": _domain_key_rows()},
 		{"title": "Nodes", "rows": [
 			[[community_swatch(1), community_swatch(2), community_swatch(3), community_swatch(4)],
-				"Community hue", "Each node takes a golden-ratio hue keyed by its community — same colour = same cluster"],
+				"Community hue", "Colour: Community — each node takes a golden-ratio hue keyed by its community"],
+			[KEY_HULL_SWATCHES, "Cluster hulls", "Hulls: translucent shell around each server cluster (largest 32, at least 4 members)"],
 			[[KEY_ANOMALY], "Anomaly (blends to red)", "Anomalous nodes blend toward warning red; brighter rim = higher centrality"],
 			[[query_swatch(0), query_swatch(1), query_swatch(2), query_swatch(3)],
 				"Query mark ?v1…?v8", "Nodes marked as query variables take a saturated palette colour and a rim flag"],
@@ -720,6 +755,15 @@ func _key_row(colors: Array, label: String, hint: String) -> HBoxContainer:
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(l)
 	return row
+
+
+## Key rows for the domain palette: one per canonical domain plus the fallback.
+func _domain_key_rows() -> Array:
+	var rows: Array = []
+	for r: Array in KEY_DOMAIN_SWATCHES:
+		rows.append([[r[2]], String(r[1]), "Domain %s — highly connected nodes are a little lighter and more saturated" % String(r[0])])
+	rows.append([[KEY_DOMAIN_FALLBACK], "Other / none", "Nodes with no or an unrecognised domain"])
+	return rows
 
 
 ## Sample community colour for community `k` (k ≥ 1). Mirrors
@@ -1067,6 +1111,16 @@ func _notice_active() -> bool:
 	return not _notice_text.is_empty() and Time.get_ticks_msec() < _notice_until_ms
 
 
+## Memory-cloud button state: `label` is the layer's status ("Memory: 6000",
+## "Memory: Locked", …), `colour_mode` its colour mode name.
+func set_memory_cloud_state(on: bool, label: String, colour_mode: String) -> void:
+	if _memory_cloud_button != null:
+		_memory_cloud_button.text = label
+		_memory_cloud_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
+	if _memory_colour_button != null:
+		_memory_colour_button.text = "Cloud: %s" % colour_mode
+
+
 ## Reflect the Hierarchy/View toggle state and pinned-node count on the button
 ## faces + Pins tab. Press-only, no per-frame cost.
 func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, planes_on: bool = false) -> void:
@@ -1083,6 +1137,19 @@ func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, pl
 		_unpin_all_button.text = "Unpin All (%d)" % pinned_count if pinned_count > 0 else "Unpin All"
 	if _pins_count_label != null:
 		_pins_count_label.text = "%d pinned" % pinned_count
+
+
+## WP1/WP4: reflect the colour mode (0 domain, 1 community) and hull source
+## (0 off, 1 clusters, 2 communities) on the Graph-page button faces.
+func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -> void:
+	if _color_mode_button != null:
+		_color_mode_button.text = "Colour: Community" if color_mode == 1 else "Colour: Domain"
+	if _hulls_button != null:
+		var label: String = ["Hulls: Off", "Hulls: Clusters", "Hulls: Communities"][clampi(hull_source, 0, 2)]
+		if hull_source > 0 and hull_count >= 0:
+			label += " (%d)" % hull_count
+		_hulls_button.text = label
+		_hulls_button.add_theme_color_override("font_color", ACCENT if hull_source > 0 else IDLE)
 
 
 ## Reflect the active layout mode on the Layout Mode cycling button face.

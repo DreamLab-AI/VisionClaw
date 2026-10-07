@@ -1,3 +1,6 @@
 *
 !.gitignore
 !README.md
+# GUT is vendored (pinned upstream tag, see README.md); other addons are installed, not committed.
+!gut/
+!gut/**

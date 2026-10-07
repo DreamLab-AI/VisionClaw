@@ -1,0 +1,120 @@
+//! Node-mesh LOD (PRD-008 §6 budget: ≤ 100k triangles, ≤ 50 draw calls).
+//!
+//! The nearest `near_cap` nodes within `near_max_dist` keep the full gem mesh
+//! (sphere + halo pass); every other drawn node is a 2-triangle impostor in a
+//! second MultiMesh. These tests pin the split, its hysteresis and the budget
+//! arithmetic for the 1k benchmark fixture and the 13k production density.
+
+use std::collections::HashSet;
+
+use visionclaw_xr_gdext::lod::{
+    node_triangle_estimate, split_node_tiers, DEFAULT_NEAR_CAP, GEM_TRIS_PER_NODE,
+    IMPOSTOR_TRIS_PER_NODE, NEAR_TRI_BUDGET,
+};
+use visionclaw_xr_gdext::render_store::{RenderStore, NODE_STRIDE};
+
+/// A packed node buffer (row-major 3×4, origin at 3/7/11) for points on +x.
+fn packed(xs: &[f32]) -> Vec<f32> {
+    let mut b = Vec::new();
+    for (i, &x) in xs.iter().enumerate() {
+        b.extend_from_slice(&[1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        b.extend_from_slice(&[0.5, 0.5, 0.5, 1.0]);
+        b.extend_from_slice(&[i as f32, 0.0, 0.0, 1.0]); // custom.r tags the instance
+    }
+    b
+}
+
+fn origins_x(buf: &[f32]) -> Vec<f32> {
+    buf.chunks_exact(NODE_STRIDE).map(|c| c[3]).collect()
+}
+
+#[test]
+fn nearest_n_keep_the_gem_and_the_rest_become_impostors() {
+    let xs = [9.0, 1.0, 5.0, 2.0, 7.0, 3.0];
+    let ids: Vec<u32> = (10..16).collect();
+    let buf = packed(&xs);
+    let (near, far, near_ids) = split_node_tiers(&buf, &ids, [0.0; 3], 3, f32::INFINITY, &HashSet::new());
+    assert_eq!(origins_x(&near), vec![1.0, 2.0, 3.0], "nearest three, scene order kept");
+    assert_eq!(origins_x(&far), vec![9.0, 5.0, 7.0], "the rest, scene order kept");
+    assert_eq!(near_ids, HashSet::from([11, 13, 15]));
+    assert_eq!(near.len() + far.len(), buf.len(), "no instance lost or duplicated");
+    // Colour and custom channels travel with their instance.
+    assert_eq!(near[NODE_STRIDE + 16], 3.0, "custom.r of the x=2 instance (index 3)");
+}
+
+#[test]
+fn near_radius_excludes_far_nodes_even_under_the_cap() {
+    let buf = packed(&[0.5, 1.5, 3.0]);
+    let ids = [1, 2, 3];
+    let (near, far, _) = split_node_tiers(&buf, &ids, [0.0; 3], 10, 1.0, &HashSet::new());
+    assert_eq!(origins_x(&near), vec![0.5]);
+    assert_eq!(origins_x(&far), vec![1.5, 3.0]);
+}
+
+#[test]
+fn previously_near_nodes_win_a_close_call() {
+    // id 2 is marginally farther than id 1 but was near last frame: with a cap
+    // of one it keeps the gem rather than the pair flipping every frame.
+    let buf = packed(&[1.00, 1.05]);
+    let ids = [1, 2];
+    let prev = HashSet::from([2]);
+    let (near, _, near_ids) = split_node_tiers(&buf, &ids, [0.0; 3], 1, f32::INFINITY, &prev);
+    assert_eq!(origins_x(&near), vec![1.05]);
+    assert_eq!(near_ids, HashSet::from([2]));
+    // A clearly nearer newcomer still takes the slot.
+    let buf = packed(&[0.5, 1.05]);
+    let (near, _, _) = split_node_tiers(&buf, &ids, [0.0; 3], 1, f32::INFINITY, &prev);
+    assert_eq!(origins_x(&near), vec![0.5]);
+}
+
+#[test]
+fn degenerate_inputs_are_safe() {
+    let (n, f, ids) = split_node_tiers(&[], &[], [0.0; 3], 96, 1.0, &HashSet::new());
+    assert!(n.is_empty() && f.is_empty() && ids.is_empty());
+    let buf = packed(&[1.0, 2.0]);
+    let (n, f, _) = split_node_tiers(&buf, &[1, 2], [0.0; 3], 0, f32::INFINITY, &HashSet::new());
+    assert!(n.is_empty());
+    assert_eq!(f.len(), buf.len(), "cap 0 → everything is an impostor");
+    // A truncated trailing instance is dropped, never read out of bounds.
+    let mut ragged = buf.clone();
+    ragged.truncate(buf.len() - 3);
+    let (n, f, _) = split_node_tiers(&ragged, &[1, 2], [0.0; 3], 5, f32::INFINITY, &HashSet::new());
+    assert_eq!(n.len() + f.len(), NODE_STRIDE);
+    // Mismatched id list: ids past the end are ignored, missing ids never panic.
+    let (n, f, _) = split_node_tiers(&buf, &[1], [0.0; 3], 5, f32::INFINITY, &HashSet::new());
+    assert_eq!(n.len() + f.len(), buf.len());
+}
+
+#[test]
+fn budget_arithmetic_holds_for_the_fixture_and_production_density() {
+    assert!(DEFAULT_NEAR_CAP * GEM_TRIS_PER_NODE <= NEAR_TRI_BUDGET, "near field ≤ ~60k");
+    assert_eq!(IMPOSTOR_TRIS_PER_NODE, 2);
+    // Worst case: the cap is full.
+    let fixture = node_triangle_estimate(1_000, DEFAULT_NEAR_CAP);
+    let production = node_triangle_estimate(13_164, DEFAULT_NEAR_CAP);
+    assert!(fixture < 100_000, "1k fixture: {fixture}");
+    assert!(production < 100_000, "13k production: {production}");
+    assert_eq!(node_triangle_estimate(50, DEFAULT_NEAR_CAP), 50 * GEM_TRIS_PER_NODE, "small graphs are all gem");
+}
+
+#[test]
+fn render_store_lod_build_counts_labelled_nodes_against_the_cap() {
+    let mut s = RenderStore::new();
+    let mut ids = Vec::new();
+    for i in 0..200u32 {
+        s.upsert(i + 1, [i as f32, 0.0, 0.0], 0, 0.0, 0.0);
+        ids.push((i + 1) as i32);
+    }
+    // Two labelled nodes ride the faded (full-mesh) pass and use two cap slots.
+    s.set_labelled(&[1, 2]);
+    let near = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY);
+    let far = s.impostor_node_buffer().to_vec();
+    let faded = s.faded_node_buffer().len() / NODE_STRIDE;
+    assert_eq!(faded, 2);
+    assert_eq!(near.len() / NODE_STRIDE, 8, "cap 10 minus 2 labelled");
+    assert_eq!(far.len() / NODE_STRIDE, 190);
+    assert_eq!(s.render_ids().len(), 200, "every tier stays pickable by the ray");
+    // The near tier is the nodes nearest the camera (ids 3..=10 at x = 2..9).
+    let xs = origins_x(&near);
+    assert!(xs.iter().all(|&x| (2.0..=9.0).contains(&x)), "{xs:?}");
+}

@@ -9,9 +9,10 @@ name: XR Godot CI
 #     * xr-rust-tests  — gdext lib/integration/property tests (195 as of the
 #                        close-out) + visionclaw-xr-presence (adversarial +
 #                        property). Both CUDA-free; run anywhere Rust runs.
-#     * gut-headless   — GUT 9.3 GDScript suite under Godot 4.3 GL on Xvfb,
-#                        using exactly the invocation proven on the HP rig
-#                        (51/51, first full pass in project history).
+#     * gut-headless   — GUT GDScript suite (vendored GUT 9.7.1) under
+#                        Godot 4.6.1 GL on Xvfb — the runtime the headset
+#                        actually uses (docs/XR-client.md). Same invocation
+#                        as the HP rig (118/118 on 2026-10-07).
 #   NON-BLOCKING (never executed end-to-end yet):
 #     * quest3-android — full NDK r26d + cargo-ndk + export-template APK
 #                        pipeline from PRD-008 §5.7 steps 2–6 & 9. Kept
@@ -46,8 +47,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  GODOT_VERSION: 4.3-stable
-  GUT_VERSION: 9.3.1
+  GODOT_VERSION: 4.6.1-stable
 
 jobs:
   # ── BLOCKING ──────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ jobs:
         run: cargo test -p visionclaw-xr-presence
 
   gut-headless:
-    name: GUT GDScript suite under Godot 4.3 GL (blocking)
+    name: GUT GDScript suite under Godot 4.6.1 GL (blocking)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -96,13 +96,10 @@ jobs:
           unzip -q /tmp/godot.zip -d /tmp/godot
           sudo mv /tmp/godot/Godot_v${GODOT_VERSION}_linux.x86_64 /usr/local/bin/godot
           godot --version
-      - name: Vendor GUT ${{ env.GUT_VERSION }} (not committed upstream)
-        # Pinned tag, no fallback: silently vendoring a different GUT version
-        # would change what the suite runs against.
-        run: |
-          # NB: GUT tags are v-prefixed except 9.3.1, which is tagged bare.
-          git clone --depth 1 --branch "${GUT_VERSION}" https://github.com/bitwes/Gut /tmp/gut
-          rm -rf addons/gut && cp -r /tmp/gut/addons/gut addons/gut
+      - name: Check vendored GUT pin
+        # GUT is committed under addons/gut (9.7.1, see addons/README.md); 9.3.x
+        # does not compile on Godot >= 4.5. Fail loudly if the pin drifts.
+        run: grep -q 'version="9.7.1"' addons/gut/plugin.cfg
       - name: Run GUT unit suite (canonical close-out invocation)
         run: |
           mkdir -p tests/report

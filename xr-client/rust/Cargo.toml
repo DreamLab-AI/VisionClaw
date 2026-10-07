@@ -49,3 +49,13 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "decode_throughput"
 harness = false
+
+# The editor and the desktop-OpenXR headset run (`godot --path xr-client …`)
+# load the *debug* library (visionclaw_xr_gdext.gdextension maps
+# linux.debug.x86_64 → target/debug), so an unoptimised dev profile is what the
+# headset actually runs. Measured on HP 2026-10-07 (perf/benchmark_scene.tscn,
+# 13 164 nodes): the per-frame node pack took 18–20 ms unoptimised vs 1.8 ms
+# optimised — the difference between missing and holding 90 fps. Debug
+# assertions and overflow checks stay on; only codegen is optimised.
+[profile.dev]
+opt-level = 2

@@ -251,15 +251,21 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
 pub fn community_color(community_id: u32, anomaly: f32, node_id: u32) -> [f32; 4] {
     let key = if community_id != 0 { community_id } else { node_id };
     let hue = ((key as f64) * 0.618_033_988_75).fract() as f32;
-    let mut rgb = hsv_to_rgb(hue, 0.6, 0.95);
+    let rgb = hsv_to_rgb(hue, 0.6, 0.95);
+    anomaly_blend([rgb[0], rgb[1], rgb[2], 1.0], anomaly)
+}
+
+/// Warm red blend for anomalous nodes (anomaly > 0.5), shared by the community
+/// and domain colour modes so the anomaly tell survives a palette switch.
+pub fn anomaly_blend(mut rgba: [f32; 4], anomaly: f32) -> [f32; 4] {
     if anomaly > 0.5 {
         let t = ((anomaly - 0.5) * 2.0).clamp(0.0, 0.85);
         let warn = [1.0, 0.15, 0.1];
         for c in 0..3 {
-            rgb[c] = rgb[c] + (warn[c] - rgb[c]) * t;
+            rgba[c] += (warn[c] - rgba[c]) * t;
         }
     }
-    [rgb[0], rgb[1], rgb[2], 1.0]
+    rgba
 }
 
 /// Squared Euclidean distance between two server-space points.
@@ -574,6 +580,25 @@ pub struct RenderStore {
     agent_actions_stale: u64,
     agent_states_stale: u64,
     agent_expiries_total: u64,
+    // WP1/WP2/WP4 per-slot analytics kept beside `color`: the anomaly (for the
+    // domain-mode blend) and the server cluster/community ids (hull grouping).
+    anomaly: Vec<f32>,
+    cluster: Vec<u32>,
+    community: Vec<u32>,
+    // WP1 domain palette (see the `impl` block at the end of this file).
+    color_mode: crate::domain_palette::ColorMode,
+    domain_hex: HashMap<u32, &'static str>,
+    domain_rgb_cache: HashMap<u32, [f32; 4]>,
+    // WP2 received node filter. `None` until a peer's `nodeFilter` arrives, so
+    // the headset's draw is unchanged until the server says otherwise.
+    node_filter: Option<crate::settings_sync::NodeFilter>,
+    filter_inputs: HashMap<u32, crate::settings_sync::FilterInputs>,
+    filter_hidden: HashSet<u32>,
+    filter_dirty: bool,
+    // Node-mesh LOD: the impostor-tier buffer from the last LOD build and the
+    // gem-tier ids it chose (hysteresis input for the next build).
+    impostor_buf: Vec<f32>,
+    lod_prev_near: HashSet<u32>,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -630,6 +655,16 @@ impl RenderStore {
         self.agent_actions_stale = 0;
         self.agent_states_stale = 0;
         self.agent_expiries_total = 0;
+        self.anomaly.clear();
+        self.cluster.clear();
+        self.community.clear();
+        self.domain_hex.clear();
+        self.domain_rgb_cache.clear();
+        self.filter_inputs.clear();
+        self.filter_hidden.clear();
+        self.filter_dirty = self.node_filter.is_some();
+        self.impostor_buf.clear();
+        self.lod_prev_near.clear();
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
@@ -650,6 +685,8 @@ impl RenderStore {
     /// Additively add degree from a pair list (used after an expansion merge so a
     /// newly-attached edge bumps both endpoints without a full recount).
     pub fn add_degrees(&mut self, pairs: &[i32]) {
+        self.domain_rgb_cache.clear();
+        self.filter_dirty = self.node_filter.is_some();
         let n = pairs.len() / 2;
         for i in 0..n {
             let s = pairs[i * 2] as u32;
@@ -968,6 +1005,9 @@ impl RenderStore {
     /// Whether a specific node is visible under the current type filter. A node
     /// with no recorded kind is treated as visible (fail-open).
     fn node_visible(&self, id: u32) -> bool {
+        if self.filter_hidden.contains(&id) {
+            return false;
+        }
         match self.node_kind.get(&id) {
             Some(&c) => self.is_type_visible(c),
             None => true,
@@ -1329,7 +1369,7 @@ impl RenderStore {
                 continue;
             }
             let canon = self.fold_target(id);
-            if self.fold_hidden.contains(&canon) {
+            if self.fold_hidden.contains(&canon) || !self.node_visible(canon) {
                 continue;
             }
             // Rank/centrality reflect the matching node; the returned id is `canon`
@@ -1406,6 +1446,8 @@ impl RenderStore {
                 self.targets[slot] = position;
                 self.centrality[slot] = centrality;
                 self.color[slot] = color;
+                self.anomaly[slot] = anomaly;
+                self.community[slot] = community_id;
             }
             None => {
                 let slot = self.ids.len();
@@ -1415,6 +1457,10 @@ impl RenderStore {
                 self.positions.push(position);
                 self.centrality.push(centrality);
                 self.color.push(color);
+                self.anomaly.push(anomaly);
+                self.cluster.push(0);
+                self.community.push(community_id);
+                self.filter_dirty |= self.node_filter.is_some();
             }
         }
         if centrality > self.centrality_max {
@@ -1520,6 +1566,7 @@ impl RenderStore {
         self.render_ids.clear();
         self.render_positions.clear();
         self.step_label_fades();
+        self.refresh_filter();
         let mut faded = std::mem::take(&mut self.faded_buf);
         faded.clear();
         let mut buf = Vec::with_capacity(ids.len() * NODE_STRIDE);
@@ -1600,7 +1647,7 @@ impl RenderStore {
         let badge = self.fold_badge.get(&id).copied().unwrap_or(0) as f32;
         let (mut col, query_flag) = match self.query_vars.get(&id) {
             Some(&palette_idx) => (query_var_color(palette_idx), 1.0),
-            None => (self.color[slot], 0.0),
+            None => (self.base_color(slot, id), 0.0),
         };
         // Status halo (Pillar 3): an agent node is coloured by its derived status
         // (working/blocked/done/idle) with a floored halo so it always reads as a
@@ -1854,6 +1901,177 @@ impl RenderStore {
             percentile(&ys, hi_q),
             percentile(&zs, hi_q),
         ])
+    }
+}
+
+// --- Node-mesh LOD -----------------------------------------------------------
+impl RenderStore {
+    /// `build_node_buffer` split into LOD tiers (see `lod::split_node_tiers`):
+    /// returns the gem-tier buffer and keeps the impostor tier for
+    /// [`impostor_node_buffer`](Self::impostor_node_buffer). Labelled nodes stay
+    /// in the faded full-mesh pass and count against `near_cap`. `cam` and
+    /// `near_max_dist` are in server units (GraphRoot space). Every drawn node
+    /// keeps its render position, so ray picking ignores the tier.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_node_buffer_lod(
+        &mut self,
+        ids: &[i32],
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) -> Vec<f32> {
+        let buf = self.build_node_buffer(ids, scale_comp, size_lo, size_hi);
+        // `buf` holds the drawn ids without a live label fade, in emission order.
+        let main_ids: Vec<u32> = self
+            .render_ids
+            .iter()
+            .copied()
+            .filter(|id| !self.label_alpha.contains_key(id))
+            .collect();
+        let faded = self.faded_buf.len() / NODE_STRIDE;
+        let cap = near_cap.saturating_sub(faded);
+        let (near, far, near_ids) =
+            crate::lod::split_node_tiers(&buf, &main_ids, cam, cap, near_max_dist, &self.lod_prev_near);
+        self.impostor_buf = far;
+        self.lod_prev_near = near_ids;
+        near
+    }
+
+    /// Impostor-tier instances from the last `build_node_buffer_lod` (same
+    /// 20-float layout as the node buffer).
+    pub fn impostor_node_buffer(&self) -> &[f32] {
+        &self.impostor_buf
+    }
+}
+
+// --- WP1 domain palette / WP2 received node filter / WP4 cluster hulls -------
+//
+// Kept in one block so the XR-parity work stays a hook-sized diff against the
+// rest of the store. Colour precedence in `emit_node` is unchanged: query mark,
+// then agent status, then this base colour (with the anomaly blend in both modes).
+impl RenderStore {
+    /// Select the node colour scheme (desktop default: domain).
+    pub fn set_color_mode(&mut self, mode: crate::domain_palette::ColorMode) {
+        self.color_mode = mode;
+    }
+
+    pub fn color_mode(&self) -> crate::domain_palette::ColorMode {
+        self.color_mode
+    }
+
+    /// Record a node's corpus domain (from `initialGraphLoad`). Order-independent
+    /// with `upsert`: the colour resolves at pack time.
+    pub fn set_node_domain(&mut self, node_id: u32, domain: &str) {
+        let hex = crate::domain_palette::domain_hex(Some(domain));
+        self.domain_hex.insert(node_id, hex);
+        self.domain_rgb_cache.remove(&node_id);
+    }
+
+    /// Server cluster id (V3 record offset 36) for the hull grouping.
+    pub fn set_cluster(&mut self, node_id: u32, cluster_id: u32) {
+        if let Some(&slot) = self.id_index.get(&node_id) {
+            self.cluster[slot] = cluster_id;
+        }
+    }
+
+    fn base_color(&mut self, slot: usize, id: u32) -> [f32; 4] {
+        use crate::domain_palette::ColorMode;
+        match self.color_mode {
+            ColorMode::Community => self.color[slot],
+            ColorMode::Domain => {
+                let rgba = match self.domain_rgb_cache.get(&id) {
+                    Some(&c) => c,
+                    None => {
+                        let degree = self.degree_of(id);
+                        let hex = self
+                            .domain_hex
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(crate::domain_palette::DEFAULT_DOMAIN_COLOR);
+                        let c = crate::domain_palette::hex_node_color(hex, degree);
+                        self.domain_rgb_cache.insert(id, c);
+                        c
+                    }
+                };
+                anomaly_blend(rgba, self.anomaly[slot])
+            }
+        }
+    }
+
+    /// Per-node filter inputs (quality / authority / linked_page) from topology.
+    pub fn set_filter_inputs(&mut self, node_id: u32, inputs: crate::settings_sync::FilterInputs) {
+        self.filter_inputs.insert(node_id, inputs);
+        self.filter_dirty |= self.node_filter.is_some();
+    }
+
+    /// Apply (or with `None`, clear) the received `nodeFilter`. Takes effect on
+    /// the next `build_node_buffer`; agents are never filtered (the desktop and
+    /// server filter graph nodes only).
+    pub fn set_node_filter(&mut self, filter: Option<crate::settings_sync::NodeFilter>) {
+        self.node_filter = filter;
+        self.filter_dirty = true;
+    }
+
+    pub fn node_filter(&self) -> Option<crate::settings_sync::NodeFilter> {
+        self.node_filter
+    }
+
+    /// Nodes the current filter hides (as of the last buffer build).
+    pub fn filter_hidden_count(&self) -> usize {
+        self.filter_hidden.len()
+    }
+
+    fn refresh_filter(&mut self) {
+        if !self.filter_dirty {
+            return;
+        }
+        self.filter_dirty = false;
+        self.filter_hidden.clear();
+        let Some(f) = self.node_filter else {
+            return;
+        };
+        for &id in &self.ids {
+            if self.node_kind.get(&id) == Some(&KIND_AGENT) {
+                continue;
+            }
+            let inp = self.filter_inputs.get(&id).copied().unwrap_or_default();
+            if !f.passes(&inp, self.degree_of(id)) {
+                self.filter_hidden.insert(id);
+            }
+        }
+    }
+
+    fn hull_points(&self) -> Vec<crate::hulls::HullPoint> {
+        self.render_ids
+            .iter()
+            .zip(self.render_positions.iter())
+            .filter_map(|(id, &pos)| {
+                let slot = *self.id_index.get(id)?;
+                Some(crate::hulls::HullPoint {
+                    cluster_id: self.cluster[slot],
+                    community_id: self.community[slot],
+                    pos,
+                })
+            })
+            .collect()
+    }
+
+    /// Hulls over the nodes drawn by the last `build_node_buffer`, so a hull never
+    /// wraps nodes the user cannot see (LOD-, type- or filter-hidden).
+    pub fn hull_mesh(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> crate::hulls::HullMesh {
+        if source == crate::hulls::HullSource::Off {
+            return crate::hulls::HullMesh::default();
+        }
+        crate::hulls::build_hull_mesh(&self.hull_points(), source, params)
+    }
+
+    /// Fingerprint of the hull input at 1-server-unit resolution: the scene
+    /// rebuilds the mesh only when this changes (positions settle → no rebuilds).
+    pub fn hull_signature(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> u64 {
+        crate::hulls::input_signature(&self.hull_points(), source, params, 1.0)
     }
 }
 
@@ -2561,6 +2779,8 @@ mod tests {
     #[test]
     fn query_var_overlay_recolours_and_flags_then_restores() {
         let mut s = RenderStore::new();
+        // This test pins the community path; domain is the default since WP1.
+        s.set_color_mode(crate::domain_palette::ColorMode::Community);
         s.upsert(1, [0.0, 0.0, 0.0], 3, 0.0, 1.0); // community colour, max centrality
         s.upsert(2, [1.0, 0.0, 0.0], 3, 0.0, 1.0);
         let base = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
