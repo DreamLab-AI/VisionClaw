@@ -4,7 +4,7 @@
  * same authenticated user's other sessions, i.e. their Godot XR client:
  *
  *   { type: 'beatClock', bpm, phaseAt, confidence, source, sentAt }
- *   { type: 'memoryRoute', snapshotId, seq, sentAt, path, sidecar, query }
+ *   { type: 'memoryRoute', snapshotId, seq, sentAt, path, sidecar, query, sidecarTotal?, sidecarAgree? }
  *
  * - beatClock goes out when the clock changes and every 2 s while it is on
  *   (the headset drops a clock after ~6.5 s of silence). Nothing is sent while
@@ -15,7 +15,13 @@
  *   joins late. `path` is the route as snapshot ROW indices, root → answer
  *   (`run.tree.path`); the headset resolves positions from its own copy of the
  *   same snapshot. `sidecar` carries the sidecar's sampled top-k rows, `query`
- *   the text (≤ 120 characters). Every frame carries a fresh `seq` and
+ *   the text (≤ 120 characters). `sidecarTotal` / `sidecarAgree` are the
+ *   panel's honest agreement counts (`sidecarAgreement`): all sidecar hits,
+ *   and the sampled ones that are in the local top-k; the headset shows "n of
+ *   k sidecar hits are in the sample · a of n sampled agree", leaving
+ *   unsampled hits out of the denominator. Both are omitted with no sidecar
+ *   response. The sidecar's method, timings and hit objects stay in the HTTP
+ *   response; they are never relayed. Every frame carries a fresh `seq` and
  *   `sentAt`: the headset orders by (sentAt, seq), so a reloaded page whose
  *   seq restarts still wins. Shape and limits are the headset parser's
  *   (`xr-client/rust/src/memory_route.rs`).
@@ -30,7 +36,7 @@
 
 import type { StoreApi } from 'zustand';
 import type { BeatClockState } from './beatClock';
-import type { MemoryCloudState } from './memoryCloudStore';
+import { sidecarAgreement, type MemoryCloudState } from './memoryCloudStore';
 
 export const RELAY_MIN_INTERVAL_MS = 250;
 export const BEAT_HEARTBEAT_MS = 2000;
@@ -59,6 +65,10 @@ export interface MemoryRouteFrame {
   /** sidecar top-k rows that are in the sample */
   sidecar: number[];
   query: string;
+  /** all sidecar hits, sampled or not (absent without a sidecar response) */
+  sidecarTotal?: number;
+  /** sampled sidecar hits that are in the local top-k */
+  sidecarAgree?: number;
 }
 
 /** A route frame before it is stamped with seq / sentAt. */
@@ -97,7 +107,17 @@ export function routeFrame(s: Slice): RouteBody | null {
     }
   }
   const query = path.length > 0 ? Array.from(s.query.text ?? '').slice(0, MAX_QUERY_CHARS).join('') : '';
-  return { type: 'memoryRoute', snapshotId: snap.snapshotId, path, sidecar, query };
+  const body: RouteBody = { type: 'memoryRoute', snapshotId: snap.snapshotId, path, sidecar, query };
+  const results = s.query.response?.sidecar.results;
+  if (done && path.length > 0 && results) {
+    const a = sidecarAgreement(results, s.query.run ?? null);
+    // counts only when they describe the rows sent (never past the 64-row cap)
+    if (a.inSample === sidecar.length) {
+      body.sidecarTotal = a.total;
+      body.sidecarAgree = a.inLocal;
+    }
+  }
+  return body;
 }
 
 function beatKey(b: BeatClockState): string {

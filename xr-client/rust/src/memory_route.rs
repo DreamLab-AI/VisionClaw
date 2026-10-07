@@ -46,10 +46,10 @@ pub const PULSE_PERIOD_S: f32 = 0.9;
 pub const TAIL_FRACTION: f32 = 0.18;
 
 // sizes in cloud-local units (TrajectoryLayer.tsx)
-pub const TUBE_R: f32 = 0.35;
+pub const TUBE_R: f32 = 0.45;
 pub const BEAD_R: f32 = 0.55;
 pub const COMET_R: f32 = 0.5;
-pub const RING_R: f32 = 1.4;
+pub const RING_R: f32 = 2.0;
 pub const MARK_R: f32 = 1.7;
 
 /// Ring vertices per tube cross-section (desktop 8; 6 keeps the headset share
@@ -72,6 +72,50 @@ pub const MAX_QUERY_CHARS: usize = 120;
 /// Sidecar marks accepted (the sidecar returns at most 50).
 pub const MAX_SIDECAR: usize = 64;
 pub const STRIDE: usize = 16;
+
+/// Render priority of the route materials (tube, beads, rings). The route
+/// draws without depth testing, like the desktop overlay (`depthTest = false`,
+/// `renderOrder` 10–15), so the opaque glass nodes cannot hide it; the
+/// priority puts it after every other transparent scene layer (edges 0, halos
+/// and beams 1). The HUD panel and the hover label sit above it
+/// ([`OVERLAY_RENDER_PRIORITY`]) so the route never paints over the controls.
+/// Depth test and draw order are pipeline state of the single multiview draw,
+/// so both eyes always agree.
+pub const ROUTE_RENDER_PRIORITY: i32 = 10;
+/// Render priority of the HUD panel and the memory hover label.
+pub const OVERLAY_RENDER_PRIORITY: i32 = 20;
+
+// ── route framing cue (the headset never moves the head, ADR-2107) ──
+
+/// Guide dots from the controller to the answer while a new route lands.
+/// They ride the bead MultiMesh (no extra draw call) and are always present
+/// in the instance count (hidden at zero size), so the triangle cost is fixed.
+pub const CUE_DOTS: usize = 12;
+/// How long the cue shows after a new route arrives (s): the 2.8 s trace plus
+/// time to find the answer.
+pub const CUE_SECONDS: f32 = 4.5;
+pub const CUE_FADE_IN_S: f32 = 0.25;
+pub const CUE_FADE_OUT_S: f32 = 1.0;
+/// World radius of the nearest guide dot (m); dots grow to 3× towards the
+/// answer so the far end stays legible.
+pub const CUE_DOT_M: f32 = 0.006;
+/// Gap left in front of the controller (m) before the first dot.
+pub const CUE_START_M: f32 = 0.12;
+/// Speed of the brightness wave that runs along the dots towards the answer
+/// (cycles per second). Off under reduced motion.
+pub const CUE_MARCH_HZ: f32 = 0.8;
+/// Answer-ring highlight while the cue shows: brightness ×(1 + gain · h) and,
+/// unless reduced motion is on, size ×(1 + grow · h).
+pub const ANSWER_HIGHLIGHT_GAIN: f32 = 1.2;
+pub const ANSWER_HIGHLIGHT_GROW: f32 = 0.45;
+
+/// Wire field names of a `memoryRoute` frame, as the desktop relay
+/// (`xrRelay.ts` `MemoryRouteFrame`) sends them and the server relay
+/// (`session_relay.rs`) re-serialises them, plus the relay's `serverTime`.
+/// The sidecar's search method, timings and hit objects live in the HTTP
+/// query response (`MemoryCloudQueryResponse.sidecar`), never in this frame.
+pub const WIRE_FIELDS: [&str; 9] =
+    ["type", "snapshotId", "seq", "sentAt", "path", "sidecar", "query", "sidecarTotal", "sidecarAgree"];
 
 /// Tube layers in the single route surface, and their radius multiples of
 /// `TUBE_R` (tail uses `COMET_R · 0.9`). Colour alpha is the layer's additive
@@ -166,6 +210,10 @@ struct WireRoute {
     query: Option<String>,
     #[serde(default)]
     sent_at: Option<f64>,
+    #[serde(default)]
+    sidecar_total: Option<serde_json::Value>,
+    #[serde(default)]
+    sidecar_agree: Option<serde_json::Value>,
 }
 
 /// A parsed `memoryRoute` frame.
@@ -179,6 +227,64 @@ pub struct RouteFrame {
     /// Sampled sidecar top-k rows (gold marks).
     pub sidecar: Vec<u32>,
     pub query: String,
+    /// Sidecar agreement counts relayed by the desktop, when present and
+    /// consistent (decoration: a bad value drops the stats, never the frame).
+    pub stats: Option<SidecarStats>,
+}
+
+/// The desktop's honest sidecar accounting (`memoryCloudStore.ts`
+/// `sidecarAgreement`): of `total` sidecar hits, `in_sample` have a point in
+/// the sampled cloud (the relayed `sidecar` rows), and `agree` of those are in
+/// the desktop's local top-k. Unsampled hits never enter the agreement
+/// denominator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidecarStats {
+    pub total: u32,
+    pub in_sample: u32,
+    pub agree: u32,
+}
+
+impl SidecarStats {
+    /// Validate the relayed counts against the sampled rows actually received.
+    pub fn from_wire(total: Option<u32>, agree: Option<u32>, in_sample: usize) -> Option<SidecarStats> {
+        let (total, agree) = (total?, agree?);
+        let in_sample = u32::try_from(in_sample).ok()?;
+        (in_sample <= total && agree <= in_sample).then_some(SidecarStats { total, in_sample, agree })
+    }
+
+    /// `describeAgreement(...).coverage`.
+    pub fn coverage_text(&self) -> String {
+        format!(
+            "{} of {} sidecar {} in the sample",
+            self.in_sample,
+            self.total,
+            if self.total == 1 { "hit is" } else { "hits are" }
+        )
+    }
+
+    /// `describeAgreement(...).agreement`.
+    pub fn agreement_text(&self) -> String {
+        if self.in_sample == 0 {
+            "no sampled hit to compare with the local top-k".into()
+        } else {
+            format!("{} of {} sampled agree with the local top-k", self.agree, self.in_sample)
+        }
+    }
+}
+
+/// The HUD Memory row's route line: the desktop's two agreement sentences on
+/// one line, or, from a relay that does not carry the counts, only what the
+/// headset knows (no denominator it cannot vouch for). Empty without a route.
+pub fn agreement_line(f: Option<&RouteFrame>) -> String {
+    let Some(f) = f.filter(|f| f.path.len() >= 2) else { return String::new() };
+    match f.stats {
+        Some(s) => format!("Route: {} · {}", s.coverage_text(), s.agreement_text()),
+        None => format!(
+            "Route: {} sampled sidecar {} marked (agreement not relayed)",
+            f.sidecar.len(),
+            if f.sidecar.len() == 1 { "hit" } else { "hits" }
+        ),
+    }
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -220,8 +326,10 @@ pub fn parse_route(json: &str) -> Result<RouteFrame, RouteError> {
         path.push(as_row(v).ok_or(RouteError::BadIndex(i))?);
     }
     // sidecar marks are decoration: drop bad entries rather than the frame
-    let sidecar = w.sidecar.iter().filter_map(as_row).take(MAX_SIDECAR).collect();
+    let sidecar: Vec<u32> = w.sidecar.iter().filter_map(as_row).take(MAX_SIDECAR).collect();
     let query: String = w.query.unwrap_or_default().chars().take(MAX_QUERY_CHARS).collect();
+    let count = |v: &Option<serde_json::Value>| v.as_ref().and_then(as_row);
+    let stats = SidecarStats::from_wire(count(&w.sidecar_total), count(&w.sidecar_agree), sidecar.len());
     Ok(RouteFrame {
         snapshot_id: w.snapshot_id,
         seq: w.seq.filter(|s| s.is_finite() && *s >= 0.0).map_or(0, |s| s as u64),
@@ -229,6 +337,7 @@ pub fn parse_route(json: &str) -> Result<RouteFrame, RouteError> {
         path,
         sidecar,
         query,
+        stats,
     })
 }
 
@@ -517,10 +626,11 @@ pub fn route_triangles(samples: usize) -> usize {
     LAYERS * samples.saturating_sub(1) * RADIAL * 2
 }
 
-/// Spheres in the bead MultiMesh for a route with `knots` path nodes: bead +
-/// halo per knot, then comet head + glow (`bead_buffer`).
+/// Discs in the bead MultiMesh for a route with `knots` path nodes: bead +
+/// halo per knot, comet head + glow, then the [`CUE_DOTS`] guide dots
+/// (`bead_buffer`; hidden dots keep their slot).
 pub fn bead_instances(knots: usize) -> usize {
-    2 * knots + 2
+    2 * knots + 2 + CUE_DOTS
 }
 
 /// Billboard quads in the ring MultiMesh: root, answer and pulse rings plus a
@@ -629,14 +739,91 @@ pub fn animate(samples: usize, el: f32, glow: f32, beat: Option<(f32, f32)>, red
     }
 }
 
+/// One frame of the route framing cue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cue {
+    /// Overall opacity 0..1 (fade in, hold, fade out).
+    pub alpha: f32,
+    /// Phase 0..1 of the brightness wave running towards the answer; `None`
+    /// under reduced motion (the dots hold steady).
+    pub march: Option<f32>,
+    /// Answer-ring highlight 0..1.
+    pub highlight: f32,
+    /// Whether the highlight may grow the ring (false under reduced motion).
+    pub grow: bool,
+}
+
+/// The cue `age` seconds after a new route arrived, or `None` once it is over.
+/// Reduced motion keeps the fade (an opacity change, not motion) but drops the
+/// travelling wave and the ring growth.
+pub fn cue_at(age: f32, reduced_motion: bool) -> Option<Cue> {
+    if !(0.0..CUE_SECONDS).contains(&age) {
+        return None;
+    }
+    let alpha = clamp01(age / CUE_FADE_IN_S).min(clamp01((CUE_SECONDS - age) / CUE_FADE_OUT_S));
+    Some(Cue {
+        alpha,
+        march: (!reduced_motion).then(|| (age * CUE_MARCH_HZ).fract()),
+        highlight: alpha,
+        grow: !reduced_motion,
+    })
+}
+
+/// Where the guide dots run from, in the route's (cloud-local) space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CueOrigin {
+    /// Controller tip (or the head when no controller is tracked).
+    pub from: Vec3,
+    /// Cloud-local units per metre (the inverse of the cloud's world scale).
+    pub local_per_m: f32,
+}
+
+/// Append the [`CUE_DOTS`] guide dots from `origin` to the answer `to` (stride
+/// 16, the bead disc). The line starts [`CUE_START_M`] past the controller and
+/// stops short of the answer ring; dots grow from [`CUE_DOT_M`] to 3× along it.
+/// Hidden (no cue, no origin, or degenerate) dots get a near-zero scale.
+pub fn push_cue_dots(buf: &mut Vec<f32>, to: Vec3, origin: Option<CueOrigin>, cue: Option<Cue>) {
+    let line = origin.zip(cue).and_then(|(o, c)| {
+        let d = [to[0] - o.from[0], to[1] - o.from[1], to[2] - o.from[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let start = CUE_START_M * o.local_per_m;
+        let end = len - RING_R * 1.15;
+        (o.local_per_m.is_finite() && o.local_per_m > 0.0 && end > start)
+            .then(|| (o, c, [d[0] / len, d[1] / len, d[2] / len], start, end))
+    });
+    let tip = hex_rgb(ROUTE_TIP);
+    for i in 0..CUE_DOTS {
+        match line {
+            Some((o, c, u, start, end)) => {
+                let t = (i as f32 + 0.5) / CUE_DOTS as f32;
+                let along = start + (end - start) * t;
+                let p = [o.from[0] + u[0] * along, o.from[1] + u[1] * along, o.from[2] + u[2] * along];
+                let wave = c.march.map_or(0.8, |m| 0.45 + 0.55 * (0.5 + 0.5 * (std::f32::consts::TAU * (t - m)).cos()));
+                // white near the hand, the answer's orange near the answer
+                let col = [1.0 + (tip[0] - 1.0) * t, 1.0 + (tip[1] - 1.0) * t, 1.0 + (tip[2] - 1.0) * t];
+                let k = 1.6 * wave;
+                push_instance(buf, p, CUE_DOT_M * o.local_per_m * (1.0 + 2.0 * t), [col[0] * k, col[1] * k, col[2] * k, c.alpha]);
+            }
+            None => push_instance(buf, to, 1e-5, [0.0; 4]),
+        }
+    }
+}
+
 fn push_instance(buf: &mut Vec<f32>, p: Vec3, s: f32, c: [f32; 4]) {
     buf.extend_from_slice(&[s, 0.0, 0.0, p[0], 0.0, s, 0.0, p[1], 0.0, 0.0, s, p[2], c[0], c[1], c[2], c[3]]);
 }
 
-/// Bead + halo per knot (the root bead stays hidden), then the comet head and
-/// its glow — one additive disc MultiMesh, stride 16.
-pub fn bead_buffer(r: &RouteSamples, st: &RouteFrameState, beat_pulse: f32) -> Vec<f32> {
-    let mut buf = Vec::with_capacity((r.knots.len() * 2 + 2) * STRIDE);
+/// Bead + halo per knot (the root bead stays hidden), the comet head and its
+/// glow, then the framing cue's guide dots — one additive disc MultiMesh,
+/// stride 16.
+pub fn bead_buffer(
+    r: &RouteSamples,
+    st: &RouteFrameState,
+    beat_pulse: f32,
+    cue_origin: Option<CueOrigin>,
+    cue: Option<Cue>,
+) -> Vec<f32> {
+    let mut buf = Vec::with_capacity(bead_instances(r.knots.len()) * STRIDE);
     let last = r.pts.len().saturating_sub(1).max(1) as f32;
     let bright = 1.2 + 0.4 * st.glow;
     for (j, &ki) in r.knots.iter().enumerate() {
@@ -655,6 +842,8 @@ pub fn bead_buffer(r: &RouteSamples, st: &RouteFrameState, beat_pulse: f32) -> V
     let tip = hex_rgb(ROUTE_TIP);
     push_instance(&mut buf, cp, (COMET_R * size * pulse).max(1e-5), [core, core, core, 1.0]);
     push_instance(&mut buf, cp, (COMET_R * 5.0 * size * st.glow.min(1.6) * pulse).max(1e-5), [tip[0], tip[1], tip[2], 0.6]);
+    let answer = r.pts.last().copied().unwrap_or([0.0; 3]);
+    push_cue_dots(&mut buf, answer, cue_origin, cue.filter(|_| r.pts.len() >= 2));
     buf
 }
 
@@ -666,6 +855,7 @@ pub fn ring_buffer(
     st: &RouteFrameState,
     sidecar: &[Vec3],
     root_pulse: f32,
+    cue: Option<Cue>,
 ) -> Vec<f32> {
     let mut buf = Vec::with_capacity((3 + sidecar.len()) * STRIDE);
     let root = r.pts.first().copied().unwrap_or([0.0; 3]);
@@ -673,8 +863,11 @@ pub fn ring_buffer(
     let tip = hex_rgb(ROUTE_TIP);
     let shown = r.pts.len() >= 2;
     push_instance(&mut buf, root, if shown { 1.8 * root_pulse } else { 1e-5 }, [0.9, 0.9, 0.9, 0.9]);
-    let ak = 1.0 + 0.6 * st.glow;
-    push_instance(&mut buf, tipp, if st.answer { RING_R } else { 1e-5 }, [tip[0] * ak, tip[1] * ak, tip[2] * ak, 1.0]);
+    // the framing cue brightens (and, with motion allowed, grows) the answer ring
+    let (h, grow) = cue.map_or((0.0, false), |c| (c.highlight, c.grow));
+    let ak = (1.0 + 0.6 * st.glow) * (1.0 + ANSWER_HIGHLIGHT_GAIN * h);
+    let ar = RING_R * if grow { 1.0 + ANSWER_HIGHLIGHT_GROW * h } else { 1.0 };
+    push_instance(&mut buf, tipp, if st.answer { ar } else { 1e-5 }, [tip[0] * ak, tip[1] * ak, tip[2] * ak, 1.0]);
     match st.pulse {
         Some(pr) => push_instance(&mut buf, tipp, RING_R * (1.0 + pr * 2.7), [tip[0], tip[1], tip[2], 1.0 - pr]),
         None => push_instance(&mut buf, tipp, 1e-5, [0.0; 4]),
@@ -695,6 +888,9 @@ pub struct ActiveRoute {
     pub samples: RouteSamples,
     pub sidecar_pts: Vec<Vec3>,
     pub el: f32,
+    /// Seconds since this route first arrived, for the framing cue (`None`
+    /// once a route is cleared).
+    pub cue_age: Option<f32>,
     /// Centreline sample cap from `frame_budget`; 0 = `ROUTE_RING_CAP`.
     pub ring_cap: usize,
 }
@@ -718,8 +914,18 @@ impl ActiveRoute {
         true
     }
 
-    pub fn set(&mut self, f: RouteFrame, positions: &[f32]) {
-        self.samples = sample_route(&f.path, positions, samples_per_hop_within(f.path.len(), self.cap()));
+    /// Show `f`. Returns true for a new route (different snapshot or path),
+    /// which restarts the trace and the framing cue. The desktop repeats a
+    /// live route every 10 s for late joiners; a repeat only refreshes the
+    /// sidecar marks, query and stats, so the trace is not replayed and the
+    /// cue does not fire again.
+    pub fn set(&mut self, f: RouteFrame, positions: &[f32]) -> bool {
+        let same = self.frame.as_ref().is_some_and(|c| c.snapshot_id == f.snapshot_id && c.path == f.path);
+        if !same {
+            self.samples = sample_route(&f.path, positions, samples_per_hop_within(f.path.len(), self.cap()));
+            self.el = 0.0;
+            self.cue_age = Some(0.0);
+        }
         self.sidecar_pts = f
             .sidecar
             .iter()
@@ -729,7 +935,24 @@ impl ActiveRoute {
             })
             .collect();
         self.frame = Some(f);
-        self.el = 0.0;
+        !same
+    }
+
+    /// Advance the trace and cue clocks.
+    pub fn advance(&mut self, dt: f32) {
+        let dt = dt.clamp(0.0, 0.1);
+        self.el += dt;
+        if let Some(a) = self.cue_age.as_mut() {
+            *a += dt;
+        }
+    }
+
+    /// The framing cue now, if it is still showing.
+    pub fn cue(&self, reduced_motion: bool) -> Option<Cue> {
+        if self.samples.pts.len() < 2 {
+            return None;
+        }
+        self.cue_age.and_then(|a| cue_at(a, reduced_motion))
     }
     pub fn clear(&mut self) {
         let ring_cap = self.ring_cap;
@@ -755,6 +978,8 @@ pub struct MemoryRoute {
     gate: RouteGate,
     route: ActiveRoute,
     state: Option<RouteFrameState>,
+    /// reduced-motion flag of the last `tick`, for the cue
+    reduced: bool,
     last_error: String,
     base: Base<RefCounted>,
 }
@@ -768,14 +993,18 @@ impl MemoryRoute {
             gate: RouteGate::default(),
             route: ActiveRoute::default(),
             state: None,
+            reduced: true,
             last_error: String::new(),
             base,
         })
     }
 
-    /// Offer a `memoryRoute` text frame. Returns one of "apply", "clear",
-    /// "stale", "reload", "drop" or "error" (see `last_error()`). On "apply"
-    /// the route is sampled from `positions` (the loaded cloud's 3·count floats).
+    /// Offer a `memoryRoute` text frame. Returns one of "apply", "refresh",
+    /// "clear", "stale", "reload", "drop" or "error" (see `last_error()`). On
+    /// "apply" a new route is sampled from `positions` (the loaded cloud's
+    /// 3·count floats); "refresh" is the desktop's 10 s repeat of the route
+    /// already shown (marks, query and stats updated; geometry, trace clock
+    /// and cue untouched).
     #[func]
     fn offer_json(&mut self, json: GString, loaded_snapshot: GString, positions: PackedFloat32Array) -> GString {
         let f = match parse_route(&json.to_string()) {
@@ -907,7 +1136,8 @@ impl MemoryRoute {
     /// path_t, answer, comet (bool).
     #[func]
     fn tick(&mut self, dt: f32, glow: f32, beat_phase: f32, beat_pulse: f32, reduced_motion: bool) -> Dictionary {
-        self.route.el += dt.clamp(0.0, 0.1);
+        self.route.advance(dt);
+        self.reduced = reduced_motion;
         let beat = (beat_phase >= 0.0).then_some((beat_phase, clamp01(beat_pulse)));
         let st = animate(self.route.samples.pts.len(), self.route.el, glow, beat, reduced_motion);
         self.state = Some(st);
@@ -919,19 +1149,50 @@ impl MemoryRoute {
         d.set("glow", st.glow);
         d.set("path_t", st.path_t);
         d.set("answer", st.answer);
+        d.set("cue", self.route.cue(reduced_motion).map_or(0.0, |c| c.alpha));
         d
     }
 
+    /// Bead discs, comet and the framing cue's guide dots. `cue_from` is the
+    /// controller tip in the route's (cloud-local) space and `local_per_m`
+    /// the cloud-local units per metre; `local_per_m <= 0` hides the dots.
     #[func]
-    fn bead_buffer(&self, beat_pulse: f32) -> PackedFloat32Array {
+    fn bead_buffer(&self, beat_pulse: f32, cue_from: Vector3, local_per_m: f32) -> PackedFloat32Array {
         let Some(st) = self.state else { return PackedFloat32Array::new() };
-        PackedFloat32Array::from(bead_buffer(&self.route.samples, &st, clamp01(beat_pulse)).as_slice())
+        let origin = (local_per_m > 0.0).then_some(CueOrigin { from: [cue_from.x, cue_from.y, cue_from.z], local_per_m });
+        let cue = self.route.cue(self.reduced);
+        PackedFloat32Array::from(bead_buffer(&self.route.samples, &st, clamp01(beat_pulse), origin, cue).as_slice())
     }
 
     #[func]
     fn ring_buffer(&self, root_pulse: f32) -> PackedFloat32Array {
         let Some(st) = self.state else { return PackedFloat32Array::new() };
-        PackedFloat32Array::from(ring_buffer(&self.route.samples, &st, &self.route.sidecar_pts, root_pulse).as_slice())
+        let cue = self.route.cue(self.reduced);
+        PackedFloat32Array::from(ring_buffer(&self.route.samples, &st, &self.route.sidecar_pts, root_pulse, cue).as_slice())
+    }
+
+    /// Opacity of the framing cue now (0 when it is not showing).
+    #[func]
+    fn cue_alpha(&self) -> f32 {
+        self.route.cue(self.reduced).map_or(0.0, |c| c.alpha)
+    }
+
+    /// The HUD Memory row's sidecar line (`agreement_line`), "" without a
+    /// route.
+    #[func]
+    fn agreement_line(&self) -> GString {
+        GString::from(agreement_line(self.route.frame.as_ref()).as_str())
+    }
+
+    /// `ROUTE_RENDER_PRIORITY` / `OVERLAY_RENDER_PRIORITY` for the scripts.
+    #[func]
+    fn route_render_priority(&self) -> i32 {
+        ROUTE_RENDER_PRIORITY
+    }
+
+    #[func]
+    fn overlay_render_priority(&self) -> i32 {
+        OVERLAY_RENDER_PRIORITY
     }
 }
 
@@ -940,9 +1201,12 @@ impl MemoryRoute {
     fn apply_decision(&mut self, d: RouteDecision, positions: &[f32]) -> GString {
         match d {
             RouteDecision::Apply(f) => {
-                self.route.set(f, positions);
-                self.state = None;
-                GString::from("apply")
+                if self.route.set(f, positions) {
+                    self.state = None;
+                    GString::from("apply")
+                } else {
+                    GString::from("refresh")
+                }
             }
             RouteDecision::Clear => {
                 self.route.clear();
@@ -961,7 +1225,7 @@ mod tests {
     use super::*;
 
     fn frame(snap: &str, seq: u64, sent: f64, path: &[u32]) -> RouteFrame {
-        RouteFrame { snapshot_id: snap.into(), seq, sent_at: sent, path: path.to_vec(), sidecar: vec![], query: String::new() }
+        RouteFrame { snapshot_id: snap.into(), seq, sent_at: sent, path: path.to_vec(), sidecar: vec![], query: String::new(), stats: None }
     }
 
     // ── parse ──
@@ -1168,6 +1432,7 @@ mod tests {
                     path: (0..rows as u32).collect(),
                     sidecar: (MAX_PATH as u32..(MAX_PATH + MAX_SIDECAR) as u32).collect(),
                     query: String::new(),
+                    stats: None,
                 },
                 &pos,
             );
@@ -1204,7 +1469,7 @@ mod tests {
         let pos: Vec<f32> = (0..13 * 3).map(|i| (i * 7 % 23) as f32).collect();
         let mut r = ActiveRoute::default();
         r.set(
-            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: (0..13).collect(), sidecar: vec![], query: String::new() },
+            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: (0..13).collect(), sidecar: vec![], query: String::new(), stats: None },
             &pos,
         );
         assert_eq!(r.samples.pts.len(), 12 * 10 + 1);
@@ -1217,7 +1482,7 @@ mod tests {
         // a later route keeps the cap until the budget lifts it
         r.clear();
         r.set(
-            RouteFrame { snapshot_id: "s".into(), seq: 2, sent_at: 1.0, path: (0..13).collect(), sidecar: vec![], query: String::new() },
+            RouteFrame { snapshot_id: "s".into(), seq: 2, sent_at: 1.0, path: (0..13).collect(), sidecar: vec![], query: String::new(), stats: None },
             &pos,
         );
         assert_eq!(r.samples.pts.len(), 13);
@@ -1231,16 +1496,16 @@ mod tests {
         let mut r = ActiveRoute::default();
         assert_eq!(route_total_triangles(&r), 0, "no route, no cost");
         r.set(
-            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: vec![0, 1, 2], sidecar: vec![1], query: String::new() },
+            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: vec![0, 1, 2], sidecar: vec![1], query: String::new(), stats: None },
             &pos,
         );
         let tube = route_triangles(r.samples.pts.len());
-        let beads = (2 * r.samples.knots.len() + 2) * BEAD_TRIANGLES;
+        let beads = (2 * r.samples.knots.len() + 2 + CUE_DOTS) * BEAD_TRIANGLES;
         let rings = (3 + 1) * 2;
         assert_eq!(route_total_triangles(&r), tube + beads + rings);
         let st = animate(r.samples.pts.len(), 1.0, 1.0, None, false);
-        assert_eq!(bead_buffer(&r.samples, &st, 0.0).len() / STRIDE, 2 * r.samples.knots.len() + 2);
-        assert_eq!(ring_buffer(&r.samples, &st, &r.sidecar_pts, 1.0).len() / STRIDE, 4);
+        assert_eq!(bead_buffer(&r.samples, &st, 0.0, None, None).len() / STRIDE, 2 * r.samples.knots.len() + 2 + CUE_DOTS);
+        assert_eq!(ring_buffer(&r.samples, &st, &r.sidecar_pts, 1.0, None).len() / STRIDE, 4);
     }
 
     #[test]
@@ -1321,14 +1586,14 @@ mod tests {
         let pos = [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0];
         let r = sample_route(&[0, 1, 2], &pos, 16);
         let st = animate(r.pts.len(), 1.0, 1.2, None, false);
-        let b = bead_buffer(&r, &st, 0.0);
-        assert_eq!(b.len(), (r.knots.len() * 2 + 2) * STRIDE);
+        let b = bead_buffer(&r, &st, 0.0, None, None);
+        assert_eq!(b.len(), (r.knots.len() * 2 + 2 + CUE_DOTS) * STRIDE);
         assert!(b[0] < 1e-4, "root bead hidden");
-        let rings = ring_buffer(&r, &st, &[[1.0, 1.0, 1.0]], 1.0);
+        let rings = ring_buffer(&r, &st, &[[1.0, 1.0, 1.0]], 1.0, None);
         assert_eq!(rings.len(), 4 * STRIDE);
         assert!(rings[STRIDE] < 1e-4, "answer ring hidden mid-trace");
         let st = animate(r.pts.len(), 10.0, 1.2, None, false);
-        let rings = ring_buffer(&r, &st, &[], 1.0);
+        let rings = ring_buffer(&r, &st, &[], 1.0, None);
         assert_eq!(rings[STRIDE], RING_R);
         assert_eq!([rings[STRIDE + 3], rings[STRIDE + 7], rings[STRIDE + 11]], [10.0, 10.0, 0.0]);
     }
@@ -1343,5 +1608,198 @@ mod tests {
         assert_eq!(a.sidecar_pts.len(), 1, "row 7 is out of range");
         a.clear();
         assert!(a.keep_rows().is_empty());
+    }
+
+    // ── xr-parity (2026-10-07): repeat frames, framing cue, stats, relay fields ──
+
+    #[test]
+    fn a_repeated_route_does_not_replay_the_trace_or_the_cue() {
+        let pos: Vec<f32> = (0..6 * 3).map(|i| (i * 5 % 17) as f32).collect();
+        let mut a = ActiveRoute::default();
+        assert!(a.set(frame("s", 1, 1.0, &[0, 3, 5]), &pos), "first arrival is new");
+        for _ in 0..50 {
+            a.advance(0.1);
+        }
+        let el = a.el;
+        assert!(a.cue(false).is_none(), "cue over after CUE_SECONDS");
+        let mut rep = frame("s", 2, 11.0, &[0, 3, 5]);
+        rep.sidecar = vec![4];
+        assert!(!a.set(rep, &pos), "the desktop's 10 s repeat is not a new route");
+        assert_eq!(a.el, el, "trace clock kept");
+        assert!(a.cue(false).is_none(), "cue not re-fired");
+        assert_eq!(a.keep_rows(), vec![0, 3, 5, 4], "marks refreshed");
+        assert!(a.set(frame("s", 3, 12.0, &[0, 2]), &pos), "a different path is new");
+        assert_eq!(a.el, 0.0);
+        assert!(a.cue(false).is_some());
+        assert!(a.set(frame("t", 4, 13.0, &[0, 2]), &pos), "same path, other snapshot is new");
+    }
+
+    #[test]
+    fn cue_fades_in_holds_and_fades_out() {
+        assert_eq!(cue_at(-0.1, false), None);
+        assert_eq!(cue_at(0.0, false).unwrap().alpha, 0.0);
+        assert!((cue_at(CUE_FADE_IN_S / 2.0, false).unwrap().alpha - 0.5).abs() < 1e-5);
+        assert_eq!(cue_at(2.0, false).unwrap().alpha, 1.0);
+        assert!((cue_at(CUE_SECONDS - CUE_FADE_OUT_S / 2.0, false).unwrap().alpha - 0.5).abs() < 1e-4);
+        assert_eq!(cue_at(CUE_SECONDS, false), None);
+        assert!(CUE_SECONDS > PATH_DUR, "the cue outlasts the trace, so the answer is lit while it shows");
+    }
+
+    #[test]
+    fn reduced_motion_cue_holds_still_and_never_grows_the_ring() {
+        let c = cue_at(2.0, true).unwrap();
+        assert_eq!(c.march, None, "no travelling wave");
+        assert!(!c.grow);
+        // dots are identical from frame to frame under reduced motion
+        let pos = [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0];
+        let r = sample_route(&[0, 1, 2], &pos, 16);
+        let st = animate(r.pts.len(), 0.0, 1.2, None, true);
+        let o = Some(CueOrigin { from: [0.0, -30.0, 40.0], local_per_m: 5.0 });
+        let a = bead_buffer(&r, &st, 0.0, o, cue_at(1.5, true));
+        let b = bead_buffer(&r, &st, 0.0, o, cue_at(2.5, true));
+        let dots = (r.knots.len() * 2 + 2) * STRIDE;
+        assert_eq!(a[dots..], b[dots..], "steady dots");
+        // the answer ring brightens but keeps its size
+        let rings = ring_buffer(&r, &st, &[], 1.0, Some(c));
+        assert_eq!(rings[STRIDE], RING_R, "no growth");
+        let plain = ring_buffer(&r, &st, &[], 1.0, None);
+        assert!(rings[STRIDE + 12] > plain[STRIDE + 12] * 2.0, "brighter: {} vs {}", rings[STRIDE + 12], plain[STRIDE + 12]);
+        // with motion allowed it grows too
+        let moving = ring_buffer(&r, &st, &[], 1.0, cue_at(2.0, false));
+        assert!((moving[STRIDE] - RING_R * (1.0 + ANSWER_HIGHLIGHT_GROW)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn cue_dots_run_from_the_controller_towards_the_answer() {
+        let pos = [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 40.0, 0.0, 0.0];
+        let r = sample_route(&[0, 1, 2], &pos, 16);
+        let st = animate(r.pts.len(), 10.0, 1.2, None, false);
+        let from = [40.0, 0.0, 100.0];
+        let lpm = 20.0; // the cloud is 1/20 m per unit in the world
+        let b = bead_buffer(&r, &st, 0.0, Some(CueOrigin { from, local_per_m: lpm }), cue_at(2.0, false));
+        let dots = &b[(r.knots.len() * 2 + 2) * STRIDE..];
+        assert_eq!(dots.len(), CUE_DOTS * STRIDE);
+        let mut prev_d = f32::INFINITY;
+        for i in 0..CUE_DOTS {
+            let o = i * STRIDE;
+            let p = [dots[o + 3], dots[o + 7], dots[o + 11]];
+            assert!(p[0] == 40.0 && p[1] == 0.0, "on the line: {p:?}");
+            let d = p[2]; // distance to the answer along z
+            assert!(d < prev_d, "ordered towards the answer");
+            assert!(d > RING_R, "stops short of the answer ring");
+            assert!(100.0 - d >= CUE_START_M * lpm - 1e-3, "gap in front of the controller");
+            prev_d = d;
+            assert!(dots[o] > 0.0 && dots[o + 15] > 0.99, "visible");
+        }
+        assert!(dots[0] < dots[(CUE_DOTS - 1) * STRIDE], "dots grow towards the answer");
+        assert!((dots[0] - CUE_DOT_M * lpm * (1.0 + 2.0 * 0.5 / CUE_DOTS as f32)).abs() < 1e-4, "world size in metres");
+        // no cue / no origin / controller inside the ring: hidden, count unchanged
+        for (o, c) in [
+            (Some(CueOrigin { from, local_per_m: lpm }), None),
+            (None, cue_at(2.0, false)),
+            (Some(CueOrigin { from: [40.0, 0.0, 1.0], local_per_m: lpm }), cue_at(2.0, false)),
+        ] {
+            let h = bead_buffer(&r, &st, 0.0, o, c);
+            assert_eq!(h.len(), b.len());
+            let hd = &h[(r.knots.len() * 2 + 2) * STRIDE..];
+            assert!((0..CUE_DOTS).all(|i| hd[i * STRIDE] < 1e-4), "hidden");
+        }
+    }
+
+    #[test]
+    fn cue_dots_are_in_the_route_budget() {
+        // the dots are counted by bead_instances, so frame_budget and the
+        // benchmark see them; 12 triangles, no extra draw call
+        assert_eq!(bead_instances(3) - (2 * 3 + 2), CUE_DOTS);
+        assert_eq!(CUE_DOTS * BEAD_TRIANGLES, 12);
+    }
+
+    #[test]
+    fn sidecar_stats_follow_the_desktop_accounting() {
+        let j = r#"{"type":"memoryRoute","snapshotId":"s","path":[1,2],"sidecar":[2,9,4],"sidecarTotal":5,"sidecarAgree":2}"#;
+        let f = parse_route(j).unwrap();
+        assert_eq!(f.stats, Some(SidecarStats { total: 5, in_sample: 3, agree: 2 }));
+        assert_eq!(
+            agreement_line(Some(&f)),
+            "Route: 3 of 5 sidecar hits are in the sample · 2 of 3 sampled agree with the local top-k"
+        );
+        let one = SidecarStats { total: 1, in_sample: 1, agree: 1 };
+        assert_eq!(one.coverage_text(), "1 of 1 sidecar hit is in the sample");
+        let none = SidecarStats { total: 4, in_sample: 0, agree: 0 };
+        assert_eq!(none.agreement_text(), "no sampled hit to compare with the local top-k", "never 0/0");
+        // inconsistent or missing counts drop the stats, never the frame
+        for bad in [
+            r#""sidecarTotal":2,"sidecarAgree":1"#, // total < in_sample
+            r#""sidecarTotal":5,"sidecarAgree":4"#, // agree > in_sample
+            r#""sidecarTotal":-1,"sidecarAgree":1"#,
+            r#""sidecarTotal":"5","sidecarAgree":1"#,
+            r#""sidecarTotal":5"#,
+        ] {
+            let j = format!(r#"{{"type":"memoryRoute","snapshotId":"s","path":[1,2],"sidecar":[2,9,4],{bad}}}"#);
+            let f = parse_route(&j).unwrap_or_else(|e| panic!("{bad}: {e}"));
+            assert_eq!(f.stats, None, "{bad}");
+            assert_eq!(agreement_line(Some(&f)), "Route: 3 sampled sidecar hits marked (agreement not relayed)");
+        }
+        assert_eq!(agreement_line(None), "");
+        assert_eq!(agreement_line(Some(&frame("s", 1, 1.0, &[]))), "", "cleared route: no line");
+    }
+
+    /// Task 5: the desktop relay's frame shape is pinned to the headset
+    /// parser, and the sidecar's `method` (with `tookMs` and the hit objects)
+    /// stays in the HTTP query response, out of the relay frame.
+    #[test]
+    fn desktop_relay_frame_fields_are_the_parsed_ones() {
+        let src = ts_source("client/src/features/visualisation/memoryCloud/xrRelay.ts");
+        let start = src.find("export interface MemoryRouteFrame {").expect("MemoryRouteFrame");
+        let body = &src[start..];
+        let body = &body[body.find('{').unwrap() + 1..body.find("\n}").expect("interface end")];
+        let mut fields: Vec<String> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("/**") && !l.starts_with('*') && !l.starts_with("//") && l.contains(':'))
+            .map(|l| l[..l.find(':').unwrap()].trim_end_matches('?').to_string())
+            .collect();
+        fields.sort();
+        let mut want: Vec<String> = WIRE_FIELDS.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        assert_eq!(fields, want, "xrRelay.ts MemoryRouteFrame vs WIRE_FIELDS");
+        assert!(!fields.iter().any(|f| f == "method" || f == "tookMs" || f == "results"));
+
+        let types = ts_source("client/src/features/visualisation/memoryCloud/types.ts");
+        let resp = &types[types.find("export interface MemoryCloudQueryResponse").expect("response type")..];
+        let resp = &resp[..resp.find("\n}").unwrap()];
+        assert!(resp.contains("method: MemoryCloudSearchMethod;"), "method lives in the HTTP response");
+        assert!(resp.contains("tookMs: number;"));
+
+        // a frame exactly as the desktop builds it and the server re-serialises
+        // it (extra serverTime) parses; so does one from a desktop without stats
+        let relayed = r#"{"type":"memoryRoute","snapshotId":"snap-7","seq":3,"sentAt":1760000000000,"path":[12,4,9],"sidecar":[9,30],"query":"auth flow","sidecarTotal":8,"sidecarAgree":1,"serverTime":1760000000050}"#;
+        let f = parse_route(relayed).unwrap();
+        assert_eq!(f.stats, Some(SidecarStats { total: 8, in_sample: 2, agree: 1 }));
+        let older = r#"{"type":"memoryRoute","snapshotId":"snap-7","seq":3,"sentAt":1,"path":[12,4,9],"sidecar":[9],"query":"q","serverTime":2}"#;
+        assert_eq!(parse_route(older).unwrap().stats, None);
+        // and a frame carrying the HTTP response's sidecar object is not ours
+        let wrong = r#"{"type":"memoryRoute","snapshotId":"s","path":[1,2],"sidecar":{"method":"hnsw","tookMs":3,"results":[]}}"#;
+        assert!(parse_route(wrong).is_err(), "sidecar must be the row list");
+    }
+
+    #[test]
+    fn route_draws_above_the_scene_and_below_the_overlay() {
+        assert!(ROUTE_RENDER_PRIORITY > 1, "after edges (0) and halos/beams (1)");
+        assert!(OVERLAY_RENDER_PRIORITY > ROUTE_RENDER_PRIORITY, "HUD and hover label above the route");
+        assert!(OVERLAY_RENDER_PRIORITY <= 127, "Godot's render_priority range");
+        for shader in ["memory_route", "memory_bead", "memory_ring"] {
+            let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../materials/{shader}.gdshader"));
+            let src = std::fs::read_to_string(&p).unwrap();
+            let mode = src.lines().find(|l| l.starts_with("render_mode")).unwrap();
+            assert!(mode.contains("depth_test_disabled"), "{shader}: drawn over the glass nodes");
+            assert!(mode.contains("depth_draw_never"), "{shader}: writes no depth");
+            assert!(mode.contains("blend_add"), "{shader}: additive, order-independent among itself");
+        }
+        let hud = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/hud.gd")).unwrap();
+        assert!(
+            hud.contains(&format!("const OVERLAY_RENDER_PRIORITY := {OVERLAY_RENDER_PRIORITY}")),
+            "hud.gd panel priority matches"
+        );
     }
 }

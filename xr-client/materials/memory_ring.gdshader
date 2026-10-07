@@ -3,7 +3,12 @@ shader_type spatial;
 // root ring, sidecar marks). QuadMesh 2x2 → radius 1 at instance scale 1; the
 // instance colour's alpha is the ring's additive weight. Billboarded against
 // the main camera so both eyes agree. Additive, no post-process.
-render_mode blend_add, unshaded, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
+// Drawn over the scene like the desktop overlay (depthTest false): no depth
+// test, so the opaque glass nodes cannot hide the route; ordering comes from
+// render_priority (memory_route.rs ROUTE_RENDER_PRIORITY, below the HUD's
+// OVERLAY_RENDER_PRIORITY). Depth test is pipeline state of the one multiview
+// draw, so both eyes agree.
+render_mode blend_add, unshaded, cull_disabled, depth_draw_never, depth_test_disabled, shadows_disabled, fog_disabled;
 
 uniform float inner = 0.82;   // three.js RingGeometry(0.82, 1)
 

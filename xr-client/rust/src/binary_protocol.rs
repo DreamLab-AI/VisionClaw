@@ -1770,6 +1770,18 @@ impl BinaryProtocolClient {
         Vector3::new(p[0], p[1], p[2])
     }
 
+    /// The graph's robust bounds `[cx, cy, cz, radius]` in server (GraphRoot)
+    /// space over every node position — the desktop's `robustBounds` of the
+    /// live position buffer, used to frame the memory cloud. Empty when the
+    /// store holds no finite position.
+    #[func]
+    fn graph_robust_bounds(&self) -> PackedFloat32Array {
+        match self.store.robust_bounds() {
+            Some(b) => PackedFloat32Array::from(&[b.centre[0], b.centre[1], b.centre[2], b.radius][..]),
+            None => PackedFloat32Array::new(),
+        }
+    }
+
     /// Per-axis percentile AABB `[minx,miny,minz,maxx,maxy,maxz]` over render
     /// positions, excluding `exclude_id` (< 0 = none). Empty array when no nodes.
     #[func]

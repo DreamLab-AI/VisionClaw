@@ -539,7 +539,13 @@ func _ready() -> void:
 		graph_root.add_child(_memory_cloud)
 		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
 		_memory_cloud.pointer = right_controller
+		# frame the cloud on the graph (desktop cloudFrame.ts): robust bounds of every node
+		if _binary_client != null and _binary_client.has_method("graph_robust_bounds"):
+			_memory_cloud.graph_bounds_source = Callable(_binary_client, "graph_robust_bounds")
 		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
+		_memory_cloud.route_stats_changed.connect(func(line: String) -> void:
+			if hud != null and hud.has_method("set_memory_route_line"):
+				hud.set_memory_route_line(line))
 	if hud != null:
 		if hud.has_signal("query_execute_pressed"):
 			hud.query_execute_pressed.connect(_execute_query)

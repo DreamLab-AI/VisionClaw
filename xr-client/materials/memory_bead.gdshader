@@ -5,7 +5,12 @@ shader_type spatial;
 // coarse one shows its facets. Billboarded on the MAIN camera so both eyes see
 // the same disc (per-eye billboards shear in stereo). Glow is emissive
 // geometry only (XR-client Invariant 2); no screen-space pass.
-render_mode blend_add, unshaded, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
+// Drawn over the scene like the desktop overlay (depthTest false): no depth
+// test, so the opaque glass nodes cannot hide the route; ordering comes from
+// render_priority (memory_route.rs ROUTE_RENDER_PRIORITY, below the HUD's
+// OVERLAY_RENDER_PRIORITY). Depth test is pipeline state of the one multiview
+// draw, so both eyes agree.
+render_mode blend_add, unshaded, cull_disabled, depth_draw_never, depth_test_disabled, shadows_disabled, fog_disabled;
 
 // Where the edge fade starts, as a fraction of the radius.
 uniform float edge : hint_range(0.0, 1.0) = 0.55;

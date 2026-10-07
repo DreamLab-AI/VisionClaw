@@ -7,7 +7,12 @@ shader_type spatial;
 // the trace up to `head_u`, and shapes the tail as a tapering, fading window
 // behind `comet_u` — so the animation needs no per-frame mesh rebuild.
 // Additive emissive geometry only; glow is never a post-process (Invariant 2).
-render_mode blend_add, unshaded, cull_back, depth_draw_never, shadows_disabled, fog_disabled;
+// Drawn over the scene like the desktop overlay (depthTest false): no depth
+// test, so the opaque glass nodes cannot hide the route; ordering comes from
+// render_priority (memory_route.rs ROUTE_RENDER_PRIORITY, below the HUD's
+// OVERLAY_RENDER_PRIORITY). Depth test is pipeline state of the one multiview
+// draw, so both eyes agree.
+render_mode blend_add, unshaded, cull_back, depth_draw_never, depth_test_disabled, shadows_disabled, fog_disabled;
 
 uniform float head_u = 1.0;     // trace head, 0..1
 uniform float comet_u = -1.0;   // comet position, < 0 = no comet

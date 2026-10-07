@@ -12,9 +12,10 @@
 //!   (`phaseAt − sentAt + serverNow`), so receivers only need their own
 //!   offset to the server, not to the desktop. The relayed frame carries
 //!   `serverTime`.
-//! - `{"type":"memoryRoute","snapshotId","seq","sentAt","path":[…],"sidecar":[…],"query"}`
-//!   — the current query route through the memory cloud as snapshot row
-//!   indices, root → answer (an empty `path` clears it). The shape and limits
+//! - `{"type":"memoryRoute","snapshotId","seq","sentAt","path":[…],"sidecar":[…],"query",
+//!   "sidecarTotal"?,"sidecarAgree"?}` — the current query route through the
+//!   memory cloud as snapshot row indices, root → answer (an empty `path`
+//!   clears it), with the desktop's sidecar agreement counts when it has them. The shape and limits
 //!   are those of the headset's parser, `xr-client/rust/src/memory_route.rs`
 //!   (`parse_route`): the relay never forwards a frame that parser would reject.
 //!
@@ -149,7 +150,11 @@ fn as_row(v: &Value) -> Option<u32> {
 /// the headset parser's rules: non-blank `snapshotId`; `path` ≤ 64 row indices
 /// (any bad entry rejects the frame); `sidecar` bad entries dropped, ≤ 64 kept;
 /// `query` cut to 120 characters; `seq` / `sentAt` finite and ≥ 0 (0 when
-/// absent). The headset orders frames by (`sentAt`, `seq`).
+/// absent). The headset orders frames by (`sentAt`, `seq`). `sidecarTotal` /
+/// `sidecarAgree` (the desktop's agreement counts) are decoration, like the
+/// sidecar marks: relayed only as a whole-number pair with
+/// `sidecar.len() <= sidecarTotal` and `sidecarAgree <= sidecar.len()`, else
+/// both are dropped and the frame still relays.
 pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, RelayReject> {
     let snapshot_id = short_id(msg, "snapshotId")?;
     if snapshot_id.trim().is_empty() {
@@ -178,7 +183,14 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
     };
     let seq = non_neg("seq")?.floor();
     let sent_at = non_neg("sentAt")?;
-    Ok(json!({
+    let count = |key: &str| msg.get(key).and_then(as_row);
+    let stats = match (count("sidecarTotal"), count("sidecarAgree")) {
+        (Some(total), Some(agree)) if sidecar.len() as u64 <= total as u64 && agree as usize <= sidecar.len() => {
+            Some((total, agree))
+        }
+        _ => None,
+    };
+    let mut out = json!({
         "type": "memoryRoute",
         "snapshotId": snapshot_id,
         "seq": seq,
@@ -187,8 +199,12 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
         "sidecar": sidecar,
         "query": query,
         "serverTime": server_now_ms,
-    })
-    .to_string())
+    });
+    if let Some((total, agree)) = stats {
+        out["sidecarTotal"] = json!(total);
+        out["sidecarAgree"] = json!(agree);
+    }
+    Ok(out.to_string())
 }
 
 /// Validate a relay frame of `kind` from its raw text and parsed value.
@@ -384,6 +400,29 @@ mod tests {
         assert_eq!(out["sentAt"], NOW - 5.0);
         assert_eq!(out["serverTime"], NOW);
         assert!(out.get("x").is_none(), "unknown keys never relayed");
+        assert!(out.get("sidecarTotal").is_none(), "no stats sent, none relayed");
+        // agreement counts relay as a consistent pair, else are dropped
+        let with = |extra: Value| {
+            let mut m = json!({"snapshotId":"s","path":[1,2],"sidecar":[4,5,6]});
+            for (k, v) in extra.as_object().unwrap() {
+                m[k] = v.clone();
+            }
+            parse(&validate_memory_route(&m, NOW).unwrap())
+        };
+        let ok = with(json!({"sidecarTotal":8,"sidecarAgree":2}));
+        assert_eq!((ok["sidecarTotal"].clone(), ok["sidecarAgree"].clone()), (json!(8), json!(2)));
+        for bad in [
+            json!({"sidecarTotal":2,"sidecarAgree":1}),
+            json!({"sidecarTotal":8,"sidecarAgree":4}),
+            json!({"sidecarTotal":-8,"sidecarAgree":1}),
+            json!({"sidecarTotal":"8","sidecarAgree":1}),
+            json!({"sidecarTotal":8}),
+            json!({"sidecarTotal":8,"sidecarAgree":1.5}),
+        ] {
+            let o = with(bad.clone());
+            assert!(o.get("sidecarTotal").is_none() && o.get("sidecarAgree").is_none(), "{bad}");
+            assert_eq!(o["path"], json!([1, 2]), "{bad}: the frame still relays");
+        }
         let clear = json!({"snapshotId":"s-1","path":[]});
         let c = parse(&validate_memory_route(&clear, NOW).unwrap());
         assert_eq!(c["path"], json!([]), "empty path clears");
@@ -430,7 +469,8 @@ mod tests {
     fn the_largest_valid_route_fits_the_frame_cap() {
         let path: Vec<u32> = (0..MAX_ROUTE_PATH as u32).map(|i| u32::MAX - i).collect();
         let text = json!({"type":"memoryRoute","snapshotId":"s".repeat(MAX_RELAY_ID_LEN),"seq":u32::MAX,
-            "sentAt":NOW,"path":path.clone(),"sidecar":path,"query":"€".repeat(MAX_ROUTE_QUERY_CHARS)}).to_string();
+            "sentAt":NOW,"path":path.clone(),"sidecar":path,"query":"€".repeat(MAX_ROUTE_QUERY_CHARS),
+            "sidecarTotal":u32::MAX,"sidecarAgree":u32::MAX}).to_string();
         assert!(text.len() <= MAX_RELAY_FRAME_BYTES, "{} bytes", text.len());
     }
 
