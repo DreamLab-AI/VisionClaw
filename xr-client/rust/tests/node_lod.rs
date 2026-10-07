@@ -107,7 +107,7 @@ fn render_store_lod_build_counts_labelled_nodes_against_the_cap() {
     }
     // Two labelled nodes ride the faded (full-mesh) pass and use two cap slots.
     s.set_labelled(&[1, 2]);
-    let near = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY);
+    let near = s.build_node_buffer_lod(&ids, 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec();
     let far = s.impostor_node_buffer().to_vec();
     let faded = s.faded_node_buffer().len() / NODE_STRIDE;
     assert_eq!(faded, 2);
@@ -167,22 +167,22 @@ fn render_store_edge_lod_splits_cylinders_from_ribbons() {
     }
     let all = s.build_edge_buffer(&pairs, 1.0).len() / 16;
     assert_eq!(all, 50);
-    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 5, f32::INFINITY);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 5, f32::INFINITY).to_vec();
     let ribbons = s.ribbon_edge_buffer().len() / 16;
     assert_eq!(near.len() / 16, 5);
     assert_eq!(ribbons, 45);
     let mids: Vec<f32> = near.chunks_exact(16).map(|c| c[3]).collect();
     assert_eq!(mids, vec![1.0, 3.0, 5.0, 7.0, 9.0], "the five edges nearest the eye stay cylinders");
     // Radius bound.
-    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 96, 4.5);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 96, 4.5).to_vec();
     assert_eq!(near.len() / 16, 2, "midpoints 1 and 3 inside 4.5");
     // Hysteresis: with cap 1 the eye at x = 9 holds the edge at midpoint 9. Moving
     // to 10.05 makes midpoint 11 nearer (0.95 vs 1.05), but within the 10 %
     // margin, so the incumbent keeps its cylinder; a clear win still switches.
     let _ = s.build_edge_buffer_lod(&pairs, 1.0, [9.0, 0.0, 0.0], 1, f32::INFINITY);
-    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.05, 0.0, 0.0], 1, f32::INFINITY);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.05, 0.0, 0.0], 1, f32::INFINITY).to_vec();
     assert_eq!(near[3], 9.0, "incumbent keeps the cylinder in a close call");
-    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.8, 0.0, 0.0], 1, f32::INFINITY);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.8, 0.0, 0.0], 1, f32::INFINITY).to_vec();
     assert_eq!(near[3], 11.0, "a clearly nearer edge takes over");
 }
 
@@ -214,4 +214,44 @@ fn whole_scene_worst_case_stays_under_100k_at_production_density() {
         let t = scene_triangle_estimate(nodes, edges, DEFAULT_NEAR_CAP, DEFAULT_NEAR_EDGE_CAP) + hull_max;
         assert!(t <= 97_000, "{nodes} nodes / {edges} edges: {t} (keep ≥ 3 % headroom under 100k)");
     }
+}
+
+// --- far edge tier at half rate (CPU budget) -------------------------------------
+
+#[test]
+fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
+    use visionclaw_xr_gdext::perf_fixture::production_store;
+    let mut f = production_store(400, 900, 3);
+    let cam = [0.0f32; 3];
+    let total = |s: &mut RenderStore, pairs: &[i32]| s.build_edge_buffer(pairs, 1.0).len() / 16;
+    // Per ribbon instance: changed this frame?
+    let mut prev: Vec<f32> = Vec::new();
+    let mut history: Vec<Vec<bool>> = Vec::new();
+    for frame in 0..8u32 {
+        f.advance(frame);
+        f.store.build_node_buffer(&f.ids, 1.0, 0.7, 1.9);
+        let near = f.store.build_edge_buffer_lod(&f.pairs, 1.0, cam, 24, f32::INFINITY).len() / 16;
+        let ribbons = f.store.ribbon_edge_buffer().to_vec();
+        // Never an edge drawn twice or dropped: the tiers always partition the drawn set.
+        assert_eq!(near + ribbons.len() / 16, total(&mut f.store, &f.pairs), "frame {frame}");
+        if prev.len() == ribbons.len() {
+            history.push(ribbons.chunks_exact(16).zip(prev.chunks_exact(16)).map(|(a, b)| a != b).collect());
+        }
+        prev = ribbons;
+    }
+    assert!(history.len() >= 6, "tier membership stays stable while only positions move");
+    for (k, h) in history.iter().enumerate() {
+        let n = h.iter().filter(|&&c| c).count();
+        assert!(n * 10 <= h.len() * 6, "frame {k}: about half the far tier repacked per frame, got {n}/{}", h.len());
+    }
+    for w in history.windows(2) {
+        for i in 0..w[0].len() {
+            assert!(w[0][i] || w[1][i], "ribbon {i} stale for two frames running");
+        }
+    }
+    // Moving the eye across the graph changes tier membership: the far tier is
+    // rebuilt at once and still partitions the drawn set.
+    let near = f.store.build_edge_buffer_lod(&f.pairs, 1.0, [300.0, 300.0, 300.0], 24, f32::INFINITY).len() / 16;
+    let c = f.store.ribbon_edge_buffer().len() / 16;
+    assert_eq!(near + c, total(&mut f.store, &f.pairs), "membership change repacks the far tier at once");
 }
