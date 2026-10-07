@@ -330,3 +330,41 @@ describe('parseRetryAfter', () => {
     expect(parseRetryAfter('-3', now)).toBeUndefined();
   });
 });
+
+describe('vectors response details', () => {
+  function binWith(buf: ArrayBuffer, headers: Record<string, string>): Response {
+    return new Response(buf, { status: 200, headers: { 'content-type': 'application/octet-stream', ...headers } });
+  }
+
+  it('accepts matching X-Memory-Cloud-Dim / -Count headers', async () => {
+    fetchMock.mockResolvedValueOnce(binWith(unitRows(2), { 'X-Memory-Cloud-Dim': String(DIM), 'X-Memory-Cloud-Count': '2' }));
+    const { vectors } = await fetchVectors(snapshot('a'));
+    expect(vectors.count).toBe(2);
+  });
+
+  it('rejects vectors whose headers disagree with the snapshot', async () => {
+    fetchMock.mockResolvedValueOnce(binWith(unitRows(2), { 'X-Memory-Cloud-Dim': '8', 'X-Memory-Cloud-Count': '2' }));
+    const e = await fetchVectors(snapshot('a')).catch((x) => x);
+    expect(e.kind).toBe('invalid');
+    expect(e.message).toMatch(/X-Memory-Cloud-Dim/);
+  });
+
+  it('on a 409 naming the snapshot already held, retries the same URL without refetching', async () => {
+    const a = snapshot('a');
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'stale', currentSnapshotId: 'a' }, 409))
+      .mockResolvedValueOnce(binResponse(unitRows(2)));
+    const { snapshot: got } = await fetchVectors(a);
+    expect(got).toBe(a);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([resolveApiUrl(a.vectorsUrl), resolveApiUrl(a.vectorsUrl)]);
+  });
+
+  it('signs the absolute vectors URL including its query string', async () => {
+    const auth = vi.mocked(computeAuthHeaders);
+    auth.mockClear();
+    fetchMock.mockResolvedValueOnce(binResponse(unitRows(2)));
+    await fetchVectors(snapshot('0123456789ab'));
+    expect(auth.mock.calls[0][0]).toBe(`${window.location.origin}/api/memory-cloud/vectors?snapshot=0123456789ab`);
+  });
+});

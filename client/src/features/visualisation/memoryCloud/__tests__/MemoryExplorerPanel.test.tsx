@@ -179,9 +179,9 @@ describe('MemoryExplorerPanel — explore', () => {
     try {
       useMemoryCloudStore.setState({ status: 'unavailable', retryAt: 14_200 });
       render(<MemoryExplorerPanel />);
-      expect(screen.getByText('Memory cloud is building; retrying in 5 s.')).toBeInTheDocument();
+      expect(screen.getByText('Memory cloud unavailable; retrying in 5 s.')).toBeInTheDocument();
       act(() => { vi.advanceTimersByTime(2000); });
-      expect(screen.getByText('Memory cloud is building; retrying in 3 s.')).toBeInTheDocument();
+      expect(screen.getByText('Memory cloud unavailable; retrying in 3 s.')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).toBeNull();
     } finally {
       vi.useRealTimers();

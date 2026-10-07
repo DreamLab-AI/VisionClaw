@@ -223,6 +223,8 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
   let engineSnapshotId: string | null = null;
   let loadPromise: Promise<void> | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** consecutive 503s without Retry-After, for the doubling backoff */
+  let unavailableStreak = 0;
 
   const cancelRetry = () => {
     if (retryTimer !== null) clearTimeout(retryTimer);
@@ -269,8 +271,13 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       }
       if (e.kind === 'unavailable') {
         cancelRetry();
-        const delay = Math.max(RETRY_MIN_MS, Math.min(RETRY_MAX_MS, e.retryAfterMs ?? RETRY_DEFAULT_MS));
-        set({ status: 'unavailable', error: null, retryAt: Date.now() + delay });
+        // Without Retry-After (not configured, sidecar or embedder down) back
+        // off by doubling so a misconfigured server is not polled every 5 s.
+        const fallback = RETRY_DEFAULT_MS * 2 ** unavailableStreak;
+        if (e.retryAfterMs === undefined) unavailableStreak++;
+        const delay = Math.max(RETRY_MIN_MS, Math.min(RETRY_MAX_MS, e.retryAfterMs ?? fallback));
+        const reason = e.message.replace(/^HTTP \d+:\s*/, '');
+        set({ status: 'unavailable', error: reason || null, retryAt: Date.now() + delay });
         retryTimer = setTimeout(() => {
           retryTimer = null;
           void get().loadSnapshot();
@@ -318,8 +325,10 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
           });
           await engine.ready;
           if (ctl.signal.aborted || get().engine !== engine) return;
+          unavailableStreak = 0;
           set({ status: 'ready', buildProgress: 1 });
         } else {
+          unavailableStreak = 0;
           set({ snapshot: bundle.snapshot, vectors: bundle.vectors, trajectory: traj, status: 'ready' });
         }
       } catch (e) {

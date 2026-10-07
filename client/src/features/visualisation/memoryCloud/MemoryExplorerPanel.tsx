@@ -110,6 +110,7 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; title?: string }> 
 /** Quiet countdown to the store's scheduled reload after a 503. */
 const RetryNote: React.FC = () => {
   const retryAt = useMemoryCloudStore((s) => s.retryAt);
+  const reason = useMemoryCloudStore((s) => s.error);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -118,7 +119,8 @@ const RetryNote: React.FC = () => {
   const secs = retryAt === null ? null : Math.max(0, Math.ceil((retryAt - now) / 1000));
   return (
     <div style={{ ...css.label, marginTop: 8 }} aria-live="polite">
-      {secs === null ? 'Memory cloud is building.' : `Memory cloud is building; retrying in ${secs} s.`}
+      {secs === null ? 'Memory cloud unavailable.' : `Memory cloud unavailable; retrying in ${secs} s.`}
+      {reason && <div style={css.mono}>{reason}</div>}
     </div>
   );
 };

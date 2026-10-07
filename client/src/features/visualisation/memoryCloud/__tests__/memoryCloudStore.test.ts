@@ -320,6 +320,22 @@ describe('memoryCloudStore — backend availability', () => {
     expect(store.getState().retryAt).toBe(60_000);
   });
 
+  it('without Retry-After doubles the delay on each consecutive 503 and shows the reason', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    env.deps.fetchSnapshot = vi.fn(async () => {
+      throw new MemoryCloudApiError('unavailable', 'HTTP 503: memory cloud not configured', 503);
+    });
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().retryAt).toBe(5000);
+    expect(store.getState().error).toBe('memory cloud not configured');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(store.getState().retryAt).toBe(5000 + 10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(store.getState().retryAt).toBe(15_000 + 20_000);
+  });
+
   it('dispose cancels a pending 503 retry', async () => {
     vi.useFakeTimers();
     env.deps.fetchSnapshot = vi.fn(async () => {

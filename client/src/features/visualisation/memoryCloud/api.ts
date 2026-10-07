@@ -240,6 +240,15 @@ export function decodeVectors(buf: ArrayBuffer, count: number, dim: number): Vec
   return { count, dim, data };
 }
 
+/** When the server states the blob's shape in a header, it must match the snapshot. */
+function checkShapeHeader(res: Response, name: string, expected: number): void {
+  const v = res.headers.get(name);
+  if (v === null) return;
+  if (Number(v.trim()) !== expected) {
+    throw new MemoryCloudApiError('invalid', `${name} is ${v}, but the snapshot says ${expected}`);
+  }
+}
+
 export interface VectorBundle {
   /** the snapshot the vectors belong to: the one passed in, or its replacement after a 409 */
   snapshot: MemoryCloudSnapshot;
@@ -261,13 +270,17 @@ export async function fetchVectors(
     // request() signs each attempt afresh: NIP-98 tokens are single-use.
     const res = await request(current.vectorsUrl, { accept: 'application/octet-stream' }, opts.signal);
     if (res.status === 409 && attempt === 0) {
-      // The body names the current snapshot, but the vectors must be paired
-      // with that snapshot's positions and metadata, so refetch it whole.
-      await res.body?.cancel().catch(() => undefined);
-      current = await fetchSnapshot(opts);
+      // The body names the current snapshot. When it is the one already held
+      // (a rebuild raced the request), retry the same URL; otherwise the
+      // vectors must pair with that snapshot's positions and metadata, so
+      // refetch it whole.
+      const conflict = await httpError(res);
+      if (conflict.currentSnapshotId !== current.snapshotId) current = await fetchSnapshot(opts);
       continue;
     }
     if (!res.ok) throw await httpError(res);
+    checkShapeHeader(res, 'X-Memory-Cloud-Dim', current.dim);
+    checkShapeHeader(res, 'X-Memory-Cloud-Count', current.count);
     let buf: ArrayBuffer;
     try {
       buf = await res.arrayBuffer();
