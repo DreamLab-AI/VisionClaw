@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.10
+version: 0.1.11
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.11 (2026-10-07): pack timing gate on thread CPU time (wall reported beside it; holds at load average 38); GUT 9.6.1 (the Godot 4.6 line) vendored with a CI guard against parse errors and skipped scripts; live FrameBudget pass on the final interface (burst pool, 5 % reserve, 2 s peak of measured other_tris)."
   - "0.1.10 (2026-10-07): per-frame pack plans (13k/20k pack 0.5 ms, zero steady-state allocations, far ribbons half per frame), benchmark asserts pack_ms/lod_build_ms p99; live GraphScene runs the FrameBudget pass (measured other_tris) and both packs every frame; attention heat moved to live_tint."
   - "0.1.9 (2026-10-07): FrameBudget allocator (rust/src/frame_budget.rs) shared by the graph LOD tiers, memory cloud, route and burst pool; one-triangle sprites and bead discs; 5 % variance reserve; row emphasis for memory_flash on cloud sprites"
   - "0.1.8 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
@@ -416,27 +417,34 @@ hulls at their bound) at ≤ 97k for 13 164 nodes / 20 000 edges.
 or `XR_BENCH_NODES` synthetic nodes through `ingest`, edges at production density
 (the fixture's 1 500; `XR_BENCH_EDGES`, default 20 000 = `EDGE_SAFETY_CEILING`),
 both near tiers always full, caps from the FrameBudget pass — and reports
-`node_lod`, `edges`, `hull_layer`, `frame_budget`, `pack_ms_p50/p99` (Rust: node +
-edge LOD build and the near-tier hand-off) and `lod_build_ms_p50/p99` (the whole
-GDScript-side rebuild incl. far-tier getters and MultiMesh uploads). A run fails
-unless `pack_ms` p99 ≤ 2.0 ms and `lod_build_ms` p99 ≤ 3.0 ms, besides the
-frame, draw-call and triangle budgets. Measured on HP (Godot 4.6.1, opengl3,
-`--xr-mode off`, dev-profile library, 2026-10-07; graph rows `-- memory_rows=0`,
-combined row `-- memory_rows=20000 route_hops=63 route_sidecar=64`):
+`node_lod`, `edges`, `hull_layer`, `frame_budget`, and the pack timings in two
+clocks: `pack_cpu_ms` / `lod_build_cpu_ms` (thread CPU, `CLOCK_THREAD_CPUTIME_ID`,
+`rust/src/thread_cpu.rs`) and `pack_ms` / `lod_build_ms` (wall). The gate is on
+CPU time — `pack_cpu_ms` p99 ≤ 2.0 ms and `lod_build_cpu_ms` p99 ≤ 3.0 ms — so a
+loaded host's preemption cannot fail it; wall time is reported beside it so
+preemption stays visible. Measured on HP (Godot 4.6.1, opengl3, `--xr-mode off`,
+dev-profile library, 2026-10-07; `-- extras=0`, graph rows `memory_rows=0`,
+combined row `memory_rows=20000 route_hops=63 route_sidecar=64`; caps from the
+FrameBudget with its 5 % reserve):
 
-| Run | Draw calls | Triangles | Frame p50 / p99 | pack p99 | lod_build p99 | Caps gem / cyl / hulls / sprites |
+| Run | Draw calls | Triangles | Frame p50 / p99 | pack CPU / wall p99 | lod_build CPU / wall p99 | Caps gem / cyl / hulls / sprites |
 |---|---|---|---|---|---|---|
-| 1 000 nodes, 1 500 edges, 32 hulls | 6 | 31 846 | 0.31 / 0.93 ms | 0.06 ms | 0.12 ms | 80 / 96 / 32 / — |
-| 1 000 nodes, 1 500 edges, no hulls | 5 | 30 920 | 0.31 / 0.93 ms | 0.14 ms | 0.27 ms | 80 / 96 / 0 / — |
-| 13 164 nodes, 20 000 edges, 32 hulls | 6 | 95 186 | 2.02 / 2.47–2.78 ms | 0.71–0.98 ms | 1.27–1.85 ms | 80 / 96 / 32 / — |
-| 13 164 nodes, 20 000 edges, no hulls | 5 | 92 248 | 2.02 / 2.78 ms | 0.80 ms | 1.44 ms | 80 / 96 / 0 / — |
-| combined: 13 164 / 20 000 / 32 hulls + 20k-row cloud + 64-node route (64 sidecar) | 10 | 99 982 | 2.02 / 2.49 ms | 0.69 ms | 1.26 ms | 64 / 8 / 32 / 8 000 |
+| 1 000 nodes, 1 500 edges, 32 hulls | 7 | 35 942 | 0.43 / 0.93 ms | 0.05 / 0.06 ms | 0.12 / 0.14 ms | 80 / 96 / 32 / — |
+| 1 000 nodes, 1 500 edges, no hulls | 6 | 35 016 | 0.44 / 0.93 ms | 0.05 / 0.06 ms | 0.12 / 0.13 ms | 80 / 96 / 0 / — |
+| 13 164 nodes, 20 000 edges, 32 hulls | 7 | 94 992 | 2.04 / 2.78 ms | 0.62 / 0.71 ms | 1.11 / 1.29 ms | 75 / 1 / 32 / — |
+| 13 164 nodes, 20 000 edges, no hulls | 6 | 94 994 | 2.11 / 2.47 ms | 0.65 / 0.71 ms | 1.15 / 1.30 ms | 80 / 51 / 0 / — |
+| combined: + 20k-row cloud + 64-node route (64 sidecar) | 10 | 94 996 | 2.30 / 3.03 ms | 0.65 / 0.73 ms | 1.15 / 1.31 ms | 47 / 5 / 32 / 8 000 |
+| 13 164 / 20 000 / 32 hulls **under load** (64 busy loops, load average 38) | 7 | 94 992 | 8.08 / 14.6 ms | **0.91 / 2.52 ms** | **1.64 / 4.47 ms** | 75 / 1 / 32 / — |
 
-The 13k + hulls row is three repeats; a fourth run on the shared host (load
-average ≈ 6) read `pack_ms` p99 2.04 ms against a p50 of 0.51 ms — scheduler
-preemption, not pack cost. Reference points on the same rig: all-gem nodes with
-the halo pass, 1k nodes = 576 000 triangles; edges as capped cylinders, 1k =
-130 030 and 13k = 1 044 370; the per-frame pack before the plans, 5–8 ms p99.
+The loaded row is the gate's point: wall pack p99 reads 2.52 ms (it would have
+failed a wall-clock gate) while the pack's own CPU is 0.91 ms; both CPU gates
+pass. The run as a whole fails, correctly, on frame time — a saturated host
+really misses 90 fps. Rows with the HUD, controllers and avatars (`extras`)
+measure the same scene totals (root viewport) but exceed the global draw-call
+and triangle budgets on the HUD canvas's ~1 Hz dirty frames (see the HUD
+canvas open item). Reference points on the same rig: all-gem nodes with the
+halo pass, 1k nodes = 576 000 triangles; edges as capped cylinders, 1k = 130 030
+and 13k = 1 044 370; the per-frame pack before the plans, 5–8 ms p99.
 
 **CPU: per-frame pack plans** (`rust/src/render_store_pack.rs`). Only positions
 change from one frame to the next, so the store records once per drawn instance
