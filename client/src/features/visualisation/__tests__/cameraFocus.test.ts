@@ -102,3 +102,33 @@ describe('focusNodeById — event dispatch', () => {
     }
   });
 });
+
+describe('focusMemoryPoint', () => {
+  it('dispatches the memory focus event with the sample row', async () => {
+    const { focusMemoryPoint, MEMORY_FOCUS_EVENT } = await import('../cameraFocus');
+    const seen: number[] = [];
+    const h = (e: Event) => seen.push((e as CustomEvent<{ sampleIndex: number }>).detail.sampleIndex);
+    window.addEventListener(MEMORY_FOCUS_EVENT, h);
+    expect(focusMemoryPoint(42)).toBe(true);
+    window.removeEventListener(MEMORY_FOCUS_EVENT, h);
+    expect(seen).toEqual([42]);
+  });
+
+  it('refuses negative or non-integer rows', async () => {
+    const { focusMemoryPoint } = await import('../cameraFocus');
+    expect(focusMemoryPoint(-1)).toBe(false);
+    expect(focusMemoryPoint(1.5)).toBe(false);
+  });
+});
+
+describe('flyPose', () => {
+  it('eases camera and target from the start pose to the goal', async () => {
+    const { flyPose } = await import('../cameraFocus');
+    const from = { position: [0, 0, 100] as [number, number, number], target: [0, 0, 0] as [number, number, number] };
+    const to = { position: [50, 0, 50] as [number, number, number], target: [50, 0, 0] as [number, number, number] };
+    expect(flyPose(from, to, 0)).toEqual(from);
+    expect(flyPose(from, to, 1)).toEqual(to);
+    const mid = flyPose(from, to, 0.5);
+    expect(mid.target[0]).toBeCloseTo(25, 6);
+  });
+});

@@ -28,8 +28,10 @@ import { HeadTrackedParallaxController } from '../../visualisation/components/He
 
 // Scene ambient effects (particles, fog, glow ring)
 import WasmSceneEffects from '../../visualisation/components/WasmSceneEffects';
-// Embedding cloud layer (PCA-projected RuVector vector embeddings)
+// Embedding cloud layer (live RuVector memory cloud + query trajectory)
 import EmbeddingCloudLayer from '../../visualisation/components/EmbeddingCloudLayer';
+// Memory explorer — HTML overlay for querying the cloud, mounted with it
+import MemoryExplorerPanel from '../../visualisation/memoryCloud/MemoryExplorerPanel';
 // Echo Pulse — commit-time expanding ring wash (control-center signature flourish)
 import EchoPulseLayer from '../../control-center/echo/EchoPulseLayer';
 
@@ -460,7 +462,7 @@ const GraphCanvas: React.FC = () => {
                     control-center feature flag + prefers-reduced-motion, zero cost when idle */}
                 <EchoPulseLayer />
 
-                {/* Embedding cloud — background layer behind graph nodes */}
+                {/* Embedding cloud — live memory sample behind graph nodes; draws query routes */}
                 <EmbeddingCloudLayer enabled={embeddingCloudEnabled} />
 
                 {/* onDragStateChange restores the node-drag ↔ camera arbitration
@@ -518,6 +520,10 @@ const GraphCanvas: React.FC = () => {
             {/* Bi-temporal provenance timeline (ADR-049) — bottom-docked overlay,
                 mounted only when the client-only provenance.enableTimeline flag is on. */}
             {enableTimeline && <TimelineScrubber />}
+
+            {/* Memory explorer — query the live memory cloud and replay the
+                route; mounted only while the embedding cloud is switched on. */}
+            {embeddingCloudEnabled && <MemoryExplorerPanel />}
         </div>
     );
 };
