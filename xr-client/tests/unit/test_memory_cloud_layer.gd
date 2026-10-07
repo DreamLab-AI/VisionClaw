@@ -279,7 +279,11 @@ func test_row_emphasis_restyles_sprites_without_geometry() -> void:
 	assert_eq(_custom(l, 1), Color(0, 0, 0, 1), "neutral before any flash")
 	var tint := Color.html("39ff14")
 	l.set_row_emphasis(PackedInt32Array([1, 4]), PackedColorArray([tint, tint]), PackedFloat32Array([2.5, 1.5]), PackedFloat32Array([2.0, 1.0]))
-	assert_eq(_custom(l, 1), Color(tint.r, tint.g, tint.b, 2.5))
+	# Instance data round-trips through the renderer's MultiMesh storage, which
+	# under GL Compatibility keeps less than float32 precision (0x39/255 reads back
+	# 0.2235); compare within 1/255 per channel. Exact Color equality passed only
+	# under GUT 9.7's comparator and the headless dummy renderer.
+	_assert_colour_near(_custom(l, 1), Color(tint.r, tint.g, tint.b, 2.5), "emphasis tint and gain")
 	assert_almost_eq(_size(l, 1), base * 2.0, 1e-4, "scale multiplies the sprite")
 	assert_almost_eq(_size(l, 4), base, 1e-4)
 	assert_eq(_points(l).instance_count, count_before, "no instances added")
@@ -291,7 +295,7 @@ func test_row_emphasis_restyles_sprites_without_geometry() -> void:
 	assert_eq(l.emphasised_count(), 1)
 	# survives a full buffer upload
 	l.flush()
-	assert_eq(_custom(l, 4), Color(tint.r, tint.g, tint.b, 2.0), "re-applied after upload")
+	_assert_colour_near(_custom(l, 4), Color(tint.r, tint.g, tint.b, 2.0), "re-applied after upload")
 	assert_almost_eq(_size(l, 4), base * 1.5, 1e-4)
 	# empty clears
 	l.set_row_emphasis(PackedInt32Array(), PackedColorArray(), PackedFloat32Array(), PackedFloat32Array())
@@ -385,3 +389,8 @@ func test_burst_pool_matches_the_allocator() -> void:
 	assert_eq(spec[0], b.POOL_SIZE, "slots")
 	assert_eq(mm.mesh.get_faces().size() / 3, spec[1], "triangles per ring")
 	b.queue_free()
+
+
+func _assert_colour_near(got: Color, want: Color, label: String) -> void:
+	for k in range(4):
+		assert_almost_eq(got[k], want[k], 1.0 / 255.0, "%s channel %d" % [label, k])

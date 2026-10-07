@@ -540,11 +540,16 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   (pending under the headless dummy renderer, enforced in CI's Xvfb job). The OpenXR
   swapchain path is not measured here and needs a headset check.
 - **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
-  Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
-  `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
-  runs the suite on Godot 4.6.1 with the vendored copy. Both documented invocations
-  (`-gdir=res://tests/unit -ginclude_subdirs -gexit` and
-  `-gconfig=res://.gutconfig.json`) pass on HP (121/121).
+  Godot ≥ 4.5 (its `Logger` shadows the new native class), and GUT 9.7.x is the
+  Godot 4.7 line (`godot_4_7` branch): on 4.6.1 it logs two Parse Errors
+  (`godot_singletons.gd:5` names the 4.7-only `AccessibilityServer`;
+  `stub_params.gd:16` returns null as `StringName`). GUT **9.6.1** — upstream tag
+  `v9.6.1`, commit `c80954f4`, the Godot 4.6 line on `main` — is vendored in
+  `xr-client/addons/gut/` (provenance in `addons/README.md`) and logs none. GUT
+  skips a script that fails to parse and still exits 0 (shown on HP: a broken
+  test file left GUT at exit 0), so `tests/gut_guard.sh` fails CI on any
+  Parse/Compile Error in the import or GUT logs, or when GUT's `Scripts N` differs
+  from the `test_*.gd` files on disk. On HP: 26/26 scripts, 182/182 under GL.
 - **Quest 3 is unmeasured.** Quest 3 is the sole *ship* target
   (`project.godot:2`, README) but the APK is **unbuilt** and the cross-build is
   frozen — no Android NDK is provisioned in this environment (README line 6).
@@ -620,13 +625,14 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(474 headless tests — 359 library + 115 integration — as of 2026-10-07, no
-headset/Godot/network needed). GUT (`tests/unit`, vendored 9.7.1) needs the
+(479 headless tests — 361 library + 118 integration — as of 2026-10-07, no
+headset/Godot/network needed; peer parity tests read `client/src`). GUT
+(`tests/unit`, vendored 9.6.1; check with `bash tests/gut_guard.sh <gut.log>`) needs the
 4.6.1 editor, a `--headless --import` pass and the native library built for the
 host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off` (as CI does),
 because the project enables OpenXR and a headless run otherwise probes the
-installed runtime and crashes on HP when SteamVR is active (161 tests on HP,
-2026-10-07: 158 pass, 3 GL-only tests pending headless). Any change
+installed runtime and crashes on HP when SteamVR is active (182 tests on HP,
+2026-10-07: 182 pass under GL; headless 179 pass, 3 GL-only tests pending). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

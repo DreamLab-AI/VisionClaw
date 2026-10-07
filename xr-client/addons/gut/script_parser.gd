@@ -22,8 +22,7 @@ class GutParsedMethod:
 		set(val): return;
 
 	var is_local = false
-	var args = []
-	var return_type_text = 'void'
+	var _parameters = []
 
 	func _init(metadata):
 		_meta = metadata
@@ -36,22 +35,7 @@ class GutParsedMethod:
 				arg['default'] = _meta.default_args[start_default - i]
 			else:
 				arg['default'] = NO_DEFAULT
-			args.append(arg)
-
-		return_type_text = _get_return_type(metadata)
-
-	func _get_return_type(meta):
-		var r_meta = meta["return"]
-		var return_keyword = GutConstants.TYPE_KEYWORDS[r_meta.type]
-
-		if(r_meta.type != 0):
-			return_keyword = return_keyword
-		elif(r_meta.usage & PROPERTY_USAGE_NIL_IS_VARIANT != 0):
-			return_keyword = 'Variant'
-		else:
-			return_keyword = 'void'
-
-		return return_keyword
+			_parameters.append(arg)
 
 
 	func is_eligible_for_doubling():
@@ -291,12 +275,9 @@ class GutParsedScript:
 		return text
 
 
-
-
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 var scripts = {}
-
 
 func _get_instance_id(thing):
 	var inst_id = null
