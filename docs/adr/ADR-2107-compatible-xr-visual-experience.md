@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 35bd7c6bc2d1608a2d13f6dadfab254b12c1f0ea
+verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -121,3 +121,7 @@ Governed change at 48e1bf327 (`feat/xr-cloud-parity`): `xr-client/scripts/hud.gd
 **Open comfort item, not a breach.** Because the route ignores depth, it paints over the right controller's opaque 6 mm `AimRay` (`graph_scene.gd:2163-2176`), the only controller-attached geometry the app renders. It also paints over any runtime-composited hand that sits inside the app layer. A nearer object visibly behind a farther line is a stereo occlusion/disparity conflict. Neither this record nor the XR-client Invariants (1–10) prohibit it, and the focus bracket, the only element this Decision requires to be depth-tested, is unchanged. Whether it is acceptable belongs to the existing acceptance boundary (a headset session checking stereo compositing and both comfort modes). Implementation stays partial and activation staged.
 
 Suite at 35bd7c6bc: `cargo test --offline` in `xr-client/rust` passes 384 library + 118 integration tests, 0 failed.
+
+## Re-verification — 2026-10-07 (b63d35f8a)
+
+Merging fix/xr-held-above-route adds a priority layer under this record's comfort rules: memory route 10 < held aim rays 15 < HUD and radial menu 20 (`radial_menu.gd` now sets OVERLAY_RENDER_PRIORITY; a compile-time assert in `memory_route.rs` pins the order). The aim ray keeps its depth test, so it never shows through scene geometry; it only wins against the depth-ignoring route, removing the conflicting depth cue the previous re-verification raised as an open item. No head-moving behaviour, colour, MSAA or reduced-motion rule changed. Decision holds; open item closed.

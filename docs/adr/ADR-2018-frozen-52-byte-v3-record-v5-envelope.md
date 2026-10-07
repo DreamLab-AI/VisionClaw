@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: aa01c5536efd6d65c72dcc644e21472bfd2e223c
+verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -250,3 +250,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 (aa01c5536)
 
 This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cloud-parity`, and the lint follow-up aa01c5536. Each branch re-verified this record against its own changes (sections above). The merge itself kept both sides; the only code it combined was test code in `client_coordinator_actor.rs`. aa01c5536 is mechanical: rustfmt, an `async-trait` patch bump, `as_chunks`, and test checks made `const`. No wire format, tag byte, settings key, pose owner, crate boundary or relay rule changed. Decision holds. Verified with `cargo test --workspace --tests` (3,244 passed), xr-client `cargo test --workspace` (516 passed) and clippy `-D warnings` clean in both.
+
+## Re-verification — 2026-10-07 (b63d35f8a)
+
+Merging fix/xr-held-above-route touches this record's paths only with a benchmark-only `#[func] pin_thread_to_l3` (no wire, tag, record-size or decode change) and aim-ray/priority wiring in `graph_scene.gd` (no settings key, physics write or pose-owner change). Decision holds.
