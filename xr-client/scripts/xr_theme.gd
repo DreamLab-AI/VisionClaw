@@ -56,11 +56,37 @@ static func create() -> Theme:
 	# separate bold face is a second glyph texture and splits the text batch.
 	t.set_font("normal_font", "RichTextLabel", t.default_font)
 	t.set_font("bold_font", "RichTextLabel", t.default_font)
+	# HSlider (Graph Separation, ADR-2135): a 14 px track with the filled part in
+	# cyan, and a 36 px grabber, so the value reads at arm's length in the HMD.
+	var track := box(SURFACE, LINE, 7)
+	track.content_margin_top = 7
+	track.content_margin_bottom = 7
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", box(Color("2f6f86"), CYAN, 7))
+	t.set_stylebox("grabber_area_highlight", "HSlider", box(Color("3a879f"), CYAN, 7))
+	var knob := grabber_texture(36, TEXT, CYAN)
+	t.set_icon("grabber", "HSlider", knob)
+	t.set_icon("grabber_highlight", "HSlider", knob)
+	t.set_icon("grabber_disabled", "HSlider", knob)
 	var separator := StyleBoxLine.new()
 	separator.color = LINE
 	separator.thickness = 1
 	t.set_stylebox("separator", "HSeparator", separator)
 	return t
+
+## A filled disc with a ring, `size` px across: the slider grabber. Built once
+## per theme (no image file to import).
+static func grabber_texture(size: int, fill: Color, ring: Color) -> ImageTexture:
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var c: float = (float(size) - 1.0) * 0.5
+	var r: float = float(size) * 0.5
+	for y in size:
+		for x in size:
+			var d: float = Vector2(float(x) - c, float(y) - c).length()
+			var a: float = clampf(r - d, 0.0, 1.0)   # 1 px anti-aliased edge
+			var col: Color = ring if d > r - 4.0 else fill
+			img.set_pixel(x, y, Color(col.r, col.g, col.b, a))
+	return ImageTexture.create_from_image(img)
 
 static func apply_tab(button: Button, selected: bool) -> void:
 	button.add_theme_stylebox_override("normal", box(

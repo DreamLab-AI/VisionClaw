@@ -69,6 +69,9 @@ const TABBAR_H: int = 56
 const HINTBAR_H: int = 44
 const HINT_META: StringName = &"hint"
 const HINT_DEFAULT: String = "Point at a control for help"
+const SeparationControl := preload("res://scripts/separation_control.gd")
+const SEPARATION_BTN_W: int = 110
+const SEPARATION_VALUE_W: int = 64
 const ACCENT: Color = Color(0.55, 0.80, 1.0)          # active tab / on-state
 const IDLE: Color = Color(0.62, 0.66, 0.75)           # inactive tab
 
@@ -138,6 +141,13 @@ var _hierarchy_button: Button = null
 var _flat_toggle_button: Button = null
 var _planes_toggle_button: Button = null
 var _layout_mode_button: Button = null
+# Graph Separation row (Layout page, ADR-2135).
+var _separation_slider: HSlider = null
+var _separation_value_label: Label = null
+var _separation_minus_button: Button = null
+var _separation_plus_button: Button = null
+## True between the slider's drag_started and drag_ended: read-back waits.
+var _separation_dragging: bool = false
 var _color_mode_button: Button = null   # WP1 domain/community toggle (Graph page)
 var _hulls_button: Button = null        # WP4 hull source cycle (Graph page)
 # Wave 2, Feature 3 — type show/hide toggles (Graph tab). Each tracks its own
@@ -556,12 +566,68 @@ func _build_layout_page() -> VBoxContainer:
 
 	# ADR-141 Phase 1 — constrained-layout engine picker. Single cycling button
 	# steps through the backend LayoutMode enum; graph_scene POSTs /api/layout/mode.
-	page.add_child(_group_header("Layout Mode"))
-	var g_layout := _grid(1)
+	# ADR-2135 Graph Separation shares its row: the page is 529 px of the 532 px
+	# host, so the control adds no height (Invariant 5).
+	page.add_child(_group_header("Layout Mode  ·  Separate Knowledge · Ontology · Memory"))
+	var row := HBoxContainer.new()
+	row.name = "LayoutModeRow"
+	row.custom_minimum_size = Vector2(0, BTN_H)
+	row.add_theme_constant_override("separation", 8)
 	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
-	g_layout.add_child(_layout_mode_button)
-	page.add_child(g_layout)
+	_layout_mode_button.size_flags_stretch_ratio = 1.0
+	row.add_child(_layout_mode_button)
+	_build_separation_controls(row)
+	page.add_child(row)
 	return page
+
+
+# Graph Separation (`graphSeparationX`, ADR-2135): − / slider / value / +. The
+# −/+ buttons fire on press like every HUD control; the slider is the wand-drag
+# path (press on the track grabs it, the trigger release ends the drag).
+# GraphScene throttles the writes (separation_control.gd); the HUD only reports
+# intent and shows the value GraphScene pushes back (set_graph_separation).
+func _build_separation_controls(row: HBoxContainer) -> void:
+	_separation_minus_button = _action_btn("Sep −", "separation_minus", "Bring the knowledge graph, ontology and memory cloud 5 units closer")
+	_separation_minus_button.custom_minimum_size = Vector2(SEPARATION_BTN_W, BTN_H)
+	_separation_minus_button.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(_separation_minus_button)
+
+	_separation_slider = HSlider.new()
+	_separation_slider.name = "SeparationSlider"
+	_separation_slider.min_value = SeparationControl.MIN
+	_separation_slider.max_value = SeparationControl.MAX
+	_separation_slider.step = SeparationControl.STEP
+	_separation_slider.custom_minimum_size = Vector2(0, BTN_H)
+	_separation_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_separation_slider.size_flags_stretch_ratio = 1.6
+	_separation_slider.size_flags_vertical = Control.SIZE_FILL
+	_separation_slider.focus_mode = Control.FOCUS_NONE
+	_separation_slider.set_meta(HINT_META, "Drag to pull the knowledge graph, ontology and memory cloud apart (0 = merged, ~250 = clearly separated)")
+	_separation_slider.drag_started.connect(func() -> void: _separation_dragging = true)
+	_separation_slider.value_changed.connect(_on_separation_slider_changed)
+	_separation_slider.drag_ended.connect(func(_changed: bool) -> void:
+		_separation_dragging = false
+		emit_signal("control_pressed", "separation_release:%d" % int(_separation_slider.value)))
+	row.add_child(_separation_slider)
+
+	_separation_value_label = _mk_label("0", "Graph separation in server units (desktop: Motion › Layout Forces)")
+	_separation_value_label.custom_minimum_size = Vector2(SEPARATION_VALUE_W, BTN_H)
+	_separation_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_separation_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_separation_value_label)
+
+	_separation_plus_button = _action_btn("Sep +", "separation_plus", "Push the knowledge graph, ontology and memory cloud 5 units apart")
+	_separation_plus_button.custom_minimum_size = Vector2(SEPARATION_BTN_W, BTN_H)
+	_separation_plus_button.size_flags_horizontal = Control.SIZE_FILL
+	row.add_child(_separation_plus_button)
+
+
+func _on_separation_slider_changed(v: float) -> void:
+	_separation_value_label.text = "%d" % int(v)
+	# A drag reports every value (GraphScene throttles); any other change (a
+	# wheel step) is a finished intent.
+	var verb: String = "separation_drag" if _separation_dragging else "separation_release"
+	emit_signal("control_pressed", "%s:%d" % [verb, int(v)])
 
 
 func _build_query_page() -> VBoxContainer:
@@ -1203,6 +1269,16 @@ func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -
 func set_layout_mode_label(mode_label: String) -> void:
 	if _layout_mode_button != null:
 		_layout_mode_button.text = "Layout: %s" % mode_label
+
+
+## Show the Graph Separation GraphScene holds (its pending intent, else the
+## server's value read back after a peer's change). Ignored mid-drag so the
+## operator's hand is never overruled; never emits, so read-back cannot echo.
+func set_graph_separation(value: float) -> void:
+	if _separation_slider == null or _separation_dragging:
+		return
+	_separation_slider.set_value_no_signal(value)
+	_separation_value_label.text = "%d" % int(_separation_slider.value)
 
 
 ## Reflect the fold-ladder level (Wave 3) on the Fold +/- button faces. `level`

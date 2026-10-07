@@ -20,7 +20,7 @@ func _make_hud() -> Node3D:
 
 func test_all_pages_built_and_default_graph_visible() -> void:
 	var hud: Node3D = await _make_hud()
-	for page_name in ["GraphPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
 		assert_not_null(hud.get_node_or_null("%s/%s" % [TABS, page_name]), "%s exists" % page_name)
 	var graph: Control = hud.get_node("%s/GraphPage" % TABS)
 	assert_true(graph.visible, "Graph is the default visible tab")
@@ -36,7 +36,7 @@ func test_show_tab_switches_exactly_one_page() -> void:
 	assert_true((hud.get_node("%s/SessionPage" % TABS) as Control).visible, "session shown")
 	assert_false((hud.get_node("%s/GraphPage" % TABS) as Control).visible, "graph hidden")
 	var visible_count := 0
-	for page_name in ["GraphPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
 		if (hud.get_node("%s/%s" % [TABS, page_name]) as Control).visible:
 			visible_count += 1
 	assert_eq(visible_count, 1, "exactly one page visible after a tab switch")
@@ -82,7 +82,7 @@ func test_no_page_overflows_its_host() -> void:
 	var hud: Node3D = await _make_hud()
 	var host: Control = hud.get_node(TABS)
 	assert_gt(host.size.y, 1.0, "tab host has a real height")
-	for page_name in ["GraphPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
+	for page_name in ["GraphPage", "LayoutPage", "QueryPage", "PinsPage", "SwarmPage", "KeyPage", "SessionPage", "HelpPage"]:
 		var page: Control = hud.get_node("%s/%s" % [TABS, page_name])
 		var need: float = page.get_combined_minimum_size().y
 		assert_lte(need, host.size.y + 1.0,
