@@ -73,6 +73,15 @@ export const trajectoryClock = { el: 0, done: false };
 /** beat state, written by the cinematic controller, read for glow and comet pulse */
 export const beatState = { on: false, pulse: 0, bar: 0, phase: 0 };
 
+/**
+ * Director override: while the cinematic director runs it owns the playback
+ * clock (`el`), so the camera timeline and the route reveal stay in lock-step.
+ */
+export const directorClock = { active: false, el: 0 };
+
+/** Route polyline in cloud-local coordinates, published by TrajectoryLayer for the director. */
+export const routeChannel: { pts: Array<[number, number, number]>; seq: number } = { pts: [], seq: 0 };
+
 // ── state ──
 
 export const LAYOUT_RADIUS = 90;
