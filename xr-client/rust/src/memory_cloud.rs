@@ -56,8 +56,14 @@ pub const SPRITE_TRIANGLE_UV: [[f32; 2]; 3] = [
     [0.5 - 0.866_025_4, 1.0],
     [0.5 + 0.866_025_4, 1.0],
 ];
-/// MultiMesh stride: 12 transform floats + 4 colour floats (`use_colors`).
-pub const CLOUD_STRIDE: usize = 16;
+/// MultiMesh stride: 12 transform + 4 colour (`use_colors`) + 4 custom
+/// (`use_custom_data`, the flash emphasis).
+pub const CLOUD_STRIDE: usize = 20;
+/// Per-instance custom data for an unemphasised sprite: (tint rgb, gain).
+/// `memory_point.gdshader` blends toward the tint by (gain - 1) / 1.5 and
+/// brightens by gain, so gain 1 leaves the sprite untouched. memory_flash
+/// bursts (`set_row_emphasis`) write it per instance; no geometry is added.
+pub const NEUTRAL_EMPHASIS: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 /// Categorical palette (16, then cycles). Mirror of `CLOUD_PALETTE` in
 /// `client/src/features/visualisation/memoryCloud/cloudData.ts`; the drift test
@@ -406,7 +412,8 @@ pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec
 }
 
 /// Instance buffer for `drawn` rows: a uniform-scale basis (the sprite size;
-/// the shader billboards it), the row position, and RGBA. Rows outside `keep`
+/// the shader billboards it), the row position, RGBA and neutral emphasis
+/// (`NEUTRAL_EMPHASIS`). Rows outside `keep`
 /// are dimmed by `dim` (0 = untouched, 1 = black), as `applyFocusDim` does.
 pub fn build_buffer(
     snap: &CloudSnapshot,
@@ -428,6 +435,7 @@ pub fn build_buffer(
             sprite, 0.0, 0.0, p[0], 0.0, sprite, 0.0, p[1], 0.0, 0.0, sprite, p[2], c[0] * k, c[1] * k,
             c[2] * k, opacity,
         ]);
+        buf.extend_from_slice(&NEUTRAL_EMPHASIS);
     }
     buf
 }
@@ -722,6 +730,15 @@ impl CloudState {
         }
     }
 
+    /// MultiMesh instance index of snapshot `row`, or -1 when it is not drawn
+    /// (`drawn` is sorted ascending).
+    pub fn instance_of_row(&self, row: i64) -> i64 {
+        if row < 0 || row > u32::MAX as i64 {
+            return -1;
+        }
+        self.drawn.binary_search(&(row as u32)).map_or(-1, |i| i as i64)
+    }
+
     pub fn triangle_estimate(&self) -> usize {
         self.drawn.len() * TRIANGLES_PER_SPRITE
     }
@@ -774,6 +791,12 @@ impl MemoryCloud {
     #[func]
     fn count(&self) -> i64 {
         self.state.snapshot.as_ref().map_or(0, |s| s.count as i64)
+    }
+
+    /// MultiMesh instance of snapshot `row`, -1 when not drawn.
+    #[func]
+    fn instance_of_row(&self, row: i64) -> i64 {
+        self.state.instance_of_row(row)
     }
 
     #[func]
@@ -1239,7 +1262,8 @@ mod tests {
     // ── buffer ──
 
     #[test]
-    fn buffer_is_stride_16_with_origin_and_colour() {
+    fn buffer_is_stride_20_with_origin_colour_and_neutral_emphasis() {
+        assert_eq!(CLOUD_STRIDE, 20, "12 transform + 4 colour + 4 custom (use_custom_data)");
         let mut st = CloudState::new();
         st.load(snap_json(3).as_bytes()).unwrap();
         let b = st.buffer(1.5, 0.6, 0.0);
@@ -1249,6 +1273,23 @@ mod tests {
         assert_eq!([r[3], r[7], r[11]], [1.0, 1.5, -1.25]);
         let c = hex_rgb(CLOUD_PALETTE[1]);
         assert_eq!(&r[12..16], &[c[0], c[1], c[2], 0.6]);
+        assert_eq!(&r[16..20], &NEUTRAL_EMPHASIS, "gain 1: the shader leaves the sprite as is");
+    }
+
+    #[test]
+    fn instance_of_row_maps_drawn_rows_and_rejects_the_rest() {
+        let mut st = CloudState::new();
+        st.load(snap_json(20).as_bytes()).unwrap();
+        st.set_cap(5);
+        let drawn = st.drawn.clone();
+        assert_eq!(drawn.len(), 5);
+        for (i, &row) in drawn.iter().enumerate() {
+            assert_eq!(st.instance_of_row(row as i64), i as i64);
+        }
+        let undrawn = (0..20u32).find(|r| !drawn.contains(r)).unwrap();
+        assert_eq!(st.instance_of_row(undrawn as i64), -1);
+        assert_eq!(st.instance_of_row(-3), -1);
+        assert_eq!(st.instance_of_row(99), -1);
     }
 
     #[test]

@@ -14,9 +14,13 @@
 //!    route at one sample per hop, a cloud floor that still reads as a cloud,
 //!    and a minimum near field of gem nodes.
 //! 2. **Growth** up to each layer's demand, in the same priority: the route to
-//!    full curve detail, the cloud to its sprite cap, then the graph's near
+//!    full curve detail, the cloud to its sprite cap, the memory_flash ring
+//!    pool (only when no cloud is shown), then the graph's near
 //!    detail (hulls, then gem nodes, then cylinder edges; the reverse of the
 //!    order they give way).
+//!
+//! Both passes work inside [`TRI_LIMIT`] / [`DRAW_CALL_LIMIT`]: 5 % of each
+//! budget is held back for frame-to-frame variance.
 //!
 //! Near-tier costs are charged as the increment over the far tier that the
 //! node or edge would otherwise use. If the minimums alone exceed the budget
@@ -35,6 +39,22 @@ use crate::memory_route::{ring_cap_for_budget, route_triangles_at, ROUTE_RING_CA
 pub const TRI_BUDGET: usize = 100_000;
 /// Frame draw-call budget.
 pub const DRAW_CALL_BUDGET: usize = 50;
+/// 5 % of the triangle budget held back for frame-to-frame variance (label
+/// glyphs, controller models, a hull rebuild landing mid-frame).
+pub const TRI_RESERVE: usize = TRI_BUDGET / 20;
+/// 5 % of the draw-call budget, rounded down to whole calls.
+pub const DRAW_CALL_RESERVE: usize = DRAW_CALL_BUDGET / 20;
+/// What the allocator hands out: the budgets less the reserves.
+pub const TRI_LIMIT: usize = TRI_BUDGET - TRI_RESERVE;
+pub const DRAW_CALL_LIMIT: usize = DRAW_CALL_BUDGET - DRAW_CALL_RESERVE;
+/// memory_flash ring pool (xr-pulse `memory_bursts.gd`): POOL_SIZE slots, a
+/// RING_SEGMENTS-sided annulus each (2 triangles a segment), one draw call.
+/// Used only when no cloud is shown; with the cloud on, bursts restyle
+/// sprites (`set_row_emphasis`) and cost nothing. A GUT test checks these
+/// against the built mesh.
+pub const BURST_POOL_SLOTS: usize = 64;
+pub const BURST_TRIS_PER_SLOT: usize = 2 * 32;
+pub const BURST_DRAW_CALLS: usize = 1;
 /// Fewest cloud sprites that still read as a cloud (a quarter of the cap).
 pub const CLOUD_MIN_SPRITES: usize = 2_000;
 /// Fewest gem nodes, so the near field never vanishes.
@@ -83,6 +103,9 @@ pub struct MemoryDemand {
     pub cloud_rows: usize,
     /// The route, when one is shown.
     pub route: Option<RouteShape>,
+    /// Ring-pool slots that may draw (`BURST_POOL_SLOTS` when bursts are on
+    /// and no cloud is shown, else 0).
+    pub burst_slots: usize,
 }
 
 /// Caps for the graph's near tiers.
@@ -106,6 +129,8 @@ pub struct FrameCaps {
     pub route_tris: usize,
     /// Centreline sample cap for the route (`memory_route::ActiveRoute::set_ring_cap`).
     pub route_ring_cap: usize,
+    /// Ring-pool slots the bursts may draw.
+    pub burst_slots: usize,
     /// Triangles all layers spend at these caps (worst case for the graph's
     /// near tiers: every cap filled).
     pub tris_total: usize,
@@ -128,8 +153,8 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     let gem_min = gem_max.min(GEM_MIN);
 
     let minimums = far + route_min + cloud_min * TRIANGLES_PER_SPRITE + gem_min * GEM_STEP;
-    let over_tris = minimums > TRI_BUDGET;
-    let mut rem = TRI_BUDGET.saturating_sub(minimums);
+    let over_tris = minimums > TRI_LIMIT;
+    let mut rem = TRI_LIMIT.saturating_sub(minimums);
 
     // route to full detail
     let (route_tris, route_ring_cap) = match m.route {
@@ -145,6 +170,10 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     // cloud to its cap
     let cloud_sprites = cloud_want.min(cloud_min + rem / TRIANGLES_PER_SPRITE);
     rem -= (cloud_sprites - cloud_min) * TRIANGLES_PER_SPRITE;
+
+    // burst ring pool, as many slots as fit
+    let burst_slots = m.burst_slots.min(BURST_POOL_SLOTS).min(rem / BURST_TRIS_PER_SLOT);
+    rem -= burst_slots * BURST_TRIS_PER_SLOT;
 
     // hulls: all of the measured mesh, or as many worst-case hulls as fit
     let hulls_present = g.hulls.min(DEFAULT_MAX_HULLS);
@@ -164,20 +193,22 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     let cylinder_edges = g.edges.min(DEFAULT_NEAR_EDGE_CAP).min(rem / CYLINDER_STEP);
     rem -= cylinder_edges * CYLINDER_STEP;
 
-    let spent = TRI_BUDGET.saturating_sub(rem);
+    let spent = TRI_LIMIT.saturating_sub(rem);
     let tris_total = if over_tris { minimums + hull_cost } else { spent };
     let draw_calls = g.draw_calls
         + if cloud_sprites > 0 { CLOUD_DRAW_CALLS } else { 0 }
-        + if m.route.is_some() { ROUTE_DRAW_CALLS } else { 0 };
+        + if m.route.is_some() { ROUTE_DRAW_CALLS } else { 0 }
+        + if burst_slots > 0 { BURST_DRAW_CALLS } else { 0 };
 
     FrameCaps {
         graph: GraphCaps { gem_nodes, cylinder_edges, max_hulls },
         cloud_sprites,
         route_tris,
         route_ring_cap,
+        burst_slots,
         tris_total,
         draw_calls,
-        over_budget: over_tris || draw_calls > DRAW_CALL_BUDGET,
+        over_budget: over_tris || draw_calls > DRAW_CALL_LIMIT,
     }
 }
 
@@ -216,6 +247,7 @@ impl FrameBudget {
         cloud_rows: i64,
         route_rows: i64,
         route_sidecar: i64,
+        burst_slots: i64,
     ) -> Dictionary {
         let u = |v: i64| v.max(0) as usize;
         let g = GraphDemand {
@@ -228,7 +260,7 @@ impl FrameBudget {
             other_tris: u(other_tris),
         };
         let route = (route_rows >= 2).then(|| RouteShape { rows: u(route_rows), sidecar: u(route_sidecar) });
-        let c = allocate(&g, &MemoryDemand { cloud_rows: u(cloud_rows), route });
+        let c = allocate(&g, &MemoryDemand { cloud_rows: u(cloud_rows), route, burst_slots: u(burst_slots) });
         let mut d = Dictionary::new();
         d.set("gem_nodes", c.graph.gem_nodes as i64);
         d.set("cylinder_edges", c.graph.cylinder_edges as i64);
@@ -236,10 +268,17 @@ impl FrameBudget {
         d.set("cloud_sprites", c.cloud_sprites as i64);
         d.set("route_tris", c.route_tris as i64);
         d.set("route_ring_cap", c.route_ring_cap as i64);
+        d.set("burst_slots", c.burst_slots as i64);
         d.set("tris_total", c.tris_total as i64);
         d.set("draw_calls", c.draw_calls as i64);
         d.set("over_budget", c.over_budget);
         d
+    }
+
+    /// [slots, triangles per slot] the allocator assumes for the burst pool.
+    #[func]
+    fn burst_pool_spec(&self) -> PackedInt32Array {
+        PackedInt32Array::from(&[BURST_POOL_SLOTS as i32, BURST_TRIS_PER_SLOT as i32][..])
     }
 }
 
@@ -255,7 +294,7 @@ mod tests {
     }
 
     fn full_memory() -> MemoryDemand {
-        MemoryDemand { cloud_rows: 20_000, route: Some(RouteShape { rows: MAX_PATH, sidecar: MAX_SIDECAR }) }
+        MemoryDemand { cloud_rows: 20_000, route: Some(RouteShape { rows: MAX_PATH, sidecar: MAX_SIDECAR }), burst_slots: 0 }
     }
 
     /// Recompute what the caps cost, independently of `allocate`'s bookkeeping.
@@ -272,6 +311,7 @@ mod tests {
             + (g.edges - cyl) * RIBBON_TRIS_PER_EDGE
             + hull
             + c.cloud_sprites * TRIANGLES_PER_SPRITE
+            + c.burst_slots * BURST_TRIS_PER_SLOT
             + route
     }
 
@@ -281,15 +321,16 @@ mod tests {
         let c = allocate(&g, &m);
         assert!(!c.over_budget);
         assert_eq!(cost(&g, &m, &c), c.tris_total, "bookkeeping matches an independent recount");
-        assert!(c.tris_total <= TRI_BUDGET, "{}", c.tris_total);
-        assert!(c.draw_calls <= DRAW_CALL_BUDGET);
+        assert!(c.tris_total <= TRI_LIMIT, "{} inside the 5 % reserve", c.tris_total);
+        assert!(c.draw_calls <= DRAW_CALL_LIMIT);
         assert_eq!(c.draw_calls, 6 + CLOUD_DRAW_CALLS + ROUTE_DRAW_CALLS);
         // priority: route and cloud whole, hulls whole, near detail takes the rest
         assert_eq!(c.route_tris, route_triangles_for(MAX_PATH, MAX_SIDECAR));
         assert_eq!(c.cloud_sprites, DEFAULT_SPRITE_CAP);
         assert_eq!(c.graph.max_hulls, 32);
         assert!(c.graph.gem_nodes >= GEM_MIN && c.graph.gem_nodes < DEFAULT_NEAR_CAP, "{:?}", c.graph);
-        assert!(TRI_BUDGET - c.tris_total < CYLINDER_STEP.max(GEM_STEP), "budget used up, not padded");
+        assert!(TRI_LIMIT - c.tris_total < CYLINDER_STEP.max(GEM_STEP), "limit used up, not padded");
+        assert_eq!(c.burst_slots, 0, "cloud shown: bursts restyle sprites, no pool");
     }
 
     #[test]
@@ -329,7 +370,7 @@ mod tests {
                 assert_eq!(c.cloud_sprites, CLOUD_MIN_SPRITES, "{nodes}: cloud at floor before the route thins");
             }
             if !c.over_budget {
-                assert!(c.tris_total <= TRI_BUDGET, "{nodes}: {}", c.tris_total);
+                assert!(c.tris_total <= TRI_LIMIT, "{nodes}: {}", c.tris_total);
                 assert_eq!(cost(&g, &m, &c), c.tris_total, "{nodes}");
             }
             if let Some(p) = prev {
@@ -344,7 +385,7 @@ mod tests {
     fn a_thinner_route_is_used_before_it_overruns() {
         // a 13-row route wants 10 samples per hop; with little room it drops detail
         let g = GraphDemand { nodes: 21_625, edges: 21_625, hulls: 0, hull_tris: 0, faded: 0, draw_calls: 6, other_tris: 0 };
-        let m = MemoryDemand { cloud_rows: 20_000, route: Some(RouteShape { rows: 13, sidecar: 5 }) };
+        let m = MemoryDemand { cloud_rows: 20_000, route: Some(RouteShape { rows: 13, sidecar: 5 }), burst_slots: 0 };
         let c = allocate(&g, &m);
         assert!(!c.over_budget);
         assert!(c.route_ring_cap < ROUTE_RING_CAP && c.route_ring_cap >= 13, "{}", c.route_ring_cap);
@@ -356,9 +397,9 @@ mod tests {
             .unwrap();
         let trickled = (c.cloud_sprites - CLOUD_MIN_SPRITES) * TRIANGLES_PER_SPRITE
             + c.graph.cylinder_edges * CYLINDER_STEP
-            + (TRI_BUDGET - c.tris_total);
+            + (TRI_LIMIT - c.tris_total);
         assert!(next - c.route_tris > trickled, "next step {} vs {trickled}", next - c.route_tris);
-        assert!(c.tris_total <= TRI_BUDGET);
+        assert!(c.tris_total <= TRI_LIMIT);
         assert_eq!(cost(&g, &m, &c), c.tris_total);
     }
 
@@ -370,7 +411,7 @@ mod tests {
         assert_eq!(c.graph, GraphCaps { gem_nodes: GEM_MIN, cylinder_edges: 0, max_hulls: 0 });
         assert_eq!(c.cloud_sprites, CLOUD_MIN_SPRITES);
         assert_eq!(c.route_tris, route_triangles_at(MAX_PATH, MAX_SIDECAR, 0));
-        assert!(c.tris_total > TRI_BUDGET);
+        assert!(c.tris_total > TRI_LIMIT);
     }
 
     #[test]
@@ -380,7 +421,7 @@ mod tests {
         let m = full_memory();
         let (a, b) = (allocate(&base, &m), allocate(&f, &m));
         assert_eq!(cost(&f, &m, &b), b.tris_total);
-        assert!(b.tris_total <= TRI_BUDGET);
+        assert!(b.tris_total <= TRI_LIMIT);
         assert_eq!(a.graph.gem_nodes - b.graph.gem_nodes, 10, "each faded node displaces one gem");
     }
 
@@ -392,7 +433,7 @@ mod tests {
         let c = allocate(&hud, &m);
         assert!(!c.over_budget);
         assert_eq!(cost(&hud, &m, &c), c.tris_total);
-        assert!(c.tris_total <= TRI_BUDGET);
+        assert!(c.tris_total <= TRI_LIMIT);
         assert!(c.graph.gem_nodes < base.graph.gem_nodes, "near detail pays for the HUD");
         assert_eq!((c.cloud_sprites, c.route_tris), (base.cloud_sprites, base.route_tris), "memory layers keep priority");
     }
@@ -402,15 +443,41 @@ mod tests {
         let c = allocate(&production(), &MemoryDemand::default());
         assert_eq!((c.cloud_sprites, c.route_tris), (0, 0));
         assert_eq!(c.draw_calls, 6);
-        let small = allocate(&production(), &MemoryDemand { cloud_rows: 500, route: None });
+        let small = allocate(&production(), &MemoryDemand { cloud_rows: 500, route: None, burst_slots: 0 });
         assert_eq!(small.cloud_sprites, 500, "a small snapshot draws in full");
         assert_eq!(small.draw_calls, 7);
     }
 
     #[test]
-    fn draw_call_overrun_is_reported() {
-        let g = GraphDemand { draw_calls: 48, ..production() };
-        assert!(allocate(&g, &full_memory()).over_budget);
+    fn draw_call_overrun_is_reported_inside_the_reserve() {
+        assert_eq!((TRI_LIMIT, DRAW_CALL_LIMIT), (95_000, 48), "5 % of both budgets held back");
+        let g = GraphDemand { draw_calls: 44, ..production() };
+        assert!(!allocate(&g, &full_memory()).over_budget, "44 + 4 memory calls = 48, at the limit");
+        let g = GraphDemand { draw_calls: 45, ..production() };
+        assert!(allocate(&g, &full_memory()).over_budget, "45 + 4 > 48");
         assert!(!allocate(&g, &MemoryDemand::default()).over_budget);
+        let g = GraphDemand { draw_calls: 48, ..production() };
+        assert!(!allocate(&g, &MemoryDemand::default()).over_budget);
+    }
+
+    #[test]
+    fn burst_pool_is_a_layer_after_the_cloud() {
+        // cloud hidden: the ring pool draws, ahead of the graph's near detail
+        let m = MemoryDemand { cloud_rows: 0, route: None, burst_slots: BURST_POOL_SLOTS };
+        let c = allocate(&production(), &m);
+        assert_eq!(c.burst_slots, BURST_POOL_SLOTS);
+        assert_eq!(c.draw_calls, 6 + BURST_DRAW_CALLS);
+        assert_eq!(cost(&production(), &m, &c), c.tris_total);
+        let without = allocate(&production(), &MemoryDemand::default());
+        assert!(c.graph.gem_nodes < without.graph.gem_nodes, "near detail pays for the pool");
+        // a starved frame trims slots, not the cloud
+        let g = GraphDemand { nodes: 20_000, edges: 20_000, ..production() };
+        let m = MemoryDemand { cloud_rows: 20_000, route: None, burst_slots: BURST_POOL_SLOTS };
+        let c = allocate(&g, &m);
+        assert!(!c.over_budget);
+        assert!(c.burst_slots < BURST_POOL_SLOTS);
+        assert_eq!(c.cloud_sprites, DEFAULT_SPRITE_CAP, "the cloud grows before the pool");
+        assert_eq!(c.graph.gem_nodes, GEM_MIN);
+        assert_eq!(cost(&g, &m, &c), c.tris_total);
     }
 }

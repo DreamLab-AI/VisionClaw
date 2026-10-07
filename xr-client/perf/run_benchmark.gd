@@ -18,7 +18,8 @@ func _initialize() -> void:
 		return
 	var inst := packed.instantiate()
 	# Optional overrides after `--`: duration=<s>, memory_rows=<n> (0 = graph only),
-# route_hops=<n> (default 12; 63 = a 64-node route), route_sidecar=<n> (default 5).
+# route_hops=<n> (default 12; 63 = a 64-node route), route_sidecar=<n> (default 5),
+# extras=0 (drop the HUD/controllers/avatars), bursts=0 (no memory_flash load).
 	for arg in OS.get_cmdline_user_args():
 		var kv := arg.trim_prefix("--").split("=")
 		if kv.size() != 2:
@@ -32,4 +33,8 @@ func _initialize() -> void:
 				inst.set_meta("memory_route_hops", int(kv[1]))
 			"route_sidecar":
 				inst.set_meta("memory_route_sidecar", int(kv[1]))
+			"extras":
+				inst.set_meta("extras", kv[1] != "0")
+			"bursts":
+				inst.set_meta("bursts", kv[1] != "0")
 	get_root().add_child(inst)

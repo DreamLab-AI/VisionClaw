@@ -35,7 +35,13 @@ const POINT_SHADER := preload("res://materials/memory_point.gdshader")
 const ROUTE_SHADER := preload("res://materials/memory_route.gdshader")
 const RING_SHADER := preload("res://materials/memory_ring.gdshader")
 const BEAD_SHADER := preload("res://materials/memory_bead.gdshader")
-const STRIDE := 16
+const STRIDE := 16        # route bead/ring MultiMeshes: 12 transform + 4 colour
+const CLOUD_STRIDE := 20  # cloud sprites: + 4 custom (flash emphasis), memory_cloud.rs CLOUD_STRIDE
+## memory_flash emphasis bounds (xr-pulse memory_bursts.gd ROW_MAX_*).
+const MAX_EMPHASIS_ROWS := 64
+const MAX_EMPHASIS_GAIN := 2.5
+const MAX_EMPHASIS_SCALE := 2.0
+const NEUTRAL_EMPHASIS := Color(0, 0, 0, 1)
 ## desktop `routeGlow` default
 const ROUTE_GLOW := 1.2
 ## seconds for the focus-pull dim to fade in or out (DIM_FADE)
@@ -91,6 +97,9 @@ var _hover_accum: float = 0.0
 var _hover_row: int = -1
 var _bead_tris: int = 0   # triangles per bead disc, read from the mesh
 var _sprite_cap: int = -1  # last FrameBudget cloud cap applied
+var _points_buf := PackedFloat32Array()  # last uploaded cloud buffer, unemphasised
+var _emph_live: int = 0                  # instances restyled in the uploaded buffer
+var _emph_spec: Array = []       # last set_row_emphasis arrays, re-applied after a buffer upload
 
 
 func _ready() -> void:
@@ -122,6 +131,7 @@ func _build_nodes() -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
+	mm.use_custom_data = true  # (tint rgb, gain) per sprite: flash emphasis, no geometry
 	mm.mesh = sprite
 	_points = MultiMeshInstance3D.new()
 	_points.name = "Points"
@@ -498,8 +508,8 @@ func _tick_route(delta: float) -> void:
 	_write_mm(_rings.multimesh, _route.ring_buffer(root_pulse))
 
 
-func _write_mm(mm: MultiMesh, buf: PackedFloat32Array) -> void:
-	var n: int = buf.size() / STRIDE
+func _write_mm(mm: MultiMesh, buf: PackedFloat32Array, stride: int = STRIDE) -> void:
+	var n: int = buf.size() / stride
 	if mm.instance_count != n:
 		mm.instance_count = n
 	if n > 0:
@@ -541,7 +551,12 @@ func _rebuild_points() -> void:
 	_buffer_dirty = false
 	_dim_applied = _dim
 	var buf: PackedFloat32Array = _cloud.build_buffer(_sprite, _opacity, _dim)
-	_write_mm(_points.multimesh, buf)
+	_write_mm(_points.multimesh, buf, CLOUD_STRIDE)
+	_points_buf = buf
+	# the upload reset every sprite to neutral: re-apply the live emphasis
+	_emph_live = 0
+	if not _emph_spec.is_empty():
+		_apply_emphasis(_emph_spec[0], _emph_spec[1], _emph_spec[2], _emph_spec[3])
 
 
 ## Force the point buffer now (tests, benchmark).
@@ -608,6 +623,62 @@ static func _ellipsis(s: String, n: int) -> String:
 
 
 # --- budget ------------------------------------------------------------------
+
+# --- memory_flash emphasis ----------------------------------------------------
+
+## Restyle cloud sprites for memory_flash bursts (xr-pulse beat_pulse.gd calls
+## this each frame while a flash is live, then once with empty arrays). Arrays
+## are parallel; each call replaces the previous set, so rows left out return
+## to normal. gain in [1, 2.5] brightens and blends toward the tint by
+## (gain - 1) / 1.5; scale in [1, 2] multiplies the sprite size. At most 64
+## rows; rows not drawn are ignored. Per-instance custom data and basis
+## scale in the existing sprite buffer only: no geometry is added.
+func set_row_emphasis(rows: PackedInt32Array, tints: PackedColorArray, gains: PackedFloat32Array, scales: PackedFloat32Array) -> void:
+	var n: int = mini(mini(rows.size(), tints.size()), mini(gains.size(), scales.size()))
+	if n == 0:
+		_emph_spec = []
+	else:
+		_emph_spec = [rows.slice(0, n), tints.slice(0, n), gains.slice(0, n), scales.slice(0, n)]
+	if _points == null or _cloud == null:
+		return
+	if n == 0:
+		_apply_emphasis(PackedInt32Array(), PackedColorArray(), PackedFloat32Array(), PackedFloat32Array())
+	else:
+		_apply_emphasis(_emph_spec[0], _emph_spec[1], _emph_spec[2], _emph_spec[3])
+
+
+func _apply_emphasis(rows: PackedInt32Array, tints: PackedColorArray, gains: PackedFloat32Array, scales: PackedFloat32Array) -> void:
+	# Restyle a copy of the last uploaded buffer (pristine in _points_buf) and
+	# upload it: custom floats 16..19 = (tint, gain), the 3x3 basis scaled.
+	var mm: MultiMesh = _points.multimesh
+	var n_inst: int = _points_buf.size() / CLOUD_STRIDE
+	var live := {}
+	var buf: PackedFloat32Array = _points_buf if rows.is_empty() else _points_buf.duplicate()
+	for i in mini(rows.size(), MAX_EMPHASIS_ROWS):
+		var idx: int = int(_cloud.instance_of_row(rows[i]))
+		if idx < 0 or idx >= n_inst or live.has(idx):
+			continue
+		var o: int = idx * CLOUD_STRIDE
+		var sc: float = clampf(scales[i], 1.0, MAX_EMPHASIS_SCALE)
+		for j in [0, 1, 2, 4, 5, 6, 8, 9, 10]:
+			buf[o + j] *= sc
+		var t: Color = tints[i]
+		buf[o + 16] = t.r
+		buf[o + 17] = t.g
+		buf[o + 18] = t.b
+		buf[o + 19] = clampf(gains[i], 1.0, MAX_EMPHASIS_GAIN)
+		live[idx] = true
+	if live.is_empty() and _emph_live == 0:
+		return
+	_emph_live = live.size()
+	if mm.instance_count == n_inst and n_inst > 0:
+		mm.buffer = buf
+
+
+## Test seam: instances currently restyled.
+func emphasised_count() -> int:
+	return _emph_live
+
 
 # --- frame budget -------------------------------------------------------------
 
