@@ -516,6 +516,14 @@ pub struct ConfigureBroadcastOptimization {
     pub enable_spatial_culling: Option<bool>,
 }
 
+/// Tells the physics supervisor where the saved physics settings live, so a
+/// restarted ForceComputeActor can be given them back.
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct SetPhysicsSettingsSource {
+    pub repo: std::sync::Arc<dyn crate::ports::settings_repository::SettingsRepository>,
+}
+
 impl ConfigureBroadcastOptimization {
     /// Change only the broadcast rate; culling stays as it is.
     pub fn rate_only(target_fps: u32) -> Self {

@@ -102,6 +102,7 @@ pub use physics_messages::{
     SetGpuComputeAddress,
     SetLayoutMode,
     SetPhysicsOrchestratorAddr,
+    SetPhysicsSettingsSource,
     SetPhysicsSettled,
     SetRadialLayout,
     SetSharedGPUContext,

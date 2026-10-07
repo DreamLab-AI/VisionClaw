@@ -346,6 +346,15 @@ pub struct ForceComputeActor {
 }
 
 impl ForceComputeActor {
+    /// A ForceComputeActor that never tries to build its own GPU context, for
+    /// tests that exercise supervision and settings without CUDA.
+    #[cfg(test)]
+    pub(crate) fn headless() -> Self {
+        let mut actor = Self::new();
+        actor.gpu_self_init_max_retries = 0;
+        actor
+    }
+
     pub fn new() -> Self {
         // Initialize broadcast optimizer with default config
         // Full snapshots at DEFAULT_BROADCAST_FPS (8 Hz); clients tween at 60 fps.

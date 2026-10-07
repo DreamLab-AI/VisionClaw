@@ -1016,13 +1016,13 @@ impl AppState {
                 // enable_dual_disc_layout=false, adaptive_speed off); without this push the persisted
                 // values only take effect after a live PUT that differs from the defaults,
                 // making the separation/compression/adaptive-speed controls appear dead.
-                let startup_sim_params =
-                    crate::models::simulation_params::SimulationParams::from(&physics_settings);
-                // The persisted broadcast rate is not a SimParams field; push it too.
-                let startup_broadcast_rate =
-                    crate::settings::api::settings_routes::broadcast_rate_message(
-                        &physics_settings,
-                    );
+                // The same push runs after every supervisor restart
+                // (physics_restore.rs), so boot and restart cannot drift apart.
+                let startup_physics = physics_settings.clone();
+                gpu_manager.do_send(crate::actors::messages::SetPhysicsSettingsSource {
+                    repo: sqlite_settings_repository.clone()
+                        as Arc<dyn crate::ports::settings_repository::SettingsRepository>,
+                });
 
                 // Re-project after the post-sync Oxigraph reload. The reload resets
                 // GraphStateActor to the stored (un-separated) layout AFTER the boot
@@ -1072,25 +1072,13 @@ impl AppState {
                         match gpu_manager_clone.send(GetForceComputeActor).await {
                             Ok(Ok(force_compute_actor)) => {
                                 info!("[AppState] Successfully obtained ForceComputeActor address on attempt {}", attempt);
-                                // Push persisted physics params so layout controls
-                                // (graph_separation_x, enable_dual_disc_layout, adaptive_speed)
-                                // are live from boot, not just after the first live PUT.
-                                force_compute_actor.do_send(
-                                    crate::actors::messages::UpdateSimulationParams {
-                                        params: startup_sim_params.clone(),
-                                    },
+                                // Push persisted physics (sim params, clustering,
+                                // broadcast rate) so the controls are live from boot,
+                                // not just after the first live PUT.
+                                crate::actors::gpu::physics_restore::push_physics(
+                                    &force_compute_actor,
+                                    &startup_physics,
                                 );
-                                info!(
-                                    "[AppState] Pushed persisted SimulationParams to ForceComputeActor (graph_separation_x={}, enable_dual_disc_layout={}, adaptive_speed={})",
-                                    startup_sim_params.graph_separation_x,
-                                    startup_sim_params.enable_dual_disc_layout,
-                                    startup_sim_params.adaptive_speed
-                                );
-                                info!(
-                                    "[AppState] Pushing persisted broadcast rate to ForceComputeActor ({:?} Hz)",
-                                    startup_broadcast_rate.target_fps
-                                );
-                                force_compute_actor.do_send(startup_broadcast_rate.clone());
                                 let mut guard = gpu_compute_addr_clone.write().await;
                                 *guard = Some(force_compute_actor);
                                 info!("[AppState] ForceComputeActor address stored - GPU physics now available via AppState");
@@ -1685,8 +1673,31 @@ impl AppState {
 
     /// Get the ForceComputeActor address asynchronously.
     /// Returns None if the address hasn't been initialized yet or GPU is not available.
+    /// The live ForceComputeActor. The cached address goes stale when the
+    /// PhysicsSupervisor restarts the actor (each restart is a new actor), so
+    /// a stopped one is replaced by asking the GPU manager for the current one.
     pub async fn get_gpu_compute_addr(&self) -> Option<Addr<gpu::ForceComputeActor>> {
-        self.gpu_compute_addr.read().await.clone()
+        let cached = self.gpu_compute_addr.read().await.clone();
+        match cached {
+            Some(addr) if addr.connected() => Some(addr),
+            Some(_) => {
+                let manager = self.gpu_manager_addr.as_ref()?;
+                match manager
+                    .send(crate::actors::messages::GetForceComputeActor)
+                    .await
+                {
+                    Ok(Ok(fresh)) => {
+                        info!(
+                            "[AppState] ForceComputeActor was restarted; refreshed cached address"
+                        );
+                        *self.gpu_compute_addr.write().await = Some(fresh.clone());
+                        Some(fresh)
+                    }
+                    _ => None,
+                }
+            }
+            None => None,
+        }
     }
 
     /// Mark the application as degraded with a reason string.

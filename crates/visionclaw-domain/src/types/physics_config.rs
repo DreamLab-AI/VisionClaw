@@ -659,8 +659,10 @@ mod tests {
         let ps: PhysicsSettings = serde_json::from_value(legacy).unwrap();
         assert_eq!(ps.broadcast_fps, DEFAULT_BROADCAST_FPS);
 
-        let mut ps = PhysicsSettings::default();
-        ps.broadcast_fps = 25;
+        let ps = PhysicsSettings {
+            broadcast_fps: 25,
+            ..PhysicsSettings::default()
+        };
         let json = serde_json::to_value(&ps).unwrap();
         assert_eq!(json["broadcastFps"], 25);
         let back: PhysicsSettings = serde_json::from_value(json).unwrap();
