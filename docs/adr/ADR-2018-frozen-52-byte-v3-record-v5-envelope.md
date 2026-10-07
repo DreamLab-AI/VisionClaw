@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
+verified_commit: 015bd642f76e6fb4089713437427ef5470aebe3a
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -222,3 +222,7 @@ In `xr-client/rust/src/binary_protocol.rs` the merged changes add settings-sync,
 The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
 
 `binary_protocol.rs` gains 30 lines of LOD buffer accessors (`build_edge_buffer_lod`, ribbon buffers). There is no wire constant, record-size or decode change. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (feat/xr-graph pack plans)
+
+The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed files without updating this ADR, so its changes were checked against the decision. `binary_protocol.rs` gains only pack-timing fields and a `last_pack_ms` getter; the hand-off now moves the packed `&[f32]` into the Godot array. Record sizes, the v5 envelope and every decode path are untouched. **Still holds.**

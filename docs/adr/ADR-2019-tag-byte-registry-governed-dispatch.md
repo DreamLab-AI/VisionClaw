@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
+verified_commit: 015bd642f76e6fb4089713437427ef5470aebe3a
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -227,3 +227,7 @@ The new traffic is JSON text routed by `type`: `settingsUpdated`, `filter_update
 The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
 
 `binary_protocol.rs` adds no tag and changes no decode branch. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (feat/xr-graph pack plans)
+
+The merge of `feat/xr-graph` at e6c4b0fb5 (merge 015bd642f) changed governed files without updating this ADR, so its changes were checked against the decision. No tag byte, dispatch arm or registry entry changed; the diff is pack instrumentation only. **Still holds.**

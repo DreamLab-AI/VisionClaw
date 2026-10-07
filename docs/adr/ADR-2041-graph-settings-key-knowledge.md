@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
+verified_commit: c5723490b2d86655acaf4b4c88ccbb2b96b785b2
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -113,3 +113,7 @@ In `graph_scene.gd` the merged changes are the parity hook, the LOD tier and the
 The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
 
 `graph_scene.gd` adds the ribbon tier and the halo-quad feed. Neither reads or writes a graph-type key. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 (feat/xr-graph 4978356e5)
+
+The merge of `feat/xr-graph` 4978356e5 (c5723490b) touches `graph_scene.gd` only by moving the `_ribbons` declaration; no settings key, sync path or HUD setting changed. **Still holds.**

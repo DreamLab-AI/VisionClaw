@@ -1721,7 +1721,8 @@ impl RenderStore {
             }
         }
         // Attention heat is applied per frame in `live_tint` (render_store_pack.rs),
-        // not here: it decays every frame, and this colour is cached by the pack plan.
+        // after this colour is cached by the pack plan: it decays with the clock
+        // alone, so baking it here would freeze it while the plan is replayed.
         let target: &mut Vec<f32> = match self.label_alpha.get(&id) {
             Some(&a) => {
                 col[3] = a;
@@ -2238,6 +2239,71 @@ mod tests {
         s.set_clock_ms(1_000.0);
         let off = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
         assert_eq!(col(&off, 0), col(&off, 1), "heat off: no tint");
+    }
+
+    #[test]
+    fn attention_heat_keeps_cooling_while_the_pack_plan_is_replayed() {
+        // xr-graph's pack plan caches each drawn node's colour while only
+        // positions change, so heat (which decays with the clock alone) must be
+        // applied per frame on the plan path, not baked into the cached colour.
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0);
+        s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0);
+        s.set_clock_ms(1_000.0);
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+        let col = |buf: &[f32], i: usize| buf[i * NODE_STRIDE + 12..i * NODE_STRIDE + 15].to_vec();
+        let lum = |v: &[f32]| v.iter().sum::<f32>();
+        let half = crate::attention::DEFAULT_HEAT_HALF_LIFE_MS;
+
+        // Full-mesh path: hot, then (clock only) cooler, then back to base.
+        let hot = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        s.set_clock_ms(1_000.0 + half);
+        let warm = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        s.set_clock_ms(1_000.0 + 20.0 * half);
+        let cold = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
+        assert!(lum(&col(&hot, 0)) > lum(&col(&warm, 0)) + 1e-4, "cools on a replayed plan: {:?} -> {:?}", col(&hot, 0), col(&warm, 0));
+        assert!(lum(&col(&warm, 0)) > lum(&col(&cold, 0)) + 1e-4);
+        let (c0, c1) = (col(&cold, 0), col(&cold, 1));
+        assert!(c0.iter().zip(&c1).all(|(a, b)| (a - b).abs() < 1e-3), "fully cooled = base colour: {c0:?} vs {c1:?}");
+
+        // LOD path (what the scene draws): same behaviour, and a re-touch
+        // re-heats without any other change.
+        s.set_clock_ms(2_000.0 + 20.0 * half);
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 101, ""));
+        let lod_hot = s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec();
+        s.set_clock_ms(2_000.0 + 21.0 * half);
+        let lod_warm = s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec();
+        assert!(lum(&col(&lod_hot, 0)) > lum(&col(&lod_hot, 1)) + 1e-4, "re-touch heats on the LOD path");
+        assert!(lum(&col(&lod_hot, 0)) > lum(&col(&lod_warm, 0)) + 1e-4, "LOD path cools with the clock alone");
+    }
+
+    #[test]
+    fn attention_heat_is_applied_exactly_once_per_pack() {
+        // Two branches moved the brighten from emit_node to live_tint in
+        // parallel; a merge that kept both would double it. The drawn colour of
+        // a heated node must equal its unheated base brightened ONCE.
+        let mut s = RenderStore::new();
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(20, [0.0, 4.0, 0.0], 3, 0.0, 0.0);
+        s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0); // same community = same base colour
+        s.set_clock_ms(1_000.0);
+        assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
+        let col = |buf: &[f32], i: usize| [buf[i * NODE_STRIDE + 12], buf[i * NODE_STRIDE + 13], buf[i * NODE_STRIDE + 14]];
+        for lod in [false, true] {
+            let buf = if lod {
+                s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec()
+            } else {
+                s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9)
+            };
+            let mut once = col(&buf, 1);
+            s.heat.brighten(20, s.clock_ms, &mut once);
+            let drawn = col(&buf, 0);
+            assert_ne!(drawn, col(&buf, 1), "heat is applied at all (lod={lod})");
+            for k in 0..3 {
+                assert!((drawn[k] - once[k]).abs() < 1e-6, "heat applied once (lod={lod}): drawn {drawn:?}, once {once:?}");
+            }
+        }
     }
 
     #[test]

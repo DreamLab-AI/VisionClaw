@@ -101,13 +101,14 @@ impl RenderStore {
         self.visual_epoch = self.visual_epoch.wrapping_add(1);
     }
 
-    /// Per-frame colour modulation that must not invalidate the plan (e.g. a
-    /// time-decaying highlight). Applied identically on the plan and full paths.
+    /// Per-frame colour modulation that must not invalidate the plan. Applied
+    /// identically on the plan and full paths, after the base/agent colour.
+    ///
+    /// Attention heat (desktop `attentionHeat.ts`) brightens — never recolours —
+    /// a node agents are touching, and cools with the store clock alone, so it
+    /// lives here rather than in the cached colour.
     #[inline]
     fn live_tint(&self, id: u32, _slot: usize, col: &mut [f32; 4]) {
-        // Attention heat (attention.rs, desktop attentionHeat.ts) brightens —
-        // never recolours — a node agents are touching, and decays on the store
-        // clock every frame.
         if self.heat.enabled() {
             self.heat.brighten(id, self.clock_ms, &mut col[..3]);
         }
