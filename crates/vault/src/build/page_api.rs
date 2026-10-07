@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(rel.len(), PAGE_API_REL_ORDER.len());
         let keys: Vec<&String> = rel.keys().collect();
         assert_eq!(keys, PAGE_API_REL_ORDER);
-        assert!(rel["hasPart"].as_array().unwrap().is_empty());
+        assert_eq!(rel["hasPart"].as_array().unwrap(), &[] as &[Value]);
     }
 
     #[test]

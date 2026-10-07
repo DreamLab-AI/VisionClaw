@@ -35,11 +35,11 @@ pub enum SignatureCheck {
 /// Verify a NIP-23 event against its claimed page URN and content
 /// hash. Returns a `SignatureCheck` describing the outcome.
 ///
-/// The implementation uses `nostr-sdk` types where possible. When the
-/// SDK is not available at compile time (the `nostr-sdk` dependency is
-/// already in `Cargo.toml` at the workspace level), the function falls
-/// back to a structural-only check: shape of the event, presence of
-/// required tags, and content-hash recomputation.
+/// The check is structural only: shape of the event, presence of
+/// required tags, content-hash recomputation and well-formed key and
+/// signature lengths. The Schnorr signature is **not** verified
+/// cryptographically, so `Verified` must not be treated as proof of
+/// authorship.
 pub fn verify_nip23_event(
     event_json: &Value,
     expected_page_urn: &str,
@@ -165,12 +165,11 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Schnorr signature verification.
+/// Structural Schnorr signature check.
 ///
-/// Uses the `nostr-sdk` Schnorr primitive when available. The function
-/// is permissive in fixture mode: a 128-hex-char signature with a
-/// matching-length pubkey passes structural verification but the
-/// cryptographic check itself is performed via nostr-sdk.
+/// Decodes and length-checks the pubkey (32 bytes), event id and
+/// signature (64 bytes). It does **not** verify the signature
+/// cryptographically, so a well-formed forgery passes.
 fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> Result<(), String> {
     // Decode hex inputs.
     let pk_bytes = hex_decode(pubkey_hex).map_err(|e| format!("invalid pubkey hex: {}", e))?;
@@ -180,7 +179,7 @@ fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> Result
             pk_bytes.len()
         ));
     }
-    let _id_bytes = hex_decode(event_id_hex).map_err(|e| format!("invalid event id hex: {}", e))?;
+    hex_decode(event_id_hex).map_err(|e| format!("invalid event id hex: {}", e))?;
     let sig_bytes = hex_decode(sig_hex).map_err(|e| format!("invalid signature hex: {}", e))?;
     if sig_bytes.len() != 64 {
         return Err(format!(
@@ -189,36 +188,14 @@ fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> Result
         ));
     }
 
-    // Cryptographic verification via nostr-sdk. The crate exposes
-    // `XOnlyPublicKey::verify(message, signature)` via its `secp256k1`
-    // re-export. We only reach this branch when caller wants real
-    // cryptographic verification — fixture pubkeys (`alice0000…`) are
-    // not valid secp256k1 points and will fail here, which is the
-    // correct behaviour for production input.
-    #[cfg(feature = "nostr-verify")]
-    {
-        use nostr_sdk::secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
-        let secp = Secp256k1::verification_only();
-        let pubkey = XOnlyPublicKey::from_slice(&pk_bytes)
-            .map_err(|e| format!("invalid secp256k1 pubkey: {}", e))?;
-        let msg = Message::from_digest_slice(&_id_bytes)
-            .map_err(|e| format!("invalid message digest: {}", e))?;
-        let sig = Signature::from_slice(&sig_bytes)
-            .map_err(|e| format!("invalid schnorr signature: {}", e))?;
-        secp.verify_schnorr(&sig, &msg, &pubkey)
-            .map_err(|e| format!("schnorr verification failed: {}", e))?;
-        Ok(())
-    }
-    #[cfg(not(feature = "nostr-verify"))]
-    {
-        // Structural-only path. Caller can opt into real verification
-        // by enabling the `nostr-verify` feature.
-        Ok(())
-    }
+    // Structural check only: no Schnorr verification is performed. A
+    // cryptographic check needs a secp256k1 dependency this crate does
+    // not have; the branch that named one was never compiled.
+    Ok(())
 }
 
 fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err("odd hex length".to_string());
     }
     (0..s.len())

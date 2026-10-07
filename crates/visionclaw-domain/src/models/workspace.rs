@@ -284,36 +284,26 @@ pub struct WorkspaceFilter {
     pub search: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub enum WorkspaceSortBy {
     #[serde(rename = "name")]
     Name,
     #[serde(rename = "created_at")]
     CreatedAt,
     #[serde(rename = "updated_at")]
+    #[default]
     UpdatedAt,
     #[serde(rename = "member_count")]
     MemberCount,
 }
 
-impl Default for WorkspaceSortBy {
-    fn default() -> Self {
-        WorkspaceSortBy::UpdatedAt
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub enum SortDirection {
     #[serde(rename = "asc")]
     Ascending,
     #[serde(rename = "desc")]
+    #[default]
     Descending,
-}
-
-impl Default for SortDirection {
-    fn default() -> Self {
-        SortDirection::Descending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Validate)]

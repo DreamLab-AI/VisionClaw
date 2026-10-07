@@ -190,11 +190,13 @@ mod tests {
 
     #[actix::test]
     async fn get_api_keys_returns_default_for_unknown_user() {
-        let mut settings = ProtectedSettings::default();
-        settings.default_api_keys = ApiKeys {
-            perplexity: None,
-            openai: Some("default-key".to_string()),
-            ragflow: None,
+        let settings = ProtectedSettings {
+            default_api_keys: ApiKeys {
+                perplexity: None,
+                openai: Some("default-key".to_string()),
+                ragflow: None,
+            },
+            ..Default::default()
         };
         let actor = ProtectedSettingsActor::new(settings).start();
 

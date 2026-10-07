@@ -149,20 +149,14 @@ pub struct SecuritySettings {
 }
 
 // Simple debug settings for server-side control
-#[derive(Debug, Serialize, Deserialize, Clone, Type, Validate)]
+#[derive(Debug, Serialize, Deserialize, Clone, Type, Validate, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DebugSettings {
     #[serde(default, alias = "enabled")]
     pub enabled: bool,
 }
 
-impl Default for DebugSettings {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Type, Validate)]
+#[derive(Debug, Serialize, Deserialize, Clone, Type, Validate, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemSettings {
     #[validate(nested)]
@@ -181,17 +175,4 @@ pub struct SystemSettings {
     pub persist_settings: bool,
     #[serde(skip_serializing_if = "Option::is_none", alias = "custom_backend_url")]
     pub custom_backend_url: Option<String>,
-}
-
-impl Default for SystemSettings {
-    fn default() -> Self {
-        Self {
-            network: NetworkSettings::default(),
-            websocket: WebSocketSettings::default(),
-            security: SecuritySettings::default(),
-            debug: DebugSettings::default(),
-            persist_settings: false,
-            custom_backend_url: None,
-        }
-    }
 }

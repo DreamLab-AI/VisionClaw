@@ -285,8 +285,8 @@ relations:
     #[test]
     fn owl_thing_and_self_references_are_dropped() {
         let c = closure_of(vec![page("A", "is-a: [\"[[owl:Thing]]\", \"[[A]]\"]\n")]);
-        assert!(c.parents_of("a").is_empty());
-        assert!(c.ancestors["a"].is_empty());
+        assert_eq!(c.parents_of("a"), [] as [String; 0]);
+        assert_eq!(c.ancestors["a"], [] as [String; 0]);
     }
 
     #[test]

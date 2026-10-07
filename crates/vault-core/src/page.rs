@@ -725,7 +725,7 @@ mod tests {
         // Reachable by validate, find, retrieve and migrate…
         assert_eq!(vault.pages.len(), 1);
         assert_eq!(vault.pages[0].id, "_misc/Held");
-        assert!(vault.skipped.is_empty());
+        assert_eq!(vault.skipped, []);
         // …and still outside the publish scope.
         assert!(is_unpublished("_misc/Held.md"));
         assert!(!is_unpublished("a/Held.md"));

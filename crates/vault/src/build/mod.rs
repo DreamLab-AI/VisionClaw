@@ -1054,7 +1054,7 @@ scalars:
     fn a_satisfiable_disjointness_builds_and_emits_the_axiom() {
         let (dir, result) = build_with_disjointness(&disjoint_corpus(false));
         let report = result.expect("siblings A, B disjoint with no common subclass is fine");
-        assert!(report.unsatisfiable.is_empty());
+        assert_eq!(report.unsatisfiable, [] as [String; 0]);
         let ttl = std::fs::read_to_string(dir.path().join("www/data/ontology.ttl")).unwrap();
         assert!(ttl.contains("owl:disjointWith ngm:b"), "{ttl}");
     }
@@ -1144,7 +1144,7 @@ scalars:
             scaffold["classes"]["knowledge-graph"]["sup"][0],
             "root-concept"
         );
-        assert!(report.unsatisfiable.is_empty());
+        assert_eq!(report.unsatisfiable, [] as [String; 0]);
     }
 
     #[test]

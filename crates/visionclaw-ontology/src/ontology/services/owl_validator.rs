@@ -383,10 +383,11 @@ impl OwlValidatorService {
                     return Ok((s.clone(), full_range_iri));
                 }
 
-                if s.contains('T') && (s.contains('Z') || s.contains('+') || s.contains('-')) {
-                    if expected_range == "xsd:dateTime" {
-                        return Ok((s.clone(), self.expand_prefixed_iri("xsd:dateTime")?));
-                    }
+                if s.contains('T')
+                    && (s.contains('Z') || s.contains('+') || s.contains('-'))
+                    && expected_range == "xsd:dateTime"
+                {
+                    return Ok((s.clone(), self.expand_prefixed_iri("xsd:dateTime")?));
                 }
 
                 Ok((s.clone(), full_range_iri))

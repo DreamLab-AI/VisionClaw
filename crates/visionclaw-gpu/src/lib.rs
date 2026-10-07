@@ -4,13 +4,10 @@
 //! - CUDA kernel source files (`cuda_sources/`)
 //! - Pre-compiled PTX data (`ptx/`)
 //! - PTX loader / runtime compilation utilities (`ptx_loader`)
-//! - Legacy GPU buffer management helper (`memory`) — deprecated, superseded by
-//!   `crate::gpu::memory_manager` in the webxr monolith; kept here for API compat.
 //!
 //! ## What lives here (Phase 3)
 //! - CUDA `.cu` sources and pre-compiled `.ptx` binaries
 //! - `ptx_loader`: runtime PTX acquisition, CUDA arch detection
-//! - `memory`: `ManagedDeviceBuffer`, `MultiStreamManager`, `LabelMappingCache`
 //!
 //! ## What is deferred to Phase 4
 //! The GPU *actor* tree (`src/actors/gpu/` in webxr) could not be extracted in
@@ -25,7 +22,6 @@
 /// sparse compute mask (D3.1 / P2). Pure and GPU-free so it is unit-testable
 /// without a device.
 pub mod hardening;
-pub mod memory;
 pub mod ptx_loader;
 /// Build-time PTX acceptance policy (ADR-2030) — pure, dependency-free logic
 /// shared by `build.rs` and the library's test suite.

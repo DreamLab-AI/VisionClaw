@@ -41,6 +41,7 @@ pub enum ConstraintKind {
     /// - SubClassOf(A, B) → Attraction forces (child → parent clustering)
     /// - DisjointWith(A, B) → Repulsion forces (separate disjoint classes)
     /// - EquivalentTo(A, B) → Strong attraction (align equivalent classes)
+    ///
     /// Processed by ontology_constraints.cu with priority blending.
     Semantic = 10,
 }
@@ -229,7 +230,7 @@ impl ConstraintSet {
         let idx = self.add(constraint);
         self.groups
             .entry(group_name.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 

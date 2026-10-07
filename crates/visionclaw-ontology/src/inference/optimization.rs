@@ -93,7 +93,7 @@ impl ParallelClassification {
         engine: Arc<RwLock<dyn InferenceEngine>>,
         ontology_ids: Vec<String>,
     ) -> EngineResult<HashMap<String, Vec<(String, String)>>> {
-        let chunk_size = (ontology_ids.len() + self.worker_count - 1) / self.worker_count;
+        let chunk_size = ontology_ids.len().div_ceil(self.worker_count);
         let chunks: Vec<Vec<String>> = ontology_ids
             .chunks(chunk_size)
             .map(|chunk| chunk.to_vec())
@@ -119,10 +119,8 @@ impl ParallelClassification {
         let chunk_results = join_all(tasks).await;
 
         let mut final_results = HashMap::new();
-        for result in chunk_results {
-            if let Ok(chunk_map) = result {
-                final_results.extend(chunk_map);
-            }
+        for chunk_map in chunk_results.into_iter().flatten() {
+            final_results.extend(chunk_map);
         }
 
         Ok(final_results)
@@ -208,8 +206,7 @@ impl InferenceOptimizer {
     ) -> EngineResult<HashMap<String, InferenceResults>> {
         let start = std::time::Instant::now();
 
-        let chunk_size =
-            (request.ontology_ids.len() + request.max_parallelism - 1) / request.max_parallelism;
+        let chunk_size = request.ontology_ids.len().div_ceil(request.max_parallelism);
 
         let chunks: Vec<Vec<String>> = request
             .ontology_ids
@@ -237,10 +234,8 @@ impl InferenceOptimizer {
         let chunk_results = join_all(tasks).await;
 
         let mut final_results = HashMap::new();
-        for result in chunk_results {
-            if let Ok(chunk_map) = result {
-                final_results.extend(chunk_map);
-            }
+        for chunk_map in chunk_results.into_iter().flatten() {
+            final_results.extend(chunk_map);
         }
 
         let elapsed = start.elapsed().as_millis() as u64;

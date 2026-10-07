@@ -494,11 +494,14 @@ fn term_to_json(t: &Term) -> serde_json::Value {
 // ----------------------------------------------------------------------
 
 const P_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
-const P_COMMENT: &str = "http://www.w3.org/2000/01/rdf-schema#comment";
 const P_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
 const P_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
 const P_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
 const P_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+
+/// A SPARQL SELECT result: the projected variable names, then one row per
+/// solution with each binding in variable order (`None` where unbound).
+type SelectRows = (Vec<String>, Vec<Vec<Option<Term>>>);
 
 const T_OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
 const T_OWL_OBJECT_PROP: &str = "http://www.w3.org/2002/07/owl#ObjectProperty";
@@ -998,34 +1001,29 @@ impl OxigraphOntologyRepository {
 
     /// Execute a SELECT query and collect every solution into a vector of
     /// per-variable lexical strings. None where the binding was absent.
-    async fn run_select(
-        &self,
-        sparql: String,
-    ) -> RepoResult<(Vec<String>, Vec<Vec<Option<Term>>>)> {
+    async fn run_select(&self, sparql: String) -> RepoResult<SelectRows> {
         let store = Arc::clone(&self.store);
-        tokio::task::spawn_blocking(
-            move || -> RepoResult<(Vec<String>, Vec<Vec<Option<Term>>>)> {
-                let results = store.query(&sparql).map_err(db_err)?;
-                match results {
-                    QueryResults::Solutions(solutions) => {
-                        let vars: Vec<String> = solutions
-                            .variables()
-                            .iter()
-                            .map(|v| v.as_str().to_string())
-                            .collect();
-                        let mut rows: Vec<Vec<Option<Term>>> = Vec::new();
-                        for sol in solutions {
-                            let sol = sol.map_err(db_err)?;
-                            let row: Vec<Option<Term>> =
-                                vars.iter().map(|v| sol.get(v.as_str()).cloned()).collect();
-                            rows.push(row);
-                        }
-                        Ok((vars, rows))
+        tokio::task::spawn_blocking(move || -> RepoResult<SelectRows> {
+            let results = store.query(&sparql).map_err(db_err)?;
+            match results {
+                QueryResults::Solutions(solutions) => {
+                    let vars: Vec<String> = solutions
+                        .variables()
+                        .iter()
+                        .map(|v| v.as_str().to_string())
+                        .collect();
+                    let mut rows: Vec<Vec<Option<Term>>> = Vec::new();
+                    for sol in solutions {
+                        let sol = sol.map_err(db_err)?;
+                        let row: Vec<Option<Term>> =
+                            vars.iter().map(|v| sol.get(v.as_str()).cloned()).collect();
+                        rows.push(row);
                     }
-                    _ => Err(db_err("SELECT did not return Solutions")),
+                    Ok((vars, rows))
                 }
-            },
-        )
+                _ => Err(db_err("SELECT did not return Solutions")),
+            }
+        })
         .await
         .map_err(|e| db_err(format!("join error: {e}")))?
     }
@@ -1357,7 +1355,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
         let mut pending_edges: Vec<(String, String, String)> = Vec::new();
 
         let mut next_id: u32 = 1;
-        let mut alloc_id = |iri: &str, table: &mut HashMap<String, u32>, nx: &mut u32| -> u32 {
+        let alloc_id = |iri: &str, table: &mut HashMap<String, u32>, nx: &mut u32| -> u32 {
             *table.entry(iri.to_string()).or_insert_with(|| {
                 let id = *nx;
                 *nx += 1;
@@ -1374,10 +1372,9 @@ impl OntologyRepository for OxigraphOntologyRepository {
             };
 
             // Always ensure subject has an entry in class_attrs.
-            let entry = class_attrs.entry(s.clone()).or_insert_with(|| {
-                let mut c = OwlClass::default();
-                c.iri = s.clone();
-                c
+            let entry = class_attrs.entry(s.clone()).or_insert_with(|| OwlClass {
+                iri: s.clone(),
+                ..Default::default()
             });
 
             match p.as_str() {
@@ -1534,7 +1531,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
                             entry
                                 .other_relationships
                                 .entry(key.clone())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(tgt.clone());
                             pending_edges.push((s.clone(), tgt, key));
                         }
@@ -1725,8 +1722,10 @@ impl OntologyRepository for OxigraphOntologyRepository {
         if rows.is_empty() {
             return Ok(None);
         }
-        let mut c = OwlClass::default();
-        c.iri = iri.to_string();
+        let mut c = OwlClass {
+            iri: iri.to_string(),
+            ..Default::default()
+        };
         let mut has_type = false;
         for row in rows {
             let p = match &row[0] {
@@ -1904,7 +1903,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
                         let key = p.trim_start_matches(P_OTHER_REL_PREFIX).to_string();
                         c.other_relationships
                             .entry(key)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(term_lexical(&t));
                     }
                 }
@@ -2130,7 +2129,7 @@ impl OntologyRepository for OxigraphOntologyRepository {
                         current
                             .other_relationships
                             .entry(key)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(term_lexical(&t));
                     }
                 }
@@ -2567,32 +2566,32 @@ impl OntologyRepository for OxigraphOntologyRepository {
             // Materialise the *direct* RDF relation so the inferred graph is a
             // first-class graph (rdfs:subClassOf / owl:equivalentClass), not
             // only reified axiom records (ADR-099 D2/D3).
-            if axiom.subject.starts_with("urn:") || axiom.subject.starts_with("http") {
-                if axiom.object.starts_with("urn:") || axiom.object.starts_with("http") {
-                    match axiom.axiom_type {
-                        AxiomType::SubClassOf => {
-                            body.push_str(&format!(
-                                "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
-                                axiom.subject, axiom.object
-                            ));
-                        }
-                        AxiomType::EquivalentClass => {
-                            // Bidirectional materialisation (ADR-099 D2).
-                            body.push_str(&format!(
-                                "<{}> <{OWL_EQUIVALENT_CLASS}> <{}> .\n",
-                                axiom.subject, axiom.object
-                            ));
-                            body.push_str(&format!(
-                                "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
-                                axiom.subject, axiom.object
-                            ));
-                            body.push_str(&format!(
-                                "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
-                                axiom.object, axiom.subject
-                            ));
-                        }
-                        _ => {}
+            if (axiom.subject.starts_with("urn:") || axiom.subject.starts_with("http"))
+                && (axiom.object.starts_with("urn:") || axiom.object.starts_with("http"))
+            {
+                match axiom.axiom_type {
+                    AxiomType::SubClassOf => {
+                        body.push_str(&format!(
+                            "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
+                            axiom.subject, axiom.object
+                        ));
                     }
+                    AxiomType::EquivalentClass => {
+                        // Bidirectional materialisation (ADR-099 D2).
+                        body.push_str(&format!(
+                            "<{}> <{OWL_EQUIVALENT_CLASS}> <{}> .\n",
+                            axiom.subject, axiom.object
+                        ));
+                        body.push_str(&format!(
+                            "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
+                            axiom.subject, axiom.object
+                        ));
+                        body.push_str(&format!(
+                            "<{}> <{RDFS_SUBCLASS_OF}> <{}> .\n",
+                            axiom.object, axiom.subject
+                        ));
+                    }
+                    _ => {}
                 }
             }
         }

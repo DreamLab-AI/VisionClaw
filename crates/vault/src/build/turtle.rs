@@ -1420,7 +1420,7 @@ relations:
             vec![Term::Iri(format!("{OWL}Restriction"))]
         );
         // The definition is not also asserted as a superclass.
-        assert!(objects(&g, &defined, &format!("{RDFS}subClassOf")).is_empty());
+        assert_eq!(objects(&g, &defined, &format!("{RDFS}subClassOf")), []);
         let ttl = serialise(&g);
         assert!(ttl.contains("owl:equivalentClass"), "{ttl}");
         assert!(ttl.contains("owl:intersectionOf"), "{ttl}");
@@ -1437,7 +1437,7 @@ relations:
         let eq = objects(&g, &defined, &format!("{OWL}equivalentClass"));
         assert_eq!(eq.len(), 1);
         let node = blank(&eq[0]);
-        assert!(objects(&g, &node, &format!("{OWL}intersectionOf")).is_empty());
+        assert_eq!(objects(&g, &node, &format!("{OWL}intersectionOf")), []);
         assert_eq!(
             objects(&g, &node, &format!("{OWL}someValuesFrom")),
             vec![Term::Iri(format!("{NGM}gripper"))]

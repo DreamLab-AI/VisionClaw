@@ -50,10 +50,16 @@ fn default_radial_center() -> [f32; 3] {
 }
 
 /// Controls how the physics simulation converges.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum SettleMode {
     /// Standard continuous simulation driven by a fixed-rate timer tick.
+    // Continuous is the default so the GPU physics loop keeps stepping and
+    // broadcasting indefinitely (required for the live XR client: the headset
+    // must keep animating and stay grab-responsive). FastSettle's bounded burst
+    // latched the loop off on convergence, freezing the graph. FastSettle remains
+    // available as an explicit runtime mode for one-shot layout passes.
+    #[default]
     Continuous,
     /// Aggressive convergence: override damping, iterate as fast as the GPU can
     /// compute until the system reaches the energy threshold (or hits the iteration
@@ -68,42 +74,21 @@ pub enum SettleMode {
     },
 }
 
-impl Default for SettleMode {
-    fn default() -> Self {
-        // Continuous is the default so the GPU physics loop keeps stepping and
-        // broadcasting indefinitely (required for the live XR client: the headset
-        // must keep animating and stay grab-responsive). FastSettle's bounded burst
-        // latched the loop off on convergence, freezing the graph. FastSettle remains
-        // available as an explicit runtime mode for one-shot layout passes.
-        SettleMode::Continuous
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SimulationMode {
+    #[default]
     Remote,
     Local,
 }
 
-impl Default for SimulationMode {
-    fn default() -> Self {
-        SimulationMode::Remote
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SimulationPhase {
+    #[default]
     Initial,
     Dynamic,
     Finalize,
-}
-
-impl Default for SimulationPhase {
-    fn default() -> Self {
-        SimulationPhase::Initial
-    }
 }
 
 /// Feature-flag bit constants for `SimParams.feature_flags`. The monolith's
@@ -527,8 +512,10 @@ mod tests {
 
     #[test]
     fn test_validate_bad_dt() {
-        let mut p = SimulationParams::default();
-        p.dt = -1.0;
+        let p = SimulationParams {
+            dt: -1.0,
+            ..Default::default()
+        };
         assert!(p.validate().is_err());
     }
 
@@ -555,10 +542,12 @@ mod tests {
 
     #[test]
     fn test_validate_multiple_errors_collected() {
-        let mut p = SimulationParams::default();
-        p.dt = -1.0; // invalid
-        p.damping = 2.0; // invalid (> 1)
-        p.repel_k = -1.0; // invalid
+        let p = SimulationParams {
+            dt: -1.0,      // invalid
+            damping: 2.0,  // invalid (> 1)
+            repel_k: -1.0, // invalid
+            ..Default::default()
+        };
         let err = p.validate().unwrap_err();
         // All three errors should be in the semicolon-separated message
         let count = err.split(';').count();
@@ -567,16 +556,20 @@ mod tests {
 
     #[test]
     fn test_validate_nan_field_caught() {
-        let mut p = SimulationParams::default();
-        p.dt = f32::NAN;
+        let p = SimulationParams {
+            dt: f32::NAN,
+            ..Default::default()
+        };
         let err = p.validate().unwrap_err();
         assert!(err.contains("dt"), "should mention dt: {}", err);
     }
 
     #[test]
     fn test_validate_infinite_field_caught() {
-        let mut p = SimulationParams::default();
-        p.max_velocity = f32::INFINITY;
+        let p = SimulationParams {
+            max_velocity: f32::INFINITY,
+            ..Default::default()
+        };
         let err = p.validate().unwrap_err();
         assert!(
             err.contains("max_velocity"),
@@ -636,11 +629,13 @@ mod tests {
     // these on the GPU path, so non-default user values had no visible effect.
     #[test]
     fn test_layout_controls_propagate_from_physics_settings() {
-        let mut physics = PhysicsSettings::default();
-        physics.graph_separation_x = 700.0;
-        physics.axis_compression_z = 0.5;
-        physics.enable_dual_disc_layout = true;
-        physics.adaptive_speed = false;
+        let physics = PhysicsSettings {
+            graph_separation_x: 700.0,
+            axis_compression_z: 0.5,
+            enable_dual_disc_layout: true,
+            adaptive_speed: false,
+            ..Default::default()
+        };
 
         let params = SimulationParams::from(&physics);
 
@@ -656,11 +651,13 @@ mod tests {
     // three layout controls rather than silently falling back to 0.0 / true.
     #[test]
     fn test_physics_settings_camelcase_roundtrip_preserves_layout_controls() {
-        let mut physics = PhysicsSettings::default();
-        physics.graph_separation_x = 700.0;
-        physics.axis_compression_z = 0.5;
-        physics.enable_dual_disc_layout = true;
-        physics.adaptive_speed = false;
+        let physics = PhysicsSettings {
+            graph_separation_x: 700.0,
+            axis_compression_z: 0.5,
+            enable_dual_disc_layout: true,
+            adaptive_speed: false,
+            ..Default::default()
+        };
 
         let stored = serde_json::to_value(&physics).unwrap();
         // The stored object uses camelCase keys (serde rename_all).
@@ -678,8 +675,10 @@ mod tests {
     // 1.5. It must survive PhysicsSettings -> SimulationParams conversion verbatim.
     #[test]
     fn test_sssp_alpha_propagates_and_is_not_hardcoded() {
-        let mut physics = PhysicsSettings::default();
-        physics.sssp_alpha = 3.25;
+        let physics = PhysicsSettings {
+            sssp_alpha: 3.25,
+            ..Default::default()
+        };
         let params = SimulationParams::from(&physics);
         assert_eq!(params.sssp_alpha, Some(3.25));
         // A hardcoded 1.5 would have ignored the 3.25 source value.
@@ -690,8 +689,10 @@ mod tests {
     // prior hardcoded 0.0001 override in the reverse path clobbered user values.
     #[test]
     fn test_gravity_propagates_from_physics_settings() {
-        let mut physics = PhysicsSettings::default();
-        physics.gravity = 0.5;
+        let physics = PhysicsSettings {
+            gravity: 0.5,
+            ..Default::default()
+        };
         let params = SimulationParams::from(&physics);
         assert!((params.gravity - 0.5).abs() < f32::EPSILON);
     }

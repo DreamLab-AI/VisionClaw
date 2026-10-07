@@ -5,7 +5,6 @@
 //! Uses horned-owl library for OWL parsing and supports multiple serialization formats.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 
 use horned_owl::io::owx::reader::read as read_owx;
@@ -321,7 +320,7 @@ mod tests {
 
         let parsed = result.unwrap();
         assert!(
-            parsed.classes.len() >= 1,
+            !parsed.classes.is_empty(),
             "Expected at least 1 class, got {}",
             parsed.classes.len()
         );

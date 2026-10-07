@@ -114,17 +114,17 @@ impl GraphSerializationService {
         ));
         fs::rename(export_path, &shared_path)?;
 
-        let mut shared_graph = SharedGraph::new(
-            request.title.clone(),
-            request.description.clone(),
-            None,
-            shared_path.to_string_lossy().to_string(),
-            export_response.file_size,
-            true,
-            request.export_format.clone(),
-            graph.nodes.len() as u32,
-            graph.edges.len() as u32,
-        );
+        let mut shared_graph = SharedGraph::new(NewSharedGraph {
+            title: request.title.clone(),
+            description: request.description.clone(),
+            creator_id: None,
+            file_path: shared_path.to_string_lossy().to_string(),
+            file_size: export_response.file_size,
+            compressed: true,
+            original_format: request.export_format.clone(),
+            node_count: graph.nodes.len() as u32,
+            edge_count: graph.edges.len() as u32,
+        });
 
         shared_graph.id = share_id;
         shared_graph.is_public = request.is_public;

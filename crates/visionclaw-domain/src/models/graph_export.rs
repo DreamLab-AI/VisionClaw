@@ -145,18 +145,34 @@ pub struct CompressionStats {
     pub algorithm: String,
 }
 
+/// Caller-supplied fields for [`SharedGraph::new`]; every other field takes
+/// its creation-time default (fresh id, public, no expiry or access limit).
+#[derive(Debug, Clone)]
+pub struct NewSharedGraph {
+    pub title: String,
+    pub description: Option<String>,
+    pub creator_id: Option<String>,
+    pub file_path: String,
+    pub file_size: u64,
+    pub compressed: bool,
+    pub original_format: ExportFormat,
+    pub node_count: u32,
+    pub edge_count: u32,
+}
+
 impl SharedGraph {
-    pub fn new(
-        title: String,
-        description: Option<String>,
-        creator_id: Option<String>,
-        file_path: String,
-        file_size: u64,
-        compressed: bool,
-        original_format: ExportFormat,
-        node_count: u32,
-        edge_count: u32,
-    ) -> Self {
+    pub fn new(new: NewSharedGraph) -> Self {
+        let NewSharedGraph {
+            title,
+            description,
+            creator_id,
+            file_path,
+            file_size,
+            compressed,
+            original_format,
+            node_count,
+            edge_count,
+        } = new;
         let now = time::now();
         Self {
             id: Uuid::new_v4(),
@@ -247,17 +263,17 @@ mod tests {
     use super::*;
 
     fn make_shared_graph() -> SharedGraph {
-        SharedGraph::new(
-            "Test Graph".to_string(),
-            Some("Desc".to_string()),
-            Some("creator-1".to_string()),
-            "/tmp/graph.json".to_string(),
-            1024,
-            false,
-            ExportFormat::Json,
-            10,
-            5,
-        )
+        SharedGraph::new(NewSharedGraph {
+            title: "Test Graph".to_string(),
+            description: Some("Desc".to_string()),
+            creator_id: Some("creator-1".to_string()),
+            file_path: "/tmp/graph.json".to_string(),
+            file_size: 1024,
+            compressed: false,
+            original_format: ExportFormat::Json,
+            node_count: 10,
+            edge_count: 5,
+        })
     }
 
     // --- ExportFormat ---

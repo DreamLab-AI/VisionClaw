@@ -130,12 +130,9 @@ impl ValidationReport {
     }
 }
 
-/// Helper to check if a feature is enabled
-pub fn is_feature_enabled(feature: &str) -> bool {
-    match feature {
-        "gpu" => cfg!(feature = "gpu"),
-        "ontology" => cfg!(feature = "ontology"),
-        _ => false,
+impl Default for ValidationReport {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -297,11 +294,6 @@ mod tests {
         std::env::set_var(key, "");
         assert!(!env_is_set(key));
         std::env::remove_var(key);
-    }
-
-    #[test]
-    fn test_is_feature_enabled_unknown_returns_false() {
-        assert!(!is_feature_enabled("nonexistent_feature_xyz"));
     }
 
     #[test]

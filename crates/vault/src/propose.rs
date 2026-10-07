@@ -1018,7 +1018,7 @@ scalars:
                 "urn:ngm:class:elsewhere"
             )]
         );
-        assert!(pre.is_empty());
+        assert_eq!(pre, []);
     }
 
     #[test]
@@ -1090,7 +1090,7 @@ scalars:
         );
 
         let (unsat, refusal) = whelk_findings(&g, 2);
-        assert!(unsat.is_empty());
+        assert_eq!(unsat, [] as [String; 0]);
         let blocker = refusal.expect("over the cap");
         assert_eq!(blocker.code, whelk::WHELK_RELEVANT_CAP);
         assert!(blocker.detail.contains("urn:p"), "{}", blocker.detail);
@@ -1147,7 +1147,7 @@ scalars:
         let vault = vault_of(vec![("A", GOOD)]);
         let p = propose_one(&vault, &GOOD.replace("status: stable\n", ""));
         assert!(!p.is_postable(), "dropping a required key is a new error");
-        assert!(p.preexisting.is_empty());
+        assert_eq!(p.preexisting, []);
     }
 
     #[test]
@@ -1156,7 +1156,7 @@ scalars:
         let vault = vault_of(vec![("A", &broken)]);
         let p = propose_one(&vault, &broken.replace("0.35", "0.55"));
         assert!(p.is_postable(), "{:?}", p.blockers);
-        assert!(!p.preexisting.is_empty());
+        assert_ne!(p.preexisting, []);
     }
 
     #[test]

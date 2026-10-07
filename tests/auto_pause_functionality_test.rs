@@ -17,7 +17,7 @@ mod tests {
 
     #[test]
     fn test_auto_pause_config_default() {
-        let config = AutoPauseConfig::default();
+        let config = AutoPauseConfig::recommended();
 
         assert!(config.enabled);
         assert_eq!(config.equilibrium_velocity_threshold, 0.1);
@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn test_simulation_params_auto_pause_initialization() {
         let mut params = SimulationParams::new();
-        params.auto_pause_config = AutoPauseConfig::default();
+        params.auto_pause_config = AutoPauseConfig::recommended();
 
         assert!(!params.is_physics_paused); // Should start unpaused
         assert_eq!(params.equilibrium_stability_counter, 0);
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn test_auto_pause_disabled_behavior() {
         // Test that auto-pause logic is skipped when disabled
-        let mut config = AutoPauseConfig::default();
+        let mut config = AutoPauseConfig::recommended();
         config.enabled = false;
 
         // With disabled config, equilibrium detection should not trigger
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_stability_counter_logic() {
         // Test the stability counter mechanism
-        let config = AutoPauseConfig::default();
+        let config = AutoPauseConfig::recommended();
         let mut stability_counter = 0u32;
 
         // Simulate multiple frames of stability

@@ -116,6 +116,12 @@ impl PathRegistry {
     }
 }
 
+impl Default for PathRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct BinarySettingsProtocol {
     path_registry: PathRegistry,
     compression_threshold: usize,
@@ -254,8 +260,7 @@ impl BinarySettingsProtocol {
                 // deserialiser can reconstruct the full Delta. The old
                 // serialiser wrote only one (the computed delta) but the
                 // deserialiser always read two — guaranteed parse failure
-                // on the receiver. compute_value_delta is still useful for
-                // wire size accounting but isn't what goes on the wire.
+                // on the receiver.
                 self.serialize_binary_value(&mut buffer, old_value)?;
                 self.serialize_binary_value(&mut buffer, new_value)?;
             }
@@ -583,14 +588,6 @@ impl BinarySettingsProtocol {
         }
     }
 
-    fn compute_value_delta(
-        &self,
-        old: &BinaryValue,
-        new: &BinaryValue,
-    ) -> Result<BinaryValue, String> {
-        Ok(new.clone())
-    }
-
     fn compress_data(&mut self, data: &[u8]) -> Result<Vec<u8>, String> {
         // Fresh ZlibEncoder per call. The previous implementation held a
         // single flate2::Compress on the struct, which is stateful and
@@ -636,6 +633,12 @@ impl BinarySettingsProtocol {
             return 0.0;
         }
         1.0 - (compressed_size as f64 / original_size as f64)
+    }
+}
+
+impl Default for BinarySettingsProtocol {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

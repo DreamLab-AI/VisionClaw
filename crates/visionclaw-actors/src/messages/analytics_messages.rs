@@ -5,7 +5,7 @@
 //!
 //! Blocked in webxr (stay in src/actors/messages/analytics_messages.rs):
 //!   - `KMeansResult`             — refs `handlers::api_handler::analytics::Cluster`,
-//!                                  `actors::gpu::clustering_actor::ClusteringStats`
+//!     `actors::gpu::clustering_actor::ClusteringStats`
 //!   - `RunKMeans`                — rtype refs KMeansResult (webxr-internal)
 //!   - `AnomalyResult`            — refs `actors::gpu::anomaly_detection_actor::AnomalyNode`
 //!   - `RunAnomalyDetection`      — rtype refs AnomalyResult (webxr-internal)

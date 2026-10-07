@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn degenerate_layouts_are_handled() {
-        assert!(force_layout(0, &[], 10, 42).is_empty());
+        assert_eq!(force_layout(0, &[], 10, 42), []);
         assert_eq!(force_layout(1, &[], 10, 42), vec![(0.0, 0.0)]);
     }
 

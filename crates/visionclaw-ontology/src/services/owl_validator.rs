@@ -65,21 +65,11 @@ pub struct Violation {
 }
 
 /// Constraint summary for validation reports
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConstraintSummary {
     pub total_constraints: usize,
     pub semantic_constraints: usize,
     pub structural_constraints: usize,
-}
-
-impl Default for ConstraintSummary {
-    fn default() -> Self {
-        Self {
-            total_constraints: 0,
-            semantic_constraints: 0,
-            structural_constraints: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -629,19 +619,6 @@ impl OwlValidatorService {
         format!("ontology_{}", self.calculate_signature(source))
     }
 
-    /// Expand a graph identifier into an absolute IRI.
-    ///
-    /// Decision rule (in order):
-    ///   1. Any string containing `://` is an absolute IRI (hierarchical scheme) → pass through.
-    ///   2. If the substring before the first `:` is a *registered* short CURIE prefix
-    ///      (rdf, rdfs, owl, xsd, foaf, …) → expand `prefix:local` to `namespace + local`.
-    ///   3. Else if the string looks like an absolute IRI — a well-known non-hierarchical
-    ///      scheme (urn, did, http, https, ftp, ftps, mailto, tag, file, data) OR a generic
-    ///      RFC 3986 scheme followed by a multi-segment remainder (e.g. `scheme:a:b`) →
-    ///      pass through unchanged.
-    ///   4. If there is no `:` at all, treat it as a bare local name under the default namespace.
-    ///   5. Otherwise the prefix is neither a registered CURIE nor a recognised absolute scheme
-    ///      → `Unknown prefix` error.
     /// Whether a property-graph node "label" is genuinely a type IRI (→ rdf:type)
     /// rather than a human display name (→ rdfs:label literal). A type is
     /// IRI-shaped: it contains no whitespace AND `expand_iri` accepts it (a
@@ -667,6 +644,19 @@ impl OwlValidatorService {
             .unwrap_or_else(|_| format!("http://example.org/{}", iri))
     }
 
+    /// Expand a graph identifier into an absolute IRI.
+    ///
+    /// Decision rule (in order):
+    ///   1. Any string containing `://` is an absolute IRI (hierarchical scheme) → pass through.
+    ///   2. If the substring before the first `:` is a *registered* short CURIE prefix
+    ///      (rdf, rdfs, owl, xsd, foaf, …) → expand `prefix:local` to `namespace + local`.
+    ///   3. Else if the string looks like an absolute IRI — a well-known non-hierarchical
+    ///      scheme (urn, did, http, https, ftp, ftps, mailto, tag, file, data) OR a generic
+    ///      RFC 3986 scheme followed by a multi-segment remainder (e.g. `scheme:a:b`) →
+    ///      pass through unchanged.
+    ///   4. If there is no `:` at all, treat it as a bare local name under the default namespace.
+    ///   5. Otherwise the prefix is neither a registered CURIE nor a recognised absolute scheme
+    ///      → `Unknown prefix` error.
     fn expand_iri(&self, iri: &str) -> Result<String> {
         // (1) Hierarchical absolute IRI (scheme://authority/...) — always absolute.
         if iri.contains("://") {
@@ -798,7 +788,7 @@ impl OwlValidatorService {
             {
                 individual_types
                     .entry(triple.subject.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(triple.object.clone());
             }
         }
@@ -860,7 +850,7 @@ impl OwlValidatorService {
             {
                 individual_types
                     .entry(triple.subject.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(triple.object.clone());
             }
         }
@@ -1183,7 +1173,7 @@ mod tests {
         let triples = validator.map_graph_to_rdf(&graph).unwrap();
         assert!(!triples.is_empty());
 
-        let inferred = validator.infer(&triples).unwrap();
+        let _inferred = validator.infer(&triples).unwrap();
     }
 
     #[test]
@@ -1312,7 +1302,7 @@ mod tests {
         let validator = OwlValidatorService::new();
 
         let string_val = serde_json::Value::String("test".to_string());
-        let (object, is_literal, datatype, _) =
+        let (_object, is_literal, datatype, _) =
             validator.serialize_property_value(&string_val).unwrap();
         assert!(is_literal);
         assert_eq!(
@@ -1321,7 +1311,7 @@ mod tests {
         );
 
         let int_val = serde_json::Value::Number(serde_json::Number::from(42));
-        let (object, is_literal, datatype, _) =
+        let (_object, is_literal, datatype, _) =
             validator.serialize_property_value(&int_val).unwrap();
         assert!(is_literal);
         assert_eq!(

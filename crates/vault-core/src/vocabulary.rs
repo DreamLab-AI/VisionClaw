@@ -1039,8 +1039,8 @@ relations:
         assert_eq!(t("needs"), [iri("narrow")]);
         // prefixed and absolute spellings agree
         assert_eq!(v.transitive_in_closure(&iri("requires")), t("requires"));
-        assert!(t("has-part").is_empty());
-        assert!(t("uses").is_empty());
+        assert_eq!(t("has-part"), [] as [String; 0]);
+        assert_eq!(t("uses"), [] as [String; 0]);
         // and the refusal names every culprit under the named code
         let r = v.transitive_refusal("requires").expect("refused");
         assert!(r.starts_with(DEFINITION_OVER_TRANSITIVE), "{r}");

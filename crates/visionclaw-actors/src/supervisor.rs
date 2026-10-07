@@ -303,7 +303,7 @@ impl Handler<ActorFailed> for SupervisorActor {
                         if let Some(last_restart) = state.last_restart {
                             if last_restart.elapsed() < state.actor_info.restart_window {
                                 warn!("Actor '{}' has exceeded max restart count ({}) within window ({:?})",
-                                      &msg.actor_name, state.actor_info.max_restart_count,
+                                      msg.actor_name, state.actor_info.max_restart_count,
                                       state.actor_info.restart_window);
                                 false
                             } else {
@@ -493,7 +493,6 @@ pub trait SupervisedActorTrait: Actor {
 mod tests {
     use super::*;
     use tokio::time::sleep;
-    use visionclaw_domain::utils::time;
 
     #[actix::test]
     async fn test_actor_registration() {

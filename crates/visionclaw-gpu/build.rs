@@ -326,7 +326,7 @@ fn main() {
         let result = Command::new("nvcc")
             .args(&obj_args)
             .output()
-            .expect(&format!("Failed to compile {}", obj_name));
+            .unwrap_or_else(|_| panic!("Failed to compile {}", obj_name));
 
         if !result.status.success() {
             let stderr = String::from_utf8_lossy(&result.stderr);

@@ -51,6 +51,12 @@ pub mod test_doubles {
         }
     }
 
+    impl Default for ChannelBroadcaster {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Broadcaster for ChannelBroadcaster {
         fn broadcast(&self, room: &RoomId, frame: &[u8]) {
             self.frames
