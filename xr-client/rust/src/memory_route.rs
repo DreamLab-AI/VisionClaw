@@ -50,10 +50,10 @@ pub const PULSE_PERIOD_S: f32 = 0.9;
 pub const TAIL_FRACTION: f32 = 0.18;
 
 // sizes in cloud-local units (TrajectoryLayer.tsx)
-pub const TUBE_R: f32 = 0.35;
+pub const TUBE_R: f32 = 0.45;
 pub const BEAD_R: f32 = 0.55;
 pub const COMET_R: f32 = 0.5;
-pub const RING_R: f32 = 1.4;
+pub const RING_R: f32 = 2.0;
 pub const MARK_R: f32 = 1.7;
 
 /// Ring vertices per tube cross-section (desktop 8; 6 keeps the headset share
