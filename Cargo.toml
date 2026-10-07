@@ -13,6 +13,7 @@ members = [
     "crates/vault-core",
     "crates/vault",
     "crates/visionclaw-integration-tests",
+    "crates/visionclaw-memory-cloud",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
 # (cdylib for the Quest APK, separate target). Exclude it from the server
@@ -125,6 +126,13 @@ cust_core = { version = "0.1.1" }
 # HTTP client and API
 reqwest = { version = "0.12.23", features = ["json", "stream", "multipart"] }
 nostr-sdk = "0.43.0"
+
+# Live memory cloud (ADR in docs/adr): read-only client for the RuVector
+# sidecar. Plain TCP on the internal network; the connection string comes
+# from RUVECTOR_PG_CONNINFO only.
+tokio-postgres = { version = "0.7.18", features = ["with-serde_json-1"] }
+deadpool-postgres = { version = "0.14.2", features = ["rt_tokio_1"] }
+visionclaw-memory-cloud = { path = "crates/visionclaw-memory-cloud" }
 
 # OpenAPI/Swagger documentation
 utoipa = { version = "5", features = ["actix_extras", "chrono", "uuid"] }
@@ -307,6 +315,12 @@ overflow-checks = true
 
 [profile.dev]
 opt-level = 1
+
+# The memory-cloud PCA is a dense 384x384 covariance plus power iteration;
+# unoptimised it takes seconds per snapshot. The crate is small, so optimise
+# it fully even in dev builds.
+[profile.dev.package.visionclaw-memory-cloud]
+opt-level = 3
 
 [package.metadata.rust-version]
 min = "1.75.0"

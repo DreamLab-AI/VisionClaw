@@ -882,6 +882,13 @@ async fn main() -> std::io::Result<()> {
     });
     info!("[ws-presence] XR presence registry + verifier initialised at /ws/presence");
 
+    // Live memory cloud (`/api/memory-cloud*`): one shared snapshot cache for
+    // every worker. Connects lazily; the first request starts the background
+    // refresher. Without RUVECTOR_PG_CONNINFO the data endpoints answer 503.
+    let memory_cloud_data = web::Data::from(
+        visionclaw_server::services::memory_cloud_service::MemoryCloudService::from_env(),
+    );
+
     // Pre-initialise Solid pod state in the main async context (FsBackend::new
     // is async). The state is injected via app_data so Actix workers don't need
     // to run async init inside their sync configure closure.
@@ -1064,7 +1071,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(validation_service.clone())
             .app_data(physics_service.clone())
             // PRD-008 — XR presence handler (Quest 3 native APK)
-            .app_data(presence_handler_state.clone());
+            .app_data(presence_handler_state.clone())
+            .app_data(memory_cloud_data.clone());
 
             // Inject pre-initialised Solid pod state (avoids async init in worker threads)
             #[cfg(feature = "solid-pod-embed")]
@@ -1188,6 +1196,10 @@ async fn main() -> std::io::Result<()> {
 
                     // Memory flash events (RuVector access → WS broadcast to all clients)
                     .configure(visionclaw_server::handlers::configure_memory_flash_routes)
+
+                    // Live memory cloud: stratified snapshot, vectors, sidecar
+                    // query, health + recall probe (shared state installed below)
+                    .configure(visionclaw_server::handlers::configure_memory_cloud_routes)
 
                     // Enrichment-proposals broker write-back (governance decisions)
                     .configure(visionclaw_server::handlers::configure_enrichment_proposals_routes)
