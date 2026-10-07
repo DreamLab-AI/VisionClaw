@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -342,3 +342,12 @@ Tests:
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-domain/src/models/edge.rs`: `SemanticEdgeType`'s hand-written `Default` becomes `#[derive(Default)]` on the same variant; `src/actors/gpu/force_compute_actor.rs`: `initialize_graph` is passed borrowed slices; utilisation uses `clamp(0, 100)`; doc paragraph breaks; `src/services/github_sync_service.rs`: `div_ceil`, `BoxFuture` for the fetch future, a `matches!` filter, a useless `.into()` removed; `src/services/semantic_type_registry.rs`: a redundant closure removed; a test uses `is_empty()`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/actors/gpu/force_compute_actor.rs`: deletes the never-read `last_step_start` and two actor-address fields that were always `None`.
+- `src/services/github_sync_service.rs`: deletes two uncalled private filter methods.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -325,3 +325,12 @@ moved down by six lines. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/handlers/socket_flow_handler/position_updates.rs`: the V3 encoder call passes `NodeClassIds::default()`; a percentage uses `checked_div`; `unwrap_or_default`; `src/main.rs`: `io::Error::new(Other, ..)` becomes `io::Error::other(..)`; a `let app = ..; app` binding inlined; `src/services/role_store.rs`: the never-constructed `TxOutcome::NoOp` variant deleted. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/handlers/socket_flow_handler/position_updates.rs`: drops an inert `None` argument to `fetch_hive_mind_agents`.
+- `src/main.rs`: removes the unread `PreReadSocketSettings` construction and its `app_data` registration, and drops dead constructor arguments to `OntologyQueryService` / `OntologyMutationService` (plus earlier lint-only edits since the recorded commit).
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

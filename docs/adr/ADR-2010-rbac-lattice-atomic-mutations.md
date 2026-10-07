@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
@@ -180,3 +180,11 @@ parse_default_role|effective_role`; `awk` dumps of `role_store.rs:195-215` and
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/services/role_store.rs`: the never-constructed `TxOutcome::NoOp` variant deleted. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/services/role_store.rs`: since the recorded commit: `map(canonicalise_pubkey)` and the removal of the never-constructed `TxOutcome::NoOp` variant (both lint-only).
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -170,3 +170,12 @@ this section repairs.
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/gpu/mod.rs`: the deprecated, unused `dynamic_buffer_manager` module deleted; `src/handlers/socket_flow_handler/actor_messages.rs`: the V3 encoder call passes `NodeClassIds::default()` for the five empty class sets; `src/handlers/socket_flow_handler/types.rs`: the never-called change-detection method, its two maps and deadband fields deleted; `get_client_id`'s identical branches merged; `tests/gpu_safety_tests.rs`: a never-read accumulator and index loops tidied. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/handlers/socket_flow_handler/mod.rs`: stops re-exporting the deleted `PreReadSocketSettings`.
+- `src/handlers/socket_flow_handler/types.rs`: deletes `PreReadSocketSettings` and eight never-read rate/motion fields; `dev_bypass_ok` is now compiled only in dev/`dev-auth` builds, matching its only reader.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

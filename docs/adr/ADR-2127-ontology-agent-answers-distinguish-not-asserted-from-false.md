@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
 verified_paths: [crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -53,3 +53,12 @@ Not implemented. Evidence of the current state at `c4570c081`: `ontology_tools.r
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-ontology/src/lib.rs`: crate-doc list indentation; `src/handlers/ontology_agent_handler.rs`: `split(..).last()` becomes `next_back()` (same element); `src/services/ontology_query_service.rs`: Levenshtein matrix initialised with iterator loops (same cells); `tests/ontology_agent_integration_test.rs`: rustfmt only. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-07 at 3b3ee7779 (clippy sweep, round 2)
+
+`chore/clippy-sweep` (merged with main at c025c1694) changes this record's governed paths only as follows:
+
+- `src/services/ontology_query_service.rs`: drops the never-read `graph_repo` field and its constructor parameter.
+- `tests/ontology_agent_integration_test.rs`: constructor calls updated; the now-unused `EmptyKGRepo` stub is removed.
+
+None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**

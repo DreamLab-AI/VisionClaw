@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b00c28a0d766c8cf46cd00b100dab60ef2dd74a4
-verified_paths: []
+verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_paths: [src/utils/agent_key.rs, src/handlers/image_gen_handler.rs, src/handlers/liveness_harness_handler.rs, src/handlers/enrichment_proposals_handler.rs]
 owner: jjohare
 review_trigger: any new route that authenticates with VISIONCLAW_AGENT_KEY, or a change to the dev-auth build profile
 repo: visionclaw
@@ -88,3 +88,33 @@ The tests assert the specific regression: `check_agent_key(None, Some("changeme-
 
 Not verified: no live request was issued against either route in this environment; the evidence is
 the pure-function tests plus the compile of both cfg arms.
+
+## Amendment — 2026-10-07 at 3b3ee7779: `subtle` replaces the hand-rolled fold
+
+**Governed change:** the comparison is no longer a hand-rolled XOR fold. The three copies of
+`constant_time_eq` and the three identical copies of `check_agent_key` (image-gen,
+liveness-harness, enrichment-proposals) collapse into one `crate::utils::agent_key::check_agent_key`.
+It compares with `subtle::ConstantTimeEq` (`subtle = "2.6.1"`, now a direct dependency; it was
+already in the lock through RustCrypto). This completes the shared-module follow-on recorded
+under Consequences.
+
+**Why the original "no new dependency" trade-off is reversed:** the estate rule is never to
+hand-roll a cryptographic primitive, and a constant-time comparison counts as one. A hand-written
+fold carries no guarantee that the optimiser keeps it branch-free. `subtle` is audited and built
+to resist exactly that (`black_box`-style barriers, `Choice`).
+
+**Semantics unchanged:** an unset or empty configured key and a missing header still fail closed.
+A length mismatch still rejects without comparing bytes (`subtle`'s slice `ct_eq` short-circuits
+on length, as the fold did; the key's length is not secret). The release/dev cfg split is
+unchanged. Before the swap, each call site gained a test pinning equal, unequal-same-length
+(first, middle and last byte) and different-length (empty, prefix, extension) inputs. They passed
+on the old fold and pass on `subtle`. A release build compiles the cfg-gated release path warning-free.
+
+```
+$ cargo test -p visionclaw-server --lib agent_key
+11 passed; 0 failed   (image-gen 5, enrichment-proposals 3, utils::agent_key 3)
+$ cargo test -p visionclaw-server --lib liveness_harness_handler::auth_tests
+5 passed; 0 failed
+```
+
+The decision (fail closed, constant-time) holds; only the implementation of the comparison moved.
