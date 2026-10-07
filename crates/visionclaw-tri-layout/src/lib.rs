@@ -438,8 +438,60 @@ mod tests {
                 })
             })
             .collect();
+        // A scripted drift run: the TS port replays the same events and steps.
+        // Event kinds: "action" (agent, vertex), "memory" (agent or null, all).
+        let events: Vec<(f64, &str, Option<u32>, usize)> = vec![
+            (0.0, "action", Some(1), 0),
+            (0.5, "action", Some(2), 1),
+            (1.0, "memory", None, 2),
+            (2.0, "action", Some(1), 0),
+            (2.5, "memory", Some(2), 2),
+            (4.0, "action", Some(3), 1),
+        ];
+        let all = [1u32, 2, 3];
+        let mut field = drift::DriftField::default();
+        let mut checkpoints = Vec::new();
+        let mut next = 0;
+        for i in 0..=150 {
+            let t = i as f64 * 0.1;
+            while next < events.len() && events[next].0 <= t + 1e-9 {
+                let (et, kind, agent, v) = events[next];
+                match kind {
+                    "action" => field.record_action(agent.unwrap(), Vertex::ALL[v], et),
+                    _ => field.record_memory(agent, &all, et),
+                }
+                next += 1;
+            }
+            field.step(t);
+            if i % 10 == 0 {
+                let coeffs: Vec<serde_json::Value> = all
+                    .iter()
+                    .map(|&a| {
+                        let c = field.get(a).map_or([0.0; 3], |x| x.coeffs());
+                        serde_json::json!([round(c[0]), round(c[1]), round(c[2])])
+                    })
+                    .collect();
+                checkpoints
+                    .push(serde_json::json!({ "t": (t * 10.0).round() / 10.0, "coeffs": coeffs }));
+            }
+        }
+        let drift_doc = serde_json::json!({
+            "half_life_s": drift::HALF_LIFE_S,
+            "idle_weight": drift::IDLE_WEIGHT,
+            "reach": drift::REACH,
+            "follow_s": drift::FOLLOW_S,
+            "settled_epsilon": drift::SETTLED_EPSILON,
+            "agents": all,
+            "step_s": 0.1,
+            "steps": 150,
+            "events": events.iter().map(|(t, k, a, v)| serde_json::json!({
+                "t": t, "kind": k, "agent": a, "vertex": v,
+            })).collect::<Vec<_>>(),
+            "checkpoints": checkpoints,
+        });
         let doc = serde_json::json!({
             "contract": "ADR-2135 separated layout triangle",
+            "drift": drift_doc,
             "full_strength_separation": FULL_STRENGTH_SEPARATION,
             "radius_per_separation": round(RADIUS_PER_SEPARATION),
             "vertex_angles_deg": VERTEX_ANGLES_DEG,

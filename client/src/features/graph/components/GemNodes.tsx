@@ -32,6 +32,8 @@ import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
 import { stepAgentOffset } from '../utils/agentNudge';
+import { agentDriftFeed } from '../../bots/agentDriftFeed';
+import { triangleFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -235,6 +237,12 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   const graphSeparation = useSettingsStore(s => s.get<number>('visualisation.graphs.knowledge.physics.graphSeparationX'));
   const separatedRef = useRef(false);
   separatedRef.current = typeof graphSeparation === 'number' && graphSeparation > 0;
+  // The separated-layout triangle, rebuilt only when the slider moves; agents
+  // drift from its centroid towards the graphs they work on (agentDriftFeed).
+  const triFrameRef = useRef<TriangleFrame>(triangleFrame(0));
+  if (triFrameRef.current.separation !== (separatedRef.current ? (graphSeparation as number) : 0)) {
+    triFrameRef.current = triangleFrame(separatedRef.current ? (graphSeparation as number) : 0);
+  }
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);
@@ -954,6 +962,9 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       }
     }
     const agentOff = isAgent ? agentOffsetsRef.current : null;
+    const drift = isAgent && separatedRef.current ? agentDriftFeed() : null;
+    drift?.step();
+    const triFrame = triFrameRef.current;
     for (let i = 0; i < visCount; i++) {
       let s = scaleCache[i];
       if (i === selectedLocalIdx) {
@@ -981,6 +992,12 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
       // working; when done, outward (merged) or home (separated). Dragged nodes skip.
       if (agentOff && i !== dragLocalIdx) {
         const o3 = i * 3;
+        // separated layout: the agent's home is the triangle centroid plus its
+        // activity drift (ADR-2135); the nudge then works from there
+        if (drift) {
+          const d = drift.offset(String(currentNodes[i].id), triFrame);
+          x += d[0]; y += d[1]; z += d[2];
+        }
         const work = getAgentWork(String(currentNodes[i].id));
         let hasTarget = false;
         if (work && work.state === 'working' && positions) {

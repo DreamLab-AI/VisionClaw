@@ -565,6 +565,10 @@ pub struct RenderStore {
     // beam frame and refined by the JSON `state` channel. Read by the hover glide
     // (P2), the work beam (P3) and the Swarm roster (P5). Empty ⇒ no swarm.
     agent_registry: HashMap<u32, AgentRec>,
+    // ADR-2135: each agent's drift from the separated-layout centroid towards
+    // the graphs it works on (the shared `visionclaw-tri-layout` rule), keyed
+    // by the masked agent id like the registry.
+    agent_drift: visionclaw_tri_layout::drift::DriftField,
     // Embodiment anchors (server space): where an agent's *avatar* currently is,
     // published by the scene each frame for agents it embodies. A work beam
     // starts at the anchor when one exists, else at the agent's streamed node
@@ -664,6 +668,7 @@ impl RenderStore {
         self.type_hidden = [false; 4];
         self.degree.clear();
         self.agent_registry.clear();
+        self.agent_drift = Default::default();
         self.heat.clear();
         self.agent_anchors.clear();
         self.agent_actions_total = 0;
@@ -967,6 +972,41 @@ impl RenderStore {
     }
 
     /// Sorted list of live agent ids (stable roster order for the Swarm tab / tests).
+    /// ADR-2135: an applied `0x23` action credits the vertex of its target's
+    /// population (the node's wire-flag class: knowledge or ontology) to the
+    /// acting agent's drift. Agent or unknown targets credit nothing.
+    /// `now_s` is any monotonic clock in seconds.
+    pub fn record_agent_drift(&mut self, source_agent_id: u32, target_node_id: u32, now_s: f64) {
+        use visionclaw_tri_layout::Vertex;
+        let vertex = match self.node_kind.get(&(target_node_id & NODE_ID_MASK)) {
+            Some(&KIND_KNOWLEDGE) => Vertex::Knowledge,
+            Some(&KIND_ONTOLOGY) => Vertex::Ontology,
+            _ => return,
+        };
+        self.agent_drift
+            .record_action(source_agent_id & NODE_ID_MASK, vertex, now_s);
+    }
+
+    /// ADR-2135: a `memory_flash` credits the memory vertex — to the named
+    /// agent, or shared equally by every agent in the registry.
+    pub fn record_memory_drift(&mut self, agent_id: Option<u32>, now_s: f64) {
+        let all = self.agent_ids();
+        self.agent_drift
+            .record_memory(agent_id.map(|a| a & NODE_ID_MASK), &all, now_s);
+    }
+
+    /// Ease every agent's drift to `now_s`, dropping agents that are home.
+    pub fn step_agent_drift(&mut self, now_s: f64) {
+        self.agent_drift.step(now_s);
+    }
+
+    /// An agent's drift offset from the triangle centroid (server space) at
+    /// this Graph Separation; zero when merged or idle.
+    pub fn agent_drift_offset(&self, agent_id: u32, separation: f32) -> [f32; 3] {
+        let frame = visionclaw_tri_layout::TriangleFrame::new(separation);
+        self.agent_drift.offset(agent_id & NODE_ID_MASK, &frame)
+    }
+
     pub fn agent_ids(&self) -> Vec<u32> {
         let mut ids: Vec<u32> = self.agent_registry.keys().copied().collect();
         ids.sort_unstable();
@@ -3874,5 +3914,69 @@ mod tests {
         assert!(!rec.expired);
         assert_eq!(rec.status, AGENT_WORKING);
         assert_eq!(rec.target_node_id, 22);
+    }
+
+    // --- ADR-2135 agent drift -------------------------------------------------
+
+    #[test]
+    fn agent_drift_follows_the_target_population_and_returns_home() {
+        let mut s = RenderStore::new();
+        s.set_node_kind(10, KIND_KNOWLEDGE);
+        s.set_node_kind(11, KIND_ONTOLOGY);
+        s.record_agent_action(0x8000_0005, 11, 0, 1000, "");
+        s.record_agent_drift(0x8000_0005, 11, 0.0);
+        s.step_agent_drift(0.0);
+        assert_eq!(
+            s.agent_drift_offset(5, 300.0),
+            [0.0; 3],
+            "spawns at the centroid"
+        );
+        for i in 1..=40 {
+            s.step_agent_drift(i as f64 * 0.1);
+        }
+        let o = s.agent_drift_offset(0x8000_0005, 300.0);
+        assert!(o[0] > 10.0, "towards the ontology (front-right): {o:?}");
+        assert_eq!(s.agent_drift_offset(5, 0.0), [0.0; 3], "merged: home");
+        for i in 0..400 {
+            s.step_agent_drift(4.0 + i as f64 * 0.5);
+        }
+        assert_eq!(s.agent_drift_offset(5, 300.0), [0.0; 3], "idle: back home");
+    }
+
+    #[test]
+    fn agent_drift_ignores_agent_and_unknown_targets() {
+        let mut s = RenderStore::new();
+        s.set_node_kind(12, 2); // agent class
+        s.record_agent_drift(5, 12, 0.0);
+        s.record_agent_drift(5, 99, 0.0);
+        for i in 0..20 {
+            s.step_agent_drift(i as f64 * 0.1);
+        }
+        assert_eq!(s.agent_drift_offset(5, 300.0), [0.0; 3]);
+    }
+
+    #[test]
+    fn memory_drift_names_one_agent_or_shares_across_the_registry() {
+        let mut s = RenderStore::new();
+        s.record_agent_action(1, 50, 0, 10, "");
+        s.record_agent_action(2, 50, 0, 10, "");
+        s.step_agent_drift(0.0);
+        s.record_memory_drift(Some(0x8000_0001), 0.0);
+        s.record_memory_drift(None, 0.0);
+        for i in 1..=40 {
+            s.step_agent_drift(i as f64 * 0.1);
+        }
+        let a = s.agent_drift_offset(1, 300.0);
+        let b = s.agent_drift_offset(2, 300.0);
+        assert!(
+            a[2] < b[2] && b[2] < -1.0,
+            "both behind, the named one further: {a:?} {b:?}"
+        );
+        s.clear();
+        assert_eq!(
+            s.agent_drift_offset(1, 300.0),
+            [0.0; 3],
+            "clear resets drift"
+        );
     }
 }

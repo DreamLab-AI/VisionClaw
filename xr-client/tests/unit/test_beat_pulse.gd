@@ -253,6 +253,32 @@ func test_flash_with_the_cloud_shown_restyles_sprites_instead_of_drawing_rings()
 	await get_tree().process_frame
 
 
+func test_memory_flashes_feed_the_agent_drift_even_with_bursts_off() -> void:
+	# ADR-2135: every flash credits the memory vertex of the separated layout,
+	# to its named agent or (agent_id -1) to every agent; bursts are irrelevant.
+	var root := Node3D.new()
+	add_child(root)
+	var fake_scene := Node.new()
+	root.add_child(fake_scene)
+	var effects := Node3D.new()
+	root.add_child(effects)
+	var client := FakeDriftClient.new()
+	var beat: Node = (load("res://scripts/beat_pulse.gd") as GDScript).new()
+	root.add_child(beat)
+	beat.setup(fake_scene, client, null, null, null, effects, func() -> Vector3: return Vector3.ZERO)
+	beat.bursts_enabled = false
+	beat.on_text('{"type":"memory_flash","data":[{"key":"a","agentId":2147483651},{"key":"b"}]}', "memory_flash")
+	assert_eq(client.flashes, [2147483651, -1], "named agent, then unnamed")
+	root.queue_free()
+	await get_tree().process_frame
+
+
+class FakeDriftClient extends RefCounted:
+	var flashes: Array = []
+	func record_memory_flash(agent_id: int) -> void: flashes.append(agent_id)
+	func send_text(_t: String) -> bool: return true
+
+
 class FakeCloud extends RefCounted:
 	var enabled := true
 	var calls: Array = []

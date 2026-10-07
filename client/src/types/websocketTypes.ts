@@ -20,7 +20,7 @@ export interface WorkspaceUpdateMessage extends BaseWebSocketMessage {
       memberCount: number;
       favorite: boolean;
       lastAccessed: string;
-      settings: Record<string, any>;
+      settings: Record<string, unknown>;
     }>;
     userId?: string;
     operation: 'create' | 'update' | 'delete' | 'favorite' | 'archive';
@@ -52,7 +52,7 @@ export interface AnalysisProgressMessage extends BaseWebSocketMessage {
   data: {
     analysisId: string;
     graphId?: string;
-    progress: number; 
+    progress: number;
     stage: string;
     estimatedTimeRemaining?: number;
     currentOperation: string;
@@ -108,7 +108,7 @@ export interface OptimizationUpdateMessage extends BaseWebSocketMessage {
   data: {
     optimizationId: string;
     graphId?: string;
-    progress: number; 
+    progress: number;
     algorithm: string;
     currentIteration: number;
     totalIterations: number;
@@ -157,7 +157,7 @@ export interface ExportProgressMessage extends BaseWebSocketMessage {
     exportId: string;
     graphId?: string;
     format: string;
-    progress: number; 
+    progress: number;
     stage: 'preparing' | 'processing' | 'rendering' | 'finalizing' | 'uploading';
     size?: number;
     estimatedTimeRemaining?: number;
@@ -238,7 +238,7 @@ export interface UserActivityMessage extends BaseWebSocketMessage {
     action: string;
     resource: string;
     resourceId?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   };
 }
 
@@ -282,7 +282,7 @@ export interface GraphProcessingProgressMessage extends BaseWebSocketMessage {
   data: {
     taskId: string;
     graphId?: string;
-    progress: number; 
+    progress: number;
     stage: string;
     currentOperation: string;
     estimatedTimeRemaining?: number;
@@ -301,7 +301,7 @@ export interface GraphProcessingCompleteMessage extends BaseWebSocketMessage {
     taskId: string;
     graphId?: string;
     success: boolean;
-    results?: any;
+    results?: unknown;
     processedSteps?: number;
     totalTime?: number;
     error?: string;
@@ -324,7 +324,7 @@ export interface TimeTraverseProgressMessage extends BaseWebSocketMessage {
   data: {
     taskId: string;
     graphId?: string;
-    progress: number; 
+    progress: number;
     stage: string;
     currentStep: number;
     totalSteps: number;
@@ -340,7 +340,7 @@ export interface TimeTraverseCompleteMessage extends BaseWebSocketMessage {
     graphId?: string;
     success: boolean;
     totalSteps: number;
-    timeline?: any;
+    timeline?: unknown;
     processingTime?: number;
     error?: string;
   };
@@ -481,6 +481,8 @@ export interface MemoryFlashMessage extends BaseWebSocketMessage {
     namespace: string;
     action: string;
     timestamp: number;
+    /** wire id of the agent that touched memory, when the producer named it (ADR-2135) */
+    agentId?: number;
   };
 }
 
@@ -555,34 +557,34 @@ export type WebSocketMessage =
 export type MessageHandler<T extends WebSocketMessage = WebSocketMessage> = (message: T) => void;
 
 export interface WebSocketEventHandlers {
-  
+
   workspace_update: MessageHandler<WorkspaceUpdateMessage>;
   workspace_deleted: MessageHandler<WorkspaceDeletedMessage>;
   workspace_collaboration: MessageHandler<WorkspaceCollaborationMessage>;
 
-  
+
   analysis_progress: MessageHandler<AnalysisProgressMessage>;
   analysis_complete: MessageHandler<AnalysisCompleteMessage>;
   analysis_error: MessageHandler<AnalysisErrorMessage>;
 
-  
+
   optimization_update: MessageHandler<OptimizationUpdateMessage>;
   optimization_result: MessageHandler<OptimizationResultMessage>;
 
-  
+
   export_progress: MessageHandler<ExportProgressMessage>;
   export_ready: MessageHandler<ExportReadyMessage>;
   share_created: MessageHandler<ShareCreatedMessage>;
   share_access: MessageHandler<ShareAccessMessage>;
 
-  
+
   connection_status: MessageHandler<ConnectionStatusMessage>;
   system_notification: MessageHandler<SystemNotificationMessage>;
   user_activity: MessageHandler<UserActivityMessage>;
   performance_metrics: MessageHandler<PerformanceMetricsMessage>;
   server_health: MessageHandler<ServerHealthMessage>;
 
-  
+
   graph_processing_progress: MessageHandler<GraphProcessingProgressMessage>;
   graph_processing_complete: MessageHandler<GraphProcessingCompleteMessage>;
   graph_processing_error: MessageHandler<GraphProcessingErrorMessage>;
@@ -647,7 +649,7 @@ export interface WebSocketError {
   type: 'connection' | 'protocol' | 'auth' | 'rate_limit' | 'server' | 'client';
   retryable: boolean;
   retryAfter?: number;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 // Statistics and monitoring

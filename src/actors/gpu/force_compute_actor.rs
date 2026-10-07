@@ -21,11 +21,7 @@ use glam::Vec3;
 
 use cudarc::driver::CudaDevice;
 
-use super::display_projection::{
-    agent_index, agent_indices, project_display, target_vertex, DisplayMode, GraphPopulation,
-    LayoutParams,
-};
-use visionclaw_tri_layout::drift::DriftField;
+use super::display_projection::{project_display, DisplayMode, GraphPopulation, LayoutParams};
 
 // ---------------------------------------------------------------------------
 // Divergence hardening constants
@@ -147,14 +143,6 @@ pub struct ForceComputeActor {
     /// Per-node graph population classification for dual-graph X-axis offset.
     /// Indexed by GPU buffer index. Populated during graph upload from node_type field.
     node_population: Vec<GraphPopulation>,
-
-    /// ADR-2135: recent activity of each agent node (keyed by GPU index),
-    /// which drifts it from the centroid towards the graphs it works on in
-    /// the separated layout. Display-only, like the projection it feeds.
-    agent_drift: DriftField,
-
-    /// Monotonic origin of the drift clock.
-    drift_epoch: Instant,
 
     /// ADR-141 P3: cached DAG hierarchy ranks (the `node_rank` key vec computed at
     /// upload). Retained so `SetRadialLayout { DagRank }` can re-key on demand
@@ -287,8 +275,6 @@ impl ForceComputeActor {
             node_id_buffer: Vec::with_capacity(10000),
             gpu_index_to_node_id: Vec::new(),
             node_population: Vec::new(),
-            agent_drift: DriftField::default(),
-            drift_epoch: Instant::now(),
             dag_ranks: Vec::new(),
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
@@ -868,9 +854,6 @@ impl ForceComputeActor {
         let mut node_indices = std::collections::HashMap::new();
         self.gpu_index_to_node_id = Vec::with_capacity(num_nodes);
         self.node_population = Vec::with_capacity(num_nodes);
-        // GPU indices are reassigned on upload; old drift keys would land on
-        // other nodes.
-        self.agent_drift = DriftField::default();
         let mut pop_counts = [0usize; 3]; // [knowledge, ontology, agent]
         for (i, node) in graph_data.nodes.iter().enumerate() {
             node_indices.insert(node.id, i);
@@ -1691,102 +1674,12 @@ impl Default for ForceComputeActor {
     }
 }
 
-/// An agent acted on a node (a `0x23` action), ADR-2135 drift input.
-#[derive(Message, Debug, Clone, Copy)]
-#[rtype(result = "()")]
-pub struct RecordAgentAction {
-    /// Wire id of the acting agent node (flag bits allowed).
-    pub source_agent_id: u32,
-    /// Wire id of the node it acted on (flag bits allowed).
-    pub target_node_id: u32,
-}
-
-/// Memory was accessed (a `memory_flash`), ADR-2135 drift input.
-#[derive(Message, Debug, Clone, Copy)]
-#[rtype(result = "()")]
-pub struct RecordMemoryActivity {
-    /// Wire id of the agent, when the producer named it.
-    pub agent_id: Option<u32>,
-}
-
-impl Handler<RecordAgentAction> for ForceComputeActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: RecordAgentAction, _ctx: &mut Self::Context) {
-        let agent = agent_index(&self.node_population, msg.source_agent_id);
-        let vertex = target_vertex(&self.node_population, msg.target_node_id);
-        if let (Some(a), Some(v)) = (agent, vertex) {
-            let now = self.drift_epoch.elapsed().as_secs_f64();
-            self.agent_drift.record_action(a, v, now);
-        }
-    }
-}
-
-impl Handler<RecordMemoryActivity> for ForceComputeActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: RecordMemoryActivity, _ctx: &mut Self::Context) {
-        let now = self.drift_epoch.elapsed().as_secs_f64();
-        match msg.agent_id {
-            // A named agent that is not an agent node of this graph is ignored.
-            Some(id) => {
-                if let Some(a) = agent_index(&self.node_population, id) {
-                    self.agent_drift.record_memory(Some(a), &[], now);
-                }
-            }
-            None => {
-                let all = agent_indices(&self.node_population);
-                self.agent_drift.record_memory(None, &all, now);
-            }
-        }
-    }
-}
-
 impl Actor for ForceComputeActor {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
+    fn started(&mut self, _ctx: &mut Self::Context) {
         info!("ForceComputeActor: Started — initializing GPU context");
 
-        // ADR-2135: feed agent drift from the two activity streams. Both hubs
-        // are bounded broadcasts; a lagged receiver skips ahead (drift is a
-        // recency signal) and a closed hub ends its task.
-        let addr = ctx.address();
-        let mut actions = crate::agent_events::hub::subscribe();
-        actix::spawn(async move {
-            use tokio::sync::broadcast::error::RecvError;
-            loop {
-                match actions.recv().await {
-                    Ok(env) => addr.do_send(RecordAgentAction {
-                        source_agent_id: env.source_agent_id,
-                        target_node_id: env.target_node_id,
-                    }),
-                    Err(RecvError::Lagged(_)) => continue,
-                    Err(RecvError::Closed) => break,
-                }
-            }
-        });
-        let addr = ctx.address();
-        let mut memory = crate::agent_events::memory_hub::subscribe();
-        actix::spawn(async move {
-            use tokio::sync::broadcast::error::RecvError;
-            loop {
-                match memory.recv().await {
-                    Ok(m) => addr.do_send(RecordMemoryActivity {
-                        agent_id: m.agent_id,
-                    }),
-                    Err(RecvError::Lagged(_)) => continue,
-                    Err(RecvError::Closed) => break,
-                }
-            }
-        });
-
-        // Self-initialize the GPU context immediately on startup.
-        // This is the primary init path. The supervisor chain (GPUResourceActor ->
-        // GPUManagerActor -> ResourceSupervisor -> PhysicsSupervisor -> here) is a
-        // secondary path that can also set the context via SetSharedGPUContext.
-        // If the supervisor chain delivers a context later, it will be accepted and
-        // the self-created context will be replaced (see SetSharedGPUContext handler).
         self.initialize_own_gpu_context();
     }
 
@@ -2153,13 +2046,12 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     actor.simulation_params.axis_compression_z,
                                     actor.simulation_params.enable_dual_disc_layout,
                                 );
-                                actor.agent_drift.step(actor.drift_epoch.elapsed().as_secs_f64());
                                 // Once-per-300-iter diagnostic to verify the params reach this site.
                                 if actor.gpu_state.iteration_count % 300 == 0 && layout.separation > 0.0 {
                                     info!(
-                                        "ForceComputeActor: triangle projection iter={} separation={:.1} face_scale={:.2} dual_disc={} populations={} drifting_agents={}",
+                                        "ForceComputeActor: triangle projection iter={} separation={:.1} face_scale={:.2} dual_disc={} populations={}",
                                         actor.gpu_state.iteration_count, layout.separation, layout.face_scale,
-                                        layout.dual_disc, actor.node_population.len(), actor.agent_drift.len()
+                                        layout.dual_disc, actor.node_population.len()
                                     );
                                 }
                                 // NOTE: projection is applied DISPLAY-ONLY, after the
@@ -2235,7 +2127,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                             // path to a copy of the last-known-good layout, so a bad
                                             // frame never briefly re-orients or collapses the layout.
                                             let mut fallback = actor.last_good_positions.clone();
-                                            project_display(&mut fallback, &actor.node_population, &layout, &actor.agent_drift);
+                                            project_display(&mut fallback, &actor.node_population, &layout);
                                             for (node_id, pos, vel) in fallback.iter() {
                                                 node_updates.push((*node_id, BinaryNodeDataClient::new(
                                                     *node_id,
@@ -2306,7 +2198,6 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     &mut actor.position_velocity_buffer,
                                     &actor.node_population,
                                     &layout,
-                                    &actor.agent_drift,
                                 );
 
                                 // Diagnostic: log first few positions on early frames (6 decimal places for velocity)
@@ -3107,7 +2998,6 @@ impl Handler<ForceFullBroadcast> for ForceComputeActor {
                         &mut positions,
                         &actor.node_population,
                         &layout,
-                        &actor.agent_drift,
                     );
 
                     let mut node_updates = Vec::with_capacity(n);

@@ -1460,6 +1460,36 @@ impl BinaryProtocolClient {
 
     /// Sorted live agent ids — roster order for the Swarm tab (P5) and a probe
     /// for diagnostics.
+    /// ADR-2135: a `memory_flash` credits the memory vertex of the separated
+    /// layout to agent `agent_id` (a wire id; `< 0` = unnamed, shared by every
+    /// registered agent). Fed by `beat_pulse.gd` from MemoryFlashCodec's
+    /// `agent_id`.
+    #[func]
+    fn record_memory_flash(&mut self, agent_id: i64) {
+        let now_s = self.created.elapsed().as_secs_f64();
+        let agent = u32::try_from(agent_id).ok();
+        self.store.record_memory_drift(agent, now_s);
+    }
+
+    /// ADR-2135: ease every agent's drift to now (GraphScene calls it at the
+    /// embodiment cadence while the layout is separated).
+    #[func]
+    fn step_agent_drift(&mut self) {
+        let now_s = self.created.elapsed().as_secs_f64();
+        self.store.step_agent_drift(now_s);
+    }
+
+    /// ADR-2135: an agent's offset from the separated-layout centroid in server
+    /// space for this Graph Separation (zero when merged or idle). The work
+    /// layer rests at the centroid plus this offset.
+    #[func]
+    fn agent_drift_offset(&self, agent_id: i64, separation: f32) -> Vector3 {
+        let o = u32::try_from(agent_id)
+            .map(|a| self.store.agent_drift_offset(a, separation))
+            .unwrap_or([0.0; 3]);
+        Vector3::new(o[0], o[1], o[2])
+    }
+
     #[func]
     fn agent_ids(&self) -> PackedInt32Array {
         let ids: Vec<i32> = self
@@ -2136,14 +2166,20 @@ impl BinaryProtocolClient {
                         }
                     }
                 }
+                let now_s = self.created.elapsed().as_secs_f64();
                 for a in &actions {
-                    self.store.record_agent_action(
+                    let applied = self.store.record_agent_action(
                         a.source_agent_id,
                         a.target_node_id,
                         a.action_type,
                         a.timestamp,
                         &a.task,
                     );
+                    // ADR-2135: only an applied (in-order) action moves the drift
+                    if applied {
+                        self.store
+                            .record_agent_drift(a.source_agent_id, a.target_node_id, now_s);
+                    }
                 }
                 debug!(
                     count = actions.len(),

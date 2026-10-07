@@ -10,7 +10,9 @@
 //! * **Triangle** — separation > 0 or dual-disc on: each population is
 //!   re-centred on its own median, Z-compressed, then placed on its vertex of
 //!   the shared [`TriangleFrame`] (knowledge and ontology yawed to face the
-//!   centroid; agents at the centroid plus their [`DriftField`] offset).
+//!   centroid; agent nodes at the centroid). The agents' drift towards the
+//!   graphs they work on is applied by the clients, which own every agent
+//!   body they draw (ADR-2135).
 //!
 //! The caller restores the pristine physics positions before the next step.
 //! The projection must never feed back into the simulation buffer: the
@@ -22,7 +24,7 @@
 //! (`legacy_parity` tests below hold it to the old code).
 
 use glam::Vec3;
-use visionclaw_tri_layout::{drift::DriftField, TriangleFrame, Vertex};
+use visionclaw_tri_layout::{TriangleFrame, Vertex};
 
 /// Per-node population, the GPU-local mirror of the canonical
 /// [`visionclaw_domain::models::Population`] (the single classifier is
@@ -73,10 +75,6 @@ pub(crate) const DISC_RIM_RADIUS: f32 = 2600.0;
 
 /// Floor for the continuous `axis_compression_z` Z-scale (1.0 = fully 3D).
 pub(crate) const Z_SCALE_MIN: f32 = 0.05;
-
-/// Low 26 bits of a wire node id; the high bits carry type flags
-/// (`binary_protocol::NODE_ID_MASK`). Wire ids are compact GPU indices.
-pub(crate) const NODE_ID_MASK: u32 = 0x03FF_FFFF;
 
 /// Clamp `axis_compression_z` into `[Z_SCALE_MIN, 1.0]`.
 #[inline]
@@ -198,14 +196,12 @@ pub(crate) fn population_centroids<T: HasPosition>(
 }
 
 /// Rewrite the broadcast positions in `items` for `params`, returning the
-/// mode applied. `populations[i]` classifies `items[i]`; agents are offset
-/// by `drift` (keyed by GPU index). Items beyond the population table are
-/// left alone in triangle mode, as before.
+/// mode applied. `populations[i]` classifies `items[i]`. Items beyond the
+/// population table are left alone in triangle mode, as before.
 pub(crate) fn project_display<T: HasPosition>(
     items: &mut [T],
     populations: &[GraphPopulation],
     params: &LayoutParams,
-    drift: &DriftField,
 ) -> DisplayMode {
     let mode = display_mode(params, populations.len());
     match mode {
@@ -229,7 +225,7 @@ pub(crate) fn project_display<T: HasPosition>(
                 frame.strength
             };
             let w_z = frame.strength;
-            for (i, (item, &pop)) in items.iter_mut().zip(populations).enumerate() {
+            for (item, &pop) in items.iter_mut().zip(populations) {
                 let c = centroids[pop.index()];
                 let p = item.position_mut();
                 let mut local = Vec3::new(p.x - w_xy * c.x, p.y - w_xy * c.y, p.z - w_z * c.z);
@@ -244,47 +240,14 @@ pub(crate) fn project_display<T: HasPosition>(
                 local.z *= params.face_scale;
                 let placed = match pop.vertex() {
                     Some(v) => frame.place(v, local.to_array()),
-                    None => {
-                        let o = drift.offset(i as u32, &frame);
-                        [local.x + o[0], local.y + o[1], local.z + o[2]]
-                    }
+                    // agent nodes keep the centroid; the clients add the drift
+                    None => local.to_array(),
                 };
                 *p = Vec3::from_array(placed);
             }
         }
     }
     mode
-}
-
-/// GPU index of the agent node a `0x23` `source_agent_id` names, if it is an
-/// agent node of the current graph (the flag bits are masked off).
-pub(crate) fn agent_index(populations: &[GraphPopulation], source_agent_id: u32) -> Option<u32> {
-    let i = source_agent_id & NODE_ID_MASK;
-    match populations.get(i as usize) {
-        Some(GraphPopulation::Agent) => Some(i),
-        _ => None,
-    }
-}
-
-/// The vertex of the graph a `0x23` `target_node_id` belongs to; none for an
-/// agent target or an id outside the graph.
-pub(crate) fn target_vertex(
-    populations: &[GraphPopulation],
-    target_node_id: u32,
-) -> Option<Vertex> {
-    populations
-        .get((target_node_id & NODE_ID_MASK) as usize)
-        .and_then(|p| p.vertex())
-}
-
-/// GPU indices of every agent node.
-pub(crate) fn agent_indices(populations: &[GraphPopulation]) -> Vec<u32> {
-    populations
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| **p == GraphPopulation::Agent)
-        .map(|(i, _)| i as u32)
-        .collect()
 }
 
 #[cfg(test)]
@@ -361,14 +324,13 @@ mod tests {
 
     #[test]
     fn legacy_parity_at_separation_zero_in_every_mode() {
-        let drift = DriftField::default();
         for dual in [false, true] {
             for axis in [1.0, 0.5, 0.1, 0.0] {
                 let (orig, pops) = sample(301, 7);
                 let mut ours = orig.clone();
                 let mut theirs = orig.clone();
                 let params = LayoutParams::new(0.0, axis, dual);
-                project_display(&mut ours, &pops, &params, &drift);
+                project_display(&mut ours, &pops, &params);
                 legacy_project(&mut theirs, &pops, 0.0, clamp_z_scale(axis), dual);
                 for (a, b) in ours.iter().zip(&theirs) {
                     assert!(
@@ -405,7 +367,7 @@ mod tests {
         for dual in [false, true] {
             let mut pos = orig.clone();
             let params = LayoutParams::new(300.0, 0.2, dual);
-            project_display(&mut pos, &pops, &params, &DriftField::default());
+            project_display(&mut pos, &pops, &params);
             // A per-axis median is not rotation-equivariant, so check it in each
             // body's own frame: unplace() undoes the yaw and the vertex offset,
             // leaving the re-centred population, whose median is the origin.
@@ -444,12 +406,7 @@ mod tests {
         // the radial direction through the centroid.
         let (orig, pops) = sample(600, 3);
         let mut pos = orig.clone();
-        project_display(
-            &mut pos,
-            &pops,
-            &LayoutParams::new(400.0, 0.0, true),
-            &DriftField::default(),
-        );
+        project_display(&mut pos, &pops, &LayoutParams::new(400.0, 0.0, true));
         let f = TriangleFrame::new(400.0);
         for v in [Vertex::Knowledge, Vertex::Ontology] {
             let c = Vec3::from_array(f.vertex(v));
@@ -481,12 +438,7 @@ mod tests {
             let mut sep = 0.0;
             while sep <= 400.0 {
                 let mut pos = orig.clone();
-                project_display(
-                    &mut pos,
-                    &pops,
-                    &LayoutParams::new(sep, 0.6, dual),
-                    &DriftField::default(),
-                );
+                project_display(&mut pos, &pops, &LayoutParams::new(sep, 0.6, dual));
                 if let Some(p) = &prev {
                     let jump = p
                         .iter()
@@ -504,47 +456,25 @@ mod tests {
     }
 
     #[test]
-    fn agents_get_their_drift_offset() {
+    fn agent_nodes_sit_at_the_centroid_unrotated() {
+        // Agents are re-centred on their own median and never yawed or moved to
+        // a vertex: the clients add the activity drift (ADR-2135).
         let pops = vec![Knowledge, Agent, Ontology, Agent];
-        let orig = vec![Vec3::ZERO; 4];
-        let mut drift = DriftField::default();
-        drift.step(0.0);
-        drift.record_action(1, Vertex::Ontology, 0.0);
-        for i in 1..=60 {
-            drift.step(i as f64 * 0.1);
-        }
-        let params = LayoutParams::new(300.0, 1.0, false);
+        let orig = vec![
+            Vec3::new(50.0, 0.0, 0.0),
+            Vec3::new(10.0, 2.0, -4.0),
+            Vec3::new(-50.0, 0.0, 0.0),
+            Vec3::new(14.0, 6.0, 8.0),
+        ];
         let mut pos = orig.clone();
-        project_display(&mut pos, &pops, &params, &drift);
-        let f = TriangleFrame::new(300.0);
-        let want = Vec3::from_array(drift.offset(1, &f));
-        assert!(want.length() > 10.0);
-        // agents' median is re-centred to the origin first; both agents sit at 0 here
-        assert!((pos[1] - want).length() < 1e-3, "{} vs {}", pos[1], want);
-        assert!(pos[3].length() < 1e-3, "idle agent stays at the centroid");
-    }
-
-    #[test]
-    fn id_mapping_masks_flags_and_checks_populations() {
-        let pops = vec![Knowledge, Ontology, Agent];
-        assert_eq!(agent_index(&pops, 2 | 0x8000_0000), Some(2));
-        assert_eq!(agent_index(&pops, 0), None, "not an agent node");
-        assert_eq!(agent_index(&pops, 99), None);
-        assert_eq!(
-            target_vertex(&pops, 0x4000_0000),
-            Some(Vertex::Knowledge)
+        project_display(&mut pos, &pops, &LayoutParams::new(300.0, 1.0, false));
+        // agent median = (14, 6, 8) (upper median of two); offsets kept unrotated
+        assert!(
+            (pos[1] - Vec3::new(-4.0, -4.0, -12.0)).length() < 1e-4,
+            "{}",
+            pos[1]
         );
-        assert_eq!(
-            target_vertex(&pops, 1 | 0x0400_0000),
-            Some(Vertex::Ontology)
-        );
-        assert_eq!(
-            target_vertex(&pops, 2),
-            None,
-            "agent targets have no vertex"
-        );
-        assert_eq!(target_vertex(&pops, 7), None);
-        assert_eq!(agent_indices(&pops), vec![2]);
+        assert!(pos[3].length() < 1e-4, "{}", pos[3]);
     }
 
     #[test]

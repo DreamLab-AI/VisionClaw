@@ -16,7 +16,6 @@
 
 pub mod hub;
 pub mod ingest;
-pub mod memory_hub;
 pub mod provenance;
 pub mod schema;
 

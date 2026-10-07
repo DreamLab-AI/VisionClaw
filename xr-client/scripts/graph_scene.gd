@@ -2370,6 +2370,10 @@ const CONVERSATION_LAYER := "conversation"
 const RIM_PADDING_M: float = 0.3     # rim slots sit this far outside the fitted bounds
 const RIM_SLOTS: int = 8             # slots spread across the front-facing ±60° arc
 const RIM_FALLBACK_RADIUS_M: float = 1.5
+## ADR-2135: while the layout is separated, work agents rest at the triangle's
+## centroid plus their activity drift, spread on a small ring so they do not stack.
+const DRIFT_REST_SPREAD_M: float = 0.18
+var _drift_rest_active: bool = false
 
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
@@ -2473,6 +2477,44 @@ func _reconcile_embodiment() -> void:
 	for id: int in _embodied.keys():
 		if not seen.has(id):
 			_despawn_work_agent(id)
+	_apply_drift_rest_slots()
+
+
+# ADR-2135: in the separated layout the agents' domain is the centre of the
+# knowledge / ontology / memory triangle. Each work agent's rest (rim) slot
+# becomes the centroid (server origin) plus its activity drift, which leans it
+# towards the graphs it has been working on and decays home when it is idle.
+# The choreography stays the only pose writer (Invariant 8): this only moves
+# the slot it parks at. Back to separation 0, the front-arc rim slots return.
+func _apply_drift_rest_slots() -> void:
+	if _choreo == null or _binary_client == null or not _binary_client.has_method("agent_drift_offset"):
+		return
+	var separated: bool = _graph_separation > 0.0
+	if not separated:
+		if _drift_rest_active:
+			_drift_rest_active = false
+			for id: int in _embodied.keys():
+				var sid: String = _embodied[id]
+				if _agents.has(sid):
+					_choreo.set_rim_slot(sid, _rim_slot(int(_agents[sid].get_meta("rim_index", 0))))
+		return
+	_drift_rest_active = true
+	_binary_client.step_agent_drift()
+	for id: int in _embodied.keys():
+		var sid: String = _embodied[id]
+		if not _agents.has(sid):
+			continue
+		_choreo.set_rim_slot(sid, _drift_rest_slot(id, int(_agents[sid].get_meta("rim_index", 0))))
+
+
+## Rest slot of agent `wire_id` in the separated layout: the centroid (server
+## origin) plus its drift, on a small ring by slot index `k`.
+func _drift_rest_slot(wire_id: int, k: int) -> Vector3:
+	var offset: Vector3 = Vector3.ZERO
+	if _binary_client != null and _binary_client.has_method("agent_drift_offset"):
+		offset = _binary_client.agent_drift_offset(wire_id, _graph_separation)
+	var spread: Vector3 = Vector3.FORWARD.rotated(Vector3.UP, TAU * float(k % RIM_SLOTS) / float(RIM_SLOTS)) * DRIFT_REST_SPREAD_M
+	return _server_to_world(offset) + spread
 
 
 func _spawn_work_agent(wire_id: int, sid: String) -> void:
@@ -2498,7 +2540,9 @@ func _spawn_work_agent(wire_id: int, sid: String) -> void:
 		agent.set_work_identity(name_s)
 	if agent.has_method("set_role"):
 		agent.set_role(AgentRole.infer(name_s, ""))
-	var rim: Vector3 = _rim_slot(_rim_slot_cursor)
+	agent.set_meta("rim_index", _rim_slot_cursor)
+	# ADR-2135: separated, a new agent materialises at the triangle's centroid
+	var rim: Vector3 = _drift_rest_slot(wire_id, _rim_slot_cursor) if _graph_separation > 0.0 else _rim_slot(_rim_slot_cursor)
 	_rim_slot_cursor += 1
 	agent.global_position = rim
 	if agent.has_method("set_alpha"):

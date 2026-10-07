@@ -2,9 +2,10 @@
 //!
 //! POST /api/memory-flash accepts { key, namespace, action } and broadcasts a
 //! `memory_flash` WebSocket message to every connected client so the embedding
-//! cloud can animate the corresponding point(s). Each flash is also published
-//! to `agent_events::memory_hub` so agents in the separated layout drift
-//! towards the memory cloud (ADR-2135); an optional `agentId` names the agent.
+//! cloud can animate the corresponding point(s). An optional `agentId` names
+//! the agent that touched memory and is relayed in the frame, so the clients'
+//! separated layout can drift that agent towards the memory cloud (ADR-2135);
+//! without it the clients share the pull across every agent.
 
 use actix_web::{web, HttpResponse};
 use log::{debug, warn};
@@ -23,16 +24,9 @@ pub struct MemoryFlashRequest {
     /// Action: "store", "search", "retrieve", "delete", "update"
     pub action: Option<String>,
     /// Wire id of the agent that touched memory, when the producer knows it
-    /// (flag bits allowed). Without it the access is credited to every agent.
+    /// (flag bits allowed). Relayed as `agentId`; omitted when absent.
     #[serde(default, alias = "agent_id", rename = "agentId")]
     pub agent_id: Option<u32>,
-}
-
-/// Feed the layout's agent drift (ADR-2135).
-fn publish_activity(req: &MemoryFlashRequest) {
-    crate::agent_events::memory_hub::publish(crate::agent_events::memory_hub::MemoryActivity {
-        agent_id: req.agent_id,
-    });
 }
 
 /// WebSocket message broadcast to all clients
@@ -49,6 +43,8 @@ struct MemoryFlashData {
     namespace: String,
     action: String,
     timestamp: u64,
+    #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")]
+    agent_id: Option<u32>,
 }
 
 pub async fn handle_memory_flash(
@@ -57,7 +53,6 @@ pub async fn handle_memory_flash(
 ) -> HttpResponse {
     let namespace = body.namespace.clone().unwrap_or_default();
     let action = body.action.clone().unwrap_or_else(|| "access".to_string());
-    publish_activity(&body);
 
     let broadcast = MemoryFlashBroadcast {
         type_: "memory_flash",
@@ -69,6 +64,7 @@ pub async fn handle_memory_flash(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
+            agent_id: body.agent_id,
         },
     };
 
@@ -125,7 +121,6 @@ pub async fn handle_memory_flash_batch(
 
     let mut count = 0;
     for event in &body.events {
-        publish_activity(event);
         let broadcast = MemoryFlashBroadcast {
             type_: "memory_flash",
             data: MemoryFlashData {
@@ -133,6 +128,7 @@ pub async fn handle_memory_flash_batch(
                 namespace: event.namespace.clone().unwrap_or_default(),
                 action: event.action.clone().unwrap_or_else(|| "access".to_string()),
                 timestamp: ts,
+                agent_id: event.agent_id,
             },
         };
         if let Ok(json) = serde_json::to_string(&broadcast) {
@@ -168,15 +164,25 @@ mod tests {
         assert_eq!(r.agent_id, Some(5));
     }
 
-    #[tokio::test]
-    async fn a_flash_reaches_the_memory_hub() {
-        let mut rx = crate::agent_events::memory_hub::subscribe();
-        let req: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k","agentId":77}"#).unwrap();
-        publish_activity(&req);
-        loop {
-            if rx.recv().await.unwrap().agent_id == Some(77) {
-                break;
-            }
-        }
+    #[test]
+    fn the_frame_relays_agent_id_only_when_given() {
+        let frame = |agent_id| {
+            serde_json::to_value(MemoryFlashBroadcast {
+                type_: "memory_flash",
+                data: MemoryFlashData {
+                    key: "k".into(),
+                    namespace: "ns".into(),
+                    action: "store".into(),
+                    timestamp: 1,
+                    agent_id,
+                },
+            })
+            .unwrap()
+        };
+        assert_eq!(frame(Some(0x8000_0003))["data"]["agentId"], 2147483651u64);
+        assert!(
+            frame(None)["data"].get("agentId").is_none(),
+            "absent, not null"
+        );
     }
 }
