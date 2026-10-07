@@ -1,7 +1,9 @@
 /**
- * Group 8 — System & Developer (id `system`, hotkey 8, 16 fields).
+ * Group 8 — System & Developer (id `system`, hotkey 8, 17 fields).
  * Renderer toggle (Effects tab), authentication + network (System tab), and the
- * debug logging switches (Developer tab). `rendererInfo` is a readonly readout of
+ * debug logging switches (Developer tab). `broadcastFps` is a server physics
+ * setting (physics bucket) shown under Network because it sets the per-client
+ * position-stream bandwidth, not the simulation. `rendererInfo` is a readonly readout of
  * `rendererCapabilities`; `nostr` is the NIP-07 login button bound to `auth.nostr`.
  */
 import type { GroupData, RegistryField } from '../types';
@@ -18,6 +20,7 @@ const fields: RegistryField[] = [
   { key: 'authRequired', subgroup: 'Authentication', label: 'Auth Required', type: 'toggle', path: 'auth.required', description: 'Require authentication' },
   // Network
   { key: 'customBackendURL', subgroup: 'Network', label: 'Custom Backend URL', type: 'text', path: 'system.customBackendUrl', description: 'Override backend URL' },
+  { key: 'broadcastFps', subgroup: 'Network', label: 'Position Broadcast Rate (Hz)', type: 'slider', min: 1, max: 60, step: 1, path: 'visualisation.graphs.knowledge.physics.broadcastFps', description: 'How often the server sends every client a full position snapshot (default 8 Hz; nodes tween in between). Applies live, to all clients. Cost is linear in the rate, ~0.49 MB per snapshot on the ~9.5k-node graph: ~3.9 MB/s per client at 8 Hz, ~12 MB/s per client at 25 Hz.' },
   // Debug Logging
   { key: 'enableDebug', subgroup: 'Debug Logging', label: 'Debug Mode', type: 'toggle', path: `${D}enabled`, description: 'Enable debug mode' },
   { key: 'enableDataDebug', subgroup: 'Debug Logging', label: 'Data Debug', type: 'toggle', path: `${D}enableDataDebug`, description: 'Log data operations' },
@@ -36,6 +39,6 @@ export const system: GroupData = {
   label: 'System & Developer',
   description: 'Renderer backend, authentication, backend URL, and debug logging switches.',
   hotkey: '8',
-  loadPaths: ['auth', 'system'],
+  loadPaths: ['auth', 'system', 'visualisation.graphs.knowledge.physics'],
   fields,
 };

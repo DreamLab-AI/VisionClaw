@@ -31,6 +31,12 @@ pub struct SocketFlowServer {
     pub(crate) update_counter: usize,
     pub(crate) last_activity: std::time::Instant,
     pub(crate) heartbeat_timer_set: bool,
+    /// Inbound-liveness tracker driven by `system.websocket.heartbeat*`
+    /// (see `heartbeat.rs`). Replaced at upgrade with the configured timings.
+    pub(crate) heartbeat: super::heartbeat::Heartbeat,
+    /// Closes this connection's socket from outside the actor (set at upgrade
+    /// from the connection data; `None` on non-TCP transports).
+    pub(crate) transport: Option<crate::actors::messages::TransportCloser>,
 
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
 
@@ -132,6 +138,11 @@ impl SocketFlowServer {
             update_counter: 0,
             last_activity: std::time::Instant::now(),
             heartbeat_timer_set: false,
+            heartbeat: super::heartbeat::Heartbeat::new(
+                super::heartbeat::HeartbeatConfig::default(),
+                Instant::now(),
+            ),
+            transport: None,
             _node_position_cache: HashMap::new(),
             last_transfer_size: 0,
             total_bytes_sent: 0,
@@ -484,16 +495,24 @@ impl Actor for SocketFlowServer {
         let addr = ctx.address();
         let is_reconnection = self.is_reconnection;
         let addr_clone = addr.clone();
+        // A client congested for a full heartbeat timeout is not reading.
+        let stall_timeout = self.heartbeat.config().timeout;
+        let transport = self.transport.clone();
 
         actix::spawn(async move {
             use crate::actors::messages::{ClientRecipients, RegisterClient};
             // ADR-090 A6-S4: build type-erased recipients from the concrete Addr
             // so the coordinator actor (inner ring) never sees SocketFlowServer.
-            let recipients = ClientRecipients {
-                binary: addr_clone.clone().recipient(),
-                text: addr_clone.clone().recipient(),
-                initial_load: addr_clone.clone().recipient(),
-            };
+            let mut recipients = ClientRecipients::new(
+                addr_clone.clone().recipient(),
+                addr_clone.clone().recipient(),
+                addr_clone.clone().recipient(),
+                addr_clone.clone().recipient(),
+            )
+            .with_stall_timeout(stall_timeout);
+            if let Some(transport) = transport {
+                recipients = recipients.with_transport(transport);
+            }
             match cm_addr.send(RegisterClient { recipients }).await {
                 Ok(Ok(id)) => {
                     addr.do_send(super::actor_messages::SetClientId(id));
@@ -522,10 +541,29 @@ impl Actor for SocketFlowServer {
         self.last_activity = std::time::Instant::now();
 
         if !self.heartbeat_timer_set {
-            ctx.run_interval(std::time::Duration::from_secs(5), |act, ctx| {
-                trace!("[WebSocket] Sending server heartbeat ping");
-                ctx.ping(b"");
-                act.last_activity = std::time::Instant::now();
+            // Ping every `heartbeatInterval`; close after `heartbeatTimeout` of
+            // inbound silence. Sending a ping does not count as liveness.
+            let config = self.heartbeat.config();
+            self.heartbeat.inbound(Instant::now());
+            ctx.run_interval(config.interval, move |act, ctx| {
+                use super::heartbeat::HeartbeatAction;
+                match act.heartbeat.tick(Instant::now()) {
+                    HeartbeatAction::Ping => {
+                        trace!("[WebSocket] Sending server heartbeat ping");
+                        ctx.ping(b"");
+                    }
+                    HeartbeatAction::Close => {
+                        warn!(
+                            "[WebSocket] Client {:?} silent for {:?} — closing (heartbeat timeout)",
+                            act.client_id, config.timeout
+                        );
+                        ctx.close(Some(ws::CloseReason {
+                            code: ws::CloseCode::Away,
+                            description: Some("heartbeat timeout".into()),
+                        }));
+                        ctx.stop();
+                    }
+                }
             });
             self.heartbeat_timer_set = true;
         }

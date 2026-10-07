@@ -505,13 +505,34 @@ pub struct GetEquilibriumStatus;
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<(), String>")]
 pub struct ConfigureBroadcastOptimization {
-    /// Target broadcast frequency in Hz (recommended: 20-30)
+    /// Target broadcast frequency in Hz, 1-60 (default 8). Each broadcast is
+    /// a full snapshot (~490 KB for the ~9.5k-node graph), so 8 Hz costs
+    /// ~3.9 MB/s per client and 25 Hz ~12 MB/s.
     pub target_fps: Option<u32>,
     /// Deprecated: accepted for compatibility, ignored. The broadcast is
     /// full-snapshot only, so there is no delta threshold (BROADCAST-001).
     pub delta_threshold: Option<f32>,
     /// Enable spatial visibility culling
     pub enable_spatial_culling: Option<bool>,
+}
+
+/// Tells the physics supervisor where the saved physics settings live, so a
+/// restarted ForceComputeActor can be given them back.
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct SetPhysicsSettingsSource {
+    pub repo: std::sync::Arc<dyn crate::ports::settings_repository::SettingsRepository>,
+}
+
+impl ConfigureBroadcastOptimization {
+    /// Change only the broadcast rate; culling stays as it is.
+    pub fn rate_only(target_fps: u32) -> Self {
+        Self {
+            target_fps: Some(target_fps),
+            delta_threshold: None,
+            enable_spatial_culling: None,
+        }
+    }
 }
 
 /// Update camera frustum for spatial culling

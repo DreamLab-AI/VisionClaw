@@ -57,6 +57,8 @@ export interface PhysicsSettings {
   springKKnowledge: number;
   springKOntology: number;
   springKAgent: number;
+  /** Position-broadcast rate in Hz, 1-60 (server default 8). */
+  broadcastFps: number;
 
   // --- Constraints ---
   constraintRampFrames: number;

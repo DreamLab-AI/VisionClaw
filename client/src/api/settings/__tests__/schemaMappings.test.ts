@@ -109,3 +109,20 @@ describe('deepMergeVisual', () => {
     expect(result.arr).toEqual([3]);
   });
 });
+
+describe('retired system.websocket settings', () => {
+  // The update-rate, motion, chunk, compression and reconnect knobs did nothing:
+  // the position stream rate is visualisation.graphs.knowledge.physics.broadcastFps,
+  // and the server heartbeat is file config (settings.yaml), not a client setting.
+  it('the client settings model carries no system.websocket block', async () => {
+    const { transformApiToClientSettings } = await import('../schemaMappings');
+    const s = transformApiToClientSettings({} as any) as any;
+    expect(s.system).toBeDefined();
+    expect('websocket' in s.system).toBe(false);
+  });
+
+  it('no system.websocket path is loaded at startup', async () => {
+    const { ESSENTIAL_PATHS } = await import('../../../store/settings/settingsHelpers');
+    expect(ESSENTIAL_PATHS.filter((p: string) => p.startsWith('system.websocket'))).toEqual([]);
+  });
+});

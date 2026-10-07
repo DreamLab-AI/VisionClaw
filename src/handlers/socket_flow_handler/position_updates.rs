@@ -1,12 +1,10 @@
 use actix::prelude::*;
-use actix_web_actors::ws;
 use log::{debug, info, trace, warn};
 use std::sync::OnceLock;
 use std::time::Instant;
 
 use crate::utils::binary_protocol;
 use crate::utils::socket_flow_messages::{BinaryNodeData, BinaryNodeDataClient};
-use crate::utils::validation::rate_limit::EndpointRateLimits;
 
 use super::types::SocketFlowServer;
 
@@ -600,7 +598,12 @@ pub(crate) fn handle_subscribe_position_updates(
     msg: &serde_json::Value,
     ctx: &mut <SocketFlowServer as Actor>::Context,
 ) {
-    // hot-path: trace only (re-fires every interval via run_later re-subscription loop)
+    // One-shot: a subscribe returns ONE full snapshot now (for a client that
+    // joins while physics is settled and the push stream is quiet). The
+    // continuous stream is the ClientCoordinator push at physics.broadcastFps;
+    // a client-supplied `interval` is ignored, so there is one rate knob. The
+    // per-socket polling loop this replaces re-subscribed itself through the
+    // 2 s guard below and so never sent more than this one frame anyway.
     trace!("Client requested position update subscription");
 
     // Per-session rate limit: ignore subscribes arriving within 2s of the last
@@ -618,20 +621,10 @@ pub(crate) fn handle_subscribe_position_updates(
     }
     act.last_position_subscribe = Some(std::time::Instant::now());
 
-    // Collapse duplicate subscriptions to a single broadcast loop. A client that
-    // subscribes more than once (AppInitializer fires on both connection-status-change
-    // and connection_established) would otherwise spawn one independent run_later
-    // self-loop per subscribe, doubling the binary broadcast rate. Bumping the
-    // generation orphans every older loop: each tick below stops once it sees a newer
-    // generation, so exactly one loop survives regardless of subscribe count.
+    // A newer subscribe supersedes a snapshot whose fetch is still in flight,
+    // so overlapping subscribes never send two frames.
     act.position_sub_generation = act.position_sub_generation.wrapping_add(1);
     let my_generation = act.position_sub_generation;
-
-    let interval = msg
-        .get("data")
-        .and_then(|data| data.get("interval"))
-        .and_then(|interval| interval.as_u64())
-        .unwrap_or(60);
 
     let binary = msg
         .get("data")
@@ -641,7 +634,7 @@ pub(crate) fn handle_subscribe_position_updates(
 
     // FIX 6: Parse optional nodeTypes filter from subscription message.
     // Example: { "type": "subscribe_position_updates", "data": { "nodeTypes": ["knowledge", "agent"] } }
-    // When specified, only nodes matching these types are included in binary broadcasts.
+    // When specified, only nodes matching these types are included in the snapshot.
     let node_types: std::collections::HashSet<String> = msg
         .get("data")
         .and_then(|data| data.get("nodeTypes"))
@@ -658,52 +651,26 @@ pub(crate) fn handle_subscribe_position_updates(
     }
     act.subscribed_node_types = node_types;
 
-    let min_allowed_interval =
-        1000 / (EndpointRateLimits::socket_flow_updates().requests_per_minute / 60);
-    let actual_interval = interval.max(min_allowed_interval as u64);
-
-    // hot-path: trace only (fires every re-subscription cycle)
-    if actual_interval != interval {
-        trace!(
-            "Adjusted position update interval from {}ms to {}ms to comply with rate limits",
-            interval,
-            actual_interval
-        );
-    }
-
-    // hot-path: trace only (fires every re-subscription cycle)
-    trace!(
-        "Starting position updates with interval: {}ms, binary: {}",
-        actual_interval,
-        binary
-    );
-
-    let update_interval = std::time::Duration::from_millis(actual_interval);
     let app_state = act.app_state.clone();
     let settings_addr = act.app_state.settings_addr.clone();
 
     let response = serde_json::json!({
         "type": "subscription_confirmed",
         "subscription": "position_updates",
-        "interval": actual_interval,
+        "mode": "push",
         "binary": binary,
         "timestamp": chrono::Utc::now().timestamp_millis(),
-        "rate_limit": {
-            "requests_per_minute": EndpointRateLimits::socket_flow_updates().requests_per_minute,
-            "min_interval_ms": min_allowed_interval
-        }
     });
     if let Ok(msg_str) = serde_json::to_string(&response) {
         ctx.text(msg_str);
     }
 
-    ctx.run_later(update_interval, move |_act, ctx| {
-        let fut = fetch_nodes(app_state.clone(), settings_addr.clone());
+    {
+        let fut = fetch_nodes(app_state, settings_addr);
         let fut = actix::fut::wrap_future::<_, SocketFlowServer>(fut);
 
         ctx.spawn(fut.map(move |result, act, ctx| {
-            // A newer subscribe superseded this loop while the fetch was in flight;
-            // drop the result so only the latest loop broadcasts (no duplicate frames).
+            // A newer subscribe superseded this one while the fetch was in flight.
             if act.position_sub_generation != my_generation {
                 return;
             }
@@ -735,8 +702,7 @@ pub(crate) fn handle_subscribe_position_updates(
                 // it reaches the encoder. Fail-closed: an unauthenticated session
                 // (`act.pubkey == None`) drops all private nodes → public-only.
                 if !visibility.is_empty() {
-                    let drop_set =
-                        compute_private_opaque_ids(&visibility, act.pubkey.as_deref());
+                    let drop_set = compute_private_opaque_ids(&visibility, act.pubkey.as_deref());
                     let dropped = apply_drop_set(&mut nodes, &drop_set);
                     if dropped > 0 {
                         debug!(
@@ -788,53 +754,14 @@ pub(crate) fn handle_subscribe_position_updates(
                 }
 
                 ctx.binary(binary_data);
-
-                let next_interval = std::time::Duration::from_millis(actual_interval);
-                ctx.run_later(next_interval, move |act, ctx| {
-                    // Stop re-injecting once a newer subscribe takes over this client,
-                    // otherwise duplicate loops would persist indefinitely.
-                    if act.position_sub_generation != my_generation {
-                        return;
-                    }
-                    let subscription_msg = format!(
-                        "{{\"type\":\"subscribe_position_updates\",\"data\":{{\"interval\":{},\"binary\":{}}}}}",
-                        actual_interval, binary
-                    );
-                    <SocketFlowServer as StreamHandler<
-                        Result<ws::Message, ws::ProtocolError>,
-                    >>::handle(
-                        act,
-                        Ok(ws::Message::Text(subscription_msg.into())),
-                        ctx,
-                    );
-                });
             } else {
-                // fetch_nodes returned None (transient: graph empty mid-rebuild,
-                // or GraphServiceActor momentarily unavailable). DO NOT let the
-                // self-perpetuating loop die — a single dropped tick would
-                // silently stop position streaming for the rest of the client's
-                // session. Reschedule the re-subscribe so the loop self-heals
-                // once the graph repopulates.
-                let retry_interval = std::time::Duration::from_millis(actual_interval);
-                ctx.run_later(retry_interval, move |act, ctx| {
-                    if act.position_sub_generation != my_generation {
-                        return;
-                    }
-                    let subscription_msg = format!(
-                        "{{\"type\":\"subscribe_position_updates\",\"data\":{{\"interval\":{},\"binary\":{}}}}}",
-                        actual_interval, binary
-                    );
-                    <SocketFlowServer as StreamHandler<
-                        Result<ws::Message, ws::ProtocolError>,
-                    >>::handle(
-                        act,
-                        Ok(ws::Message::Text(subscription_msg.into())),
-                        ctx,
-                    );
-                });
+                // Graph empty mid-rebuild or the graph actor momentarily
+                // unavailable: no snapshot this time; the push stream and the
+                // client's next subscribe cover it.
+                debug!("subscribe_position_updates: no nodes available for the snapshot");
             }
         }));
-    });
+    }
 }
 
 pub(crate) fn handle_request_swarm_telemetry(

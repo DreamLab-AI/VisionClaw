@@ -53,12 +53,6 @@ async fn get_app_config(state: web::Data<crate::AppState>) -> impl Responder {
                 "pocketTts": settings.pocket_tts.is_some(),
                 "whisper": settings.whisper.is_some(),
             },
-            "websocket": {
-                "minUpdateRate": settings.system.websocket.min_update_rate,
-                "maxUpdateRate": settings.system.websocket.max_update_rate,
-                "motionThreshold": settings.system.websocket.motion_threshold,
-                "motionDamping": settings.system.websocket.motion_damping,
-            },
             "rendering": {
                 "ambientLightIntensity": settings.visualisation.rendering.ambient_light_intensity,
                 "enableAmbientOcclusion": settings.visualisation.rendering.enable_ambient_occlusion,
@@ -84,12 +78,6 @@ async fn get_app_config(state: web::Data<crate::AppState>) -> impl Responder {
                     "openai": settings.openai.is_some(),
                     "pocketTts": settings.pocket_tts.is_some(),
                     "whisper": settings.whisper.is_some(),
-                },
-                "websocket": {
-                    "minUpdateRate": settings.system.websocket.min_update_rate,
-                    "maxUpdateRate": settings.system.websocket.max_update_rate,
-                    "motionThreshold": settings.system.websocket.motion_threshold,
-                    "motionDamping": settings.system.websocket.motion_damping,
                 },
                 "rendering": {
                     "ambientLightIntensity": settings.visualisation.rendering.ambient_light_intensity,

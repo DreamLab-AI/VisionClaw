@@ -290,13 +290,9 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ onInitialized, onError 
               if (!hasSubscribedToPositions) {
                 hasSubscribedToPositions = true;
                 logger.info('Sending subscribe_position_updates message to server');
-                const sys = settings?.system as Record<string, unknown> | undefined;
-                const ws = sys?.websocket as Record<string, unknown> | undefined;
-                const updateRate = (ws?.updateRate as number | undefined) || 60;
-                websocketService.sendMessage('subscribe_position_updates', {
-                  binary: true,
-                  interval: updateRate
-                });
+                // One-shot snapshot; the stream itself is pushed at the server's
+                // physics.broadcastFps, so there is no client-side rate.
+                websocketService.sendMessage('subscribe_position_updates', { binary: true });
 
                 if (debugState.isDataDebugEnabled()) {
                   logger.debug('Binary updates enabled and subscribed to position updates');
@@ -320,13 +316,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ onInitialized, onError 
                   hasSubscribedToPositions = true;
 
                   logger.info('Connection established message received, sending subscribe_position_updates');
-                  const sys2 = settings?.system as Record<string, unknown> | undefined;
-                  const ws2 = sys2?.websocket as Record<string, unknown> | undefined;
-                  const updateRate2 = (ws2?.updateRate as number | undefined) || 60;
-                  websocketService.sendMessage('subscribe_position_updates', {
-                    binary: true,
-                    interval: updateRate2
-                  });
+                  websocketService.sendMessage('subscribe_position_updates', { binary: true });
 
                   if (debugState.isDataDebugEnabled()) {
                     logger.debug('Connection established, subscribed to position updates');

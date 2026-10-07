@@ -56,6 +56,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   springKKnowledge: 1.0,
   springKOntology: 1.0,
   springKAgent: 1.0,
+  broadcastFps: 8,
 
   // --- Constraints ---
   constraintRampFrames: 60,

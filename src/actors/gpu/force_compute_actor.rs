@@ -346,19 +346,25 @@ pub struct ForceComputeActor {
 }
 
 impl ForceComputeActor {
+    /// A ForceComputeActor that never tries to build its own GPU context, for
+    /// tests that exercise supervision and settings without CUDA.
+    #[cfg(test)]
+    pub(crate) fn headless() -> Self {
+        let mut actor = Self::new();
+        actor.gpu_self_init_max_retries = 0;
+        actor
+    }
+
     pub fn new() -> Self {
         // Initialize broadcast optimizer with default config
-        let broadcast_config = BroadcastConfig {
-            target_fps: 10, // 10fps full snapshots — client tweens at 60fps
-            enable_spatial_culling: false,
-            camera_bounds: None,
-        };
+        // Full snapshots at DEFAULT_BROADCAST_FPS (8 Hz); clients tween at 60 fps.
+        let broadcast_config = BroadcastConfig::default();
 
         // Initialize network backpressure with token bucket
         let backpressure_config = BackpressureConfig {
             max_tokens: 100,
             initial_tokens: 100,
-            refill_rate_per_sec: 30.0, // Match target broadcast rate
+            refill_rate_per_sec: 30.0, // Headroom above the broadcast rate (DEFAULT_BROADCAST_FPS)
             broadcast_cost: 1,
             ack_restore_tokens: 1,
             enable_time_refill: true,
@@ -2390,9 +2396,9 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     // Final broadcast after settle — send ALL nodes
                                     actor.force_full_broadcast = false;
                                     actor.suppress_intermediate_broadcasts = false;
-                                    actor.broadcast_optimizer.reset_broadcast_timer();
 
                                     if let Some(_sequence_id) = actor.backpressure.try_acquire() {
+                                        actor.broadcast_optimizer.mark_broadcast();
                                         let mut node_updates = Vec::with_capacity(actor.node_id_buffer.len());
                                         for idx in 0..actor.node_id_buffer.len() {
                                             let node_id = actor.node_id_buffer[idx];
@@ -2456,7 +2462,6 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                                 });
                                             }
                                             actor.last_full_broadcast_iteration = actor.gpu_state.iteration_count;
-                                            actor.broadcast_optimizer.reset_broadcast_timer();
                                         } else {
                                             actor.backpressure.record_skip();
                                         }
@@ -2491,8 +2496,8 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                             }
 
                                             actor.last_full_broadcast_iteration = actor.gpu_state.iteration_count;
-                                            // Reset the broadcast timer so the next snapshot goes out promptly
-                                            actor.broadcast_optimizer.reset_broadcast_timer();
+                                            // This was a full snapshot: the next one is a full interval away.
+                                            actor.broadcast_optimizer.mark_broadcast();
                                         }
                                     }
                                 } // end normal broadcast else branch
@@ -3092,7 +3097,8 @@ impl Handler<ForceFullBroadcast> for ForceComputeActor {
         // Clear suppression state regardless of whether GPU is available
         self.force_full_broadcast = false;
         self.suppress_intermediate_broadcasts = false;
-        self.broadcast_optimizer.reset_broadcast_timer();
+        // The immediate snapshot below stands in for the next slot.
+        self.broadcast_optimizer.mark_broadcast();
 
         let shared_context = match &self.shared_context {
             Some(ctx) => ctx.clone(),
@@ -4042,41 +4048,21 @@ impl Handler<crate::actors::messages::ConfigureBroadcastOptimization> for ForceC
         msg: crate::actors::messages::ConfigureBroadcastOptimization,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        info!("ForceComputeActor: ConfigureBroadcastOptimization received");
-
-        // Get current stats before update
-        let old_stats = self.broadcast_optimizer.get_performance_stats();
-
-        // Build new config from current + updates.
         // NOTE: `delta_threshold` is accepted on the wire for backward
         // compatibility but ignored — the broadcast is full-snapshot only
         // (BROADCAST-001). There is no delta path to configure.
         if msg.delta_threshold.is_some() {
-            info!("  delta_threshold ignored — broadcast is full-snapshot only (BROADCAST-001)");
+            debug!("ConfigureBroadcastOptimization: delta_threshold ignored (BROADCAST-001)");
         }
-        let new_config = BroadcastConfig {
-            target_fps: msg.target_fps.unwrap_or(old_stats.target_fps),
-            enable_spatial_culling: msg.enable_spatial_culling.unwrap_or(false),
-            camera_bounds: None, // Updated separately via UpdateCameraFrustum
-        };
-
-        // Validate parameters
-        if new_config.target_fps == 0 || new_config.target_fps > 60 {
-            return Err(format!(
-                "Invalid target_fps: {} (must be 1-60)",
-                new_config.target_fps
-            ));
-        }
-
+        let old_fps = self.broadcast_optimizer.config().target_fps;
+        self.broadcast_optimizer
+            .configure(msg.target_fps, msg.enable_spatial_culling)?;
         info!(
-            "  Target FPS: {} -> {}",
-            old_stats.target_fps, new_config.target_fps
+            "ForceComputeActor: broadcast rate {} -> {} Hz, spatial culling {}",
+            old_fps,
+            self.broadcast_optimizer.config().target_fps,
+            self.broadcast_optimizer.config().enable_spatial_culling
         );
-        info!("  Spatial culling: {}", new_config.enable_spatial_culling);
-
-        // Apply new configuration
-        self.broadcast_optimizer.update_config(new_config);
-
         Ok(())
     }
 }

@@ -120,6 +120,21 @@ node is `spring_k × spring_k_<population>`.
 
 ---
 
+## Position-broadcast rate
+
+Not a simulation parameter: `broadcastFps` sets how often the server sends every client a full
+position snapshot (clients tween in between). It lives in the physics settings object, so it rides
+`PUT/GET /api/settings/physics` and `GET /api/settings/all`, is validated against
+`physics_bounds::BROADCAST_FPS`, persists with the other physics settings, and is pushed to the live
+`ForceComputeActor` as `ConfigureBroadcastOptimization` on every physics PUT and at boot, so it applies
+without a restart. Control Center: System › Network › Position Broadcast Rate.
+
+| UI label | Settings key | Type | Range | Default | Effect |
+|---|---|---|---|---|---|
+| Position Broadcast Rate (Hz) | `broadcastFps` | u32 | 1 – 60 | **8** | Full snapshots per second per client. Cost is linear: ~0.49 MB per snapshot on the ~9.5k-node graph, so ~3.9 MB/s per client at 8 Hz and ~12 MB/s at 25 Hz. 8 Hz is the cadence clients received before the rate limiter fix (`src/gpu/broadcast_optimizer.rs`) |
+
+---
+
 ## Dual-graph host-side projection
 
 These two controls are applied on the host position buffer after GPU readback, every broadcast

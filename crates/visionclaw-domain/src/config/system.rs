@@ -65,62 +65,39 @@ impl Default for NetworkSettings {
     }
 }
 
+/// `/wss` socket settings. Only what the socket server reads lives here: the
+/// heartbeat. The position-stream rate is `PhysicsSettings::broadcast_fps`.
+/// Keys retired on 2026-10-07 because nothing read them (`binaryChunkSize`,
+/// `binaryUpdateRate`, `minUpdateRate`, `maxUpdateRate`, `motionThreshold`,
+/// `motionDamping`, `binaryMessageVersion`, `compressionEnabled`,
+/// `compressionThreshold`, `maxConnections`, `maxMessageSize`,
+/// `reconnectAttempts`, `reconnectDelay`, `updateRate`) are ignored if an
+/// older settings file still carries them.
 #[derive(Debug, Serialize, Deserialize, Clone, Type, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSocketSettings {
-    #[serde(alias = "binary_chunk_size")]
-    pub binary_chunk_size: usize,
-    #[serde(alias = "binary_update_rate")]
-    pub binary_update_rate: u32,
-    #[serde(alias = "min_update_rate")]
-    pub min_update_rate: u32,
-    #[serde(alias = "max_update_rate")]
-    pub max_update_rate: u32,
-    #[serde(alias = "motion_threshold")]
-    pub motion_threshold: f32,
-    #[serde(alias = "motion_damping")]
-    pub motion_damping: f32,
-    #[serde(alias = "binary_message_version")]
-    pub binary_message_version: u32,
-    #[serde(alias = "compression_enabled")]
-    pub compression_enabled: bool,
-    #[serde(alias = "compression_threshold")]
-    pub compression_threshold: usize,
-    #[serde(alias = "heartbeat_interval")]
+    /// Server ping interval in ms (raised to at least 1000).
+    #[serde(default = "default_heartbeat_interval", alias = "heartbeat_interval")]
     pub heartbeat_interval: u64,
-    #[serde(alias = "heartbeat_timeout")]
+    /// Close a socket after this many ms with no inbound frame (raised to at
+    /// least two intervals).
+    #[serde(default = "default_heartbeat_timeout", alias = "heartbeat_timeout")]
     pub heartbeat_timeout: u64,
-    #[serde(alias = "max_connections")]
-    pub max_connections: usize,
-    #[serde(alias = "max_message_size")]
-    pub max_message_size: usize,
-    #[serde(alias = "reconnect_attempts")]
-    pub reconnect_attempts: u32,
-    #[serde(alias = "reconnect_delay")]
-    pub reconnect_delay: u64,
-    #[serde(alias = "update_rate")]
-    pub update_rate: u32,
+}
+
+fn default_heartbeat_interval() -> u64 {
+    10_000
+}
+
+fn default_heartbeat_timeout() -> u64 {
+    600_000
 }
 
 impl Default for WebSocketSettings {
     fn default() -> Self {
         Self {
-            binary_chunk_size: 2048,
-            binary_update_rate: 30,
-            min_update_rate: 5,
-            max_update_rate: 60,
-            motion_threshold: 0.05,
-            motion_damping: 0.9,
-            binary_message_version: 1,
-            compression_enabled: false,
-            compression_threshold: 512,
-            heartbeat_interval: 10000,
-            heartbeat_timeout: 600000,
-            max_connections: 100,
-            max_message_size: 10485760,
-            reconnect_attempts: 5,
-            reconnect_delay: 1000,
-            update_rate: 60,
+            heartbeat_interval: default_heartbeat_interval(),
+            heartbeat_timeout: default_heartbeat_timeout(),
         }
     }
 }
@@ -175,4 +152,51 @@ pub struct SystemSettings {
     pub persist_settings: bool,
     #[serde(skip_serializing_if = "Option::is_none", alias = "custom_backend_url")]
     pub custom_backend_url: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `system.websocket` holds only settings the socket server reads: the
+    /// heartbeat ping interval and idle timeout. The update-rate and motion
+    /// knobs are gone (the one position-stream rate is physics.broadcastFps),
+    /// as are the never-read chunk, compression, reconnect and limit fields.
+    #[test]
+    fn websocket_settings_hold_only_the_heartbeat() {
+        let json = serde_json::to_value(WebSocketSettings::default()).unwrap();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["heartbeatInterval", "heartbeatTimeout"]);
+        let d = WebSocketSettings::default();
+        assert_eq!(
+            (d.heartbeat_interval, d.heartbeat_timeout),
+            (10_000, 600_000)
+        );
+    }
+
+    /// A settings.yaml written before the removal still loads: retired keys
+    /// are ignored and missing heartbeat keys take their defaults.
+    #[test]
+    fn retired_websocket_keys_still_deserialise() {
+        let legacy = serde_json::json!({
+            "binaryChunkSize": 2048, "binaryUpdateRate": 30, "minUpdateRate": 5,
+            "maxUpdateRate": 60, "motionThreshold": 0.05, "motionDamping": 0.9,
+            "binaryMessageVersion": 1, "compressionEnabled": false,
+            "compressionThreshold": 512, "heartbeatInterval": 15000,
+            "maxConnections": 100, "maxMessageSize": 10485760,
+            "reconnectAttempts": 5, "reconnectDelay": 1000, "updateRate": 60
+        });
+        let ws: WebSocketSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(ws.heartbeat_interval, 15_000);
+        assert_eq!(ws.heartbeat_timeout, 600_000);
+        let snake: WebSocketSettings =
+            serde_json::from_value(serde_json::json!({ "heartbeat_timeout": 30000 })).unwrap();
+        assert_eq!(snake.heartbeat_timeout, 30_000);
+    }
 }

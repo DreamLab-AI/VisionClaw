@@ -1229,6 +1229,9 @@ async fn main() -> std::io::Result<()> {
 
             )
         })
+        // Keep a dup of each connection's fd so a /wss client that never reads
+        // can be closed from outside its stalled session actor.
+        .on_connect(visionclaw_server::handlers::socket_flow_handler::transport::capture_transport)
         .bind(&bind_address)?
         .workers(4)
         .run();

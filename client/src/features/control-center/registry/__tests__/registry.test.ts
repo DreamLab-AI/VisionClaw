@@ -16,7 +16,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   atmosphere: 32,
   xr: 5,
   ai: 6,
-  system: 16,
+  system: 17,
   agents: 44,
   decisions: 2,
   provenance: 4,
@@ -64,9 +64,18 @@ const MEMORY_EXPLORER_PATHS: string[] = [
   'visualisation.embeddingCloud.cinematic',
 ];
 
+/**
+ * Server network paths that post-date the WP5 baseline: the position-broadcast
+ * rate (`broadcastFps`). It is a PhysicsSettings field, so it routes to the
+ * physics bucket, but it is presented under System > Network. Asserted in (c6).
+ */
+const NETWORK_PATHS: string[] = [
+  'visualisation.graphs.knowledge.physics.broadcastFps',
+];
+
 const TOTAL_FIELDS =
   168 + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
-  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length;
+  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -183,11 +192,13 @@ describe('control-center settings registry', () => {
     const wgSet = new Set(WG_GROUP_PATHS);
     const wave1Set = new Set(WAVE1_LAYOUT_PATHS);
     const memorySet = new Set(MEMORY_EXPLORER_PATHS);
+    const networkSet = new Set(NETWORK_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
-      (p) => !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p),
+      (p) =>
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -254,6 +265,22 @@ describe('control-center settings registry', () => {
     for (const p of MEMORY_EXPLORER_PATHS) expect(atmospherePaths.has(p)).toBe(true);
     expect(MEMORY_EXPLORER_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     for (const p of MEMORY_EXPLORER_PATHS) expect(serverBucketFor(p)).toBe('visual');
+  });
+
+  it('(c6) the broadcast rate sits in System > Network on the physics bucket, 1-60 Hz', () => {
+    const legacySet = new Set(legacyPaths());
+    const systemGroup = REGISTRY.find((g) => g.id === 'system')!;
+    const field = systemGroup.fields.find((f) => f.path === NETWORK_PATHS[0]);
+    expect(field).toBeDefined();
+    expect(field!.subgroup).toBe('Network');
+    expect(field!.type).toBe('slider');
+    expect([field!.min, field!.max, field!.step]).toEqual([1, 60, 1]);
+    // the bandwidth cost per client is stated where the operator changes it
+    expect(field!.description).toMatch(/MB\/s per client/);
+    expect(NETWORK_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
+    for (const p of NETWORK_PATHS) expect(serverBucketFor(p)).toBe('physics');
+    // the group loads the physics subtree, so the slider shows the live value
+    expect(systemGroup.loadPaths).toContain('visualisation.graphs.knowledge.physics');
   });
 
   it('(d) every testid is unique', () => {

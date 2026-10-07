@@ -160,6 +160,8 @@ export interface PhysicsSettings {
   cluster_count: number;
   clustering_resolution: number;
   clustering_iterations: number;
+  /** Position-broadcast rate in Hz, 1-60 (default 8); ~0.49 MB per client per broadcast. */
+  broadcast_fps: number;
 }
 
 // Rendering settings
@@ -307,22 +309,10 @@ export interface NetworkSettings {
 
 // WebSocket settings
 export interface WebSocketSettings {
-  binary_chunk_size: number;
-  binary_update_rate: number;
-  min_update_rate: number;
-  max_update_rate: number;
-  motion_threshold: number;
-  motion_damping: number;
-  binary_message_version: number;
-  compression_enabled: boolean;
-  compression_threshold: number;
+  /** Server ping interval, ms (min 1000). */
   heartbeat_interval: number;
+  /** Close after this many ms with no inbound frame (min 2 intervals). */
   heartbeat_timeout: number;
-  max_connections: number;
-  max_message_size: number;
-  reconnect_attempts: number;
-  reconnect_delay: number;
-  update_rate: number;
 }
 
 // Security settings

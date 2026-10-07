@@ -115,10 +115,22 @@ pub struct PhysicsSupervisor {
 
     /// Window start for restart counting
     window_start: Instant,
+
+    /// Builds each ForceComputeActor (initial spawn and every restart).
+    force_compute_factory: fn() -> ForceComputeActor,
+
+    /// Where the saved physics settings live (the SQLite `physics` row the
+    /// settings routes read and write). Set by `SetPhysicsSettingsSource`.
+    settings_source: Option<Arc<dyn crate::ports::settings_repository::SettingsRepository>>,
 }
 
 impl PhysicsSupervisor {
     pub fn new() -> Self {
+        Self::with_force_compute_factory(ForceComputeActor::new)
+    }
+
+    /// A supervisor that builds its ForceComputeActor with `factory`.
+    pub fn with_force_compute_factory(factory: fn() -> ForceComputeActor) -> Self {
         Self {
             shared_context: None,
             graph_service_addr: None,
@@ -136,6 +148,8 @@ impl PhysicsSupervisor {
             last_success: None,
             restart_count: 0,
             window_start: Instant::now(),
+            force_compute_factory: factory,
+            settings_source: None,
         }
     }
 
@@ -144,10 +158,13 @@ impl PhysicsSupervisor {
         info!("PhysicsSupervisor: Spawning physics child actors");
 
         // Spawn ForceComputeActor with custom mailbox
-        let force_compute_actor = actix::Actor::create(|actor_ctx| {
-            actor_ctx.set_mailbox_capacity(2048);
-            ForceComputeActor::new()
-        });
+        let force_compute_actor = {
+            let factory = self.force_compute_factory;
+            actix::Actor::create(move |actor_ctx| {
+                actor_ctx.set_mailbox_capacity(2048);
+                factory()
+            })
+        };
         self.force_compute_actor = Some(force_compute_actor);
         self.force_compute_state.is_running = true;
         debug!("PhysicsSupervisor: ForceComputeActor spawned");
@@ -187,6 +204,23 @@ impl PhysicsSupervisor {
         }
 
         info!("PhysicsSupervisor: All child actors spawned successfully");
+    }
+
+    /// Give the current ForceComputeActor the saved physics settings (if a
+    /// source is set). Runs after every restart, so the new actor does not sit
+    /// on compiled-in defaults until the next settings PUT.
+    fn restore_saved_physics(&self, ctx: &mut Context<Self>) {
+        let (Some(repo), Some(actor)) = (
+            self.settings_source.clone(),
+            self.force_compute_actor.clone(),
+        ) else {
+            return;
+        };
+        ctx.spawn(actix::fut::wrap_future(async move {
+            if let Some(physics) = super::physics_restore::load_saved_physics(repo.as_ref()).await {
+                super::physics_restore::push_physics(&actor, &physics);
+            }
+        }));
     }
 
     /// Distribute GPU context to child actors with timeout
@@ -410,10 +444,13 @@ impl PhysicsSupervisor {
         }
 
         // Re-spawn all actors fresh
-        let force_compute_actor = actix::Actor::create(|actor_ctx| {
-            actor_ctx.set_mailbox_capacity(2048);
-            ForceComputeActor::new()
-        });
+        let force_compute_actor = {
+            let factory = self.force_compute_factory;
+            actix::Actor::create(move |actor_ctx| {
+                actor_ctx.set_mailbox_capacity(2048);
+                factory()
+            })
+        };
         self.force_compute_actor = Some(force_compute_actor.clone());
         self.force_compute_state.is_running = true;
         self.force_compute_state.last_restart = Some(Instant::now());
@@ -449,6 +486,9 @@ impl PhysicsSupervisor {
         }
 
         info!("PhysicsSupervisor: AllForOne — all 5 physics actors re-spawned successfully");
+
+        // The new ForceComputeActor starts on defaults: give it the saved settings.
+        self.restore_saved_physics(ctx);
 
         // Re-distribute context if available
         if self.shared_context.is_some() {
@@ -760,6 +800,16 @@ impl Handler<ApplyMaterializedAxioms> for PhysicsSupervisor {
 }
 
 /// Get the ForceComputeActor address for direct communication
+impl Handler<SetPhysicsSettingsSource> for PhysicsSupervisor {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetPhysicsSettingsSource, ctx: &mut Self::Context) {
+        self.settings_source = Some(msg.repo);
+        // Also covers a restart that happened before the source arrived.
+        self.restore_saved_physics(ctx);
+    }
+}
+
 impl Handler<GetForceComputeActor> for PhysicsSupervisor {
     type Result = Result<Addr<ForceComputeActor>, String>;
 
@@ -1128,5 +1178,91 @@ impl Handler<AdjustConstraintWeights> for PhysicsSupervisor {
             }
             .into_actor(self),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::SqliteSettingsRepository;
+    use crate::config::PhysicsSettings;
+    use crate::ports::settings_repository::{SettingValue, SettingsRepository};
+
+    /// A restarted ForceComputeActor used to come back with compiled-in
+    /// defaults until the next settings PUT. The supervisor's restart hook now
+    /// reloads the saved physics (the SQLite `physics` row the settings routes
+    /// read and write), so the new actor runs with the saved values,
+    /// broadcastFps included.
+    #[actix::test]
+    async fn a_restarted_force_compute_actor_gets_the_saved_physics_back() {
+        let repo = Arc::new(
+            SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+                .await
+                .expect("in-memory settings repo"),
+        );
+        let saved = PhysicsSettings {
+            broadcast_fps: 25,
+            spring_k: 33.0,
+            repel_k: 77.0,
+            ..PhysicsSettings::default()
+        };
+        repo.set_setting(
+            "physics",
+            SettingValue::Json(serde_json::to_value(&saved).unwrap()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let sup =
+            PhysicsSupervisor::with_force_compute_factory(ForceComputeActor::headless).start();
+        sup.send(SetPhysicsSettingsSource {
+            repo: repo.clone() as Arc<dyn SettingsRepository>,
+        })
+        .await
+        .unwrap();
+        let before = sup.send(GetForceComputeActor).await.unwrap().unwrap();
+
+        sup.send(RestartActor {
+            actor_name: "ForceComputeActor".to_string(),
+            reason: "test".to_string(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let after = sup.send(GetForceComputeActor).await.unwrap().unwrap();
+        assert!(!after.eq(&before), "the restart spawned a new actor");
+
+        // The reload is asynchronous: poll the new actor until it reports the
+        // saved values (or give up after 3 s).
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let fps = after
+                .send(GetBroadcastStats)
+                .await
+                .unwrap()
+                .unwrap()
+                .target_fps;
+            let params = after
+                .send(GetPhysicsStats)
+                .await
+                .unwrap()
+                .unwrap()
+                .current_params;
+            if fps == 25
+                && (params.spring_k - 33.0).abs() < 1e-4
+                && (params.repel_k - 77.0).abs() < 1e-4
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "restarted actor still has fps={} spring_k={} repel_k={}",
+                fps,
+                params.spring_k,
+                params.repel_k
+            );
+            actix::clock::sleep(Duration::from_millis(50)).await;
+        }
     }
 }

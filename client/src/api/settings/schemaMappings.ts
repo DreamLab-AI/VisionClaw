@@ -83,14 +83,6 @@ export function transformApiToClientSettings(
         logBinaryHeaders: false,
         logFullJson: false
       },
-      websocket: {
-        reconnectAttempts: 5,
-        reconnectDelay: 1000,
-        binaryChunkSize: 1024,
-        compressionEnabled: true,
-        compressionThreshold: 1024,
-        updateRate: 60
-      },
       persistSettings: true
     },
     xr: {

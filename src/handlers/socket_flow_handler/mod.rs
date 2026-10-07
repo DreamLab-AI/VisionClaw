@@ -4,10 +4,12 @@
 pub mod actor_messages;
 pub mod binary_protocol;
 pub mod filter_auth;
+pub mod heartbeat;
 pub mod http_handler;
 pub mod message_routing;
 pub mod position_updates;
 pub mod session_relay;
+pub mod transport;
 pub mod types;
 
 // Re-export public API (preserves all external imports)
@@ -23,6 +25,15 @@ use log::{debug, error, info, warn};
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for SocketFlowServer {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        if matches!(
+            msg,
+            Ok(ws::Message::Ping(_)
+                | ws::Message::Pong(_)
+                | ws::Message::Text(_)
+                | ws::Message::Binary(_))
+        ) {
+            self.heartbeat.inbound(std::time::Instant::now());
+        }
         match msg {
             Ok(ws::Message::Ping(msg)) => {
                 debug!("[WebSocket] Received standard ping");

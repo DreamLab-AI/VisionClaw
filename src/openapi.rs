@@ -571,6 +571,13 @@ pub struct PhysicsSettingsDoc {
     /// Target iterations per frame
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iterations_per_frame: Option<u32>,
+    /// Position-broadcast rate in Hz, 1-60 (default 8; `broadcastFps` in the
+    /// response). Each broadcast is a full snapshot, so the cost per client is
+    /// linear in the rate: ~3.9 MB/s at 8 Hz, ~12 MB/s at 25 Hz for the
+    /// ~9.5k-node graph. Applied live.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(minimum = 1, maximum = 60)]
+    pub broadcast_fps: Option<u32>,
 }
 
 /// Request to start physics simulation - matches physics_handler::StartSimulationRequest

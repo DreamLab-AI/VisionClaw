@@ -7,8 +7,6 @@ const logger = createLogger('SettingsStore')
 // Essential paths loaded at startup for fast initialization
 export const ESSENTIAL_PATHS = [
   'system.debug.enabled',
-  'system.websocket.updateRate',
-  'system.websocket.reconnectAttempts',
   'auth.enabled',
   'auth.required',
   'visualisation.rendering.context',

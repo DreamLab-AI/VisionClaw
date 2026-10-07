@@ -357,22 +357,8 @@ impl From<&crate::config::NetworkSettings> for NetworkSettingsDTO {
 impl From<&crate::config::WebSocketSettings> for WebSocketSettingsDTO {
     fn from(settings: &crate::config::WebSocketSettings) -> Self {
         Self {
-            binary_chunk_size: settings.binary_chunk_size,
-            binary_update_rate: settings.binary_update_rate,
-            min_update_rate: settings.min_update_rate,
-            max_update_rate: settings.max_update_rate,
-            motion_threshold: settings.motion_threshold,
-            motion_damping: settings.motion_damping,
-            binary_message_version: settings.binary_message_version,
-            compression_enabled: settings.compression_enabled,
-            compression_threshold: settings.compression_threshold,
             heartbeat_interval: settings.heartbeat_interval,
             heartbeat_timeout: settings.heartbeat_timeout,
-            max_connections: settings.max_connections,
-            max_message_size: settings.max_message_size,
-            reconnect_attempts: settings.reconnect_attempts,
-            reconnect_delay: settings.reconnect_delay,
-            update_rate: settings.update_rate,
         }
     }
 }

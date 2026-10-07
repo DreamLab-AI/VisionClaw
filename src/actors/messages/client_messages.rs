@@ -31,11 +31,91 @@ use crate::utils::socket_flow_messages::{InitialEdgeData, InitialNodeData};
 /// The coordinator only needs to send three message types to each client.
 /// Storing typed `Recipient`s instead of a concrete `Addr` means the actor
 /// crate has no `use crate::handlers::*` import.
+/// Tells a client session to close (sent with `do_send`, which bypasses a
+/// full mailbox). `reason` goes into the WebSocket close frame.
+#[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
+pub struct CloseClientSession {
+    pub reason: String,
+}
+
+/// Closes a client's transport (its TCP connection) from outside the session
+/// actor.
+///
+/// A peer that stops reading stalls actix's HTTP dispatcher on the socket
+/// write, and the dispatcher then stops polling the response body that the
+/// session actor lives in: the actor is not run, so no message sent to it,
+/// `do_send` included, is handled until the peer reads again. Shutting the
+/// socket down makes the dispatcher's next I/O fail, which drops the
+/// connection and stops the actor. Built from a dup of the connection's fd
+/// taken in `HttpServer::on_connect` (see
+/// `handlers::socket_flow_handler::transport`).
+#[derive(Clone)]
+pub struct TransportCloser(std::sync::Arc<dyn Fn() + Send + Sync>);
+
+impl TransportCloser {
+    pub fn new(close: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(std::sync::Arc::new(close))
+    }
+
+    /// Shut the transport down. Idempotent.
+    pub fn close(&self) {
+        (self.0)()
+    }
+}
+
+/// Default for [`ClientRecipients::stall_timeout`]: the default
+/// `system.websocket.heartbeatTimeout` (10 min).
+pub const DEFAULT_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Erased handle bundle for a single WebSocket client session.
+///
+/// Using `Recipient<M>` (actix's type-erased mailbox pointer) instead of
+/// `Addr<SocketFlowServer>` breaks the backwards dependency:
+///   ClientCoordinatorActor (domain) → SocketFlowServer (delivery layer)
+///
+/// Storing typed `Recipient`s instead of a concrete `Addr` means the actor
+/// crate has no `use crate::handlers::*` import.
 #[derive(Clone)]
 pub struct ClientRecipients {
     pub binary: actix::Recipient<SendToClientBinary>,
     pub text: actix::Recipient<SendToClientText>,
     pub initial_load: actix::Recipient<SendInitialGraphLoad>,
+    pub close: actix::Recipient<CloseClientSession>,
+    /// Closes the TCP connection when the session actor cannot be reached.
+    pub transport: Option<TransportCloser>,
+    /// How long the client may stay congested (every broadcast finding its
+    /// mailbox full) before it is evicted and closed. The socket sets this to
+    /// its heartbeat timeout.
+    pub stall_timeout: std::time::Duration,
+}
+
+impl ClientRecipients {
+    pub fn new(
+        binary: actix::Recipient<SendToClientBinary>,
+        text: actix::Recipient<SendToClientText>,
+        initial_load: actix::Recipient<SendInitialGraphLoad>,
+        close: actix::Recipient<CloseClientSession>,
+    ) -> Self {
+        Self {
+            binary,
+            text,
+            initial_load,
+            close,
+            transport: None,
+            stall_timeout: DEFAULT_STALL_TIMEOUT,
+        }
+    }
+
+    pub fn with_transport(mut self, transport: TransportCloser) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
+    pub fn with_stall_timeout(mut self, stall_timeout: std::time::Duration) -> Self {
+        self.stall_timeout = stall_timeout;
+        self
+    }
 }
 
 impl std::fmt::Debug for ClientRecipients {
@@ -44,6 +124,9 @@ impl std::fmt::Debug for ClientRecipients {
             .field("binary", &"Recipient<SendToClientBinary>")
             .field("text", &"Recipient<SendToClientText>")
             .field("initial_load", &"Recipient<SendInitialGraphLoad>")
+            .field("close", &"Recipient<CloseClientSession>")
+            .field("transport", &self.transport.is_some())
+            .field("stall_timeout", &self.stall_timeout)
             .finish()
     }
 }
