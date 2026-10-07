@@ -200,13 +200,39 @@ impl DisconnectedClientQueue {
 /// ADR-031 item 5: Result returned by broadcast methods.
 ///
 /// `sent` is the number of clients that accepted the message.
-/// `slow_clients` contains IDs of clients whose actor mailbox was full or
-/// closed (backpressure detected). Callers MUST evict these clients under a
-/// write lock AFTER releasing any read lock held during the broadcast.
+///
+/// `congested_clients` are clients whose socket-actor mailbox was full, so
+/// this one frame was skipped for them. They stay registered: position frames
+/// are full latest-wins snapshots, so the next frame that fits supersedes the
+/// skipped one. A peer that never drains is reaped by the socket heartbeat
+/// timeout, whose `stopped()` sends `UnregisterClient`.
+///
+/// `closed_clients` are clients whose socket actor has stopped. Callers MUST
+/// evict these under a write lock AFTER releasing any read lock held during
+/// the broadcast (see `ClientCoordinatorActor::settle_broadcast_result`).
 #[derive(Debug, Default)]
 pub struct BroadcastResult {
     pub sent: usize,
-    pub slow_clients: Vec<usize>,
+    pub congested_clients: Vec<usize>,
+    pub closed_clients: Vec<usize>,
+}
+
+impl BroadcastResult {
+    /// Try to hand `data` to one client and record the outcome.
+    fn deliver_binary(&mut self, client_id: usize, client_state: &ClientState, data: Vec<u8>) {
+        match client_state.addr.binary.try_send(SendToClientBinary(data)) {
+            Ok(()) => self.sent += 1,
+            // Full = the socket actor has not drained its mailbox yet (the peer
+            // is momentarily not reading). Skip this frame for it; evicting it
+            // here would silence an open socket for good.
+            Err(actix::prelude::SendError::Full(_)) => {
+                self.congested_clients.push(client_id);
+            }
+            Err(actix::prelude::SendError::Closed(_)) => {
+                self.closed_clients.push(client_id);
+            }
+        }
+    }
 }
 
 pub struct ClientManager {
@@ -304,31 +330,14 @@ impl ClientManager {
     /// Broadcast raw bytes to every connected client.
     ///
     /// Uses `try_send` (ADR-031 item 5) to detect full or closed mailboxes.
-    /// Returns a `BroadcastResult` whose `slow_clients` list the caller
-    /// should evict under a write lock after releasing any read lock.
+    /// Returns a `BroadcastResult`; the caller evicts its `closed_clients`
+    /// under a write lock after releasing any read lock.
     pub fn broadcast_to_all(&self, data: Vec<u8>) -> BroadcastResult {
-        let mut sent = 0;
-        let mut slow_clients = Vec::new();
+        let mut result = BroadcastResult::default();
         for (&client_id, client_state) in &self.clients {
-            match client_state
-                .addr
-                .binary
-                .try_send(SendToClientBinary(data.clone()))
-            {
-                Ok(()) => sent += 1,
-                Err(actix::prelude::SendError::Full(_)) => {
-                    warn!(
-                        "[ClientCoordinator] Client {} mailbox full — marking for eviction",
-                        client_id
-                    );
-                    slow_clients.push(client_id);
-                }
-                Err(actix::prelude::SendError::Closed(_)) => {
-                    slow_clients.push(client_id);
-                }
-            }
+            result.deliver_binary(client_id, client_state, data.clone());
         }
-        BroadcastResult { sent, slow_clients }
+        result
     }
 
     /// Broadcast with per-client filtering, including node type flags in binary protocol
@@ -363,8 +372,7 @@ impl ClientManager {
             analytics_data,
         );
 
-        let mut sent = 0;
-        let mut slow_clients = Vec::new();
+        let mut result = BroadcastResult::default();
         for (&client_id, client_state) in &self.clients {
             let payload = if !client_state.filter.enabled {
                 // Send pre-serialized payload — no re-encoding needed
@@ -389,22 +397,10 @@ impl ClientManager {
             };
 
             if let Some(data) = payload {
-                match client_state.addr.binary.try_send(SendToClientBinary(data)) {
-                    Ok(()) => sent += 1,
-                    Err(actix::prelude::SendError::Full(_)) => {
-                        warn!(
-                            "[ClientCoordinator] Client {} mailbox full — marking for eviction",
-                            client_id
-                        );
-                        slow_clients.push(client_id);
-                    }
-                    Err(actix::prelude::SendError::Closed(_)) => {
-                        slow_clients.push(client_id);
-                    }
-                }
+                result.deliver_binary(client_id, client_state, data);
             }
         }
-        BroadcastResult { sent, slow_clients }
+        result
     }
 
     /// Serialize positions into V5 binary frame format.
@@ -465,7 +461,12 @@ impl ClientManager {
     /// ADR-2134 same-user relay: hand `message` to every session authenticated
     /// as exactly `pubkey`, except `exclude`. Sessions with no pubkey or a
     /// different one never receive it. Returns the delivery count.
-    pub fn relay_text_to_pubkey(&self, pubkey: &str, exclude: Option<usize>, message: &str) -> usize {
+    pub fn relay_text_to_pubkey(
+        &self,
+        pubkey: &str,
+        exclude: Option<usize>,
+        message: &str,
+    ) -> usize {
         if pubkey.is_empty() {
             return 0;
         }
@@ -474,7 +475,12 @@ impl ClientManager {
             if Some(id) == exclude || client.pubkey.as_deref() != Some(pubkey) {
                 continue;
             }
-            if client.addr.text.try_send(SendToClientText(message.to_owned())).is_ok() {
+            if client
+                .addr
+                .text
+                .try_send(SendToClientText(message.to_owned()))
+                .is_ok()
+            {
                 n += 1;
             }
         }
@@ -554,6 +560,31 @@ pub struct ConnectionStats {
 }
 
 impl ClientCoordinatorActor {
+    /// ADR-031 item 5: act on a broadcast's outcome. Closed clients are
+    /// evicted; congested clients only had this frame skipped and stay
+    /// registered (see `BroadcastResult`). `site` names the broadcast path
+    /// in the log line.
+    fn settle_broadcast_result(&self, result: &BroadcastResult, site: &str) {
+        for id in &result.congested_clients {
+            debug!(
+                "[ClientCoordinator] Client {} mailbox full — skipped one frame ({})",
+                id, site
+            );
+        }
+        if result.closed_clients.is_empty() {
+            return;
+        }
+        if let Ok(mut manager) = self.client_manager.write() {
+            for id in &result.closed_clients {
+                warn!(
+                    "[ClientCoordinator] Evicting closed client {} ({})",
+                    id, site
+                );
+                manager.unregister_client(*id);
+            }
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             client_manager: Arc::new(RwLock::new(ClientManager::new())),
@@ -701,18 +732,7 @@ impl ClientCoordinatorActor {
                 };
                 manager.broadcast_to_all(encoded.clone())
             };
-            // ADR-031 item 5: evict slow clients detected during broadcast.
-            if !broadcast_result.slow_clients.is_empty() {
-                if let Ok(mut manager) = self.client_manager.write() {
-                    for id in &broadcast_result.slow_clients {
-                        warn!(
-                            "[ClientCoordinator] Evicting slow client {} (voice broadcast)",
-                            id
-                        );
-                        manager.unregister_client(*id);
-                    }
-                }
-            }
+            self.settle_broadcast_result(&broadcast_result, "voice broadcast");
             self.record_bytes_sent(encoded.len());
             total_sent += broadcast_result.sent;
 
@@ -745,18 +765,7 @@ impl ClientCoordinatorActor {
                     };
                     manager.broadcast_to_all(binary_data.clone())
                 };
-                // ADR-031 item 5: evict slow clients.
-                if !broadcast_result.slow_clients.is_empty() {
-                    if let Ok(mut manager) = self.client_manager.write() {
-                        for id in &broadcast_result.slow_clients {
-                            warn!(
-                                "[ClientCoordinator] Evicting slow client {} (position cache)",
-                                id
-                            );
-                            manager.unregister_client(*id);
-                        }
-                    }
-                }
+                self.settle_broadcast_result(&broadcast_result, "position cache");
                 self.record_bytes_sent(binary_data.len());
                 self.broadcast_count += 1;
                 self.last_broadcast = Instant::now();
@@ -860,18 +869,7 @@ impl ClientCoordinatorActor {
             )
         };
         let broadcast_count = result.sent;
-        // ADR-031 item 5: evict slow clients detected during force broadcast.
-        if !result.slow_clients.is_empty() {
-            if let Ok(mut manager) = self.client_manager.write() {
-                for id in &result.slow_clients {
-                    warn!(
-                        "[ClientCoordinator] Evicting slow client {} (force broadcast)",
-                        id
-                    );
-                    manager.unregister_client(*id);
-                }
-            }
-        }
+        self.settle_broadcast_result(&result, "force broadcast");
 
         // Approximate byte size (V5 protocol: 48 bytes per node + 1 header + 8 sequence)
         let approx_bytes = 1 + 8 + position_data.len() * 48;
@@ -1011,18 +1009,7 @@ impl ClientCoordinatorActor {
             )
         };
         let broadcast_count = result.sent;
-        // ADR-031 item 5: evict slow clients detected during position broadcast.
-        if !result.slow_clients.is_empty() {
-            if let Ok(mut manager) = self.client_manager.write() {
-                for id in &result.slow_clients {
-                    warn!(
-                        "[ClientCoordinator] Evicting slow client {} (position broadcast)",
-                        id
-                    );
-                    manager.unregister_client(*id);
-                }
-            }
-        }
+        self.settle_broadcast_result(&result, "position broadcast");
 
         // Approximate byte size (V5 protocol: 48 bytes per node + 1 header + 8 sequence)
         let approx_bytes = 1 + 8 + position_data.len() * 48;
@@ -1410,18 +1397,7 @@ impl Handler<BroadcastNodePositions> for ClientCoordinatorActor {
             };
             manager.broadcast_to_all(msg.positions.clone())
         };
-        // ADR-031 item 5: evict slow clients.
-        if !broadcast_result.slow_clients.is_empty() {
-            if let Ok(mut manager) = self.client_manager.write() {
-                for id in &broadcast_result.slow_clients {
-                    warn!(
-                        "[ClientCoordinator] Evicting slow client {} (node positions)",
-                        id
-                    );
-                    manager.unregister_client(*id);
-                }
-            }
-        }
+        self.settle_broadcast_result(&broadcast_result, "node positions");
         let client_count = broadcast_result.sent;
 
         if client_count > 0 {
@@ -1493,18 +1469,7 @@ impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
             manager.broadcast_to_all(frame)
         };
 
-        // ADR-031 item 5: evict slow clients (mirrors BroadcastNodePositions).
-        if !broadcast_result.slow_clients.is_empty() {
-            if let Ok(mut manager) = self.client_manager.write() {
-                for id in &broadcast_result.slow_clients {
-                    warn!(
-                        "[ClientCoordinator] Evicting slow client {} (agent-action frame)",
-                        id
-                    );
-                    manager.unregister_client(*id);
-                }
-            }
-        }
+        self.settle_broadcast_result(&broadcast_result, "agent-action frame");
 
         let client_count = broadcast_result.sent;
         if client_count > 0 {
@@ -1548,18 +1513,7 @@ impl Handler<BroadcastPositions> for ClientCoordinatorActor {
             )
         };
         let client_count = result.sent;
-        // ADR-031 item 5: evict slow clients detected during BroadcastPositions.
-        if !result.slow_clients.is_empty() {
-            if let Ok(mut manager) = self.client_manager.write() {
-                for id in &result.slow_clients {
-                    warn!(
-                        "[ClientCoordinator] Evicting slow client {} (BroadcastPositions)",
-                        id
-                    );
-                    manager.unregister_client(*id);
-                }
-            }
-        }
+        self.settle_broadcast_result(&result, "BroadcastPositions");
 
         if client_count > 0 {
             self.broadcast_count += 1;
@@ -1872,7 +1826,9 @@ impl Handler<RelayToUserSessions> for ClientCoordinatorActor {
 
     fn handle(&mut self, msg: RelayToUserSessions, _ctx: &mut Self::Context) -> Self::Result {
         match handle_rwlock_error(self.client_manager.read()) {
-            Ok(manager) => manager.relay_text_to_pubkey(&msg.pubkey, msg.exclude_client_id, &msg.message),
+            Ok(manager) => {
+                manager.relay_text_to_pubkey(&msg.pubkey, msg.exclude_client_id, &msg.message)
+            }
             Err(e) => {
                 error!("RwLock error: {}", e);
                 0
@@ -2098,10 +2054,18 @@ mod tests {
     }
     impl Handler<crate::actors::messages::SendInitialGraphLoad> for Probe {
         type Result = ();
-        fn handle(&mut self, _: crate::actors::messages::SendInitialGraphLoad, _: &mut Self::Context) {}
+        fn handle(
+            &mut self,
+            _: crate::actors::messages::SendInitialGraphLoad,
+            _: &mut Self::Context,
+        ) {
+        }
     }
 
-    fn probe() -> (ClientRecipients, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    fn probe() -> (
+        ClientRecipients,
+        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    ) {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let addr = Probe(seen.clone()).start();
         let r = ClientRecipients {
@@ -2129,12 +2093,157 @@ mod tests {
 
         let n = m.relay_text_to_pubkey("alice", Some(desk_id), "{\"type\":\"beatClock\"}");
         assert_eq!(n, 1, "only alice's other session");
-        assert_eq!(m.relay_text_to_pubkey("", None, "x"), 0, "empty pubkey reaches nobody");
+        assert_eq!(
+            m.relay_text_to_pubkey("", None, "x"),
+            0,
+            "empty pubkey reaches nobody"
+        );
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(xr.lock().unwrap().as_slice(), ["{\"type\":\"beatClock\"}"]);
-        assert!(desk.lock().unwrap().is_empty(), "never echoed to the sender");
+        assert!(
+            desk.lock().unwrap().is_empty(),
+            "never echoed to the sender"
+        );
         assert!(other.lock().unwrap().is_empty(), "never cross-user");
-        assert!(anon.lock().unwrap().is_empty(), "never to an unauthenticated session");
+        assert!(
+            anon.lock().unwrap().is_empty(),
+            "never to an unauthenticated session"
+        );
+    }
+
+    /// Counts binary frames it is handed (stands in for a SocketFlowServer
+    /// whose socket write side is momentarily not being polled).
+    struct BinaryCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+    impl Actor for BinaryCounter {
+        type Context = Context<Self>;
+    }
+    impl Handler<SendToClientBinary> for BinaryCounter {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    impl Handler<SendToClientText> for BinaryCounter {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientText, _: &mut Self::Context) {}
+    }
+    impl Handler<crate::actors::messages::SendInitialGraphLoad> for BinaryCounter {
+        type Result = ();
+        fn handle(
+            &mut self,
+            _: crate::actors::messages::SendInitialGraphLoad,
+            _: &mut Self::Context,
+        ) {
+        }
+    }
+
+    fn counter() -> (
+        ClientRecipients,
+        Addr<BinaryCounter>,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let addr = BinaryCounter(n.clone()).start();
+        let r = ClientRecipients {
+            binary: addr.clone().recipient(),
+            text: addr.clone().recipient(),
+            initial_load: addr.clone().recipient(),
+        };
+        (r, addr, n)
+    }
+
+    /// Regression: a client whose mailbox is momentarily full (the browser's
+    /// main thread was busy, so its socket was not drained for a few seconds)
+    /// used to be unregistered from the broadcast registry while its socket
+    /// stayed open. It then received no position frame ever again. A full
+    /// snapshot is latest-wins, so the right response to `Full` is to skip
+    /// that one frame for that client and keep it registered.
+    #[actix::test]
+    async fn full_mailbox_skips_the_frame_and_keeps_the_client() {
+        let mut m = ClientManager::new();
+        let (r, _addr, frames) = counter();
+        let id = m.register_client(r);
+        m.get_client_mut(id).unwrap().filter.enabled = false;
+        let positions = vec![BinaryNodeDataClient {
+            node_id: 1,
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+            vx: 0.0,
+            vy: 0.0,
+            vz: 0.0,
+        }];
+        let nta = crate::actors::messages::NodeTypeArrays::default();
+
+        // The receiver is not polled until we yield, so this fills its mailbox.
+        let mut congested_seen = false;
+        for seq in 0..64u64 {
+            let to_all = m.broadcast_to_all(vec![0u8; 8]);
+            let filtered = m.broadcast_with_filter(&positions, &nta, seq, None);
+            for res in [&to_all, &filtered] {
+                assert!(
+                    res.closed_clients.is_empty(),
+                    "a congested client must not be marked for eviction"
+                );
+                if res.congested_clients.contains(&id) {
+                    congested_seen = true;
+                }
+            }
+        }
+        assert!(
+            congested_seen,
+            "the mailbox should have filled at least once"
+        );
+        assert!(m.get_client_mut(id).is_some(), "client stays registered");
+
+        // Once the receiver drains, broadcasts reach it again.
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        let before = frames.load(std::sync::atomic::Ordering::SeqCst);
+        let res = m.broadcast_with_filter(&positions, &nta, 99, None);
+        assert_eq!(res.sent, 1, "the recovered client receives the next frame");
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(frames.load(std::sync::atomic::Ordering::SeqCst), before + 1);
+    }
+
+    /// A client whose socket actor has stopped is still reported for eviction.
+    #[actix::test]
+    async fn closed_mailbox_is_reported_for_eviction() {
+        struct StopsAtOnce;
+        impl Actor for StopsAtOnce {
+            type Context = Context<Self>;
+            fn started(&mut self, ctx: &mut Self::Context) {
+                ctx.stop();
+            }
+        }
+        impl Handler<SendToClientBinary> for StopsAtOnce {
+            type Result = ();
+            fn handle(&mut self, _: SendToClientBinary, _: &mut Self::Context) {}
+        }
+        impl Handler<SendToClientText> for StopsAtOnce {
+            type Result = ();
+            fn handle(&mut self, _: SendToClientText, _: &mut Self::Context) {}
+        }
+        impl Handler<crate::actors::messages::SendInitialGraphLoad> for StopsAtOnce {
+            type Result = ();
+            fn handle(
+                &mut self,
+                _: crate::actors::messages::SendInitialGraphLoad,
+                _: &mut Self::Context,
+            ) {
+            }
+        }
+        let addr = StopsAtOnce.start();
+        let r = ClientRecipients {
+            binary: addr.clone().recipient(),
+            text: addr.clone().recipient(),
+            initial_load: addr.recipient(),
+        };
+        let mut m = ClientManager::new();
+        let id = m.register_client(r);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        let res = m.broadcast_to_all(vec![0u8; 8]);
+        assert_eq!(res.closed_clients, vec![id]);
+        assert!(res.congested_clients.is_empty());
     }
 
     #[test]
