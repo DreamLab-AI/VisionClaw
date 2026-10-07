@@ -40,24 +40,14 @@ pub const DESKTOP_ROTATION_PER_FRAME: f32 = 0.0005;
 /// Hard ceiling on a snapshot the headset will accept (the server clamps its
 /// sample to 20 000; anything far past that is a malformed or hostile payload).
 pub const MAX_SNAPSHOT_ROWS: usize = 50_000;
-/// Frame triangle budget (`perf/README.md`, PRD-008).
-pub const FRAME_TRIANGLE_BUDGET: usize = 100_000;
-/// Graph worst case the memory layers must leave room for: node LOD + hulls at
-/// production density (13 164 nodes), measured with `perf/benchmark_scene.tscn`
-/// and `XR_BENCH_NODES=13164`: 84 370 on 2026-10-07 (Godot 4.6.1, HP GL).
-pub const GRAPH_WORST_TRIANGLES: usize = 84_370;
-/// What the graph leaves for the memory cloud and the route together.
-pub const MEMORY_TRIANGLE_BUDGET: usize = FRAME_TRIANGLE_BUDGET - GRAPH_WORST_TRIANGLES;
-/// The cloud's share of that headroom (the route takes the rest,
-/// `memory_route::ROUTE_TRIANGLE_BUDGET`).
-pub const CLOUD_TRIANGLE_BUDGET: usize = 8_000;
 /// Triangles per sprite: one equilateral triangle circumscribing the disc
 /// (`SPRITE_TRIANGLE_UV`), half a quad's cost for ~30 % more covered pixels,
 /// all but the disc discarded.
 pub const TRIANGLES_PER_SPRITE: usize = 1;
-/// Default sprite cap: the cloud's triangle share. The server's default sample
-/// (6000) draws in full; larger samples are level-of-detail subsampled.
-pub const DEFAULT_SPRITE_CAP: usize = CLOUD_TRIANGLE_BUDGET / TRIANGLES_PER_SPRITE;
+/// Most sprites the cloud draws (its demand in `frame_budget`, which may cap
+/// it lower). The server's default sample (6000) draws in full; larger samples
+/// are level-of-detail subsampled.
+pub const DEFAULT_SPRITE_CAP: usize = 8_000;
 /// UVs of the sprite triangle; the mesh position is `uv - 0.5` (unit-diameter
 /// disc). Its incircle is the shader's disc (radius 0.5 about (0.5, 0.5)), so
 /// the round mask never loses a pixel.
@@ -1209,18 +1199,7 @@ mod tests {
         st.load(snap_json(20_000).as_bytes()).unwrap();
         assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP);
         assert_eq!(st.triangle_estimate(), 8_000);
-        assert!(st.triangle_estimate() <= CLOUD_TRIANGLE_BUDGET, "cloud's share of the memory headroom");
-    }
-
-    #[test]
-    fn memory_layers_fit_the_headroom_the_graph_leaves() {
-        assert_eq!(FRAME_TRIANGLE_BUDGET - GRAPH_WORST_TRIANGLES, MEMORY_TRIANGLE_BUDGET);
-        assert!(CLOUD_TRIANGLE_BUDGET + crate::memory_route::ROUTE_TRIANGLE_BUDGET <= MEMORY_TRIANGLE_BUDGET);
-        assert!(DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE <= CLOUD_TRIANGLE_BUDGET);
-        let worst = GRAPH_WORST_TRIANGLES
-            + DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE
-            + crate::memory_route::route_worst_triangles();
-        assert!(worst <= FRAME_TRIANGLE_BUDGET, "graph + cloud + longest route = {worst}");
+        assert_eq!(st.triangle_estimate(), DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE);
     }
 
     #[test]

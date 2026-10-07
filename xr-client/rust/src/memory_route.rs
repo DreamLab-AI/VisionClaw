@@ -57,14 +57,10 @@ pub const MARK_R: f32 = 1.7;
 pub const RADIAL: usize = 6;
 /// Desktop samples per hop.
 pub const ROUTE_SAMPLES: usize = 16;
-/// Most centreline samples a route may use; long routes get fewer per hop
-/// (a 12-hop route keeps 10 per hop). Sized so the longest route stays inside
-/// `ROUTE_TRIANGLE_BUDGET`.
+/// Most centreline samples a route may use at full detail; long routes get
+/// fewer per hop (a 12-hop route keeps 10). `frame_budget` may lower it per
+/// frame (`ActiveRoute::set_ring_cap`), down to one sample per hop.
 pub const ROUTE_RING_CAP: usize = 121;
-/// The route's share of the memory-layer triangle headroom
-/// (`memory_cloud::MEMORY_TRIANGLE_BUDGET`). The longest route
-/// (`route_worst_triangles`) stays below it; the test pins the margin.
-pub const ROUTE_TRIANGLE_BUDGET: usize = 7_500;
 /// Beads, halos and the comet head/glow are camera-facing discs, the cloud's
 /// one-triangle sprite: unshaded and additive, a sphere would draw as the same
 /// flat disc, and a coarse sphere shows its facets.
@@ -333,8 +329,15 @@ pub fn space_control(a: Vec3, b: Vec3) -> Vec3 {
 /// Samples per hop for a path of `rows` entries: the desktop's 16, reduced so
 /// the whole route stays within `ROUTE_RING_CAP` centreline samples.
 pub fn samples_per_hop(rows: usize) -> usize {
+    samples_per_hop_within(rows, ROUTE_RING_CAP)
+}
+
+/// Samples per hop when the route may use at most `ring_cap` centreline
+/// samples: the desktop's 16 at most, one at least (a cap below `rows` still
+/// gives one per hop).
+pub fn samples_per_hop_within(rows: usize, ring_cap: usize) -> usize {
     let hops = rows.saturating_sub(1).max(1);
-    ROUTE_SAMPLES.min((ROUTE_RING_CAP - 1) / hops).max(1)
+    ROUTE_SAMPLES.min(ring_cap.saturating_sub(1) / hops).max(1)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -536,13 +539,30 @@ pub fn route_total_triangles(r: &ActiveRoute) -> usize {
         + ring_instances(r.sidecar_pts.len()) * 2
 }
 
-/// Triangles of a route with `rows` path nodes and `sidecar` marks.
+/// Triangles of a route with `rows` path nodes and `sidecar` marks at full
+/// detail.
 pub fn route_triangles_for(rows: usize, sidecar: usize) -> usize {
+    route_triangles_at(rows, sidecar, ROUTE_RING_CAP)
+}
+
+/// Triangles of that route under a centreline sample cap (`0` = one sample
+/// per hop, the minimum).
+pub fn route_triangles_at(rows: usize, sidecar: usize, ring_cap: usize) -> usize {
     if rows < 2 {
         return 0;
     }
-    let samples = (rows - 1) * samples_per_hop(rows) + 1;
+    let samples = (rows - 1) * samples_per_hop_within(rows, ring_cap) + 1;
     route_triangles(samples) + bead_instances(rows) * BEAD_TRIANGLES + ring_instances(sidecar) * 2
+}
+
+/// The largest centreline cap (at most `ROUTE_RING_CAP`) whose route fits in
+/// `tris`; the minimum detail cap when even that does not fit.
+pub fn ring_cap_for_budget(rows: usize, sidecar: usize, tris: usize) -> usize {
+    let min_cap = rows.max(2);
+    (min_cap..=ROUTE_RING_CAP.max(min_cap))
+        .rev()
+        .find(|&cap| route_triangles_at(rows, sidecar, cap) <= tris)
+        .unwrap_or(min_cap)
 }
 
 /// The costliest acceptable route: the maximum over every path length up to
@@ -675,11 +695,31 @@ pub struct ActiveRoute {
     pub samples: RouteSamples,
     pub sidecar_pts: Vec<Vec3>,
     pub el: f32,
+    /// Centreline sample cap from `frame_budget`; 0 = `ROUTE_RING_CAP`.
+    pub ring_cap: usize,
 }
 
 impl ActiveRoute {
+    fn cap(&self) -> usize {
+        if self.ring_cap == 0 { ROUTE_RING_CAP } else { self.ring_cap }
+    }
+
+    /// Re-sample under a new centreline cap. Returns true when the geometry
+    /// changed (the caller rebuilds the mesh); the animation clock keeps going.
+    pub fn set_ring_cap(&mut self, cap: usize, positions: &[f32]) -> bool {
+        let before = self.cap();
+        self.ring_cap = cap.min(ROUTE_RING_CAP);
+        let Some(f) = self.frame.as_ref() else { return false };
+        let rows = f.path.len();
+        if samples_per_hop_within(rows, before) == samples_per_hop_within(rows, self.cap()) {
+            return false;
+        }
+        self.samples = sample_route(&f.path, positions, samples_per_hop_within(rows, self.cap()));
+        true
+    }
+
     pub fn set(&mut self, f: RouteFrame, positions: &[f32]) {
-        self.samples = sample_route(&f.path, positions, samples_per_hop(f.path.len()));
+        self.samples = sample_route(&f.path, positions, samples_per_hop_within(f.path.len(), self.cap()));
         self.sidecar_pts = f
             .sidecar
             .iter()
@@ -692,7 +732,8 @@ impl ActiveRoute {
         self.el = 0.0;
     }
     pub fn clear(&mut self) {
-        *self = ActiveRoute::default();
+        let ring_cap = self.ring_cap;
+        *self = ActiveRoute { ring_cap, ..ActiveRoute::default() };
     }
     /// Rows to keep lit in the cloud: the path and the sidecar hits.
     pub fn keep_rows(&self) -> Vec<u32> {
@@ -809,6 +850,23 @@ impl MemoryRoute {
     #[func]
     fn triangle_estimate(&self) -> i64 {
         route_total_triangles(&self.route) as i64
+    }
+
+    /// Apply `frame_budget`'s centreline cap; true when the mesh must be
+    /// rebuilt.
+    #[func]
+    fn set_ring_cap(&mut self, cap: i64, positions: PackedFloat32Array) -> bool {
+        self.route.set_ring_cap(cap.max(0) as usize, positions.as_slice())
+    }
+
+    /// [path rows, sidecar marks] of the shown route ([0, 0] when none), the
+    /// route's demand for `FrameBudget.allocate`.
+    #[func]
+    fn route_shape(&self) -> PackedInt32Array {
+        match (&self.route.frame, self.route.samples.pts.len() >= 2) {
+            (Some(f), true) => PackedInt32Array::from(&[f.path.len() as i32, self.route.sidecar_pts.len() as i32][..]),
+            _ => PackedInt32Array::from(&[0, 0][..]),
+        }
     }
 
     /// Triangles per bead disc (`BEAD_TRIANGLES`), for the scene's mesh check.
@@ -1097,7 +1155,6 @@ mod tests {
     fn longest_route_fits_its_triangle_budget() {
         assert_eq!(BEAD_TRIANGLES, 1, "beads are one-triangle discs");
         let w = route_worst_triangles();
-        assert!(w <= ROUTE_TRIANGLE_BUDGET, "worst route {w}");
         // every real route length costs what the formula says, and the worst is reached
         let pos: Vec<f32> = (0..(MAX_PATH + MAX_SIDECAR) * 3).map(|i| (i % 97) as f32).collect();
         let mut max_seen = 0;
@@ -1119,6 +1176,53 @@ mod tests {
             max_seen = max_seen.max(got);
         }
         assert_eq!(max_seen, w, "worst case is exact, not padded");
+    }
+
+    #[test]
+    fn ring_cap_trades_curve_detail_for_budget() {
+        let (rows, side) = (13, 5);
+        let full = route_triangles_for(rows, side);
+        let min = route_triangles_at(rows, side, 0);
+        assert!(min < full);
+        assert_eq!(ring_cap_for_budget(rows, side, full), ROUTE_RING_CAP);
+        assert_eq!(route_triangles_at(rows, side, ring_cap_for_budget(rows, side, min)), min);
+        assert_eq!(ring_cap_for_budget(rows, side, 0), rows, "nothing fits: minimum detail");
+        let mut last = 0;
+        for tris in (min..=full).step_by(97) {
+            let cap = ring_cap_for_budget(rows, side, tris);
+            let got = route_triangles_at(rows, side, cap);
+            assert!(got <= tris, "{tris}: {got}");
+            assert!(got >= last, "monotone");
+            last = got;
+        }
+        assert_eq!(samples_per_hop_within(rows, 0), 1);
+        assert_eq!(samples_per_hop_within(rows, 61), 5);
+    }
+
+    #[test]
+    fn set_ring_cap_resamples_and_keeps_the_clock() {
+        let pos: Vec<f32> = (0..13 * 3).map(|i| (i * 7 % 23) as f32).collect();
+        let mut r = ActiveRoute::default();
+        r.set(
+            RouteFrame { snapshot_id: "s".into(), seq: 1, sent_at: 0.0, path: (0..13).collect(), sidecar: vec![], query: String::new() },
+            &pos,
+        );
+        assert_eq!(r.samples.pts.len(), 12 * 10 + 1);
+        r.el = 1.5;
+        assert!(r.set_ring_cap(13, &pos), "fewer samples per hop");
+        assert_eq!(r.samples.pts.len(), 13);
+        assert_eq!(r.samples.knots.len(), 13, "every path node is still a knot");
+        assert_eq!(r.el, 1.5);
+        assert!(!r.set_ring_cap(14, &pos), "same samples per hop: no rebuild");
+        // a later route keeps the cap until the budget lifts it
+        r.clear();
+        r.set(
+            RouteFrame { snapshot_id: "s".into(), seq: 2, sent_at: 1.0, path: (0..13).collect(), sidecar: vec![], query: String::new() },
+            &pos,
+        );
+        assert_eq!(r.samples.pts.len(), 13);
+        assert!(r.set_ring_cap(ROUTE_RING_CAP, &pos));
+        assert_eq!(r.samples.pts.len(), 121);
     }
 
     #[test]
