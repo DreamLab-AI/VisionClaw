@@ -23,7 +23,7 @@ extends SceneTree
 #     -s res://addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
 #
 # `-gexit` makes GUT quit with a non-zero status on any failure; the JUnit XML
-# lands under res://tests/report/ for CI to collect. GUT 9.7.1 is vendored under
+# lands under res://tests/report/ for CI to collect. GUT 9.6.1 is vendored under
 # res://addons/gut/ (pinned upstream tag; see addons/README.md).
 #
 # This shim exists only so `-s res://tests/run_gut.gd` fails LOUDLY with the

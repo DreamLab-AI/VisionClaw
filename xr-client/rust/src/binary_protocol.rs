@@ -948,6 +948,13 @@ pub struct BinaryProtocolClient {
     /// WP4: signature of the last hull mesh handed to GDScript.
     hull_sig: Option<u64>,
     created: Instant,
+    /// Wall time of the last node / edge LOD pack, including the hand-off to a
+    /// Godot packed array (the benchmark's `pack_ms`).
+    last_node_pack: std::time::Duration,
+    last_edge_pack: std::time::Duration,
+    /// Thread-CPU time of the same spans (the timing gate; immune to preemption).
+    last_node_pack_cpu: std::time::Duration,
+    last_edge_pack_cpu: std::time::Duration,
     /// Origin of the render store's local millisecond clock (attention-heat decay).
     heat_epoch: Instant,
     /// Last heat sweep, so cold entries are dropped at ~1 Hz.
@@ -998,6 +1005,10 @@ impl BinaryProtocolClient {
             refetch: crate::settings_sync::RefetchGate::default(),
             hull_sig: None,
             created: Instant::now(),
+            last_node_pack: std::time::Duration::ZERO,
+            last_edge_pack: std::time::Duration::ZERO,
+            last_node_pack_cpu: std::time::Duration::ZERO,
+            last_edge_pack_cpu: std::time::Duration::ZERO,
             heat_epoch: Instant::now(),
             last_heat_sweep: Instant::now(),
             base,
@@ -1564,6 +1575,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
+        let t0 = crate::thread_cpu::CpuStopwatch::start();
         let v = self.store.build_node_buffer_lod(
             ids.as_slice(),
             scale_comp,
@@ -1573,7 +1585,9 @@ impl BinaryProtocolClient {
             near_cap.max(0) as usize,
             near_max_dist,
         );
-        PackedFloat32Array::from(v.as_slice())
+        let out = PackedFloat32Array::from(v);
+        (self.last_node_pack_cpu, self.last_node_pack) = t0.stop();
+        out
     }
 
     /// Impostor-tier instances from the last `build_node_buffer_lod` (20-float
@@ -1597,6 +1611,7 @@ impl BinaryProtocolClient {
         near_cap: i64,
         near_max_dist: f32,
     ) -> PackedFloat32Array {
+        let t0 = crate::thread_cpu::CpuStopwatch::start();
         let v = self.store.build_edge_buffer_lod(
             pairs.as_slice(),
             radius_comp,
@@ -1604,7 +1619,49 @@ impl BinaryProtocolClient {
             near_cap.max(0) as usize,
             near_max_dist,
         );
-        PackedFloat32Array::from(v.as_slice())
+        let out = PackedFloat32Array::from(v);
+        (self.last_edge_pack_cpu, self.last_edge_pack) = t0.stop();
+        out
+    }
+
+    /// Triangles the graph layers draw at these instance counts
+    /// (`lod::graph_layer_triangles`), for the live FrameBudget pass.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn graph_layer_triangles(
+        &self,
+        gems: i64,
+        faded: i64,
+        halos: i64,
+        impostors: i64,
+        cylinders: i64,
+        ribbons: i64,
+        hull_tris: i64,
+    ) -> i64 {
+        let u = |v: i64| v.max(0) as usize;
+        crate::lod::graph_layer_triangles(u(gems), u(faded), u(halos), u(impostors), u(cylinders), u(ribbons), u(hull_tris))
+            as i64
+    }
+
+    /// Milliseconds spent in the last node + edge LOD pack (Rust side, including
+    /// the near-tier hand-off; the far-tier getters are separate calls).
+    #[func]
+    fn last_pack_ms(&self) -> f64 {
+        (self.last_node_pack + self.last_edge_pack).as_secs_f64() * 1000.0
+    }
+
+    /// Thread-CPU milliseconds of the last node + edge LOD pack: the timing gate
+    /// (`thread_cpu.rs`), unaffected by time the thread spent descheduled.
+    #[func]
+    fn last_pack_cpu_ms(&self) -> f64 {
+        (self.last_node_pack_cpu + self.last_edge_pack_cpu).as_secs_f64() * 1000.0
+    }
+
+    /// The calling thread's CPU clock in milliseconds, for bracketing a span in
+    /// GDScript (`CLOCK_THREAD_CPUTIME_ID`; wall clock where unavailable).
+    #[func]
+    fn thread_cpu_ms(&self) -> f64 {
+        crate::thread_cpu::thread_cpu_ns() as f64 / 1.0e6
     }
 
     /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).

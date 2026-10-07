@@ -269,9 +269,6 @@ var _edge_show_count: int = 0
 # the ceiling) rather than an arbitrary constant.
 var _node_budget: int = NODE_SAFETY_CEILING
 var _edge_budget: int = EDGE_SAFETY_CEILING
-# Alternating-frame phase for the node/edge multimesh rebuilds (see
-# _physics_process): true → nodes, false → edges.
-var _mm_phase: bool = false
 # Set of node ids that appear as an edge endpoint (built from _edge_pairs_full on
 # topology arrival). The LOD draw domain and the edge-ranking domain are both
 # restricted to these, so drawn nodes and drawable edges stay coherent.
@@ -366,6 +363,10 @@ var _parity: Node = null
 const NodeLod := preload("res://scripts/node_lod.gd")
 var _impostors: MultiMeshInstance3D = null
 var _ribbons: MultiMeshInstance3D = null       # far-tier edge ribbons (edge LOD)
+# One FrameBudget pass (xr-cloud's frame_budget.rs) shared by the graph's near
+# tiers, hulls, memory cloud and route; caps applied each frame below.
+const FrameBudgetPass := preload("res://scripts/frame_budget_pass.gd")
+var _budget = FrameBudgetPass.new()
 # Live memory cloud + relayed query route (XR WP6/WP7, ADR-2133): all of it in
 # scripts/memory_cloud_layer.gd; the scene only wires it.
 const MemoryCloudLayerScript := preload("res://scripts/memory_cloud_layer.gd")
@@ -1399,15 +1400,13 @@ func _physics_process(delta: float) -> void:
 	if _binary_client != null and _binary_client.has_method("hunt"):
 		_binary_client.hunt(POSITION_HUNT_EASE, _grabbed_id, _grab_target_server)
 	_fit_graph_to_view(delta)
-	# At the desktop-Vive instance budgets the two multimesh rebuilds are the
-	# frame-cost hot spot (GDScript loops over ~6k instances). Alternate them so
-	# each runs at 45 Hz while the compositor holds 90 — position hunting eases
-	# per frame, so half-rate transform refresh is visually indistinguishable.
-	_mm_phase = not _mm_phase
-	if _mm_phase:
-		_update_multimesh()
-	else:
-		_update_edge_multimesh()
+	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
+	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
+	# when GDScript looped over the instances) is gone — it also left edge ends a
+	# frame behind their nodes. The far ribbon tier refreshes half per frame.
+	_update_multimesh()
+	_update_edge_multimesh()
+	_tick_frame_budget(delta)
 	# Work beams (ADR-140, Pillar 2 / P3) refresh every frame: the buffer is a short
 	# walk of the agent registry (tens of instances), not the node/edge domain, so it
 	# is not part of the 45 Hz alternation — the flowing stream stays crisp at 90 Hz.
@@ -1943,7 +1942,7 @@ func _update_multimesh() -> void:
 		var inv: Transform3D = graph_root.global_transform.affine_inverse()
 		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
 		buf = _binary_client.build_node_buffer_lod(_drawn_ids, comp, 0.7, 1.9,
-			inv * cam.global_position, NodeLod.NEAR_CAP, NodeLod.NEAR_RADIUS_M / world_per_server)
+			inv * cam.global_position, int(_budget.caps["gem_nodes"]), NodeLod.NEAR_RADIUS_M / world_per_server)
 		NodeLod.assign(_impostors, _binary_client.impostor_node_buffer())
 	else:
 		buf = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
@@ -1971,6 +1970,33 @@ func _update_multimesh() -> void:
 		NodeLod.assign_halo(nodes_halo_multi, buf, fbuf)
 
 
+# FrameBudget pass (frame_budget_pass.gd) from what was actually drawn this frame:
+# instance counts per layer, the hull mesh, the memory layer's demand, and the
+# renderer's frame total for everything outside the budgeted layers.
+func _tick_frame_budget(delta: float) -> void:
+	if _binary_client == null:
+		return
+	var n := func(mmi: MultiMeshInstance3D) -> int:
+		return mmi.multimesh.instance_count if mmi != null and mmi.multimesh != null and mmi.visible else 0
+	var layers := {
+		"gems": n.call(nodes_multi), "faded": n.call(nodes_faded_multi), "halos": n.call(nodes_halo_multi),
+		"impostors": n.call(_impostors), "cylinders": n.call(edges_multi), "ribbons": n.call(_ribbons),
+		"hulls": _parity.hull_count if _parity != null else 0,
+		"hull_tris": _parity.hull_triangles if _parity != null else 0,
+	}
+	var calls: int = 0
+	for mmi in [nodes_multi, nodes_faded_multi, nodes_halo_multi, _impostors, edges_multi, _ribbons, agent_multi]:
+		if n.call(mmi) > 0:
+			calls += 1
+	if int(layers["hulls"]) > 0:
+		calls += 1
+	layers["draw_calls"] = calls
+	var measured: int = int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
+	var bursts_on: bool = _beat != null and bool(_beat.get("bursts_enabled"))
+	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured, bursts_on) and _parity != null:
+		_parity.max_hulls = int(_budget.caps["max_hulls"])
+
+
 # Edge MultiMesh: Rust filters the ranked pairs to both-endpoints-drawn and packs
 # the rotated+scaled cylinder transforms; GDScript does a single buffer assignment.
 func _update_edge_multimesh() -> void:
@@ -1985,7 +2011,7 @@ func _update_edge_multimesh() -> void:
 		var inv: Transform3D = graph_root.global_transform.affine_inverse()
 		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
 		buf = _binary_client.build_edge_buffer_lod(_edge_pairs, er, inv * cam.global_position,
-			NodeLod.NEAR_EDGE_CAP, NodeLod.NEAR_EDGE_RADIUS_M / world_per_server)
+			int(_budget.caps["cylinder_edges"]), NodeLod.NEAR_EDGE_RADIUS_M / world_per_server)
 		NodeLod.sync_edge_params(edges_multi.material_override, _ribbons.material_override)
 		NodeLod.assign_stride(_ribbons, _binary_client.ribbon_edge_buffer(), 16)
 	else:

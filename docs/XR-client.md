@@ -1,10 +1,12 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.9
+version: 0.1.11
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.11 (2026-10-07): pack timing gate on thread CPU time (wall reported beside it; holds at load average 38); GUT 9.6.1 (the Godot 4.6 line) vendored with a CI guard against parse errors and skipped scripts; live FrameBudget pass on the final interface (burst pool, 5 % reserve, 2 s peak of measured other_tris)."
+  - "0.1.10 (2026-10-07): per-frame pack plans (13k/20k pack 0.5 ms, zero steady-state allocations, far ribbons half per frame), benchmark asserts pack_ms/lod_build_ms p99; live GraphScene runs the FrameBudget pass (measured other_tris) and both packs every frame; attention heat moved to live_tint."
   - "0.1.9 (2026-10-07): FrameBudget allocator (rust/src/frame_budget.rs) shared by the graph LOD tiers, memory cloud, route and burst pool; one-triangle sprites and bead discs; 5 % variance reserve; row emphasis for memory_flash on cloud sprites"
   - "0.1.8 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
   - "0.1.7 (2026-10-07): beat clock (relayed desktop clock, tap tempo, opt-in mic), memory_flash bursts, attention heat and desktop beam action encoding (ADR-2134); Swarm-roster teleport routed; Invariant 10 (mic opt-in, never recorded)"
@@ -32,6 +34,8 @@ sources:
   - xr-client/materials/edge_ribbon.gdshader
   - xr-client/materials/edge_flow_common.gdshaderinc
   - xr-client/perf/benchmark.gd
+  - xr-client/rust/src/render_store_pack.rs
+  - xr-client/scripts/frame_budget_pass.gd
   - xr-client/rust/src/beat.rs
   - xr-client/rust/src/semantic.rs
   - xr-client/rust/src/attention.rs
@@ -345,6 +349,15 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   (`scripts/hud_render_on_demand.gd`), and the FPS header updates at most every
   2 s, only when the integer changes. Avatar heads went from default 64 × 32
   spheres (4 224 triangles) to 16 × 8 (288).
+- **Live scene.** The live GraphScene
+  runs the same allocator through `scripts/frame_budget_pass.gd` at 4 Hz: demand
+  is what was actually drawn (instance counts per graph layer, the hull mesh, the
+  memory layer's `frame_demand()`), and `other_tris` is measured as the
+  renderer's frame total minus the budgeted layers (`lod::graph_layer_triangles`
+  plus the memory layer's `budget()`). The caps feed the gem and cylinder tiers of
+  `build_*_buffer_lod`, the hull rebuild (`GraphParity.max_hulls`) and the memory
+  layer (`apply_frame_caps`); caps only move the tier split, so they never
+  invalidate the pack plans.
 
 ### Constrained layouts
 The Layout tab drives the backend layout engine. Six modes cycle through the
@@ -409,23 +422,53 @@ hulls at their bound) at ≤ 97k for 13 164 nodes / 20 000 edges.
 `perf/benchmark_scene.tscn` measures this production path every frame — fixture
 or `XR_BENCH_NODES` synthetic nodes through `ingest`, edges at production density
 (the fixture's 1 500; `XR_BENCH_EDGES`, default 20 000 = `EDGE_SAFETY_CEILING`),
-both near tiers always full — and reports `node_lod`, `edges`, `hull_layer` and
-`lod_build_ms_p50/p99`. Measured on HP (Godot 4.6.1, opengl3, `--xr-mode off`,
-dev-profile library, 2026-10-07):
+both near tiers always full, caps from the FrameBudget pass — and reports
+`node_lod`, `edges`, `hull_layer`, `frame_budget`, and the pack timings in two
+clocks: `pack_cpu_ms` / `lod_build_cpu_ms` (thread CPU, `CLOCK_THREAD_CPUTIME_ID`,
+`rust/src/thread_cpu.rs`) and `pack_ms` / `lod_build_ms` (wall). The gate is on
+CPU time — `pack_cpu_ms` p99 ≤ 2.0 ms and `lod_build_cpu_ms` p99 ≤ 3.0 ms — so a
+loaded host's preemption cannot fail it; wall time is reported beside it so
+preemption stays visible. Measured on HP (Godot 4.6.1, opengl3, `--xr-mode off`,
+dev-profile library, 2026-10-07; `-- extras=0`, graph rows `memory_rows=0`,
+combined row `memory_rows=20000 route_hops=63 route_sidecar=64`; caps from the
+FrameBudget with its 5 % reserve):
 
-| Run | Draw calls | Triangles | Frame p50 / p99 | LOD pack p99 | Result |
-|---|---|---|---|---|---|
-| 1 000 nodes, 1 500 edges, 32 hulls | 6 | 31 846 | 0.53 / 0.93 ms | 0.40 ms | pass |
-| 1 000 nodes, 1 500 edges, no hulls | 5 | 30 920 | 0.53 / 0.93 ms | 0.39 ms | pass |
-| 13 164 nodes, 20 000 edges, 32 hulls | 6 | 95 186 | 5.10 / 5.56 ms | 4.98 ms | pass |
-| 13 164 nodes, 20 000 edges, no hulls | 5 | 92 248 | 5.56 / 9.72 ms | 8.38 ms | pass |
+| Run | Draw calls | Triangles | Frame p50 / p99 | pack CPU / wall p99 | lod_build CPU / wall p99 | Caps gem / cyl / hulls / sprites |
+|---|---|---|---|---|---|---|
+| 1 000 nodes, 1 500 edges, 32 hulls | 7 | 35 942 | 0.43 / 0.93 ms | 0.05 / 0.06 ms | 0.12 / 0.14 ms | 80 / 96 / 32 / — |
+| 1 000 nodes, 1 500 edges, no hulls | 6 | 35 016 | 0.44 / 0.93 ms | 0.05 / 0.06 ms | 0.12 / 0.13 ms | 80 / 96 / 0 / — |
+| 13 164 nodes, 20 000 edges, 32 hulls | 7 | 94 992 | 2.04 / 2.78 ms | 0.62 / 0.71 ms | 1.11 / 1.29 ms | 75 / 1 / 32 / — |
+| 13 164 nodes, 20 000 edges, no hulls | 6 | 94 994 | 2.11 / 2.47 ms | 0.65 / 0.71 ms | 1.15 / 1.30 ms | 80 / 51 / 0 / — |
+| combined: + 20k-row cloud + 64-node route (64 sidecar) | 10 | 94 996 | 2.30 / 3.03 ms | 0.65 / 0.73 ms | 1.15 / 1.31 ms | 47 / 5 / 32 / 8 000 |
+| 13 164 / 20 000 / 32 hulls **under load** (64 busy loops, load average 38) | 7 | 94 992 | 8.08 / 14.6 ms | **0.91 / 2.52 ms** | **1.64 / 4.47 ms** | 75 / 1 / 32 / — |
 
-Reference points on the same rig: all-gem nodes with the halo pass, 1k nodes =
-576 000 triangles; with edges as capped cylinders, 1k = 130 030 and 13k =
-1 044 370. **Open:** at 13k nodes / 20k edges the per-frame Rust pack (node + edge
-buffers and both splits) is the dominant CPU cost — p99 5–8 ms on HP's desktop CPU,
-inside the 11.1 ms frame but the first thing to cut for Quest (e.g. repack edges at
-half rate, or skip the split when the eye and graph are still).
+The loaded row is the gate's point: wall pack p99 reads 2.52 ms (it would have
+failed a wall-clock gate) while the pack's own CPU is 0.91 ms; both CPU gates
+pass. The run as a whole fails, correctly, on frame time — a saturated host
+really misses 90 fps. Rows with the HUD, controllers and avatars (`extras`)
+measure the same scene totals (root viewport) but exceed the global draw-call
+and triangle budgets on the HUD canvas's ~1 Hz dirty frames (see the HUD
+canvas open item). Reference points on the same rig: all-gem nodes with the
+halo pass, 1k nodes = 576 000 triangles; edges as capped cylinders, 1k = 130 030
+and 13k = 1 044 370; the per-frame pack before the plans, 5–8 ms p99.
+
+**CPU: per-frame pack plans** (`rust/src/render_store_pack.rs`). Only positions
+change from one frame to the next, so the store records once per drawn instance
+everything else — slot, packed colour and custom channels, unit-scale size (nodes),
+endpoint slots and style (edges) — derived from the full pack's output, and
+replays it while a `visual_epoch` is unchanged. Every mutation that can change an
+instance's look or the drawn set bumps the epoch (`touch()`); per-frame feeds bump
+only on a real change (`upsert` analytics, node kind, agent expiry, label-fade
+membership). Edge tiers are chosen from midpoints; near cylinders are transformed
+every frame and far ribbons half per frame (alternating parity, in place), so each
+ribbon is at most one frame old and any tier change rebuilds the far tier at once.
+Per-frame tints that must not invalidate a plan (attention heat) go through
+`RenderStore::live_tint`. Steady state allocates nothing (`tests/pack_alloc.rs`,
+counting allocator: 79 allocations per frame before, 0 after). GraphScene now runs
+both packs every frame; the 45 Hz node/edge alternation (from when GDScript looped
+over instances) is gone, so edge ends no longer trail their nodes by a frame.
+`examples/lod_pack_profile.rs` measures the dev profile the headset loads: on HP
+0.50 ms p50 / 0.52 ms p99 at 13 164 nodes / 20 000 edges.
 
 **The headset runs the debug library.** `visionclaw_xr_gdext.gdextension` maps
 the editor (`linux.debug.x86_64`) to `target/debug`, and the desktop-OpenXR launch
@@ -511,11 +554,16 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   (pending under the headless dummy renderer, enforced in CI's Xvfb job). The OpenXR
   swapchain path is not measured here and needs a headset check.
 - **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
-  Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
-  `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
-  runs the suite on Godot 4.6.1 with the vendored copy. Both documented invocations
-  (`-gdir=res://tests/unit -ginclude_subdirs -gexit` and
-  `-gconfig=res://.gutconfig.json`) pass on HP (121/121).
+  Godot ≥ 4.5 (its `Logger` shadows the new native class), and GUT 9.7.x is the
+  Godot 4.7 line (`godot_4_7` branch): on 4.6.1 it logs two Parse Errors
+  (`godot_singletons.gd:5` names the 4.7-only `AccessibilityServer`;
+  `stub_params.gd:16` returns null as `StringName`). GUT **9.6.1** — upstream tag
+  `v9.6.1`, commit `c80954f4`, the Godot 4.6 line on `main` — is vendored in
+  `xr-client/addons/gut/` (provenance in `addons/README.md`) and logs none. GUT
+  skips a script that fails to parse and still exits 0 (shown on HP: a broken
+  test file left GUT at exit 0), so `tests/gut_guard.sh` fails CI on any
+  Parse/Compile Error in the import or GUT logs, or when GUT's `Scripts N` differs
+  from the `test_*.gd` files on disk. On HP: 26/26 scripts, 182/182 under GL.
 - **Quest 3 is unmeasured.** Quest 3 is the sole *ship* target
   (`project.godot:2`, README) but the APK is **unbuilt** and the cross-build is
   frozen — no Android NDK is provisioned in this environment (README line 6).
@@ -591,13 +639,14 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(455 headless tests — 344 library + 111 integration — as of 2026-10-07, no
-headset/Godot/network needed). GUT (`tests/unit`, vendored 9.7.1) needs the
+(479 headless tests — 361 library + 118 integration — as of 2026-10-07, no
+headset/Godot/network needed; peer parity tests read `client/src`). GUT
+(`tests/unit`, vendored 9.6.1; check with `bash tests/gut_guard.sh <gut.log>`) needs the
 4.6.1 editor, a `--headless --import` pass and the native library built for the
 host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off` (as CI does),
 because the project enables OpenXR and a headless run otherwise probes the
-installed runtime and crashes on HP when SteamVR is active (161 tests on HP,
-2026-10-07: 158 pass, 3 GL-only tests pending headless). Any change
+installed runtime and crashes on HP when SteamVR is active (182 tests on HP,
+2026-10-07: 182 pass under GL; headless 179 pass, 3 GL-only tests pending). Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than

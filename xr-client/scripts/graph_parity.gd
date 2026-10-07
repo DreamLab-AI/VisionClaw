@@ -33,6 +33,8 @@ const PHYSICS_FIELDS: Dictionary = {
 }
 
 var hull_source: int = 0            # 0 off, 1 clusters, 2 communities
+## Hull cap from the FrameBudget pass (GraphScene); HULL_MAX until it runs.
+var max_hulls: int = HULL_MAX
 var hull_count: int = 0
 var hull_triangles: int = 0
 var last_event: Dictionary = {}     # last handle_settings_text result (debug/tests)
@@ -121,7 +123,7 @@ func _process(delta: float) -> void:
 	if _hull_accum < HULL_REBUILD_SEC:
 		return
 	_hull_accum = 0.0
-	var d: Dictionary = _client.build_hull_mesh(hull_source, HULL_PADDING, HULL_MAX, true)
+	var d: Dictionary = _client.build_hull_mesh(hull_source, HULL_PADDING, max_hulls, true)
 	if bool(d.get("changed", false)):
 		_apply_hull_dict(d)
 

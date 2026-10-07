@@ -31,6 +31,7 @@ pub mod gaze;
 pub mod hulls;
 pub mod interaction;
 pub mod lod;
+pub mod perf_fixture;
 pub mod memory_cloud;
 pub mod memory_route;
 pub mod ports;
@@ -44,6 +45,7 @@ pub mod selection;
 pub mod semantic;
 pub mod settings_sync;
 pub mod signer;
+pub mod thread_cpu;
 pub mod transport;
 pub mod webrtc_audio;
 
