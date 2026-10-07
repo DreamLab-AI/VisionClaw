@@ -294,26 +294,6 @@ export interface HologramSettings {
   ringRotationSpeed: number;
 }
 
-// WebSocket settings
-export interface WebSocketSettings {
-  reconnectAttempts: number;
-  reconnectDelay: number;
-  binaryChunkSize: number;
-  binaryUpdateRate?: number;
-  minUpdateRate?: number;
-  maxUpdateRate?: number;
-  motionThreshold?: number;
-  motionDamping?: number;
-  binaryMessageVersion?: number;
-  compressionEnabled: boolean;
-  compressionThreshold: number;
-  heartbeatInterval?: number;
-  heartbeatTimeout?: number;
-  maxConnections?: number;
-  maxMessageSize?: number;
-  updateRate: number;
-}
-
 // Debug settings
 export interface DebugSettings {
   enabled: boolean;
@@ -641,7 +621,6 @@ export interface VisualisationSettings {
 
 // System settings
 export interface SystemSettings {
-  websocket: WebSocketSettings;
   debug: DebugSettings;
   persistSettings: boolean; 
   customBackendUrl?: string; 

@@ -31,6 +31,9 @@ pub struct SocketFlowServer {
     pub(crate) update_counter: usize,
     pub(crate) last_activity: std::time::Instant,
     pub(crate) heartbeat_timer_set: bool,
+    /// Inbound-liveness tracker driven by `system.websocket.heartbeat*`
+    /// (see `heartbeat.rs`). Replaced at upgrade with the configured timings.
+    pub(crate) heartbeat: super::heartbeat::Heartbeat,
 
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
 
@@ -132,6 +135,10 @@ impl SocketFlowServer {
             update_counter: 0,
             last_activity: std::time::Instant::now(),
             heartbeat_timer_set: false,
+            heartbeat: super::heartbeat::Heartbeat::new(
+                super::heartbeat::HeartbeatConfig::default(),
+                Instant::now(),
+            ),
             _node_position_cache: HashMap::new(),
             last_transfer_size: 0,
             total_bytes_sent: 0,
@@ -522,10 +529,29 @@ impl Actor for SocketFlowServer {
         self.last_activity = std::time::Instant::now();
 
         if !self.heartbeat_timer_set {
-            ctx.run_interval(std::time::Duration::from_secs(5), |act, ctx| {
-                trace!("[WebSocket] Sending server heartbeat ping");
-                ctx.ping(b"");
-                act.last_activity = std::time::Instant::now();
+            // Ping every `heartbeatInterval`; close after `heartbeatTimeout` of
+            // inbound silence. Sending a ping does not count as liveness.
+            let config = self.heartbeat.config();
+            self.heartbeat.inbound(Instant::now());
+            ctx.run_interval(config.interval, move |act, ctx| {
+                use super::heartbeat::HeartbeatAction;
+                match act.heartbeat.tick(Instant::now()) {
+                    HeartbeatAction::Ping => {
+                        trace!("[WebSocket] Sending server heartbeat ping");
+                        ctx.ping(b"");
+                    }
+                    HeartbeatAction::Close => {
+                        warn!(
+                            "[WebSocket] Client {:?} silent for {:?} — closing (heartbeat timeout)",
+                            act.client_id, config.timeout
+                        );
+                        ctx.close(Some(ws::CloseReason {
+                            code: ws::CloseCode::Away,
+                            description: Some("heartbeat timeout".into()),
+                        }));
+                        ctx.stop();
+                    }
+                }
             });
             self.heartbeat_timer_set = true;
         }

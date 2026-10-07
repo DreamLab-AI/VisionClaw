@@ -386,6 +386,24 @@ pub async fn socket_flow_handler(
         client_ip.clone(),
     );
 
+    // system.websocket.heartbeat{Interval,Timeout}, read per connection so a
+    // settings reload applies to the next socket without a restart.
+    let heartbeat_config = match app_state_arc
+        .settings_addr
+        .send(crate::actors::messages::GetSettings)
+        .await
+    {
+        Ok(Ok(settings)) => {
+            super::heartbeat::HeartbeatConfig::from_settings(&settings.system.websocket)
+        }
+        _ => {
+            warn!("[WebSocket] settings unavailable; using default heartbeat timings");
+            super::heartbeat::HeartbeatConfig::default()
+        }
+    };
+    ws_server.heartbeat =
+        super::heartbeat::Heartbeat::new(heartbeat_config, std::time::Instant::now());
+
     ws_server.is_reconnection = is_reconnection;
     if let Some(user) = signed_user {
         ws_server.pubkey = Some(user.pubkey);

@@ -340,22 +340,8 @@ system:
     metricsPort: 9090
     retryDelay: 5
   websocket:
-    binaryChunkSize: 2048
-    binaryUpdateRate: 30
-    minUpdateRate: 5
-    maxUpdateRate: 60
-    motionThreshold: 0.05
-    motionDamping: 0.9
-    binaryMessageVersion: 1
-    compressionEnabled: false
-    compressionThreshold: 512
     heartbeatInterval: 10000
     heartbeatTimeout: 600000
-    maxConnections: 100
-    maxMessageSize: 10485760
-    reconnectAttempts: 5
-    reconnectDelay: 1000
-    updateRate: 60
   security:
     allowedOrigins:
     - https://www.visionclaw.info

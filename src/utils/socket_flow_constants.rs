@@ -4,16 +4,9 @@ pub const EDGE_WIDTH: f32 = 0.1;
 pub const MIN_DISTANCE: f32 = 0.75;
 pub const MAX_DISTANCE: f32 = 10.0;
 
-// WebSocket constants - matching nginx configuration
-pub const HEARTBEAT_INTERVAL: u64 = 30;
-pub const CLIENT_TIMEOUT: u64 = 60;
-pub const MAX_CLIENT_TIMEOUT: u64 = 3600;
-pub const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024;
-pub const BINARY_CHUNK_SIZE: usize = 64 * 1024;
-
-// Update rate constants
-pub const POSITION_UPDATE_RATE: u32 = 5;
-pub const METADATA_UPDATE_RATE: u32 = 1;
+// The /wss heartbeat lives in `system.websocket.heartbeat{Interval,Timeout}`
+// (handlers/socket_flow_handler/heartbeat.rs) and the position-stream rate in
+// `physics.broadcastFps`; the unused constants that shadowed them are gone.
 
 // Binary message constants
 pub const NODE_POSITION_SIZE: usize = 24;

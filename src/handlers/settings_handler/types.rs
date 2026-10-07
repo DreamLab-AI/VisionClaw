@@ -90,19 +90,6 @@ impl SettingsUpdateDTO {
                     message: "max_request_size must be > 0".to_string(),
                 });
             }
-            // Validate websocket settings
-            if system.websocket.max_connections == 0 {
-                return Err(SettingsValidationError {
-                    field: "system.websocket.max_connections".to_string(),
-                    message: "max_connections must be > 0".to_string(),
-                });
-            }
-            if system.websocket.max_message_size == 0 {
-                return Err(SettingsValidationError {
-                    field: "system.websocket.max_message_size".to_string(),
-                    message: "max_message_size must be > 0".to_string(),
-                });
-            }
         }
 
         // Validate visualisation settings if present
@@ -507,22 +494,8 @@ pub struct NetworkSettingsDTO {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSocketSettingsDTO {
-    pub binary_chunk_size: usize,
-    pub binary_update_rate: u32,
-    pub min_update_rate: u32,
-    pub max_update_rate: u32,
-    pub motion_threshold: f32,
-    pub motion_damping: f32,
-    pub binary_message_version: u32,
-    pub compression_enabled: bool,
-    pub compression_threshold: usize,
     pub heartbeat_interval: u64,
     pub heartbeat_timeout: u64,
-    pub max_connections: usize,
-    pub max_message_size: usize,
-    pub reconnect_attempts: u32,
-    pub reconnect_delay: u64,
-    pub update_rate: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

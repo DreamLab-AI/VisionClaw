@@ -77,28 +77,26 @@ sends an opening sequence over JSON text frames:
 
 ### Subscribing to positions
 
-The client opts into the binary stream with a JSON control frame:
+Every registered `/wss` client receives the position stream: the
+`ClientCoordinatorActor` pushes a full V5 snapshot at
+`visualisation.graphs.knowledge.physics.broadcastFps` (default 8 Hz, 1-60, set
+through `PUT /api/settings/physics`). There is no per-client rate.
+
+`subscribe_position_updates` asks for one immediate snapshot, which is useful
+when a client joins while physics is settled and the push stream is quiet:
 
 ```json
 { "type": "subscribe_position_updates",
-  "data": { "interval": 60, "binary": true, "nodeTypes": ["knowledge", "agent"] } }
+  "data": { "binary": true, "nodeTypes": ["knowledge", "agent"] } }
 ```
 
-- `interval` is the broadcast period in milliseconds (default `60`, clamped up
-  to the endpoint rate limit `1000 / (rpm/60)`).
-- `nodeTypes` is an optional server-side filter — only matching node types are
-  encoded into binary frames for this session.
+- `nodeTypes` is an optional filter applied to that snapshot only.
+- An `interval` field is ignored (it used to drive a per-socket polling loop
+  that, because of the debounce below, never sent more than one frame).
 
-The server replies `{"type":"subscription_confirmed","subscription":"position_updates",...}`
-and starts a single broadcast loop. Two server-side defences keep reconnect
-storms from amplifying:
-
-- **Per-session debounce** — subscribes arriving within 2 s of the last accepted
-  one are ignored.
-- **Generation collapse** — each `subscribe_position_updates` bumps a generation
-  counter; older self-looping broadcast tasks stop when they observe a newer
-  generation, so exactly one loop survives no matter how many times the client
-  re-subscribes.
+The server replies `{"type":"subscription_confirmed","subscription":"position_updates","mode":"push",...}`
+and sends the snapshot. Subscribes arriving within 2 s of the last accepted one
+are ignored, and a newer subscribe supersedes a snapshot still being fetched.
 
 ### Backpressure acknowledgement
 
@@ -118,7 +116,7 @@ in [binary-protocol.md](./binary-protocol.md).
 | `type` | Effect |
 |--------|--------|
 | `ping` (plain `"ping"` or JSON) | refresh activity clock, reply `pong` |
-| `subscribe_position_updates` | start/refresh the binary broadcast loop |
+| `subscribe_position_updates` | send one full binary snapshot now (the stream itself is pushed) |
 | `request_full_snapshot` | emit one full binary frame immediately |
 | `requestInitialData` | send the sparse initial graph load |
 | `filter_update` | adjust server-side node filtering |
@@ -305,13 +303,13 @@ Each socket runs its own keepalive cadence. All of them treat any inbound frame
 
 | Socket | Server ping | Idle close | Notes |
 |--------|-------------|------------|-------|
-| `/wss` | every 5 s (`ctx.ping`) | activity-clock based | also accepts plain `"ping"` text and JSON `{"type":"ping"}`, replies `pong` |
+| `/wss` | every `system.websocket.heartbeatInterval` (default 10 s) | after `heartbeatTimeout` (default 10 min) with no inbound frame, close code 1001 | values from `settings.yaml`, read per connection; interval raised to ≥ 1 s, timeout to ≥ 2 intervals. Sending a ping never counts as liveness. Also accepts plain `"ping"` text and JSON `{"type":"ping"}`, replies `pong` |
 | `/ws/presence` | every 15 s | 30 s (2× interval) | plus 10 s handshake deadline |
 | `/wss/agent-events` | none | transport-driven | answers client `Ping` with `Pong` |
 
-`src/utils/socket_flow_constants.rs` defines `HEARTBEAT_INTERVAL = 30` and
-`CLIENT_TIMEOUT = 60` as the contract-level keepalive budget; the position
-actor's own 5 s server ping keeps connections warm well inside that window.
+`/wss` timings live in `handlers/socket_flow_handler/heartbeat.rs`. Browsers
+answer pings from the network stack, so a busy tab stays alive; a peer that has
+gone away is closed and unregistered from the broadcast registry.
 
 The shared `WebSocketHeartbeat` trait (`src/utils/websocket_heartbeat.rs`) also
 piggybacks server-to-client **directives** on pong frames (ADR-031):

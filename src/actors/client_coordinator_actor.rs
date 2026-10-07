@@ -204,8 +204,11 @@ impl DisconnectedClientQueue {
 /// `congested_clients` are clients whose socket-actor mailbox was full, so
 /// this one frame was skipped for them. They stay registered: position frames
 /// are full latest-wins snapshots, so the next frame that fits supersedes the
-/// skipped one. A peer that never drains is reaped by the socket heartbeat
-/// timeout, whose `stopped()` sends `UnregisterClient`.
+/// skipped one. A peer that has gone away stops answering pings and is closed
+/// after `system.websocket.heartbeatTimeout`
+/// (`socket_flow_handler/heartbeat.rs`); its `stopped()` sends
+/// `UnregisterClient`. A peer that stays connected but never reads costs one
+/// full 16-message mailbox, and every frame is skipped for it.
 ///
 /// `closed_clients` are clients whose socket actor has stopped. Callers MUST
 /// evict these under a write lock AFTER releasing any read lock held during
