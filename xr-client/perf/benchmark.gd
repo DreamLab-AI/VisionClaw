@@ -38,11 +38,34 @@ const GRAPH_DRAW_CALLS := 6  # graph-only benchmark, measured (gems, halos, impo
 var _gem_cap: int = NodeLod.NEAR_CAP
 var _edge_cap: int = NodeLod.NEAR_EDGE_CAP
 var _budget_report: Dictionary = {"enabled": false}
+# Everything a headset frame carries outside the budgeted layers: the HUD,
+# both controllers' aim rays (as graph_scene._ensure_controller_rays builds
+# them) and two remote avatars. A calibration phase renders them alone and the
+# renderer's count becomes FrameBudget's other_tris.
+var with_extras: bool = true
+var bursts_on: bool = true
+const CALIBRATE_SKIP := 5
+const CALIBRATE_FRAMES := 15
+var _phase: int = 0          # 0 calibrating extras, 1 measuring
+var _calib_frames: int = 0
+var _other_tris: int = 0
+var _other_dc: int = 0
+var _bursts: Node3D = null
+var _burst_slots: int = 0
+var _emph_rows := PackedInt32Array()
+var _hud_od: Node = null   # HudRenderOnDemand; XR_BENCH_HUD_ACTIVE=1 re-renders it every frame (wand on the panel)
+const MemoryBurstsScript := preload("res://scripts/memory_bursts.gd")
+const BURST_TINT := Color(0.2235, 1.0, 0.0784)  # desktop "store" #39ff14
 var _memory: Node3D = null
 
 var _frame_times_ms: PackedFloat32Array = PackedFloat32Array()
 var _draw_calls: PackedInt32Array = PackedInt32Array()
 var _tri_counts: PackedInt32Array = PackedInt32Array()
+# The eye-buffer scene alone (root viewport, 3D + its own canvas), without the
+# HUD SubViewport's offscreen 2D renders: what FrameBudget governs.
+var _scene_draw_calls: PackedInt32Array = PackedInt32Array()
+var _scene_tri_counts: PackedInt32Array = PackedInt32Array()
+var _hud_render_frames: int = 0
 var _static_mem_kb: PackedInt32Array = PackedInt32Array()
 var _started_at_us: int = 0
 var _fixture: Dictionary = {}
@@ -87,6 +110,10 @@ func _ready() -> void:
 		memory_route_hops = int(get_meta("memory_route_hops"))
 	if has_meta("memory_route_sidecar"):
 		memory_route_sidecar = int(get_meta("memory_route_sidecar"))
+	if has_meta("extras"):
+		with_extras = bool(get_meta("extras"))
+	if has_meta("bursts"):
+		bursts_on = bool(get_meta("bursts"))
 	_fixture = _load_fixture(fixture_path)
 	var synth: int = int(OS.get_environment("XR_BENCH_NODES")) if OS.has_environment("XR_BENCH_NODES") else 0
 	if synth > 0:
@@ -94,18 +121,45 @@ func _ready() -> void:
 		_node_source = "synthetic"
 	if OS.has_environment("XR_BENCH_NEAR_RADIUS"):
 		_near_radius = float(OS.get_environment("XR_BENCH_NEAR_RADIUS"))
+	if with_extras:
+		_add_extras()
+		_phase = 0
+	else:
+		_begin_measurement()
+
+
+func _begin_measurement() -> void:
 	if not _populate_lod_path(_fixture):
 		_populate_scene_from_fixture(_fixture)
 	_add_hull_layer(_fixture)
 	_populate_memory_layers(memory_cloud_rows)
+	_add_bursts()
 	_apply_frame_budget()
+	_phase = 1
 	_started_at_us = Time.get_ticks_usec()
 
 func _process(delta: float) -> void:
+	if _hud_od != null and OS.get_environment("XR_BENCH_HUD_ACTIVE") == "1":
+		_hud_od.request_render()
+	if _phase == 0:
+		_calib_frames += 1
+		if _calib_frames > CALIBRATE_SKIP:
+			var c: Vector2i = _scene_info()
+			_other_dc = maxi(_other_dc, c.x)
+			_other_tris = maxi(_other_tris, c.y)
+		if _calib_frames >= CALIBRATE_SKIP + CALIBRATE_FRAMES:
+			_begin_measurement()
+		return
+	_drive_bursts()
 	_lod_rebuild()
 	_frame_times_ms.append(delta * 1000.0)
 	_draw_calls.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)))
 	_tri_counts.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)))
+	var sc: Vector2i = _scene_info()
+	_scene_draw_calls.append(sc.x)
+	_scene_tri_counts.append(sc.y)
+	if _tri_counts[-1] > sc.y:
+		_hud_render_frames += 1
 	_static_mem_kb.append(int(Performance.get_monitor(Performance.MEMORY_STATIC) / 1024))
 
 	var elapsed_s := (Time.get_ticks_usec() - _started_at_us) / 1_000_000.0
@@ -134,6 +188,8 @@ func _build_report(elapsed_s: float) -> Dictionary:
 
 	var draw_max := _max_int(_draw_calls)
 	var tri_max := _max_int(_tri_counts)
+	var scene_draw_max := _max_int(_scene_draw_calls)
+	var scene_tri_max := _max_int(_scene_tri_counts)
 	var p99 := _percentile(fts, 0.99)
 	var p95 := _percentile(fts, 0.95)
 	var p50 := _percentile(fts, 0.50)
@@ -171,11 +227,17 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"frame_ms_p99": p99,
 		"draw_calls_max": draw_max,
 		"tri_count_max": tri_max,
+		"scene": {"draw_calls_max": scene_draw_max, "tri_count_max": scene_tri_max,
+			"pass": scene_draw_max <= MAX_DRAW_CALLS and scene_tri_max <= MAX_TRIANGLES,
+			"hud_render_frames": _hud_render_frames, "frames": _scene_tri_counts.size()},
 		"static_mem_kb_max": _max_int(_static_mem_kb),
 		"hull_layer": _hull_report,
 		"memory_cloud_rows": memory_cloud_rows,
 		"memory_layers": _memory.budget() if _memory != null else {},
 		"frame_budget": _budget_report,
+		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc},
+		"bursts": {"enabled": bursts_on, "ring_slots": _burst_slots, "emphasised_rows": _emph_rows.size(),
+			"ring_instances": _bursts.slot_count() if _bursts != null else 0},
 		"pass": pass_p99 and pass_dc and pass_tri,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
@@ -228,6 +290,97 @@ func _add_hull_layer(fixture: Dictionary, max_hulls: int = HULL_MAX) -> void:
 		"triangles_est_max": max_hulls * 124,
 	}
 
+# (draw calls, primitives) of the root viewport's last frame: the eye-buffer
+# scene, without offscreen SubViewport renders (the HUD canvas).
+func _scene_info() -> Vector2i:
+	var rid: RID = get_viewport().get_viewport_rid()
+	var t := RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE
+	return Vector2i(
+		RenderingServer.viewport_get_render_info(rid, t, RenderingServer.VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME),
+		RenderingServer.viewport_get_render_info(rid, t, RenderingServer.VIEWPORT_RENDER_INFO_PRIMITIVES_IN_FRAME))
+
+
+# HUD panel 0.6 m ahead of the camera (GraphScene parents it to XRCamera3D),
+# both controllers' aim rays, two remote avatars at conversational distance.
+# XR_BENCH_EXTRAS=hud,controllers,avatars (default all) picks a subset, to
+# attribute the cost.
+func _add_extras() -> void:
+	var cam := get_node_or_null("Camera3D") as Camera3D
+	var anchor: Node3D = cam if cam != null else self
+	var pick: String = OS.get_environment("XR_BENCH_EXTRAS") if OS.has_environment("XR_BENCH_EXTRAS") else "hud,controllers,avatars"
+	if pick.contains("hud"):
+		var hud: Node3D = (load("res://scenes/HUD.tscn") as PackedScene).instantiate()
+		hud.position = Vector3(0.0, -0.1, -0.6)
+		anchor.add_child(hud)
+		_hud_od = hud.get_node_or_null("HudRenderOnDemand")
+	for side: float in ([-1.0, 1.0] if pick.contains("controllers") else []):
+		var wand := Node3D.new()
+		wand.name = "Controller%s" % ("L" if side < 0.0 else "R")
+		wand.position = Vector3(0.18 * side, -0.3, -0.35)
+		anchor.add_child(wand)
+		# graph_scene._ensure_controller_rays: 0.006 x 0.006 x RAY_LENGTH box,
+		# unshaded emissive, centred half a ray forward.
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.006, 0.006, 5.0)
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.emission_enabled = true
+		mat.emission = Color(0.35, 0.7, 1.0)
+		var ray := MeshInstance3D.new()
+		ray.name = "AimRay"
+		ray.mesh = mesh
+		ray.material_override = mat
+		ray.position = Vector3(0.0, 0.0, -2.5)
+		wand.add_child(ray)
+	var avatar_scene := load("res://scenes/Avatar.tscn") as PackedScene
+	for i in (2 if pick.contains("avatars") else 0):
+		var av: Node3D = avatar_scene.instantiate()
+		av.position = Vector3(-0.6 + 1.2 * i, -0.2, -1.6)
+		anchor.add_child(av)
+		if av.has_method("set_display_name"):
+			av.set_display_name("Peer %d" % (i + 1))
+
+
+# memory_flash load: with the cloud shown, 64 rows emphasised every frame (the
+# set_row_emphasis path, no geometry); with it hidden, the ring pool kept at the
+# allocator's slot count.
+func _add_bursts() -> void:
+	if not bursts_on:
+		return
+	_bursts = MemoryBurstsScript.new()
+	_bursts.name = "MemoryBursts"
+	_bursts.reduced_motion = false
+	add_child(_bursts)
+	if _memory != null and _memory.has_snapshot():
+		var n: int = mini(64, _memory.point_count())
+		for k in n:
+			_emph_rows.append((k * 7919 + 101) % _memory.point_count())
+
+
+func _drive_bursts() -> void:
+	if _bursts == null:
+		return
+	if not _emph_rows.is_empty():
+		var t: float = Time.get_ticks_msec() / 1000.0
+		var tints := PackedColorArray()
+		var gains := PackedFloat32Array()
+		var scales := PackedFloat32Array()
+		for k in _emph_rows.size():
+			var u: float = 0.5 + 0.5 * sin(t * 3.0 + k)
+			tints.append(BURST_TINT)
+			gains.append(1.0 + 1.5 * u)
+			scales.append(1.0 + u)
+		_memory.set_row_emphasis(_emph_rows, tints, gains, scales)
+		return
+	var cam := get_node_or_null("Camera3D") as Camera3D
+	var centre: Vector3 = (cam.global_position + cam.global_transform.basis.z * -3.0) if cam != null else Vector3(0, 1.5, -3)
+	var k := 0
+	while _bursts.slot_count() < _burst_slots:
+		var a: float = TAU * float(_bursts.slot_count() + k) / 64.0
+		_bursts.spawn(centre + Vector3(cos(a), sin(a) * 0.6, 0.0) * 1.2, {"rings": 1, "duration": 1.6, "color": BURST_TINT})
+		k += 1
+
+
 # One FrameBudget pass for the whole scene, as GraphScene runs it: the graph's
 # far tiers, the route, the cloud, then hulls, gems and cylinders.
 func _apply_frame_budget() -> void:
@@ -237,9 +390,12 @@ func _apply_frame_budget() -> void:
 	var hulls: int = int(_hull_report.get("hulls", 0))
 	var nodes: int = _ids.size()
 	var edges: int = _edge_pairs.size() / 2 if _edges != null else 0
-	# faded 0 (no labels), other_tris 0 (no HUD/avatars/controllers in the benchmark scene)
-	var caps: Dictionary = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, 0,
-		GRAPH_DRAW_CALLS, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]))
+	# faded 0 (no labels); other_tris / other draw calls measured in the calibration phase
+	var cloud_shown: bool = int(demand["cloud_rows"]) > 0
+	var ring_slots: int = MemoryBurstsScript.POOL_SIZE if bursts_on and not cloud_shown else 0
+	var caps: Dictionary = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,
+		GRAPH_DRAW_CALLS + _other_dc, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots)
+	_burst_slots = int(caps["burst_slots"])
 	_gem_cap = int(caps["gem_nodes"])
 	_edge_cap = int(caps["cylinder_edges"])
 	if int(caps["max_hulls"]) < hulls:
@@ -254,7 +410,8 @@ func _apply_frame_budget() -> void:
 	_lod_rebuild()
 	_budget_report = caps.duplicate()
 	_budget_report["enabled"] = true
-	_budget_report["demand"] = {"nodes": nodes, "edges": edges, "hulls": hulls, "hull_tris": int(_hull_report.get("triangles", 0))}
+	_budget_report["demand"] = {"nodes": nodes, "edges": edges, "hulls": hulls, "hull_tris": int(_hull_report.get("triangles", 0)),
+		"other_tris": _other_tris, "other_draw_calls": _other_dc, "ring_slots": ring_slots}
 
 
 # Deterministic production-density stand-in: n nodes in the fixture's ±10 m

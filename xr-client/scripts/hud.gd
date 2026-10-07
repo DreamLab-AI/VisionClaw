@@ -50,6 +50,7 @@ extends Node3D
 @onready var scroll_down_button: Button = $HudViewport/HudControl/DocumentPanel/DVBox/DScroll/ScrollDownButton
 @onready var doc_http: HTTPRequest = $DocHttp
 
+const HudRenderOnDemandScript := preload("res://scripts/hud_render_on_demand.gd")
 const NG_PAGE_BASE: String = "https://narrativegoldmine.com/api/pages/"
 const DOC_TIMEOUT_SEC: float = 10.0
 const DOC_SCROLL_STEP: int = 140
@@ -256,6 +257,8 @@ func _ready() -> void:
 	# Bind after attachment: nested PackedScene textures have no viewport yet.
 	($HudPanel.material_override as StandardMaterial3D).albedo_texture = $HudViewport.get_texture()
 	_build_ui()
+	# Render the panel only when a control redraws (perf: was every frame).
+	HudRenderOnDemandScript.attach($HudViewport)
 	# Overlay wiring (nodes from HUD.tscn).
 	approve_button.pressed.connect(_on_approve_pressed)
 	deny_button.pressed.connect(_on_deny_pressed)

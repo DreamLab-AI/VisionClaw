@@ -5,6 +5,8 @@
 [sub_resource type="SphereMesh" id="SphereMesh_head"]
 radius = 0.12
 height = 0.24
+radial_segments = 16
+rings = 8
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_head"]
 albedo_color = Color(0.7, 0.85, 1, 1)
@@ -27,6 +29,8 @@ outline_color = Color(0, 0, 0, 0.8)
 [sub_resource type="SphereMesh" id="SphereMesh_voice"]
 radius = 0.03
 height = 0.06
+radial_segments = 8
+rings = 4
 
 [node name="Avatar" type="Node3D"]
 script = ExtResource("1_avatar")

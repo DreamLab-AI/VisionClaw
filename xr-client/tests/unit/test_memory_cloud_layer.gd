@@ -44,7 +44,8 @@ func test_snapshot_loads_into_one_stride_16_multimesh() -> void:
 	var mm := _points(l)
 	assert_eq(mm.instance_count, 9)
 	assert_true(mm.use_colors, "palette colour per instance")
-	assert_eq(mm.buffer.size(), 9 * 16, "12 transform + 4 colour floats per sprite")
+	assert_true(mm.use_custom_data, "flash emphasis per instance")
+	assert_eq(mm.buffer.size(), 9 * 20, "12 transform + 4 colour + 4 custom floats per sprite")
 	var root: Node3D = l.get_node("CloudRoot")
 	assert_almost_eq(root.scale.x, 5.0, 0.0001, "desktop cloudScale")
 	l.queue_free()
@@ -233,7 +234,7 @@ func test_frame_budget_demand_and_caps() -> void:
 	assert_eq(int(d["route_sidecar"]), 1)
 	var full: int = int(l._route.sample_count())
 	assert_eq(full, 2 * 16 + 1, "short route at full detail")
-	var caps: Dictionary = FrameBudget.new().allocate(1000, 1500, 0, 0, 0, 0, 6, int(d["cloud_rows"]), int(d["route_rows"]), int(d["route_sidecar"]))
+	var caps: Dictionary = FrameBudget.new().allocate(1000, 1500, 0, 0, 0, 0, 6, int(d["cloud_rows"]), int(d["route_rows"]), int(d["route_sidecar"]), 0)
 	assert_false(bool(caps["over_budget"]))
 	assert_eq(int(caps["cloud_sprites"]), 6)
 	# a starved budget: fewest sprites the keep rows allow, one sample per hop
@@ -249,3 +250,138 @@ func test_frame_budget_demand_and_caps() -> void:
 	l.set_enabled(false)
 	assert_eq(int(l.frame_demand()["cloud_rows"]), 0, "hidden cloud demands nothing")
 	l.queue_free()
+
+
+# --- memory_flash row emphasis (xr-pulse set_row_emphasis contract) ----------
+
+# Read back the uploaded MultiMesh buffer (works under the headless dummy
+# renderer, unlike the per-instance getters).
+func _custom(l: Node3D, row: int) -> Color:
+	var b: PackedFloat32Array = _points(l).buffer
+	var o: int = int(l._cloud.instance_of_row(row)) * 20
+	return Color(b[o + 16], b[o + 17], b[o + 18], b[o + 19])
+
+
+func _size(l: Node3D, row: int) -> float:
+	var b: PackedFloat32Array = _points(l).buffer
+	var o: int = int(l._cloud.instance_of_row(row)) * 20
+	return Vector3(b[o], b[o + 4], b[o + 8]).length()
+
+
+func test_row_emphasis_restyles_sprites_without_geometry() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	_load(l, "s1", 6)
+	l.flush()
+	var count_before: int = _points(l).instance_count
+	var tris_before: int = int(l.budget()["cloud_triangles"])
+	var base: float = _size(l, 1)
+	assert_eq(_custom(l, 1), Color(0, 0, 0, 1), "neutral before any flash")
+	var tint := Color.html("39ff14")
+	l.set_row_emphasis(PackedInt32Array([1, 4]), PackedColorArray([tint, tint]), PackedFloat32Array([2.5, 1.5]), PackedFloat32Array([2.0, 1.0]))
+	assert_eq(_custom(l, 1), Color(tint.r, tint.g, tint.b, 2.5))
+	assert_almost_eq(_size(l, 1), base * 2.0, 1e-4, "scale multiplies the sprite")
+	assert_almost_eq(_size(l, 4), base, 1e-4)
+	assert_eq(_points(l).instance_count, count_before, "no instances added")
+	assert_eq(int(l.budget()["cloud_triangles"]), tris_before, "no triangles added")
+	# replace-all: row 1 left out returns to normal
+	l.set_row_emphasis(PackedInt32Array([4]), PackedColorArray([tint]), PackedFloat32Array([2.0]), PackedFloat32Array([1.5]))
+	assert_eq(_custom(l, 1), Color(0, 0, 0, 1), "dropped row back to neutral")
+	assert_almost_eq(_size(l, 1), base, 1e-4, "and back to its size")
+	assert_eq(l.emphasised_count(), 1)
+	# survives a full buffer upload
+	l.flush()
+	assert_eq(_custom(l, 4), Color(tint.r, tint.g, tint.b, 2.0), "re-applied after upload")
+	assert_almost_eq(_size(l, 4), base * 1.5, 1e-4)
+	# empty clears
+	l.set_row_emphasis(PackedInt32Array(), PackedColorArray(), PackedFloat32Array(), PackedFloat32Array())
+	assert_eq(l.emphasised_count(), 0)
+	assert_eq(_custom(l, 4), Color(0, 0, 0, 1))
+	assert_almost_eq(_size(l, 4), base, 1e-4)
+	l.queue_free()
+
+
+func test_row_emphasis_clamps_caps_and_ignores_undrawn_rows() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	_load(l, "s1", 120)
+	l.flush()
+	var rows := PackedInt32Array()
+	var tints := PackedColorArray()
+	var gains := PackedFloat32Array()
+	var scales := PackedFloat32Array()
+	for r in 100:
+		rows.append(r)
+		tints.append(Color.RED)
+		gains.append(9.0)
+		scales.append(7.0)
+	rows.append(5000)  # not a row: ignored
+	tints.append(Color.RED)
+	gains.append(2.0)
+	scales.append(1.0)
+	var base: float = _size(l, 0)
+	l.set_row_emphasis(rows, tints, gains, scales)
+	assert_eq(l.emphasised_count(), 64, "at most 64 rows")
+	assert_eq(_custom(l, 0).a, 2.5, "gain clamped")
+	assert_almost_eq(_size(l, 0), base * 2.0, 1e-4, "scale clamped")
+	assert_eq(_custom(l, 64), Color(0, 0, 0, 1), "row past the cap untouched")
+	# mismatched lengths use the common prefix
+	l.set_row_emphasis(PackedInt32Array([2, 3]), PackedColorArray([Color.BLUE]), PackedFloat32Array([2.0, 2.0]), PackedFloat32Array([1.0, 1.0]))
+	assert_eq(l.emphasised_count(), 1)
+	l.queue_free()
+
+
+# xr-pulse's test_beat_pulse flash test, against the real layer instead of its
+# FakeCloud: a memory_flash on a loaded cloud restyles the matching sprite, adds
+# no ring geometry, and clears when the burst ends.
+class RealScene extends Node3D:
+	var _memory_cloud = null
+
+
+func test_beat_pulse_flash_lands_on_the_real_cloud() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	var scene := RealScene.new()
+	root.add_child(scene)
+	var l: Node3D = Layer.new()
+	scene.add_child(l)
+	scene._memory_cloud = l
+	await get_tree().process_frame
+	l._enabled = true
+	_load(l, "s1", 6)
+	l.flush()
+	var effects := Node3D.new()
+	root.add_child(effects)
+	var beat: Node = (load("res://scripts/beat_pulse.gd") as GDScript).new()
+	root.add_child(beat)
+	beat.setup(scene, null, null, null, null, effects, func() -> Vector3: return Vector3.ZERO)
+	var flash := '{"type":"memory_flash","data":{"key":"k3","namespace":"project-state","action":"store"}}'
+	beat.on_text(flash, "memory_flash")
+	var bursts: Node = effects.get_node("MemoryBursts")
+	assert_eq(bursts.slot_count(), 0, "no ring geometry while the cloud is shown")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_eq(l.emphasised_count(), 1, "the flashed row is restyled")
+	var c: Color = _custom(l, 3)
+	assert_gt(c.a, 1.0, "brightened")
+	# store base #39ff14, hue-nudged by namespace as the desktop does (semantic.rs)
+	var want: Color = MemoryFlashCodec.parse(flash)[0]["color"]
+	assert_eq(Color(c.r, c.g, c.b).to_html(false), want.to_html(false), "desktop burst colour for (store, project-state)")
+	await get_tree().create_timer(2.2).timeout
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_eq(l.emphasised_count(), 0, "cleared when the burst ends")
+	assert_eq(_custom(l, 3), Color(0, 0, 0, 1))
+	root.queue_free()
+	await get_tree().process_frame
+
+
+func test_burst_pool_matches_the_allocator() -> void:
+	var b: Node3D = (load("res://scripts/memory_bursts.gd") as GDScript).new()
+	add_child(b)
+	await get_tree().process_frame
+	var spec: PackedInt32Array = FrameBudget.new().burst_pool_spec()
+	var mm: MultiMesh = (b.get_node("BurstMulti") as MultiMeshInstance3D).multimesh
+	assert_eq(spec[0], b.POOL_SIZE, "slots")
+	assert_eq(mm.mesh.get_faces().size() / 3, spec[1], "triangles per ring")
+	b.queue_free()
