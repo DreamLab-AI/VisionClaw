@@ -58,7 +58,8 @@ import {
   cleanupFilterSubscriptions,
   forceRefreshFilter as forceRefreshFilterFn,
   resetFilterState,
-  expectFilterResponse,
+  expectFilterResponseFor,
+  syncFilterToServer,
 } from './filterSync';
 
 import { createBinaryFrameDispatcher, createMessageHandler } from './binaryFrameDispatcher';
@@ -183,18 +184,9 @@ export const useWebSocketStore = create<WebSocketState>()(
 
             if (!signedUpgrade) sendAuthOnConnect(socket, state.url);
 
-            const currentFilter = useSettingsStore.getState().settings?.nodeFilter;
-            if (currentFilter) {
-              get().sendMessage('filter_update', {
-                enabled: currentFilter.enabled,
-                quality_threshold: currentFilter.qualityThreshold,
-                authority_threshold: currentFilter.authorityThreshold,
-                filter_by_quality: currentFilter.filterByQuality,
-                filter_by_authority: currentFilter.filterByAuthority,
-                filter_mode: currentFilter.filterMode,
-                include_linked_pages: currentFilter.includeLinkedPages ?? false,
-              });
-            }
+            // The server keeps the node filter per connection: establish it
+            // once here (forced, de-duplicated thereafter by filterSync).
+            syncFilterToServer(get, { force: true });
 
             initializeBatchQueue(get);
             setupFilterSubscription(get);
@@ -375,7 +367,7 @@ export const useWebSocketStore = create<WebSocketState>()(
         // The server answers with a (typically smaller) filtered
         // initialGraphLoad — arm the acceptance window so the shrink-guard
         // in handleInitialGraphLoad lets it through (see filterSync.ts).
-        expectFilterResponse();
+        expectFilterResponseFor(filter);
 
         state.sendMessage('filter_update', {
           enabled: filter.enabled,
