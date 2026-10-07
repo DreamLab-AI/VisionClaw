@@ -5,7 +5,7 @@ version: 0.1.16
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.16 (2026-10-07): HUD Graph Separation control (ADR-2135 in the headset) — Sep −/slider/value/Sep + share the Layout Mode row (page stays 529 px); separation_control.gd writes graphSeparationX through the physics PUT at ≤ 4 Hz while dragging plus a final write on release; read-back moves the slider. No invariant changed."
+  - "0.1.16 (2026-10-07): HUD Graph Separation control (ADR-2135 in the headset) — Sep −/slider/value/Sep + share the Layout Mode row (page stays 529 px); separation_control.gd writes graphSeparationX through the physics PUT at ≤ 4 Hz while dragging plus a final write on release; read-back moves the slider. Memory search from the headset — Query page Graph Query / Memory Search modes; presets POST /api/memory-cloud/query (NIP-98) and draw a sidecar top-k route (sampled hits in rank order, labelled as such) through the same MemoryRoute gate; a hit press retargets the guide cue; shared query-response fixture pins the headset parser to the server's wire types; benchmark route_source=query. No invariant changed."
   - "0.1.15 (2026-10-07): ADR-2135 separated layout — Graph Separation opens a ground-plane triangle (knowledge −60°, ontology +60°, memory 180°; R = 2/√3 × separation) from the shared visionclaw-tri-layout crate; the cloud folds the graph bounds and takes the memory vertex (graph_robust_bounds(separation), CloudFrame.set_separation, physics read-back of graphSeparationX); work agents rest at the centroid plus their activity drift (render-store DriftField fed by 0x23 and memory_flash agentId; the choreography stays the single pose writer). No invariant changed."
   - "0.1.14 (2026-10-07): intermittent CPU gate root-caused and fixed. The cause was cross-L3-domain migration of the main thread on HP's multi-L3 CPU (~8x on-CPU spikes for two frames), not the first build. The benchmark pins its main thread to its L3 domain, and the first plan build is gated on its own limits (pack 12 ms, LOD 33 ms) instead of being dropped silently. No invariant changed."
   - "0.1.13 (2026-10-07): held things above the route — wand aim rays at HELD_RENDER_PRIORITY 15 in the transparent pass (depth test kept), radial menu with the HUD at 20; ADR review finding (conflicting depth cue). No invariant changed."
@@ -26,6 +26,8 @@ sources:
   - xr-client/scripts/xr_boot.gd
   - xr-client/scripts/hud.gd
   - xr-client/scripts/separation_control.gd
+  - xr-client/scripts/memory_search.gd
+  - xr-client/rust/src/memory_query.rs
   - xr-client/scripts/graph_scene.gd
   - xr-client/rust/src/render_store.rs
   - xr-client/rust/src/domain_palette.rs
@@ -208,6 +210,11 @@ Two overflow lessons are baked in as INVARIANTS:
   ADR-2041), committing on 2xx. `_refresh_controls_status` pushes the value to
   `hud.set_graph_separation`, so a peer's change read back through
   `settingsUpdated` moves the slider; it is ignored mid-drag and never echoes.
+- **Query page: Graph Query / Memory Search (2026-10-07).** A mode row (press
+  fire, styled like the tab bar) replaces the 39 px header: graph mode is the
+  desktop query builder (522 px); memory mode is a one-line caption, a preset
+  list and the top hits, each list in a fixed-height scroll region (≤ 532 px
+  with both full). See *Memory search from the headset* below.
 - **ACTION_MODE_BUTTON_PRESS everywhere.** Every action button, tab button and
   type-toggle fires on *press*, not release (`hud.gd:252`, `637`, `647`):
   pulling the Vive trigger jolts the ray 20–30px, so a release-mode button often
@@ -299,6 +306,40 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   test parses `cloudFrame.ts`, `robustBounds.ts` and `EmbeddingCloudLayer.tsx`
   for the constants and formulas. Sprite size follows `cloudPointSize` (constant
   in cloud-local units above its 0.5 floor).
+- **Memory search from the headset (2026-10-07, `memory_search.gd`,
+  `rust/src/memory_query.rs`).** The relay above needs the desktop and the
+  headset on the same key; this path does not. The Query page's Memory mode
+  lists presets — the last four queries run on this headset (persisted to
+  `user://memory_search_recent.json`), five curated questions, and "what does
+  <namespace> hold" per namespace of the loaded snapshot (searched within that
+  namespace) — because text entry in VR is impractical. A press POSTs
+  `/api/memory-cloud/query {text, k: 10, namespace?}` signed by
+  `_auth_headers` for the exact URL (ADR-2076, Invariant 6), one query in
+  flight; 401/403 (power user or dev mode needed, ADR-2133), 429, 503, 400 and
+  transport failures are spelled out on the caption line. The hits list shows
+  rank · key · namespace · score and ● (sampled, has a point) or — (not
+  sampled). **The route is the sidecar top-k, not a search path:** the
+  response carries no traversal, and the headset holds neither the vectors nor
+  the snapshot's PCA basis, so it cannot place the query vector. The path runs
+  through the sampled hits in rank order with the top hit last (where the
+  answer ring sits); every sampled hit gets a gold mark. `RouteSource::
+  SidecarTopK` makes both the caption ("route: sidecar top-k in rank order
+  (not a search path)") and the Memory-row line ("Route: sidecar top-k in rank
+  order · n of k sidecar hits are in the sample") say so; there is no local
+  top-k, so no agreement figure is shown. `MemoryRoute.offer_query_response`
+  feeds the same `RouteGate` as a relay (Unix-ms `sentAt`, so a later desktop
+  frame replaces it; a response naming another snapshot reloads the cloud
+  once). Fewer than two sampled hits draw no route. Pressing a sampled hit
+  replays the guide cue towards that point (`ActiveRoute::focus_row`; the
+  answer ring is not highlighted while the cue points elsewhere); an unsampled
+  hit flashes a notice instead. Running a query turns the cloud on. There is
+  no voice entry: the headset's only microphone path is the beat analyser,
+  whose audio never leaves the device (Invariant 10). Drift:
+  `rust/tests/fixtures/memory_query_response.json` is parsed by the headset
+  (`tests/memory_query_parity.rs`) and round-tripped by the server's
+  `MemoryCloudQueryResponse` (`crates/visionclaw-memory-cloud/src/wire.rs`);
+  the request limits are pinned to `validate.rs`. `perf/run_benchmark.gd
+  route_source=query` measures a route built this way.
 - **Separated layout (ADR-2135).** `graph_separation` (from the physics read-back
   of `graphSeparationX`, `graph_parity.gd` → `GraphScene._graph_separation` →
   the layer) moves `CloudRoot` by the memory vertex of the shared triangle
