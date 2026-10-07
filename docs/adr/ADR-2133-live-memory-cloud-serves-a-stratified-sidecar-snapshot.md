@@ -133,3 +133,11 @@ otherwise report `hnsw`, and restricted queries report `exact`. The live test pa
 ## Re-verification — 2026-10-07 (ae8349b85)
 
 `build_pool` now refuses a connection string with no `user` or `dbname`. An unquoted key=value value in `.env` was cut at its first space and reached the container as `host=…` only, which parsed and then surfaced as an opaque `unreachable`. It now reports `not_configured` with a quoting hint. Read-only sessions, no default password and the exclusions are unchanged; the decision holds.
+
+## Amendment — 2026-10-07: dev bypass admits the memory cloud (operator decision)
+
+**Amends Decision 5 (Access).** At the operator's request, `VISIONCLAW_DEV_MODE=1` now admits every caller to all four endpoints as a power user (`require_power_user`, `src/handlers/memory_cloud_handler.rs`), so a local dev box shows the cloud without a signer. The bypass exists only in debug and `dev-auth` builds, and a release build refuses to boot with the variable set (`utils::auth::dev_full_bypass_active`), so production keeps the signed-power-user rule unchanged. `DEV_AUTH_LOOPBACK` and `RBAC_PUBLIC_READS` still unlock nothing. Under dev mode every caller shares the dev identity's query budget.
+
+**Accepted risk.** The dev compose service publishes its ports on every interface, so with dev mode on, anyone who can reach the dev host can read memory keys, snippets and vectors from non-excluded namespaces (security review M1). `personal-context` and the other excluded namespaces stay excluded. Bind the dev ports to loopback or the rail, or unset `VISIONCLAW_DEV_MODE`, on a shared network.
+
+**Evidence.** `tests/memory_cloud_auth_test.rs` now runs in two phases. With dev mode on, an anonymous caller is admitted on all four endpoints (it failed before this change, getting 401). With dev mode off, anonymous and dev-token callers get 401, an Editor signer 403, and a signed power user is admitted, with the per-pubkey budget enforced. Alongside, `verify_access` now answers a request with no credentials at all with 401 rather than 403 (`src/utils/auth.rs`, legacy-header branch), which the same test pins.
