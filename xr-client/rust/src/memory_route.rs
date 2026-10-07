@@ -92,6 +92,8 @@ pub const ROUTE_RENDER_PRIORITY: i32 = 10;
 /// so a held material in the transparent pass wins on order alone and keeps its
 /// own depth test (its far end stays occluded by nearer nodes).
 pub const HELD_RENDER_PRIORITY: i32 = 15;
+// Held things strictly between the route and the overlay, checked at compile time.
+const _: () = assert!(ROUTE_RENDER_PRIORITY < HELD_RENDER_PRIORITY && HELD_RENDER_PRIORITY < OVERLAY_RENDER_PRIORITY);
 /// Render priority of the HUD panel, the radial menu and the memory hover label.
 pub const OVERLAY_RENDER_PRIORITY: i32 = 20;
 
@@ -2350,8 +2352,7 @@ mod tests {
     fn what_the_user_holds_draws_above_the_route_and_below_the_overlay() {
         // A depth-ignoring route over the wand's own ray is a conflicting depth cue
         // in the headset: held things sit strictly between route and overlay.
-        assert!(HELD_RENDER_PRIORITY > ROUTE_RENDER_PRIORITY, "aim rays above the route");
-        assert!(HELD_RENDER_PRIORITY < OVERLAY_RENDER_PRIORITY, "HUD and menus above the rays");
+        // the 10 < 15 < 20 ordering is a compile-time assertion beside the constants
         let read = |rel: &str| {
             std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)).unwrap()
         };
