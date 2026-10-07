@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
+verified_commit: ebb9cd17441f8feaf4093f2f4de8cdfd4d951f63
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -156,3 +156,6 @@ ADR-2135 registers one module, `display_projection`, in `src/actors/gpu/mod.rs`.
 
 ## Re-verification — 2026-10-07 at 67ba41c98
 Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.
+
+## Re-verification — 2026-10-07 at ebb9cd174
+Doc-comment corrections only in `gpu_manager_actor.rs` and `physics_supervisor.rs`; supervisor topology and backoff unchanged. Decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
+verified_commit: ebb9cd17441f8feaf4093f2f4de8cdfd4d951f63
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -159,3 +159,6 @@ Merging fix/xr-held-above-route touches this record's paths only with a benchmar
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 adds `_graph_separation` to `xr-client/scripts/graph_scene.gd`, read back from `graphSeparationX` in `/api/settings/physics` (the `knowledge` physics block), and uses it for the memory cloud and the agents' rest slots. No settings key or alias changed. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-07 at ebb9cd174
+`data/settings.yaml` only changes the `system.websocket.heartbeatTimeout` default to 60000 ms. The graph settings key remains `knowledge`. Decision holds.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
+verified_commit: ebb9cd17441f8feaf4093f2f4de8cdfd4d951f63
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -281,3 +281,6 @@ ADR-2135 adds a pure workspace crate, `crates/visionclaw-tri-layout` (no depende
 
 ## Re-verification — 2026-10-07 at 67ba41c98
 Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.
+
+## Re-verification — 2026-10-07 at ebb9cd174
+fix/ws-heartbeat-60s only moves doc comments back onto their own handlers in `gpu_manager_actor.rs` and `physics_supervisor.rs` and documents the new subscription handlers. No layer or crate boundary changes. Decision holds.
