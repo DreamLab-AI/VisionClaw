@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -107,3 +107,9 @@ The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings thes
 Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
 
 In `graph_scene.gd` the merged changes are the parity hook, the LOD tier and the memory-cloud layer. None reads or writes a graph-type key (no `logseq`, `graph_type` or `graphs.` lines in `git diff b6fbe772d..HEAD`). **Decision unaffected.**
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`graph_scene.gd` adds the ribbon tier and the halo-quad feed. Neither reads or writes a graph-type key. **Decision unaffected.**

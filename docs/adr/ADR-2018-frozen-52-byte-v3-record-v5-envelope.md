@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -216,3 +216,9 @@ The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings thes
 Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
 
 In `xr-client/rust/src/binary_protocol.rs` the merged changes add settings-sync, refetch and hull state to `BinaryProtocolClient`. No wire constant or decode branch changed (`git diff b6fbe772d..HEAD` shows no `NODE_RECORD_BYTES`, `V5_SEQ_BYTES`, `PROTOCOL_V*` or tag line). **Decision unaffected.**
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`binary_protocol.rs` gains 30 lines of LOD buffer accessors (`build_edge_buffer_lod`, ribbon buffers). There is no wire constant, record-size or decode change. **Decision unaffected.**

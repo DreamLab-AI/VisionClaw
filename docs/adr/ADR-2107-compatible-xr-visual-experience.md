@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 885683ea4ec99fc4d268cb76ca3dcd7f5833e51b
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -79,3 +79,9 @@ The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings thes
 Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
 
 `hud.gd` adds xr-graph's domain and hull key rows and xr-cloud's Memory/Cloud toggles. No `Button.new()`/`CheckButton.new()` sits outside `_press_fire`. The new materials (`memory_route.gdshader`, cluster hull, impostor) are additive or unshaded geometry: no `SCREEN_TEXTURE`, depth texture or post-process ("glow" appears only as a uniform name and in comments). The page-fit tests pass. **Decision unaffected.** Reduced motion holds the beat swell at 0 (see above).
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+The halo is now an unshaded, additive camera-facing quad and the far edges are ribbons, with no screen-space effect, texture or renderer dependency. Under reduced motion `spatial_environment.gd` zeroes `query_pulse_depth` on the halo material and `pulse_energy` on the cylinders. `NodeLod.sync_edge_params` copies the cylinder parameters to the ribbons every frame, so the ribbons stop pulsing too. The beat swell lives in `edge_flow_common.gdshaderinc` and `node_halo_quad.gdshader` and is held at 0 under reduced motion. **Decision unaffected.**

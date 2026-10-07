@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 885683ea4ec99fc4d268cb76ca3dcd7f5833e51b
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -42,3 +42,9 @@ At `verified_commit`:
 - GUT `test_beat_pulse.gd` on HP Godot 4.6.1 drives frames through `_on_graph_text`.
 
 Still unverified: a desktop and headset filmed side by side (phase error < 30 ms target), so `activation_status` stays `staged`.
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`beat_pulse.gd` now writes `beat_pulse` to the live `NodesHaloMulti`, `EdgesMulti` and `EdgesRibbonMulti` materials, plus any remaining sphere-shell `next_pass`. The GUT test asserts that each live layer declares the uniform and carries the pulse, and it was red before this change. **Decision unaffected.**

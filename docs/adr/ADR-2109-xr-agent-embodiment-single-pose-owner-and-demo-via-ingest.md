@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 39f580e930c1dd66a4ba0b236d3a5c5015bdfba2
+verified_commit: 944cba88cc1472319adcabeff337f1ea37a0ce08
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -81,3 +81,9 @@ The merge of `feat/xr-cloud` (1c03ffb2a; it carries `feat/xr-graph`) brings thes
 Those branches did not move this record's `verified_commit`, so the combined state is re-verified here. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 105 integration tests, and GUT on HP Godot 4.6.1 (`--xr-mode off`) passes 149 tests.
 
 `render_store.rs` adds xr-graph's palette, filter, hull and LOD state in separate fields and impl blocks. `build_beam_buffer`, `agent_anchors` and `set_agent_anchors` are unchanged by the merge. `graph_scene.gd` parents the memory cloud, a data layer and not an embodiment, under `GraphRoot`. Bursts and avatars stay under the unit-scale roots. **Decision unaffected.**
+
+## Re-verification — 2026-10-07 at 944cba88c (xr-graph halo quads and edge LOD merged)
+
+The merge of `feat/xr-graph` (944cba88c) brings in xr-graph's halo quad layer (`NodesHaloMulti`, `node_halo_quad.gdshader`), its edge LOD (near cylinders plus far camera-facing ribbons sharing `edge_flow_common.gdshaderinc`) and the avatar quaternion slerp. Suite on the merged tree: `cargo test -p visionclaw-xr-gdext` passes 344 library + 111 integration tests; GUT on HP Godot 4.6.1 (`--xr-mode off`) runs 161 tests, 158 passing and 3 GL-only tests pending headless.
+
+`render_store.rs` adds the LOD packers in their own impl block. `build_beam_buffer` and the embodiment anchors are unchanged, and avatars and bursts stay under the unit-scale roots. The avatar rotation fix keeps `agent_choreography.gd` as the only pose writer. **Decision unaffected.**
