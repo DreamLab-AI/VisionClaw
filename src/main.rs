@@ -888,6 +888,10 @@ async fn main() -> std::io::Result<()> {
     let memory_cloud_data = web::Data::from(
         visionclaw_server::services::memory_cloud_service::MemoryCloudService::from_env(),
     );
+    // One per-pubkey query budget for every worker (clones share state).
+    let memory_cloud_query_limit = visionclaw_server::handlers::memory_cloud_query_rate_limit(
+        memory_cloud_data.config().query_per_minute,
+    );
 
     // Pre-initialise Solid pod state in the main async context (FsBackend::new
     // is async). The state is injected via app_data so Actix workers don't need
@@ -1199,7 +1203,9 @@ async fn main() -> std::io::Result<()> {
 
                     // Live memory cloud: stratified snapshot, vectors, sidecar
                     // query, health + recall probe (shared state installed below)
-                    .configure(visionclaw_server::handlers::configure_memory_cloud_routes)
+                    .configure(visionclaw_server::handlers::configure_memory_cloud_routes(
+                        memory_cloud_query_limit.clone(),
+                    ))
 
                     // Enrichment-proposals broker write-back (governance decisions)
                     .configure(visionclaw_server::handlers::configure_enrichment_proposals_routes)

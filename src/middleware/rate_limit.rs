@@ -76,7 +76,12 @@ impl RateLimitConfig {
     }
 }
 
-/// Rate limiter middleware
+/// Rate limiter middleware.
+///
+/// Clones share one request history (the state is behind an `Arc`), so a
+/// limiter built once outside `HttpServer::new` enforces one budget across
+/// every worker instead of one per worker.
+#[derive(Clone)]
 pub struct RateLimit {
     config: RateLimitConfig,
     state: Arc<RwLock<RateLimitState>>,

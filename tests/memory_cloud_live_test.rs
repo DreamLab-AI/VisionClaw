@@ -8,7 +8,15 @@
 //! cargo test --test memory_cloud_live_test -- --ignored --nocapture
 //! ```
 
+use std::sync::Arc;
 use std::time::Instant;
+
+use actix_web::{http::header::CACHE_CONTROL, test, web, App};
+use nostr_sdk::prelude::Keys;
+use visionclaw_server::middleware::RbacGate;
+use visionclaw_server::services::nostr_service::NostrService;
+use visionclaw_server::utils::auth::nip98_request_url;
+use visionclaw_server::utils::nip98::{build_auth_header, generate_nip98_token, Nip98Config};
 
 use visionclaw_memory_cloud::config::MemoryCloudConfig;
 use visionclaw_memory_cloud::validate::validate_query;
@@ -16,7 +24,22 @@ use visionclaw_memory_cloud::vector::{decode_vectors_blob, dot};
 use visionclaw_memory_cloud::wire::MemoryCloudQueryRequest;
 use visionclaw_server::services::memory_cloud_service::{MemoryCloudService, CONNINFO_ENV};
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// A NIP-98 `Authorization` value signed over the URL the server rebuilds.
+fn signed(keys: &Keys, method: &str, uri: &str) -> String {
+    let probe = test::TestRequest::default().uri(uri).to_http_request();
+    let token = generate_nip98_token(
+        keys,
+        &Nip98Config {
+            url: nip98_request_url(&probe),
+            method: method.to_string(),
+            body: None,
+        },
+    )
+    .expect("sign NIP-98 token");
+    build_auth_header(&token)
+}
+
+#[actix_web::test]
 #[ignore = "needs a live RuVector sidecar (RUVECTOR_PG_CONNINFO) and embedder"]
 async fn live_snapshot_blob_query_and_recall_probe() {
     let Ok(conninfo) = std::env::var(CONNINFO_ENV) else {
@@ -203,10 +226,125 @@ async fn live_snapshot_blob_query_and_recall_probe() {
         health.namespaces.len()
     );
     assert!(health.sidecar.reachable);
+    assert_eq!(health.sidecar.error, None);
+    assert!(
+        health.embedder.reachable,
+        "a successful query marks the embedder reachable"
+    );
     assert!(health.sidecar.extension_version.is_some());
     assert_eq!(health.snapshot_id.as_deref(), Some(s.snapshot_id.as_str()));
     assert!(health
         .namespaces
         .iter()
         .all(|n| !excluded.matches(&n.namespace)));
+
+    let ruvnet = health
+        .namespaces
+        .iter()
+        .find(|n| n.namespace == "ruvnet-kb")
+        .expect("ruvnet-kb counted");
+    assert!(ruvnet.total >= ruvnet.embedded && ruvnet.sampled > 0);
+
+    // --- pool under concurrency -----------------------------------------
+    // Eight simultaneous queries against the pool of four connections.
+    let texts = [
+        "recall gate",
+        "HNSW rebuild",
+        "NIP-98 replay",
+        "dream cycle",
+        "ontology loom",
+        "power user",
+        "snapshot refresh",
+        "PCA projection",
+    ];
+    let t = Instant::now();
+    let tasks: Vec<_> = texts
+        .iter()
+        .map(|text| {
+            let svc = Arc::clone(&svc);
+            let q = validate_query(
+                &MemoryCloudQueryRequest {
+                    text: (*text).into(),
+                    k: Some(10),
+                    namespace: None,
+                },
+                &excluded,
+            )
+            .unwrap();
+            tokio::spawn(async move {
+                let t = Instant::now();
+                let r = svc.query(q).await;
+                (r.is_ok(), t.elapsed().as_secs_f64() * 1000.0)
+            })
+        })
+        .collect();
+    let mut lat = Vec::new();
+    for task in tasks {
+        let (ok, ms) = task.await.unwrap();
+        assert!(ok, "concurrent query failed (pool wait timeout?)");
+        lat.push(ms);
+    }
+    lat.sort_by(f64::total_cmp);
+    println!(
+        "8 concurrent queries: wall {:.0} ms, per-query min {:.0} / median {:.0} / max {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0,
+        lat[0],
+        lat[lat.len() / 2],
+        lat[lat.len() - 1]
+    );
+
+    // --- over HTTP, through the real gate --------------------------------
+    let power = Keys::generate();
+    std::env::set_var("POWER_USER_PUBKEYS", power.public_key().to_hex());
+    std::env::remove_var("RBAC_PUBLIC_READS");
+    std::env::remove_var("VISIONCLAW_DEV_MODE");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(NostrService::new()))
+            .app_data(web::Data::from(Arc::clone(&svc)))
+            .service(web::scope("/api").wrap(RbacGate::from_env()).configure(
+                visionclaw_server::handlers::configure_memory_cloud_routes(
+                    visionclaw_server::handlers::memory_cloud_query_rate_limit(30),
+                ),
+            )),
+    )
+    .await;
+    let get = |uri: &str| {
+        test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Authorization", signed(&power, "GET", uri)))
+            .to_request()
+    };
+
+    let resp = test::call_service(&app, get("/api/memory-cloud")).await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["snapshotId"], s.snapshot_id.as_str());
+
+    let uri = format!("/api/memory-cloud/vectors?snapshot={}", s.snapshot_id);
+    let resp = test::call_service(&app, get(&uri)).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get(CACHE_CONTROL).unwrap(), "no-store");
+    let blob = test::read_body(resp).await;
+    assert_eq!(blob.len(), s.count * s.dim * 4);
+
+    let resp = test::call_service(&app, get("/api/memory-cloud/vectors?snapshot=stale")).await;
+    assert_eq!(resp.status(), 409);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["currentSnapshotId"], s.snapshot_id.as_str());
+
+    let resp = test::call_service(&app, get("/api/memory-cloud/health")).await;
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["sidecar"]["error"], serde_json::Value::Null);
+    assert!(
+        body["embedder"].get("url").is_none(),
+        "no embedder URL on the wire"
+    );
+    let text = body.to_string();
+    assert!(!text.contains("xinference") && !text.contains("personal-context"));
+    println!(
+        "http: snapshot, vectors (no-store, {} KiB), 409 on stale id, health OK",
+        blob.len() / 1024
+    );
 }

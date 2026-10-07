@@ -20,6 +20,12 @@ pub const DEFAULT_EXCLUDED: &str = "personal-context";
 pub const DEFAULT_EMBED_URL: &str = "http://xinference:9997/v1";
 /// Default embedding model (`MEMORY_CLOUD_EMBED_MODEL`).
 pub const DEFAULT_EMBED_MODEL: &str = "bge-small-en-v1.5";
+/// Default `POST /api/memory-cloud/query` budget per pubkey per minute.
+pub const DEFAULT_QUERY_PER_MINUTE: usize = 30;
+/// Lowest accepted per-minute query budget.
+pub const MIN_QUERY_PER_MINUTE: usize = 1;
+/// Highest accepted per-minute query budget.
+pub const MAX_QUERY_PER_MINUTE: usize = 600;
 
 /// One namespace pattern: an exact name, or a prefix when written with a
 /// trailing `*` (`hooks:*` matches `hooks:post-edit`).
@@ -159,6 +165,9 @@ pub struct MemoryCloudConfig {
     pub embed_url: String,
     /// Embedding model name.
     pub embed_model: String,
+    /// Queries each pubkey may make per minute
+    /// (`MEMORY_CLOUD_QUERY_PER_MINUTE`, default 30, clamped 1..=600).
+    pub query_per_minute: usize,
 }
 
 impl MemoryCloudConfig {
@@ -200,6 +209,10 @@ impl MemoryCloudConfig {
         let embed_model = get("MEMORY_CLOUD_EMBED_MODEL")
             .map(|v| v.trim().to_string())
             .unwrap_or_else(|| DEFAULT_EMBED_MODEL.into());
+        let query_per_minute = get("MEMORY_CLOUD_QUERY_PER_MINUTE")
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .unwrap_or(DEFAULT_QUERY_PER_MINUTE)
+            .clamp(MIN_QUERY_PER_MINUTE, MAX_QUERY_PER_MINUTE);
 
         Self {
             sample_total,
@@ -207,6 +220,7 @@ impl MemoryCloudConfig {
             excluded,
             embed_url,
             embed_model,
+            query_per_minute,
         }
     }
 }
@@ -274,5 +288,26 @@ mod tests {
         assert!(!p.matches("patterns"), "a bare * must not match everything");
         assert_eq!(p.sql_exact(), vec!["file-history"]);
         assert_eq!(p.sql_like_prefixes(), vec!["hooks:%"]);
+    }
+
+    #[test]
+    fn query_budget_defaults_and_clamps() {
+        assert_eq!(cfg(&[]).query_per_minute, DEFAULT_QUERY_PER_MINUTE);
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_QUERY_PER_MINUTE", "0")]).query_per_minute,
+            1
+        );
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_QUERY_PER_MINUTE", "5000")]).query_per_minute,
+            600
+        );
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_QUERY_PER_MINUTE", " 12 ")]).query_per_minute,
+            12
+        );
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_QUERY_PER_MINUTE", "lots")]).query_per_minute,
+            30
+        );
     }
 }

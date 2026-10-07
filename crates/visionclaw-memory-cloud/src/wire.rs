@@ -156,27 +156,40 @@ pub struct MemoryCloudRecallProbe {
     pub measured_at: i64,
 }
 
-/// Sidecar part of [`MemoryCloudHealth`].
+/// Why the sidecar is not serving, as a fixed category.
+///
+/// Deliberately closed: driver and connection detail stays in the server
+/// log and never reaches a client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SidecarIssue {
+    /// `RUVECTOR_PG_CONNINFO` is unset or unparsable.
+    NotConfigured,
+    /// No snapshot build has finished yet.
+    Building,
+    /// The latest snapshot build could not reach or query the sidecar.
+    Unreachable,
+}
+
+/// Sidecar part of [`MemoryCloudHealth`], as of the latest snapshot build.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SidecarHealth {
-    /// Whether a query succeeded just now.
+    /// Whether the latest snapshot build reached the sidecar.
     pub reachable: bool,
-    /// `pg_extension.extversion` for `ruvector`.
+    /// `pg_extension.extversion` for `ruvector`, read during that build.
     pub extension_version: Option<String>,
-    /// Why the sidecar is unreachable.
-    pub error: Option<String>,
+    /// Why the sidecar is not serving; `None` when it is.
+    pub error: Option<SidecarIssue>,
 }
 
 /// Embedder part of [`MemoryCloudHealth`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbedderHealth {
-    /// Embeddings base URL.
-    pub url: String,
     /// Model name.
     pub model: String,
-    /// Whether `GET {url}/models` answered 2xx just now.
+    /// Whether the embedder answered on the latest refresh cycle.
     pub reachable: bool,
 }
 
@@ -334,10 +347,9 @@ mod tests {
             sidecar: SidecarHealth {
                 reachable: false,
                 extension_version: None,
-                error: Some("e".into()),
+                error: Some(SidecarIssue::Unreachable),
             },
             embedder: EmbedderHealth {
-                url: "u".into(),
                 model: "m".into(),
                 reachable: true,
             },
@@ -372,7 +384,15 @@ mod tests {
             keys(&v["sidecar"]),
             ["error", "extensionVersion", "reachable"]
         );
-        assert_eq!(keys(&v["embedder"]), ["model", "reachable", "url"]);
+        assert_eq!(keys(&v["embedder"]), ["model", "reachable"]);
+        assert_eq!(v["sidecar"]["error"], "unreachable");
+        for (issue, text) in [
+            (SidecarIssue::NotConfigured, "not_configured"),
+            (SidecarIssue::Building, "building"),
+            (SidecarIssue::Unreachable, "unreachable"),
+        ] {
+            assert_eq!(serde_json::to_value(issue).unwrap(), text);
+        }
         assert_eq!(
             keys(&v["namespaces"][0]),
             ["embedded", "namespace", "sampled", "total"]
