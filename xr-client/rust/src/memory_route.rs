@@ -86,7 +86,17 @@ pub const STRIDE: usize = 16;
 /// Depth test and draw order are pipeline state of the single multiview draw,
 /// so both eyes always agree.
 pub const ROUTE_RENDER_PRIORITY: i32 = 10;
-/// Render priority of the HUD panel and the memory hover label.
+/// Render priority of what the user holds (the wand aim rays). It sits between
+/// the route and the overlay: a depth-ignoring route painted over the user's
+/// own ray is a conflicting depth cue in the headset. The route writes no depth,
+/// so a held material in the transparent pass wins on order alone and keeps its
+/// own depth test (its far end stays occluded by nearer nodes).
+pub const HELD_RENDER_PRIORITY: i32 = 15;
+// Held things strictly between the route and the overlay, checked at compile time.
+const _: () = assert!(
+    ROUTE_RENDER_PRIORITY < HELD_RENDER_PRIORITY && HELD_RENDER_PRIORITY < OVERLAY_RENDER_PRIORITY
+);
+/// Render priority of the HUD panel, the radial menu and the memory hover label.
 pub const OVERLAY_RENDER_PRIORITY: i32 = 20;
 
 // ── route framing cue (the headset never moves the head, ADR-2107) ──
@@ -1472,6 +1482,11 @@ impl MemoryRoute {
     }
 
     #[func]
+    fn held_render_priority(&self) -> i32 {
+        HELD_RENDER_PRIORITY
+    }
+
+    #[func]
     fn overlay_render_priority(&self) -> i32 {
         OVERLAY_RENDER_PRIORITY
     }
@@ -2333,6 +2348,29 @@ mod tests {
         // and a frame carrying the HTTP response's sidecar object is not ours
         let wrong = r#"{"type":"memoryRoute","snapshotId":"s","path":[1,2],"sidecar":{"method":"hnsw","tookMs":3,"results":[]}}"#;
         assert!(parse_route(wrong).is_err(), "sidecar must be the row list");
+    }
+
+    #[test]
+    fn what_the_user_holds_draws_above_the_route_and_below_the_overlay() {
+        // A depth-ignoring route over the wand's own ray is a conflicting depth cue
+        // in the headset: held things sit strictly between route and overlay.
+        // the 10 < 15 < 20 ordering is a compile-time assertion beside the constants
+        let read = |rel: &str| {
+            std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+                .unwrap()
+        };
+        assert!(
+            read("../scripts/graph_scene.gd").contains(&format!(
+                "const HELD_RENDER_PRIORITY := {HELD_RENDER_PRIORITY}"
+            )),
+            "graph_scene.gd aim-ray priority matches"
+        );
+        assert!(
+            read("../scripts/radial_menu.gd").contains(&format!(
+                "const OVERLAY_RENDER_PRIORITY := {OVERLAY_RENDER_PRIORITY}"
+            )),
+            "radial menu sits with the HUD above the route"
+        );
     }
 
     #[test]

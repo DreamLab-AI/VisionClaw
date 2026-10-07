@@ -1,10 +1,12 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.12
+version: 0.1.14
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.14 (2026-10-07): intermittent CPU gate root-caused and fixed. The cause was cross-L3-domain migration of the main thread on HP's multi-L3 CPU (~8x on-CPU spikes for two frames), not the first build. The benchmark pins its main thread to its L3 domain, and the first plan build is gated on its own limits (pack 12 ms, LOD 33 ms) instead of being dropped silently. No invariant changed."
+  - "0.1.13 (2026-10-07): held things above the route — wand aim rays at HELD_RENDER_PRIORITY 15 in the transparent pass (depth test kept), radial menu with the HUD at 20; ADR review finding (conflicting depth cue). No invariant changed."
   - "0.1.12 (2026-10-07): desktop memory-explorer parity — cloud framed on the live graph (cloud_frame.rs port of cloudFrame.ts/robustBounds.ts, 1 Hz read, 0.8 s glide); route drawn without depth test below the HUD; framing cue instead of a camera move (ADR-2107); honest sidecar agreement line in the HUD Memory row (sidecarTotal/sidecarAgree on memoryRoute); 10 s route repeats no longer replay the trace; TUBE_R/RING_R re-synced. No invariant changed."
   - "0.1.11 (2026-10-07): pack timing gate on thread CPU time (wall reported beside it; holds at load average 38); GUT 9.6.1 (the Godot 4.6 line) vendored with a CI guard against parse errors and skipped scripts; live FrameBudget pass on the final interface (burst pool, 5 % reserve, 2 s peak of measured other_tris)."
   - "0.1.10 (2026-10-07): per-frame pack plans (13k/20k pack 0.5 ms, zero steady-state allocations, far ribbons half per frame), benchmark asserts pack_ms/lod_build_ms p99; live GraphScene runs the FrameBudget pass (measured other_tris) and both packs every frame; attention heat moved to live_tint."
@@ -308,8 +310,18 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   Like the desktop overlay (`depthTest = false`), the three route materials draw
   with `depth_test_disabled` at `render_priority` 10 (`ROUTE_RENDER_PRIORITY`,
   after edges 0 and halos/beams 1), so the opaque glass nodes cannot hide the
-  route; the HUD panel and the hover label sit above it at 20
-  (`OVERLAY_RENDER_PRIORITY`, pinned in `hud.gd` by a Rust test). Depth test and
+  route; the HUD panel, the radial menu and the hover label sit above it at 20
+  (`OVERLAY_RENDER_PRIORITY`, pinned in `hud.gd` and `radial_menu.gd` by a Rust
+  test). What the user holds sits between them: the wand aim rays
+  (`graph_scene.make_aim_ray`) draw at `HELD_RENDER_PRIORITY` 15, because the
+  route painted over the user's own ray is a conflicting depth cue. They are
+  alpha-transparent at alpha 1 so the priority applies (it only orders the
+  transparent pass, which runs after the opaque one), and they keep their depth
+  test: the route writes no depth (`depth_draw_never`), so order alone puts the
+  ray over it, while the far end of the 5 m beam stays hidden by nodes in front
+  of it. This client draws no controller models or hand meshes for the local
+  user; avatar hands are remote peers' and stay ordinary world geometry. GUT
+  asserts the 10 < 15 < 20 ordering on the built materials. Depth test and
   order are pipeline state of the one multiview draw, so both eyes agree; no
   call or triangle is added.
 - **Route framing cue.** The desktop flies the camera to a new route; the
@@ -383,6 +395,16 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   2.78 ms; **20 000 + 64/64 33 / 94 558 / 2.48 ms** (gems 40, cylinders 0, hulls
   32, 8 000 sprites, route 4 056 triangles); HUD re-rendered every frame 33 /
   94 558 / 2.78 ms. All pass; pack CPU p99 0.57 ms, lod_build CPU p99 1.11 ms.
+
+  Re-measured 2026-10-07 with the benchmark's controllers built by
+  `make_aim_ray` (held priority 15, transparent pass): graph only 31 / 94 554 /
+  2.78 ms; 6 000 + 13/5 34 / 94 558 / 2.54 ms; 20 000 + 13/5 34 / 94 542 /
+  2.78 ms; **20 000 + 64/64 33 / 94 558 / 2.78 ms**; HUD re-rendered every frame
+  33 / 94 558 / 3.03 ms. All pass, with calls and triangles identical to the run
+  above. The sweep before it failed its cold first row on the CPU sub-budgets
+  only (pack CPU p99 2.62 ms against 2.0, lod_build CPU p99 3.34 ms against 3.0;
+  frame p99 3.70 ms). That run used the old ray, and the rerun did not repeat it.
+  Root cause and fix: see "CPU gate: L3 pinning and the warm-up limit" below.
 
   Before the HUD fixes the same combined row read 103 236 triangles / 80 calls
   (idle-HUD reserve), then 95 004 / 81 with the dirty frame reserved.
@@ -492,6 +514,41 @@ FrameBudget with its 5 % reserve):
 | 13 164 nodes, 20 000 edges, no hulls | 6 | 94 994 | 2.11 / 2.47 ms | 0.65 / 0.71 ms | 1.15 / 1.30 ms | 80 / 51 / 0 / — |
 | combined: + 20k-row cloud + 64-node route (64 sidecar) | 10 | 94 996 | 2.30 / 3.03 ms | 0.65 / 0.73 ms | 1.15 / 1.31 ms | 47 / 5 / 32 / 8 000 |
 | 13 164 / 20 000 / 32 hulls **under load** (64 busy loops, load average 38) | 7 | 94 992 | 8.08 / 14.6 ms | **0.91 / 2.52 ms** | **1.64 / 4.47 ms** | 75 / 1 / 32 / — |
+
+**CPU gate: L3 pinning and the warm-up limit (2026-10-07).** The gate failed
+intermittently on HP: one cold sweep read pack CPU p99 2.62 ms and lod_build
+3.34 ms. Per-frame series from 10 fresh cold runs showed the cause.
+- **Not the first build.** Sample 0 (pack 4.9–5.9 ms, LOD 10.7–16.2 ms) is
+  already in the skipped warm-up window.
+- **What it was.** Pairs of adjacent frames, 3–25 per run, where the
+  unchanged pack ran about 8× slower on-CPU (0.50 → 4.2–4.6 ms). Thread CPU ≈
+  wall on those frames, so the thread was running, not preempted.
+- **The experiment.** Pinned to one L3 domain (`taskset`, 12 CPUs), or to one
+  core: 0 spikes in 10 runs, worst sample 0.87 ms, same 0.50 ms median.
+
+The Threadripper 7965WX has four 6-core L3 domains. When the scheduler migrates
+the main thread across them, the pack's working set goes cold, and how often
+that happens depends on host load. Quest is a single cluster, and the budget is
+for the pack itself. So the benchmark pins its main thread to the L3 domain it
+starts on: `BinaryProtocolClient.pin_thread_to_l3` → `thread_cpu.rs`
+`pin_current_thread_to_l3`, which intersects the domain with the existing cpuset
+and reports the result as `cpu_affinity`. The live client is not pinned.
+
+The 90-sample warm-up window used to be dropped silently, so nothing limited a
+real first-build hitch. Its worst sample is now gated:
+`warmup_pack_cpu_ms_max` ≤ 12 ms and `warmup_lod_build_cpu_ms_max` ≤ 33 ms
+(about 2× the worst measured first build; 33 ms is three 90 Hz frames). This is
+`cpu_gate()` in `perf/benchmark.gd`, and `test_benchmark_cpu_gate.gd` covers a
+normal build, a hitch, and a sustained regression.
+
+Self-pinned and unpinned by the runner, 10 fresh cold runs gave:
+- 0 pack samples over 2 ms (worst 1.12 ms);
+- p99 pack 0.60–0.64 ms and LOD 1.05–1.11 ms;
+- warm-up 4.9–5.8 / 10.9–13.2 ms.
+
+In the full sweep every row passes every gate:
+- 31–34 calls, 94 542–94 558 triangles, frame p99 2.24–2.78 ms;
+- pack p99 ≤ 0.63 ms, LOD p99 ≤ 1.10 ms, worst warm-up 6.2 / 16.4 ms.
 
 The loaded row is the gate's point: wall pack p99 reads 2.52 ms (it would have
 failed a wall-clock gate) while the pack's own CPU is 0.91 ms; both CPU gates
