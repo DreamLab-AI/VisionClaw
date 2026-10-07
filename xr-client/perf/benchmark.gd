@@ -27,6 +27,16 @@ const MAX_TRIANGLES := 100000
 # loaded host's preemption cannot fail the gate; wall time is reported beside it.
 const PACK_BUDGET_MS_P99 := 2.0
 const LOD_BUILD_BUDGET_MS_P99 := 3.0
+# Those are steady-state budgets: the warm-up window (_tail's skip, which holds
+# the one-time first plan build) is gated separately against these, ~2x the
+# worst first build measured on HP (2026-10-07, 25 cold runs: pack 4.9-5.9 ms,
+# LOD 10.7-16.2 ms). 33 ms = three 90 Hz frames: a one-off load hitch, no more.
+const WARMUP_PACK_LIMIT_MS := 12.0
+const WARMUP_LOD_BUILD_LIMIT_MS := 33.0
+# The gate runs with the main thread pinned to its L3 cache domain
+# (BinaryProtocolClient.pin_thread_to_l3; thread_cpu.rs has the measurement):
+# cross-domain migrations on a multi-L3 host made p99 intermittent.
+var _cpu_affinity := PackedInt32Array()
 # Memory cloud + route layers (XR WP6/WP7): a synthetic snapshot fed through the
 # real parse path and a relayed route through the real memoryRoute gate.
 # metadata/memory_cloud_rows = 0 turns them off (graph-only baseline).
@@ -208,6 +218,7 @@ func _process(delta: float) -> void:
 func _emit_and_quit(elapsed_s: float) -> void:
 	set_process(false)
 	var report := _build_report(elapsed_s)
+	_dump_samples()
 	var json := JSON.stringify(report)
 	print("%s=%s" % [RESULT_MARKER, json])
 	print("%s=%s" % [LEGACY_MARKER, json])
@@ -239,10 +250,12 @@ func _build_report(elapsed_s: float) -> Dictionary:
 	# Skip the first second of samples: buffers grow and plans are built once.
 	var lod_p99 := _percentile(_sorted(_tail(_lod_build_ms)), 0.99)
 	var pack_p99 := _percentile(_sorted(_tail(_pack_ms)), 0.99)
-	var lod_cpu_p99 := _percentile(_sorted(_tail(_lod_build_cpu_ms)), 0.99)
-	var pack_cpu_p99 := _percentile(_sorted(_tail(_pack_cpu_ms)), 0.99)
-	var pass_pack := _client == null or pack_cpu_p99 <= PACK_BUDGET_MS_P99
-	var pass_lod := _client == null or lod_cpu_p99 <= LOD_BUILD_BUDGET_MS_P99
+	var gate: Dictionary = cpu_gate(_pack_cpu_ms, _lod_build_cpu_ms)
+	var lod_cpu_p99: float = gate["lod_cpu_p99"]
+	var pack_cpu_p99: float = gate["pack_cpu_p99"]
+	var pass_pack: bool = _client == null or bool(gate["pass_pack"])
+	var pass_lod: bool = _client == null or bool(gate["pass_lod"])
+	var pass_warmup: bool = _client == null or bool(gate["pass_warmup"])
 
 	# Frame-time -> CPU/GPU split is unavailable from a pure GDScript scene; the
 	# self-hosted runner can supplement via `adb shell dumpsys gfxinfo`. For now
@@ -262,6 +275,9 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"pack_cpu_ms_p99": pack_cpu_p99,
 		"lod_build_cpu_ms_p50": _percentile(_sorted(_tail(_lod_build_cpu_ms)), 0.50),
 		"lod_build_cpu_ms_p99": lod_cpu_p99,
+		"warmup_pack_cpu_ms_max": gate["warmup_pack_cpu_max"],
+		"warmup_lod_build_cpu_ms_max": gate["warmup_lod_cpu_max"],
+		"cpu_affinity": _cpu_affinity,
 		"edge_count": int(_fixture.get("edge_count", 0)),
 		"avatar_count": int(_fixture.get("avatar_count", 0)),
 		"duration_s": elapsed_s,
@@ -291,13 +307,14 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc, "hud_pages": _page_cost},
 		"bursts": {"enabled": bursts_on, "ring_slots": _burst_slots, "emphasised_rows": _emph_rows.size(),
 			"ring_instances": _bursts.slot_count() if _bursts != null else 0},
-		"pass": pass_p99 and pass_dc and pass_tri and pass_pack and pass_lod,
+		"pass": pass_p99 and pass_dc and pass_tri and pass_pack and pass_lod and pass_warmup,
 		"pass_breakdown": {
 			"p99_frame_time": pass_p99,
 			"draw_calls": pass_dc,
 			"triangles": pass_tri,
 			"pack_cpu_ms": pass_pack,
 			"lod_build_cpu_ms": pass_lod,
+			"warmup_cpu_ms": pass_warmup,
 		},
 		"budgets": {
 			"p99_frame_ms": FRAME_BUDGET_MS_P99,
@@ -305,6 +322,8 @@ func _build_report(elapsed_s: float) -> Dictionary:
 			"max_triangles": MAX_TRIANGLES,
 			"pack_cpu_ms_p99": PACK_BUDGET_MS_P99,
 			"lod_build_cpu_ms_p99": LOD_BUILD_BUDGET_MS_P99,
+			"warmup_pack_cpu_ms_max": WARMUP_PACK_LIMIT_MS,
+			"warmup_lod_build_cpu_ms_max": WARMUP_LOD_BUILD_LIMIT_MS,
 		},
 	}
 
@@ -484,6 +503,8 @@ func _populate_lod_path(fixture: Dictionary) -> bool:
 	if nodes_multi == null or nodes_multi.multimesh == null:
 		return false
 	_client = BinaryProtocolClient.create()
+	if _client.has_method("pin_thread_to_l3"):
+		_cpu_affinity = _client.pin_thread_to_l3()
 	var b := StreamPeerBuffer.new()
 	b.big_endian = false
 	b.put_u8(3)
@@ -659,9 +680,59 @@ func _apply_to_multimesh(mm_inst: MultiMeshInstance3D, nodes: Array) -> void:
 		var t := Transform3D(Basis(), Vector3(float(p[0]), float(p[1]), float(p[2])))
 		mm.set_instance_transform(i, t)
 
+## XR_BENCH_SAMPLES=<path>: write the per-frame series (diagnosis only).
+func _dump_samples() -> void:
+	var path := OS.get_environment("XR_BENCH_SAMPLES")
+	if path == "":
+		return
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_warning("cannot write %s" % path)
+		return
+	f.store_string(JSON.stringify({"frame_ms": _frame_times_ms, "pack_cpu_ms": _pack_cpu_ms,
+		"lod_build_cpu_ms": _lod_build_cpu_ms, "pack_ms": _pack_ms, "lod_build_ms": _lod_build_ms}))
+	f.close()
+
+
+## Samples skipped before steady state: buffers grow and plans are built once.
+static func _warmup_len(n: int) -> int:
+	return mini(90, n / 10)
+
+
 func _tail(arr: PackedFloat32Array) -> PackedFloat32Array:
-	var skip: int = mini(90, arr.size() / 10)
-	return arr.slice(skip)
+	return arr.slice(_warmup_len(arr.size()))
+
+
+static func _max_of(arr: PackedFloat32Array) -> float:
+	var m := 0.0
+	for v in arr:
+		m = maxf(m, v)
+	return m
+
+
+static func _p99_of(arr: PackedFloat32Array) -> float:
+	var c := arr.duplicate()
+	c.sort()
+	return _percentile(c, 0.99)
+
+
+## Thread-CPU gate: steady-state p99 (after the warm-up window) against the
+## per-frame budgets, and the warm-up window's worst sample (the first plan
+## build) against its own limits.
+static func cpu_gate(pack_cpu: PackedFloat32Array, lod_cpu: PackedFloat32Array) -> Dictionary:
+	var kp := _warmup_len(pack_cpu.size())
+	var kl := _warmup_len(lod_cpu.size())
+	var pack_p99 := _p99_of(pack_cpu.slice(kp))
+	var lod_p99 := _p99_of(lod_cpu.slice(kl))
+	var wp := _max_of(pack_cpu.slice(0, kp))
+	var wl := _max_of(lod_cpu.slice(0, kl))
+	return {
+		"pack_cpu_p99": pack_p99, "lod_cpu_p99": lod_p99,
+		"warmup_pack_cpu_max": wp, "warmup_lod_cpu_max": wl,
+		"pass_pack": pack_p99 <= PACK_BUDGET_MS_P99,
+		"pass_lod": lod_p99 <= LOD_BUILD_BUDGET_MS_P99,
+		"pass_warmup": wp <= WARMUP_PACK_LIMIT_MS and wl <= WARMUP_LOD_BUILD_LIMIT_MS,
+	}
 
 func _sorted(arr: PackedFloat32Array) -> PackedFloat32Array:
 	var c := arr.duplicate()
@@ -739,7 +810,7 @@ func _mean(arr: PackedFloat32Array) -> float:
 		s += v
 	return s / arr.size()
 
-func _percentile(sorted: PackedFloat32Array, q: float) -> float:
+static func _percentile(sorted: PackedFloat32Array, q: float) -> float:
 	if sorted.is_empty():
 		return 0.0
 	var idx := int(clamp(floor(q * (sorted.size() - 1)), 0, sorted.size() - 1))

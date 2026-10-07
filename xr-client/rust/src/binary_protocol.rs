@@ -1728,6 +1728,16 @@ impl BinaryProtocolClient {
         crate::thread_cpu::thread_cpu_ns() as f64 / 1.0e6
     }
 
+    /// Benchmark only: pins the calling (main) thread to its L3 cache domain so
+    /// the CPU gate measures the pack, not cross-domain migrations. Returns the
+    /// CPUs pinned to; empty when unavailable (see `thread_cpu::pin_current_thread_to_l3`).
+    #[func]
+    fn pin_thread_to_l3(&self) -> PackedInt32Array {
+        crate::thread_cpu::pin_current_thread_to_l3()
+            .map(|d| d.into_iter().map(|c| c as i32).collect())
+            .unwrap_or_default()
+    }
+
     /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).
     #[func]
     fn ribbon_edge_buffer(&self) -> PackedFloat32Array {
