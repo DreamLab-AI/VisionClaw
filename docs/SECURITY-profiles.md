@@ -1,7 +1,7 @@
 ---
 title: Security Profiles & Flag Matrix
 doc_id: VC-SECURITY
-version: 0.1.1
+version: 0.1.3
 status: draft-for-ratification
 verified_commit: 
 sources:
@@ -48,6 +48,10 @@ shipped posture — that gap is called out in Known divergences.
 | `RBAC_OWNER_PUBKEY` | Bootstrap the Owner role at startup | unset ⇒ no owner bootstrapped | `src/main.rs:709`, `src/services/role_store.rs` (`bootstrap_owner_from_env`) |
 | `POWER_USER_PUBKEYS` | Legacy pubkeys mapped to `Admin` when unassigned | unset ⇒ no power users | `src/services/role_store.rs:194-203` |
 | `VISIONCLAW_DEV_TOKEN` | Dev session token (`.env:197`) | dev builds only | `.env:197` |
+| `RUVECTOR_PG_CONNINFO` | ADR-2133 memory cloud: libpq conninfo for the RuVector sidecar; use the SELECT-only `ruvector_reader` role. Sessions also force `default_transaction_read_only=on` | unset ⇒ `/api/memory-cloud*` answer 503 (disabled) | `src/services/memory_cloud_service.rs:41,56` |
+| `MEMORY_CLOUD_EXCLUDE_NAMESPACES` | ADR-2133 privacy exclusion: namespaces (globs) never sampled, searched, counted or named on the wire | `personal-context`; an empty value keeps the default (fail-closed) | `crates/visionclaw-memory-cloud/src/config.rs:18,201` |
+| `MEMORY_CLOUD_QUERY_PER_MINUTE` | ADR-2133 per-pubkey budget on `POST /api/memory-cloud/query` (shared across workers, spent only by admitted power users) | `30`, clamped 1–600 | `src/handlers/memory_cloud_handler.rs:101,223` |
+| `MEMORY_CLOUD_SAMPLE`, `MEMORY_CLOUD_REFRESH_SECS`, `MEMORY_CLOUD_EMBED_URL`, `MEMORY_CLOUD_EMBED_MODEL` | ADR-2133 snapshot size, refresh cadence, embedder endpoint/model (not security-relevant; listed so the family is complete) | `6000` (500–20000), `900` s (min 60), `http://xinference:9997/v1`, `bge-small-en-v1.5` | `crates/visionclaw-memory-cloud/src/config.rs:190` |
 
 `POD_DEFAULT_PRIVATE` and a distinct `NIP98_OPTIONAL_AUTH` env var are **not
 present in this repo's code** at this commit — Pod-privacy defaults and NIP-98
@@ -109,6 +113,7 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
 | `RBAC_GATE_MODE` | enforce | enforce | enforce |
 | `APP_ENV` | `production` | `production` | `production` |
 | `SETTINGS_AUTH_BYPASS` etc. | unset | unset | unset |
+| `MEMORY_CLOUD_EXCLUDE_NAMESPACES` | ⊇ `personal-context` | ⊇ `personal-context` | ⊇ `personal-context` |
 
 - **`demo-open`** — public read-only kiosk. Anonymous reads on, no owner required,
   visibility filter still on so only `public::true` nodes reach the wire. Writes
@@ -198,14 +203,29 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    add shared-state (Redis) or sticky routing before it can rely on this
    invariant. The hard capacity ceiling must fail closed (reject, `ReplayCacheFull`
    → 503), never evict a live id.
+   A token is verified **once per request**: layered checks (`RbacGate` over
+   `/api`, an inner `RequireAuth`, a handler's `verify_*`) reuse the identity the
+   first verification left in the request extensions and only narrow the level
+   (`src/utils/auth.rs:265-289`). Re-verifying the same header answers 401
+   "Token replayed" and locks NIP-98 callers out of every stacked scope
+   (`tests/rbac_gate_require_auth_stacking_test.rs`).
 5. `RBAC_PUBLIC_READS=1` and `PUBKEY_VISIBILITY_FILTER=0` must never coexist in a
    deployed profile (full-disclosure combination). Enforced at boot by ADR-2043
    as an unconditional rule, independent of whether a profile is declared.
 6. The security profile is asserted **before the listener binds**
-   (`assert_effective_profile_or_exit`, `src/main.rs:873`, called from the block
-   at `:868-878`, ahead of `HttpServer::new` at `:893` and `.bind()` at `:1177`).
+   (`assert_effective_profile_or_exit`, `src/main.rs:942`, called from the block
+   at `:937-947`, ahead of `HttpServer::new` at `:962` and `.bind()` at `:1250`).
    A production artefact with any finding exits 2 rather than serving a request
    (ADR-2038).
+7. Every `/api/memory-cloud*` endpoint, health included, requires a
+   **NIP-98-signed power user** (Admin role or a `POWER_USER_PUBKEYS` key)
+   **regardless of `RBAC_PUBLIC_READS` and of every dev shortcut**:
+   `VISIONCLAW_DEV_MODE` (sentinel identity) and `DEV_AUTH_LOOPBACK`
+   (header-chosen pubkey) prove nothing about the caller, so the handler
+   verifies the signature itself unless the gate already did
+   (`src/handlers/memory_cloud_handler.rs:56`). A dev operator adds their own
+   pubkey to `POWER_USER_PUBKEYS`. Clients see fixed error strings only, and
+   the vectors blob is `Cache-Control: no-store` (ADR-2133).
 
 ## Change process
 

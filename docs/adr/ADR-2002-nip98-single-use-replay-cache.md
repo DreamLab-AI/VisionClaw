@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 997440cd0717d4c5f9341369571fc69fcf5a38d6
+verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS
@@ -170,3 +170,7 @@ still the last step after signature verification. Invariant 4 of
 `docs/SECURITY-profiles.md` still records both layers, the process-local scope
 and the fail-closed ceiling. The horizontal-scaling review trigger is unchanged.
 `verified_commit` moved to the CI-repair commit.
+
+## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
+
+**Governed change:** `docs/SECURITY-profiles.md` (0.1.2 → 0.1.3). Invariant 4 now also states that a NIP-98 token is verified once per request: layered checks reuse the identity the first verification left in the request extensions (`src/utils/auth.rs:265-289`, test `tests/rbac_gate_require_auth_stacking_test.rs`). The flag matrix gains the ADR-2133 memory-cloud variables, and invariants 6 and 7 are updated. Replay protection is unchanged: the first verification still records the event id, and a replayed token is still refused (asserted by that test). The decision holds.

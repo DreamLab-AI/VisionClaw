@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -180,3 +180,7 @@ line 170 are unmoved. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. **Decision unaffected.** The service fails closed: without `RUVECTOR_PG_CONNINFO` the data endpoints answer 503, and there is no default password. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
+
+**Governed change:** `src/main.rs` gains a shared `memory_cloud_query_limit` (+4 lines after line 890) and passes it to `configure_memory_cloud_routes(..)` (+2 lines near line 1206); later citations shift by up to +6. Current anchors: `assert_effective_profile_or_exit` call `:942` (block `:937-947`), `HttpServer::new` `:962`, `.bind()` `:1250`. The memory cloud fails closed: unset `RUVECTOR_PG_CONNINFO` gives 503, and every endpoint needs a NIP-98 power user even under dev mode (ADR-2133). The decision holds.

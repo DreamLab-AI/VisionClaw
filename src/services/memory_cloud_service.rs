@@ -33,7 +33,8 @@ use visionclaw_memory_cloud::validate::ValidatedQuery;
 use visionclaw_memory_cloud::vector::{format_ruvector_literal, l2_normalise};
 use visionclaw_memory_cloud::wire::{
     EmbedderHealth, MemoryCloudHealth, MemoryCloudHit, MemoryCloudMeta, MemoryCloudQueryResponse,
-    MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SidecarHealth, SidecarResults,
+    MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SearchMethod, SidecarHealth, SidecarIssue,
+    SidecarResults,
 };
 
 /// Environment variable holding the sidecar's libpq connection string.
@@ -129,6 +130,19 @@ pub enum MemoryCloudError {
     Building,
 }
 
+impl MemoryCloudError {
+    /// The fixed message a client may see. The `Display` form carries driver
+    /// and connection detail for the server log only.
+    pub fn public_message(&self) -> &'static str {
+        match self {
+            Self::Unconfigured(_) => "memory store not configured",
+            Self::Sidecar(_) => "memory store unavailable",
+            Self::Embedder(_) => "embedding service unavailable",
+            Self::Building => "the memory cloud snapshot is still being built; retry shortly",
+        }
+    }
+}
+
 /// Timings and counts from one snapshot build.
 #[derive(Debug, Clone, Default)]
 pub struct BuildTimings {
@@ -155,6 +169,11 @@ pub struct ServedSnapshot {
     pub blob: Bytes,
     /// How the build went.
     pub timings: BuildTimings,
+    /// `(namespace, total, embedded)` for every non-excluded namespace, as
+    /// counted by this build; health serves these instead of re-counting.
+    pub namespace_counts: Vec<(String, u64, u64)>,
+    /// `pg_extension.extversion` for `ruvector`, read by this build.
+    pub extension_version: Option<String>,
 }
 
 impl ServedSnapshot {
@@ -165,8 +184,16 @@ impl ServedSnapshot {
 }
 
 /// One recall-probe query.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProbeQuery {
+    /// Namespace of the sampled row used as the query.
+    pub namespace: String,
+    /// Rows the index path returned (fewer than k means filtering starved it).
+    pub index_rows: usize,
+    /// Best cosine distance on the index path (`None` when it returned nothing).
+    pub index_best: Option<f64>,
+    /// Best cosine distance on the exact path; ~0 because the query is a stored row.
+    pub exact_best: Option<f64>,
     /// Tie-aware recall@k (distance-based); this feeds the wire `recall`.
     pub recall: f64,
     /// Id-overlap recall@k; understates recall when embeddings are duplicated.
@@ -215,6 +242,8 @@ pub struct MemoryCloudService {
     state_tx: watch::Sender<BuildState>,
     probe: RwLock<Option<ProbeOutcome>>,
     refresher_started: AtomicBool,
+    /// Embedder reachability from the latest refresh cycle or query.
+    embedder_ok: AtomicBool,
 }
 
 impl MemoryCloudService {
@@ -251,6 +280,7 @@ impl MemoryCloudService {
             state_tx,
             probe: RwLock::new(None),
             refresher_started: AtomicBool::new(false),
+            embedder_ok: AtomicBool::new(false),
         })
     }
 
@@ -326,6 +356,8 @@ impl MemoryCloudService {
                 }
             }
             loop {
+                let reachable = this.embedder_reachable().await;
+                this.embedder_ok.store(reachable, Ordering::Relaxed);
                 let pause = match this.rebuild().await {
                     Ok(snap) => {
                         match this.run_recall_probe(&snap).await {
@@ -377,18 +409,38 @@ impl MemoryCloudService {
         let client = self.client().await?;
         let sidecar = |e: tokio_postgres::Error| MemoryCloudError::Sidecar(e.to_string());
 
+        let extension_version: Option<String> = client
+            .query_opt(
+                "SELECT extversion FROM pg_extension WHERE extname = 'ruvector'",
+                &[],
+            )
+            .await
+            .map_err(sidecar)?
+            .map(|r| r.get(0));
+
         let t = Instant::now();
-        let counts: Vec<NamespaceCount> = client
+        let raw_counts: Vec<(String, u64, u64)> = client
             .query(COUNTS_SQL, &[])
             .await
             .map_err(sidecar)?
             .iter()
-            .map(|r| NamespaceCount {
-                namespace: r.get(0),
-                embedded: u64::try_from(r.get::<_, i64>(2)).unwrap_or(0),
+            .map(|r| {
+                (
+                    r.get::<_, String>(0),
+                    u64::try_from(r.get::<_, i64>(1)).unwrap_or(0),
+                    u64::try_from(r.get::<_, i64>(2)).unwrap_or(0),
+                )
             })
             .collect();
         let counts_ms = ms(t);
+        let counts: Vec<NamespaceCount> = raw_counts
+            .iter()
+            .map(|(namespace, _, embedded)| NamespaceCount {
+                namespace: namespace.clone(),
+                embedded: *embedded,
+            })
+            .collect();
+        let namespace_counts = visible_counts(raw_counts, &self.config.excluded);
 
         let allocations = allocate(
             &SamplingPolicy::with_total(self.config.sample_total),
@@ -460,6 +512,8 @@ impl MemoryCloudService {
             json: json.0,
             blob: json.1,
             timings,
+            namespace_counts,
+            extension_version,
         }))
     }
 
@@ -501,7 +555,9 @@ impl MemoryCloudService {
         q: ValidatedQuery,
     ) -> Result<MemoryCloudQueryResponse, MemoryCloudError> {
         let snap = self.snapshot().await?;
-        let vector = self.embed(&q.text).await?;
+        let embedded = self.embed(&q.text).await;
+        self.embedder_ok.store(embedded.is_ok(), Ordering::Relaxed);
+        let vector = embedded?;
         let dim = snap.built.snapshot.dim;
         if dim != 0 && vector.len() != dim {
             return Err(MemoryCloudError::Embedder(format!(
@@ -515,21 +571,42 @@ impl MemoryCloudService {
         let likes = self.config.excluded.sql_like_prefixes();
         let limit = q.k as i64;
 
-        let client = self.client().await?;
+        let mut client = self.client().await?;
+        let sidecar = |e: tokio_postgres::Error| MemoryCloudError::Sidecar(e.to_string());
         let t = Instant::now();
-        let rows = match &q.namespace {
-            None => {
-                client
-                    .query(SEARCH_SQL, &[&literal, &exact, &likes, &limit])
-                    .await
-            }
-            Some(ns) => {
+        let (rows, method) = match &q.namespace {
+            // The index post-filters, so a namespace scan is always exact.
+            Some(ns) => (
                 client
                     .query(SEARCH_NAMESPACE_SQL, &[&literal, ns, &limit])
                     .await
+                    .map_err(sidecar)?,
+                SearchMethod::Exact,
+            ),
+            None => {
+                let params: [&(dyn tokio_postgres::types::ToSql + Sync); 4] =
+                    [&literal, &exact, &likes, &limit];
+                let rows = client.query(SEARCH_SQL, &params).await.map_err(sidecar)?;
+                if rows.len() >= q.k {
+                    (rows, SearchMethod::Hnsw)
+                } else {
+                    // The index's candidates were mostly in excluded
+                    // namespaces and the post-filter left fewer than k: the
+                    // same query as an exact scan fills k.
+                    let tx = client.transaction().await.map_err(sidecar)?;
+                    tx.batch_execute(EXACT_SCAN_SETTINGS)
+                        .await
+                        .map_err(sidecar)?;
+                    let rows = tx.query(SEARCH_SQL, &params).await.map_err(sidecar)?;
+                    tx.rollback().await.map_err(sidecar)?;
+                    info!(
+                        "[MemoryCloud] HNSW returned fewer than k={} rows after exclusions; answered by exact scan",
+                        q.k
+                    );
+                    (rows, SearchMethod::Exact)
+                }
             }
-        }
-        .map_err(|e| MemoryCloudError::Sidecar(e.to_string()))?;
+        };
         let took_ms = ms(t);
 
         let results = rows
@@ -559,7 +636,11 @@ impl MemoryCloudService {
                 text: q.text,
                 vector,
             },
-            sidecar: SidecarResults { results, took_ms },
+            sidecar: SidecarResults {
+                results,
+                took_ms,
+                method,
+            },
         })
     }
 
@@ -610,6 +691,10 @@ impl MemoryCloudService {
             let ids = |v: &[(String, f64)]| v.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
             let dists = |v: &[(String, f64)]| v.iter().map(|(_, d)| *d).collect::<Vec<_>>();
             per_query.push(ProbeQuery {
+                namespace: snap.built.snapshot.metadata[row].namespace.clone(),
+                index_rows: approx.len(),
+                index_best: approx.first().map(|(_, d)| *d),
+                exact_best: exact.first().map(|(_, d)| *d),
                 recall: recall_at_k_by_distance(&dists(&approx), &dists(&exact), PROBE_K, TIE_EPS),
                 id_recall: recall_at_k(&ids(&approx), &ids(&exact), PROBE_K),
                 index_ms,
@@ -641,93 +726,67 @@ impl MemoryCloudService {
         })
     }
 
-    /// Live health: sidecar reachability and counts, embedder reachability,
-    /// and the cached recall probe. Never fails; problems are reported inline.
-    pub async fn health(&self) -> MemoryCloudHealth {
-        let snap = self.current_snapshot();
-        let embedder = EmbedderHealth {
-            url: self.config.embed_url.clone(),
-            model: self.config.embed_model.clone(),
-            reachable: self.embedder_reachable().await,
+    /// Health from cached state only: the latest snapshot build's counts,
+    /// extension version and outcome, the embedder reachability recorded on
+    /// the refresh cycle, and the cached recall probe. Never touches the
+    /// network, so it cannot be used to load the sidecar or the embedder.
+    /// Starts the background refresher when the store is configured.
+    pub async fn health(self: &Arc<Self>) -> MemoryCloudHealth {
+        let configured = self.pool.is_ok();
+        if configured {
+            self.ensure_refresher();
+        }
+        let (snap, failed) = {
+            let state = self.state_tx.borrow();
+            (state.snapshot.clone(), state.last_error.is_some())
         };
-        let (sidecar, counts) = match self.sidecar_status().await {
-            Ok((version, counts)) => (
-                SidecarHealth {
-                    reachable: true,
-                    extension_version: version,
-                    error: None,
-                },
-                counts,
-            ),
-            Err(e) => (
-                SidecarHealth {
-                    reachable: false,
-                    extension_version: None,
-                    error: Some(e.to_string()),
-                },
-                Vec::new(),
-            ),
+        let issue = if !configured {
+            Some(SidecarIssue::NotConfigured)
+        } else if failed {
+            Some(SidecarIssue::Unreachable)
+        } else if snap.is_none() {
+            Some(SidecarIssue::Building)
+        } else {
+            None
         };
-        let sampled_of = |ns: &str| {
-            snap.as_ref()
-                .and_then(|s| {
+        let namespaces = snap
+            .as_ref()
+            .map(|s| {
+                let sampled_of = |ns: &str| {
                     s.built
                         .snapshot
                         .strata
                         .iter()
                         .find(|st| st.namespace == ns)
                         .map(|st| st.sampled)
-                })
-                .unwrap_or(0)
-        };
-        let namespaces = visible_counts(counts, &self.config.excluded)
-            .into_iter()
-            .map(|(namespace, total, embedded)| NamespaceHealth {
-                sampled: sampled_of(&namespace),
-                namespace,
-                total,
-                embedded,
+                        .unwrap_or(0)
+                };
+                s.namespace_counts
+                    .iter()
+                    .map(|(namespace, total, embedded)| NamespaceHealth {
+                        sampled: sampled_of(namespace),
+                        namespace: namespace.clone(),
+                        total: *total,
+                        embedded: *embedded,
+                    })
+                    .collect()
             })
-            .collect();
+            .unwrap_or_default();
         MemoryCloudHealth {
             snapshot_id: snap.as_ref().map(|s| s.id().to_string()),
             generated_at: snap.as_ref().map(|s| s.built.snapshot.generated_at),
-            sidecar,
-            embedder,
+            sidecar: SidecarHealth {
+                reachable: issue.is_none(),
+                extension_version: snap.as_ref().and_then(|s| s.extension_version.clone()),
+                error: issue,
+            },
+            embedder: EmbedderHealth {
+                model: self.config.embed_model.clone(),
+                reachable: self.embedder_ok.load(Ordering::Relaxed),
+            },
             namespaces,
             recall_probe: self.latest_probe().await.map(|p| p.summary),
         }
-    }
-
-    async fn sidecar_status(
-        &self,
-    ) -> Result<(Option<String>, Vec<(String, u64, u64)>), MemoryCloudError> {
-        let client = tokio::time::timeout(HEALTH_TIMEOUT * 2, self.client())
-            .await
-            .map_err(|_| MemoryCloudError::Sidecar("connection timed out".into()))??;
-        let sidecar = |e: tokio_postgres::Error| MemoryCloudError::Sidecar(e.to_string());
-        let version: Option<String> = client
-            .query_opt(
-                "SELECT extversion FROM pg_extension WHERE extname = 'ruvector'",
-                &[],
-            )
-            .await
-            .map_err(sidecar)?
-            .map(|r| r.get(0));
-        let counts = client
-            .query(COUNTS_SQL, &[])
-            .await
-            .map_err(sidecar)?
-            .iter()
-            .map(|r| {
-                (
-                    r.get::<_, String>(0),
-                    u64::try_from(r.get::<_, i64>(1)).unwrap_or(0),
-                    u64::try_from(r.get::<_, i64>(2)).unwrap_or(0),
-                )
-            })
-            .collect();
-        Ok((version, counts))
     }
 
     async fn embedder_reachable(&self) -> bool {
@@ -811,8 +870,60 @@ mod tests {
         }
         let health = svc.health().await;
         assert!(!health.sidecar.reachable);
-        assert!(health.sidecar.error.unwrap().contains(CONNINFO_ENV));
+        assert_eq!(health.sidecar.error, Some(SidecarIssue::NotConfigured));
         assert!(health.snapshot_id.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn health_is_served_from_cache_without_network_calls() {
+        // Port 1 refuses connections; a per-request probe of either the
+        // sidecar or the embedder would show up as failed network work.
+        let config = MemoryCloudConfig::from_lookup(|k| {
+            (k == "MEMORY_CLOUD_EMBED_URL").then(|| "http://127.0.0.1:1/v1".to_string())
+        });
+        let svc = MemoryCloudService::new(
+            config,
+            Some("host=127.0.0.1 port=1 user=reader dbname=ruvector".into()),
+        );
+
+        let t = Instant::now();
+        let health = svc.health().await;
+        assert!(
+            t.elapsed() < Duration::from_millis(50),
+            "health hit the network"
+        );
+        assert!(!health.sidecar.reachable);
+        assert!(matches!(
+            health.sidecar.error,
+            Some(SidecarIssue::Building | SidecarIssue::Unreachable)
+        ));
+        assert!(!health.embedder.reachable);
+        assert!(health.namespaces.is_empty());
+
+        // A failed build is reported by category only; the driver detail
+        // stays in the error value for the log.
+        let err = svc.rebuild().await.expect_err("port 1 refuses");
+        assert!(matches!(err, MemoryCloudError::Sidecar(_)));
+        let health = svc.health().await;
+        assert_eq!(health.sidecar.error, Some(SidecarIssue::Unreachable));
+        assert_eq!(health.sidecar.extension_version, None);
+    }
+
+    #[test]
+    fn public_messages_never_carry_detail() {
+        let detail = "password authentication failed for user \"ruvector\" at 10.0.0.5";
+        for err in [
+            MemoryCloudError::Unconfigured(detail.into()),
+            MemoryCloudError::Sidecar(detail.into()),
+            MemoryCloudError::Embedder(detail.into()),
+            MemoryCloudError::Building,
+        ] {
+            let public = err.public_message();
+            assert!(!public.contains("ruvector") && !public.contains("10.0.0.5"));
+            assert!(
+                err.to_string().contains("10.0.0.5") || matches!(err, MemoryCloudError::Building)
+            );
+        }
     }
 
     #[test]

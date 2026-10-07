@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: c16b257741b980d4599122ab77aa2f5980f94f31
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -134,3 +134,7 @@ matching or level-mapping logic changed.** `src/utils/auth.rs` is unchanged.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `src/utils/auth.rs` adds `effective_access_level(pubkey, nostr)` after `resolve_access_level` (+17 lines after line 75; later citations such as `dev_bypass_permitted_for_addr`, cited at `:122`, now sit at `:139`). It resolves the role of a pubkey the gate has *already* verified, using the same `resolve_access_level` path as `verify_access`, so a handler can demand a higher level without re-verifying a single-use NIP-98 token. It maps the dev-mode sentinel to `Admin` only when `dev_full_bypass_active()` is true, which is compile-gated to dev builds. `/api/memory-cloud{,/vectors,/query}` add a handler-level `PowerUser` check (`src/handlers/memory_cloud_handler.rs`) **above** the gate. **Decision unaffected.** `RbacGate` remains the enforcement floor for the whole `/api` scope, and the handler only raises the bar for private memory, as `RequireAuth::power_user()` already does for the broker inbox. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
+
+**Governed change:** `verify_access` (`src/utils/auth.rs:191`) no longer verifies a NIP-98 token a second time in one request. When the request carries `Authorization: Nostr …` and an outer layer (`RbacGate`, an enclosing `RequireAuth`) already left an `AuthenticatedUser` in the request extensions, it reuses that identity and checks only the required level via `effective_access_level`; extensions are server-side and cannot be populated from headers. Before this, every `RequireAuth` scope under `/api` answered NIP-98 callers 401 "Token replayed" (proved by `tests/rbac_gate_require_auth_stacking_test.rs`, now green). This completes the central-gate design: the gate verifies the signature once per request and inner `RequireAuth` scopes or handler `verify_*` calls only narrow the level. Replay protection is intact: a replayed token is still refused by the first verification. Line citations into `src/utils/auth.rs` after line 265 shift by +25 (the NIP-98 branch of `verify_access` gains the reuse block; e.g. `nip98_request_url(req)` in that branch moves from `:266` to `:291`); earlier lines are unchanged. The decision holds.

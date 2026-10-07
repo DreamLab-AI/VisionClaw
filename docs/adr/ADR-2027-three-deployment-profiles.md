@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
+verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -317,3 +317,7 @@ moved down by six lines. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
 
 **Governed change:** `docker-compose.unified.yml` adds `RUVECTOR_PG_CONNINFO` (empty default) and five `MEMORY_CLOUD_*` variables to the `visionclaw` and `visionclaw-production` environment blocks, after `FORUM_RELAY_URL`; no other key, profile, port, volume or build argument changes. `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. **Decision unaffected.** The three profiles and their flag sets are unchanged; the new private reads require `PowerUser` under every profile, including `demo-open`. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.
+
+## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
+
+**Governed change:** `docker-compose.unified.yml` adds `MEMORY_CLOUD_QUERY_PER_MINUTE: ${MEMORY_CLOUD_QUERY_PER_MINUTE:-30}` to the visionclaw (after line 135) and visionclaw-production (after line 253) environment blocks; nothing else changes. `src/main.rs` gains a shared `memory_cloud_query_limit` (+4 lines after line 890) and passes it to `configure_memory_cloud_routes(..)` (+2 lines near line 1206); later citations shift by up to +6. Current anchors: `assert_effective_profile_or_exit` call `:942` (block `:937-947`), `HttpServer::new` `:962`, `.bind()` `:1250`. No profile flag changes. Each named profile now pins `MEMORY_CLOUD_EXCLUDE_NAMESPACES` ⊇ `personal-context` (SECURITY-profiles 0.1.3). The decision holds.
