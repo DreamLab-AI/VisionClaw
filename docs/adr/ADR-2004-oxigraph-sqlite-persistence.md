@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -205,3 +205,7 @@ sit beside is unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `1e55daebb` drops the `[patch.crates-io]` git override for `nostr-bbs-core` from `Cargo.toml` in favour of the crates.io `=1.0.0-beta.13` pin. That changes no storage dependency. In `780eb3edb`, `src/app_state.rs` changes only the decision-projection client's key lookup (`:1362-1368`, now `load_panel_secret`). Oxigraph and the per-writer SQLite wiring are untouched. The decision holds.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `Cargo.toml` adds the workspace member `crates/visionclaw-memory-cloud` (pure logic, no server-layer dependency), root dependencies `tokio-postgres 0.7.18`, `deadpool-postgres 0.14.2` and the new crate, and a `[profile.dev.package.visionclaw-memory-cloud] opt-level = 3` override. Line citations into `Cargo.toml` after line 15 shift by +1, after line 128 by +8 and after line 310 by +14. **Decision unaffected.** Oxigraph, SQLite and their features are untouched; the new Postgres client is a read-only consumer of the external RuVector store, not a graph or local-state store. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

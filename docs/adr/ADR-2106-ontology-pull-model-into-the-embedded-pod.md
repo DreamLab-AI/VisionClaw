@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -160,3 +160,7 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `780eb3edb` inserts the eight-line `mint-nostr-key` dispatch at `src/main.rs:195-202`, ahead of `.env` loading. The boot pull and `init_solid_state` are untouched, and they move down by eight lines. The other governed paths are unchanged. The decision holds.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. `env.example` documents the new variables after the RuVector Swarm block. **Decision unaffected.** The ontology pull at boot is untouched. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

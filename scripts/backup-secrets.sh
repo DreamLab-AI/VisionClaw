@@ -38,7 +38,6 @@ INCLUDE_NAMES=(
     'settings.local.toml'
     'CLAUDE.local.md'
     'credentials.json'
-    'embedding-cloud.json'
 )
 
 # Treat as templates / examples — never include even if name matches.

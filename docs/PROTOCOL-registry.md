@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.3
+version: 0.1.4
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.4 (2026-10-07): ADR-2133 — /api/memory-cloud{,/vectors,/query,/health} rows; memory cloud wire types; PowerUser gate on private memory reads"
   - "0.1.3 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.2: 2026-09-05 remediation — ADR-2057 compile-time 52-byte and V5-seq locks (assertion language corrected); ADR-2058 header-only WS auth (?token= divergence resolved); ADR-2060 citation corrections after line drift (V5 :513→:592, 0x23 :1354/:1125-1135/:1501→:1721/:1490/:1500, 52B asserts :712,809→compile-time :93 plus tests :1077,1174); TS client V5/V2 parity recorded as open"
   - "0.1.1: correct RBAC_PUBLIC_READS citation (rbac_gate.rs/compose, not main.rs — code fails closed); reword WIRE_V3_ITEM_SIZE asserts as unit-test (not static) assertions; cite /ws/presence route registration at main.rs:996 not construction at :816"
@@ -161,6 +162,10 @@ Routes registered in `src/main.rs:986-1016`:
 | `/ws/speech`, `/ws/mcp-relay`, `/ws/client-messages` | WS | per-handler | `main.rs:991-994` |
 | `/healthz`, `/readyz` | GET | none (probes) | `main.rs:986-987` |
 | `/client-logs` | POST | none | `main.rs:1016` |
+| `/api/memory-cloud` | GET | `PowerUser` in handler (`memory_cloud_handler.rs:44`), regardless of `RBAC_PUBLIC_READS` | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO` |
+| `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
+| `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); validation 400 |
+| `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
 
 **RBAC posture (open by *deployment*, fail-closed in code).** `RbacGate` middleware enforces
 Owner>Admin>Editor>Viewer on NIP-98 pubkeys. The enforcement code **fails closed**:
@@ -251,6 +256,11 @@ already versions itself via the leading tag byte, and the decoder branches on it
 - All multi-byte fields are little-endian.
 - Tag allocation happens only in this registry, scoped per socket.
 - The visibility filter default is fail-closed (ON).
+- Memory-cloud wire types (`client/src/features/visualisation/memoryCloud/types.ts`) change only
+  together with `crates/visionclaw-memory-cloud/src/wire.rs`, whose field-name test pins them; the
+  vectors blob is little-endian f32 with no header (ADR-2133).
+- Namespaces in `MEMORY_CLOUD_EXCLUDE_NAMESPACES` (default `personal-context`) never appear in any
+  memory-cloud response, and the private memory-cloud reads never drop below `PowerUser`.
 
 ## Change process
 

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 780eb3edb788c9cb568d5756689a3c8455db79b7
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -285,3 +285,7 @@ CI-repair commit.
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `780eb3edb` (W8v, VisionClaw's own K_broker) inserts eight lines at `src/main.rs:195-202`: `visionclaw-server mint-nostr-key --out <path>` is dispatched first and exits. That path loads no `.env`, reads no environment, binds no listener, and rejects every argument other than `--out`/`--help` with exit 2, so `--allow-skip-auth` cannot ride along. Every path that serves still runs `enforce_release_env_hygiene()` (now `:209`) and `assert_effective_profile_or_exit` (now `:931`) before `HttpServer::new` (`:951`) and `.bind()` (`:1232`). Every `main.rs` citation after `:195` in this record moves down by eight lines. The assertion is still unconditional on every path that binds. The mint path never reaches a bind, so it needs no profile. `security_profile.rs` is unchanged. The decision holds.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `src/main.rs` builds one shared `MemoryCloudService` before `HttpServer::new` (+7 lines after line 884), adds it as app data (+1 near line 1067) and registers `configure_memory_cloud_routes` under the `/api` scope (+4 after line 1191); later line citations shift by up to +12. No boot assertion, env-hygiene check, profile evaluation, feature gate or bind call changes. **Decision unaffected.** The boot-time profile assertion and its position before the listener binds are unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

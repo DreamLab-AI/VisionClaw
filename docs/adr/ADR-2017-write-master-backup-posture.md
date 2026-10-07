@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8a501fbbce44cbb3bee0084e9a9b30abe6f46e47
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -233,3 +233,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 domain navigation roots (a stable derived id and a reconcile that removes
 stale roots and spokes). It does not touch the write-master, backup or
 restore paths this record governs. The decision holds unchanged.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `scripts/backup-secrets.sh` drops `embedding-cloud.json` from `INCLUDE_NAMES`, because the file is no longer generated (`scripts/compute-umap-projection.mjs` was deleted; the cloud is served live). **Decision unaffected.** The SQLite online-backup posture and the write-master per data class are unchanged. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

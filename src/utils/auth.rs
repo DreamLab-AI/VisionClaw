@@ -73,6 +73,23 @@ async fn resolve_access_level(pubkey: &str, is_power_user: bool) -> AccessLevel 
     }
 }
 
+/// Effective [`AccessLevel`] of a pubkey whose request signature has
+/// **already** been verified upstream (by `RbacGate` or `RequireAuth`, which
+/// leave an `AuthenticatedUser` in the request extensions).
+///
+/// Handlers that need a higher level than the gate enforced must use this
+/// rather than calling [`verify_access`] again: NIP-98 tokens are single-use,
+/// so a second verification of the same `Authorization` header is rejected as
+/// a replay. The dev-mode sentinel principal resolves to `Admin`, mirroring
+/// the bypass in [`verify_access`].
+pub async fn effective_access_level(pubkey: &str, nostr_service: &NostrService) -> AccessLevel {
+    if pubkey == DEV_MODE_PUBKEY && dev_full_bypass_active() {
+        return AccessLevel::Admin;
+    }
+    let is_power = nostr_service.is_power_user(pubkey).await;
+    resolve_access_level(pubkey, is_power).await
+}
+
 /// Synthetic principal returned by the LAN-local dev-mode bypass. Not a real
 /// Nostr pubkey — it is a clearly-labelled sentinel so provenance/audit rows are
 /// unambiguous about which writes came in unauthenticated on a dev headset.

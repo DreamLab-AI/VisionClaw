@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e4fcc51267be7a1d07bdb6a3b6cf91b3236de608
+verified_commit: ed5644d0369f9df5ef40d3259858acf3c52e7277
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -224,3 +224,7 @@ the root binary are unchanged. `verified_commit` moved to the CI-repair commit.
 ## Re-verification — 2026-10-03 at 780eb3edb788c9cb568d5756689a3c8455db79b7
 
 `1e55daebb` (`Cargo.toml`: the `nostr-bbs-core` git patch is removed and the crates.io pin used) leaves `[workspace].members` unchanged. In `780eb3edb`, `src/actors/elevation_actor.rs` and `decision_elevation_actor.rs` change only their panel-key lookup. The new loader is in the root `src/services/acsp/`, beside the ACSP client it serves. That adds nothing to the extraction backlog and moves nothing across a crate boundary. `implementation: partial` stands. The decision holds.
+
+## Re-verification — 2026-10-07 at ed5644d03 (live memory cloud, ADR-2133)
+
+**Governed change:** `Cargo.toml` adds the workspace member `crates/visionclaw-memory-cloud` (pure logic, no server-layer dependency), root dependencies `tokio-postgres 0.7.18`, `deadpool-postgres 0.14.2` and the new crate, and a `[profile.dev.package.visionclaw-memory-cloud] opt-level = 3` override. Line citations into `Cargo.toml` after line 15 shift by +1, after line 128 by +8 and after line 310 by +14. **Decision unaffected, and the change follows it.** The new crate holds only pure logic (serde, sha2, thiserror) and depends on no server layer; I/O stays in the root binary's service and handler. `verified_commit` moved to `ed5644d03`. Source reading of the diff (`git diff 20499efc6..ed5644d03` on the governed paths) plus `cargo check --lib --bins` and `cargo test --lib -- auth rbac memory_cloud` (62 + 5 pass) at the landing commit.

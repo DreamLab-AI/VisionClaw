@@ -1,0 +1,17 @@
+[package]
+name = "visionclaw-memory-cloud"
+version = "0.1.0"
+edition = "2021"
+description = "Pure logic for the VisionClaw live memory cloud: stratified sampling, PCA projection, vector codecs, snippets, request validation and recall maths. No I/O."
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/DreamLab-AI/VisionClaw"
+# Project-specific: shapes the VisionClaw `/api/memory-cloud` wire contract.
+publish = false
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
