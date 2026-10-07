@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 5b9ad7cf869933781f4826e59b7d2e5258c45378
+verified_commit: 010609be58ba37b65780d310d0534490bb85efa5
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -40,7 +40,9 @@ duplicate embedding.
    search. Every query is also answered by `POST /api/memory-cloud/query`, the sidecar's own top-k.
    Global queries use `idx_memory_embedding_hnsw` (cosine `<=>`). Namespace-restricted queries use
    an exact scan over `idx_memory_namespace`, because HNSW post-filtering returned 1 of 5 requested
-   hits. `score` is cosine similarity. `sampleIndex` places a hit in the cloud, or is null. The UI
+   hits. A global query whose HNSW candidates were mostly excluded (fewer than k rows after the
+   filter) reruns as an exact scan. Every response states `sidecar.method` (`hnsw` | `exact`), so the
+   client never labels an exact answer as the index's. `score` is cosine similarity. `sampleIndex` places a hit in the cloud, or is null. The UI
    shows the sidecar's list beside any browser trajectory and never presents the sample search as
    the store's answer.
 3. **Measured recall.** After each build the server runs 20 sampled rows through the HNSW path and
@@ -81,8 +83,18 @@ duplicate embedding.
 - Anonymous and Editor viewers no longer see a cloud. That is the price of private content. A
   public deployment needs a separate, explicitly public namespace list.
 - The recall figure is a property of the sidecar's index, not of this code. It read about 0.70
-  before ab-ruvector's serial reindex and 0.94 after it. It only improves when the agentbox owner
-  rebuilds the index (the workspace index law). This feature never writes to the index.
+  before ab-ruvector's serial reindex and 0.89–0.94 after it. This feature never writes to the
+  index. The remaining zero-recall probes were investigated (`010609be5`):
+  - They are graph unreachability. The index returns a full k rows whose best distance is ~0.75,
+    while the exact best is 0.000 (the query is a stored row). It is not filter starvation.
+  - `ruvector.ef_search` (0.3.0, default 40) is ignored by the HNSW scan. ef 10 and ef 1000
+    return identical results at the same latency in fresh sessions, so no per-query `SET LOCAL`
+    is used.
+  - The unreachable rows are not duplicates, not post-reindex inserts, not in denser clusters,
+    and are unit norm. About 17 % of `hooks:pre-task` and `session-states`, about 2 % of
+    `project-state` and 0 % of `ruvnet-kb` are unreachable.
+  - The fix belongs to the index owner (ruvector's graph construction or search). The probe
+    keeps reporting it.
 - The pool stays at 4 connections. Eight concurrent live queries complete in 396 ms wall (max
   395 ms each), and a power-user-only, rate-limited surface does not justify more.
 - Snapshot cost: about 1.5 s per rebuild (counts 83 ms, stratified sample 0.9–1.2 s, PCA and
@@ -109,6 +121,10 @@ signed power user. A power user's third query in a minute gets 429 against a bud
 second power user is unaffected. The live test passed over HTTP through the real gate: the
 snapshot, a `no-store` vectors blob, 409 on a stale id, and health with no URL and no excluded
 namespace. Recall@10 was 0.940 (HNSW 21 ms/query against exact 370 ms/query).
+
+At `010609be5`: with `ruvnet-kb` excluded, a RuVector-themed global query got 2 of 10 rows from
+HNSW (red). The exact fallback now returns 10/10 in 284 ms, labelled `exact`. Global queries
+otherwise report `hnsw`, and restricted queries report `exact`. The live test passed.
 
 ## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
 
