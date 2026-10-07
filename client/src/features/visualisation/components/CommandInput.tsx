@@ -176,10 +176,11 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     });
   }
 
-  // Dual-graph disc projection. The knowledge + ontology graphs flatten into two
-  // facing discs (axisCompressionZ, continuous Z-scale: 1.0=fully 3D blobs..0.05=flat
-  // discs) separated across a depth gap (graphSeparationX). This acts on the display projection, NOT the
-  // force constants, so it is kept distinct from the repulsion rule above.
+  // Separated layout (ADR-2135). graphSeparationX pulls the knowledge graph, the
+  // ontology and the memory cloud apart into a ground-plane triangle with the agents
+  // at its centre; axisCompressionZ (1.0 = fully 3D blobs .. 0.05 = flat discs) thins
+  // each graph into a disc facing the centre. This acts on the display projection,
+  // NOT the force constants, so it is kept distinct from the repulsion rule above.
   // Handles e.g. "separate and flatten the two graphs" and
   // "reset the separation and flattening to zero" in a single PUT.
   {
@@ -207,7 +208,7 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
       if ('graphSeparationX' in discBody) parts.push(`separation→${discBody.graphSeparationX}`);
       if ('axisCompressionZ' in discBody) parts.push(`flatten→${discBody.axisCompressionZ}`);
       actions.push({
-        description: `Dual-graph discs: ${parts.join(', ')}`,
+        description: `Separated layout: ${parts.join(', ')}`,
         endpoint: '/api/settings/physics',
         method: 'PUT',
         body: discBody,

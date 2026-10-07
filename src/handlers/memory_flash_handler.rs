@@ -2,7 +2,10 @@
 //!
 //! POST /api/memory-flash accepts { key, namespace, action } and broadcasts a
 //! `memory_flash` WebSocket message to every connected client so the embedding
-//! cloud can animate the corresponding point(s).
+//! cloud can animate the corresponding point(s). An optional `agentId` names
+//! the agent that touched memory and is relayed in the frame, so the clients'
+//! separated layout can drift that agent towards the memory cloud (ADR-2135);
+//! without it the clients share the pull across every agent.
 
 use actix_web::{web, HttpResponse};
 use log::{debug, warn};
@@ -20,6 +23,10 @@ pub struct MemoryFlashRequest {
     pub namespace: Option<String>,
     /// Action: "store", "search", "retrieve", "delete", "update"
     pub action: Option<String>,
+    /// Wire id of the agent that touched memory, when the producer knows it
+    /// (flag bits allowed). Relayed as `agentId`; omitted when absent.
+    #[serde(default, alias = "agent_id", rename = "agentId")]
+    pub agent_id: Option<u32>,
 }
 
 /// WebSocket message broadcast to all clients
@@ -36,6 +43,8 @@ struct MemoryFlashData {
     namespace: String,
     action: String,
     timestamp: u64,
+    #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")]
+    agent_id: Option<u32>,
 }
 
 pub async fn handle_memory_flash(
@@ -55,6 +64,7 @@ pub async fn handle_memory_flash(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
+            agent_id: body.agent_id,
         },
     };
 
@@ -118,6 +128,7 @@ pub async fn handle_memory_flash_batch(
                 namespace: event.namespace.clone().unwrap_or_default(),
                 action: event.action.clone().unwrap_or_else(|| "access".to_string()),
                 timestamp: ts,
+                agent_id: event.agent_id,
             },
         };
         if let Ok(json) = serde_json::to_string(&broadcast) {
@@ -136,4 +147,42 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             "/memory-flash/batch",
             web::post().to(handle_memory_flash_batch),
         );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_id_is_optional_and_accepts_both_spellings() {
+        let r: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k"}"#).unwrap();
+        assert_eq!(r.agent_id, None);
+        let r: MemoryFlashRequest =
+            serde_json::from_str(r#"{"key":"k","agentId":2147483651}"#).unwrap();
+        assert_eq!(r.agent_id, Some(0x8000_0003));
+        let r: MemoryFlashRequest = serde_json::from_str(r#"{"key":"k","agent_id":5}"#).unwrap();
+        assert_eq!(r.agent_id, Some(5));
+    }
+
+    #[test]
+    fn the_frame_relays_agent_id_only_when_given() {
+        let frame = |agent_id| {
+            serde_json::to_value(MemoryFlashBroadcast {
+                type_: "memory_flash",
+                data: MemoryFlashData {
+                    key: "k".into(),
+                    namespace: "ns".into(),
+                    action: "store".into(),
+                    timestamp: 1,
+                    agent_id,
+                },
+            })
+            .unwrap()
+        };
+        assert_eq!(frame(Some(0x8000_0003))["data"]["agentId"], 2147483651u64);
+        assert!(
+            frame(None)["data"].get("agentId").is_none(),
+            "absent, not null"
+        );
+    }
 }

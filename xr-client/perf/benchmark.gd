@@ -760,7 +760,8 @@ func _populate_memory_layers(rows: int) -> void:
 	if _client != null and _client.has_method("graph_robust_bounds"):
 		var client: RefCounted = _client
 		_memory.graph_bounds_source = func() -> PackedFloat32Array:
-			var b: PackedFloat32Array = client.graph_robust_bounds()
+			# the benchmark measures the merged layout (separation 0)
+			var b: PackedFloat32Array = client.graph_robust_bounds(0.0)
 			if b.size() != 4:
 				return PackedFloat32Array()
 			var c: Vector3 = holder.global_transform.affine_inverse() * Vector3(b[0], b[1], b[2])

@@ -174,7 +174,7 @@ flowchart TB
     K --> L["swap buffers, read back<br/>positions + velocities"]
     L --> M{"divergence guard<br/>NaN / OOB / energy ?"}
     M -->|Bad frame| N["re-broadcast last_good_positions<br/>(5 in a row trips breaker)"]
-    M -->|Good frame| O["snapshot last_good_positions<br/>then disc projection (display-only)"]
+    M -->|Good frame| O["snapshot last_good_positions<br/>then triangle projection (display-only)"]
     O --> P["UpdateNodePositions to clients"]
     P --> Q["restore physics buffer<br/>from last_good_positions"]
 ```
@@ -271,7 +271,7 @@ layout is the default (`axisCompressionZ` removed; the dual-disc flatten is opt-
 The immersive client offloads its per-frame position-hunt and buffer packing to a
 Rust `RenderStore` (`xr-client/rust/src/render_store.rs`); see
 [XR Architecture](xr-architecture.md) for that path. The server-side display-only
-disc projection described below is unchanged.
+projection described below (ADR-2135) is independent of it.
 
 ---
 
@@ -327,11 +327,18 @@ for the correctness and wiring decisions.
 
 ## Delivering positions to clients
 
-After each good step the actor applies a display-only disc projection (described
-in [System Overview](system-overview.md) and the architecture diagrams), sends
-`UpdateNodePositions` up to `GraphServiceSupervisor`, then restores the
-un-projected physics buffer so the next step integrates from pristine state. The
-GPU buffers are never touched by the projection.
+After each good step the actor applies a display-only projection
+(`src/actors/gpu/display_projection.rs`, ADR-2135), sends `UpdateNodePositions`
+up to `GraphServiceSupervisor`, then restores the un-projected physics buffer so
+the next step integrates from pristine state. The GPU buffers are never touched
+by the projection. With Graph Separation above 0 (or dual-disc on) each
+population is re-centred on its median and placed on its vertex of a
+ground-plane triangle: knowledge front-left, ontology front-right, the memory
+cloud (placed client-side) behind, agent nodes at the centroid. The clients
+drift the agents they draw towards the graphs those agents have recently acted
+on, using the same rule. The geometry is the
+`visionclaw-tri-layout` crate the XR client also links. At separation 0 the
+projection is the old merged behaviour exactly.
 
 Positions reach clients as a compact binary frame; the current default is the V4
 delta encoding, with the V3 52-byte full record (`BINARY_NODE_SIZE_V3`) as the

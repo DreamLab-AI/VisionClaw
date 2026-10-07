@@ -331,6 +331,9 @@ pub struct MemoryFlash {
     pub action: String,
     /// Server epoch ms, 0 when absent.
     pub timestamp: u64,
+    /// `agentId`: wire id of the agent that touched memory, when the producer
+    /// named it (ADR-2135 agent drift); `None` when absent or not a u32.
+    pub agent_id: Option<u32>,
 }
 
 /// Upper bound on events honoured from one frame, so a hostile or runaway
@@ -370,11 +373,16 @@ pub fn parse_memory_flash(json: &str) -> Vec<MemoryFlash> {
         }
         let action = short_string(d.get("action"));
         let timestamp = d.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
+        let agent_id = d
+            .get("agentId")
+            .and_then(|a| a.as_u64())
+            .and_then(|a| u32::try_from(a).ok());
         Some(MemoryFlash {
             key,
             namespace,
             action,
             timestamp,
+            agent_id,
         })
     };
     match v.get("data") {
@@ -632,7 +640,8 @@ mod tests {
                 key: "k1".into(),
                 namespace: "patterns".into(),
                 action: "store".into(),
-                timestamp: 12
+                timestamp: 12,
+                agent_id: None,
             }]
         );
         let batch = r#"{"type":"memory_flash","data":[{"key":"a"},{"namespace":"n","action":"search"},{"action":"x"},7]}"#;
@@ -657,5 +666,17 @@ mod tests {
             parse_memory_flash(&long).is_empty(),
             "over-long key treated as absent"
         );
+    }
+
+    #[test]
+    fn memory_flash_carries_an_optional_agent_id() {
+        let named = r#"{"type":"memory_flash","data":{"key":"k","agentId":2147483651}}"#;
+        assert_eq!(parse_memory_flash(named)[0].agent_id, Some(0x8000_0003));
+        let anon = r#"{"type":"memory_flash","data":{"key":"k"}}"#;
+        assert_eq!(parse_memory_flash(anon)[0].agent_id, None);
+        let bad = r#"{"type":"memory_flash","data":{"key":"k","agentId":-4}}"#;
+        assert_eq!(parse_memory_flash(bad)[0].agent_id, None);
+        let huge = r#"{"type":"memory_flash","data":{"key":"k","agentId":99999999999}}"#;
+        assert_eq!(parse_memory_flash(huge)[0].agent_id, None);
     }
 }

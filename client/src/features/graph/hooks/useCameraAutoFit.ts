@@ -2,7 +2,15 @@ import { useRef, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createLogger } from '../../../utils/loggerConfig';
-import { robustBounds } from '../../../utils/robustBounds';
+import { robustBounds, type RobustBounds } from '../../../utils/robustBounds';
+import { useSettingsStore } from '../../../store/settingsStore';
+import { useMemoryCloudStore } from '../../visualisation/memoryCloud/memoryCloudInstance';
+import {
+  sceneFitBounds,
+  createSettleTrigger,
+  SEPARATION_SETTLE_MS,
+  type CloudFitInput,
+} from '../utils/sceneFitBounds';
 
 const logger = createLogger('CameraAutoFit');
 
@@ -14,23 +22,18 @@ const logger = createLogger('CameraAutoFit');
 export const CAMERA_FIT_EVENT = 'visionclaw:camera-fit';
 
 /**
- * Computes the bounding box of a flat Float32Array of [x,y,z,...] positions
- * and adjusts the camera + controls to frame all nodes with padding.
+ * Adjusts the camera + controls to frame `bounds` with padding. The bounds
+ * come from `sceneFitBounds`: the graph's percentile bounds (a raw min/max box
+ * would fit the layout's far outliers; see utils/robustBounds) when merged,
+ * and the sphere around both graphs and the memory cloud when separated.
  */
 function fitCameraToBounds(
   camera: THREE.PerspectiveCamera,
   controls: { target: THREE.Vector3; update: () => void } | null,
-  positions: Float32Array,
-  nodeCount: number,
+  bounds: RobustBounds,
+  count: number,
 ): void {
-  if (nodeCount === 0 || positions.length < 3) return;
-
-  // Percentile bounds: a raw min/max box would fit the layout's far outliers
-  // (the same trap the XR adaptive fit hit). See utils/robustBounds.
-  const bounds = robustBounds(positions, nodeCount);
-  if (!bounds) return;
   const center = new THREE.Vector3(...bounds.centre);
-  const count = Math.min(nodeCount, Math.floor(positions.length / 3));
 
   // Fit the graph's bounding SPHERE against BOTH frustum constraints. Using only
   // maxDim + vertical FOV clips wide graphs on tall (aspect < 1) canvases — the
@@ -62,10 +65,23 @@ function fitCameraToBounds(
   );
 }
 
+/** The memory cloud's fit input when it is on and loaded, else null. */
+function cloudFitInput(): CloudFitInput | null {
+  const settings = useSettingsStore.getState();
+  if (!settings.get<boolean>('visualisation.embeddingCloud.enabled')) return null;
+  const snapshot = useMemoryCloudStore.getState().snapshot;
+  if (!snapshot) return null;
+  const bounds = robustBounds(snapshot.positions, snapshot.count);
+  if (!bounds) return null;
+  return { bounds, cloudScale: settings.get<number>('visualisation.embeddingCloud.cloudScale') ?? 5 };
+}
+
 /**
  * Hook that auto-fits the camera to frame all nodes:
  * - Once on the first batch of non-zero position data (initial load)
  * - On explicit request via the CAMERA_FIT_EVENT custom event
+ * - Once the Graph Separation slider settles (ADR-2135), framing both graphs
+ *   and the memory cloud — never on every tick of a drag
  *
  * Returns a `requestFit` callback for imperative use within the R3F tree.
  */
@@ -76,17 +92,26 @@ export function useCameraAutoFit(
   const { camera, controls } = useThree();
   const hasAutoFittedRef = useRef(false);
   const pendingFitRef = useRef(false);
+  const rawSeparation = useSettingsStore(
+    (s) => s.get<number>('visualisation.graphs.knowledge.physics.graphSeparationX'),
+  );
+  const separationRef = useRef(0);
+  separationRef.current = typeof rawSeparation === 'number' && Number.isFinite(rawSeparation) ? rawSeparation : 0;
+  const settleRef = useRef(createSettleTrigger(SEPARATION_SETTLE_MS));
 
   const performFit = useCallback(() => {
     const positions = nodePositionsRef.current;
     if (!positions || positions.length === 0 || nodeCount === 0) return;
+    const count = Math.min(nodeCount, Math.floor(positions.length / 3));
+    const bounds = sceneFitBounds(positions, count, separationRef.current, cloudFitInput());
+    if (!bounds) return;
 
     if (camera instanceof THREE.PerspectiveCamera) {
       fitCameraToBounds(
         camera,
         controls as { target: THREE.Vector3; update: () => void } | null,
-        positions,
-        nodeCount,
+        bounds,
+        count,
       );
     }
   }, [camera, controls, nodePositionsRef, nodeCount]);
@@ -106,6 +131,11 @@ export function useCameraAutoFit(
 
   // Called from useFrame in GraphManager — checks if a fit is needed
   const requestFit = useCallback(() => {
+    // Graph Separation settled at a new value: frame the new layout once.
+    if (settleRef.current.update(separationRef.current, performance.now())) {
+      pendingFitRef.current = true;
+    }
+
     // Auto-fit on first real position data
     if (!hasAutoFittedRef.current && nodePositionsRef.current && nodeCount > 0) {
       hasAutoFittedRef.current = true;

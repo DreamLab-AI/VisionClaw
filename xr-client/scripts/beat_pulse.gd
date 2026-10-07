@@ -105,10 +105,15 @@ func on_text(json: String, type: String) -> bool:
 
 
 func on_memory_flash(json: String) -> void:
-	if not bursts_enabled or _bursts == null:
-		return
 	var descs: Array = MemoryFlashCodec.parse(json)
 	if descs.is_empty():
+		return
+	# ADR-2135: every flash pulls its agent (or, unnamed, every agent) towards
+	# the memory vertex of the separated layout, whether or not bursts are drawn.
+	if _client != null and _client.has_method("record_memory_flash"):
+		for d: Dictionary in descs:
+			_client.record_memory_flash(int(d.get("agent_id", -1)))
+	if not bursts_enabled or _bursts == null:
 		return
 	# With the memory cloud shown and loaded (xr-cloud, memory_cloud_layer.gd),
 	# a flash lands on its point(s) by the desktop's key → namespace rule and an

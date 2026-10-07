@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.14
+version: 0.1.15
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.15 (2026-10-07): ADR-2135 separated layout — Graph Separation opens a ground-plane triangle (knowledge −60°, ontology +60°, memory 180°; R = 2/√3 × separation) from the shared visionclaw-tri-layout crate; the cloud folds the graph bounds and takes the memory vertex (graph_robust_bounds(separation), CloudFrame.set_separation, physics read-back of graphSeparationX); work agents rest at the centroid plus their activity drift (render-store DriftField fed by 0x23 and memory_flash agentId; the choreography stays the single pose writer). No invariant changed."
   - "0.1.14 (2026-10-07): intermittent CPU gate root-caused and fixed. The cause was cross-L3-domain migration of the main thread on HP's multi-L3 CPU (~8x on-CPU spikes for two frames), not the first build. The benchmark pins its main thread to its L3 domain, and the first plan build is gated on its own limits (pack 12 ms, LOD 33 ms) instead of being dropped silently. No invariant changed."
   - "0.1.13 (2026-10-07): held things above the route — wand aim rays at HELD_RENDER_PRIORITY 15 in the transparent pass (depth test kept), radial menu with the HUD at 20; ADR review finding (conflicting depth cue). No invariant changed."
   - "0.1.12 (2026-10-07): desktop memory-explorer parity — cloud framed on the live graph (cloud_frame.rs port of cloudFrame.ts/robustBounds.ts, 1 Hz read, 0.8 s glide); route drawn without depth test below the HUD; framing cue instead of a camera move (ADR-2107); honest sidecar agreement line in the HUD Memory row (sidecarTotal/sidecarAgree on memoryRoute); 10 s route repeats no longer replay the trace; TUBE_R/RING_R re-synced. No invariant changed."
@@ -48,6 +49,10 @@ sources:
   - xr-client/rust/src/memory_cloud.rs
   - xr-client/rust/src/memory_route.rs
   - xr-client/rust/src/cloud_frame.rs
+  - crates/visionclaw-tri-layout/src/lib.rs
+  - crates/visionclaw-tri-layout/src/drift.rs
+  - src/actors/gpu/display_projection.rs
+  - xr-client/scripts/beat_pulse.gd
   - xr-client/scripts/memory_cloud_layer.gd
   - xr-client/README.md
   - src/handlers/layout_handler.rs
@@ -267,8 +272,8 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
 - **Placement (desktop `cloudFrame.ts`, `rust/src/cloud_frame.rs`).** The layer
   sits under `GraphRoot` (server space). `CloudRoot` (outer) sits at the graph's
   robust centre — the 5th–95th percentile box of every node position,
-  `BinaryProtocolClient.graph_robust_bounds()`, the TS `robustBounds` order
-  statistics exactly — and scales the cloud's robust radius to the graph's times
+  `BinaryProtocolClient.graph_robust_bounds(separation)`, the TS `robustBounds` order
+  statistics exactly (folded per graph when separated, see below) — and scales the cloud's robust radius to the graph's times
   `cloud_scale / 5` (the layer's `cloud_scale`, default 5 = equal radii, linear
   from there); `CloudCore` (inner) shifts the cloud by minus its own robust
   centre, so rotation turns the core in place. The graph extent is re-read once a
@@ -278,6 +283,23 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   test parses `cloudFrame.ts`, `robustBounds.ts` and `EmbeddingCloudLayer.tsx`
   for the constants and formulas. Sprite size follows `cloudPointSize` (constant
   in cloud-local units above its 0.5 floor).
+- **Separated layout (ADR-2135).** `graph_separation` (from the physics read-back
+  of `graphSeparationX`, `graph_parity.gd` → `GraphScene._graph_separation` →
+  the layer) moves `CloudRoot` by the memory vertex of the shared triangle
+  (`visionclaw-tri-layout`, 180°: behind the graphs) and folds each node position
+  into its nearest graph's frame before the bounds are taken, so the cloud keeps
+  one graph's size. A slider change makes the next read due at once. The server
+  places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
+  and keeps agent nodes at the centroid. Work-layer avatars still have one pose
+  writer (Invariant 8) and travel to target nodes that now sit on the separated
+  graphs. While separated, `GraphScene._apply_drift_rest_slots` (4 Hz) moves
+  the slot each avatar parks at to the centroid plus its activity drift. That
+  is `BinaryProtocolClient.agent_drift_offset`, from the shared `DriftField` in
+  the render store: applied `0x23` actions credit their target's class vertex,
+  and `memory_flash` frames credit memory through `record_memory_flash`
+  (`beat_pulse.gd`, the frame's optional `agentId`, else every agent). New
+  avatars materialise at the centroid. At separation 0 the front-arc rim slots
+  return.
 - **Look.** One MultiMesh of camera-facing sprites, each
   a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
   round mask discards the corners), billboarded on the main camera so both eyes

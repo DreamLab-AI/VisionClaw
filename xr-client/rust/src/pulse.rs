@@ -230,6 +230,8 @@ impl MemoryFlashCodec {
             d.set("duration", p.duration);
             d.set("implode", p.motion == semantic::BurstMotion::Implode);
             d.set("rings", p.rings as i64);
+            // ADR-2135: the acting agent for the layout drift, -1 when unnamed
+            d.set("agent_id", f.agent_id.map_or(-1, i64::from));
             out.push(&d.to_variant());
         }
         out

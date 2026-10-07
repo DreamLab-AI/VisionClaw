@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b63d35f8a2bde6ad6b37322dd3fc2af364b92cb0
+verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -130,3 +130,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 ## Re-verification — 2026-10-07 (b63d35f8a)
 
 Merging fix/xr-held-above-route touches this record's paths only with a benchmark-only `#[func] pin_thread_to_l3` (no wire, tag, record-size or decode change) and aim-ray/priority wiring in `graph_scene.gd` (no settings key, physics write or pose-owner change). Decision holds.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 changes `binary_protocol.rs` and `render_store.rs` to fold the graph bounds for the memory cloud and to keep an agent drift field. The field is fed by applied `0x23` actions and memory flashes and read through `agent_drift_offset`. While the layout is separated, `graph_scene.gd` moves the slot each work agent parks at to the triangle centroid plus its drift (`_apply_drift_rest_slots` → `AgentChoreography.set_rim_slot`), and new avatars materialise there. `agent_choreography.gd` still writes every work-layer pose; the scene only chooses the rest slot, as it already did for the front-arc rim. Demo mode still enters only through `ingest`. Decision holds. The GUT test `test_tri_layout_rest.gd` was not run (no Godot in the build container). Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

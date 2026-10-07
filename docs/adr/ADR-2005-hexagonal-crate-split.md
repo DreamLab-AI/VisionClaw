@@ -274,3 +274,7 @@ The merge adds `src/actors/gpu/physics_restore.rs` (boot and supervisor-restart 
 
 ## Re-verification — 2026-10-07 at d38d430e6
 Commit d38d430e6 adds restart re-wiring inside existing actors (`physics_supervisor.rs` announces replacement `ForceComputeActor`s; the orchestrator and client coordinator subscribe). New messages live in `src/actors/messages/physics_messages.rs`. No crate boundary or layer moved. Decision holds.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 adds a pure workspace crate, `crates/visionclaw-tri-layout` (no dependencies, MIT), which the server and the XR client both link. It moves the display projection out of `force_compute_actor.rs` into `src/actors/gpu/display_projection.rs` (registered in `gpu/mod.rs`). New domain logic lives in a crate and the root keeps the actor glue, as this record asks. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

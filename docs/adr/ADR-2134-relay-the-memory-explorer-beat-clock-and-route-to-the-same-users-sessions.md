@@ -90,3 +90,7 @@ This stamp covers the merge of `chore/clippy-sweep` (299aa35bc) with `feat/xr-cl
 
 ## Re-verification — 2026-10-07 at d38d430e6
 `client_coordinator_actor.rs` gains `SetGpuComputeAddress` so backpressure acks follow the live physics actor. Same-pubkey relay routing is unchanged. Decision holds.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 makes two changes here. `MemoryFlashCodec.parse` (`pulse.rs`) adds `agent_id` to each burst descriptor, taken from the frame's optional `agentId`. `beat_pulse.gd` `on_memory_flash` hands each flash to `record_memory_flash` for the separated-layout agent drift before the burst gating. The beat clock, the `memoryRoute` relay, tap tempo and microphone rules are untouched, and bursts render as before. Decision holds. The GUT test `test_memory_flashes_feed_the_agent_drift_even_with_bursts_off` was not run (no Godot). Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.

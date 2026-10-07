@@ -501,13 +501,13 @@
       "testid": "setting-visualisation.graphs.knowledge.physics.graphSeparationX",
       "control": "slider",
       "group": "motion",
-      "label": "Graph Separation",
+      "label": "Separate Knowledge · Ontology · Memory",
       "clientOnly": false,
       "server": "physics",
       "subgroup": "Layout Forces",
       "min": 0,
       "max": 400,
-      "step": 25
+      "step": 5
     },
     {
       "key": "axisCompressionZ",

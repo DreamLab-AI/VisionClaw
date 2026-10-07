@@ -358,3 +358,7 @@ None of these changes touches the decision this record makes. Every deletion had
 
 ## Re-verification — 2026-10-07 at d38d430e6
 `force_compute_actor.rs` gains a handler that accepts a re-sent graph after restart. The DAG-rank / hierarchical-label handling is untouched. Decision holds.
+
+## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
+
+ADR-2135 moves the display-only projection out of `force_compute_actor.rs` into `display_projection.rs`. `hierarchy_pairs`, the DAG ranker and `Edge::asserts_subsumption` are untouched. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
