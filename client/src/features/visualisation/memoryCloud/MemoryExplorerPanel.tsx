@@ -284,13 +284,14 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
 
       {query.response && (
         <div style={css.section}>
-          <div style={{ ...css.row, justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600 }}>Sidecar results</span>
-            <span style={css.label} title="Hits outside the sample have no point in the cloud, so only sampled hits are compared with the local route">
-              {agreementText.agreement}
-            </span>
+          <div style={{ fontWeight: 600 }}>Sidecar results</div>
+          <div
+            style={{ ...css.label, marginTop: 2, lineHeight: 1.45 }}
+            title="Hits outside the sample have no point in the cloud, so only sampled hits are compared with the local route"
+          >
+            <div>{agreementText.coverage}</div>
+            <div>{agreementText.agreement}</div>
           </div>
-          <div style={{ ...css.label, marginTop: 2 }}>{agreementText.coverage}</div>
           <ol style={{ listStyle: 'none', padding: 0, margin: '6px 0 0' }} aria-label="Sidecar results">
             {results.map((h, i) => {
               const sampled = h.sampleIndex !== null;

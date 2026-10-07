@@ -141,3 +141,86 @@ export function flyPose(from: CameraPoseLike, to: CameraPoseLike, u: number): Ca
   const mix = (a: PoseVec, b: PoseVec): PoseVec => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   return { position: mix(from.position, to.position), target: mix(from.target, to.target) };
 }
+
+/** Fractions of the canvas covered by overlays (0..1 of width / height). */
+export interface ScreenInsets {
+  right?: number;
+  bottom?: number;
+}
+
+/**
+ * A pose that frames `points` (world space). It keeps the camera's current
+ * viewing direction, backs off until the points' bounding sphere (radius
+ * floored at `minRadius`) fits the part of the screen that `insets` leave
+ * free, with 25% padding, and shifts sideways so the sphere's centre lands in
+ * the middle of that free area. World up is +y, as for OrbitControls. Used to
+ * frame a memory query's route when it is drawn.
+ */
+export function frameRoutePose(
+  from: CameraPoseLike,
+  points: ReadonlyArray<PoseVec>,
+  fovDeg: number,
+  aspect: number,
+  minRadius = 1,
+  insets: ScreenInsets = {},
+): CameraPoseLike {
+  if (points.length === 0) return { position: [...from.position], target: [...from.target] };
+  const lo: PoseVec = [Infinity, Infinity, Infinity];
+  const hi: PoseVec = [-Infinity, -Infinity, -Infinity];
+  for (const p of points) {
+    for (let a = 0; a < 3; a++) {
+      lo[a] = Math.min(lo[a], p[a]);
+      hi[a] = Math.max(hi[a], p[a]);
+    }
+  }
+  const centre: PoseVec = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  let radius = minRadius;
+  for (const p of points) radius = Math.max(radius, Math.hypot(p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]));
+
+  const right = Math.min(0.8, Math.max(0, insets.right ?? 0));
+  const bottom = Math.min(0.8, Math.max(0, insets.bottom ?? 0));
+  const tanV = Math.tan((fovDeg * Math.PI) / 360);
+  const tanH = tanV * (aspect > 0 ? aspect : 1);
+  // half-angles of the free area, which spans 1 - inset of each NDC half-axis
+  const halfV = Math.atan(tanV * (1 - bottom));
+  const halfH = Math.atan(tanH * (1 - right));
+  const distance = (radius / Math.sin(Math.min(halfV, halfH))) * 1.25;
+
+  let dir: PoseVec = [
+    from.position[0] - from.target[0],
+    from.position[1] - from.target[1],
+    from.position[2] - from.target[2],
+  ];
+  let n = Math.hypot(dir[0], dir[1], dir[2]);
+  if (n < 1e-6) {
+    dir = [0, 0.3, 1];
+    n = Math.hypot(0, 0.3, 1);
+  }
+  dir = [dir[0] / n, dir[1] / n, dir[2] / n];
+
+  // camera basis: forward = -dir, right = forward x up(+y), up' = right x forward
+  const fw: PoseVec = [-dir[0], -dir[1], -dir[2]];
+  let rx = -fw[2];
+  let rz = fw[0];
+  let rl = Math.hypot(rx, rz);
+  if (rl < 1e-6) {
+    rx = 1;
+    rz = 0;
+    rl = 1;
+  }
+  const r: PoseVec = [rx / rl, 0, rz / rl];
+  const u: PoseVec = [r[1] * fw[2] - r[2] * fw[1], r[2] * fw[0] - r[0] * fw[2], r[0] * fw[1] - r[1] * fw[0]];
+
+  // move the target so the centre projects to the free area's centre: NDC (-right, +bottom)
+  const sx = right * distance * tanH;
+  const sy = -bottom * distance * tanV;
+  const target: PoseVec = [
+    centre[0] + r[0] * sx + u[0] * sy,
+    centre[1] + r[1] * sx + u[1] * sy,
+    centre[2] + r[2] * sx + u[2] * sy,
+  ];
+  return {
+    position: [target[0] + dir[0] * distance, target[1] + dir[1] * distance, target[2] + dir[2] * distance],
+    target,
+  };
+}
