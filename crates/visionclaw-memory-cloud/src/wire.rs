@@ -118,10 +118,24 @@ pub struct QueryEcho {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SidecarResults {
-    /// Hits in index order.
+    /// Hits, nearest first.
     pub results: Vec<MemoryCloudHit>,
     /// Wall-clock milliseconds of the sidecar query.
     pub took_ms: f64,
+    /// How the sidecar produced `results`.
+    pub method: SearchMethod,
+}
+
+/// How the sidecar produced a result list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchMethod {
+    /// The sidecar's HNSW index: what an agent's `memory_search` sees.
+    Hnsw,
+    /// An exact scan. Used for namespace-restricted queries (the index
+    /// post-filters and would return too few rows) and for a global query
+    /// whose HNSW candidates were mostly excluded, leaving fewer than k rows.
+    Exact,
 }
 
 /// `POST /api/memory-cloud/query` response.
@@ -321,12 +335,15 @@ mod tests {
             sidecar: SidecarResults {
                 results: vec![hit],
                 took_ms: 1.5,
+                method: SearchMethod::Exact,
             },
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(keys(&v), ["embedModel", "query", "sidecar", "snapshotId"]);
         assert_eq!(keys(&v["query"]), ["text", "vector"]);
-        assert_eq!(keys(&v["sidecar"]), ["results", "tookMs"]);
+        assert_eq!(keys(&v["sidecar"]), ["method", "results", "tookMs"]);
+        assert_eq!(v["sidecar"]["method"], "exact");
+        assert_eq!(serde_json::to_value(SearchMethod::Hnsw).unwrap(), "hnsw");
         assert_eq!(
             keys(&v["sidecar"]["results"][0]),
             [

@@ -21,7 +21,7 @@ use visionclaw_server::utils::nip98::{build_auth_header, generate_nip98_token, N
 use visionclaw_memory_cloud::config::MemoryCloudConfig;
 use visionclaw_memory_cloud::validate::validate_query;
 use visionclaw_memory_cloud::vector::{decode_vectors_blob, dot};
-use visionclaw_memory_cloud::wire::MemoryCloudQueryRequest;
+use visionclaw_memory_cloud::wire::{MemoryCloudQueryRequest, SearchMethod};
 use visionclaw_server::services::memory_cloud_service::{MemoryCloudService, CONNINFO_ENV};
 
 /// A NIP-98 `Authorization` value signed over the URL the server rebuilds.
@@ -128,6 +128,11 @@ async fn live_snapshot_blob_query_and_recall_probe() {
         );
     }
     assert_eq!(resp.query.vector.len(), s.dim);
+    assert_eq!(
+        resp.sidecar.method,
+        SearchMethod::Hnsw,
+        "global query uses the index"
+    );
     assert!(!resp.sidecar.results.is_empty() && resp.sidecar.results.len() <= 10);
     assert!(resp
         .sidecar
@@ -165,6 +170,7 @@ async fn live_snapshot_blob_query_and_recall_probe() {
         resp.sidecar.results.len(),
         resp.sidecar.took_ms
     );
+    assert_eq!(resp.sidecar.method, SearchMethod::Exact);
     assert!(resp
         .sidecar
         .results
@@ -175,6 +181,46 @@ async fn live_snapshot_blob_query_and_recall_probe() {
         5,
         "exact namespace scan fills k"
     );
+
+    // --- HNSW shortfall falls back to an exact scan ----------------------
+    // Excluding ruvnet-kb (~75 % of the table) and asking about RuVector
+    // puts most of the index's candidates in the excluded namespace, so the
+    // post-filter leaves fewer than k rows.
+    let starved = MemoryCloudService::new(
+        MemoryCloudConfig::from_lookup(|k| match k {
+            "MEMORY_CLOUD_EXCLUDE_NAMESPACES" => Some("personal-context,ruvnet-kb".into()),
+            _ => std::env::var(k).ok(),
+        }),
+        std::env::var(CONNINFO_ENV).ok(),
+    );
+    starved.rebuild().await.expect("starved snapshot builds");
+    let starved_excluded = starved.config().excluded.clone();
+    let req = MemoryCloudQueryRequest {
+        text: "ruvnet RuVector HNSW agentic swarm orchestration with claude-flow and SONA".into(),
+        k: Some(10),
+        namespace: None,
+    };
+    let resp = starved
+        .query(validate_query(&req, &starved_excluded).unwrap())
+        .await
+        .expect("starved query succeeds");
+    println!(
+        "shortfall query: method {:?}, {} hits in {:.1} ms",
+        resp.sidecar.method,
+        resp.sidecar.results.len(),
+        resp.sidecar.took_ms
+    );
+    assert_eq!(
+        resp.sidecar.method,
+        SearchMethod::Exact,
+        "shortfall falls back"
+    );
+    assert_eq!(resp.sidecar.results.len(), 10, "the fallback fills k");
+    assert!(resp
+        .sidecar
+        .results
+        .iter()
+        .all(|h| !starved_excluded.matches(&h.namespace)));
 
     // --- recall probe ---------------------------------------------------
     let t = Instant::now();
@@ -190,21 +236,20 @@ async fn live_snapshot_blob_query_and_recall_probe() {
         probe.exact_plan_is_seq_scan,
         t.elapsed().as_secs_f64()
     );
-    let per: Vec<String> = probe
-        .per_query
-        .iter()
-        .map(|q| {
-            format!(
-                "{:.1}/{:.1}/{:.0}/{:.0}",
-                q.recall, q.id_recall, q.index_ms, q.exact_ms
-            )
-        })
-        .collect();
-    println!(
-        "  id-overlap recall {:.3}; per query recall/id_recall/index_ms/exact_ms: {}",
-        probe.per_query.iter().map(|q| q.id_recall).sum::<f64>() / probe.per_query.len() as f64,
-        per.join(" ")
-    );
+    for (n, q) in probe.per_query.iter().enumerate() {
+        println!(
+            "  probe {:>2} {:<26} recall {:.1} id {:.1} rows {:>2} best idx {:<8} exact {:<8} {:>4.0}/{:>4.0} ms",
+            n + 1,
+            q.namespace,
+            q.recall,
+            q.id_recall,
+            q.index_rows,
+            q.index_best.map_or("-".into(), |d| format!("{d:.4}")),
+            q.exact_best.map_or("-".into(), |d| format!("{d:.4}")),
+            q.index_ms,
+            q.exact_ms
+        );
+    }
     assert!(
         probe.index_plan_uses_hnsw,
         "index query must use the HNSW index"

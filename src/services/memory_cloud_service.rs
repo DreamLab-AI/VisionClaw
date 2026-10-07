@@ -33,7 +33,7 @@ use visionclaw_memory_cloud::validate::ValidatedQuery;
 use visionclaw_memory_cloud::vector::{format_ruvector_literal, l2_normalise};
 use visionclaw_memory_cloud::wire::{
     EmbedderHealth, MemoryCloudHealth, MemoryCloudHit, MemoryCloudMeta, MemoryCloudQueryResponse,
-    MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SidecarHealth, SidecarIssue,
+    MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SearchMethod, SidecarHealth, SidecarIssue,
     SidecarResults,
 };
 
@@ -184,8 +184,16 @@ impl ServedSnapshot {
 }
 
 /// One recall-probe query.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProbeQuery {
+    /// Namespace of the sampled row used as the query.
+    pub namespace: String,
+    /// Rows the index path returned (fewer than k means filtering starved it).
+    pub index_rows: usize,
+    /// Best cosine distance on the index path (`None` when it returned nothing).
+    pub index_best: Option<f64>,
+    /// Best cosine distance on the exact path; ~0 because the query is a stored row.
+    pub exact_best: Option<f64>,
     /// Tie-aware recall@k (distance-based); this feeds the wire `recall`.
     pub recall: f64,
     /// Id-overlap recall@k; understates recall when embeddings are duplicated.
@@ -563,21 +571,42 @@ impl MemoryCloudService {
         let likes = self.config.excluded.sql_like_prefixes();
         let limit = q.k as i64;
 
-        let client = self.client().await?;
+        let mut client = self.client().await?;
+        let sidecar = |e: tokio_postgres::Error| MemoryCloudError::Sidecar(e.to_string());
         let t = Instant::now();
-        let rows = match &q.namespace {
-            None => {
-                client
-                    .query(SEARCH_SQL, &[&literal, &exact, &likes, &limit])
-                    .await
-            }
-            Some(ns) => {
+        let (rows, method) = match &q.namespace {
+            // The index post-filters, so a namespace scan is always exact.
+            Some(ns) => (
                 client
                     .query(SEARCH_NAMESPACE_SQL, &[&literal, ns, &limit])
                     .await
+                    .map_err(sidecar)?,
+                SearchMethod::Exact,
+            ),
+            None => {
+                let params: [&(dyn tokio_postgres::types::ToSql + Sync); 4] =
+                    [&literal, &exact, &likes, &limit];
+                let rows = client.query(SEARCH_SQL, &params).await.map_err(sidecar)?;
+                if rows.len() >= q.k {
+                    (rows, SearchMethod::Hnsw)
+                } else {
+                    // The index's candidates were mostly in excluded
+                    // namespaces and the post-filter left fewer than k: the
+                    // same query as an exact scan fills k.
+                    let tx = client.transaction().await.map_err(sidecar)?;
+                    tx.batch_execute(EXACT_SCAN_SETTINGS)
+                        .await
+                        .map_err(sidecar)?;
+                    let rows = tx.query(SEARCH_SQL, &params).await.map_err(sidecar)?;
+                    tx.rollback().await.map_err(sidecar)?;
+                    info!(
+                        "[MemoryCloud] HNSW returned fewer than k={} rows after exclusions; answered by exact scan",
+                        q.k
+                    );
+                    (rows, SearchMethod::Exact)
+                }
             }
-        }
-        .map_err(|e| MemoryCloudError::Sidecar(e.to_string()))?;
+        };
         let took_ms = ms(t);
 
         let results = rows
@@ -607,7 +636,11 @@ impl MemoryCloudService {
                 text: q.text,
                 vector,
             },
-            sidecar: SidecarResults { results, took_ms },
+            sidecar: SidecarResults {
+                results,
+                took_ms,
+                method,
+            },
         })
     }
 
@@ -658,6 +691,10 @@ impl MemoryCloudService {
             let ids = |v: &[(String, f64)]| v.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
             let dists = |v: &[(String, f64)]| v.iter().map(|(_, d)| *d).collect::<Vec<_>>();
             per_query.push(ProbeQuery {
+                namespace: snap.built.snapshot.metadata[row].namespace.clone(),
+                index_rows: approx.len(),
+                index_best: approx.first().map(|(_, d)| *d),
+                exact_best: exact.first().map(|(_, d)| *d),
                 recall: recall_at_k_by_distance(&dists(&approx), &dists(&exact), PROBE_K, TIE_EPS),
                 id_recall: recall_at_k(&ids(&approx), &ids(&exact), PROBE_K),
                 index_ms,
