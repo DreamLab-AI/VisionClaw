@@ -118,3 +118,100 @@ fn render_store_lod_build_counts_labelled_nodes_against_the_cap() {
     let xs = origins_x(&near);
     assert!(xs.iter().all(|&x| (2.0..=9.0).contains(&x)), "{xs:?}");
 }
+
+// --- edge LOD ------------------------------------------------------------------
+
+use visionclaw_xr_gdext::lod::{split_tiers, CYLINDER_TRIS_PER_EDGE, DEFAULT_NEAR_EDGE_CAP, RIBBON_TRIS_PER_EDGE};
+use visionclaw_xr_gdext::render_store::EDGE_STRIDE_TYPED;
+
+/// Packed 16-float edge instances centred at x (midpoint origin at 3/7/11),
+/// INSTANCE_CUSTOM.a = style code i % 4.
+fn packed_edges(xs: &[f32]) -> Vec<f32> {
+    let mut b = Vec::new();
+    for (i, &x) in xs.iter().enumerate() {
+        b.extend_from_slice(&[0.03, 0.0, 0.0, x, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.03, 0.0]);
+        b.extend_from_slice(&[0.0, 0.0, 0.0, (i % 4) as f32]);
+    }
+    b
+}
+
+#[test]
+fn edge_split_keeps_the_16_float_stride_and_the_style_channel() {
+    assert_eq!(EDGE_STRIDE_TYPED, 16, "Invariant 3");
+    let buf = packed_edges(&[8.0, 1.0, 6.0, 2.0]);
+    let keys: Vec<u64> = vec![10, 11, 12, 13];
+    let (near, far, near_keys) = split_tiers(&buf, EDGE_STRIDE_TYPED, &keys, [0.0; 3], 2, f32::INFINITY, &HashSet::new());
+    assert_eq!(near.len(), 2 * 16);
+    assert_eq!(far.len(), 2 * 16);
+    assert_eq!(near_keys, HashSet::from([11, 13]));
+    let mids: Vec<f32> = near.chunks_exact(16).map(|c| c[3]).collect();
+    assert_eq!(mids, vec![1.0, 2.0], "nearest midpoints, scene order");
+    let far_styles: Vec<f32> = far.chunks_exact(16).map(|c| c[15]).collect();
+    assert_eq!(far_styles, vec![0.0, 2.0], "style code travels with the ribbon");
+}
+
+#[test]
+fn render_store_edge_lod_splits_cylinders_from_ribbons() {
+    let mut s = RenderStore::new();
+    let mut ids = Vec::new();
+    for i in 0..60u32 {
+        s.upsert(i + 1, [i as f32 * 2.0, 0.0, 0.0], 0, 0.0, 0.0);
+        ids.push((i + 1) as i32);
+    }
+    s.build_node_buffer(&ids, 1.0, 0.7, 1.9);
+    // 50 edges between neighbours: midpoints at x = 1, 3, 5, …
+    let mut pairs = Vec::new();
+    for i in 0..50i32 {
+        pairs.push(i + 1);
+        pairs.push(i + 2);
+    }
+    let all = s.build_edge_buffer(&pairs, 1.0).len() / 16;
+    assert_eq!(all, 50);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 5, f32::INFINITY);
+    let ribbons = s.ribbon_edge_buffer().len() / 16;
+    assert_eq!(near.len() / 16, 5);
+    assert_eq!(ribbons, 45);
+    let mids: Vec<f32> = near.chunks_exact(16).map(|c| c[3]).collect();
+    assert_eq!(mids, vec![1.0, 3.0, 5.0, 7.0, 9.0], "the five edges nearest the eye stay cylinders");
+    // Radius bound.
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [0.0; 3], 96, 4.5);
+    assert_eq!(near.len() / 16, 2, "midpoints 1 and 3 inside 4.5");
+    // Hysteresis: with cap 1 the eye at x = 9 holds the edge at midpoint 9. Moving
+    // to 10.05 makes midpoint 11 nearer (0.95 vs 1.05), but within the 10 %
+    // margin, so the incumbent keeps its cylinder; a clear win still switches.
+    let _ = s.build_edge_buffer_lod(&pairs, 1.0, [9.0, 0.0, 0.0], 1, f32::INFINITY);
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.05, 0.0, 0.0], 1, f32::INFINITY);
+    assert_eq!(near[3], 9.0, "incumbent keeps the cylinder in a close call");
+    let near = s.build_edge_buffer_lod(&pairs, 1.0, [10.8, 0.0, 0.0], 1, f32::INFINITY);
+    assert_eq!(near[3], 11.0, "a clearly nearer edge takes over");
+}
+
+#[test]
+fn edge_budget_at_the_safety_ceiling() {
+    assert_eq!(CYLINDER_TRIS_PER_EDGE, 32, "uncapped 8-sided cylinder (measured)");
+    assert_eq!(RIBBON_TRIS_PER_EDGE, 2);
+    let edges = 20_000usize;
+    let tris = DEFAULT_NEAR_EDGE_CAP * CYLINDER_TRIS_PER_EDGE + (edges - DEFAULT_NEAR_EDGE_CAP) * RIBBON_TRIS_PER_EDGE;
+    assert!(tris < 45_000, "{tris}");
+}
+
+// --- whole-scene budget (nodes + halo quads + edges + hulls) --------------------
+
+use visionclaw_xr_gdext::hulls::{DEFAULT_MAX_HULLS, MAX_TRIS_PER_HULL};
+use visionclaw_xr_gdext::lod::{scene_triangle_estimate, HALO_TRIS_PER_NODE, SPHERE_TRIS};
+
+#[test]
+fn gem_is_one_sphere_pass_plus_a_halo_quad() {
+    assert_eq!(SPHERE_TRIS, 288, "16x8 SphereMesh, measured");
+    assert_eq!(HALO_TRIS_PER_NODE, 2, "halo is a camera-facing quad, not a second sphere pass");
+    assert_eq!(GEM_TRIS_PER_NODE, SPHERE_TRIS + HALO_TRIS_PER_NODE);
+}
+
+#[test]
+fn whole_scene_worst_case_stays_under_100k_at_production_density() {
+    let hull_max = DEFAULT_MAX_HULLS * MAX_TRIS_PER_HULL;
+    for (nodes, edges) in [(1_000usize, 1_500usize), (13_164, 20_000)] {
+        let t = scene_triangle_estimate(nodes, edges, DEFAULT_NEAR_CAP, DEFAULT_NEAR_EDGE_CAP) + hull_max;
+        assert!(t <= 97_000, "{nodes} nodes / {edges} edges: {t} (keep ≥ 3 % headroom under 100k)");
+    }
+}

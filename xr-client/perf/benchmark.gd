@@ -57,6 +57,16 @@ var _near_radius: float = INF
 var _lod_report: Dictionary = {"enabled": false}
 var _node_source: String = "fixture"
 var _lod_build_ms := PackedFloat32Array()   # CPU cost of the per-frame LOD pack
+# Edges at production density: the fixture's edges for the 1k fixture, else
+# XR_BENCH_EDGES (default 20 000 = GraphScene EDGE_SAFETY_CEILING) random pairs.
+# Drawn exactly as GraphScene does: Rust build_edge_buffer → EdgesMulti with the
+# production cylinder and edge_flow material (edge LOD when available).
+const EDGE_SAFETY_CEILING := 20000
+var _edge_pairs := PackedInt32Array()
+var _edges: MultiMeshInstance3D = null
+var _ribbons: MultiMeshInstance3D = null
+var _halos: MultiMeshInstance3D = null       # node halo quads, as GraphScene NodesHaloMulti
+var _edge_report: Dictionary = {"enabled": false}
 
 func _ready() -> void:
 	if has_meta("duration_seconds"):
@@ -128,6 +138,7 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"node_count": int(_fixture.get("node_count", 0)),
 		"node_source": _node_source,
 		"node_lod": _lod_report,
+		"edges": _edge_report,
 		"lod_build_ms_p50": _percentile(_sorted(_lod_build_ms), 0.50),
 		"lod_build_ms_p99": _percentile(_sorted(_lod_build_ms), 0.99),
 		"edge_count": int(_fixture.get("edge_count", 0)),
@@ -243,14 +254,75 @@ func _populate_lod_path(fixture: Dictionary) -> bool:
 		b.put_float(0.5)
 		_ids.append(id)
 	_client.ingest(b.data_array)
+	_edge_pairs = _make_edge_pairs(fixture)
+	_edges = _make_edge_instance()
+	add_child(_edges)
+	# XR_BENCH_EDGE_LOD=0 draws every edge as a cylinder (pre-LOD A/B baseline).
+	if OS.get_environment("XR_BENCH_EDGE_LOD") != "0":
+		_ribbons = NodeLod.make_ribbon_instance()
+		add_child(_ribbons)
 	var mm: MultiMesh = nodes_multi.multimesh
 	mm.instance_count = 0
 	mm.use_colors = true
 	mm.use_custom_data = true
 	_impostors = NodeLod.make_impostor_instance()
 	add_child(_impostors)
+	var hmm := MultiMesh.new()
+	hmm.transform_format = MultiMesh.TRANSFORM_3D
+	hmm.use_colors = true
+	hmm.use_custom_data = true
+	hmm.mesh = QuadMesh.new()
+	_halos = MultiMeshInstance3D.new()
+	_halos.name = "NodesHaloMulti"
+	_halos.multimesh = hmm
+	_halos.material_override = load("res://materials/node_halo_quad.tres")
+	add_child(_halos)
 	_lod_rebuild()
 	return true
+
+
+func _make_edge_pairs(fixture: Dictionary) -> PackedInt32Array:
+	var pairs := PackedInt32Array()
+	var edges: Array = fixture.get("edges", [])
+	if not edges.is_empty() and not OS.has_environment("XR_BENCH_EDGES"):
+		for e in edges:
+			pairs.append(int(e.get("source", 0)))
+			pairs.append(int(e.get("target", 0)))
+		return pairs
+	var n: int = _ids.size()
+	var want: int = int(OS.get_environment("XR_BENCH_EDGES")) if OS.has_environment("XR_BENCH_EDGES") else EDGE_SAFETY_CEILING
+	if n < 2:
+		return pairs
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0xED6E
+	for _i in range(want):
+		var a: int = rng.randi_range(0, n - 1)
+		var b: int = (a + 1 + rng.randi_range(0, n - 2)) % n
+		pairs.append(_ids[a])
+		pairs.append(_ids[b])
+	return pairs
+
+
+# The production edge cylinder (GraphScene.tscn CylinderMesh_edge) and material.
+func _make_edge_instance() -> MultiMeshInstance3D:
+	var scene_mesh: CylinderMesh = null
+	var gs: PackedScene = load("res://scenes/GraphScene.tscn")
+	if gs != null:
+		var st := gs.get_state()
+		for i in range(st.get_node_count()):
+			if st.get_node_name(i) == "EdgesMulti":
+				for p in range(st.get_node_property_count(i)):
+					if st.get_node_property_name(i, p) == "multimesh":
+						scene_mesh = (st.get_node_property_value(i, p) as MultiMesh).mesh as CylinderMesh
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	mm.mesh = scene_mesh if scene_mesh != null else CylinderMesh.new()
+	var inst := MultiMeshInstance3D.new()
+	inst.name = "EdgesMulti"
+	inst.multimesh = mm
+	inst.material_override = load("res://materials/edge_flow.tres")
+	return inst
 
 
 func _lod_rebuild() -> void:
@@ -261,15 +333,30 @@ func _lod_rebuild() -> void:
 	var t0 := Time.get_ticks_usec()
 	var near: PackedFloat32Array = _client.build_node_buffer_lod(_ids, 1.0, 0.7, 1.9, eye, NodeLod.NEAR_CAP, _near_radius)
 	var near_count: int = NodeLod.assign(get_node("NodesMulti") as MultiMeshInstance3D, near)
+	if _halos != null:
+		NodeLod.assign_halo(_halos, near, _client.faded_node_buffer())
 	var far_count: int = NodeLod.assign(_impostors, _client.impostor_node_buffer())
+	var edge_count: int = 0
+	var ribbon_count: int = 0
+	if _edges != null:
+		var eb: PackedFloat32Array
+		if _ribbons != null:
+			eb = _client.build_edge_buffer_lod(_edge_pairs, 1.0, eye, NodeLod.NEAR_EDGE_CAP, _near_radius)
+			NodeLod.sync_edge_params(_edges.material_override, _ribbons.material_override)
+			ribbon_count = NodeLod.assign_stride(_ribbons, _client.ribbon_edge_buffer(), 16)
+		else:
+			eb = _client.build_edge_buffer(_edge_pairs, 1.0)
+		edge_count = NodeLod.assign_stride(_edges, eb, 16)
 	_lod_build_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	_edge_report = {"enabled": _edges != null, "pairs": _edge_pairs.size() / 2, "cylinders": edge_count,
+		"ribbons": ribbon_count, "near_edge_cap": NodeLod.NEAR_EDGE_CAP}
 	_lod_report = {
 		"enabled": true,
 		"near": near_count,
 		"impostors": far_count,
 		"near_cap": NodeLod.NEAR_CAP,
 		"near_radius_m": _near_radius if is_finite(_near_radius) else -1.0,
-		"triangles_est": near_count * 576 + far_count * 2,
+		"triangles_est": near_count * 290 + far_count * 2,
 	}
 
 

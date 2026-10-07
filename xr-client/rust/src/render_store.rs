@@ -599,6 +599,10 @@ pub struct RenderStore {
     // gem-tier ids it chose (hysteresis input for the next build).
     impostor_buf: Vec<f32>,
     lod_prev_near: HashSet<u32>,
+    // Edge LOD: ribbon-tier buffer from the last edge LOD build and the
+    // cylinder-tier endpoint keys it chose.
+    ribbon_buf: Vec<f32>,
+    edge_prev_near: HashSet<u64>,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -665,6 +669,8 @@ impl RenderStore {
         self.filter_dirty = self.node_filter.is_some();
         self.impostor_buf.clear();
         self.lod_prev_near.clear();
+        self.ribbon_buf.clear();
+        self.edge_prev_near.clear();
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
@@ -1682,6 +1688,12 @@ impl RenderStore {
     /// Pack the edge MultiMesh buffer for the ranked `pairs`. An edge is emitted
     /// only when both endpoints are in the drawn set and non-degenerate.
     pub fn build_edge_buffer(&self, pairs: &[i32], radius_comp: f32) -> Vec<f32> {
+        self.pack_edges(pairs, radius_comp, None)
+    }
+
+    /// `build_edge_buffer` body; when `keys` is given, pushes one
+    /// `(min(s,t) << 32 | max(s,t))` per emitted instance (edge-LOD hysteresis).
+    fn pack_edges(&self, pairs: &[i32], radius_comp: f32, mut keys: Option<&mut Vec<u64>>) -> Vec<f32> {
         let mut buf = Vec::new();
         let n = pairs.len() / 2;
         // Fold plan: many member→member edges collapse onto the same
@@ -1725,6 +1737,10 @@ impl RenderStore {
                 let style = self.edge_style_of(os, ot) as f32;
                 buf.extend_from_slice(&tf);
                 buf.extend_from_slice(&[0.0, 0.0, 0.0, style]);
+                if let Some(k) = keys.as_deref_mut() {
+                    let (a, b) = if s < t { (s, t) } else { (t, s) };
+                    k.push(((a as u64) << 32) | b as u64);
+                }
             }
         }
         buf
@@ -1944,6 +1960,40 @@ impl RenderStore {
     /// 20-float layout as the node buffer).
     pub fn impostor_node_buffer(&self) -> &[f32] {
         &self.impostor_buf
+    }
+
+    /// `build_edge_buffer` split into LOD tiers: returns the cylinder tier (the
+    /// `near_cap` edges whose midpoint is nearest `cam` within `near_max_dist`,
+    /// server units) and keeps every other drawn edge for
+    /// [`ribbon_edge_buffer`](Self::ribbon_edge_buffer). Both stay 16 floats per
+    /// instance with the style code in custom `.a` (Invariant 3).
+    pub fn build_edge_buffer_lod(
+        &mut self,
+        pairs: &[i32],
+        radius_comp: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) -> Vec<f32> {
+        let mut keys = Vec::new();
+        let buf = self.pack_edges(pairs, radius_comp, Some(&mut keys));
+        let (near, far, near_keys) = crate::lod::split_tiers(
+            &buf,
+            EDGE_STRIDE_TYPED,
+            &keys,
+            cam,
+            near_cap,
+            near_max_dist,
+            &self.edge_prev_near,
+        );
+        self.ribbon_buf = far;
+        self.edge_prev_near = near_keys;
+        near
+    }
+
+    /// Ribbon-tier edges from the last `build_edge_buffer_lod` (16-float stride).
+    pub fn ribbon_edge_buffer(&self) -> &[f32] {
+        &self.ribbon_buf
     }
 }
 

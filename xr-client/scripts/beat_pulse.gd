@@ -33,8 +33,11 @@ const PING_INTERVAL_SEC := 2.0
 const HUD_REFRESH_SEC := 0.25
 const TAP_DEADZONE := 0.15           # = graph_scene LOCOMOTION_DEADZONE
 const MIC_BUS := "BeatMic"
-const HALO_MESHES: Array[String] = ["GraphRoot/NodesMulti", "GraphRoot/NodesFadedMulti"]
-const EDGE_MESH := "GraphRoot/EdgesMulti"
+## Layers whose own material carries `beat_pulse`: the node-halo quads, the near
+## edge cylinders and the far edge ribbons (edge LOD).
+const PULSE_MESHES: Array[String] = ["GraphRoot/NodesHaloMulti", "GraphRoot/EdgesMulti", "GraphRoot/EdgesRibbonMulti"]
+## Meshes whose material may still carry the sphere-shell halo as next_pass.
+const HALO_PASS_MESHES: Array[String] = ["GraphRoot/NodesMulti", "GraphRoot/NodesFadedMulti"]
 const PULSE_EPSILON := 0.004
 
 var reduced_motion: bool = true
@@ -246,13 +249,14 @@ func pulse_materials() -> Array:
 	var out: Array = []
 	if _scene == null:
 		return out
-	for path: String in HALO_MESHES:
+	for path: String in PULSE_MESHES:
+		var mi: MultiMeshInstance3D = _scene.get_node_or_null(path)
+		if mi != null and mi.material_override is ShaderMaterial:
+			out.append(mi.material_override)
+	for path: String in HALO_PASS_MESHES:
 		var mi: MultiMeshInstance3D = _scene.get_node_or_null(path)
 		if mi != null and mi.material_override != null and mi.material_override.next_pass is ShaderMaterial:
 			out.append(mi.material_override.next_pass)
-	var edges: MultiMeshInstance3D = _scene.get_node_or_null(EDGE_MESH)
-	if edges != null and edges.material_override is ShaderMaterial:
-		out.append(edges.material_override)
 	return out
 
 

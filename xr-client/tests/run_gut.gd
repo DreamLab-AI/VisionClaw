@@ -12,14 +12,14 @@ extends SceneTree
 #
 # CANONICAL INVOCATION — call gut_cmdln.gd directly (this is what CI runs):
 #
-#   godot --headless --path xr-client \
+#   godot --headless --xr-mode off --path xr-client \
 #     -s res://addons/gut/gut_cmdln.gd \
 #     -gdir=res://tests/unit -ginclude_subdirs \
 #     -gexit -gjunit_xml_file=res://tests/report/junit.xml
 #
 # or, equivalently, using the checked-in config so the flags stay in one place:
 #
-#   godot --headless --path xr-client \
+#   godot --headless --xr-mode off --path xr-client \
 #     -s res://addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json
 #
 # `-gexit` makes GUT quit with a non-zero status on any failure; the JUnit XML
