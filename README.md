@@ -147,7 +147,7 @@ cd VisionClaw && cp env.example .env     # set GITHUB_REPO, GITHUB_BASE_PATH, PR
 ./scripts/launch.sh up dev
 ```
 
-`./scripts/launch.sh up dev` is the canonical launcher; the explicit form is `docker compose -f docker-compose.unified.yml --profile dev up -d`. The dev image compiles the Rust backend on first start (a few minutes), then:
+`./scripts/launch.sh up dev` is the canonical launcher; the explicit form is `bash scripts/lib/dev-inputs.sh --publish "$PWD"` then `docker compose -f docker-compose.unified.yml --profile dev up -d`. After a merge or pull, `./scripts/launch.sh redeploy dev` rebuilds and restarts the backend in place. The dev image compiles the Rust backend on first start (a few minutes), then:
 
 | Service | URL |
 |:--------|:----|

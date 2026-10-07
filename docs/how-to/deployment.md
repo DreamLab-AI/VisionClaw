@@ -87,7 +87,8 @@ Launcher commands (`./scripts/launch.sh <command> [dev|prod]`):
 
 | Command | Action |
 |---------|--------|
-| `up` | Start the stack; auto-detects source changes (fast path) |
+| `up` | Start the stack; auto-detects source changes (fast path) and recreates a container whose compose config changed |
+| `redeploy` | dev only: after a merge or pull, publish the root build files and restart `rust-backend` in place |
 | `rebuild` | Full rebuild, no cache (Dockerfile/deps changed, ~15 min) |
 | `down` | Stop and remove containers |
 | `logs` | Follow container logs |
@@ -99,10 +100,13 @@ The wrapper drives `docker-compose.unified.yml`. To call Compose directly
 instead:
 
 ```bash
+bash scripts/lib/dev-inputs.sh --publish "$PWD"   # dev only: root build files
 docker compose -f docker-compose.unified.yml --profile dev up -d
 ```
 
-The `dev` profile mounts source read-only and compiles Rust on first boot
+The `dev` service mounts `.dev-inputs/` (see the
+[CLI reference](../reference/cli.md#root-build-files-dev-inputs)) and refuses to
+start without it, so publish first. The `dev` profile mounts source read-only and compiles Rust on first boot
 (allow up to ~5 min cold; the warm path is ~2 min). The `prod` profile uses a
 pre-compiled image — see [production deployment](operations/configuration.md).
 Compose receives the selected file through `ENV_FILE`; do not put production

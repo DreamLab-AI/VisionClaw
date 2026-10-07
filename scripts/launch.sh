@@ -68,7 +68,10 @@ ${YELLOW}Usage:${NC}
     ./launch.sh [COMMAND] [ENVIRONMENT]
 
 ${YELLOW}Commands:${NC}
-    ${GREEN}up${NC}             Start the environment (auto-detects changes, fast)
+    ${GREEN}up${NC}             Start the environment (auto-detects changes, fast; recreates
+                     a running container whose compose config changed)
+    ${GREEN}redeploy${NC}       dev only: publish root build files, restart rust-backend
+                     in place (no recreate). The code-deploy path after a merge.
     ${GREEN}down${NC}           Stop and remove containers
     ${GREEN}build${NC}          Build containers (with layer cache)
     ${GREEN}rebuild${NC}        Full rebuild (no cache, cleans all cargo volumes)
@@ -126,7 +129,7 @@ EOF
 # Validate command
 validate_command() {
     case "$COMMAND" in
-        up|down|build|rebuild|rebuild-agent|logs|shell|restart|restart-agent|status|clean|help|-h|--help)
+        up|down|build|rebuild|rebuild-agent|logs|shell|restart|restart-agent|redeploy|status|clean|help|-h|--help)
             if [[ "$COMMAND" == "help" ]] || [[ "$COMMAND" == "-h" ]] || [[ "$COMMAND" == "--help" ]]; then
                 show_help
                 exit 0
@@ -317,7 +320,10 @@ detect_dind() {
         if [ -z "$my_container" ] || ! docker inspect "$my_container" &>/dev/null; then
             # Fallback: find container whose workspace mounts match our path
             my_container=$(docker ps --format '{{.Names}}' | while read -r name; do
-                docker inspect "$name" --format '{{range .Mounts}}{{if eq .Destination "/home/devuser/workspace"}}{{$.Name}}{{end}}{{end}}' 2>/dev/null
+                # A container that exits between ps and inspect must not end
+                # the loop non-zero: under pipefail + set -e that killed the
+                # launcher silently.
+                docker inspect "$name" --format '{{range .Mounts}}{{if eq .Destination "/home/devuser/workspace"}}{{$.Name}}{{end}}{{end}}' 2>/dev/null || true
             done | head -1)
         fi
         if [ -n "$my_container" ]; then
@@ -413,6 +419,7 @@ cleanup_conflicts() {
 # Build containers
 build_containers() {
     log "Building containers for $ENVIRONMENT environment..."
+    sync_dev_inputs
 
     local build_args=()
 
@@ -545,6 +552,7 @@ needs_image_rebuild() {
         "$PROJECT_ROOT/scripts/dev-entrypoint.sh"
         "$PROJECT_ROOT/scripts/rust-backend-wrapper.sh"
         "$PROJECT_ROOT/scripts/lib/build-inputs.sh"
+        "$PROJECT_ROOT/scripts/lib/dev-inputs.sh"
         "$PROJECT_ROOT/scripts/production-startup.sh"
     )
 
@@ -584,6 +592,9 @@ hotpatch_config() {
         # ADR-2008: the wrapper sources this; patch the pair or the wrapper runs
         # against a stale inventory.
         "scripts/lib/build-inputs.sh:/app/scripts/lib/build-inputs.sh"
+        # ADR-2008 (2026-10-07): the entrypoint, wrapper and dev-inputs-sync
+        # program all run this; patch it with them.
+        "scripts/lib/dev-inputs.sh:/app/scripts/lib/dev-inputs.sh"
     )
 
     for mapping in "${config_map[@]}"; do
@@ -600,6 +611,75 @@ hotpatch_config() {
     fi
 }
 
+# ADR-2008 (2026-10-07): publish the root build files (Cargo.toml, Cargo.lock,
+# build.rs, Vite root files) into the gitignored .dev-inputs/, the only path of
+# the checkout root the dev container mounts. Content-compared, copy-then-rename,
+# stamped with the source commit. Must run before compose starts the dev service:
+# the mount uses create_host_path: false.
+sync_dev_inputs() {
+    [[ "$ENVIRONMENT" == "dev" ]] || return 0
+    if ! bash "$SCRIPT_DIR/lib/dev-inputs.sh" --publish "$PROJECT_ROOT"; then
+        error "Could not publish root build files into $PROJECT_ROOT/.dev-inputs"
+        exit 1
+    fi
+}
+
+# The compose service behind $CONTAINER_NAME.
+compose_service() {
+    if [[ "$ENVIRONMENT" == "prod" ]]; then echo visionclaw-production; else echo visionclaw; fi
+}
+
+# sha256 of the app service's fully resolved compose config (mounts, env after
+# .env interpolation, image, labels), computed with the hash label itself empty
+# so the value does not depend on itself. Only the hash leaves this function:
+# the resolved config contains secrets from .env.
+compose_config_hash() {
+    local config
+    if ! config="$(VISIONCLAW_COMPOSE_HASH='' docker_compose config "$(compose_service)" 2>/dev/null)"; then
+        error "docker compose config failed for $(compose_service); fix the compose file or env file first"
+        return 1
+    fi
+    printf '%s\n' "$config" | sha256sum | cut -d' ' -f1
+}
+
+# The compose-hash label the running container was created with ('' if none).
+container_compose_hash() {
+    docker inspect --format '{{index .Config.Labels "visionclaw.compose-hash"}}' "$1" 2>/dev/null || true
+}
+
+# Restart only rust-backend in the running dev container after publishing the
+# root files. The wrapper installs them, verifies the stamp, and rebuilds when a
+# build input changed. The marker tells needs_recompile this deploy happened.
+redeploy_backend() {
+    sync_dev_inputs
+    info "Restarting rust-backend in $CONTAINER_NAME (rebuilds if any build input changed)..."
+    docker exec "$CONTAINER_NAME" supervisorctl -c /app/supervisord.dev.conf restart rust-backend
+    touch "$PROJECT_ROOT/.dev-inputs/.redeployed"
+    success "rust-backend restarted; follow the build with: tail -f /app/logs/rust.log (in the container) or ./scripts/launch.sh logs dev"
+}
+
+# `launch.sh redeploy dev`: the code-deploy path. No recreate, no container
+# restart. Refuses when the compose config changed, since only a recreate (up)
+# applies that.
+redeploy_environment() {
+    if [[ "$ENVIRONMENT" != "dev" ]]; then
+        error "redeploy is dev-only: production runs a baked binary (use: ./scripts/launch.sh rebuild prod)"
+        exit 1
+    fi
+    if ! is_container_running "$CONTAINER_NAME"; then
+        error "$CONTAINER_NAME is not running: use ./scripts/launch.sh up dev"
+        exit 1
+    fi
+    local hash
+    hash="$(compose_config_hash)" || exit 1
+    if [[ "$(container_compose_hash "$CONTAINER_NAME")" != "$hash" ]]; then
+        error "The compose configuration changed since $CONTAINER_NAME was created; redeploy cannot apply mounts or environment."
+        info "Run ./scripts/launch.sh up dev, which recreates it."
+        exit 1
+    fi
+    redeploy_backend
+}
+
 # Check if source code changed (needs container restart to trigger recompile)
 needs_recompile() {
     local container_name="$1"
@@ -611,27 +691,42 @@ needs_recompile() {
     fi
 
     # Get container start time
-    local container_started=$(docker inspect --format='{{.State.StartedAt}}' "$container_name" 2>/dev/null)
+    local container_started container_epoch
+    container_started=$(docker inspect --format='{{.State.StartedAt}}' "$container_name" 2>/dev/null)
     if [[ -z "$container_started" ]]; then
         echo "true"
         return 0
     fi
-    local container_epoch=$(date -d "$container_started" +%s 2>/dev/null || echo 0)
+    container_epoch=$(date -d "$container_started" +%s 2>/dev/null || echo 0)
+    # A redeploy (rust-backend restart) since the container started counts too.
+    local redeployed_epoch
+    redeployed_epoch=$(stat -c %Y "$PROJECT_ROOT/.dev-inputs/.redeployed" 2>/dev/null || echo 0)
+    [[ $redeployed_epoch -gt $container_epoch ]] && container_epoch=$redeployed_epoch
 
-    # Check Rust source files
-    local latest_rs=$(find "$PROJECT_ROOT/src" -name "*.rs" -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
-    latest_rs=${latest_rs:-0}
+    # Rust build inputs come from the authoritative inventory (ADR-2008):
+    # every *.rs, CUDA source, crate and root manifest, Cargo.lock and toolchain
+    # file under src/ and crates/. The old inline globs saw src/*.rs and build.rs
+    # only, so a merge that changed Cargo.toml, Cargo.lock or a crate left the
+    # running binary in place.
+    # shellcheck source=lib/build-inputs.sh
+    . "$SCRIPT_DIR/lib/build-inputs.sh"
+    local latest_source=0 candidate root_file
+    for candidate in "$PROJECT_ROOT/src" "$PROJECT_ROOT/crates"; do
+        local tree_latest
+        tree_latest=$(latest_build_input_mtime "$candidate")
+        [[ $tree_latest -gt $latest_source ]] && latest_source=$tree_latest
+    done
+    for root_file in Cargo.toml Cargo.lock build.rs; do
+        candidate=$(stat -c %Y "$PROJECT_ROOT/$root_file" 2>/dev/null || echo 0)
+        [[ $candidate -gt $latest_source ]] && latest_source=$candidate
+    done
 
-    # Check client source files
-    local latest_ts=$(find "$PROJECT_ROOT/client/src" \( -name "*.ts" -o -name "*.tsx" \) -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
+    # Client sources, as before. Vite root files (index.html, vite.config.ts,
+    # tsconfig.json) need no restart: host-file-sync copies them in live.
+    local latest_ts
+    latest_ts=$(find "$PROJECT_ROOT/client/src" \( -name "*.ts" -o -name "*.tsx" \) -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
     latest_ts=${latest_ts:-0}
-
-    # Check build.rs
-    local build_rs_epoch=$(stat -c %Y "$PROJECT_ROOT/build.rs" 2>/dev/null || echo 0)
-
-    local latest_source=$latest_rs
     [[ $latest_ts -gt $latest_source ]] && latest_source=$latest_ts
-    [[ $build_rs_epoch -gt $latest_source ]] && latest_source=$build_rs_epoch
 
     if [[ $latest_source -gt $container_epoch ]]; then
         echo "true"
@@ -660,14 +755,34 @@ start_environment() {
     log "Starting $ENVIRONMENT environment..."
     docker compose -f "$PROJECT_ROOT/agentbox/docker-compose.speech.yml" up -d --build --wait
 
-    # Check if main container is already running and healthy
+    # ADR-2008 (2026-10-07): publish root build files before compose can start
+    # the dev service, and label the service with its resolved config hash.
+    sync_dev_inputs
+    VISIONCLAW_COMPOSE_HASH="$(compose_config_hash)" || exit 1
+    export VISIONCLAW_COMPOSE_HASH
+
+    # A running container created from a different compose config (mounts,
+    # environment, image) is recreated below; skipping it would leave the change
+    # silently unapplied, which is what `up` used to do.
+    local running=false
     if is_container_running "$CONTAINER_NAME"; then
-        local source_changed=$(needs_recompile "$CONTAINER_NAME")
-        if [[ "$source_changed" == "true" ]]; then
+        if [[ "$(container_compose_hash "$CONTAINER_NAME")" == "$VISIONCLAW_COMPOSE_HASH" ]]; then
+            running=true
+        else
+            warning "Compose configuration changed since $CONTAINER_NAME was created — recreating it..."
+        fi
+    fi
+
+    if [[ "$running" == true ]]; then
+        local source_changed
+        source_changed=$(needs_recompile "$CONTAINER_NAME") || true
+        if [[ "$source_changed" == "true" ]] && [[ "$ENVIRONMENT" == "dev" ]]; then
+            warning "Source code changes detected — redeploying rust-backend (no container restart)..."
+            redeploy_backend
+        elif [[ "$source_changed" == "true" ]]; then
             warning "Source code changes detected — restarting container to recompile..."
-            # Source is volume-mounted, so just restart. The wrapper rebuilds on startup.
-            docker_compose stop visionclaw
-            docker_compose start visionclaw
+            docker_compose stop "$(compose_service)"
+            docker_compose start "$(compose_service)"
             sleep 3
         else
             success "Container $CONTAINER_NAME is already running and healthy (no source changes)"
@@ -1302,6 +1417,14 @@ main() {
             check_prerequisites
             restart_agent_container
             ;;
+        redeploy)
+            # Same env resolution as `up`, so the compose hash compares like
+            # for like.
+            check_prerequisites
+            detect_dind
+            detect_gpu
+            redeploy_environment
+            ;;
         rebuild-agent)
             check_prerequisites
             detect_gpu
@@ -1316,5 +1439,8 @@ main() {
     esac
 }
 
-# Run main function
-main
+# Run main function (tests source this file with LAUNCH_SH_NO_MAIN=1 to reach
+# the helper functions without launching anything).
+if [[ "${LAUNCH_SH_NO_MAIN:-0}" != "1" ]]; then
+    main
+fi

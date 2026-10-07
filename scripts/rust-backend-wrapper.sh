@@ -49,12 +49,50 @@ BUILD_STAMP="${BUILD_STAMP:-$APP_ROOT/target/.visionclaw-dev-runtime-build-stamp
 WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/build-inputs.sh
 . "$WRAPPER_DIR/lib/build-inputs.sh"
+# ADR-2008 (2026-10-07): root files (Cargo.toml, Cargo.lock, build.rs) reach /app
+# by copy from /app/.dev-inputs, which the host publishes and stamps; never by a
+# single-file bind mount, which pins a stale inode after a git operation.
+# shellcheck source=lib/dev-inputs.sh
+. "$WRAPPER_DIR/lib/dev-inputs.sh"
+
+# Build against the committed lock. The container never resolves dependencies
+# on its own: a lock it wrote would land in /app only, which the host never sees
+# (the hazard the old rw Cargo.lock bind mount had). A stale host lock fails
+# loudly here instead, with the remedy, and without wiping the target cache.
+cargo_build() {
+    local output rc
+    output="$(mktemp)"
+    set +e
+    cargo build --locked --profile dev-runtime --features "$BUILD_FEATURES" 2>&1 | tee "$output"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [ "$rc" -ne 0 ] && grep -q -- "--locked was passed" "$output"; then
+        rm -f "$output"
+        log "FATAL: Cargo.lock does not match Cargo.toml. The container builds --locked against the host's committed lock."
+        log "       Refresh it on the host (e.g. \`cargo metadata --format-version 1 >/dev/null\` in the checkout), commit it, then run ./scripts/launch.sh redeploy dev."
+        exit 1
+    fi
+    rm -f "$output"
+    return "$rc"
+}
 
 NEEDS_BUILD=true
 NEEDS_BUILD_REASON=""
 
 if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
     cd "$APP_ROOT"
+
+    # Install the published root files before deciding anything, and say which
+    # commit they came from. No stamp, or a stamp that does not match the files,
+    # means no trustworthy manifest: refuse rather than build something stale.
+    # The container cannot see the host's HEAD (.git is not mounted: its config
+    # can hold credentials), so the stamp's source_sha in this log is the
+    # operator's check, and `launch.sh redeploy dev` always republishes first.
+    if ! dev_inputs_install; then
+        log "FATAL: refusing to build: root build files are not verified (see the DEV-INPUTS line above)"
+        exit 1
+    fi
+    log "Building from published inputs: $(dev_inputs_describe)"
 
     # ADR-2008: ask the shared build-input inventory whether cargo must run.
     # Rebuild is the safe default — every branch that cannot be evaluated
@@ -70,7 +108,7 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
     else
         log "Rebuilding: $NEEDS_BUILD_REASON"
 
-        if cargo build --profile dev-runtime --features "$BUILD_FEATURES" 2>&1; then
+        if cargo_build; then
             log "✓ Build succeeded"
             write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"
         else
@@ -79,7 +117,7 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
             # binary was produced for; drop it so the next start rebuilds.
             rm -f "$BUILD_STAMP"
             cargo clean 2>/dev/null || true
-            if cargo build --profile dev-runtime --features "$BUILD_FEATURES" 2>&1; then
+            if cargo_build; then
                 log "✓ Clean rebuild succeeded"
                 write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"
             else

@@ -11,9 +11,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class DevelopmentLauncher(unittest.TestCase):
     def test_build_restart_and_failed_build(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as checkout:
             root = Path(directory)
+            host = Path(checkout)
             (root / "bin").mkdir()
+            # The wrapper refuses to build without a verified .dev-inputs stamp
+            # (ADR-2008, 2026-10-07); publish one the way launch.sh does, from
+            # a checkout outside APP_ROOT (in the container it is the pruned
+            # /app/.dev-inputs, never a walked build-input tree).
+            (host / "Cargo.toml").write_text("[package]\nname = \"fixture\"\n")
+            subprocess.run(["bash", str(ROOT / "scripts/lib/dev-inputs.sh"), "--publish",
+                            str(host)], check=True, capture_output=True)
+            # Already in sync and old, so the copy does not itself look like a
+            # fresh build input on the second start.
+            (root / "Cargo.toml").write_text("[package]\nname = \"fixture\"\n")
+            os.utime(root / "Cargo.toml", (1, 1))
             (root / "src").mkdir()
             (root / "src/main.rs").write_text("fn main() {}")
             os.utime(root / "src/main.rs", (1, 1))
@@ -24,7 +36,7 @@ class DevelopmentLauncher(unittest.TestCase):
 echo "$*" >> "$APP_ROOT/cargo.calls"
 [[ "$*" == "clean" ]] && exit 0
 [[ "${FAIL_BUILD:-0}" == 1 ]] && exit 1
-[[ "$*" == "build --profile dev-runtime --features gpu,ontology,dev-auth" ]] || exit 5
+[[ "$*" == "build --locked --profile dev-runtime --features gpu,ontology,dev-auth" ]] || exit 5
 [[ "$CARGO_PROFILE_DEV_RUNTIME_DEBUG_ASSERTIONS" == true ]] || exit 6
 mkdir -p "$APP_ROOT/target/dev-runtime"
 printf '#!/bin/sh\\necho backend-started\\n' > "$APP_ROOT/target/dev-runtime/visionclaw-server"
@@ -34,7 +46,7 @@ chmod +x "$APP_ROOT/target/dev-runtime/visionclaw-server"
                 file = root / "bin" / name
                 file.write_text(content)
                 file.chmod(0o755)
-            env = dict(os.environ, APP_ROOT=str(root),
+            env = dict(os.environ, APP_ROOT=str(root), DEV_INPUTS_DIR=str(host / ".dev-inputs"),
                        PATH=f"{root / 'bin'}:{os.environ['PATH']}",
                        RUST_ERROR_LOG=str(root / "errors.log"),
                        SKIP_RUST_REBUILD="false", BUILD_FEATURES="gpu,ontology,dev-auth")

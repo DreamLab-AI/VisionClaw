@@ -424,6 +424,17 @@ copies, so removing a worktree never leaves a dangling hook. An existing
 regular file that is not ours is moved aside to
 `<name>.replaced-by-install-hooks` rather than deleted.
 
+### `post-checkout`, `post-merge`, `post-rewrite`: dev container inputs
+
+These three names are one script. After a checkout, merge, pull or rebase they
+republish the dev container's root build files (`Cargo.toml`, `Cargo.lock`,
+`build.rs`, the Vite root files) into `.dev-inputs/`, so the next in-container
+build and Vite reload see them (ADR-2008; see the
+[CLI reference](reference/cli.md#root-build-files-dev-inputs)). They act only in
+a checkout that already has `.dev-inputs/` (one the launcher has deployed from),
+never create it, and never fail the git operation. `git reset` and `git stash
+pop` run no hook; follow them with `./scripts/launch.sh redeploy dev`.
+
 ### `prepare-commit-msg` and git-gen-utils
 
 `prepare-commit-msg` can draft a commit message with

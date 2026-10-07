@@ -290,3 +290,6 @@ scratchpad/
 
 # Untracked tidy-sweep attic (see archive/attic/README.md)
 archive/attic/
+
+# ADR-2008: root build files published for the dev container (scripts/lib/dev-inputs.sh)
+/.dev-inputs/
