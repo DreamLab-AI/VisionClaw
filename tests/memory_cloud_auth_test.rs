@@ -86,13 +86,11 @@ async fn dev_mode_admits_everyone_and_otherwise_a_signed_power_user_is_required(
             App::new()
                 .app_data(nostr.clone())
                 .app_data(service.clone())
-                .service(
-                    web::scope("/api")
-                        .wrap(RbacGate::from_env())
-                        .configure(visionclaw_server::handlers::configure_memory_cloud_routes(
-                            visionclaw_server::handlers::memory_cloud_query_rate_limit(30),
-                        )),
-                ),
+                .service(web::scope("/api").wrap(RbacGate::from_env()).configure(
+                    visionclaw_server::handlers::configure_memory_cloud_routes(
+                        visionclaw_server::handlers::memory_cloud_query_rate_limit(30),
+                    ),
+                )),
         )
         .await;
         for (method, uri) in ENDPOINTS {
@@ -102,13 +100,20 @@ async fn dev_mode_admits_everyone_and_otherwise_a_signed_power_user_is_required(
             } else {
                 StatusCode::SERVICE_UNAVAILABLE
             };
-            assert_eq!(resp.status(), want, "{method} {uri}: anonymous caller under dev mode");
+            assert_eq!(
+                resp.status(),
+                want,
+                "{method} {uri}: anonymous caller under dev mode"
+            );
         }
     }
 
     // Phase 2: dev bypass off; only a signed power user gets in.
     std::env::remove_var("VISIONCLAW_DEV_MODE");
-    assert!(!dev_full_bypass_active(), "dev bypass must be off for phase 2");
+    assert!(
+        !dev_full_bypass_active(),
+        "dev bypass must be off for phase 2"
+    );
 
     let nostr = web::Data::new(NostrService::new());
     // No RUVECTOR_PG_CONNINFO: an admitted caller reaches the handler and
