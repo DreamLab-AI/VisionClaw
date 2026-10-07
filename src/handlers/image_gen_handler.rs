@@ -48,6 +48,7 @@ fn solid_base() -> String {
 /// agent key one byte at a time. Dependency-free fold — `subtle` and
 /// `constant_time_eq` are only transitive deps here. Mirrors
 /// `liveness_harness_handler::constant_time_eq` (ADR-2093).
+#[cfg(any(test, not(any(debug_assertions, feature = "dev-auth"))))]
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -66,6 +67,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// configured and the request presents an exactly matching `X-Agent-Key`. An
 /// unset or empty key fails closed — it is never substituted with a default, so
 /// an unconfigured deployment cannot be driven with a publicly-known literal.
+// Only the release-posture agent_key_authorised (and the tests) call this.
+#[cfg(any(test, not(any(debug_assertions, feature = "dev-auth"))))]
 fn check_agent_key(expected: Option<&str>, provided: Option<&str>) -> bool {
     match expected.filter(|s| !s.is_empty()) {
         Some(key) => match provided {

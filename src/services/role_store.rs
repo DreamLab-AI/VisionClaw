@@ -770,7 +770,6 @@ enum TxRemoval {
 /// the `conn.call` closure (whose error type cannot carry our variants).
 enum TxOutcome {
     Ok,
-    NoOp,
     Forbidden(String),
     LastOwner,
     InvalidExisting {
@@ -788,7 +787,7 @@ enum TxOutcome {
 impl TxOutcome {
     fn into_result(self, ok_role: UserRole) -> Result<UserRole, RoleStoreError> {
         match self {
-            TxOutcome::Ok | TxOutcome::NoOp => Ok(ok_role),
+            TxOutcome::Ok => Ok(ok_role),
             TxOutcome::Forbidden(m) => Err(RoleStoreError::Forbidden(m)),
             TxOutcome::LastOwner => Err(RoleStoreError::LastOwner),
             TxOutcome::InvalidExisting { pubkey, role } => {

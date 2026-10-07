@@ -824,8 +824,6 @@ async fn pay_pool_liquidity_handler(
 #[derive(Debug, Deserialize)]
 struct EstimateRequest {
     endpoint: String,
-    #[serde(default)]
-    params: Option<serde_json::Value>,
 }
 
 async fn pay_estimate_handler(

@@ -7,7 +7,6 @@ use actix_web_actors::ws;
 use log::{debug, error, info, trace, warn};
 
 use crate::app_state::AppState;
-use crate::types::vec3::Vec3Data;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
 
@@ -15,8 +14,6 @@ use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
 pub(crate) const DEBUG_LOG_SAMPLE_RATE: usize = 10;
 
 // Default values for deadbands if not provided in settings
-pub(crate) const DEFAULT_POSITION_DEADBAND: f32 = 0.01;
-pub(crate) const DEFAULT_VELOCITY_DEADBAND: f32 = 0.005;
 
 #[allow(dead_code)]
 pub(crate) const BATCH_UPDATE_WINDOW_MS: u64 = 200;
@@ -50,10 +47,6 @@ pub struct SocketFlowServer {
     pub(crate) heartbeat_timer_set: bool,
 
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
-    pub(crate) last_sent_positions: HashMap<String, Vec3Data>,
-    pub(crate) last_sent_velocities: HashMap<String, Vec3Data>,
-    pub(crate) position_deadband: f32,
-    pub(crate) velocity_deadband: f32,
 
     pub(crate) last_transfer_size: usize,
     pub(crate) last_transfer_time: Instant,
@@ -90,7 +83,8 @@ pub struct SocketFlowServer {
     // HTTP-equivalent URL of the WebSocket connection (for NIP-98 validation)
     pub(crate) connection_url: String,
     /// ADR-2134 same-user relay throttles (beatClock, memoryRoute), ≤ 4 Hz each.
-    pub(crate) relay_throttles: HashMap<super::session_relay::RelayKind, super::session_relay::RelayThrottle>,
+    pub(crate) relay_throttles:
+        HashMap<super::session_relay::RelayKind, super::session_relay::RelayThrottle>,
     /// One `error` frame per session for relay attempts before authentication.
     pub(crate) relay_unauth_reported: bool,
 
@@ -160,9 +154,6 @@ impl SocketFlowServer {
         let motion_threshold = pre_read_settings.motion_threshold;
         let motion_damping = pre_read_settings.motion_damping;
 
-        let position_deadband = DEFAULT_POSITION_DEADBAND;
-        let velocity_deadband = DEFAULT_VELOCITY_DEADBAND;
-
         let current_update_rate = max_update_rate;
 
         Self {
@@ -174,10 +165,6 @@ impl SocketFlowServer {
             last_activity: std::time::Instant::now(),
             heartbeat_timer_set: false,
             _node_position_cache: HashMap::new(),
-            last_sent_positions: HashMap::new(),
-            last_sent_velocities: HashMap::new(),
-            position_deadband,
-            velocity_deadband,
             last_transfer_size: 0,
             last_transfer_time: Instant::now(),
             total_bytes_sent: 0,
@@ -242,49 +229,6 @@ impl SocketFlowServer {
     pub(crate) fn should_log_update(&mut self) -> bool {
         self.update_counter = (self.update_counter + 1) % DEBUG_LOG_SAMPLE_RATE;
         self.update_counter == 0
-    }
-
-    pub(crate) fn has_node_changed_significantly(
-        &mut self,
-        node_id: &str,
-        new_position: Vec3Data,
-        new_velocity: Vec3Data,
-    ) -> bool {
-        let position_changed = if let Some(last_position) = self.last_sent_positions.get(node_id) {
-            let dx = new_position.x - last_position.x;
-            let dy = new_position.y - last_position.y;
-            let dz = new_position.z - last_position.z;
-            let distance_squared = dx * dx + dy * dy + dz * dz;
-            distance_squared > self.position_deadband * self.position_deadband
-        } else {
-            true
-        };
-
-        let velocity_changed = if let Some(last_velocity) = self.last_sent_velocities.get(node_id) {
-            let dvx = new_velocity.x - last_velocity.x;
-            let dvy = new_velocity.y - last_velocity.y;
-            let dvz = new_velocity.z - last_velocity.z;
-            let velocity_change_squared = dvx * dvx + dvy * dvy + dvz * dvz;
-            velocity_change_squared > self.velocity_deadband * self.velocity_deadband
-        } else {
-            true
-        };
-
-        if position_changed || velocity_changed {
-            self.last_sent_positions
-                .insert(node_id.to_string(), new_position);
-            self.last_sent_velocities
-                .insert(node_id.to_string(), new_velocity);
-            return true;
-        }
-
-        false
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn get_current_update_interval(&self) -> std::time::Duration {
-        let millis = (1000.0 / self.current_update_rate as f64) as u64;
-        std::time::Duration::from_millis(millis)
     }
 
     #[allow(dead_code)]

@@ -431,7 +431,6 @@ pub struct AgentVisualizationProtocol {
     position_buffer: Vec<PositionUpdate>,
     mcp_servers: std::collections::HashMap<String, McpServerInfo>,
     agent_cache: std::collections::HashMap<String, MultiMcpAgentStatus>,
-    topology_cache: std::collections::HashMap<String, SwarmTopologyData>,
     last_discovery: Option<chrono::DateTime<chrono::Utc>>,
 
     session_uuid_map: std::collections::HashMap<String, String>,
@@ -455,7 +454,6 @@ impl AgentVisualizationProtocol {
             position_buffer: Vec::new(),
             mcp_servers: std::collections::HashMap::new(),
             agent_cache: std::collections::HashMap::new(),
-            topology_cache: std::collections::HashMap::new(),
             last_discovery: None,
             session_uuid_map: std::collections::HashMap::new(),
             session_metadata: std::collections::HashMap::new(),
