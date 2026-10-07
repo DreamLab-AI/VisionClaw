@@ -497,10 +497,6 @@ impl EndpointRateLimits {
             max_violations: 10,
         }
     }
-
-    pub fn default() -> RateLimitConfig {
-        RateLimitConfig::default()
-    }
 }
 
 #[cfg(test)]

@@ -528,21 +528,10 @@ impl SocketFlowServer {
 // ---------------------------------------------------------------------------
 impl crate::utils::websocket_heartbeat::WebSocketHeartbeat for SocketFlowServer {
     fn get_client_id(&self) -> &str {
-        // client_id is usize; return a static fallback when not yet assigned.
-        // The heartbeat trait needs a &str — we leak a tiny string for the
-        // lifetime of the session. In practice this is fine because sessions
-        // are short-lived and the string is tiny.
-        // A better approach is to store a String client_id, but that would
-        // change more code than necessary for this gap fix.
-        static UNKNOWN: &str = "unknown";
-        // We can't return &str from usize, so this trait method is unused
-        // by the SocketFlowServer's own heartbeat (it uses its own timer).
-        // Provide a best-effort impl for completeness.
-        if self.client_id.is_some() {
-            UNKNOWN // The numeric ID is used elsewhere; this trait path is informational only.
-        } else {
-            UNKNOWN
-        }
+        // client_id is a usize and the heartbeat trait wants a &str, so this
+        // informational path always reports "unknown". SocketFlowServer's own
+        // heartbeat runs on its own timer and does not use it.
+        "unknown"
     }
 
     fn get_last_heartbeat(&self) -> Instant {

@@ -204,7 +204,7 @@ pub struct FsPaymentStore {
 
 /// RAII guard for an advisory file lock. Releases on drop.
 #[cfg(unix)]
-struct FileLockGuard {
+pub(crate) struct FileLockGuard {
     file: std::fs::File,
 }
 

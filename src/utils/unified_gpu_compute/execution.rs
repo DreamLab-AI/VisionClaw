@@ -1,7 +1,7 @@
 //! Physics simulation execution pipeline (force computation, integration, stability).
 
 use super::construction::UnifiedGPUCompute;
-use super::types::{int3, thrust_sort_key_value, AABB};
+use super::types::{int3, thrust_sort_key_value, Aabb};
 use crate::models::simulation_params::{SimParams, ToSimParams};
 use anyhow::{anyhow, Result};
 use cust::context::Context;
@@ -56,7 +56,7 @@ const PERIPHERAL_SHELL_UNBOUNDED_CAP: f32 = 5_000.0;
 /// positions the force is producing. `viewport_bounds` is that reference: it is
 /// the configured world scale, so a shell placed at a fixed fraction of it has no
 /// feedback term at all.
-fn peripheral_shell_radius(aabb: &AABB, viewport_bounds: f32) -> f32 {
+fn peripheral_shell_radius(aabb: &Aabb, viewport_bounds: f32) -> f32 {
     if viewport_bounds > 0.0 {
         // Bounds enabled: constant target, zero feedback.
         return viewport_bounds * PERIPHERAL_SHELL_BOUNDS_FRACTION;
@@ -129,7 +129,7 @@ impl UnifiedGPUCompute {
 
     /// Connected-node extent for layout consumers, separate from the all-node
     /// spatial-index AABB. None means no finite connected population.
-    pub fn connected_extent(&self) -> Result<Option<AABB>> {
+    pub(crate) fn connected_extent(&self) -> Result<Option<Aabb>> {
         if self.num_nodes == 0 || !self.degree_weights_available {
             return Ok(None);
         }
@@ -147,9 +147,9 @@ impl UnifiedGPUCompute {
             ))?;
         }
         self.stream.synchronize()?;
-        let mut blocks = vec![AABB::default(); self.aabb_num_blocks];
+        let mut blocks = vec![Aabb::default(); self.aabb_num_blocks];
         self.aabb_block_results.copy_to(&mut blocks)?;
-        let mut extent = AABB {
+        let mut extent = Aabb {
             min: [f32::MAX; 3],
             max: [f32::MIN; 3],
         };
@@ -331,14 +331,14 @@ impl UnifiedGPUCompute {
             )?;
         }
 
-        let mut block_results = vec![AABB::default(); self.aabb_num_blocks];
+        let mut block_results = vec![Aabb::default(); self.aabb_num_blocks];
         safe_copy_from_device(
             &self.aabb_block_results,
             &mut block_results,
             "aabb_block_results read",
         )?;
 
-        let mut aabb = AABB {
+        let mut aabb = Aabb {
             min: [f32::MAX; 3],
             max: [f32::MIN; 3],
         };
@@ -872,7 +872,7 @@ impl UnifiedGPUCompute {
                 let extent = if params.viewport_bounds > 0.0 {
                     aabb
                 } else {
-                    self.connected_extent()?.unwrap_or(AABB {
+                    self.connected_extent()?.unwrap_or(Aabb {
                         min: [0.0; 3],
                         max: [0.0; 3],
                     })
@@ -1149,8 +1149,8 @@ mod peripheral_shell_tests {
     /// The AABB the reduction reports when a spherical shell of `n` isolated nodes
     /// at radius `r` dominates the extent — which is exactly the runaway regime,
     /// where the connected core (r < 320) no longer contributes to min/max.
-    fn aabb_dominated_by_shell(r: f32) -> AABB {
-        AABB {
+    fn aabb_dominated_by_shell(r: f32) -> Aabb {
+        Aabb {
             min: [-r, -r, -r],
             max: [r, r, r],
         }
@@ -1169,7 +1169,7 @@ mod peripheral_shell_tests {
     }
 
     /// The pre-fix rule: target radius = live full-graph AABB diagonal.
-    fn legacy_radius(aabb: &AABB) -> f32 {
+    fn legacy_radius(aabb: &Aabb) -> f32 {
         let ex = aabb.max[0] - aabb.min[0];
         let ey = aabb.max[1] - aabb.min[1];
         let ez = aabb.max[2] - aabb.min[2];
@@ -1317,7 +1317,7 @@ mod peripheral_shell_tests {
 
     #[test]
     fn non_finite_extent_does_not_produce_a_nan_target() {
-        let nan_aabb = AABB {
+        let nan_aabb = Aabb {
             min: [f32::NAN; 3],
             max: [f32::NAN; 3],
         };

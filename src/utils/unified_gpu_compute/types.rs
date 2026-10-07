@@ -90,7 +90,7 @@ unsafe extern "C" {
 // Define AABB and int3 structs to match CUDA
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, DeviceCopy)]
-pub(crate) struct AABB {
+pub(crate) struct Aabb {
     pub min: [f32; 3],
     pub max: [f32; 3],
 }
@@ -99,14 +99,14 @@ pub(crate) struct AABB {
 // 1. It is repr(C) with a deterministic memory layout
 // 2. All fields are f32 arrays which have valid zero representations
 // 3. An AABB with all zeros (min=[0,0,0], max=[0,0,0]) is a valid degenerate bounding box
-unsafe impl bytemuck::Zeroable for AABB {}
+unsafe impl bytemuck::Zeroable for Aabb {}
 
 // SAFETY: AABB is safe to implement Pod because:
 // 1. It is repr(C) ensuring no padding or alignment surprises
 // 2. All fields are f32 which is itself Pod (plain old data)
 // 3. The struct has no invariants that could be violated by arbitrary bit patterns
 // 4. Any bit pattern can be safely interpreted as an AABB (may represent invalid geometry but won't cause UB)
-unsafe impl bytemuck::Pod for AABB {}
+unsafe impl bytemuck::Pod for Aabb {}
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, DeviceCopy)]

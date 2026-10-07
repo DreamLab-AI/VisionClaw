@@ -157,10 +157,6 @@ impl CircuitBreaker {
         }
     }
 
-    pub fn default() -> Self {
-        Self::new(CircuitBreakerConfig::default())
-    }
-
     pub fn network() -> Self {
         Self::new(CircuitBreakerConfig::network())
     }
@@ -379,6 +375,12 @@ impl CircuitBreaker {
     async fn count_requests_in_window(&self) -> usize {
         let history = self.request_history.read().await;
         history.len()
+    }
+}
+
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self::new(CircuitBreakerConfig::default())
     }
 }
 

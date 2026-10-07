@@ -185,11 +185,6 @@ impl RateLimit {
         Self::new(RateLimitConfig::new(max_requests, Duration::from_secs(1)))
     }
 
-    /// Create a default rate limiter (100 requests per minute)
-    pub fn default() -> Self {
-        Self::per_minute(100)
-    }
-
     /// Extract identifier from request using multi-factor approach
     /// Priority: 1) Authenticated user ID, 2) API key, 3) IP address
     /// This prevents rate limit bypass via IP spoofing or rotation
@@ -230,6 +225,13 @@ impl RateLimit {
             .unwrap_or("unknown")
             .to_string();
         format!("ip:{}", ip)
+    }
+}
+
+impl Default for RateLimit {
+    /// Create a default rate limiter (100 requests per minute)
+    fn default() -> Self {
+        Self::per_minute(100)
     }
 }
 

@@ -380,7 +380,7 @@ pub enum BufferedMessage {
     StartSimulation,
     StopSimulation,
     SimulationStep,
-    UpdateSimulationParams(msgs::UpdateSimulationParams),
+    UpdateSimulationParams(Box<msgs::UpdateSimulationParams>),
     UpdateNodePositions(msgs::UpdateNodePositions),
     // Client operations
     BroadcastMessage(msgs::BroadcastMessage),
@@ -899,7 +899,7 @@ impl GraphServiceSupervisor {
                     }
                     BufferedMessage::UpdateSimulationParams(msg) => {
                         if let Some(ref addr) = self.physics {
-                            addr.do_send(msg);
+                            addr.do_send(*msg);
                             true
                         } else {
                             false
@@ -1023,7 +1023,7 @@ impl GraphServiceSupervisor {
             SupervisorMessage::UpdateSimulationParams(msg) => {
                 if let Some(ref addr) = self.physics {
                     debug!("Forwarding UpdateSimulationParams to PhysicsOrchestratorActor");
-                    addr.do_send(msg);
+                    addr.do_send(*msg);
                     Ok(())
                 } else {
                     Err(VisionClawError::Actor(ActorError::ActorNotAvailable(
@@ -1354,7 +1354,7 @@ pub enum SupervisorMessage {
     StartSimulation,
     StopSimulation,
     SimulationStep,
-    UpdateSimulationParams(msgs::UpdateSimulationParams),
+    UpdateSimulationParams(Box<msgs::UpdateSimulationParams>),
     UpdateNodePositions(msgs::UpdateNodePositions),
     // --- Client operations (→ ClientCoordinatorActor) ---
     BroadcastMessage(msgs::BroadcastMessage),

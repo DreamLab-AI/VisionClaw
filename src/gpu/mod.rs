@@ -24,8 +24,7 @@ pub mod visual_analytics;
 pub mod conversion_utils;
 
 // Unified GPU memory management
-pub mod dynamic_buffer_manager;
-pub mod memory_manager; // Legacy - use memory_manager instead
+pub mod memory_manager;
 
 // Canonical type exports (AUTHORITATIVE SOURCE)
 pub use types::{BinaryNodeData, RenderData};

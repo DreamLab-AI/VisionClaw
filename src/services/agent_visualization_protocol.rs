@@ -7,7 +7,7 @@ use std::collections::HashMap;
 #[serde(tag = "type")]
 pub enum AgentVisualizationMessage {
     #[serde(rename = "init")]
-    Initialize(InitializeMessage),
+    Initialize(Box<InitializeMessage>),
 
     #[serde(rename = "positions")]
     PositionUpdate(PositionUpdateMessage),
@@ -641,7 +641,7 @@ impl AgentVisualizationProtocol {
             positions: HashMap::new(),
         };
 
-        let message = AgentVisualizationMessage::Initialize(init_msg);
+        let message = AgentVisualizationMessage::Initialize(Box::new(init_msg));
         to_json(&message).unwrap_or_default()
     }
 

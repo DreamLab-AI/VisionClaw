@@ -1,6 +1,6 @@
 //! Construction and initialization of the `UnifiedGPUCompute` struct.
 
-use super::types::{curandState, GPUPerformanceMetrics, AABB};
+use super::types::{curandState, Aabb, GPUPerformanceMetrics};
 use crate::models::constraints::ConstraintData;
 pub use crate::models::simulation_params::SimParams;
 use anyhow::{anyhow, Result};
@@ -208,7 +208,7 @@ pub struct UnifiedGPUCompute {
     pub(crate) pos_transfer_pending: bool,
     pub(crate) vel_transfer_pending: bool,
 
-    pub(crate) aabb_block_results: DeviceBuffer<AABB>,
+    pub(crate) aabb_block_results: DeviceBuffer<Aabb>,
     pub(crate) aabb_num_blocks: usize,
 
     /// Pre-computed degree weights for degree-weighted gravity.
