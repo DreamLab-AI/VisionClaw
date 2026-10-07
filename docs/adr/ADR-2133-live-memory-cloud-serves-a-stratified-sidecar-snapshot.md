@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 9d1e0d625b1868130db16c05cbc63d729e0a7a9b
+verified_commit: c16b257741b980d4599122ab77aa2f5980f94f31
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -90,3 +90,7 @@ the sidecar and returned 10 hits. A `project-state`-restricted query returned 5/
 probe measured recall@10 = 0.700 over 20 queries, HNSW 96 ms/query against exact 390 ms/query,
 and both `EXPLAIN` checks held. An independent psql self-recall check found 89/100 rows. Clippy
 and rustfmt are clean on the new files. The client side is not yet implemented, hence `partial`.
+
+## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
+
+**Governed change:** `verify_access` (`src/utils/auth.rs:191`) no longer verifies a NIP-98 token a second time in one request. When the request carries `Authorization: Nostr …` and an outer layer (`RbacGate`, an enclosing `RequireAuth`) already left an `AuthenticatedUser` in the request extensions, it reuses that identity and checks only the required level via `effective_access_level`; extensions are server-side and cannot be populated from headers. Before this, every `RequireAuth` scope under `/api` answered NIP-98 callers 401 "Token replayed" (proved by `tests/rbac_gate_require_auth_stacking_test.rs`, now green). The memory-cloud handler's `require_private_reader` keeps calling `effective_access_level` directly; its doc no longer claims `verify_access` must be avoided, because it is now safe to call twice. Line citations into `src/utils/auth.rs` after line 265 shift by +25 (the NIP-98 branch of `verify_access` gains the reuse block; e.g. `nip98_request_url(req)` in that branch moves from `:266` to `:291`); earlier lines are unchanged. The decision holds.

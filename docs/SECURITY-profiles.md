@@ -1,7 +1,7 @@
 ---
 title: Security Profiles & Flag Matrix
 doc_id: VC-SECURITY
-version: 0.1.1
+version: 0.1.2
 status: draft-for-ratification
 verified_commit: 
 sources:
@@ -198,6 +198,12 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    add shared-state (Redis) or sticky routing before it can rely on this
    invariant. The hard capacity ceiling must fail closed (reject, `ReplayCacheFull`
    → 503), never evict a live id.
+   A token is verified **once per request**: layered checks (`RbacGate` over
+   `/api`, an inner `RequireAuth`, a handler's `verify_*`) reuse the identity the
+   first verification left in the request extensions and only narrow the level
+   (`src/utils/auth.rs:265-289`). Re-verifying the same header answers 401
+   "Token replayed" and locks NIP-98 callers out of every stacked scope
+   (`tests/rbac_gate_require_auth_stacking_test.rs`).
 5. `RBAC_PUBLIC_READS=1` and `PUBKEY_VISIBILITY_FILTER=0` must never coexist in a
    deployed profile (full-disclosure combination). Enforced at boot by ADR-2043
    as an unconditional rule, independent of whether a profile is declared.
