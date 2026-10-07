@@ -1,6 +1,6 @@
 shader_type spatial;
 // Far-tier node impostor (PRD-008 triangle budget; Rust lod::split_node_tiers).
-// One 2-triangle quad per node instead of the 576-triangle gem sphere + halo:
+// One 2-triangle quad per node instead of the 290-triangle gem (sphere + halo quad):
 // the quad faces the camera and the fragment shader draws an analytically
 // shaded sphere in it, so at the distances where it is used (beyond the gem
 // tier's nearest-N / 1 m radius) it reads as the same lit gem.

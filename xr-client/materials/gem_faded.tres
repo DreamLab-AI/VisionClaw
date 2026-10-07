@@ -1,6 +1,4 @@
-[gd_resource type="StandardMaterial3D" load_steps=2 format=3 uid="uid://b3xrmatgemf1"]
-
-[ext_resource type="Material" path="res://materials/node_halo.tres" id="1_halo"]
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://b3xrmatgemf1"]
 
 ; Transparent twin of gem.tres for NodesFadedMulti: the nodes whose proximity /
 ; grab label is showing are packed here by render_store.rs with COLOR.a eased to
@@ -20,4 +18,3 @@ emission_energy_multiplier = 0.08
 rim_enabled = true
 rim = 0.28
 rim_tint = 0.4
-next_pass = ExtResource("1_halo")

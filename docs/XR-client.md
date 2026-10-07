@@ -1,11 +1,12 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.6
+version: 0.1.7
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.6 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame; memory layers held to the 16k triangle headroom the node LOD leaves"
+  - "0.1.7 (2026-10-07): live memory cloud and relayed query route in the headset (ADR-2133 client side, XR WP6/WP7); memoryRoute text frame; memory layers held to a FrameBudget allocator shared with the graph LOD tiers"
+  - "0.1.6 (2026-10-07): halo next_pass replaced by a quad layer, edge LOD (near cylinders, far ribbons), gem cap 80; all benchmark runs incl. 20k edges under budget; instance-colour divergence corrected by measurement; avatar rotation drift fixed. No invariant changed."
   - "0.1.5 (2026-10-07): node-mesh LOD (gem tier capped at 96, 2-triangle impostors beyond) brings the benchmark under the PRD-008 triangle budget at 1k and 13k nodes; dev profile optimised because the editor/headset run loads target/debug; GUT 9.7.1 vendored, CI on Godot 4.6.1. No invariant changed."
   - "0.1.4 (2026-10-07): desktop parity — domain palette (default) with community toggle, inbound settingsUpdated/filter/graphUpdated sync incl. physics read-back, cluster hulls as one ArrayMesh; project.godot comment corrected; benchmark triangle-budget divergence recorded. No invariant changed."
   - "0.1.3 (2026-10-02): DAG ranks keyed on subClassOf provenance, not the hierarchical label; domain-root spokes relabelled domain_member (ADR-2035 amendment, N-14)"
@@ -25,6 +26,9 @@ sources:
   - xr-client/rust/src/lod.rs
   - xr-client/scripts/node_lod.gd
   - xr-client/materials/node_impostor.gdshader
+  - xr-client/materials/node_halo_quad.gdshader
+  - xr-client/materials/edge_ribbon.gdshader
+  - xr-client/materials/edge_flow_common.gdshaderinc
   - xr-client/perf/benchmark.gd
   - xr-client/rust/src/webrtc_audio.rs
   - xr-client/rust/src/memory_cloud.rs
@@ -274,48 +278,69 @@ bare label was accepted, so from `7b6330608` each domain root ranked as the
 child of its own members (live census: 6400 membership edges in a 16196-edge
 rank set; every root at rank 1 below 36-533 of its members).
 
-### Node-mesh LOD and the triangle budget (2026-10-07)
-The gem node (16×8 sphere plus the halo `next_pass`) costs 576 triangles, so the
-PRD-008 budget (≤ 100k triangles, ≤ 50 draw calls, `perf/README.md`) failed at
-1 000 nodes (576 000) and the 13k production graph would be ≈ 7.5 M. Two tiers fix
-it without touching the near look:
-- **Gem tier**: the nearest `NEAR_CAP = 96` drawn nodes within `NEAR_RADIUS_M =
-  1.0` m of the eye keep the full gem material — 96 × 576 = 55 296 triangles, under
-  a ~60k near-field ceiling. Labelled (faded) nodes stay on the full mesh and count
-  against the cap. Selection is Rust `lod::split_node_tiers` (O(n) partial select,
-  10 % distance hysteresis so boundary nodes do not flicker), called through
-  `BinaryProtocolClient.build_node_buffer_lod`; camera and radius are converted
-  into GraphRoot space, so the fit scale and two-hand manipulation are respected.
-- **Impostor tier**: every other drawn node is one camera-facing quad
-  (`materials/node_impostor.gdshader`: analytic lit sphere with specular, rim and
-  the centrality/query rim tells; opaque with discard; billboarded with the main
-  camera basis as Godot's own billboard mode does, so both eyes agree) in a single
-  `NodesImpostorMulti` under GraphRoot (`scripts/node_lod.gd`) — +1 draw call.
-  Same 20-float instance layout, and every node keeps its render position, so ray
-  picking, edges, labels and hulls ignore the tier.
+### Node, halo and edge LOD — the triangle budget (2026-10-07)
+PRD-008 budgets ≤ 100k triangles and ≤ 50 draw calls (`perf/README.md`). Before
+this work the node gem was a 16×8 sphere (288 triangles) drawn **twice** — the
+halo was a `next_pass` shell — and every drawn edge was a capped 8-sided cylinder
+(48): 1 000 nodes measured 576 000 triangles, and 13 164 nodes with 20 000 edges
+1.04 M once edges were drawn. Three changes, none touching the near look:
+- **Halo as a quad layer.** `gem.tres` / `gem_faded.tres` are single-pass; the halo
+  is `GraphRoot/NodesHaloMulti` (`materials/node_halo_quad.gdshader`), one additive
+  camera-facing quad per full-mesh node (gem tier + faded), fed the same 20-float
+  buffer. It reproduces the shell analytically: radius 0.5 + `halo_width`
+  (+ badge / query widths), fresnel `(1 − sqrt(1 − (ρ/R)²))^2.5`, centrality,
+  badge and query-pulse modifiers, label-fade alpha. Close-up before/after on HP
+  (same three nodes, production materials): 0.59 % of pixels differ by > 8/255,
+  at ring edges. Low cost hides the layer and reduced motion stops its query pulse
+  (`spatial_environment.gd`); `crystal_orb.tres` (avatar cores) keeps the old pass.
+- **Node tiers.** The nearest `NEAR_CAP = 80` drawn nodes within `NEAR_RADIUS_M =
+  1.0` m of the eye keep the gem (80 × 290 = 23 200 triangles); every other drawn
+  node is a 2-triangle impostor (`materials/node_impostor.gdshader`: analytic lit
+  sphere, main-camera billboard, opaque with discard) in `NodesImpostorMulti`.
+  Labelled nodes stay on the full mesh and count against the cap.
+- **Edge tiers.** The `NEAR_EDGE_CAP = 96` edges whose midpoint is nearest the eye
+  within 1 m keep the cylinder, now uncapped (32 triangles; the ends sit inside the
+  node spheres); every other drawn edge is a 2-triangle ribbon turned about its axis
+  toward the main camera (`materials/edge_ribbon.gdshader`) in `EdgesRibbonMulti`,
+  16 floats per instance (Invariant 3). Both edge tiers shade through
+  `edge_flow_common.gdshaderinc` (pulse, relation grammar, palette), the ribbon
+  composites as the cylinder's two alpha layers, and its material mirrors the live
+  cylinder uniforms so comfort settings reach it.
 
-`perf/benchmark_scene.tscn` now measures this production path (fixture → V3 frame
-→ `ingest` → LOD split every frame, worst case: gem cap always full) and reports
-`node_lod`, `lod_build_ms_p50/p99` and `hull_layer`; `XR_BENCH_NODES=13164` runs
-production density, `XR_BENCH_HULLS=0` drops the hull layer. Measured on HP
-(Godot 4.6.1, opengl3, `--xr-mode off`, dev-profile library, 2026-10-07):
+Selection is Rust `lod::split_tiers` (O(n) partial select, 10 % distance
+hysteresis keyed by node id / endpoint pair), via `build_node_buffer_lod` and
+`build_edge_buffer_lod`; camera and radius are converted into GraphRoot space, so
+fit scale and two-hand manipulation are respected. Every drawn node keeps its
+render position, so ray picking, labels, edges and hulls ignore the tiers.
+`lod::scene_triangle_estimate` pins the worst case (both near tiers full, 32
+hulls at their bound) at ≤ 97k for 13 164 nodes / 20 000 edges.
+
+`perf/benchmark_scene.tscn` measures this production path every frame — fixture
+or `XR_BENCH_NODES` synthetic nodes through `ingest`, edges at production density
+(the fixture's 1 500; `XR_BENCH_EDGES`, default 20 000 = `EDGE_SAFETY_CEILING`),
+both near tiers always full — and reports `node_lod`, `edges`, `hull_layer` and
+`lod_build_ms_p50/p99`. Measured on HP (Godot 4.6.1, opengl3, `--xr-mode off`,
+dev-profile library, 2026-10-07):
 
 | Run | Draw calls | Triangles | Frame p50 / p99 | LOD pack p99 | Result |
 |---|---|---|---|---|---|
-| 1 000 nodes + 32 hulls | 4 | 58 030 | 0.31 / 0.93 ms | 0.23 ms | pass |
-| 1 000 nodes, no hulls | 3 | 57 104 | 0.31 / 0.93 ms | 0.16 ms | pass |
-| 13 164 nodes + 32 hulls | 4 | 84 370 | 2.02 / 2.22 ms | 2.17 ms | pass |
-| 13 164 nodes, no hulls | 3 | 81 432 | 2.02 / 2.47 ms | 2.13 ms | pass |
+| 1 000 nodes, 1 500 edges, 32 hulls | 6 | 31 846 | 0.53 / 0.93 ms | 0.40 ms | pass |
+| 1 000 nodes, 1 500 edges, no hulls | 5 | 30 920 | 0.53 / 0.93 ms | 0.39 ms | pass |
+| 13 164 nodes, 20 000 edges, 32 hulls | 6 | 95 186 | 5.10 / 5.56 ms | 4.98 ms | pass |
+| 13 164 nodes, 20 000 edges, no hulls | 5 | 92 248 | 5.56 / 9.72 ms | 8.38 ms | pass |
 
-Before the LOD the 1 000-node scene measured 576 000 triangles. The benchmark
-renders nodes (and hulls) only: edges are not in it. The live scene's edge
-cylinders (8-sided, capped, up to `EDGE_SAFETY_CEILING`) are an open item below.
+Reference points on the same rig: all-gem nodes with the halo pass, 1k nodes =
+576 000 triangles; with edges as capped cylinders, 1k = 130 030 and 13k =
+1 044 370. **Open:** at 13k nodes / 20k edges the per-frame Rust pack (node + edge
+buffers and both splits) is the dominant CPU cost — p99 5–8 ms on HP's desktop CPU,
+inside the 11.1 ms frame but the first thing to cut for Quest (e.g. repack edges at
+half rate, or skip the split when the eye and graph are still).
 
 **The headset runs the debug library.** `visionclaw_xr_gdext.gdextension` maps
 the editor (`linux.debug.x86_64`) to `target/debug`, and the desktop-OpenXR launch
-is the editor binary. Unoptimised, the 13k node pack took 18–20 ms per frame
-(p99 20.3 ms, failing 90 fps); the crate's `[profile.dev]` is now `opt-level = 2`
-(debug assertions and overflow checks kept), which gives the numbers above.
+is the editor binary. Unoptimised, the 13k node pack alone took 18–20 ms per frame;
+the crate's `[profile.dev]` is `opt-level = 2` (debug assertions and overflow
+checks kept).
 
 ### Desktop parity: domain colour, settings sync, cluster hulls (2026-10-07)
 Three desktop behaviours ported under the existing invariants (audit WP1, WP2,
@@ -380,18 +405,20 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   hand-edit would pre-empt that decision. Documented in `xr-client/README.md:15-18`
   as well as here.
 - **Benchmark triangle budget — Resolved 2026-10-07.** It failed at baseline
-  (576 000 triangles for 1 000 gem nodes); the node-mesh LOD above brings 1k to
-  58 030 and 13k to 84 370 with ≤ 4 draw calls. **Still open: edges.** The live
-  scene draws up to 20 000 edge cylinders (8 radial segments plus caps ≈ 32
-  triangles each, ≈ 640k at the ceiling), which the benchmark does not render;
-  an edge LOD (uncapped or ribbon impostors beyond the near field) is the next
-  budget item.
-- **Instance colour is treated as linear.** `gem.tres` uses
-  `vertex_color_use_as_albedo` without `vertex_color_is_srgb`, so every node palette
-  (community, query, agent, and now domain) shows lighter than its sRGB swatch and
-  than the desktop hex. Domain colours and hulls keep that convention, so a hull
-  and its nodes read as one hue. Flipping the flag changes every palette at once
-  and needs a headset look review.
+  (576 000 triangles for 1 000 gem nodes; 1.04 M at 13k nodes once edges were
+  drawn). The halo quad layer and the node and edge LOD above bring every
+  benchmark run under 100k with ≤ 6 draw calls.
+- **Instance colour convention — Corrected 2026-10-07.** Version 0.1.4 said the
+  gem material showed instance colours lighter than their sRGB swatch. That was
+  inferred from the StandardMaterial flags, not measured, and it is wrong: on HP
+  (Godot 4.6.1, Compatibility/opengl3) unlit `gem.tres` renders `#646b9f` as exactly
+  `#646b9f` on both a SubViewport and the root window, with `vertex_color_is_srgb`
+  off *or* on. Instance colours pass through unchanged, so the palette hexes, the
+  Key swatches and the desktop's displayed colours already agree. The convention is
+  "COLOR is used raw"; `tests/unit/test_instance_color_space.gd` renders the gem,
+  the impostor and the hull shader under GL and compares pixels with the hex
+  (pending under the headless dummy renderer, enforced in CI's Xvfb job). The OpenXR
+  swapchain path is not measured here and needs a headset check.
 - **GUT on Godot 4.6 — Resolved 2026-10-07.** GUT 9.3.x does not compile on
   Godot ≥ 4.5 (its `Logger` shadows the new native class). GUT 9.7.1 (upstream tag
   `v9.7.1`, commit `aeb5d4f3`) is now vendored in `xr-client/addons/gut/`, and CI
@@ -469,10 +496,13 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 
 ## Change process
 Edit the affected `.gd`/`.rs` file, run `cargo test -p visionclaw-xr-gdext`
-(364 headless tests — 259 library + 105 integration — as of 2026-10-07, no
+(369 headless tests — 259 library + 110 integration — as of 2026-10-07, no
 headset/Godot/network needed; the README's "141" is stale — ADR-2076). GUT
 (`tests/unit`, vendored 9.7.1) needs the 4.6.1 editor and the native library
-built for the host (`cargo build -p visionclaw-xr-gdext`). Any change
+built for the host (`cargo build -p visionclaw-xr-gdext`); pass `--xr-mode off`
+(as CI does), because the project enables OpenXR and a headless run otherwise
+probes the installed runtime — on HP it crashes at startup whenever SteamVR is the
+active runtime but not running. Any change
 to a render-constraint invariant (renderer, glow, driver, display) requires a
 fresh on-headset bring-up on the VIVE Pro before merge and a note here. Bump
 `version` on ratified change; record new divergences honestly rather than
