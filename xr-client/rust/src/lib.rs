@@ -19,7 +19,9 @@
 //! GDScript drives scene composition only; this crate owns every byte that
 //! crosses the wire and every threshold that gates a pose / hit / level.
 
+pub mod attention;
 pub mod avatar_state;
+pub mod beat;
 pub mod binary_protocol;
 pub mod gaze;
 pub mod interaction;
@@ -30,6 +32,7 @@ pub mod proxemics;
 pub mod render_store;
 pub mod runtime;
 pub mod selection;
+pub mod semantic;
 pub mod signer;
 pub mod transport;
 pub mod webrtc_audio;

@@ -1659,8 +1659,10 @@ impl RenderStore {
     /// Pack the **work-beam** MultiMesh buffer (Pillar 2, P3): one cylinder per
     /// active agent→target-node link, ready for the restyled `edge_flow`
     /// (`agent_beam`) material on the reserved `AgentMulti` MultiMesh. Stride 16
-    /// (12 transform + 4 INSTANCE_CUSTOM: r/g/b reserved, **a = agent status code**
-    /// so the beam shader tints working/blocked and animates the flowing stream).
+    /// (12 transform + 4 INSTANCE_CUSTOM: **r = AgentActionType code, g/b = beam
+    /// taper at the target/agent end** — the desktop's `semanticEncoding.ts`
+    /// colour and shape — and **a = agent status code** so the beam shader
+    /// slows and dims a blocked agent's stream).
     ///
     /// The beam's source is the agent's embodiment anchor when the scene has
     /// published one ([`set_agent_anchors`](Self::set_agent_anchors)), else the
@@ -1699,7 +1701,10 @@ impl RenderStore {
             };
             if let Some(tf) = edge_transform12(source, self.positions[ts], radius_comp) {
                 buf.extend_from_slice(&tf);
-                buf.extend_from_slice(&[0.0, 0.0, 0.0, rec.status as f32]);
+                // r = action code, g/b = target/agent taper (desktop semantic
+                // encoding); a = status. Still 16 floats per instance.
+                let [code, top, bottom] = crate::semantic::beam_custom_rgb(rec.action_type as u32);
+                buf.extend_from_slice(&[code, top, bottom, rec.status as f32]);
             }
         }
         buf
@@ -1845,6 +1850,15 @@ mod tests {
         assert_eq!(buf.len(), EDGE_STRIDE_TYPED, "one beam, stride 16");
         // INSTANCE_CUSTOM.a (index 15) carries the status code = WORKING.
         assert!(approx(buf[15], AGENT_WORKING as f32));
+        // INSTANCE_CUSTOM.rgb carries the desktop semantic encoding: action code 0
+        // (Query) and its thin-probe taper (semanticEncoding.ts AGENT_ACTION_SHAPES).
+        assert_eq!(&buf[12..15], &[0.0, 0.5, 0.5], "Query: code 0, 0.5/0.5 taper");
+        // A Create action widens into the node; a Delete narrows into it.
+        s.record_agent_action(5, 20, 2, 200, "");
+        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[2.0, 1.8, 0.4], "Create taper");
+        s.record_agent_action(5, 20, 3, 300, "");
+        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[3.0, 0.3, 1.6], "Delete taper");
+        s.record_agent_action(5, 20, 0, 400, "");
 
         // DONE / IDLE agents draw no beam; BLOCKED still does (stalled but owning).
         s.set_agent_state(5, "done", "");
