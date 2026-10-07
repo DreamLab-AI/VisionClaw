@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -146,3 +146,6 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `GPUManagerActor` still spawns the four supervisors (`gpu_manager_actor.rs:91-101`) and gains one forwarding handler, `Handler<SetPhysicsSettingsSource>` (`:716`), which hands the settings repository to the PhysicsSupervisor and logs at `error!` if the supervisors are unavailable. `gpu/mod.rs:52` registers `physics_restore`. Outside the governed paths, `physics_supervisor.rs` re-spawns through a `force_compute_factory` and calls `restore_saved_physics` after an AllForOne restart (`:212`, `:491`) and when the source first arrives (`:809`). The exponential backoff is unchanged (`:381-384`). Restart isolation therefore holds, and a restarted `ForceComputeActor` no longer runs on compiled-in defaults. Nit, not a breach: the new handler at `gpu_manager_actor.rs:716` sits under the doc comment written for `SetNodeSSSP`, and the one at `physics_supervisor.rs:803` sits under the `GetForceComputeActor` comment. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 at d38d430e6
+`gpu_manager_actor.rs` forwards `SubscribeForceComputeReplaced` to the physics supervisor, which now notifies subscribers after every restart (graph re-sent, client acks re-targeted). Supervisor topology and backoff are unchanged. Decision holds.

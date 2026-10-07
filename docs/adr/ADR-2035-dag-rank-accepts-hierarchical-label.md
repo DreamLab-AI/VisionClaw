@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -355,3 +355,6 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `force_compute_actor.rs` changes only the broadcast limiter. `BroadcastConfig::default()` replaces an inline 10 fps literal, `mark_broadcast()` replaces `reset_broadcast_timer()`, `ConfigureBroadcastOptimization` validates through `broadcast_optimizer.configure(..)`, and a test-only `headless()` constructor is added. The DAG ranker's subsumption filter is untouched (`.filter(|edge| edge.asserts_subsumption())` at `:582`), and so are its tests (`:4619-4657`). **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-07 at d38d430e6
+`force_compute_actor.rs` gains a handler that accepts a re-sent graph after restart. The DAG-rank / hierarchical-label handling is untouched. Decision holds.
