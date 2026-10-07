@@ -1408,8 +1408,8 @@ func _physics_process(delta: float) -> void:
 	_update_edge_multimesh()
 	_tick_frame_budget(delta)
 	# Work beams (ADR-140, Pillar 2 / P3) refresh every frame: the buffer is a short
-	# walk of the agent registry (tens of instances), not the node/edge domain, so it
-	# is not part of the 45 Hz alternation — the flowing stream stays crisp at 90 Hz.
+	# walk of the agent registry (tens of instances), not the node/edge domain, so
+	# the flowing stream stays crisp at 90 Hz.
 	# Embodiment poses (and their beam anchors) are settled BEFORE the beam
 	# buffer is built, so a beam always starts at the body the user sees.
 	_demo.tick(delta)
