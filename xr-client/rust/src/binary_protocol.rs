@@ -175,6 +175,38 @@ pub struct NodeMetaWire {
     /// `metadata.file_size` in bytes (page / ontology_node carry it; 0 otherwise).
     /// Feeds the desktop-parity metadata size formula's log-volume term.
     pub file_size: u64,
+    /// Corpus domain for the WP1 palette: `metadata.domain ?? metadata.source_domain`
+    /// (the desktop `GemNodes` lookup order). Empty when neither is present.
+    pub domain: String,
+    /// Authored quality for the WP2 node filter:
+    /// `quality_score ?? quality ?? qualityScore` (desktop `useGraphFiltering`).
+    /// `None` when absent or non-numeric — the filter then uses the degree fallback.
+    pub quality: Option<f32>,
+    /// Authored authority: `authority ?? authorityScore ?? authority_score`. The
+    /// last key is the server filter's (`client_filter.rs`); the desktop omits it.
+    pub authority: Option<f32>,
+    /// Population origin for the `linked_page` gate: `metadata.type || node_type`
+    /// (server `Node::population_type`, desktop filter).
+    pub population_type: String,
+}
+
+/// First numeric value among `keys` in a node's metadata map. Values arrive as
+/// numbers or numeric strings; empty or non-numeric strings count as absent.
+fn meta_score(meta: Option<&serde_json::Value>, keys: &[&str]) -> Option<f32> {
+    let m = meta?;
+    keys.iter().find_map(|k| {
+        let v = m.get(*k)?;
+        let f = match v {
+            serde_json::Value::Number(n) => n.as_f64(),
+            serde_json::Value::String(s) => s.trim().parse::<f64>().ok(),
+            _ => None,
+        }?;
+        f.is_finite().then_some(f as f32)
+    })
+}
+
+fn meta_str<'a>(meta: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
+    meta?.get(key)?.as_str().filter(|s| !s.is_empty())
 }
 
 /// Parse a `metadata.file_size` JSON value defensively: it may arrive as a byte
@@ -277,11 +309,24 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 .and_then(|m| m.get("file_size"))
                 .map(parse_file_size)
                 .unwrap_or(0);
+            let meta = node.get("metadata");
+            let domain = meta_str(meta, "domain")
+                .or_else(|| meta_str(meta, "source_domain"))
+                .unwrap_or("")
+                .to_string();
+            let quality = meta_score(meta, &["quality_score", "quality", "qualityScore"]);
+            let authority = meta_score(meta, &["authority", "authorityScore", "authority_score"]);
+            let population_type = meta_str(meta, "type")
+                .unwrap_or(node_type.as_str())
+                .to_string();
             if metadata_id.is_empty()
                 && label.is_empty()
                 && node_type.is_empty()
                 && detail.is_empty()
                 && file_size == 0
+                && domain.is_empty()
+                && quality.is_none()
+                && authority.is_none()
             {
                 continue;
             }
@@ -292,6 +337,10 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 node_type,
                 detail,
                 file_size,
+                domain,
+                quality,
+                authority,
+                population_type,
             });
         }
     }
@@ -2122,6 +2171,35 @@ mod tests {
         assert_eq!(by_id(1).file_size, 4096, "string file_size parsed");
         assert_eq!(by_id(2).file_size, 8192, "numeric file_size parsed");
         assert_eq!(by_id(3).file_size, 0, "missing file_size → 0");
+    }
+
+    #[test]
+    fn parse_initial_graph_reads_domain_scores_and_population_type() {
+        // WP1/WP2: desktop parity reads `metadata.domain ?? metadata.source_domain`
+        // for colour, `quality_score ?? quality ?? qualityScore` and
+        // `authority ?? authorityScore ?? authority_score` (string or number) for
+        // the node filter, and `metadata.type || node_type` for the linked_page gate.
+        let text = r#"{"type":"initialGraphLoad","nodes":[
+            {"id":1,"label":"A","node_type":"page","metadata":{"domain":"robotics","source_domain":"blockchain","quality_score":"0.82","authority":0.4,"type":"linked_page"}},
+            {"id":2,"metadata":{"source_domain":"AI","qualityScore":0.3,"authority_score":"0.9"}},
+            {"id":3,"label":"C","node_type":"linked_page","metadata":{"quality":"junk"}},
+            {"id":4,"label":"D","metadata":{"authorityScore":"0.25","quality_score":""}}
+        ],"edges":[],"timestamp":1}"#;
+        let (_, metas) = parse_initial_graph(text).unwrap();
+        let by_id = |id: u32| metas.iter().find(|m| m.id == id).expect("meta kept");
+        assert_eq!(by_id(1).domain, "robotics", "metadata.domain wins over source_domain");
+        assert_eq!(by_id(1).quality, Some(0.82));
+        assert_eq!(by_id(1).authority, Some(0.4));
+        assert_eq!(by_id(1).population_type, "linked_page", "metadata.type first");
+        // Node 2 carries no label/type/file_size: the domain + scores alone keep it.
+        assert_eq!(by_id(2).domain, "AI");
+        assert_eq!(by_id(2).quality, Some(0.3));
+        assert_eq!(by_id(2).authority, Some(0.9), "server key authority_score accepted");
+        assert_eq!(by_id(3).population_type, "linked_page", "node_type fallback");
+        assert_eq!(by_id(3).quality, None, "non-numeric quality → None (degree fallback)");
+        assert_eq!(by_id(3).domain, "");
+        assert_eq!(by_id(4).authority, Some(0.25));
+        assert_eq!(by_id(4).quality, None, "empty string is absent, not 0");
     }
 
     #[test]
