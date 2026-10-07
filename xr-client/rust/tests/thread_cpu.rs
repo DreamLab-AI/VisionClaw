@@ -13,16 +13,39 @@ fn spin(d: Duration) {
     }
 }
 
+/// Spins until this thread has run for `d` of CPU (not wall) time; a wall-clock
+/// spin is preempted on a loaded host and accrues less CPU than it waited.
+/// Returns false if `limit` of wall time passes first.
+fn spin_cpu(d: Duration, limit: Duration) -> bool {
+    let t = Instant::now();
+    let c0 = thread_cpu_ns();
+    let mut x = 0u64;
+    while thread_cpu_ns() - c0 < d.as_nanos() as u64 {
+        if t.elapsed() > limit {
+            return false;
+        }
+        x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+    }
+    true
+}
+
 #[test]
 fn busy_work_is_charged() {
     let w = CpuStopwatch::start();
-    spin(Duration::from_millis(30));
+    assert!(
+        spin_cpu(Duration::from_millis(30), Duration::from_secs(10)),
+        "30 ms of CPU within 10 s of wall time"
+    );
     let (cpu, wall) = w.stop();
     assert!(
-        cpu >= Duration::from_millis(20),
-        "cpu {cpu:?} for 30 ms of spinning"
+        cpu >= Duration::from_millis(30),
+        "cpu {cpu:?} for 30 ms of busy work"
     );
-    assert!(wall >= Duration::from_millis(30));
+    // ~1 ms slack: the two clocks are read at slightly different instants
+    assert!(
+        wall + Duration::from_millis(1) >= cpu,
+        "thread CPU {cpu:?} cannot exceed wall {wall:?}"
+    );
 }
 
 #[test]
@@ -43,11 +66,18 @@ fn clock_is_monotonic_and_per_thread() {
     spin(Duration::from_millis(5));
     let b = thread_cpu_ns();
     assert!(b > a);
-    // Another thread's work is not charged to this one.
+    // Another thread's work is not charged to this one. The window opens after
+    // the spawn: creating a thread (stack mmap, guard page, faults; reclaim in a
+    // loaded container) is real CPU of *this* thread and once read 12 ms here.
+    let go = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let gate = go.clone();
+    let worker = std::thread::spawn(move || {
+        gate.wait();
+        spin(Duration::from_millis(40))
+    });
     let before = thread_cpu_ns();
-    std::thread::spawn(|| spin(Duration::from_millis(40)))
-        .join()
-        .unwrap();
+    go.wait();
+    worker.join().unwrap();
     let after = thread_cpu_ns();
     assert!(
         after - before < 10_000_000,
