@@ -13,7 +13,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   look: 29,
   labels: 10,
   quality: 32,
-  atmosphere: 22,
+  atmosphere: 32,
   xr: 5,
   ai: 6,
   system: 16,
@@ -45,9 +45,28 @@ const WAVE1_LAYOUT_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.layerSpacing',
 ];
 
+/**
+ * Memory explorer paths (live RuVector memory cloud + query trajectory). They
+ * post-date the WP5 baseline, extend the Atmosphere group's Embedding Cloud
+ * settings, and route to the opaque `visual` bucket like the rest of
+ * `visualisation.embeddingCloud.*`. Asserted independently in (c5).
+ */
+const MEMORY_EXPLORER_PATHS: string[] = [
+  'visualisation.embeddingCloud.colorBy',
+  'visualisation.embeddingCloud.trajectoryView',
+  'visualisation.embeddingCloud.routeGlow',
+  'visualisation.embeddingCloud.playbackSpeed',
+  'visualisation.embeddingCloud.showRejected',
+  'visualisation.embeddingCloud.dimOffRoute',
+  'visualisation.embeddingCloud.learningEnabled',
+  'visualisation.embeddingCloud.learningTargetRecall',
+  'visualisation.embeddingCloud.learningRate',
+  'visualisation.embeddingCloud.cinematic',
+];
+
 const TOTAL_FIELDS =
   168 + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
-  + WAVE1_LAYOUT_PATHS.length;
+  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -163,10 +182,13 @@ describe('control-center settings registry', () => {
     const agentSet = new Set(AGENT_GROUP_PATHS);
     const wgSet = new Set(WG_GROUP_PATHS);
     const wave1Set = new Set(WAVE1_LAYOUT_PATHS);
+    const memorySet = new Set(MEMORY_EXPLORER_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
-    const migratedPaths = ALL_PATHS.filter((p) => !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p));
+    const migratedPaths = ALL_PATHS.filter(
+      (p) => !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p),
+    );
     const migratedSet = new Set(migratedPaths);
 
     // No migrated path exists that is absent from the frozen legacy set.
@@ -223,6 +245,15 @@ describe('control-center settings registry', () => {
     expect(WAVE1_LAYOUT_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     // and they all route to the physics bucket (not clientOnly)
     for (const p of WAVE1_LAYOUT_PATHS) expect(serverBucketFor(p)).toBe('physics');
+  });
+
+  it('(c5) the memory explorer paths sit in Atmosphere, disjoint from legacy, on the visual bucket', () => {
+    const legacySet = new Set(legacyPaths());
+    const atmosphereGroup = REGISTRY.find((g) => g.id === 'atmosphere')!;
+    const atmospherePaths = new Set(atmosphereGroup.fields.map((f) => f.path));
+    for (const p of MEMORY_EXPLORER_PATHS) expect(atmospherePaths.has(p)).toBe(true);
+    expect(MEMORY_EXPLORER_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
+    for (const p of MEMORY_EXPLORER_PATHS) expect(serverBucketFor(p)).toBe('visual');
   });
 
   it('(d) every testid is unique', () => {

@@ -583,15 +583,25 @@ export interface ClusterHullSettings {
   communityFallback?: boolean;
 }
 
-// Embedding cloud layer settings (PCA-projected RuVector embeddings)
+// Embedding cloud layer settings (live RuVector memory cloud + query trajectory explorer)
 export interface EmbeddingCloudSettings {
   enabled: boolean;
   pointSize: number;       // 0.5-25, default 7.5
   opacity: number;         // 0-1, default 0.6
-  colorBy: 'namespace' | 'sourceType';
-  rotationSpeed: number;   // rad/frame, default 0.0005
+  colorBy: 'namespace' | 'sourceType' | 'age';
+  rotationSpeed: number;   // rad/frame, default 0.0005 (paused while a query route is shown)
   maxPoints: number;       // cap on rendered points, default 50000
   cloudScale: number;      // overall scale multiplier, default 5.0
+  // Memory explorer (query trajectory over the in-browser HNSW of the sample)
+  trajectoryView?: 'space' | 'canopy' | 'tree' | 'hyper'; // default 'canopy'
+  routeGlow?: number;            // 0-3, route / comet / bead brightness, default 1.2
+  playbackSpeed?: number;        // 0.25-4, default 1
+  showRejected?: boolean;        // draw evaluated-but-rejected twigs, default true
+  dimOffRoute?: number;          // 0-1, focus-pull dimming of points off the route, default 0.75
+  learningEnabled?: boolean;     // query-memory hints + breadth controller, default true
+  learningTargetRecall?: number; // 0.5-1, default 0.9
+  learningRate?: number;         // 0.01-1, default 0.2
+  cinematic?: boolean;           // show the cinematic director / beat sync / video export, default false
 }
 
 export interface VisualisationSettings {

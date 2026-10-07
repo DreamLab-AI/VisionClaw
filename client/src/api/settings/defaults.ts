@@ -208,6 +208,15 @@ export const DEFAULT_EMBEDDING_CLOUD = {
   rotationSpeed: 0.0005,
   maxPoints: 50000,
   cloudScale: 5.0,
+  trajectoryView: 'canopy' as const,
+  routeGlow: 1.2,
+  playbackSpeed: 1,
+  showRejected: true,
+  dimOffRoute: 0.75,
+  learningEnabled: true,
+  learningTargetRecall: 0.9,
+  learningRate: 0.2,
+  cinematic: false,
 };
 
 export const DEFAULT_ANIMATION_SETTINGS = {
