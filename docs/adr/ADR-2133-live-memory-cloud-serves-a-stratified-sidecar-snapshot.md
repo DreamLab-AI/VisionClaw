@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 010609be58ba37b65780d310d0534490bb85efa5
+verified_commit: ae8349b857b1310f327df3c6c3dd6f7dfd71fa81
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -129,3 +129,7 @@ otherwise report `hnsw`, and restricted queries report `exact`. The live test pa
 ## Re-verification — 2026-10-07 at c16b25774 (NIP-98 single verification per request)
 
 **Governed change:** `verify_access` (`src/utils/auth.rs:191`) no longer verifies a NIP-98 token a second time in one request. When the request carries `Authorization: Nostr …` and an outer layer (`RbacGate`, an enclosing `RequireAuth`) already left an `AuthenticatedUser` in the request extensions, it reuses that identity and checks only the required level via `effective_access_level`; extensions are server-side and cannot be populated from headers. Before this, every `RequireAuth` scope under `/api` answered NIP-98 callers 401 "Token replayed" (proved by `tests/rbac_gate_require_auth_stacking_test.rs`, now green). The memory-cloud handler's `require_private_reader` keeps calling `effective_access_level` directly; its doc no longer claims `verify_access` must be avoided, because it is now safe to call twice. Line citations into `src/utils/auth.rs` after line 265 shift by +25 (the NIP-98 branch of `verify_access` gains the reuse block; e.g. `nip98_request_url(req)` in that branch moves from `:266` to `:291`); earlier lines are unchanged. The decision holds.
+
+## Re-verification — 2026-10-07 (ae8349b85)
+
+`build_pool` now refuses a connection string with no `user` or `dbname`. An unquoted key=value value in `.env` was cut at its first space and reached the container as `host=…` only, which parsed and then surfaced as an opaque `unreachable`. It now reports `not_configured` with a quoting hint. Read-only sessions, no default password and the exclusions are unchanged; the decision holds.

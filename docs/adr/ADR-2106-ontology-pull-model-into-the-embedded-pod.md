@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b43a2a1e6d1355341b8140a161663517bbf484d3
+verified_commit: ae8349b857b1310f327df3c6c3dd6f7dfd71fa81
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -168,3 +168,7 @@ moved to the CI-repair commit.
 ## Re-verification — 2026-10-07 at b43a2a1e6 (memory-cloud security review)
 
 **Governed change:** `env.example` changes the commented memory-cloud conninfo example to `user=ruvector_reader` (+2 comment lines at 127) and documents `MEMORY_CLOUD_QUERY_PER_MINUTE` and the power-user rule (+5 lines after 137); no other variable changes. `src/main.rs` gains a shared `memory_cloud_query_limit` (+4 lines after line 890) and passes it to `configure_memory_cloud_routes(..)` (+2 lines near line 1206); later citations shift by up to +6. Current anchors: `assert_effective_profile_or_exit` call `:942` (block `:937-947`), `HttpServer::new` `:962`, `.bind()` `:1250`. The ontology pull model is untouched. The decision holds.
+
+## Re-verification — 2026-10-07 (ae8349b85)
+
+`env.example` changed only in the memory-cloud comment block: the `RUVECTOR_PG_CONNINFO` example is now shown quoted. No ontology pull-model variable or default changed; the decision holds.
