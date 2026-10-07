@@ -179,7 +179,15 @@ fn hud_const(src: &str, name: &str) -> Vec<(Option<String>, String)> {
         .find(&format!("const {name}"))
         .unwrap_or_else(|| panic!("hud.gd has no const {name}"));
     let body = &src[start..];
-    let end = body.find("\n]").map(|i| i + 2).unwrap_or_else(|| body.find('\n').unwrap());
+    // A one-line constant ends at its own newline; only a multi-line array runs
+    // to its closing "\n]" (otherwise a one-line array would swallow the next
+    // multi-line constant's colours).
+    let first_nl = body.find('\n').unwrap_or(body.len());
+    let end = if body[..first_nl].trim_end().ends_with(']') || !body[..first_nl].contains('[') {
+        first_nl
+    } else {
+        body.find("\n]").map(|i| i + 2).unwrap_or(first_nl)
+    };
     let mut out = Vec::new();
     for line in body[..end].lines() {
         let mut rest = line;
