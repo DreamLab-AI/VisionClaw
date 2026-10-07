@@ -10,6 +10,10 @@
 //!   sssp_parent@32 i32, cluster_id@36 u32, anomaly@40 f32, community@44 u32,
 //!   centrality@48 f32.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, error, warn};
@@ -486,7 +490,7 @@ pub fn decode_position_frame_with_sequence(
     }
     let count = payload.len() / NODE_RECORD_BYTES;
     let mut out = Vec::with_capacity(count);
-    for chunk in payload.chunks_exact(NODE_RECORD_BYTES) {
+    for chunk in payload.as_chunks::<NODE_RECORD_BYTES>().0 {
         // Drop records the server should never emit (NaN/Inf, absurd magnitude):
         // a single poisoned position propagates through the fit AABB and edge
         // layout, so reject at the decode boundary rather than downstream.

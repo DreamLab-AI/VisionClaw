@@ -117,7 +117,7 @@ impl NodeRecord {
     }
 
     /// Serialise this record as its 52 little-endian wire bytes.
-    pub fn to_bytes(&self) -> [u8; NODE_RECORD_BYTES] {
+    pub fn to_bytes(self) -> [u8; NODE_RECORD_BYTES] {
         let mut out = [0u8; NODE_RECORD_BYTES];
         let mut off = 0usize;
         let mut put = |src: &[u8], off: &mut usize| {

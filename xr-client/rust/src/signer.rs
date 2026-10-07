@@ -6,6 +6,10 @@
 //! the same `secp256k1` crate (0.29) the server depends on, so signatures
 //! interop byte-for-byte.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use secp256k1::schnorr::Signature;
 use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};

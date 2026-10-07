@@ -4,6 +4,10 @@
 //! transport (PRD-008 §5.5) consumes this state through these methods; this
 //! module owns the routing maths and lifecycle regardless of the media backend.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

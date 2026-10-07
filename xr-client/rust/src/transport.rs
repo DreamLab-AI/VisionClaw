@@ -25,10 +25,11 @@ use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStre
 /// frame — under the default it kills the socket ("Message too long") in a
 /// permanent connect→sync→die loop. 256 MiB leaves ample headroom.
 fn ws_config() -> WebSocketConfig {
-    let mut cfg = WebSocketConfig::default();
-    cfg.max_message_size = Some(256 * 1024 * 1024);
-    cfg.max_frame_size = Some(256 * 1024 * 1024);
-    cfg
+    WebSocketConfig {
+        max_message_size: Some(256 * 1024 * 1024),
+        max_frame_size: Some(256 * 1024 * 1024),
+        ..WebSocketConfig::default()
+    }
 }
 use tracing::{error, warn};
 

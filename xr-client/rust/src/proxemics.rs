@@ -13,6 +13,10 @@
 //! it only on a membership or user-pose change ([`should_resolve`]), never
 //! per-frame.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 #[cfg(not(test))]
 use godot::prelude::*;
 

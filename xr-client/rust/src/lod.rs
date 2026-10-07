@@ -3,6 +3,10 @@
 //! matches the deprecated browser path. Recompute cadence is every 2 frames
 //! per `xr-godot-system-architecture.md` §4.
 
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
+
 #[cfg(not(test))]
 use godot::prelude::*;
 

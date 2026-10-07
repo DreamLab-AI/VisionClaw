@@ -13,13 +13,17 @@
 //!   the user (mutual gaze), a referenced graph node (deixis during a task), or
 //!   nobody. The model returns gaze **briefly and smoothly** so it reads as
 //!   attention, not a turret: a mutual-gaze response only after the user dwells
-//!   >200 ms on the agent, a reaction latency before re-aiming, a bounded slew
+//!   over 200 ms on the agent, a reaction latency before re-aiming, a bounded slew
 //!   rate, and a settle-hold after the user looks away (hysteresis against
 //!   flicker). Timing constants follow the attention-management literature
 //!   (Pejsa/Andrist/Gleicher/Mutlu) cited in the brief.
 //!
 //! Together they produce the [`AgentPresence`] snapshot the codec
 //! (`visionclaw_xr_presence::agent_presence`) puts on the wire.
+
+// gdext's #[godot_api] expands to closures returning its own CallError
+// (176 bytes); that generated code is outside this crate's control.
+#![allow(clippy::result_large_err)]
 
 use visionclaw_xr_presence::agent_presence::{
     decode_agent_presence, AgentActivity, AgentPresence, AgentPresenceBatch, AttentionTarget,

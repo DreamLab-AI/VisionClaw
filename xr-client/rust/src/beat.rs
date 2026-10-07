@@ -171,7 +171,13 @@ pub const OFF_SAMPLE: BeatSample = BeatSample { on: false, phase: 0.0, pulse: 0.
 
 /// Evaluate a clock at `now_ms`, which must be in the same epoch as `phase_at`.
 pub fn beat_at(state: &BeatClockState, now_ms: f64) -> BeatSample {
-    if state.source == BeatSource::Off || !(state.bpm > 0.0) || !(state.phase_at > 0.0) {
+    // NaN fails both positivity checks, as the negated comparisons did.
+    if state.source == BeatSource::Off
+        || state.bpm.is_nan()
+        || state.bpm <= 0.0
+        || state.phase_at.is_nan()
+        || state.phase_at <= 0.0
+    {
         return OFF_SAMPLE;
     }
     let pos = (now_ms - state.phase_at) / (60_000.0 / state.bpm);
@@ -254,7 +260,7 @@ impl ClockOffset {
     /// Fold in one round trip. Returns false when the sample was rejected.
     pub fn add_sample(&mut self, sent_local_ms: f64, server_ms: f64, recv_local_ms: f64) -> bool {
         let rtt = recv_local_ms - sent_local_ms;
-        if !(rtt >= 0.0) || rtt > Self::MAX_RTT_MS || !server_ms.is_finite() {
+        if rtt.is_nan() || rtt < 0.0 || rtt > Self::MAX_RTT_MS || !server_ms.is_finite() {
             return false;
         }
         let offset = server_ms - (sent_local_ms + rtt / 2.0);
@@ -801,7 +807,7 @@ impl MicBeat {
     /// Append mono samples captured at `sample_rate`, the last of which was
     /// captured at local epoch `end_ms`. No-op while disabled.
     pub fn push(&mut self, samples: &[f32], sample_rate: f64, end_ms: f64) {
-        if !self.enabled || samples.is_empty() || !(sample_rate > 0.0) {
+        if !self.enabled || samples.is_empty() || sample_rate.is_nan() || sample_rate <= 0.0 {
             return;
         }
         if sample_rate != self.capture_rate {
