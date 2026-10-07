@@ -303,7 +303,7 @@ Each socket runs its own keepalive cadence. All of them treat any inbound frame
 
 | Socket | Server ping | Idle close | Notes |
 |--------|-------------|------------|-------|
-| `/wss` | every `system.websocket.heartbeatInterval` (default 10 s) | after `heartbeatTimeout` (default 10 min) with no inbound frame, close code 1001 | values from `settings.yaml`, read per connection; interval raised to ≥ 1 s, timeout to ≥ 2 intervals. Sending a ping never counts as liveness. Also accepts plain `"ping"` text and JSON `{"type":"ping"}`, replies `pong` |
+| `/wss` | every `system.websocket.heartbeatInterval` (default 10 s) | after `heartbeatTimeout` (default 60 s) with no inbound frame, close code 1001 | values from `settings.yaml`, read per connection; interval raised to ≥ 1 s, timeout to ≥ 2 intervals. Sending a ping never counts as liveness. Also accepts plain `"ping"` text and JSON `{"type":"ping"}`, replies `pong` |
 | `/ws/presence` | every 15 s | 30 s (2× interval) | plus 10 s handshake deadline |
 | `/wss/agent-events` | none | transport-driven | answers client `Ping` with `Pong` |
 

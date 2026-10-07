@@ -65,8 +65,8 @@ impl TransportCloser {
 }
 
 /// Default for [`ClientRecipients::stall_timeout`]: the default
-/// `system.websocket.heartbeatTimeout` (10 min).
-pub const DEFAULT_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+/// `system.websocket.heartbeatTimeout` (60 s).
+pub const DEFAULT_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Erased handle bundle for a single WebSocket client session.
 ///
