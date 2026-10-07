@@ -53,6 +53,7 @@ import {
   sampleRoute,
   thinRejected,
   clamp01,
+  morphFade,
 } from './routeMath';
 import { tubeIndices, tubeVertexCount, writeTube, writeEdgeSegments } from './routeGeometry';
 import type { LayoutResult, SearchTreeNode, Vec3 } from '../memoryTrajectory/types';
@@ -391,12 +392,14 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     }
 
     // ── layout (with morph) ──
-    let L = layout;
+    // a MorphFrame while morphing: its opacity map fades one-sided nodes
+    let L: LayoutResult & { opacity?: ReadonlyMap<number, number> } = layout;
     let morphing = false;
     if (morphStart.current !== null && prevLayout && trajectory) {
       const mf = clamp01((now - morphStart.current) / MORPH_MS);
       if (mf < 1) {
-        // interpolateLayouts applies its own cubic ease; one-sided nodes glide from their ancestor
+        // interpolateLayouts applies its own cubic ease; one-sided nodes glide
+        // from their ancestor and fade via the frame's opacity map
         L = trajectory.interpolateLayouts(prevLayout, layout, mf, run.tree);
         morphing = true;
       } else {
@@ -468,20 +471,23 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
         else if (g < 1) c = mul(C.edge, 0.8);
         else if (structure.pathSet.has(node.id)) c = mul(C.edge, 0.55 - 0.3 * depthF);
         else c = mul(C.edge, (0.55 - 0.3 * depthF) * dimOff);
-        keptColours.push(c);
+        keptColours.push(mul(c, morphFade(L, node.id)));
       });
       res.keptLines.commit(writeEdgeSegments(keptDrawn, (e) => keptColours[e], res.keptLines.pos, res.keptLines.col));
 
       if (showRejected) {
         const rejDrawn: Vec3[][] = [];
+        const rejColours: Vec3[] = [];
+        const rc = mul(C.prune, 0.16 * dimOff);
         structure.rejectedIdx.forEach((k, e) => {
           const g = nodeGrowth(k, total, el);
           if (g <= 0) return;
           const poly = cache!.rejPolys[e];
-          if (poly && poly.length >= 2) rejDrawn.push(partial(poly, g));
+          if (!poly || poly.length < 2) return;
+          rejDrawn.push(partial(poly, g));
+          rejColours.push(mul(rc, morphFade(L, structure.list[k].id)));
         });
-        const rc = mul(C.prune, 0.16 * dimOff);
-        res.rejLines.commit(writeEdgeSegments(rejDrawn, () => rc, res.rejLines.pos, res.rejLines.col));
+        res.rejLines.commit(writeEdgeSegments(rejDrawn, (e) => rejColours[e], res.rejLines.pos, res.rejLines.col));
       } else {
         res.rejLines.commit(0);
       }
@@ -505,7 +511,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
           const f = fpull / 0.6;
           c = [c[0] + (C.tip[0] - c[0]) * f, c[1] + (C.tip[1] - c[1]) * f, c[2] + (C.tip[2] - c[2]) * f];
         }
-        const bright = (structure.pathSet.has(node.id) ? 1 : 1 - 0.45 * fpull) * (1 + flash * 1.5);
+        const bright =
+          (structure.pathSet.has(node.id) ? 1 : 1 - 0.45 * fpull) * (1 + flash * 1.5) * morphFade(L, node.id);
         kn.setColorAt(i, scratch.col.setRGB(c[0] * bright, c[1] * bright, c[2] * bright));
       });
       kn.count = structure.keptIdx.length;
@@ -525,7 +532,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
           scratch.s.setScalar(s);
           scratch.m.compose(scratch.v, scratch.q, scratch.s);
           rn.setMatrixAt(i, scratch.m);
-          const a = 0.55 * g * flicker * (1 - 0.2 * (fpull / 0.6));
+          const a = 0.55 * g * flicker * (1 - 0.2 * (fpull / 0.6)) * morphFade(L, node.id);
           rn.setColorAt(i, scratch.col.setRGB(C.prune[0] * a, C.prune[1] * a, C.prune[2] * a));
         });
         rn.count = structure.rejectedIdx.length;

@@ -241,3 +241,18 @@ export function thinRejected(nodes: Array<{ kept: boolean; hash: number }>, cap:
   const p = rejected > 0 ? Math.min(1, cap / rejected) : 1;
   return nodes.map((n) => n.kept || n.hash < p);
 }
+
+/**
+ * Fade for one node during a view morph: `interpolateLayouts` returns a
+ * MorphFrame whose `opacity` map fades nodes that exist on only one side of
+ * the morph. Materials here are additive, so callers multiply colour by this.
+ * A settled layout (no map) and unknown ids are fully opaque.
+ */
+export function morphFade(
+  layout: { opacity?: ReadonlyMap<number, number> },
+  id: number,
+): number {
+  const a = layout.opacity?.get(id);
+  if (a === undefined || !Number.isFinite(a)) return 1;
+  return Math.max(0, Math.min(1, a));
+}

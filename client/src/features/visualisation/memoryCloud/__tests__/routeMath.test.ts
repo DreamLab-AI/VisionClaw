@@ -10,6 +10,7 @@ import {
   cometTail,
   beadScale,
   revealPhases,
+  morphFade,
   shownCount,
   nodeGrowth,
   REVEAL_DUR,
@@ -219,5 +220,23 @@ describe('thinRejected', () => {
     expect(rejectedShown).toBeLessThan(200);
     nodes.forEach((n, i) => { if (n.kept) expect(keep[i]).toBe(true); });
     expect(thinRejected(nodes, 150)).toEqual(keep);
+  });
+});
+
+describe('morphFade', () => {
+  const base = { positions: new Map(), controls: new Map() };
+  it('is 1 for a settled layout that carries no opacity map', () => {
+    expect(morphFade(base, 3)).toBe(1);
+  });
+  it('reads the morph frame opacity, defaulting missing ids to 1', () => {
+    const frame = { ...base, opacity: new Map([[3, 0.25]]) };
+    expect(morphFade(frame, 3)).toBe(0.25);
+    expect(morphFade(frame, 4)).toBe(1);
+  });
+  it('clamps to 0..1', () => {
+    const frame = { ...base, opacity: new Map([[1, -0.2], [2, 1.4], [3, Number.NaN]]) };
+    expect(morphFade(frame, 1)).toBe(0);
+    expect(morphFade(frame, 2)).toBe(1);
+    expect(morphFade(frame, 3)).toBe(1);
   });
 });
