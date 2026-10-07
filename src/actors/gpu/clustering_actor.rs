@@ -2,7 +2,6 @@
 
 use actix::prelude::*;
 use log::{error, info, warn};
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -777,30 +776,6 @@ impl ClusteringActor {
             communities.len()
         );
         Ok(communities)
-    }
-
-    #[allow(dead_code)]
-    fn generate_cluster_color(cluster_id: usize) -> [f32; 3] {
-        let mut rng = rand::thread_rng();
-
-        let hue = (cluster_id as f32 * 137.5) % 360.0;
-        let saturation = 0.7 + (rng.gen::<f32>() * 0.3);
-        let value = 0.8 + (rng.gen::<f32>() * 0.2);
-
-        let c = value * saturation;
-        let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
-        let m = value - c;
-
-        let (r, g, b) = match hue as i32 / 60 {
-            0 => (c, x, 0.0),
-            1 => (x, c, 0.0),
-            2 => (0.0, c, x),
-            3 => (0.0, x, c),
-            4 => (x, 0.0, c),
-            _ => (c, 0.0, x),
-        };
-
-        [r + m, g + m, b + m]
     }
 
     fn calculate_silhouette_score(

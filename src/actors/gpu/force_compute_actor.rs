@@ -207,7 +207,6 @@ pub struct PhysicsStats {
     pub total_force_calculations: u32,
 }
 
-#[allow(dead_code)]
 pub struct ForceComputeActor {
     gpu_state: GPUState,
 
@@ -219,7 +218,6 @@ pub struct ForceComputeActor {
 
     compute_mode: ComputeMode,
 
-    last_step_start: Option<Instant>,
     last_step_duration_ms: f32,
 
     is_computing: bool,
@@ -236,14 +234,8 @@ pub struct ForceComputeActor {
 
     graph_service_addr: Option<Addr<crate::actors::GraphServiceSupervisor>>,
 
-    ontology_constraint_addr:
-        Option<Addr<super::ontology_constraint_actor::OntologyConstraintActor>>,
-
     /// Cached constraint buffer from OntologyConstraintActor for GPU upload
     cached_constraint_buffer: Vec<crate::models::constraints::ConstraintData>,
-
-    /// Semantic forces actor for DAG layout, type clustering, and collision
-    semantic_forces_addr: Option<Addr<super::semantic_forces_actor::SemanticForcesActor>>,
 
     /// Broadcast optimizer for delta compression and spatial culling
     broadcast_optimizer: BroadcastOptimizer,
@@ -387,7 +379,6 @@ impl ForceComputeActor {
             simulation_params: initial_params,
             unified_params: SimParams::default(),
             compute_mode: ComputeMode::Basic,
-            last_step_start: None,
             last_step_duration_ms: 0.0,
             is_computing: false,
             skipped_frames: 0,
@@ -403,9 +394,7 @@ impl ForceComputeActor {
             stability_warmup_remaining: 600,
             last_full_broadcast_iteration: 0,
             graph_service_addr: None,
-            ontology_constraint_addr: None,
             cached_constraint_buffer: Vec::new(),
-            semantic_forces_addr: None,
             broadcast_optimizer: BroadcastOptimizer::new(broadcast_config),
             suppress_intermediate_broadcasts: false,
             force_full_broadcast: false,

@@ -457,7 +457,7 @@ pub struct AdjustConstraintWeights {
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "Result<(), String>")]
 pub struct ReloadRelationshipBuffer {
-    pub buffer: Vec<crate::actors::gpu::semantic_forces_actor::DynamicForceConfigGPU>,
+    pub buffer: Vec<crate::gpu::semantic_forces::DynamicForceConfigGPU>,
     pub version: u64,
 }
 

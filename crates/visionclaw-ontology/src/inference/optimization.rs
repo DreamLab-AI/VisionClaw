@@ -184,19 +184,21 @@ impl OptimizationMetrics {
 pub struct InferenceOptimizer {
     incremental: Arc<RwLock<IncrementalInference>>,
 
-    #[allow(dead_code)]
-    parallel: ParallelClassification,
-
     metrics: Arc<RwLock<OptimizationMetrics>>,
 }
 
-impl InferenceOptimizer {
-    pub fn new(worker_count: usize) -> Self {
+impl Default for InferenceOptimizer {
+    fn default() -> Self {
         Self {
             incremental: Arc::new(RwLock::new(IncrementalInference::new())),
-            parallel: ParallelClassification::new(worker_count),
             metrics: Arc::new(RwLock::new(OptimizationMetrics::default())),
         }
+    }
+}
+
+impl InferenceOptimizer {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub async fn process_batch(

@@ -121,16 +121,8 @@ pub struct PropertyGraph {
 
 #[derive(Debug, Clone)]
 struct CachedOntology {
-    #[allow(dead_code)]
-    id: String,
-    #[allow(dead_code)]
-    content_hash: String,
     ontology: SetOntology<Arc<str>>,
-    #[allow(dead_code)]
-    axiom_count: usize,
     loaded_at: DateTime<Utc>,
-    #[allow(dead_code)]
-    ttl_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,21 +165,9 @@ pub struct OwlValidatorService {
 
 #[derive(Debug, Clone)]
 enum InferenceRule {
-    InverseProperty {
-        property: String,
-        inverse: String,
-    },
-    TransitiveProperty {
-        property: String,
-    },
-    SymmetricProperty {
-        property: String,
-    },
-    #[allow(dead_code)]
-    SubClassOf {
-        subclass: String,
-        superclass: String,
-    },
+    Inverse { property: String, inverse: String },
+    Transitive { property: String },
+    Symmetric { property: String },
 }
 
 impl OwlValidatorService {
@@ -216,14 +196,14 @@ impl OwlValidatorService {
         default_namespaces.insert("foaf".to_string(), "http://xmlns.com/foaf/0.1/".to_string());
 
         let inference_rules = vec![
-            InferenceRule::InverseProperty {
+            InferenceRule::Inverse {
                 property: "http://example.org/employs".to_string(),
                 inverse: "http://example.org/worksFor".to_string(),
             },
-            InferenceRule::TransitiveProperty {
+            InferenceRule::Transitive {
                 property: "http://example.org/partOf".to_string(),
             },
-            InferenceRule::SymmetricProperty {
+            InferenceRule::Symmetric {
                 property: "http://example.org/knows".to_string(),
             },
         ];
@@ -281,12 +261,8 @@ impl OwlValidatorService {
 
         if self.config.enable_caching {
             let cached = CachedOntology {
-                id: ontology_id.clone(),
-                content_hash: content_hash.clone(),
                 ontology,
-                axiom_count,
                 loaded_at: time::now(),
-                ttl_seconds: self.config.cache_ttl_seconds,
             };
             self.ontology_cache.insert(ontology_id.clone(), cached);
         }
@@ -612,11 +588,6 @@ impl OwlValidatorService {
         }
 
         hasher.finalize().to_hex().to_string()
-    }
-
-    #[allow(dead_code)]
-    fn generate_cache_key(&self, source: &str) -> String {
-        format!("ontology_{}", self.calculate_signature(source))
     }
 
     /// Whether a property-graph node "label" is genuinely a type IRI (→ rdf:type)
@@ -1003,19 +974,15 @@ impl OwlValidatorService {
             }
 
             let new_triples = match rule {
-                InferenceRule::InverseProperty { property, inverse } => {
+                InferenceRule::Inverse { property, inverse } => {
                     self.apply_inverse_property_rule(original_triples, property, inverse)
                 }
-                InferenceRule::TransitiveProperty { property } => {
+                InferenceRule::Transitive { property } => {
                     self.apply_transitive_property_rule(original_triples, property)
                 }
-                InferenceRule::SymmetricProperty { property } => {
+                InferenceRule::Symmetric { property } => {
                     self.apply_symmetric_property_rule(original_triples, property)
                 }
-                InferenceRule::SubClassOf {
-                    subclass,
-                    superclass,
-                } => self.apply_subclass_rule(original_triples, subclass, superclass),
             };
 
             inferred.extend(new_triples);
@@ -1092,33 +1059,6 @@ impl OwlValidatorService {
                     subject: triple.object.clone(),
                     predicate: property.to_string(),
                     object: triple.subject.clone(),
-                    is_literal: false,
-                    datatype: None,
-                    language: None,
-                });
-            }
-        }
-
-        inferred
-    }
-
-    fn apply_subclass_rule(
-        &self,
-        triples: &[RdfTriple],
-        subclass: &str,
-        superclass: &str,
-    ) -> Vec<RdfTriple> {
-        let mut inferred = Vec::new();
-
-        for triple in triples {
-            if triple.predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-                && triple.object == subclass
-                && !triple.is_literal
-            {
-                inferred.push(RdfTriple {
-                    subject: triple.subject.clone(),
-                    predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_string(),
-                    object: superclass.to_string(),
                     is_literal: false,
                     datatype: None,
                     language: None,

@@ -34,8 +34,6 @@
 //! The fixtures below encode against the **intended** 52 B layout so the suite
 //! fails CI the moment the layout drifts from the contract.
 
-#![allow(dead_code)] // not every consumer uses every fixture / reference fn
-
 use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------

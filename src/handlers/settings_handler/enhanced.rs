@@ -471,38 +471,6 @@ impl EnhancedSettingsHandler {
             "timestamp": chrono::Utc::now().to_rfc3339()
         }))
     }
-
-    #[allow(dead_code)]
-    async fn propagate_physics_updates(
-        &self,
-        state: &web::Data<AppState>,
-        settings: &AppFullSettings,
-        update: &Value,
-    ) {
-        let has_physics_update = update
-            .get("visualisation")
-            .and_then(|v| v.get("graphs"))
-            .map(|g| {
-                g.as_object()
-                    .map(|obj| obj.values().any(|graph| graph.get("physics").is_some()))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-
-        if has_physics_update {
-            info!("Propagating physics updates to GPU actors");
-
-            // Single dispatch path (resolved 2026-06-03): delegate to
-            // propagate_physics_to_gpu, which sends UpdateSimulationParams ONLY via the
-            // GraphServiceSupervisor → PhysicsOrchestratorActor route. The orchestrator
-            // owns the warmup reset + reheat and forwards to the ForceComputeActor. The
-            // previous direct state.get_gpu_compute_addr() dispatch here reached the same
-            // ForceComputeActor handler as the orchestrator forward, producing a double
-            // warmup reset / double reheat per settings change.
-            let graph_name = "knowledge";
-            propagate_physics_to_gpu(state, settings, graph_name).await;
-        }
-    }
 }
 
 impl Default for EnhancedSettingsHandler {

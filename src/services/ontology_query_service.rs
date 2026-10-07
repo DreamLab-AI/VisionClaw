@@ -9,7 +9,6 @@
 //! subsumption reasoning, and relationship fan-out (has-part, requires, enables, bridges-to).
 
 use crate::adapters::whelk_inference_engine::WhelkInferenceEngine;
-use crate::ports::knowledge_graph_repository::KnowledgeGraphRepository;
 use crate::services::schema_service::SchemaService;
 use crate::types::ontology_tools::*;
 use log::info;
@@ -49,8 +48,6 @@ struct LoadedOntology {
 
 pub struct OntologyQueryService {
     ontology_repo: Arc<dyn OntologyRepository>,
-    #[allow(dead_code)]
-    graph_repo: Arc<dyn KnowledgeGraphRepository>,
     whelk: Arc<RwLock<WhelkInferenceEngine>>,
     schema_service: Arc<SchemaService>,
     generation_source: GenerationSource,
@@ -77,13 +74,11 @@ fn axiom_type_name(a: &OwlAxiom) -> String {
 impl OntologyQueryService {
     pub fn new(
         ontology_repo: Arc<dyn OntologyRepository>,
-        graph_repo: Arc<dyn KnowledgeGraphRepository>,
         whelk: Arc<RwLock<WhelkInferenceEngine>>,
         schema_service: Arc<SchemaService>,
     ) -> Self {
         Self {
             ontology_repo,
-            graph_repo,
             whelk,
             schema_service,
             generation_source: GenerationSource::Environment,

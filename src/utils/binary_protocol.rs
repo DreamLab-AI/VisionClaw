@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::types::vec3::Vec3Data;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use log::{debug, error, trace};
@@ -70,8 +69,6 @@ const WIRE_VEC3_SIZE: usize = 12;
 const WIRE_F32_SIZE: usize = 4;
 const WIRE_I32_SIZE: usize = 4;
 const WIRE_U32_SIZE: usize = 4;
-const WIRE_V2_ITEM_SIZE: usize =
-    WIRE_V2_ID_SIZE + WIRE_VEC3_SIZE + WIRE_VEC3_SIZE + WIRE_F32_SIZE + WIRE_I32_SIZE; // 4+12+12+4+4 = 36
 const WIRE_V3_ITEM_SIZE: usize = WIRE_V2_ID_SIZE
     + WIRE_VEC3_SIZE
     + WIRE_VEC3_SIZE
@@ -103,10 +100,6 @@ const _: () = assert!(
     WIRE_V5_SEQ_SIZE == 8,
     "ADR-2057: V5 envelope sequence prefix must be exactly 8 bytes"
 );
-
-// Backwards compatibility alias - now defaults to V3
-const WIRE_ID_SIZE: usize = WIRE_V2_ID_SIZE;
-const WIRE_ITEM_SIZE: usize = WIRE_V3_ITEM_SIZE;
 
 // Binary format (explicit):
 //
@@ -570,8 +563,8 @@ pub fn encode_node_data_with_flags(
 // NOTE (task #70 D8b analytics consolidation): the duplicate analytics writers
 // `encode_node_data_with_analytics` and its sole delegate `encode_node_data_with_all`
 // were removed. Both had zero callers anywhere in `src/` or `crates/` and were
-// masked only by this module's `#![allow(dead_code)]`. The single live full-feature
-// writer is `encode_node_data_extended_with_sssp` (used by the client coordinator
+// masked by the module-wide `allow(dead_code)` this file used to carry. The single
+// live full-feature writer is `encode_node_data_extended_with_sssp` (used by the client coordinator
 // and `encode_node_data_with_live_analytics`), which produces the identical V3
 // 52-byte wire frame. The independent `visionclaw-protocol` crate copy is unaffected.
 
@@ -1098,13 +1091,10 @@ mod tests {
     #[test]
     fn test_wire_format_size() {
         // V1 REMOVED - was 34 bytes, caused node ID truncation
-        // V2: 4 + 12 + 12 + 4 + 4 = 36 bytes
-        assert_eq!(WIRE_V2_ITEM_SIZE, 36);
         // V3: 4 + 12 + 12 + 4 + 4 + 4 + 4 + 4 + 4 = 52 bytes (CURRENT, ADR-031 D2 centrality@48)
         assert_eq!(WIRE_V3_ITEM_SIZE, 52);
-        assert_eq!(WIRE_ITEM_SIZE, WIRE_V3_ITEM_SIZE); // Default is now V3
         assert_eq!(
-            WIRE_ID_SIZE
+            WIRE_V2_ID_SIZE
                 + WIRE_VEC3_SIZE
                 + WIRE_VEC3_SIZE
                 + WIRE_F32_SIZE

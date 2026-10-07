@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use std::time::Instant;
 
 use cudarc::driver::sys::CUdevice_attribute_enum;
 use cudarc::driver::{CudaDevice, CudaStream};
@@ -18,11 +17,6 @@ use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::utils::unified_gpu_compute::UnifiedGPUCompute;
 use visionclaw_domain::models::graph::GraphData;
 
-#[allow(dead_code)]
-const MAX_NODES: u32 = 1_000_000;
-#[allow(dead_code)]
-const MAX_GPU_FAILURES: u32 = 5;
-
 pub struct GPUResourceActor {
     device: Option<Arc<CudaDevice>>,
 
@@ -31,9 +25,6 @@ pub struct GPUResourceActor {
     unified_compute: Option<UnifiedGPUCompute>,
 
     gpu_state: GPUState,
-
-    #[allow(dead_code)]
-    last_failure_reset: Instant,
 }
 
 impl GPUResourceActor {
@@ -44,7 +35,6 @@ impl GPUResourceActor {
             cuda_stream: None,
             unified_compute: None,
             gpu_state: GPUState::default(),
-            last_failure_reset: Instant::now(),
         }
     }
 

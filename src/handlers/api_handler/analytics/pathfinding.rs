@@ -8,7 +8,6 @@
 use actix_web::{web, HttpResponse, Result};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use crate::actors::gpu::connected_components_actor::{
     ComputeConnectedComponents, ConnectedComponentsResult,
@@ -19,8 +18,8 @@ use crate::actors::gpu::graph_analytics_supervisor::{
 use crate::actors::gpu::shortest_path_actor::{APSPResult, ComputeAPSP, ComputeSSP, SSSPResult};
 use crate::ports::graph_repository::GraphRepository;
 use crate::services::pathfinding::{
-    AStarPathfinder, BidirectionalDijkstra, JaccardEmbedding, PathAlgorithm,
-    PathResult as PfPathResult, SemanticPathfinder,
+    AStarPathfinder, BidirectionalDijkstra, PathAlgorithm, PathResult as PfPathResult,
+    SemanticPathfinder,
 };
 use crate::{error_json, ok_json, AppState};
 
@@ -505,9 +504,8 @@ pub async fn compute_point_to_point(
                 }
             };
 
-            let embedding = Arc::new(JaccardEmbedding);
             let alpha = payload.semantic_alpha.unwrap_or(0.5);
-            let pathfinder = SemanticPathfinder::new(embedding).with_alpha(alpha);
+            let pathfinder = SemanticPathfinder::new().with_alpha(alpha);
 
             match pathfinder.find_path(&graph_data, payload.source_id, payload.target_id, &query) {
                 Ok(result) => {

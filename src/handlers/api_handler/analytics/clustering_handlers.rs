@@ -691,7 +691,6 @@ pub(crate) fn generate_label_propagation_clusters(
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn generate_graph_based_clusters(
     graph_data: &visionclaw_domain::models::graph::GraphData,
     num_clusters: u32,

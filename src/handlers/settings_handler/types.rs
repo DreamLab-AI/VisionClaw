@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // Type definitions / request-response DTOs for the settings handler
 
 use serde::{Deserialize, Serialize};

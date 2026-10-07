@@ -243,19 +243,9 @@ impl StressMajorizationActor {
         }
     }
 
-    #[allow(dead_code)]
-    fn get_stress_majorization_stats(&self) -> StressMajorizationStats {
-        self.safety.get_stats()
-    }
-
     fn reset_safety_state(&mut self) {
         self.safety.reset_safety_state();
         info!("StressMajorizationActor: Safety state has been reset");
-    }
-
-    #[allow(dead_code)]
-    fn should_disable_stress_majorization(&self) -> bool {
-        self.safety.should_disable()
     }
 
     // Stress computation is now handled entirely on GPU via

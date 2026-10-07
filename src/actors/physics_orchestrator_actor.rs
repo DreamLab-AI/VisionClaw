@@ -593,77 +593,10 @@ impl PhysicsOrchestratorActor {
         }
     }
 
-    #[allow(dead_code)]
-    fn handle_physics_step_completion(&mut self) {
-        debug!("Physics step {} completed", self.current_iteration);
-    }
-
     fn execute_cpu_physics_step(&mut self, _ctx: &mut Context<Self>) {
         if !self.cpu_fallback_warned {
             warn!("CPU physics fallback not implemented — GPU compute is mandatory");
             self.cpu_fallback_warned = true;
-        }
-    }
-
-    #[allow(dead_code)]
-    fn broadcast_position_updates(
-        &mut self,
-        positions: Vec<(u32, BinaryNodeData)>,
-        _ctx: &mut Context<Self>,
-    ) {
-        // Throttle broadcasts to 60 FPS max
-        let now = Instant::now();
-        let broadcast_interval = Duration::from_millis(16); // 60 FPS
-        if now.duration_since(self.last_broadcast_time) < broadcast_interval {
-            return;
-        }
-        self.last_broadcast_time = now;
-
-        // Check if client coordinator is available
-        if let Some(ref client_coord_addr) = self.client_coordinator_addr {
-            // Apply user pinning - override server physics for nodes being dragged
-            let mut final_positions = Vec::with_capacity(positions.len());
-            for (node_id, mut node_data) in positions {
-                if let Some(&(pin_x, pin_y, pin_z)) = self.user_pinned_nodes.get(&node_id) {
-                    // User is dragging this node - use client-specified position
-                    node_data.x = pin_x;
-                    node_data.y = pin_y;
-                    node_data.z = pin_z;
-                    // Zero out velocity while pinned
-                    node_data.vx = 0.0;
-                    node_data.vy = 0.0;
-                    node_data.vz = 0.0;
-                }
-                final_positions.push((node_id, node_data));
-            }
-
-            // Convert to client format (BinaryNodeDataClient has same layout)
-            let client_positions: Vec<BinaryNodeDataClient> = final_positions
-                .iter()
-                .map(|(node_id, data)| BinaryNodeDataClient {
-                    node_id: *node_id,
-                    x: data.x,
-                    y: data.y,
-                    z: data.z,
-                    vx: data.vx,
-                    vy: data.vy,
-                    vz: data.vz,
-                })
-                .collect();
-
-            // Send broadcast message to client coordinator
-            use crate::actors::messages::BroadcastPositions;
-            client_coord_addr.do_send(BroadcastPositions {
-                positions: client_positions,
-            });
-
-            debug!(
-                "Broadcasted {} node positions to clients ({} pinned by users)",
-                final_positions.len(),
-                self.user_pinned_nodes.len()
-            );
-        } else {
-            debug!("No client coordinator available for broadcasting positions");
         }
     }
 

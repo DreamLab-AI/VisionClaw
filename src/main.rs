@@ -14,7 +14,7 @@ use visionclaw_server::{
         presence_handler::{
             new_room_registry, new_seen_nonce_cache, ws_presence, PresenceHandlerState,
         },
-        socket_flow_handler::{socket_flow_handler, PreReadSocketSettings},
+        socket_flow_handler::socket_flow_handler,
         speech_socket_handler::speech_socket_handler,
         validation_handler, workspace_handler,
     },
@@ -528,12 +528,13 @@ async fn main() -> std::io::Result<()> {
     ));
     let github_pr_service =
         Arc::new(visionclaw_server::services::github_pr_service::GitHubPRService::new());
-    let ontology_query_service = Arc::new(visionclaw_server::services::ontology_query_service::OntologyQueryService::new(
-        app_state.ontology_repository.clone(),
-        app_state.graph_adapter.clone() as Arc<dyn visionclaw_server::ports::knowledge_graph_repository::KnowledgeGraphRepository>,
-        whelk_engine.clone(),
-        schema_service.clone(),
-    ));
+    let ontology_query_service = Arc::new(
+        visionclaw_server::services::ontology_query_service::OntologyQueryService::new(
+            app_state.ontology_repository.clone(),
+            whelk_engine.clone(),
+            schema_service.clone(),
+        ),
+    );
     // W-E transaction spine (ADR-049): idempotency store + write-ahead intent log.
     // In-memory by default (real, thread-safe); a durable SQLite-backed impl can
     // drop in behind the same traits without touching the propose pipeline.
@@ -544,7 +545,6 @@ async fn main() -> std::io::Result<()> {
     let ontology_mutation_service = Arc::new(
         visionclaw_server::services::ontology_mutation_service::OntologyMutationService::new(
             app_state.ontology_repository.clone(),
-            whelk_engine.clone(),
             github_pr_service.clone(),
             proposal_idempotency,
             proposal_intents,
@@ -850,19 +850,6 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(4000);
     let bind_address = format!("{}:{}", bind_address, port);
 
-    let pre_read_ws_settings = {
-        let s = settings.read().await;
-        PreReadSocketSettings {
-            min_update_rate: s.system.websocket.min_update_rate,
-            max_update_rate: s.system.websocket.max_update_rate,
-            motion_threshold: s.system.websocket.motion_threshold,
-            motion_damping: s.system.websocket.motion_damping,
-            heartbeat_interval_ms: s.system.websocket.heartbeat_interval,
-            heartbeat_timeout_ms: s.system.websocket.heartbeat_timeout,
-        }
-    };
-    let pre_read_ws_settings_data = web::Data::new(pre_read_ws_settings);
-
     info!("Starting HTTP server on {}", bind_address);
 
     // PRD-008 §5.3 — XR presence room registry + Schnorr identity verifier.
@@ -1050,7 +1037,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(app_state_data.liveness_harness.clone()))
             // REC-4: the KpiComputeService backs /api/kpi/{summary,lineage}.
             .app_data(web::Data::from(app_state_data.kpi_compute_service.clone()))
-            .app_data(pre_read_ws_settings_data.clone())
             .app_data(web::Data::new(metrics_handler::ProcessStartTime(process_start_time)))
 
             .app_data(web::Data::new(app_state_data.graph_service_addr.clone()))

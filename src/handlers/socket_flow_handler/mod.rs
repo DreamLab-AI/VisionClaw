@@ -14,7 +14,7 @@ pub mod types;
 pub use actor_messages::BroadcastPositionUpdate;
 // REMOVED (ADR-2054): PushDirective — zero senders tree-wide, see actor_messages.rs.
 pub use http_handler::socket_flow_handler;
-pub use types::{PreReadSocketSettings, SocketFlowServer};
+pub use types::SocketFlowServer;
 
 // StreamHandler glue -- delegates text/binary to submodules
 use actix::prelude::*;

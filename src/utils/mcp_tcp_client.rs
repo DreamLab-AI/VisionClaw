@@ -47,12 +47,14 @@ struct McpRequest {
 
 #[derive(Debug, serde::Deserialize)]
 struct McpResponse {
+    // Required JSON-RPC 2.0 envelope member; a reply without it fails to parse.
     #[allow(dead_code)]
     jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<McpError>,
+    // Required JSON-RPC 2.0 envelope member; a reply without it fails to parse.
     #[allow(dead_code)]
     id: u64,
 }

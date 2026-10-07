@@ -184,48 +184,6 @@ impl RateLimit {
     pub fn per_second(max_requests: usize) -> Self {
         Self::new(RateLimitConfig::new(max_requests, Duration::from_secs(1)))
     }
-
-    /// Extract identifier from request using multi-factor approach
-    /// Priority: 1) Authenticated user ID, 2) API key, 3) IP address
-    /// This prevents rate limit bypass via IP spoofing or rotation
-    #[allow(dead_code)]
-    fn extract_identifier(&self, req: &ServiceRequest) -> String {
-        // Priority 1: Prefer authenticated user ID (most reliable)
-        if let Some(user) = req
-            .extensions()
-            .get::<crate::middleware::AuthenticatedUser>()
-        {
-            return format!("user:{}", user.pubkey);
-        }
-
-        // Priority 2: Check for API key (harder to rotate than IPs)
-        if let Some(api_key) = req.headers().get("X-API-Key") {
-            if let Ok(key) = api_key.to_str() {
-                // Use first 16 chars as identifier (enough to be unique, not full key for security)
-                let key_prefix = &key[..key.len().min(16)];
-                return format!("apikey:{}", key_prefix);
-            }
-        }
-
-        // Priority 3: Check Authorization header for Bearer token
-        if let Some(auth_header) = req.headers().get("Authorization") {
-            if let Ok(auth) = auth_header.to_str() {
-                if let Some(token) = auth.strip_prefix("Bearer ") {
-                    // Hash or truncate the token for identifier
-                    let token_prefix = &token[..token.len().min(16)];
-                    return format!("bearer:{}", token_prefix);
-                }
-            }
-        }
-
-        // Priority 4: Fall back to IP address (least reliable due to proxies/NAT)
-        let ip = req
-            .connection_info()
-            .realip_remote_addr()
-            .unwrap_or("unknown")
-            .to_string();
-        format!("ip:{}", ip)
-    }
 }
 
 impl Default for RateLimit {

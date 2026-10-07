@@ -20,7 +20,7 @@ use crate::ok_json;
 use crate::services::liveness_harness::{current_sha, LivenessHarness};
 
 /// HTTP header carrying the service credential for the write routes (#2).
-#[cfg_attr(any(debug_assertions, feature = "dev-auth"), allow(dead_code))]
+#[cfg(not(any(debug_assertions, feature = "dev-auth")))]
 const AGENT_KEY_HEADER: &str = "X-Agent-Key";
 
 /// Whether a canary write request (`register` / `observe`) is authorised.

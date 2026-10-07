@@ -507,7 +507,6 @@ pub async fn ws_presence(
     ws::start(session, &req, stream)
 }
 
-#[allow(dead_code)]
 pub fn allow_unused_did(_did: &Did) {}
 
 #[cfg(test)]

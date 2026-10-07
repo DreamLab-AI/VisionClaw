@@ -13,18 +13,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use async_trait::async_trait;
 use visionclaw_domain::ports::inference_engine::InferenceEngine;
 use visionclaw_domain::ports::ontology_repository::{
     AxiomType, OntologyRepository, OwlAxiom, OwlClass,
 };
 use visionclaw_server::adapters::whelk_inference_engine::WhelkInferenceEngine;
-use visionclaw_server::models::edge::Edge;
-use visionclaw_server::models::graph::GraphData;
-use visionclaw_server::models::node::Node;
-use visionclaw_server::ports::knowledge_graph_repository::{
-    GraphStatistics, KnowledgeGraphRepository, Result as KGResult,
-};
 use visionclaw_server::services::github_pr_service::GitHubPRService;
 use visionclaw_server::services::ontology_mutation_service::OntologyMutationService;
 use visionclaw_server::services::ontology_query_service::OntologyQueryService;
@@ -33,120 +26,20 @@ use visionclaw_server::services::schema_service::SchemaService;
 use visionclaw_server::test_helpers::create_test_ontology_repo;
 use visionclaw_server::types::ontology_tools::*;
 
-// ---------- Minimal KG repo mock ----------
-
-struct EmptyKGRepo;
-
-#[async_trait]
-impl KnowledgeGraphRepository for EmptyKGRepo {
-    async fn load_graph(&self) -> KGResult<Arc<GraphData>> {
-        Ok(Arc::new(GraphData::default()))
-    }
-    async fn save_graph(&self, _g: &GraphData) -> KGResult<()> {
-        Ok(())
-    }
-    async fn add_node(&self, _n: &Node) -> KGResult<u32> {
-        Ok(0)
-    }
-    async fn batch_add_nodes(&self, _n: Vec<Node>) -> KGResult<Vec<u32>> {
-        Ok(vec![])
-    }
-    async fn batch_add_nodes_if_absent(&self, _n: Vec<Node>) -> KGResult<Vec<u32>> {
-        Ok(vec![])
-    }
-    async fn update_node(&self, _n: &Node) -> KGResult<()> {
-        Ok(())
-    }
-    async fn batch_update_nodes(&self, _n: Vec<Node>) -> KGResult<()> {
-        Ok(())
-    }
-    async fn remove_node(&self, _id: u32) -> KGResult<()> {
-        Ok(())
-    }
-    async fn batch_remove_nodes(&self, _ids: Vec<u32>) -> KGResult<()> {
-        Ok(())
-    }
-    async fn get_node(&self, _id: u32) -> KGResult<Option<Node>> {
-        Ok(None)
-    }
-    async fn get_nodes(&self, _ids: Vec<u32>) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn get_nodes_by_metadata_id(&self, _metadata_id: &str) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn get_nodes_by_owl_class_iri(&self, _iri: &str) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn search_nodes_by_label(&self, _label: &str) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn add_edge(&self, _e: &Edge) -> KGResult<String> {
-        Ok(String::new())
-    }
-    async fn batch_add_edges(&self, _edges: Vec<Edge>) -> KGResult<Vec<String>> {
-        Ok(vec![])
-    }
-    async fn update_edge(&self, _e: &Edge) -> KGResult<()> {
-        Ok(())
-    }
-    async fn remove_edge(&self, _id: &str) -> KGResult<()> {
-        Ok(())
-    }
-    async fn batch_remove_edges(&self, _ids: Vec<String>) -> KGResult<()> {
-        Ok(())
-    }
-    async fn get_node_edges(&self, _id: u32) -> KGResult<Vec<Edge>> {
-        Ok(vec![])
-    }
-    async fn get_edges_between(&self, _source: u32, _target: u32) -> KGResult<Vec<Edge>> {
-        Ok(vec![])
-    }
-    async fn batch_update_positions(&self, _positions: Vec<(u32, f32, f32, f32)>) -> KGResult<()> {
-        Ok(())
-    }
-    async fn get_all_positions(&self) -> KGResult<HashMap<u32, (f32, f32, f32)>> {
-        Ok(HashMap::new())
-    }
-    async fn query_nodes(&self, _query: &str) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn get_neighbors(&self, _id: u32) -> KGResult<Vec<Node>> {
-        Ok(vec![])
-    }
-    async fn get_statistics(&self) -> KGResult<GraphStatistics> {
-        Ok(GraphStatistics {
-            node_count: 0,
-            edge_count: 0,
-            average_degree: 0.0,
-            connected_components: 0,
-            last_updated: chrono::Utc::now(),
-        })
-    }
-    async fn clear_graph(&self) -> KGResult<()> {
-        Ok(())
-    }
-    async fn health_check(&self) -> KGResult<bool> {
-        Ok(true)
-    }
-}
-
 // ---------- Test Helpers ----------
 
 fn build_query_service() -> OntologyQueryService {
     let repo = create_test_ontology_repo();
     let whelk = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
     let schema_service = Arc::new(SchemaService::new());
-    OntologyQueryService::new(repo, Arc::new(EmptyKGRepo), whelk, schema_service)
+    OntologyQueryService::new(repo, whelk, schema_service)
 }
 
 fn build_mutation_service() -> OntologyMutationService {
     let repo = create_test_ontology_repo();
-    let whelk = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
     let github_pr = Arc::new(GitHubPRService::new());
     OntologyMutationService::new(
         repo,
-        whelk,
         github_pr,
         Arc::new(InMemoryIdempotencyStore::new()),
         Arc::new(InMemoryIntentLog::new()),
@@ -169,11 +62,9 @@ fn build_mutation_service_with_markdown() -> OntologyMutationService {
             person.term_id = Some("MV-0001".to_string());
         }
     }
-    let whelk = Arc::new(RwLock::new(WhelkInferenceEngine::new()));
     let github_pr = Arc::new(GitHubPRService::new());
     OntologyMutationService::new(
         repo,
-        whelk,
         github_pr,
         Arc::new(InMemoryIdempotencyStore::new()),
         Arc::new(InMemoryIntentLog::new()),
@@ -523,15 +414,9 @@ async fn build_disjoint_query_service() -> OntologyQueryService {
     engine.load_ontology(classes, axioms).await.unwrap();
     engine.infer().await.unwrap();
     let schema_service = Arc::new(SchemaService::new());
-    OntologyQueryService::new(
-        repo,
-        Arc::new(EmptyKGRepo),
-        Arc::new(RwLock::new(engine)),
-        schema_service,
+    OntologyQueryService::new(repo, Arc::new(RwLock::new(engine)), schema_service).with_generation(
+        Some("https://narrativegoldmine.com/ontology/sha256-12-000000000001".to_string()),
     )
-    .with_generation(Some(
-        "https://narrativegoldmine.com/ontology/sha256-12-000000000001".to_string(),
-    ))
 }
 
 #[tokio::test]
@@ -724,7 +609,6 @@ async fn build_relation_query_service() -> OntologyQueryService {
     .unwrap();
     OntologyQueryService::new(
         repo,
-        Arc::new(EmptyKGRepo),
         Arc::new(RwLock::new(WhelkInferenceEngine::new())),
         Arc::new(SchemaService::new()),
     )
@@ -862,7 +746,6 @@ async fn test_without_a_bundle_the_generation_is_the_store_digest_and_follows_re
     let repo = create_test_ontology_repo();
     let service = OntologyQueryService::new(
         repo.clone(),
-        Arc::new(EmptyKGRepo),
         Arc::new(RwLock::new(WhelkInferenceEngine::new())),
         Arc::new(SchemaService::new()),
     )

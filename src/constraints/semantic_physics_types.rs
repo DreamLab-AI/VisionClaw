@@ -144,16 +144,11 @@ impl SemanticPhysicsConstraint {
 }
 
 /// Semantic constraint builder for fluent API
-pub struct SemanticConstraintBuilder {
-    #[allow(dead_code)]
-    constraint_type: Option<SemanticPhysicsConstraint>,
-}
+pub struct SemanticConstraintBuilder {}
 
 impl SemanticConstraintBuilder {
     pub fn new() -> Self {
-        Self {
-            constraint_type: None,
-        }
+        Self {}
     }
 
     /// Build a separation constraint

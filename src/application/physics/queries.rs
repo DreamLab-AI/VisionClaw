@@ -66,14 +66,12 @@ pub struct GetSimulationParams {
     pub graph_name: String,
 }
 
-pub struct GetSimulationParamsHandler {
-    #[allow(dead_code)]
-    simulator: Arc<dyn PhysicsSimulator>,
-}
+#[derive(Default)]
+pub struct GetSimulationParamsHandler {}
 
 impl GetSimulationParamsHandler {
-    pub fn new(simulator: Arc<dyn PhysicsSimulator>) -> Self {
-        Self { simulator }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 

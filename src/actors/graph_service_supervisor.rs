@@ -443,8 +443,6 @@ pub struct GraphServiceSupervisor {
     health_check_interval: Duration,
     last_health_check: Instant,
 
-    #[allow(dead_code)]
-    message_buffer_size: usize,
     total_messages_routed: u64,
 
     supervision_stats: SupervisionStats,
@@ -520,7 +518,6 @@ impl GraphServiceSupervisor {
             actor_info: HashMap::new(),
             health_check_interval: Duration::from_secs(30),
             last_health_check: Instant::now(),
-            message_buffer_size: 1000,
             total_messages_routed: 0,
             supervision_stats: SupervisionStats::default(),
             auto_community_in_flight: false,
@@ -827,21 +824,6 @@ impl GraphServiceSupervisor {
         self.start_actor(ActorType::PhysicsOrchestrator, ctx);
         self.start_actor(ActorType::SemanticProcessor, ctx);
         self.start_actor(ActorType::ClientCoordinator, ctx);
-    }
-
-    #[allow(dead_code)]
-    fn buffer_message(&mut self, actor_type: ActorType, message: SupervisedMessage) {
-        if let Some(info) = self.actor_info.get_mut(&actor_type) {
-            if info.message_buffer.len() < self.message_buffer_size {
-                info.message_buffer.push(message);
-                self.supervision_stats.messages_buffered += 1;
-            } else {
-                warn!(
-                    "Message buffer full for actor {:?}, dropping message",
-                    actor_type
-                );
-            }
-        }
     }
 
     fn replay_buffered_messages(&mut self, actor_type: ActorType) {

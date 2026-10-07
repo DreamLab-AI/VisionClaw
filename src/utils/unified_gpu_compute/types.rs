@@ -124,26 +124,6 @@ pub enum ComputeMode {
     Constraints,
 }
 
-// Additional Thrust wrapper function for scanning
-//
-// SAFETY: This extern block declares the thrust_exclusive_scan FFI function.
-// The function is safe to call when:
-// 1. d_in is a valid CUDA device pointer to at least num_items elements
-// 2. d_out is a valid CUDA device pointer to at least num_items elements
-// 3. d_in and d_out may alias (in-place scan is supported)
-// 4. num_items is a non-negative count of elements to scan
-// 5. stream is a valid CUDA stream handle or null for default stream
-// 6. The caller ensures synchronization before reading d_out
-#[allow(dead_code)]
-unsafe extern "C" {
-    pub(crate) fn thrust_exclusive_scan(
-        d_in: *const ::std::os::raw::c_void,
-        d_out: *mut ::std::os::raw::c_void,
-        num_items: ::std::os::raw::c_int,
-        stream: *mut ::std::os::raw::c_void,
-    );
-}
-
 // PageRank GPU kernel FFI functions from pagerank.cu
 //
 // SAFETY: These extern functions are safe to call when:

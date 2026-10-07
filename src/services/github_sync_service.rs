@@ -2054,41 +2054,6 @@ impl GitHubSyncService {
     // ------------------------------------------------------------------
     // Dead-code-safe filter helpers (kept for future use)
     // ------------------------------------------------------------------
-
-    #[allow(dead_code)]
-    fn filter_linked_pages(
-        &self,
-        nodes: &mut std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
-        public_pages: &std::collections::HashSet<String>,
-    ) {
-        let before = nodes.len();
-        nodes.retain(
-            |_, node| match node.metadata.get("type").map(|s| s.as_str()) {
-                Some("page") => true,
-                Some("linked_page") => public_pages.contains(&node.metadata_id),
-                _ => true,
-            },
-        );
-        let filtered = before - nodes.len();
-        if filtered > 0 {
-            info!("Filtered {} linked_page nodes", filtered);
-        }
-    }
-
-    #[allow(dead_code)]
-    fn filter_orphan_edges(
-        &self,
-        edges: &mut std::collections::HashMap<String, Edge>,
-        nodes: &std::collections::HashMap<u32, visionclaw_domain::models::node::Node>,
-    ) {
-        let before = edges.len();
-        edges
-            .retain(|_, edge| nodes.contains_key(&edge.source) && nodes.contains_key(&edge.target));
-        let filtered = before - edges.len();
-        if filtered > 0 {
-            info!("Filtered {} orphan edges", filtered);
-        }
-    }
 }
 
 // ------------------------------------------------------------------

@@ -36,7 +36,6 @@ impl AgentVisualizationWs {
         }
     }
 
-    #[allow(dead_code)]
     /// Sends the initialisation frame.
     ///
     /// ADR-2066 addendum: this still reports an EMPTY roster, and that is now
@@ -199,8 +198,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for AgentVisualizatio
 #[derive(Deserialize)]
 struct ClientRequest {
     action: String,
-    #[allow(dead_code)]
-    params: Option<serde_json::Value>,
 }
 
 pub async fn agent_visualization_ws(

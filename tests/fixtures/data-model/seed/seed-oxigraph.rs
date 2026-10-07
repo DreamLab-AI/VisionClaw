@@ -282,5 +282,4 @@ fn term_label(t: &Term) -> String {
 // Silence unused-import warnings for items only used by Quad/NamedNodeRef
 // based queries that landed in earlier drafts. The crate must compile
 // under -D warnings.
-#[allow(dead_code)]
 fn _unused_imports_silencer(_: Quad, _: NamedNodeRef) {}

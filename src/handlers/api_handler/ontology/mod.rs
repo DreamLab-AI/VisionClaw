@@ -9,14 +9,12 @@
 //! - System health monitoring and cache management
 
 use crate::{accepted, ok_json};
-use actix::Addr;
 use actix_web::{web, Error as ActixError, HttpRequest, HttpResponse, Responder};
 use actix_web_actors::ws;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration as StdDuration;
 use uuid::Uuid;
 use visionclaw_domain::ports::ontology_repository::OntologyRepository;
 
@@ -24,7 +22,6 @@ use crate::actors::messages::{
     ApplyInferences, ClearOntologyCaches, GetOntologyHealth, GetOntologyReport, LoadOntologyAxioms,
     OntologyHealth, UpdateOntologyMapping, ValidateOntology, ValidationMode,
 };
-use crate::actors::ontology_actor::OntologyActor;
 use crate::handlers::api_handler::analytics::FEATURE_FLAGS;
 use crate::services::owl_validator::{PropertyGraph, RdfTriple, ValidationConfig};
 use crate::AppState;
@@ -348,11 +345,6 @@ async fn check_feature_enabled() -> Result<(), Box<ErrorResponse>> {
     }
 
     Ok(())
-}
-
-#[allow(dead_code)]
-fn actor_timeout() -> StdDuration {
-    StdDuration::from_secs(30)
 }
 
 async fn extract_property_graph(state: &AppState) -> Result<PropertyGraph, Box<ErrorResponse>> {
@@ -1276,19 +1268,13 @@ pub async fn get_report_by_id(
 // WEBSOCKET IMPLEMENTATION
 // ============================================================================
 
-#[allow(dead_code)]
 pub struct OntologyWebSocket {
     client_id: String,
-
-    ontology_addr: Addr<OntologyActor>,
 }
 
 impl OntologyWebSocket {
-    pub fn new(client_id: String, ontology_addr: Addr<OntologyActor>) -> Self {
-        Self {
-            client_id,
-            ontology_addr,
-        }
+    pub fn new(client_id: String) -> Self {
+        Self { client_id }
     }
 }
 
@@ -1367,15 +1353,15 @@ pub async fn websocket_handler(
         .cloned()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let Some(ref ontology_addr) = state.ontology_actor_addr else {
+    if state.ontology_actor_addr.is_none() {
         let error_response =
             ErrorResponse::new("Ontology actor not available", "ACTOR_UNAVAILABLE");
         return Ok::<HttpResponse, actix_web::Error>(
             HttpResponse::ServiceUnavailable().json(error_response),
         );
-    };
+    }
 
-    let websocket = OntologyWebSocket::new(client_id, ontology_addr.clone());
+    let websocket = OntologyWebSocket::new(client_id);
 
     ws::start(websocket, &req, stream)
 }

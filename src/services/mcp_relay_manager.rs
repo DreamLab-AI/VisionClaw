@@ -2,7 +2,7 @@ use crate::telemetry::agent_telemetry::{
     get_telemetry_logger, CorrelationId, LogLevel, TelemetryEvent,
 };
 use crate::utils::network::{
-    CircuitBreaker, CircuitBreakerConfig, HealthCheckManager, RetryableError, TimeoutConfig,
+    CircuitBreaker, CircuitBreakerConfig, HealthCheckManager, RetryableError,
 };
 use log::{debug, error, info, warn};
 use serde_json;
@@ -13,8 +13,6 @@ use std::time::Instant;
 pub struct McpRelayManager {
     circuit_breaker: Arc<CircuitBreaker>,
     health_manager: Arc<HealthCheckManager>,
-    #[allow(dead_code)]
-    timeout_config: TimeoutConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,7 +55,6 @@ impl McpRelayManager {
         Self {
             circuit_breaker,
             health_manager,
-            timeout_config: TimeoutConfig::default(),
         }
     }
 

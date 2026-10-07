@@ -171,8 +171,6 @@ where
 
 pub struct RateLimit {
     limiter: Rc<RateLimiter>,
-    #[allow(dead_code)]
-    config: RateLimitConfig,
 }
 
 impl RateLimit {
@@ -180,7 +178,6 @@ impl RateLimit {
         let limiter = RateLimiter::new(config.clone());
         Self {
             limiter: Rc::new(limiter),
-            config,
         }
     }
 }

@@ -3124,7 +3124,6 @@ fn scalar_f32(result: &(Vec<String>, Vec<Vec<Option<Term>>>)) -> Option<f32> {
 
 // Silence unused-import lint warnings for items only referenced in
 // helpers above (kept here so the imports list stays canonical).
-#[allow(dead_code)]
 fn _force_imports() -> (HashSet<u32>, OntologyRepositoryError) {
     (HashSet::new(), OntologyRepositoryError::NotFound)
 }

@@ -95,7 +95,6 @@ static CURRENT_SWARM_ID: Lazy<Arc<RwLock<Option<String>>>> =
 
 pub async fn fetch_hive_mind_agents(
     state: &AppState,
-    _hybrid_manager: Option<()>,
 ) -> Result<Vec<Agent>, Box<dyn std::error::Error>> {
     match state.bots_client.get_agents_snapshot().await {
         Ok(agents) => {
@@ -260,7 +259,6 @@ pub async fn initialize_hive_mind_swarm(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
     request: web::Json<InitializeSwarmRequest>,
     state: web::Data<AppState>,
-    _hybrid_manager: Option<()>,
 ) -> Result<impl Responder> {
     info!(
         "🐝 Initializing hive mind swarm via Management API with topology: {}",
@@ -372,11 +370,8 @@ pub async fn get_bots_connection_status(state: web::Data<AppState>) -> Result<im
     }
 }
 
-pub async fn get_bots_agents(
-    state: web::Data<AppState>,
-    _hybrid_manager: Option<()>,
-) -> Result<impl Responder> {
-    match fetch_hive_mind_agents(&state, None).await {
+pub async fn get_bots_agents(state: web::Data<AppState>) -> Result<impl Responder> {
+    match fetch_hive_mind_agents(&state).await {
         Ok(agents) => ok_json!(json!({
             "success": true,
             "agents": agents,

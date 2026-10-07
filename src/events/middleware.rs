@@ -244,24 +244,18 @@ impl EventMiddleware for ValidationMiddleware {
 }
 
 pub struct RetryMiddleware {
-    #[allow(dead_code)]
     max_retries: u32,
-    #[allow(dead_code)]
-    retry_delay_ms: u64,
 }
 
 impl RetryMiddleware {
-    pub fn new(max_retries: u32, retry_delay_ms: u64) -> Self {
-        Self {
-            max_retries,
-            retry_delay_ms,
-        }
+    pub fn new(max_retries: u32) -> Self {
+        Self { max_retries }
     }
 }
 
 impl Default for RetryMiddleware {
     fn default() -> Self {
-        Self::new(3, 100)
+        Self::new(3)
     }
 }
 

@@ -136,10 +136,6 @@ pub enum OntologyConstraintGroup {
 #[derive(Debug, Clone)]
 struct ConstraintCacheEntry {
     constraints: Vec<Constraint>,
-    #[allow(dead_code)]
-    axiom_hash: u64,
-    #[allow(dead_code)]
-    last_updated: std::time::Instant,
 }
 
 pub struct OntologyConstraintTranslator {

@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::events::event_bus::EventBus;
 use visionclaw_domain::models::constraints::ConstraintSet;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::gpu_semantic_analyzer::{
@@ -39,19 +38,11 @@ pub struct ShortestPathRequest {
 
 pub struct SemanticService {
     semantic_adapter: Arc<RwLock<dyn GpuSemanticAnalyzer>>,
-    #[allow(dead_code)]
-    event_bus: Arc<RwLock<EventBus>>,
 }
 
 impl SemanticService {
-    pub fn new(
-        semantic_adapter: Arc<RwLock<dyn GpuSemanticAnalyzer>>,
-        event_bus: Arc<RwLock<EventBus>>,
-    ) -> Self {
-        Self {
-            semantic_adapter,
-            event_bus,
-        }
+    pub fn new(semantic_adapter: Arc<RwLock<dyn GpuSemanticAnalyzer>>) -> Self {
+        Self { semantic_adapter }
     }
 
     pub async fn initialize(&self, graph: Arc<GraphData>) -> SemanticResult<()> {

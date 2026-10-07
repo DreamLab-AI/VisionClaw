@@ -169,7 +169,6 @@ impl Default for AISemanticFeatures {
     }
 }
 
-#[allow(dead_code)]
 pub struct SemanticProcessorActor {
     semantic_analyzer: Option<SemanticAnalyzer>,
 
@@ -189,15 +188,7 @@ pub struct SemanticProcessorActor {
 
     graph_data: Option<Arc<GraphData>>,
 
-    last_semantic_analysis: Option<Instant>,
-
-    constraint_cache: HashMap<String, Vec<Constraint>>,
-
-    active_tasks: HashMap<String, SemanticTask>,
-
     relationship_threshold: f32,
-
-    enable_ai_processing: bool,
 
     clustering_params: SemanticClusteringParams,
 
@@ -673,11 +664,7 @@ impl SemanticProcessorActor {
             config,
             stats: SemanticStats::default(),
             graph_data: None,
-            last_semantic_analysis: None,
-            constraint_cache: HashMap::new(),
-            active_tasks: HashMap::new(),
             relationship_threshold: 0.7,
-            enable_ai_processing: true,
             clustering_params: SemanticClusteringParams::default(),
             performance_metrics: HashMap::new(),
             gpu_analyzer: Some(GpuSemanticAnalyzerAdapter::new()),

@@ -2,7 +2,6 @@
 
 use serde_json::{json, Value};
 
-#[allow(dead_code)]
 pub fn get_field_variant<'a>(obj: &'a Value, variants: &[&str]) -> Option<&'a Value> {
     for variant in variants {
         if let Some(val) = obj.get(*variant) {
@@ -12,7 +11,6 @@ pub fn get_field_variant<'a>(obj: &'a Value, variants: &[&str]) -> Option<&'a Va
     None
 }
 
-#[allow(dead_code)]
 pub fn count_fields(value: &Value) -> usize {
     match value {
         Value::Object(map) => map.len() + map.values().map(count_fields).sum::<usize>(),
@@ -48,7 +46,6 @@ pub fn extract_physics_updates(update: &Value) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-#[allow(dead_code)]
 pub fn extract_failed_field(physics: &Value) -> String {
     if let Some(obj) = physics.as_object() {
         obj.keys().next().unwrap_or(&"unknown".to_string()).clone()

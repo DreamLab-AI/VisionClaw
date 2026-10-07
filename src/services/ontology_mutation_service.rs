@@ -32,7 +32,6 @@ use chrono::Utc;
 use log::{error, info, warn};
 use oxigraph::store::Store;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use visionclaw_adapters::{emit_activity_nonfatal, ActivityRecord};
 use visionclaw_domain::ports::ontology_repository::{
     AxiomType, OntologyRepository, OwlAxiom, OwlClass,
@@ -128,10 +127,6 @@ const CONTRASTS_WITH_KEYS: [&str; 2] = ["contrasts-with", "contrasts_with"];
 
 pub struct OntologyMutationService {
     ontology_repo: Arc<dyn OntologyRepository>,
-    /// Retained for the future native-projection reload path; the live gate uses
-    /// the static, re-entrant `WhelkInferenceEngine::check_axiom_set`.
-    #[allow(dead_code)]
-    whelk: Arc<RwLock<WhelkInferenceEngine>>,
     github_pr: Arc<GitHubPRService>,
     /// W-E: idempotency persistence (replay-safe proposal receipts).
     idempotency: Arc<dyn IdempotencyStore>,
@@ -151,14 +146,12 @@ pub struct OntologyMutationService {
 impl OntologyMutationService {
     pub fn new(
         ontology_repo: Arc<dyn OntologyRepository>,
-        whelk: Arc<RwLock<WhelkInferenceEngine>>,
         github_pr: Arc<GitHubPRService>,
         idempotency: Arc<dyn IdempotencyStore>,
         intents: Arc<dyn IntentLog>,
     ) -> Self {
         Self {
             ontology_repo,
-            whelk,
             github_pr,
             idempotency,
             intents,
@@ -1047,7 +1040,6 @@ mod provenance_wiring_tests {
         let repo = Arc::new(OxigraphOntologyRepository::from_store(Arc::clone(&store)));
         let svc = OntologyMutationService::new(
             repo as Arc<dyn OntologyRepository>,
-            Arc::new(RwLock::new(WhelkInferenceEngine::new())),
             Arc::new(GitHubPRService::with_config(
                 String::new(),
                 String::new(),

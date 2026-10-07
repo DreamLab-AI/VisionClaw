@@ -847,7 +847,7 @@ pub(crate) fn handle_request_swarm_telemetry(
 
     ctx.spawn(
         actix::fut::wrap_future::<_, SocketFlowServer>(async move {
-            match crate::handlers::bots_handler::fetch_hive_mind_agents(&app_state, None).await {
+            match crate::handlers::bots_handler::fetch_hive_mind_agents(&app_state).await {
                 Ok(agents) => {
                     let mut nodes_data = Vec::new();
                     let mut swarm_metrics = serde_json::json!({

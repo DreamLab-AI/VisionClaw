@@ -53,8 +53,6 @@ struct ActorState {
     last_restart: Option<Instant>,
     current_delay: Duration,
     is_running: bool,
-    #[allow(dead_code)]
-    session_id: Option<String>,
     /// Optional factory to re-spawn the actor on restart.
     /// When `None`, the supervisor can only mark the actor as failed —
     /// it cannot automatically recreate it.
@@ -138,24 +136,6 @@ impl SupervisorActor {
         }
     }
 
-    #[allow(dead_code)]
-    fn should_restart(&self, actor_name: &str, state: &ActorState) -> bool {
-        if state.restart_count >= state.actor_info.max_restart_count {
-            if let Some(last_restart) = state.last_restart {
-                if last_restart.elapsed() < state.actor_info.restart_window {
-                    warn!(
-                        "Actor '{}' has exceeded max restart count ({}) within window ({:?})",
-                        actor_name,
-                        state.actor_info.max_restart_count,
-                        state.actor_info.restart_window
-                    );
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
     fn calculate_restart_delay(&self, state: &ActorState) -> Duration {
         match &state.actor_info.strategy {
             SupervisionStrategy::RestartWithBackoff {
@@ -190,14 +170,12 @@ impl SupervisorActor {
             );
 
             let actor_name_clone = actor_name.to_string();
-            let supervisor_name = self.supervisor_name.clone();
 
             ctx.run_later(delay, move |_act, ctx| {
                 info!("Attempting to restart actor '{}'", actor_name_clone);
 
                 ctx.notify(RestartAttempt {
                     actor_name: actor_name_clone,
-                    supervisor_name,
                 });
             });
         }
@@ -277,7 +255,6 @@ impl Handler<RegisterActor> for SupervisorActor {
             last_restart: None,
             current_delay: initial_delay,
             is_running: true,
-            session_id: None,
             actor_factory: msg.actor_factory,
         };
 
@@ -414,8 +391,6 @@ impl Handler<GetSupervisionStatus> for SupervisorActor {
 #[rtype(result = "()")]
 struct RestartAttempt {
     actor_name: String,
-    #[allow(dead_code)]
-    supervisor_name: String,
 }
 
 impl Handler<RestartAttempt> for SupervisorActor {

@@ -15,9 +15,6 @@ pub(crate) const DEBUG_LOG_SAMPLE_RATE: usize = 10;
 
 // Default values for deadbands if not provided in settings
 
-#[allow(dead_code)]
-pub(crate) const BATCH_UPDATE_WINDOW_MS: u64 = 200;
-
 // Create a global rate limiter for WebSocket position updates
 lazy_static::lazy_static! {
     pub(crate) static ref WEBSOCKET_RATE_LIMITER: Arc<RateLimiter> = {
@@ -25,17 +22,6 @@ lazy_static::lazy_static! {
     };
 }
 
-#[derive(Clone, Debug)]
-pub struct PreReadSocketSettings {
-    pub min_update_rate: u32,
-    pub max_update_rate: u32,
-    pub motion_threshold: f32,
-    pub motion_damping: f32,
-    pub heartbeat_interval_ms: u64,
-    pub heartbeat_timeout_ms: u64,
-}
-
-#[allow(dead_code)]
 pub struct SocketFlowServer {
     pub(crate) app_state: Arc<AppState>,
     pub(crate) client_id: Option<usize>,
@@ -49,22 +35,12 @@ pub struct SocketFlowServer {
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
 
     pub(crate) last_transfer_size: usize,
-    pub(crate) last_transfer_time: Instant,
     pub(crate) total_bytes_sent: usize,
     pub(crate) update_count: usize,
     pub(crate) nodes_sent_count: usize,
 
-    pub(crate) last_batch_time: Instant,
-    pub(crate) current_update_rate: u32,
-
-    pub(crate) min_update_rate: u32,
-    pub(crate) max_update_rate: u32,
-    pub(crate) motion_threshold: f32,
-    pub(crate) motion_damping: f32,
-
     pub(crate) nodes_in_motion: usize,
     pub(crate) total_node_count: usize,
-    pub(crate) last_motion_check: Instant,
 
     pub(crate) client_ip: String,
     pub(crate) is_reconnection: bool,
@@ -78,7 +54,7 @@ pub struct SocketFlowServer {
     /// `crate::utils::auth::dev_bypass_permitted_for_addr`, so the WS auth path
     /// routes through the same single gate as the REST paths. Always `false` in
     /// release builds. (ADR-142 hardening, Codex round-2.)
-    #[allow(dead_code)] // only read in dev/dev-auth builds
+    #[cfg(any(debug_assertions, feature = "dev-auth"))]
     pub(crate) dev_bypass_ok: bool,
     // HTTP-equivalent URL of the WebSocket connection (for NIP-98 validation)
     pub(crate) connection_url: String,
@@ -143,19 +119,11 @@ pub struct SocketFlowServer {
 impl SocketFlowServer {
     pub fn new(
         app_state: Arc<AppState>,
-        pre_read_settings: PreReadSocketSettings,
         client_manager_addr: actix::Addr<
             crate::actors::client_coordinator_actor::ClientCoordinatorActor,
         >,
         client_ip: String,
     ) -> Self {
-        let min_update_rate = pre_read_settings.min_update_rate;
-        let max_update_rate = pre_read_settings.max_update_rate;
-        let motion_threshold = pre_read_settings.motion_threshold;
-        let motion_damping = pre_read_settings.motion_damping;
-
-        let current_update_rate = max_update_rate;
-
         Self {
             app_state,
             client_id: None,
@@ -166,24 +134,17 @@ impl SocketFlowServer {
             heartbeat_timer_set: false,
             _node_position_cache: HashMap::new(),
             last_transfer_size: 0,
-            last_transfer_time: Instant::now(),
             total_bytes_sent: 0,
-            last_batch_time: Instant::now(),
             update_count: 0,
             nodes_sent_count: 0,
-            current_update_rate,
-            min_update_rate,
-            max_update_rate,
-            motion_threshold,
-            motion_damping,
             nodes_in_motion: 0,
             total_node_count: 0,
-            last_motion_check: Instant::now(),
             client_ip,
             is_reconnection: false,
             state_synced: false,
             pubkey: None,
             is_power_user: false,
+            #[cfg(any(debug_assertions, feature = "dev-auth"))]
             dev_bypass_ok: false,
             connection_url: String::new(),
             relay_throttles: HashMap::new(),
@@ -229,41 +190,6 @@ impl SocketFlowServer {
     pub(crate) fn should_log_update(&mut self) -> bool {
         self.update_counter = (self.update_counter + 1) % DEBUG_LOG_SAMPLE_RATE;
         self.update_counter == 0
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn calculate_motion_percentage(&self) -> f32 {
-        if self.total_node_count == 0 {
-            return 0.0;
-        }
-        (self.nodes_in_motion as f32) / (self.total_node_count as f32)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn update_dynamic_rate(&mut self) {
-        let now = Instant::now();
-        let batch_window = std::time::Duration::from_millis(BATCH_UPDATE_WINDOW_MS);
-        let elapsed = now.duration_since(self.last_batch_time);
-
-        if elapsed >= batch_window {
-            let motion_pct = self.calculate_motion_percentage();
-
-            if motion_pct > self.motion_threshold {
-                self.current_update_rate = ((self.current_update_rate as f32) * self.motion_damping
-                    + (self.max_update_rate as f32) * (1.0 - self.motion_damping))
-                    as u32;
-            } else {
-                self.current_update_rate = ((self.current_update_rate as f32) * self.motion_damping
-                    + (self.min_update_rate as f32) * (1.0 - self.motion_damping))
-                    as u32;
-            }
-
-            self.current_update_rate = self
-                .current_update_rate
-                .clamp(self.min_update_rate, self.max_update_rate);
-
-            self.last_motion_check = now;
-        }
     }
 
     /// Send full state sync to a newly connected client (graph data + initial load).

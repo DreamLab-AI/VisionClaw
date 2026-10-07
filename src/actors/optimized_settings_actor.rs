@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // High-Performance Settings Actor with Hexagonal Architecture
 // Now uses SettingsRepository port for database operations
 // Maintains caching and performance optimizations as adapter concerns
@@ -11,9 +10,8 @@ use crate::actors::messages::{
 use crate::config::AppFullSettings;
 use crate::errors::{SettingsError, VisionClawError, VisionClawResult};
 use actix::prelude::*;
-use blake3::Hasher;
-use flate2::Status;
-use flate2::{Compress, Compression, Decompress, FlushDecompress};
+#[cfg(feature = "redis")]
+use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status};
 use log::{debug, error, info, warn};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
@@ -27,10 +25,11 @@ use tokio::sync::RwLock;
 // Ports (hexagonal architecture)
 use crate::ports::settings_repository::SettingsRepository;
 
+#[cfg(feature = "redis")]
 use crate::utils::json::to_json;
 use crate::utils::result_helpers::safe_json_number;
 #[cfg(feature = "redis")]
-use redis::{AsyncCommands, Client as RedisClient};
+use redis::Client as RedisClient;
 
 // Cache configuration constants
 const CACHE_SIZE: usize = 1000;
@@ -44,7 +43,7 @@ pub struct OptimizedSettingsActor {
     path_cache: Arc<RwLock<LruCache<String, CachedValue>>>,
     path_lookup: Arc<RwLock<HashMap<String, PathPattern>>>,
     metrics: Arc<RwLock<PerformanceMetrics>>,
-    compressor: Arc<RwLock<Compress>>,
+    #[cfg(feature = "redis")]
     decompressor: Arc<RwLock<Decompress>>,
     graph_service_addr: Option<Addr<crate::actors::GraphServiceSupervisor>>,
     gpu_compute_addr: Option<Addr<ForceComputeActor>>,
@@ -53,7 +52,6 @@ pub struct OptimizedSettingsActor {
 #[derive(Clone, Debug)]
 struct CachedValue {
     value: Value,
-    hash: String,
     timestamp: Instant,
     ttl: Duration,
 }
@@ -68,21 +66,14 @@ struct PathPattern {
 #[derive(Clone, Debug)]
 enum FieldType {
     Float32,
-    Float64,
     Int32,
-    Int64,
     Bool,
-    String,
-    Object,
-    Array,
 }
 
 #[derive(Clone, Debug)]
 struct ValidationRules {
     min: Option<f64>,
     max: Option<f64>,
-    required: bool,
-    pattern: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +119,7 @@ impl PerformanceMetrics {
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
+#[cfg(feature = "redis")]
 const REDIS_TTL: usize = 3600;
 const EXPECTED_FULL_SETTINGS_SIZE: u64 = 50_000;
 const EXPECTED_PATH_SIZE: u64 = 500;
@@ -183,7 +175,7 @@ impl OptimizedSettingsActor {
             path_cache,
             path_lookup: Arc::new(RwLock::new(path_lookup)),
             metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
-            compressor: Arc::new(RwLock::new(Compress::new(Compression::default(), false))),
+            #[cfg(feature = "redis")]
             decompressor: Arc::new(RwLock::new(Decompress::new(false))),
             graph_service_addr: None,
             gpu_compute_addr: None,
@@ -273,8 +265,6 @@ impl OptimizedSettingsActor {
                 // ValidationRules stores generic f64 bounds, so widen at this seam.
                 min: Some(min as f64),
                 max: Some(max as f64),
-                required: true,
-                pattern: None,
             };
 
             lookup.insert(
@@ -347,7 +337,6 @@ impl OptimizedSettingsActor {
 
                             let cached_value = CachedValue {
                                 value: value.clone(),
-                                hash: self.calculate_hash(&value).await,
                                 timestamp: Instant::now(),
                                 ttl: CACHE_TTL,
                             };
@@ -369,11 +358,8 @@ impl OptimizedSettingsActor {
     }
 
     async fn set_cached_value(&self, path: &str, value: &Value) {
-        let hash = self.calculate_hash(value).await;
-
         let cached_value = CachedValue {
             value: value.clone(),
-            hash: hash.clone(),
             timestamp: Instant::now(),
             ttl: CACHE_TTL,
         };
@@ -432,14 +418,7 @@ impl OptimizedSettingsActor {
         }
     }
 
-    async fn calculate_hash(&self, value: &Value) -> String {
-        let mut hasher = Hasher::new();
-        if let Ok(json_str) = to_json(value) {
-            hasher.update(json_str.as_bytes());
-        }
-        hasher.finalize().to_hex().to_string()
-    }
-
+    #[cfg(feature = "redis")]
     async fn decompress_data(&self, compressed: &[u8]) -> VisionClawResult<String> {
         let mut decompressor = self.decompressor.write().await;
         let mut output = Vec::new();
@@ -653,7 +632,7 @@ impl OptimizedSettingsActor {
 
     fn validate_value_with_pattern(value: &Value, pattern: &PathPattern) -> VisionClawResult<()> {
         match (&pattern.field_type, value) {
-            (FieldType::Float32 | FieldType::Float64, Value::Number(n)) => {
+            (FieldType::Float32, Value::Number(n)) => {
                 if let Some(f) = n.as_f64() {
                     if let Some(min) = pattern.validation_rules.min {
                         if f < min {
@@ -678,7 +657,7 @@ impl OptimizedSettingsActor {
                 }
                 Ok(())
             }
-            (FieldType::Int32 | FieldType::Int64, Value::Number(n)) => {
+            (FieldType::Int32, Value::Number(n)) => {
                 if n.is_i64() {
                     Ok(())
                 } else {
@@ -689,7 +668,6 @@ impl OptimizedSettingsActor {
                 }
             }
             (FieldType::Bool, Value::Bool(_)) => Ok(()),
-            (FieldType::String, Value::String(_)) => Ok(()),
             _ => Err(VisionClawError::Settings(SettingsError::ValidationFailed {
                 setting_path: "value".to_string(),
                 reason: "Type mismatch".to_string(),
@@ -835,7 +813,7 @@ impl Clone for OptimizedSettingsActor {
             path_cache: self.path_cache.clone(),
             path_lookup: self.path_lookup.clone(),
             metrics: self.metrics.clone(),
-            compressor: Arc::new(RwLock::new(Compress::new(Compression::default(), false))),
+            #[cfg(feature = "redis")]
             decompressor: Arc::new(RwLock::new(Decompress::new(false))),
             graph_service_addr: self.graph_service_addr.clone(),
             gpu_compute_addr: self.gpu_compute_addr.clone(),
