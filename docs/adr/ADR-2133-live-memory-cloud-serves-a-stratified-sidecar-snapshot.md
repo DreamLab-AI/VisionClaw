@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 006332e88e12c5247b566e3e34205fd31d066588
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -141,3 +141,7 @@ otherwise report `hnsw`, and restricted queries report `exact`. The live test pa
 **Accepted risk.** The dev compose service publishes its ports on every interface, so with dev mode on, anyone who can reach the dev host can read memory keys, snippets and vectors from non-excluded namespaces (security review M1). `personal-context` and the other excluded namespaces stay excluded. Bind the dev ports to loopback or the rail, or unset `VISIONCLAW_DEV_MODE`, on a shared network.
 
 **Evidence.** `tests/memory_cloud_auth_test.rs` now runs in two phases. With dev mode on, an anonymous caller is admitted on all four endpoints (it failed before this change, getting 401). With dev mode off, anonymous and dev-token callers get 401, an Editor signer 403, and a signed power user is admitted, with the per-pubkey budget enforced. Alongside, `verify_access` now answers a request with no credentials at all with 401 rather than 403 (`src/utils/auth.rs`, legacy-header branch), which the same test pins.
+
+## Re-verification — 2026-10-07 (006332e88)
+
+`wire.rs` gains only `client_fixture_round_trips`, a test that round-trips the client wire fixture through every wire struct so that a field added or removed on either side fails. No wire shape changed. The client now shows `sidecar.method`, the health error category and a 429 rate-limit state, and leaves unsampled sidecar hits out of the agreement count; all of these match this record. The decision holds.
