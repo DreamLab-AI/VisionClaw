@@ -12,9 +12,11 @@
 //!   (`phaseAt − sentAt + serverNow`), so receivers only need their own
 //!   offset to the server, not to the desktop. The relayed frame carries
 //!   `serverTime`.
-//! - `{"type":"memoryRoute","snapshotId","nodeIds":[…],"positions"?}` — the
-//!   current query route through the memory cloud, root → answer. An empty
-//!   `nodeIds` clears it.
+//! - `{"type":"memoryRoute","snapshotId","seq","sentAt","path":[…],"sidecar":[…],"query"}`
+//!   — the current query route through the memory cloud as snapshot row
+//!   indices, root → answer (an empty `path` clears it). The shape and limits
+//!   are those of the headset's parser, `xr-client/rust/src/memory_route.rs`
+//!   (`parse_route`): the relay never forwards a frame that parser would reject.
 //!
 //! Both are re-serialised from validated fields (unknown keys are dropped, so
 //! the relay can never be used to smuggle arbitrary JSON to another session)
@@ -26,13 +28,15 @@ use serde_json::{json, Value};
 /// Minimum spacing between relayed frames of one kind from one session (4 Hz).
 pub const RELAY_MIN_INTERVAL_MS: f64 = 250.0;
 /// Largest relay frame accepted, in bytes of JSON text.
-pub const MAX_RELAY_FRAME_BYTES: usize = 96 * 1024;
-/// Most route nodes accepted in one `memoryRoute`.
-pub const MAX_ROUTE_NODES: usize = 512;
-/// Longest node id / snapshot id accepted.
+pub const MAX_RELAY_FRAME_BYTES: usize = 16 * 1024;
+/// Longest route path accepted (`memory_route.rs` MAX_PATH).
+pub const MAX_ROUTE_PATH: usize = 64;
+/// Sidecar marks kept (`memory_route.rs` MAX_SIDECAR).
+pub const MAX_ROUTE_SIDECAR: usize = 64;
+/// Query echo length in characters (`memory_route.rs` MAX_QUERY_CHARS).
+pub const MAX_ROUTE_QUERY_CHARS: usize = 120;
+/// Longest snapshot id accepted.
 pub const MAX_RELAY_ID_LEN: usize = 128;
-/// Bound on any route coordinate (cloud positions sit in roughly ±100).
-pub const MAX_ROUTE_COORD: f64 = 10_000.0;
 /// Accepted tempo range (beatClock.ts TAP_MIN_BPM / TAP_MAX_BPM).
 pub const MIN_BPM: f64 = 40.0;
 pub const MAX_BPM: f64 = 220.0;
@@ -135,47 +139,56 @@ pub fn validate_beat_clock(msg: &Value, server_now_ms: f64) -> Result<String, Re
     .to_string())
 }
 
-/// Validate a `memoryRoute` frame and build the canonical relayed JSON.
+/// A snapshot row index: a non-negative whole number that fits u32.
+fn as_row(v: &Value) -> Option<u32> {
+    let f = v.as_f64()?;
+    (f >= 0.0 && f.fract() == 0.0 && f <= u32::MAX as f64).then_some(f as u32)
+}
+
+/// Validate a `memoryRoute` frame and build the canonical relayed JSON, with
+/// the headset parser's rules: non-blank `snapshotId`; `path` ≤ 64 row indices
+/// (any bad entry rejects the frame); `sidecar` bad entries dropped, ≤ 64 kept;
+/// `query` cut to 120 characters; `seq` / `sentAt` finite and ≥ 0 (0 when
+/// absent). The headset orders frames by (`sentAt`, `seq`).
 pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, RelayReject> {
     let snapshot_id = short_id(msg, "snapshotId")?;
-    let ids = msg.get("nodeIds").and_then(Value::as_array).ok_or(RelayReject::Field("nodeIds"))?;
-    if ids.len() > MAX_ROUTE_NODES {
-        return Err(RelayReject::Field("nodeIds"));
+    if snapshot_id.trim().is_empty() {
+        return Err(RelayReject::Field("snapshotId"));
     }
-    let mut node_ids = Vec::with_capacity(ids.len());
-    for id in ids {
-        match id.as_str() {
-            Some(s) if !s.is_empty() && s.len() <= MAX_RELAY_ID_LEN => node_ids.push(s.to_owned()),
-            _ => return Err(RelayReject::Field("nodeIds")),
-        }
+    let raw = msg.get("path").and_then(Value::as_array).ok_or(RelayReject::Field("path"))?;
+    if raw.len() > MAX_ROUTE_PATH {
+        return Err(RelayReject::Field("path"));
     }
-    let positions = match msg.get("positions") {
-        None | Some(Value::Null) => None,
-        Some(Value::Array(p)) => {
-            if p.len() != node_ids.len() * 3 {
-                return Err(RelayReject::Field("positions"));
-            }
-            let mut out = Vec::with_capacity(p.len());
-            for v in p {
-                match v.as_f64() {
-                    Some(x) if x.is_finite() && x.abs() <= MAX_ROUTE_COORD => out.push(x),
-                    _ => return Err(RelayReject::Field("positions")),
-                }
-            }
-            Some(out)
-        }
-        Some(_) => return Err(RelayReject::Field("positions")),
+    let path = raw.iter().map(as_row).collect::<Option<Vec<u32>>>().ok_or(RelayReject::Field("path"))?;
+    let sidecar: Vec<u32> = match msg.get("sidecar") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(a)) => a.iter().filter_map(as_row).take(MAX_ROUTE_SIDECAR).collect(),
+        Some(_) => return Err(RelayReject::Field("sidecar")),
     };
-    let mut out = json!({
+    let query: String = match msg.get("query") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(q)) => q.chars().take(MAX_ROUTE_QUERY_CHARS).collect(),
+        Some(_) => return Err(RelayReject::Field("query")),
+    };
+    let non_neg = |key: &'static str| -> Result<f64, RelayReject> {
+        match msg.get(key) {
+            None | Some(Value::Null) => Ok(0.0),
+            Some(v) => v.as_f64().filter(|x| x.is_finite() && *x >= 0.0).ok_or(RelayReject::Field(key)),
+        }
+    };
+    let seq = non_neg("seq")?.floor();
+    let sent_at = non_neg("sentAt")?;
+    Ok(json!({
         "type": "memoryRoute",
         "snapshotId": snapshot_id,
-        "nodeIds": node_ids,
+        "seq": seq,
+        "sentAt": sent_at,
+        "path": path,
+        "sidecar": sidecar,
+        "query": query,
         "serverTime": server_now_ms,
-    });
-    if let Some(p) = positions {
-        out["positions"] = json!(p);
-    }
-    Ok(out.to_string())
+    })
+    .to_string())
 }
 
 /// Validate a relay frame of `kind` from its raw text and parsed value.
@@ -360,31 +373,36 @@ mod tests {
     }
 
     #[test]
-    fn memory_route_is_validated_capped_and_canonicalised() {
-        let m = json!({"type":"memoryRoute","snapshotId":"s-1","nodeIds":["a","b"],"positions":[1,2,3,4,5,6],"x":1});
+    fn memory_route_matches_the_headset_parser_rules() {
+        let m = json!({"type":"memoryRoute","snapshotId":"s-1","seq":7,"sentAt":NOW - 5.0,
+            "path":[3,1,4],"sidecar":[2,-1,"x",9.5,5],"query":"q".repeat(200),"x":1});
         let out = parse(&validate_memory_route(&m, NOW).unwrap());
-        assert_eq!(out["nodeIds"], json!(["a", "b"]));
-        assert_eq!(out["positions"], json!([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
-        assert!(out.get("x").is_none());
-        let clear = json!({"snapshotId":"s-1","nodeIds":[]});
-        assert_eq!(parse(&validate_memory_route(&clear, NOW).unwrap())["nodeIds"], json!([]), "empty clears");
-        let no_pos = json!({"snapshotId":"s","nodeIds":["a"]});
-        assert!(parse(&validate_memory_route(&no_pos, NOW).unwrap()).get("positions").is_none());
+        assert_eq!(out["path"], json!([3, 1, 4]));
+        assert_eq!(out["sidecar"], json!([2, 5]), "bad sidecar marks dropped, like parse_route");
+        assert_eq!(out["query"].as_str().unwrap().chars().count(), MAX_ROUTE_QUERY_CHARS);
+        assert_eq!(out["seq"], 7.0);
+        assert_eq!(out["sentAt"], NOW - 5.0);
+        assert_eq!(out["serverTime"], NOW);
+        assert!(out.get("x").is_none(), "unknown keys never relayed");
+        let clear = json!({"snapshotId":"s-1","path":[]});
+        let c = parse(&validate_memory_route(&clear, NOW).unwrap());
+        assert_eq!(c["path"], json!([]), "empty path clears");
+        assert_eq!((c["seq"].clone(), c["sentAt"].clone(), c["query"].clone()), (json!(0.0), json!(0.0), json!("")));
 
-        let too_many: Vec<String> = (0..=MAX_ROUTE_NODES).map(|i| format!("n{i}")).collect();
-        let long = "x".repeat(MAX_RELAY_ID_LEN + 1);
+        let too_long: Vec<u32> = (0..=MAX_ROUTE_PATH as u32).collect();
         let bad: Vec<(Value, &str)> = vec![
-            (json!({"nodeIds":["a"]}), "snapshotId"),
-            (json!({"snapshotId":"","nodeIds":["a"]}), "snapshotId"),
-            (json!({"snapshotId":long,"nodeIds":["a"]}), "snapshotId"),
-            (json!({"snapshotId":"s"}), "nodeIds"),
-            (json!({"snapshotId":"s","nodeIds":too_many}), "nodeIds"),
-            (json!({"snapshotId":"s","nodeIds":[1]}), "nodeIds"),
-            (json!({"snapshotId":"s","nodeIds":[""]}), "nodeIds"),
-            (json!({"snapshotId":"s","nodeIds":["a"],"positions":[1,2]}), "positions"),
-            (json!({"snapshotId":"s","nodeIds":["a"],"positions":[1,2,"3"]}), "positions"),
-            (json!({"snapshotId":"s","nodeIds":["a"],"positions":[1,2,1e5]}), "positions"),
-            (json!({"snapshotId":"s","nodeIds":["a"],"positions":"1,2,3"}), "positions"),
+            (json!({"path":[1,2]}), "snapshotId"),
+            (json!({"snapshotId":"   ","path":[1,2]}), "snapshotId"),
+            (json!({"snapshotId":"x".repeat(MAX_RELAY_ID_LEN + 1),"path":[1,2]}), "snapshotId"),
+            (json!({"snapshotId":"s"}), "path"),
+            (json!({"snapshotId":"s","path":too_long}), "path"),
+            (json!({"snapshotId":"s","path":[1,-2]}), "path"),
+            (json!({"snapshotId":"s","path":[1,2.5]}), "path"),
+            (json!({"snapshotId":"s","path":["1"]}), "path"),
+            (json!({"snapshotId":"s","path":[1],"sidecar":"2"}), "sidecar"),
+            (json!({"snapshotId":"s","path":[1],"query":5}), "query"),
+            (json!({"snapshotId":"s","path":[1],"seq":-1}), "seq"),
+            (json!({"snapshotId":"s","path":[1],"sentAt":"now"}), "sentAt"),
         ];
         for (m, field) in bad {
             assert_eq!(validate_memory_route(&m, NOW), Err(RelayReject::Field(field)), "{m}");
@@ -395,11 +413,24 @@ mod tests {
         );
     }
 
+    /// The headset parser (`xr-client/rust/src/memory_route.rs`) reads the same
+    /// cases in `tests/memory_route_relay_parity.rs`, so the two cannot drift.
+    #[test]
+    fn relay_agrees_with_the_headset_parser_on_the_shared_cases() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("xr-client/rust/tests/fixtures/memory_route_cases.json");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+        for c in v["cases"].as_array().unwrap() {
+            let ok = validate_memory_route(&c["frame"], NOW).is_ok();
+            assert_eq!(ok, c["accept"].as_bool().unwrap(), "{}", c["frame"]);
+        }
+    }
+
     #[test]
     fn the_largest_valid_route_fits_the_frame_cap() {
-        let ids: Vec<String> = (0..MAX_ROUTE_NODES).map(|_| "x".repeat(64)).collect();
-        let pos: Vec<f64> = (0..MAX_ROUTE_NODES * 3).map(|i| -99.123456789 + i as f64 * 1e-3).collect();
-        let text = json!({"type":"memoryRoute","snapshotId":"s".repeat(64),"nodeIds":ids,"positions":pos}).to_string();
+        let path: Vec<u32> = (0..MAX_ROUTE_PATH as u32).map(|i| u32::MAX - i).collect();
+        let text = json!({"type":"memoryRoute","snapshotId":"s".repeat(MAX_RELAY_ID_LEN),"seq":u32::MAX,
+            "sentAt":NOW,"path":path.clone(),"sidecar":path,"query":"€".repeat(MAX_ROUTE_QUERY_CHARS)}).to_string();
         assert!(text.len() <= MAX_RELAY_FRAME_BYTES, "{} bytes", text.len());
     }
 

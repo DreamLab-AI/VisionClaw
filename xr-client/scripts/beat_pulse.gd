@@ -105,18 +105,27 @@ func on_memory_flash(json: String) -> void:
 	var descs: Array = MemoryFlashCodec.parse(json)
 	if descs.is_empty():
 		return
-	var cloud: Node = get_tree().get_first_node_in_group("xr_memory_cloud") if is_inside_tree() else null
+	# With the memory cloud shown and loaded (xr-cloud, memory_cloud_layer.gd),
+	# a flash lands on its point(s) by the desktop's key → namespace rule and an
+	# unmatched flash draws nothing, exactly as on the desktop; burst size follows
+	# the cloud's scale. With no cloud on screen, a stable stand-in point on a
+	# shell around the graph keeps memory activity visible in the headset.
+	var cloud: Object = _scene.get("_memory_cloud") if _scene != null else null
+	var cloud_live: bool = cloud != null and cloud.has_method("resolve_flash") \
+		and bool(cloud.call("is_enabled")) and bool(cloud.call("has_snapshot"))
 	var centre: Vector3 = _centre_fn.call() if _centre_fn.is_valid() else Vector3(0, 1.2, -1.2)
+	if cloud_live:
+		var root: Node3D = cloud.call("cloud_root")
+		if root != null:
+			_bursts.unit_scale = absf(root.global_transform.basis.get_scale().x)
+	else:
+		_bursts.unit_scale = MemoryBursts.DEFAULT_UNIT_SCALE
 	for d: Dictionary in descs:
-		var spots := PackedVector3Array()
-		# xr-cloud's point cloud resolves a memory to its world-space point(s), as
-		# the desktop does; without the cloud a stable stand-in point is used.
-		if cloud != null and cloud.has_method("resolve_flash_positions"):
-			spots = cloud.resolve_flash_positions(String(d["key"]), String(d["namespace"]))
-		if spots.is_empty():
-			spots.append(MemoryBursts.ambient_position(String(d["key"]), String(d["namespace"]), centre))
-		for p: Vector3 in spots:
-			_bursts.spawn(p, d)
+		if cloud_live:
+			for row: int in cloud.call("resolve_flash", String(d["key"]), String(d["namespace"])):
+				_bursts.spawn(cloud.call("world_point", row), d)
+		else:
+			_bursts.spawn(MemoryBursts.ambient_position(String(d["key"]), String(d["namespace"]), centre), d)
 
 
 ## HUD intents: "beat_tap", "beat_mic:1|0", "memory_bursts:1|0".
@@ -246,7 +255,25 @@ func pulse_materials() -> Array:
 	return out
 
 
-## Current pulse (0..1, reduced-motion scaled) for other layers (xr-cloud's comet).
+## Beat accessors read by xr-cloud's memory_cloud_layer.gd (`beat_source`):
+## is_locked() — a clock is driving; beat_phase() — 0..1 within the beat, < 0
+## when none; beat_pulse() — the raw 0..1 envelope (the reader applies its own
+## reduced-motion policy).
+func is_locked() -> bool:
+	return _bp != null and bool(_bp.status().get("on", false))
+
+
+func beat_phase() -> float:
+	if not is_locked():
+		return -1.0
+	return float(_bp.status().get("phase", -1.0))
+
+
+func beat_pulse() -> float:
+	return float(_bp.pulse(false)) if _bp != null else 0.0
+
+
+## Current pulse (0..1, reduced-motion scaled) for other layers.
 func current_pulse() -> float:
 	return maxf(_last_pulse, 0.0)
 

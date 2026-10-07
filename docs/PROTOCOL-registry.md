@@ -164,11 +164,12 @@ pubkey (`ClientManager::relay_text_to_pubkey`, `client_coordinator_actor.rs`).
 | `type` | Direction | Fields (validated, `session_relay.rs`) | Relayed as |
 |--------|-----------|-----------------------------------------|-----------|
 | `beatClock` | desktop → server → same-pubkey sessions | `bpm` 40–220, `phaseAt` epoch ms ≥ 0 (0 = not locked), `confidence` 0–1, `source` ∈ off\|file\|tap\|spotify, `sentAt` sender ms (optional) | same fields plus `serverTime`; `phaseAt` rebased to the server clock as `phaseAt − sentAt + serverNow` when `sentAt` is present |
-| `memoryRoute` | desktop → server → same-pubkey sessions | `snapshotId` 1–128 chars, `nodeIds` ≤ 512 memory-entry ids (root → answer; `[]` clears), `positions` optional 3·n finite, \|v\| ≤ 10⁴ | same fields plus `serverTime` |
+| `memoryRoute` | desktop → server → same-pubkey sessions | `snapshotId` 1–128 chars, non-blank; `path` ≤ 64 snapshot row indices, root → answer (`[]` clears; any bad entry rejects the frame); `sidecar` ≤ 64 rows (bad entries dropped); `query` ≤ 120 chars (truncated); `seq`, `sentAt` finite ≥ 0 | same fields plus `serverTime`; the headset orders frames by (`sentAt`, `seq`) and resolves rows against its own copy of the snapshot (`xr-client/rust/src/memory_route.rs`) |
 | `ping` / `pong` | client → server → client | `{type:"ping",timestamp}` | `{type:"pong",timestamp,serverTime}`; `serverTime` (server Unix ms) is additive, so old clients ignore it |
 
 Relay rules:
-- the raw frame is at most 96 KiB;
+- the raw frame is at most 16 KiB;
+- the server and headset agree on `memoryRoute` validity through one shared case file, `xr-client/rust/tests/fixtures/memory_route_cases.json`, read by both suites;
 - frames are rebuilt from the validated fields, so unknown keys are dropped;
 - each session and kind is throttled to 4 Hz, with the newest held frame flushed at the interval end;
 - a sender without an authenticated pubkey receives one `error` frame.

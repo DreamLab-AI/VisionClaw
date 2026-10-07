@@ -23,9 +23,11 @@ const RING_SEGMENTS := 32
 const PEAK_ALPHA := 0.85            # desktop opacity = (1 - t²) · 0.85
 const REDUCED_SCALE := 0.6          # fraction of max_scale held under reduced motion
 const BEAT_ALPHA_GAIN := 0.35
-## Metres per desktop cloud unit. The desktop cloud spans ~±100 units; xr-cloud
-## may set this to its own cloud scale so bursts sit in proportion to its points.
-var unit_scale: float = 0.02
+## Metres per desktop cloud unit. beat_pulse.gd sets it to the memory cloud
+## root's scale while the cloud is shown, so bursts keep the desktop's size
+## relative to the points; the default sizes the stand-in bursts.
+const DEFAULT_UNIT_SCALE := 0.02
+var unit_scale: float = DEFAULT_UNIT_SCALE
 
 var reduced_motion: bool = true
 var beat_pulse: float = 0.0

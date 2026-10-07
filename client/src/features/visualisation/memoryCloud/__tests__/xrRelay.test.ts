@@ -4,7 +4,7 @@ import {
   createXrRelay,
   routeFrame,
   BEAT_HEARTBEAT_MS,
-  MAX_ROUTE_NODES,
+  MAX_ROUTE_PATH,
   RELAY_MIN_INTERVAL_MS,
   ROUTE_REPEAT_MS,
   type RelayFrame,
@@ -101,39 +101,47 @@ describe('xrRelay', () => {
     relay.dispose();
   });
 
-  it('relays the route as memory ids and positions, repeats it, then clears it', () => {
+  it('relays the route as snapshot rows with sidecar and query, repeats it, then clears it', () => {
     const { store, relay } = make();
-    const snap = snapshot();
-    store.setState({ snapshot: snap });
+    store.setState({ snapshot: snapshot() });
     expect(routes()).toHaveLength(0); // no route yet, nothing to clear
-    store.setState((s) => ({ query: { ...s.query, status: 'done', run: runWithPath([0, 2, 3]), seq: 1 } }));
+    const response = {
+      snapshotId: 's1', embedModel: 'bge', query: { text: 'q', vector: [] },
+      sidecar: { tookMs: 1, results: [
+        { id: 'a', key: 'a', namespace: 'ns', sourceType: 'm', score: 1, snippet: '', sampleIndex: 3 },
+        { id: 'b', key: 'b', namespace: 'ns', sourceType: 'm', score: 1, snippet: '', sampleIndex: null },
+      ] },
+    };
+    store.setState((s) => ({ query: { ...s.query, text: 'how does auth work', status: 'done', run: runWithPath([0, 2, 3]), response, seq: 1 } }));
     vi.advanceTimersByTime(RELAY_MIN_INTERVAL_MS);
     expect(routes()[0]).toEqual({
-      type: 'memoryRoute', snapshotId: 's1', nodeIds: ['mem-0', 'mem-2', 'mem-3'],
-      positions: [0, 0.1, 0.2, 0.6, 0.7, 0.8, 0.9, 1, 1.1].map((v) => expect.closeTo(v, 9)),
+      type: 'memoryRoute', snapshotId: 's1', seq: 1, sentAt: T0,
+      path: [0, 2, 3], sidecar: [3], query: 'how does auth work',
     });
     vi.advanceTimersByTime(ROUTE_REPEAT_MS + BEAT_HEARTBEAT_MS);
     expect(routes().length).toBe(2); // late-joiner repeat
+    const rep = routes()[1] as Extract<RelayFrame, { type: 'memoryRoute' }>;
+    expect(rep.seq).toBe(2);
+    expect(rep.sentAt).toBeGreaterThan(T0); // fresh stamp: the headset accepts it as newer
     store.getState().clearQuery();
     vi.advanceTimersByTime(RELAY_MIN_INTERVAL_MS);
-    expect(routes()[routes().length - 1]).toEqual({ type: 'memoryRoute', snapshotId: 's1', nodeIds: [] });
+    expect(routes()[routes().length - 1]).toMatchObject({ type: 'memoryRoute', snapshotId: 's1', path: [], sidecar: [], query: '', seq: 3 });
     const n = routes().length;
     vi.advanceTimersByTime(3 * ROUTE_REPEAT_MS);
     expect(routes().length).toBe(n); // no repeats once cleared
     relay.dispose();
   });
 
-  it('caps the route at the server limit, keeping the answer end', () => {
-    const snap = snapshot(MAX_ROUTE_NODES + 50);
-    const path = Array.from({ length: MAX_ROUTE_NODES + 50 }, (_, i) => i);
-    const f = routeFrame({
-      snapshot: snap,
-      beat: { bpm: 120, phaseAt: 0, confidence: 0, source: 'off' },
-      query: { status: 'done', run: runWithPath(path) } as never,
-    })!;
-    expect(f.nodeIds).toHaveLength(MAX_ROUTE_NODES);
-    expect(f.nodeIds[f.nodeIds.length - 1]).toBe(`mem-${MAX_ROUTE_NODES + 49}`);
-    expect(f.positions).toHaveLength(MAX_ROUTE_NODES * 3);
+  it('keeps the answer end of an over-long route and drops out-of-range rows', () => {
+    const snap = snapshot(200);
+    const path = Array.from({ length: 100 }, (_, i) => i);
+    const beat = { bpm: 120, phaseAt: 0, confidence: 0, source: 'off' as const };
+    const f = routeFrame({ snapshot: snap, beat, query: { status: 'done', text: 'é'.repeat(300), run: runWithPath(path) } as never })!;
+    expect(f.path).toHaveLength(MAX_ROUTE_PATH);
+    expect(f.path[f.path.length - 1]).toBe(99);
+    expect(Array.from(f.query)).toHaveLength(120);
+    const g = routeFrame({ snapshot: snapshot(4), beat, query: { status: 'done', text: '', run: runWithPath([0, 9, 3]) } as never })!;
+    expect(g.path).toEqual([0, 3]);
   });
 
   it('stops everything on dispose', () => {

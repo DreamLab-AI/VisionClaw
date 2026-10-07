@@ -4,16 +4,21 @@
  * same authenticated user's other sessions, i.e. their Godot XR client:
  *
  *   { type: 'beatClock', bpm, phaseAt, confidence, source, sentAt }
- *   { type: 'memoryRoute', snapshotId, nodeIds, positions }
+ *   { type: 'memoryRoute', snapshotId, seq, sentAt, path, sidecar, query }
  *
  * - beatClock goes out when the clock changes and every 2 s while it is on
  *   (the headset drops a clock after ~6.5 s of silence). Nothing is sent while
  *   the source is off, apart from one `off` frame at the moment it turns off so
  *   the headset stops at once rather than timing out.
- * - memoryRoute goes out when a query completes (the route root → answer, as
- *   memory-entry ids plus their cloud positions) and as an empty route when the
- *   query is cleared; a live route repeats every 10 s for a headset that joins
- *   late.
+ * - memoryRoute goes out when a query completes and as an empty `path` when
+ *   the query is cleared; a live route repeats every 10 s for a headset that
+ *   joins late. `path` is the route as snapshot ROW indices, root → answer
+ *   (`run.tree.path`); the headset resolves positions from its own copy of the
+ *   same snapshot. `sidecar` carries the sidecar's sampled top-k rows, `query`
+ *   the text (≤ 120 characters). Every frame carries a fresh `seq` and
+ *   `sentAt`: the headset orders by (sentAt, seq), so a reloaded page whose
+ *   seq restarts still wins. Shape and limits are the headset parser's
+ *   (`xr-client/rust/src/memory_route.rs`).
  * - Both are throttled to ≤ 4 Hz with a trailing send, matching the server.
  * - `sentAt` lets the server rebase `phaseAt` onto its own clock, so a skewed
  *   desktop clock does not shift the headset's beat.
@@ -30,8 +35,10 @@ import type { MemoryCloudState } from './memoryCloudStore';
 export const RELAY_MIN_INTERVAL_MS = 250;
 export const BEAT_HEARTBEAT_MS = 2000;
 export const ROUTE_REPEAT_MS = 10_000;
-/** server cap (session_relay.rs MAX_ROUTE_NODES) */
-export const MAX_ROUTE_NODES = 512;
+/** headset and server cap on route rows (memory_route.rs MAX_PATH) */
+export const MAX_ROUTE_PATH = 64;
+export const MAX_ROUTE_SIDECAR = 64;
+export const MAX_QUERY_CHARS = 120;
 
 export interface BeatClockFrame {
   type: 'beatClock';
@@ -45,9 +52,17 @@ export interface BeatClockFrame {
 export interface MemoryRouteFrame {
   type: 'memoryRoute';
   snapshotId: string;
-  nodeIds: string[];
-  positions?: number[];
+  seq: number;
+  sentAt: number;
+  /** snapshot rows, root → answer; [] clears */
+  path: number[];
+  /** sidecar top-k rows that are in the sample */
+  sidecar: number[];
+  query: string;
 }
+
+/** A route frame before it is stamped with seq / sentAt. */
+export type RouteBody = Omit<MemoryRouteFrame, 'seq' | 'sentAt'>;
 
 export type RelayFrame = BeatClockFrame | MemoryRouteFrame;
 
@@ -63,24 +78,26 @@ export interface XrRelayDeps {
 
 type Slice = Pick<MemoryCloudState, 'beat' | 'query' | 'snapshot'>;
 
-/** Route frame for the current query, or an empty (clearing) route. */
-export function routeFrame(s: Slice): MemoryRouteFrame | null {
+/** Route body for the current query, or an empty (clearing) route. */
+export function routeFrame(s: Slice): RouteBody | null {
   const snap = s.snapshot;
   if (!snap) return null;
-  const path = s.query.status === 'done' ? s.query.run?.tree.path ?? [] : [];
-  const rows = path.length > MAX_ROUTE_NODES ? path.slice(-MAX_ROUTE_NODES) : path;
-  const nodeIds: string[] = [];
-  const positions: number[] = [];
-  for (const i of rows) {
-    const meta = snap.metadata[i];
-    if (!meta) continue;
-    nodeIds.push(meta.id);
-    const p = snap.positions;
-    if (i * 3 + 2 < p.length) positions.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+  const done = s.query.status === 'done';
+  const full = done ? s.query.run?.tree.path ?? [] : [];
+  // keep the answer end if a route is ever longer than the headset accepts
+  const path = (full.length > MAX_ROUTE_PATH ? full.slice(-MAX_ROUTE_PATH) : full).filter(
+    (r) => Number.isInteger(r) && r >= 0 && r < snap.count,
+  );
+  const sidecar: number[] = [];
+  if (done && path.length > 0) {
+    for (const h of s.query.response?.sidecar.results ?? []) {
+      if (h.sampleIndex === null || h.sampleIndex === undefined) continue;
+      sidecar.push(h.sampleIndex);
+      if (sidecar.length >= MAX_ROUTE_SIDECAR) break;
+    }
   }
-  const frame: MemoryRouteFrame = { type: 'memoryRoute', snapshotId: snap.snapshotId, nodeIds };
-  if (positions.length === nodeIds.length * 3 && nodeIds.length > 0) frame.positions = positions;
-  return frame;
+  const query = path.length > 0 ? Array.from(s.query.text ?? '').slice(0, MAX_QUERY_CHARS).join('') : '';
+  return { type: 'memoryRoute', snapshotId: snap.snapshotId, path, sidecar, query };
 }
 
 function beatKey(b: BeatClockState): string {
@@ -157,6 +174,8 @@ export function createXrRelay(store: StoreApi<MemoryCloudState>, deps: XrRelayDe
   let lastRouteKey = '';
   let routeLive = false;
   let lastRouteSent = -Infinity;
+  let routeSeq = 0;
+  const stamp = (b: RouteBody): MemoryRouteFrame => ({ ...b, seq: ++routeSeq, sentAt: d.now() });
 
   const onBeat = (b: BeatClockState) => {
     const key = beatKey(b);
@@ -174,9 +193,9 @@ export function createXrRelay(store: StoreApi<MemoryCloudState>, deps: XrRelayDe
   const onRoute = (s: Slice) => {
     const f = routeFrame(s);
     if (!f) return;
-    const key = `${f.snapshotId}|${f.nodeIds.join(',')}`;
+    const key = `${f.snapshotId}|${f.path.join(',')}`;
     if (key === lastRouteKey) return;
-    const clearing = f.nodeIds.length === 0;
+    const clearing = f.path.length === 0;
     if (clearing && !routeLive) {
       lastRouteKey = key;
       return;
@@ -184,7 +203,7 @@ export function createXrRelay(store: StoreApi<MemoryCloudState>, deps: XrRelayDe
     lastRouteKey = key;
     routeLive = !clearing;
     lastRouteSent = d.now();
-    routeCh.offer(f);
+    routeCh.offer(stamp(f));
   };
 
   const unsub = store.subscribe((s, prev) => {
@@ -200,9 +219,9 @@ export function createXrRelay(store: StoreApi<MemoryCloudState>, deps: XrRelayDe
     }
     if (routeLive && d.now() - lastRouteSent >= ROUTE_REPEAT_MS) {
       const f = routeFrame(s);
-      if (f && f.nodeIds.length > 0) {
+      if (f && f.path.length > 0) {
         lastRouteSent = d.now();
-        routeCh.offer(f);
+        routeCh.offer(stamp(f));
       }
     }
   }, BEAT_HEARTBEAT_MS);

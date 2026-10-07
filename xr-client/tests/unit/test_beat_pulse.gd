@@ -130,20 +130,23 @@ func test_hud_tap_intent_reaches_tap_tempo() -> void:
 	await get_tree().process_frame
 
 
-func test_pong_is_consumed_and_memory_route_is_forwarded() -> void:
+func test_pong_is_consumed_and_the_cloud_reads_the_beat() -> void:
 	var scene: Node3D = await _make_scene()
 	var now_ms: float = Time.get_unix_time_from_system() * 1000.0
 	scene._on_graph_text(JSON.stringify({"type": "pong", "timestamp": now_ms - 20.0, "serverTime": now_ms + 5000.0}))
 	var st: Dictionary = scene.get_node("BeatPulse").beat().status()
 	assert_true(bool(st["synced"]), "pong with serverTime sets the clock offset")
 	assert_almost_eq(float(st["offset_ms"]), 5010.0, 30.0, "offset ≈ serverTime − (sent + rtt/2)")
-	var sink := RouteSink.new()
-	sink.add_to_group("xr_memory_cloud")
-	add_child(sink)
-	scene._on_graph_text('{"type":"memoryRoute","snapshotId":"s1","nodeIds":["a","b"]}')
-	assert_eq(sink.routes.size(), 1, "memoryRoute handed to the memory cloud layer")
-	assert_eq(String(sink.routes[0]["snapshotId"]), "s1")
-	sink.queue_free()
+	# xr-cloud's route layer pulses on this clock through beat_source.
+	var beat: Node = scene.get_node("BeatPulse")
+	assert_eq(scene._memory_cloud.beat_source, beat, "memory cloud reads the beat from BeatPulse")
+	assert_false(beat.is_locked(), "no clock yet")
+	assert_lt(beat.beat_phase(), 0.0, "no phase without a clock")
+	scene._on_graph_text(_beat_frame(120.0, "tap"))
+	assert_true(beat.is_locked())
+	var ph: float = beat.beat_phase()
+	assert_true(ph >= 0.0 and ph < 1.0, "phase in [0, 1)")
+	assert_almost_eq(beat.beat_pulse(), exp(-6.0 * ph), 0.1, "raw envelope, not reduced-motion scaled")
 	scene.queue_free()
 	await get_tree().process_frame
 
@@ -204,9 +207,3 @@ func test_mic_badge_shows_only_while_listening() -> void:
 	hud.queue_free()
 	await get_tree().process_frame
 
-
-class RouteSink extends Node:
-	var routes: Array = []
-
-	func on_memory_route(msg: Dictionary) -> void:
-		routes.append(msg)
