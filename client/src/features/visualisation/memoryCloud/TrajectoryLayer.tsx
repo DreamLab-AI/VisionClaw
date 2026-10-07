@@ -280,7 +280,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     const diskGeom = new THREE.BufferGeometry().setFromPoints(
       Array.from({ length: 129 }, (_, i) => {
         const a = (i / 128) * Math.PI * 2;
-        return new THREE.Vector3(Math.cos(a) * LAYOUT_RADIUS, Math.sin(a) * LAYOUT_RADIUS, 0);
+        // the hyper layout maps the unit disk to the XZ plane (y = 0) at LAYOUT_RADIUS
+        return new THREE.Vector3(Math.cos(a) * LAYOUT_RADIUS, 0, Math.sin(a) * LAYOUT_RADIUS);
       }),
     );
 
@@ -398,7 +399,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     if (morphStart.current !== null && prevLayout && trajectory) {
       const mf = clamp01((now - morphStart.current) / MORPH_MS);
       if (mf < 1) {
-        L = trajectory.interpolateLayouts(prevLayout, layout, ease.io(mf));
+        // interpolateLayouts applies its own cubic ease; one-sided nodes glide from their ancestor
+        L = trajectory.interpolateLayouts(prevLayout, layout, mf, run.tree);
         morphing = true;
       } else {
         morphStart.current = null;

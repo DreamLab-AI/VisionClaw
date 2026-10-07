@@ -19,41 +19,19 @@ import type {
   MemoryCloudQueryResponse,
   MemoryCloudSnapshot,
 } from './types';
-import type {
-  HnswGraph,
-  HnswParams,
-  LayoutOptions,
-  LayoutResult,
-  LearningState,
-  QueryRun,
-  SearchTree,
-  TrajectoryView,
-  VectorSet,
-} from '../memoryTrajectory/types';
+import type { LayoutResult, QueryRun, TrajectoryView, VectorSet } from '../memoryTrajectory/types';
+import type { TrajectoryEngine } from '../memoryTrajectory';
 import type { FlashTargets } from './cloudData';
 
-// ── trajectory module contract (exported by memoryTrajectory/index.ts) ──
+// ── trajectory module contract (memoryTrajectory/index.ts) ──
+// Type-only: the store never imports the engine at runtime, it is injected.
 
-export type EngineProgress = number | { done: number; total: number };
+export type { TrajectoryEngine };
 
-export interface TrajectoryEngine {
-  ready: Promise<unknown>;
-  onProgress(cb: (p: EngineProgress) => void): () => void;
-  query(q: Float32Array, opts?: { k?: number; ef?: number; learn?: boolean }): Promise<QueryRun>;
-  learning: LearningState;
-  resetLearning(): void;
-  dispose(): void;
-  graph(): HnswGraph | null;
-}
-
-export interface TrajectoryModule {
-  createTrajectoryEngine(
-    vs: VectorSet,
-    opts?: { params?: Partial<HnswParams>; useWorker?: boolean; storageKey?: string },
-  ): TrajectoryEngine;
-  layoutTree(tree: SearchTree, opts: LayoutOptions): LayoutResult;
-  interpolateLayouts(a: LayoutResult, b: LayoutResult, t: number): LayoutResult;
-}
+export type TrajectoryModule = Pick<
+  typeof import('../memoryTrajectory'),
+  'createTrajectoryEngine' | 'layoutTree' | 'interpolateLayouts'
+>;
 
 export interface MemoryCloudDeps {
   fetchSnapshot: (o?: api.RequestOptions) => Promise<MemoryCloudSnapshot>;
@@ -226,8 +204,8 @@ export function sidecarAgreement(results: MemoryCloudHit[], run: QueryRun | null
   return { total: results.length, inSample, inLocal, inExact };
 }
 
-const progressFraction = (p: EngineProgress): number =>
-  typeof p === 'number' ? Math.max(0, Math.min(1, p)) : p.total > 0 ? Math.max(0, Math.min(1, p.done / p.total)) : 0;
+const progressFraction = (done: number, total: number): number =>
+  total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
 
 export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<StoreApi<MemoryCloudState>> {
   let loadCtl: AbortController | null = null;
@@ -287,7 +265,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
             storageKey: `vc-memory-learning:${id}`,
           });
           engineSnapshotId = id;
-          unsubProgress = engine.onProgress((p) => set({ buildProgress: progressFraction(p) }));
+          unsubProgress = engine.onProgress((done, total) => set({ buildProgress: progressFraction(done, total) }));
           applyLearning(engine, get().learning);
           set({
             snapshot: bundle.snapshot,

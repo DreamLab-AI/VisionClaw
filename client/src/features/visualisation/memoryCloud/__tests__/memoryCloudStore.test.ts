@@ -47,20 +47,20 @@ function learning(): LearningState {
 }
 
 function makeDeps() {
-  const engines: Array<{ dispose: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn>; learning: LearningState; storageKey?: string; resetLearning: ReturnType<typeof vi.fn>; emit: (p: number) => void }> = [];
+  const engines: Array<{ dispose: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn>; learning: LearningState; storageKey?: string; resetLearning: ReturnType<typeof vi.fn>; emit: (done: number, total: number) => void }> = [];
   const traj: TrajectoryModule = {
     createTrajectoryEngine: vi.fn((_vs: VectorSet, opts?: { storageKey?: string }) => {
-      let cb: ((p: unknown) => void) | null = null;
+      let cb: ((done: number, total: number) => void) | null = null;
       const e = {
         ready: Promise.resolve(),
-        onProgress: (f: (p: unknown) => void) => { cb = f; return () => { cb = null; }; },
+        onProgress: (f: (done: number, total: number) => void) => { cb = f; return () => { cb = null; }; },
         query: vi.fn(async () => run()),
         learning: learning(),
         resetLearning: vi.fn(),
         dispose: vi.fn(),
         graph: () => null,
         storageKey: opts?.storageKey,
-        emit: (p: number) => cb?.(p),
+        emit: (done: number, total: number) => cb?.(done, total),
       };
       engines.push(e);
       return e as never;
@@ -99,10 +99,12 @@ describe('memoryCloudStore', () => {
   it('records build progress from the engine', async () => {
     const store = createMemoryCloudStore(env.deps);
     await store.getState().loadSnapshot();
-    env.engines[0].emit(0.4);
+    env.engines[0].emit(2, 5);
     expect(store.getState().buildProgress).toBeCloseTo(0.4);
-    (env.engines[0] as unknown as { emit: (p: unknown) => void }).emit({ done: 3, total: 4 } as never);
+    env.engines[0].emit(3, 4);
     expect(store.getState().buildProgress).toBeCloseTo(0.75);
+    env.engines[0].emit(0, 0);
+    expect(store.getState().buildProgress).toBe(0);
   });
 
   it('reuses the engine for the same snapshot and disposes it on change', async () => {
