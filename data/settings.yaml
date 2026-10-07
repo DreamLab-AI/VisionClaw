@@ -341,7 +341,7 @@ system:
     retryDelay: 5
   websocket:
     heartbeatInterval: 10000
-    heartbeatTimeout: 600000
+    heartbeatTimeout: 60000
   security:
     allowedOrigins:
     - https://www.visionclaw.info

@@ -89,8 +89,11 @@ fn default_heartbeat_interval() -> u64 {
     10_000
 }
 
+/// 60 s: browsers answer pings from the network stack, so a live tab is never
+/// silent that long; a gone or never-reading peer releases its slot within a
+/// minute.
 fn default_heartbeat_timeout() -> u64 {
-    600_000
+    60_000
 }
 
 impl Default for WebSocketSettings {
@@ -176,7 +179,7 @@ mod tests {
         let d = WebSocketSettings::default();
         assert_eq!(
             (d.heartbeat_interval, d.heartbeat_timeout),
-            (10_000, 600_000)
+            (10_000, 60_000)
         );
     }
 
@@ -194,7 +197,7 @@ mod tests {
         });
         let ws: WebSocketSettings = serde_json::from_value(legacy).unwrap();
         assert_eq!(ws.heartbeat_interval, 15_000);
-        assert_eq!(ws.heartbeat_timeout, 600_000);
+        assert_eq!(ws.heartbeat_timeout, 60_000);
         let snake: WebSocketSettings =
             serde_json::from_value(serde_json::json!({ "heartbeat_timeout": 30000 })).unwrap();
         assert_eq!(snake.heartbeat_timeout, 30_000);

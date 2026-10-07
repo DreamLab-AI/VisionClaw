@@ -103,10 +103,33 @@ mod tests {
 
     #[test]
     fn config_carries_the_settings() {
-        let c = HeartbeatConfig::from_settings(&ws(10_000, 600_000));
+        let c = HeartbeatConfig::from_settings(&ws(10_000, 60_000));
         assert_eq!(c.interval, Duration::from_secs(10));
-        assert_eq!(c.timeout, Duration::from_secs(600));
-        assert_eq!(HeartbeatConfig::default(), c);
+        assert_eq!(c.timeout, Duration::from_secs(60));
+        assert_eq!(
+            HeartbeatConfig::default(),
+            c,
+            "defaults: 10 s ping, 60 s timeout"
+        );
+    }
+
+    /// The coordinator's fallback stall timeout is the heartbeat default, and
+    /// the shipped settings.yaml carries the same values as the Rust default.
+    #[test]
+    fn defaults_agree_across_code_and_settings_yaml() {
+        assert_eq!(
+            crate::actors::messages::client_messages::DEFAULT_STALL_TIMEOUT,
+            HeartbeatConfig::default().timeout
+        );
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str(include_str!("../../../data/settings.yaml")).unwrap();
+        let ws_yaml = &yaml["system"]["websocket"];
+        let from_yaml: WebSocketSettings = serde_yaml::from_value(ws_yaml.clone()).unwrap();
+        let d = WebSocketSettings::default();
+        assert_eq!(
+            (from_yaml.heartbeat_interval, from_yaml.heartbeat_timeout),
+            (d.heartbeat_interval, d.heartbeat_timeout)
+        );
     }
 
     #[test]
