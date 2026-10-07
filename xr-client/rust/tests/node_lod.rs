@@ -255,3 +255,12 @@ fn ribbons_refresh_every_other_frame_and_immediately_on_tier_change() {
     let c = f.store.ribbon_edge_buffer().len() / 16;
     assert_eq!(near + c, total(&mut f.store, &f.pairs), "membership change repacks the far tier at once");
 }
+
+#[test]
+fn graph_layer_triangles_matches_the_measured_production_frame() {
+    use visionclaw_xr_gdext::lod::graph_layer_triangles;
+    // HP benchmark (13 164 nodes, 20 000 edges, 32 hulls): 95 186 triangles at
+    // 80 gems + 80 halos, 13 084 impostors, 96 cylinders, 19 904 ribbons, 2 938 hull.
+    assert_eq!(graph_layer_triangles(80, 0, 80, 13_084, 96, 19_904, 2_938), 95_186);
+    assert_eq!(graph_layer_triangles(0, 0, 0, 0, 0, 0, 0), 0);
+}

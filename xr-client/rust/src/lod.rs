@@ -207,6 +207,27 @@ pub fn scene_triangle_estimate(nodes: usize, edges: usize, near_cap: usize, near
         + (edges - near_edges) * RIBBON_TRIS_PER_EDGE
 }
 
+/// Triangles the graph's layers draw for the given instance counts: gem spheres
+/// (gem tier + faded), halo quads, impostors, cylinders, ribbons, plus the
+/// measured hull mesh. The live FrameBudget pass subtracts this (and the memory
+/// layers) from the renderer's frame total to measure everything else.
+pub fn graph_layer_triangles(
+    gems: usize,
+    faded: usize,
+    halos: usize,
+    impostors: usize,
+    cylinders: usize,
+    ribbons: usize,
+    hull_tris: usize,
+) -> usize {
+    (gems + faded) * SPHERE_TRIS
+        + halos * HALO_TRIS_PER_NODE
+        + impostors * IMPOSTOR_TRIS_PER_NODE
+        + cylinders * CYLINDER_TRIS_PER_EDGE
+        + ribbons * RIBBON_TRIS_PER_EDGE
+        + hull_tris
+}
+
 /// Worst-case node triangles for `nodes` drawn with a full gem cap.
 pub fn node_triangle_estimate(nodes: usize, near_cap: usize) -> usize {
     let near = nodes.min(near_cap);

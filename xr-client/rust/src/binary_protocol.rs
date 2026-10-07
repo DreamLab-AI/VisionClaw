@@ -1619,6 +1619,25 @@ impl BinaryProtocolClient {
         out
     }
 
+    /// Triangles the graph layers draw at these instance counts
+    /// (`lod::graph_layer_triangles`), for the live FrameBudget pass.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn graph_layer_triangles(
+        &self,
+        gems: i64,
+        faded: i64,
+        halos: i64,
+        impostors: i64,
+        cylinders: i64,
+        ribbons: i64,
+        hull_tris: i64,
+    ) -> i64 {
+        let u = |v: i64| v.max(0) as usize;
+        crate::lod::graph_layer_triangles(u(gems), u(faded), u(halos), u(impostors), u(cylinders), u(ribbons), u(hull_tris))
+            as i64
+    }
+
     /// Milliseconds spent in the last node + edge LOD pack (Rust side, including
     /// the near-tier hand-off; the far-tier getters are separate calls).
     #[func]
