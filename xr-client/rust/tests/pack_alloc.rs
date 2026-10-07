@@ -39,19 +39,34 @@ fn steady_state_lod_pack_does_not_allocate() {
     // Warm-up: buffers grow to their working size.
     for frame in 0..4 {
         f.advance(frame);
-        let _ = f.store.build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY).len();
-        let _ = f.store.build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY).len();
+        let _ = f
+            .store
+            .build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY)
+            .len();
+        let _ = f
+            .store
+            .build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY)
+            .len();
     }
     let mut per_frame = Vec::new();
     for frame in 4..12 {
         f.advance(frame);
         ALLOCS.store(0, Ordering::Relaxed);
         COUNTING.store(true, Ordering::Relaxed);
-        let n = f.store.build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY).len();
-        let e = f.store.build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY).len();
+        let n = f
+            .store
+            .build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY)
+            .len();
+        let e = f
+            .store
+            .build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY)
+            .len();
         COUNTING.store(false, Ordering::Relaxed);
         assert!(n > 0 && e > 0);
         per_frame.push(ALLOCS.load(Ordering::Relaxed));
     }
-    assert!(per_frame.iter().all(|&a| a == 0), "allocations per steady-state frame: {per_frame:?}");
+    assert!(
+        per_frame.iter().all(|&a| a == 0),
+        "allocations per steady-state frame: {per_frame:?}"
+    );
 }

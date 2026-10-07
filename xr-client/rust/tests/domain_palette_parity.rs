@@ -63,13 +63,20 @@ fn parse_ts(src: &str) -> (String, Vec<(String, String)>) {
 #[test]
 fn rust_table_equals_the_desktop_table_exactly() {
     let (ts_default, ts_table) = parse_ts(&ts_source());
-    assert!(ts_table.len() >= 17, "parsed only {} TS rows", ts_table.len());
+    assert!(
+        ts_table.len() >= 17,
+        "parsed only {} TS rows",
+        ts_table.len()
+    );
     assert_eq!(DEFAULT_DOMAIN_COLOR, ts_default, "fallback colour drifted");
     let rust: Vec<(String, String)> = DOMAIN_COLORS
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    assert_eq!(rust, ts_table, "DOMAIN_COLORS drifted from domainColors.ts (order and values)");
+    assert_eq!(
+        rust, ts_table,
+        "DOMAIN_COLORS drifted from domainColors.ts (order and values)"
+    );
 }
 
 #[test]
@@ -102,11 +109,22 @@ fn lookup_semantics_match_get_domain_color() {
         }
     }
     assert_eq!(domain_hex(Some("space-science-and-systems")), "#646b9f");
-    assert_eq!(domain_hex(Some("earth-observation-and-geospatial-sensing")), "#438273");
+    assert_eq!(
+        domain_hex(Some("earth-observation-and-geospatial-sensing")),
+        "#438273"
+    );
     for (d, c) in [("DT", "#EF5350"), ("SEC", "#FF7043"), ("INFRA", "#78909C")] {
         assert_eq!(domain_hex(Some(d)), c);
     }
-    for d in [None, Some(""), Some(" "), Some("unrecognised"), Some("toString"), Some("__proto__"), Some("constructor")] {
+    for d in [
+        None,
+        Some(""),
+        Some(" "),
+        Some("unrecognised"),
+        Some("toString"),
+        Some("__proto__"),
+        Some("constructor"),
+    ] {
         assert_eq!(domain_hex(d), DEFAULT_DOMAIN_COLOR, "{d:?}");
     }
     assert_eq!(domain_hex(Some(" ai ")), "#4FC3F7");
@@ -120,7 +138,10 @@ fn hex_decodes_to_unit_rgb() {
     assert!((r - 0x4F as f32 / 255.0).abs() < 1e-6);
     assert!((g - 0xC3 as f32 / 255.0).abs() < 1e-6);
     assert!((b - 0xF7 as f32 / 255.0).abs() < 1e-6);
-    assert_eq!(hex_to_rgb("#646b9f").unwrap(), hex_to_rgb("#646B9F").unwrap());
+    assert_eq!(
+        hex_to_rgb("#646b9f").unwrap(),
+        hex_to_rgb("#646B9F").unwrap()
+    );
     assert!(hex_to_rgb("4FC3F7").is_none());
     assert!(hex_to_rgb("#4FC3F").is_none());
     assert!(hex_to_rgb("#GGGGGG").is_none());
@@ -134,7 +155,12 @@ fn degree_zero_node_takes_the_exact_palette_colour() {
         let want = hex_to_rgb(hex).unwrap();
         let got = domain_node_color(Some(k), 0);
         for c in 0..3 {
-            assert!((got[c] - want[c]).abs() < 1e-4, "{k} channel {c}: {} vs {}", got[c], want[c]);
+            assert!(
+                (got[c] - want[c]).abs() < 1e-4,
+                "{k} channel {c}: {} vs {}",
+                got[c],
+                want[c]
+            );
         }
         assert_eq!(got[3], 1.0);
     }
@@ -193,7 +219,10 @@ fn hud_const(src: &str, name: &str) -> Vec<(Option<String>, String)> {
         let mut rest = line;
         while let Some(i) = rest.find("Color(\"#") {
             let hex = &rest[i + 7..i + 14];
-            let key = line.trim_start().starts_with("[\"").then(|| line.split('"').nth(1).unwrap().to_string());
+            let key = line
+                .trim_start()
+                .starts_with("[\"")
+                .then(|| line.split('"').nth(1).unwrap().to_string());
             out.push((key, hex.to_string()));
             rest = &rest[i + 14..];
         }

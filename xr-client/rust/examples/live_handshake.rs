@@ -59,7 +59,9 @@ async fn main() {
         "metadata": { "display_name": "live-handshake-probe", "model_uri": null }
     });
     eprintln!("[handshake] AUTH did={did}");
-    ws.send(Message::Text(auth.to_string())).await.expect("send auth");
+    ws.send(Message::Text(auth.to_string()))
+        .await
+        .expect("send auth");
 
     // Step 3: expect joined, or a close with a code/reason.
     match ws.next().await {

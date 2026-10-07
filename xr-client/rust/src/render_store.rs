@@ -254,7 +254,11 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
 /// red blend for anomalies. The hue product is done in f64 to match GDScript's
 /// double-precision `float` so colours are bit-for-bit consistent with the old path.
 pub fn community_color(community_id: u32, anomaly: f32, node_id: u32) -> [f32; 4] {
-    let key = if community_id != 0 { community_id } else { node_id };
+    let key = if community_id != 0 {
+        community_id
+    } else {
+        node_id
+    };
     let hue = ((key as f64) * 0.618_033_988_75).fract() as f32;
     let rgb = hsv_to_rgb(hue, 0.6, 0.95);
     anomaly_blend([rgb[0], rgb[1], rgb[2], 1.0], anomaly)
@@ -285,9 +289,7 @@ fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// Row-major 3×4 transform for a uniform-scaled, axis-aligned node at `pos`.
 fn node_transform12(size: f32, pos: [f32; 3]) -> [f32; 12] {
     [
-        size, 0.0, 0.0, pos[0],
-        0.0, size, 0.0, pos[1],
-        0.0, 0.0, size, pos[2],
+        size, 0.0, 0.0, pos[0], 0.0, size, 0.0, pos[1], 0.0, 0.0, size, pos[2],
     ]
 }
 
@@ -303,7 +305,7 @@ fn edge_transform12(a: [f32; 3], b: [f32; 3], radius: f32) -> Option<[f32; 12]> 
     }
     let dir = [d[0] / len, d[1] / len, d[2] / len];
     let dp = dir[1]; // UP·dir, UP = (0,1,0)
-    // Rotation basis columns c0,c1,c2 mapping local Y onto `dir`.
+                     // Rotation basis columns c0,c1,c2 mapping local Y onto `dir`.
     let (mut c0, mut c1, mut c2): ([f32; 3], [f32; 3], [f32; 3]);
     if dp > 0.9999 {
         c0 = [1.0, 0.0, 0.0];
@@ -337,9 +339,7 @@ fn edge_transform12(a: [f32; 3], b: [f32; 3], radius: f32) -> Option<[f32; 12]> 
     }
     let o = [a[0] + d[0] * 0.5, a[1] + d[1] * 0.5, a[2] + d[2] * 0.5];
     Some([
-        c0[0], c1[0], c2[0], o[0],
-        c0[1], c1[1], c2[1], o[1],
-        c0[2], c1[2], c2[2], o[2],
+        c0[0], c1[0], c2[0], o[0], c0[1], c1[1], c2[1], o[1], c0[2], c1[2], c2[2], o[2],
     ])
 }
 
@@ -733,7 +733,14 @@ impl RenderStore {
     /// per-node inputs are the node's OWN (a fold representative sizes by its own
     /// degree/file_size, never the collapsed group's). Result is clamped to
     /// `[scale_comp*size_lo*0.5, scale_comp*size_hi*META_SIZE_CAP_FACTOR]`.
-    fn node_size(&self, id: u32, cen_norm: f32, scale_comp: f32, size_lo: f32, size_hi: f32) -> f32 {
+    fn node_size(
+        &self,
+        id: u32,
+        cen_norm: f32,
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+    ) -> f32 {
         let base = 1.0_f32;
         let degree = self.degree_of(id) as f32;
         let file_size = self.file_size_of(id) as f32;
@@ -1318,7 +1325,14 @@ impl RenderStore {
     }
 
     /// Store a node's label metadata (from initialGraphLoad).
-    pub fn set_meta(&mut self, node_id: u32, meta_id: String, label: String, node_type: String, detail: String) {
+    pub fn set_meta(
+        &mut self,
+        node_id: u32,
+        meta_id: String,
+        label: String,
+        node_type: String,
+        detail: String,
+    ) {
         self.touch();
         let label_lower = label.to_lowercase();
         // Preserve any file_size already recorded (set_file_size can land before or
@@ -1339,13 +1353,19 @@ impl RenderStore {
 
     /// Primary label for a node (empty string if unknown).
     pub fn label_of(&self, node_id: u32) -> String {
-        self.meta.get(&node_id).map(|m| m.label.clone()).unwrap_or_default()
+        self.meta
+            .get(&node_id)
+            .map(|m| m.label.clone())
+            .unwrap_or_default()
     }
 
     /// Slug source (metadata_id) for a node (empty if unknown); the double-click
     /// document view slugifies this, falling back to the label.
     pub fn meta_id_of(&self, node_id: u32) -> String {
-        self.meta.get(&node_id).map(|m| m.meta_id.clone()).unwrap_or_default()
+        self.meta
+            .get(&node_id)
+            .map(|m| m.meta_id.clone())
+            .unwrap_or_default()
     }
 
     /// Secondary detail line: node type and one metadata value, joined by " · ".
@@ -1483,7 +1503,14 @@ impl RenderStore {
     /// Insert or update a node from a decoded frame. New ids seed their render
     /// position at the target (no ease-in from origin); existing ids only move
     /// their target — the hunt eases the render position toward it.
-    pub fn upsert(&mut self, node_id: u32, position: [f32; 3], community_id: u32, anomaly: f32, centrality: f32) {
+    pub fn upsert(
+        &mut self,
+        node_id: u32,
+        position: [f32; 3],
+        community_id: u32,
+        anomaly: f32,
+        centrality: f32,
+    ) {
         match self.id_index.get(&node_id).copied() {
             Some(slot) => {
                 self.targets[slot] = position;
@@ -1507,7 +1534,8 @@ impl RenderStore {
                 self.targets.push(position);
                 self.positions.push(position);
                 self.centrality.push(centrality);
-                self.color.push(community_color(community_id, anomaly, node_id));
+                self.color
+                    .push(community_color(community_id, anomaly, node_id));
                 self.anomaly.push(anomaly);
                 self.cluster.push(0);
                 self.community.push(community_id);
@@ -1552,7 +1580,10 @@ impl RenderStore {
                 }
                 let target = self.edge_endpoint(rec.target_node_id);
                 if let Some(&ts) = self.id_index.get(&target) {
-                    m.insert(aid, agent_hover_offset(self.positions[ts], aid, HOVER_RADIUS));
+                    m.insert(
+                        aid,
+                        agent_hover_offset(self.positions[ts], aid, HOVER_RADIUS),
+                    );
                 }
             }
             m
@@ -1587,7 +1618,9 @@ impl RenderStore {
             let arrived: Vec<u32> = self
                 .folding
                 .iter()
-                .filter(|(&m, &r)| dist2(self.position_of(m), self.position_of(r)) < FOLD_ARRIVE_EPS2)
+                .filter(|(&m, &r)| {
+                    dist2(self.position_of(m), self.position_of(r)) < FOLD_ARRIVE_EPS2
+                })
                 .map(|(&m, _)| m)
                 .collect();
             for m in arrived {
@@ -1601,7 +1634,9 @@ impl RenderStore {
                 .iter()
                 .copied()
                 .filter(|&m| match self.id_index.get(&m) {
-                    Some(&slot) => dist2(self.positions[slot], self.targets[slot]) < FOLD_ARRIVE_EPS2,
+                    Some(&slot) => {
+                        dist2(self.positions[slot], self.targets[slot]) < FOLD_ARRIVE_EPS2
+                    }
                     None => true, // unknown node — stop tracking
                 })
                 .collect();
@@ -1614,7 +1649,13 @@ impl RenderStore {
     /// Pack the node MultiMesh buffer for the drawn `ids` (in order). Records the
     /// drawn set + render positions for the edge builder and the interaction ray.
     /// Ids not present in the store are skipped (buffer shrinks accordingly).
-    pub fn build_node_buffer(&mut self, ids: &[i32], scale_comp: f32, size_lo: f32, size_hi: f32) -> Vec<f32> {
+    pub fn build_node_buffer(
+        &mut self,
+        ids: &[i32],
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+    ) -> Vec<f32> {
         self.pack_nodes(ids, scale_comp, size_lo, size_hi);
         self.scratch.node_buf.clone()
     }
@@ -1623,7 +1664,13 @@ impl RenderStore {
     /// (`render_store_pack.rs`) is derived from its output and replays it while
     /// nothing but positions changes. Label fades and the filter are stepped by
     /// the caller (`pack_nodes`).
-    fn full_node_pack(&mut self, ids: &[i32], scale_comp: f32, size_lo: f32, size_hi: f32) -> Vec<f32> {
+    fn full_node_pack(
+        &mut self,
+        ids: &[i32],
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+    ) -> Vec<f32> {
         self.drawn.clear();
         self.render_ids.clear();
         self.render_positions.clear();
@@ -1746,7 +1793,12 @@ impl RenderStore {
 
     /// `build_edge_buffer` body; when `keys` is given, pushes one
     /// `(min(s,t) << 32 | max(s,t))` per emitted instance (edge-LOD hysteresis).
-    fn pack_edges(&self, pairs: &[i32], radius_comp: f32, mut keys: Option<&mut Vec<u64>>) -> Vec<f32> {
+    fn pack_edges(
+        &self,
+        pairs: &[i32],
+        radius_comp: f32,
+        mut keys: Option<&mut Vec<u64>>,
+    ) -> Vec<f32> {
         let mut buf = Vec::new();
         let n = pairs.len() / 2;
         // Fold plan: many member→member edges collapse onto the same
@@ -1784,7 +1836,8 @@ impl RenderStore {
             let (Some(&ss), Some(&ts)) = (self.id_index.get(&s), self.id_index.get(&t)) else {
                 continue;
             };
-            if let Some(tf) = edge_transform12(self.positions[ss], self.positions[ts], radius_comp) {
+            if let Some(tf) = edge_transform12(self.positions[ss], self.positions[ts], radius_comp)
+            {
                 // 12 transform + 4 INSTANCE_CUSTOM: r/g/b reserved (0), a = relation
                 // style code (0 untyped / 1 typed / 2 subclass) for the edge shader.
                 let style = self.edge_style_of(os, ot) as f32;
@@ -1900,7 +1953,12 @@ impl RenderStore {
     /// stored endpoint positions lifted by `y_offset`. No fold remap, no drawn
     /// filter (a result subgraph draws its own edges regardless of the main LOD);
     /// degenerate/unknown edges are skipped.
-    pub fn build_plane_edge_buffer(&self, pairs: &[i32], y_offset: f32, radius_comp: f32) -> Vec<f32> {
+    pub fn build_plane_edge_buffer(
+        &self,
+        pairs: &[i32],
+        y_offset: f32,
+        radius_comp: f32,
+    ) -> Vec<f32> {
         let mut buf = Vec::new();
         let n = pairs.len() / 2;
         for i in 0..n {
@@ -1953,7 +2011,12 @@ impl RenderStore {
     /// Per-axis `[lo,hi]` percentile AABB over render positions, excluding the
     /// grabbed node so a dragged outlier can't inflate the adaptive fit. Returns
     /// `[minx,miny,minz,maxx,maxy,maxz]`, or `None` when empty.
-    pub fn aabb_percentile(&self, lo_q: f32, hi_q: f32, exclude_id: Option<u32>) -> Option<[f32; 6]> {
+    pub fn aabb_percentile(
+        &self,
+        lo_q: f32,
+        hi_q: f32,
+        exclude_id: Option<u32>,
+    ) -> Option<[f32; 6]> {
         let mut xs = Vec::with_capacity(self.ids.len());
         let mut ys = Vec::with_capacity(self.ids.len());
         let mut zs = Vec::with_capacity(self.ids.len());
@@ -1999,7 +2062,15 @@ impl RenderStore {
         near_cap: usize,
         near_max_dist: f32,
     ) -> &[f32] {
-        self.pack_nodes_lod(ids, scale_comp, size_lo, size_hi, cam, near_cap, near_max_dist);
+        self.pack_nodes_lod(
+            ids,
+            scale_comp,
+            size_lo,
+            size_hi,
+            cam,
+            near_cap,
+            near_max_dist,
+        );
         &self.scratch.near_buf
     }
 
@@ -2150,7 +2221,11 @@ impl RenderStore {
 
     /// Hulls over the nodes drawn by the last `build_node_buffer`, so a hull never
     /// wraps nodes the user cannot see (LOD-, type- or filter-hidden).
-    pub fn hull_mesh(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> crate::hulls::HullMesh {
+    pub fn hull_mesh(
+        &self,
+        source: crate::hulls::HullSource,
+        params: crate::hulls::HullParams,
+    ) -> crate::hulls::HullMesh {
         if source == crate::hulls::HullSource::Off {
             return crate::hulls::HullMesh::default();
         }
@@ -2159,7 +2234,11 @@ impl RenderStore {
 
     /// Fingerprint of the hull input at 1-server-unit resolution: the scene
     /// rebuilds the mesh only when this changes (positions settle → no rebuilds).
-    pub fn hull_signature(&self, source: crate::hulls::HullSource, params: crate::hulls::HullParams) -> u64 {
+    pub fn hull_signature(
+        &self,
+        source: crate::hulls::HullSource,
+        params: crate::hulls::HullParams,
+    ) -> u64 {
         crate::hulls::input_signature(&self.hull_points(), source, params, 1.0)
     }
 }
@@ -2194,12 +2273,24 @@ mod tests {
         assert!(approx(buf[15], AGENT_WORKING as f32));
         // INSTANCE_CUSTOM.rgb carries the desktop semantic encoding: action code 0
         // (Query) and its thin-probe taper (semanticEncoding.ts AGENT_ACTION_SHAPES).
-        assert_eq!(&buf[12..15], &[0.0, 0.5, 0.5], "Query: code 0, 0.5/0.5 taper");
+        assert_eq!(
+            &buf[12..15],
+            &[0.0, 0.5, 0.5],
+            "Query: code 0, 0.5/0.5 taper"
+        );
         // A Create action widens into the node; a Delete narrows into it.
         s.record_agent_action(5, 20, 2, 200, "");
-        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[2.0, 1.8, 0.4], "Create taper");
+        assert_eq!(
+            &s.build_beam_buffer(1.0)[12..15],
+            &[2.0, 1.8, 0.4],
+            "Create taper"
+        );
         s.record_agent_action(5, 20, 3, 300, "");
-        assert_eq!(&s.build_beam_buffer(1.0)[12..15], &[3.0, 0.3, 1.6], "Delete taper");
+        assert_eq!(
+            &s.build_beam_buffer(1.0)[12..15],
+            &[3.0, 0.3, 1.6],
+            "Delete taper"
+        );
         s.record_agent_action(5, 20, 0, 400, "");
 
         // DONE / IDLE agents draw no beam; BLOCKED still does (stalled but owning).
@@ -2207,7 +2298,11 @@ mod tests {
         assert!(s.build_beam_buffer(1.0).is_empty(), "done agent: no beam");
         s.set_agent_state(5, "blocked", "");
         let blocked = s.build_beam_buffer(1.0);
-        assert_eq!(blocked.len(), EDGE_STRIDE_TYPED, "blocked agent still beams");
+        assert_eq!(
+            blocked.len(),
+            EDGE_STRIDE_TYPED,
+            "blocked agent still beams"
+        );
         assert!(approx(blocked[15], AGENT_BLOCKED as f32));
     }
 
@@ -2220,18 +2315,32 @@ mod tests {
         s.set_clock_ms(1_000.0);
         let base = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
         let col = |buf: &[f32], i: usize| buf[i * NODE_STRIDE + 12..i * NODE_STRIDE + 15].to_vec();
-        assert_eq!(col(&base, 0), col(&base, 1), "same community, same colour before any touch");
+        assert_eq!(
+            col(&base, 0),
+            col(&base, 1),
+            "same community, same colour before any touch"
+        );
         let edges_before = s.build_edge_buffer(&[20, 21], 1.0);
 
         // A 0x23 action on node 20 (KNOWLEDGE flag on the wire) heats it.
         assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
         let hot = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
         let (h, c) = (col(&hot, 0), col(&hot, 1));
-        assert!(h[0] > c[0] || h[1] > c[1] || h[2] > c[2], "touched node is brighter: {h:?} vs {c:?}");
+        assert!(
+            h[0] > c[0] || h[1] > c[1] || h[2] > c[2],
+            "touched node is brighter: {h:?} vs {c:?}"
+        );
         let ratio = |v: &[f32]| v[0] / v.iter().cloned().fold(f32::MIN, f32::max);
         assert!((ratio(&h) - ratio(&c)).abs() < 1e-4, "hue preserved");
-        assert!(h.iter().all(|&x| x <= 1.0 + 1e-6), "never past full brightness");
-        assert_eq!(s.build_edge_buffer(&[20, 21], 1.0), edges_before, "edge buffer untouched (Invariant 3)");
+        assert!(
+            h.iter().all(|&x| x <= 1.0 + 1e-6),
+            "never past full brightness"
+        );
+        assert_eq!(
+            s.build_edge_buffer(&[20, 21], 1.0),
+            edges_before,
+            "edge buffer untouched (Invariant 3)"
+        );
         assert!(s.heat_of(20) > 0.4);
 
         // A replayed (stale) action is dropped and adds no heat.
@@ -2269,20 +2378,38 @@ mod tests {
         let warm = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
         s.set_clock_ms(1_000.0 + 20.0 * half);
         let cold = s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9);
-        assert!(lum(&col(&hot, 0)) > lum(&col(&warm, 0)) + 1e-4, "cools on a replayed plan: {:?} -> {:?}", col(&hot, 0), col(&warm, 0));
+        assert!(
+            lum(&col(&hot, 0)) > lum(&col(&warm, 0)) + 1e-4,
+            "cools on a replayed plan: {:?} -> {:?}",
+            col(&hot, 0),
+            col(&warm, 0)
+        );
         assert!(lum(&col(&warm, 0)) > lum(&col(&cold, 0)) + 1e-4);
         let (c0, c1) = (col(&cold, 0), col(&cold, 1));
-        assert!(c0.iter().zip(&c1).all(|(a, b)| (a - b).abs() < 1e-3), "fully cooled = base colour: {c0:?} vs {c1:?}");
+        assert!(
+            c0.iter().zip(&c1).all(|(a, b)| (a - b).abs() < 1e-3),
+            "fully cooled = base colour: {c0:?} vs {c1:?}"
+        );
 
         // LOD path (what the scene draws): same behaviour, and a re-touch
         // re-heats without any other change.
         s.set_clock_ms(2_000.0 + 20.0 * half);
         assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 101, ""));
-        let lod_hot = s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec();
+        let lod_hot = s
+            .build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY)
+            .to_vec();
         s.set_clock_ms(2_000.0 + 21.0 * half);
-        let lod_warm = s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec();
-        assert!(lum(&col(&lod_hot, 0)) > lum(&col(&lod_hot, 1)) + 1e-4, "re-touch heats on the LOD path");
-        assert!(lum(&col(&lod_hot, 0)) > lum(&col(&lod_warm, 0)) + 1e-4, "LOD path cools with the clock alone");
+        let lod_warm = s
+            .build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY)
+            .to_vec();
+        assert!(
+            lum(&col(&lod_hot, 0)) > lum(&col(&lod_hot, 1)) + 1e-4,
+            "re-touch heats on the LOD path"
+        );
+        assert!(
+            lum(&col(&lod_hot, 0)) > lum(&col(&lod_warm, 0)) + 1e-4,
+            "LOD path cools with the clock alone"
+        );
     }
 
     #[test]
@@ -2296,10 +2423,17 @@ mod tests {
         s.upsert(21, [1.0, 4.0, 0.0], 3, 0.0, 0.0); // same community = same base colour
         s.set_clock_ms(1_000.0);
         assert!(s.record_agent_action(5, 0x4000_0000 | 20, 1, 100, ""));
-        let col = |buf: &[f32], i: usize| [buf[i * NODE_STRIDE + 12], buf[i * NODE_STRIDE + 13], buf[i * NODE_STRIDE + 14]];
+        let col = |buf: &[f32], i: usize| {
+            [
+                buf[i * NODE_STRIDE + 12],
+                buf[i * NODE_STRIDE + 13],
+                buf[i * NODE_STRIDE + 14],
+            ]
+        };
         for lod in [false, true] {
             let buf = if lod {
-                s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY).to_vec()
+                s.build_node_buffer_lod(&[20, 21], 1.0, 0.7, 1.9, [0.0; 3], 10, f32::INFINITY)
+                    .to_vec()
             } else {
                 s.build_node_buffer(&[20, 21], 1.0, 0.7, 1.9)
             };
@@ -2308,7 +2442,10 @@ mod tests {
             let drawn = col(&buf, 0);
             assert_ne!(drawn, col(&buf, 1), "heat is applied at all (lod={lod})");
             for k in 0..3 {
-                assert!((drawn[k] - once[k]).abs() < 1e-6, "heat applied once (lod={lod}): drawn {drawn:?}, once {once:?}");
+                assert!(
+                    (drawn[k] - once[k]).abs() < 1e-6,
+                    "heat applied once (lod={lod}): drawn {drawn:?}, once {once:?}"
+                );
             }
         }
     }
@@ -2321,12 +2458,19 @@ mod tests {
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
         s.record_agent_action(0x8000_D001, 20, 0, 100, "Reviewing: X");
         s.build_node_buffer(&[20], 1.0, 0.7, 1.9);
-        assert!(s.build_beam_buffer(1.0).is_empty(), "no anchor, no node ⇒ no beam");
+        assert!(
+            s.build_beam_buffer(1.0).is_empty(),
+            "no anchor, no node ⇒ no beam"
+        );
 
         // Publishing an anchor (flag bit tolerated) gives the beam its origin.
         s.set_agent_anchors(&[0x8000_D001], &[[2.0, 4.0, 0.0]]);
         let buf = s.build_beam_buffer(1.0);
-        assert_eq!(buf.len(), EDGE_STRIDE_TYPED, "anchored synthetic agent beams");
+        assert_eq!(
+            buf.len(),
+            EDGE_STRIDE_TYPED,
+            "anchored synthetic agent beams"
+        );
         // Translation column of the 3x4 transform (indices 3,7,11) is the segment
         // midpoint: anchor (2,4,0) → target (0,4,0) ⇒ (1,4,0).
         assert!(approx(buf[3], 1.0) && approx(buf[7], 4.0) && approx(buf[11], 0.0));
@@ -2359,7 +2503,11 @@ mod tests {
         assert_eq!(s.retire_agents(&[0x8000_D001, 0xD002, 0xD0FF]), 2);
         assert_eq!(s.agent_ids(), vec![7], "only the live agent remains");
         assert_eq!(s.agent_anchor(0xD001), None, "anchor goes with the record");
-        assert_eq!(s.agent_anchor(7), Some([2.0, 2.0, 2.0]), "live anchor untouched");
+        assert_eq!(
+            s.agent_anchor(7),
+            Some([2.0, 2.0, 2.0]),
+            "live anchor untouched"
+        );
         // Retiring is idempotent and a later action can re-create the record.
         assert_eq!(s.retire_agents(&[0xD001]), 0);
         assert!(s.record_agent_action(0x8000_D001, 20, 0, 200, ""));
@@ -2379,7 +2527,10 @@ mod tests {
             s.hunt(0.5, None, [0.0, 0.0, 0.0]);
         }
         let idle_pos = s.position_of(5);
-        assert!(approx(idle_pos[0], 0.0), "idle agent stays at its server position");
+        assert!(
+            approx(idle_pos[0], 0.0),
+            "idle agent stays at its server position"
+        );
 
         // Now WORKING: it must glide toward the hover ring around node 20 (x≫0).
         s.set_agent_state(5, "busy", "");
@@ -2388,9 +2539,18 @@ mod tests {
         }
         let work_pos = s.position_of(5);
         let expected = agent_hover_offset([10.0, 0.0, 0.0], 5, HOVER_RADIUS);
-        assert!(work_pos[0] > 5.0, "working agent glided toward its target node");
-        assert!(approx(work_pos[0], expected[0]), "settled on the hover ring x");
-        assert!(approx(work_pos[1], expected[1]), "hover lifts above the node");
+        assert!(
+            work_pos[0] > 5.0,
+            "working agent glided toward its target node"
+        );
+        assert!(
+            approx(work_pos[0], expected[0]),
+            "settled on the hover ring x"
+        );
+        assert!(
+            approx(work_pos[1], expected[1]),
+            "hover lifts above the node"
+        );
     }
 
     #[test]
@@ -2405,7 +2565,10 @@ mod tests {
         let blocked = agent_status_color(AGENT_BLOCKED);
         assert!(approx(buf[12], blocked[0]) && approx(buf[13], blocked[1]));
         // INSTANCE_CUSTOM.r (float 16) is floored to the agent halo minimum.
-        assert!(buf[16] >= AGENT_HALO_MIN - 1e-6, "agent node forced to glow its status");
+        assert!(
+            buf[16] >= AGENT_HALO_MIN - 1e-6,
+            "agent node forced to glow its status"
+        );
     }
 
     #[test]
@@ -2436,7 +2599,11 @@ mod tests {
         let buf = s.build_node_buffer(&[5, 21], 1.0, 0.7, 1.9); // 20 hidden, 21 the rep
         assert!(!buf.is_empty());
         let beam = s.build_beam_buffer(1.0);
-        assert_eq!(beam.len(), EDGE_STRIDE_TYPED, "beam re-routes to the fold rep");
+        assert_eq!(
+            beam.len(),
+            EDGE_STRIDE_TYPED,
+            "beam re-routes to the fold rep"
+        );
         // Reconstruct the beam's TARGET endpoint (independent of where the P2 hover
         // has moved the agent end): row-major 3x4 ⇒ translation o = midpoint at
         // (buf[3],buf[7],buf[11]); column c1 = dir*len at (buf[1],buf[5],buf[9]); so
@@ -2445,8 +2612,14 @@ mod tests {
         let bx = beam[3] + 0.5 * beam[1];
         let by = beam[7] + 0.5 * beam[5];
         let rep = s.position_of(21);
-        assert!(approx(bx, rep[0]) && approx(by, rep[1]), "beam target end is the fold rep");
-        assert!(approx(rep[0], 3.0), "sanity: rep sits at x=3, member was at x=0");
+        assert!(
+            approx(bx, rep[0]) && approx(by, rep[1]),
+            "beam target end is the fold rep"
+        );
+        assert!(
+            approx(rep[0], 3.0),
+            "sanity: rep sits at x=3, member was at x=0"
+        );
 
         // (d) Re-fold 20 onto a representative that is NOT drawn ⇒ no beam (20 stays
         // hidden and resolves to the undrawn rep 99).
@@ -2472,7 +2645,10 @@ mod tests {
     fn node_transform_places_scale_and_origin() {
         let t = node_transform12(2.0, [5.0, 6.0, 7.0]);
         // row-major 3x4: diag scale, origin in the 4th column of each row.
-        assert_eq!(t, [2.0, 0.0, 0.0, 5.0, 0.0, 2.0, 0.0, 6.0, 0.0, 0.0, 2.0, 7.0]);
+        assert_eq!(
+            t,
+            [2.0, 0.0, 0.0, 5.0, 0.0, 2.0, 0.0, 6.0, 0.0, 0.0, 2.0, 7.0]
+        );
     }
 
     #[test]
@@ -2544,7 +2720,12 @@ mod tests {
         let buf = s.build_node_buffer(&[1, 2], 2.0, 0.7, 1.9);
         assert_eq!(buf.len(), 2 * NODE_STRIDE);
         // Node 1: cen_norm=1 → size = 2.0*lerp(0.7,1.9,1)=3.8; origin (1,2,3).
-        assert!(approx(buf[0], 3.8) && approx(buf[3], 1.0) && approx(buf[7], 2.0) && approx(buf[11], 3.0));
+        assert!(
+            approx(buf[0], 3.8)
+                && approx(buf[3], 1.0)
+                && approx(buf[7], 2.0)
+                && approx(buf[11], 3.0)
+        );
         // custom.r == cen_norm == 1 (index 16..20 block, r at 16).
         assert!(approx(buf[16], 1.0));
         // Node 2: cen_norm=0 → size = 2.0*0.7 = 1.4; custom.r == 0.
@@ -2562,7 +2743,11 @@ mod tests {
         let _ = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
         // Edge (1,2) both drawn → kept; edge (2,3) has undrawn endpoint → dropped.
         let buf = s.build_edge_buffer(&[1, 2, 2, 3], 0.1);
-        assert_eq!(buf.len(), EDGE_STRIDE_TYPED, "only the fully-drawn edge is emitted");
+        assert_eq!(
+            buf.len(),
+            EDGE_STRIDE_TYPED,
+            "only the fully-drawn edge is emitted"
+        );
     }
 
     #[test]
@@ -2599,7 +2784,13 @@ mod tests {
     #[test]
     fn meta_label_and_detail() {
         let mut s = RenderStore::new();
-        s.set_meta(1, "alpha-page".into(), "Alpha".into(), "page".into(), "knowledge".into());
+        s.set_meta(
+            1,
+            "alpha-page".into(),
+            "Alpha".into(),
+            "page".into(),
+            "knowledge".into(),
+        );
         assert_eq!(s.meta_id_of(1), "alpha-page");
         assert_eq!(s.label_of(1), "Alpha");
         assert_eq!(s.detail_of(1), "page · knowledge");
@@ -2616,10 +2807,26 @@ mod tests {
     fn search_labels_ranks_prefix_over_substring() {
         let mut s = RenderStore::new();
         // "Graph" is a prefix match; "Knowledge Graph" only a substring match.
-        s.set_meta(1, "".into(), "Knowledge Graph".into(), "page".into(), "".into());
-        s.set_meta(2, "".into(), "Graph Theory".into(), "page".into(), "".into());
+        s.set_meta(
+            1,
+            "".into(),
+            "Knowledge Graph".into(),
+            "page".into(),
+            "".into(),
+        );
+        s.set_meta(
+            2,
+            "".into(),
+            "Graph Theory".into(),
+            "page".into(),
+            "".into(),
+        );
         let hits = s.search_labels("graph", 10);
-        assert_eq!(hits, vec![2, 1], "prefix match ranks before substring match");
+        assert_eq!(
+            hits,
+            vec![2, 1],
+            "prefix match ranks before substring match"
+        );
     }
 
     #[test]
@@ -2652,7 +2859,10 @@ mod tests {
         }
         assert_eq!(s.search_labels("item", 2).len(), 2, "capped at max");
         assert!(s.search_labels("", 10).is_empty(), "empty query → no hits");
-        assert!(s.search_labels("   ", 10).is_empty(), "whitespace query → no hits");
+        assert!(
+            s.search_labels("   ", 10).is_empty(),
+            "whitespace query → no hits"
+        );
         assert!(s.search_labels("item", 0).is_empty(), "max 0 → no hits");
         assert!(s.search_labels("nonexistent", 10).is_empty());
     }
@@ -2665,16 +2875,26 @@ mod tests {
         // prefix hits, ranked by centrality desc.
         let mut s = RenderStore::new();
         s.set_meta(1, "".into(), "Graph Alpha".into(), "page".into(), "".into()); // prefix
-        s.set_meta(2, "".into(), "Graph Beta".into(), "page".into(), "".into());  // prefix
+        s.set_meta(2, "".into(), "Graph Beta".into(), "page".into(), "".into()); // prefix
         for i in 3..=12u32 {
-            s.set_meta(i, "".into(), format!("A Knowledge Graph {i}"), "page".into(), "".into()); // substring
+            s.set_meta(
+                i,
+                "".into(),
+                format!("A Knowledge Graph {i}"),
+                "page".into(),
+                "".into(),
+            ); // substring
         }
         s.upsert(1, [0.0; 3], 0, 0.0, 0.3);
         s.upsert(2, [0.0; 3], 0, 0.0, 0.9);
         // give a substring match high centrality — must STILL lose to prefix tier.
         s.upsert(5, [0.0; 3], 0, 0.0, 1.0);
         let hits = s.search_labels("graph", 2);
-        assert_eq!(hits, vec![2, 1], "top-2 = the two prefix matches, centrality desc");
+        assert_eq!(
+            hits,
+            vec![2, 1],
+            "top-2 = the two prefix matches, centrality desc"
+        );
     }
 
     #[test]
@@ -2682,7 +2902,13 @@ mod tests {
         // set_meta caches label_lower; a match on mixed case proves the cache is
         // populated and used (not the raw label).
         let mut s = RenderStore::new();
-        s.set_meta(1, "".into(), "MixedCaseLabel".into(), "page".into(), "".into());
+        s.set_meta(
+            1,
+            "".into(),
+            "MixedCaseLabel".into(),
+            "page".into(),
+            "".into(),
+        );
         assert_eq!(s.search_labels("mixedcase", 5), vec![1]);
         assert_eq!(s.search_labels("CASELABEL", 5), vec![1]);
     }
@@ -2714,8 +2940,8 @@ mod tests {
             s.upsert(id, [id as f32 * 10.0, 0.0, 0.0], 0, 0.0, 0.0); // spread apart
         }
         s.set_fold_plan(&[], &[2, 3], &[1, 1]); // 2,3 → rep 1
-        // Immediately after the plan (no hunt yet) the members are IN TRANSIT and
-        // still drawn alongside their representative.
+                                                // Immediately after the plan (no hunt yet) the members are IN TRANSIT and
+                                                // still drawn alongside their representative.
         let mid = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         assert_eq!(mid.len(), 3 * NODE_STRIDE, "members visible mid-fold-in");
         // One hunt tick eases them toward the rep but they haven't arrived yet.
@@ -2741,11 +2967,14 @@ mod tests {
         s.upsert(2, [50.0, 0.0, 0.0], 0, 0.0, 0.0); // member's real home, far away
         s.set_fold_plan(&[], &[2], &[1]);
         settle(&mut s); // fully folded: member 2 hidden at rep
-        // Unfold: member 2 is seeded at the representative's position (near origin),
-        // NOT snapped to its far home — it grows out from there.
+                        // Unfold: member 2 is seeded at the representative's position (near origin),
+                        // NOT snapped to its far home — it grows out from there.
         s.clear_fold_plan();
         let seeded = s.position_of(2);
-        assert!(seeded[0].abs() < 1.0, "member seeded at the representative on unfold");
+        assert!(
+            seeded[0].abs() < 1.0,
+            "member seeded at the representative on unfold"
+        );
         // It is drawn immediately (in transit) even though the budget list omits it.
         assert_eq!(
             s.build_node_buffer(&[1], 1.0, 0.7, 1.9).len(),
@@ -2754,7 +2983,10 @@ mod tests {
         );
         // After settling it reaches its real home and leaves the animation set.
         settle(&mut s);
-        assert!(s.position_of(2)[0] > 40.0, "member grew out to its real position");
+        assert!(
+            s.position_of(2)[0] > 40.0,
+            "member grew out to its real position"
+        );
     }
 
     #[test]
@@ -2767,9 +2999,9 @@ mod tests {
         s.set_fold_plan(&[], &[2, 3], &[1, 1]);
         settle(&mut s); // members fold fully into the representative
         let _ = s.build_node_buffer(&[1, 2, 3, 5], 1.0, 0.7, 1.9); // drawn = {1,5}
-        // Edges: (5→2) outside→member should re-route to (5→1); (2→3) intra-group
-        // collapses to self and drops; a second outside edge (5→3) also maps to
-        // (5→1) and must dedup against the first.
+                                                                   // Edges: (5→2) outside→member should re-route to (5→1); (2→3) intra-group
+                                                                   // collapses to self and drops; a second outside edge (5→3) also maps to
+                                                                   // (5→1) and must dedup against the first.
         let buf = s.build_edge_buffer(&[5, 2, 2, 3, 5, 3], 0.1);
         assert_eq!(
             buf.len(),
@@ -2786,10 +3018,13 @@ mod tests {
         }
         s.set_fold_plan(&[3], &[2], &[1]);
         settle(&mut s); // fold-in completes
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            NODE_STRIDE
+        );
         s.clear_fold_plan();
         settle(&mut s); // fold-out (grow from rep) completes
-        // All three draw again; badge channel back to 0.
+                        // All three draw again; badge channel back to 0.
         let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         assert_eq!(buf.len(), 3 * NODE_STRIDE);
         assert!(approx(buf[17], 0.0), "no badge after clear");
@@ -2806,10 +3041,18 @@ mod tests {
         }
         s.set_fold_plan(&[], &[2, 3], &[1, 1]); // 2,3 → rep 1
         settle(&mut s); // fold-in completes so members are fully folded
-        // Budget selected only the members (rep 1 absent from the list).
+                        // Budget selected only the members (rep 1 absent from the list).
         let buf = s.build_node_buffer(&[2, 3], 1.0, 0.7, 1.9);
-        assert_eq!(buf.len(), NODE_STRIDE, "rep drawn once (promoted + deduped)");
-        assert_eq!(s.render_ids(), &[1], "representative injected into drawn set");
+        assert_eq!(
+            buf.len(),
+            NODE_STRIDE,
+            "rep drawn once (promoted + deduped)"
+        );
+        assert_eq!(
+            s.render_ids(),
+            &[1],
+            "representative injected into drawn set"
+        );
         // And an edge from an outside node to a member now finds the rep on-screen.
         let ebuf = s.build_edge_buffer(&[5, 2], 0.1);
         // 5 wasn't drawn (not in the node list), so this still filters — but the
@@ -2818,7 +3061,11 @@ mod tests {
         let buf2 = s.build_node_buffer(&[2, 3, 5], 1.0, 0.7, 1.9); // now 5 drawn too
         assert_eq!(buf2.len(), 2 * NODE_STRIDE, "rep(1) + outside(5)");
         let ebuf2 = s.build_edge_buffer(&[5, 2], 0.1);
-        assert_eq!(ebuf2.len(), EDGE_STRIDE_TYPED, "edge 5→member reroutes to drawn rep");
+        assert_eq!(
+            ebuf2.len(),
+            EDGE_STRIDE_TYPED,
+            "edge 5→member reroutes to drawn rep"
+        );
     }
 
     #[test]
@@ -2826,14 +3073,27 @@ mod tests {
         let mut s = RenderStore::new();
         for id in [1u32, 2, 3] {
             s.upsert(id, [id as f32, 0.0, 0.0], 0, 0.0, 0.0);
-            s.set_meta(id, "".into(), format!("Node {id}"), "page".into(), "".into());
+            s.set_meta(
+                id,
+                "".into(),
+                format!("Node {id}"),
+                "page".into(),
+                "".into(),
+            );
         }
         // Fold 2 → rep 1; hide 3.
         s.set_fold_plan(&[3], &[2], &[1]);
         // Searching a folded member's label resolves to its visible representative.
-        assert_eq!(s.search_labels("Node 2", 10), vec![1], "member → representative");
+        assert_eq!(
+            s.search_labels("Node 2", 10),
+            vec![1],
+            "member → representative"
+        );
         // A hidden node is never a search target.
-        assert!(s.search_labels("Node 3", 10).is_empty(), "hidden excluded from search");
+        assert!(
+            s.search_labels("Node 3", 10).is_empty(),
+            "hidden excluded from search"
+        );
         // The representative itself still matches directly.
         assert_eq!(s.search_labels("Node 1", 10), vec![1]);
         // nodes_near canonicalises the same way: a query at the member's position
@@ -2854,11 +3114,15 @@ mod tests {
         s.set_query_var(2, 0);
         s.set_fold_plan(&[2], &[2, 3], &[1, 1]); // 2 also (wrongly) listed as hidden
         settle(&mut s); // member 3 folds fully; query-var 2 never enters the fold
-        // Node 2 must be lifted out of both hide and fold — it draws as itself, so
-        // build draws rep 1 (folding only member 3) plus the lifted query var 2.
+                        // Node 2 must be lifted out of both hide and fold — it draws as itself, so
+                        // build draws rep 1 (folding only member 3) plus the lifted query var 2.
         let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         assert_eq!(buf.len(), 2 * NODE_STRIDE, "rep + lifted query var draw");
-        assert_eq!(s.render_ids(), &[1, 2], "query var 2 not hidden, not folded");
+        assert_eq!(
+            s.render_ids(),
+            &[1, 2],
+            "query var 2 not hidden, not folded"
+        );
         assert_eq!(s.badge_of(1), 1, "only member 3 folded into rep 1");
     }
 
@@ -2889,10 +3153,14 @@ mod tests {
             s.set_meta(id, "".into(), name.into(), "page".into(), "".into());
         }
         s.set_fold_plan(&[], &[2, 3, 4], &[1, 1, 1]); // 2,3,4 → rep 1
-        // max=2 must return TWO distinct visible reps: rep 1 (best member centrality
-        // 0.99) and node 10 (0.70) — NOT two members of the same fold.
+                                                      // max=2 must return TWO distinct visible reps: rep 1 (best member centrality
+                                                      // 0.99) and node 10 (0.70) — NOT two members of the same fold.
         let hits = s.search_labels("match", 2);
-        assert_eq!(hits, vec![1, 10], "cap bounds unique visible reps, not raw members");
+        assert_eq!(
+            hits,
+            vec![1, 10],
+            "cap bounds unique visible reps, not raw members"
+        );
     }
 
     #[test]
@@ -2905,17 +3173,26 @@ mod tests {
         }
         s.set_fold_plan(&[], &[2, 3], &[1, 1]); // 2,3 → rep 1
         settle(&mut s); // fold-in completes
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            NODE_STRIDE
+        );
         assert_eq!(s.badge_of(1), 2);
         // Mark node 2 → lifted out (grows back out): rep 1 (folding only 3) + node 2.
         s.set_query_var(2, 0);
         settle(&mut s); // node 2 unfolds back to its position
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), 2 * NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            2 * NODE_STRIDE
+        );
         assert_eq!(s.badge_of(1), 1);
         // Clear the mark → node 2 RE-FOLDS from the retained raw plan, no refetch.
         s.clear_query_var(2);
         settle(&mut s); // node 2 folds back in
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            NODE_STRIDE
+        );
         assert_eq!(s.badge_of(1), 2, "cleared query var re-folds into rep");
     }
 
@@ -2949,9 +3226,14 @@ mod tests {
         let marked = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
         let qv = query_var_color(0);
         // Node 1 now the query colour with custom.b flagged; node 2 untouched.
-        assert!(approx(marked[12], qv[0]) && approx(marked[13], qv[1]) && approx(marked[14], qv[2]));
+        assert!(
+            approx(marked[12], qv[0]) && approx(marked[13], qv[1]) && approx(marked[14], qv[2])
+        );
         assert!(approx(marked[18], 1.0), "marked node sets query flag");
-        assert!(approx(marked[NODE_STRIDE + 18], 0.0), "other node unflagged");
+        assert!(
+            approx(marked[NODE_STRIDE + 18], 0.0),
+            "other node unflagged"
+        );
         // Fold badge channel (custom.g, offset 17) is untouched by the overlay.
         assert!(approx(marked[17], 0.0));
 
@@ -2992,11 +3274,17 @@ mod tests {
         assert!(approx(main[15], 1.0), "opaque node keeps alpha 1");
         let faded = s.faded_node_buffer().to_vec();
         assert_eq!(faded.len(), NODE_STRIDE, "node 1 is in the faded buffer");
-        assert!(approx(faded[15], 1.0 - LABEL_FADE_STEP), "first build steps once");
+        assert!(
+            approx(faded[15], 1.0 - LABEL_FADE_STEP),
+            "first build steps once"
+        );
         for _ in 0..20 {
             s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
         }
-        assert!(approx(s.faded_node_buffer()[15], LABEL_FADE_ALPHA), "settles at 30 %");
+        assert!(
+            approx(s.faded_node_buffer()[15], LABEL_FADE_ALPHA),
+            "settles at 30 %"
+        );
         assert!(approx(s.label_alpha_of(1), LABEL_FADE_ALPHA));
         assert!(approx(s.label_alpha_of(2), 1.0));
         // Both endpoints still count as drawn, so the edge between them survives.
@@ -3015,13 +3303,24 @@ mod tests {
         }
         s.set_labelled(&[]);
         let main = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
-        assert_eq!(main.len(), NODE_STRIDE, "still fading: stays in the faded pass");
-        assert!(approx(s.faded_node_buffer()[15], LABEL_FADE_ALPHA + LABEL_FADE_STEP));
+        assert_eq!(
+            main.len(),
+            NODE_STRIDE,
+            "still fading: stays in the faded pass"
+        );
+        assert!(approx(
+            s.faded_node_buffer()[15],
+            LABEL_FADE_ALPHA + LABEL_FADE_STEP
+        ));
         for _ in 0..20 {
             s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
         }
         let main = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
-        assert_eq!(main.len(), 2 * NODE_STRIDE, "fully opaque again: back in main");
+        assert_eq!(
+            main.len(),
+            2 * NODE_STRIDE,
+            "fully opaque again: back in main"
+        );
         assert!(s.faded_node_buffer().is_empty());
         assert!(approx(s.label_alpha_of(1), 1.0));
     }
@@ -3038,7 +3337,11 @@ mod tests {
         s.set_labelled(&[2]); // 1 drops out (fades back), 2 comes in
         s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9); // 1 → 0.8, 2 → 0.9
         assert!(approx(s.label_alpha_of(1), 0.8) && approx(s.label_alpha_of(2), 0.9));
-        assert_eq!(s.faded_node_buffer().len(), 2 * NODE_STRIDE, "both mid-fade");
+        assert_eq!(
+            s.faded_node_buffer().len(),
+            2 * NODE_STRIDE,
+            "both mid-fade"
+        );
         s.clear();
         assert!(approx(s.label_alpha_of(1), 1.0) && approx(s.label_alpha_of(2), 1.0));
         assert!(s.faded_node_buffer().is_empty());
@@ -3060,7 +3363,9 @@ mod tests {
         assert!(approx(buf[12], community[0]) && approx(buf[13], community[1]));
         assert!(approx(buf[18], 0.0), "plane copy carries no query flag");
         // Unknown ids are skipped, not faked.
-        assert!(s.build_plane_node_buffer(&[999], 0.0, 1.0, 0.7, 1.9).is_empty());
+        assert!(s
+            .build_plane_node_buffer(&[999], 0.0, 1.0, 0.7, 1.9)
+            .is_empty());
     }
 
     #[test]
@@ -3085,7 +3390,10 @@ mod tests {
         assert_eq!(edge_style_code("subclass_of"), 2);
         assert_eq!(edge_style_code("subClassOf"), 2);
         assert_eq!(edge_style_code("rdfs:subClassOf"), 2);
-        assert_eq!(edge_style_code("http://www.w3.org/2000/01/rdf-schema#subClassOf"), 2);
+        assert_eq!(
+            edge_style_code("http://www.w3.org/2000/01/rdf-schema#subClassOf"),
+            2
+        );
         assert_eq!(edge_style_code("is_a"), 2);
         // Any other named predicate → 1 (typed, solid).
         assert_eq!(edge_style_code("references"), 1);
@@ -3121,10 +3429,16 @@ mod tests {
         assert_eq!(buf.len(), 2 * EDGE_STRIDE_TYPED);
         // custom.a is the 16th float of each 16-float instance (index 15).
         assert!(approx(buf[15], 2.0), "subclass edge → style 2 in custom.a");
-        assert!(approx(buf[EDGE_STRIDE_TYPED + 15], 1.0), "typed edge → style 1");
+        assert!(
+            approx(buf[EDGE_STRIDE_TYPED + 15], 1.0),
+            "typed edge → style 1"
+        );
         // Direction-insensitive lookup: reversed pair resolves the same style.
         let buf_rev = s.build_edge_buffer(&[2, 1], 0.1);
-        assert!(approx(buf_rev[15], 2.0), "style lookup ignores edge direction");
+        assert!(
+            approx(buf_rev[15], 2.0),
+            "style lookup ignores edge direction"
+        );
         // Unknown edge → untyped (0).
         s.upsert(4, [0.0, 6.0, 0.0], 0, 0.0, 0.0);
         let _ = s.build_node_buffer(&[3, 4], 1.0, 0.7, 1.9);
@@ -3144,7 +3458,10 @@ mod tests {
         s.set_node_kind(2, KIND_ONTOLOGY);
         s.set_node_kind(3, KIND_KNOWLEDGE);
         // All visible initially.
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), 3 * NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            3 * NODE_STRIDE
+        );
         // Hide ontology → node 2 drops; nodes 1,3 remain.
         s.set_type_visible(KIND_ONTOLOGY, false);
         assert!(!s.is_type_visible(KIND_ONTOLOGY));
@@ -3156,7 +3473,10 @@ mod tests {
         assert_eq!(ebuf.len(), EDGE_STRIDE_TYPED, "edge to hidden node removed");
         // Re-show restores it.
         s.set_type_visible(KIND_ONTOLOGY, true);
-        assert_eq!(s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(), 3 * NODE_STRIDE);
+        assert_eq!(
+            s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9).len(),
+            3 * NODE_STRIDE
+        );
     }
 
     #[test]
@@ -3221,11 +3541,17 @@ mod tests {
         );
         assert_eq!(added, 1);
         let tail_pairs = &flat[before..];
-        let tail_codes: Vec<u8> = types[before / 2..].iter().map(|t| edge_style_code(t)).collect();
+        let tail_codes: Vec<u8> = types[before / 2..]
+            .iter()
+            .map(|t| edge_style_code(t))
+            .collect();
         s.merge_edge_styles(tail_pairs, &tail_codes);
         let _ = s.build_node_buffer(&[3, 4], 1.0, 0.7, 1.9);
         let buf = s.build_edge_buffer(&[3, 4], 0.1);
-        assert!(approx(buf[15], 2.0), "merged subclass edge styled after append");
+        assert!(
+            approx(buf[15], 2.0),
+            "merged subclass edge styled after append"
+        );
     }
 
     // --- Wave 2 Feature 2: top-by-centrality for search-teleport -------------
@@ -3235,13 +3561,26 @@ mod tests {
         let mut s = RenderStore::new();
         for (id, cen) in [(1u32, 0.2), (2, 0.9), (3, 0.5), (4, 0.7)] {
             s.upsert(id, [0.0; 3], 0, 0.0, cen);
-            s.set_meta(id, "".into(), format!("Node {id}"), "page".into(), "".into());
+            s.set_meta(
+                id,
+                "".into(),
+                format!("Node {id}"),
+                "page".into(),
+                "".into(),
+            );
         }
         // A node with NO label is ineligible even at high centrality.
         s.upsert(5, [0.0; 3], 0, 0.0, 1.0);
         let top = s.top_by_centrality(3);
-        assert_eq!(top, vec![2, 4, 3], "highest-centrality labelled nodes, desc");
-        assert!(!s.top_by_centrality(10).contains(&5), "unlabelled node excluded");
+        assert_eq!(
+            top,
+            vec![2, 4, 3],
+            "highest-centrality labelled nodes, desc"
+        );
+        assert!(
+            !s.top_by_centrality(10).contains(&5),
+            "unlabelled node excluded"
+        );
         assert!(s.top_by_centrality(0).is_empty(), "max 0 → empty");
     }
 
@@ -3250,11 +3589,20 @@ mod tests {
         let mut s = RenderStore::new();
         for (id, cen) in [(1u32, 0.3), (2, 0.9), (3, 0.6)] {
             s.upsert(id, [0.0; 3], 0, 0.0, cen);
-            s.set_meta(id, "".into(), format!("Node {id}"), "page".into(), "".into());
+            s.set_meta(
+                id,
+                "".into(),
+                format!("Node {id}"),
+                "page".into(),
+                "".into(),
+            );
         }
         s.set_fold_plan(&[], &[2], &[1]); // member 2 → rep 1
         let top = s.top_by_centrality(10);
-        assert!(top.contains(&1), "folded member resolves to its representative");
+        assert!(
+            top.contains(&1),
+            "folded member resolves to its representative"
+        );
         assert!(!top.contains(&2), "member never returned directly");
         assert!(top.contains(&3));
     }
@@ -3285,7 +3633,11 @@ mod tests {
         s.set_meta(1, "".into(), "Page A".into(), "page".into(), "".into());
         s.set_file_size(1, 4096); // poll sets file_size AFTER set_meta
         assert_eq!(s.file_size_of(1), 4096);
-        assert_eq!(s.label_of(1), "Page A", "label preserved alongside file_size");
+        assert_eq!(
+            s.label_of(1),
+            "Page A",
+            "label preserved alongside file_size"
+        );
         // file_size can also arrive before label meta without being clobbered:
         // set_meta replaces the entry, so the poll order (meta then size) is the
         // contract — but an early file_size on a fresh node is retained until then.
@@ -3301,8 +3653,14 @@ mod tests {
         s.upsert(2, [1.0, 0.0, 0.0], 0, 0.0, 0.0); // zero centrality
         let buf = s.build_node_buffer(&[1, 2], 2.0, 0.7, 1.9);
         // Zero-metadata node → multiplier 1.0 → exactly the previous size.
-        assert!(approx(buf[0], 3.8), "zero-meta max-centrality node keeps base size");
-        assert!(approx(buf[NODE_STRIDE], 1.4), "zero-meta min-centrality node keeps base");
+        assert!(
+            approx(buf[0], 3.8),
+            "zero-meta max-centrality node keeps base size"
+        );
+        assert!(
+            approx(buf[NODE_STRIDE], 1.4),
+            "zero-meta min-centrality node keeps base"
+        );
     }
 
     #[test]
@@ -3321,7 +3679,10 @@ mod tests {
         let buf = s.build_node_buffer(&[1, 2], comp, 0.7, 1.9);
         let leaf = buf[0];
         let hub = buf[NODE_STRIDE];
-        assert!(hub > leaf, "hub with degree+file is larger than a bare leaf");
+        assert!(
+            hub > leaf,
+            "hub with degree+file is larger than a bare leaf"
+        );
         let cap = comp * 1.9 * META_SIZE_CAP_FACTOR;
         assert!(approx(hub, cap), "giant hub clamps to the VR occlusion cap");
     }
@@ -3350,7 +3711,10 @@ mod tests {
         s.set_fold_plan(&[], &[2, 3], &[1, 1]);
         let folded = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
         assert_eq!(s.render_ids()[0], 1, "representative drawn first");
-        assert!(approx(folded[0], bare), "rep sizes by its own metadata, not the group's");
+        assert!(
+            approx(folded[0], bare),
+            "rep sizes by its own metadata, not the group's"
+        );
     }
 
     // ── ADR-2034: action/state precedence and evidence expiry ──────────────
@@ -3440,19 +3804,32 @@ mod tests {
         s.upsert(20, [0.0, 4.0, 0.0], 0, 0.0, 0.0);
         s.record_agent_action(5, 20, 0, 1_000, "reading");
         s.build_node_buffer(&[5, 20], 1.0, 0.7, 1.9);
-        assert_eq!(s.build_beam_buffer(1.0).len(), EDGE_STRIDE_TYPED, "beam while fresh");
+        assert_eq!(
+            s.build_beam_buffer(1.0).len(),
+            EDGE_STRIDE_TYPED,
+            "beam while fresh"
+        );
 
         // Well inside the TTL: nothing changes.
-        assert_eq!(s.expire_stale_agents(1_000 + AGENT_EVIDENCE_TTL_MS, AGENT_EVIDENCE_TTL_MS), 0);
+        assert_eq!(
+            s.expire_stale_agents(1_000 + AGENT_EVIDENCE_TTL_MS, AGENT_EVIDENCE_TTL_MS),
+            0
+        );
         assert_eq!(s.agent_rec(5).unwrap().status, AGENT_WORKING);
 
         // Past the TTL: demoted to idle, target dropped, beam gone.
-        assert_eq!(s.expire_stale_agents(1_001 + AGENT_EVIDENCE_TTL_MS, AGENT_EVIDENCE_TTL_MS), 1);
+        assert_eq!(
+            s.expire_stale_agents(1_001 + AGENT_EVIDENCE_TTL_MS, AGENT_EVIDENCE_TTL_MS),
+            1
+        );
         let rec = s.agent_rec(5).unwrap();
         assert_eq!(rec.status, AGENT_IDLE);
         assert_eq!(rec.target_node_id, 0);
         assert!(rec.expired);
-        assert!(s.build_beam_buffer(1.0).is_empty(), "expired agent draws no beam");
+        assert!(
+            s.build_beam_buffer(1.0).is_empty(),
+            "expired agent draws no beam"
+        );
         assert_eq!(s.agent_expiries_total(), 1);
     }
 

@@ -48,10 +48,7 @@ async fn handshake_and_pose_round_trip_through_fake_transport() {
         "display_name": "carol",
         "model_uri": null
     }]);
-    inbox
-        .send(WsMessage::Text(challenge_json()))
-        .await
-        .unwrap();
+    inbox.send(WsMessage::Text(challenge_json())).await.unwrap();
     inbox
         .send(WsMessage::Text(joined_json(&avatar_hex, members)))
         .await
@@ -126,12 +123,12 @@ async fn handshake_with_empty_members_succeeds() {
     let avatar_hex = signer.pubkey_hex();
     let mut client = PresenceClient::new(transport.clone(), signer, room());
 
+    inbox.send(WsMessage::Text(challenge_json())).await.unwrap();
     inbox
-        .send(WsMessage::Text(challenge_json()))
-        .await
-        .unwrap();
-    inbox
-        .send(WsMessage::Text(joined_json(&avatar_hex, serde_json::json!([]))))
+        .send(WsMessage::Text(joined_json(
+            &avatar_hex,
+            serde_json::json!([]),
+        )))
         .await
         .unwrap();
 

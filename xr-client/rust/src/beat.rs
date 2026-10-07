@@ -63,7 +63,12 @@ pub struct BeatClockState {
 }
 
 pub const DEFAULT_BPM: f64 = 120.0;
-pub const OFF_BEAT: BeatClockState = BeatClockState { bpm: DEFAULT_BPM, phase_at: 0.0, confidence: 0.0, source: BeatSource::Off };
+pub const OFF_BEAT: BeatClockState = BeatClockState {
+    bpm: DEFAULT_BPM,
+    phase_at: 0.0,
+    confidence: 0.0,
+    source: BeatSource::Off,
+};
 
 /// A pause longer than this starts a new tap sequence.
 pub const TAP_RESET_MS: f64 = 2500.0;
@@ -128,7 +133,9 @@ impl TapTempo {
             return None;
         }
         let n = self.times.len();
-        let iv: Vec<f64> = (n.saturating_sub(8).max(1)..n).map(|i| self.times[i] - self.times[i - 1]).collect();
+        let iv: Vec<f64> = (n.saturating_sub(8).max(1)..n)
+            .map(|i| self.times[i] - self.times[i - 1])
+            .collect();
         let mut sorted = iv.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let m = median(&sorted);
@@ -137,7 +144,12 @@ impl TapTempo {
         let mad = median(&dev);
         let bpm = tenth(60_000.0 / m).clamp(TAP_MIN_BPM, TAP_MAX_BPM);
         let confidence = (1.0 - (4.0 * mad) / m).clamp(0.0, 1.0) * (iv.len() as f64 / 4.0).min(1.0);
-        Some(TapReading { bpm, phase_at: at_ms, confidence, taps: n })
+        Some(TapReading {
+            bpm,
+            phase_at: at_ms,
+            confidence,
+            taps: n,
+        })
     }
 
     pub fn reset(&mut self) {
@@ -167,7 +179,13 @@ pub struct BeatSample {
     pub beat_index: i64,
 }
 
-pub const OFF_SAMPLE: BeatSample = BeatSample { on: false, phase: 0.0, pulse: 0.0, bar: 0.0, beat_index: 0 };
+pub const OFF_SAMPLE: BeatSample = BeatSample {
+    on: false,
+    phase: 0.0,
+    pulse: 0.0,
+    bar: 0.0,
+    beat_index: 0,
+};
 
 /// Evaluate a clock at `now_ms`, which must be in the same epoch as `phase_at`.
 pub fn beat_at(state: &BeatClockState, now_ms: f64) -> BeatSample {
@@ -184,8 +202,18 @@ pub fn beat_at(state: &BeatClockState, now_ms: f64) -> BeatSample {
     let beat_index = (pos + 1e-9).floor();
     let phase = (pos - beat_index).max(0.0);
     let pulse = (-phase * PULSE_DECAY).exp();
-    let bar = if (beat_index as i64).rem_euclid(4) == 0 { pulse } else { 0.0 };
-    BeatSample { on: true, phase, pulse, bar, beat_index: beat_index as i64 }
+    let bar = if (beat_index as i64).rem_euclid(4) == 0 {
+        pulse
+    } else {
+        0.0
+    };
+    BeatSample {
+        on: true,
+        phase,
+        pulse,
+        bar,
+        beat_index: beat_index as i64,
+    }
 }
 
 // ─── wire: beatClock / pong text frames ──────────────────────────────────────
@@ -214,17 +242,31 @@ pub fn parse_beat_clock_frame(json: &str) -> Option<RemoteBeatFrame> {
     let phase_at = finite(v.get("phaseAt"))?;
     let confidence = finite(v.get("confidence"))?;
     let source = BeatSource::from_wire(v.get("source")?.as_str()?)?;
-    if !(TAP_MIN_BPM..=TAP_MAX_BPM).contains(&bpm) || phase_at < 0.0 || !(0.0..=1.0).contains(&confidence) {
+    if !(TAP_MIN_BPM..=TAP_MAX_BPM).contains(&bpm)
+        || phase_at < 0.0
+        || !(0.0..=1.0).contains(&confidence)
+    {
         return None;
     }
     let server_time = finite(v.get("serverTime")).unwrap_or(0.0);
-    Some(RemoteBeatFrame { state: BeatClockState { bpm, phase_at, confidence, source }, server_time })
+    Some(RemoteBeatFrame {
+        state: BeatClockState {
+            bpm,
+            phase_at,
+            confidence,
+            source,
+        },
+        server_time,
+    })
 }
 
 /// `{"type":"ping","timestamp":<local ms>}` — the `/wss` JSON ping the server
 /// answers with `{"type":"pong","timestamp":<echo>,"serverTime":<server ms>}`.
 pub fn build_ping(local_ms: f64) -> String {
-    format!(r#"{{"type":"ping","timestamp":{}}}"#, local_ms.max(0.0).floor() as u64)
+    format!(
+        r#"{{"type":"ping","timestamp":{}}}"#,
+        local_ms.max(0.0).floor() as u64
+    )
 }
 
 /// Parse a pong: `(echoed local send ms, server ms)`. A pong from a server that
@@ -364,7 +406,8 @@ impl BeatSync {
     /// that stamp (one-way, so biased by the downlink latency) seeds it.
     pub fn on_remote(&mut self, frame: RemoteBeatFrame, local_ms: f64) {
         if self.offset.offset_ms().is_none() && frame.server_time > 0.0 {
-            self.offset.add_sample(local_ms, frame.server_time, local_ms);
+            self.offset
+                .add_sample(local_ms, frame.server_time, local_ms);
         }
         let changed = match self.remote {
             Some(prev) => {
@@ -386,10 +429,22 @@ impl BeatSync {
         let reading = self.tap.tap(local_ms);
         self.last_tap_local = local_ms;
         self.tap_clock = Some(match reading {
-            Some(r) => BeatClockState { bpm: r.bpm, phase_at: r.phase_at, confidence: r.confidence, source: BeatSource::Tap },
+            Some(r) => BeatClockState {
+                bpm: r.bpm,
+                phase_at: r.phase_at,
+                confidence: r.confidence,
+                source: BeatSource::Tap,
+            },
             None => {
-                let prev = self.tap_clock.unwrap_or(BeatClockState { source: BeatSource::Tap, ..OFF_BEAT });
-                BeatClockState { phase_at: local_ms, source: BeatSource::Tap, ..prev }
+                let prev = self.tap_clock.unwrap_or(BeatClockState {
+                    source: BeatSource::Tap,
+                    ..OFF_BEAT
+                });
+                BeatClockState {
+                    phase_at: local_ms,
+                    source: BeatSource::Tap,
+                    ..prev
+                }
             }
         });
         reading
@@ -437,7 +492,13 @@ impl BeatSync {
                 Some(off) if r.phase_at > 0.0 => r.phase_at - off,
                 _ => r.phase_at,
             };
-            return (ActiveSource::Remote, BeatClockState { phase_at: local_phase, ..r });
+            return (
+                ActiveSource::Remote,
+                BeatClockState {
+                    phase_at: local_phase,
+                    ..r
+                },
+            );
         }
         if let Some(t) = self.tap_clock {
             return (ActiveSource::Tap, t);
@@ -485,7 +546,11 @@ pub struct OnsetEnvelope {
 /// Port of `onsetEnvelope`. Intermediate arrays are f32, as the TS stores into
 /// `Float32Array`; sums run in f64, as JS arithmetic does.
 pub fn onset_envelope(samples: &[f32], sample_rate: f64) -> OnsetEnvelope {
-    let nf = if samples.len() > WIN { (samples.len() - WIN) / HOP } else { 0 };
+    let nf = if samples.len() > WIN {
+        (samples.len() - WIN) / HOP
+    } else {
+        0
+    };
     let frame_rate = sample_rate / HOP as f64;
     let mut energy = vec![0f32; nf];
     for (i, e) in energy.iter_mut().enumerate() {
@@ -529,7 +594,11 @@ pub fn onset_envelope(samples: &[f32], sample_rate: f64) -> OnsetEnvelope {
         let cnt = (nfi - 1).min(hi) - 0i64.max(lo + 1) + 1;
         env[i as usize] = (flux[i as usize] as f64 - acc / cnt as f64).max(0.0) as f32;
     }
-    OnsetEnvelope { env, frame_rate, lag: (WIN as f64 - HOP as f64 / 2.0) / sample_rate }
+    OnsetEnvelope {
+        env,
+        frame_rate,
+        lag: (WIN as f64 - HOP as f64 / 2.0) / sample_rate,
+    }
 }
 
 /// `TempoEstimate`.
@@ -568,10 +637,20 @@ fn prior(bpm: f64) -> f64 {
 /// Port of `estimateTempo` (autocorrelation with a log-normal prior near
 /// 118 bpm, then a comb fit for tempo and phase). Loop increments are the same
 /// accumulated f64 steps as the TS so the argmax lands on the same grid point.
-pub fn estimate_tempo(env: &[f32], frame_rate: f64, min_bpm: f64, max_bpm: f64, lag_sec: f64) -> TempoEstimate {
+pub fn estimate_tempo(
+    env: &[f32],
+    frame_rate: f64,
+    min_bpm: f64,
+    max_bpm: f64,
+    lag_sec: f64,
+) -> TempoEstimate {
     let nf = env.len();
     if nf < 8 {
-        return TempoEstimate { bpm: 120.0, offset: 0.0, confidence: 0.0 };
+        return TempoEstimate {
+            bpm: 120.0,
+            offset: 0.0,
+            confidence: 0.0,
+        };
     }
     let nff = nf as f64;
     let acf = |bpm: f64| -> f64 {
@@ -582,7 +661,8 @@ pub fn estimate_tempo(env: &[f32], frame_rate: f64, min_bpm: f64, max_bpm: f64, 
         while (t as f64) < n2 {
             let v = env[t] as f64;
             if v != 0.0 {
-                sum += v * (sample_at(env, t as f64 + lag) + 0.5 * sample_at(env, t as f64 + 2.0 * lag));
+                sum += v
+                    * (sample_at(env, t as f64 + lag) + 0.5 * sample_at(env, t as f64 + 2.0 * lag));
             }
             t += 1;
         }
@@ -620,7 +700,11 @@ pub fn estimate_tempo(env: &[f32], frame_rate: f64, min_bpm: f64, max_bpm: f64, 
     m2 /= nff;
     let base = 1.5 * m1 * m1;
     let top = 1.5 * m2;
-    let confidence = if top > base { ((acf(best_b) - base) / (top - base)).clamp(0.0, 1.0) } else { 0.0 };
+    let confidence = if top > base {
+        ((acf(best_b) - base) / (top - base)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     let comb = |bpm: f64, ph: f64| -> f64 {
         let p = (60.0 * frame_rate) / bpm;
@@ -628,7 +712,9 @@ pub fn estimate_tempo(env: &[f32], frame_rate: f64, min_bpm: f64, max_bpm: f64, 
         let mut x = ph;
         while x < nff - 1.0 {
             let k = js_round(x) as i64;
-            s += at(env, k).max(0.5 * at(env, k - 1)).max(0.5 * at(env, k + 1));
+            s += at(env, k)
+                .max(0.5 * at(env, k - 1))
+                .max(0.5 * at(env, k + 1));
             x += p;
         }
         s
@@ -822,7 +908,8 @@ impl MicBeat {
             self.acc += s as f64;
             self.acc_n += 1;
             if self.acc_n == self.factor {
-                self.window.push_back((self.acc / self.factor as f64) as f32);
+                self.window
+                    .push_back((self.acc / self.factor as f64) as f32);
                 self.acc = 0.0;
                 self.acc_n = 0;
                 if self.window.len() > cap {
@@ -931,7 +1018,8 @@ mod tests {
     const SR: f64 = 11025.0;
 
     fn fixture() -> serde_json::Value {
-        let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/desktop_parity.json");
+        let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/desktop_parity.json");
         serde_json::from_str(&std::fs::read_to_string(p).expect("fixture")).expect("json")
     }
 
@@ -959,7 +1047,8 @@ mod tests {
             let mut k = 0usize;
             while (k as f64) < sr * 0.03 && start + k < n {
                 let kf = k as f64;
-                let add = (2.0 * std::f64::consts::PI * 1500.0 * kf / sr).sin() * (-kf / (sr * 0.006)).exp();
+                let add = (2.0 * std::f64::consts::PI * 1500.0 * kf / sr).sin()
+                    * (-kf / (sr * 0.006)).exp();
                 out[start + k] = (out[start + k] as f64 + add) as f32;
                 k += 1;
             }
@@ -1038,7 +1127,11 @@ mod tests {
         for d in [0.0, 500.0, 1000.0, 1500.0, 1830.0, 2500.0, 3000.0, 3500.0] {
             r = tt.tap(T0 + d);
         }
-        assert_eq!(r.unwrap().bpm, 120.0, "one outlier interval does not move the median");
+        assert_eq!(
+            r.unwrap().bpm,
+            120.0,
+            "one outlier interval does not move the median"
+        );
         let after = T0 + 3500.0 + TAP_RESET_MS + 1.0;
         assert!(tt.tap(after).is_none());
         assert_eq!(tt.count(), 1);
@@ -1048,7 +1141,11 @@ mod tests {
     fn onset_envelope_and_tempo_match_the_desktop_click_tracks() {
         let f = fixture();
         for row in f["tempo"].as_array().unwrap() {
-            let (bpm, off, secs) = (row["bpm"].as_f64().unwrap(), row["offset"].as_f64().unwrap(), row["seconds"].as_f64().unwrap());
+            let (bpm, off, secs) = (
+                row["bpm"].as_f64().unwrap(),
+                row["offset"].as_f64().unwrap(),
+                row["seconds"].as_f64().unwrap(),
+            );
             let track = click_track(bpm, off, secs, SR, row["seed"].as_f64().unwrap());
             let e = onset_envelope(&track, SR);
             assert_eq!(e.env.len() as u64, row["envLen"].as_u64().unwrap());
@@ -1056,12 +1153,24 @@ mod tests {
             assert!((e.lag - row["lag"].as_f64().unwrap()).abs() < 1e-12);
             let sum: f64 = e.env.iter().map(|&v| v as f64).sum();
             let want_sum = row["envSum"].as_f64().unwrap();
-            assert!((sum - want_sum).abs() / want_sum < 1e-4, "envelope sum {sum} vs {want_sum}");
+            assert!(
+                (sum - want_sum).abs() / want_sum < 1e-4,
+                "envelope sum {sum} vs {want_sum}"
+            );
             let got = estimate_tempo_env(&e);
             let want = &row["result"];
-            assert!((got.bpm - want["bpm"].as_f64().unwrap()).abs() <= 0.05, "bpm {got:?} vs {want}");
-            assert!((got.offset - want["offset"].as_f64().unwrap()).abs() <= 0.002, "offset {got:?} vs {want}");
-            assert!((got.confidence - want["confidence"].as_f64().unwrap()).abs() <= 0.02, "conf {got:?} vs {want}");
+            assert!(
+                (got.bpm - want["bpm"].as_f64().unwrap()).abs() <= 0.05,
+                "bpm {got:?} vs {want}"
+            );
+            assert!(
+                (got.offset - want["offset"].as_f64().unwrap()).abs() <= 0.002,
+                "offset {got:?} vs {want}"
+            );
+            assert!(
+                (got.confidence - want["confidence"].as_f64().unwrap()).abs() <= 0.02,
+                "conf {got:?} vs {want}"
+            );
             // and the beat.test.ts acceptance bounds
             assert!((got.bpm - bpm).abs() < 1.0);
             let period = 60.0 / bpm;
@@ -1078,9 +1187,15 @@ mod tests {
         let e = onset_envelope(&noise(10, 3.0), SR);
         assert_eq!(e.env.len() as u64, row["envLen"].as_u64().unwrap());
         let got = estimate_tempo_env(&e);
-        assert!((got.confidence - row["result"]["confidence"].as_f64().unwrap()).abs() <= 0.02, "{got:?}");
+        assert!(
+            (got.confidence - row["result"]["confidence"].as_f64().unwrap()).abs() <= 0.02,
+            "{got:?}"
+        );
         assert!(got.confidence < 0.4);
-        assert!(got.confidence < MIC_LOCK_CONFIDENCE, "noise can never lock the mic");
+        assert!(
+            got.confidence < MIC_LOCK_CONFIDENCE,
+            "noise can never lock the mic"
+        );
     }
 
     #[test]
@@ -1116,8 +1231,15 @@ mod tests {
     #[test]
     fn ping_pong_round_trip() {
         assert_eq!(build_ping(1234.9), r#"{"type":"ping","timestamp":1234}"#);
-        assert_eq!(parse_pong(r#"{"type":"pong","timestamp":1234,"serverTime":5000}"#), Some((1234.0, 5000.0)));
-        assert_eq!(parse_pong(r#"{"type":"pong","timestamp":1234}"#), None, "legacy pong has no server time");
+        assert_eq!(
+            parse_pong(r#"{"type":"pong","timestamp":1234,"serverTime":5000}"#),
+            Some((1234.0, 5000.0))
+        );
+        assert_eq!(
+            parse_pong(r#"{"type":"pong","timestamp":1234}"#),
+            None,
+            "legacy pong has no server time"
+        );
     }
 
     #[test]
@@ -1148,46 +1270,129 @@ mod tests {
         let mut bs = BeatSync::new();
         let off = 3_000.0; // server = local + 3000
         bs.offset.add_sample(T0, T0 + 5.0 + off, T0 + 10.0);
-        let st = BeatClockState { bpm: 120.0, phase_at: T0 + off + 250.0, confidence: 0.9, source: BeatSource::Tap };
-        bs.on_remote(RemoteBeatFrame { state: st, server_time: 0.0 }, T0);
+        let st = BeatClockState {
+            bpm: 120.0,
+            phase_at: T0 + off + 250.0,
+            confidence: 0.9,
+            source: BeatSource::Tap,
+        };
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: st,
+                server_time: 0.0,
+            },
+            T0,
+        );
         // At local T0+250 the server clock reads T0+3250 = phase_at → on the beat.
         let (src, _, s) = bs.sample(T0 + 250.0);
         assert_eq!(src, ActiveSource::Remote);
         assert!((s.pulse - 1.0).abs() < 1e-6, "{s:?}");
         let before = bs.sample(T0 + 1900.0).2;
         // A heartbeat with the same clock 2 s later must not jump the phase.
-        bs.on_remote(RemoteBeatFrame { state: st, server_time: 0.0 }, T0 + 2000.0);
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: st,
+                server_time: 0.0,
+            },
+            T0 + 2000.0,
+        );
         let after = bs.sample(T0 + 1900.0).2;
         assert_eq!(before, after);
-        assert!((bs.sample(T0 + 2250.0).2.pulse - 1.0).abs() < 1e-6, "still on the 500 ms grid");
+        assert!(
+            (bs.sample(T0 + 2250.0).2.pulse - 1.0).abs() < 1e-6,
+            "still on the 500 ms grid"
+        );
         // Silence beyond the stale window drops the relayed clock.
-        assert_eq!(bs.sample(T0 + 2000.0 + REMOTE_STALE_MS + 1.0).0, ActiveSource::None);
+        assert_eq!(
+            bs.sample(T0 + 2000.0 + REMOTE_STALE_MS + 1.0).0,
+            ActiveSource::None
+        );
     }
 
     #[test]
     fn arbitration_tap_then_desktop_change_then_mic() {
         let mut bs = BeatSync::new();
-        let remote = BeatClockState { bpm: 100.0, phase_at: T0, confidence: 0.8, source: BeatSource::File };
-        bs.on_remote(RemoteBeatFrame { state: remote, server_time: 0.0 }, T0);
+        let remote = BeatClockState {
+            bpm: 100.0,
+            phase_at: T0,
+            confidence: 0.8,
+            source: BeatSource::File,
+        };
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: remote,
+                server_time: 0.0,
+            },
+            T0,
+        );
         assert_eq!(bs.active(T0 + 10.0).0, ActiveSource::Remote);
         for i in 0..4 {
             bs.tap(T0 + 100.0 + i as f64 * 500.0);
         }
-        assert_eq!(bs.active(T0 + 2000.0).0, ActiveSource::Tap, "a tap takes over");
+        assert_eq!(
+            bs.active(T0 + 2000.0).0,
+            ActiveSource::Tap,
+            "a tap takes over"
+        );
         assert_eq!(bs.active(T0 + 2000.0).1.bpm, 120.0);
-        bs.on_remote(RemoteBeatFrame { state: remote, server_time: 0.0 }, T0 + 2100.0);
-        assert_eq!(bs.active(T0 + 2200.0).0, ActiveSource::Tap, "an unchanged heartbeat does not take it back");
-        let changed = BeatClockState { bpm: 101.0, ..remote };
-        bs.on_remote(RemoteBeatFrame { state: changed, server_time: 0.0 }, T0 + 2300.0);
-        assert_eq!(bs.active(T0 + 2400.0).0, ActiveSource::Remote, "a changed desktop clock wins it back");
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: remote,
+                server_time: 0.0,
+            },
+            T0 + 2100.0,
+        );
+        assert_eq!(
+            bs.active(T0 + 2200.0).0,
+            ActiveSource::Tap,
+            "an unchanged heartbeat does not take it back"
+        );
+        let changed = BeatClockState {
+            bpm: 101.0,
+            ..remote
+        };
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: changed,
+                server_time: 0.0,
+            },
+            T0 + 2300.0,
+        );
+        assert_eq!(
+            bs.active(T0 + 2400.0).0,
+            ActiveSource::Remote,
+            "a changed desktop clock wins it back"
+        );
         bs.set_mic_listening(true);
-        bs.set_mic_clock(Some(BeatClockState { bpm: 90.0, phase_at: T0, confidence: 0.7, source: BeatSource::Mic }));
+        bs.set_mic_clock(Some(BeatClockState {
+            bpm: 90.0,
+            phase_at: T0,
+            confidence: 0.7,
+            source: BeatSource::Mic,
+        }));
         assert_eq!(bs.active(T0 + 2500.0).0, ActiveSource::Mic);
         bs.set_mic_listening(false);
-        assert_eq!(bs.active(T0 + 2500.0).0, ActiveSource::Remote, "mic off drops its clock");
-        let off = BeatClockState { source: BeatSource::Off, ..changed };
-        bs.on_remote(RemoteBeatFrame { state: off, server_time: 0.0 }, T0 + 2600.0);
-        assert_eq!(bs.active(T0 + 2700.0).0, ActiveSource::Tap, "desktop off falls back to the tap clock");
+        assert_eq!(
+            bs.active(T0 + 2500.0).0,
+            ActiveSource::Remote,
+            "mic off drops its clock"
+        );
+        let off = BeatClockState {
+            source: BeatSource::Off,
+            ..changed
+        };
+        bs.on_remote(
+            RemoteBeatFrame {
+                state: off,
+                server_time: 0.0,
+            },
+            T0 + 2600.0,
+        );
+        assert_eq!(
+            bs.active(T0 + 2700.0).0,
+            ActiveSource::Tap,
+            "desktop off falls back to the tap clock"
+        );
     }
 
     #[test]
@@ -1202,10 +1407,21 @@ mod tests {
         assert!((full - 1.0).abs() < 1e-6, "on the beat with motion allowed");
         for k in 0..200 {
             let t = T0 + 1500.0 + k as f64 * 5.0;
-            assert_eq!(bs.pulse_intensity(t, true), 0.0, "exactly 0 under reduced motion at {t}");
+            assert_eq!(
+                bs.pulse_intensity(t, true),
+                0.0,
+                "exactly 0 under reduced motion at {t}"
+            );
         }
-        assert!(bs.sample(T0 + 1500.0).2.on, "the clock itself keeps running for the HUD");
-        assert_eq!(BeatSync::new().pulse_intensity(T0, false), 0.0, "no clock, no pulse");
+        assert!(
+            bs.sample(T0 + 1500.0).2.on,
+            "the clock itself keeps running for the HUD"
+        );
+        assert_eq!(
+            BeatSync::new().pulse_intensity(T0, false),
+            0.0,
+            "no clock, no pulse"
+        );
     }
 
     #[test]

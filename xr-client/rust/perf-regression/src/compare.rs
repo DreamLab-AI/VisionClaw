@@ -20,7 +20,10 @@ pub const CRITERION_BENCH_TO_BASELINE: &[(&str, &str)] = &[
     ("decode_pose_frame", "decode_pose_frame"),
     ("validate_pose", "validate_pose"),
     ("delta_compute", "delta_compute"),
-    ("decode_position_frame_1k/decode_1000_nodes", "decode_position_frame_1k_ns"),
+    (
+        "decode_position_frame_1k/decode_1000_nodes",
+        "decode_position_frame_1k_ns",
+    ),
     ("presence_0x43_round_trip", "presence_round_trip_ns"),
 ];
 
@@ -97,12 +100,15 @@ pub fn cmp_godot(current: &Map<String, Value>, baseline: &Map<String, Value>) ->
     let mut regressed = false;
 
     for (current_key, baseline_key, label) in GODOT_METRICS {
-        let (Some(current_value), Some(entry)) =
-            (number(current.get(*current_key)), baseline.get(*baseline_key))
-        else {
+        let (Some(current_value), Some(entry)) = (
+            number(current.get(*current_key)),
+            baseline.get(*baseline_key),
+        ) else {
             continue;
         };
-        let Some(target) = number(entry.get("target_max")) else { continue };
+        let Some(target) = number(entry.get("target_max")) else {
+            continue;
+        };
 
         let budget_pct = entry.get("regression_budget_pct").filter(|v| !v.is_null());
         let budget_abs = entry.get("regression_budget_abs").filter(|v| !v.is_null());
@@ -124,7 +130,11 @@ pub fn cmp_godot(current: &Map<String, Value>, baseline: &Map<String, Value>) ->
             current: current_value,
             baseline: Some(target),
             delta,
-            delta_pct: if target != 0.0 { delta / target * 100.0 } else { 0.0 },
+            delta_pct: if target != 0.0 {
+                delta / target * 100.0
+            } else {
+                0.0
+            },
             budget: format_budget(budget_pct, budget_abs),
             status: if over_budget { "FAIL" } else { "PASS" },
         });
@@ -140,7 +150,9 @@ pub fn baseline_key_for(bench_name: &str) -> Option<&'static str> {
         .iter()
         .find(|(name, _)| *name == bench_name)
         .or_else(|| {
-            CRITERION_BENCH_TO_BASELINE.iter().find(|(name, _)| bench_name.ends_with(name))
+            CRITERION_BENCH_TO_BASELINE
+                .iter()
+                .find(|(name, _)| bench_name.ends_with(name))
         })
         .map(|(_, key)| *key)
 }
@@ -166,7 +178,11 @@ pub fn cmp_criterion(
         // fail the run — an unknown bench is not evidence of a regression.
         return Ok((
             vec![Row {
-                metric: if name.is_empty() { "(unknown bench)".into() } else { name },
+                metric: if name.is_empty() {
+                    "(unknown bench)".into()
+                } else {
+                    name
+                },
                 current: median,
                 baseline: None,
                 delta: 0.0,
@@ -181,7 +197,8 @@ pub fn cmp_criterion(
     let target = number(entry.get("median_ns"))
         .or_else(|| number(entry.get("ns_per_iter")))
         .ok_or_else(|| format!("baseline entry `{key}` has neither median_ns nor ns_per_iter"))?;
-    let budget_pct = number(entry.get("regression_budget_pct")).unwrap_or(DEFAULT_CRITERION_BUDGET_PCT);
+    let budget_pct =
+        number(entry.get("regression_budget_pct")).unwrap_or(DEFAULT_CRITERION_BUDGET_PCT);
 
     let mut over_budget = median > target * (1.0 + budget_pct / 100.0);
     if let Some(budget_ns) = number(entry.get("budget_ns")) {
@@ -195,7 +212,11 @@ pub fn cmp_criterion(
             current: median,
             baseline: Some(target),
             delta,
-            delta_pct: if target != 0.0 { delta / target * 100.0 } else { 0.0 },
+            delta_pct: if target != 0.0 {
+                delta / target * 100.0
+            } else {
+                0.0
+            },
             budget: format!("+{budget_pct:.0}%"),
             status: if over_budget { "FAIL" } else { "PASS" },
         }],
@@ -209,7 +230,10 @@ mod tests {
     use serde_json::json;
 
     fn object(value: Value) -> Map<String, Value> {
-        value.as_object().expect("test fixture is an object").clone()
+        value
+            .as_object()
+            .expect("test fixture is an object")
+            .clone()
     }
 
     fn baseline() -> Map<String, Value> {
@@ -226,8 +250,14 @@ mod tests {
 
     #[test]
     fn godot_input_is_detected() {
-        assert!(matches!(detect_kind(&json!({ "frame_ms_p99": 9.0 })), Some(Kind::Godot)));
-        assert!(matches!(detect_kind(&json!({ "draw_calls_max": 20 })), Some(Kind::Godot)));
+        assert!(matches!(
+            detect_kind(&json!({ "frame_ms_p99": 9.0 })),
+            Some(Kind::Godot)
+        ));
+        assert!(matches!(
+            detect_kind(&json!({ "draw_calls_max": 20 })),
+            Some(Kind::Godot)
+        ));
     }
 
     #[test]
@@ -267,7 +297,10 @@ mod tests {
     fn an_absolute_budget_overrun_fails() {
         // target 50 + 5 absolute = 55; 56 is beyond it, 55 is not.
         let (_, at_edge) = cmp_godot(&object(json!({ "draw_calls_max": 55 })), &baseline());
-        assert!(!at_edge, "a value exactly at budget must not count as a regression");
+        assert!(
+            !at_edge,
+            "a value exactly at budget must not count as a regression"
+        );
         let (_, over) = cmp_godot(&object(json!({ "draw_calls_max": 56 })), &baseline());
         assert!(over);
     }
@@ -312,8 +345,7 @@ mod tests {
             "mean": { "point_estimate": 1500.0 },
             "median": { "point_estimate": 1500.0 },
         }));
-        let (_, regressed) =
-            cmp_criterion(&current, &baseline, Some("encode_pose_frame")).unwrap();
+        let (_, regressed) = cmp_criterion(&current, &baseline, Some("encode_pose_frame")).unwrap();
         assert!(regressed, "budget_ns=1000 must fail a 1500ns median");
     }
 
@@ -331,7 +363,10 @@ mod tests {
 
     #[test]
     fn bench_names_resolve_by_suffix() {
-        assert_eq!(baseline_key_for("encode_pose_frame"), Some("encode_pose_frame"));
+        assert_eq!(
+            baseline_key_for("encode_pose_frame"),
+            Some("encode_pose_frame")
+        );
         assert_eq!(
             baseline_key_for("wire/decode_position_frame_1k/decode_1000_nodes"),
             Some("decode_position_frame_1k_ns")
@@ -346,5 +381,4 @@ mod tests {
         assert_eq!(format_budget(Some(&json!(5)), Some(&json!(2))), "+5% or +2");
         assert_eq!(format_budget(None, None), "exact");
     }
-
 }

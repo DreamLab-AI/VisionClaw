@@ -16,8 +16,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
 
 /// Websocket receive limits. The default tungstenite cap is 16 MiB, but a
@@ -37,9 +37,7 @@ use visionclaw_xr_presence::{PoseFrame, RoomId};
 
 use crate::binary_protocol::GraphInbound;
 use crate::ports::{TransportError, WsMessage, WsTransport};
-use crate::presence::{
-    decode_sibling_frame, PresenceClient, PresenceInbound, ServerMessage,
-};
+use crate::presence::{decode_sibling_frame, PresenceClient, PresenceInbound, ServerMessage};
 use crate::runtime::runtime;
 use crate::signer::NostrSigner;
 
@@ -116,7 +114,9 @@ async fn graph_pump(
                                 warn!("graph stream: failed to send authenticate message");
                             }
                         }
-                        Err(e) => warn!(err = %e, "graph stream: signer init failed; staying anonymous"),
+                        Err(e) => {
+                            warn!(err = %e, "graph stream: signer init failed; staying anonymous")
+                        }
                     }
                 }
                 pump_graph_messages(&mut sink, &mut stream, &inbox, outbound).await;

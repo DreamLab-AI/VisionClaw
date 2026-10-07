@@ -205,7 +205,9 @@ pub fn validate_memory_route(msg: &Value, server_now_ms: f64) -> Result<String, 
     let sent_at = non_neg("sentAt")?;
     let count = |key: &str| msg.get(key).and_then(as_row);
     let stats = match (count("sidecarTotal"), count("sidecarAgree")) {
-        (Some(total), Some(agree)) if sidecar.len() as u64 <= total as u64 && agree as usize <= sidecar.len() => {
+        (Some(total), Some(agree))
+            if sidecar.len() as u64 <= total as u64 && agree as usize <= sidecar.len() =>
+        {
             Some((total, agree))
         }
         _ => None,
@@ -501,7 +503,10 @@ mod tests {
         assert_eq!(out["sentAt"], NOW - 5.0);
         assert_eq!(out["serverTime"], NOW);
         assert!(out.get("x").is_none(), "unknown keys never relayed");
-        assert!(out.get("sidecarTotal").is_none(), "no stats sent, none relayed");
+        assert!(
+            out.get("sidecarTotal").is_none(),
+            "no stats sent, none relayed"
+        );
         // agreement counts relay as a consistent pair, else are dropped
         let with = |extra: Value| {
             let mut m = json!({"snapshotId":"s","path":[1,2],"sidecar":[4,5,6]});
@@ -511,7 +516,10 @@ mod tests {
             parse(&validate_memory_route(&m, NOW).unwrap())
         };
         let ok = with(json!({"sidecarTotal":8,"sidecarAgree":2}));
-        assert_eq!((ok["sidecarTotal"].clone(), ok["sidecarAgree"].clone()), (json!(8), json!(2)));
+        assert_eq!(
+            (ok["sidecarTotal"].clone(), ok["sidecarAgree"].clone()),
+            (json!(8), json!(2))
+        );
         for bad in [
             json!({"sidecarTotal":2,"sidecarAgree":1}),
             json!({"sidecarTotal":8,"sidecarAgree":4}),
@@ -521,7 +529,10 @@ mod tests {
             json!({"sidecarTotal":8,"sidecarAgree":1.5}),
         ] {
             let o = with(bad.clone());
-            assert!(o.get("sidecarTotal").is_none() && o.get("sidecarAgree").is_none(), "{bad}");
+            assert!(
+                o.get("sidecarTotal").is_none() && o.get("sidecarAgree").is_none(),
+                "{bad}"
+            );
             assert_eq!(o["path"], json!([1, 2]), "{bad}: the frame still relays");
         }
         let clear = json!({"snapshotId":"s-1","path":[]});

@@ -29,7 +29,9 @@ use tracing::info;
 use tracing::warn;
 
 use visionclaw_xr_presence::wire::{encode, OPCODE_AVATAR_POSE};
-use visionclaw_xr_presence::{AvatarId, AvatarMetadata, Did, PoseFrame, RoomId, Transform, WireError};
+use visionclaw_xr_presence::{
+    AvatarId, AvatarMetadata, Did, PoseFrame, RoomId, Transform, WireError,
+};
 
 use crate::ports::{Signer, SignerError, TransportError, WsMessage, WsTransport};
 
@@ -171,7 +173,9 @@ pub fn decode_sibling_frame(bytes: &[u8]) -> Result<SiblingBatch, PresenceError>
     let mut poses = Vec::with_capacity(user_count);
     for _ in 0..user_count {
         if cursor + 4 + 8 + 1 > bytes.len() {
-            return Err(PresenceError::Protocol("sibling user header truncated".into()));
+            return Err(PresenceError::Protocol(
+                "sibling user header truncated".into(),
+            ));
         }
         let local_id = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
         cursor += 4;
@@ -180,14 +184,18 @@ pub fn decode_sibling_frame(bytes: &[u8]) -> Result<SiblingBatch, PresenceError>
         let mask = bytes[cursor];
         cursor += 1;
         if mask & SLOT_HEAD == 0 || mask & !(SLOT_HEAD | SLOT_LEFT | SLOT_RIGHT) != 0 {
-            return Err(PresenceError::Protocol(format!("bad sibling mask 0x{mask:02x}")));
+            return Err(PresenceError::Protocol(format!(
+                "bad sibling mask 0x{mask:02x}"
+            )));
         }
         let count = (mask & SLOT_HEAD != 0) as usize
             + (mask & SLOT_LEFT != 0) as usize
             + (mask & SLOT_RIGHT != 0) as usize;
         let need = count * Transform::WIRE_SIZE;
         if cursor + need > bytes.len() {
-            return Err(PresenceError::Protocol("sibling transforms truncated".into()));
+            return Err(PresenceError::Protocol(
+                "sibling transforms truncated".into(),
+            ));
         }
         let head_raw = read_transform(&bytes[cursor..cursor + Transform::WIRE_SIZE]);
         cursor += Transform::WIRE_SIZE;
@@ -354,7 +362,9 @@ impl<T: WsTransport, S: Signer> PresenceClient<T, S> {
             WsMessage::Binary(_) => Err(PresenceError::Protocol(
                 "expected text handshake frame, got binary".into(),
             )),
-            WsMessage::Close => Err(PresenceError::Rejected("server closed during handshake".into())),
+            WsMessage::Close => Err(PresenceError::Rejected(
+                "server closed during handshake".into(),
+            )),
         }
     }
 
@@ -606,10 +616,8 @@ impl PresenceClientNode {
             }
             PresenceInbound::AvatarLeft { avatar_id } => {
                 self.local_to_avatar.retain(|_, v| v != &avatar_id);
-                self.base_mut().emit_signal(
-                    "avatar_left",
-                    &[Variant::from(GString::from(avatar_id))],
-                );
+                self.base_mut()
+                    .emit_signal("avatar_left", &[Variant::from(GString::from(avatar_id))]);
             }
             PresenceInbound::Pose(batch) => self.emit_batch(&batch),
             PresenceInbound::Kicked { reason } => {
@@ -724,7 +732,10 @@ mod tests {
             .unwrap();
 
         let state = client.handshake("alice".into(), None).await.unwrap();
-        assert_eq!(state.avatar_id, format!("urn:visionclaw:avatar:{avatar_hex}"));
+        assert_eq!(
+            state.avatar_id,
+            format!("urn:visionclaw:avatar:{avatar_hex}")
+        );
         assert!(client.avatar_id().is_some());
 
         let sent = transport.sent_text.lock().unwrap();
@@ -1067,9 +1078,10 @@ mod tests {
                 local_id: Some(4),
             }
         );
-        let l: ServerMessage =
-            serde_json::from_str(r#"{"type":"avatar_left","avatar_id":"urn:visionclaw:avatar:aa"}"#)
-                .unwrap();
+        let l: ServerMessage = serde_json::from_str(
+            r#"{"type":"avatar_left","avatar_id":"urn:visionclaw:avatar:aa"}"#,
+        )
+        .unwrap();
         assert_eq!(
             l,
             ServerMessage::AvatarLeft {

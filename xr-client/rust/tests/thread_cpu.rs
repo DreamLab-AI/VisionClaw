@@ -18,7 +18,10 @@ fn busy_work_is_charged() {
     let w = CpuStopwatch::start();
     spin(Duration::from_millis(30));
     let (cpu, wall) = w.stop();
-    assert!(cpu >= Duration::from_millis(20), "cpu {cpu:?} for 30 ms of spinning");
+    assert!(
+        cpu >= Duration::from_millis(20),
+        "cpu {cpu:?} for 30 ms of spinning"
+    );
     assert!(wall >= Duration::from_millis(30));
 }
 
@@ -28,7 +31,10 @@ fn time_off_the_cpu_is_not_charged() {
     std::thread::sleep(Duration::from_millis(60));
     let (cpu, wall) = w.stop();
     assert!(wall >= Duration::from_millis(60));
-    assert!(cpu < Duration::from_millis(10), "sleeping charged {cpu:?} of thread CPU");
+    assert!(
+        cpu < Duration::from_millis(10),
+        "sleeping charged {cpu:?} of thread CPU"
+    );
 }
 
 #[test]
@@ -39,7 +45,13 @@ fn clock_is_monotonic_and_per_thread() {
     assert!(b > a);
     // Another thread's work is not charged to this one.
     let before = thread_cpu_ns();
-    std::thread::spawn(|| spin(Duration::from_millis(40))).join().unwrap();
+    std::thread::spawn(|| spin(Duration::from_millis(40)))
+        .join()
+        .unwrap();
     let after = thread_cpu_ns();
-    assert!(after - before < 10_000_000, "other thread's 40 ms leaked: {} ns", after - before);
+    assert!(
+        after - before < 10_000_000,
+        "other thread's 40 ms leaked: {} ns",
+        after - before
+    );
 }

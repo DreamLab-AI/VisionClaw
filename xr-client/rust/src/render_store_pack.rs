@@ -88,7 +88,9 @@ pub(super) struct PackScratch {
 
 #[inline]
 fn push_node(buf: &mut Vec<f32>, size: f32, p: [f32; 3], col: &[f32; 4], custom: &[f32; 4]) {
-    buf.extend_from_slice(&[size, 0.0, 0.0, p[0], 0.0, size, 0.0, p[1], 0.0, 0.0, size, p[2]]);
+    buf.extend_from_slice(&[
+        size, 0.0, 0.0, p[0], 0.0, size, 0.0, p[1], 0.0, 0.0, size, p[2],
+    ]);
     buf.extend_from_slice(col);
     buf.extend_from_slice(custom);
 }
@@ -198,7 +200,11 @@ impl RenderStore {
                 km += 1;
                 &buf[o..o + NODE_STRIDE]
             };
-            let unit_size = if scale_comp > 0.0 { src[0] / scale_comp } else { 0.0 };
+            let unit_size = if scale_comp > 0.0 {
+                src[0] / scale_comp
+            } else {
+                0.0
+            };
             plan.entries.push(NodePlanEntry {
                 id,
                 slot: slot as u32,
@@ -213,11 +219,21 @@ impl RenderStore {
         let (mut km, mut kf) = (0usize, 0usize);
         for i in 0..self.node_plan.entries.len() {
             let e = self.node_plan.entries[i];
-            let o = if e.faded { kf += 1; (kf - 1) * NODE_STRIDE } else { km += 1; (km - 1) * NODE_STRIDE };
+            let o = if e.faded {
+                kf += 1;
+                (kf - 1) * NODE_STRIDE
+            } else {
+                km += 1;
+                (km - 1) * NODE_STRIDE
+            };
             let src: &[f32] = if e.faded { &self.faded_buf } else { &buf };
             let mut col = [src[o + 12], src[o + 13], src[o + 14], src[o + 15]];
             self.live_tint(e.id, e.slot as usize, &mut col);
-            let dst: &mut [f32] = if e.faded { &mut self.faded_buf } else { &mut buf };
+            let dst: &mut [f32] = if e.faded {
+                &mut self.faded_buf
+            } else {
+                &mut buf
+            };
             dst[o + 12..o + 16].copy_from_slice(&col);
         }
         self.scratch.node_buf = buf;
@@ -245,7 +261,8 @@ impl RenderStore {
             if e.faded {
                 faded += 1;
             } else {
-                sc.inst_prev.push(self.node_plan.near.get(i).copied().unwrap_or(false));
+                sc.inst_prev
+                    .push(self.node_plan.near.get(i).copied().unwrap_or(false));
                 sc.inst_entry.push(i as u32);
             }
         }
@@ -296,7 +313,11 @@ impl RenderStore {
                 let (Some(&ss), Some(&ts)) = (self.id_index.get(&s), self.id_index.get(&t)) else {
                     continue;
                 };
-                let e = EdgePlanEntry { s: ss as u32, t: ts as u32, style: self.edge_style_of(s, t) as f32 };
+                let e = EdgePlanEntry {
+                    s: ss as u32,
+                    t: ts as u32,
+                    style: self.edge_style_of(s, t) as f32,
+                };
                 near.push(old_near.contains(&(e.s, e.t)));
                 entries.push(e);
             }
@@ -322,7 +343,14 @@ impl RenderStore {
     /// old and the frame cost is flat. Any change of tier membership rebuilds the
     /// far tier at once, so the tiers always partition the drawn set (no edge
     /// drawn twice or dropped).
-    pub(super) fn pack_edges_lod(&mut self, pairs: &[i32], radius_comp: f32, cam: [f32; 3], near_cap: usize, near_max_dist: f32) {
+    pub(super) fn pack_edges_lod(
+        &mut self,
+        pairs: &[i32],
+        radius_comp: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) {
         let fold_active = !self.fold_remap.is_empty() || self.fold_animating();
         let reuse = self.edge_plan.valid
             && self.edge_plan.epoch == self.visual_epoch
@@ -340,26 +368,43 @@ impl RenderStore {
             return;
         }
         // Tier choice from midpoints.
-        let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
+        let max_sq = if near_max_dist.is_finite() {
+            near_max_dist * near_max_dist
+        } else {
+            f32::INFINITY
+        };
         let sc = &mut self.scratch;
         sc.cand.clear();
         for (i, e) in self.edge_plan.entries.iter().enumerate() {
             let a = self.positions[e.s as usize];
             let b = self.positions[e.t as usize];
-            let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5, (a[2] + b[2]) * 0.5];
+            let mid = [
+                (a[0] + b[0]) * 0.5,
+                (a[1] + b[1]) * 0.5,
+                (a[2] + b[2]) * 0.5,
+            ];
             let d2 = crate::lod::distance_squared(cam, mid);
             if d2.is_nan() || d2 > max_sq {
                 continue; // beyond the radius, or NaN
             }
             let was = self.edge_plan.near.get(i).copied().unwrap_or(false);
-            sc.cand.push((if was { d2 * crate::lod::NEAR_HYSTERESIS_SQ } else { d2 }, i));
+            sc.cand.push((
+                if was {
+                    d2 * crate::lod::NEAR_HYSTERESIS_SQ
+                } else {
+                    d2
+                },
+                i,
+            ));
         }
         let take = near_cap.min(sc.cand.len());
         sc.inst_near.clear();
         sc.inst_near.resize(self.edge_plan.entries.len(), false);
         if take > 0 {
             if take < sc.cand.len() {
-                sc.cand.select_nth_unstable_by(take - 1, |a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+                sc.cand.select_nth_unstable_by(take - 1, |a, b| {
+                    a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))
+                });
             }
             for &(_, i) in &sc.cand[..take] {
                 sc.inst_near[i] = true;
@@ -380,12 +425,17 @@ impl RenderStore {
             if !near && !rebuild_far {
                 continue;
             }
-            let Some(tf) = edge_transform12(self.positions[e.s as usize], self.positions[e.t as usize], radius_comp) else {
+            let Some(tf) = edge_transform12(
+                self.positions[e.s as usize],
+                self.positions[e.t as usize],
+                radius_comp,
+            ) else {
                 continue;
             };
             if near {
                 sc.edge_near_buf.extend_from_slice(&tf);
-                sc.edge_near_buf.extend_from_slice(&[0.0, 0.0, 0.0, e.style]);
+                sc.edge_near_buf
+                    .extend_from_slice(&[0.0, 0.0, 0.0, e.style]);
             } else {
                 self.ribbon_buf.extend_from_slice(&tf);
                 self.ribbon_buf.extend_from_slice(&[0.0, 0.0, 0.0, e.style]);
@@ -399,8 +449,13 @@ impl RenderStore {
             let mut j = parity;
             while j < sc.ribbon_entry.len() {
                 let e = self.edge_plan.entries[sc.ribbon_entry[j] as usize];
-                match edge_transform12(self.positions[e.s as usize], self.positions[e.t as usize], radius_comp) {
-                    Some(tf) => self.ribbon_buf[j * EDGE_STRIDE_TYPED..j * EDGE_STRIDE_TYPED + 12].copy_from_slice(&tf),
+                match edge_transform12(
+                    self.positions[e.s as usize],
+                    self.positions[e.t as usize],
+                    radius_comp,
+                ) {
+                    Some(tf) => self.ribbon_buf[j * EDGE_STRIDE_TYPED..j * EDGE_STRIDE_TYPED + 12]
+                        .copy_from_slice(&tf),
                     // Collapsed this frame: keep the old transform, rebuild next frame.
                     None => sc.ribbon_stale = true,
                 }
@@ -411,7 +466,14 @@ impl RenderStore {
     }
 
     /// Fold active: full pack (dedup + remap) and a per-frame split.
-    fn pack_edges_lod_full(&mut self, pairs: &[i32], radius_comp: f32, cam: [f32; 3], near_cap: usize, near_max_dist: f32) {
+    fn pack_edges_lod_full(
+        &mut self,
+        pairs: &[i32],
+        radius_comp: f32,
+        cam: [f32; 3],
+        near_cap: usize,
+        near_max_dist: f32,
+    ) {
         let full = self.pack_edges(pairs, radius_comp, None);
         let sc = &mut self.scratch;
         sc.inst_prev.clear();

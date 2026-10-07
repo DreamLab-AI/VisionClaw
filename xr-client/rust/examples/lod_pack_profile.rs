@@ -12,7 +12,10 @@ fn pct(v: &mut [f64], q: f64) -> f64 {
 }
 
 fn main() {
-    let a: Vec<usize> = std::env::args().skip(1).filter_map(|x| x.parse().ok()).collect();
+    let a: Vec<usize> = std::env::args()
+        .skip(1)
+        .filter_map(|x| x.parse().ok())
+        .collect();
     let (nodes, edges, frames) = (
         *a.first().unwrap_or(&PROD_NODES),
         *a.get(1).unwrap_or(&PROD_EDGES),
@@ -24,11 +27,22 @@ fn main() {
     for frame in 0..frames as u32 {
         f.advance(frame);
         let t0 = Instant::now();
-        let near = f.store.build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY).len();
+        let near = f
+            .store
+            .build_node_buffer_lod(&f.ids, 1.0, 0.7, 1.9, cam, 80, f32::INFINITY)
+            .len();
         let t1 = Instant::now();
-        let enear = f.store.build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY).len();
+        let enear = f
+            .store
+            .build_edge_buffer_lod(&f.pairs, 1.0, cam, 96, f32::INFINITY)
+            .len();
         let t2 = Instant::now();
-        std::hint::black_box((near, enear, f.store.impostor_node_buffer().len(), f.store.ribbon_edge_buffer().len()));
+        std::hint::black_box((
+            near,
+            enear,
+            f.store.impostor_node_buffer().len(),
+            f.store.ribbon_edge_buffer().len(),
+        ));
         if frame >= 30 {
             tn.push((t1 - t0).as_secs_f64() * 1e3);
             te.push((t2 - t1).as_secs_f64() * 1e3);

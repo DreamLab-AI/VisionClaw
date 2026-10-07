@@ -248,8 +248,7 @@ impl GazeAttentionModel {
         // 4. Slew toward the desired direction, gated by the reaction latency and
         //    the max angular rate — glide, never snap.
         if self.reaction_remaining_us > 0 {
-            self.reaction_remaining_us =
-                self.reaction_remaining_us.saturating_sub(input.dt_us);
+            self.reaction_remaining_us = self.reaction_remaining_us.saturating_sub(input.dt_us);
         } else {
             let max_step = self.cfg.max_slew_rate_rad_s * (input.dt_us as f32 / 1_000_000.0);
             self.gaze_dir = rotate_toward(self.gaze_dir, desired, max_step);
@@ -315,7 +314,11 @@ impl AgentAvatar {
 
     /// The presence snapshot to hand to the codec.
     pub fn presence(&self) -> AgentPresence {
-        AgentPresence::new(self.activity.state(), self.gaze.gaze_dir(), self.gaze.attention())
+        AgentPresence::new(
+            self.activity.state(),
+            self.gaze.gaze_dir(),
+            self.gaze.attention(),
+        )
     }
 }
 
@@ -413,9 +416,13 @@ impl RemotePresenceStore {
         for delta in &batch.deltas {
             // A delta for an unknown agent folds onto a neutral base, so a client
             // that joined mid-stream still converges once a full delta arrives.
-            let base = self.agents.get(&delta.local_id).copied().unwrap_or_else(|| {
-                AgentPresence::new(AgentActivity::Idle, [0.0, 0.0, -1.0], AttentionTarget::None)
-            });
+            let base = self
+                .agents
+                .get(&delta.local_id)
+                .copied()
+                .unwrap_or_else(|| {
+                    AgentPresence::new(AgentActivity::Idle, [0.0, 0.0, -1.0], AttentionTarget::None)
+                });
             self.agents.insert(delta.local_id, delta.apply(&base));
             updated += 1;
         }
@@ -578,7 +585,10 @@ mod tests {
             m.apply(AgentSignal::ApprovalRequested),
             AgentActivity::AwaitingApproval
         );
-        assert_eq!(m.apply(AgentSignal::ApprovalGranted), AgentActivity::Working);
+        assert_eq!(
+            m.apply(AgentSignal::ApprovalGranted),
+            AgentActivity::Working
+        );
     }
 
     #[test]
@@ -649,7 +659,11 @@ mod tests {
         for _ in 0..4 {
             g.tick(gazing(11_000));
         }
-        assert_eq!(g.attention(), AttentionTarget::User, "should engage after 200ms");
+        assert_eq!(
+            g.attention(),
+            AttentionTarget::User,
+            "should engage after 200ms"
+        );
     }
 
     #[test]
@@ -692,7 +706,11 @@ mod tests {
         for _ in 0..80 {
             g.tick(not_gazing(11_000));
         }
-        assert_eq!(g.attention(), AttentionTarget::None, "should release after hold");
+        assert_eq!(
+            g.attention(),
+            AttentionTarget::None,
+            "should release after hold"
+        );
     }
 
     #[test]
@@ -726,7 +744,10 @@ mod tests {
         }
         let after = g.gaze_dir();
         // It must have started turning but not completed the 180°.
-        assert!(after[2] < 1.0 - 1e-3, "gaze snapped to target instantly: {after:?}");
+        assert!(
+            after[2] < 1.0 - 1e-3,
+            "gaze snapped to target instantly: {after:?}"
+        );
     }
 
     #[test]
@@ -742,7 +763,10 @@ mod tests {
             g.tick(input);
         }
         let d = g.gaze_dir();
-        assert!((d[0] - 1.0).abs() < 1e-2, "gaze did not converge to +X: {d:?}");
+        assert!(
+            (d[0] - 1.0).abs() < 1e-2,
+            "gaze did not converge to +X: {d:?}"
+        );
     }
 
     #[test]

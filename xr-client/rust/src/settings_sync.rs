@@ -63,7 +63,9 @@ pub struct FilterInputs {
 }
 
 fn num(v: Option<&Value>) -> Option<f32> {
-    v.and_then(Value::as_f64).filter(|f| f.is_finite()).map(|f| f as f32)
+    v.and_then(Value::as_f64)
+        .filter(|f| f.is_finite())
+        .map(|f| f as f32)
 }
 
 impl NodeFilter {
@@ -95,7 +97,9 @@ impl NodeFilter {
         if !self.enabled {
             return true;
         }
-        let quality = inp.quality.unwrap_or_else(|| (degree as f32 / 10.0).min(1.0));
+        let quality = inp
+            .quality
+            .unwrap_or_else(|| (degree as f32 / 10.0).min(1.0));
         let authority = inp.authority.unwrap_or(1.0);
         let pq = !self.filter_by_quality || quality >= self.quality_threshold;
         let pa = !self.filter_by_authority || authority >= self.authority_threshold;
@@ -194,9 +198,14 @@ pub enum TextEvent {
     /// Re-read this settings category over REST (`physics`, `rendering`, …).
     Refetch(String),
     /// `filter_update_success` — the server applied a per-client filter.
-    FilterAck { enabled: Option<bool> },
+    FilterAck {
+        enabled: Option<bool>,
+    },
     /// `graphUpdated` — topology changed server-side.
-    GraphUpdated { revision: Option<i64>, reason: String },
+    GraphUpdated {
+        revision: Option<i64>,
+        reason: String,
+    },
     Ignored(Ignored),
 }
 
@@ -403,12 +412,28 @@ mod tests {
     #[test]
     fn stale_timestamp_is_ignored_per_category() {
         let mut s = sync();
-        assert_eq!(s.handle(&settings_frame("physics", PEER, 100, None), 0), TextEvent::Refetch("physics".into()));
-        assert_eq!(s.handle(&settings_frame("physics", PEER, 100, None), 0), TextEvent::Ignored(Ignored::Stale), "equal ts is stale");
-        assert_eq!(s.handle(&settings_frame("physics", PEER, 99, None), 0), TextEvent::Ignored(Ignored::Stale));
+        assert_eq!(
+            s.handle(&settings_frame("physics", PEER, 100, None), 0),
+            TextEvent::Refetch("physics".into())
+        );
+        assert_eq!(
+            s.handle(&settings_frame("physics", PEER, 100, None), 0),
+            TextEvent::Ignored(Ignored::Stale),
+            "equal ts is stale"
+        );
+        assert_eq!(
+            s.handle(&settings_frame("physics", PEER, 99, None), 0),
+            TextEvent::Ignored(Ignored::Stale)
+        );
         // Another category has its own watermark.
-        assert_eq!(s.handle(&settings_frame("rendering", PEER, 50, None), 0), TextEvent::Refetch("rendering".into()));
-        assert_eq!(s.handle(&settings_frame("physics", PEER, 101, None), 0), TextEvent::Refetch("physics".into()));
+        assert_eq!(
+            s.handle(&settings_frame("rendering", PEER, 50, None), 0),
+            TextEvent::Refetch("rendering".into())
+        );
+        assert_eq!(
+            s.handle(&settings_frame("physics", PEER, 101, None), 0),
+            TextEvent::Refetch("physics".into())
+        );
         assert_eq!(s.last_applied("physics"), Some(101));
     }
 
@@ -420,7 +445,11 @@ mod tests {
             r#"{"type":"settingsUpdated","category":"","timestamp":5}"#,
             r#"{"type":"settingsUpdated","category":7,"timestamp":5}"#,
         ] {
-            assert_eq!(s.handle(f, 0), TextEvent::Ignored(Ignored::MissingCategory), "{f}");
+            assert_eq!(
+                s.handle(f, 0),
+                TextEvent::Ignored(Ignored::MissingCategory),
+                "{f}"
+            );
         }
         assert!(s.last_applied("").is_none());
     }
@@ -428,18 +457,31 @@ mod tests {
     #[test]
     fn own_echo_is_ignored_case_insensitively_and_does_not_advance_the_watermark() {
         let mut s = sync();
-        assert_eq!(s.handle(&settings_frame("physics", "BB22", 10, None), 0), TextEvent::Ignored(Ignored::OwnEcho));
+        assert_eq!(
+            s.handle(&settings_frame("physics", "BB22", 10, None), 0),
+            TextEvent::Ignored(Ignored::OwnEcho)
+        );
         assert_eq!(s.last_applied("physics"), None);
         // With no own pubkey set, nothing is an echo.
         let mut anon = SettingsSync::new();
-        assert_eq!(anon.handle(&settings_frame("physics", ME, 10, None), 0), TextEvent::Refetch("physics".into()));
+        assert_eq!(
+            anon.handle(&settings_frame("physics", ME, 10, None), 0),
+            TextEvent::Refetch("physics".into())
+        );
     }
 
     #[test]
     fn malformed_payloads_never_panic() {
         let mut s = sync();
         let junk = [
-            "", "not json", "null", "[]", "42", r#""str""#, "{}", r#"{"type":5}"#,
+            "",
+            "not json",
+            "null",
+            "[]",
+            "42",
+            r#""str""#,
+            "{}",
+            r#"{"type":5}"#,
             r#"{"type":"settingsUpdated","category":"nodeFilter","timestamp":"soon","settings":[1,2]}"#,
             r#"{"type":"settingsUpdated","category":"nodeFilter","timestamp":1e400}"#,
             r#"{"type":"graphUpdated","revision":"x"}"#,
@@ -449,8 +491,14 @@ mod tests {
         for j in junk {
             let _ = s.handle(j, 1);
         }
-        assert_eq!(s.handle("not json", 0), TextEvent::Ignored(Ignored::Malformed));
-        assert_eq!(s.handle(r#"{"type":"broker:new_case"}"#, 0), TextEvent::Ignored(Ignored::NotHandled));
+        assert_eq!(
+            s.handle("not json", 0),
+            TextEvent::Ignored(Ignored::Malformed)
+        );
+        assert_eq!(
+            s.handle(r#"{"type":"broker:new_case"}"#, 0),
+            TextEvent::Ignored(Ignored::NotHandled)
+        );
     }
 
     #[test]
@@ -485,49 +533,111 @@ mod tests {
 
     #[test]
     fn node_filter_missing_fields_take_desktop_defaults() {
-        let f = NodeFilter::from_settings(&serde_json::json!({"enabled": true, "qualityThreshold": "high"}));
-        assert_eq!(f, NodeFilter { enabled: true, ..NodeFilter::default() });
+        let f = NodeFilter::from_settings(
+            &serde_json::json!({"enabled": true, "qualityThreshold": "high"}),
+        );
+        assert_eq!(
+            f,
+            NodeFilter {
+                enabled: true,
+                ..NodeFilter::default()
+            }
+        );
     }
 
     #[test]
     fn node_filter_without_settings_is_ignored_but_advances_watermark() {
         let mut s = sync();
-        assert_eq!(s.handle(&settings_frame("nodeFilter", PEER, 9, None), 0), TextEvent::Ignored(Ignored::MissingPayload));
+        assert_eq!(
+            s.handle(&settings_frame("nodeFilter", PEER, 9, None), 0),
+            TextEvent::Ignored(Ignored::MissingPayload)
+        );
         assert_eq!(s.last_applied("nodeFilter"), Some(9));
-        assert_eq!(s.handle(&settings_frame("nodeFilter", PEER, 9, Some("{}")), 0), TextEvent::Ignored(Ignored::Stale));
+        assert_eq!(
+            s.handle(&settings_frame("nodeFilter", PEER, 9, Some("{}")), 0),
+            TextEvent::Ignored(Ignored::Stale)
+        );
     }
 
     #[test]
     fn filter_predicate_matches_the_desktop() {
-        let q = |x: f32| FilterInputs { quality: Some(x), ..Default::default() };
+        let q = |x: f32| FilterInputs {
+            quality: Some(x),
+            ..Default::default()
+        };
         // Desktop + server quirk, pinned deliberately: in OR mode a disabled
         // authority check counts as a pass, so the default quality-only OR filter
         // admits everything (`useGraphFiltering.ts` notes OR "neutralises" it).
-        let or_default = NodeFilter { enabled: true, ..NodeFilter::default() };
+        let or_default = NodeFilter {
+            enabled: true,
+            ..NodeFilter::default()
+        };
         assert!(or_default.passes(&q(0.0), 0));
         // Quality-only gating needs AND mode.
-        let on = NodeFilter { mode_and: true, ..or_default };
+        let on = NodeFilter {
+            mode_and: true,
+            ..or_default
+        };
         assert!(on.passes(&q(0.7), 0));
         assert!(!on.passes(&q(0.69), 0));
         // Unscored quality → min(1, degree/10).
         assert!(!on.passes(&FilterInputs::default(), 6));
         assert!(on.passes(&FilterInputs::default(), 7));
         // OR with both checks off passes everything.
-        let none = NodeFilter { filter_by_quality: false, ..or_default };
+        let none = NodeFilter {
+            filter_by_quality: false,
+            ..or_default
+        };
         assert!(none.passes(&q(0.0), 0));
         // AND requires both; unscored authority is 1.0.
-        let and = NodeFilter { filter_by_authority: true, authority_threshold: 0.6, ..on };
+        let and = NodeFilter {
+            filter_by_authority: true,
+            authority_threshold: 0.6,
+            ..on
+        };
         assert!(and.passes(&q(0.9), 0));
-        assert!(!and.passes(&FilterInputs { quality: Some(0.9), authority: Some(0.5), linked_page: false }, 0));
+        assert!(!and.passes(
+            &FilterInputs {
+                quality: Some(0.9),
+                authority: Some(0.5),
+                linked_page: false
+            },
+            0
+        ));
         // OR with both checks on passes on either.
-        let or = NodeFilter { filter_by_authority: true, authority_threshold: 0.6, ..or_default };
-        assert!(or.passes(&FilterInputs { quality: Some(0.1), authority: Some(0.6), linked_page: false }, 0));
-        assert!(!or.passes(&FilterInputs { quality: Some(0.1), authority: Some(0.5), linked_page: false }, 0));
+        let or = NodeFilter {
+            filter_by_authority: true,
+            authority_threshold: 0.6,
+            ..or_default
+        };
+        assert!(or.passes(
+            &FilterInputs {
+                quality: Some(0.1),
+                authority: Some(0.6),
+                linked_page: false
+            },
+            0
+        ));
+        assert!(!or.passes(
+            &FilterInputs {
+                quality: Some(0.1),
+                authority: Some(0.5),
+                linked_page: false
+            },
+            0
+        ));
         // linked_page gate applies even with the filter disabled.
         let off = NodeFilter::default();
-        let stub = FilterInputs { linked_page: true, ..Default::default() };
+        let stub = FilterInputs {
+            linked_page: true,
+            ..Default::default()
+        };
         assert!(!off.passes(&stub, 50));
-        assert!(NodeFilter { include_linked_pages: true, ..off }.passes(&stub, 0));
+        assert!(NodeFilter {
+            include_linked_pages: true,
+            ..off
+        }
+        .passes(&stub, 0));
     }
 
     // --- filter ack / graphUpdated ----------------------------------------
@@ -536,16 +646,30 @@ mod tests {
     fn filter_ack_and_graph_updated_are_classified() {
         let mut s = sync();
         assert_eq!(
-            s.handle(r#"{"type":"filter_update_success","enabled":true,"timestamp":1}"#, 0),
-            TextEvent::FilterAck { enabled: Some(true) }
+            s.handle(
+                r#"{"type":"filter_update_success","enabled":true,"timestamp":1}"#,
+                0
+            ),
+            TextEvent::FilterAck {
+                enabled: Some(true)
+            }
         );
         assert_eq!(
-            s.handle(r#"{"type":"filter_update_success","data":{"visible_nodes":3}}"#, 0),
+            s.handle(
+                r#"{"type":"filter_update_success","data":{"visible_nodes":3}}"#,
+                0
+            ),
             TextEvent::FilterAck { enabled: None }
         );
         assert_eq!(
-            s.handle(r#"{"type":"graphUpdated","revision":12,"reason":"sync"}"#, 0),
-            TextEvent::GraphUpdated { revision: Some(12), reason: "sync".into() }
+            s.handle(
+                r#"{"type":"graphUpdated","revision":12,"reason":"sync"}"#,
+                0
+            ),
+            TextEvent::GraphUpdated {
+                revision: Some(12),
+                reason: "sync".into()
+            }
         );
     }
 

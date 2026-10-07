@@ -264,7 +264,11 @@ impl GazeTracker {
 
     #[func]
     fn last_origin(&self) -> Vector3 {
-        Vector3::new(self.last_origin[0], self.last_origin[1], self.last_origin[2])
+        Vector3::new(
+            self.last_origin[0],
+            self.last_origin[1],
+            self.last_origin[2],
+        )
     }
 
     /// True when the last resolved ray actually used the eye-gaze pose.
@@ -301,7 +305,11 @@ mod tests {
         for _ in 0..500 {
             f.filter(10.0, 1.0 / 72.0);
         }
-        assert!((f.value() - 10.0).abs() < 1e-3, "did not converge: {}", f.value());
+        assert!(
+            (f.value() - 10.0).abs() < 1e-3,
+            "did not converge: {}",
+            f.value()
+        );
     }
 
     #[test]
@@ -316,7 +324,10 @@ mod tests {
             lo = lo.min(x);
             hi = hi.max(x);
             let y = f.filter(x, 1.0 / 72.0);
-            assert!(y >= lo - 1e-4 && y <= hi + 1e-4, "overshoot: {y} not in [{lo},{hi}]");
+            assert!(
+                y >= lo - 1e-4 && y <= hi + 1e-4,
+                "overshoot: {y} not in [{lo},{hi}]"
+            );
         }
     }
 
@@ -375,6 +386,9 @@ mod tests {
             raw_err += angle_between(normalise(j), mean);
             smooth_err += angle_between(ray.dir, mean);
         }
-        assert!(smooth_err < raw_err, "smoothed {smooth_err} not < raw {raw_err}");
+        assert!(
+            smooth_err < raw_err,
+            "smoothed {smooth_err} not < raw {raw_err}"
+        );
     }
 }

@@ -15,7 +15,10 @@ pub struct Lcg(pub u64);
 
 impl Lcg {
     pub fn next_f32(&mut self) -> f32 {
-        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         ((self.0 >> 40) as f32) / (1u64 << 24) as f32
     }
     pub fn below(&mut self, n: usize) -> usize {
@@ -40,17 +43,39 @@ pub struct Fixture {
 pub fn production_store(nodes: usize, edges: usize, seed: u64) -> Fixture {
     let mut rng = Lcg(seed);
     let mut s = RenderStore::new();
-    let domains = ["robotics", "AI", "blockchain", "spatial-computing", "infrastructure", ""];
+    let domains = [
+        "robotics",
+        "AI",
+        "blockchain",
+        "spatial-computing",
+        "infrastructure",
+        "",
+    ];
     let mut ids = Vec::with_capacity(nodes);
-    let (mut targets, mut community, mut anomaly, mut centrality) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut targets, mut community, mut anomaly, mut centrality) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for i in 0..nodes {
         let id = (i + 1) as u32;
-        let p = [rng.next_f32() * 800.0 - 400.0, rng.next_f32() * 800.0 - 400.0, rng.next_f32() * 800.0 - 400.0];
-        let (c, a, k) = ((i % 97) as u32 + 1, if i % 50 == 0 { 0.9 } else { 0.1 }, rng.next_f32());
+        let p = [
+            rng.next_f32() * 800.0 - 400.0,
+            rng.next_f32() * 800.0 - 400.0,
+            rng.next_f32() * 800.0 - 400.0,
+        ];
+        let (c, a, k) = (
+            (i % 97) as u32 + 1,
+            if i % 50 == 0 { 0.9 } else { 0.1 },
+            rng.next_f32(),
+        );
         s.upsert(id, p, c, a, k);
         s.set_cluster(id, (i % 40) as u32);
         s.set_node_domain(id, domains[i % domains.len()]);
-        s.set_filter_inputs(id, FilterInputs { quality: Some(rng.next_f32()), ..Default::default() });
+        s.set_filter_inputs(
+            id,
+            FilterInputs {
+                quality: Some(rng.next_f32()),
+                ..Default::default()
+            },
+        );
         ids.push(id as i32);
         targets.push(p);
         community.push(c);
@@ -67,7 +92,15 @@ pub fn production_store(nodes: usize, edges: usize, seed: u64) -> Fixture {
     s.compute_degrees(&pairs);
     let codes: Vec<u8> = (0..edges).map(|i| (i % 4) as u8).collect();
     s.set_edge_styles(&pairs, &codes);
-    Fixture { store: s, ids, pairs, targets, community, anomaly, centrality }
+    Fixture {
+        store: s,
+        ids,
+        pairs,
+        targets,
+        community,
+        anomaly,
+        centrality,
+    }
 }
 
 impl Fixture {

@@ -25,7 +25,10 @@ use crate::beat::{self, ActiveSource, BeatSync, MicBeat, TempoEstimate};
 use crate::semantic;
 
 fn epoch_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
 }
 
 struct PendingAnalysis {
@@ -113,7 +116,11 @@ impl BeatPulse {
         if !self.mic.enabled() {
             return;
         }
-        let mono: Vec<f32> = frames.as_slice().iter().map(|v| 0.5 * (v.x + v.y)).collect();
+        let mono: Vec<f32> = frames
+            .as_slice()
+            .iter()
+            .map(|v| 0.5 * (v.x + v.y))
+            .collect();
         self.mic.push(&mono, mix_rate as f64, epoch_ms());
     }
 
@@ -178,10 +185,20 @@ impl BeatPulse {
         };
         if src == ActiveSource::None || !s.on {
             let taps = self.sync.tap_count();
-            let hint = if taps > 0 { format!("{taps} tap{}", if taps == 1 { "" } else { "s" }) } else { "off".into() };
+            let hint = if taps > 0 {
+                format!("{taps} tap{}", if taps == 1 { "" } else { "s" })
+            } else {
+                "off".into()
+            };
             return format!("Beat: {hint}{mic_txt}").into();
         }
-        format!("Beat: {} · {:.1} bpm · {:.0}%{mic_txt}", src.as_str(), st.bpm, st.confidence * 100.0).into()
+        format!(
+            "Beat: {} · {:.1} bpm · {:.0}%{mic_txt}",
+            src.as_str(),
+            st.bpm,
+            st.confidence * 100.0
+        )
+        .into()
     }
 }
 
@@ -202,7 +219,8 @@ impl MemoryFlashCodec {
         let mut out = VariantArray::new();
         for f in semantic::parse_memory_flash(&json.to_string()) {
             let p = semantic::memory_action_profile(&f.action);
-            let [r, g, b] = semantic::hex_to_rgb01(semantic::semantic_burst_color(&f.action, &f.namespace));
+            let [r, g, b] =
+                semantic::hex_to_rgb01(semantic::semantic_burst_color(&f.action, &f.namespace));
             let mut d = Dictionary::new();
             d.set("key", f.key.as_str());
             d.set("namespace", f.namespace.as_str());

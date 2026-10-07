@@ -204,7 +204,12 @@ pub const NEAR_HYSTERESIS_SQ: f32 = 0.81; // ≈ 10 % in distance
 
 /// Worst-case triangles for nodes plus edges with both near tiers full (hulls
 /// excluded — add `hulls::DEFAULT_MAX_HULLS * hulls::MAX_TRIS_PER_HULL`).
-pub fn scene_triangle_estimate(nodes: usize, edges: usize, near_cap: usize, near_edge_cap: usize) -> usize {
+pub fn scene_triangle_estimate(
+    nodes: usize,
+    edges: usize,
+    near_cap: usize,
+    near_edge_cap: usize,
+) -> usize {
     let near_edges = edges.min(near_edge_cap);
     node_triangle_estimate(nodes, near_cap)
         + near_edges * CYLINDER_TRIS_PER_EDGE
@@ -279,7 +284,11 @@ pub fn split_tiers_into(
         return;
     }
     let n = buf.len() / stride;
-    let max_sq = if near_max_dist.is_finite() { near_max_dist * near_max_dist } else { f32::INFINITY };
+    let max_sq = if near_max_dist.is_finite() {
+        near_max_dist * near_max_dist
+    } else {
+        f32::INFINITY
+    };
     for i in 0..n {
         let o = i * stride;
         let d2 = distance_squared(cam, [buf[o + 3], buf[o + 7], buf[o + 11]]);
@@ -287,7 +296,14 @@ pub fn split_tiers_into(
             continue; // beyond the radius, or NaN
         }
         let was_near = prev_near.get(i).copied().unwrap_or(false);
-        cand.push((if was_near { d2 * NEAR_HYSTERESIS_SQ } else { d2 }, i));
+        cand.push((
+            if was_near {
+                d2 * NEAR_HYSTERESIS_SQ
+            } else {
+                d2
+            },
+            i,
+        ));
     }
     let take = near_cap.min(cand.len());
     near_flags.resize(n, false);
@@ -324,7 +340,18 @@ pub fn split_tiers<K: Copy + Eq + std::hash::Hash>(
 ) -> (Vec<f32>, Vec<f32>, std::collections::HashSet<K>) {
     let prev: Vec<bool> = keys.iter().map(|k| prev_near.contains(k)).collect();
     let (mut near, mut far, mut flags, mut cand) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    split_tiers_into(buf, stride, &prev, cam, near_cap, near_max_dist, &mut near, &mut far, &mut flags, &mut cand);
+    split_tiers_into(
+        buf,
+        stride,
+        &prev,
+        cam,
+        near_cap,
+        near_max_dist,
+        &mut near,
+        &mut far,
+        &mut flags,
+        &mut cand,
+    );
     let near_keys = flags
         .iter()
         .enumerate()
@@ -511,10 +538,7 @@ mod tests {
 
     #[test]
     fn top_by_centrality_identity_when_under_cap() {
-        assert_eq!(
-            select_top_by_centrality(&[0.1, 0.9, 0.5], 3),
-            vec![0, 1, 2]
-        );
+        assert_eq!(select_top_by_centrality(&[0.1, 0.9, 0.5], 3), vec![0, 1, 2]);
         assert_eq!(select_top_by_centrality(&[], 10), Vec::<u32>::new());
     }
 
@@ -578,8 +602,14 @@ mod tests {
         // Low drops the cone and billboards the core.
         let low = agent_feature_mask(LodLevel::Low);
         assert!(low & AGENT_FEAT_CONE == 0, "cone drops at Low");
-        assert!(low & AGENT_FEAT_CORE_MESH == 0, "core is not a full mesh at Low");
-        assert!(low & AGENT_FEAT_CORE_BILLBOARD != 0, "core billboards at Low");
+        assert!(
+            low & AGENT_FEAT_CORE_MESH == 0,
+            "core is not a full mesh at Low"
+        );
+        assert!(
+            low & AGENT_FEAT_CORE_BILLBOARD != 0,
+            "core billboards at Low"
+        );
 
         // Culled shows nothing.
         assert_eq!(agent_feature_mask(LodLevel::Culled), 0);
@@ -595,7 +625,10 @@ mod tests {
         ] {
             let m = agent_feature_mask(lvl);
             let both = (m & AGENT_FEAT_CORE_MESH != 0) && (m & AGENT_FEAT_CORE_BILLBOARD != 0);
-            assert!(!both, "mesh and billboard are mutually exclusive at {lvl:?}");
+            assert!(
+                !both,
+                "mesh and billboard are mutually exclusive at {lvl:?}"
+            );
         }
     }
 
@@ -613,7 +646,10 @@ mod tests {
         .map(|l| agent_feature_mask(*l).count_ones())
         .collect();
         for w in counts.windows(2) {
-            assert!(w[1] <= w[0], "feature count must not grow with distance: {counts:?}");
+            assert!(
+                w[1] <= w[0],
+                "feature count must not grow with distance: {counts:?}"
+            );
         }
     }
 }

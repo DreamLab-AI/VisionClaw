@@ -60,7 +60,11 @@ fn elided_fields_are_folded_onto_the_previous_state() {
         .unwrap();
 
     let got = store.get(3).unwrap();
-    assert_eq!(got.state, AgentActivity::Working, "the changed field applied");
+    assert_eq!(
+        got.state,
+        AgentActivity::Working,
+        "the changed field applied"
+    );
     assert_eq!(
         got.attention,
         AttentionTarget::GraphNode(99),
@@ -120,7 +124,11 @@ fn several_agents_are_tracked_independently() {
     assert_eq!(store.ingest_frame(&frame).unwrap(), Some(2));
     assert_eq!(store.agent_ids(), vec![1, 2]);
     assert_eq!(store.attention_node(1), Some(10));
-    assert_eq!(store.attention_node(2), None, "attending a user, not a node");
+    assert_eq!(
+        store.attention_node(2),
+        None,
+        "attending a user, not a node"
+    );
     assert_eq!(store.get(2).unwrap().state, AgentActivity::Speaking);
 }
 
@@ -205,6 +213,8 @@ fn an_agent_seen_mid_stream_converges_from_a_neutral_base() {
             .unwrap(),
         Some(1)
     );
-    let got = store.get(4).expect("agent is tracked despite the partial delta");
+    let got = store
+        .get(4)
+        .expect("agent is tracked despite the partial delta");
     assert_eq!(got.state, AgentActivity::Working);
 }

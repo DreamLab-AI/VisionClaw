@@ -186,7 +186,11 @@ fn place(user_pos: [f32; 3], fwd: [f32; 3], angle: f32, radius: f32, y: f32) -> 
     // Rotation of [fwd.x, fwd.z] about the vertical axis.
     let dir_x = fwd[0] * c + fwd[2] * s;
     let dir_z = -fwd[0] * s + fwd[2] * c;
-    [user_pos[0] + dir_x * radius, y, user_pos[2] + dir_z * radius]
+    [
+        user_pos[0] + dir_x * radius,
+        y,
+        user_pos[2] + dir_z * radius,
+    ]
 }
 
 // --- Godot node --------------------------------------------------------------
@@ -293,7 +297,9 @@ mod tests {
     #[test]
     fn empty_is_empty() {
         let cfg = ProxemicsConfig::default();
-        assert!(solve([0.0; 3], [0.0, 0.0, -1.0], 0, &cfg).positions.is_empty());
+        assert!(solve([0.0; 3], [0.0, 0.0, -1.0], 0, &cfg)
+            .positions
+            .is_empty());
     }
 
     #[test]
@@ -303,9 +309,18 @@ mod tests {
             let sol = solve([1.0, 1.6, 2.0], [0.0, 0.0, -1.0], n, &cfg);
             for p in &sol.positions {
                 let d = horiz_dist([1.0, 1.6, 2.0], *p);
-                assert!(d >= cfg.band_min_m - 1e-3, "n={n} radius {d} below band min");
-                assert!(d <= cfg.band_max_m + 1e-3, "n={n} radius {d} above band max");
-                assert!(d > cfg.intimate_radius_m, "n={n} agent inside intimate zone");
+                assert!(
+                    d >= cfg.band_min_m - 1e-3,
+                    "n={n} radius {d} below band min"
+                );
+                assert!(
+                    d <= cfg.band_max_m + 1e-3,
+                    "n={n} radius {d} above band max"
+                );
+                assert!(
+                    d > cfg.intimate_radius_m,
+                    "n={n} agent inside intimate zone"
+                );
             }
         }
     }
@@ -362,8 +377,18 @@ mod tests {
         let cfg = ProxemicsConfig::default();
         let sol = solve([0.0; 3], [0.0, 0.0, -1.0], 2, &cfg);
         let (l, r) = (sol.positions[0], sol.positions[1]);
-        assert!((l[0] + r[0]).abs() < 1e-3, "x not mirrored: {} vs {}", l[0], r[0]);
-        assert!((l[2] - r[2]).abs() < 1e-3, "z should match: {} vs {}", l[2], r[2]);
+        assert!(
+            (l[0] + r[0]).abs() < 1e-3,
+            "x not mirrored: {} vs {}",
+            l[0],
+            r[0]
+        );
+        assert!(
+            (l[2] - r[2]).abs() < 1e-3,
+            "z should match: {} vs {}",
+            l[2],
+            r[2]
+        );
     }
 
     #[test]
@@ -371,7 +396,10 @@ mod tests {
         let cfg = ProxemicsConfig::default();
         let r2 = solve([0.0; 3], [0.0, 0.0, -1.0], 2, &cfg).radius_m;
         let r8 = solve([0.0; 3], [0.0, 0.0, -1.0], 8, &cfg).radius_m;
-        assert!(r8 >= r2, "radius should not shrink as N grows: {r2} -> {r8}");
+        assert!(
+            r8 >= r2,
+            "radius should not shrink as N grows: {r2} -> {r8}"
+        );
     }
 
     #[test]

@@ -61,7 +61,8 @@ fn parse_args() -> Result<Args, String> {
     let mut argv = std::env::args().skip(1);
     while let Some(arg) = argv.next() {
         let mut take = |flag: &str| -> Result<String, String> {
-            argv.next().ok_or_else(|| format!("{flag} requires a value"))
+            argv.next()
+                .ok_or_else(|| format!("{flag} requires a value"))
         };
         match arg.as_str() {
             "--current" => current = Some(PathBuf::from(take("--current")?)),
@@ -122,7 +123,9 @@ fn update_baseline(
     match kind {
         Kind::Godot => {
             for (current_key, baseline_key, _) in GODOT_METRICS {
-                let Some(observed) = current.get(*current_key) else { continue };
+                let Some(observed) = current.get(*current_key) else {
+                    continue;
+                };
                 if let Some(Value::Object(entry)) = baseline.get_mut(*baseline_key) {
                     entry.insert("last_observed".into(), observed.clone());
                 }
@@ -155,8 +158,7 @@ fn update_baseline(
     let mut text = serde_json::to_string_pretty(&Value::Object(baseline.clone()))
         .map_err(|e| format!("could not serialise the baseline: {e}"))?;
     text.push('\n');
-    std::fs::write(path, text)
-        .map_err(|e| format!("could not write {}: {e}", path.display()))
+    std::fs::write(path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 /// Wrap an `f64` as a JSON number, falling back to null for NaN/infinity.
@@ -170,18 +172,26 @@ fn run() -> Result<bool, String> {
     let current = load_json(&args.current)?;
     let mut baseline = load_json(&args.baseline)?;
 
-    let kind = detect_kind(&current)
-        .ok_or("could not classify --current as Godot or Criterion JSON")?;
-    let current_object = current.as_object().ok_or("--current is not a JSON object")?;
-    let baseline_object =
-        baseline.as_object_mut().ok_or("--baseline is not a JSON object")?;
+    let kind =
+        detect_kind(&current).ok_or("could not classify --current as Godot or Criterion JSON")?;
+    let current_object = current
+        .as_object()
+        .ok_or("--current is not a JSON object")?;
+    let baseline_object = baseline
+        .as_object_mut()
+        .ok_or("--baseline is not a JSON object")?;
 
     let (rows, regressed) = match kind {
         Kind::Godot => cmp_godot(current_object, baseline_object),
-        Kind::Criterion => cmp_criterion(current_object, baseline_object, args.bench_name.as_deref())?,
+        Kind::Criterion => {
+            cmp_criterion(current_object, baseline_object, args.bench_name.as_deref())?
+        }
     };
 
-    println!("### XR perf regression report — `{}` input\n", kind.as_str());
+    println!(
+        "### XR perf regression report — `{}` input\n",
+        kind.as_str()
+    );
     println!("{}", render_table(&rows));
     if regressed {
         println!("\n**FAIL** — at least one metric regressed beyond budget.");

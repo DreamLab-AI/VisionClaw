@@ -101,10 +101,7 @@ impl SpatialVoiceRouterCore {
     }
 
     pub fn update_listener(&self, t: ListenerTransform) -> Result<(), VoiceError> {
-        let mut listener = self
-            .listener
-            .lock()
-            .map_err(|_| VoiceError::Lock)?;
+        let mut listener = self.listener.lock().map_err(|_| VoiceError::Lock)?;
         *listener = t;
         Ok(())
     }

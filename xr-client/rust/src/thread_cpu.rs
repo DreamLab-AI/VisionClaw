@@ -13,7 +13,10 @@ use std::time::{Duration, Instant};
 /// CPU time consumed by the calling thread, in nanoseconds.
 #[cfg(unix)]
 pub fn thread_cpu_ns() -> u64 {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     // SAFETY: `ts` is a valid, writable timespec; CLOCK_THREAD_CPUTIME_ID is
     // supported on Linux and Android. On failure the struct stays zeroed.
     let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
@@ -40,11 +43,17 @@ pub struct CpuStopwatch {
 
 impl CpuStopwatch {
     pub fn start() -> Self {
-        Self { cpu0: thread_cpu_ns(), wall0: Instant::now() }
+        Self {
+            cpu0: thread_cpu_ns(),
+            wall0: Instant::now(),
+        }
     }
 
     /// `(thread CPU, wall)` elapsed since `start`.
     pub fn stop(&self) -> (Duration, Duration) {
-        (Duration::from_nanos(thread_cpu_ns().saturating_sub(self.cpu0)), self.wall0.elapsed())
+        (
+            Duration::from_nanos(thread_cpu_ns().saturating_sub(self.cpu0)),
+            self.wall0.elapsed(),
+        )
     }
 }

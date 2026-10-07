@@ -133,7 +133,13 @@ impl AttentionHeat {
             if self.entries.len() >= self.max_entries {
                 self.evict_coldest(now_ms);
             }
-            self.entries.insert(key, HeatEntry { raw: HEAT_PER_TOUCH.min(MAX_RAW_HEAT), ts: now_ms });
+            self.entries.insert(
+                key,
+                HeatEntry {
+                    raw: HEAT_PER_TOUCH.min(MAX_RAW_HEAT),
+                    ts: now_ms,
+                },
+            );
         }
     }
 
@@ -176,7 +182,8 @@ impl AttentionHeat {
     pub fn sweep(&mut self, now_ms: f64) -> usize {
         let hl = self.half_life_ms;
         let before = self.entries.len();
-        self.entries.retain(|_, e| decay_raw(e.raw, e.ts, now_ms, hl) > COLD_RAW_EPSILON);
+        self.entries
+            .retain(|_, e| decay_raw(e.raw, e.ts, now_ms, hl) > COLD_RAW_EPSILON);
         before - self.entries.len()
     }
 
@@ -193,7 +200,12 @@ impl AttentionHeat {
     }
 
     /// Live tuning; `enabled = false` freezes accumulation without clearing.
-    pub fn configure(&mut self, half_life_ms: Option<f64>, enabled: Option<bool>, max_entries: Option<usize>) {
+    pub fn configure(
+        &mut self,
+        half_life_ms: Option<f64>,
+        enabled: Option<bool>,
+        max_entries: Option<usize>,
+    ) {
         if let Some(h) = half_life_ms {
             self.half_life_ms = h.max(1.0);
         }
@@ -239,7 +251,8 @@ mod tests {
     }
 
     fn fixture() -> serde_json::Value {
-        let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/desktop_parity.json");
+        let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/desktop_parity.json");
         serde_json::from_str(&std::fs::read_to_string(p).expect("fixture")).expect("json")
     }
 
@@ -346,7 +359,10 @@ mod tests {
     fn normalise_heat_is_bounded_and_monotonic() {
         assert_eq!(normalise_heat(0.0), 0.0);
         assert_eq!(normalise_heat(-1.0), 0.0);
-        assert!(close(normalise_heat(1.0), 1.0 - (-1.0 / HEAT_SATURATION).exp()));
+        assert!(close(
+            normalise_heat(1.0),
+            1.0 - (-1.0 / HEAT_SATURATION).exp()
+        ));
         assert!(normalise_heat(1000.0) <= 1.0);
         assert!(normalise_heat(MAX_RAW_HEAT) < 1.0);
         assert!(normalise_heat(2.0) > normalise_heat(1.0));
@@ -363,15 +379,29 @@ mod tests {
         assert_eq!(c["maxRaw"].as_f64().unwrap(), MAX_RAW_HEAT);
         assert_eq!(c["saturation"].as_f64().unwrap(), HEAT_SATURATION);
         assert_eq!(c["coldEpsilon"].as_f64().unwrap(), COLD_RAW_EPSILON);
-        assert_eq!(c["maxEntries"].as_u64().unwrap() as usize, DEFAULT_MAX_HEAT_ENTRIES);
+        assert_eq!(
+            c["maxEntries"].as_u64().unwrap() as usize,
+            DEFAULT_MAX_HEAT_ENTRIES
+        );
         assert_eq!(c["brightenK"].as_f64().unwrap(), HEAT_BRIGHTEN_K);
         for pair in f["normaliseHeat"].as_array().unwrap() {
             let (raw, want) = (pair[0].as_f64().unwrap(), pair[1].as_f64().unwrap());
-            assert!((normalise_heat(raw) - want).abs() < 1e-12, "normalise({raw})");
+            assert!(
+                (normalise_heat(raw) - want).abs() < 1e-12,
+                "normalise({raw})"
+            );
         }
         for row in f["heatBrighten"].as_array().unwrap() {
-            let v: Vec<f64> = row.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
-            assert!((heat_brighten_factor(v[0], v[1], v[2], v[3]) - v[4]).abs() < 1e-12, "{v:?}");
+            let v: Vec<f64> = row
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_f64().unwrap())
+                .collect();
+            assert!(
+                (heat_brighten_factor(v[0], v[1], v[2], v[3]) - v[4]).abs() < 1e-12,
+                "{v:?}"
+            );
         }
     }
 

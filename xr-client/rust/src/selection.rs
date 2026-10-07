@@ -366,8 +366,18 @@ fn acquire_radius(c: &SelectionCandidate, cfg: &SelectionConfig) -> f32 {
 }
 
 /// Distance-along-ray if the ray passes within `radius` of `point`, else `None`.
-fn ray_hit(origin: [f32; 3], dir: [f32; 3], point: [f32; 3], radius: f32, max_dist: f32) -> Option<f32> {
-    let to = [point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]];
+fn ray_hit(
+    origin: [f32; 3],
+    dir: [f32; 3],
+    point: [f32; 3],
+    radius: f32,
+    max_dist: f32,
+) -> Option<f32> {
+    let to = [
+        point[0] - origin[0],
+        point[1] - origin[1],
+        point[2] - origin[2],
+    ];
     let along = dot(&to, &dir);
     if along <= 0.0 || along > max_dist {
         return None;
@@ -441,7 +451,8 @@ impl SelectionArbiterNode {
     /// Register a node's `did:nostr` (from a presence join or the graph wire).
     #[func]
     fn register_identity(&mut self, node_id: u32, did_nostr: GString) {
-        self.arbiter.register_identity(node_id, did_nostr.to_string());
+        self.arbiter
+            .register_identity(node_id, did_nostr.to_string());
     }
 
     /// Clear the per-frame controller set; call before pushing this frame's hands.
@@ -576,7 +587,14 @@ mod tests {
         arb.register_identity(7, format!("did:nostr:{}", "a".repeat(64)));
         let cands = [candidate(7, [0.0, 0.0, -5.0])];
         // frame 1: trigger pressed (rising edge) -> selects
-        let ev = arb.tick(&[tracked_ray(true, 0.0)], &gaze_forward(), &cands, false, 1000, 16_000);
+        let ev = arb.tick(
+            &[tracked_ray(true, 0.0)],
+            &gaze_forward(),
+            &cands,
+            false,
+            1000,
+            16_000,
+        );
         let ev = ev.expect("trigger click should select");
         assert_eq!(ev.target_entity, 7);
         assert_eq!(ev.resolver, Resolver::ControllerRay);
@@ -588,11 +606,25 @@ mod tests {
         let mut arb = SelectionArbiter::new();
         let cands = [candidate(1, [0.0, 0.0, -5.0])];
         assert!(arb
-            .tick(&[tracked_ray(true, 0.0)], &gaze_forward(), &cands, false, 0, 16_000)
+            .tick(
+                &[tracked_ray(true, 0.0)],
+                &gaze_forward(),
+                &cands,
+                false,
+                0,
+                16_000
+            )
             .is_some());
         // trigger still down: no new rising edge -> no repeat select
         assert!(arb
-            .tick(&[tracked_ray(true, 0.0)], &gaze_forward(), &cands, false, 16_000, 16_000)
+            .tick(
+                &[tracked_ray(true, 0.0)],
+                &gaze_forward(),
+                &cands,
+                false,
+                16_000,
+                16_000
+            )
             .is_none());
     }
 
@@ -601,7 +633,14 @@ mod tests {
         let mut arb = SelectionArbiter::new();
         let cands = [candidate(3, [0.0, 0.0, -4.0])];
         let ev = arb
-            .tick(&[tracked_ray(false, 0.9)], &gaze_forward(), &cands, false, 0, 16_000)
+            .tick(
+                &[tracked_ray(false, 0.9)],
+                &gaze_forward(),
+                &cands,
+                false,
+                0,
+                16_000,
+            )
             .expect("pinch should select");
         assert_eq!(ev.resolver, Resolver::Pinch);
         assert_eq!(ev.target_entity, 3);
@@ -666,7 +705,10 @@ mod tests {
                 break;
             }
         }
-        assert!(fired, "hands-free dwell should fire despite a tracked controller");
+        assert!(
+            fired,
+            "hands-free dwell should fire despite a tracked controller"
+        );
     }
 
     #[test]
@@ -696,7 +738,10 @@ mod tests {
         // 380 ms < 400 ms min band: must not fire.
         let mut fired = false;
         for i in 0..19 {
-            if arb.tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000).is_some() {
+            if arb
+                .tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000)
+                .is_some()
+            {
                 fired = true;
             }
         }
@@ -708,7 +753,14 @@ mod tests {
         let mut arb = SelectionArbiter::new();
         let cands = [candidate(5, [0.0, 0.0, -5.0])];
         let ev = arb
-            .tick(&[tracked_ray(true, 0.0)], &gaze_forward(), &cands, false, 0, 16_000)
+            .tick(
+                &[tracked_ray(true, 0.0)],
+                &gaze_forward(),
+                &cands,
+                false,
+                0,
+                16_000,
+            )
             .unwrap();
         assert_eq!(ev.target_entity, 5);
         assert!(ev.did_nostr.is_none(), "unknown entity must carry no DID");
@@ -719,15 +771,29 @@ mod tests {
         // With no controller, dwell charges; when a controller click lands the
         // same frame, the explicit resolver wins and the dwell resets.
         let mut arb = SelectionArbiter::new();
-        let cands = [candidate(1, [0.0, 0.0, -5.0]), candidate(2, [3.0, 0.0, -4.0])];
+        let cands = [
+            candidate(1, [0.0, 0.0, -5.0]),
+            candidate(2, [3.0, 0.0, -4.0]),
+        ];
         for i in 0..10 {
             arb.tick(&[], &gaze_forward(), &cands, false, i * 20_000, 20_000);
         }
         assert!(arb.charge_ratio() > 0.0);
         let ev = arb
-            .tick(&[tracked_ray(true, 0.0)], &gaze_forward(), &cands, false, 300_000, 20_000)
+            .tick(
+                &[tracked_ray(true, 0.0)],
+                &gaze_forward(),
+                &cands,
+                false,
+                300_000,
+                20_000,
+            )
             .unwrap();
         assert_ne!(ev.resolver, Resolver::GazeDwell);
-        assert_eq!(arb.charge_ratio(), 0.0, "dwell must reset after explicit pick");
+        assert_eq!(
+            arb.charge_ratio(),
+            0.0,
+            "dwell must reset after explicit pick"
+        );
     }
 }

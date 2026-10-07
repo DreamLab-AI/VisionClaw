@@ -71,7 +71,10 @@ impl ColorMode {
 }
 
 fn table_get(key: &str) -> Option<&'static str> {
-    DOMAIN_COLORS.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
+    DOMAIN_COLORS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| *v)
 }
 
 /// `getDomainColor`: trim; an upper-cased alias (`AI`, `INFRA`, …) wins, else
@@ -114,7 +117,11 @@ pub fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
         return (0.0, 0.0, l);
     }
     let d = max - min;
-    let s = if l <= 0.5 { d / (max + min) } else { d / (2.0 - max - min) };
+    let s = if l <= 0.5 {
+        d / (max + min)
+    } else {
+        d / (2.0 - max - min)
+    };
     let h = if max == r {
         (g - b) / d + if g < b { 6.0 } else { 0.0 }
     } else if max == g {
@@ -152,7 +159,11 @@ pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
     if s == 0.0 {
         return [l, l, l];
     }
-    let p = if l <= 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = if l <= 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
     let q = 2.0 * l - p;
     [
         hue2rgb(q, p, h + 1.0 / 3.0),
@@ -183,12 +194,20 @@ pub fn linear_to_srgb(c: f32) -> f32 {
 /// working space, returned sRGB-encoded.
 pub fn three_hsl_to_srgb(h: f32, s: f32, l: f32) -> [f32; 3] {
     let lin = hsl_to_rgb(h, s, l);
-    [linear_to_srgb(lin[0]), linear_to_srgb(lin[1]), linear_to_srgb(lin[2])]
+    [
+        linear_to_srgb(lin[0]),
+        linear_to_srgb(lin[1]),
+        linear_to_srgb(lin[2]),
+    ]
 }
 
 /// three.js `color.set(srgb).getHSL()`: the HSL of the linear-space colour.
 pub fn three_srgb_to_hsl(rgb: [f32; 3]) -> (f32, f32, f32) {
-    rgb_to_hsl(srgb_to_linear(rgb[0]), srgb_to_linear(rgb[1]), srgb_to_linear(rgb[2]))
+    rgb_to_hsl(
+        srgb_to_linear(rgb[0]),
+        srgb_to_linear(rgb[1]),
+        srgb_to_linear(rgb[2]),
+    )
 }
 
 /// Node colour under [`ColorMode::Domain`]: the domain swatch, lifted for hubs

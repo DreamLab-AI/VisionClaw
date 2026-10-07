@@ -265,10 +265,7 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
             // class-level today — see module note), so every current edge parses
             // as asserted; the client already renders the channel the instant it
             // starts arriving.
-            let inferred = e
-                .get("inferred")
-                .and_then(|b| b.as_bool())
-                .unwrap_or(false);
+            let inferred = e.get("inferred").and_then(|b| b.as_bool()).unwrap_or(false);
             edges.push(EdgeSpec {
                 source: source as u32 & NODE_ID_MASK,
                 target: target as u32 & NODE_ID_MASK,
@@ -282,7 +279,11 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
     if let Some(nodes) = v.get("nodes").and_then(|n| n.as_array()) {
         metas.reserve(nodes.len());
         for node in nodes {
-            let Some(id) = node.get("id").or_else(|| node.get("node_id")).and_then(json_u32) else {
+            let Some(id) = node
+                .get("id")
+                .or_else(|| node.get("node_id"))
+                .and_then(json_u32)
+            else {
                 continue;
             };
             let metadata_id = node
@@ -290,7 +291,11 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 .and_then(|m| m.as_str())
                 .unwrap_or("")
                 .to_string();
-            let label = node.get("label").and_then(|l| l.as_str()).unwrap_or("").to_string();
+            let label = node
+                .get("label")
+                .and_then(|l| l.as_str())
+                .unwrap_or("")
+                .to_string();
             let node_type = node
                 .get("node_type")
                 .and_then(|t| t.as_str())
@@ -531,7 +536,10 @@ pub enum Freshness {
     /// A Full frame re-baselining the sequence space after a reconnect. The
     /// sequence may legitimately move backwards here (the producer restarted),
     /// which is precisely why a bare `seq > watermark` rule is not sufficient.
-    AcceptResync { sequence: u64, previous: Option<u64> },
+    AcceptResync {
+        sequence: u64,
+        previous: Option<u64>,
+    },
     /// Exactly the watermark: a re-delivery. Applying it is idempotent for a
     /// Full frame but can double-apply a Delta, so it is refused either way.
     RejectDuplicate { sequence: u64 },
@@ -548,7 +556,9 @@ impl Freshness {
     pub fn is_accepted(self) -> bool {
         matches!(
             self,
-            Freshness::Accept { .. } | Freshness::AcceptUnsequenced | Freshness::AcceptResync { .. }
+            Freshness::Accept { .. }
+                | Freshness::AcceptUnsequenced
+                | Freshness::AcceptResync { .. }
         )
     }
 }
@@ -641,7 +651,10 @@ impl FreshnessGate {
                     self.watermark = Some(seq);
                     self.awaiting_resync = false;
                     self.stats.resyncs += 1;
-                    Freshness::AcceptResync { sequence: seq, previous }
+                    Freshness::AcceptResync {
+                        sequence: seq,
+                        previous,
+                    }
                 }
                 FrameKind::Delta => {
                     self.stats.rejected_awaiting_resync += 1;
@@ -667,7 +680,10 @@ impl FreshnessGate {
             }
             Some(wm) => {
                 self.stats.rejected_stale += 1;
-                Freshness::RejectStale { sequence: seq, watermark: wm }
+                Freshness::RejectStale {
+                    sequence: seq,
+                    watermark: wm,
+                }
             }
         }
     }
@@ -736,7 +752,11 @@ fn parse_node_record(bytes: &[u8]) -> NodeUpdate {
     let kind = NodeKind::from_wire_id(raw_id);
     let node_id = raw_id & NODE_ID_MASK;
     let position = [read_f32(bytes, 4), read_f32(bytes, 8), read_f32(bytes, 12)];
-    let velocity = [read_f32(bytes, 16), read_f32(bytes, 20), read_f32(bytes, 24)];
+    let velocity = [
+        read_f32(bytes, 16),
+        read_f32(bytes, 20),
+        read_f32(bytes, 24),
+    ];
     NodeUpdate {
         node_id,
         kind,
@@ -1134,7 +1154,8 @@ impl BinaryProtocolClient {
         // hanging on the last action it ever sent.
         let _ = self.expire_stale_agents(0);
         // Attention heat decays on a local clock; advance it once per frame.
-        self.store.set_clock_ms(self.heat_epoch.elapsed().as_secs_f64() * 1000.0);
+        self.store
+            .set_clock_ms(self.heat_epoch.elapsed().as_secs_f64() * 1000.0);
         if self.last_heat_sweep.elapsed().as_millis() >= 1000 {
             self.last_heat_sweep = Instant::now();
             self.store.sweep_heat();
@@ -1296,7 +1317,9 @@ impl BinaryProtocolClient {
             return false;
         }
         match self.outbound.as_ref() {
-            Some(tx) => tx.send(r#"{"type":"requestInitialData"}"#.to_string()).is_ok(),
+            Some(tx) => tx
+                .send(r#"{"type":"requestInitialData"}"#.to_string())
+                .is_ok(),
             None => false,
         }
     }
@@ -1335,7 +1358,13 @@ impl BinaryProtocolClient {
     /// `{changed: false}` without building anything. Otherwise `{changed: true,
     /// vertices, normals, colors, hulls, triangles}` for one ArrayMesh surface.
     #[func]
-    fn build_hull_mesh(&mut self, source: i64, padding: f64, max_hulls: i64, only_if_changed: bool) -> Dictionary {
+    fn build_hull_mesh(
+        &mut self,
+        source: i64,
+        padding: f64,
+        max_hulls: i64,
+        only_if_changed: bool,
+    ) -> Dictionary {
         let src = crate::hulls::HullSource::from_code(source);
         let params = crate::hulls::HullParams {
             padding: padding as f32,
@@ -1357,7 +1386,13 @@ impl BinaryProtocolClient {
     /// Hulls from explicit points and group ids (benchmark/fixture path, no
     /// live graph needed). `groups[i] > 0` is point i's cluster id.
     #[func]
-    fn hull_mesh_from_points(&self, points: PackedVector3Array, groups: PackedInt32Array, padding: f64, max_hulls: i64) -> Dictionary {
+    fn hull_mesh_from_points(
+        &self,
+        points: PackedVector3Array,
+        groups: PackedInt32Array,
+        padding: f64,
+        max_hulls: i64,
+    ) -> Dictionary {
         let pts: Vec<crate::hulls::HullPoint> = points
             .as_slice()
             .iter()
@@ -1427,7 +1462,12 @@ impl BinaryProtocolClient {
     /// for diagnostics.
     #[func]
     fn agent_ids(&self) -> PackedInt32Array {
-        let ids: Vec<i32> = self.store.agent_ids().into_iter().map(|id| id as i32).collect();
+        let ids: Vec<i32> = self
+            .store
+            .agent_ids()
+            .into_iter()
+            .map(|id| id as i32)
+            .collect();
         PackedInt32Array::from(ids.as_slice())
     }
 
@@ -1531,16 +1571,29 @@ impl BinaryProtocolClient {
     /// tracks the hand. Call once per poll (per frame).
     #[func]
     fn hunt(&mut self, ease: f32, grab_id: i64, grab_pos: Vector3) {
-        let gid = if grab_id < 0 { None } else { Some(grab_id as u32) };
-        self.store.hunt(ease, gid, [grab_pos.x, grab_pos.y, grab_pos.z]);
+        let gid = if grab_id < 0 {
+            None
+        } else {
+            Some(grab_id as u32)
+        };
+        self.store
+            .hunt(ease, gid, [grab_pos.x, grab_pos.y, grab_pos.z]);
     }
 
     /// Pack the node MultiMesh buffer for the drawn `ids` (20 floats/instance:
     /// transform + colour + custom). `scale_comp` folds GraphRoot scale + the HUD
     /// node-size factor; size eases `size_lo..size_hi` by sqrt(centrality-norm).
     #[func]
-    fn build_node_buffer(&mut self, ids: PackedInt32Array, scale_comp: f32, size_lo: f32, size_hi: f32) -> PackedFloat32Array {
-        let v = self.store.build_node_buffer(ids.as_slice(), scale_comp, size_lo, size_hi);
+    fn build_node_buffer(
+        &mut self,
+        ids: PackedInt32Array,
+        scale_comp: f32,
+        size_lo: f32,
+        size_hi: f32,
+    ) -> PackedFloat32Array {
+        let v = self
+            .store
+            .build_node_buffer(ids.as_slice(), scale_comp, size_lo, size_hi);
         PackedFloat32Array::from(v.as_slice())
     }
 
@@ -1643,8 +1696,15 @@ impl BinaryProtocolClient {
         hull_tris: i64,
     ) -> i64 {
         let u = |v: i64| v.max(0) as usize;
-        crate::lod::graph_layer_triangles(u(gems), u(faded), u(halos), u(impostors), u(cylinders), u(ribbons), u(hull_tris))
-            as i64
+        crate::lod::graph_layer_triangles(
+            u(gems),
+            u(faded),
+            u(halos),
+            u(impostors),
+            u(cylinders),
+            u(ribbons),
+            u(hull_tris),
+        ) as i64
     }
 
     /// Milliseconds spent in the last node + edge LOD pack (Rust side, including
@@ -1678,7 +1738,11 @@ impl BinaryProtocolClient {
     /// 12 transform + 4 INSTANCE_CUSTOM, custom `.a` = relation-type style code).
     /// Only edges with both endpoints in the last node buffer's drawn set survive.
     #[func]
-    fn build_edge_buffer(&mut self, pairs: PackedInt32Array, radius_comp: f32) -> PackedFloat32Array {
+    fn build_edge_buffer(
+        &mut self,
+        pairs: PackedInt32Array,
+        radius_comp: f32,
+    ) -> PackedFloat32Array {
         let v = self.store.build_edge_buffer(pairs.as_slice(), radius_comp);
         PackedFloat32Array::from(v.as_slice())
     }
@@ -1690,9 +1754,16 @@ impl BinaryProtocolClient {
     /// "+N" badge via the INSTANCE_CUSTOM.g channel. Call `clear_fold_plan` (or
     /// pass empty arrays) to return to full density.
     #[func]
-    fn set_fold_plan(&mut self, hidden: PackedInt32Array, members: PackedInt32Array, reps: PackedInt32Array) {
-        let to_u32 = |a: &PackedInt32Array| -> Vec<u32> { a.as_slice().iter().map(|&x| x as u32).collect() };
-        self.store.set_fold_plan(&to_u32(&hidden), &to_u32(&members), &to_u32(&reps));
+    fn set_fold_plan(
+        &mut self,
+        hidden: PackedInt32Array,
+        members: PackedInt32Array,
+        reps: PackedInt32Array,
+    ) {
+        let to_u32 =
+            |a: &PackedInt32Array| -> Vec<u32> { a.as_slice().iter().map(|&x| x as u32).collect() };
+        self.store
+            .set_fold_plan(&to_u32(&hidden), &to_u32(&members), &to_u32(&reps));
     }
 
     /// Clear the active fold plan (return to full density ∅).
@@ -1721,16 +1792,25 @@ impl BinaryProtocolClient {
         size_lo: f32,
         size_hi: f32,
     ) -> PackedFloat32Array {
-        let v = self
-            .store
-            .build_plane_node_buffer(ids.as_slice(), y_offset, scale_comp, size_lo, size_hi);
+        let v = self.store.build_plane_node_buffer(
+            ids.as_slice(),
+            y_offset,
+            scale_comp,
+            size_lo,
+            size_hi,
+        );
         PackedFloat32Array::from(v.as_slice())
     }
 
     /// Pack a semantic-plane edge buffer: directed `pairs` at their stored endpoint
     /// positions lifted by `y_offset`. No drawn filter. 12 floats/instance.
     #[func]
-    fn build_plane_edge_buffer(&self, pairs: PackedInt32Array, y_offset: f32, radius_comp: f32) -> PackedFloat32Array {
+    fn build_plane_edge_buffer(
+        &self,
+        pairs: PackedInt32Array,
+        y_offset: f32,
+        radius_comp: f32,
+    ) -> PackedFloat32Array {
         let v = self
             .store
             .build_plane_edge_buffer(pairs.as_slice(), y_offset, radius_comp);
@@ -1740,7 +1820,12 @@ impl BinaryProtocolClient {
     /// Drawn node ids from the last `build_node_buffer`, for the interaction ray.
     #[func]
     fn get_render_ids(&self) -> PackedInt32Array {
-        let ids: Vec<i32> = self.store.render_ids().iter().map(|&id| id as i32).collect();
+        let ids: Vec<i32> = self
+            .store
+            .render_ids()
+            .iter()
+            .map(|&id| id as i32)
+            .collect();
         PackedInt32Array::from(ids.as_slice())
     }
 
@@ -1781,7 +1866,9 @@ impl BinaryProtocolClient {
     #[func]
     fn graph_robust_bounds(&self) -> PackedFloat32Array {
         match self.store.robust_bounds() {
-            Some(b) => PackedFloat32Array::from(&[b.centre[0], b.centre[1], b.centre[2], b.radius][..]),
+            Some(b) => {
+                PackedFloat32Array::from(&[b.centre[0], b.centre[1], b.centre[2], b.radius][..])
+            }
             None => PackedFloat32Array::new(),
         }
     }
@@ -1790,7 +1877,11 @@ impl BinaryProtocolClient {
     /// positions, excluding `exclude_id` (< 0 = none). Empty array when no nodes.
     #[func]
     fn render_aabb(&self, lo_q: f32, hi_q: f32, exclude_id: i64) -> PackedFloat32Array {
-        let excl = if exclude_id < 0 { None } else { Some(exclude_id as u32) };
+        let excl = if exclude_id < 0 {
+            None
+        } else {
+            Some(exclude_id as u32)
+        };
         match self.store.aabb_percentile(lo_q, hi_q, excl) {
             Some(bb) => PackedFloat32Array::from(bb.as_slice()),
             None => PackedFloat32Array::new(),
@@ -1959,7 +2050,11 @@ impl BinaryProtocolClient {
     /// edges actually added — call `get_edges()`/`get_edge_types()` afterwards to
     /// re-rank the draw list. Node positions are never disturbed.
     #[func]
-    fn merge_expansion(&mut self, new_pairs: PackedInt32Array, new_types: PackedStringArray) -> i64 {
+    fn merge_expansion(
+        &mut self,
+        new_pairs: PackedInt32Array,
+        new_types: PackedStringArray,
+    ) -> i64 {
         let np = new_pairs.as_slice();
         let n = np.len() / 2;
         let new_types_vec: Vec<String> = (0..n)
@@ -2013,11 +2108,13 @@ impl BinaryProtocolClient {
                     // ADR-2034: anchor the server clock on the newest timestamp in
                     // this batch so expiry can age evidence without a server clock
                     // of its own. Wrap-safe: only a genuinely newer stamp re-anchors.
-                    if let Some(newest) = actions
-                        .iter()
-                        .map(|a| a.timestamp)
-                        .reduce(|a, b| if crate::render_store::ts_is_newer(b, a) { b } else { a })
-                    {
+                    if let Some(newest) = actions.iter().map(|a| a.timestamp).reduce(|a, b| {
+                        if crate::render_store::ts_is_newer(b, a) {
+                            b
+                        } else {
+                            a
+                        }
+                    }) {
                         let readvance = self
                             .clock_anchor
                             .map(|(ts, _)| crate::render_store::ts_is_newer(newest, ts))
@@ -2062,8 +2159,13 @@ impl BinaryProtocolClient {
             // The Rust render store now owns positions (hunted per poll, packed into
             // MultiMesh buffers) — no per-node position_updated signal, which at 13k
             // nodes was a ~13k-emit-per-frame storm across the gdext boundary.
-            self.store
-                .upsert(u.node_id, u.position, u.community_id, u.anomaly, u.centrality);
+            self.store.upsert(
+                u.node_id,
+                u.position,
+                u.community_id,
+                u.anomaly,
+                u.centrality,
+            );
             self.store.set_cluster(u.node_id, u.cluster_id);
             // Record the node class for the type show/hide filter (Wave 2, Feature
             // 3). Cheap idempotent insert; the kind rides the wire-id flag bits.
@@ -2088,9 +2190,21 @@ impl BinaryProtocolClient {
 
 #[cfg(not(test))]
 fn hull_mesh_dict(d: &mut Dictionary, mesh: &crate::hulls::HullMesh) {
-    let verts: PackedVector3Array = mesh.vertices.iter().map(|v| Vector3::new(v[0], v[1], v[2])).collect();
-    let norms: PackedVector3Array = mesh.normals.iter().map(|v| Vector3::new(v[0], v[1], v[2])).collect();
-    let cols: PackedColorArray = mesh.colors.iter().map(|c| Color::from_rgba(c[0], c[1], c[2], 1.0)).collect();
+    let verts: PackedVector3Array = mesh
+        .vertices
+        .iter()
+        .map(|v| Vector3::new(v[0], v[1], v[2]))
+        .collect();
+    let norms: PackedVector3Array = mesh
+        .normals
+        .iter()
+        .map(|v| Vector3::new(v[0], v[1], v[2]))
+        .collect();
+    let cols: PackedColorArray = mesh
+        .colors
+        .iter()
+        .map(|c| Color::from_rgba(c[0], c[1], c[2], 1.0))
+        .collect();
     d.set("changed", true);
     d.set("vertices", verts);
     d.set("normals", norms);
@@ -2150,7 +2264,7 @@ mod tests {
         frame[1] = 3; // lie about the count
         let actions = decode_agent_action_frame(&frame).expect("still a 0x23 frame");
         assert_eq!(actions.len(), 1); // only the one real event decoded
-        // Header-only frame ⇒ empty list, not an error.
+                                      // Header-only frame ⇒ empty list, not an error.
         assert_eq!(decode_agent_action_frame(&[MSG_AGENT_ACTION]), Some(vec![]));
     }
 
@@ -2166,7 +2280,7 @@ mod tests {
 
     #[test]
     fn registry_records_action_masks_flag_and_derives_working() {
-        use crate::render_store::{RenderStore, AGENT_WORKING, AGENT_DONE, AGENT_BLOCKED};
+        use crate::render_store::{RenderStore, AGENT_BLOCKED, AGENT_DONE, AGENT_WORKING};
         let mut store = RenderStore::new();
         store.record_agent_action(0x8000_0005, 0x4000_002A, 2, 999, "building");
         assert_eq!(store.agent_count(), 1);
@@ -2531,8 +2645,16 @@ mod tests {
         // Number, numeric string, float, and defensive fallbacks.
         assert_eq!(parse_file_size(&serde_json::json!(4096)), 4096);
         assert_eq!(parse_file_size(&serde_json::json!("8192")), 8192);
-        assert_eq!(parse_file_size(&serde_json::json!(" 512 ")), 512, "trimmed string");
-        assert_eq!(parse_file_size(&serde_json::json!(1234.0)), 1234, "float byte count");
+        assert_eq!(
+            parse_file_size(&serde_json::json!(" 512 ")),
+            512,
+            "trimmed string"
+        );
+        assert_eq!(
+            parse_file_size(&serde_json::json!(1234.0)),
+            1234,
+            "float byte count"
+        );
         assert_eq!(parse_file_size(&serde_json::json!("notanumber")), 0);
         assert_eq!(parse_file_size(&serde_json::json!(-5)), 0, "negative → 0");
         assert_eq!(parse_file_size(&serde_json::json!(null)), 0);
@@ -2567,16 +2689,36 @@ mod tests {
         ],"edges":[],"timestamp":1}"#;
         let (_, metas) = parse_initial_graph(text).unwrap();
         let by_id = |id: u32| metas.iter().find(|m| m.id == id).expect("meta kept");
-        assert_eq!(by_id(1).domain, "robotics", "metadata.domain wins over source_domain");
+        assert_eq!(
+            by_id(1).domain,
+            "robotics",
+            "metadata.domain wins over source_domain"
+        );
         assert_eq!(by_id(1).quality, Some(0.82));
         assert_eq!(by_id(1).authority, Some(0.4));
-        assert_eq!(by_id(1).population_type, "linked_page", "metadata.type first");
+        assert_eq!(
+            by_id(1).population_type,
+            "linked_page",
+            "metadata.type first"
+        );
         // Node 2 carries no label/type/file_size: the domain + scores alone keep it.
         assert_eq!(by_id(2).domain, "AI");
         assert_eq!(by_id(2).quality, Some(0.3));
-        assert_eq!(by_id(2).authority, Some(0.9), "server key authority_score accepted");
-        assert_eq!(by_id(3).population_type, "linked_page", "node_type fallback");
-        assert_eq!(by_id(3).quality, None, "non-numeric quality → None (degree fallback)");
+        assert_eq!(
+            by_id(2).authority,
+            Some(0.9),
+            "server key authority_score accepted"
+        );
+        assert_eq!(
+            by_id(3).population_type,
+            "linked_page",
+            "node_type fallback"
+        );
+        assert_eq!(
+            by_id(3).quality,
+            None,
+            "non-numeric quality → None (degree fallback)"
+        );
         assert_eq!(by_id(3).domain, "");
         assert_eq!(by_id(4).authority, Some(0.25));
         assert_eq!(by_id(4).quality, None, "empty string is absent, not 0");
@@ -2598,9 +2740,7 @@ mod tests {
     fn parse_initial_graph_load_rejects_other_messages() {
         assert!(parse_initial_graph_load(r#"{"type":"pong"}"#).is_none());
         assert!(parse_initial_graph_load("not json").is_none());
-        assert!(
-            parse_initial_graph_load(r#"{"type":"initialDataInfo","message":"x"}"#).is_none()
-        );
+        assert!(parse_initial_graph_load(r#"{"type":"initialDataInfo","message":"x"}"#).is_none());
     }
 
     #[test]
@@ -2611,7 +2751,10 @@ mod tests {
         ],"timestamp":1}"#;
         match classify_graph_text(topo) {
             GraphInbound::Topology { edges, .. } => assert_eq!(edges.len(), 1),
-            other => panic!("expected Topology, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected Topology, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
 
         // broker:new_case → forwarded verbatim as Text for the scene layer.
@@ -2673,9 +2816,11 @@ mod tests {
         assert_eq!(DRAG_END_TYPE, "nodeDragEnd");
 
         let start: serde_json::Value =
-            serde_json::from_str(&build_drag_msg(DRAG_START_TYPE, 7, Some([1.0, 2.0, 3.0]))).unwrap();
+            serde_json::from_str(&build_drag_msg(DRAG_START_TYPE, 7, Some([1.0, 2.0, 3.0])))
+                .unwrap();
         let update: serde_json::Value =
-            serde_json::from_str(&build_drag_msg(DRAG_UPDATE_TYPE, 7, Some([4.0, 5.0, 6.0]))).unwrap();
+            serde_json::from_str(&build_drag_msg(DRAG_UPDATE_TYPE, 7, Some([4.0, 5.0, 6.0])))
+                .unwrap();
         let end: serde_json::Value =
             serde_json::from_str(&build_drag_msg(DRAG_END_TYPE, 7, None)).unwrap();
 

@@ -167,7 +167,11 @@ pub enum CloudError {
     #[error("snapshotId is empty")]
     EmptyId,
     #[error("count {count} disagrees with {positions} position floats / {metadata} metadata rows")]
-    Shape { count: usize, positions: usize, metadata: usize },
+    Shape {
+        count: usize,
+        positions: usize,
+        metadata: usize,
+    },
     #[error("snapshot has {0} rows, above the headset ceiling")]
     TooLarge(usize),
 }
@@ -226,7 +230,11 @@ impl CloudSnapshot {
             return None;
         }
         let o = row * 3;
-        Some([self.positions[o], self.positions[o + 1], self.positions[o + 2]])
+        Some([
+            self.positions[o],
+            self.positions[o + 1],
+            self.positions[o + 2],
+        ])
     }
 }
 
@@ -285,7 +293,11 @@ pub fn age_ranks(metadata: &[CloudMeta]) -> Vec<f32> {
     if n <= 1 {
         return vec![1.0; n];
     }
-    let mut order: Vec<(f64, usize)> = metadata.iter().enumerate().map(|(i, m)| (m.updated_at, i)).collect();
+    let mut order: Vec<(f64, usize)> = metadata
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.updated_at, i))
+        .collect();
     order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut out = vec![0.0f32; n];
     let mut r = 0usize;
@@ -306,7 +318,11 @@ pub fn age_colour(u: f32) -> [f32; 3] {
             let span = u1 - u0;
             let f = (u - u0) / if span != 0.0 { span } else { 1.0 };
             let (a, b) = (hex_rgb(c0), hex_rgb(c1));
-            return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+            return [
+                a[0] + (b[0] - a[0]) * f,
+                a[1] + (b[1] - a[1]) * f,
+                a[2] + (b[2] - a[2]) * f,
+            ];
         }
     }
     hex_rgb(AGE_STOPS[AGE_STOPS.len() - 1].1)
@@ -316,14 +332,29 @@ pub fn age_colour(u: f32) -> [f32; 3] {
 /// sorted `namespaces` / `sourceTypes` list; an unlisted category takes slot 0.
 pub fn build_colours(snap: &CloudSnapshot, mode: ColourMode) -> Vec<[f32; 3]> {
     if mode == ColourMode::Age {
-        return age_ranks(&snap.metadata).into_iter().map(age_colour).collect();
+        return age_ranks(&snap.metadata)
+            .into_iter()
+            .map(age_colour)
+            .collect();
     }
-    let cats = if mode == ColourMode::Namespace { &snap.namespaces } else { &snap.source_types };
-    let index: HashMap<&str, usize> = cats.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+    let cats = if mode == ColourMode::Namespace {
+        &snap.namespaces
+    } else {
+        &snap.source_types
+    };
+    let index: HashMap<&str, usize> = cats
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.as_str(), i))
+        .collect();
     snap.metadata
         .iter()
         .map(|m| {
-            let cat = if mode == ColourMode::Namespace { &m.namespace } else { &m.source_type };
+            let cat = if mode == ColourMode::Namespace {
+                &m.namespace
+            } else {
+                &m.source_type
+            };
             let slot = index.get(cat.as_str()).copied().unwrap_or(0);
             hex_rgb(CLOUD_PALETTE[slot % CLOUD_PALETTE.len()])
         })
@@ -387,7 +418,13 @@ pub fn select_drawn(metadata: &[CloudMeta], cap: usize, pinned: &[usize]) -> Vec
         }
         // largest remainder for what is left (stable on ties by namespace order)
         let mut rem: Vec<usize> = (0..quota.len()).collect();
-        rem.sort_by(|&a, &b| quota[b].2.partial_cmp(&quota[a].2).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(&b)));
+        rem.sort_by(|&a, &b| {
+            quota[b]
+                .2
+                .partial_cmp(&quota[a].2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.cmp(&b))
+        });
         let mut k = 0;
         while used < budget && !rem.is_empty() {
             let gi = rem[k % rem.len()];
@@ -434,10 +471,28 @@ pub fn build_buffer(
         let r = row as usize;
         let Some(p) = snap.position(r) else { continue };
         let c = colours.get(r).copied().unwrap_or([1.0, 1.0, 1.0]);
-        let k = if dim <= 0.0 || keep.contains(&row) { 1.0 } else { f };
+        let k = if dim <= 0.0 || keep.contains(&row) {
+            1.0
+        } else {
+            f
+        };
         buf.extend_from_slice(&[
-            sprite, 0.0, 0.0, p[0], 0.0, sprite, 0.0, p[1], 0.0, 0.0, sprite, p[2], c[0] * k, c[1] * k,
-            c[2] * k, opacity,
+            sprite,
+            0.0,
+            0.0,
+            p[0],
+            0.0,
+            sprite,
+            0.0,
+            p[1],
+            0.0,
+            0.0,
+            sprite,
+            p[2],
+            c[0] * k,
+            c[1] * k,
+            c[2] * k,
+            opacity,
         ]);
         buf.extend_from_slice(&NEUTRAL_EMPHASIS);
     }
@@ -478,11 +533,17 @@ impl IndexMaps {
             if !row.key.is_empty() {
                 m.by_key.entry(row.key.clone()).or_default().push(i);
                 if !row.namespace.is_empty() {
-                    m.by_key.entry(format!("{}:{}", row.namespace, row.key)).or_default().push(i);
+                    m.by_key
+                        .entry(format!("{}:{}", row.namespace, row.key))
+                        .or_default()
+                        .push(i);
                 }
             }
             if !row.namespace.is_empty() {
-                m.by_namespace.entry(row.namespace.clone()).or_default().push(i);
+                m.by_namespace
+                    .entry(row.namespace.clone())
+                    .or_default()
+                    .push(i);
             }
         }
         m
@@ -505,16 +566,28 @@ fn next_rand(state: &mut u64) -> f64 {
 /// Rows a `memory_flash` lands on (`resolveFlashTargets`): the exact entry
 /// (narrowed to its namespace when the key repeats), else up to three rows of
 /// its namespace, else nothing — never a random point.
-pub fn resolve_flash(key: &str, namespace: &str, maps: &IndexMaps, seed: u64) -> (Vec<u32>, FlashMatch) {
+pub fn resolve_flash(
+    key: &str,
+    namespace: &str,
+    maps: &IndexMaps,
+    seed: u64,
+) -> (Vec<u32>, FlashMatch) {
     if !key.is_empty() {
-        let qualified = if namespace.is_empty() { None } else { maps.by_key.get(&format!("{namespace}:{key}")) };
+        let qualified = if namespace.is_empty() {
+            None
+        } else {
+            maps.by_key.get(&format!("{namespace}:{key}"))
+        };
         if let Some(hit) = qualified.or_else(|| maps.by_key.get(key)) {
             if !hit.is_empty() {
                 return (hit.clone(), FlashMatch::Key);
             }
         }
     }
-    if let Some(ns) = (!namespace.is_empty()).then(|| maps.by_namespace.get(namespace)).flatten() {
+    if let Some(ns) = (!namespace.is_empty())
+        .then(|| maps.by_namespace.get(namespace))
+        .flatten()
+    {
         if !ns.is_empty() {
             let picks = NAMESPACE_PICKS.min(ns.len());
             let mut state = seed;
@@ -538,7 +611,13 @@ pub fn resolve_flash(key: &str, namespace: &str, maps: &IndexMaps, seed: u64) ->
 /// The drawn row nearest the ray in angle (perpendicular distance over range),
 /// within `max_angle` radians and in front of the origin. Coordinates are
 /// cloud-local; `dir` need not be normalised.
-pub fn pick_ray(snap: &CloudSnapshot, drawn: &[u32], origin: [f32; 3], dir: [f32; 3], max_angle: f32) -> Option<u32> {
+pub fn pick_ray(
+    snap: &CloudSnapshot,
+    drawn: &[u32],
+    origin: [f32; 3],
+    dir: [f32; 3],
+    max_angle: f32,
+) -> Option<u32> {
     let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
     if len.is_nan() || len <= 1e-9 {
         return None;
@@ -547,7 +626,9 @@ pub fn pick_ray(snap: &CloudSnapshot, drawn: &[u32], origin: [f32; 3], dir: [f32
     let tan_max = max_angle.tan();
     let mut best: Option<(u32, f32)> = None;
     for &row in drawn {
-        let Some(p) = snap.position(row as usize) else { continue };
+        let Some(p) = snap.position(row as usize) else {
+            continue;
+        };
         let v = [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
         let t = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
         if t <= 1e-4 {
@@ -590,7 +671,9 @@ pub fn classify_status(transport_ok: bool, code: i64) -> LoadOutcome {
     }
 }
 
-const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
 
 /// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
@@ -611,9 +694,15 @@ fn parse_http_date(v: &str) -> Option<i64> {
         return None;
     }
     let day: i64 = parts[0].parse().ok()?;
-    let month = MONTHS.iter().position(|m| parts[1].eq_ignore_ascii_case(m))? as i64 + 1;
+    let month = MONTHS
+        .iter()
+        .position(|m| parts[1].eq_ignore_ascii_case(m))? as i64
+        + 1;
     let year: i64 = parts[2].parse().ok()?;
-    let hms: Vec<i64> = parts[3].split(':').map(|s| s.parse().ok()).collect::<Option<Vec<_>>>()?;
+    let hms: Vec<i64> = parts[3]
+        .split(':')
+        .map(|s| s.parse().ok())
+        .collect::<Option<Vec<_>>>()?;
     if hms.len() != 3 || !(1..=31).contains(&day) || hms[0] > 23 || hms[1] > 59 || hms[2] > 60 {
         return None;
     }
@@ -642,8 +731,17 @@ pub fn parse_retry_after(value: &str, now_ms: i64) -> Option<i64> {
 /// grows on 503s without Retry-After), clamped to [1 s, 60 s].
 pub fn unavailable_delay(retry_after_ms: Option<i64>, streak: u32) -> (i64, u32) {
     let fallback = RETRY_DEFAULT_MS.saturating_mul(1i64 << streak.min(20));
-    let next = if retry_after_ms.is_none() { streak.saturating_add(1) } else { streak };
-    (retry_after_ms.unwrap_or(fallback).clamp(RETRY_MIN_MS, RETRY_MAX_MS), next)
+    let next = if retry_after_ms.is_none() {
+        streak.saturating_add(1)
+    } else {
+        streak
+    };
+    (
+        retry_after_ms
+            .unwrap_or(fallback)
+            .clamp(RETRY_MIN_MS, RETRY_MAX_MS),
+        next,
+    )
 }
 
 // ── state ──
@@ -663,7 +761,10 @@ pub struct CloudState {
 
 impl CloudState {
     pub fn new() -> CloudState {
-        CloudState { cap: DEFAULT_SPRITE_CAP, ..Default::default() }
+        CloudState {
+            cap: DEFAULT_SPRITE_CAP,
+            ..Default::default()
+        }
     }
 
     pub fn mode(&self) -> ColourMode {
@@ -729,7 +830,15 @@ impl CloudState {
 
     pub fn buffer(&self, sprite: f32, opacity: f32, dim: f32) -> Vec<f32> {
         match &self.snapshot {
-            Some(s) => build_buffer(s, &self.colours, &self.drawn, sprite, opacity, &self.keep, dim),
+            Some(s) => build_buffer(
+                s,
+                &self.colours,
+                &self.drawn,
+                sprite,
+                opacity,
+                &self.keep,
+                dim,
+            ),
             None => Vec::new(),
         }
     }
@@ -740,7 +849,9 @@ impl CloudState {
         if row < 0 || row > u32::MAX as i64 {
             return -1;
         }
-        self.drawn.binary_search(&(row as u32)).map_or(-1, |i| i as i64)
+        self.drawn
+            .binary_search(&(row as u32))
+            .map_or(-1, |i| i as i64)
     }
 
     pub fn triangle_estimate(&self) -> usize {
@@ -764,7 +875,11 @@ pub struct MemoryCloud {
 impl MemoryCloud {
     #[func]
     fn create() -> Gd<Self> {
-        Gd::from_init_fn(|base| Self { state: CloudState::new(), last_match: FlashMatch::None, base })
+        Gd::from_init_fn(|base| Self {
+            state: CloudState::new(),
+            last_match: FlashMatch::None,
+            base,
+        })
     }
 
     /// Parse a `GET /api/memory-cloud` body. Returns the row count, or -1 with
@@ -789,7 +904,13 @@ impl MemoryCloud {
 
     #[func]
     fn snapshot_id(&self) -> GString {
-        GString::from(self.state.snapshot.as_ref().map(|s| s.snapshot_id.as_str()).unwrap_or(""))
+        GString::from(
+            self.state
+                .snapshot
+                .as_ref()
+                .map(|s| s.snapshot_id.as_str())
+                .unwrap_or(""),
+        )
     }
 
     #[func]
@@ -841,7 +962,12 @@ impl MemoryCloud {
 
     #[func]
     fn set_keep(&mut self, rows: PackedInt32Array) {
-        let rows: Vec<u32> = rows.as_slice().iter().filter(|&&r| r >= 0).map(|&r| r as u32).collect();
+        let rows: Vec<u32> = rows
+            .as_slice()
+            .iter()
+            .filter(|&&r| r >= 0)
+            .map(|&r| r as u32)
+            .collect();
         self.state.set_keep(&rows);
     }
 
@@ -860,7 +986,10 @@ impl MemoryCloud {
     /// vertex is `Vector3(u - 0.5, 0.5 - v, 0)`.
     #[func]
     fn sprite_triangle_uv(&self) -> PackedVector2Array {
-        SPRITE_TRIANGLE_UV.iter().map(|&[u, v]| Vector2::new(u, v)).collect()
+        SPRITE_TRIANGLE_UV
+            .iter()
+            .map(|&[u, v]| Vector2::new(u, v))
+            .collect()
     }
 
     #[func]
@@ -875,7 +1004,13 @@ impl MemoryCloud {
             .state
             .snapshot
             .as_ref()
-            .and_then(|s| if row >= 0 { s.position(row as usize) } else { None })
+            .and_then(|s| {
+                if row >= 0 {
+                    s.position(row as usize)
+                } else {
+                    None
+                }
+            })
             .unwrap_or([0.0; 3]);
         Vector3::new(p[0], p[1], p[2])
     }
@@ -883,13 +1018,25 @@ impl MemoryCloud {
     /// Whole position array (3 · count), for the route layer.
     #[func]
     fn positions(&self) -> PackedFloat32Array {
-        PackedFloat32Array::from(self.state.snapshot.as_ref().map(|s| s.positions.as_slice()).unwrap_or(&[]))
+        PackedFloat32Array::from(
+            self.state
+                .snapshot
+                .as_ref()
+                .map(|s| s.positions.as_slice())
+                .unwrap_or(&[]),
+        )
     }
 
     #[func]
     fn row_info(&self, row: i64) -> Dictionary {
         let mut d = Dictionary::new();
-        if let Some(m) = self.state.snapshot.as_ref().and_then(|s| s.metadata.get(row.max(0) as usize)).filter(|_| row >= 0) {
+        if let Some(m) = self
+            .state
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.metadata.get(row.max(0) as usize))
+            .filter(|_| row >= 0)
+        {
             d.set("id", GString::from(m.id.as_str()));
             d.set("key", GString::from(m.key.as_str()));
             d.set("namespace", GString::from(m.namespace.as_str()));
@@ -902,9 +1049,19 @@ impl MemoryCloud {
     /// Rows a memory_flash lands on; `last_flash_match()` names the rule used.
     #[func]
     fn resolve_flash(&mut self, key: GString, namespace: GString, seed: i64) -> PackedInt32Array {
-        let (rows, m) = resolve_flash(&key.to_string(), &namespace.to_string(), &self.state.maps, seed as u64);
+        let (rows, m) = resolve_flash(
+            &key.to_string(),
+            &namespace.to_string(),
+            &self.state.maps,
+            seed as u64,
+        );
         self.last_match = m;
-        PackedInt32Array::from(rows.into_iter().map(|r| r as i32).collect::<Vec<i32>>().as_slice())
+        PackedInt32Array::from(
+            rows.into_iter()
+                .map(|r| r as i32)
+                .collect::<Vec<i32>>()
+                .as_slice(),
+        )
     }
 
     #[func]
@@ -915,9 +1072,17 @@ impl MemoryCloud {
     /// Hovered row under a cloud-local ray, or -1.
     #[func]
     fn pick(&self, origin: Vector3, dir: Vector3, max_angle: f32) -> i64 {
-        let Some(s) = self.state.snapshot.as_ref() else { return -1 };
-        pick_ray(s, &self.state.drawn, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z], max_angle)
-            .map_or(-1, |r| r as i64)
+        let Some(s) = self.state.snapshot.as_ref() else {
+            return -1;
+        };
+        pick_ray(
+            s,
+            &self.state.drawn,
+            [origin.x, origin.y, origin.z],
+            [dir.x, dir.y, dir.z],
+            max_angle,
+        )
+        .map_or(-1, |r| r as i64)
     }
 
     /// 0 ready, 1 forbidden, 2 unavailable, 3 stale, 4 failed.
@@ -941,7 +1106,11 @@ impl MemoryCloud {
     /// `[delay_ms, next_streak]` after a 503; pass retry_after_ms = -1 when absent.
     #[func]
     fn unavailable_delay(&self, retry_after_ms: i64, streak: i64) -> PackedInt64Array {
-        let ra = if retry_after_ms >= 0 { Some(retry_after_ms) } else { None };
+        let ra = if retry_after_ms >= 0 {
+            Some(retry_after_ms)
+        } else {
+            None
+        };
         let (d, s) = unavailable_delay(ra, streak.max(0) as u32);
         PackedInt64Array::from(&[d, s as i64][..])
     }
@@ -956,7 +1125,13 @@ mod tests {
         let mut meta = Vec::new();
         for i in 0..n {
             pos.push(format!("{}.0,{}.5,-{}.25", i, i, i));
-            let ns = if i % 3 == 0 { "project-state" } else if i % 3 == 1 { "patterns" } else { "dream-cycle" };
+            let ns = if i % 3 == 0 {
+                "project-state"
+            } else if i % 3 == 1 {
+                "patterns"
+            } else {
+                "dream-cycle"
+            };
             meta.push(format!(
                 r#"{{"id":"id{i}","key":"k{i}","namespace":"{ns}","sourceType":"{}","updatedAt":{}}}"#,
                 if i % 2 == 0 { "agent" } else { "hook" },
@@ -993,20 +1168,39 @@ mod tests {
 
     #[test]
     fn rejects_malformed_json() {
-        assert!(matches!(CloudSnapshot::parse(b"{not json"), Err(CloudError::Json(_))));
-        assert!(matches!(CloudSnapshot::parse(b""), Err(CloudError::Json(_))));
-        assert!(matches!(CloudSnapshot::parse(b"[1,2,3]"), Err(CloudError::Json(_))));
+        assert!(matches!(
+            CloudSnapshot::parse(b"{not json"),
+            Err(CloudError::Json(_))
+        ));
+        assert!(matches!(
+            CloudSnapshot::parse(b""),
+            Err(CloudError::Json(_))
+        ));
+        assert!(matches!(
+            CloudSnapshot::parse(b"[1,2,3]"),
+            Err(CloudError::Json(_))
+        ));
         // positions of the wrong type
-        let j = r#"{"version":1,"snapshotId":"x","count":1,"positions":["a","b","c"],"metadata":[{}]}"#;
-        assert!(matches!(CloudSnapshot::parse(j.as_bytes()), Err(CloudError::Json(_))));
+        let j =
+            r#"{"version":1,"snapshotId":"x","count":1,"positions":["a","b","c"],"metadata":[{}]}"#;
+        assert!(matches!(
+            CloudSnapshot::parse(j.as_bytes()),
+            Err(CloudError::Json(_))
+        ));
     }
 
     #[test]
     fn rejects_missing_required_fields() {
         let j = r#"{"version":1,"count":0,"positions":[],"metadata":[]}"#;
-        assert!(matches!(CloudSnapshot::parse(j.as_bytes()), Err(CloudError::Json(_))));
+        assert!(matches!(
+            CloudSnapshot::parse(j.as_bytes()),
+            Err(CloudError::Json(_))
+        ));
         let j = r#"{"version":1,"snapshotId":"x","count":0,"metadata":[]}"#;
-        assert!(matches!(CloudSnapshot::parse(j.as_bytes()), Err(CloudError::Json(_))));
+        assert!(matches!(
+            CloudSnapshot::parse(j.as_bytes()),
+            Err(CloudError::Json(_))
+        ));
     }
 
     #[test]
@@ -1016,23 +1210,44 @@ mod tests {
         let short = full.replacen(",-2.25]", "]", 1);
         assert!(matches!(
             CloudSnapshot::parse(short.as_bytes()),
-            Err(CloudError::Shape { count: 3, positions: 8, metadata: 3 })
+            Err(CloudError::Shape {
+                count: 3,
+                positions: 8,
+                metadata: 3
+            })
         ));
-        let j = r#"{"version":1,"snapshotId":"x","count":2,"positions":[0,0,0,1,1,1],"metadata":[{}]}"#;
+        let j =
+            r#"{"version":1,"snapshotId":"x","count":2,"positions":[0,0,0,1,1,1],"metadata":[{}]}"#;
         assert!(matches!(
             CloudSnapshot::parse(j.as_bytes()),
-            Err(CloudError::Shape { count: 2, positions: 6, metadata: 1 })
+            Err(CloudError::Shape {
+                count: 2,
+                positions: 6,
+                metadata: 1
+            })
         ));
     }
 
     #[test]
     fn rejects_wrong_version_empty_id_and_oversize() {
         let j = r#"{"version":2,"snapshotId":"x","count":0,"positions":[],"metadata":[]}"#;
-        assert_eq!(CloudSnapshot::parse(j.as_bytes()).unwrap_err(), CloudError::Version(2));
+        assert_eq!(
+            CloudSnapshot::parse(j.as_bytes()).unwrap_err(),
+            CloudError::Version(2)
+        );
         let j = r#"{"version":1,"snapshotId":"  ","count":0,"positions":[],"metadata":[]}"#;
-        assert_eq!(CloudSnapshot::parse(j.as_bytes()).unwrap_err(), CloudError::EmptyId);
-        let j = format!(r#"{{"version":1,"snapshotId":"x","count":{},"positions":[],"metadata":[]}}"#, MAX_SNAPSHOT_ROWS + 1);
-        assert_eq!(CloudSnapshot::parse(j.as_bytes()).unwrap_err(), CloudError::TooLarge(MAX_SNAPSHOT_ROWS + 1));
+        assert_eq!(
+            CloudSnapshot::parse(j.as_bytes()).unwrap_err(),
+            CloudError::EmptyId
+        );
+        let j = format!(
+            r#"{{"version":1,"snapshotId":"x","count":{},"positions":[],"metadata":[]}}"#,
+            MAX_SNAPSHOT_ROWS + 1
+        );
+        assert_eq!(
+            CloudSnapshot::parse(j.as_bytes()).unwrap_err(),
+            CloudError::TooLarge(MAX_SNAPSHOT_ROWS + 1)
+        );
     }
 
     #[test]
@@ -1055,13 +1270,17 @@ mod tests {
     // ── palette drift against the desktop source ──
 
     fn ts_source(rel: &str) -> String {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(rel);
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
     }
 
     /// Every `0x……` literal between `start` and the next `end` after it.
     fn hex_literals(src: &str, start: &str, end: &str) -> Vec<u32> {
-        let from = src.find(start).unwrap_or_else(|| panic!("{start} not found"));
+        let from = src
+            .find(start)
+            .unwrap_or_else(|| panic!("{start} not found"));
         let body = &src[from..];
         let body = &body[..body.find(end).expect("block end")];
         let mut out = Vec::new();
@@ -1086,7 +1305,11 @@ mod tests {
     fn cloud_palette_matches_cloud_data_ts() {
         let src = ts_source("client/src/features/visualisation/memoryCloud/cloudData.ts");
         let ts = hex_literals(&src, "export const CLOUD_PALETTE", "] as const");
-        assert_eq!(ts, CLOUD_PALETTE.to_vec(), "CLOUD_PALETTE drifted from cloudData.ts");
+        assert_eq!(
+            ts,
+            CLOUD_PALETTE.to_vec(),
+            "CLOUD_PALETTE drifted from cloudData.ts"
+        );
     }
 
     #[test]
@@ -1117,8 +1340,14 @@ mod tests {
             ("settings?.dimOffRoute ?? ", DESKTOP_DIM_OFF_ROUTE),
             ("settings?.rotationSpeed ?? ", DESKTOP_ROTATION_PER_FRAME),
         ] {
-            let at = src.find(needle).unwrap_or_else(|| panic!("{needle} missing")) + needle.len();
-            let lit: String = src[at..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            let at = src
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle} missing"))
+                + needle.len();
+            let lit: String = src[at..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
             assert_eq!(lit.parse::<f32>().unwrap(), v, "{needle}");
         }
         let src = ts_source("client/src/features/visualisation/memoryCloud/cloudData.ts");
@@ -1148,15 +1377,27 @@ mod tests {
     fn unlisted_category_takes_slot_zero_and_palette_cycles() {
         let mut s = CloudSnapshot::parse(snap_json(1).as_bytes()).unwrap();
         s.metadata[0].namespace = "unknown".into();
-        assert_eq!(build_colours(&s, ColourMode::Namespace)[0], hex_rgb(CLOUD_PALETTE[0]));
+        assert_eq!(
+            build_colours(&s, ColourMode::Namespace)[0],
+            hex_rgb(CLOUD_PALETTE[0])
+        );
         s.namespaces = (0..18).map(|i| format!("n{i:02}")).collect();
         s.metadata[0].namespace = "n17".into();
-        assert_eq!(build_colours(&s, ColourMode::Namespace)[0], hex_rgb(CLOUD_PALETTE[1]));
+        assert_eq!(
+            build_colours(&s, ColourMode::Namespace)[0],
+            hex_rgb(CLOUD_PALETTE[1])
+        );
     }
 
     #[test]
     fn age_ranks_share_ties_and_span_zero_to_one() {
-        let m = |t: f64| CloudMeta { id: String::new(), key: String::new(), namespace: String::new(), source_type: String::new(), updated_at: t };
+        let m = |t: f64| CloudMeta {
+            id: String::new(),
+            key: String::new(),
+            namespace: String::new(),
+            source_type: String::new(),
+            updated_at: t,
+        };
         let r = age_ranks(&[m(30.0), m(10.0), m(10.0), m(20.0)]);
         assert_eq!(r, vec![1.0, 0.0, 0.0, 2.0 / 3.0]);
         assert_eq!(age_ranks(&[m(5.0)]), vec![1.0]);
@@ -1186,7 +1427,13 @@ mod tests {
         let mut v = Vec::new();
         for (ns, n) in counts {
             for i in 0..*n {
-                v.push(CloudMeta { id: String::new(), key: format!("{ns}{i}"), namespace: ns.to_string(), source_type: String::new(), updated_at: 0.0 });
+                v.push(CloudMeta {
+                    id: String::new(),
+                    key: format!("{ns}{i}"),
+                    namespace: ns.to_string(),
+                    source_type: String::new(),
+                    updated_at: 0.0,
+                });
             }
         }
         v
@@ -1205,12 +1452,18 @@ mod tests {
         let d = select_drawn(&m, 12_000, &pinned);
         assert_eq!(d.len(), 12_000);
         for p in pinned {
-            assert!(d.binary_search(&(p as u32)).is_ok(), "pinned row {p} dropped");
+            assert!(
+                d.binary_search(&(p as u32)).is_ok(),
+                "pinned row {p} dropped"
+            );
         }
         let count = |ns: &str| d.iter().filter(|&&r| m[r as usize].namespace == ns).count();
         assert!(count("tiny") >= 1);
         let big = count("big") as f64 / 12_000.0;
-        assert!((big - 18_000.0 / 19_903.0).abs() < 0.01, "proportional share, got {big}");
+        assert!(
+            (big - 18_000.0 / 19_903.0).abs() < 0.01,
+            "proportional share, got {big}"
+        );
         assert!(d.windows(2).all(|w| w[0] < w[1]), "sorted, unique");
         assert_eq!(select_drawn(&m, 12_000, &pinned), d, "deterministic");
     }
@@ -1220,7 +1473,11 @@ mod tests {
         let m = meta_ns(&[("a", 100)]);
         let pins: Vec<usize> = (0..50).collect();
         let d = select_drawn(&m, 10, &pins);
-        assert_eq!(d, (0..50).collect::<Vec<u32>>(), "pins win over the cap, nothing else added");
+        assert_eq!(
+            d,
+            (0..50).collect::<Vec<u32>>(),
+            "pins win over the cap, nothing else added"
+        );
     }
 
     #[test]
@@ -1244,7 +1501,10 @@ mod tests {
         st.load(snap_json(20_000).as_bytes()).unwrap();
         assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP);
         assert_eq!(st.triangle_estimate(), 8_000);
-        assert_eq!(st.triangle_estimate(), DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE);
+        assert_eq!(
+            st.triangle_estimate(),
+            DEFAULT_SPRITE_CAP * TRIANGLES_PER_SPRITE
+        );
     }
 
     #[test]
@@ -1253,14 +1513,23 @@ mod tests {
         // edge must sit exactly 0.5 from the centre so no disc pixel is lost.
         let v = SPRITE_TRIANGLE_UV;
         let c = [0.5f32, 0.5];
-        let cen = [(v[0][0] + v[1][0] + v[2][0]) / 3.0, (v[0][1] + v[1][1] + v[2][1]) / 3.0];
-        assert!((cen[0] - c[0]).abs() < 1e-6 && (cen[1] - c[1]).abs() < 1e-6, "centred");
+        let cen = [
+            (v[0][0] + v[1][0] + v[2][0]) / 3.0,
+            (v[0][1] + v[1][1] + v[2][1]) / 3.0,
+        ];
+        assert!(
+            (cen[0] - c[0]).abs() < 1e-6 && (cen[1] - c[1]).abs() < 1e-6,
+            "centred"
+        );
         for i in 0..3 {
             let (a, b) = (v[i], v[(i + 1) % 3]);
             let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
             let len = (ex * ex + ey * ey).sqrt();
             let dist = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex).abs() / len;
-            assert!((dist - 0.5).abs() < 1e-5, "edge {i} sits {dist} from the centre");
+            assert!(
+                (dist - 0.5).abs() < 1e-5,
+                "edge {i} sits {dist} from the centre"
+            );
             let r = ((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt();
             assert!((r - 1.0).abs() < 1e-5, "vertex {i} at circumradius {r}");
         }
@@ -1270,7 +1539,10 @@ mod tests {
 
     #[test]
     fn buffer_is_stride_20_with_origin_colour_and_neutral_emphasis() {
-        assert_eq!(CLOUD_STRIDE, 20, "12 transform + 4 colour + 4 custom (use_custom_data)");
+        assert_eq!(
+            CLOUD_STRIDE, 20,
+            "12 transform + 4 colour + 4 custom (use_custom_data)"
+        );
         let mut st = CloudState::new();
         st.load(snap_json(3).as_bytes()).unwrap();
         let b = st.buffer(1.5, 0.6, 0.0);
@@ -1280,7 +1552,11 @@ mod tests {
         assert_eq!([r[3], r[7], r[11]], [1.0, 1.5, -1.25]);
         let c = hex_rgb(CLOUD_PALETTE[1]);
         assert_eq!(&r[12..16], &[c[0], c[1], c[2], 0.6]);
-        assert_eq!(&r[16..20], &NEUTRAL_EMPHASIS, "gain 1: the shader leaves the sprite as is");
+        assert_eq!(
+            &r[16..20],
+            &NEUTRAL_EMPHASIS,
+            "gain 1: the shader leaves the sprite as is"
+        );
     }
 
     #[test]
@@ -1318,9 +1594,18 @@ mod tests {
         let mut m = meta_ns(&[("a", 2), ("b", 2)]);
         m[3].key = "a0".into(); // same key in namespace b
         let maps = IndexMaps::build(&m);
-        assert_eq!(resolve_flash("a0", "b", &maps, 1), (vec![3], FlashMatch::Key));
-        assert_eq!(resolve_flash("a0", "", &maps, 1), (vec![0, 3], FlashMatch::Key));
-        assert_eq!(resolve_flash("a1", "zzz", &maps, 1), (vec![1], FlashMatch::Key));
+        assert_eq!(
+            resolve_flash("a0", "b", &maps, 1),
+            (vec![3], FlashMatch::Key)
+        );
+        assert_eq!(
+            resolve_flash("a0", "", &maps, 1),
+            (vec![0, 3], FlashMatch::Key)
+        );
+        assert_eq!(
+            resolve_flash("a1", "zzz", &maps, 1),
+            (vec![1], FlashMatch::Key)
+        );
     }
 
     #[test]
@@ -1331,7 +1616,11 @@ mod tests {
         assert_eq!(kind, FlashMatch::Namespace);
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|&r| r < 10));
-        assert_eq!(resolve_flash("missing", "a", &maps, 42).0, rows, "deterministic for a seed");
+        assert_eq!(
+            resolve_flash("missing", "a", &maps, 42).0,
+            rows,
+            "deterministic for a seed"
+        );
         let (rows, _) = resolve_flash("missing", "b", &maps, 7);
         assert_eq!(rows.len(), 2);
     }
@@ -1339,7 +1628,10 @@ mod tests {
     #[test]
     fn flash_with_unknown_namespace_lands_nowhere() {
         let maps = IndexMaps::build(&meta_ns(&[("a", 3)]));
-        assert_eq!(resolve_flash("x", "nope", &maps, 1), (vec![], FlashMatch::None));
+        assert_eq!(
+            resolve_flash("x", "nope", &maps, 1),
+            (vec![], FlashMatch::None)
+        );
         assert_eq!(resolve_flash("", "", &maps, 1), (vec![], FlashMatch::None));
     }
 
@@ -1350,11 +1642,21 @@ mod tests {
         let j = r#"{"version":1,"snapshotId":"p","count":3,"positions":[0,0,-10, 0.5,0,-5, 0,0,10],"metadata":[{},{},{}]}"#;
         let s = CloudSnapshot::parse(j.as_bytes()).unwrap();
         let drawn = [0u32, 1, 2];
-        assert_eq!(pick_ray(&s, &drawn, [0.0; 3], [0.0, 0.0, -1.0], 0.2), Some(0));
-        assert_eq!(pick_ray(&s, &drawn, [0.0; 3], [0.1, 0.0, -1.0], 0.2), Some(1));
+        assert_eq!(
+            pick_ray(&s, &drawn, [0.0; 3], [0.0, 0.0, -1.0], 0.2),
+            Some(0)
+        );
+        assert_eq!(
+            pick_ray(&s, &drawn, [0.0; 3], [0.1, 0.0, -1.0], 0.2),
+            Some(1)
+        );
         assert_eq!(pick_ray(&s, &drawn, [0.0; 3], [1.0, 0.0, 0.0], 0.05), None);
         assert_eq!(pick_ray(&s, &drawn, [0.0; 3], [0.0, 0.0, 0.0], 0.2), None);
-        assert_eq!(pick_ray(&s, &[2], [0.0; 3], [0.0, 0.0, -1.0], 0.2), None, "behind");
+        assert_eq!(
+            pick_ray(&s, &[2], [0.0; 3], [0.0, 0.0, -1.0], 0.2),
+            None,
+            "behind"
+        );
     }
 
     // ── load policy ──
@@ -1379,8 +1681,15 @@ mod tests {
         assert_eq!(parse_retry_after("1.5", 0), None);
         // RFC 9110 example date
         let at = 784_111_777_000i64;
-        assert_eq!(parse_retry_after("Sun, 06 Nov 1994 08:49:37 GMT", at - 3_000), Some(3_000));
-        assert_eq!(parse_retry_after("Sun, 06 Nov 1994 08:49:37 GMT", at + 9_000), Some(0), "past date");
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:49:37 GMT", at - 3_000),
+            Some(3_000)
+        );
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:49:37 GMT", at + 9_000),
+            Some(0),
+            "past date"
+        );
         assert_eq!(parse_retry_after("Sun, 06 Foo 1994 08:49:37 GMT", 0), None);
         assert_eq!(parse_retry_after("soon", 0), None);
     }
@@ -1392,7 +1701,11 @@ mod tests {
         assert_eq!(unavailable_delay(None, 3), (40_000, 4));
         assert_eq!(unavailable_delay(None, 4), (60_000, 5));
         assert_eq!(unavailable_delay(None, 60), (60_000, 61));
-        assert_eq!(unavailable_delay(Some(2_000), 3), (2_000, 3), "server value wins, streak held");
+        assert_eq!(
+            unavailable_delay(Some(2_000), 3),
+            (2_000, 3),
+            "server value wins, streak held"
+        );
         assert_eq!(unavailable_delay(Some(10), 0), (1_000, 0));
         assert_eq!(unavailable_delay(Some(900_000), 0), (60_000, 0));
     }

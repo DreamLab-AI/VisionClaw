@@ -129,7 +129,10 @@ fn avatar_transform_fixture_round_trip() {
     // The fixture is the round-trip: any drift in the wire codec changes
     // these per-joint floats and breaks the assertion.
     assert_eq!(decoded.frame.head.position, [0.5, 1.7, -0.3]);
-    assert_eq!(decoded.frame.head.rotation[1], std::f32::consts::FRAC_1_SQRT_2);
+    assert_eq!(
+        decoded.frame.head.rotation[1],
+        std::f32::consts::FRAC_1_SQRT_2
+    );
     assert_eq!(
         decoded.frame.left_hand.expect("left").position,
         [-0.4, 1.2, -0.5]

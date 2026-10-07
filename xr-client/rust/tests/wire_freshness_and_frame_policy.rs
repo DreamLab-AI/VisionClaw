@@ -37,8 +37,8 @@ fn v5_sequence_is_now_recoverable_by_the_consumer() {
     assert_eq!(updates.len(), 2);
 
     // A V3 frame makes no ordering claim whatsoever.
-    let (seq, updates) = decode_position_frame_with_sequence(&fx::v3_frame(&records(2)))
-        .expect("valid V3");
+    let (seq, updates) =
+        decode_position_frame_with_sequence(&fx::v3_frame(&records(2))).expect("valid V3");
     assert_eq!(seq, None);
     assert_eq!(updates.len(), 2);
 }
@@ -60,12 +60,19 @@ fn increasing_sequences_are_accepted_and_advance_the_watermark() {
 fn a_duplicate_sequence_is_refused_and_its_records_withheld() {
     let mut gate = FreshnessGate::new();
     let first = fx::v5_frame(5, &records(1));
-    assert!(gate.admit_frame(&first, FrameKind::Delta).unwrap().0.is_accepted());
+    assert!(gate
+        .admit_frame(&first, FrameKind::Delta)
+        .unwrap()
+        .0
+        .is_accepted());
 
     // Re-delivery of the same sequence. A duplicate Delta would double-apply.
     let (verdict, applied) = gate.admit_frame(&first, FrameKind::Delta).expect("valid");
     assert_eq!(verdict, Freshness::RejectDuplicate { sequence: 5 });
-    assert!(applied.is_none(), "a rejected frame must not hand back records");
+    assert!(
+        applied.is_none(),
+        "a rejected frame must not hand back records"
+    );
     assert_eq!(gate.watermark(), Some(5));
     assert_eq!(gate.stats().rejected_duplicate, 1);
 }
@@ -81,7 +88,10 @@ fn a_decreasing_sequence_is_refused_as_stale() {
     let (verdict, applied) = gate.admit_frame(&stale, FrameKind::Delta).expect("valid");
     assert_eq!(
         verdict,
-        Freshness::RejectStale { sequence: 99, watermark: 100 }
+        Freshness::RejectStale {
+            sequence: 99,
+            watermark: 100
+        }
     );
     assert!(applied.is_none());
     // The watermark never moves backwards outside an explicit resync.
@@ -99,7 +109,10 @@ fn full_and_delta_share_one_watermark_across_concurrent_production() {
     // A Full snapshot built before seq 11 arrives late and must not win.
     assert_eq!(
         gate.admit(Some(10), FrameKind::Full),
-        Freshness::RejectStale { sequence: 10, watermark: 11 }
+        Freshness::RejectStale {
+            sequence: 10,
+            watermark: 11
+        }
     );
     assert!(gate.admit(Some(12), FrameKind::Full).is_accepted());
     assert_eq!(gate.watermark(), Some(12));
@@ -118,7 +131,10 @@ fn reconnect_rebaselines_on_a_full_frame_even_when_the_sequence_restarts() {
     let (verdict, applied) = gate.admit_frame(&resync, FrameKind::Full).expect("valid");
     assert_eq!(
         verdict,
-        Freshness::AcceptResync { sequence: 1, previous: Some(5_000) }
+        Freshness::AcceptResync {
+            sequence: 1,
+            previous: Some(5_000)
+        }
     );
     assert_eq!(applied.expect("snapshot applied").len(), 3);
     assert!(!gate.awaiting_resync());
@@ -134,7 +150,10 @@ fn reconnect_rebaselines_on_a_full_frame_even_when_the_sequence_restarts() {
     assert!(gate.admit(Some(2), FrameKind::Delta).is_accepted());
     assert_eq!(
         gate.admit(Some(1), FrameKind::Delta),
-        Freshness::RejectStale { sequence: 1, watermark: 2 }
+        Freshness::RejectStale {
+            sequence: 1,
+            watermark: 2
+        }
     );
 }
 
@@ -169,7 +188,10 @@ fn an_unsequenced_v3_frame_never_moves_the_watermark() {
     assert_eq!(gate.watermark(), Some(70));
     assert_eq!(
         gate.admit(Some(69), FrameKind::Delta),
-        Freshness::RejectStale { sequence: 69, watermark: 70 }
+        Freshness::RejectStale {
+            sequence: 69,
+            watermark: 70
+        }
     );
 }
 

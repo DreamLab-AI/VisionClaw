@@ -42,18 +42,58 @@ pub struct BurstProfile {
 pub const MEMORY_ACTIONS: [&str; 6] = ["store", "retrieve", "search", "list", "delete", "access"];
 
 const MEMORY_ACTION_PROFILES: [BurstProfile; 6] = [
-    BurstProfile { color: 0x39ff14, max_scale: 4.6, duration: 1.6, motion: BurstMotion::Expand, rings: 2 },
-    BurstProfile { color: 0x4fc3f7, max_scale: 3.4, duration: 1.8, motion: BurstMotion::Expand, rings: 1 },
-    BurstProfile { color: 0x00fff7, max_scale: 5.8, duration: 2.2, motion: BurstMotion::Expand, rings: 3 },
-    BurstProfile { color: 0xffd54f, max_scale: 3.0, duration: 1.4, motion: BurstMotion::Expand, rings: 1 },
-    BurstProfile { color: 0xff4444, max_scale: 4.0, duration: 1.4, motion: BurstMotion::Implode, rings: 1 },
-    BurstProfile { color: 0x9ad6ff, max_scale: 3.2, duration: 1.6, motion: BurstMotion::Expand, rings: 1 },
+    BurstProfile {
+        color: 0x39ff14,
+        max_scale: 4.6,
+        duration: 1.6,
+        motion: BurstMotion::Expand,
+        rings: 2,
+    },
+    BurstProfile {
+        color: 0x4fc3f7,
+        max_scale: 3.4,
+        duration: 1.8,
+        motion: BurstMotion::Expand,
+        rings: 1,
+    },
+    BurstProfile {
+        color: 0x00fff7,
+        max_scale: 5.8,
+        duration: 2.2,
+        motion: BurstMotion::Expand,
+        rings: 3,
+    },
+    BurstProfile {
+        color: 0xffd54f,
+        max_scale: 3.0,
+        duration: 1.4,
+        motion: BurstMotion::Expand,
+        rings: 1,
+    },
+    BurstProfile {
+        color: 0xff4444,
+        max_scale: 4.0,
+        duration: 1.4,
+        motion: BurstMotion::Implode,
+        rings: 1,
+    },
+    BurstProfile {
+        color: 0x9ad6ff,
+        max_scale: 3.2,
+        duration: 1.6,
+        motion: BurstMotion::Expand,
+        rings: 1,
+    },
 ];
 
 /// Profile for a memory verb. Case-insensitive; unknown or empty verbs fall back
 /// to `access`, exactly like `memoryActionProfile`.
 pub fn memory_action_profile(action: &str) -> BurstProfile {
-    let key = if action.is_empty() { "access".to_owned() } else { action.to_lowercase() };
+    let key = if action.is_empty() {
+        "access".to_owned()
+    } else {
+        action.to_lowercase()
+    };
     MEMORY_ACTIONS
         .iter()
         .position(|a| *a == key)
@@ -125,7 +165,11 @@ fn rgb_to_hsl(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
         return (0.0, 0.0, l);
     }
     let d = max - min;
-    let s = if l <= 0.5 { d / (max + min) } else { d / (2.0 - max - min) };
+    let s = if l <= 0.5 {
+        d / (max + min)
+    } else {
+        d / (2.0 - max - min)
+    };
     let h = if max == r {
         (g - b) / d + if g < b { 6.0 } else { 0.0 }
     } else if max == g {
@@ -144,9 +188,17 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
     if s == 0.0 {
         return (l, l, l);
     }
-    let p = if l <= 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = if l <= 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
     let q = 2.0 * l - p;
-    (hue2rgb(q, p, h + 1.0 / 3.0), hue2rgb(q, p, h), hue2rgb(q, p, h - 1.0 / 3.0))
+    (
+        hue2rgb(q, p, h + 1.0 / 3.0),
+        hue2rgb(q, p, h),
+        hue2rgb(q, p, h - 1.0 / 3.0),
+    )
 }
 
 fn hex_to_linear(hex: u32) -> (f64, f64, f64) {
@@ -186,10 +238,12 @@ pub fn hex_to_rgb01(hex: u32) -> [f32; 3] {
 // ─── Agent-action beams ─────────────────────────────────────────────────────
 
 /// `AgentActionType` names in wire order (0 Query .. 5 Transform).
-pub const AGENT_ACTION_NAMES: [&str; 6] = ["Query", "Update", "Create", "Delete", "Link", "Transform"];
+pub const AGENT_ACTION_NAMES: [&str; 6] =
+    ["Query", "Update", "Create", "Delete", "Link", "Transform"];
 
 /// Beam colours (`AGENT_ACTION_COLORS`, sRGB) in wire order.
-pub const AGENT_ACTION_COLORS: [u32; 6] = [0x3b82f6, 0xeab308, 0x22c55e, 0xef4444, 0xa855f7, 0x06b6d4];
+pub const AGENT_ACTION_COLORS: [u32; 6] =
+    [0x3b82f6, 0xeab308, 0x22c55e, 0xef4444, 0xa855f7, 0x06b6d4];
 
 /// Colour for an unknown action type (`agentActionColorHex` fallback).
 pub const AGENT_ACTION_FALLBACK_COLOR: u32 = 0xffffff;
@@ -206,12 +260,36 @@ pub struct BeamShape {
 }
 
 const AGENT_ACTION_SHAPES: [BeamShape; 6] = [
-    BeamShape { radius_top: 0.5, radius_bottom: 0.5, radial_segments: 8 },
-    BeamShape { radius_top: 1.0, radius_bottom: 1.0, radial_segments: 10 },
-    BeamShape { radius_top: 1.8, radius_bottom: 0.4, radial_segments: 12 },
-    BeamShape { radius_top: 0.3, radius_bottom: 1.6, radial_segments: 10 },
-    BeamShape { radius_top: 1.3, radius_bottom: 1.3, radial_segments: 12 },
-    BeamShape { radius_top: 0.9, radius_bottom: 0.9, radial_segments: 16 },
+    BeamShape {
+        radius_top: 0.5,
+        radius_bottom: 0.5,
+        radial_segments: 8,
+    },
+    BeamShape {
+        radius_top: 1.0,
+        radius_bottom: 1.0,
+        radial_segments: 10,
+    },
+    BeamShape {
+        radius_top: 1.8,
+        radius_bottom: 0.4,
+        radial_segments: 12,
+    },
+    BeamShape {
+        radius_top: 0.3,
+        radius_bottom: 1.6,
+        radial_segments: 10,
+    },
+    BeamShape {
+        radius_top: 1.3,
+        radius_bottom: 1.3,
+        radial_segments: 12,
+    },
+    BeamShape {
+        radius_top: 0.9,
+        radius_bottom: 0.9,
+        radial_segments: 16,
+    },
 ];
 
 /// Beam shape for an action type; unknown types fall back to the Query probe.
@@ -234,7 +312,11 @@ pub fn agent_action_color(action_type: u32) -> u32 {
 /// The code is the wire action type, or 6 for unknown (the shader's white).
 /// Stride stays 16 (XR-client Invariant 3): `.a` remains the agent status.
 pub fn beam_custom_rgb(action_type: u32) -> [f32; 3] {
-    let code = if (action_type as usize) < AGENT_ACTION_COLORS.len() { action_type } else { 6 };
+    let code = if (action_type as usize) < AGENT_ACTION_COLORS.len() {
+        action_type
+    } else {
+        6
+    };
     let s = agent_action_shape(action_type);
     [code as f32, s.radius_top, s.radius_bottom]
 }
@@ -288,12 +370,19 @@ pub fn parse_memory_flash(json: &str) -> Vec<MemoryFlash> {
         }
         let action = short_string(d.get("action"));
         let timestamp = d.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0);
-        Some(MemoryFlash { key, namespace, action, timestamp })
+        Some(MemoryFlash {
+            key,
+            namespace,
+            action,
+            timestamp,
+        })
     };
     match v.get("data") {
-        Some(serde_json::Value::Array(items)) => {
-            items.iter().filter_map(one).take(MAX_FLASHES_PER_FRAME).collect()
-        }
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(one)
+            .take(MAX_FLASHES_PER_FRAME)
+            .collect(),
         Some(d) => one(d).into_iter().collect(),
         None => Vec::new(),
     }
@@ -305,18 +394,23 @@ mod tests {
     use std::path::PathBuf;
 
     fn repo_file(rel: &str) -> String {
-        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(rel);
         std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
     }
 
     fn fixture() -> serde_json::Value {
-        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/desktop_parity.json");
+        let p =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/desktop_parity.json");
         serde_json::from_str(&std::fs::read_to_string(p).expect("fixture")).expect("fixture json")
     }
 
     /// Text between the first `{` after `anchor` and its matching `}`.
     fn block_after<'a>(src: &'a str, anchor: &str) -> &'a str {
-        let start = src.find(anchor).unwrap_or_else(|| panic!("anchor {anchor} missing"));
+        let start = src
+            .find(anchor)
+            .unwrap_or_else(|| panic!("anchor {anchor} missing"));
         let open = start + src[start..].find('{').expect("open brace");
         let mut depth = 0;
         for (i, ch) in src[open..].char_indices() {
@@ -335,7 +429,9 @@ mod tests {
     }
 
     fn field<'a>(row: &'a str, name: &str) -> &'a str {
-        let at = row.find(&format!("{name}:")).unwrap_or_else(|| panic!("{name} missing in {row}"));
+        let at = row
+            .find(&format!("{name}:"))
+            .unwrap_or_else(|| panic!("{name} missing in {row}"));
         let rest = row[at + name.len() + 1..].trim_start();
         let end = rest.find([',', '}']).unwrap_or(rest.len());
         rest[..end].trim().trim_matches('\'')
@@ -348,23 +444,46 @@ mod tests {
         let mut seen = 0;
         for line in table.lines() {
             let line = line.trim();
-            let Some(colon) = line.find(':') else { continue };
+            let Some(colon) = line.find(':') else {
+                continue;
+            };
             let verb = line[..colon].trim();
             if !MEMORY_ACTIONS.contains(&verb) {
                 continue;
             }
             let row = &line[colon + 1..];
             let p = memory_action_profile(verb);
-            let color = u32::from_str_radix(field(row, "color").trim_start_matches("0x"), 16).unwrap();
+            let color =
+                u32::from_str_radix(field(row, "color").trim_start_matches("0x"), 16).unwrap();
             assert_eq!(p.color, color, "{verb} colour");
-            assert_eq!(p.max_scale, field(row, "maxScale").parse::<f32>().unwrap(), "{verb} maxScale");
-            assert_eq!(p.duration, field(row, "duration").parse::<f32>().unwrap(), "{verb} duration");
-            assert_eq!(p.rings, field(row, "rings").parse::<u8>().unwrap(), "{verb} rings");
-            let motion = if field(row, "motion") == "implode" { BurstMotion::Implode } else { BurstMotion::Expand };
+            assert_eq!(
+                p.max_scale,
+                field(row, "maxScale").parse::<f32>().unwrap(),
+                "{verb} maxScale"
+            );
+            assert_eq!(
+                p.duration,
+                field(row, "duration").parse::<f32>().unwrap(),
+                "{verb} duration"
+            );
+            assert_eq!(
+                p.rings,
+                field(row, "rings").parse::<u8>().unwrap(),
+                "{verb} rings"
+            );
+            let motion = if field(row, "motion") == "implode" {
+                BurstMotion::Implode
+            } else {
+                BurstMotion::Expand
+            };
             assert_eq!(p.motion, motion, "{verb} motion");
             seen += 1;
         }
-        assert_eq!(seen, MEMORY_ACTIONS.len(), "every TS verb row parsed and none extra");
+        assert_eq!(
+            seen,
+            MEMORY_ACTIONS.len(),
+            "every TS verb row parsed and none extra"
+        );
     }
 
     #[test]
@@ -375,14 +494,40 @@ mod tests {
         let colours = block_after(&colours_src, "export const AGENT_ACTION_COLORS");
         for (i, name) in AGENT_ACTION_NAMES.iter().enumerate() {
             let tag = format!("[AgentActionType.{name}]:");
-            let srow = shapes.lines().find(|l| l.contains(&tag)).unwrap_or_else(|| panic!("shape {name}"));
+            let srow = shapes
+                .lines()
+                .find(|l| l.contains(&tag))
+                .unwrap_or_else(|| panic!("shape {name}"));
             let s = agent_action_shape(i as u32);
-            assert_eq!(s.radius_top, field(srow, "radiusTop").parse::<f32>().unwrap(), "{name} top");
-            assert_eq!(s.radius_bottom, field(srow, "radiusBottom").parse::<f32>().unwrap(), "{name} bottom");
-            assert_eq!(s.radial_segments, field(srow, "radialSegments").parse::<u8>().unwrap(), "{name} segs");
-            let crow = colours.lines().find(|l| l.contains(&tag)).unwrap_or_else(|| panic!("colour {name}"));
-            let hex = crow.split('\'').nth(1).expect("quoted hex").trim_start_matches('#');
-            assert_eq!(agent_action_color(i as u32), u32::from_str_radix(hex, 16).unwrap(), "{name} colour");
+            assert_eq!(
+                s.radius_top,
+                field(srow, "radiusTop").parse::<f32>().unwrap(),
+                "{name} top"
+            );
+            assert_eq!(
+                s.radius_bottom,
+                field(srow, "radiusBottom").parse::<f32>().unwrap(),
+                "{name} bottom"
+            );
+            assert_eq!(
+                s.radial_segments,
+                field(srow, "radialSegments").parse::<u8>().unwrap(),
+                "{name} segs"
+            );
+            let crow = colours
+                .lines()
+                .find(|l| l.contains(&tag))
+                .unwrap_or_else(|| panic!("colour {name}"));
+            let hex = crow
+                .split('\'')
+                .nth(1)
+                .expect("quoted hex")
+                .trim_start_matches('#');
+            assert_eq!(
+                agent_action_color(i as u32),
+                u32::from_str_radix(hex, 16).unwrap(),
+                "{name} colour"
+            );
         }
     }
 
@@ -398,8 +543,14 @@ mod tests {
         let colours = f["burstColors"].as_array().unwrap();
         assert!(colours.len() >= 40);
         for row in colours {
-            let (a, ns) = (row["action"].as_str().unwrap(), row["namespace"].as_str().unwrap());
-            assert!((namespace_hue_shift(ns) - row["shift"].as_f64().unwrap()).abs() < 1e-12, "{ns} shift");
+            let (a, ns) = (
+                row["action"].as_str().unwrap(),
+                row["namespace"].as_str().unwrap(),
+            );
+            assert!(
+                (namespace_hue_shift(ns) - row["shift"].as_f64().unwrap()).abs() < 1e-12,
+                "{ns} shift"
+            );
             let want = u32::from_str_radix(row["hex"].as_str().unwrap(), 16).unwrap();
             assert_eq!(semantic_burst_color(a, ns), want, "{a}/{ns}");
         }
@@ -418,20 +569,43 @@ mod tests {
         let shader = repo_file("xr-client/materials/agent_beam.gdshader");
         for (i, name) in AGENT_ACTION_NAMES.iter().enumerate() {
             let uni = format!("uniform vec3 action_{}_color", name.to_lowercase());
-            let line = shader.lines().find(|l| l.contains(&uni)).unwrap_or_else(|| panic!("{uni} missing"));
-            let inner = line.split("vec3(").nth(1).expect("vec3 default").split(')').next().unwrap();
-            let got: Vec<f32> = inner.split(',').map(|v| v.trim().parse().unwrap()).collect();
+            let line = shader
+                .lines()
+                .find(|l| l.contains(&uni))
+                .unwrap_or_else(|| panic!("{uni} missing"));
+            let inner = line
+                .split("vec3(")
+                .nth(1)
+                .expect("vec3 default")
+                .split(')')
+                .next()
+                .unwrap();
+            let got: Vec<f32> = inner
+                .split(',')
+                .map(|v| v.trim().parse().unwrap())
+                .collect();
             let want = hex_to_rgb01(AGENT_ACTION_COLORS[i]);
             for c in 0..3 {
-                assert!((got[c] - want[c]).abs() < 0.002, "{name} channel {c}: {} vs {}", got[c], want[c]);
+                assert!(
+                    (got[c] - want[c]).abs() < 0.002,
+                    "{name} channel {c}: {} vs {}",
+                    got[c],
+                    want[c]
+                );
             }
         }
     }
 
     #[test]
     fn verbs_fall_back_and_ignore_case() {
-        assert_eq!(memory_action_profile("STORE"), memory_action_profile("store"));
-        assert_eq!(memory_action_profile("bogus"), memory_action_profile("access"));
+        assert_eq!(
+            memory_action_profile("STORE"),
+            memory_action_profile("store")
+        );
+        assert_eq!(
+            memory_action_profile("bogus"),
+            memory_action_profile("access")
+        );
         assert_eq!(memory_action_profile(""), memory_action_profile("access"));
         assert_eq!(memory_action_profile("delete").motion, BurstMotion::Implode);
         assert_eq!(namespace_hue_shift(""), 0.0);
@@ -442,7 +616,11 @@ mod tests {
     fn beam_custom_carries_code_and_taper() {
         assert_eq!(beam_custom_rgb(2), [2.0, 1.8, 0.4]);
         assert_eq!(beam_custom_rgb(3), [3.0, 0.3, 1.6]);
-        assert_eq!(beam_custom_rgb(42), [6.0, 0.5, 0.5], "unknown → white code, Query probe");
+        assert_eq!(
+            beam_custom_rgb(42),
+            [6.0, 0.5, 0.5],
+            "unknown → white code, Query probe"
+        );
     }
 
     #[test]
@@ -450,11 +628,20 @@ mod tests {
         let one = r#"{"type":"memory_flash","data":{"key":"k1","namespace":"patterns","action":"store","timestamp":12}}"#;
         assert_eq!(
             parse_memory_flash(one),
-            vec![MemoryFlash { key: "k1".into(), namespace: "patterns".into(), action: "store".into(), timestamp: 12 }]
+            vec![MemoryFlash {
+                key: "k1".into(),
+                namespace: "patterns".into(),
+                action: "store".into(),
+                timestamp: 12
+            }]
         );
         let batch = r#"{"type":"memory_flash","data":[{"key":"a"},{"namespace":"n","action":"search"},{"action":"x"},7]}"#;
         let got = parse_memory_flash(batch);
-        assert_eq!(got.len(), 2, "keyless+namespaceless and non-object entries dropped");
+        assert_eq!(
+            got.len(),
+            2,
+            "keyless+namespaceless and non-object entries dropped"
+        );
         assert_eq!(got[1].action, "search");
         assert!(parse_memory_flash(r#"{"type":"other","data":{"key":"a"}}"#).is_empty());
         assert!(parse_memory_flash("not json").is_empty());
@@ -462,7 +649,13 @@ mod tests {
         let many: Vec<String> = (0..200).map(|i| format!(r#"{{"key":"k{i}"}}"#)).collect();
         let big = format!(r#"{{"type":"memory_flash","data":[{}]}}"#, many.join(","));
         assert_eq!(parse_memory_flash(&big).len(), MAX_FLASHES_PER_FRAME);
-        let long = format!(r#"{{"type":"memory_flash","data":{{"key":"{}"}}}}"#, "x".repeat(600));
-        assert!(parse_memory_flash(&long).is_empty(), "over-long key treated as absent");
+        let long = format!(
+            r#"{{"type":"memory_flash","data":{{"key":"{}"}}}}"#,
+            "x".repeat(600)
+        );
+        assert!(
+            parse_memory_flash(&long).is_empty(),
+            "over-long key treated as absent"
+        );
     }
 }
