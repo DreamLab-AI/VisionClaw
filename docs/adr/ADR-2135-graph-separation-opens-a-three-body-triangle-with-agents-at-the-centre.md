@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 4bd6cc49bd5f0c818200e9419a7d0d409a722db5
+verified_commit: 43838bf00867123d76cc50241ed87628ae6cab6a
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)
@@ -240,3 +240,7 @@ Citations: `client/src/features/graph/utils/sceneFitBounds.ts:127` (`unoccludedR
 (`fitPose`); `client/src/features/visualisation/memoryCloud/cloudSprites.ts:48`;
 `client/src/features/visualisation/memoryCloud/cloudFrame.ts:100`;
 `client/src/features/visualisation/memoryCloud/cloudData.ts:205`.
+
+## Re-verification — 2026-10-08 at 43838bf00
+
+The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a separate headset scale for the animated walk (XR_WALK_THICKNESS_SCALE 1.0, XR_WALK_GLOW_SCALE 0.5, a comet minimum of 0.5° at 15 m) while settled route lines keep XR_ROUTE_THICKNESS_SCALE and XR_ROUTE_GLOW_SCALE at 0.1, and makes the walk replay for every route source (relay, preset, typed). The geometry, the query point and the rank-order route are unchanged, so this decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c54ab03cb63436a38e594692979c3de7be4d2e0f
+verified_commit: 43838bf00867123d76cc50241ed87628ae6cab6a
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -125,3 +125,7 @@ and guide dots draw at `XR_ROUTE_THICKNESS_SCALE` / `XR_ROUTE_GLOW_SCALE` 0.1
 (`:72`, `:75`; `build_route_mesh` `:806`, `bead_buffer` `:1130`). The route
 still runs query point → every placed hit in rank order and the caption is
 unchanged, so this decision holds as written.
+
+## Re-verification — 2026-10-08 at 43838bf00
+
+The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a separate headset scale for the animated walk (XR_WALK_THICKNESS_SCALE 1.0, XR_WALK_GLOW_SCALE 0.5, a comet minimum of 0.5° at 15 m) while settled route lines keep XR_ROUTE_THICKNESS_SCALE and XR_ROUTE_GLOW_SCALE at 0.1, and makes the walk replay for every route source (relay, preset, typed). The geometry, the query point and the rank-order route are unchanged, so this decision holds.
