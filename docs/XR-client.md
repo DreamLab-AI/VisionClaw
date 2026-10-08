@@ -209,7 +209,7 @@ Two overflow lessons are baked in as INVARIANTS:
   2026-10-08) opens in place of the lists: an entry line, four rows of ten
   press-fire keys (digits, QWERTY, `' - . ?`) and Cancel · Space · Delete ·
   Search →, about 430 px (only glyphs in the HUD font, `test_hud_batching`); `onscreen_keyboard.gd` holds the buffer (120 characters)
-  and Search emits `memory_typed:<text>`. See *Memory search from the headset*
+  and Search emits `memory_typed:<scope>|<text>`. A Scope key picks where it searches: all of memory or one of the snapshot's eight most-sampled namespaces, `project-state` first when present, because a global top-50 lands in the thinly sampled reference corpus (live 2026-10-08: 0 of 50 in the sample). See *Memory search from the headset*
   below.
 - **ACTION_MODE_BUTTON_PRESS everywhere.** Every action button, tab button and
   type-toggle fires on *press*, not release (`hud.gd:252`, `637`, `647`):
