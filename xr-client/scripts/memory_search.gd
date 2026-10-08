@@ -29,6 +29,10 @@ const PRESET_POLL_SEC := 1.0
 const SCOPE_NAMESPACES := 8
 ## The typed-query scope chosen when the snapshot has it.
 const DEFAULT_SCOPE := "project-state"
+## Estate namespaces offered first when the snapshot has them (the curated
+## presets' namespaces, memory_query.rs CURATED): the most-sampled list alone
+## is led by thinly covered corpora and left `patterns` out live (2026-10-08).
+const ESTATE_SCOPES: Array[String] = ["project-state", "patterns", "coordination"]
 const TIMEOUT_SEC := 15.0
 
 ## Recent queries persist here between launches (JSON array of presets).
@@ -136,9 +140,10 @@ func run_text(text: String, scope: String = "") -> bool:
 	return _run({"label": t, "text": t, "namespace": scope.strip_edges()})
 
 
-## Where a typed query may search: "" (all of memory) then up to
-## SCOPE_NAMESPACES namespaces of the loaded snapshot, most sampled first (at
-## least two sampled rows, no whitespace in the name, as for the presets).
+## Where a typed query may search: "" (all of memory), then the ESTATE_SCOPES
+## the snapshot has, then its most-sampled namespaces, up to SCOPE_NAMESPACES
+## in all (each with at least two sampled rows and no whitespace in the name,
+## as for the presets).
 func scopes() -> Array:
 	var out: Array = [""]
 	if _layer == null or not _layer.has_method("namespaces"):
@@ -151,8 +156,15 @@ func scopes() -> Array:
 		if counts[i] >= 2 and not nm.is_empty() and not (" " in nm or "\t" in nm):
 			rows.append([nm, counts[i]])
 	rows.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1] or (a[1] == b[1] and str(a[0]) < str(b[0])))
-	for r: Array in rows.slice(0, SCOPE_NAMESPACES):
-		out.append(r[0])
+	var usable: Array = rows.map(func(r: Array) -> String: return str(r[0]))
+	for e: String in ESTATE_SCOPES:
+		if usable.has(e):
+			out.append(e)
+	for nm: String in usable:
+		if out.size() > SCOPE_NAMESPACES:
+			break
+		if not out.has(nm):
+			out.append(nm)
 	return out
 
 
