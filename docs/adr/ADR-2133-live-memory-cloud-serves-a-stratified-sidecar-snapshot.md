@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 6ba4b07ee0c18c9df621bdf54425dcf08a3f2995
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -198,3 +198,7 @@ namespace, with route and hit rows pinned
 sampled" (`xr-client/scripts/memory_cloud_layer.gd:298`). HP benchmark with a
 30 000 snapshot: 34 draw calls, 94 566 triangles, p99 3.17 ms (2.78 at
 20 000), LOD build p99 1.14 ms, all gates pass.
+
+## Re-verification — 2026-10-08 at 6ba4b07ee
+
+`get_vectors` now builds its response through `vectors_response` (`src/handlers/memory_cloud_handler.rs:201`), which sets `Content-Encoding: identity`. Actix's `Compress` middleware had been encoding the float32 blob as br/gzip, spending about 0.5 s of CPU per request for an 8% saving (46.08 → 42.4 MB at 30,000 rows). The decision holds: the blob is still `Cache-Control: no-store`, still served only after the same access check, still 409 on a stale snapshot id, and its wire format (little-endian f32, row-major, L2-normalised) is unchanged. On the client the blob is now fetched and decoded in a worker, which moves the transfer off the main thread; the NIP-98 signature is still computed on the main thread. Test: `tests/memory_cloud_vectors_encoding_test.rs`.
