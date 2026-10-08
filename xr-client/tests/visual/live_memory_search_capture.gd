@@ -153,9 +153,32 @@ func _run_typed(text: String, mc, search) -> void:
 		"hops": int(mc._route.hop_count()) if mc.route_active() else 0,
 		"agreement": line, "from_query_point": line.contains("query point"),
 		"cloud_scale": place.get("scale", 0.0), "cloud_position": str(place.get("position", ""))}))
+	print("XR_MEMORY_SEARCH ", JSON.stringify(_cloud_in_metres(mc)))
 	await create_timer(1.6).timeout
 	await _shot("typed-route")
 	quit(0 if mc.route_active() and line.contains("query point") else 6)
+
+
+## Where the memory cloud sits for a user at the XR origin (head at the
+## camera, 1.6 m): its world centre and robust radius in metres, the gap from
+## the head to its near side, and the GraphRoot fit scale (m per server unit).
+func _cloud_in_metres(mc) -> Dictionary:
+	var cb: PackedFloat32Array = mc._frame.cloud_bounds()
+	var world_per_local: float = mc._cloud_core.global_transform.basis.get_scale().x
+	var centre: Vector3 = mc._cloud_core.global_transform * Vector3(cb[0], cb[1], cb[2]) if cb.size() == 4 else Vector3.ZERO
+	var radius_m: float = cb[3] * world_per_local if cb.size() == 4 else 0.0
+	var head := Vector3(0.0, 1.6, 0.0)
+	var cam: Camera3D = scene.get_viewport().get_camera_3d()
+	if cam != null:
+		head = cam.global_position
+	var graph_centre: Vector3 = scene._graph_centre_world()
+	return {"step": "cloud_metres", "graph_scale_m_per_unit": scene._graph_scale,
+		"cloud_centre_m": [snappedf(centre.x, 0.01), snappedf(centre.y, 0.01), snappedf(centre.z, 0.01)],
+		"cloud_radius_m": snappedf(radius_m, 0.01),
+		"head_m": [snappedf(head.x, 0.01), snappedf(head.y, 0.01), snappedf(head.z, 0.01)],
+		"head_to_cloud_centre_m": snappedf(head.distance_to(centre), 0.01),
+		"head_to_near_side_m": snappedf(head.distance_to(centre) - radius_m, 0.01),
+		"graph_centre_m": [snappedf(graph_centre.x, 0.01), snappedf(graph_centre.y, 0.01), snappedf(graph_centre.z, 0.01)]}
 
 
 func _shot(view: String) -> void:

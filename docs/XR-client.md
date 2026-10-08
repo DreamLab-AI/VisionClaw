@@ -357,10 +357,12 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   so the bounds are one graph's, and `CloudRoot` sits at
   `TriangleFrame::memory_centre`: on the memory vertex's ray (180°: behind the
   graphs, in front of a user facing them), at least `CLEARANCE` 1.25 × the
-  summed radii from each graph. At live scale (graph radius ~93, scale ~0.005
-  m/unit) the cloud is about 4.5 m in radius with its near side about 3 m from
-  the user: past the near clip and the HUD, and inside the 12 m × 10 hover
-  reach. The guide cue still runs from the wand to the answer. The server
+  summed radii from each graph. Measured live on 2026-10-08
+  (`live_memory_search_capture.gd`, step `cloud_metres`; GraphRoot fit 0.0084
+  m per unit): cloud radius 16.3 m, centre 25.1 m ahead of the head and 22 m
+  beyond the graphs' centre, near side 8.8 m from the head: past the near clip
+  and the HUD, inside the 12 m × 10 hover reach, and large enough that the user
+  turns their head (or teleports) to take it in. The guide cue still runs from the wand to the answer. The server
   places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
   and keeps agent nodes at the centroid. Work-layer avatars still have one pose
   writer (Invariant 8) and travel to target nodes on the separated graphs.
