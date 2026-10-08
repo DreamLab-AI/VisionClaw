@@ -251,7 +251,7 @@ func test_the_keyboard_opens_in_place_types_and_submits_inside_532px() -> void:
 	assert_false(hud._query_memory_box.visible, "in place of the lists")
 	assert_lte(page.get_combined_minimum_size().y, 532.0, "keyboard page fits (Invariant 5)")
 	# QWERTY, digits, space, backspace, enter; every key press-fire with a hint
-	for k in ["q", "w", "e", "r", "t", "y", "a", "z", "m", "1", "0", "-", "space", "backspace", "enter", "cancel"]:
+	for k in ["q", "w", "e", "r", "t", "y", "a", "z", "m", "1", "0", "-", "space", "backspace", "enter", "cancel", "scope"]:
 		var b: Button = hud._keyboard_buttons.get(k)
 		assert_not_null(b, "key %s" % k)
 		assert_eq(b.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "press-fire: %s" % k)
@@ -262,7 +262,7 @@ func test_the_keyboard_opens_in_place_types_and_submits_inside_532px() -> void:
 		(hud._keyboard_buttons[k] as Button).pressed.emit()
 	assert_string_contains(hud._memory_keyboard_entry.text, "hud layout")
 	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
-	assert_signal_emitted_with_parameters(hud, "control_pressed", ["memory_typed:hud layout"])
+	assert_signal_emitted_with_parameters(hud, "control_pressed", ["memory_typed:|hud layout"])  # no scopes set: all of memory
 	assert_false(hud._memory_keyboard_box.visible, "closes on search")
 	assert_true(hud._query_memory_box.visible, "back to the results")
 	# cancel closes without searching
@@ -279,14 +279,52 @@ func test_the_keyboard_opens_in_place_types_and_submits_inside_532px() -> void:
 	await get_tree().process_frame
 
 
+func test_the_scope_key_cycles_namespaces_and_scopes_the_typed_query() -> void:
+	# A global top-50 lands in the thinly sampled reference corpus, so a typed
+	# query defaults to an estate namespace the cloud samples well (measured
+	# live 2026-10-08: global 0 of 50 in the sample, patterns 14 of 50).
+	var hud: Node3D = await _make_hud()
+	hud.set_memory_scopes(["", "project-state", "patterns"], 1)
+	hud.open_memory_keyboard()
+	var scope: Button = hud._keyboard_buttons["scope"]
+	assert_eq(scope.text, "In: project-state", "the default scope is shown")
+	scope.pressed.emit()
+	assert_eq(scope.text, "In: patterns")
+	scope.pressed.emit()
+	assert_eq(scope.text, "In: all memory", "wraps to all")
+	scope.pressed.emit()
+	assert_eq(scope.text, "In: project-state")
+	watch_signals(hud)
+	for k in ["b", "u", "g", "s"]:
+		(hud._keyboard_buttons[k] as Button).pressed.emit()
+	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
+	assert_signal_emitted_with_parameters(hud, "control_pressed", ["memory_typed:project-state|bugs"])
+	hud.queue_free()
+	await get_tree().process_frame
+
+
+func test_the_search_offers_scopes_with_project_state_first_choice() -> void:
+	var hud: Node3D = await _make_hud()
+	var layer: Node3D = await _make_layer("snap-7f3a", 40)
+	var s := _search(layer, hud)
+	var scopes: Array = s.scopes()
+	assert_eq(str(scopes[0]), "", "all of memory is always offered")
+	assert_true(scopes.has("project-state") and scopes.has("patterns"), str(scopes))
+	assert_eq(str(hud._memory_scopes[hud._memory_scope_index]), "project-state", "default scope")
+	s.queue_free()
+	layer.queue_free()
+	hud.queue_free()
+	await get_tree().process_frame
+
+
 func test_a_typed_query_posts_globally_and_becomes_recent() -> void:
 	var layer: Node3D = await _make_layer("snap-7f3a", 40)
 	var s := _search(layer, null)
 	assert_false(s.run_text("   "), "blank is not sent")
-	assert_true(s.handle_control("memory_typed:how does the headset lay out the graphs"))
+	assert_true(s.handle_control("memory_typed:|how does the headset lay out the graphs"))
 	assert_eq(s.posts.size(), 1)
 	var body: Dictionary = JSON.parse_string(str(s.posts[0]["body"]))
-	assert_eq(body, {"text": "how does the headset lay out the graphs", "k": 50.0}, "searched globally")
+	assert_eq(body, {"text": "how does the headset lay out the graphs", "k": 50.0}, "empty scope: searched globally")
 	s.on_query_completed(OK_RESULT, 200, PackedStringArray(), _fixture_text().to_utf8_buffer())
 	assert_eq(str(s.presets()[0]["text"]), "how does the headset lay out the graphs", "typed query is now a preset")
 	assert_true(layer.route_active(), "drawn from the query point")
@@ -300,9 +338,11 @@ func test_scene_routes_typed_queries_to_the_search() -> void:
 	var layer: Node3D = await _make_layer("snap-7f3a", 40)
 	var s := _search(layer, null)
 	gs._memory_search = s
-	gs._on_hud_control("memory_typed:open bugs")
+	gs._on_hud_control("memory_typed:patterns|open bugs")
 	assert_eq(s.posts.size(), 1, "a typed query runs")
-	assert_eq(JSON.parse_string(str(s.posts[0]["body"]))["text"], "open bugs")
+	var body: Dictionary = JSON.parse_string(str(s.posts[0]["body"]))
+	assert_eq(body["text"], "open bugs")
+	assert_eq(body["namespace"], "patterns", "within the chosen scope")
 	gs.free()
 	s.queue_free()
 	layer.queue_free()

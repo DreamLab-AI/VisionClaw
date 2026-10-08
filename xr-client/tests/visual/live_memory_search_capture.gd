@@ -6,7 +6,8 @@ extends SceneTree
 ## top-k route is drawn. A sampled hit is then pressed ("memory_hit:<i>") to
 ## send the guide cue there. With `typed="<text>"` (ADR-2136) the query is
 ## typed key by key on the HUD's on-screen keyboard instead, and Search sends
-## it through the same intent path ("memory_typed:<text>"); the route then
+## it through the same intent path ("memory_typed:<scope>|<text>", the
+## keyboard's default scope, or `scope=<ns>`, "all" for every namespace); the route then
 ## starts at the server's query point. Run with a display:
 ##   XR_BACKEND_WS=ws://<backend>:4000 XR_NOSTR_SECRET=<hex> \
 ##   godot --path xr-client --rendering-driver opengl3 --xr-mode off \
@@ -116,6 +117,13 @@ func _run_typed(text: String, mc, search) -> void:
 	hud._show_tab("query")
 	hud._query_mode_memory_button.pressed.emit()
 	hud._memory_type_button.pressed.emit()
+	var want_scope := _arg("scope", "")
+	if not want_scope.is_empty():
+		var target: String = "" if want_scope == "all" else want_scope
+		for n in hud._memory_scopes.size():
+			if str(hud._memory_scopes[hud._memory_scope_index]) == target:
+				break
+			(hud._keyboard_buttons["scope"] as Button).pressed.emit()
 	for i in text.length():
 		var c: String = text[i].to_lower()
 		var key: String = "space" if c == " " else c
@@ -125,7 +133,8 @@ func _run_typed(text: String, mc, search) -> void:
 	await create_timer(0.5).timeout
 	await _shot("keyboard")
 	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
-	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "typed", "entry": entry, "sent": search.queries_sent}))
+	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "typed", "entry": entry, "sent": search.queries_sent,
+		"scope": (hud._keyboard_buttons["scope"] as Button).text}))
 	var t0 := Time.get_ticks_msec()
 	while search._pending:
 		if Time.get_ticks_msec() - t0 > WAIT_QUERY_S * 1000.0:
