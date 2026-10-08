@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -188,3 +188,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `src/main.rs` gains one line, the `on_connect` hook (`:1234`). `spawn_boot_pull` is still spawned off the embedded pod's storage (`:892`). The other governed paths did not change. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). The boot pull is unchanged (`spawn_boot_pull`, `:904`). Decision holds.

@@ -204,7 +204,7 @@ impl PhysicsOrchestratorActor {
         let target_params = simulation_params.clone();
 
         // H4: Initialize message tracker with background timeout checker
-        let mut tracker = MessageTracker::new();
+        let tracker = MessageTracker::new();
         tracker.start_timeout_checker();
 
         Self {
@@ -2003,7 +2003,7 @@ impl Handler<UserNodeInteraction> for PhysicsOrchestratorActor {
 // Unit tests for physics orchestrator state machine
 // ============================================================================
 /// Test probe: the tracker's counters for one message kind
-/// `(sent, acknowledged, retries)`.
+/// `(sent, acknowledged in time, timed out)`.
 #[cfg(test)]
 #[derive(Message)]
 #[rtype(result = "(u64, u64, u64)")]
@@ -2021,7 +2021,7 @@ impl Handler<ProbeTrackedKind> for PhysicsOrchestratorActor {
                 Some(k) => (
                     k.sent_count.load(Relaxed),
                     k.success_count.load(Relaxed),
-                    k.retry_count.load(Relaxed),
+                    k.timeout_count.load(Relaxed),
                 ),
                 None => (0, 0, 0),
             }
@@ -2312,5 +2312,53 @@ mod tests {
             "UpdateGPUGraphData timed out ({sent} sent, {acked} acked)"
         );
         assert_eq!(acked, sent, "every UpdateGPUGraphData is acknowledged");
+    }
+
+    /// Every tracked send needs an ack path. The orchestrator tracks
+    /// UploadConstraintsToGPU (3 s deadline); ForceComputeActor must ack it.
+    #[actix::test]
+    async fn upload_constraints_to_gpu_is_acknowledged() {
+        use crate::actors::messages::{ApplyOntologyConstraints, ConstraintMergeMode};
+        use visionclaw_domain::models::constraints::Constraint;
+
+        let gpu = ForceComputeActor::headless().start();
+        let mut actor =
+            PhysicsOrchestratorActor::new(SimulationParams::default(), Some(gpu.clone()), None);
+        actor.gpu_initialized = true;
+        let orchestrator = actor.start();
+        gpu.send(crate::actors::messages::SetPhysicsOrchestratorAddr {
+            addr: orchestrator.clone(),
+        })
+        .await
+        .unwrap();
+
+        let mut constraints = ConstraintSet::default();
+        constraints.add(Constraint::separation(0, 1, 5.0));
+        orchestrator
+            .send(ApplyOntologyConstraints {
+                constraint_set: constraints,
+                merge_mode: ConstraintMergeMode::Replace,
+                graph_id: 0,
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let (sent, acked, timed_out) = orchestrator
+                .send(ProbeTrackedKind(MessageKind::UploadConstraintsToGPU))
+                .await
+                .unwrap();
+            assert_eq!(timed_out, 0);
+            if sent > 0 && acked == sent {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "UploadConstraintsToGPU not acknowledged: {sent} sent, {acked} acked"
+            );
+            actix::clock::sleep(Duration::from_millis(20)).await;
+        }
     }
 }

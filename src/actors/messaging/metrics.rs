@@ -14,7 +14,10 @@ pub struct KindMetrics {
     pub sent_count: AtomicU64,
     pub success_count: AtomicU64,
     pub failure_count: AtomicU64,
-    pub retry_count: AtomicU64,
+    /// Messages that missed their acknowledgement deadline.
+    pub timeout_count: AtomicU64,
+    /// Acknowledgements that arrived after the deadline.
+    pub late_ack_count: AtomicU64,
     pub total_latency_ms: AtomicU64,
 }
 
@@ -65,8 +68,11 @@ pub struct MessageMetrics {
     /// Total messages failed
     pub total_failed: AtomicU64,
 
-    /// Total retry attempts
-    pub total_retried: AtomicU64,
+    /// Total messages that missed their acknowledgement deadline
+    pub total_timed_out: AtomicU64,
+
+    /// Total acknowledgements that arrived after the deadline
+    pub total_late_acked: AtomicU64,
 
     /// Per-message-kind metrics
     by_kind: Arc<RwLock<HashMap<MessageKind, Arc<KindMetrics>>>>,
@@ -79,7 +85,8 @@ impl MessageMetrics {
             total_sent: AtomicU64::new(0),
             total_acked: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
-            total_retried: AtomicU64::new(0),
+            total_timed_out: AtomicU64::new(0),
+            total_late_acked: AtomicU64::new(0),
             by_kind: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -132,9 +139,9 @@ impl MessageMetrics {
         });
     }
 
-    /// Record a retry attempt
-    pub fn record_retry(&self, kind: MessageKind) {
-        self.total_retried.fetch_add(1, Ordering::Relaxed);
+    /// Record a missed acknowledgement deadline
+    pub fn record_timeout(&self, kind: MessageKind) {
+        self.total_timed_out.fetch_add(1, Ordering::Relaxed);
 
         let by_kind = Arc::clone(&self.by_kind);
         tokio::spawn(async move {
@@ -142,7 +149,21 @@ impl MessageMetrics {
             let metrics = map
                 .entry(kind)
                 .or_insert_with(|| Arc::new(KindMetrics::default()));
-            metrics.retry_count.fetch_add(1, Ordering::Relaxed);
+            metrics.timeout_count.fetch_add(1, Ordering::Relaxed);
+        });
+    }
+
+    /// Record an acknowledgement that arrived after its deadline
+    pub fn record_late_ack(&self, kind: MessageKind) {
+        self.total_late_acked.fetch_add(1, Ordering::Relaxed);
+
+        let by_kind = Arc::clone(&self.by_kind);
+        tokio::spawn(async move {
+            let mut map = by_kind.write().await;
+            let metrics = map
+                .entry(kind)
+                .or_insert_with(|| Arc::new(KindMetrics::default()));
+            metrics.late_ack_count.fetch_add(1, Ordering::Relaxed);
         });
     }
 
@@ -189,7 +210,8 @@ impl MessageMetrics {
                     sent: metrics.sent_count.load(Ordering::Relaxed),
                     success: metrics.success_count.load(Ordering::Relaxed),
                     failure: metrics.failure_count.load(Ordering::Relaxed),
-                    retries: metrics.retry_count.load(Ordering::Relaxed),
+                    timed_out: metrics.timeout_count.load(Ordering::Relaxed),
+                    late_acked: metrics.late_ack_count.load(Ordering::Relaxed),
                     avg_latency_ms: metrics.avg_latency_ms(),
                     success_rate: metrics.success_rate(),
                 });
@@ -200,7 +222,8 @@ impl MessageMetrics {
             total_sent: self.total_sent.load(Ordering::Relaxed),
             total_acked: self.total_acked.load(Ordering::Relaxed),
             total_failed: self.total_failed.load(Ordering::Relaxed),
-            total_retried: self.total_retried.load(Ordering::Relaxed),
+            total_timed_out: self.total_timed_out.load(Ordering::Relaxed),
+            total_late_acked: self.total_late_acked.load(Ordering::Relaxed),
             overall_success_rate: self.overall_success_rate(),
             overall_failure_rate: self.overall_failure_rate(),
             by_kind: kind_summaries,
@@ -221,7 +244,8 @@ pub struct KindSummary {
     pub sent: u64,
     pub success: u64,
     pub failure: u64,
-    pub retries: u64,
+    pub timed_out: u64,
+    pub late_acked: u64,
     pub avg_latency_ms: f64,
     pub success_rate: f64,
 }
@@ -232,7 +256,8 @@ pub struct MetricsSummary {
     pub total_sent: u64,
     pub total_acked: u64,
     pub total_failed: u64,
-    pub total_retried: u64,
+    pub total_timed_out: u64,
+    pub total_late_acked: u64,
     pub overall_success_rate: f64,
     pub overall_failure_rate: f64,
     pub by_kind: Vec<KindSummary>,
@@ -244,7 +269,8 @@ impl std::fmt::Display for MetricsSummary {
         writeln!(f, "  Total Sent: {}", self.total_sent)?;
         writeln!(f, "  Total Acknowledged: {}", self.total_acked)?;
         writeln!(f, "  Total Failed: {}", self.total_failed)?;
-        writeln!(f, "  Total Retried: {}", self.total_retried)?;
+        writeln!(f, "  Total Timed Out: {}", self.total_timed_out)?;
+        writeln!(f, "  Total Late Acks: {}", self.total_late_acked)?;
         writeln!(
             f,
             "  Overall Success Rate: {:.2}%",
@@ -263,7 +289,8 @@ impl std::fmt::Display for MetricsSummary {
                 writeln!(f, "      Sent: {}", kind.sent)?;
                 writeln!(f, "      Success: {}", kind.success)?;
                 writeln!(f, "      Failure: {}", kind.failure)?;
-                writeln!(f, "      Retries: {}", kind.retries)?;
+                writeln!(f, "      Timed Out: {}", kind.timed_out)?;
+                writeln!(f, "      Late Acks: {}", kind.late_acked)?;
                 writeln!(f, "      Avg Latency: {:.2}ms", kind.avg_latency_ms)?;
                 writeln!(f, "      Success Rate: {:.2}%", kind.success_rate * 100.0)?;
             }
@@ -300,13 +327,16 @@ mod tests {
 
         // Send 10, succeed 8, fail 2
         for _ in 0..10 {
-            metrics.record_sent(MessageKind::ComputeForces);
+            metrics.record_sent(MessageKind::UploadConstraintsToGPU);
         }
         for _ in 0..8 {
-            metrics.record_success(MessageKind::ComputeForces, Duration::from_millis(50));
+            metrics.record_success(
+                MessageKind::UploadConstraintsToGPU,
+                Duration::from_millis(50),
+            );
         }
         for _ in 0..2 {
-            metrics.record_failure(MessageKind::ComputeForces);
+            metrics.record_failure(MessageKind::UploadConstraintsToGPU);
         }
 
         // Wait for async updates

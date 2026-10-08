@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -309,3 +309,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `src/main.rs` gains one line, the `on_connect` hook (`:1234`), and it comes after the assertion. `assert_effective_profile_or_exit` still runs at `:927`, before `HttpServer::new` (`:947`) and `.bind()` (`:1235`), so an unsupported posture still aborts before any listener binds. `src/config/security_profile.rs` is unchanged. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. The assertion still runs after all services start and before `HttpServer::new`, and its abort path is unchanged. Decision holds.

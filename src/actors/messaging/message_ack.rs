@@ -18,9 +18,6 @@ pub enum AckStatus {
 
     /// Message processing failed
     Failed { error: String },
-
-    /// Message is being retried
-    Retrying { attempt: u32 },
 }
 
 impl AckStatus {
@@ -32,11 +29,6 @@ impl AckStatus {
     /// Check if the status represents failure
     pub fn is_failure(&self) -> bool {
         matches!(self, AckStatus::Failed { .. })
-    }
-
-    /// Check if the message is being retried
-    pub fn is_retrying(&self) -> bool {
-        matches!(self, AckStatus::Retrying { .. })
     }
 
     /// Get error message if status is Failed
@@ -108,16 +100,6 @@ impl MessageAck {
         }
     }
 
-    /// Create a new retry acknowledgment
-    pub fn retrying(correlation_id: MessageId, attempt: u32) -> Self {
-        Self {
-            correlation_id,
-            status: AckStatus::Retrying { attempt },
-            timestamp: Instant::now(),
-            metadata: HashMap::new(),
-        }
-    }
-
     /// Add metadata to the acknowledgment
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
@@ -134,7 +116,6 @@ mod tests {
         let success = AckStatus::Success;
         assert!(success.is_success());
         assert!(!success.is_failure());
-        assert!(!success.is_retrying());
 
         let failed = AckStatus::Failed {
             error: "test error".to_string(),
@@ -142,10 +123,6 @@ mod tests {
         assert!(!failed.is_success());
         assert!(failed.is_failure());
         assert_eq!(failed.error(), Some("test error"));
-
-        let retrying = AckStatus::Retrying { attempt: 2 };
-        assert!(retrying.is_retrying());
-        assert!(!retrying.is_success());
     }
 
     #[test]

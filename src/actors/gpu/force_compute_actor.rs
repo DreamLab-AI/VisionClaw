@@ -3524,10 +3524,27 @@ impl Handler<UploadConstraintsToGPU> for ForceComputeActor {
         );
         self.cached_constraint_buffer = msg.constraint_data;
 
-        if let Err(e) = self.apply_ontology_forces() {
+        let deferred = self.apply_ontology_forces().err();
+        if let Some(ref e) = deferred {
             warn!(
                 "ForceComputeActor: immediate constraint upload deferred: {}",
                 e
+            );
+        }
+
+        // H4: acknowledge to the orchestrator, which tracks this send. The
+        // buffer is cached either way; the next physics step uploads it.
+        if let (Some(correlation_id), Some(ref orchestrator_addr)) =
+            (msg.correlation_id, &self.physics_orchestrator_addr)
+        {
+            use crate::actors::messaging::MessageAck;
+            orchestrator_addr.do_send(
+                MessageAck::success(correlation_id)
+                    .with_metadata(
+                        "constraints",
+                        self.cached_constraint_buffer.len().to_string(),
+                    )
+                    .with_metadata("uploaded_now", deferred.is_none().to_string()),
             );
         }
         Ok(())
