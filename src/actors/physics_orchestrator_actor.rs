@@ -2002,6 +2002,33 @@ impl Handler<UserNodeInteraction> for PhysicsOrchestratorActor {
 // ============================================================================
 // Unit tests for physics orchestrator state machine
 // ============================================================================
+/// Test probe: the tracker's counters for one message kind
+/// `(sent, acknowledged, retries)`.
+#[cfg(test)]
+#[derive(Message)]
+#[rtype(result = "(u64, u64, u64)")]
+pub(crate) struct ProbeTrackedKind(pub MessageKind);
+
+#[cfg(test)]
+impl Handler<ProbeTrackedKind> for PhysicsOrchestratorActor {
+    type Result = ResponseFuture<(u64, u64, u64)>;
+
+    fn handle(&mut self, msg: ProbeTrackedKind, _: &mut Self::Context) -> Self::Result {
+        let metrics = self.message_tracker.metrics();
+        Box::pin(async move {
+            use std::sync::atomic::Ordering::Relaxed;
+            match metrics.get_kind_metrics(msg.0).await {
+                Some(k) => (
+                    k.sent_count.load(Relaxed),
+                    k.success_count.load(Relaxed),
+                    k.retry_count.load(Relaxed),
+                ),
+                None => (0, 0, 0),
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2251,5 +2278,39 @@ mod tests {
         assert_eq!(actor.simulation_params.equilibrium_stability_counter, 0);
         assert_eq!(actor.fast_settle_iteration_count, 0);
         assert!(!actor.fast_settle_complete);
+    }
+
+    /// The orchestrator tracks the UpdateGPUGraphData it sends at GPU init
+    /// with a 2 s timeout. ForceComputeActor must acknowledge it, or every
+    /// start logs "exhausted retries" for a graph that uploaded fine.
+    #[actix::test]
+    async fn update_gpu_graph_data_is_acknowledged_before_the_tracker_times_out() {
+        use visionclaw_domain::models::node::Node;
+
+        let mut graph = GraphData::new();
+        for i in 0..5 {
+            graph.nodes.push(Node::new(format!("n{i}")));
+        }
+        let gpu = ForceComputeActor::headless().start();
+        let orchestrator = PhysicsOrchestratorActor::new(
+            SimulationParams::default(),
+            Some(gpu.clone()),
+            Some(Arc::new(graph)),
+        )
+        .start();
+
+        // Past the 2 s UpdateGPUGraphData timeout plus one 500 ms checker tick.
+        actix::clock::sleep(Duration::from_millis(2700)).await;
+
+        let (sent, acked, retries) = orchestrator
+            .send(ProbeTrackedKind(MessageKind::UpdateGPUGraphData))
+            .await
+            .unwrap();
+        assert!(sent > 0, "the orchestrator never sent UpdateGPUGraphData");
+        assert_eq!(
+            retries, 0,
+            "UpdateGPUGraphData timed out ({sent} sent, {acked} acked)"
+        );
+        assert_eq!(acked, sent, "every UpdateGPUGraphData is acknowledged");
     }
 }

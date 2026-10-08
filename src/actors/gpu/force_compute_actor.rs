@@ -3293,12 +3293,24 @@ impl Handler<UpdateGPUGraphData> for ForceComputeActor {
         }
         self.try_upload_pending_graph_data();
 
-        // H4: Send acknowledgment
+        // H4: acknowledge to the orchestrator, whose MessageTracker otherwise
+        // times the message out and logs "exhausted retries" for a graph that
+        // was handled. A graph still pending (no GPU context yet, or an upload
+        // error) is stored and uploads on SetSharedGPUContext; the ack says so.
         if let Some(correlation_id) = msg.correlation_id {
+            let uploaded = self.pending_graph_data.is_none();
             debug!(
-                "UpdateGPUGraphData completed with correlation_id: {}",
-                correlation_id
+                "UpdateGPUGraphData {} handled (uploaded={})",
+                correlation_id, uploaded
             );
+            if let Some(ref orchestrator_addr) = self.physics_orchestrator_addr {
+                use crate::actors::messaging::MessageAck;
+                orchestrator_addr.do_send(
+                    MessageAck::success(correlation_id)
+                        .with_metadata("uploaded", uploaded.to_string())
+                        .with_metadata("nodes", self.gpu_state.num_nodes.to_string()),
+                );
+            }
         }
 
         Ok(())
