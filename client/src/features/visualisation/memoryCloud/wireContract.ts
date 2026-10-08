@@ -36,7 +36,7 @@ export const WIRE_KEYS = {
   queryEcho: { text: true, vector: true, position: true } satisfies Keys<MemoryCloudQueryResponse['query']>,
   sidecar: { results: true, tookMs: true, method: true } satisfies Keys<MemoryCloudQueryResponse['sidecar']>,
   hit: {
-    id: true, key: true, namespace: true, sourceType: true, score: true, snippet: true, sampleIndex: true,
+    id: true, key: true, namespace: true, sourceType: true, score: true, snippet: true, sampleIndex: true, position: true,
   } satisfies Keys<MemoryCloudHit>,
   health: {
     snapshotId: true, generatedAt: true, sidecar: true, embedder: true, namespaces: true, recallProbe: true,

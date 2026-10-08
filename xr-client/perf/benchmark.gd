@@ -795,13 +795,14 @@ func _populate_memory_layers(rows: int) -> void:
 
 
 ## A `POST /api/memory-cloud/query` response shaped like the server's
-## (wire.rs MemoryCloudQueryResponse) with `hits` sampled hits on spread rows
-## and a query point (ADR-2136), so the route starts there.
+## (wire.rs MemoryCloudQueryResponse) with `hits` hits on spread rows, half of
+## them outside the sample but placed by their own `position`, and a query
+## point (ADR-2136), so the route runs through every hit from there.
 static func synthetic_query_response(sid: String, rows: int, hits: int) -> String:
 	var res := PackedStringArray()
 	for k in hits:
 		var row: int = (k * 7919) % rows
-		res.append('{"id":"q%d","key":"bench-hit-%d","namespace":"ns-%02d","sourceType":"agent","score":%.3f,"snippet":"","sampleIndex":%d}' % [k, k, row % MEMORY_NAMESPACES, 0.9 - 0.005 * k, row])
+		res.append('{"id":"q%d","key":"bench-hit-%d","namespace":"ns-%02d","sourceType":"agent","score":%.3f,"snippet":"","sampleIndex":%s,"position":[%.2f,%.2f,%.2f]}' % [k, k, row % MEMORY_NAMESPACES, 0.9 - 0.005 * k, str(row) if k % 2 == 0 else "null", float(k % 7) * 9.0 - 30.0, float(k % 5) * 7.0 - 14.0, float(k % 3) * 11.0 - 11.0])
 	return '{"snapshotId":"%s","embedModel":"bench","query":{"text":"benchmark query","vector":[],"position":[0.0,0.0,0.0]},"sidecar":{"results":[%s],"tookMs":1.0,"method":"hnsw"}}' % [sid, ",".join(res)]
 
 

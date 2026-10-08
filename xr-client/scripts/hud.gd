@@ -878,7 +878,9 @@ func set_memory_hits(caption: String, hits: Array) -> void:
 	for i in hits.size():
 		var h: Dictionary = hits[i]
 		var sampled: bool = int(h.get("row", -1)) >= 0
-		var hint: String = "Guide your eye to this hit in the memory cloud" if sampled else "Not in the sampled cloud: no point to show"
+		var placed: bool = sampled or bool(h.get("has_position", false))
+		var hint: String = "Guide your eye to this hit in the memory cloud" if sampled \
+			else ("Outside the sample: guide your eye to where it lands (hollow ring)" if placed else "The server could not place this hit")
 		var b := _action_btn(str(h.get("line", "")), "memory_hit:%d" % i, hint)
 		b.add_theme_font_size_override("font_size", MEMORY_LIST_FONT)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
