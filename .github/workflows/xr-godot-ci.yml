@@ -87,6 +87,10 @@ jobs:
       - name: Build gdextension cdylib (debug — path expected by .gdextension)
         working-directory: xr-client/rust
         run: cargo build -p visionclaw-xr-gdext
+      - name: Launch-guard tests (tools/gdext-fresh.sh, live.sh, capture.sh)
+        run: bash tests/tools/test_gdext_fresh.sh
+      - name: Launch guard — the library Godot loads is not older than its Rust source
+        run: GDEXT_SKIP_BUILD=1 bash tools/gdext-fresh.sh
       - name: Install GL display dependencies
         run: sudo apt-get update && sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6
       - name: Install Godot ${{ env.GODOT_VERSION }}
