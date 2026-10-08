@@ -602,21 +602,29 @@ async fn main() -> std::io::Result<()> {
 
     // Step 1: Sync Files from GitHub.
     info!("[Startup] Step 1: Syncing files from GitHub to local storage...");
-    let github_sync_failed = if let Err(e) =
-        visionclaw_server::services::file_service::FileService::initialize_local_storage(
+    let github_sync_failed =
+        match visionclaw_server::services::file_service::FileService::initialize_local_storage(
             settings.clone(),
+            visionclaw_server::services::corpus_source::corpus_source_kind(),
         )
         .await
-    {
-        error!(
-            "[Startup] FAILED to sync from GitHub: {}. Will try local files.",
-            e
-        );
-        true
-    } else {
-        info!("[Startup] SUCCESS: Local file storage is synchronized with GitHub.");
-        false
-    };
+        {
+            Ok(visionclaw_server::services::file_service::LocalStorageSync::Synced) => {
+                info!("[Startup] SUCCESS: Local file storage is synchronized with GitHub.");
+                false
+            }
+            Ok(visionclaw_server::services::file_service::LocalStorageSync::SkippedLocalCorpus) => {
+                info!("[Startup] Corpus source is local: no GitHub markdown mirror to sync.");
+                false
+            }
+            Err(e) => {
+                error!(
+                    "[Startup] FAILED to sync from GitHub: {}. Will try local files.",
+                    e
+                );
+                true
+            }
+        };
 
     // Step 1b: If GitHub sync failed or metadata is empty, scan local files
     let metadata =
