@@ -30,7 +30,6 @@ const PHYSICS_FIELDS: Dictionary = {
 	"plane_bias_k": "_plane_bias_k",
 	"plane_spacing": "_plane_spacing",
 	"axis_compression_z": "_z_compression",
-	"graph_separation_x": "_graph_separation",
 }
 
 var hull_source: int = 0            # 0 off, 1 clusters, 2 communities

@@ -1,27 +1,23 @@
 //! Display-only layout projection for the position broadcast (ADR-2135).
 //!
-//! The physics integrator always runs on the merged, un-separated layout.
-//! Just before positions are broadcast, this module rewrites the broadcast
-//! copy so the populations sit where the separation controls ask:
+//! The physics integrator always runs on the merged layout. Just before
+//! positions are broadcast, this module rewrites the broadcast copy so the
+//! populations sit apart, always (operator decision 2026-10-08: there is no
+//! separation control):
 //!
-//! * **Identity** — separation 0, dual-disc off, no Z compression.
-//! * **Z-scale** — separation 0, dual-disc off, `axis_compression_z < 1`:
-//!   every Z is multiplied by the clamped compression.
-//! * **Triangle** — separation > 0 or dual-disc on: each population is
-//!   re-centred on its own median, Z-compressed, then placed on its vertex of
-//!   the shared [`TriangleFrame`] (knowledge and ontology yawed to face the
-//!   centroid; agent nodes at the centroid). The agents' drift towards the
-//!   graphs they work on is applied by the clients, which own every agent
-//!   body they draw (ADR-2135).
+//! * **Triangle** — whenever the population table is present: each population
+//!   is re-centred on its own median, Z-compressed, then placed on its vertex
+//!   of [`TriangleFrame::separated`] (knowledge and ontology yawed to face the
+//!   centroid; agent nodes at the centroid). With dual-disc on, each graph is
+//!   also rim-clamped into a disc. The agents' drift towards the graphs they
+//!   work on is applied by the clients, which own every agent body they draw.
+//! * **Z-scale** / **Identity** — the fallback while no population table has
+//!   arrived: `axis_compression_z < 1` scales every Z, otherwise nothing.
 //!
 //! The caller restores the pristine physics positions before the next step.
 //! The projection must never feed back into the simulation buffer: the
 //! ~56k knowledge↔ontology cross-links (rest length ~30) would span the gap
 //! every frame and pull the populations back together.
-//!
-//! At separation 0 the triangle collapses to the origin with zero yaw, and
-//! the projection is exactly the pre-triangle behaviour in every mode
-//! (`legacy_parity` tests below hold it to the old code).
 
 use glam::Vec3;
 use visionclaw_tri_layout::{TriangleFrame, Vertex};
@@ -82,25 +78,18 @@ pub(crate) fn clamp_z_scale(axis_compression_z: f32) -> f32 {
     axis_compression_z.clamp(Z_SCALE_MIN, 1.0)
 }
 
-/// The three separation controls, read once per broadcast.
+/// The two layout controls that shape the projection, read once per broadcast.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct LayoutParams {
-    /// `graph_separation_x`, the Graph Separation slider.
-    pub separation: f32,
     /// Clamped `axis_compression_z`.
     pub face_scale: f32,
-    /// `enable_dual_disc_layout`.
+    /// `enable_dual_disc_layout`: shape each graph as a disc facing the centre.
     pub dual_disc: bool,
 }
 
 impl LayoutParams {
-    pub(crate) fn new(graph_separation_x: f32, axis_compression_z: f32, dual_disc: bool) -> Self {
+    pub(crate) fn new(axis_compression_z: f32, dual_disc: bool) -> Self {
         LayoutParams {
-            separation: if graph_separation_x.is_finite() {
-                graph_separation_x.max(0.0)
-            } else {
-                0.0
-            },
             face_scale: clamp_z_scale(axis_compression_z),
             dual_disc,
         }
@@ -116,10 +105,10 @@ pub(crate) enum DisplayMode {
     Triangle,
 }
 
-/// The mode for these controls. The triangle needs the population table;
-/// without it the old Z-scale fallback applies.
+/// The mode for these controls. The triangle needs the population table and
+/// is always on once it is there; without it the Z-scale fallback applies.
 pub(crate) fn display_mode(params: &LayoutParams, populations_len: usize) -> DisplayMode {
-    if populations_len > 0 && (params.dual_disc || params.separation > 0.0) {
+    if populations_len > 0 {
         DisplayMode::Triangle
     } else if (params.face_scale - 1.0).abs() > f32::EPSILON {
         DisplayMode::ZScale
@@ -212,23 +201,11 @@ pub(crate) fn project_display<T: HasPosition>(
             }
         }
         DisplayMode::Triangle => {
-            let frame = TriangleFrame::new(params.separation);
+            let frame = TriangleFrame::separated();
             let centroids = population_centroids(items, populations);
-            // Dual-disc always re-centres in-plane (its discs are centred on
-            // their medians at every separation); otherwise re-centring eases
-            // in with the triangle so leaving separation 0 is continuous. Z is
-            // re-centred only as the triangle opens, so separation 0 keeps the
-            // old Z exactly.
-            let w_xy = if params.dual_disc {
-                1.0
-            } else {
-                frame.strength
-            };
-            let w_z = frame.strength;
             for (item, &pop) in items.iter_mut().zip(populations) {
-                let c = centroids[pop.index()];
                 let p = item.position_mut();
-                let mut local = Vec3::new(p.x - w_xy * c.x, p.y - w_xy * c.y, p.z - w_z * c.z);
+                let mut local = *p - centroids[pop.index()];
                 if params.dual_disc {
                     let d2 = local.x * local.x + local.y * local.y;
                     if d2 > DISC_RIM_RADIUS * DISC_RIM_RADIUS {
@@ -281,84 +258,24 @@ mod tests {
         (pos, pops)
     }
 
-    /// The pre-ADR-2135 projection, verbatim in behaviour: X-Y median
-    /// re-centre, rim clamp, Z compression and the ±Z disc offset.
-    fn legacy_project(pos: &mut [Vec3], pops: &[GraphPopulation], sep: f32, face: f32, dual: bool) {
-        if dual && !pops.is_empty() {
-            let mut bx: [Vec<f32>; 3] = Default::default();
-            let mut by: [Vec<f32>; 3] = Default::default();
-            for (p, pop) in pos.iter().zip(pops) {
-                bx[pop.index()].push(p.x);
-                by[pop.index()].push(p.y);
-            }
-            let med = |v: &mut Vec<f32>| {
-                if v.is_empty() {
-                    return 0.0;
-                }
-                v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                v[v.len() / 2]
-            };
-            let c: Vec<(f32, f32)> = (0..3).map(|b| (med(&mut bx[b]), med(&mut by[b]))).collect();
-            for (p, pop) in pos.iter_mut().zip(pops) {
-                let tz = match pop {
-                    Knowledge => -sep,
-                    Ontology => sep,
-                    Agent => 0.0,
-                };
-                let (cx, cy) = c[pop.index()];
-                let (mut dx, mut dy) = (p.x - cx, p.y - cy);
-                let d2 = dx * dx + dy * dy;
-                if d2 > DISC_RIM_RADIUS * DISC_RIM_RADIUS {
-                    let s = DISC_RIM_RADIUS / d2.sqrt();
-                    dx *= s;
-                    dy *= s;
-                }
-                *p = Vec3::new(dx, dy, p.z * face + tz);
-            }
-        } else if (face - 1.0).abs() > f32::EPSILON {
-            for p in pos.iter_mut() {
-                p.z *= face;
+    #[test]
+    fn the_triangle_is_always_on_once_populations_are_known() {
+        let m = |axis, dual, n| display_mode(&LayoutParams::new(axis, dual), n);
+        for axis in [1.0, 0.4, 0.0] {
+            for dual in [false, true] {
+                assert_eq!(m(axis, dual, 10), DisplayMode::Triangle, "{axis} {dual}");
             }
         }
-    }
-
-    #[test]
-    fn legacy_parity_at_separation_zero_in_every_mode() {
-        for dual in [false, true] {
-            for axis in [1.0, 0.5, 0.1, 0.0] {
-                let (orig, pops) = sample(301, 7);
-                let mut ours = orig.clone();
-                let mut theirs = orig.clone();
-                let params = LayoutParams::new(0.0, axis, dual);
-                project_display(&mut ours, &pops, &params);
-                legacy_project(&mut theirs, &pops, 0.0, clamp_z_scale(axis), dual);
-                for (a, b) in ours.iter().zip(&theirs) {
-                    assert!(
-                        (*a - *b).length() < 1e-3,
-                        "dual={dual} axis={axis}: {a} vs {b}"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn modes_follow_the_controls() {
-        let m = |sep, axis, dual, n| display_mode(&LayoutParams::new(sep, axis, dual), n);
-        assert_eq!(m(0.0, 1.0, false, 10), DisplayMode::Identity);
-        assert_eq!(m(0.0, 0.4, false, 10), DisplayMode::ZScale);
-        assert_eq!(m(0.0, 1.0, true, 10), DisplayMode::Triangle);
         assert_eq!(
-            m(25.0, 1.0, false, 10),
-            DisplayMode::Triangle,
-            "separation alone opens the triangle"
-        );
-        assert_eq!(
-            m(25.0, 0.4, false, 0),
+            m(0.4, false, 0),
             DisplayMode::ZScale,
             "no population table: fallback"
         );
-        assert_eq!(m(f32::NAN, 1.0, false, 10), DisplayMode::Identity);
+        assert_eq!(
+            m(1.0, true, 0),
+            DisplayMode::Identity,
+            "no population table: fallback"
+        );
     }
 
     #[test]
@@ -366,12 +283,12 @@ mod tests {
         let (orig, pops) = sample(900, 11);
         for dual in [false, true] {
             let mut pos = orig.clone();
-            let params = LayoutParams::new(300.0, 0.2, dual);
+            let params = LayoutParams::new(0.2, dual);
             project_display(&mut pos, &pops, &params);
             // A per-axis median is not rotation-equivariant, so check it in each
             // body's own frame: unplace() undoes the yaw and the vertex offset,
             // leaving the re-centred population, whose median is the origin.
-            let f = TriangleFrame::new(300.0);
+            let f = TriangleFrame::separated();
             let local: Vec<Vec3> = pos
                 .iter()
                 .zip(&pops)
@@ -400,14 +317,52 @@ mod tests {
         }
     }
 
+    /// Two populations drawn inside one shared ball the size of the live
+    /// graphs (radius `LIVE_GRAPH_RADIUS`, fully interpenetrating in physics
+    /// space) come out as two disjoint bodies with an empty gap between them.
+    #[test]
+    fn the_two_graphs_never_overlap_at_live_scale() {
+        use visionclaw_tri_layout::LIVE_GRAPH_RADIUS;
+        let mut seed = 23u64;
+        let mut pos = Vec::new();
+        let mut pops = Vec::new();
+        while pos.len() < 4000 {
+            let p = Vec3::new(lcg(&mut seed), lcg(&mut seed), lcg(&mut seed));
+            if p.length() <= 1.0 {
+                pos.push(Vec3::new(90.0, 0.0, 50.0) + p * LIVE_GRAPH_RADIUS);
+                pops.push(if pos.len() % 2 == 0 {
+                    Knowledge
+                } else {
+                    Ontology
+                });
+            }
+        }
+        for dual in [false, true] {
+            let mut out = pos.clone();
+            project_display(&mut out, &pops, &LayoutParams::new(1.0, dual));
+            let (k, o): (Vec<_>, Vec<_>) =
+                out.iter().zip(&pops).partition(|(_, p)| **p == Knowledge);
+            let gap = k
+                .iter()
+                .flat_map(|(a, _)| o.iter().map(move |(b, _)| (**a - **b).length()))
+                .fold(f32::INFINITY, f32::min);
+            // the bodies are ≤ 2 × LIVE_GRAPH_RADIUS wide once re-centred on
+            // their medians; the clearance leaves daylight between them
+            assert!(
+                gap > 0.1 * LIVE_GRAPH_RADIUS,
+                "dual={dual}: nearest pair {gap}"
+            );
+        }
+    }
+
     #[test]
     fn separated_discs_face_the_centroid() {
-        // A thin disc (face_scale 0.05) at full strength: its thin axis must be
-        // the radial direction through the centroid.
+        // A thin disc (face_scale 0.05): its thin axis must be the radial
+        // direction through the centroid.
         let (orig, pops) = sample(600, 3);
         let mut pos = orig.clone();
-        project_display(&mut pos, &pops, &LayoutParams::new(400.0, 0.0, true));
-        let f = TriangleFrame::new(400.0);
+        project_display(&mut pos, &pops, &LayoutParams::new(0.0, true));
+        let f = TriangleFrame::separated();
         for v in [Vertex::Knowledge, Vertex::Ontology] {
             let c = Vec3::from_array(f.vertex(v));
             let radial = c.normalize();
@@ -431,28 +386,15 @@ mod tests {
     }
 
     #[test]
-    fn projection_is_continuous_in_the_slider() {
-        let (orig, pops) = sample(300, 5);
-        for dual in [false, true] {
-            let mut prev: Option<Vec<Vec3>> = None;
-            let mut sep = 0.0;
-            while sep <= 400.0 {
-                let mut pos = orig.clone();
-                project_display(&mut pos, &pops, &LayoutParams::new(sep, 0.6, dual));
-                if let Some(p) = &prev {
-                    let jump = p
-                        .iter()
-                        .zip(&pos)
-                        .map(|(a, b)| (*a - *b).length())
-                        .fold(0.0f32, f32::max);
-                    // 0.25 of slider per step; the bound allows the yaw sweep of the
-                    // unclamped 9000-unit runaway (dual off); a re-centre snap would be hundreds
-                    assert!(jump < 50.0, "dual={dual} jump {jump} at sep {sep}");
-                }
-                prev = Some(pos);
-                sep += 0.25;
-            }
-        }
+    fn dual_disc_rim_clamps_a_runaway() {
+        let (orig, pops) = sample(300, 9);
+        let mut pos = orig.clone();
+        project_display(&mut pos, &pops, &LayoutParams::new(1.0, true));
+        let f = TriangleFrame::separated();
+        // sample() puts a 9000-unit runaway at index 0 (knowledge)
+        let local = Vec3::from_array(f.unplace(Vertex::Knowledge, pos[0].to_array()));
+        let r = (local.x * local.x + local.y * local.y).sqrt();
+        assert!(r <= DISC_RIM_RADIUS + 1.0, "in-plane radius {r}");
     }
 
     #[test]
@@ -467,7 +409,7 @@ mod tests {
             Vec3::new(14.0, 6.0, 8.0),
         ];
         let mut pos = orig.clone();
-        project_display(&mut pos, &pops, &LayoutParams::new(300.0, 1.0, false));
+        project_display(&mut pos, &pops, &LayoutParams::new(1.0, false));
         // agent median = (14, 6, 8) (upper median of two); offsets kept unrotated
         assert!(
             (pos[1] - Vec3::new(-4.0, -4.0, -12.0)).length() < 1e-4,

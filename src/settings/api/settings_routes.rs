@@ -1672,13 +1672,13 @@ pub async fn reset_layout(
 
     // 1. Re-apply the canonical physics defaults (the single source of truth)
     // before re-randomizing positions. No hand-coded literals: PhysicsSettings::
-    // default() carries graph_separation_x=100 with enable_dual_disc_layout=false
+    // default() carries enable_dual_disc_layout=false
     // (natural fully-3D layout by default; dual-disc is opt-in).
     let reset_physics = PhysicsSettings::default();
     let sim_params: crate::models::simulation_params::SimulationParams = (&reset_physics).into();
     info!(
-        "Reset physics from canonical default (graph_separation_x={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",
-        sim_params.graph_separation_x,
+        "Reset physics from canonical default (axis_compression_z={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",
+        sim_params.axis_compression_z,
         sim_params.enable_dual_disc_layout,
         sim_params.repel_k,
         sim_params.center_gravity_k
@@ -1701,8 +1701,7 @@ pub async fn reset_layout(
     }
 
     // Persist the canonical default to SQLite so the persisted store and the live
-    // GPU actor cannot diverge after a reset (closes the "SQLite says
-    // graphSeparationX=250 while GPU runs sep=0" gap). Same set_setting("physics")
+    // GPU actor cannot diverge after a reset. Same set_setting("physics")
     // pattern as update_physics_settings.
     match serde_json::to_value(&reset_physics) {
         Ok(physics_json) => {

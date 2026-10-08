@@ -8,6 +8,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CLEARANCE,
+  LIVE_GRAPH_RADIUS,
+  MEMORY_BODY_SCALE,
+  SEPARATION,
+  memoryCentre,
+  separatedFrame,
+  separationForRadii,
   FULL_STRENGTH_SEPARATION,
   RADIUS_PER_SEPARATION,
   VERTEX_ANGLES_DEG,
@@ -16,6 +23,7 @@ import {
   place,
   fold,
   foldPositions,
+  isMerged,
   strength,
   type Vec3,
 } from '../triLayout';
@@ -40,6 +48,11 @@ interface FixtureCase {
   fold: { world: Vec3; local: Vec3 }[];
 }
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(CRATE, 'fixtures/tri_layout_fixture.json'), 'utf8')) as {
+  live_graph_radius: number;
+  clearance: number;
+  separation: number;
+  memory_body_scale: number;
+  memory_centre: { graph_radius: number; memory_radius: number; centre: Vec3 }[];
   full_strength_separation: number;
   radius_per_separation: number;
   vertex_angles_deg: number[];
@@ -63,6 +76,24 @@ describe('triLayout port matches the Rust crate', () => {
     expect(JSON.parse(rustConst('VERTEX_ANGLES_DEG'))).toEqual([...VERTEX_ANGLES_DEG]);
     expect(FIXTURE.full_strength_separation).toBe(FULL_STRENGTH_SEPARATION);
     expect(FIXTURE.vertex_angles_deg).toEqual([...VERTEX_ANGLES_DEG]);
+    expect(Number(rustConst('LIVE_GRAPH_RADIUS'))).toBe(LIVE_GRAPH_RADIUS);
+    expect(Number(rustConst('CLEARANCE'))).toBe(CLEARANCE);
+    expect(Number(rustConst('MEMORY_BODY_SCALE'))).toBe(MEMORY_BODY_SCALE);
+    expect(rustConst('SEPARATION')).toBe('separationforradii(LIVEGRAPHRADIUS, LIVEGRAPHRADIUS)');
+    expect(FIXTURE.separation).toBeCloseTo(SEPARATION, 4);
+    expect(FIXTURE.live_graph_radius).toBe(LIVE_GRAPH_RADIUS);
+    expect(FIXTURE.clearance).toBe(CLEARANCE);
+    expect(FIXTURE.memory_body_scale).toBe(MEMORY_BODY_SCALE);
+  });
+
+  it('places the memory body where the crate does', () => {
+    expect(FIXTURE.memory_centre.length).toBeGreaterThanOrEqual(3);
+    const f = separatedFrame();
+    for (const m of FIXTURE.memory_centre) {
+      expect(nearV(memoryCentre(f, m.graph_radius, m.memory_radius), m.centre), `${m.graph_radius}/${m.memory_radius}`).toBe(
+        true,
+      );
+    }
   });
 
   it('reproduces every fixture case', () => {
@@ -84,6 +115,28 @@ describe('triLayout port matches the Rust crate', () => {
 });
 
 describe('triLayout behaviour', () => {
+  it('the layout is always separated, from the live radii', () => {
+    expect(SEPARATION).toBe(separationForRadii(LIVE_GRAPH_RADIUS, LIVE_GRAPH_RADIUS));
+    const f = separatedFrame();
+    expect(isMerged(f)).toBe(false);
+    expect(f.strength).toBe(1);
+    const k = f.vertices[Vertex.Knowledge];
+    const o = f.vertices[Vertex.Ontology];
+    expect(Math.hypot(k[0] - o[0], k[2] - o[2])).toBeGreaterThanOrEqual(CLEARANCE * 2 * LIVE_GRAPH_RADIUS - 1e-3);
+  });
+
+  it('a ×10 memory body clears both graphs and sits behind them', () => {
+    const f = separatedFrame();
+    const g = 93;
+    const m = MEMORY_BODY_SCALE * g;
+    const c = memoryCentre(f, g, m);
+    expect(c[2]).toBeLessThan(f.vertices[Vertex.Memory][2]);
+    for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
+      const p = f.vertices[v];
+      expect(Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2])).toBeGreaterThanOrEqual(CLEARANCE * (g + m) - 1e-6);
+    }
+  });
+
   it('separation 0 is the merged identity', () => {
     const f = triangleFrame(0);
     expect(place(f, Vertex.Memory, [1, 2, 3])).toEqual([1, 2, 3]);

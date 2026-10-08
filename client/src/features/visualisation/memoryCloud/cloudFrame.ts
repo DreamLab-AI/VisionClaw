@@ -14,22 +14,23 @@
  * size knob: the default 5 makes the two radii equal, and it scales linearly
  * from there.
  *
- * In the separated layout (Graph Separation > 0, ADR-2135) the knowledge
- * graph and ontology move to two vertices of a ground-plane triangle and the
- * cloud takes the third (`triLayout.ts`, the memory vertex at the back). The
- * graph extent is then measured on positions folded back into each graph's
- * own frame (`graphBoundsFor`), so the cloud keeps the size of one graph
- * rather than swelling to the whole triangle, and the outer group moves by
- * the memory vertex's offset. At separation 0 the vertex is the origin and
- * nothing changes.
+ * The layout is always separated (ADR-2135, operator decision 2026-10-08):
+ * the knowledge graph and ontology sit on two vertices of a ground-plane
+ * triangle and the cloud takes the third (`triLayout.ts`, the memory vertex
+ * at the back). The graph extent is measured on positions folded back into
+ * each graph's own frame (`graphBoundsFor`), so it is one graph's. The cloud
+ * is drawn MEMORY_BODY_SCALE (10) times that size, and the outer group sits
+ * on the memory vertex's ray far enough out that the enlarged cloud clears
+ * both graphs (`memoryCentre`). The route, beads and rings live inside the
+ * groups, so they grow with the cloud.
  */
 
 import { robustBounds, type RobustBounds } from '@/utils/robustBounds';
-import { triangleFrame, foldPositions, Vertex } from '../../graph/triLayout';
+import { separatedFrame, foldPositions, memoryCentre, LIVE_GRAPH_RADIUS, MEMORY_BODY_SCALE } from '../../graph/triLayout';
 
 export type Vec3 = [number, number, number];
 
-/** settings default for `embeddingCloud.cloudScale`; this value fits the cloud to the graph */
+/** settings default for `embeddingCloud.cloudScale`; this value draws the cloud MEMORY_BODY_SCALE graphs wide */
 export const DEFAULT_CLOUD_SCALE = 5;
 
 export interface CloudPlacement {
@@ -42,37 +43,35 @@ export interface CloudPlacement {
 }
 
 /**
- * Placement of the cloud given its own bounds (cloud-local), the graph's
- * (world, measured with `graphBoundsFor`) and the Graph Separation slider.
- * Without a graph the cloud keeps the old placement: world origin, scale
- * `cloudScale`. Either way it is moved by the triangle's memory vertex,
- * which is the origin at separation 0.
+ * Placement of the cloud given its own bounds (cloud-local) and the graph's
+ * (world, measured with `graphBoundsFor`). At the default `cloudScale` the
+ * cloud's radius is MEMORY_BODY_SCALE times the graph's, linear from there.
+ * Without a graph the cloud keeps the old size rule (`cloudScale` times
+ * MEMORY_BODY_SCALE) and clears a live-sized graph. Either way it sits at
+ * `memoryCentre`: on the memory vertex's ray, clear of both graphs.
  */
 export function cloudPlacement(
   cloud: RobustBounds | null,
   graph: RobustBounds | null,
   cloudScale: number,
-  separation = 0,
 ): CloudPlacement {
   const k = Number.isFinite(cloudScale) ? Math.max(0.1, cloudScale) : DEFAULT_CLOUD_SCALE;
   const offset: Vec3 = cloud ? [-cloud.centre[0], -cloud.centre[1], -cloud.centre[2]] : [0, 0, 0];
-  const m = triangleFrame(separation).vertices[Vertex.Memory];
-  if (!cloud || !graph) return { position: [m[0], m[1], m[2]], scale: k, offset };
-  return {
-    position: [graph.centre[0] + m[0], graph.centre[1] + m[1], graph.centre[2] + m[2]],
-    scale: (k / DEFAULT_CLOUD_SCALE) * (graph.radius / cloud.radius),
-    offset,
-  };
+  const framed = cloud !== null && graph !== null;
+  const scale = framed ? MEMORY_BODY_SCALE * (k / DEFAULT_CLOUD_SCALE) * (graph.radius / cloud.radius) : MEMORY_BODY_SCALE * k;
+  const m = memoryCentre(separatedFrame(), graph ? graph.radius : LIVE_GRAPH_RADIUS, cloud ? scale * cloud.radius : 0);
+  const base: Vec3 = framed ? graph.centre : [0, 0, 0];
+  return { position: [base[0] + m[0], base[1] + m[1], base[2] + m[2]], scale, offset };
 }
 
 /**
  * Robust bounds of the graph's broadcast positions with the separated
  * layout folded out: each position is mapped back into its graph's frame
  * (nearest of the knowledge and ontology vertices), so the result is one
- * graph's centre and radius. Plain `robustBounds` at separation 0.
+ * graph's centre and radius.
  */
-export function graphBoundsFor(positions: ArrayLike<number>, count: number, separation: number): RobustBounds | null {
-  return robustBounds(foldPositions(triangleFrame(separation), positions, count), count);
+export function graphBoundsFor(positions: ArrayLike<number>, count: number): RobustBounds | null {
+  return robustBounds(foldPositions(separatedFrame(), positions, count), count);
 }
 
 /**

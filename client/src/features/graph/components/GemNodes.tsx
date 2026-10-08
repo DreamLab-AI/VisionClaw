@@ -33,7 +33,7 @@ import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
 import { stepAgentOffset } from '../utils/agentNudge';
 import { agentDriftFeed } from '../../bots/agentDriftFeed';
-import { triangleFrame, type TriangleFrame } from '../triLayout';
+import { separatedFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
 import { heatBrightenFactor } from '../../visualisation/heatColor';
 
@@ -233,16 +233,11 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   // KG colour scheme: 'type' (per node-type palette), 'domain' (per domain palette),
   // or 'base' (legacy baseColor + label-hash hue jitter). Default 'type'.
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
-  // Graph Separation (ADR-2135): above 0 idle agents relax back to the centre.
-  const graphSeparation = useSettingsStore(s => s.get<number>('visualisation.graphs.knowledge.physics.graphSeparationX'));
-  const separatedRef = useRef(false);
-  separatedRef.current = typeof graphSeparation === 'number' && graphSeparation > 0;
-  // The separated-layout triangle, rebuilt only when the slider moves; agents
-  // drift from its centroid towards the graphs they work on (agentDriftFeed).
-  const triFrameRef = useRef<TriangleFrame>(triangleFrame(0));
-  if (triFrameRef.current.separation !== (separatedRef.current ? (graphSeparation as number) : 0)) {
-    triFrameRef.current = triangleFrame(separatedRef.current ? (graphSeparation as number) : 0);
-  }
+  // The layout is always separated (ADR-2135): idle agents relax back to the
+  // centre, and drift from the triangle's centroid towards the graphs they
+  // work on (agentDriftFeed).
+  const separatedRef = useRef(true);
+  const triFrameRef = useRef<TriangleFrame>(separatedFrame());
   // Per-node analytics data from binary protocol V3 (refreshed periodically).
   // Stride 5 (ADR-031 D2): [clusterId, anomalyScore, communityId, centrality, ssspDistance].
   const analyticsRef = useRef<Float32Array | null>(null);

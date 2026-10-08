@@ -2037,23 +2037,21 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                 //    compression (fully 3D, default). It drives the disc
                                 //    face thinness when dual-disc is on, and squashes the
                                 //    plain 3D layout when it is off.
-                                //  * `graph_separation_x` > 0 or `enable_dual_disc_layout`
-                                //    opens the ADR-2135 triangle: knowledge, ontology (and,
-                                //    client-side, the memory cloud) on the vertices of a
-                                //    ground-plane triangle, agents at the centroid drifting
-                                //    towards the graphs they work on. Dual-disc adds the
-                                //    in-plane re-centre and rim clamp at every separation.
-                                //    See display_projection.rs.
+                                //  * the ADR-2135 triangle is always on (operator decision
+                                //    2026-10-08): knowledge, ontology (and, client-side, the
+                                //    memory cloud) on the vertices of a ground-plane triangle
+                                //    at the fixed separation, agents at the centroid drifting
+                                //    towards the graphs they work on. Dual-disc adds the rim
+                                //    clamp. See display_projection.rs.
                                 let layout = LayoutParams::new(
-                                    actor.simulation_params.graph_separation_x,
                                     actor.simulation_params.axis_compression_z,
                                     actor.simulation_params.enable_dual_disc_layout,
                                 );
                                 // Once-per-300-iter diagnostic to verify the params reach this site.
-                                if actor.gpu_state.iteration_count % 300 == 0 && layout.separation > 0.0 {
+                                if actor.gpu_state.iteration_count % 300 == 0 && !actor.node_population.is_empty() {
                                     info!(
                                         "ForceComputeActor: triangle projection iter={} separation={:.1} face_scale={:.2} dual_disc={} populations={}",
-                                        actor.gpu_state.iteration_count, layout.separation, layout.face_scale,
+                                        actor.gpu_state.iteration_count, visionclaw_tri_layout::SEPARATION, layout.face_scale,
                                         layout.dual_disc, actor.node_population.len()
                                     );
                                 }
@@ -2707,7 +2705,7 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
         // Compare the full set of GPU-relevant fields, not just the original 6.
         //
         // CRITICAL: fields used by post-GPU Rust position-modification code (eg.
-        // graph_separation_x, axis_compression_z, enable_dual_disc_layout) and
+        // axis_compression_z, enable_dual_disc_layout) and
         // feature-flag-derived fields (eg. adaptive_speed) MUST appear here —
         // otherwise their value gets silently dropped when no other field changed.
         let cur = &self.simulation_params;
@@ -2727,7 +2725,6 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             && (cur.viewport_bounds - msg.params.viewport_bounds).abs() < eps
             && (cur.boundary_damping - msg.params.boundary_damping).abs() < eps
             && (cur.gravity - msg.params.gravity).abs() < eps
-            && (cur.graph_separation_x - msg.params.graph_separation_x).abs() < eps
             && (cur.axis_compression_z - msg.params.axis_compression_z).abs() < eps
             && cur.enable_dual_disc_layout == msg.params.enable_dual_disc_layout
             && cur.adaptive_speed == msg.params.adaptive_speed
@@ -2988,7 +2985,6 @@ impl Handler<ForceFullBroadcast> for ForceComputeActor {
                     // this, a settings change broadcasts raw GPU positions and, if the
                     // sim has converged, the projected positions never overwrite them.
                     let layout = LayoutParams::new(
-                        actor.simulation_params.graph_separation_x,
                         actor.simulation_params.axis_compression_z,
                         actor.simulation_params.enable_dual_disc_layout,
                     );
@@ -3024,7 +3020,7 @@ impl Handler<ForceFullBroadcast> for ForceComputeActor {
                     if let Some(ref graph_addr) = actor.graph_service_addr {
                         info!(
                             "ForceComputeActor: IMMEDIATE full broadcast — {} nodes (pure snapshot, mode={:?} separation={:.1} face_scale={:.2})",
-                            node_updates.len(), mode, layout.separation, layout.face_scale
+                            node_updates.len(), mode, visionclaw_tri_layout::SEPARATION, layout.face_scale
                         );
                         graph_addr.do_send(crate::actors::messages::UpdateNodePositions {
                             positions: node_updates,

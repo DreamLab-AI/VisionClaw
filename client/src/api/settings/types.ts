@@ -46,7 +46,6 @@ export interface PhysicsSettings {
   scalingRatio: number;
   adaptiveSpeed: boolean;
   ssspAlpha: number;
-  graphSeparationX: number;
   axisCompressionZ: number;
   enableDualDiscLayout: boolean;
   dagBiasK: number;

@@ -1,24 +1,24 @@
 /**
  * What the desktop camera auto-fit frames (ADR-2135).
  *
- * Merged (Graph Separation 0) it frames the graph's robust bounds, exactly as
- * before. Separated, the graph broadcast spans only the knowledge and ontology
- * vertices, and the memory cloud sits at the third vertex behind them, so a
- * graph-only fit leaves the cloud at the edge of the frame or outside it. The
- * fit then frames the sphere enclosing all three bodies: each graph is one
- * graph's folded extent (`graphBoundsFor`) placed at its vertex, and the cloud
- * is where and as large as `cloudPlacement` puts it.
+ * The layout is always separated: the graph broadcast spans the knowledge and
+ * ontology vertices, and the memory cloud, ten graphs wide, sits behind them
+ * on the memory vertex's ray, so a graph-only fit leaves the cloud out of the
+ * frame. The fit frames the sphere enclosing all three bodies: each graph is
+ * one graph's folded extent (`graphBoundsFor`) placed at its vertex, and the
+ * cloud is where and as large as `cloudPlacement` puts it.
  *
- * The fit runs once the slider settles (`createSettleTrigger`), never on every
- * tick of a drag.
+ * Besides the first-data fit and explicit requests, the camera refits once
+ * when the cloud's framing input settles (`createSettleTrigger` on
+ * `cloudFitKey`): the cloud turning on, a new snapshot, or a new cloudScale.
  */
 
-import { robustBounds, type RobustBounds } from '../../../utils/robustBounds';
-import { triangleFrame, place, Vertex, type Vec3 } from '../triLayout';
+import { type RobustBounds } from '../../../utils/robustBounds';
+import { separatedFrame, place, Vertex, type Vec3 } from '../triLayout';
 import { cloudPlacement, graphBoundsFor } from '../../visualisation/memoryCloud/cloudFrame';
 
-/** quiet time after the last slider change before the camera refits */
-export const SEPARATION_SETTLE_MS = 900;
+/** quiet time after the cloud's framing input changes before the camera refits */
+export const CLOUD_SETTLE_MS = 900;
 
 export interface CloudFitInput {
   /** the cloud's own robust bounds (cloud-local), from its snapshot */
@@ -57,22 +57,28 @@ function enclose(spheres: Sphere[]): RobustBounds {
 export function sceneFitBounds(
   positions: ArrayLike<number>,
   count: number,
-  separation: number,
   cloud: CloudFitInput | null,
 ): RobustBounds | null {
-  const frame = triangleFrame(separation);
-  if (frame.radius === 0) return robustBounds(positions, count);
-  const local = graphBoundsFor(positions, count, separation);
+  const frame = separatedFrame();
+  const local = graphBoundsFor(positions, count);
   if (!local) return null;
   const spheres: Sphere[] = [Vertex.Knowledge, Vertex.Ontology].map((v) => ({
     c: place(frame, v, local.centre),
     r: local.radius,
   }));
   if (cloud) {
-    const p = cloudPlacement(cloud.bounds, local, cloud.cloudScale, separation);
+    const p = cloudPlacement(cloud.bounds, local, cloud.cloudScale);
     spheres.push({ c: p.position, r: p.scale * cloud.bounds.radius });
   }
   return enclose(spheres);
+}
+
+/**
+ * What the cloud contributes to the fit, as one comparable key: empty while
+ * the cloud is off or has no snapshot, else its snapshot and scale.
+ */
+export function cloudFitKey(enabled: boolean, snapshotId: string | null | undefined, cloudScale: number): string {
+  return enabled && snapshotId ? `${snapshotId}|${cloudScale}` : '';
 }
 
 /**
@@ -80,11 +86,11 @@ export function sceneFitBounds(
  * The first value seen is the baseline, not a change.
  */
 export function createSettleTrigger(delayMs: number) {
-  let last: number | undefined;
+  let last: number | string | undefined;
   let changedAt = 0;
   let armed = false;
   return {
-    update(value: number, nowMs: number): boolean {
+    update(value: number | string, nowMs: number): boolean {
       if (last === undefined) {
         last = value;
         return false;

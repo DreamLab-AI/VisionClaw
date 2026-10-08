@@ -1,7 +1,7 @@
 /**
  * Shell smoke test (jsdom). Verifies the WP2 composition:
  *  - the dock renders at rest,
- *  - hotkey '1' opens the Motion group and its 55 controls appear in the DOM,
+ *  - hotkey '1' opens the Motion group and its 54 controls appear in the DOM,
  *  - opening a group triggers ensureLoaded(group.loadPaths),
  *  - Esc closes the panel,
  *  - a `controlcenter:reveal` event opens the group and focuses the target control.
@@ -74,14 +74,14 @@ describe('ControlCenter shell', () => {
     expect(countSettings()).toBe(0);
   });
 
-  it('hotkey "1" opens Motion and renders its 55 controls, ensureLoaded fired for its paths', async () => {
+  it('hotkey "1" opens Motion and renders its 54 controls, ensureLoaded fired for its paths', async () => {
     render(<ControlCenter showStats={false} enableBloom={false} />);
 
     act(() => {
       fireEvent.keyDown(window, { key: '1' });
     });
 
-    await waitFor(() => expect(countSettings()).toBe(55));
+    await waitFor(() => expect(countSettings()).toBe(54));
     expect(useControlCenterUI.getState().activeGroup).toBe('motion');
     expect(ensureSpy).toHaveBeenCalledWith(MOTION.loadPaths);
   });
@@ -92,7 +92,7 @@ describe('ControlCenter shell', () => {
     act(() => {
       fireEvent.keyDown(window, { key: '1' });
     });
-    await waitFor(() => expect(countSettings()).toBe(55));
+    await waitFor(() => expect(countSettings()).toBe(54));
 
     act(() => {
       fireEvent.keyDown(window, { key: 'Escape' });

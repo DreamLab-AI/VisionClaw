@@ -8,7 +8,8 @@ import { useMemoryCloudStore } from '../../visualisation/memoryCloud/memoryCloud
 import {
   sceneFitBounds,
   createSettleTrigger,
-  SEPARATION_SETTLE_MS,
+  cloudFitKey,
+  CLOUD_SETTLE_MS,
   type CloudFitInput,
 } from '../utils/sceneFitBounds';
 
@@ -23,9 +24,9 @@ export const CAMERA_FIT_EVENT = 'visionclaw:camera-fit';
 
 /**
  * Adjusts the camera + controls to frame `bounds` with padding. The bounds
- * come from `sceneFitBounds`: the graph's percentile bounds (a raw min/max box
- * would fit the layout's far outliers; see utils/robustBounds) when merged,
- * and the sphere around both graphs and the memory cloud when separated.
+ * come from `sceneFitBounds`: the sphere around both graphs (percentile
+ * bounds, so the layout's far outliers do not count; see utils/robustBounds)
+ * and the memory cloud.
  */
 function fitCameraToBounds(
   camera: THREE.PerspectiveCamera,
@@ -80,8 +81,8 @@ function cloudFitInput(): CloudFitInput | null {
  * Hook that auto-fits the camera to frame all nodes:
  * - Once on the first batch of non-zero position data (initial load)
  * - On explicit request via the CAMERA_FIT_EVENT custom event
- * - Once the Graph Separation slider settles (ADR-2135), framing both graphs
- *   and the memory cloud — never on every tick of a drag
+ * - Once the memory cloud's framing input settles (it turns on, a snapshot
+ *   loads, cloudScale changes), so the cloud behind the graphs is in frame
  *
  * Returns a `requestFit` callback for imperative use within the R3F tree.
  */
@@ -92,18 +93,18 @@ export function useCameraAutoFit(
   const { camera, controls } = useThree();
   const hasAutoFittedRef = useRef(false);
   const pendingFitRef = useRef(false);
-  const rawSeparation = useSettingsStore(
-    (s) => s.get<number>('visualisation.graphs.knowledge.physics.graphSeparationX'),
-  );
-  const separationRef = useRef(0);
-  separationRef.current = typeof rawSeparation === 'number' && Number.isFinite(rawSeparation) ? rawSeparation : 0;
-  const settleRef = useRef(createSettleTrigger(SEPARATION_SETTLE_MS));
+  const cloudEnabled = useSettingsStore((s) => s.get<boolean>('visualisation.embeddingCloud.enabled')) === true;
+  const cloudScale = useSettingsStore((s) => s.get<number>('visualisation.embeddingCloud.cloudScale')) ?? 5;
+  const snapshotId = useMemoryCloudStore((s) => s.snapshot?.snapshotId);
+  const cloudKeyRef = useRef('');
+  cloudKeyRef.current = cloudFitKey(cloudEnabled, snapshotId, cloudScale);
+  const settleRef = useRef(createSettleTrigger(CLOUD_SETTLE_MS));
 
   const performFit = useCallback(() => {
     const positions = nodePositionsRef.current;
     if (!positions || positions.length === 0 || nodeCount === 0) return;
     const count = Math.min(nodeCount, Math.floor(positions.length / 3));
-    const bounds = sceneFitBounds(positions, count, separationRef.current, cloudFitInput());
+    const bounds = sceneFitBounds(positions, count, cloudFitInput());
     if (!bounds) return;
 
     if (camera instanceof THREE.PerspectiveCamera) {
@@ -131,8 +132,8 @@ export function useCameraAutoFit(
 
   // Called from useFrame in GraphManager — checks if a fit is needed
   const requestFit = useCallback(() => {
-    // Graph Separation settled at a new value: frame the new layout once.
-    if (settleRef.current.update(separationRef.current, performance.now())) {
+    // The cloud came, went or changed size: frame the scene once.
+    if (settleRef.current.update(cloudKeyRef.current, performance.now())) {
       pendingFitRef.current = true;
     }
 

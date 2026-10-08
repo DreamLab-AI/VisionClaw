@@ -205,14 +205,6 @@ var _node_size_factor: float = 1.0
 var _dag_bias_on: bool = false
 var _dag_level_distance: float = 60.0
 var _z_compression: float = 1.0
-## Graph Separation (`graphSeparationX`, ADR-2135), read back from the server.
-## The server projects the two graphs onto the triangle; the memory cloud
-## takes the third vertex here.
-var _graph_separation: float = 0.0:
-	set(v):
-		_graph_separation = v
-		if _memory_cloud != null:
-			_memory_cloud.graph_separation = v
 var _plane_bias_k := 0.0
 var _plane_spacing := 60.0
 const DAG_BIAS_ON_K: float = 0.6
@@ -367,10 +359,6 @@ const PlaneManagerScript := preload("res://scripts/plane_manager.gd")
 # WP1/WP2/WP4 desktop-parity wiring (domain colour, settings/filter sync, hulls).
 const GraphParityScript := preload("res://scripts/graph_parity.gd")
 var _parity: Node = null
-## HUD Graph Separation writes (ADR-2135): ≤ 4 Hz while the wand drags the
-## slider, a final write on release, all through _put_physics_body.
-const SeparationControlScript := preload("res://scripts/separation_control.gd")
-var _separation = SeparationControlScript.new()
 ## Memory search from the HUD Query page (POST /api/memory-cloud/query, the
 ## route through its sampled top hits). Created with the memory cloud.
 const MemorySearchScript := preload("res://scripts/memory_search.gd")
@@ -556,13 +544,11 @@ func _ready() -> void:
 		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
 		_memory_cloud.pointer = right_controller
 		# frame the cloud on the graph (desktop cloudFrame.ts): robust bounds of every
-		# node, with the separated layout folded out (ADR-2135)
-		_memory_cloud.graph_separation = _graph_separation
+		# node, with the always-separated layout folded out (ADR-2135)
 		if _binary_client != null and _binary_client.has_method("graph_robust_bounds"):
 			var client: RefCounted = _binary_client
-			var layer: Node3D = _memory_cloud
 			_memory_cloud.graph_bounds_source = func() -> PackedFloat32Array:
-				return client.graph_robust_bounds(layer.graph_separation)
+				return client.graph_robust_bounds()
 		_memory_cloud.status_changed.connect(func(_s: String, _d: String) -> void: _refresh_memory_cloud_hud())
 		_memory_cloud.route_stats_changed.connect(func(line: String) -> void:
 			if hud != null and hud.has_method("set_memory_route_line"):
@@ -827,19 +813,9 @@ func _on_hud_control(action: String) -> void:
 	if action.begins_with("teleport:"):
 		_teleport_to_node(int(action.substr(9)))
 		return
-	if action.begins_with("memory_preset:") or action.begins_with("memory_hit:"):
+	if action.begins_with("memory_preset:") or action.begins_with("memory_hit:") or action.begins_with("memory_typed:"):
 		if _memory_search != null and _memory_search.handle_control(action):
 			_refresh_memory_cloud_hud()
-		return
-	# Graph Separation slider (hud.gd): "separation_drag:<v>" while the wand drags,
-	# "separation_release:<v>" when it lets go. The per-frame _pump_separation
-	# (in _physics_process) sends them.
-	if action.begins_with("separation_drag:"):
-		_separation.drag(float(action.get_slice(":", 1)))
-		return
-	if action.begins_with("separation_release:"):
-		_separation.release(float(action.get_slice(":", 1)))
-		_refresh_controls_status()
 		return
 	# Comfort toggles are owned by spatial_environment.gd (its own connection to
 	# control_pressed); not unknown, so no warning.
@@ -891,10 +867,6 @@ func _on_hud_control(action: String) -> void:
 			_request_flat_toggle()
 		"layout_mode_cycle":
 			_request_layout_mode_cycle()
-		"separation_plus":
-			_separation.step(SeparationControlScript.STEP, _graph_separation)
-		"separation_minus":
-			_separation.step(-SeparationControlScript.STEP, _graph_separation)
 		"fold_plus":
 			_request_fold(1)
 		"fold_minus":
@@ -964,8 +936,6 @@ func _refresh_controls_status() -> void:
 		hud.set_control_states(_dag_bias_on, _z_compression < Z_COMPRESSION_FULL_3D, _pinned_ids.size(), not is_zero_approx(_plane_bias_k))
 	if hud.has_method("set_layout_mode_label"):
 		hud.set_layout_mode_label(LAYOUT_MODE_LABELS[_layout_mode_idx])
-	if hud.has_method("set_graph_separation"):
-		hud.set_graph_separation(_separation.display_value(_graph_separation))
 	if hud.has_method("set_fold_state"):
 		hud.set_fold_state(_fold_level)
 	# Populate the Pins tab list (cheap; press/ack-only, no per-frame cost).
@@ -1227,7 +1197,6 @@ func _on_physics_completed(result: int, response_code: int, _headers: PackedStri
 	# Discard staged on either outcome: on failure the member vars were never
 	# touched, so the HUD stays in sync with the backend (no divergence).
 	_physics_staged = {}
-	_separation.settled()
 	_refresh_controls_status()
 
 
@@ -1263,22 +1232,6 @@ func _post_physics_reset() -> bool:
 		return false
 	_physics_pending = true
 	return true
-
-
-# Send the Graph Separation value the coalescer releases this frame, if any,
-# through the shared physics PUT (?graph=knowledge, ADR-2041) and its one-in-
-# flight gate. Committed to _graph_separation only on 2xx, like every physics
-# write. `now_ms` is injectable for tests; -1 reads the engine clock.
-func _pump_separation(now_ms: int = -1) -> void:
-	if now_ms < 0:
-		now_ms = Time.get_ticks_msec()
-	var v: float = _separation.take(now_ms, _physics_pending, _graph_separation)
-	if is_nan(v):
-		return
-	if _put_physics_body({"graphSeparationX": v}):
-		_physics_staged = {"_graph_separation": v}
-	else:
-		_separation.requeue(v)
 
 
 # PUT {base}/api/settings/physics?graph=knowledge with the given params. Returns true
@@ -1454,7 +1407,6 @@ func _physics_process(delta: float) -> void:
 	_update_hud_grab()
 	_arbitrate_pointers()
 	_update_hud_pointer()
-	_pump_separation()
 	_update_radial_menu()
 	_update_query_count(delta)
 	_update_teleport(delta)
@@ -2417,13 +2369,11 @@ const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
 const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
 const CONVERSATION_LAYER := "conversation"
-const RIM_PADDING_M: float = 0.3     # rim slots sit this far outside the fitted bounds
-const RIM_SLOTS: int = 8             # slots spread across the front-facing ±60° arc
-const RIM_FALLBACK_RADIUS_M: float = 1.5
-## ADR-2135: while the layout is separated, work agents rest at the triangle's
-## centroid plus their activity drift, spread on a small ring so they do not stack.
+const RIM_SLOTS: int = 8             # rest slots on the drift ring around the centroid
+## ADR-2135: the layout is always separated, so work agents rest at the
+## triangle's centroid plus their activity drift, spread on a small ring so they
+## do not stack.
 const DRIFT_REST_SPREAD_M: float = 0.18
-var _drift_rest_active: bool = false
 
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
@@ -2530,25 +2480,14 @@ func _reconcile_embodiment() -> void:
 	_apply_drift_rest_slots()
 
 
-# ADR-2135: in the separated layout the agents' domain is the centre of the
-# knowledge / ontology / memory triangle. Each work agent's rest (rim) slot
-# becomes the centroid (server origin) plus its activity drift, which leans it
-# towards the graphs it has been working on and decays home when it is idle.
-# The choreography stays the only pose writer (Invariant 8): this only moves
-# the slot it parks at. Back to separation 0, the front-arc rim slots return.
+# ADR-2135: the agents' domain is the centre of the always-separated knowledge /
+# ontology / memory triangle. Each work agent's rest slot is the centroid (server
+# origin) plus its activity drift, which leans it towards the graphs it has been
+# working on and decays home when it is idle. The choreography stays the only
+# pose writer (Invariant 8): this only moves the slot it parks at.
 func _apply_drift_rest_slots() -> void:
 	if _choreo == null or _binary_client == null or not _binary_client.has_method("agent_drift_offset"):
 		return
-	var separated: bool = _graph_separation > 0.0
-	if not separated:
-		if _drift_rest_active:
-			_drift_rest_active = false
-			for id: int in _embodied.keys():
-				var sid: String = _embodied[id]
-				if _agents.has(sid):
-					_choreo.set_rim_slot(sid, _rim_slot(int(_agents[sid].get_meta("rim_index", 0))))
-		return
-	_drift_rest_active = true
 	_binary_client.step_agent_drift()
 	for id: int in _embodied.keys():
 		var sid: String = _embodied[id]
@@ -2562,7 +2501,7 @@ func _apply_drift_rest_slots() -> void:
 func _drift_rest_slot(wire_id: int, k: int) -> Vector3:
 	var offset: Vector3 = Vector3.ZERO
 	if _binary_client != null and _binary_client.has_method("agent_drift_offset"):
-		offset = _binary_client.agent_drift_offset(wire_id, _graph_separation)
+		offset = _binary_client.agent_drift_offset(wire_id)
 	var spread: Vector3 = Vector3.FORWARD.rotated(Vector3.UP, TAU * float(k % RIM_SLOTS) / float(RIM_SLOTS)) * DRIFT_REST_SPREAD_M
 	return _server_to_world(offset) + spread
 
@@ -2591,8 +2530,8 @@ func _spawn_work_agent(wire_id: int, sid: String) -> void:
 	if agent.has_method("set_role"):
 		agent.set_role(AgentRole.infer(name_s, ""))
 	agent.set_meta("rim_index", _rim_slot_cursor)
-	# ADR-2135: separated, a new agent materialises at the triangle's centroid
-	var rim: Vector3 = _drift_rest_slot(wire_id, _rim_slot_cursor) if _graph_separation > 0.0 else _rim_slot(_rim_slot_cursor)
+	# ADR-2135: a new agent materialises at the triangle's centroid
+	var rim: Vector3 = _drift_rest_slot(wire_id, _rim_slot_cursor)
 	_rim_slot_cursor += 1
 	agent.global_position = rim
 	if agent.has_method("set_alpha"):
@@ -2620,36 +2559,6 @@ func _despawn_work_agent(wire_id: int) -> void:
 	_agent_cases.erase(sid)
 	agent.queue_free()
 	_publish_case_count()
-
-
-# Rim slots: points on the front-facing perimeter of the fitted graph bounds
-# (padded), spread across ±60° of the head→centre axis with a little height
-# variation, at least 1 m from the head. Agents materialise here and park here.
-func _rim_slot(i: int) -> Vector3:
-	var centre: Vector3 = _graph_centre_world()
-	var radius: float = RIM_FALLBACK_RADIUS_M
-	if _binary_client != null and _binary_client.has_method("render_aabb") and graph_root != null:
-		var bb: PackedFloat32Array = _binary_client.render_aabb(0.05, 0.95, -1)
-		if bb.size() == 6:
-			var mn: Vector3 = _server_to_world(Vector3(bb[0], bb[1], bb[2]))
-			var mx: Vector3 = _server_to_world(Vector3(bb[3], bb[4], bb[5]))
-			centre = (mn + mx) * 0.5
-			radius = maxf(absf(mx.x - mn.x), absf(mx.z - mn.z)) * 0.5 + RIM_PADDING_M
-	var camera: XRCamera3D = _find_xr_camera()
-	var head: Vector3 = camera.global_position if camera != null else Vector3(0.0, 1.6, 0.0)
-	var front: Vector3 = head - centre
-	front.y = 0.0
-	if front.length_squared() < 0.0001:
-		front = Vector3.BACK
-	front = front.normalized()
-	var slot_i: int = i % RIM_SLOTS
-	var angle: float = deg_to_rad(-60.0 + 120.0 * float(slot_i) / float(RIM_SLOTS - 1))
-	var y_off: float = -0.15 + 0.3 * float((slot_i * 5) % RIM_SLOTS) / float(RIM_SLOTS)
-	var slot: Vector3 = centre + front.rotated(Vector3.UP, angle) * radius + Vector3.UP * y_off
-	var d: Vector3 = slot - head
-	if d.length() < 1.0:
-		slot = head + (d.normalized() if d.length() > 0.001 else -front) * 1.0
-	return slot
 
 
 func _refresh_reduced_motion() -> void:

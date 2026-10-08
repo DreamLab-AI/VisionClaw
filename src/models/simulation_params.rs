@@ -179,11 +179,10 @@ impl SimParams {
             phase: SimulationPhase::Dynamic,
             mode: SimulationMode::Remote,
             settle_mode: SettleMode::default(),
-            // graph_separation_x / axis_compression_z / enable_dual_disc_layout
+            // axis_compression_z / enable_dual_disc_layout
             // are CPU-side projection params with no field in the GPU-aligned
             // SimParams struct, so this reverse conversion cannot recover the live
             // value. Source them from the canonical PhysicsSettings::default().
-            graph_separation_x: PhysicsSettings::default().graph_separation_x,
             axis_compression_z: PhysicsSettings::default().axis_compression_z,
             enable_dual_disc_layout: PhysicsSettings::default().enable_dual_disc_layout,
             layout_mode: LayoutMode::from_gpu_u32(self.layout_mode),

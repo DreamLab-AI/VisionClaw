@@ -151,8 +151,8 @@ visualisation:
         # Measured result: 90% of nodes within ~45u of their cluster centroid.
         # Envelope: soft-cube bounds ON at ~400u contain orphan spray while the
         # compact post-fold clusters (90% within ~45u of centroid) sit well
-        # inside. Default separation 0 (merged) + flatten 0.9 = two co-planar
-        # discs; separation is opt-in up to 400 via the slider / configure-view.
+        # inside. The knowledge graph, ontology and memory cloud are always
+        # apart at a fixed separation (ADR-2135, 2026-10-08); it is not a setting.
         boundsSize: 400.0
         separationRadius: 2.1155233
         damping: 0.9
@@ -164,7 +164,6 @@ visualisation:
         repelK: 120.0
         springK: 12.0
         globalSpeed: 0.4
-        graphSeparationX: 0.0
         axisCompressionZ: 1.0
         boundaryDamping: 0.95
         dt: 0.016
@@ -277,7 +276,6 @@ visualisation:
         repelK: 120.0
         springK: 12.0
         globalSpeed: 0.4
-        graphSeparationX: 0.0
         axisCompressionZ: 1.0
         boundaryDamping: 0.95
         dt: 0.016

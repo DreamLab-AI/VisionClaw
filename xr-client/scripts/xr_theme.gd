@@ -56,8 +56,8 @@ static func create() -> Theme:
 	# separate bold face is a second glyph texture and splits the text batch.
 	t.set_font("normal_font", "RichTextLabel", t.default_font)
 	t.set_font("bold_font", "RichTextLabel", t.default_font)
-	# HSlider (Graph Separation, ADR-2135): a 14 px track with the filled part in
-	# cyan, and a 36 px grabber, so the value reads at arm's length in the HMD.
+	# HSlider (the radial menu's overflow ring): a 14 px track with the filled
+	# part in cyan, and a 36 px grabber, so the value reads at arm's length.
 	var track := box(SURFACE, LINE, 7)
 	track.content_margin_top = 7
 	track.content_margin_bottom = 7

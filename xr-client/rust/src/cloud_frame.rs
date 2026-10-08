@@ -16,10 +16,14 @@
 //!   placement and under reduced motion) so it never jitters
 //!   ([`PlacementGlide`]).
 //!
-//! - with Graph Separation > 0 (ADR-2135) the graph extent is measured on
-//!   positions folded back into each graph's own frame ([`graph_bounds_for`])
-//!   and the cloud moves to the triangle's memory vertex, the shared
-//!   `visionclaw-tri-layout` crate the server projects with.
+//! - the layout is always separated (ADR-2135, operator decision
+//!   2026-10-08): the graph extent is measured on positions folded back into
+//!   each graph's own frame ([`graph_bounds_for`]), the cloud is drawn
+//!   [`MEMORY_BODY_SCALE`] graphs wide, and it sits on the memory vertex's
+//!   ray far enough out to clear both graphs (`TriangleFrame::memory_centre`
+//!   in the shared `visionclaw-tri-layout` crate the server projects with).
+//!   Route tubes, beads and rings are in cloud-local units, so they grow
+//!   with the cloud.
 //!
 //! In the headset the layer lives under `GraphRoot`, whose space is the
 //! server's, so the desktop's world placement applies unchanged.
@@ -28,10 +32,11 @@
 // (176 bytes); that generated code is outside this crate's control.
 #![allow(clippy::result_large_err)]
 
-use visionclaw_tri_layout::{TriangleFrame, Vertex};
+pub use visionclaw_tri_layout::MEMORY_BODY_SCALE;
+use visionclaw_tri_layout::{TriangleFrame, LIVE_GRAPH_RADIUS};
 
-/// `cloudFrame.ts` `DEFAULT_CLOUD_SCALE`: the `cloudScale` that fits the cloud
-/// radius to the graph radius.
+/// `cloudFrame.ts` `DEFAULT_CLOUD_SCALE`: the `cloudScale` that draws the
+/// cloud [`MEMORY_BODY_SCALE`] graph radii wide.
 pub const DEFAULT_CLOUD_SCALE: f32 = 5.0;
 /// Smallest accepted `cloudScale` (`Math.max(0.1, cloudScale)`).
 pub const MIN_CLOUD_SCALE: f32 = 0.1;
@@ -122,42 +127,47 @@ pub fn effective_cloud_scale(cloud_scale: f32) -> f32 {
     }
 }
 
-/// `cloudFrame.ts` `cloudPlacement`. Without a graph (or a cloud) the cloud
-/// keeps the old placement: server origin, scale `cloud_scale`. Either way it
-/// is moved by the memory vertex of the separated-layout triangle
-/// (ADR-2135), which is the origin at separation 0.
+/// `cloudFrame.ts` `cloudPlacement`. At the default `cloud_scale` the
+/// cloud's radius is [`MEMORY_BODY_SCALE`] times the graph's, linear from
+/// there. Without a graph (or a cloud) the scale is `cloud_scale` ×
+/// [`MEMORY_BODY_SCALE`] and the cloud clears a live-sized graph
+/// ([`LIVE_GRAPH_RADIUS`]). Either way it sits at
+/// [`TriangleFrame::memory_centre`]: on the memory vertex's ray, clear of
+/// both graphs.
 pub fn cloud_placement(
     cloud: Option<RobustBounds>,
     graph: Option<RobustBounds>,
     cloud_scale: f32,
-    separation: f32,
 ) -> CloudPlacement {
     let k = effective_cloud_scale(cloud_scale);
     let offset = cloud.map_or([0.0; 3], |c| [-c.centre[0], -c.centre[1], -c.centre[2]]);
-    let m = TriangleFrame::new(separation).vertex(Vertex::Memory);
-    match (cloud, graph) {
-        (Some(c), Some(g)) => CloudPlacement {
-            position: [g.centre[0] + m[0], g.centre[1] + m[1], g.centre[2] + m[2]],
-            scale: (k / DEFAULT_CLOUD_SCALE) * (g.radius / c.radius),
-            offset,
-        },
-        _ => CloudPlacement {
-            position: m,
-            scale: k,
-            offset,
-        },
+    let (scale, base) = match (cloud, graph) {
+        (Some(c), Some(g)) => (
+            MEMORY_BODY_SCALE * (k / DEFAULT_CLOUD_SCALE) * (g.radius / c.radius),
+            g.centre,
+        ),
+        _ => (MEMORY_BODY_SCALE * k, [0.0; 3]),
+    };
+    let m = TriangleFrame::separated().memory_centre(
+        graph.map_or(LIVE_GRAPH_RADIUS, |g| g.radius),
+        cloud.map_or(0.0, |c| scale * c.radius),
+    );
+    CloudPlacement {
+        position: [base[0] + m[0], base[1] + m[1], base[2] + m[2]],
+        scale,
+        offset,
     }
 }
 
 /// `cloudFrame.ts` `graphBoundsFor`: robust bounds of graph positions with
 /// the separated layout folded out (each point mapped back into the frame of
 /// its nearest graph vertex), so the result is one graph's extent rather
-/// than the whole triangle's. Plain [`robust_bounds`] at separation 0.
-pub fn graph_bounds_for<I>(points: I, separation: f32) -> Option<RobustBounds>
+/// than the whole triangle's.
+pub fn graph_bounds_for<I>(points: I) -> Option<RobustBounds>
 where
     I: IntoIterator<Item = Vec3>,
 {
-    let frame = TriangleFrame::new(separation);
+    let frame = TriangleFrame::separated();
     robust_bounds(points.into_iter().map(|p| frame.fold(p)))
 }
 
@@ -185,8 +195,6 @@ pub struct PlacementGlide {
     pub cloud: Option<RobustBounds>,
     /// Last graph bounds read.
     pub graph: Option<RobustBounds>,
-    /// Graph Separation slider (ADR-2135); 0 = merged.
-    pub separation: f32,
     since_read: f32,
     placed: bool,
     position: Vec3,
@@ -198,7 +206,6 @@ impl Default for PlacementGlide {
         PlacementGlide {
             cloud: None,
             graph: None,
-            separation: 0.0,
             since_read: f32::INFINITY,
             placed: false,
             position: [0.0; 3],
@@ -232,26 +239,12 @@ impl PlacementGlide {
         self.graph = graph;
     }
 
-    /// The Graph Separation slider. A change makes the graph read due at
-    /// once (the bounds fold depends on it), as the desktop layer does.
-    pub fn set_separation(&mut self, separation: f32) {
-        let s = if separation.is_finite() {
-            separation.max(0.0)
-        } else {
-            0.0
-        };
-        if s != self.separation {
-            self.separation = s;
-            self.since_read = f32::INFINITY;
-        }
-    }
-
     /// One frame: the smoothed placement. The outer position and scale glide
     /// by `min(1, dt / PLACE_GLIDE_S)` towards the target; the first placement
     /// and reduced motion snap. The inner offset is applied at once (it only
     /// changes with the snapshot).
     pub fn step(&mut self, dt: f32, cloud_scale: f32, reduced_motion: bool) -> CloudPlacement {
-        let target = cloud_placement(self.cloud, self.graph, cloud_scale, self.separation);
+        let target = cloud_placement(self.cloud, self.graph, cloud_scale);
         let f = if !self.placed || reduced_motion {
             1.0
         } else {
@@ -308,16 +301,9 @@ mod godot_api_impl {
             self.glide.read_due(dt)
         }
 
-        /// The Graph Separation slider (ADR-2135); the next graph read is
-        /// due at once when it changes.
-        #[func]
-        fn set_separation(&mut self, separation: f32) {
-            self.glide.set_separation(separation);
-        }
-
         /// Graph bounds as `[cx, cy, cz, radius]` (from
-        /// `BinaryProtocolClient.graph_robust_bounds(separation)`); an empty array means
-        /// no graph, and the cloud falls back to the origin placement.
+        /// `BinaryProtocolClient.graph_robust_bounds()`); an empty array means
+        /// no graph, and the cloud falls back to the live-radius placement.
         #[func]
         fn set_graph_bounds(&mut self, b: PackedFloat32Array) {
             let s = b.as_slice();
@@ -378,6 +364,13 @@ mod godot_api_impl {
         fn default_cloud_scale(&self) -> f32 {
             DEFAULT_CLOUD_SCALE
         }
+
+        /// The memory body's size relative to one graph (10): world-sized
+        /// helpers drawn at the cloud (hover label, reach) scale with it.
+        #[func]
+        fn memory_body_scale(&self) -> f32 {
+            MEMORY_BODY_SCALE
+        }
     }
 }
 
@@ -424,32 +417,30 @@ mod tests {
         );
         assert_eq!(MIN_CLOUD_SCALE, 0.1);
         assert!(
-            frame.contains("scale: (k / DEFAULT_CLOUD_SCALE) * (graph.radius / cloud.radius)"),
-            "placement scale formula"
-        );
-        assert!(
             frame.contains(
-                "position: [graph.centre[0] + m[0], graph.centre[1] + m[1], graph.centre[2] + m[2]]"
+                "const scale = framed ? MEMORY_BODY_SCALE * (k / DEFAULT_CLOUD_SCALE) * (graph.radius / cloud.radius) : MEMORY_BODY_SCALE * k;"
             ),
-            "outer node at the graph centre plus the memory vertex"
-        );
-        assert!(
-            frame.contains("const m = triangleFrame(separation).vertices[Vertex.Memory];"),
-            "memory vertex from the shared triangle"
+            "placement scale formula, with the no-graph fallback"
         );
         assert!(
             frame.contains(
-                "return robustBounds(foldPositions(triangleFrame(separation), positions, count), count);"
+                "const m = memoryCentre(separatedFrame(), graph ? graph.radius : LIVE_GRAPH_RADIUS, cloud ? scale * cloud.radius : 0);"
+            ),
+            "memory centre from the shared triangle"
+        );
+        assert!(
+            frame.contains("const base: Vec3 = framed ? graph.centre : [0, 0, 0];"),
+            "outer node at the graph centre plus the memory centre"
+        );
+        assert!(
+            frame.contains(
+                "return robustBounds(foldPositions(separatedFrame(), positions, count), count);"
             ),
             "graphBoundsFor folds before measuring"
         );
         assert!(
             frame.contains("[-cloud.centre[0], -cloud.centre[1], -cloud.centre[2]]"),
             "inner offset"
-        );
-        assert!(
-            frame.contains("return { position: [m[0], m[1], m[2]], scale: k, offset };"),
-            "no-graph fallback"
         );
         assert!(
             frame.contains("Math.max(0.5, (pointSize * placementScale) / DEFAULT_CLOUD_SCALE)"),
@@ -609,38 +600,81 @@ mod tests {
         })
     }
 
+    fn dist(a: Vec3, b: Vec3) -> f32 {
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    }
+
     #[test]
-    fn default_scale_makes_the_radii_equal_and_scales_linearly() {
+    fn default_scale_draws_the_cloud_ten_graphs_wide_and_scales_linearly() {
         let cloud = rb([10.0, -4.0, 2.0], 60.0);
         let graph = rb([90.0, -3.0, -14.0], 300.0);
-        let p = cloud_placement(cloud, graph, DEFAULT_CLOUD_SCALE, 0.0);
-        assert_eq!(p.position, [90.0, -3.0, -14.0]);
+        let p = cloud_placement(cloud, graph, DEFAULT_CLOUD_SCALE);
+        assert_eq!(MEMORY_BODY_SCALE, 10.0);
+        let m = TriangleFrame::separated().memory_centre(300.0, p.scale * 60.0);
+        let c = graph.unwrap().centre;
+        let want = [c[0] + m[0], c[1] + m[1], c[2] + m[2]];
+        assert!(
+            dist(p.position, want) < 1e-3,
+            "{:?} vs {want:?}",
+            p.position
+        );
         assert_eq!(p.offset, [-10.0, 4.0, -2.0]);
         assert!(
-            (p.scale * 60.0 - 300.0).abs() < 1e-3,
-            "cloud radius × scale = graph radius"
+            (p.scale * 60.0 - 3000.0).abs() < 1e-2,
+            "cloud radius × scale = 10 graph radii"
         );
-        let p2 = cloud_placement(cloud, graph, 10.0, 0.0);
+        let p2 = cloud_placement(cloud, graph, 10.0);
         assert!(
-            (p2.scale - 2.0 * p.scale).abs() < 1e-5,
+            (p2.scale - 2.0 * p.scale).abs() < 1e-4,
             "linear in cloudScale"
         );
     }
 
     #[test]
-    fn without_a_graph_the_old_placement_holds() {
-        let p = cloud_placement(rb([10.0, 0.0, 0.0], 60.0), None, 5.0, 0.0);
-        assert_eq!(
-            (p.position, p.scale, p.offset),
-            ([0.0; 3], 5.0, [-10.0, 0.0, 0.0])
+    fn the_cloud_never_overlaps_either_graph() {
+        let f = TriangleFrame::separated();
+        let cloud = rb([0.0; 3], 100.0);
+        for r in [20.0, 93.0, 152.0, 300.0] {
+            for k in [DEFAULT_CLOUD_SCALE, 2.0 * DEFAULT_CLOUD_SCALE] {
+                let p = cloud_placement(cloud, rb([0.0; 3], r), k);
+                let rc = p.scale * 100.0;
+                for v in [
+                    visionclaw_tri_layout::Vertex::Knowledge,
+                    visionclaw_tri_layout::Vertex::Ontology,
+                ] {
+                    assert!(dist(p.position, f.vertex(v)) >= rc + r, "r {r} k {k}");
+                }
+                assert!(
+                    p.position[2] < f.vertex(visionclaw_tri_layout::Vertex::Memory)[2] + 1e-3,
+                    "behind the graphs"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn without_a_graph_the_scale_rule_holds_and_it_clears_a_live_graph() {
+        let p = cloud_placement(rb([10.0, 0.0, 0.0], 60.0), None, 5.0);
+        assert_eq!((p.scale, p.offset), (50.0, [-10.0, 0.0, 0.0]));
+        let want = TriangleFrame::separated().memory_centre(LIVE_GRAPH_RADIUS, 50.0 * 60.0);
+        assert!(dist(p.position, want) < 1e-3);
+        let q = cloud_placement(None, rb([1.0, 1.0, 1.0], 3.0), 5.0);
+        assert_eq!(q.offset, [0.0; 3]);
+        assert!(
+            dist(
+                q.position,
+                TriangleFrame::separated().vertex(visionclaw_tri_layout::Vertex::Memory)
+            ) < 1e-3,
+            "no cloud yet: the memory vertex"
         );
-        let q = cloud_placement(None, rb([1.0, 1.0, 1.0], 3.0), 5.0, 0.0);
-        assert_eq!((q.position, q.scale, q.offset), ([0.0; 3], 5.0, [0.0; 3]));
         assert_eq!(
-            cloud_placement(None, None, f32::NAN, 0.0).scale,
-            DEFAULT_CLOUD_SCALE
+            cloud_placement(None, None, f32::NAN).scale,
+            MEMORY_BODY_SCALE * DEFAULT_CLOUD_SCALE
         );
-        assert_eq!(cloud_placement(None, None, 0.0, 0.0).scale, MIN_CLOUD_SCALE);
+        assert_eq!(
+            cloud_placement(None, None, 0.0).scale,
+            MEMORY_BODY_SCALE * MIN_CLOUD_SCALE
+        );
     }
 
     #[test]
@@ -668,14 +702,15 @@ mod tests {
         g.set_cloud(rb([0.0; 3], 50.0));
         g.set_graph(rb([100.0, 0.0, 0.0], 250.0));
         let p = g.step(1.0 / 90.0, 5.0, false);
-        assert_eq!(p.position, [100.0, 0.0, 0.0], "snap on the first placement");
-        assert!((p.scale - 5.0).abs() < 1e-5);
+        let at = cloud_placement(rb([0.0; 3], 50.0), rb([100.0, 0.0, 0.0], 250.0), 5.0);
+        assert_eq!(p.position, at.position, "snap on the first placement");
+        assert!((p.scale - 50.0).abs() < 1e-4);
         // physics moves the graph by 40 units: one 90 Hz frame moves 1/72 of it
         g.set_graph(rb([140.0, 0.0, 0.0], 250.0));
         let dt = 1.0 / 90.0;
         let q = g.step(dt, 5.0, false);
         assert!(
-            (q.position[0] - (100.0 + 40.0 * dt / PLACE_GLIDE_S)).abs() < 1e-3,
+            (q.position[0] - (at.position[0] + 40.0 * dt / PLACE_GLIDE_S)).abs() < 1e-3,
             "{q:?}"
         );
         // exponential approach, time constant 0.8 s: within 0.1 after 8 s
@@ -683,7 +718,10 @@ mod tests {
         for _ in 0..720 {
             last = g.step(dt, 5.0, false);
         }
-        assert!((last.position[0] - 140.0).abs() < 0.1, "{last:?}");
+        assert!(
+            (last.position[0] - (at.position[0] + 40.0)).abs() < 0.1,
+            "{last:?}"
+        );
     }
 
     #[test]
@@ -693,16 +731,20 @@ mod tests {
         g.set_graph(rb([0.0; 3], 250.0));
         g.step(0.011, 5.0, false);
         g.set_graph(rb([60.0, 0.0, 0.0], 250.0));
-        assert_eq!(
-            g.step(0.011, 5.0, true).position[0],
-            60.0,
+        let want = cloud_placement(rb([0.0; 3], 50.0), rb([60.0, 0.0, 0.0], 250.0), 5.0).position;
+        assert!(
+            dist(g.step(0.011, 5.0, true).position, want) < 1e-2,
             "reduced motion: no glide"
         );
         g.set_graph(rb([0.0; 3], 250.0));
         g.set_cloud(rb([5.0, 0.0, 0.0], 25.0));
         let p = g.step(0.011, 5.0, false);
-        assert_eq!(p.position[0], 0.0, "new sample snaps");
-        assert!((p.scale - 10.0).abs() < 1e-5);
+        let want = cloud_placement(rb([5.0, 0.0, 0.0], 25.0), rb([0.0; 3], 250.0), 5.0).position;
+        assert!(
+            dist(p.position, want) < 1e-2,
+            "new sample snaps: {p:?} vs {want:?}"
+        );
+        assert!((p.scale - 100.0).abs() < 1e-4);
     }
 
     #[test]
@@ -712,8 +754,8 @@ mod tests {
         g.set_graph(rb([0.0; 3], 250.0));
         let p = g.step(0.011, 2.5, false);
         assert!(
-            (p.scale - 2.5).abs() < 1e-5,
-            "cloudScale 2.5 = half the graph radius"
+            (p.scale - 25.0).abs() < 1e-4,
+            "cloudScale 2.5 = five graph radii"
         );
     }
 
@@ -763,54 +805,46 @@ mod tests {
     }
 
     #[test]
-    fn the_layer_rereads_bounds_when_the_slider_moves() {
+    fn the_layer_rereads_bounds_at_one_hertz_and_places_like_the_desktop() {
         let layer =
             ts_source("client/src/features/visualisation/components/EmbeddingCloudLayer.tsx");
-        assert!(layer
-            .contains("if (ps.sinceRead >= GRAPH_BOUNDS_EVERY || ps.separation !== separation) {"));
-        assert!(layer.contains(
-            "const place = cloudPlacement(cloudBounds, ps.graph, cloudScale, separation);"
-        ));
-        let mut g = PlacementGlide::default();
-        assert!(g.read_due(0.0));
-        assert!(!g.read_due(0.1));
-        g.set_separation(200.0);
-        assert!(g.read_due(0.0), "a new separation re-reads at once");
-        g.set_separation(200.0);
-        assert!(!g.read_due(0.0), "the same value does not");
+        assert!(layer.contains("if (ps.sinceRead >= GRAPH_BOUNDS_EVERY) {"));
+        assert!(layer.contains("const place = cloudPlacement(cloudBounds, ps.graph, cloudScale);"));
+        assert!(!layer.contains("graphSeparationX"), "no separation setting");
     }
 
     #[test]
-    fn separated_placement_sits_on_the_fixture_memory_vertex() {
-        let cloud = rb([-10.0, 20.0, -15.0], 120.0);
-        let graph = rb([90.0, -3.0, -14.0], 300.0);
+    fn placement_matches_the_fixture_memory_centre() {
         let fx = fixture();
-        for case in fx["cases"].as_array().unwrap() {
-            let sep = case["separation"].as_f64().unwrap() as f32;
-            let m = &case["vertices"][2];
-            let p = cloud_placement(cloud, graph, DEFAULT_CLOUD_SCALE, sep);
+        assert_eq!(
+            fx["memory_body_scale"].as_f64().unwrap() as f32,
+            MEMORY_BODY_SCALE
+        );
+        let cloud = RobustBounds {
+            centre: [0.0; 3],
+            radius: 100.0,
+        };
+        for case in fx["memory_centre"].as_array().unwrap() {
+            let g = case["graph_radius"].as_f64().unwrap() as f32;
+            let m = case["memory_radius"].as_f64().unwrap() as f32;
+            // pick cloud_scale so the drawn radius is the fixture's memory radius
+            let k = DEFAULT_CLOUD_SCALE * m / (MEMORY_BODY_SCALE * g);
+            let p = cloud_placement(Some(cloud), rb([0.0; 3], g), k);
+            assert!((p.scale * cloud.radius - m).abs() < 1e-2, "{g}/{m}");
             for k in 0..3 {
-                let want = graph.unwrap().centre[k] + m[k].as_f64().unwrap() as f32;
+                let want = case["centre"][k].as_f64().unwrap() as f32;
                 assert!(
-                    (p.position[k] - want).abs() < 2e-3,
-                    "sep {sep} axis {k}: {} vs {want}",
+                    (p.position[k] - want).abs() < 2e-2,
+                    "{g}/{m} axis {k}: {} vs {want}",
                     p.position[k]
                 );
             }
-            let merged = cloud_placement(cloud, graph, DEFAULT_CLOUD_SCALE, 0.0);
-            assert_eq!(p.scale, merged.scale, "size is kept relative to one graph");
-            assert_eq!(p.offset, merged.offset);
         }
-        assert_eq!(
-            cloud_placement(cloud, graph, DEFAULT_CLOUD_SCALE, 0.0).position,
-            graph.unwrap().centre,
-            "separation 0 is the merged placement"
-        );
     }
 
     #[test]
-    fn graph_bounds_for_measures_one_graph_once_separated() {
-        let frame = TriangleFrame::new(400.0);
+    fn graph_bounds_for_measures_one_graph() {
+        let frame = TriangleFrame::separated();
         let mut seed = 99u64;
         let blob: Vec<Vec3> = (0..200)
             .map(|_| {
@@ -821,12 +855,15 @@ mod tests {
                 ]
             })
             .collect();
-        let placed: Vec<Vec3> = [Vertex::Knowledge, Vertex::Ontology]
-            .iter()
-            .flat_map(|&v| blob.iter().map(move |&p| frame.place(v, p)))
-            .collect();
+        let placed: Vec<Vec3> = [
+            visionclaw_tri_layout::Vertex::Knowledge,
+            visionclaw_tri_layout::Vertex::Ontology,
+        ]
+        .iter()
+        .flat_map(|&v| blob.iter().map(move |&p| frame.place(v, p)))
+        .collect();
         let local = robust_bounds(blob.iter().copied()).unwrap();
-        let folded = graph_bounds_for(placed.iter().copied(), 400.0).unwrap();
+        let folded = graph_bounds_for(placed.iter().copied()).unwrap();
         let raw = robust_bounds(placed.iter().copied()).unwrap();
         assert!(
             (folded.radius - local.radius).abs() < 1.0,
@@ -834,35 +871,6 @@ mod tests {
             folded.radius,
             local.radius
         );
-        assert!(raw.radius > 2.0 * local.radius);
-        assert_eq!(
-            graph_bounds_for(blob.iter().copied(), 0.0),
-            robust_bounds(blob.iter().copied())
-        );
-    }
-
-    #[test]
-    fn the_cloud_glides_to_the_memory_vertex() {
-        let mut g = PlacementGlide::default();
-        g.set_cloud(rb([0.0; 3], 100.0));
-        g.set_graph(rb([0.0; 3], 300.0));
-        let start = g.step(0.016, DEFAULT_CLOUD_SCALE, false).position;
-        assert_eq!(start, [0.0; 3]);
-        g.set_separation(300.0);
-        let target = TriangleFrame::new(300.0).vertex(Vertex::Memory);
-        let mut prev = start;
-        for _ in 0..600 {
-            let p = g.step(1.0 / 60.0, DEFAULT_CLOUD_SCALE, false).position;
-            let d = ((p[0] - prev[0]).powi(2) + (p[2] - prev[2]).powi(2)).sqrt();
-            assert!(d < 20.0, "glides, no jump: {d}");
-            prev = p;
-        }
-        assert!(
-            (prev[2] - target[2]).abs() < 1.0,
-            "arrives: {prev:?} vs {target:?}"
-        );
-        g.set_separation(0.0);
-        let snapped = g.step(1.0 / 60.0, DEFAULT_CLOUD_SCALE, true).position;
-        assert_eq!(snapped, [0.0; 3], "reduced motion snaps");
+        assert!(raw.radius > 1.5 * local.radius);
     }
 }

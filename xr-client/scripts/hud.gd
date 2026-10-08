@@ -69,11 +69,10 @@ const TABBAR_H: int = 56
 const HINTBAR_H: int = 44
 const HINT_META: StringName = &"hint"
 const HINT_DEFAULT: String = "Point at a control for help"
-const SeparationControl := preload("res://scripts/separation_control.gd")
-const SEPARATION_BTN_W: int = 110
-const SEPARATION_VALUE_W: int = 64
-# Memory search lists (Query page): heights hold the page inside 532 px.
-const MEMORY_PRESETS_H: int = 182
+const OnscreenKeyboard := preload("res://scripts/onscreen_keyboard.gd")
+# Memory search lists (Query page): heights hold the page inside 532 px. The
+# presets region gave up 62 px to the "Type a query" row (ADR-2136).
+const MEMORY_PRESETS_H: int = 120
 const MEMORY_HITS_H: int = 236
 const MEMORY_LIST_FONT: int = 22
 const MEMORY_PRESET_CHARS: int = 44
@@ -157,13 +156,15 @@ var _memory_preset_grid: GridContainer = null
 var _memory_hit_list: VBoxContainer = null
 var _memory_preset_buttons: Array = []
 var _memory_hit_buttons: Array = []
-# Graph Separation row (Layout page, ADR-2135).
-var _separation_slider: HSlider = null
-var _separation_value_label: Label = null
-var _separation_minus_button: Button = null
-var _separation_plus_button: Button = null
+# On-screen keyboard for typed memory queries (ADR-2136): replaces the memory
+# lists on the Query page while open.
+var _memory_type_button: Button = null
+var _memory_keyboard_box: VBoxContainer = null
+var _memory_keyboard_entry: Label = null
+var _keyboard_buttons: Dictionary = {}   # key id → Button
+var _keyboard := OnscreenKeyboard.new()
+var _memory_typing: bool = false
 ## True between the slider's drag_started and drag_ended: read-back waits.
-var _separation_dragging: bool = false
 var _color_mode_button: Button = null   # WP1 domain/community toggle (Graph page)
 var _hulls_button: Button = null        # WP4 hull source cycle (Graph page)
 # Wave 2, Feature 3 — type show/hide toggles (Graph tab). Each tracks its own
@@ -582,68 +583,17 @@ func _build_layout_page() -> VBoxContainer:
 
 	# ADR-141 Phase 1 — constrained-layout engine picker. Single cycling button
 	# steps through the backend LayoutMode enum; graph_scene POSTs /api/layout/mode.
-	# ADR-2135 Graph Separation shares its row: the page is 529 px of the 532 px
-	# host, so the control adds no height (Invariant 5).
-	page.add_child(_group_header("Layout Mode  ·  Separate Knowledge · Ontology · Memory"))
+	# The knowledge graph, ontology and memory cloud are always apart (ADR-2135,
+	# 2026-10-08), so there is no separation control on this page.
+	page.add_child(_group_header("Layout Mode"))
 	var row := HBoxContainer.new()
 	row.name = "LayoutModeRow"
 	row.custom_minimum_size = Vector2(0, BTN_H)
 	row.add_theme_constant_override("separation", 8)
 	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
-	_layout_mode_button.size_flags_stretch_ratio = 1.0
 	row.add_child(_layout_mode_button)
-	_build_separation_controls(row)
 	page.add_child(row)
 	return page
-
-
-# Graph Separation (`graphSeparationX`, ADR-2135): − / slider / value / +. The
-# −/+ buttons fire on press like every HUD control; the slider is the wand-drag
-# path (press on the track grabs it, the trigger release ends the drag).
-# GraphScene throttles the writes (separation_control.gd); the HUD only reports
-# intent and shows the value GraphScene pushes back (set_graph_separation).
-func _build_separation_controls(row: HBoxContainer) -> void:
-	_separation_minus_button = _action_btn("Sep −", "separation_minus", "Bring the knowledge graph, ontology and memory cloud 5 units closer")
-	_separation_minus_button.custom_minimum_size = Vector2(SEPARATION_BTN_W, BTN_H)
-	_separation_minus_button.size_flags_horizontal = Control.SIZE_FILL
-	row.add_child(_separation_minus_button)
-
-	_separation_slider = HSlider.new()
-	_separation_slider.name = "SeparationSlider"
-	_separation_slider.min_value = SeparationControl.MIN
-	_separation_slider.max_value = SeparationControl.MAX
-	_separation_slider.step = SeparationControl.STEP
-	_separation_slider.custom_minimum_size = Vector2(0, BTN_H)
-	_separation_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_separation_slider.size_flags_stretch_ratio = 1.6
-	_separation_slider.size_flags_vertical = Control.SIZE_FILL
-	_separation_slider.focus_mode = Control.FOCUS_NONE
-	_separation_slider.set_meta(HINT_META, "Drag to pull the knowledge graph, ontology and memory cloud apart (0 = merged, ~250 = clearly separated)")
-	_separation_slider.drag_started.connect(func() -> void: _separation_dragging = true)
-	_separation_slider.value_changed.connect(_on_separation_slider_changed)
-	_separation_slider.drag_ended.connect(func(_changed: bool) -> void:
-		_separation_dragging = false
-		emit_signal("control_pressed", "separation_release:%d" % int(_separation_slider.value)))
-	row.add_child(_separation_slider)
-
-	_separation_value_label = _mk_label("0", "Graph separation in server units (desktop: Motion › Layout Forces)")
-	_separation_value_label.custom_minimum_size = Vector2(SEPARATION_VALUE_W, BTN_H)
-	_separation_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_separation_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(_separation_value_label)
-
-	_separation_plus_button = _action_btn("Sep +", "separation_plus", "Push the knowledge graph, ontology and memory cloud 5 units apart")
-	_separation_plus_button.custom_minimum_size = Vector2(SEPARATION_BTN_W, BTN_H)
-	_separation_plus_button.size_flags_horizontal = Control.SIZE_FILL
-	row.add_child(_separation_plus_button)
-
-
-func _on_separation_slider_changed(v: float) -> void:
-	_separation_value_label.text = "%d" % int(v)
-	# A drag reports every value (GraphScene throttles); any other change (a
-	# wheel step) is a finished intent.
-	var verb: String = "separation_drag" if _separation_dragging else "separation_release"
-	emit_signal("control_pressed", "%s:%d" % [verb, int(v)])
 
 
 func _build_query_page() -> VBoxContainer:
@@ -673,6 +623,8 @@ func _build_query_page() -> VBoxContainer:
 	page.add_child(_query_graph_box)
 	_query_memory_box = _build_memory_search_box()
 	page.add_child(_query_memory_box)
+	_memory_keyboard_box = _build_memory_keyboard()
+	page.add_child(_memory_keyboard_box)
 	_show_query_mode("graph")
 	return page
 
@@ -729,6 +681,14 @@ func _build_memory_search_box() -> VBoxContainer:
 	_memory_search_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_memory_search_status.clip_text = true
 	box.add_child(_memory_search_status)
+	_memory_type_button = _press_fire(Button.new()) as Button
+	_memory_type_button.name = "MemoryTypeButton"
+	_memory_type_button.text = "Type a query  ⌨"
+	_memory_type_button.custom_minimum_size = Vector2(0, BTN_H)
+	_memory_type_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_memory_type_button.set_meta(HINT_META, "Open the keyboard and type your own memory question")
+	_memory_type_button.pressed.connect(open_memory_keyboard)
+	box.add_child(_memory_type_button)
 	var presets := _scroll_region(MEMORY_PRESETS_H)
 	presets.name = "MemoryPresets"
 	_memory_preset_grid = _grid(2)
@@ -746,13 +706,103 @@ func _build_memory_search_box() -> VBoxContainer:
 	return box
 
 
+# The on-screen keyboard (ADR-2136): an entry line, four rows of ten
+# character keys (digits, QWERTY, the punctuation a memory question needs) and
+# Cancel / Space / ⌫ / Search. Every key fires on press (Invariant 4) and
+# carries a hint. It replaces the memory lists while open, so the page keeps
+# its height inside the 532 px host (Invariant 5).
+func _build_memory_keyboard() -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.name = "MemoryKeyboard"
+	box.add_theme_constant_override("separation", 6)
+	_memory_keyboard_entry = _mk_label("", "The memory question you are typing")
+	_memory_keyboard_entry.name = "MemoryKeyboardEntry"
+	_memory_keyboard_entry.custom_minimum_size = Vector2(0, BTN_H)
+	_memory_keyboard_entry.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_memory_keyboard_entry.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_memory_keyboard_entry.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_memory_keyboard_entry.clip_text = true
+	box.add_child(_memory_keyboard_entry)
+	var keys := _grid(10)
+	keys.name = "MemoryKeyboardKeys"
+	keys.add_theme_constant_override("h_separation", 6)
+	keys.add_theme_constant_override("v_separation", 6)
+	for c: String in OnscreenKeyboard.character_keys():
+		keys.add_child(_keyboard_key(c, c.to_upper() if c.length() == 1 else c, "Type “%s”" % c, 1.0))
+	box.add_child(keys)
+	var bottom := HBoxContainer.new()
+	bottom.name = "MemoryKeyboardControls"
+	bottom.add_theme_constant_override("separation", 6)
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.CANCEL, "Cancel", "Close the keyboard without searching", 1.2))
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.SPACE, "Space", "Type a space", 3.0))
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.BACKSPACE, "⌫", "Delete the last character", 1.0))
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.ENTER, "Search ↵", "Search memory for what you typed", 1.6))
+	box.add_child(bottom)
+	_refresh_keyboard_entry()
+	return box
+
+
+func _keyboard_key(key: String, label: String, hint: String, stretch: float) -> Button:
+	var b := _press_fire(Button.new()) as Button
+	b.name = "Key_%s" % key
+	b.text = label
+	b.custom_minimum_size = Vector2(0, BTN_H)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.size_flags_stretch_ratio = stretch
+	b.focus_mode = Control.FOCUS_NONE
+	b.set_meta(HINT_META, hint)
+	b.pressed.connect(_on_keyboard_key.bind(key))
+	_keyboard_buttons[key] = b
+	return b
+
+
+## Open the keyboard over the memory lists (the "Type a query" button).
+func open_memory_keyboard() -> void:
+	_keyboard.clear()
+	_memory_typing = true
+	_refresh_keyboard_entry()
+	_show_query_mode("memory")
+
+
+func _close_memory_keyboard() -> void:
+	_memory_typing = false
+	_show_query_mode(_query_mode)
+
+
+## One key press. Enter with text emits control_pressed "memory_typed:<text>"
+## (GraphScene hands it to memory_search.gd) and closes the keyboard.
+func _on_keyboard_key(key: String) -> void:
+	var r: Dictionary = _keyboard.press(key)
+	match str(r["event"]):
+		"submit":
+			_close_memory_keyboard()
+			emit_signal("control_pressed", "memory_typed:%s" % str(r["text"]))
+		"cancel":
+			_close_memory_keyboard()
+		_:
+			_refresh_keyboard_entry()
+
+
+func _refresh_keyboard_entry() -> void:
+	if _memory_keyboard_entry == null:
+		return
+	var t: String = _keyboard.text
+	_memory_keyboard_entry.text = ("%s▏" % t) if not t.is_empty() else "▏ type a memory question…"
+	_memory_keyboard_entry.add_theme_color_override("font_color", XRTheme.TEXT if not t.is_empty() else IDLE)
+
+
 ## "graph" or "memory": which half of the Query page shows. View state only.
+## In memory mode the keyboard, while open, takes the lists' place.
 func _show_query_mode(mode: String) -> void:
 	_query_mode = mode
+	if mode != "memory":
+		_memory_typing = false
 	if _query_graph_box != null:
 		_query_graph_box.visible = mode == "graph"
 	if _query_memory_box != null:
-		_query_memory_box.visible = mode == "memory"
+		_query_memory_box.visible = mode == "memory" and not _memory_typing
+	if _memory_keyboard_box != null:
+		_memory_keyboard_box.visible = mode == "memory" and _memory_typing
 	for pair: Array in [[_query_mode_graph_button, "graph"], [_query_mode_memory_button, "memory"]]:
 		if pair[0] != null:
 			XRTheme.apply_tab(pair[0], mode == pair[1])
@@ -1411,16 +1461,6 @@ func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -
 func set_layout_mode_label(mode_label: String) -> void:
 	if _layout_mode_button != null:
 		_layout_mode_button.text = "Layout: %s" % mode_label
-
-
-## Show the Graph Separation GraphScene holds (its pending intent, else the
-## server's value read back after a peer's change). Ignored mid-drag so the
-## operator's hand is never overruled; never emits, so read-back cannot echo.
-func set_graph_separation(value: float) -> void:
-	if _separation_slider == null or _separation_dragging:
-		return
-	_separation_slider.set_value_no_signal(value)
-	_separation_value_label.text = "%d" % int(_separation_slider.value)
 
 
 ## Reflect the fold-ladder level (Wave 3) on the Fold +/- button faces. `level`
