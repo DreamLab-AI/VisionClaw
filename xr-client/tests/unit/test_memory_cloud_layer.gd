@@ -37,6 +37,27 @@ func _points(l: Node3D) -> MultiMesh:
 	return (l.get_node("CloudRoot/CloudCore/Points") as MultiMeshInstance3D).multimesh
 
 
+# 2026-10-08: the server samples 30 000, the headset draws at most the frame
+# budget's cap (8 000). The Memory button states drawn of sampled when they
+# differ, never the sample size alone.
+func test_memory_button_states_drawn_of_sampled() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	_load(l, "s1", 9)
+	l.flush()
+	assert_eq(l.status_label(), "Memory: 9", "all drawn: one number")
+	l._cloud.set_sprite_cap(4)
+	l.flush()
+	assert_eq(int(l.drawn_count()), 4)
+	assert_eq(l.status_label(), "Memory: 4 of 9", "drawn of sampled")
+	# a frame-budget cap change re-announces the label to the HUD
+	watch_signals(l)
+	l.apply_frame_caps({"cloud_sprites": 6})
+	assert_signal_emitted(l, "status_changed")
+	assert_eq(l.status_label(), "Memory: 6 of 9")
+	l.queue_free()
+
+
 func test_snapshot_loads_into_one_stride_16_multimesh() -> void:
 	var l: Node3D = await _make()
 	l._enabled = true

@@ -41,16 +41,18 @@ pub const DESKTOP_DIM_OFF_ROUTE: f32 = 0.75;
 /// `rotationSpeed` default, radians per rendered frame at the desktop's 60 Hz.
 pub const DESKTOP_ROTATION_PER_FRAME: f32 = 0.0005;
 
-/// Hard ceiling on a snapshot the headset will accept (the server clamps its
-/// sample to 20 000; anything far past that is a malformed or hostile payload).
+/// Hard ceiling on a snapshot the headset will accept: the server's clamp
+/// (`MAX_SAMPLE_TOTAL` 50 000; its default is 30 000 since 2026-10-08).
+/// Anything past it is a malformed or hostile payload.
 pub const MAX_SNAPSHOT_ROWS: usize = 50_000;
 /// Triangles per sprite: one equilateral triangle circumscribing the disc
 /// (`SPRITE_TRIANGLE_UV`), half a quad's cost for ~30 % more covered pixels,
 /// all but the disc discarded.
 pub const TRIANGLES_PER_SPRITE: usize = 1;
 /// Most sprites the cloud draws (its demand in `frame_budget`, which may cap
-/// it lower). The server's default sample (6000) draws in full; larger samples
-/// are level-of-detail subsampled.
+/// it lower). The server's default sample (30 000 since 2026-10-08) is
+/// level-of-detail subsampled to this, stratified by namespace; route and hit
+/// rows are pinned and always draw. The HUD states "drawn of sampled".
 pub const DEFAULT_SPRITE_CAP: usize = 8_000;
 /// UVs of the sprite triangle; the mesh position is `uv - 0.5` (unit-diameter
 /// disc). Its incircle is the shader's disc (radius 0.5 about (0.5, 0.5)), so
@@ -1548,6 +1550,27 @@ mod tests {
             crate::memory_route::MAX_PATH + crate::memory_route::MAX_SIDECAR
                 < crate::frame_budget::CLOUD_MIN_SPRITES
         );
+    }
+
+    #[test]
+    fn the_thirty_thousand_default_draws_the_cap_with_pins_always_drawn() {
+        // MEMORY_CLOUD_SAMPLE default since 2026-10-08: the headset draws at
+        // most DEFAULT_SPRITE_CAP of it, route and hit rows always among them
+        let mut st = CloudState::new();
+        st.load(snap_json(30_000).as_bytes()).unwrap();
+        assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP);
+        assert_eq!(st.triangle_estimate(), 8_000);
+        let pins = [3u32, 29_999, 14_001];
+        st.set_keep(&pins);
+        assert_eq!(st.drawn.len(), DEFAULT_SPRITE_CAP, "pins replace, not add");
+        for p in pins {
+            assert!(st.drawn.contains(&p), "{p} drawn");
+        }
+        // the frame budget's floor still keeps the pins
+        st.set_cap(crate::frame_budget::CLOUD_MIN_SPRITES);
+        for p in pins {
+            assert!(st.drawn.contains(&p), "{p} drawn at the floor");
+        }
     }
 
     #[test]

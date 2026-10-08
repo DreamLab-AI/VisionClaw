@@ -194,7 +194,20 @@ describe('MemoryExplorerPanel — explore', () => {
   it('shows build progress while the local index builds', () => {
     useMemoryCloudStore.setState({ status: 'building', buildProgress: 0.42, snapshot });
     render(<MemoryExplorerPanel />);
-    expect(screen.getByText('Building local index 42%')).toBeInTheDocument();
+    // names what is being built, so a 30 000-point build reads as one
+    expect(screen.getByText('Building local index of 1,234 points 42%')).toBeInTheDocument();
+  });
+
+  it('names the sample size while the vectors load', () => {
+    useMemoryCloudStore.setState({ status: 'loading', loadingCount: 30_000, loadingBytes: 30_000 * 384 * 4, snapshot: null });
+    render(<MemoryExplorerPanel />);
+    expect(screen.getByText('Loading the 30,000-point sample (46 MB of vectors)…')).toBeInTheDocument();
+  });
+
+  it('before the snapshot header arrives the loading line claims no size', () => {
+    useMemoryCloudStore.setState({ status: 'loading', loadingCount: null, loadingBytes: null, snapshot: null });
+    render(<MemoryExplorerPanel />);
+    expect(screen.getByText('Loading sample…')).toBeInTheDocument();
   });
 
   it('shows a quiet power-user note on 401/403, never an alert', () => {

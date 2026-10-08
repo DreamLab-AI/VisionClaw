@@ -4,12 +4,14 @@
 //! process environment. Values that fail to parse fall back to the default;
 //! numeric values outside their permitted range are clamped.
 
-/// Default total sample size (`MEMORY_CLOUD_SAMPLE`).
-pub const DEFAULT_SAMPLE_TOTAL: usize = 6000;
+/// Default total sample size (`MEMORY_CLOUD_SAMPLE`; operator decision
+/// 2026-10-08, it was 6000).
+pub const DEFAULT_SAMPLE_TOTAL: usize = 30_000;
 /// Smallest permitted sample size.
 pub const MIN_SAMPLE_TOTAL: usize = 500;
-/// Largest permitted sample size.
-pub const MAX_SAMPLE_TOTAL: usize = 20_000;
+/// Largest permitted sample size (raised from 20 000 with the 30 000 default,
+/// leaving headroom).
+pub const MAX_SAMPLE_TOTAL: usize = 50_000;
 /// Default snapshot refresh interval in seconds (`MEMORY_CLOUD_REFRESH_SECS`).
 pub const DEFAULT_REFRESH_SECS: u64 = 900;
 /// Shortest permitted refresh interval in seconds.
@@ -241,7 +243,7 @@ mod tests {
     #[test]
     fn defaults_apply_when_unset() {
         let c = cfg(&[]);
-        assert_eq!(c.sample_total, 6000);
+        assert_eq!(c.sample_total, 30_000, "operator decision 2026-10-08");
         assert_eq!(c.refresh_secs, 900);
         assert_eq!(c.excluded.as_written(), vec!["personal-context"]);
         assert_eq!(c.embed_url, "http://xinference:9997/v1");
@@ -252,10 +254,19 @@ mod tests {
     fn numeric_values_are_clamped_and_garbage_defaults() {
         assert_eq!(
             cfg(&[("MEMORY_CLOUD_SAMPLE", "999999")]).sample_total,
-            20_000
+            50_000
         );
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_SAMPLE", "30000")]).sample_total,
+            30_000,
+            "the default is inside the clamp"
+        );
+        assert_eq!(cfg(&[("MEMORY_CLOUD_SAMPLE", "6000")]).sample_total, 6000);
         assert_eq!(cfg(&[("MEMORY_CLOUD_SAMPLE", "12")]).sample_total, 500);
-        assert_eq!(cfg(&[("MEMORY_CLOUD_SAMPLE", "lots")]).sample_total, 6000);
+        assert_eq!(
+            cfg(&[("MEMORY_CLOUD_SAMPLE", "lots")]).sample_total,
+            DEFAULT_SAMPLE_TOTAL
+        );
         assert_eq!(cfg(&[("MEMORY_CLOUD_SAMPLE", " 7000 ")]).sample_total, 7000);
         assert_eq!(cfg(&[("MEMORY_CLOUD_REFRESH_SECS", "5")]).refresh_secs, 60);
         assert_eq!(

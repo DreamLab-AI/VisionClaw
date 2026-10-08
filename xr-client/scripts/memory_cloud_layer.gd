@@ -284,11 +284,19 @@ func state_detail() -> String:
 	return _detail
 
 
-## Short HUD text for the Memory button.
+## Short HUD text for the Memory button: the sample size, or "drawn of
+## sampled" when the frame budget draws fewer (a 30 000 sample draws ≤ 8 000).
 func status_label() -> String:
 	match _state:
 		"ready":
-			return "Memory: %d" % int(_cloud.count()) if _enabled else "Memory: Off"
+			if not _enabled:
+				return "Memory: Off"
+			# drawn of sampled when the frame budget draws fewer than the sample
+			var sampled := int(_cloud.count())
+			var drawn := int(_cloud.drawn_count())
+			if drawn > 0 and drawn < sampled:
+				return "Memory: %d of %d" % [drawn, sampled]
+			return "Memory: %d" % sampled
 		"loading":
 			return "Memory: Loading"
 		"forbidden":
@@ -881,8 +889,12 @@ func apply_frame_caps(caps: Dictionary) -> void:
 	var sprites: int = int(caps.get("cloud_sprites", 0))
 	if sprites > 0 and sprites != _sprite_cap:
 		_sprite_cap = sprites
+		var before := status_label()
 		_cloud.set_sprite_cap(sprites)
 		_buffer_dirty = true
+		# the Memory button states drawn of sampled: refresh it when that changes
+		if status_label() != before:
+			status_changed.emit(_state, _detail)
 	if _route != null and caps.has("route_ring_cap"):
 		if bool(_route.set_ring_cap(int(caps["route_ring_cap"]), _cloud.positions())) and route_active():
 			_rebuild_route_mesh()

@@ -96,6 +96,24 @@ describe('memoryCloudStore', () => {
     expect(env.engines[0].storageKey).toBe('vc-memory-learning:s1');
   });
 
+  it('records the sample size from the snapshot header before the vectors arrive', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchVectors = env.deps.fetchVectors;
+    env.deps.fetchVectors = vi.fn(async (snap, opts) => {
+      await gate;
+      return fetchVectors(snap, opts);
+    });
+    const store = createMemoryCloudStore(env.deps);
+    const p = store.getState().loadSnapshot();
+    await vi.waitFor(() => expect(store.getState().loadingCount).toBe(3));
+    expect(store.getState().status).toBe('loading');
+    expect(store.getState().loadingBytes).toBe(3 * DIM * 4);
+    release();
+    await p;
+    expect(store.getState().status).toBe('ready');
+  });
+
   it('records build progress from the engine', async () => {
     const store = createMemoryCloudStore(env.deps);
     await store.getState().loadSnapshot();

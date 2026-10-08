@@ -157,6 +157,10 @@ export interface MemoryCloudState {
   trajectory: TrajectoryModule | null;
   /** 0..1 */
   buildProgress: number;
+  /** points in the snapshot being loaded, from its header (null until it arrives) */
+  loadingCount: number | null;
+  /** bytes of the vectors blob being fetched (count × dim × 4), or null */
+  loadingBytes: number | null;
   health: MemoryCloudHealth | null;
   healthError: string | null;
   query: QueryState;
@@ -351,6 +355,8 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       set({ status: 'loading', error: null, retryAt: null });
       try {
         const snap = await deps.fetchSnapshot({ signal: ctl.signal });
+        if (ctl.signal.aborted) return;
+        set({ loadingCount: snap.count, loadingBytes: snap.count * snap.dim * 4 });
         let bundle: VectorBundle;
         if (get().snapshot?.snapshotId === snap.snapshotId && get().vectors && get().engine) {
           bundle = { snapshot: snap, vectors: get().vectors! };
@@ -405,6 +411,8 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       engine: null,
       trajectory: null,
       buildProgress: 0,
+      loadingCount: null,
+      loadingBytes: null,
       health: null,
       healthError: null,
       query: emptyQuery(),
