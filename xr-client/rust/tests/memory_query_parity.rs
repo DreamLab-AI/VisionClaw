@@ -28,6 +28,13 @@ fn headset_reads_every_hit_the_server_sends() {
     }
     assert_eq!(a.snapshot_id, v["snapshotId"].as_str().unwrap());
     assert_eq!(a.method, Method::Hnsw);
+    let pos: Vec<f32> = v["query"]["position"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_f64().unwrap() as f32)
+        .collect();
+    assert_eq!(a.position.map(|p| p.to_vec()), Some(pos), "the query point");
 }
 
 #[test]
@@ -36,6 +43,7 @@ fn the_fixture_draws_a_sidecar_top_k_route() {
     let f = sidecar_route(&a, 1.0, 1);
     assert_eq!(f.source, RouteSource::SidecarTopK);
     assert_eq!(f.path.len(), 4);
+    assert!(f.origin.is_some(), "starts at the query point");
     let mut gate = RouteGate::default();
     assert!(matches!(
         gate.offer(f, Some("snap-7f3a"), 64),

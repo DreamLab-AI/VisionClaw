@@ -761,13 +761,12 @@ func _populate_memory_layers(rows: int) -> void:
 	# Frame the cloud on the benchmark graph as GraphScene does (desktop
 	# cloudFrame.ts): the graph is drawn unscaled at the scene root, so its
 	# robust bounds are converted into the holder's space before the layer
-	# places the cloud at the graph's centre and radius (the 1 Hz read + glide
-	# run every frame of the measurement).
+	# places the cloud, ten graphs wide, behind the graph (ADR-2135; the 1 Hz
+	# read + glide run every frame of the measurement).
 	if _client != null and _client.has_method("graph_robust_bounds"):
 		var client: RefCounted = _client
 		_memory.graph_bounds_source = func() -> PackedFloat32Array:
-			# the benchmark measures the merged layout (separation 0)
-			var b: PackedFloat32Array = client.graph_robust_bounds(0.0)
+			var b: PackedFloat32Array = client.graph_robust_bounds()
 			if b.size() != 4:
 				return PackedFloat32Array()
 			var c: Vector3 = holder.global_transform.affine_inverse() * Vector3(b[0], b[1], b[2])
@@ -779,7 +778,8 @@ func _populate_memory_layers(rows: int) -> void:
 		return
 	_memory.set_enabled(true)
 	if memory_route_source == "query":
-		var verdict: String = _memory.apply_query_response(synthetic_query_response(sid, rows, memory_route_hops + 1))
+		# the query point plus `hops` sampled hits: the same hop count as a relay
+		var verdict: String = _memory.apply_query_response(synthetic_query_response(sid, rows, memory_route_hops))
 		if verdict != "apply":
 			push_warning("benchmark: headset query route not applied (%s)" % verdict)
 		_memory.flush()
@@ -795,13 +795,14 @@ func _populate_memory_layers(rows: int) -> void:
 
 
 ## A `POST /api/memory-cloud/query` response shaped like the server's
-## (wire.rs MemoryCloudQueryResponse) with `hits` sampled hits on spread rows.
+## (wire.rs MemoryCloudQueryResponse) with `hits` sampled hits on spread rows
+## and a query point (ADR-2136), so the route starts there.
 static func synthetic_query_response(sid: String, rows: int, hits: int) -> String:
 	var res := PackedStringArray()
 	for k in hits:
 		var row: int = (k * 7919) % rows
 		res.append('{"id":"q%d","key":"bench-hit-%d","namespace":"ns-%02d","sourceType":"agent","score":%.3f,"snippet":"","sampleIndex":%d}' % [k, k, row % MEMORY_NAMESPACES, 0.9 - 0.005 * k, row])
-	return '{"snapshotId":"%s","embedModel":"bench","query":{"text":"benchmark query","vector":[]},"sidecar":{"results":[%s],"tookMs":1.0,"method":"hnsw"}}' % [sid, ",".join(res)]
+	return '{"snapshotId":"%s","embedModel":"bench","query":{"text":"benchmark query","vector":[],"position":[0.0,0.0,0.0]},"sidecar":{"results":[%s],"tookMs":1.0,"method":"hnsw"}}' % [sid, ",".join(res)]
 
 
 ## Deterministic snapshot shaped like the server's: rows clustered per

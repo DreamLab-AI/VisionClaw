@@ -8,15 +8,19 @@
 //! response does carry is the sidecar's own ranked hits, each with the
 //! snapshot row it occupies (`sampleIndex`) when it was sampled.
 //!
-//! So a headset query is drawn as a **sidecar top-k** route: through the
-//! sampled hits in rank order, the top hit last (where the desktop's answer
-//! ring sits), with every sampled hit marked in gold. The HUD names it as
-//! such ([`crate::memory_route::RouteSource::SidecarTopK`]); it is never
-//! presented as a search traversal.
+//! Since ADR-2136 the response also carries the query's own point in the
+//! snapshot's cloud (`query.position`, the snapshot's PCA basis and scale
+//! applied server-side). A headset query is drawn as a **query point →
+//! sidecar top-k** route: from that point through the sampled hits in rank
+//! order, the answer ring on the top hit, every sampled hit marked in gold.
+//! Without a position (an older server) it falls back to the rank-order line
+//! through the hits alone, the top hit last. The HUD names it as such
+//! ([`crate::memory_route::RouteSource::SidecarTopK`]); it is never presented
+//! as a search traversal.
 //!
-//! Text entry is hard in VR, so the Query page offers presets
-//! ([`presets`]): the last few queries run on this headset, a curated set,
-//! and one per namespace in the loaded snapshot.
+//! Queries are typed on the HUD's on-screen keyboard, and the Query page
+//! keeps presets ([`presets`]) as shortcuts: the last few queries run on this
+//! headset, a curated set, and one per namespace in the loaded snapshot.
 //!
 //! Wire types: `crates/visionclaw-memory-cloud/src/wire.rs`
 //! (`MemoryCloudQueryRequest`, `MemoryCloudQueryResponse`). Both sides read
@@ -102,6 +106,9 @@ struct WireHit {
 #[derive(Deserialize)]
 struct WireEcho {
     text: String,
+    /// `QueryEcho::position` (ADR-2136); absent from older servers.
+    #[serde(default)]
+    position: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +152,9 @@ pub struct QueryAnswer {
     pub method: Method,
     pub took_ms: f64,
     pub hits: Vec<QueryHit>,
+    /// The query's point in the snapshot's cloud coordinates, when the server
+    /// sent a finite one.
+    pub position: Option<[f32; 3]>,
 }
 
 impl QueryAnswer {
@@ -170,6 +180,17 @@ pub enum QueryError {
     EmptyText,
     #[error("query text has {0} characters (max {MAX_QUERY_CHARS})")]
     TooLong(usize),
+}
+
+/// A finite `[x, y, z]`; anything else is no position (decoration, never an
+/// invalid response).
+fn as_point(v: &serde_json::Value) -> Option<[f32; 3]> {
+    let a = v.as_array().filter(|a| a.len() == 3)?;
+    let mut p = [0.0f32; 3];
+    for (o, x) in p.iter_mut().zip(a) {
+        *o = x.as_f64().map(|f| f as f32).filter(|f| f.is_finite())?;
+    }
+    Some(p)
 }
 
 fn as_row(v: &serde_json::Value) -> Option<u32> {
@@ -204,6 +225,7 @@ pub fn parse_query_response(json: &str) -> Result<QueryAnswer, QueryError> {
     Ok(QueryAnswer {
         snapshot_id: w.snapshot_id,
         embed_model: w.embed_model,
+        position: w.query.position.as_ref().and_then(as_point),
         text: w.query.text,
         method: w.sidecar.method,
         took_ms: if w.sidecar.took_ms.is_finite() {
@@ -215,21 +237,27 @@ pub fn parse_query_response(json: &str) -> Result<QueryAnswer, QueryError> {
     })
 }
 
-/// The route frame a headset query draws: the sampled hits in rank order
-/// reversed (lowest-ranked sampled hit first, the top hit last, where the
-/// answer ring goes), every sampled hit marked. Fewer than two sampled hits
-/// give an empty path, which clears any previous route.
+/// The route frame a headset query draws. With the query's point: from it
+/// through the sampled hits in rank order (top hit first, where the answer
+/// ring goes); one sampled hit is enough. Without it: the sampled hits in rank
+/// order reversed (the top hit last), which needs two. Every sampled hit is
+/// marked. Too few points give an empty path, which clears any previous route.
 pub fn sidecar_route(a: &QueryAnswer, sent_at: f64, seq: u64) -> RouteFrame {
     let rows = a.sampled_rows();
-    let mut path: Vec<u32> = if rows.len() >= 2 {
-        rows.iter().rev().copied().collect()
-    } else {
-        Vec::new()
+    let mut path: Vec<u32> = match a.position {
+        Some(_) if !rows.is_empty() => rows.clone(),
+        None if rows.len() >= 2 => rows.iter().rev().copied().collect(),
+        _ => Vec::new(),
     };
     if path.len() > MAX_PATH {
         // keep the answer end
-        path.drain(..path.len() - MAX_PATH);
+        if a.position.is_some() {
+            path.truncate(MAX_PATH);
+        } else {
+            path.drain(..path.len() - MAX_PATH);
+        }
     }
+    let origin = a.position.filter(|_| !path.is_empty());
     let sidecar: Vec<u32> = rows.iter().take(MAX_SIDECAR).copied().collect();
     let total = u32::try_from(a.hits.len()).ok();
     let stats = SidecarStats::from_wire(total, Some(sidecar.len() as u32), sidecar.len());
@@ -246,6 +274,7 @@ pub fn sidecar_route(a: &QueryAnswer, sent_at: f64, seq: u64) -> RouteFrame {
             .collect(),
         stats,
         source: RouteSource::SidecarTopK,
+        origin,
     }
 }
 
@@ -347,10 +376,12 @@ pub fn push_recent(recent: &mut Vec<Preset>, text: &str, namespace: Option<&str>
 /// hits have a point in the cloud, and what the drawn route is.
 pub fn caption(a: &QueryAnswer) -> String {
     let sampled = a.hits.iter().filter(|h| h.row.is_some()).count();
-    let route = if a.sampled_rows().len() >= 2 {
-        "route: sidecar top-k in rank order (not a search path)"
-    } else {
-        "no route: fewer than 2 hits in the sample"
+    let points = a.sampled_rows().len();
+    let route = match a.position {
+        Some(_) if points >= 1 => "route: query point → sidecar top-k (not a search path)",
+        Some(_) => "no route: no hit in the sample",
+        None if points >= 2 => "route: sidecar top-k in rank order (not a search path)",
+        None => "no route: fewer than 2 hits in the sample",
     };
     let n = a.hits.len();
     format!(
@@ -559,6 +590,7 @@ mod tests {
                 .enumerate()
                 .map(|(i, r)| hit(i as u32 + 1, *r))
                 .collect(),
+            position: None,
         }
     }
 
@@ -579,6 +611,39 @@ mod tests {
         assert_eq!(a.hits[0].row, Some(12));
         assert_eq!(a.hits[1].row, None, "unsampled hit");
         assert_eq!(a.sampled_rows(), vec![12, 4, 27, 31]);
+        assert_eq!(a.position, Some([-18.5, 6.25, 31.0]), "the query point");
+    }
+
+    #[test]
+    fn a_missing_or_bad_position_is_no_position() {
+        let base = |pos: &str| {
+            format!(
+                r#"{{"snapshotId":"s","embedModel":"m","query":{{"text":"q","vector":[]{pos}}},"sidecar":{{"results":[],"tookMs":1,"method":"exact"}}}}"#
+            )
+        };
+        assert_eq!(
+            parse_query_response(&base("")).unwrap().position,
+            None,
+            "older server"
+        );
+        for bad in [
+            r#","position":null"#,
+            r#","position":[1,2]"#,
+            r#","position":[1,"2",3]"#,
+            r#","position":{"x":1}"#,
+        ] {
+            assert_eq!(
+                parse_query_response(&base(bad)).unwrap().position,
+                None,
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            parse_query_response(&base(r#","position":[1,2.5,-3]"#))
+                .unwrap()
+                .position,
+            Some([1.0, 2.5, -3.0])
+        );
     }
 
     #[test]
@@ -606,9 +671,40 @@ mod tests {
     }
 
     #[test]
-    fn route_runs_through_sampled_hits_to_the_top_hit() {
+    fn route_starts_at_the_query_point_and_runs_through_the_hits_in_rank_order() {
         let a = parse_query_response(&fixture()).unwrap();
         let f = sidecar_route(&a, 1000.0, 3);
+        assert_eq!(f.origin, Some([-18.5, 6.25, 31.0]));
+        assert_eq!(f.path, vec![12, 4, 27, 31], "rank order, top hit first");
+        assert_eq!(f.sidecar, vec![12, 4, 27, 31], "every sampled hit marked");
+        assert_eq!(
+            agreement_line(Some(&f)),
+            "Route: query point → sidecar top-k · 4 of 6 sidecar hits are in the sample",
+        );
+        assert!(caption(&a).ends_with("route: query point → sidecar top-k (not a search path)"));
+        // one sampled hit is enough once the query point is known
+        let mut one = answer(&[Some(5), None]);
+        one.position = Some([1.0, 2.0, 3.0]);
+        let f1 = sidecar_route(&one, 1.0, 1);
+        assert_eq!(
+            (f1.path.clone(), f1.origin),
+            (vec![5], Some([1.0, 2.0, 3.0]))
+        );
+        assert_eq!(f1.anchors(), 2);
+        // no sampled hit: nothing to draw, and no stray origin
+        let mut none = answer(&[None]);
+        none.position = Some([1.0, 2.0, 3.0]);
+        let f0 = sidecar_route(&none, 1.0, 1);
+        assert!(f0.path.is_empty() && f0.origin.is_none());
+        assert!(caption(&none).ends_with("no route: no hit in the sample"));
+    }
+
+    #[test]
+    fn without_a_query_point_the_route_ends_on_the_top_hit() {
+        let mut a = parse_query_response(&fixture()).unwrap();
+        a.position = None;
+        let f = sidecar_route(&a, 1000.0, 3);
+        assert_eq!(f.origin, None);
         assert_eq!(
             f.path,
             vec![31, 27, 4, 12],
@@ -647,6 +743,10 @@ mod tests {
         let f = sidecar_route(&a, 1.0, 1);
         assert_eq!(f.path.len(), MAX_PATH);
         assert_eq!(*f.path.last().unwrap(), 0, "the top hit stays the answer");
+        a.position = Some([0.0; 3]);
+        let g = sidecar_route(&a, 1.0, 1);
+        assert_eq!(g.path.len(), MAX_PATH);
+        assert_eq!(g.path[0], 0, "from the query point, the top hit first");
     }
 
     #[test]
@@ -831,6 +931,12 @@ mod tests {
         let a = parse_query_response(&fixture()).unwrap();
         assert_eq!(
             caption(&a),
+            "6 hits · hnsw 13 ms · 4 of 6 in the sample · route: query point → sidecar top-k (not a search path)"
+        );
+        let mut old = a.clone();
+        old.position = None;
+        assert_eq!(
+            caption(&old),
             "6 hits · hnsw 13 ms · 4 of 6 in the sample · route: sidecar top-k in rank order (not a search path)"
         );
         assert_eq!(

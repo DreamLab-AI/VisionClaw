@@ -33,7 +33,7 @@ export const WIRE_KEYS = {
   stratum: { namespace: true, total: true, sampled: true } satisfies Keys<MemoryCloudStratum>,
   queryRequest: { text: true, k: true, namespace: true } satisfies Keys<MemoryCloudQueryRequest>,
   queryResponse: { snapshotId: true, embedModel: true, query: true, sidecar: true } satisfies Keys<MemoryCloudQueryResponse>,
-  queryEcho: { text: true, vector: true } satisfies Keys<MemoryCloudQueryResponse['query']>,
+  queryEcho: { text: true, vector: true, position: true } satisfies Keys<MemoryCloudQueryResponse['query']>,
   sidecar: { results: true, tookMs: true, method: true } satisfies Keys<MemoryCloudQueryResponse['sidecar']>,
   hit: {
     id: true, key: true, namespace: true, sourceType: true, score: true, snippet: true, sampleIndex: true,

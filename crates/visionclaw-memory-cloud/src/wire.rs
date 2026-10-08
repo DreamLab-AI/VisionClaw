@@ -112,6 +112,13 @@ pub struct QueryEcho {
     pub text: String,
     /// L2-normalised query embedding.
     pub vector: Vec<f32>,
+    /// The query's point in the snapshot's cloud coordinates `[x, y, z]`:
+    /// `vector` projected with the same PCA basis and scale as
+    /// [`MemoryCloudSnapshot::positions`] (a sampled row's vector lands
+    /// exactly on its row). `null` when the snapshot is empty or the
+    /// dimensions disagree. Added by ADR-2136; older servers omit it.
+    #[serde(default)]
+    pub position: Option<[f32; 3]>,
 }
 
 /// Sidecar search results.
@@ -362,6 +369,7 @@ mod tests {
             query: QueryEcho {
                 text: "q".into(),
                 vector: vec![1.0],
+                position: Some([1.0, -2.0, 3.5]),
             },
             sidecar: SidecarResults {
                 results: vec![hit],
@@ -371,7 +379,11 @@ mod tests {
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(keys(&v), ["embedModel", "query", "sidecar", "snapshotId"]);
-        assert_eq!(keys(&v["query"]), ["text", "vector"]);
+        assert_eq!(keys(&v["query"]), ["position", "text", "vector"]);
+        assert_eq!(v["query"]["position"], json!([1.0, -2.0, 3.5]));
+        // an older server's echo (no position) still reads
+        let old: QueryEcho = serde_json::from_value(json!({"text": "q", "vector": []})).unwrap();
+        assert_eq!(old.position, None);
         assert_eq!(keys(&v["sidecar"]), ["method", "results", "tookMs"]);
         assert_eq!(v["sidecar"]["method"], "exact");
         assert_eq!(serde_json::to_value(SearchMethod::Hnsw).unwrap(), "hnsw");

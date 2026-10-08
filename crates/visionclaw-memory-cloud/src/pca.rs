@@ -17,6 +17,11 @@
 //!
 //! Each axis's sign is fixed so its largest-magnitude loading is positive,
 //! which keeps successive snapshots from mirroring at random.
+//!
+//! The map is affine, so it is kept ([`Projection::projector`]) and applied
+//! to vectors that were not in the sample: a query embedding projected with
+//! the snapshot's [`Projector`] lands in the cloud's own coordinates, where a
+//! sampled row's vector lands exactly on that row's position.
 
 use thiserror::Error;
 
@@ -47,6 +52,8 @@ pub enum PcaError {
 pub struct Projection {
     /// `3 * n` coordinates, row-major (`x, y, z` per input row).
     pub positions: Vec<f32>,
+    /// Column means the rows were centred on, length `dim`.
+    pub mean: Vec<f64>,
     /// Unit principal axes, each of length `dim` (all-zero when the data
     /// has fewer than three directions of variance).
     pub axes: [Vec<f64>; 3],
@@ -150,10 +157,74 @@ pub fn project_to_3d(rows: &[f32], dim: usize) -> Result<Projection, PcaError> {
 
     Ok(Projection {
         positions,
+        mean,
         axes,
         variances,
         scale,
     })
+}
+
+impl Projection {
+    /// The map that produced [`positions`](Self::positions), to place other
+    /// vectors in the same coordinates.
+    pub fn projector(&self) -> Projector {
+        Projector {
+            mean: self.mean.clone(),
+            axes: self.axes.clone(),
+            scale: self.scale,
+        }
+    }
+}
+
+/// The affine map of one [`project_to_3d`] run: centre on `mean`, take the
+/// dot product with each principal axis, multiply by `scale`.
+///
+/// ```
+/// use visionclaw_memory_cloud::pca::project_to_3d;
+/// let rows = [10.0_f32, 0.0, -10.0, 1.0, 5.0, -1.0, -5.0, 0.0];
+/// let p = project_to_3d(&rows, 2).unwrap();
+/// let proj = p.projector();
+/// // a sampled row lands exactly on its own position
+/// assert_eq!(proj.project(&rows[2..4]).unwrap(), [p.positions[3], p.positions[4], p.positions[5]]);
+/// // a vector of the wrong length has no place
+/// assert!(proj.project(&[1.0]).is_none());
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Projector {
+    /// Column means, length `dim`.
+    pub mean: Vec<f64>,
+    /// Unit principal axes, each of length `dim`.
+    pub axes: [Vec<f64>; 3],
+    /// Factor applied after the dot products.
+    pub scale: f64,
+}
+
+impl Projector {
+    /// Input dimension.
+    pub fn dim(&self) -> usize {
+        self.mean.len()
+    }
+
+    /// `v` in the projection's coordinates. The arithmetic is the one
+    /// [`project_to_3d`] used, in the same order, so a sampled row's vector
+    /// maps to that row's position bit for bit. `None` when `v` has the wrong
+    /// length or a non-finite component, or the result is not finite.
+    pub fn project(&self, v: &[f32]) -> Option<[f32; 3]> {
+        if v.len() != self.dim() || self.dim() == 0 || v.iter().any(|x| !x.is_finite()) {
+            return None;
+        }
+        let centred: Vec<f64> = v
+            .iter()
+            .zip(&self.mean)
+            .map(|(&x, m)| f64::from(x) - m)
+            .collect();
+        let mut out = [0.0f32; 3];
+        for (o, axis) in out.iter_mut().zip(&self.axes) {
+            let raw: f64 = centred.iter().zip(axis).map(|(x, a)| x * a).sum::<f64>();
+            *o = (raw * self.scale) as f32;
+        }
+        out.iter().all(|c| c.is_finite()).then_some(out)
+    }
 }
 
 /// Leading eigenpair of the symmetric PSD matrix `m` by power iteration,
