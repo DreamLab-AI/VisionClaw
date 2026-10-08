@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -346,3 +346,9 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). No profile, profile default or compose security default changes (`docker-compose.unified.yml` is untouched); the profile is still asserted at `:934-944`. Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. Decision holds.
+
+## Re-verification — 2026-10-08 at 67086c29e
+
+`docker-compose.unified.yml` changed only in the memory-cloud sample default
+(`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `docker-compose.unified.yml:136`, `:275`). Nothing
+this decision governs moved, so it holds as written.

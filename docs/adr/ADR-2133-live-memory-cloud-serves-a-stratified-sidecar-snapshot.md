@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8e5ab0dc22ed80c3304e527b8713c13b4a8ffe07
+verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -30,7 +30,7 @@ duplicate embedding.
 ## Decision
 1. **Live snapshot.** `GET /api/memory-cloud` serves a sample rebuilt by a background task every
    `MEMORY_CLOUD_REFRESH_SECS` (default 900, minimum 60). The first request waits up to 45 s. The
-   sample (`MEMORY_CLOUD_SAMPLE`, default 6000, clamped 500..20000) is stratified per namespace: a floor of
+   sample (`MEMORY_CLOUD_SAMPLE`, default 30000, clamped 500..50000; 6000 and 20000 until 2026-10-08) is stratified per namespace: a floor of
    `min(count, 40)`, then the rest ∝ √count, with noise namespaces (`hooks:*`, `command-*`,
    `legacy/*`, `performance-metrics`, `file-history`) weighted ×0.25. Rows are L2-normalised and
    projected by deterministic PCA. The 99th-percentile |coordinate| is scaled to 100.
@@ -175,3 +175,26 @@ ADR-2136 keeps the snapshot's PCA basis (`pca.rs` `Projector`, `BuiltSnapshot::p
 ## Re-verification — 2026-10-08 at 8e5ab0dc2 (ADR-2136 amendment, hit.position)
 
 The search queries now also select `embedding::text` (`src/services/memory_cloud_service.rs:79`), and each hit gains an optional `position` from `BuiltSnapshot::project_literal` (`crates/visionclaw-memory-cloud/src/snapshot.rs:201`, `wire.rs:110`). The snapshot payload, sampling, the vectors blob, the PowerUser gate and the excluded namespaces are unchanged. The added column is read only from rows the query already returns. Decision holds. `cargo test -p visionclaw-memory-cloud`: 47 passed, 19 doc tests; server lib 1,568.
+
+## Amendment — 2026-10-08: sample 30 000 (operator decision)
+
+Operator: "on both desktop and headset update the sample size from 6000 to
+30000." `DEFAULT_SAMPLE_TOTAL` 30 000 and `MAX_SAMPLE_TOTAL` 50 000
+(`crates/visionclaw-memory-cloud/src/config.rs:9`, `:14`); the compose
+default (`docker-compose.unified.yml:136`, `:275`) and both env templates
+follow. The live `.env` does not set the knob, so the default applies.
+
+Measured before the change (live, 6 000): snapshot JSON 1.40 MB, vectors
+9.2 MB. At 30 000 the vectors are 30 000 × 384 × 4 = 46.1 MB and the JSON
+about 7 MB; the snapshot build time at 30 000 is measured on the live server
+after deploy. The browser's HNSW build is an illustration only (Decision 2):
+35.9 s at 30 000 in Node (6.7 s at 6 000, recall@10 0.985), still in its Web
+Worker, with the panel naming the size it loads and builds
+(`client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx:129`).
+The sidecar search does not wait for it. The headset's frame budget still
+draws at most 8 000 sprites: a 30 000 snapshot draws 8 000, stratified by
+namespace, with route and hit rows pinned
+(`xr-client/rust/src/memory_cloud.rs:1556`), and the HUD states "drawn of
+sampled" (`xr-client/scripts/memory_cloud_layer.gd:298`). HP benchmark with a
+30 000 snapshot: 34 draw calls, 94 566 triangles, p99 3.17 ms (2.78 at
+20 000), LOD build p99 1.14 ms, all gates pass.
