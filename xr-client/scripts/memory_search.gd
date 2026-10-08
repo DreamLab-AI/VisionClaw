@@ -25,6 +25,14 @@ const ENDPOINT := "/api/memory-cloud/query"
 const K := 50
 ## How often the preset list checks for a new snapshot's namespaces.
 const PRESET_POLL_SEC := 1.0
+## Namespaces the keyboard's Scope key offers besides all of memory.
+const SCOPE_NAMESPACES := 8
+## The typed-query scope chosen when the snapshot has it.
+const DEFAULT_SCOPE := "project-state"
+## Estate namespaces offered first when the snapshot has them (the curated
+## presets' namespaces, memory_query.rs CURATED): the most-sampled list alone
+## is led by thinly covered corpora and left `patterns` out live (2026-10-08).
+const ESTATE_SCOPES: Array[String] = ["project-state", "patterns", "coordination"]
 const TIMEOUT_SEC := 15.0
 
 ## Recent queries persist here between launches (JSON array of presets).
@@ -75,14 +83,19 @@ func _process(delta: float) -> void:
 		refresh_presets()
 
 
-## HUD intents: "memory_preset:<i>", "memory_hit:<i>", "memory_typed:<text>".
-## True when consumed.
+## HUD intents: "memory_preset:<i>", "memory_hit:<i>",
+## "memory_typed:<namespace>|<text>" (namespace "" = all). True when consumed.
 func handle_control(action: String) -> bool:
 	if action.begins_with("memory_preset:"):
 		run_preset(int(action.get_slice(":", 1)))
 		return true
 	if action.begins_with("memory_typed:"):
-		run_text(action.substr("memory_typed:".length()))
+		var rest: String = action.substr("memory_typed:".length())
+		var bar: int = rest.find("|")
+		if bar < 0:
+			run_text(rest)
+		else:
+			run_text(rest.substr(bar + 1), rest.substr(0, bar))
 		return true
 	if action.begins_with("memory_hit:"):
 		focus_hit(int(action.get_slice(":", 1)))
@@ -104,6 +117,9 @@ func refresh_presets() -> void:
 	_presets = _query.presets(ns, counts) if _query != null else []
 	if _hud != null and _hud.has_method("set_memory_presets"):
 		_hud.set_memory_presets(_presets.map(func(p: Dictionary) -> String: return str(p["label"])))
+	if _hud != null and _hud.has_method("set_memory_scopes"):
+		var sc: Array = scopes()
+		_hud.set_memory_scopes(sc, default_scope_index(sc))
 
 
 ## Run preset `i`. False when it was not sent (out of range, one already in
@@ -114,14 +130,49 @@ func run_preset(i: int) -> bool:
 	return _run(_presets[i])
 
 
-## Run a typed query (the on-screen keyboard), searched globally. False when
-## it was not sent (blank, one already in flight, or the request could not
-## start).
-func run_text(text: String) -> bool:
+## Run a typed query (the on-screen keyboard) within namespace `scope` ("" = all of
+## memory). False when it was not sent (blank, one already in flight, or the
+## request could not start).
+func run_text(text: String, scope: String = "") -> bool:
 	var t: String = text.strip_edges()
 	if t.is_empty():
 		return false
-	return _run({"label": t, "text": t, "namespace": ""})
+	return _run({"label": t, "text": t, "namespace": scope.strip_edges()})
+
+
+## Where a typed query may search: "" (all of memory), then the ESTATE_SCOPES
+## the snapshot has, then its most-sampled namespaces, up to SCOPE_NAMESPACES
+## in all (each with at least two sampled rows and no whitespace in the name,
+## as for the presets).
+func scopes() -> Array:
+	var out: Array = [""]
+	if _layer == null or not _layer.has_method("namespaces"):
+		return out
+	var ns: PackedStringArray = _layer.namespaces()
+	var counts: PackedInt32Array = _layer.namespace_row_counts()
+	var rows: Array = []
+	for i in mini(ns.size(), counts.size()):
+		var nm: String = ns[i]
+		if counts[i] >= 2 and not nm.is_empty() and not (" " in nm or "\t" in nm):
+			rows.append([nm, counts[i]])
+	rows.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1] or (a[1] == b[1] and str(a[0]) < str(b[0])))
+	var usable: Array = rows.map(func(r: Array) -> String: return str(r[0]))
+	for e: String in ESTATE_SCOPES:
+		if usable.has(e):
+			out.append(e)
+	for nm: String in usable:
+		if out.size() > SCOPE_NAMESPACES:
+			break
+		if not out.has(nm):
+			out.append(nm)
+	return out
+
+
+## The scope a typed query starts in: DEFAULT_SCOPE when the snapshot has it
+## (a global top-k lands in the thinly sampled reference corpus: measured live
+## 2026-10-08, 0 of 50 hits in the sample), else all of memory.
+func default_scope_index(scopes: Array) -> int:
+	return maxi(0, scopes.find(DEFAULT_SCOPE))
 
 
 func _run(p: Dictionary) -> bool:

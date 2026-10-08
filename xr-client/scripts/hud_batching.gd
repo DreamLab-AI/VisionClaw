@@ -200,8 +200,16 @@ func _walk(n: Node) -> void:
 func _on_node_added(n: Node) -> void:
 	if n is HudBg:
 		return
-	# deferred: builders set text/theme/overrides right after add_child
-	_walk.call_deferred(n)
+	# deferred: builders set text/theme/overrides right after add_child. The
+	# node may be freed before the deferred call runs (a list rebuilt twice in
+	# one frame): a typed `_walk(n: Node)` then fails to convert the freed
+	# object, so the call goes through a Variant check.
+	_walk_if_valid.call_deferred(n)
+
+
+func _walk_if_valid(n: Variant) -> void:
+	if is_instance_valid(n):
+		_walk(n as Node)
 
 
 func _convert(c: Control) -> void:

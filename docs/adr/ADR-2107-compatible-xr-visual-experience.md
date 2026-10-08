@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 131f066320290b1e6e80c1cafac3d1f3932b00f0
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -133,3 +133,7 @@ New HUD controls (the separation row on the Layout page, and Memory Search mode 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `hud.gd` loses the Layout-page separation row and gains the Memory Search keyboard. Every key is press-fire, and the keyboard page fits the 532 px host (GUT `test_the_keyboard_opens_in_place_types_and_submits_inside_532px`). Its labels use only glyphs in the HUD font (`test_hud_batching`), so the HUD stays one batch. `xr_theme.gd` only rewords a comment. Route draw order and the framing cue are unchanged. Decision holds. GUT on HP: 218/218. Citations at 31bc3d3a1: `xr-client/scripts/hud.gd:714` (`_build_memory_keyboard`), `:745` (`_keyboard_key`, press-fire, hint), `xr-client/tests/unit/test_memory_search.gd:239` (532 px fit), `xr-client/tests/unit/test_hud_batching.gd:133` (glyph check), `xr-client/scripts/xr_theme.gd:59`.
+
+## Re-verification — 2026-10-08 at 131f06632 (Scope key, deferred-walk fix)
+
+The memory keyboard gains a Scope key (`xr-client/scripts/hud.gd:783` `set_memory_scopes`; press-fire, hinted, clipped label), so the page height and the 532 px fit are unchanged. `hud_batching.gd:210` (`_walk_if_valid`) skips the deferred batching walk for a control freed before it runs, which removes the live-log error "Cannot convert argument 1 from Object to Object" (`test_a_control_freed_before_its_deferred_walk_logs_no_error`). The HUD still batches as before. Decision holds. GUT on HP: 222/222, guard 31/31.

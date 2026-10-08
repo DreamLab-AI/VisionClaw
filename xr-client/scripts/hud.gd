@@ -164,6 +164,10 @@ var _memory_keyboard_entry: Label = null
 var _keyboard_buttons: Dictionary = {}   # key id → Button
 var _keyboard := OnscreenKeyboard.new()
 var _memory_typing: bool = false
+# Where a typed query searches: "" = all of memory, else one namespace.
+# memory_search.gd supplies the list (set_memory_scopes); the Scope key cycles.
+var _memory_scopes: Array = [""]
+var _memory_scope_index: int = 0
 ## True between the slider's drag_started and drag_ended: read-back waits.
 var _color_mode_button: Button = null   # WP1 domain/community toggle (Graph page)
 var _hulls_button: Button = null        # WP4 hull source cycle (Graph page)
@@ -734,11 +738,16 @@ func _build_memory_keyboard() -> VBoxContainer:
 	bottom.name = "MemoryKeyboardControls"
 	bottom.add_theme_constant_override("separation", 6)
 	bottom.add_child(_keyboard_key(OnscreenKeyboard.CANCEL, "Cancel", "Close the keyboard without searching", 1.2))
-	bottom.add_child(_keyboard_key(OnscreenKeyboard.SPACE, "Space", "Type a space", 3.0))
+	var scope := _keyboard_key("scope", "", "Choose where to search: all of memory or one namespace", 2.4)
+	scope.clip_text = true
+	scope.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	bottom.add_child(scope)
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.SPACE, "Space", "Type a space", 2.2))
 	bottom.add_child(_keyboard_key(OnscreenKeyboard.BACKSPACE, "Delete", "Delete the last character", 1.2))
 	bottom.add_child(_keyboard_key(OnscreenKeyboard.ENTER, "Search →", "Search memory for what you typed", 1.6))
 	box.add_child(bottom)
 	_refresh_keyboard_entry()
+	_refresh_scope_key()
 	return box
 
 
@@ -769,14 +778,38 @@ func _close_memory_keyboard() -> void:
 	_show_query_mode(_query_mode)
 
 
-## One key press. Enter with text emits control_pressed "memory_typed:<text>"
-## (GraphScene hands it to memory_search.gd) and closes the keyboard.
+## Where a typed query may search: "" (all of memory) and namespaces, with the
+## index of the default. Keeps the current choice when it is still offered.
+func set_memory_scopes(scopes: Array, default_index: int) -> void:
+	var current: String = str(_memory_scopes[_memory_scope_index])
+	_memory_scopes = scopes.duplicate() if not scopes.is_empty() else [""]
+	var keep: int = _memory_scopes.find(current)
+	_memory_scope_index = keep if keep > 0 else clampi(default_index, 0, _memory_scopes.size() - 1)
+	_refresh_scope_key()
+
+
+func _refresh_scope_key() -> void:
+	var b: Button = _keyboard_buttons.get("scope")
+	if b == null:
+		return
+	var ns: String = str(_memory_scopes[_memory_scope_index])
+	b.text = "In: %s" % ("all memory" if ns.is_empty() else ns)
+
+
+## One key press. Enter with text emits control_pressed
+## "memory_typed:<scope>|<text>" (scope "" = all of memory; the keyboard has
+## no "|" key) for GraphScene to hand to memory_search.gd, and closes the
+## keyboard. The Scope key cycles where the query searches.
 func _on_keyboard_key(key: String) -> void:
+	if key == "scope":
+		_memory_scope_index = (_memory_scope_index + 1) % _memory_scopes.size()
+		_refresh_scope_key()
+		return
 	var r: Dictionary = _keyboard.press(key)
 	match str(r["event"]):
 		"submit":
 			_close_memory_keyboard()
-			emit_signal("control_pressed", "memory_typed:%s" % str(r["text"]))
+			emit_signal("control_pressed", "memory_typed:%s|%s" % [str(_memory_scopes[_memory_scope_index]), str(r["text"])])
 		"cancel":
 			_close_memory_keyboard()
 		_:

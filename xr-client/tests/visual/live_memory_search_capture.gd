@@ -6,7 +6,8 @@ extends SceneTree
 ## top-k route is drawn. A sampled hit is then pressed ("memory_hit:<i>") to
 ## send the guide cue there. With `typed="<text>"` (ADR-2136) the query is
 ## typed key by key on the HUD's on-screen keyboard instead, and Search sends
-## it through the same intent path ("memory_typed:<text>"); the route then
+## it through the same intent path ("memory_typed:<scope>|<text>", the
+## keyboard's default scope, or `scope=<ns>`, "all" for every namespace); the route then
 ## starts at the server's query point. Run with a display:
 ##   XR_BACKEND_WS=ws://<backend>:4000 XR_NOSTR_SECRET=<hex> \
 ##   godot --path xr-client --rendering-driver opengl3 --xr-mode off \
@@ -116,6 +117,13 @@ func _run_typed(text: String, mc, search) -> void:
 	hud._show_tab("query")
 	hud._query_mode_memory_button.pressed.emit()
 	hud._memory_type_button.pressed.emit()
+	var want_scope := _arg("scope", "")
+	if not want_scope.is_empty():
+		var target: String = "" if want_scope == "all" else want_scope
+		for n in hud._memory_scopes.size():
+			if str(hud._memory_scopes[hud._memory_scope_index]) == target:
+				break
+			(hud._keyboard_buttons["scope"] as Button).pressed.emit()
 	for i in text.length():
 		var c: String = text[i].to_lower()
 		var key: String = "space" if c == " " else c
@@ -125,7 +133,8 @@ func _run_typed(text: String, mc, search) -> void:
 	await create_timer(0.5).timeout
 	await _shot("keyboard")
 	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
-	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "typed", "entry": entry, "sent": search.queries_sent}))
+	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "typed", "entry": entry, "sent": search.queries_sent,
+		"scope": (hud._keyboard_buttons["scope"] as Button).text}))
 	var t0 := Time.get_ticks_msec()
 	while search._pending:
 		if Time.get_ticks_msec() - t0 > WAIT_QUERY_S * 1000.0:
@@ -144,9 +153,32 @@ func _run_typed(text: String, mc, search) -> void:
 		"hops": int(mc._route.hop_count()) if mc.route_active() else 0,
 		"agreement": line, "from_query_point": line.contains("query point"),
 		"cloud_scale": place.get("scale", 0.0), "cloud_position": str(place.get("position", ""))}))
+	print("XR_MEMORY_SEARCH ", JSON.stringify(_cloud_in_metres(mc)))
 	await create_timer(1.6).timeout
 	await _shot("typed-route")
 	quit(0 if mc.route_active() and line.contains("query point") else 6)
+
+
+## Where the memory cloud sits for a user at the XR origin (head at the
+## camera, 1.6 m): its world centre and robust radius in metres, the gap from
+## the head to its near side, and the GraphRoot fit scale (m per server unit).
+func _cloud_in_metres(mc) -> Dictionary:
+	var cb: PackedFloat32Array = mc._frame.cloud_bounds()
+	var world_per_local: float = mc._cloud_core.global_transform.basis.get_scale().x
+	var centre: Vector3 = mc._cloud_core.global_transform * Vector3(cb[0], cb[1], cb[2]) if cb.size() == 4 else Vector3.ZERO
+	var radius_m: float = cb[3] * world_per_local if cb.size() == 4 else 0.0
+	var head := Vector3(0.0, 1.6, 0.0)
+	var cam: Camera3D = scene.get_viewport().get_camera_3d()
+	if cam != null:
+		head = cam.global_position
+	var graph_centre: Vector3 = scene._graph_centre_world()
+	return {"step": "cloud_metres", "graph_scale_m_per_unit": scene._graph_scale,
+		"cloud_centre_m": [snappedf(centre.x, 0.01), snappedf(centre.y, 0.01), snappedf(centre.z, 0.01)],
+		"cloud_radius_m": snappedf(radius_m, 0.01),
+		"head_m": [snappedf(head.x, 0.01), snappedf(head.y, 0.01), snappedf(head.z, 0.01)],
+		"head_to_cloud_centre_m": snappedf(head.distance_to(centre), 0.01),
+		"head_to_near_side_m": snappedf(head.distance_to(centre) - radius_m, 0.01),
+		"graph_centre_m": [snappedf(graph_centre.x, 0.01), snappedf(graph_centre.y, 0.01), snappedf(graph_centre.z, 0.01)]}
 
 
 func _shot(view: String) -> void:

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 0f8ea5af87680059c4099bc619223ce541a9eddf
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -72,3 +72,7 @@ At the commit stamped in `verified_commit`:
 - Citations at 31bc3d3a1: `crates/visionclaw-memory-cloud/src/pca.rs:193` (`Projector`),
   `snapshot.rs:41`, `:286`; `wire.rs:121`; `src/services/memory_cloud_service.rs:637`, `:806`;
   `xr-client/scripts/hud.gd:714`.
+
+## Re-verification — 2026-10-08 at 131f06632 (Scope key, deferred-walk fix)
+
+Amendment from the live check: a typed query searched globally answered "0 of 50 in the sample" (the global top-50 lands in the thinly sampled reference corpus), so it drew no route; the `patterns` preset drew 14 hops from the query point. Typed queries are therefore scoped: the keyboard's Scope key cycles all of memory and the snapshot's eight most-sampled namespaces, starting in `project-state` when present (`xr-client/scripts/memory_search.gd:142` `scopes`, `:31` `DEFAULT_SCOPE`; `hud.gd:783`). Search sends `memory_typed:<scope>|<text>`. Test: `test_memory_search.gd:282`. The wire is unchanged. GUT on HP: 222/222. Follow-up at 0f8ea5af8: the scopes list puts the estate namespaces (`ESTATE_SCOPES`, `memory_search.gd:35`: project-state, patterns, coordination) first when present, because live the most-sampled eight left out `patterns`.
