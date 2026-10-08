@@ -498,6 +498,14 @@ func focus_row(row: int) -> bool:
 	return bool(_route.focus_row(row, _cloud.positions()))
 
 
+## Send the guide cue to a cloud-local point: a hit outside the sample, drawn
+## from its own `position` (ADR-2136 amendment).
+func focus_point(p: Vector3) -> bool:
+	if _route == null or not route_active():
+		return false
+	return bool(_route.focus_point(p))
+
+
 ## "relay" (the desktop's traversal), "sidecar_top_k" (this headset's query)
 ## or "" without a route.
 func route_source() -> String:

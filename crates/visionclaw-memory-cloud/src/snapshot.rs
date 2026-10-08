@@ -191,6 +191,21 @@ pub fn build_snapshot(
     })
 }
 
+impl BuiltSnapshot {
+    /// A sidecar row's embedding literal (`embedding::text`) in this
+    /// snapshot's cloud coordinates: parsed and L2-normalised as
+    /// [`build_snapshot`] does, then projected with [`projector`](Self::projector).
+    /// A sampled row lands exactly on its snapshot position; a row outside
+    /// the sample lands where it would have been. `None` for an empty
+    /// snapshot, an unparsable or zero-norm literal, or a dimension mismatch.
+    pub fn project_literal(&self, literal: &str) -> Option<[f32; 3]> {
+        let projector = self.projector.as_ref()?;
+        let mut v = parse_ruvector_literal(literal).ok()?;
+        l2_normalise(&mut v).ok()?;
+        projector.project(&v)
+    }
+}
+
 /// `probes` row indices spread evenly over `count` rows (all rows when
 /// `count <= probes`). Because the sample is stratified and sorted by
 /// namespace, an even stride touches many namespaces.
@@ -309,6 +324,27 @@ mod tests {
         let p = proj.project(&q).unwrap();
         assert!(p.iter().all(|c| c.is_finite() && c.abs() < 1000.0), "{p:?}");
         assert!(proj.project(&q[..15]).is_none(), "wrong dimension");
+        // a hit's own row literal, as the sidecar returns it, lands on its
+        // snapshot position (ADR-2136 hit.position)
+        for i in [0usize, 7, 119] {
+            let v: Vec<f32> = (0..16)
+                .map(|j| ((i * 16 + j) as f32 * 0.61).sin() * (1.0 + (i % 7) as f32))
+                .collect();
+            let lit = crate::vector::format_ruvector_literal(&v);
+            let at = &b.snapshot.positions[i * 3..i * 3 + 3];
+            assert_eq!(
+                b.project_literal(&lit),
+                Some([at[0], at[1], at[2]]),
+                "row {i}"
+            );
+        }
+        assert_eq!(b.project_literal("garbage"), None);
+        assert_eq!(
+            b.project_literal("[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"),
+            None,
+            "zero norm"
+        );
+        assert_eq!(b.project_literal("[1,2]"), None, "wrong dimension");
         let mut bad = q.clone();
         bad[3] = f32::NAN;
         assert!(proj.project(&bad).is_none(), "non-finite input");

@@ -26,8 +26,8 @@
     "query": { "text": "how is the memory cloud sampled", "vector": [1.0, 0.0, 0.0, 0.0], "position": [12.5, -3.25, 40.0] },
     "sidecar": {
       "results": [
-        { "id": "id-0", "key": "adr-2133", "namespace": "project-state", "sourceType": "memory", "score": 0.875, "snippet": "stratified sample", "sampleIndex": 0 },
-        { "id": "id-9", "key": "kb-other", "namespace": "ruvnet-kb", "sourceType": "", "score": 0.5, "snippet": "", "sampleIndex": null }
+        { "id": "id-0", "key": "adr-2133", "namespace": "project-state", "sourceType": "memory", "score": 0.875, "snippet": "stratified sample", "sampleIndex": 0, "position": [0.0, 1.5, -2.0] },
+        { "id": "id-9", "key": "kb-other", "namespace": "ruvnet-kb", "sourceType": "", "score": 0.5, "snippet": "", "sampleIndex": null, "position": [-40.25, 8.0, 12.5] }
       ],
       "tookMs": 106.5,
       "method": "hnsw"

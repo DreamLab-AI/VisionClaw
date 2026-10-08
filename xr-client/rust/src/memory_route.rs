@@ -39,6 +39,12 @@ pub const ROUTE_TIP: u32 = 0xff7a3d;
 pub const ROUTE_MINT: u32 = 0x7ef0cf;
 pub const ROUTE_SIDECAR: u32 = 0xffd36e;
 pub const ROUTE_MISS: u32 = 0xff5f6e;
+/// Ghost mark of a hit outside the sample (ADR-2136 amendment): a dim, cool,
+/// smaller hollow ring where the hit's own embedding lands, visibly not one
+/// of the cloud's sampled points (which carry a gold ring on a sprite).
+pub const ROUTE_GHOST: u32 = 0x9fb4d8;
+pub const GHOST_ALPHA: f32 = 0.55;
+pub const GHOST_R: f32 = MARK_R * 0.9;
 /// Where the white core sits on the gradient.
 pub const GRADIENT_MID: f32 = 0.42;
 /// Path trace duration (s). XR has no search tree, so the trace starts at once.
@@ -278,12 +284,36 @@ pub struct RouteFrame {
     /// in the snapshot's PCA frame (`QueryEcho::position`, ADR-2136). Only a
     /// headset query sets it; a desktop relay always starts on a row.
     pub origin: Option<Vec3>,
+    /// Cloud-local points of every placed sidecar hit in rank order
+    /// (`MemoryCloudHit::position`, ADR-2136 amendment). When set, the route
+    /// runs origin → these points, whether or not a hit was sampled; `path`
+    /// then only lists the sampled rows (kept lit in the cloud).
+    pub hit_points: Vec<Vec3>,
+    /// Per `hit_points` entry: whether that hit is in the sample (unsampled
+    /// hits get a ghost mark, having no sprite of their own).
+    pub hit_sampled: Vec<bool>,
 }
 
 impl RouteFrame {
-    /// Points the route passes through: the origin (when set) and every row.
+    /// Points the route passes through: the origin (when set), then every hit
+    /// point when there are any, else every row.
     pub fn anchors(&self) -> usize {
-        self.path.len() + usize::from(self.origin.is_some())
+        let body = if self.hit_points.is_empty() {
+            self.path.len()
+        } else {
+            self.hit_points.len()
+        };
+        body + usize::from(self.origin.is_some())
+    }
+
+    /// Hit points outside the sample (ghost marks).
+    pub fn ghost_points(&self) -> Vec<Vec3> {
+        self.hit_points
+            .iter()
+            .zip(&self.hit_sampled)
+            .filter(|(_, &s)| !s)
+            .map(|(p, _)| *p)
+            .collect()
     }
 }
 
@@ -364,6 +394,13 @@ pub fn agreement_line(f: Option<&RouteFrame>) -> String {
     };
     if f.source == RouteSource::SidecarTopK {
         // no local top-k to agree with: the route IS the sidecar's ranking
+        if !f.hit_points.is_empty() {
+            let n = f.hit_sampled.iter().filter(|&&s| s).count();
+            return format!(
+                "Route: query point → sidecar top-k ({} drawn, {n} in sample)",
+                f.hit_points.len()
+            );
+        }
         let what = if f.origin.is_some() {
             "query point → sidecar top-k"
         } else {
@@ -454,6 +491,8 @@ pub fn parse_route(json: &str) -> Result<RouteFrame, RouteError> {
         stats,
         source: RouteSource::Relay,
         origin: None,
+        hit_points: Vec::new(),
+        hit_sampled: Vec::new(),
     })
 }
 
@@ -501,7 +540,7 @@ impl RouteGate {
         if !self.newer(&f) {
             return RouteDecision::Stale;
         }
-        if f.path.is_empty() {
+        if f.path.is_empty() && f.hit_points.is_empty() {
             self.last = Some((f.sent_at, f.seq));
             self.pending = None;
             return RouteDecision::Clear;
@@ -514,7 +553,8 @@ impl RouteGate {
             self.pending = Some(f);
             return RouteDecision::Reload;
         }
-        let origin_ok = f.origin.is_none_or(|o| o.iter().all(|c| c.is_finite()));
+        let finite = |p: &Vec3| p.iter().all(|c| c.is_finite());
+        let origin_ok = f.origin.is_none_or(|o| finite(&o)) && f.hit_points.iter().all(finite);
         if f.anchors() < 2 || !origin_ok || f.path.iter().any(|&r| r as usize >= row_count) {
             return RouteDecision::Drop;
         }
@@ -613,11 +653,7 @@ pub fn sample_route_from(
     positions: &[f32],
     n: usize,
 ) -> RouteSamples {
-    let anchors = path.len() + usize::from(origin.is_some());
-    if anchors < 2 || n == 0 {
-        return RouteSamples::default();
-    }
-    let mut at: Vec<Vec3> = Vec::with_capacity(anchors);
+    let mut at: Vec<Vec3> = Vec::with_capacity(path.len() + 1);
     if let Some(o) = origin {
         at.push(o);
     }
@@ -632,6 +668,29 @@ pub fn sample_route_from(
             [0.0; 3]
         });
     }
+    sample_anchors(&at, n, origin.is_some())
+}
+
+/// The route a frame draws: origin → hit points when the frame carries them
+/// (ADR-2136 amendment), else origin → path rows.
+pub fn sample_frame(f: &RouteFrame, positions: &[f32], n: usize) -> RouteSamples {
+    if f.hit_points.is_empty() {
+        return sample_route_from(f.origin, &f.path, positions, n);
+    }
+    let mut at: Vec<Vec3> = Vec::with_capacity(f.hit_points.len() + 1);
+    at.extend(f.origin);
+    at.extend_from_slice(&f.hit_points);
+    sample_anchors(&at, n, f.origin.is_some())
+}
+
+/// Dense polyline through anchor points, `n` samples per hop. With
+/// `answer_first` the answer is the second anchor (the top hit after the
+/// query point), else the last.
+pub fn sample_anchors(at: &[Vec3], n: usize, answer_first: bool) -> RouteSamples {
+    let anchors = at.len();
+    if anchors < 2 || n == 0 {
+        return RouteSamples::default();
+    }
     let mut pts = Vec::with_capacity((anchors - 1) * n + 1);
     let mut knots = vec![0];
     for i in 0..anchors - 1 {
@@ -642,7 +701,7 @@ pub fn sample_route_from(
         }
         knots.push(pts.len() - 1);
     }
-    let answer = if origin.is_some() {
+    let answer = if answer_first {
         knots[1]
     } else {
         pts.len() - 1
@@ -830,7 +889,7 @@ pub fn route_total_triangles(r: &ActiveRoute) -> usize {
     }
     route_triangles(r.samples.pts.len())
         + bead_instances(r.samples.knots.len()) * BEAD_TRIANGLES
-        + ring_instances(r.sidecar_pts.len()) * 2
+        + ring_instances(r.sidecar_pts.len() + r.ghost_pts.len()) * 2
 }
 
 /// Triangles of a route with `rows` path nodes and `sidecar` marks at full
@@ -1111,10 +1170,11 @@ pub fn ring_buffer(
     r: &RouteSamples,
     st: &RouteFrameState,
     sidecar: &[Vec3],
+    ghosts: &[Vec3],
     root_pulse: f32,
     cue: Option<Cue>,
 ) -> Vec<f32> {
-    let mut buf = Vec::with_capacity((3 + sidecar.len()) * STRIDE);
+    let mut buf = Vec::with_capacity((3 + sidecar.len() + ghosts.len()) * STRIDE);
     let root = r.pts.first().copied().unwrap_or([0.0; 3]);
     let tipp = r.answer_point();
     let tip = hex_rgb(ROUTE_TIP);
@@ -1158,6 +1218,15 @@ pub fn ring_buffer(
             [gold[0], gold[1], gold[2], 0.95],
         );
     }
+    let ghost = hex_rgb(ROUTE_GHOST);
+    for &p in ghosts {
+        push_instance(
+            &mut buf,
+            p,
+            GHOST_R,
+            [ghost[0], ghost[1], ghost[2], GHOST_ALPHA],
+        );
+    }
     buf
 }
 
@@ -1169,6 +1238,8 @@ pub struct ActiveRoute {
     pub frame: Option<RouteFrame>,
     pub samples: RouteSamples,
     pub sidecar_pts: Vec<Vec3>,
+    /// Placed hits outside the sample: dim hollow ghost marks.
+    pub ghost_pts: Vec<Vec3>,
     pub el: f32,
     /// Seconds since this route first arrived, for the framing cue (`None`
     /// once a route is cleared).
@@ -1201,12 +1272,7 @@ impl ActiveRoute {
         if samples_per_hop_within(rows, before) == samples_per_hop_within(rows, self.cap()) {
             return false;
         }
-        self.samples = sample_route_from(
-            f.origin,
-            &f.path,
-            positions,
-            samples_per_hop_within(rows, self.cap()),
-        );
+        self.samples = sample_frame(f, positions, samples_per_hop_within(rows, self.cap()));
         true
     }
 
@@ -1217,12 +1283,14 @@ impl ActiveRoute {
     /// cue does not fire again.
     pub fn set(&mut self, f: RouteFrame, positions: &[f32]) -> bool {
         let same = self.frame.as_ref().is_some_and(|c| {
-            c.snapshot_id == f.snapshot_id && c.path == f.path && c.origin == f.origin
+            c.snapshot_id == f.snapshot_id
+                && c.path == f.path
+                && c.origin == f.origin
+                && c.hit_points == f.hit_points
         });
         if !same {
-            self.samples = sample_route_from(
-                f.origin,
-                &f.path,
+            self.samples = sample_frame(
+                &f,
                 positions,
                 samples_per_hop_within(f.anchors(), self.cap()),
             );
@@ -1239,8 +1307,20 @@ impl ActiveRoute {
                     .then(|| [positions[o], positions[o + 1], positions[o + 2]])
             })
             .collect();
+        self.ghost_pts = f.ghost_points();
         self.frame = Some(f);
         !same
+    }
+
+    /// Point the guide cue at a cloud-local point (a hit outside the sample,
+    /// placed by its `position`) and replay it. False without a route.
+    pub fn focus_point(&mut self, p: Vec3) -> bool {
+        if self.samples.pts.len() < 2 || !p.iter().all(|c| c.is_finite()) {
+            return false;
+        }
+        self.focus = Some(p);
+        self.cue_age = Some(0.0);
+        true
     }
 
     /// Point the guide cue at snapshot row `row` (a hit picked on the HUD) and
@@ -1381,6 +1461,13 @@ impl MemoryRoute {
         u32::try_from(row).is_ok_and(|r| self.route.focus_row(r, positions.as_slice()))
     }
 
+    /// Send the guide cue to a cloud-local point (a hit outside the sample,
+    /// placed by its `position`). False without a route.
+    #[func]
+    fn focus_point(&mut self, p: Vector3) -> bool {
+        self.route.focus_point([p.x, p.y, p.z])
+    }
+
     /// "relay" (desktop traversal), "sidecar_top_k" (built here) or "".
     #[func]
     fn route_source(&self) -> GString {
@@ -1514,7 +1601,10 @@ impl MemoryRoute {
     fn route_shape(&self) -> PackedInt32Array {
         match (&self.route.frame, self.route.samples.pts.len() >= 2) {
             (Some(f), true) => PackedInt32Array::from(
-                &[f.anchors() as i32, self.route.sidecar_pts.len() as i32][..],
+                &[
+                    f.anchors() as i32,
+                    (self.route.sidecar_pts.len() + self.route.ghost_pts.len()) as i32,
+                ][..],
             ),
             _ => PackedInt32Array::from(&[0, 0][..]),
         }
@@ -1637,6 +1727,7 @@ impl MemoryRoute {
                 &self.route.samples,
                 &st,
                 &self.route.sidecar_pts,
+                &self.route.ghost_pts,
                 root_pulse,
                 cue,
             )
@@ -1713,6 +1804,8 @@ mod tests {
             stats: None,
             source: RouteSource::Relay,
             origin: None,
+            hit_points: Vec::new(),
+            hit_sampled: Vec::new(),
         }
     }
 
@@ -1750,7 +1843,7 @@ mod tests {
         assert!(r.set(f, &pos));
         assert_eq!(r.cue_target(), [10.0, 0.0, 0.0]);
         let st = animate(r.samples.pts.len(), 10.0, 1.0, None, true);
-        let rings = ring_buffer(&r.samples, &st, &[], 1.0, None);
+        let rings = ring_buffer(&r.samples, &st, &[], &[], 1.0, None);
         // ring 0 = root (the query point), ring 1 = answer (the top hit)
         let at = |i: usize| {
             [
@@ -1784,6 +1877,79 @@ mod tests {
             RouteDecision::Drop,
             "one row, no origin"
         );
+    }
+
+    // ── every placed hit (ADR-2136 amendment) ──
+
+    #[test]
+    fn hit_points_draw_every_placed_hit_even_outside_the_sample() {
+        // two rows in the cloud; the frame carries three placed hits, the
+        // middle one unsampled
+        let pos: Vec<f32> = vec![10.0, 0.0, 0.0, 20.0, 0.0, 0.0];
+        let mut f = frame("s", 1, 0.0, &[0]);
+        f.source = RouteSource::SidecarTopK;
+        f.origin = Some([0.0, 5.0, 0.0]);
+        f.hit_points = vec![[10.0, 0.0, 0.0], [-7.0, 2.0, 3.0], [30.0, 0.0, 0.0]];
+        f.hit_sampled = vec![true, false, true];
+        assert_eq!(f.anchors(), 4, "origin + three hits");
+        assert_eq!(f.ghost_points(), vec![[-7.0, 2.0, 3.0]]);
+        let mut r = ActiveRoute::default();
+        assert!(r.set(f.clone(), &pos));
+        assert_eq!(r.samples.knots.len(), 4);
+        assert_eq!(
+            r.samples.pts[r.samples.knots[2]],
+            [-7.0, 2.0, 3.0],
+            "the unsampled hit is on the route"
+        );
+        assert_eq!(
+            r.samples.answer_point(),
+            [10.0, 0.0, 0.0],
+            "answer ring on the top hit"
+        );
+        assert_eq!(r.ghost_pts, vec![[-7.0, 2.0, 3.0]]);
+        // the ghost is a ring of its own: dimmer and smaller than a gold mark
+        let st = animate(r.samples.pts.len(), 10.0, 1.0, None, true);
+        let rings = ring_buffer(&r.samples, &st, &r.sidecar_pts, &r.ghost_pts, 1.0, None);
+        assert_eq!(rings.len() / STRIDE, 3 + r.sidecar_pts.len() + 1);
+        let g = (3 + r.sidecar_pts.len()) * STRIDE;
+        assert_eq!(
+            [rings[g + 3], rings[g + 7], rings[g + 11]],
+            [-7.0, 2.0, 3.0]
+        );
+        assert!(
+            rings[g] < MARK_R * 1.25 && rings[g + 15] < 0.95,
+            "dimmer and smaller than gold"
+        );
+        // the budget counts the ghost marks
+        assert_eq!(
+            route_total_triangles(&r),
+            route_triangles(r.samples.pts.len())
+                + bead_instances(4) * BEAD_TRIANGLES
+                + ring_instances(r.sidecar_pts.len() + 1) * 2
+        );
+        // a repeat with the same points is not a new route
+        assert!(!r.set(f, &pos));
+        // the cue can be sent to the unsampled hit's point
+        assert!(r.focus_point([-7.0, 2.0, 3.0]));
+        assert_eq!(r.cue_target(), [-7.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn the_gate_applies_a_frame_of_unsampled_hits_only() {
+        let mut g = RouteGate::default();
+        let mut f = frame("s", 1, 1.0, &[]);
+        f.origin = Some([0.0; 3]);
+        f.hit_points = vec![[1.0, 2.0, 3.0]];
+        f.hit_sampled = vec![false];
+        assert!(
+            matches!(g.offer(f.clone(), Some("s"), 10), RouteDecision::Apply(_)),
+            "no sampled row needed"
+        );
+        let mut bad = f;
+        bad.seq = 2;
+        bad.sent_at = 2.0;
+        bad.hit_points = vec![[f32::NAN, 0.0, 0.0]];
+        assert_eq!(g.offer(bad, Some("s"), 10), RouteDecision::Drop);
     }
 
     // ── headset-picked cue target ──
@@ -2137,6 +2303,8 @@ mod tests {
                     stats: None,
                     source: RouteSource::Relay,
                     origin: None,
+                    hit_points: Vec::new(),
+                    hit_sampled: Vec::new(),
                 },
                 &pos,
             );
@@ -2190,6 +2358,8 @@ mod tests {
                 stats: None,
                 source: RouteSource::Relay,
                 origin: None,
+                hit_points: Vec::new(),
+                hit_sampled: Vec::new(),
             },
             &pos,
         );
@@ -2216,6 +2386,8 @@ mod tests {
                 stats: None,
                 source: RouteSource::Relay,
                 origin: None,
+                hit_points: Vec::new(),
+                hit_sampled: Vec::new(),
             },
             &pos,
         );
@@ -2240,6 +2412,8 @@ mod tests {
                 stats: None,
                 source: RouteSource::Relay,
                 origin: None,
+                hit_points: Vec::new(),
+                hit_sampled: Vec::new(),
             },
             &pos,
         );
@@ -2253,7 +2427,7 @@ mod tests {
             2 * r.samples.knots.len() + 2 + CUE_DOTS
         );
         assert_eq!(
-            ring_buffer(&r.samples, &st, &r.sidecar_pts, 1.0, None).len() / STRIDE,
+            ring_buffer(&r.samples, &st, &r.sidecar_pts, &r.ghost_pts, 1.0, None).len() / STRIDE,
             4
         );
     }
@@ -2350,11 +2524,11 @@ mod tests {
         let b = bead_buffer(&r, &st, 0.0, None, None, None);
         assert_eq!(b.len(), (r.knots.len() * 2 + 2 + CUE_DOTS) * STRIDE);
         assert!(b[0] < 1e-4, "root bead hidden");
-        let rings = ring_buffer(&r, &st, &[[1.0, 1.0, 1.0]], 1.0, None);
+        let rings = ring_buffer(&r, &st, &[[1.0, 1.0, 1.0]], &[], 1.0, None);
         assert_eq!(rings.len(), 4 * STRIDE);
         assert!(rings[STRIDE] < 1e-4, "answer ring hidden mid-trace");
         let st = animate(r.pts.len(), 10.0, 1.2, None, false);
-        let rings = ring_buffer(&r, &st, &[], 1.0, None);
+        let rings = ring_buffer(&r, &st, &[], &[], 1.0, None);
         assert_eq!(rings[STRIDE], RING_R);
         assert_eq!(
             [rings[STRIDE + 3], rings[STRIDE + 7], rings[STRIDE + 11]],
@@ -2451,9 +2625,9 @@ mod tests {
         let dots = (r.knots.len() * 2 + 2) * STRIDE;
         assert_eq!(a[dots..], b[dots..], "steady dots");
         // the answer ring brightens but keeps its size
-        let rings = ring_buffer(&r, &st, &[], 1.0, Some(c));
+        let rings = ring_buffer(&r, &st, &[], &[], 1.0, Some(c));
         assert_eq!(rings[STRIDE], RING_R, "no growth");
-        let plain = ring_buffer(&r, &st, &[], 1.0, None);
+        let plain = ring_buffer(&r, &st, &[], &[], 1.0, None);
         assert!(
             rings[STRIDE + 12] > plain[STRIDE + 12] * 2.0,
             "brighter: {} vs {}",
@@ -2461,7 +2635,7 @@ mod tests {
             plain[STRIDE + 12]
         );
         // with motion allowed it grows too
-        let moving = ring_buffer(&r, &st, &[], 1.0, cue_at(2.0, false));
+        let moving = ring_buffer(&r, &st, &[], &[], 1.0, cue_at(2.0, false));
         assert!((moving[STRIDE] - RING_R * (1.0 + ANSWER_HIGHLIGHT_GROW)).abs() < 1e-4);
     }
 

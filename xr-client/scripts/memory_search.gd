@@ -237,14 +237,22 @@ func on_query_completed(result: int, code: int, _headers: PackedStringArray, bod
 func focus_hit(i: int) -> bool:
 	if i < 0 or i >= _hits.size():
 		return false
-	var row: int = int((_hits[i] as Dictionary).get("row", -1))
-	if row < 0:
-		_notice("That hit is not in the sampled cloud: no point to guide to")
+	var h: Dictionary = _hits[i]
+	var row: int = int(h.get("row", -1))
+	if _layer == null or not _layer.has_method("focus_row"):
 		return false
-	if _layer == null or not _layer.has_method("focus_row") or not _layer.focus_row(row):
-		_notice("No route drawn: turn the memory cloud on, or fewer than 2 hits are in the sample")
+	if row >= 0:
+		if _layer.focus_row(row):
+			return true
+	elif bool(h.get("has_position", false)):
+		# outside the sample, but drawn where its own embedding lands
+		if _layer.focus_point(h.get("position", Vector3.ZERO)):
+			return true
+	else:
+		_notice("The server could not place that hit in the cloud")
 		return false
-	return true
+	_notice("No route drawn: turn the memory cloud on and run the query again")
+	return false
 
 
 func _describe_failure(code: int, body: PackedByteArray) -> String:

@@ -76,7 +76,7 @@ const SAMPLE_SQL: &str = "SELECT e.id, e.key, e.namespace, coalesce(e.source_typ
 /// Global top-k by cosine distance (`<=>`, served by the `ruvector_cosine_ops`
 /// HNSW index). `$2`/`$3` carry the exclusion policy.
 const SEARCH_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), \
-            (1 - (embedding <=> ($1::text)::ruvector))::float8, value \
+            (1 - (embedding <=> ($1::text)::ruvector))::float8, value, embedding::text \
      FROM memory_entries \
      WHERE embedding IS NOT NULL \
        AND NOT (namespace = ANY($2::text[])) \
@@ -91,7 +91,7 @@ const SEARCH_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), 
 /// walks `idx_memory_namespace` and sorts (18 ms for `project-state`,
 /// ~290 ms for the 162k-row `ruvnet-kb`).
 const SEARCH_NAMESPACE_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), \
-            (1 - (embedding <=> ($1::text)::ruvector))::float8, value \
+            (1 - (embedding <=> ($1::text)::ruvector))::float8, value, embedding::text \
      FROM memory_entries \
      WHERE embedding IS NOT NULL AND namespace = $2::text \
      ORDER BY (embedding <=> ($1::text)::ruvector) + 0 \
@@ -614,7 +614,11 @@ impl MemoryCloudService {
             .map(|r| {
                 let id: String = r.get(0);
                 let value: Option<serde_json::Value> = r.get(5);
+                let embedding: Option<String> = r.get(6);
                 MemoryCloudHit {
+                    position: embedding
+                        .as_deref()
+                        .and_then(|lit| snap.built.project_literal(lit)),
                     sample_index: snap.built.index_of.get(&id).copied(),
                     id,
                     key: r.get(1),

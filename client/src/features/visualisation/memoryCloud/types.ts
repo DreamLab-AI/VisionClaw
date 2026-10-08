@@ -80,6 +80,12 @@ export interface MemoryCloudHit {
   snippet: string;
   /** row index in the current snapshot, or null when the entry was not sampled */
   sampleIndex: number | null;
+  /**
+   * the hit's own embedding in the snapshot's cloud coordinates (ADR-2136):
+   * on its row when sampled, where it would sit when not; null when it could
+   * not be placed. Older servers omit it.
+   */
+  position?: [number, number, number] | null;
 }
 
 /** How the sidecar produced a result list (`wire.rs` `SearchMethod`). */

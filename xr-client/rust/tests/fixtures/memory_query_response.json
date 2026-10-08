@@ -404,7 +404,12 @@
     "sourceType": "decision",
     "score": 0.8123,
     "snippet": "Separated layout: knowledge −60°, ontology +60°, memory 180°.",
-    "sampleIndex": 12
+    "sampleIndex": 12,
+    "position": [
+     22.5,
+     -4.0,
+     9.25
+    ]
    },
    {
     "id": "m-102",
@@ -413,7 +418,12 @@
     "sourceType": "lesson",
     "score": 0.7741,
     "snippet": "Every HUD page must fit the 532 px host.",
-    "sampleIndex": null
+    "sampleIndex": null,
+    "position": [
+     -61.0,
+     12.75,
+     40.5
+    ]
    },
    {
     "id": "m-103",
@@ -422,7 +432,12 @@
     "sourceType": "decision",
     "score": 0.7402,
     "snippet": "The desktop relays the route as snapshot rows.",
-    "sampleIndex": 4
+    "sampleIndex": 4,
+    "position": [
+     3.5,
+     3.5,
+     -18.0
+    ]
    },
    {
     "id": "m-104",
@@ -431,7 +446,12 @@
     "sourceType": "",
     "score": 0.701,
     "snippet": "FrameBudget shares the triangle budget.",
-    "sampleIndex": 27
+    "sampleIndex": 27,
+    "position": [
+     14.0,
+     -27.5,
+     6.0
+    ]
    },
    {
     "id": "m-105",
@@ -440,7 +460,12 @@
     "sourceType": "lesson",
     "score": 0.6655,
     "snippet": "Pulling the trigger jolts the ray 20–30 px.",
-    "sampleIndex": 31
+    "sampleIndex": 31,
+    "position": [
+     -8.25,
+     19.0,
+     -2.5
+    ]
    },
    {
     "id": "m-106",
@@ -449,7 +474,8 @@
     "sourceType": "decision",
     "score": 0.6402,
     "snippet": "The NIP-98 URL tag must be the exact request URL.",
-    "sampleIndex": null
+    "sampleIndex": null,
+    "position": null
    }
   ],
   "tookMs": 12.5,

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 0f8ea5af87680059c4099bc619223ce541a9eddf
+verified_commit: 8e5ab0dc22ed80c3304e527b8713c13b4a8ffe07
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -76,3 +76,38 @@ At the commit stamped in `verified_commit`:
 ## Re-verification — 2026-10-08 at 131f06632 (Scope key, deferred-walk fix)
 
 Amendment from the live check: a typed query searched globally answered "0 of 50 in the sample" (the global top-50 lands in the thinly sampled reference corpus), so it drew no route; the `patterns` preset drew 14 hops from the query point. Typed queries are therefore scoped: the keyboard's Scope key cycles all of memory and the snapshot's eight most-sampled namespaces, starting in `project-state` when present (`xr-client/scripts/memory_search.gd:142` `scopes`, `:31` `DEFAULT_SCOPE`; `hud.gd:783`). Search sends `memory_typed:<scope>|<text>`. Test: `test_memory_search.gd:282`. The wire is unchanged. GUT on HP: 222/222. Follow-up at 0f8ea5af8: the scopes list puts the estate namespaces (`ESTATE_SCOPES`, `memory_search.gd:35`: project-state, patterns, coordination) first when present, because live the most-sampled eight left out `patterns`.
+
+## Amendment — 2026-10-08: every hit is placed (`hit.position`)
+A global typed query drew nothing live: its top-50 were all outside the 6,000-row sample, and
+only sampled hits had a point. The server already holds the basis, so it now places every hit
+the same way it places the query.
+
+- **Wire.** Each `MemoryCloudHit` gains optional `position: [x, y, z] | null`
+  (`crates/visionclaw-memory-cloud/src/wire.rs:110`): the hit's own embedding in the snapshot's
+  cloud coordinates. It is on its row when sampled, where it would sit when not, and `null` when
+  it can't be placed. Additive; older clients ignore it.
+- **Server.** Both search queries also select `embedding::text`
+  (`src/services/memory_cloud_service.rs:79`, mapped at `:621`). `BuiltSnapshot::project_literal`
+  (`snapshot.rs:201`) parses and L2-normalises exactly as the snapshot build does, then projects
+  with the snapshot's `Projector`. A sampled row's literal lands on its snapshot position bit for
+  bit (`snapshot.rs:301` test, extended to hit literals).
+- **Headset.** The route runs query point → every placed hit in rank order
+  (`RouteFrame::hit_points`, `memory_route.rs:291`; built in `memory_query.rs:261`), so a query
+  with no sampled hit still draws. A hit outside the sample has no sprite of its own. It gets a
+  ghost mark instead: a dimmer, smaller, cool hollow ring (`ROUTE_GHOST`, `memory_route.rs:45`).
+  On the HUD list it shows ☐; ● means sampled, — means unplaceable. Pressing it sends the guide
+  cue to its point. The caption reads "query point → sidecar top-k (k drawn, n in sample; not a
+  search path)" and the Memory-row line "Route: query point → sidecar top-k (k drawn, n in
+  sample)". Without hit positions the sampled-row route is kept. The Scope key stays: a scoped
+  query still has more of its hits in the sample. Marks stay ≤ k ≤ 50 (`MAX_SIDECAR` 64), so
+  FrameBudget is unchanged.
+- **Desktop.** The type carries the field (`types.ts`, `wireContract.ts`). The explorer's own
+  HNSW route still draws sampled rows only; drawing unsampled hits there is follow-on work.
+
+Verification at 8e5ab0dc2: `cargo test -p visionclaw-memory-cloud` passes 47 tests and 19 doc tests,
+both fixtures round-trip, and the hit-literal case is in `snapshot.rs:301`. Server lib passes
+1,568 and clippy `-D warnings` is clean. The xr-client workspace passes 551 (`memory_route.rs:1885`,
+`memory_query.rs:719`), and clippy and fmt are clean. Client vitest passes 1,264 and tsc is clean.
+On HP, GUT runs 222/222 and the guard reports 31/31; the glyph guard rejected `○`, so the list
+uses `☐`. The HP benchmark query route, with half its 49 hits as ghosts, holds 34 draw calls,
+94,566 triangles and p99 2.78 ms; every gate passes.

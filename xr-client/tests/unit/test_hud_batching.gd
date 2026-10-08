@@ -163,7 +163,7 @@ func test_every_hud_glyph_is_in_the_hud_font() -> void:
 	# strings hud.gd writes at runtime (hint bar, notices, toggles)
 	texts.append_array(["ⓘ ", "⚠ ", "☑", "☐", "▲", "▼", "●", "→", "—", "…"])
 	# memory search captions and the keyboard entry line (ADR-2136)
-	texts.append_array(["route: query point → sidecar top-k (not a search path)", "hud layout|"])
+	texts.append_array(["route: query point → sidecar top-k (5 drawn, 4 in sample; not a search path)", "hud layout|", "☐"])
 	for t: String in texts:
 		for i in t.length():
 			var cp := t.unicode_at(i)

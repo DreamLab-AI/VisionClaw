@@ -102,6 +102,12 @@ pub struct MemoryCloudHit {
     pub snippet: String,
     /// Row index in the current snapshot, or `None` when not sampled.
     pub sample_index: Option<usize>,
+    /// The hit's own embedding in the snapshot's cloud coordinates `[x, y, z]`,
+    /// projected like [`QueryEcho::position`]: on its row when sampled, where
+    /// it would sit when not. `null` when it could not be placed. ADR-2136
+    /// amendment; older servers omit it.
+    #[serde(default)]
+    pub position: Option<[f32; 3]>,
 }
 
 /// Echo of the embedded query.
@@ -362,6 +368,7 @@ mod tests {
             score: 0.5,
             snippet: "x".into(),
             sample_index: None,
+            position: Some([4.0, 5.0, -6.0]),
         };
         let resp = MemoryCloudQueryResponse {
             snapshot_id: "abc".into(),
@@ -393,6 +400,7 @@ mod tests {
                 "id",
                 "key",
                 "namespace",
+                "position",
                 "sampleIndex",
                 "score",
                 "snippet",
