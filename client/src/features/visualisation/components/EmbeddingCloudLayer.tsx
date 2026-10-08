@@ -11,7 +11,9 @@
  * The cloud frames itself on the graph (cloudFrame.ts): an outer group sits at
  * the graph's robust centre and scales the cloud's robust radius to the
  * graph's (times cloudScale / 5); an inner group recentres the cloud on its
- * dense core. Points draw as round sprites. The layout is always separated
+ * dense core. Points draw as round sprites: THREE.Points on WebGL, instanced
+ * disc sprites on WebGPU (cloudSprites.ts), sized relative to the cloud with a
+ * screen-size floor (cloudPointWorldSize). The layout is always separated
  * (ADR-2135): the cloud sits behind the two graphs on the memory vertex's
  * ray, ten graphs wide and clear of both; route, beads, bursts and the
  * camera rig live inside the groups, so they follow it and grow with it.
@@ -40,7 +42,9 @@ import { directorClock } from '../memoryCloud/memoryCloudStore';
 import TrajectoryLayer from '../memoryCloud/TrajectoryLayer';
 import MemoryCameraRig from '../memoryCloud/MemoryCameraRig';
 import { useReducedMotion } from '../memoryCloud/useReducedMotion';
-import { cloudPlacement, cloudPointSize, discSpritePixels, graphBoundsFor } from '../memoryCloud/cloudFrame';
+import { cloudPlacement, cloudPointSize, cloudPointWorldSize, discSpritePixels, graphBoundsFor } from '../memoryCloud/cloudFrame';
+import { createCloudSprites, type CloudSprites } from '../memoryCloud/cloudSprites';
+import { isWebGPURenderer } from '../../../rendering/rendererFactory';
 import { robustBounds, type RobustBounds } from '@/utils/robustBounds';
 import { sharedNodePositions, sharedNodeIdToIndexMap } from '../../graph/contexts/NodePositionContext';
 import { graphDataManager } from '../../graph/managers/graphDataManager';
@@ -70,6 +74,7 @@ const GRAPH_BOUNDS_EVERY = 1;
 /** seconds for the cloud to glide to a new placement */
 const PLACE_GLIDE = 0.8;
 const SPRITE_SIZE = 64;
+const scratch = new THREE.Vector3();
 
 /**
  * The graph's robust bounds: the live position buffer while physics runs,
@@ -201,6 +206,33 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
 
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
+  // WebGPU draws THREE.Points as unsized 1 px points with no sprite UV, which
+  // left the cloud invisible; there the points draw as instanced disc sprites
+  // over the same buffers (cloudSprites.ts) and <points> stays for picking.
+  const [sprites, setSprites] = useState<CloudSprites | null>(null);
+  useEffect(() => {
+    if (!isWebGPURenderer || !geometry) return;
+    let live = true;
+    let built: CloudSprites | null = null;
+    const pos = geometry.getAttribute('position').array as Float32Array;
+    const col = geometry.getAttribute('color').array as Float32Array;
+    createCloudSprites(pos, col, geometry.drawRange.count)
+      .then((s) => {
+        if (!live) return s.dispose();
+        built = s;
+        setSprites(s);
+      })
+      .catch(() => setSprites(null));
+    return () => {
+      live = false;
+      built?.dispose();
+      setSprites(null);
+    };
+  }, [geometry]);
+  useEffect(() => {
+    sprites?.setOpacity(opacity);
+  }, [sprites, opacity]);
+
   // the cloud's own robust frame, cloud-local
   const cloudBounds = useMemo(
     () => (snapshot ? robustBounds(snapshot.positions, snapshot.count) : null),
@@ -312,7 +344,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   }, [enabled, snapshot, maxPoints, spawnBurst]);
 
   // Per-frame: rotation (paused while a route is shown), focus dimming, bursts.
-  useFrame(({ camera }, dt) => {
+  useFrame(({ camera, size: viewport }, dt) => {
     // placement: frame the cloud on the graph, re-reading its extent at 1 Hz
     const ps = placeState.current;
     const outer = placeRef.current;
@@ -331,8 +363,16 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       outer.scale.setScalar(outer.scale.x + (place.scale - outer.scale.x) * f);
       groupRef.current?.position.set(...place.offset);
       ps.placed = true;
+      // points keep their size relative to the cloud, with a screen-size floor
+      const size = cloudPointWorldSize(
+        pointSize,
+        outer.scale.x,
+        camera.position.distanceTo(outer.getWorldPosition(scratch)),
+        viewport.height / 2,
+      );
       const mat = pointsRef.current?.material as THREE.PointsMaterial | undefined;
-      if (mat) mat.size = cloudPointSize(pointSize, outer.scale.x);
+      if (mat) mat.size = size;
+      sprites?.setSize(size);
     }
 
     const routeShown = !!run;
@@ -350,6 +390,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
       const attr = geometry.getAttribute('color') as THREE.BufferAttribute;
       applyFocusDim(baseColours, attr.array as Float32Array, d.set, d.current);
       attr.needsUpdate = true;
+      sprites?.markColoursDirty();
       d.applied = d.current;
       if (!focusSet && d.current === 0) d.set = null;
     }
@@ -377,8 +418,8 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     }
   });
 
-  // Colours change when the base changes: force a rewrite next frame.
-  useEffect(() => { dimRef.current.applied = -1; }, [baseColours, geometry]);
+  // Colours change when the base changes (or new sprites wrap the buffer): force a rewrite next frame.
+  useEffect(() => { dimRef.current.applied = -1; }, [baseColours, geometry, sprites]);
 
   const onPointerMove = useCallback(
     (e: THREE.Event & { index?: number; point?: THREE.Vector3 }) => {
@@ -426,6 +467,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
         <pointsMaterial
           size={cloudPointSize(pointSize, placeRef.current?.scale.x ?? cloudScale)}
           opacity={opacity}
+          visible={!sprites}
           map={sprite}
           alphaTest={0.02}
           transparent
@@ -434,6 +476,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
           depthWrite={false}
         />
       </points>
+      {sprites && <primitive object={sprites.object} />}
       {/* Burst ring pool — lives inside the cloud group so it scales/rotates with it */}
       <group ref={burstGroupRef} />
       <TrajectoryLayer

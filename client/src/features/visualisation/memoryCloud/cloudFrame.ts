@@ -84,6 +84,30 @@ export function cloudPointSize(pointSize: number, placementScale: number): numbe
   return Math.max(0.5, (pointSize * placementScale) / DEFAULT_CLOUD_SCALE);
 }
 
+/** smallest on-screen point diameter, CSS pixels, however far the camera is */
+export const MIN_POINT_PX = 2;
+
+/**
+ * World size the cloud's points draw at this frame. Points are
+ * size-attenuated (on screen: size × halfHeightPx / distance), so they keep
+ * their size relative to the cloud (`cloudPointSize`: the `pointSize`
+ * setting, scaled with the placement) while the camera is near; when the
+ * camera is far enough that a point would drop under MIN_POINT_PX, the size
+ * grows to hold that floor, so a zoomed-out cloud still reads as a field
+ * rather than vanishing. `distance` is camera to cloud centre, `halfHeightPx`
+ * half the canvas height in CSS pixels; bad values skip the floor.
+ */
+export function cloudPointWorldSize(
+  pointSize: number,
+  placementScale: number,
+  distance: number,
+  halfHeightPx: number,
+): number {
+  const world = cloudPointSize(pointSize, placementScale);
+  if (!(distance > 0) || !(halfHeightPx > 0) || !Number.isFinite(distance) || !Number.isFinite(halfHeightPx)) return world;
+  return Math.max(world, (MIN_POINT_PX * distance) / halfHeightPx);
+}
+
 /**
  * RGBA pixels of a round point sprite: white, so `vertexColors` pass through
  * unchanged, with alpha 1 inside 70% of the radius falling smoothly to 0 at

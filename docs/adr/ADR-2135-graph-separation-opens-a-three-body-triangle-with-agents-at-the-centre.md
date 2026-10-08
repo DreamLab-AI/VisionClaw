@@ -8,7 +8,7 @@ activation_status: staged
 supersedes: []
 superseded_by: []
 verified_commit: c54ab03cb63436a38e594692979c3de7be4d2e0f
-verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, xr-client/rust/src/cloud_frame.rs]
+verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)
 repo: visionclaw
@@ -214,3 +214,29 @@ Citations at c54ab03cb: `crates/visionclaw-tri-layout/src/lib.rs:115`
 (`memory_clear_distance`); `client/src/features/graph/triLayout.ts:95`;
 `xr-client/rust/src/memory_route.rs:72`, `:75` (the XR line factors), `:806`
 (`build_route_mesh`), `:1130` (`bead_buffer`).
+
+## Amendment — 2026-10-08: the desktop cloud draws on WebGPU and the fit avoids the overlays
+
+Operator report: on the desktop the memory cloud looked switched off. It was on and loaded, but
+on the WebGPU renderer it drew nothing: three r183 draws a `THREE.Points` there as unsized
+one-pixel primitives with no point coordinate, so the disc sprite `map` sampled its transparent
+corner and `alphaTest` discarded every point. The blobs the operator saw at the bottom right were
+graph nodes. On WebGPU the cloud now draws as one instanced `Sprite` with a
+`PointsNodeMaterial` over the same position and colour buffers, the disc computed from the quad's
+UV; the `<points>` object stays for hover picking, and WebGL keeps `THREE.Points`. Point size
+stays relative to the cloud (`pointSize` × placement scale) with a 2 px screen floor.
+
+The fit still frames the sphere around all three bodies, but now inside the largest rectangle of
+the canvas that no overlay marked `data-scene-occluder` covers (the memory explorer panel, the
+control dock), with an exact sub-frustum sphere fit; before, the centred fit put the right of the
+cloud under the explorer panel. The explorer's namespace dropdown applies the headset's preset
+rule (two sampled rows, no whitespace, largest first), dropping sentence-length stray values.
+
+Tests: `sceneFitBounds.test.ts` projects the fitted camera and holds both graphs and the cloud's
+robust box, at every yaw, inside the unoccluded rectangle; `cloudSprites.test.ts`,
+`cloudFrame.test.ts` (`cloudPointWorldSize`), `cloudData.test.ts` (`namespaceOptions`).
+
+Citations: `client/src/features/graph/utils/sceneFitBounds.ts:127` (`unoccludedRect`), `:190`
+(`fitPose`); `client/src/features/visualisation/memoryCloud/cloudSprites.ts:48`;
+`client/src/features/visualisation/memoryCloud/cloudFrame.ts:100`;
+`client/src/features/visualisation/memoryCloud/cloudData.ts:205`.

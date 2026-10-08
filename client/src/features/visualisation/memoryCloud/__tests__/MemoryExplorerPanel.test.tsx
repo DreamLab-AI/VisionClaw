@@ -42,9 +42,14 @@ import MemoryExplorerPanel, { RecallSparkline } from '../MemoryExplorerPanel';
 import { useMemoryCloudStore } from '../memoryCloudInstance';
 import { MEMORY_FOCUS_EVENT } from '../../cameraFocus';
 
+const STRAY = '3 agents spawned for DIRECT file migration of 12 files';
+const rowsIn = (ns: string, n: number) =>
+  Array.from({ length: n }, (_, i) => ({ id: `${ns}${i}`, key: `${ns}${i}`, namespace: ns, sourceType: 'memory', updatedAt: i }));
 const snapshot: MemoryCloudSnapshot = {
   version: 1, snapshotId: 's1', generatedAt: 1, dim: 4, count: 1234,
-  positions: [], metadata: [], namespaces: ['patterns', 'project-state'], sourceTypes: ['memory'],
+  positions: [],
+  metadata: [...rowsIn('patterns', 2), ...rowsIn('project-state', 3), ...rowsIn(STRAY, 4), ...rowsIn('lonely', 1)],
+  namespaces: ['3 agents spawned for DIRECT file migration of 12 files', 'lonely', 'patterns', 'project-state'], sourceTypes: ['memory'],
   strata: [], excludedNamespaces: ['personal-context'], vectorsUrl: '/v',
 };
 
@@ -99,12 +104,13 @@ describe('MemoryExplorerPanel — explore', () => {
     expect(screen.getByText(/2 live flashes fell outside the sample/)).toBeInTheDocument();
   });
 
-  it('lists sampled namespaces and runs a query with k and namespace', async () => {
+  it('lists the real sampled namespaces, largest first, and runs a query with k and namespace', async () => {
     seed();
     const runQuery = vi.spyOn(useMemoryCloudStore.getState(), 'runQuery').mockResolvedValue();
     render(<MemoryExplorerPanel />);
     const ns = screen.getByLabelText('namespace') as HTMLSelectElement;
-    expect(Array.from(ns.options).map((o) => o.value)).toEqual(['', 'patterns', 'project-state']);
+    // the sentence-length stray and the one-row namespace are not offered
+    expect(Array.from(ns.options).map((o) => o.value)).toEqual(['', 'project-state', 'patterns']);
     fireEvent.change(screen.getByLabelText('Query'), { target: { value: '  what is ADR-2122?  ' } });
     fireEvent.change(screen.getByLabelText('k'), { target: { value: '7' } });
     fireEvent.change(ns, { target: { value: 'project-state' } });

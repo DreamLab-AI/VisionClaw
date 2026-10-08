@@ -10,7 +10,10 @@ import {
   createSettleTrigger,
   cloudFitKey,
   CLOUD_SETTLE_MS,
+  unoccludedRect,
+  fitPose,
   type CloudFitInput,
+  type Rect,
 } from '../utils/sceneFitBounds';
 
 const logger = createLogger('CameraAutoFit');
@@ -22,47 +25,55 @@ const logger = createLogger('CameraAutoFit');
  */
 export const CAMERA_FIT_EVENT = 'visionclaw:camera-fit';
 
+/** attribute marking a DOM overlay the fit keeps the scene out from under */
+export const SCENE_OCCLUDER_ATTR = 'data-scene-occluder';
+
+/** canvas-relative rects of the visible overlays marked SCENE_OCCLUDER_ATTR */
+function occluderRects(canvas: HTMLElement): Rect[] {
+  if (typeof document === 'undefined') return [];
+  const c = canvas.getBoundingClientRect();
+  const out: Rect[] = [];
+  document.querySelectorAll(`[${SCENE_OCCLUDER_ATTR}]`).forEach((el) => {
+    const b = el.getBoundingClientRect();
+    if (b.width <= 0 || b.height <= 0) return;
+    out.push({ left: b.left - c.left, top: b.top - c.top, right: b.right - c.left, bottom: b.bottom - c.top });
+  });
+  return out;
+}
+
 /**
- * Adjusts the camera + controls to frame `bounds` with padding. The bounds
- * come from `sceneFitBounds`: the sphere around both graphs (percentile
- * bounds, so the layout's far outliers do not count; see utils/robustBounds)
- * and the memory cloud.
+ * Adjusts the camera + controls to frame `bounds` (from `sceneFitBounds`:
+ * both graphs and the memory cloud) inside the part of the canvas that no
+ * overlay covers (`unoccludedRect`), with the exact sub-frustum fit of
+ * `fitPose`. The far plane grows when the fitted scene would cross it.
  */
 function fitCameraToBounds(
   camera: THREE.PerspectiveCamera,
   controls: { target: THREE.Vector3; update: () => void } | null,
+  canvas: HTMLElement,
   bounds: RobustBounds,
   count: number,
 ): void {
-  const center = new THREE.Vector3(...bounds.centre);
-
-  // Fit the graph's bounding SPHERE against BOTH frustum constraints. Using only
-  // maxDim + vertical FOV clips wide graphs on tall (aspect < 1) canvases — the
-  // horizontal FOV is the tighter limit there. Derive the horizontal half-FOV
-  // from the vertical one and the camera aspect, then back off far enough that
-  // the bounding sphere fits inside whichever constraint is tighter.
-  const radius = bounds.radius; // sphere radius, floored at 1
-  const halfFovV = (camera.fov * (Math.PI / 180)) / 2;
-  const aspect = camera.aspect > 0 ? camera.aspect : 1;
-  const halfFovH = Math.atan(Math.tan(halfFovV) * aspect);
-  const distV = radius / Math.sin(halfFovV);
-  const distH = radius / Math.sin(halfFovH);
-  const distance = Math.max(distV, distH) * 1.2; // 1.2x padding around the sphere fit
-
-  // Position camera looking from a slight elevation angle for better 3D perception
-  const cameraOffset = new THREE.Vector3(0, distance * 0.3, distance);
-  camera.position.copy(center).add(cameraOffset);
-  camera.lookAt(center);
+  const view = { width: canvas.clientWidth || 1, height: canvas.clientHeight || 1 };
+  const free = unoccludedRect(view, occluderRects(canvas));
+  const aspect = camera.aspect > 0 ? camera.aspect : view.width / view.height;
+  const pose = fitPose(bounds, { fovDeg: camera.fov, aspect }, view, free);
+  const target = new THREE.Vector3(...pose.target);
+  camera.position.set(...pose.position);
+  camera.lookAt(target);
+  const reach = camera.position.distanceTo(new THREE.Vector3(...bounds.centre)) + 2 * bounds.radius;
+  if (camera.far < reach) camera.far = reach;
   camera.updateProjectionMatrix();
 
   if (controls) {
-    controls.target.copy(center);
+    controls.target.copy(target);
     controls.update();
   }
 
   logger.info(
-    `Camera auto-fit: center=(${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)}), ` +
-    `radius=${radius.toFixed(1)}, aspect=${aspect.toFixed(2)}, distance=${distance.toFixed(1)}, nodes=${count}`
+    `Camera auto-fit: centre=(${bounds.centre.map((v) => v.toFixed(1)).join(', ')}), ` +
+    `radius=${bounds.radius.toFixed(1)}, free=${free.left.toFixed(0)},${free.top.toFixed(0)}–${free.right.toFixed(0)},${free.bottom.toFixed(0)}, ` +
+    `distance=${camera.position.distanceTo(target).toFixed(1)}, nodes=${count}`
   );
 }
 
@@ -90,7 +101,7 @@ export function useCameraAutoFit(
   nodePositionsRef: React.RefObject<Float32Array | null>,
   nodeCount: number,
 ): { requestFit: () => void } {
-  const { camera, controls } = useThree();
+  const { camera, controls, gl } = useThree();
   const hasAutoFittedRef = useRef(false);
   const pendingFitRef = useRef(false);
   const cloudEnabled = useSettingsStore((s) => s.get<boolean>('visualisation.embeddingCloud.enabled')) === true;
@@ -111,11 +122,12 @@ export function useCameraAutoFit(
       fitCameraToBounds(
         camera,
         controls as { target: THREE.Vector3; update: () => void } | null,
+        gl.domElement,
         bounds,
         count,
       );
     }
-  }, [camera, controls, nodePositionsRef, nodeCount]);
+  }, [camera, controls, gl, nodePositionsRef, nodeCount]);
 
   // Listen for explicit fit requests from outside the Canvas
   useEffect(() => {

@@ -22,6 +22,7 @@ import type { EmbeddingCloudSettings } from '../../settings/config/settings';
 import { useMemoryCloudStore } from './memoryCloudInstance';
 import { sidecarAgreement, describeAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
 import { sidecarRoute, routeLegend } from './sidecarRoute';
+import { namespaceOptions } from './cloudData';
 import { focusMemoryPoint, focusMemoryPosition } from '../cameraFocus';
 import { ROUTE_PALETTE, TOTAL_DUR, GROW_DUR } from './routeMath';
 import { startDirector, stopDirector } from './cinematicSession';
@@ -159,6 +160,8 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
   const method = query.response?.sidecar.method;
   const local = useMemo(() => new Set(run?.result.top ?? []), [run]);
   const n = snapshot?.count ?? 0;
+  // real namespaces only, largest first (the headset's rule)
+  const nsOptions = useMemo(() => namespaceOptions(snapshot?.metadata ?? []), [snapshot]);
   const busy = query.status === 'running';
   const canRun = !!snapshot && !busy && text.trim().length > 0;
 
@@ -199,8 +202,8 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
           <label htmlFor={`${ids}-ns`} style={css.label}>namespace</label>
           <select id={`${ids}-ns`} value={namespace} onChange={(e) => setNamespace(e.target.value)} style={css.input}>
             <option value="">all sampled</option>
-            {(snapshot?.namespaces ?? []).map((ns) => (
-              <option key={ns} value={ns}>{ns}</option>
+            {nsOptions.map((o) => (
+              <option key={o.name} value={o.name}>{o.name}</option>
             ))}
           </select>
         </div>
@@ -579,7 +582,7 @@ const MemoryExplorerPanel: React.FC = () => {
   const setSetting = (key: string, value: unknown) => useSettingsStore.getState().set(`${E}${key}`, value);
 
   return (
-    <GlassPanel elevation="overlay" style={css.panel} data-testid="memory-explorer-panel" aria-label="Memory explorer">
+    <GlassPanel elevation="overlay" style={css.panel} data-testid="memory-explorer-panel" data-scene-occluder="" aria-label="Memory explorer">
       <div style={{ ...css.row, justifyContent: 'space-between', marginBottom: collapsed ? 0 : 10 }}>
         <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>
           <span style={{ color: ROUTE_PALETTE.mint }}>●</span> Memory explorer
