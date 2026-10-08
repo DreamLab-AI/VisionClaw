@@ -125,6 +125,83 @@ describe('memoryCloudStore', () => {
     expect(store.getState().buildProgress).toBe(0);
   });
 
+  it('keeps one timing record per load, steps in load order, and logs it as one line', async () => {
+    const info = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    let progress: ((d: number, t: number) => void) | null = null;
+    (env.traj.createTrajectoryEngine as ReturnType<typeof vi.fn>).mockImplementationOnce(() => ({
+      ready: new Promise<void>((r) => setTimeout(() => { progress?.(1, 2); r(); }, 0)),
+      onProgress: (f: (d: number, t: number) => void) => { progress = f; return () => { progress = null; }; },
+      learning: learning(), resetLearning: vi.fn(), dispose: vi.fn(), query: vi.fn(), graph: () => null,
+    }) as never);
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (s: MemoryCloudSnapshot, o?: { onStep?: (step: string) => void }) => {
+        for (const step of ['vectorsStart', 'vectorsHeaders', 'vectorsBody', 'decoded', 'vectorsDelivered']) o?.onStep?.(step);
+        return { snapshot: s, vectors: vectors(s.count) };
+      },
+    );
+    const store = createMemoryCloudStore(env.deps);
+    expect(store.getState().lastLoadTiming).toBeNull();
+    await store.getState().loadSnapshot();
+    const t = store.getState().lastLoadTiming!;
+    expect(t.outcome).toBe('ready');
+    expect(t.snapshotId).toBe('s1');
+    expect(t.vectorsRequests).toBe(1);
+    expect(t.vectorsReused).toBe(false);
+    const order = ['snapshot', 'vectorsStart', 'vectorsHeaders', 'vectorsBody', 'decoded', 'vectorsDelivered',
+      'engineCreated', 'firstProgress', 'ready'] as const;
+    for (const step of order) expect(t.marks[step], step).toBeTypeOf('number');
+    const times = order.map((s) => t.marks[s]!);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    // the trajectory import runs alongside the vectors fetch, so it is timed but not ordered
+    expect(t.marks.trajectoryModule).toBeTypeOf('number');
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(String(info.mock.calls[0][0])).toMatch(/^\[memoryCloud\] load s1 ready in \d+ ms; vectors 1 request\(s\); ms: snapshot=/);
+
+    // a reload of the same snapshot reuses the vectors and records that
+    await store.getState().loadSnapshot();
+    expect(store.getState().lastLoadTiming!.vectorsReused).toBe(true);
+    expect(store.getState().lastLoadTiming!.vectorsRequests).toBe(0);
+    info.mockRestore();
+  });
+
+  it('starts the trajectory import alongside the vectors fetch, not after it', async () => {
+    let releaseVectors!: () => void;
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      (s: MemoryCloudSnapshot) => new Promise((res) => { releaseVectors = () => res({ snapshot: s, vectors: vectors(s.count) }); }),
+    );
+    const store = createMemoryCloudStore(env.deps);
+    const p = store.getState().loadSnapshot();
+    await vi.waitFor(() => expect(env.deps.fetchVectors).toHaveBeenCalled());
+    expect(env.deps.loadTrajectory).toHaveBeenCalledTimes(1);
+    releaseVectors();
+    await p;
+    expect(store.getState().status).toBe('ready');
+    expect(env.deps.loadTrajectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed trajectory import while the vectors fail surfaces the vectors error, unhandled-free', async () => {
+    const info = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    (env.deps.loadTrajectory as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('chunk load failed'));
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new MemoryCloudApiError('invalid', 'bad blob'));
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().status).toBe('error');
+    expect(store.getState().error).toMatch(/bad blob/);
+    info.mockRestore();
+  });
+
+  it('records the outcome of a failed load', async () => {
+    const info = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new MemoryCloudApiError('forbidden', 'HTTP 403: no', 403));
+    const store = createMemoryCloudStore(env.deps);
+    await store.getState().loadSnapshot();
+    expect(store.getState().lastLoadTiming!.outcome).toBe('forbidden');
+    (env.deps.fetchVectors as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new MemoryCloudApiError('invalid', 'bad blob'));
+    await store.getState().loadSnapshot();
+    expect(store.getState().lastLoadTiming!.outcome).toBe('error');
+    info.mockRestore();
+  });
+
   it('reuses the engine for the same snapshot and disposes it on change', async () => {
     const store = createMemoryCloudStore(env.deps);
     await store.getState().loadSnapshot();

@@ -334,7 +334,7 @@ describe('backend status contract', () => {
     ]);
     // each fetch carried the header from its own signing call, never a reused one
     const sent = fetchMock.mock.calls.map((c) => (c[1].headers as Record<string, string>).Authorization);
-    expect(sent).toEqual(urls.map((u, i) => `Nostr signed:GET:${u}`));
+    expect(sent).toEqual(urls.map((u) => `Nostr signed:GET:${u}`));
     expect(new Set(sent).size).toBe(3);
   });
 
@@ -393,6 +393,85 @@ describe('vectors response details', () => {
     expect(got).toBe(a);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([resolveApiUrl(a.vectorsUrl), resolveApiUrl(a.vectorsUrl)]);
+  });
+
+  it('reports its load steps in order, counting a 409 retry as a second start', async () => {
+    const a = snapshot('a');
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'stale', currentSnapshotId: 'a' }, 409))
+      .mockResolvedValueOnce(binResponse(unitRows(2)));
+    const steps: string[] = [];
+    await fetchVectors(a, { onStep: (s) => steps.push(s) });
+    expect(steps).toEqual(['vectorsStart', 'vectorsStart', 'vectorsHeaders', 'vectorsBody', 'decoded', 'vectorsDelivered']);
+  });
+});
+
+describe('fetchVectors through a transport (the worker path)', () => {
+  const okData = (count: number) => new Float32Array(unitRows(count));
+
+  it('hands the transport the signed absolute URL and shape, and keeps its floats without a copy', async () => {
+    const data = okData(2);
+    const transport = vi.fn(async () => ({ type: 'ok' as const, data, at: {} }));
+    const s = snapshot('w1', 2);
+    const { vectors, snapshot: used } = await fetchVectors(s, {}, transport);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const url = `${window.location.origin}${s.vectorsUrl}`;
+    expect(transport).toHaveBeenCalledWith(
+      { url, count: 2, dim: DIM, headers: { Accept: 'application/octet-stream', Authorization: `Nostr signed:GET:${url}` } },
+      undefined,
+    );
+    expect(used).toBe(s);
+    expect(vectors).toEqual({ count: 2, dim: DIM, data });
+    expect(vectors.data).toBe(data);
+  });
+
+  it('reports the worker-side step times on the page clock', async () => {
+    const o = performance.timeOrigin;
+    const transport = vi.fn(async () => ({
+      type: 'ok' as const, data: okData(2), at: { headers: o + 10, body: o + 900, decoded: o + 930 },
+    }));
+    const steps: Array<[string, number | undefined]> = [];
+    await fetchVectors(snapshot('w2', 2), { onStep: (st, at) => steps.push([st, at]) }, transport);
+    expect(steps.slice(0, 4)).toEqual([
+      ['vectorsStart', undefined], ['vectorsHeaders', 10], ['vectorsBody', 900], ['decoded', 930],
+    ]);
+    expect(steps[4][0]).toBe('vectorsDelivered');
+  });
+
+  it('re-signs and retries on a 409 naming the held snapshot', async () => {
+    const auth = vi.mocked(computeAuthHeaders);
+    auth.mockClear();
+    const transport = vi.fn()
+      .mockResolvedValueOnce({ type: 'http', status: 409, statusText: 'Conflict', text: JSON.stringify({ currentSnapshotId: 'w3' }), retryAfter: null, at: {} })
+      .mockResolvedValueOnce({ type: 'ok', data: okData(2), at: {} });
+    await fetchVectors(snapshot('w3', 2), {}, transport);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(auth).toHaveBeenCalledTimes(2);
+  });
+
+  it('types every failure the transport reports', async () => {
+    const run = (r: unknown) => fetchVectors(snapshot('w4', 2), {}, vi.fn(async () => r) as never).catch((e) => e);
+    expect(await run({ type: 'http', status: 403, statusText: 'Forbidden', text: '', retryAfter: null, at: {} }))
+      .toMatchObject({ kind: 'forbidden', status: 403 });
+    expect(await run({ type: 'http', status: 503, statusText: 'x', text: '{"error":"building"}', retryAfter: '7', at: {} }))
+      .toMatchObject({ kind: 'unavailable', retryAfterMs: 7000, message: 'HTTP 503: building' });
+    expect(await run({ type: 'invalid', message: 'X-Memory-Cloud-Dim is 8, but the snapshot says 4', at: {} }))
+      .toMatchObject({ kind: 'invalid', message: 'X-Memory-Cloud-Dim is 8, but the snapshot says 4' });
+    expect(await run({ type: 'network', phase: 'request', message: 'Failed to fetch', at: {} }))
+      .toMatchObject({ kind: 'network', message: 'Network error: Failed to fetch' });
+    expect(await run({ type: 'network', phase: 'body', message: 'TypeError: reset', at: {} }))
+      .toMatchObject({ kind: 'network', message: 'Vectors download failed: TypeError: reset' });
+    expect(await run({ type: 'abort' })).toMatchObject({ kind: 'abort' });
+  });
+
+  it('passes the signal through and refuses to start once aborted', async () => {
+    const ctl = new AbortController();
+    const transport = vi.fn(async () => ({ type: 'ok' as const, data: okData(2), at: {} }));
+    await fetchVectors(snapshot('w5', 2), { signal: ctl.signal }, transport);
+    expect((transport.mock.calls[0] as unknown[])[1]).toBe(ctl.signal);
+    ctl.abort();
+    await expect(fetchVectors(snapshot('w5', 2), { signal: ctl.signal }, transport)).rejects.toMatchObject({ kind: 'abort' });
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it('signs the absolute vectors URL including its query string', async () => {

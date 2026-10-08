@@ -18,6 +18,9 @@ import type {
   MemoryCloudSnapshot,
 } from './types';
 import type { VectorSet } from '../memoryTrajectory/types';
+import type { VectorsStep } from './loadTiming';
+import { decodeVectorBlob, VectorsInvalidError } from './vectorsCodec';
+import { defaultVectorsTransport, type VectorsFetchResult, type VectorsTransport } from './vectorsFetch';
 
 export const MEMORY_CLOUD_BASE = '/api/memory-cloud';
 
@@ -85,6 +88,12 @@ export const isAbortError = (e: unknown): boolean =>
 
 export interface RequestOptions {
   signal?: AbortSignal;
+  /**
+   * Load-timing hook; `fetchVectors` reports its steps here (loadTiming.ts).
+   * `at` is the step's time on this page's `performance.now()` clock when it
+   * happened elsewhere (in the vectors worker); absent means "now".
+   */
+  onStep?: (step: VectorsStep, at?: number) => void;
 }
 
 /**
@@ -104,6 +113,19 @@ function abortError(): MemoryCloudApiError {
   return new MemoryCloudApiError('abort', 'Request aborted');
 }
 
+/** `Accept` plus the NIP-98 headers for one request. Signing failure sends it unsigned. */
+async function signedHeaders(url: string, method: string, accept: string, body?: string): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Accept: accept };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  try {
+    Object.assign(headers, await computeAuthHeaders(url, method, body));
+  } catch {
+    // Signing failure: send unsigned and let the server answer 401, which
+    // surfaces as a typed http error rather than a silent hang.
+  }
+  return headers;
+}
+
 async function request(
   path: string,
   init: { method?: 'GET' | 'POST'; body?: string; accept: string },
@@ -112,14 +134,7 @@ async function request(
   if (signal?.aborted) throw abortError();
   const url = resolveApiUrl(path);
   const method = init.method ?? 'GET';
-  const headers: Record<string, string> = { Accept: init.accept };
-  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-  try {
-    Object.assign(headers, await computeAuthHeaders(url, method, init.body));
-  } catch {
-    // Signing failure: send unsigned and let the server answer 401, which
-    // surfaces as a typed http error rather than a silent hang.
-  }
+  const headers = await signedHeaders(url, method, init.accept, init.body);
   if (signal?.aborted) throw abortError();
   let res: Response;
   try {
@@ -132,33 +147,38 @@ async function request(
 }
 
 async function httpError(res: Response): Promise<MemoryCloudApiError> {
-  let detail = res.statusText;
-  let currentSnapshotId: string | undefined;
+  let text = '';
   try {
-    const text = await res.text();
-    try {
-      const j = JSON.parse(text) as { error?: string; message?: string; currentSnapshotId?: unknown };
-      detail = j.error ?? j.message ?? (text || detail);
-      if (typeof j.currentSnapshotId === 'string') currentSnapshotId = j.currentSnapshotId;
-    } catch {
-      if (text) detail = text;
-    }
+    text = await res.text();
   } catch {
     /* body unreadable: keep statusText */
   }
+  return httpErrorFrom(res.status, res.statusText, text, res.headers.get('Retry-After'));
+}
+
+/** The typed error for a non-2xx answer, from its status, body text and `Retry-After`. */
+function httpErrorFrom(status: number, statusText: string, text: string, retryAfter: string | null): MemoryCloudApiError {
+  let detail = statusText;
+  let currentSnapshotId: string | undefined;
+  try {
+    const j = JSON.parse(text) as { error?: string; message?: string; currentSnapshotId?: unknown };
+    detail = j.error ?? j.message ?? (text || detail);
+    if (typeof j.currentSnapshotId === 'string') currentSnapshotId = j.currentSnapshotId;
+  } catch {
+    if (text) detail = text;
+  }
   const kind: MemoryCloudErrorKind =
-    res.status === 409
+    status === 409
       ? 'stale'
-      : res.status === 401 || res.status === 403
+      : status === 401 || status === 403
         ? 'forbidden'
-        : res.status === 503
+        : status === 503
           ? 'unavailable'
-          : res.status === 429
+          : status === 429
             ? 'rate_limited'
             : 'http';
-  return new MemoryCloudApiError(kind, `HTTP ${res.status}: ${detail}`, res.status, {
-    retryAfterMs:
-      res.status === 503 || res.status === 429 ? parseRetryAfter(res.headers.get('Retry-After')) : undefined,
+  return new MemoryCloudApiError(kind, `HTTP ${status}: ${detail}`, status, {
+    retryAfterMs: status === 503 || status === 429 ? parseRetryAfter(retryAfter) : undefined,
     currentSnapshotId,
   });
 }
@@ -201,60 +221,17 @@ export async function fetchSnapshot(opts: RequestOptions = {}): Promise<MemoryCl
   return validateSnapshot(await readJson<MemoryCloudSnapshot>(res, opts.signal));
 }
 
-const HOST_IS_LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
-
-/** rows whose norm is checked; enough to catch a byte-swapped or mis-strided blob */
-const NORM_PROBES = 8;
-const NORM_TOLERANCE = 0.02;
-
 /**
  * Decode a little-endian f32 row-major blob into a VectorSet, validating the
- * byte length, finiteness and (on a sample of rows) unit norm. Byte-swapped
- * floats are almost never unit length, so the norm probe doubles as the
- * endianness check.
+ * byte length, finiteness and (on a sample of rows) unit norm
+ * (`vectorsCodec.ts`); a mismatch is an `invalid` error.
  */
 export function decodeVectors(buf: ArrayBuffer, count: number, dim: number): VectorSet {
-  const expected = count * dim * 4;
-  if (buf.byteLength !== expected) {
-    throw new MemoryCloudApiError(
-      'invalid',
-      `Vectors blob is ${buf.byteLength} bytes, expected ${expected} (${count} × ${dim} × 4)`,
-    );
-  }
-  let data: Float32Array;
-  if (HOST_IS_LITTLE_ENDIAN) {
-    data = new Float32Array(buf);
-  } else {
-    const dv = new DataView(buf);
-    data = new Float32Array(count * dim);
-    for (let i = 0; i < data.length; i++) data[i] = dv.getFloat32(i * 4, true);
-  }
-  for (let i = 0; i < data.length; i++) {
-    if (!Number.isFinite(data[i])) {
-      throw new MemoryCloudApiError('invalid', `Vectors blob holds a non-finite value at ${i}`);
-    }
-  }
-  const step = Math.max(1, Math.floor(count / NORM_PROBES));
-  for (let r = 0; r < count; r += step) {
-    let s = 0;
-    const o = r * dim;
-    for (let k = 0; k < dim; k++) s += data[o + k] * data[o + k];
-    if (Math.abs(Math.sqrt(s) - 1) > NORM_TOLERANCE) {
-      throw new MemoryCloudApiError(
-        'invalid',
-        `Vector row ${r} has norm ${Math.sqrt(s).toFixed(4)}; rows must be L2-normalised little-endian f32`,
-      );
-    }
-  }
-  return { count, dim, data };
-}
-
-/** When the server states the blob's shape in a header, it must match the snapshot. */
-function checkShapeHeader(res: Response, name: string, expected: number): void {
-  const v = res.headers.get(name);
-  if (v === null) return;
-  if (Number(v.trim()) !== expected) {
-    throw new MemoryCloudApiError('invalid', `${name} is ${v}, but the snapshot says ${expected}`);
+  try {
+    return decodeVectorBlob(buf, count, dim);
+  } catch (e) {
+    if (e instanceof VectorsInvalidError) throw new MemoryCloudApiError('invalid', e.message);
+    throw e;
   }
 }
 
@@ -269,35 +246,54 @@ export interface VectorBundle {
  * snapshot was read: the snapshot is refetched once and its vectors fetched
  * instead. The bundle returns whichever snapshot the vectors belong to, so the
  * caller never pairs positions from one sample with vectors from another.
+ *
+ * The request is signed here and run by `transport`: by default in a worker,
+ * so reading and decoding 46 MB never waits on the busy main thread
+ * (vectorsFetch.ts).
  */
 export async function fetchVectors(
   snapshot: MemoryCloudSnapshot,
   opts: RequestOptions = {},
+  transport: VectorsTransport = defaultVectorsTransport(),
 ): Promise<VectorBundle> {
+  const { signal, onStep } = opts;
   let current = snapshot;
   for (let attempt = 0; attempt < 2; attempt++) {
-    // request() signs each attempt afresh: NIP-98 tokens are single-use.
-    const res = await request(current.vectorsUrl, { accept: 'application/octet-stream' }, opts.signal);
-    if (res.status === 409 && attempt === 0) {
-      // The body names the current snapshot. When it is the one already held
-      // (a rebuild raced the request), retry the same URL; otherwise the
-      // vectors must pair with that snapshot's positions and metadata, so
-      // refetch it whole.
-      const conflict = await httpError(res);
-      if (conflict.currentSnapshotId !== current.snapshotId) current = await fetchSnapshot(opts);
-      continue;
+    if (signal?.aborted) throw abortError();
+    onStep?.('vectorsStart');
+    // Signed afresh for each attempt: NIP-98 tokens are single-use.
+    const url = resolveApiUrl(current.vectorsUrl);
+    const headers = await signedHeaders(url, 'GET', 'application/octet-stream');
+    if (signal?.aborted) throw abortError();
+    const r: VectorsFetchResult = await transport({ url, headers, count: current.count, dim: current.dim }, signal);
+    if (r.type === 'abort' || signal?.aborted) throw abortError();
+    if (r.type === 'http') {
+      const err = httpErrorFrom(r.status, r.statusText, r.text, r.retryAfter);
+      if (r.status === 409 && attempt === 0) {
+        // The body names the current snapshot. When it is the one already held
+        // (a rebuild raced the request), retry the same URL; otherwise the
+        // vectors must pair with that snapshot's positions and metadata, so
+        // refetch it whole.
+        if (err.currentSnapshotId !== current.snapshotId) current = await fetchSnapshot(opts);
+        continue;
+      }
+      throw err;
     }
-    if (!res.ok) throw await httpError(res);
-    checkShapeHeader(res, 'X-Memory-Cloud-Dim', current.dim);
-    checkShapeHeader(res, 'X-Memory-Cloud-Count', current.count);
-    let buf: ArrayBuffer;
-    try {
-      buf = await res.arrayBuffer();
-    } catch (e) {
-      if (opts.signal?.aborted) throw abortError();
-      throw new MemoryCloudApiError('network', `Vectors download failed: ${String(e)}`);
+    if (r.type === 'invalid') throw new MemoryCloudApiError('invalid', r.message);
+    if (r.type === 'network') {
+      throw new MemoryCloudApiError(
+        'network',
+        r.phase === 'request' ? `Network error: ${r.message}` : `Vectors download failed: ${r.message}`,
+      );
     }
-    return { snapshot: current, vectors: decodeVectors(buf, current.count, current.dim) };
+    if (onStep) {
+      const local = (t: number | undefined) => (t === undefined ? undefined : t - performance.timeOrigin);
+      onStep('vectorsHeaders', local(r.at.headers));
+      onStep('vectorsBody', local(r.at.body));
+      onStep('decoded', local(r.at.decoded));
+      onStep('vectorsDelivered');
+    }
+    return { snapshot: current, vectors: { count: current.count, dim: current.dim, data: r.data } };
   }
   // unreachable: the second iteration either returns or throws
   throw new MemoryCloudApiError('stale', 'Snapshot rebuilt while fetching vectors', 409);
