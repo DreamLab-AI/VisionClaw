@@ -428,17 +428,21 @@ async fn main() -> std::io::Result<()> {
             info!("[main] RAGFlowService::new SUCCEEDED. Service instance created.");
             Some(Arc::new(service))
         }
+        Err(visionclaw_server::services::ragflow_service::RAGFlowError::NotConfigured(why)) => {
+            warn!(
+                "[main] RAGFlow chat disabled: {} (set RAGFLOW_API_KEY, RAGFLOW_API_BASE_URL and RAGFLOW_AGENT_ID to enable)",
+                why
+            );
+            None
+        }
         Err(e) => {
-            error!("[main] RAGFlowService::new FAILED. Error: {}", e);
+            error!(
+                "[main] RAGFlowService::new FAILED: {}. Chat functionality will be unavailable.",
+                e
+            );
             None
         }
     };
-
-    if ragflow_service_option.is_some() {
-        debug!("[main] ragflow_service_option is Some after RAGFlowService::new attempt.");
-    } else {
-        error!("[main] ragflow_service_option is None after RAGFlowService::new attempt. Chat functionality will be unavailable.");
-    }
 
     let settings_value = {
         let settings_read = settings.read().await;
@@ -598,21 +602,29 @@ async fn main() -> std::io::Result<()> {
 
     // Step 1: Sync Files from GitHub.
     info!("[Startup] Step 1: Syncing files from GitHub to local storage...");
-    let github_sync_failed = if let Err(e) =
-        visionclaw_server::services::file_service::FileService::initialize_local_storage(
+    let github_sync_failed =
+        match visionclaw_server::services::file_service::FileService::initialize_local_storage(
             settings.clone(),
+            visionclaw_server::services::corpus_source::corpus_source_kind(),
         )
         .await
-    {
-        error!(
-            "[Startup] FAILED to sync from GitHub: {}. Will try local files.",
-            e
-        );
-        true
-    } else {
-        info!("[Startup] SUCCESS: Local file storage is synchronized with GitHub.");
-        false
-    };
+        {
+            Ok(visionclaw_server::services::file_service::LocalStorageSync::Synced) => {
+                info!("[Startup] SUCCESS: Local file storage is synchronized with GitHub.");
+                false
+            }
+            Ok(visionclaw_server::services::file_service::LocalStorageSync::SkippedLocalCorpus) => {
+                info!("[Startup] Corpus source is local: no GitHub markdown mirror to sync.");
+                false
+            }
+            Err(e) => {
+                error!(
+                    "[Startup] FAILED to sync from GitHub: {}. Will try local files.",
+                    e
+                );
+                true
+            }
+        };
 
     // Step 1b: If GitHub sync failed or metadata is empty, scan local files
     let metadata =

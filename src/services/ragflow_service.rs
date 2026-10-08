@@ -16,6 +16,8 @@ pub enum RAGFlowError {
     StatusError(StatusCode, String),
     ParseError(String),
     IoError(std::io::Error),
+    /// RAGFlow chat is optional and `RAGFLOW_API_KEY` is unset or empty.
+    NotConfigured(String),
 }
 
 impl Serialize for RAGFlowError {
@@ -42,6 +44,10 @@ impl Serialize for RAGFlowError {
                 state.serialize_field("type", "IoError")?;
                 state.serialize_field("message", &e.to_string())?;
             }
+            RAGFlowError::NotConfigured(msg) => {
+                state.serialize_field("type", "NotConfigured")?;
+                state.serialize_field("message", msg)?;
+            }
         }
         state.end()
     }
@@ -56,6 +62,7 @@ impl fmt::Display for RAGFlowError {
             }
             RAGFlowError::ParseError(msg) => write!(f, "Parse error: {}", msg),
             RAGFlowError::IoError(e) => write!(f, "IO error: {}", e),
+            RAGFlowError::NotConfigured(msg) => write!(f, "not configured: {}", msg),
         }
     }
 }
@@ -99,70 +106,44 @@ pub struct RAGFlowService {
 }
 
 impl RAGFlowService {
+    /// Validate the three RAGFlow settings `(api_key, base_url, agent_id)`.
+    ///
+    /// No key (absent, empty or blank) means the optional chat service is
+    /// simply not configured: [`RAGFlowError::NotConfigured`]. A key without a
+    /// base URL or agent ID is a broken configuration: [`RAGFlowError::ParseError`].
+    pub(crate) fn config_from(
+        api_key: Option<String>,
+        base_url: Option<String>,
+        agent_id: Option<String>,
+    ) -> Result<(String, String, String), RAGFlowError> {
+        let present = |v: Option<String>| v.filter(|s| !s.trim().is_empty());
+        let api_key = present(api_key)
+            .ok_or_else(|| RAGFlowError::NotConfigured("RAGFLOW_API_KEY is not set".to_string()))?;
+        let base_url = present(base_url).ok_or_else(|| {
+            RAGFlowError::ParseError(
+                "RAGFLOW_API_KEY is set but RAGFLOW_API_BASE_URL is empty".to_string(),
+            )
+        })?;
+        let agent_id = present(agent_id).ok_or_else(|| {
+            RAGFlowError::ParseError(
+                "RAGFLOW_API_KEY is set but RAGFLOW_AGENT_ID is empty".to_string(),
+            )
+        })?;
+        Ok((api_key, base_url, agent_id))
+    }
+
     pub async fn new(_settings: Arc<RwLock<AppFullSettings>>) -> Result<Self, RAGFlowError> {
         let client = Client::new();
 
-        info!("[RAGFlowService::new] Attempting to load RAGFlow config directly from environment variables.");
-
-        let api_key = std::env::var("RAGFLOW_API_KEY").map_err(|e| {
-            error!(
-                "[RAGFlowService::new] Failed to read RAGFLOW_API_KEY: {}",
-                e
-            );
-            RAGFlowError::ParseError(format!(
-                "RAGFLOW_API_KEY environment variable not found or invalid: {}",
-                e
-            ))
-        })?;
-
-        let base_url = std::env::var("RAGFLOW_API_BASE_URL").map_err(|e| {
-            error!(
-                "[RAGFlowService::new] Failed to read RAGFLOW_API_BASE_URL: {}",
-                e
-            );
-            RAGFlowError::ParseError(format!(
-                "RAGFLOW_API_BASE_URL environment variable not found or invalid: {}",
-                e
-            ))
-        })?;
-
-        let agent_id = std::env::var("RAGFLOW_AGENT_ID").map_err(|e| {
-            error!(
-                "[RAGFlowService::new] Failed to read RAGFLOW_AGENT_ID: {}",
-                e
-            );
-            RAGFlowError::ParseError(format!(
-                "RAGFLOW_AGENT_ID environment variable not found or invalid: {}",
-                e
-            ))
-        })?;
+        let (api_key, base_url, agent_id) = Self::config_from(
+            std::env::var("RAGFLOW_API_KEY").ok(),
+            std::env::var("RAGFLOW_API_BASE_URL").ok(),
+            std::env::var("RAGFLOW_AGENT_ID").ok(),
+        )?;
 
         info!("[RAGFlowService::new] RAGFLOW_API_KEY: loaded (value redacted)");
         info!("[RAGFlowService::new] RAGFLOW_API_BASE_URL: {}", base_url);
         info!("[RAGFlowService::new] RAGFLOW_AGENT_ID: {}", agent_id);
-
-        if api_key.is_empty() {
-            error!(
-                "[RAGFlowService::new] RAGFLOW_API_KEY is empty after loading from environment."
-            );
-            return Err(RAGFlowError::ParseError(
-                "RAGFLOW_API_KEY environment variable is empty".to_string(),
-            ));
-        }
-        if base_url.is_empty() {
-            error!("[RAGFlowService::new] RAGFLOW_API_BASE_URL is empty after loading from environment.");
-            return Err(RAGFlowError::ParseError(
-                "RAGFLOW_API_BASE_URL environment variable is empty".to_string(),
-            ));
-        }
-        if agent_id.is_empty() {
-            error!(
-                "[RAGFlowService::new] RAGFLOW_AGENT_ID is empty after loading from environment."
-            );
-            return Err(RAGFlowError::ParseError(
-                "RAGFLOW_AGENT_ID environment variable is empty".to_string(),
-            ));
-        }
 
         info!("[RAGFlowService::new] Successfully loaded RAGFlow API key, base URL, and agent ID from environment variables.");
 
@@ -509,5 +490,49 @@ impl Clone for RAGFlowService {
             base_url: self.base_url.clone(),
             agent_id: self.agent_id.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    /// RAGFlow chat is optional: no key means "not configured", which startup
+    /// reports as a WARN, not a failure.
+    #[test]
+    fn an_absent_or_empty_key_means_not_configured() {
+        for key in [None, s(""), s("   ")] {
+            let r = RAGFlowService::config_from(key, s("http://ragflow:9380"), s("agent"));
+            assert!(
+                matches!(r, Err(RAGFlowError::NotConfigured(_))),
+                "got {r:?}"
+            );
+        }
+    }
+
+    /// A key with a missing URL or agent is a broken configuration: an error.
+    #[test]
+    fn a_key_without_url_or_agent_is_a_configuration_error() {
+        let r = RAGFlowService::config_from(s("k"), s(""), s("agent"));
+        assert!(matches!(r, Err(RAGFlowError::ParseError(_))), "got {r:?}");
+        let r = RAGFlowService::config_from(s("k"), s("http://ragflow:9380"), None);
+        assert!(matches!(r, Err(RAGFlowError::ParseError(_))), "got {r:?}");
+    }
+
+    #[test]
+    fn a_complete_configuration_is_accepted() {
+        let r = RAGFlowService::config_from(s("k"), s("http://ragflow:9380"), s("agent"));
+        assert_eq!(
+            r.unwrap(),
+            (
+                "k".to_string(),
+                "http://ragflow:9380".to_string(),
+                "agent".to_string()
+            )
+        );
     }
 }

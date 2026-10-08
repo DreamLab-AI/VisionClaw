@@ -56,6 +56,15 @@ struct OntologyData {
     definition: Option<String>,
 }
 
+/// What [`FileService::initialize_local_storage`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalStorageSync {
+    /// The local markdown mirror is valid or was refreshed from GitHub.
+    Synced,
+    /// The corpus is local, so there is no GitHub mirror to maintain.
+    SkippedLocalCorpus,
+}
+
 pub struct FileService {
     _settings: Arc<RwLock<AppFullSettings>>,
 
@@ -289,9 +298,24 @@ impl FileService {
         topic_counts
     }
 
+    /// Mirror the GitHub corpus into [`MARKDOWN_DIR`] at startup.
+    ///
+    /// Only a GitHub corpus needs the mirror. A local corpus (ADR-2114) is
+    /// ingested straight from the mounted vault, and `MARKDOWN_DIR` is mounted
+    /// read-only in the dev compose, so the mirror is skipped without touching
+    /// the filesystem or the network.
     pub async fn initialize_local_storage(
         settings: Arc<RwLock<AppFullSettings>>,
-    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
+        corpus: crate::services::corpus_source::CorpusSourceKind,
+    ) -> Result<LocalStorageSync, Box<dyn StdError + Send + Sync>> {
+        if corpus == crate::services::corpus_source::CorpusSourceKind::Local {
+            info!(
+                "Corpus source is local (ADR-2114): skipping the GitHub markdown mirror into {}",
+                MARKDOWN_DIR
+            );
+            return Ok(LocalStorageSync::SkippedLocalCorpus);
+        }
+
         let github_config =
             GitHubConfig::from_env().map_err(|e| Box::new(e) as Box<dyn StdError + Send + Sync>)?;
 
@@ -312,7 +336,7 @@ impl FileService {
 
         if Self::has_valid_local_setup() {
             info!("Valid local setup found, skipping initialization");
-            return Ok(());
+            return Ok(LocalStorageSync::Synced);
         }
 
         info!("Initializing local storage with files from GitHub");
@@ -428,7 +452,7 @@ impl FileService {
             "Initialization complete. Processed {} public files",
             metadata_store.len()
         );
-        Ok(())
+        Ok(LocalStorageSync::Synced)
     }
 
     fn update_topic_counts(metadata_store: &mut MetadataStore) -> Result<(), Error> {
@@ -1195,5 +1219,24 @@ impl FileService {
             graph_data.nodes.len()
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::corpus_source::CorpusSourceKind;
+
+    /// ADR-2114: with a local corpus the graph is ingested from the vault, so
+    /// the legacy GitHub→markdown mirror must not run. It writes a probe file
+    /// into MARKDOWN_DIR, which the dev compose mounts read-only, and logged
+    /// "FAILED to sync from GitHub: Read-only file system" on every start.
+    #[actix_web::test]
+    async fn the_markdown_mirror_is_skipped_for_a_local_corpus() {
+        let settings = Arc::new(RwLock::new(AppFullSettings::default()));
+        let outcome = FileService::initialize_local_storage(settings, CorpusSourceKind::Local)
+            .await
+            .expect("a local corpus needs no GitHub mirror and cannot fail it");
+        assert_eq!(outcome, LocalStorageSync::SkippedLocalCorpus);
     }
 }

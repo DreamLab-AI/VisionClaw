@@ -84,9 +84,11 @@ impl AcspClient {
             .add_relay(forum_relay_url)
             .await
             .map_err(|e| format!("ACSP add_relay: {e}"))?;
+        // nostr-sdk connects in the background and keeps retrying; an
+        // unreachable relay surfaces later as nostr_relay_pool errors.
         client.connect().await;
         info!(
-            "[ACSP] panel identity {} connected to {} (register this pubkey in the relay agent_registry)",
+            "[ACSP] panel identity {} connecting to {} in the background (register this pubkey in the relay agent_registry)",
             keys.public_key().to_hex(),
             forum_relay_url
         );
