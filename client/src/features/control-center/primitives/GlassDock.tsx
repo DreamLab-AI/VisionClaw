@@ -46,6 +46,7 @@ export const GlassDock: React.FC<GlassDockProps> = ({
           id={id}
           role="toolbar"
           aria-label="Control dock"
+          data-scene-occluder={collapsed ? undefined : ''}
           aria-hidden={collapsed}
           className={cn(
             'flex items-center gap-3 px-4 py-2 transition-[opacity,transform]',

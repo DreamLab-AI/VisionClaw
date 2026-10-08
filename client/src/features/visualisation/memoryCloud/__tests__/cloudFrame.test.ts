@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, DEFAULT_CLOUD_SCALE, graphBoundsFor } from '../cloudFrame';
+import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, cloudPointWorldSize, MIN_POINT_PX, DEFAULT_CLOUD_SCALE, graphBoundsFor } from '../cloudFrame';
 import { separatedFrame, memoryCentre, memoryClearDistance, MEMORY_DISTANCE_FACTOR, place, Vertex, LIVE_GRAPH_RADIUS, MEMORY_BODY_SCALE } from '../../../graph/triLayout';
 import { robustBounds } from '@/utils/robustBounds';
 
@@ -157,5 +157,24 @@ describe('cloudPointSize', () => {
   });
   it('never collapses a point below a visible floor', () => {
     expect(cloudPointSize(7.5, 0.001)).toBeGreaterThanOrEqual(0.5);
+  });
+});
+
+describe('cloudPointWorldSize', () => {
+  it('is the pointSize setting relative to the cloud while points are big enough on screen', () => {
+    // live fit: placement ×9.06, camera ~2,000 from the cloud, 450 px half-height
+    expect(cloudPointWorldSize(7.5, 9.06, 2000, 450)).toBeCloseTo(cloudPointSize(7.5, 9.06));
+  });
+  it('holds a screen-size floor when the camera is far: a point never drops under MIN_POINT_PX', () => {
+    const far = 40000;
+    const world = cloudPointWorldSize(7.5, 9.06, far, 450);
+    expect((world * 450) / far).toBeCloseTo(MIN_POINT_PX);
+  });
+  it('keeps pointSize and cloudScale relative: doubling pointSize doubles the size above the floor', () => {
+    expect(cloudPointWorldSize(15, 9.06, 2000, 450)).toBeCloseTo(2 * cloudPointWorldSize(7.5, 9.06, 2000, 450));
+  });
+  it('bad camera input falls back to the world size', () => {
+    expect(cloudPointWorldSize(7.5, 9.06, NaN, 450)).toBeCloseTo(cloudPointSize(7.5, 9.06));
+    expect(cloudPointWorldSize(7.5, 9.06, 2000, 0)).toBeCloseTo(cloudPointSize(7.5, 9.06));
   });
 });

@@ -7,6 +7,7 @@ import {
   ageRanks,
   CLOUD_PALETTE,
   burstFrame,
+  namespaceOptions,
 } from '../cloudData';
 import type { MemoryCloudMeta } from '../types';
 
@@ -122,5 +123,26 @@ describe('burstFrame', () => {
     expect(sizes[0]).toBeCloseTo(4 * 0.6);
     expect(burstFrame(0.5, implode, true).scale).toBeCloseTo(4 * 0.6);
     expect(burstFrame(0.9, expand, true).alpha).toBeLessThan(burstFrame(0.1, expand, true).alpha);
+  });
+});
+
+describe('namespaceOptions', () => {
+  it('keeps real namespaces largest first and rejects the headset strays (memory_query.rs presets)', () => {
+    const m: MemoryCloudMeta[] = [];
+    const add = (ns: string, n: number) => { for (let i = 0; i < n; i++) m.push(meta(`${ns}-${i}`, ns, 'memory', i)); };
+    add('patterns', 5);
+    add('project-state', 9);
+    add('3 agents spawned for DIRECT file migration of 12 files', 40);
+    add('tiny', 1);
+    add('', 6);
+    add('ruvnet-kb', 5);
+    expect(namespaceOptions(m)).toEqual([
+      { name: 'project-state', rows: 9 },
+      { name: 'patterns', rows: 5 },
+      { name: 'ruvnet-kb', rows: 5 },
+    ]);
+  });
+  it('no rows: no options', () => {
+    expect(namespaceOptions([])).toEqual([]);
   });
 });

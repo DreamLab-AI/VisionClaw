@@ -186,3 +186,27 @@ export function burstFrame(
   const scale = profile.motion === 'implode' ? profile.maxScale * Math.pow(1 - t, 3) : profile.maxScale * (1 - Math.pow(1 - t, 3));
   return { scale: Math.max(scale, 0.01), alpha };
 }
+
+/** a namespace offered in the explorer's dropdown */
+export interface NamespaceOption {
+  name: string;
+  /** sampled rows in this namespace */
+  rows: number;
+}
+
+/**
+ * The namespaces worth offering as a query scope, largest first (ties by
+ * name). The same rule as the headset's presets (xr-client
+ * `memory_query.rs::presets`): a namespace needs two sampled rows (a route
+ * needs two points) and a name without whitespace, because the live store
+ * holds stray sentence-length values in that column ("3 agents spawned
+ * for …").
+ */
+export function namespaceOptions(metadata: ReadonlyArray<{ namespace: string }>): NamespaceOption[] {
+  const counts = new Map<string, number>();
+  for (const m of metadata) counts.set(m.namespace, (counts.get(m.namespace) ?? 0) + 1);
+  return [...counts]
+    .filter(([name, rows]) => rows >= 2 && name.length > 0 && !/\s/.test(name))
+    .map(([name, rows]) => ({ name, rows }))
+    .sort((a, b) => b.rows - a.rows || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
