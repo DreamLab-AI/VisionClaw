@@ -64,6 +64,28 @@ const tmpQuat = new THREE.Quaternion();
 const tmpDir = new THREE.Vector3();
 const tmpScale = new THREE.Vector3();
 
+/**
+ * Decides when the edge-ceiling overflow line is logged: once per overflow
+ * episode. Keying on the exact count logged on almost every frame while
+ * physics settled, because the distance cull moves the count by a few edges
+ * each frame.
+ */
+export class OverflowReporter {
+  private latched = false;
+
+  /** Call when `edgeCount` exceeds `ceiling`; true means log the line now. */
+  shouldReport(edgeCount: number, ceiling: number): boolean {
+    if (edgeCount <= ceiling || this.latched) return false;
+    this.latched = true;
+    return true;
+  }
+
+  /** Call with every edge count so a return within the ceiling re-arms the report. */
+  observe(edgeCount: number, ceiling: number): void {
+    if (edgeCount <= ceiling) this.latched = false;
+  }
+}
+
 /** Round up to next power of two for capacity sizing. */
 function ceilToPowerOfTwo(n: number): number {
   if (n <= 1) return 1;
@@ -226,8 +248,8 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     const capacityRef = useRef<number>(0);
     // Track reallocation frequency for telemetry — flag if >2 in 60s.
     const reallocationTimestampsRef = useRef<number[]>([]);
-    // Track whether we have warned about ceiling overflow this prop tick.
-    const overflowWarnedRef = useRef<number>(0);
+    // Logs the ceiling overflow once per overflow episode.
+    const overflowReporterRef = useRef<OverflowReporter>(new OverflowReporter());
     // Latest uniforms returned by allocateMesh — kept so consumers reading
     // them through this ref don't lose access on growth.
     const uniformsRef = useRef<any>(null);
@@ -372,6 +394,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
     const ensureCapacity = useCallback((edgeCount: number): THREE.InstancedMesh => {
       const ceiling = ceilingRef.current;
       const capacity = capacityRef.current;
+      overflowReporterRef.current.observe(edgeCount, ceiling);
       if (edgeCount <= capacity) return meshRef.current!;
 
       // Need to grow. If we'd exceed ceiling, draw ceiling edges and warn.
@@ -380,8 +403,7 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
           // First grow to ceiling
           reallocate(ceiling);
         }
-        if (overflowWarnedRef.current !== edgeCount) {
-          overflowWarnedRef.current = edgeCount;
+        if (overflowReporterRef.current.shouldReport(edgeCount, ceiling)) {
           const hidden = edgeCount - ceiling;
           if (userSetCeilingRef.current) {
             // Configured ceiling — truncation is by design. One structured info
@@ -418,8 +440,6 @@ export const GlassEdges = forwardRef<GlassEdgesHandle, GlassEdgesProps>(
         ensureCapacity(edgeCount);
         totalEdgesRef.current = Math.min(edgeCount, capacityRef.current);
         edgeRevealRef.current = 0; // Reset for progressive reveal in useFrame
-        // Reset overflow warn flag so next overflow logs again
-        if (edgeCount <= capacityRef.current) overflowWarnedRef.current = 0;
       } else {
         const m = meshRef.current ?? mesh;
         m.count = 0;

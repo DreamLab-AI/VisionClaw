@@ -4,16 +4,20 @@
  * Extracted from GraphManager.tsx (Phase B1 modularisation).
  * Reads SAB positions each frame, computes surface-to-surface edge endpoints,
  * fills pre-allocated buffers, and pushes to GlassEdgesHandle imperatively.
- * Zero allocations on the hot path (buffers only grow, never shrink).
+ * The position-invariant per-edge work lives in a memoised plan
+ * (edgeBufferPlan.ts); the frame runs only position maths, and skips entirely
+ * when positions, plan, selection and handles are unchanged.
  */
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import * as THREE from 'three'
+import type * as THREE from 'three'
 import type { GraphData } from '../managers/graphDataManager'
 import type { GlassEdgesHandle } from '../components/GlassEdges'
 import type { GraphVisualMode } from './useGraphVisualState'
-import { getEdgeTypeColor } from './useGraphNodeColors'
-import { computeNodeScale } from '../utils/nodeScaling'
+import {
+  buildEdgePlan, createEdgeFrameBuffers, fillEdgeFrame, fillHighlightFrame,
+  EdgeFrameGate, type EdgeFrameBuffers,
+} from './edgeBufferPlan'
 import { createLogger } from '../../../utils/loggerConfig'
 
 const logger = createLogger('useEdgeBufferComputation')
@@ -55,20 +59,29 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
     setEdgePoints, setHighlightEdgePoints,
   } = opts
 
-  // Pre-allocated reusable vectors (module-level would conflict across hook instances)
-  const tempVec3      = useRef(new THREE.Vector3()).current
-  const tempPosition  = useRef(new THREE.Vector3()).current
-  const tempDirection = useRef(new THREE.Vector3()).current
-  const tempSrcOff    = useRef(new THREE.Vector3()).current
-  const tempTgtOff    = useRef(new THREE.Vector3()).current
+  // Position-invariant per-edge data (visibility, indices, node radii,
+  // colours, weights). Rebuilt only when topology, filters or scaling inputs
+  // change, never per frame: resolving it per edge per frame cost ~490 ms a
+  // frame on the 144k-edge graph (computeNodeScale twice per edge).
+  const plan = useMemo(
+    () => buildEdgePlan({
+      nodes: graphData.nodes, edges: graphData.edges, nodeIdToIndexMap, connectionCountMap,
+      perNodeVisualModeMap, hierarchyMap, graphMode, visibleNodeIds, graphTypeVisuals, nodeSize,
+    }),
+    [graphData, nodeIdToIndexMap, connectionCountMap, perNodeVisualModeMap, hierarchyMap,
+      graphMode, visibleNodeIds, graphTypeVisuals, nodeSize],
+  )
 
-  // Pre-allocated buffers — grow only, never shrink
-  const edgeBufferRef         = useRef<number[]>([])
-  const highlightBufferRef    = useRef<number[]>([])
-  const edgeColorBufferRef    = useRef<Float32Array>(new Float32Array(0))
-  const edgeWeightBufferRef   = useRef<Float32Array>(new Float32Array(0))
+  // Frame buffers — grow only, never shrink.
+  const buffersRef = useRef<EdgeFrameBuffers | null>(null)
+  if (buffersRef.current === null) buffersRef.current = createEdgeFrameBuffers()
+  const gateRef = useRef<EdgeFrameGate | null>(null)
+  if (gateRef.current === null) gateRef.current = new EdgeFrameGate()
   const edgeUpdatePendingRef  = useRef<number[] | null>(null)
   const hlUpdatePendingRef    = useRef<number[] | null>(null)
+  // Highlight edges last pushed through the imperative handle, so a deselect
+  // clears them (the React-state copy is only written before the handle mounts).
+  const hlPushedRef           = useRef(0)
 
   useFrame(() => {
     const positions = nodePositionsRef.current
@@ -81,158 +94,58 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
     // refiltered/cleared, so node-type visibility toggles had no effect on them.
     if (graphData.nodes.length === 0 || positions.length < graphData.nodes.length * 3) return
 
-    const edgeCount       = graphData.edges.length
-    const edgeBufferNeeded = edgeCount * 6
-    if (edgeBufferRef.current.length < edgeBufferNeeded) {
-      edgeBufferRef.current = new Array<number>(edgeBufferNeeded)
+    const isDragging = dragDataRef.current.isDragging
+    const frame = {
+      plan, positions,
+      edgeHandle: edgeFlowRef.current,
+      highlightHandle: highlightEdgeFlowRef.current,
+      selectedNodeId,
+      dragging: isDragging,
     }
-    const newEdgePoints = edgeBufferRef.current
-    let edgePointIdx = 0
+    // Nothing that feeds the edge buffers changed since the last frame (the
+    // settled steady state): the meshes already hold this exact output.
+    const gate = gateRef.current!
+    if (gate.shouldSkip(frame)) return
 
-    const edgeColorNeeded = edgeCount * 3
-    if (edgeColorBufferRef.current.length < edgeColorNeeded) {
-      edgeColorBufferRef.current = new Float32Array(edgeColorNeeded)
-    }
-    const edgeColors = edgeColorBufferRef.current
-    let edgeColorIdx = 0
+    const buffers   = buffersRef.current!
+    const dragNodeId = isDragging ? dragDataRef.current.nodeId : null
+    const dragIdx   = dragNodeId === null ? -1 : (nodeIdToIndexMap.get(dragNodeId) ?? -1)
+    const dragPos   = dragDataRef.current.currentNodePos3D
 
-    // Per-edge weights, written in lockstep with colours so index i in the
-    // weight buffer matches instance i in GlassEdges (same emit/filter order).
-    if (edgeWeightBufferRef.current.length < edgeCount) {
-      edgeWeightBufferRef.current = new Float32Array(edgeCount)
-    }
-    const edgeWeights = edgeWeightBufferRef.current
-    let edgeWeightIdx = 0
-
-    const isDragging  = dragDataRef.current.isDragging
-    const dragNodeId  = isDragging ? dragDataRef.current.nodeId : null
-    const dragPos     = dragDataRef.current.currentNodePos3D
-
-    graphData.edges.forEach(edge => {
-      const sourceStr = String(edge.source)
-      const targetStr = String(edge.target)
-      // Skip edges touching a non-rendered node. Subsumes the node-type toggle
-      // AND the linked_page / min-degree / quality prunes, keeping edges in
-      // lockstep with the population meshes (no edges to invisible endpoints).
-      if (!visibleNodeIds.has(sourceStr) || !visibleNodeIds.has(targetStr)) return
-      const sourceNodeIndex = nodeIdToIndexMap.get(sourceStr)
-      const targetNodeIndex = nodeIdToIndexMap.get(targetStr)
-      if (sourceNodeIndex === undefined || targetNodeIndex === undefined) return
-
-      const i3s = sourceNodeIndex * 3
-      const i3t = targetNodeIndex * 3
-      if (i3s + 2 >= positions.length || i3t + 2 >= positions.length) return
-
-      if (dragNodeId === sourceStr) tempVec3.set(dragPos.x, dragPos.y, dragPos.z)
-      else                          tempVec3.set(positions[i3s], positions[i3s + 1], positions[i3s + 2])
-      if (dragNodeId === targetStr) tempPosition.set(dragPos.x, dragPos.y, dragPos.z)
-      else                          tempPosition.set(positions[i3t], positions[i3t + 1], positions[i3t + 2])
-
-      tempDirection.subVectors(tempPosition, tempVec3)
-      const edgeLength = tempDirection.length()
-      if (edgeLength <= 0.001) return
-
-      tempDirection.normalize()
-      const sourceNode = graphData.nodes[sourceNodeIndex]
-      const targetNode = graphData.nodes[targetNodeIndex]
-      const srcMode = perNodeVisualModeMap.get(sourceStr) || graphMode
-      const tgtMode = perNodeVisualModeMap.get(targetStr) || graphMode
-
-      const srcR = computeNodeScale(sourceNode, connectionCountMap, srcMode, hierarchyMap, graphTypeVisuals) * nodeSize
-      const tgtR = computeNodeScale(targetNode, connectionCountMap, tgtMode, hierarchyMap, graphTypeVisuals) * nodeSize
-
-      tempSrcOff.copy(tempVec3).addScaledVector(tempDirection, srcR)
-      tempTgtOff.copy(tempPosition).addScaledVector(tempDirection, -tgtR)
-
-      if (tempSrcOff.distanceTo(tempTgtOff) > 0.1) {
-        newEdgePoints[edgePointIdx++] = tempSrcOff.x
-        newEdgePoints[edgePointIdx++] = tempSrcOff.y
-        newEdgePoints[edgePointIdx++] = tempSrcOff.z
-        newEdgePoints[edgePointIdx++] = tempTgtOff.x
-        newEdgePoints[edgePointIdx++] = tempTgtOff.y
-        newEdgePoints[edgePointIdx++] = tempTgtOff.z
-        const eColor = getEdgeTypeColor(edge.edgeType)
-        edgeColors[edgeColorIdx++] = eColor.r
-        edgeColors[edgeColorIdx++] = eColor.g
-        edgeColors[edgeColorIdx++] = eColor.b
-        // Weight in lockstep with colour/points so the index aligns with the
-        // GlassEdges instance index (drives per-edge tube radius). Default 1.0
-        // (the geometry's design radius) when an edge has no weight.
-        edgeWeights[edgeWeightIdx++] = edge.weight ?? 1.0
-      }
-    })
+    const emitted = fillEdgeFrame(plan, positions, dragIdx, dragPos, buffers)
+    const edgePointIdx = emitted * 6
 
     // Highlight edges for selected node
     if (selectedNodeId) {
-      const hlBufferNeeded = edgeCount * 6
-      if (highlightBufferRef.current.length < hlBufferNeeded) {
-        highlightBufferRef.current = new Array<number>(hlBufferNeeded)
-      }
-      const hlBuf = highlightBufferRef.current
-      let hlIdx = 0
-
-      graphData.edges.forEach((edge: any) => {
-        const sourceStr = String(edge.source)
-        const targetStr = String(edge.target)
-        if (sourceStr !== selectedNodeId && targetStr !== selectedNodeId) return
-        if (!visibleNodeIds.has(sourceStr) || !visibleNodeIds.has(targetStr)) return
-
-        const sourceIdx = nodeIdToIndexMap.get(sourceStr)
-        const targetIdx = nodeIdToIndexMap.get(targetStr)
-        if (sourceIdx === undefined || targetIdx === undefined) return
-
-        const si3 = sourceIdx * 3
-        const ti3 = targetIdx * 3
-        if (si3 + 2 >= positions.length || ti3 + 2 >= positions.length) return
-
-        if (dragNodeId === sourceStr) tempVec3.set(dragPos.x, dragPos.y, dragPos.z)
-        else                          tempVec3.set(positions[si3], positions[si3 + 1], positions[si3 + 2])
-        if (dragNodeId === targetStr) tempPosition.set(dragPos.x, dragPos.y, dragPos.z)
-        else                          tempPosition.set(positions[ti3], positions[ti3 + 1], positions[ti3 + 2])
-
-        tempDirection.subVectors(tempPosition, tempVec3)
-        const len = tempDirection.length()
-        if (len <= 0.001) return
-        tempDirection.normalize()
-
-        const srcNode = graphData.nodes[sourceIdx]
-        const tgtNode = graphData.nodes[targetIdx]
-        const srcMode = perNodeVisualModeMap.get(sourceStr) || graphMode
-        const tgtMode = perNodeVisualModeMap.get(targetStr) || graphMode
-        const srcR = computeNodeScale(srcNode, connectionCountMap, srcMode, hierarchyMap, graphTypeVisuals) * nodeSize
-        const tgtR = computeNodeScale(tgtNode, connectionCountMap, tgtMode, hierarchyMap, graphTypeVisuals) * nodeSize
-
-        tempSrcOff.copy(tempVec3).addScaledVector(tempDirection, srcR)
-        tempTgtOff.copy(tempPosition).addScaledVector(tempDirection, -tgtR)
-
-        if (tempSrcOff.distanceTo(tempTgtOff) > 0.2) {
-          hlBuf[hlIdx++] = tempSrcOff.x; hlBuf[hlIdx++] = tempSrcOff.y; hlBuf[hlIdx++] = tempSrcOff.z
-          hlBuf[hlIdx++] = tempTgtOff.x; hlBuf[hlIdx++] = tempTgtOff.y; hlBuf[hlIdx++] = tempTgtOff.z
-        }
-      })
-
+      const selIdx = nodeIdToIndexMap.get(selectedNodeId) ?? -1
+      const hlCount = fillHighlightFrame(plan, positions, selIdx, dragIdx, dragPos, buffers)
+      const hlIdx = hlCount * 6
       if (highlightEdgeFlowRef.current) {
-        highlightEdgeFlowRef.current.updatePoints(hlBuf, hlIdx)
+        highlightEdgeFlowRef.current.updatePoints(buffers.highlight, hlIdx)
+        hlPushedRef.current = hlCount
       } else {
-        hlUpdatePendingRef.current = hlBuf.slice(0, hlIdx)
+        hlUpdatePendingRef.current = buffers.highlight.slice(0, hlIdx)
       }
-    } else if (highlightEdgePoints.length > 0) {
-      if (highlightEdgeFlowRef.current) highlightEdgeFlowRef.current.updatePoints([])
-      else hlUpdatePendingRef.current = []
+    } else if (highlightEdgePoints.length > 0 || hlPushedRef.current > 0) {
+      if (highlightEdgeFlowRef.current) {
+        highlightEdgeFlowRef.current.updatePoints([])
+        hlPushedRef.current = 0
+      } else {
+        hlUpdatePendingRef.current = []
+      }
     }
 
     // Push edge buffers
     if (edgeFlowRef.current) {
       // Widths BEFORE points: updatePoints composes matrices reading the stored
       // weights, so the radius factor must be current when matrices rebuild.
-      edgeFlowRef.current.updateWidths(edgeWeights, edgeWeightIdx)
-      edgeFlowRef.current.updatePoints(newEdgePoints, edgePointIdx)
-      const edgeCountWithColor = edgeColorIdx / 3
-      if (edgeCountWithColor > 0) {
-        edgeFlowRef.current.updateColors(edgeColors, edgeCountWithColor)
+      edgeFlowRef.current.updateWidths(buffers.weights, emitted)
+      edgeFlowRef.current.updatePoints(buffers.points, edgePointIdx)
+      if (emitted > 0) {
+        edgeFlowRef.current.updateColors(buffers.colors, emitted)
       }
     } else {
-      edgeUpdatePendingRef.current = newEdgePoints.slice(0, edgePointIdx)
+      edgeUpdatePendingRef.current = buffers.points.slice(0, edgePointIdx)
     }
 
     // Flush pending state updates for initial mount before imperative handles are available
@@ -247,6 +160,8 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
       setHighlightEdgePoints(pending)
     }
 
+    gate.commit(frame)
+
     // One-time diagnostic
     if (!(window as unknown as Record<string, boolean>).__gmDiagV2) {
       ;(window as unknown as Record<string, boolean>).__gmDiagV2 = true
@@ -259,7 +174,7 @@ export function useEdgeBufferComputation(opts: EdgeBufferComputationOptions) {
         nodeCount: graphData.nodes.length,
         edgeCount: graphData.edges.length,
         positionsLength: positions.length,
-        edgePointsComputed: edgePointIdx / 6,
+        edgePointsComputed: emitted,
         nonZeroPositions: nonZeroCount,
         hasEdgeFlowRef: !!edgeFlowRef.current,
       })
