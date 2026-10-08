@@ -115,6 +115,16 @@ godot --path xr-client \
       res://scenes/XRBoot.tscn
 ```
 
+**Launch with `tools/live.sh`** (detached, `RUNNING` file with pid and log) or
+`tools/capture.sh <script.gd> [-- args]` (windowed, XR off, for `tests/visual/*`
+and `perf/benchmark.gd`). Both run `tools/gdext-fresh.sh` first. The Godot
+*editor* binary always loads the `.gdextension` `linux.debug.x86_64` entry
+(`rust/target/debug/…`), so a `cargo build --release` alone leaves the client
+on stale Rust. The guard builds the profile that entry names, pins
+`CARGO_TARGET_DIR` to it, and refuses to launch (exit 3) while the library is
+older than `rust/src`, the manifests or any path dependency's source. Tests:
+`bash tests/tools/test_gdext_fresh.sh`.
+
 - `XR_BACKEND_WS` — presence/graph WebSocket. Point at the dev backend
   (`ws://192.168.2.132:4000` on the LAN). **Use `:4000` directly**; nginx `:3001`
   does not proxy `/ws/presence`.
