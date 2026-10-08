@@ -428,17 +428,21 @@ async fn main() -> std::io::Result<()> {
             info!("[main] RAGFlowService::new SUCCEEDED. Service instance created.");
             Some(Arc::new(service))
         }
+        Err(visionclaw_server::services::ragflow_service::RAGFlowError::NotConfigured(why)) => {
+            warn!(
+                "[main] RAGFlow chat disabled: {} (set RAGFLOW_API_KEY, RAGFLOW_API_BASE_URL and RAGFLOW_AGENT_ID to enable)",
+                why
+            );
+            None
+        }
         Err(e) => {
-            error!("[main] RAGFlowService::new FAILED. Error: {}", e);
+            error!(
+                "[main] RAGFlowService::new FAILED: {}. Chat functionality will be unavailable.",
+                e
+            );
             None
         }
     };
-
-    if ragflow_service_option.is_some() {
-        debug!("[main] ragflow_service_option is Some after RAGFlowService::new attempt.");
-    } else {
-        error!("[main] ragflow_service_option is None after RAGFlowService::new attempt. Chat functionality will be unavailable.");
-    }
 
     let settings_value = {
         let settings_read = settings.read().await;
