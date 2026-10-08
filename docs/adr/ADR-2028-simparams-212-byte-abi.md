@@ -182,4 +182,4 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`src/models/simulation_params.rs` drops `graph_separation_x` from the reverse `SimParams → SimulationParams` conversion. That field was never in the repr-C `SimParams`, so the compile-time `size_of::<SimParams>() == 212` assertion still holds. Decision holds. Server lib 1,568 passed.
+`src/models/simulation_params.rs` drops `graph_separation_x` from the reverse `SimParams → SimulationParams` conversion. That field was never in the repr-C `SimParams`, so the compile-time `size_of::<SimParams>() == 212` assertion still holds. Decision holds. Server lib 1,568 passed. Citations at 31bc3d3a1: `src/models/simulation_params.rs:227` (`size_of::<SimParams>() == 212`, unchanged), `:182` (reverse conversion comment, field removed).

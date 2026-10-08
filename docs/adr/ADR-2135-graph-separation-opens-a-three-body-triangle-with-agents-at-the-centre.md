@@ -172,3 +172,8 @@ clean on the server and the xr-client. On HP, GUT runs 218/218 and the guard rep
 with no parse errors. The HP benchmark (13,164 nodes, 20k memory rows) is unchanged by the ×10
 scale: query route 34 draw calls, 94,566 triangles, p99 2.78 ms; relay route 33, 94,558,
 2.78 ms; every gate passes.
+Citations at 31bc3d3a1: `crates/visionclaw-tri-layout/src/lib.rs:101` (`SEPARATION`), `:105`
+(`MEMORY_BODY_SCALE`), `:226` (`memory_centre`); `src/actors/gpu/display_projection.rs:110`,
+`:204`, `:324`; `crates/visionclaw-domain/src/models/simulation_params.rs:732`;
+`client/src/features/visualisation/memoryCloud/cloudFrame.ts:53`,
+`client/src/features/graph/utils/sceneFitBounds.ts:57`, `xr-client/rust/src/cloud_frame.rs:137`.

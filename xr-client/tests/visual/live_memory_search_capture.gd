@@ -4,10 +4,13 @@ extends SceneTree
 ## Query-page preset runs through the HUD intent path ("memory_preset:<i>" →
 ## memory_search.gd → signed POST /api/memory-cloud/query) and its sidecar
 ## top-k route is drawn. A sampled hit is then pressed ("memory_hit:<i>") to
-## send the guide cue there. Run with a display:
+## send the guide cue there. With `typed="<text>"` (ADR-2136) the query is
+## typed key by key on the HUD's on-screen keyboard instead, and Search sends
+## it through the same intent path ("memory_typed:<text>"); the route then
+## starts at the server's query point. Run with a display:
 ##   XR_BACKEND_WS=ws://<backend>:4000 XR_NOSTR_SECRET=<hex> \
 ##   godot --path xr-client --rendering-driver opengl3 --xr-mode off \
-##         --script tests/visual/live_memory_search_capture.gd [-- preset="<text>"]
+##         --script tests/visual/live_memory_search_capture.gd [-- preset="<text>" | typed="<text>"]
 ## Output: user://xr-memory-search-<view>.png and one XR_MEMORY_SEARCH line per
 ## step. Spends one query of the caller's per-minute budget.
 
@@ -55,6 +58,10 @@ func run() -> void:
 			return
 		await create_timer(0.5).timeout
 	await create_timer(2.5).timeout
+	var typed := _arg("typed", "")
+	if not typed.is_empty():
+		await _run_typed(typed, mc, search)
+		return
 	search.refresh_presets()
 	var want := _arg("preset", DEFAULT_PRESET)
 	var presets: Array = search.presets()
@@ -99,6 +106,47 @@ func run() -> void:
 		print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "hit_cue", "hit": hi, "cue_alpha": mc.cue_alpha()}))
 		await _shot("hit-cue")
 	quit(0 if mc.route_active() else 6)
+
+
+## Type `text` on the HUD keyboard (each key a real button press), press
+## Search, and report the route. Exit 0 only when the route starts at the
+## query point.
+func _run_typed(text: String, mc, search) -> void:
+	var hud = scene.hud
+	hud._show_tab("query")
+	hud._query_mode_memory_button.pressed.emit()
+	hud._memory_type_button.pressed.emit()
+	for i in text.length():
+		var c: String = text[i].to_lower()
+		var key: String = "space" if c == " " else c
+		if hud._keyboard_buttons.has(key):
+			(hud._keyboard_buttons[key] as Button).pressed.emit()
+	var entry: String = hud._memory_keyboard_entry.text
+	await create_timer(0.5).timeout
+	await _shot("keyboard")
+	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
+	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "typed", "entry": entry, "sent": search.queries_sent}))
+	var t0 := Time.get_ticks_msec()
+	while search._pending:
+		if Time.get_ticks_msec() - t0 > WAIT_QUERY_S * 1000.0:
+			push_error("query did not complete")
+			quit(5)
+			return
+		await create_timer(0.2).timeout
+	var hits: Array = search._hits
+	var sampled: Array = hits.filter(func(h: Dictionary) -> bool: return int(h["row"]) >= 0)
+	var line: String = mc.agreement_line()
+	var place: Dictionary = mc.placement()
+	print("XR_MEMORY_SEARCH ", JSON.stringify({"step": "answer", "typed": text,
+		"caption": hud._memory_search_status.text,
+		"hits_shown": hits.size(), "sampled_shown": sampled.size(),
+		"route_active": mc.route_active(), "route_source": mc.route_source(),
+		"hops": int(mc._route.hop_count()) if mc.route_active() else 0,
+		"agreement": line, "from_query_point": line.contains("query point"),
+		"cloud_scale": place.get("scale", 0.0), "cloud_position": str(place.get("position", ""))}))
+	await create_timer(1.6).timeout
+	await _shot("typed-route")
+	quit(0 if mc.route_active() and line.contains("query point") else 6)
 
 
 func _shot(view: String) -> void:

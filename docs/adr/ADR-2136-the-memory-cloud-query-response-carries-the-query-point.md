@@ -69,3 +69,6 @@ At the commit stamped in `verified_commit`:
   `test_memory_search.gd`. `test_hud_batching` holds the keyboard to glyphs in the HUD font.
 - HP benchmark `route_source=query` with a query point: 34 draw calls, 94,566 triangles, p99
   2.78 ms, every gate passes.
+- Citations at 31bc3d3a1: `crates/visionclaw-memory-cloud/src/pca.rs:193` (`Projector`),
+  `snapshot.rs:41`, `:286`; `wire.rs:121`; `src/services/memory_cloud_service.rs:637`, `:806`;
+  `xr-client/scripts/hud.gd:714`.

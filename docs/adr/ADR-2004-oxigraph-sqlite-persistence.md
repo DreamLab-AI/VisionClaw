@@ -232,4 +232,4 @@ ADR-2135 adds the path dependency `visionclaw-tri-layout` to the root `Cargo.tom
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`src/app_state.rs` changes only log text and comments: the boot physics logs name `axis_compression_z` instead of the retired `graph_separation_x`. Persistence is unchanged. Decision holds.
+`src/app_state.rs` changes only log text and comments: the boot physics logs name `axis_compression_z` instead of the retired `graph_separation_x`. Persistence is unchanged. Decision holds. Citations at 31bc3d3a1: `src/app_state.rs:715`, `:725` (boot log lines).

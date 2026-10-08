@@ -368,4 +368,4 @@ Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main'
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`force_compute_actor.rs` changes only the display-projection call sites and a change-detection comparison for the retired separation field. DAG rank code is untouched. Decision holds.
+`force_compute_actor.rs` changes only the display-projection call sites and a change-detection comparison for the retired separation field. DAG rank code is untouched. Decision holds. Citations at 31bc3d3a1: `src/actors/gpu/force_compute_actor.rs:2046`, `:2987` (projection call sites), `:2713` (`physics_unchanged`, separation comparison removed); DAG rank path `:2474` unchanged.
