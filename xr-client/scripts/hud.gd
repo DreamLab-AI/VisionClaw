@@ -683,7 +683,7 @@ func _build_memory_search_box() -> VBoxContainer:
 	box.add_child(_memory_search_status)
 	_memory_type_button = _press_fire(Button.new()) as Button
 	_memory_type_button.name = "MemoryTypeButton"
-	_memory_type_button.text = "Type a query  ⌨"
+	_memory_type_button.text = "Type a query…"
 	_memory_type_button.custom_minimum_size = Vector2(0, BTN_H)
 	_memory_type_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_memory_type_button.set_meta(HINT_META, "Open the keyboard and type your own memory question")
@@ -708,7 +708,7 @@ func _build_memory_search_box() -> VBoxContainer:
 
 # The on-screen keyboard (ADR-2136): an entry line, four rows of ten
 # character keys (digits, QWERTY, the punctuation a memory question needs) and
-# Cancel / Space / ⌫ / Search. Every key fires on press (Invariant 4) and
+# Cancel / Space / Delete / Search. Every key fires on press (Invariant 4) and
 # carries a hint. It replaces the memory lists while open, so the page keeps
 # its height inside the 532 px host (Invariant 5).
 func _build_memory_keyboard() -> VBoxContainer:
@@ -735,8 +735,8 @@ func _build_memory_keyboard() -> VBoxContainer:
 	bottom.add_theme_constant_override("separation", 6)
 	bottom.add_child(_keyboard_key(OnscreenKeyboard.CANCEL, "Cancel", "Close the keyboard without searching", 1.2))
 	bottom.add_child(_keyboard_key(OnscreenKeyboard.SPACE, "Space", "Type a space", 3.0))
-	bottom.add_child(_keyboard_key(OnscreenKeyboard.BACKSPACE, "⌫", "Delete the last character", 1.0))
-	bottom.add_child(_keyboard_key(OnscreenKeyboard.ENTER, "Search ↵", "Search memory for what you typed", 1.6))
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.BACKSPACE, "Delete", "Delete the last character", 1.2))
+	bottom.add_child(_keyboard_key(OnscreenKeyboard.ENTER, "Search →", "Search memory for what you typed", 1.6))
 	box.add_child(bottom)
 	_refresh_keyboard_entry()
 	return box
@@ -787,7 +787,8 @@ func _refresh_keyboard_entry() -> void:
 	if _memory_keyboard_entry == null:
 		return
 	var t: String = _keyboard.text
-	_memory_keyboard_entry.text = ("%s▏" % t) if not t.is_empty() else "▏ type a memory question…"
+	# "|" is the caret: only glyphs in the HUD font (test_hud_batching)
+	_memory_keyboard_entry.text = ("%s|" % t) if not t.is_empty() else "| type a memory question…"
 	_memory_keyboard_entry.add_theme_color_override("font_color", XRTheme.TEXT if not t.is_empty() else IDLE)
 
 
