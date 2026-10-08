@@ -29,9 +29,12 @@ use std::time::Duration;
 
 use actix_web::body::{BoxBody, MessageBody};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, RETRY_AFTER};
+use actix_web::http::header::{
+    ContentEncoding, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, RETRY_AFTER,
+};
 use actix_web::middleware::{from_fn, Next};
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+use bytes::Bytes;
 use log::warn;
 
 use crate::middleware::rate_limit::RateLimitConfig;
@@ -180,15 +183,29 @@ pub async fn get_vectors(
             "currentSnapshotId": snap.id(),
         }));
     }
+    vectors_response(
+        snap.blob.clone(),
+        snap.built.snapshot.dim,
+        snap.built.snapshot.count,
+    )
+}
+
+/// The `200` for the vectors endpoint: the little-endian f32 blob with its
+/// shape headers, uncached and never compressed.
+///
+/// `main.rs` wraps the app in `middleware::Compress`, which would brotli or
+/// gzip this blob for whoever offers it. Float32 data barely compresses: on a
+/// 30,000 x 384 snapshot it saved 8% (46.1 -> 42.4 MB) for about 0.5 s of
+/// server CPU per request, against 0.05 s unencoded (2026-10-08). An explicit
+/// `Content-Encoding: identity` makes the middleware pass it through.
+pub fn vectors_response(blob: Bytes, dim: usize, count: usize) -> HttpResponse {
     HttpResponse::Ok()
+        .insert_header(ContentEncoding::Identity)
         .insert_header((CONTENT_TYPE, "application/octet-stream"))
         .insert_header((CACHE_CONTROL, "no-store"))
-        .insert_header(("X-Memory-Cloud-Dim", snap.built.snapshot.dim.to_string()))
-        .insert_header((
-            "X-Memory-Cloud-Count",
-            snap.built.snapshot.count.to_string(),
-        ))
-        .body(snap.blob.clone())
+        .insert_header(("X-Memory-Cloud-Dim", dim.to_string()))
+        .insert_header(("X-Memory-Cloud-Count", count.to_string()))
+        .body(blob)
 }
 
 /// `POST /api/memory-cloud/query`
