@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8e5ab0dc22ed80c3304e527b8713c13b4a8ffe07
+verified_commit: c54ab03cb63436a38e594692979c3de7be4d2e0f
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -117,3 +117,11 @@ both fixtures round-trip, and the hit-literal case is in `snapshot.rs:301`. Serv
 On HP, GUT runs 222/222 and the guard reports 31/31; the glyph guard rejected `○`, so the list
 uses `☐`. The HP benchmark query route, with half its 49 hits as ghosts, holds 34 draw calls,
 94,566 triangles and p99 2.78 ms; every gate passes.
+
+## Re-verification — 2026-10-08 at c54ab03cb (headset route line factor)
+
+`xr-client/rust/src/memory_route.rs` changed: the headset tube, beads, comet
+and guide dots draw at `XR_ROUTE_THICKNESS_SCALE` / `XR_ROUTE_GLOW_SCALE` 0.1
+(`:72`, `:75`; `build_route_mesh` `:806`, `bead_buffer` `:1130`). The route
+still runs query point → every placed hit in rank order and the caption is
+unchanged, so this decision holds as written.

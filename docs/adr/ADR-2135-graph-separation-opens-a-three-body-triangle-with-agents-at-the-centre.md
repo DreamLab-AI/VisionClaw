@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
-verified_paths: [crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, xr-client/rust/src/cloud_frame.rs]
+verified_commit: c54ab03cb63436a38e594692979c3de7be4d2e0f
+verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)
 repo: visionclaw
@@ -177,3 +177,40 @@ Citations at 31bc3d3a1: `crates/visionclaw-tri-layout/src/lib.rs:101` (`SEPARATI
 `:204`, `:324`; `crates/visionclaw-domain/src/models/simulation_params.rs:732`;
 `client/src/features/visualisation/memoryCloud/cloudFrame.ts:53`,
 `client/src/features/graph/utils/sceneFitBounds.ts:57`, `xr-client/rust/src/cloud_frame.rs:137`.
+
+## Amendment — 2026-10-08: memory body at half its clear distance (operator decision)
+
+Operator, from the headset: "bring the memories about 50% closer to the centre
+and make the bloomed connecting lines about 1/10 the thickness/brightness in
+the headset. keep the scale of the memory clouds about the same."
+
+Decision. `MEMORY_DISTANCE_FACTOR = 0.5`: the memory body's centre sits on the
+memory vertex's ray at half of `memory_clear_distance`, the distance at which
+its sphere would clear both graph spheres by `CLEARANCE`. `MEMORY_BODY_SCALE`
+stays 10. This is shared geometry, so the desktop explorer and the headset move
+together (parity kept); the server does not place the memory body, and its
+layout (`SEPARATION`) is unchanged.
+
+Consequence, stated, not hidden. The clearance guarantee of the previous
+amendment no longer holds for the memory body. At live scale (graph robust
+radius 93, cloud 930) the centre moves from 1,155 to 577 units from the
+centroid; each graph's centre is then 713 units from the cloud's centre, so
+both graph spheres sit inside the cloud's robust sphere with 124 units to
+spare (at the 152 design radius: 986, 1,112 and 256). The graphs are drawn
+inside a translucent cloud of additive points. Knowledge and ontology stay
+clear of each other (`SEPARATION` unchanged). The desktop camera fit still
+frames every body; with the cloud enclosing the graphs the cloud's own sphere
+is the bound. The headset line factor (the second half of the ask) is
+XR-only and recorded in `docs/XR-client.md` (`XR_ROUTE_THICKNESS_SCALE`,
+`XR_ROUTE_GLOW_SCALE`).
+
+Tests: `crates/visionclaw-tri-layout/src/lib.rs:542`
+(`at_live_scale_the_closer_memory_body_encloses_both_graphs`) pins the overlap;
+the clear-distance tests keep the old clearance maths; the TS port and the
+XR cloud frame follow the regenerated fixture.
+
+Citations at c54ab03cb: `crates/visionclaw-tri-layout/src/lib.rs:115`
+(`MEMORY_DISTANCE_FACTOR`), `:234` (`memory_centre`), `:244`
+(`memory_clear_distance`); `client/src/features/graph/triLayout.ts:95`;
+`xr-client/rust/src/memory_route.rs:72`, `:75` (the XR line factors), `:806`
+(`build_route_mesh`), `:1130` (`bead_buffer`).

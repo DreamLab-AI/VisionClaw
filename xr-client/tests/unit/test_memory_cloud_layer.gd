@@ -440,15 +440,20 @@ func test_cloud_is_framed_on_the_graph_centre_and_radius() -> void:
 	var cb: PackedFloat32Array = l._frame.cloud_bounds()
 	assert_almost_eq(float(p["scale"]) * cb[3], 3000.0, 0.1, "cloudScale 5: cloud radius = 10 graph radii")
 	assert_eq(p["offset"], -Vector3(cb[0], cb[1], cb[2]), "inner node recentres the cloud on its core")
-	# behind the graphs on the memory vertex's ray (−Z), clear of both graph bodies
+	# on the memory vertex's ray (−Z) at half the distance that would clear both
+	# graph bodies (operator decision 2026-10-08, ADR-2135), so it overlaps them
 	var pos: Vector3 = p["position"]
 	assert_almost_eq(pos.x, 90.0, 0.01, "on the memory ray through the graph centre")
 	assert_almost_eq(pos.y, -3.0, 0.01)
 	var R: float = SEPARATION * 2.0 / sqrt(3.0)
-	assert_lt(pos.z, -14.0 - R, "further out than the memory vertex")
+	var need := 1.25 * (3000.0 + 300.0)  # CLEARANCE × (cloud + graph)
+	var b := R * cos(deg_to_rad(120.0))
+	var clear_d := b + sqrt(b * b - R * R + need * need)
+	assert_almost_eq(pos.z, -14.0 - 0.5 * clear_d, 0.5, "half the clear distance")
+	assert_lt(pos.z, -14.0 - R, "still further out than the memory vertex")
 	for sx in [-1.0, 1.0]:
 		var g := Vector3(90.0 + sx * R * sin(deg_to_rad(60.0)), -3.0, -14.0 + R * cos(deg_to_rad(60.0)))
-		assert_gt(pos.distance_to(g), 3000.0 + 300.0, "the ×10 cloud clears the graph at %s" % g)
+		assert_lt(pos.distance_to(g) + 300.0, 3000.0, "the closer ×10 cloud encloses the graph at %s" % g)
 	# the cloud's own centre lands on the placement position
 	var core_world: Vector3 = l.cloud_root().global_transform * Vector3(cb[0], cb[1], cb[2])
 	assert_true(core_world.is_equal_approx(l.global_transform * pos), "%s" % core_world)

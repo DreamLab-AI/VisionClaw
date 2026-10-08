@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.17
+version: 0.1.18
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.18 (2026-10-08): memory body at half its clear distance (ADR-2135 amendment, MEMORY_DISTANCE_FACTOR 0.5; the ×10 cloud now encloses both graphs) and the headset route lines at a tenth of the desktop thickness and brightness (XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE 0.1; rings and hit marks keep the desktop size). Operator decision. Triangle budget unchanged. No invariant changed."
   - "0.1.17 (2026-10-08): always separate, memory ×10, typed search (ADR-2135 amendment, ADR-2136). The separation slider is gone from the HUD Layout page and the desktop (separation_control.gd deleted); the triangle is permanent at the fixed SEPARATION 190 derived from the live graph radii. The memory cloud is MEMORY_BODY_SCALE 10 graphs wide on the memory vertex's ray, clear of both graphs (TriangleFrame::memory_centre); route tubes, beads and rings grow with it (cloud-local), guide dots grow to half the answer ring at the far end, the hover label, its lift and its reach ×10. Memory Search gains a press-fire on-screen keyboard (onscreen_keyboard.gd, in place of the lists, ≤ 532 px); a typed query searches globally. The query response carries query.position (the snapshot's PCA basis), and the headset route runs query point → sidecar top-k in rank order with the answer ring on the top hit. Triangle budget unchanged (scale is free). No invariant changed."
   - "0.1.16 (2026-10-07): HUD Graph Separation control (ADR-2135 in the headset) — Sep −/slider/value/Sep + share the Layout Mode row (page stays 529 px); separation_control.gd writes graphSeparationX through the physics PUT at ≤ 4 Hz while dragging plus a final write on release; read-back moves the slider. Memory search from the headset — Query page Graph Query / Memory Search modes; presets POST /api/memory-cloud/query (NIP-98) and draw a sidecar top-k route (sampled hits in rank order, labelled as such) through the same MemoryRoute gate; a hit press retargets the guide cue; shared query-response fixture pins the headset parser to the server's wire types; benchmark route_source=query. No invariant changed."
   - "0.1.15 (2026-10-07): ADR-2135 separated layout — Graph Separation opens a ground-plane triangle (knowledge −60°, ontology +60°, memory 180°; R = 2/√3 × separation) from the shared visionclaw-tri-layout crate; the cloud folds the graph bounds and takes the memory vertex (graph_robust_bounds(separation), CloudFrame.set_separation, physics read-back of graphSeparationX); work agents rest at the centroid plus their activity drift (render-store DriftField fed by 0x23 and memory_flash agentId; the choreography stays the single pose writer). No invariant changed."
@@ -354,13 +355,29 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   route_source=query` measures a route built this way, and
   `tests/visual/live_memory_search_capture.gd` runs one preset against a live
   backend through the HUD intent path.
+- **Route line factor (headset only, operator decision 2026-10-08).** The
+  route's lines — the five tube layers, the beads and their halos, the comet
+  and its glow, and the guide dots — draw at `XR_ROUTE_THICKNESS_SCALE` 0.1 of
+  the desktop width and `XR_ROUTE_GLOW_SCALE` 0.1 of its emissive brightness
+  (`memory_route.rs`: `build_route_mesh` and `bead_buffer` are the desktop look,
+  `build_route_mesh_desktop_look` / `bead_buffer_desktop_look`, scaled; opacity,
+  triangles and instance counts unchanged). The desktop keeps its values; the
+  drift test still pins the desktop constants to `TrajectoryLayer.tsx`, so these
+  two factors are the one named divergence. The root, answer, pulse and hit
+  rings are marks, not lines, and keep the desktop size so every hit stays
+  findable. The guide cue's far dots still grow towards half the answer ring,
+  now at a tenth: dimmer and finer, pointing the same way.
 - **Separated layout (ADR-2135; always on since 2026-10-08).** The cloud folds
   each node position into its nearest graph's frame before the bounds are
   taken (`TriangleFrame::separated`, the shared `visionclaw-tri-layout` crate),
   so the bounds are one graph's, and `CloudRoot` sits at
   `TriangleFrame::memory_centre`: on the memory vertex's ray (180°: behind the
-  graphs, in front of a user facing them), at least `CLEARANCE` 1.25 × the
-  summed radii from each graph. Measured live on 2026-10-08
+  graphs, in front of a user facing them), at `MEMORY_DISTANCE_FACTOR` 0.5 of
+  the distance that would clear each graph by `CLEARANCE` 1.25 × the summed
+  radii (operator decision 2026-10-08). At live scale the ×10 cloud therefore
+  encloses both graphs (ADR-2135 amendment). The figures below were
+  measured before that change; the halved placement is re-measured live after
+  deploy. Measured live on 2026-10-08
   (`live_memory_search_capture.gd`, step `cloud_metres`; GraphRoot fit 0.0084
   m per unit): cloud radius 16.3 m, centre 25.1 m ahead of the head and 22 m
   beyond the graphs' centre, near side 8.8 m from the head: past the near clip
