@@ -1340,7 +1340,7 @@ impl AppState {
                 (Some(relay), Some(secret)) => {
                     match crate::services::acsp::AcspClient::connect(&secret, &relay).await {
                         Ok(c) => {
-                            info!("[AppState] ACSP decision-projection client connected to {} — REST/bridge decisions project to the forum as kind-31403", relay);
+                            info!("[AppState] ACSP decision-projection client relay set to {} — REST/bridge decisions project to the forum as kind-31403", relay);
                             Some(Arc::new(c))
                         }
                         Err(e) => {
