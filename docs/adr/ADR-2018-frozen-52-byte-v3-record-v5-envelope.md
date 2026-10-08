@@ -261,4 +261,4 @@ ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` in three ways. `graph_r
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`xr-client/rust/src/binary_protocol.rs` changes only two Godot methods: `agent_drift_offset(agent_id)` and `graph_robust_bounds()` lose their separation argument. The 52-byte V3 record and the V5 envelope are untouched. Decision holds. xr-client workspace: 549 passed.
+`xr-client/rust/src/binary_protocol.rs` changes only two Godot methods: `agent_drift_offset(agent_id)` and `graph_robust_bounds()` lose their separation argument. The 52-byte V3 record and the V5 envelope are untouched. Decision holds. xr-client workspace: 549 passed. Citations at 31bc3d3a1: `xr-client/rust/src/binary_protocol.rs:1486` (`agent_drift_offset`), `:1908` (`graph_robust_bounds`).

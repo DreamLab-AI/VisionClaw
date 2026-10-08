@@ -197,4 +197,4 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`src/models/simulation_params.rs` drops only the retired `graph_separation_x` from the reverse conversion. Flag derivation is untouched. Decision holds.
+`src/models/simulation_params.rs` drops only the retired `graph_separation_x` from the reverse conversion. Flag derivation is untouched. Decision holds. Citations at 31bc3d3a1: `src/models/simulation_params.rs:182`.

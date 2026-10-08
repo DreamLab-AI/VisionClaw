@@ -266,4 +266,4 @@ ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` only through GDScript-f
 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
-`xr-client/rust/src/binary_protocol.rs` changes only two Godot methods (`agent_drift_offset`, `graph_robust_bounds` lose their separation argument). Tag dispatch is untouched. Decision holds. xr-client workspace: 549 passed.
+`xr-client/rust/src/binary_protocol.rs` changes only two Godot methods (`agent_drift_offset`, `graph_robust_bounds` lose their separation argument). Tag dispatch is untouched. Decision holds. xr-client workspace: 549 passed. Citations at 31bc3d3a1: `xr-client/rust/src/binary_protocol.rs:1486`, `:1908`.
