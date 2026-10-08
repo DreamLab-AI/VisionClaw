@@ -111,8 +111,13 @@ export function focusNodeById(id: number): boolean {
 export const MEMORY_FOCUS_EVENT = 'visionclaw:memory-focus';
 
 export interface MemoryFocusDetail {
-  /** row in the current memory-cloud snapshot */
+  /** row in the current memory-cloud snapshot; -1 when `position` is given */
   sampleIndex: number;
+  /**
+   * a point in the snapshot's cloud coordinates, for a sidecar hit outside
+   * the sample that the server placed (ADR-2136); wins over `sampleIndex`
+   */
+  position?: PoseVec;
 }
 
 /**
@@ -123,6 +128,19 @@ export function focusMemoryPoint(sampleIndex: number): boolean {
   if (!Number.isInteger(sampleIndex) || sampleIndex < 0) return false;
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
   window.dispatchEvent(new CustomEvent<MemoryFocusDetail>(MEMORY_FOCUS_EVENT, { detail: { sampleIndex } }));
+  return true;
+}
+
+/**
+ * Fly the camera to a point in the snapshot's cloud coordinates: a sidecar
+ * hit outside the sample, drawn where the server projected it (ADR-2136).
+ * Returns false outside a browser or for a non-finite point.
+ */
+export function focusMemoryPosition(position: PoseVec): boolean {
+  if (position.length !== 3 || !position.every((v) => Number.isFinite(v))) return false;
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  const detail: MemoryFocusDetail = { sampleIndex: -1, position: [position[0], position[1], position[2]] };
+  window.dispatchEvent(new CustomEvent<MemoryFocusDetail>(MEMORY_FOCUS_EVENT, { detail }));
   return true;
 }
 

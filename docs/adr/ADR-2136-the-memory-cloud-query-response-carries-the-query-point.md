@@ -101,8 +101,14 @@ the same way it places the query.
   sample)". Without hit positions the sampled-row route is kept. The Scope key stays: a scoped
   query still has more of its hits in the sample. Marks stay ≤ k ≤ 50 (`MAX_SIDECAR` 64), so
   FrameBudget is unchanged.
-- **Desktop.** The type carries the field (`types.ts`, `wireContract.ts`). The explorer's own
-  HNSW route still draws sampled rows only; drawing unsampled hits there is follow-on work.
+- **Desktop** (amended 2026-10-08 at 4faff1eb6). Same geometry and wording as the headset:
+  in the space view a thin gold line runs from the query point through every placed hit in rank
+  order, a hit outside the sample is a dimmer, smaller, cool hollow ring, and the query point is
+  a white dot (`TrajectoryLayer.tsx:717`). The placement and caption mirror
+  `memory_query::caption` and `memory_route::agreement_line` (`sidecarRoute.ts:64`). The panel
+  labels a ghost "outside the sample · drawn" (`MemoryExplorerPanel.tsx:347`), and clicking one
+  flies to its point (`cameraFocus.ts:139`). The explorer's own HNSW tube over the sample is
+  unchanged and still the thick route.
 
 Verification at 8e5ab0dc2: `cargo test -p visionclaw-memory-cloud` passes 47 tests and 19 doc tests,
 both fixtures round-trip, and the hit-literal case is in `snapshot.rs:301`. Server lib passes

@@ -144,6 +144,33 @@ describe('MemoryExplorerPanel — explore', () => {
     expect(seen).toEqual([7]);
   });
 
+  it('captions the sidecar route and flies to a hit drawn outside the sample', () => {
+    const placed: MemoryCloudQueryResponse = {
+      ...response,
+      query: { ...response.query, position: [0, 0, 0] },
+      sidecar: {
+        ...response.sidecar,
+        results: [
+          { ...response.sidecar.results[0], position: [1, 2, 3] },
+          { ...response.sidecar.results[1], position: [4, 5, 6] },
+          { ...response.sidecar.results[2], position: [5, 5, 5] },
+        ],
+      },
+    };
+    seed({ query: { ...useMemoryCloudStore.getState().query, status: 'done', k: 10, response: placed, run, text: 'q' } });
+    render(<MemoryExplorerPanel />);
+    expect(screen.getByText('Route: query point → sidecar top-k (3 drawn, 2 in sample)')).toBeInTheDocument();
+    expect(screen.getByText(/not a search path/)).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Sidecar results' });
+    expect(within(list).getByText('outside the sample · drawn')).toBeInTheDocument();
+    const seen: unknown[] = [];
+    const onFocus = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(MEMORY_FOCUS_EVENT, onFocus);
+    fireEvent.click(within(list).getByText('unsampled').closest('button')!);
+    window.removeEventListener(MEMORY_FOCUS_EVENT, onFocus);
+    expect(seen).toEqual([{ sampleIndex: -1, position: [5, 5, 5] }]);
+  });
+
   it('writes view and learning changes to settings so they persist', () => {
     seed();
     render(<MemoryExplorerPanel />);

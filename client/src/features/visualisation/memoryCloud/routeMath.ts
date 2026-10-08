@@ -28,6 +28,8 @@ export const ROUTE_PALETTE = {
   sidecar: '#ffd36e',
   /** local top-k disagreeing with exact search */
   miss: '#ff5f6e',
+  /** sidecar hit outside the sample, placed by its own embedding (ADR-2136) */
+  ghost: '#8fb8e8',
   background: '#05060a',
 } as const;
 

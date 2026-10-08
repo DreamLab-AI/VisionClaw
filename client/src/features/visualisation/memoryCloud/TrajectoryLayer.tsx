@@ -15,6 +15,10 @@
  *     tip gradient tube with a white core and a glow sheath, a comet head
  *     with an 18-segment fading tail, and beads popping (ease-back) at each hop;
  *   - a pulsing ring marks the answer; focus pull dims everything off the route;
+ *   - in the space view a thin gold line runs from the query point through
+ *     every placed sidecar hit in rank order (ADR-2136); a hit outside the
+ *     sample is a dimmer, smaller, cool hollow ring where its own embedding
+ *     projects, and the query point is a white dot;
  *   - the sidecar's own top-k are ringed in gold, with a mint dot where the
  *     local route agrees; exact top-k misses are ringed red;
  *   - view changes glide every node with `interpolateLayouts`;
@@ -61,6 +65,7 @@ import {
   beatModulation,
 } from './routeMath';
 import { tubeIndices, tubeVertexCount, writeTube, writeEdgeSegments } from './routeGeometry';
+import { sidecarRoute } from './sidecarRoute';
 import type { LayoutResult, SearchTreeNode, Vec3 } from '../memoryTrajectory/types';
 
 // ── sizes in cloud-local units ──
@@ -89,6 +94,7 @@ const C = {
   prune: hexToRgb01(ROUTE_PALETTE.prune),
   sidecar: hexToRgb01(ROUTE_PALETTE.sidecar),
   miss: hexToRgb01(ROUTE_PALETTE.miss),
+  ghost: hexToRgb01(ROUTE_PALETTE.ghost),
   node: [0.93, 0.95, 0.98] as Vec3,
   white: [1, 1, 1] as Vec3,
   tail: [1, 244 / 255, 230 / 255] as Vec3,
@@ -157,7 +163,10 @@ class SegmentBuffer {
 }
 
 interface Marker {
+  /** snapshot row, or -1 for a mark placed by `pos` */
   id: number;
+  /** cloud-coordinate point (ADR-2136): a hit outside the sample, the query point */
+  pos?: Vec3;
   colour: Vec3;
   /** radius multiplier */
   size: number;
@@ -218,11 +227,21 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     return { list, keptIdx, rejectedIdx, pathSet, maxDepth: Math.max(1, run.tree.maxDepth) };
   }, [run]);
 
-  // ── markers: sidecar top-k (gold, mint dot on agreement) and exact top-k misses (red) ──
+  // ── the sidecar's own route: query point → placed hits in rank order ──
+  const side = useMemo(() => sidecarRoute(response, cloudPositions), [response, cloudPositions]);
+
+  // ── markers: sidecar top-k (gold, mint dot on agreement), hits outside the sample
+  //    (cool ghost), the query point (white dot) and exact top-k misses (red) ──
   const markers = useMemo<Marker[]>(() => {
     if (!run) return [];
     const local = new Set(run.result.top);
     const out: Marker[] = [];
+    if (side.origin && side.points.length >= 2) {
+      out.push({ id: -1, pos: side.origin, colour: C.white, size: 0.5, dot: true, always: true });
+    }
+    for (const g of side.ghosts) {
+      out.push({ id: -1, pos: g.pos, colour: mul(C.ghost, 0.7), size: 0.9, dot: false, always: true });
+    }
     for (const h of response?.sidecar.results ?? []) {
       if (h.sampleIndex === null || h.sampleIndex === undefined) continue;
       out.push({ id: h.sampleIndex, colour: C.sidecar, size: 1.25, dot: false, always: true });
@@ -232,7 +251,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       out.push({ id: t, colour: local.has(t) ? C.mint : C.miss, size: 0.85, dot: false, always: false });
     }
     return out;
-  }, [run, response]);
+  }, [run, response, side]);
 
   // ── GPU resources, rebuilt per run ──
   const res = useMemo(() => {
@@ -269,6 +288,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     const rootRingMat = additive({ color: 0xffffff, side: THREE.DoubleSide, opacity: 0.9 });
     const startRingMat = additive({ color: new THREE.Color().setRGB(...C.root), side: THREE.DoubleSide });
     const markerRingMat = additive({ side: THREE.DoubleSide, opacity: 0.95 });
+    const sideGeom = new THREE.BufferGeometry().setFromPoints(side.points.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+    const sideMat = new THREE.LineBasicMaterial({ color: new THREE.Color().setRGB(...C.sidecar), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     const diskMat = new THREE.LineBasicMaterial({ color: new THREE.Color().setRGB(...mul(C.upper, 0.5)), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 
     const keptNodes = new THREE.InstancedMesh(sphere, nodeMat, Math.max(1, structure.keptIdx.length));
@@ -306,6 +327,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       rootCore: new THREE.Mesh(sphere, cometMat),
       startRing: new THREE.Mesh(ring, startRingMat),
       disk: new THREE.Line(diskGeom, diskMat),
+      sidecarLine: new THREE.Line(sideGeom, sideMat),
       keptNodes,
       rejectNodes,
       beads,
@@ -331,12 +353,13 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
 
     const dispose = () => {
       for (const b of [keptLines, rejLines, sheathOuter, sheathInner, body, core, tail]) b.dispose();
-      for (const g of [sphere, box, ring, disc, diskGeom]) g.dispose();
+      for (const g of [sphere, box, ring, disc, diskGeom, sideGeom]) g.dispose();
+      sideMat.dispose();
       for (const m of [lineMat, rejLineMat, nodeMat, rejectMat, beadMat, beadHaloMat, sheathOuterMat, sheathInnerMat, bodyMat, coreMat, tailMat, cometMat, cometGlowMat, answerMat, pulseMat, rootRingMat, startRingMat, markerRingMat, diskMat]) m.dispose();
       for (const m of [keptNodes, rejectNodes, beads, beadHalos, markerRings, markerDots]) m.dispose();
     };
     return { keptLines, rejLines, sheathOuter, sheathInner, body, core, tail, objects, dispose };
-  }, [structure, run, markers.length]);
+  }, [structure, run, markers.length, side]);
 
   useEffect(() => () => res?.dispose(), [res]);
 
@@ -382,7 +405,7 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
   useEffect(() => {
     scratch.cached = null;
     settledKey.current = '';
-  }, [layout, run, scratch, querySeq, showRejected]);
+  }, [layout, run, scratch, querySeq, showRejected, side, view]);
 
   useFrame(({ camera, clock }, dt) => {
     if (!run || !layout || !structure || !res || !groupRef.current) return;
@@ -436,7 +459,9 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       };
       scratch.cached = cache;
       if (!morphing) {
-        routeChannel.pts = cache.route.pts.map((p) => [p[0], p[1], p[2]] as [number, number, number]);
+        // the camera frames the local route and, in the space view, the sidecar's
+        const framed = view === 'space' ? [...cache.route.pts, ...side.points] : cache.route.pts;
+        routeChannel.pts = framed.map((p) => [p[0], p[1], p[2]] as [number, number, number]);
         routeChannel.seq++;
       }
     }
@@ -666,7 +691,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
     let di = 0;
     const markAlpha = clamp01(ph.pathT * 2);
     for (const mk of markers) {
-      const p = L.positions.get(mk.id) ??
+      // cloud-coordinate marks (ghosts, query point) belong to the space view only
+      const p = mk.pos ? (view === 'space' ? mk.pos : null) : L.positions.get(mk.id) ??
         (view === 'space' && mk.id * 3 + 2 < cloudPositions.length
           ? ([cloudPositions[mk.id * 3], cloudPositions[mk.id * 3 + 1], cloudPositions[mk.id * 3 + 2]] as Vec3)
           : null);
@@ -687,6 +713,8 @@ const TrajectoryLayer: React.FC<TrajectoryLayerProps> = ({ cloudPositions, glow,
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
+
+    o.sidecarLine.visible = view === 'space' && side.points.length >= 2;
 
     // Poincaré disk boundary in the hyper view
     o.disk.visible = view === 'hyper' && !morphing;

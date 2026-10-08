@@ -21,7 +21,8 @@ import { useSettingsStore } from '@/store/settingsStore';
 import type { EmbeddingCloudSettings } from '../../settings/config/settings';
 import { useMemoryCloudStore } from './memoryCloudInstance';
 import { sidecarAgreement, describeAgreement, MIN_SPEED, MAX_SPEED } from './memoryCloudStore';
-import { focusMemoryPoint } from '../cameraFocus';
+import { sidecarRoute, routeLegend } from './sidecarRoute';
+import { focusMemoryPoint, focusMemoryPosition } from '../cameraFocus';
 import { ROUTE_PALETTE, TOTAL_DUR, GROW_DUR } from './routeMath';
 import { startDirector, stopDirector } from './cinematicSession';
 import { pickRecorderMime } from './recorder';
@@ -143,6 +144,9 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
   const results = query.response?.sidecar.results ?? [];
   const agreement = useMemo(() => sidecarAgreement(results, run), [results, run]);
   const agreementText = describeAgreement(agreement);
+  const cloudPositions = useMemoryCloudStore((s) => s.snapshot?.positions);
+  const sideRoute = useMemo(() => sidecarRoute(query.response ?? null, cloudPositions ?? []), [query.response, cloudPositions]);
+  const legend = routeLegend(sideRoute);
   const method = query.response?.sidecar.method;
   const local = useMemo(() => new Set(run?.result.top ?? []), [run]);
   const n = snapshot?.count ?? 0;
@@ -291,29 +295,46 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
           >
             <div>{agreementText.coverage}</div>
             <div>{agreementText.agreement}</div>
+            {legend && (
+              <div style={{ color: ROUTE_PALETTE.sidecar }} title={sideRoute.caption}>
+                {legend}
+              </div>
+            )}
+            {legend && <div>The gold line is the sidecar's ranking, not a search path.</div>}
           </div>
           <ol style={{ listStyle: 'none', padding: 0, margin: '6px 0 0' }} aria-label="Sidecar results">
             {results.map((h, i) => {
               const sampled = h.sampleIndex !== null;
               const agrees = sampled && local.has(h.sampleIndex as number);
+              const ghostPos = sampled ? null : (sideRoute.ghosts.find((g) => g.rank === i + 1)?.pos ?? null);
+              const ghost = ghostPos !== null;
               return (
                 <li key={`${h.id}-${i}`}>
                   <button
                     type="button"
-                    onClick={() => sampled && focusMemoryPoint(h.sampleIndex as number)}
-                    disabled={!sampled}
-                    title={sampled ? 'Fly to this memory' : 'Not in the sample, so it has no point in the cloud'}
+                    onClick={() => {
+                      if (sampled) focusMemoryPoint(h.sampleIndex as number);
+                      else if (ghostPos) focusMemoryPosition(ghostPos);
+                    }}
+                    disabled={!sampled && !ghost}
+                    title={
+                      sampled
+                        ? 'Fly to this memory'
+                        : ghost
+                          ? 'Outside the sample: drawn where its own embedding projects into the cloud'
+                          : 'Not in the sample, so it has no point in the cloud'
+                    }
                     style={{
                       display: 'block',
                       width: '100%',
                       textAlign: 'left',
                       background: 'transparent',
                       border: 'none',
-                      borderLeft: `2px solid ${sampled ? ROUTE_PALETTE.sidecar : 'rgba(255,255,255,0.12)'}`,
+                      borderLeft: `2px ${ghost ? 'dashed' : 'solid'} ${sampled ? ROUTE_PALETTE.sidecar : ghost ? ROUTE_PALETTE.ghost : 'rgba(255,255,255,0.12)'}`,
                       color: 'inherit',
                       padding: '4px 0 4px 8px',
                       marginBottom: 4,
-                      cursor: sampled ? 'pointer' : 'default',
+                      cursor: sampled || ghost ? 'pointer' : 'default',
                     }}
                   >
                     <div style={{ ...css.row, justifyContent: 'space-between' }}>
@@ -322,8 +343,8 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
                     </div>
                     <div style={{ ...css.row, justifyContent: 'space-between' }}>
                       <span style={css.label}>{h.namespace}</span>
-                      <span style={{ ...css.label, color: sampled ? (agrees ? ROUTE_PALETTE.mint : ROUTE_PALETTE.sidecar) : '#6b7386' }}>
-                        {sampled ? (agrees ? 'in sample · local agrees' : 'in sample') : 'not sampled'}
+                      <span style={{ ...css.label, color: sampled ? (agrees ? ROUTE_PALETTE.mint : ROUTE_PALETTE.sidecar) : ghost ? ROUTE_PALETTE.ghost : '#6b7386' }}>
+                        {sampled ? (agrees ? 'in sample · local agrees' : 'in sample') : ghost ? 'outside the sample · drawn' : 'not sampled'}
                       </span>
                     </div>
                     {h.snippet && <div style={{ color: '#aeb5c6', marginTop: 2, overflowWrap: 'anywhere' }}>{h.snippet}</div>}
