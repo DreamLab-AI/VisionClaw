@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: ed4c9db3c6ee07b1fafe9cc29e10f619425b2adb
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -167,3 +167,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at ed4c9db3c
 
 `wire.rs` gains only a test pinning `MemoryCloudQueryResponse` to the headset's shared fixture (`xr-client/rust/tests/fixtures/memory_query_response.json`); the wire types themselves are unchanged. Decision holds.
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+ADR-2136 keeps the snapshot's PCA basis (`pca.rs` `Projector`, `BuiltSnapshot::projector`) and adds the optional `query.position` to the query response (`wire.rs`, `memory_cloud_service.rs`). Sampling, the snapshot payload, the vectors blob and the PowerUser gate are unchanged, and the snapshot positions are bit-identical (same arithmetic). Decision holds. `cargo test -p visionclaw-memory-cloud`: 47 passed, 19 doc tests.

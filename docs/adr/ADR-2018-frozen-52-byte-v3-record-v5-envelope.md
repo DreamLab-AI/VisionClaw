@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -258,3 +258,7 @@ Merging fix/xr-held-above-route touches this record's paths only with a benchmar
 ## Re-verification — 2026-10-07 (ADR-2135: f275173a3, 08a3e2a41, 96d9c426d)
 
 ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` in three ways. `graph_robust_bounds(separation)` folds the graph bounds for the memory cloud. Applied `0x23` actions also feed the render-store agent drift. Three `#[func]`s are added (`record_memory_flash`, `step_agent_drift`, `agent_drift_offset`). The 52-byte V3 record, the V5 envelope and every decoder are untouched. Decision holds. Verified at 96d9c426d on f95dc554f: server `cargo test --lib` 1,565 passed, 0 failed, 6 ignored; `cargo test -p visionclaw-tri-layout` 22 + 2 doc; xr-client `cargo test --workspace` 527 passed; client vitest 1,264; clippy `-D warnings` and fmt clean on the server lib, the new crate and the xr-client workspace.
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+`xr-client/rust/src/binary_protocol.rs` changes only two Godot methods: `agent_drift_offset(agent_id)` and `graph_robust_bounds()` lose their separation argument. The 52-byte V3 record and the V5 envelope are untouched. Decision holds. xr-client workspace: 549 passed.

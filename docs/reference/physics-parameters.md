@@ -42,9 +42,12 @@ flowchart TD
   Proj -->|"positions"| WS
 ```
 
-`graph_separation_x` and `axis_compression_z` are the only layout controls **not** applied
-inside the kernel — they are a deterministic post-readback projection on the host position
-buffer, re-applied every broadcast frame. `adaptive_speed` and the other ForceAtlas2 fields
+The separated layout (ADR-2135) and `axis_compression_z` are the only layout shaping **not**
+applied inside the kernel — they are a deterministic post-readback projection on the host
+position buffer, re-applied every broadcast frame. The knowledge graph, ontology and memory
+cloud are always apart at the fixed `visionclaw_tri_layout::SEPARATION` (190, derived from the
+live graph radii); there is no separation setting since 2026-10-08, and a stored or sent
+`graphSeparationX` is accepted and ignored. `adaptive_speed` and the other ForceAtlas2 fields
 **are** kernel inputs forwarded via `SimParams`.
 
 ---
@@ -144,7 +147,6 @@ by separation and flatten.
 
 | UI label | Settings key | Type | Range (slider) | Default | Effect |
 |---|---|---|---|---|---|
-| Dual Graph Separation | `graphSeparationX` | f32 | 0 – 500 | **100.0** | Half-distance the two populations are pushed apart on X (total gap = `2 × graphSeparationX`). 0 = merged; ~100 keeps the discs close and overlapping; > 250 pushes them unusably far |
 | Axis Compression (Z) | `axisCompressionZ` | f32 | 0 – 1 | **0.9** | Flattens Knowledge + Ontology toward `z=0` (`pos.z *= 1 - axisCompressionZ`) to form discs; Agent nodes keep full-3D depth so they visibly bridge the discs. 0 = no compression, 1 = fully flat |
 | Flatten to Planes | `zDamping` | f32 | 0 – 0.1 | 0.0 | Legacy client-side Z squash (`0` = full 3D, `0.1` = flat). Superseded by `axisCompressionZ`; prefer the latter |
 
@@ -298,9 +300,8 @@ The slider maxima are conservative limits that prevent degenerate layouts:
 
 - **`springK` > ~40**: springs become rigid rods; the layout oscillates instead of settling.
 - **`repelK` > 3000**: nodes explode past the bounding box before the loop can compensate.
-- **`graphSeparationX` > 250**: the two discs are pushed more than 500 units apart — unnavigable.
-- **`axisCompressionZ` = 1**: fully flattens Knowledge + Ontology onto `z=0`; combine with
-  `graphSeparationX` for two parallel discs bridged by full-3D Agent nodes.
+- **`axisCompressionZ` near its floor**: thins each graph into a disc facing the centre of the
+  always-on triangle (ADR-2135); combine with dual-disc for rim-clamped discs.
 - **`centerGravityK` too high vs `repelK`**: the graph collapses to a point; keep the ratio modest.
 
 ---

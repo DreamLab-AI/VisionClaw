@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ed4c9db3c6ee07b1fafe9cc29e10f619425b2adb
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -138,3 +138,7 @@ ADR-2135 changes `binary_protocol.rs` and `render_store.rs` to fold the graph bo
 ## Re-verification — 2026-10-07 at ed4c9db3c
 
 `graph_scene.gd` changes are the separation write pump and the memory-search route hand-off; agent pose ownership and demo-via-ingest are untouched. Decision holds.
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+`graph_scene.gd` drops the separation pump and the separation-0 rim-slot path: the layout is always separated, so work agents always rest at the centroid plus drift (`_apply_drift_rest_slots`, `_drift_rest_slot`). `AgentChoreography` still writes every work-layer pose; the scene only chooses the rest slot. `render_store.rs` and `binary_protocol.rs` read the drift from the fixed frame. Demo mode still enters only through `ingest`. Decision holds. GUT `test_tri_layout_rest.gd` passed on HP.

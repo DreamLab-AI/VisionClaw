@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: ed4c9db3c6ee07b1fafe9cc29e10f619425b2adb
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -166,3 +166,7 @@ ADR-2135 adds `_graph_separation` to `xr-client/scripts/graph_scene.gd`, read ba
 ## Re-verification — 2026-10-07 at ed4c9db3c
 
 The XR separation slider writes `graphSeparationX` through the existing physics PUT with `?graph=knowledge` and its one-in-flight gate (`graph_scene.gd` `_put_physics_body`); the settings key is unchanged. Decision holds.
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+The XR separation slider is gone (ADR-2135 amendment). `graph_scene.gd` no longer holds `_graph_separation` or writes `graphSeparationX`, and `graph_parity.gd` no longer reads it back. `data/settings.yaml` and `client/src/features/settings/config/settings.ts` drop the key. The physics PUT still targets `?graph=knowledge`, and a stray `graphSeparationX` in a body or a stored blob is accepted and ignored (`test_retired_graph_separation_x_loads_and_is_ignored`). Decision holds.

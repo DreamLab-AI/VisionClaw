@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -194,3 +194,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/models/force_channels.rs`: `ToSimParams` imported only in the test module that uses it; doc paragraph breaks; `src/models/simulation_params.rs`: calls the renamed `AutoBalanceConfig::recommended()` / `AutoPauseConfig::recommended()` (the inherent constructors formerly spelled `default()`; same values); `src/utils/unified_gpu_compute/execution.rs`: `AABB` renamed `Aabb` (same `repr(C)` layout); `connected_extent` is `pub(crate)`; `div_ceil`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+`src/models/simulation_params.rs` drops only the retired `graph_separation_x` from the reverse conversion. Flag derivation is untouched. Decision holds.

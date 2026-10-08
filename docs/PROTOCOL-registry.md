@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.7
+version: 0.1.8
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.8 (2026-10-08): ADR-2136 — /api/memory-cloud/query response gains optional query.position [x,y,z] | null, the query vector projected with the snapshot's own PCA basis and scale (a sampled row lands on its row); additive, older clients ignore it. ADR-2135 amendment — graphSeparationX retired from PUT/GET /api/settings/physics: a sent or stored value is accepted and ignored, never returned"
   - "0.1.7 (2026-10-07): ADR-2135 — /api/memory-flash{,/batch} rows; optional agentId (alias agent_id) accepted and relayed in the memory_flash frame (omitted when absent) so clients drift that agent towards the memory cloud; additive"
   - "0.1.6 (2026-10-07): ADR-2134 amendment — memoryRoute gains optional sidecarTotal/sidecarAgree, relayed only as a consistent pair (sidecar.len() ≤ total, agree ≤ sidecar.len()) else both dropped; additive, older peers unaffected"
   - "0.1.5 (2026-10-07): ADR-2134 — /wss beatClock and memoryRoute client text frames relayed to the same pubkey's other sessions; JSON pong gains serverTime"
@@ -192,7 +193,7 @@ Routes registered in `src/main.rs:986-1016`:
 | `/client-logs` | POST | none | `main.rs:1016` |
 | `/api/memory-cloud` | GET | `PowerUser` in handler (`memory_cloud_handler.rs:44`), regardless of `RBAC_PUBLIC_READS` | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO` |
 | `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
-| `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); validation 400 |
+| `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); `query.position` = the query's point in the snapshot's PCA cloud or `null` (ADR-2136); validation 400 |
 | `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
 | `/api/memory-flash`, `/api/memory-flash/batch` | POST | central `/api` policy | `{key, namespace?, action?, agentId?}` (batch: `{events: [...]}`) → `memory_flash` text frame `{type, data: {key, namespace, action, timestamp, agentId?}}` to every client; `agentId` (an agent wire id, flag bits allowed) is relayed only when given and names the agent the clients drift towards the memory cloud (ADR-2135) |
 
@@ -289,7 +290,8 @@ already versions itself via the leading tag byte, and the decoder branches on it
 - The visibility filter default is fail-closed (ON).
 - Memory-cloud wire types (`client/src/features/visualisation/memoryCloud/types.ts`) change only
   together with `crates/visionclaw-memory-cloud/src/wire.rs`, whose field-name test pins them; the
-  vectors blob is little-endian f32 with no header (ADR-2133).
+  vectors blob is little-endian f32 with no header (ADR-2133). `query.position` uses the same PCA
+  basis and scale as the snapshot it names (ADR-2136).
 - Namespaces in `MEMORY_CLOUD_EXCLUDE_NAMESPACES` (default `personal-context`) never appear in any
   memory-cloud response, and the private memory-cloud reads never drop below `PowerUser`.
 

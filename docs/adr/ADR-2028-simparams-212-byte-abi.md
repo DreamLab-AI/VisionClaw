@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -179,3 +179,7 @@ Verified implementation: `1ad881cab5ed786fc112f6e50db03fd587e23ec0`. Evidence: [
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/models/simulation_params.rs`: calls the renamed `AutoBalanceConfig::recommended()` / `AutoPauseConfig::recommended()` (the inherent constructors formerly spelled `default()`; same values). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+`src/models/simulation_params.rs` drops `graph_separation_x` from the reverse `SimParams → SimulationParams` conversion. That field was never in the repr-C `SimParams`, so the compile-time `size_of::<SimParams>() == 212` assertion still holds. Decision holds. Server lib 1,568 passed.
