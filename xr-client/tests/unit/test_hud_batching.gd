@@ -187,3 +187,19 @@ func test_check_buttons_draw_their_switch_from_the_atlas() -> void:
 		assert_gt(r.size.x, 0.0)
 		assert_almost_eq(r.end.x, cb.size.x - cb.get_theme_stylebox("normal").get_margin(SIDE_RIGHT), 0.5, "where Godot draws the icon")
 	hud.queue_free()
+
+
+# A control added and freed in the same frame (a list rebuilt twice before
+# the next idle, a queue_free'd row) still had its deferred conversion walk
+# queued: Godot then logged "Error calling deferred method ... _walk: Cannot
+# convert argument 1 from Object to Object" in the live headset log.
+func test_a_control_freed_before_its_deferred_walk_logs_no_error() -> void:
+	var hud := await _hud()
+	var host: Control = hud.get_node("HudViewport/HudControl")
+	var b := Button.new()
+	host.add_child(b)
+	b.free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_engine_error_count(0, "no deferred walk on a freed node")
+	hud.queue_free()
