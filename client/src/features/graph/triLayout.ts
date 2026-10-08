@@ -89,11 +89,29 @@ export function separatedFrame(): TriangleFrame {
 }
 
 /**
+ * the memory body's distance from the centroid as a fraction of
+ * memoryClearDistance (operator decision 2026-10-08; it was 1)
+ */
+export const MEMORY_DISTANCE_FACTOR = 0.5;
+
+/**
  * Centre of the memory body for one graph's robust radius and the cloud's
- * drawn radius: on the memory vertex's ray, at the vertex or further out, so
- * its sphere clears both graph spheres by CLEARANCE. Bad radii count as 0.
+ * drawn radius: on the memory vertex's ray, MEMORY_DISTANCE_FACTOR of the way
+ * out to memoryClearDistance. At live scale it overlaps the graphs.
  */
 export function memoryCentre(f: TriangleFrame, graphRadius: number, memoryRadius: number): Vec3 {
+  const dir = rotateY([0, 0, 1], (VERTEX_ANGLES_DEG[Vertex.Memory] * Math.PI) / 180);
+  const d = MEMORY_DISTANCE_FACTOR * memoryClearDistance(f, graphRadius, memoryRadius);
+  // `+ 0` keeps a 0 × sin(180°) at +0
+  return [dir[0] * d + 0, 0, dir[2] * d + 0];
+}
+
+/**
+ * Distance from the centroid along the memory vertex's ray at which the
+ * cloud's sphere clears both graph spheres by CLEARANCE, and never less than
+ * the vertex's own. Bad radii count as 0.
+ */
+export function memoryClearDistance(f: TriangleFrame, graphRadius: number, memoryRadius: number): number {
   const r = (x: number) => (Number.isFinite(x) ? Math.max(0, x) : 0);
   const need = CLEARANCE * (r(graphRadius) + r(memoryRadius));
   const dir = rotateY([0, 0, 1], (VERTEX_ANGLES_DEG[Vertex.Memory] * Math.PI) / 180);
@@ -104,8 +122,7 @@ export function memoryCentre(f: TriangleFrame, graphRadius: number, memoryRadius
     const disc = b * b - (g[0] * g[0] + g[2] * g[2]) + need * need;
     if (disc > 0) dist = Math.max(dist, b + Math.sqrt(disc));
   }
-  // `+ 0` keeps a 0 × sin(180°) at +0
-  return [dir[0] * dist + 0, 0, dir[2] * dist + 0];
+  return dist;
 }
 
 export function isMerged(f: TriangleFrame): boolean {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, DEFAULT_CLOUD_SCALE, graphBoundsFor } from '../cloudFrame';
-import { separatedFrame, memoryCentre, place, Vertex, LIVE_GRAPH_RADIUS, MEMORY_BODY_SCALE } from '../../../graph/triLayout';
+import { separatedFrame, memoryCentre, memoryClearDistance, MEMORY_DISTANCE_FACTOR, place, Vertex, LIVE_GRAPH_RADIUS, MEMORY_BODY_SCALE } from '../../../graph/triLayout';
 import { robustBounds } from '@/utils/robustBounds';
 
 const cloud = { centre: [-10, 20, -15] as [number, number, number], radius: 120 };
@@ -28,29 +28,34 @@ describe('cloudPlacement', () => {
     expect(p.scale * cloud.radius).toBeCloseTo(2 * MEMORY_BODY_SCALE * graph.radius);
   });
 
-  it('never overlaps either graph, whatever the graph size', () => {
+  it('sits at MEMORY_DISTANCE_FACTOR of the clear distance, whatever the graph size', () => {
+    // operator decision 2026-10-08: half the distance that would clear both
+    // graphs, so at live scale the cloud overlaps them (ADR-2135)
     const f = separatedFrame();
     for (const r of [20, 93, 152, 300]) {
       const g = { centre: [0, 0, 0] as [number, number, number], radius: r };
       for (const k of [DEFAULT_CLOUD_SCALE, DEFAULT_CLOUD_SCALE * 2]) {
         const p = cloudPlacement(cloud, g, k);
         const rc = p.scale * cloud.radius;
-        for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
-          expect(dist(p.position, f.vertices[v]), `r=${r} k=${k}`).toBeGreaterThanOrEqual(rc + r);
-        }
+        expect(dist(p.position, [0, 0, 0]), `r=${r} k=${k}`).toBeCloseTo(
+          MEMORY_DISTANCE_FACTOR * memoryClearDistance(f, r, rc),
+          3,
+        );
       }
     }
   });
 
-  it('without a graph keeps the cloudScale size rule and clears a live-sized graph', () => {
+  it('without a graph keeps the cloudScale size rule at the memory centre for a live-sized graph', () => {
     const p = cloudPlacement(cloud, null, 5);
     expect(p.scale).toBe(5 * MEMORY_BODY_SCALE);
     const m = memoryCentre(separatedFrame(), LIVE_GRAPH_RADIUS, p.scale * cloud.radius);
     p.position.forEach((x, k) => expect(x).toBeCloseTo(m[k], 4));
     expect(p.offset).toEqual([10, -20, 15]);
-    // no cloud yet: the memory vertex itself
+    // no cloud yet: MEMORY_DISTANCE_FACTOR of the way out to the memory vertex
     const bare = cloudPlacement(null, null, 5);
-    bare.position.forEach((x, k) => expect(x).toBeCloseTo(separatedFrame().vertices[Vertex.Memory][k], 4));
+    bare.position.forEach((x, k) =>
+      expect(x).toBeCloseTo(MEMORY_DISTANCE_FACTOR * separatedFrame().vertices[Vertex.Memory][k], 4),
+    );
   });
 
   it('guards a bad scale setting', () => {

@@ -11,8 +11,10 @@ import {
   CLEARANCE,
   LIVE_GRAPH_RADIUS,
   MEMORY_BODY_SCALE,
+  MEMORY_DISTANCE_FACTOR,
   SEPARATION,
   memoryCentre,
+  memoryClearDistance,
   separatedFrame,
   separationForRadii,
   FULL_STRENGTH_SEPARATION,
@@ -52,6 +54,7 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.join(CRATE, 'fixtures/tri_layout
   clearance: number;
   separation: number;
   memory_body_scale: number;
+  memory_distance_factor: number;
   memory_centre: { graph_radius: number; memory_radius: number; centre: Vec3 }[];
   full_strength_separation: number;
   radius_per_separation: number;
@@ -84,6 +87,8 @@ describe('triLayout port matches the Rust crate', () => {
     expect(FIXTURE.live_graph_radius).toBe(LIVE_GRAPH_RADIUS);
     expect(FIXTURE.clearance).toBe(CLEARANCE);
     expect(FIXTURE.memory_body_scale).toBe(MEMORY_BODY_SCALE);
+    expect(Number(rustConst('MEMORY_DISTANCE_FACTOR'))).toBe(MEMORY_DISTANCE_FACTOR);
+    expect(FIXTURE.memory_distance_factor).toBe(MEMORY_DISTANCE_FACTOR);
   });
 
   it('places the memory body where the crate does', () => {
@@ -125,15 +130,29 @@ describe('triLayout behaviour', () => {
     expect(Math.hypot(k[0] - o[0], k[2] - o[2])).toBeGreaterThanOrEqual(CLEARANCE * 2 * LIVE_GRAPH_RADIUS - 1e-3);
   });
 
-  it('a ×10 memory body clears both graphs and sits behind them', () => {
+  it('the clear distance clears both graphs; the memory body sits at half of it', () => {
+    expect(MEMORY_DISTANCE_FACTOR).toBe(0.5);
     const f = separatedFrame();
     const g = 93;
     const m = MEMORY_BODY_SCALE * g;
-    const c = memoryCentre(f, g, m);
-    expect(c[2]).toBeLessThan(f.vertices[Vertex.Memory][2]);
+    const d = memoryClearDistance(f, g, m);
     for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
       const p = f.vertices[v];
-      expect(Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2])).toBeGreaterThanOrEqual(CLEARANCE * (g + m) - 1e-6);
+      expect(Math.hypot(p[0], p[1], p[2] + d)).toBeGreaterThanOrEqual(CLEARANCE * (g + m) - 1e-6);
+    }
+    const c = memoryCentre(f, g, m);
+    expect(c[2]).toBeLessThan(f.vertices[Vertex.Memory][2]);
+    expect(Math.hypot(...c)).toBeCloseTo(MEMORY_DISTANCE_FACTOR * d, 6);
+  });
+
+  it('at live scale the closer memory body encloses both graphs (measured, operator choice)', () => {
+    const f = separatedFrame();
+    const m = MEMORY_BODY_SCALE * LIVE_GRAPH_RADIUS;
+    const c = memoryCentre(f, LIVE_GRAPH_RADIUS, m);
+    for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
+      const p = f.vertices[v];
+      const d = Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2]);
+      expect(d + LIVE_GRAPH_RADIUS).toBeLessThan(m);
     }
   });
 

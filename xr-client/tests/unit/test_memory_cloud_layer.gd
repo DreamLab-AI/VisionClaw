@@ -158,6 +158,30 @@ func test_route_applies_draws_and_dims_off_route() -> void:
 	l.queue_free()
 
 
+# Operator decision 2026-10-08: the headset draws the route's lines (tube,
+# beads, comet, guide dots) at a tenth of the desktop thickness and brightness.
+func test_route_lines_draw_at_the_xr_factor() -> void:
+	assert_almost_eq(MemoryRoute.xr_route_thickness_scale(), 0.1, 1e-6)
+	assert_almost_eq(MemoryRoute.xr_route_glow_scale(), 0.1, 1e-6)
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	_load(l, "s1", 6)
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}'), "apply")
+	var tube: MeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Tube")
+	var arrays: Array = tube.mesh.surface_get_arrays(0)
+	var widest := 0.0
+	for uv in arrays[Mesh.ARRAY_TEX_UV2]:
+		widest = maxf(widest, uv.x)
+	# the outer glow sheath: desktop TUBE_R 0.45 × 7, at the factor
+	assert_almost_eq(widest, 0.45 * 7.0 * 0.1, 1e-4, "tube a tenth as thick")
+	var brightest := 0.0
+	for c in arrays[Mesh.ARRAY_COLOR]:
+		brightest = maxf(brightest, maxf(c.r, maxf(c.g, c.b)))
+	assert_lt(brightest, 0.25, "tube a tenth as bright (desktop core ~1.5)")
+	l.queue_free()
+
+
 func test_route_for_another_snapshot_waits_for_the_reload_then_applies() -> void:
 	var l: Node3D = await _make()
 	_load(l, "old", 6)

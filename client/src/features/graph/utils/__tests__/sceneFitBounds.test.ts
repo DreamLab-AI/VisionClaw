@@ -44,9 +44,11 @@ describe('sceneFitBounds', () => {
     const local = robustBounds(blob.flat(), blob.length)!;
     const p = cloudPlacement(cloud.bounds, local, cloud.cloudScale);
     const rc = p.scale * cloud.bounds.radius;
-    // the farthest graph point and the cloud's far side bound the sphere
+    // the farthest graph point and the cloud's far side bound the sphere;
+    // when the closer cloud encloses both graphs (ADR-2135, 2026-10-08) the
+    // cloud's own sphere is the bound
     const span = Math.hypot(...p.position) + rc + separatedFrame().radius + local.radius;
-    expect(fit.radius).toBeLessThanOrEqual(span / 2 + 1);
+    expect(fit.radius).toBeLessThanOrEqual(Math.max(span / 2, rc) + 1);
   });
 
   it('without the cloud frames only the two graphs', () => {

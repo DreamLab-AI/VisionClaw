@@ -39,9 +39,12 @@
 //!
 //! The memory cloud is drawn [`MEMORY_BODY_SCALE`] times one graph's size, so
 //! it would swallow the triangle if it sat on its vertex. It sits on the
-//! memory vertex's ray instead, at [`TriangleFrame::memory_centre`]: never
-//! nearer than the vertex, and far enough out that its sphere clears both
-//! graph spheres by [`CLEARANCE`].
+//! memory vertex's ray instead, at [`TriangleFrame::memory_centre`]:
+//! [`MEMORY_DISTANCE_FACTOR`] (one half, operator decision 2026-10-08) of the
+//! distance from the centroid at which its sphere would clear both graph
+//! spheres by [`CLEARANCE`] ([`TriangleFrame::memory_clear_distance`]). At
+//! live scale that closer body overlaps the graphs: its robust sphere
+//! contains both of theirs.
 //!
 //! ```
 //! use visionclaw_tri_layout::{TriangleFrame, Vertex, SEPARATION};
@@ -53,9 +56,11 @@
 //! let gap = ((k[0] - o[0]).powi(2) + (k[2] - o[2]).powi(2)).sqrt();
 //! assert!((gap - 2.0 * SEPARATION).abs() < 1e-3);
 //!
-//! // a cloud ten graphs wide is pushed back until it clears both graphs
+//! // a cloud ten graphs wide sits beyond the memory vertex, at half the
+//! // distance that would clear both graphs
 //! let m = f.memory_centre(93.0, 930.0);
 //! assert!(m[2] < f.vertex(Vertex::Memory)[2]);
+//! assert!((-m[2] - 0.5 * f.memory_clear_distance(93.0, 930.0)).abs() < 1e-3);
 //! ```
 //!
 //! # Agents
@@ -103,6 +108,11 @@ pub const SEPARATION: f32 = separation_for_radii(LIVE_GRAPH_RADIUS, LIVE_GRAPH_R
 /// The memory cloud's size relative to one graph: its robust radius is this
 /// many times the graph's (operator decision 2026-10-08; it was 1).
 pub const MEMORY_BODY_SCALE: f32 = 10.0;
+
+/// The memory body's distance from the centroid, as a fraction of
+/// [`TriangleFrame::memory_clear_distance`] (operator decision 2026-10-08,
+/// "bring the memories about 50% closer to the centre"; it was 1).
+pub const MEMORY_DISTANCE_FACTOR: f32 = 0.5;
 
 /// Separation at which the triangle reaches full strength: each graph is
 /// fully yawed to face the centroid and, without dual-disc, fully re-centred
@@ -218,12 +228,20 @@ impl TriangleFrame {
     }
 
     /// Centre of the memory body, given the robust radius of one graph and of
-    /// the memory cloud as drawn (both in scene units). It lies on the memory
-    /// vertex's ray from the centroid, at the vertex or further out: as far as
-    /// it takes for the cloud's sphere to clear each graph's sphere by
-    /// [`CLEARANCE`], `|centre − vertexᵍ| ≥ CLEARANCE × (graph + memory)`.
-    /// Non-finite or negative radii count as 0.
+    /// the memory cloud as drawn (both in scene units): on the memory vertex's
+    /// ray from the centroid, [`MEMORY_DISTANCE_FACTOR`] of the way out to
+    /// [`memory_clear_distance`](Self::memory_clear_distance).
     pub fn memory_centre(&self, graph_radius: f32, memory_radius: f32) -> Vec3 {
+        let dir = rotate_y([0.0, 0.0, 1.0], Vertex::Memory.angle_rad());
+        let d = MEMORY_DISTANCE_FACTOR * self.memory_clear_distance(graph_radius, memory_radius);
+        [dir[0] * d, 0.0, dir[2] * d]
+    }
+
+    /// Distance from the centroid, along the memory vertex's ray, at which the
+    /// memory cloud's sphere clears each graph's sphere by [`CLEARANCE`]
+    /// (`|centre − vertexᵍ| ≥ CLEARANCE × (graph + memory)`), and never less
+    /// than the vertex's own distance. Non-finite or negative radii count as 0.
+    pub fn memory_clear_distance(&self, graph_radius: f32, memory_radius: f32) -> f32 {
         let r = |x: f32| if x.is_finite() { x.max(0.0) } else { 0.0 };
         let need = CLEARANCE * (r(graph_radius) + r(memory_radius));
         let dir = rotate_y([0.0, 0.0, 1.0], Vertex::Memory.angle_rad());
@@ -237,7 +255,7 @@ impl TriangleFrame {
                 dist = dist.max(b + disc.sqrt());
             }
         }
-        [dir[0] * dist, 0.0, dir[2] * dist]
+        dist
     }
 
     /// True at separation 0: every vertex is the origin and every yaw is 0,
@@ -460,9 +478,10 @@ mod tests {
     }
 
     #[test]
-    fn memory_centre_is_on_the_memory_ray_and_clears_both_graphs() {
+    fn memory_clear_distance_clears_both_graphs() {
         let f = TriangleFrame::separated();
         let mv = f.vertex(Vertex::Memory);
+        let dir = [0.0, 0.0, -1.0];
         for (g, m) in [
             (93.0, 930.0),
             (152.0, 1520.0),
@@ -470,46 +489,69 @@ mod tests {
             (93.0, 93.0),
             (0.0, 0.0),
         ] {
-            let c = f.memory_centre(g, m);
-            assert!(c[0].abs() < 1e-3 && c[1] == 0.0, "on the ray {c:?}");
-            assert!(c[2] <= mv[2] + 1e-3, "never nearer than the vertex {c:?}");
+            let d = f.memory_clear_distance(g, m);
+            assert!(d >= f.radius - 1e-3, "never nearer than the vertex {d}");
+            let c = [dir[0] * d, 0.0, dir[2] * d];
             for v in [Vertex::Knowledge, Vertex::Ontology] {
-                let d = dist(c, f.vertex(v));
-                assert!(d >= CLEARANCE * (g + m) - 1e-2, "{g}/{m}: {d}");
+                assert!(
+                    dist(c, f.vertex(v)) >= CLEARANCE * (g + m) - 1e-2,
+                    "{g}/{m}"
+                );
             }
         }
+        // the memory vertex lies on -z, the ray the distance is measured along
+        assert!(mv[0].abs() < 1e-3 && mv[2] < 0.0, "{mv:?}");
     }
 
     #[test]
-    fn memory_centre_is_the_tightest_clear_point() {
-        // a ×10 cloud is pushed out exactly to the clearance, no further
+    fn memory_clear_distance_is_the_tightest_clear_point() {
         let f = TriangleFrame::separated();
         let (g, m) = (93.0, 930.0);
-        let c = f.memory_centre(g, m);
-        let d = dist(c, f.vertex(Vertex::Knowledge));
-        assert!((d - CLEARANCE * (g + m)).abs() < 0.05, "{d}");
-        // a small cloud keeps the vertex
-        assert!(close(
-            f.memory_centre(10.0, 10.0),
-            f.vertex(Vertex::Memory),
-            1e-3
-        ));
-        // bad radii count as zero
+        let d = f.memory_clear_distance(g, m);
+        let c = [0.0, 0.0, -d];
+        let gap = dist(c, f.vertex(Vertex::Knowledge));
+        assert!((gap - CLEARANCE * (g + m)).abs() < 0.05, "{gap}");
+        // a small cloud keeps the vertex; bad radii count as zero
+        assert!((f.memory_clear_distance(10.0, 10.0) - f.radius).abs() < 1e-3);
+        assert!((f.memory_clear_distance(f32::NAN, -5.0) - f.radius).abs() < 1e-3);
+    }
+
+    #[test]
+    fn memory_centre_is_half_the_clear_distance_on_the_memory_ray() {
+        // operator decision 2026-10-08: the memory body sits at half the
+        // distance from the centroid that would clear both graphs
+        assert_eq!(MEMORY_DISTANCE_FACTOR, 0.5);
+        let f = TriangleFrame::separated();
+        for (g, m) in [(93.0, 930.0), (152.0, 1520.0), (93.0, 93.0), (0.0, 0.0)] {
+            let c = f.memory_centre(g, m);
+            let want = MEMORY_DISTANCE_FACTOR * f.memory_clear_distance(g, m);
+            assert!(
+                c[0].abs() < 1e-3 && c[1] == 0.0 && c[2] < 0.0,
+                "on the ray {c:?}"
+            );
+            assert!((dist(c, [0.0; 3]) - want).abs() < 1e-2, "{g}/{m}: {c:?}");
+        }
         assert!(close(
             f.memory_centre(f32::NAN, -5.0),
-            f.vertex(Vertex::Memory),
+            [0.0, 0.0, -MEMORY_DISTANCE_FACTOR * f.radius],
             1e-3
         ));
     }
 
     #[test]
-    fn a_memory_body_ten_graphs_wide_clears_the_live_graphs() {
+    fn at_live_scale_the_closer_memory_body_encloses_both_graphs() {
+        // Measured, not hidden: at half the clear distance a cloud ten graphs
+        // wide overlaps the graphs; its robust sphere contains both of theirs.
         let f = TriangleFrame::separated();
         let m = MEMORY_BODY_SCALE * LIVE_GRAPH_RADIUS;
         let c = f.memory_centre(LIVE_GRAPH_RADIUS, m);
         for v in [Vertex::Knowledge, Vertex::Ontology] {
-            let gap = dist(c, f.vertex(v)) - m - LIVE_GRAPH_RADIUS;
-            assert!(gap > 0.2 * (m + LIVE_GRAPH_RADIUS), "empty margin {gap}");
+            let d = dist(c, f.vertex(v));
+            assert!(
+                d + LIVE_GRAPH_RADIUS < m,
+                "graph sphere inside the cloud: {d}"
+            );
+            assert!(d > 0.7 * m, "but well off the cloud's centre: {d}");
         }
     }
 
@@ -659,6 +701,7 @@ mod tests {
             "clearance": CLEARANCE,
             "separation": SEPARATION,
             "memory_body_scale": MEMORY_BODY_SCALE,
+            "memory_distance_factor": MEMORY_DISTANCE_FACTOR,
             "memory_centre": memory,
             "drift": drift_doc,
             "full_strength_separation": FULL_STRENGTH_SEPARATION,
