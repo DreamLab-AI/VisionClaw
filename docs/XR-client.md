@@ -326,8 +326,11 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   response carries no traversal, and the headset holds neither the vectors nor
   the PCA basis, so the server places the query (ADR-2136): `query.position`
   is the query vector projected with the snapshot's own basis and scale (a
-  sampled row's vector lands exactly on its row). The route starts at that
-  point and runs through the sampled hits in rank order; the root ring marks
+  sampled row's vector lands exactly on its row), and each hit's `position`
+  places that hit the same way, sampled or not. The route starts at the query
+  point and runs through every placed hit in rank order (hits outside the
+  sample carry a dim hollow ghost ring and ☐ on the list; caption "(k drawn,
+  n in sample)"); the root ring marks
   the query point and the answer ring the top hit (`RouteSamples::answer`);
   every sampled hit gets a gold mark. One sampled hit is enough. From a server
   without `position` the old line through the hits alone, top hit last, is

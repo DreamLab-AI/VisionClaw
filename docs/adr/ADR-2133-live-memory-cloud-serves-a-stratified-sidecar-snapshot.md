@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 8e5ab0dc22ed80c3304e527b8713c13b4a8ffe07
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -171,3 +171,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 ADR-2136 keeps the snapshot's PCA basis (`pca.rs` `Projector`, `BuiltSnapshot::projector`) and adds the optional `query.position` to the query response (`wire.rs`, `memory_cloud_service.rs`). Sampling, the snapshot payload, the vectors blob and the PowerUser gate are unchanged, and the snapshot positions are bit-identical (same arithmetic). Decision holds. `cargo test -p visionclaw-memory-cloud`: 47 passed, 19 doc tests. Citations at 31bc3d3a1: `crates/visionclaw-memory-cloud/src/pca.rs:170` (`projector`), `:193` (`Projector`); `snapshot.rs:41` (`BuiltSnapshot::projector`), `:286` (row-lands-on-its-position test); `wire.rs:121` (`QueryEcho::position`); `src/services/memory_cloud_service.rs:637`, `:806` (`query_position`).
+
+## Re-verification — 2026-10-08 at 8e5ab0dc2 (ADR-2136 amendment, hit.position)
+
+The search queries now also select `embedding::text` (`src/services/memory_cloud_service.rs:79`), and each hit gains an optional `position` from `BuiltSnapshot::project_literal` (`crates/visionclaw-memory-cloud/src/snapshot.rs:201`, `wire.rs:110`). The snapshot payload, sampling, the vectors blob, the PowerUser gate and the excluded namespaces are unchanged. The added column is read only from rows the query already returns. Decision holds. `cargo test -p visionclaw-memory-cloud`: 47 passed, 19 doc tests; server lib 1,568.

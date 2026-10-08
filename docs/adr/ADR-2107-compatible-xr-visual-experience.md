@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 131f066320290b1e6e80c1cafac3d1f3932b00f0
+verified_commit: 8e5ab0dc22ed80c3304e527b8713c13b4a8ffe07
 verified_paths: [xr-client/scenes/GraphScene.tscn, xr-client/scenes/HUD.tscn, xr-client/scripts/spatial_environment.gd, xr-client/scripts/xr_theme.gd, xr-client/scripts/hud.gd, xr-client/scripts/radial_menu.gd, xr-client/scripts/dwell_reticle.gd, xr-client/scripts/agent_avatar.gd, xr-client/materials/spatial_floor.gdshader, xr-client/materials/edge_flow.gdshader, xr-client/tests/spatial_visual_fixture.gd, xr-client/tests/unit/test_xr_visual_accessibility.gd]
 owner: jjohare
 review_trigger: Headset acceptance, a renderer change, or a change to graph instance channels and world-radius compensation.
@@ -137,3 +137,7 @@ New HUD controls (the separation row on the Layout page, and Memory Search mode 
 ## Re-verification — 2026-10-08 at 131f06632 (Scope key, deferred-walk fix)
 
 The memory keyboard gains a Scope key (`xr-client/scripts/hud.gd:783` `set_memory_scopes`; press-fire, hinted, clipped label), so the page height and the 532 px fit are unchanged. `hud_batching.gd:210` (`_walk_if_valid`) skips the deferred batching walk for a control freed before it runs, which removes the live-log error "Cannot convert argument 1 from Object to Object" (`test_a_control_freed_before_its_deferred_walk_logs_no_error`). The HUD still batches as before. Decision holds. GUT on HP: 222/222, guard 31/31.
+
+## Re-verification — 2026-10-08 at 8e5ab0dc2 (ADR-2136 amendment, hit.position)
+
+`hud.gd:883` changes only a hit row's hint text (sampled, outside the sample, unplaceable). Hits outside the sample show ☐, which is in the HUD font (the glyph guard rejected ○). The ghost marks ride the route's existing ring MultiMesh: no extra draw call, and the benchmark is unchanged (34 DC, 94,566 tris). Decision holds. GUT on HP: 222/222.
