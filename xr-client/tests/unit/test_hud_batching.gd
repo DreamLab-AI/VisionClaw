@@ -47,6 +47,37 @@ func test_layout_is_unchanged() -> void:
 	Batching.enabled = true
 	var batched := await _hud()
 	await get_tree().process_frame
+	assert_eq(await _moved(plain, batched), [], "content margins kept: nothing moves")
+	plain.queue_free()
+	batched.queue_free()
+
+
+# The FPS readout samples Engine.get_frames_per_second() on each HUD's first
+# frame. The two HUDs are built frames apart, so under suite load they could
+# show different rates ("FPS 9" vs "FPS 57"): the FPS label changed width and
+# the expand-fill room header beside it resized, which failed the comparison
+# about one full GUT run in three. Here the race is forced.
+func test_a_live_fps_readout_cannot_move_the_compared_layout() -> void:
+	Batching.enabled = false
+	var plain := await _hud()
+	Batching.enabled = true
+	var batched := await _hud()
+	plain._fps_header.text = "FPS 9"
+	batched._fps_header.text = "FPS 120"
+	await get_tree().process_frame
+	assert_eq(await _moved(plain, batched), [], "a readout drift is not a layout change")
+	plain.queue_free()
+	batched.queue_free()
+
+
+# Controls whose global rect differs between the plain and batched HUDs. The
+# live readouts are frozen to the same text first, and the containers given
+# two frames to re-sort, so only batching itself can move a control.
+func _moved(plain: Node3D, batched: Node3D) -> Array:
+	for hud in [plain, batched]:
+		_freeze_readouts(hud)
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var a: Array = _controls(plain.get_node("HudViewport"))
 	var b: Array = _controls(batched.get_node("HudViewport")).filter(func(c: Control) -> bool: return not (c is Batching.HudBg))
 	assert_eq(a.size(), b.size(), "same control tree apart from the background nodes")
@@ -57,14 +88,15 @@ func test_layout_is_unchanged() -> void:
 		# hidden containers do not lay out their children: their sizes are stale
 		if not ca.is_visible_in_tree():
 			continue
-		# live readouts (FPS, room) may differ between the two HUDs' frames
-		if "text" in ca and str(ca.get("text")) != str(cb.get("text")):
-			continue
 		if not ca.get_global_rect().is_equal_approx(cb.get_global_rect()):
 			moved.append("%s %s -> %s" % [ca.name, ca.get_global_rect(), cb.get_global_rect()])
-	assert_eq(moved, [], "content margins kept: nothing moves")
-	plain.queue_free()
-	batched.queue_free()
+	return moved
+
+
+# Stop the FPS sampler and show the same text on every per-frame readout.
+func _freeze_readouts(hud: Node3D) -> void:
+	hud._fps_next_ms = 9223372036854775807
+	hud._fps_header.text = "FPS --"
 
 
 func test_backgrounds_follow_control_state() -> void:
