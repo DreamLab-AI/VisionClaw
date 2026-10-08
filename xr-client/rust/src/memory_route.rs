@@ -62,17 +62,74 @@ pub const COMET_R: f32 = 0.5;
 pub const RING_R: f32 = 2.0;
 pub const MARK_R: f32 = 1.7;
 
-/// Headset-only factor on the route's line widths: tube layers, beads, the
-/// comet and its glow, and the guide dots are drawn at this fraction of the
-/// desktop sizes above (operator decision 2026-10-08, "make the bloomed
-/// connecting lines about 1/10 the thickness/brightness in the headset").
-/// Rings and hit marks are not lines and keep the desktop size. The desktop
-/// keeps its values; the drift test pins the desktop constants and these
-/// factors are the one, named divergence (docs/XR-client.md).
+/// Headset-only factor on the settled route's line widths: the four line
+/// layers of the tube, the beads once they have popped in, and the guide dots
+/// are drawn at this fraction of the desktop sizes above (operator decision
+/// 2026-10-08, "make the bloomed connecting lines about 1/10 the
+/// thickness/brightness in the headset"). The animated walk has its own
+/// factor ([`XR_WALK_THICKNESS_SCALE`]). Rings and hit marks are not lines and
+/// keep the desktop size. The desktop keeps its values; the drift test pins
+/// the desktop constants and these factors are the named divergence
+/// (docs/XR-client.md).
 pub const XR_ROUTE_THICKNESS_SCALE: f32 = 0.1;
 /// Headset-only factor on the same layers' emissive brightness (vertex and
 /// instance colour; opacity is untouched), as [`XR_ROUTE_THICKNESS_SCALE`].
 pub const XR_ROUTE_GLOW_SCALE: f32 = 0.1;
+/// Headset factor on the animated walk's sizes: the comet head, its glow and
+/// tail, the segment drawing in behind the trace head, and a bead popping in
+/// (operator, 2026-10-08: at the line factor the walk vanished in the VIVE).
+/// At the live scale (6.66 cloud-local units per metre, cloud ~15 m away)
+/// the desktop-sized comet head subtends ~0.57°; [`COMET_MIN_DEG`] is the
+/// floor.
+pub const XR_WALK_THICKNESS_SCALE: f32 = 1.0;
+/// Headset factor on the walk's emissive brightness: about half the desktop.
+pub const XR_WALK_GLOW_SCALE: f32 = 0.5;
+/// How far behind the trace head (fraction of the route) the drawing-in
+/// segment stays at the walk scale; it eases to the line scale over this.
+pub const WALK_WINDOW: f32 = TAIL_FRACTION;
+/// Seconds the drawing-in segment takes to settle to the line scale once the
+/// trace has converged.
+pub const WALK_SETTLE_S: f32 = 0.8;
+/// The comet head's minimum angular diameter (degrees) for a viewer
+/// [`COMET_VIEW_M`] away; the head grows to it when the cloud is scaled down.
+pub const COMET_MIN_DEG: f32 = 0.5;
+/// The viewing distance [`COMET_MIN_DEG`] is held at (head to cloud, metres).
+pub const COMET_VIEW_M: f32 = 15.0;
+
+/// The comet head's minimum radius in metres: [`COMET_MIN_DEG`] at
+/// [`COMET_VIEW_M`].
+pub fn comet_min_radius_m() -> f32 {
+    COMET_VIEW_M * (COMET_MIN_DEG.to_radians() * 0.5).tan()
+}
+
+/// How much wider the drawing-in segment is than a settled line (the route
+/// shader's `walk_width`).
+pub fn walk_width_ratio() -> f32 {
+    XR_WALK_THICKNESS_SCALE / XR_ROUTE_THICKNESS_SCALE
+}
+
+/// How much brighter the drawing-in segment is than a settled line (the
+/// route shader's `walk_glow`).
+pub fn walk_glow_ratio() -> f32 {
+    XR_WALK_GLOW_SCALE / XR_ROUTE_GLOW_SCALE
+}
+
+/// Weight of the walk scale at route parameter `u` (0 = line scale, 1 = walk
+/// scale): 1 at the trace head, easing (smoothstep) to 0 [`WALK_WINDOW`]
+/// behind it, 0 ahead of it, times the draw-in envelope `walk`
+/// ([`RouteFrameState::walk`]). `memory_route.gdshader` mirrors this.
+pub fn walk_envelope(u: f32, head_u: f32, walk: f32) -> f32 {
+    let behind = head_u - u;
+    if walk <= 0.0 || behind < 0.0 || behind >= WALK_WINDOW {
+        return 0.0;
+    }
+    let f = 1.0 - behind / WALK_WINDOW;
+    walk.min(1.0) * f * f * (3.0 - 2.0 * f)
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
 
 /// Ring vertices per tube cross-section (desktop 8; 6 keeps the headset share
 /// of the triangle budget small).
@@ -801,16 +858,22 @@ pub fn transport_frames(pts: &[Vec3]) -> Vec<(Vec3, Vec3)> {
 }
 
 /// The headset's five-layer route surface: [`build_route_mesh_desktop_look`]
-/// with every layer radius at [`XR_ROUTE_THICKNESS_SCALE`] and every colour
-/// at [`XR_ROUTE_GLOW_SCALE`] (opacity kept).
+/// with the four line layers at [`XR_ROUTE_THICKNESS_SCALE`] /
+/// [`XR_ROUTE_GLOW_SCALE`] and the comet tail at [`XR_WALK_THICKNESS_SCALE`] /
+/// [`XR_WALK_GLOW_SCALE`] (opacity kept). The shader widens and brightens the
+/// line layers towards the walk factors behind the trace head
+/// ([`walk_envelope`]).
 pub fn build_route_mesh(pts: &[Vec3], glow: f32) -> TubeMesh {
     let mut m = build_route_mesh_desktop_look(pts, glow);
-    for u in &mut m.uv2 {
-        u[0] *= XR_ROUTE_THICKNESS_SCALE;
-    }
-    for c in &mut m.colour {
+    for ((r, c), uv) in m.uv2.iter_mut().zip(&mut m.colour).zip(&m.uv) {
+        let (t, g) = if uv[1] as usize == LAYER_TAIL {
+            (XR_WALK_THICKNESS_SCALE, XR_WALK_GLOW_SCALE)
+        } else {
+            (XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE)
+        };
+        r[0] *= t;
         for k in c.iter_mut().take(3) {
-            *k *= XR_ROUTE_GLOW_SCALE;
+            *k *= g;
         }
     }
     m
@@ -976,6 +1039,9 @@ pub struct RouteFrameState {
     pub pulse: Option<f32>,
     /// glow multiplier including the beat
     pub glow: f32,
+    /// Draw-in envelope 0..1: 1 while the trace is drawing in, easing to 0
+    /// over [`WALK_SETTLE_S`] once it converges; 0 under reduced motion.
+    pub walk: f32,
 }
 
 /// `el` seconds after the route arrived. `beat` is `Some((phase, pulse))` when
@@ -1019,6 +1085,13 @@ pub fn animate(
     } else {
         None
     };
+    let walk = if reduced_motion || samples < 2 {
+        0.0
+    } else if path_t < 1.0 {
+        1.0
+    } else {
+        1.0 - clamp01((el - PATH_DUR) / WALK_SETTLE_S)
+    };
     RouteFrameState {
         path_t,
         head,
@@ -1028,6 +1101,7 @@ pub fn animate(
         answer,
         pulse,
         glow,
+        walk,
     }
 }
 
@@ -1124,9 +1198,13 @@ fn push_instance(buf: &mut Vec<f32>, p: Vec3, s: f32, c: [f32; 4]) {
     ]);
 }
 
-/// The headset's bead MultiMesh: [`bead_buffer_desktop_look`] with every
-/// disc's size at [`XR_ROUTE_THICKNESS_SCALE`] and colour at
-/// [`XR_ROUTE_GLOW_SCALE`] (position and opacity kept, instance count too).
+/// The headset's bead MultiMesh: [`bead_buffer_desktop_look`] with the comet
+/// head and glow at [`XR_WALK_THICKNESS_SCALE`] / [`XR_WALK_GLOW_SCALE`] (the
+/// head held to at least [`COMET_MIN_DEG`] at [`COMET_VIEW_M`], using the
+/// cue origin's `local_per_m`), each bead and halo blended from the walk
+/// factors to [`XR_ROUTE_THICKNESS_SCALE`] / [`XR_ROUTE_GLOW_SCALE`] by
+/// [`walk_envelope`] at its knot, and the guide dots at the line factors.
+/// Positions, opacity and the instance count are the desktop's.
 pub fn bead_buffer(
     r: &RouteSamples,
     st: &RouteFrameState,
@@ -1136,12 +1214,44 @@ pub fn bead_buffer(
     cue_target: Option<Vec3>,
 ) -> Vec<f32> {
     let mut buf = bead_buffer_desktop_look(r, st, beat_pulse, cue_origin, cue, cue_target);
-    for inst in buf.chunks_mut(STRIDE) {
+    let scale = |inst: &mut [f32], t: f32, g: f32| {
         for k in [0, 5, 10] {
-            inst[k] *= XR_ROUTE_THICKNESS_SCALE;
+            inst[k] *= t;
         }
         for c in &mut inst[12..15] {
-            *c *= XR_ROUTE_GLOW_SCALE;
+            *c *= g;
+        }
+    };
+    let last = r.pts.len().saturating_sub(1).max(1) as f32;
+    let knots = r.knots.len();
+    for (i, inst) in buf.chunks_mut(STRIDE).enumerate() {
+        if i < 2 * knots {
+            // bead + halo: walk scale while popping in near the head
+            let e = walk_envelope(r.knots[i / 2] as f32 / last, st.head_u, st.walk);
+            scale(
+                inst,
+                lerp(XR_ROUTE_THICKNESS_SCALE, XR_WALK_THICKNESS_SCALE, e),
+                lerp(XR_ROUTE_GLOW_SCALE, XR_WALK_GLOW_SCALE, e),
+            );
+        } else if i < 2 * knots + 2 {
+            scale(inst, XR_WALK_THICKNESS_SCALE, XR_WALK_GLOW_SCALE);
+        } else {
+            scale(inst, XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE);
+        }
+    }
+    // the comet head never drops under COMET_MIN_DEG at COMET_VIEW_M; its
+    // glow grows with it so the look keeps its proportions
+    let lpm = cue_origin.map_or(0.0, |o| o.local_per_m);
+    let head = 2 * knots * STRIDE;
+    if st.comet.is_some() && lpm.is_finite() && lpm > 0.0 && buf.len() >= head + 2 * STRIDE {
+        let min_r = comet_min_radius_m() * lpm;
+        if buf[head] < min_r {
+            let k = min_r / buf[head];
+            for inst in buf[head..head + 2 * STRIDE].chunks_mut(STRIDE) {
+                for j in [0, 5, 10] {
+                    inst[j] *= k;
+                }
+            }
         }
     }
     buf
@@ -1328,14 +1438,19 @@ impl ActiveRoute {
         true
     }
 
-    /// Show `f`. Returns true for a new route (different snapshot or path),
-    /// which restarts the trace and the framing cue. The desktop repeats a
+    /// Show `f`. Returns true for a new route (different snapshot or path, or
+    /// any headset-built route), which restarts the trace and the framing cue. The desktop repeats a
     /// live route every 10 s for late joiners; a repeat only refreshes the
     /// sidecar marks, query and stats, so the trace is not replayed and the
     /// cue does not fire again.
     pub fn set(&mut self, f: RouteFrame, positions: &[f32]) -> bool {
+        // only the desktop repeats a route; a headset query (preset or
+        // typed) is an operator action and always walks, even when its
+        // answer matches the route shown
         let same = self.frame.as_ref().is_some_and(|c| {
-            c.snapshot_id == f.snapshot_id
+            c.source == RouteSource::Relay
+                && f.source == RouteSource::Relay
+                && c.snapshot_id == f.snapshot_id
                 && c.path == f.path
                 && c.origin == f.origin
                 && c.hit_points == f.hit_points
@@ -1730,6 +1845,11 @@ impl MemoryRoute {
         d.set("glow", st.glow);
         d.set("path_t", st.path_t);
         d.set("answer", st.answer);
+        // drawing-in segment (memory_route.gdshader walk_*)
+        d.set("walk", st.walk);
+        d.set("walk_window", WALK_WINDOW);
+        d.set("walk_width", walk_width_ratio());
+        d.set("walk_glow", walk_glow_ratio());
         d.set(
             "cue",
             self.route.cue(reduced_motion).map_or(0.0, |c| c.alpha),
@@ -1811,6 +1931,51 @@ impl MemoryRoute {
     #[func]
     fn xr_route_glow_scale() -> f32 {
         XR_ROUTE_GLOW_SCALE
+    }
+
+    /// Headset factor on the animated walk's sizes ([`XR_WALK_THICKNESS_SCALE`]).
+    #[func]
+    fn xr_walk_thickness_scale() -> f32 {
+        XR_WALK_THICKNESS_SCALE
+    }
+
+    /// Headset factor on the walk's brightness ([`XR_WALK_GLOW_SCALE`]).
+    #[func]
+    fn xr_walk_glow_scale() -> f32 {
+        XR_WALK_GLOW_SCALE
+    }
+
+    /// The comet now, for the scene's walk check and the live capture:
+    /// `{shown, u, position, radius}` in cloud-local units from the last
+    /// `bead_buffer` inputs (`radius` 0 when no comet shows).
+    #[func]
+    fn comet_state(&self, cue_from: Vector3, local_per_m: f32) -> Dictionary {
+        let mut d = Dictionary::new();
+        let st = self.state;
+        let comet = st.and_then(|s| s.comet);
+        d.set("shown", comet.is_some());
+        let last = self.route.samples.pts.len().saturating_sub(1).max(1) as f32;
+        d.set("u", comet.map_or(-1.0, |c| c / last));
+        let (p, r) = match (st, comet) {
+            (Some(st), Some(c)) => {
+                let origin = (local_per_m > 0.0).then_some(CueOrigin {
+                    from: [cue_from.x, cue_from.y, cue_from.z],
+                    local_per_m,
+                });
+                let buf = bead_buffer(&self.route.samples, &st, 0.0, origin, None, None);
+                let o = 2 * self.route.samples.knots.len() * STRIDE;
+                (
+                    point_at(&self.route.samples.pts, c),
+                    buf.get(o).copied().unwrap_or(0.0),
+                )
+            }
+            _ => ([0.0; 3], 0.0),
+        };
+        d.set("position", v3(p));
+        d.set("radius", r);
+        d.set("walk", st.map_or(0.0, |s| s.walk));
+        d.set("path_t", st.map_or(0.0, |s| s.path_t));
+        d
     }
 
     #[func]
@@ -1991,8 +2156,8 @@ mod tests {
                 + bead_instances(4) * BEAD_TRIANGLES
                 + ring_instances(r.sidecar_pts.len() + 1) * 2
         );
-        // a repeat with the same points is not a new route
-        assert!(!r.set(f, &pos));
+        // the same headset query again is an operator action: it walks again
+        assert!(r.set(f, &pos));
         // the cue can be sent to the unsampled hit's point
         assert!(r.focus_point([-7.0, 2.0, 3.0]));
         assert_eq!(r.cue_target(), [-7.0, 2.0, 3.0]);
@@ -2284,9 +2449,17 @@ mod tests {
     // ── XR route look (operator decision 2026-10-08) ──
 
     #[test]
-    fn xr_route_factors_are_a_tenth() {
+    fn xr_settled_lines_are_a_tenth_and_the_walk_has_its_own_scale() {
         assert_eq!(XR_ROUTE_THICKNESS_SCALE, 0.1);
         assert_eq!(XR_ROUTE_GLOW_SCALE, 0.1);
+        assert_eq!(XR_WALK_THICKNESS_SCALE, 1.0);
+        assert_eq!(XR_WALK_GLOW_SCALE, 0.5, "glow about half the desktop's");
+        const {
+            assert!(XR_WALK_THICKNESS_SCALE > XR_ROUTE_THICKNESS_SCALE);
+            assert!(XR_WALK_GLOW_SCALE > XR_ROUTE_GLOW_SCALE);
+        }
+        // 0.5° at 15 m is a 0.131 m disc: radius 15·tan(0.25°)
+        assert!((comet_min_radius_m() - 0.065_45).abs() < 1e-4);
     }
 
     fn xr_look_route() -> RouteSamples {
@@ -2294,41 +2467,142 @@ mod tests {
         sample_route(&[0, 1, 2], &pos, 16)
     }
 
+    /// The comet head's angular diameter (degrees) for a viewer `dist_m`
+    /// away, given its local radius and the cloud-local units per metre.
+    fn subtends_deg(radius_local: f32, local_per_m: f32, dist_m: f32) -> f32 {
+        (2.0 * (radius_local / local_per_m / dist_m).atan()).to_degrees()
+    }
+
     #[test]
-    fn xr_tube_is_the_desktop_tube_at_the_xr_factors() {
+    fn the_walk_comet_subtends_half_a_degree_at_fifteen_metres() {
+        let r = xr_look_route();
+        let mut st = animate(r.pts.len(), 1.0, 1.2, None, false);
+        assert!(st.path_t < 1.0, "mid-walk");
+        st.comet_size = 1.0;
+        let head_at = |lpm: f32| {
+            let o = Some(CueOrigin {
+                from: [0.0, -30.0, 40.0],
+                local_per_m: lpm,
+            });
+            bead_buffer(&r, &st, 0.0, o, None, None)[2 * r.knots.len() * STRIDE]
+        };
+        // live HP 2026-10-08: graph 0.016875 m/unit × cloud 8.903 → 6.66 local/m
+        for lpm in [6.66, 20.0, 60.0] {
+            let deg = subtends_deg(head_at(lpm), lpm, COMET_VIEW_M);
+            assert!(deg >= COMET_MIN_DEG - 1e-3, "{deg}° at {lpm} local/m");
+        }
+        // at the live scale the walk scale alone carries it (no floor needed)
+        assert!((head_at(6.66) - COMET_R * XR_WALK_THICKNESS_SCALE).abs() < 1e-6);
+        // a settled 0.1 comet would have been ~0.06°
+        assert!(subtends_deg(COMET_R * XR_ROUTE_THICKNESS_SCALE, 6.66, 15.0) < 0.06);
+    }
+
+    #[test]
+    fn xr_settled_tube_is_the_desktop_tube_at_the_line_factors_and_the_tail_at_the_walk_factors() {
         let r = xr_look_route();
         let desk = build_route_mesh_desktop_look(&r.pts, 1.2);
         let xr = build_route_mesh(&r.pts, 1.2);
         assert_eq!(desk.vertex, xr.vertex, "same centreline");
         assert_eq!(desk.index, xr.index, "same triangles");
-        for (d, x) in desk.uv2.iter().zip(&xr.uv2) {
-            assert!(
-                (x[0] - d[0] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
-                "radius"
-            );
+        for ((d, x), uv) in desk.uv2.iter().zip(&xr.uv2).zip(&xr.uv) {
+            let k = if uv[1] as usize == LAYER_TAIL {
+                XR_WALK_THICKNESS_SCALE
+            } else {
+                XR_ROUTE_THICKNESS_SCALE
+            };
+            assert!((x[0] - d[0] * k).abs() < 1e-6, "radius, layer {}", uv[1]);
         }
-        for (d, x) in desk.colour.iter().zip(&xr.colour) {
-            for k in 0..3 {
-                assert!(
-                    (x[k] - d[k] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6,
-                    "brightness"
-                );
+        for ((d, x), uv) in desk.colour.iter().zip(&xr.colour).zip(&xr.uv) {
+            let k = if uv[1] as usize == LAYER_TAIL {
+                XR_WALK_GLOW_SCALE
+            } else {
+                XR_ROUTE_GLOW_SCALE
+            };
+            for c in 0..3 {
+                assert!((x[c] - d[c] * k).abs() < 1e-6, "brightness");
             }
             assert_eq!(x[3], d[3], "alpha (layer opacity) unchanged");
         }
-        let widest = xr.uv2.iter().map(|u| u[0]).fold(0.0f32, f32::max);
+        let widest_line = xr
+            .uv2
+            .iter()
+            .zip(&xr.uv)
+            .filter(|(_, uv)| (uv[1] as usize) < LAYER_TAIL)
+            .map(|(u, _)| u[0])
+            .fold(0.0f32, f32::max);
         assert!(
-            (widest - TUBE_R * 7.0 * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
-            "outer sheath {widest}"
+            (widest_line - TUBE_R * 7.0 * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
+            "outer sheath {widest_line}"
         );
     }
 
     #[test]
-    fn xr_beads_comet_and_cue_dots_are_the_desktop_look_at_the_xr_factors() {
+    fn the_drawing_in_segment_is_thick_behind_the_head_and_settles() {
+        // the shader widens line layers by walk_width × walk_envelope
+        assert_eq!(
+            walk_width_ratio(),
+            XR_WALK_THICKNESS_SCALE / XR_ROUTE_THICKNESS_SCALE
+        );
+        assert_eq!(walk_glow_ratio(), XR_WALK_GLOW_SCALE / XR_ROUTE_GLOW_SCALE);
+        assert_eq!(walk_envelope(0.5, 0.5, 1.0), 1.0, "at the head");
+        assert_eq!(walk_envelope(0.6, 0.5, 1.0), 0.0, "ahead of the head");
+        assert!(
+            walk_envelope(0.5 - WALK_WINDOW, 0.5, 1.0) < 1e-6,
+            "window end"
+        );
+        let mid = walk_envelope(0.5 - WALK_WINDOW / 2.0, 0.5, 1.0);
+        assert!((mid - 0.5).abs() < 1e-5, "smooth half way: {mid}");
+        assert!(walk_envelope(0.45, 0.5, 0.5) < walk_envelope(0.45, 0.5, 1.0));
+        // draw-in envelope: full while tracing, settles after convergence
+        let n = 33;
+        assert_eq!(animate(n, 0.0, 1.2, None, false).walk, 1.0);
+        assert_eq!(animate(n, PATH_DUR * 0.6, 1.2, None, false).walk, 1.0);
+        let settling = animate(n, PATH_DUR + WALK_SETTLE_S / 2.0, 1.2, None, false).walk;
+        assert!((settling - 0.5).abs() < 1e-4, "{settling}");
+        assert!(animate(n, PATH_DUR + WALK_SETTLE_S, 1.2, None, false).walk < 1e-5);
+        assert_eq!(animate(n, 60.0, 1.2, None, false).walk, 0.0, "settled thin");
+    }
+
+    #[test]
+    fn beads_pop_in_at_the_walk_scale_then_settle_to_the_line_scale() {
         let r = xr_look_route();
-        let mut st = animate(r.pts.len(), 3.5, 1.2, None, false);
-        st.comet = Some(0.5);
-        st.comet_size = 1.0;
+        let last = (r.pts.len() - 1) as f32;
+        let knot = r.knots[1];
+        let o = Some(CueOrigin {
+            from: [0.0, -30.0, 40.0],
+            local_per_m: 6.66,
+        });
+        // head just past knot 1: it is popping in, at the walk scale
+        let mut st = animate(r.pts.len(), 1.0, 1.2, None, false);
+        st.head = knot as f32 + 0.5;
+        st.head_u = st.head / last;
+        let desk = bead_buffer_desktop_look(&r, &st, 0.0, o, None, None);
+        let xr = bead_buffer(&r, &st, 0.0, o, None, None);
+        let e = walk_envelope(knot as f32 / last, st.head_u, st.walk);
+        assert!(e > 0.9, "{e}");
+        let k = XR_ROUTE_THICKNESS_SCALE + (XR_WALK_THICKNESS_SCALE - XR_ROUTE_THICKNESS_SCALE) * e;
+        let b = 2 * STRIDE; // knot 1 bead
+        assert!((xr[b] - desk[b] * k).abs() < 1e-6, "bead size");
+        let g = XR_ROUTE_GLOW_SCALE + (XR_WALK_GLOW_SCALE - XR_ROUTE_GLOW_SCALE) * e;
+        assert!(
+            (xr[b + 12] - desk[b + 12] * g).abs() < 1e-5,
+            "bead brightness"
+        );
+        // converged and settled: every bead at the line scale
+        let st = animate(r.pts.len(), 60.0, 1.2, None, false);
+        let desk = bead_buffer_desktop_look(&r, &st, 0.0, o, None, None);
+        let xr = bead_buffer(&r, &st, 0.0, o, None, None);
+        for i in 0..2 * r.knots.len() {
+            let b = i * STRIDE;
+            assert!((xr[b] - desk[b] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6);
+            assert!((xr[b + 12] - desk[b + 12] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn xr_bead_buffer_keeps_positions_alpha_count_and_thin_cue_dots() {
+        let r = xr_look_route();
+        let st = animate(r.pts.len(), 1.0, 1.2, None, false);
         let o = Some(CueOrigin {
             from: [0.0, -30.0, 40.0],
             local_per_m: 5.0,
@@ -2343,21 +2617,40 @@ mod tests {
             "instance count (triangle budget) unchanged"
         );
         for (d, x) in desk.chunks(STRIDE).zip(xr.chunks(STRIDE)) {
-            for k in [0, 5, 10] {
-                assert!(
-                    (x[k] - d[k] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
-                    "size"
-                );
-            }
             assert_eq!([x[3], x[7], x[11]], [d[3], d[7], d[11]], "position");
-            for k in 12..15 {
-                assert!(
-                    (x[k] - d[k] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6,
-                    "brightness"
-                );
-            }
             assert_eq!(x[15], d[15], "alpha");
         }
+        let dots = (2 * r.knots.len() + 2) * STRIDE;
+        for (d, x) in desk[dots..].chunks(STRIDE).zip(xr[dots..].chunks(STRIDE)) {
+            assert!(
+                (x[0] - d[0] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
+                "guide dots stay lines"
+            );
+            assert!((x[12] - d[12] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6);
+        }
+        // comet head and glow at the walk factors (no floor at 5 local/m)
+        let c = 2 * r.knots.len() * STRIDE;
+        assert!((xr[c] - desk[c] * XR_WALK_THICKNESS_SCALE).abs() < 1e-6);
+        assert!((xr[c + STRIDE] - desk[c + STRIDE] * XR_WALK_THICKNESS_SCALE).abs() < 1e-6);
+        assert!((xr[c + 12] - desk[c + 12] * XR_WALK_GLOW_SCALE).abs() < 1e-6);
+    }
+
+    #[test]
+    fn reduced_motion_shows_a_static_thin_route() {
+        let r = xr_look_route();
+        let st = animate(r.pts.len(), 0.2, 1.2, None, true);
+        assert_eq!(st.path_t, 1.0, "drawn at once");
+        assert_eq!(st.comet, None, "no comet");
+        assert_eq!(st.walk, 0.0, "no drawing-in segment");
+        assert_eq!(st.pulse, None);
+        let desk = bead_buffer_desktop_look(&r, &st, 0.0, None, None, None);
+        let xr = bead_buffer(&r, &st, 0.0, None, None, None);
+        for i in 0..2 * r.knots.len() {
+            let b = i * STRIDE;
+            assert!((xr[b] - desk[b] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6);
+        }
+        let c = 2 * r.knots.len() * STRIDE;
+        assert!(xr[c] <= 1e-4, "comet head hidden: {}", xr[c]);
     }
 
     #[test]
@@ -2736,6 +3029,37 @@ mod tests {
             a.set(frame("t", 4, 13.0, &[0, 2]), &pos),
             "same path, other snapshot is new"
         );
+    }
+
+    #[test]
+    fn a_headset_query_always_replays_the_walk_even_on_the_same_hits() {
+        // presets and typed queries are operator actions, not the desktop's
+        // 10 s repeat: the same answer twice must walk twice
+        let pos: Vec<f32> = (0..6 * 3).map(|i| (i * 5 % 17) as f32).collect();
+        let local = |seq: u64, sent: f64| {
+            let mut f = frame("s", seq, sent, &[0, 3, 5]);
+            f.source = RouteSource::SidecarTopK;
+            f.origin = Some([1.0, 2.0, 3.0]);
+            f
+        };
+        let mut a = ActiveRoute::default();
+        assert!(a.set(local(1, 1.0), &pos));
+        for _ in 0..50 {
+            a.advance(0.1);
+        }
+        assert!(a.set(local(2, 2.0), &pos), "same preset again walks again");
+        assert_eq!(a.el, 0.0, "trace clock restarted");
+        assert!(a.cue(false).is_some(), "cue fires again");
+        // a relay of the same path after a local route is a different route
+        for _ in 0..50 {
+            a.advance(0.1);
+        }
+        let mut relay = frame("s", 3, 3.0, &[0, 3, 5]);
+        relay.origin = Some([1.0, 2.0, 3.0]);
+        assert!(a.set(relay.clone(), &pos), "source changed: walks");
+        relay.seq = 4;
+        relay.sent_at = 13.0;
+        assert!(!a.set(relay, &pos), "the desktop's repeat still does not");
     }
 
     #[test]

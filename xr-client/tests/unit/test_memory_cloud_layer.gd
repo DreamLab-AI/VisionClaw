@@ -179,11 +179,15 @@ func test_route_applies_draws_and_dims_off_route() -> void:
 	l.queue_free()
 
 
-# Operator decision 2026-10-08: the headset draws the route's lines (tube,
-# beads, comet, guide dots) at a tenth of the desktop thickness and brightness.
-func test_route_lines_draw_at_the_xr_factor() -> void:
+# Operator decisions 2026-10-08: the settled route's lines (tube, beads,
+# guide dots) draw at a tenth of the desktop thickness and brightness; the
+# animated walk (comet head and tail, the segment drawing in, a bead popping
+# in) has its own scale so it stays visible in the headset.
+func test_route_lines_draw_at_the_xr_factor_and_the_tail_at_the_walk_factor() -> void:
 	assert_almost_eq(MemoryRoute.xr_route_thickness_scale(), 0.1, 1e-6)
 	assert_almost_eq(MemoryRoute.xr_route_glow_scale(), 0.1, 1e-6)
+	assert_almost_eq(MemoryRoute.xr_walk_thickness_scale(), 1.0, 1e-6)
+	assert_almost_eq(MemoryRoute.xr_walk_glow_scale(), 0.5, 1e-6)
 	var l: Node3D = await _make()
 	l._enabled = true
 	l.visible = true
@@ -191,15 +195,91 @@ func test_route_lines_draw_at_the_xr_factor() -> void:
 	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}'), "apply")
 	var tube: MeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Tube")
 	var arrays: Array = tube.mesh.surface_get_arrays(0)
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var uv2s: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	var cols: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	var widest := 0.0
-	for uv in arrays[Mesh.ARRAY_TEX_UV2]:
-		widest = maxf(widest, uv.x)
-	# the outer glow sheath: desktop TUBE_R 0.45 × 7, at the factor
-	assert_almost_eq(widest, 0.45 * 7.0 * 0.1, 1e-4, "tube a tenth as thick")
 	var brightest := 0.0
-	for c in arrays[Mesh.ARRAY_COLOR]:
-		brightest = maxf(brightest, maxf(c.r, maxf(c.g, c.b)))
-	assert_lt(brightest, 0.25, "tube a tenth as bright (desktop core ~1.5)")
+	var tail_r := 0.0
+	for i in uvs.size():
+		var c: Color = cols[i]
+		if uvs[i].y < 3.5:
+			widest = maxf(widest, uv2s[i].x)
+			brightest = maxf(brightest, maxf(c.r, maxf(c.g, c.b)))
+		else:
+			tail_r = maxf(tail_r, uv2s[i].x)
+	# the outer glow sheath: desktop TUBE_R 0.45 × 7, at the line factor
+	assert_almost_eq(widest, 0.45 * 7.0 * 0.1, 1e-4, "settled tube a tenth as thick")
+	assert_lt(brightest, 0.25, "settled tube a tenth as bright (desktop core ~1.5)")
+	# the comet tail: desktop COMET_R 0.5 × 0.9 at the walk factor
+	assert_almost_eq(tail_r, 0.5 * 0.9 * 1.0, 1e-4, "tail at the walk scale")
+	l.queue_free()
+
+
+## Run the layer `seconds` at 90 Hz (the headset's frame rate).
+func _run(l: Node3D, seconds: float) -> void:
+	for i in int(seconds * 90.0):
+		l._process(1.0 / 90.0)
+
+
+func _cam(at: Vector3) -> Camera3D:
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.global_position = at
+	return cam
+
+
+# The walk plays: mid-walk the trace head is partway, the drawing-in segment is
+# at the walk scale, and the comet head subtends at least 0.5° at 15 m; it
+# then settles to the thin line scale while the comet keeps looping.
+func test_the_walk_plays_with_a_visible_comet_then_settles_thin() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	l.reduced_motion = false
+	var cam := _cam(Vector3(0, 0, 400))
+	_load(l, "s1", 6)
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}'), "apply")
+	_run(l, 1.0)
+	var mat: ShaderMaterial = (l.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
+	var head: float = float(mat.get_shader_parameter("head_u"))
+	assert_between(head, 0.05, 0.95, "trace head partway")
+	assert_almost_eq(float(mat.get_shader_parameter("walk")), 1.0, 1e-4, "drawing in")
+	assert_almost_eq(float(mat.get_shader_parameter("walk_width")), 10.0, 1e-3, "segment ×10 the settled line")
+	assert_almost_eq(float(mat.get_shader_parameter("walk_glow")), 5.0, 1e-3)
+	assert_gt(float(mat.get_shader_parameter("comet_u")), 0.0, "comet on the route")
+	var v: Dictionary = l.comet_view()
+	assert_true(bool(v["shown"]), "comet shown mid-walk")
+	var at_15m: float = rad_to_deg(2.0 * atan(float(v["radius_m"]) / 15.0))
+	assert_gte(at_15m, 0.5 - 1e-3, "comet head %.3f° at 15 m" % at_15m)
+	# converged: the segment settles to the line scale, the comet keeps looping
+	_run(l, 4.0)
+	assert_almost_eq(float(mat.get_shader_parameter("head_u")), 1.0, 1e-4)
+	assert_almost_eq(float(mat.get_shader_parameter("walk")), 0.0, 1e-4, "settled thin")
+	assert_true(bool(l.comet_view()["shown"]), "comet keeps walking the converged route")
+	cam.queue_free()
+	l.queue_free()
+
+
+# A desktop re-run of the same query arrives as clear → apply (xrRelay.ts):
+# the walk plays again rather than the route reappearing fully drawn.
+func test_a_relayed_rerun_of_the_same_route_walks_again() -> void:
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	l.reduced_motion = false
+	var cam := _cam(Vector3(0, 0, 400))
+	_load(l, "s1", 6)
+	l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}')
+	_run(l, 5.0)
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":2,"sentAt":20,"path":[]}'), "clear")
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":3,"sentAt":21,"path":[0,3,5]}'), "apply")
+	_run(l, 0.5)
+	var mat: ShaderMaterial = (l.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
+	assert_lt(float(mat.get_shader_parameter("head_u")), 0.9, "walking again")
+	assert_almost_eq(float(mat.get_shader_parameter("walk")), 1.0, 1e-4)
+	cam.queue_free()
 	l.queue_free()
 
 
@@ -237,6 +317,9 @@ func test_reduced_motion_freezes_the_route() -> void:
 	var mat: ShaderMaterial = (l.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
 	assert_almost_eq(float(mat.get_shader_parameter("head_u")), 1.0, 0.0001, "shown converged at once")
 	assert_almost_eq(float(mat.get_shader_parameter("comet_u")), -1.0, 0.0001, "no comet")
+	_run(l, 0.5)
+	assert_almost_eq(float(mat.get_shader_parameter("walk")), 0.0, 0.0001, "no drawing-in segment")
+	assert_false(bool(l.comet_view()["shown"]), "static route")
 	l.queue_free()
 
 

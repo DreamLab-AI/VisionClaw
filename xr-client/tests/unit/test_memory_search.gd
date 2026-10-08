@@ -339,6 +339,35 @@ func test_a_typed_query_posts_globally_and_becomes_recent() -> void:
 	layer.queue_free()
 
 
+# Every headset route source plays the walk: a preset, the same preset again
+# (an operator action, not the desktop's repeat), and a typed query.
+func test_presets_and_typed_queries_always_play_the_walk() -> void:
+	var layer: Node3D = await _make_layer("snap-7f3a", 40)
+	layer.reduced_motion = false
+	var s := _search(layer, null)
+	var mat: ShaderMaterial = (layer.get_node("CloudRoot/CloudCore/Route/Tube") as MeshInstance3D).material_override
+	for step in ["preset", "same preset", "typed"]:
+		if step == "typed":
+			assert_true(s.handle_control("memory_typed:|how does the headset lay out the graphs"))
+		else:
+			assert_true(s.run_preset(0))
+		s.on_query_completed(OK_RESULT, 200, PackedStringArray(), _fixture_text().to_utf8_buffer())
+		assert_true(layer.route_active(), step)
+		for i in 45:
+			layer._process(1.0 / 90.0)
+		var head: float = float(mat.get_shader_parameter("head_u"))
+		assert_lt(head, 0.9, "%s: walking, not fully drawn (head_u %.2f)" % [step, head])
+		assert_almost_eq(float(mat.get_shader_parameter("walk")), 1.0, 1e-4, step)
+		assert_true(bool(layer.comet_view()["shown"]), "%s: comet shown" % step)
+		# let it converge before the next query
+		for i in 450:
+			layer._process(1.0 / 90.0)
+		assert_almost_eq(float(mat.get_shader_parameter("head_u")), 1.0, 1e-4, step)
+	DirAccess.remove_absolute(s.recent_path)
+	s.queue_free()
+	layer.queue_free()
+
+
 func test_scene_routes_typed_queries_to_the_search() -> void:
 	var gs: Node3D = (load("res://scenes/GraphScene.tscn") as PackedScene).instantiate()
 	var layer: Node3D = await _make_layer("snap-7f3a", 40)
