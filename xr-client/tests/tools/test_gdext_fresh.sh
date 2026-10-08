@@ -61,53 +61,53 @@ check() { # check <name> <condition-result>
 p="$(make_project rebuild)"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 run "$p"
-check "stale debug library is rebuilt and the guard passes" $([ $rc = 0 ] && ! [ "$p/rust/src/lib.rs" -nt "$p/rust/target/debug/libdemo.so" ]; echo $?)
-check "the build is a plain (debug) cargo build in rust/" $(grep -q "^$p/rust|build|" "$p/cargo.log" && ! grep -q -- --release "$p/cargo.log"; echo $?)
+check "stale debug library is rebuilt and the guard passes" "$(if [ $rc = 0 ] && ! [ "$p/rust/src/lib.rs" -nt "$p/rust/target/debug/libdemo.so" ]; then echo 0; else echo 1; fi)"
+check "the build is a plain (debug) cargo build in rust/" "$(if grep -q "^$p/rust|build|" "$p/cargo.log" && ! grep -q -- --release "$p/cargo.log"; then echo 0; else echo 1; fi)"
 
 # 2. a library still older than the source after the build is refused (exit 3)
 p="$(make_project refuse)"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 run "$p" FAKE_CARGO_NOOP=1
-check "a library older than rust/src is refused" $([ $rc = 3 ] && echo "$out" | grep -q "older than" ; echo $?)
-check "the refusal names the newest source file" $(echo "$out" | grep -q "rust/src/lib.rs"; echo $?)
+check "a library older than rust/src is refused" "$(if [ $rc = 3 ] && echo "$out" | grep -q "older than"; then echo 0; else echo 1; fi)"
+check "the refusal names the newest source file" "$(if echo "$out" | grep -q "rust/src/lib.rs"; then echo 0; else echo 1; fi)"
 
 # 3. a fresh release library does not satisfy the guard: Godot's editor binary loads debug
 p="$(make_project decoy)"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 touch "$p/rust/target/release/libdemo.so"
 run "$p" FAKE_CARGO_NOOP=1
-check "a fresh release .so does not hide a stale debug .so" $([ $rc = 3 ]; echo $?)
+check "a fresh release .so does not hide a stale debug .so" "$(if [ $rc = 3 ]; then echo 0; else echo 1; fi)"
 
 # 4. a missing library is refused
 p="$(make_project missing)"
 run "$p" FAKE_CARGO_NOOP=1
-check "a missing debug library is refused" $([ $rc = 3 ] && echo "$out" | grep -q "missing"; echo $?)
+check "a missing debug library is refused" "$(if [ $rc = 3 ] && echo "$out" | grep -q "missing"; then echo 0; else echo 1; fi)"
 
 # 5. a failed build is refused, even with a fresh-looking library on disk
 p="$(make_project buildfail)"
 touch "$p/rust/target/debug/libdemo.so"
 run "$p" FAKE_CARGO_FAIL=1
-check "a failed cargo build is refused" $([ $rc = 2 ] && echo "$out" | grep -q "cargo build failed"; echo $?)
+check "a failed cargo build is refused" "$(if [ $rc = 2 ] && echo "$out" | grep -q "cargo build failed"; then echo 0; else echo 1; fi)"
 
 # 6. CARGO_TARGET_DIR in the caller's environment cannot redirect the build away
 #    from the path Godot loads
 p="$(make_project targetdir)"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 run "$p" CARGO_TARGET_DIR="$work/elsewhere"
-check "CARGO_TARGET_DIR is pinned to the path the .gdextension names" $([ $rc = 0 ] && grep -q "|$p/rust/target$" "$p/cargo.log" && [ ! -e "$work/elsewhere" ]; echo $?)
+check "CARGO_TARGET_DIR is pinned to the path the .gdextension names" "$(if [ $rc = 0 ] && grep -q "|$p/rust/target$" "$p/cargo.log" && [ ! -e "$work/elsewhere" ]; then echo 0; else echo 1; fi)"
 
 # 7. GDEXT_SKIP_BUILD=1 checks without building, and still refuses a stale library
 p="$(make_project skip)"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 run "$p" GDEXT_SKIP_BUILD=1
-check "GDEXT_SKIP_BUILD=1 does not run cargo but still refuses" $([ $rc = 3 ] && [ ! -e "$p/cargo.log" ]; echo $?)
+check "GDEXT_SKIP_BUILD=1 does not run cargo but still refuses" "$(if [ $rc = 3 ] && [ ! -e "$p/cargo.log" ]; then echo 0; else echo 1; fi)"
 
 # 8. a fresh library with the build skipped passes
 p="$(make_project fresh)"
 age "$p/rust/src/lib.rs" "2 hours ago"; age "$p/rust/Cargo.toml" "2 hours ago"
 touch "$p/rust/target/debug/libdemo.so"
 run "$p" GDEXT_SKIP_BUILD=1
-check "a library newer than every source passes" $([ $rc = 0 ]; echo $?)
+check "a library newer than every source passes" "$(if [ $rc = 0 ]; then echo 0; else echo 1; fi)"
 
 # 9. Cargo.toml counts as source (a dependency bump changes the library)
 p="$(make_project manifest)"
@@ -115,7 +115,7 @@ age "$p/rust/src/lib.rs" "2 hours ago"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "1 hour ago"
 touch "$p/rust/Cargo.toml"
 run "$p" GDEXT_SKIP_BUILD=1
-check "a Cargo.toml newer than the library is refused" $([ $rc = 3 ]; echo $?)
+check "a Cargo.toml newer than the library is refused" "$(if [ $rc = 3 ]; then echo 0; else echo 1; fi)"
 
 # 10. a path dependency's source counts (crates/visionclaw-tri-layout and friends)
 p="$(make_project pathdep)"
@@ -126,7 +126,7 @@ age "$p/rust/src/lib.rs" "3 hours ago"; age "$p/rust/Cargo.toml" "3 hours ago"; 
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 echo 'pub fn g() {}' > "$p/crates/dep/src/lib.rs"
 run "$p" GDEXT_SKIP_BUILD=1
-check "a path dependency's source newer than the library is refused" $([ $rc = 3 ] && echo "$out" | grep -q "crates/dep/src/lib.rs"; echo $?)
+check "a path dependency's source newer than the library is refused" "$(if [ $rc = 3 ] && echo "$out" | grep -q "crates/dep/src/lib.rs"; then echo 0; else echo 1; fi)"
 
 # ── launchers: tools/live.sh and tools/capture.sh run the guard before Godot ──
 fake_godot() { # a Godot stand-in that records its arguments
@@ -150,29 +150,29 @@ launch() { # launch <project> <tool> [env...]  (capture.sh gets a script argumen
 p="$(make_project live-stale)"; fake_godot "$p"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 launch "$p" live.sh FAKE_CARGO_NOOP=1
-check "live.sh does not start Godot on a stale library" $([ $rc = 3 ] && [ ! -e "$p/godot.log" ] && [ ! -e "$p/live/RUNNING" ]; echo $?)
+check "live.sh does not start Godot on a stale library" "$(if [ $rc = 3 ] && [ ! -e "$p/godot.log" ] && [ ! -e "$p/live/RUNNING" ]; then echo 0; else echo 1; fi)"
 
 # 12. live.sh builds, then starts Godot in XR mode against the backend and writes RUNNING
 p="$(make_project live-ok)"; fake_godot "$p"
 touch "$p/rust/target/debug/libdemo.so"; age "$p/rust/target/debug/libdemo.so" "2 hours ago"
 launch "$p" live.sh
-check "live.sh builds and then starts Godot with --xr-mode on" $([ $rc = 0 ] && grep -q "^$p|.*--path \. .*--xr-mode on" "$p/godot.log" && grep -q "|build|" "$p/cargo.log"; echo $?)
-check "live.sh records pid, log and backend in RUNNING" $(grep -q '^pid=[0-9]' "$p/live/RUNNING" && grep -q '^backend=ws://backend.test:4000$' "$p/live/RUNNING"; echo $?)
+check "live.sh builds and then starts Godot with --xr-mode on" "$(if [ $rc = 0 ] && grep -q "^$p|.*--path \. .*--xr-mode on" "$p/godot.log" && grep -q "|build|" "$p/cargo.log"; then echo 0; else echo 1; fi)"
+check "live.sh records pid, log and backend in RUNNING" "$(if grep -q '^pid=[0-9]' "$p/live/RUNNING" && grep -q '^backend=ws://backend.test:4000$' "$p/live/RUNNING"; then echo 0; else echo 1; fi)"
 
 # 13. live.sh needs the backend named; it never guesses an address
 p="$(make_project live-nobackend)"; fake_godot "$p"
 out="$(env PATH="$p/bin:$PATH" FAKE_CARGO_LOG="$p/cargo.log" FAKE_GODOT_LOG="$p/godot.log" GODOT="$p/bin/godot" \
   LIVE_DIR="$p/live" LIVE_PROJECT="$p" XR_BACKEND_WS= bash "$here/tools/live.sh" 2>&1)"; rc=$?
-check "live.sh without XR_BACKEND_WS refuses" $([ $rc = 2 ] && [ ! -e "$p/godot.log" ]; echo $?)
+check "live.sh without XR_BACKEND_WS refuses" "$(if [ $rc = 2 ] && [ ! -e "$p/godot.log" ]; then echo 0; else echo 1; fi)"
 
 # 14. capture.sh runs a script windowed with XR off, passing its arguments through
 p="$(make_project capture)"; fake_godot "$p"
 launch "$p" capture.sh FAKE_CARGO_NOOP=1 GDEXT_SKIP_BUILD=0
-check "capture.sh refuses a stale library too" $([ $rc = 3 ] && [ ! -e "$p/godot.log" ]; echo $?)
+check "capture.sh refuses a stale library too" "$(if [ $rc = 3 ] && [ ! -e "$p/godot.log" ]; then echo 0; else echo 1; fi)"
 touch "$p/rust/target/debug/libdemo.so"
 out="$(env PATH="$p/bin:$PATH" FAKE_CARGO_LOG="$p/cargo.log" FAKE_GODOT_LOG="$p/godot.log" GODOT="$p/bin/godot" \
   XR_BACKEND_WS=ws://backend.test:4000 LIVE_PROJECT="$p" bash "$here/tools/capture.sh" tests/visual/x.gd -- typed="a b" 2>&1)"; rc=$?
-check "capture.sh runs the script with --xr-mode off and the arguments" $([ $rc = 0 ] && grep -q -- "--xr-mode off .*--script tests/visual/x.gd -- typed=a b" "$p/godot.log"; echo $?)
+check "capture.sh runs the script with --xr-mode off and the arguments" "$(if [ $rc = 0 ] && grep -q -- "--xr-mode off .*--script tests/visual/x.gd -- typed=a b" "$p/godot.log"; then echo 0; else echo 1; fi)"
 
 echo "gdext-fresh: $pass passed, $fail failed"
 [ "$fail" = 0 ]
