@@ -115,6 +115,17 @@ describe('focusMemoryPoint', () => {
     expect(seen).toEqual([42]);
   });
 
+  it('dispatches a cloud position for a hit outside the sample', async () => {
+    const { focusMemoryPosition, MEMORY_FOCUS_EVENT } = await import('../cameraFocus');
+    const seen: unknown[] = [];
+    const h = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(MEMORY_FOCUS_EVENT, h);
+    expect(focusMemoryPosition([1, 2, 3])).toBe(true);
+    expect(focusMemoryPosition([Number.NaN, 0, 0])).toBe(false);
+    window.removeEventListener(MEMORY_FOCUS_EVENT, h);
+    expect(seen).toEqual([{ sampleIndex: -1, position: [1, 2, 3] }]);
+  });
+
   it('refuses negative or non-integer rows', async () => {
     const { focusMemoryPoint } = await import('../cameraFocus');
     expect(focusMemoryPoint(-1)).toBe(false);

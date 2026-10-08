@@ -114,15 +114,18 @@ const MemoryCameraRig: React.FC<MemoryCameraRigProps> = ({ cloudGroup, positions
   // ── click-to-focus ──
   useEffect(() => {
     const onFocus = (e: Event) => {
-      const { sampleIndex } = (e as CustomEvent<MemoryFocusDetail>).detail ?? { sampleIndex: -1 };
+      const { sampleIndex, position } = (e as CustomEvent<MemoryFocusDetail>).detail ?? { sampleIndex: -1 };
       const g = cloudGroup.current;
-      if (!g || sampleIndex < 0 || sampleIndex * 3 + 2 >= positions.length || run.current) return;
+      if (!g || run.current) return;
+      // a placed hit outside the sample brings its own cloud-local point
+      const local = position
+        ? new THREE.Vector3(position[0], position[1], position[2])
+        : sampleIndex >= 0 && sampleIndex * 3 + 2 < positions.length
+          ? new THREE.Vector3(positions[sampleIndex * 3], positions[sampleIndex * 3 + 1], positions[sampleIndex * 3 + 2])
+          : null;
+      if (!local) return;
       g.updateMatrixWorld();
-      const world = new THREE.Vector3(
-        positions[sampleIndex * 3],
-        positions[sampleIndex * 3 + 1],
-        positions[sampleIndex * 3 + 2],
-      ).applyMatrix4(g.matrixWorld);
+      const world = local.applyMatrix4(g.matrixWorld);
       const scale = new THREE.Vector3();
       g.getWorldScale(scale);
       const from = currentPose();
