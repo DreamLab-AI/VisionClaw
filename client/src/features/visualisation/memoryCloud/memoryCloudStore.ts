@@ -31,6 +31,7 @@ import type {
 import type { LayoutResult, QueryRun, TrajectoryView, VectorSet } from '../memoryTrajectory/types';
 import type { TrajectoryEngine } from '../memoryTrajectory';
 import type { FlashTargets } from './cloudData';
+import { createLoadTimer, formatLoadTiming, type LoadOutcome, type LoadTiming } from './loadTiming';
 
 // ── trajectory module contract (memoryTrajectory/index.ts) ──
 // Type-only: the store never imports the engine at runtime, it is injected.
@@ -161,6 +162,8 @@ export interface MemoryCloudState {
   loadingCount: number | null;
   /** bytes of the vectors blob being fetched (count × dim × 4), or null */
   loadingBytes: number | null;
+  /** step timings of the last finished load (loadTiming.ts), or null */
+  lastLoadTiming: LoadTiming | null;
   health: MemoryCloudHealth | null;
   healthError: string | null;
   query: QueryState;
@@ -353,17 +356,34 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       const ctl = new AbortController();
       loadCtl = ctl;
       set({ status: 'loading', error: null, retryAt: null });
+      const timer = createLoadTimer();
+      let outcome: LoadOutcome = 'aborted';
       try {
         const snap = await deps.fetchSnapshot({ signal: ctl.signal });
+        timer.mark('snapshot');
+        timer.setSnapshotId(snap.snapshotId);
         if (ctl.signal.aborted) return;
         set({ loadingCount: snap.count, loadingBytes: snap.count * snap.dim * 4 });
+        // Import the HNSW module while the vectors download, not after.
+        const held = get().trajectory;
+        const trajP = held
+          ? Promise.resolve(held)
+          : deps.loadTrajectory().then((m) => {
+              timer.mark('trajectoryModule');
+              return m;
+            });
+        // a vectors failure must not leave the import's rejection unhandled
+        trajP.catch(() => undefined);
         let bundle: VectorBundle;
         if (get().snapshot?.snapshotId === snap.snapshotId && get().vectors && get().engine) {
           bundle = { snapshot: snap, vectors: get().vectors! };
+          timer.setVectorsReused();
         } else {
-          bundle = await deps.fetchVectors(snap, { signal: ctl.signal });
+          bundle = await deps.fetchVectors(snap, { signal: ctl.signal, onStep: timer.mark });
         }
-        const traj = get().trajectory ?? (await deps.loadTrajectory());
+        timer.setSnapshotId(bundle.snapshot.snapshotId);
+        const traj = await trajP;
+        if (held) timer.mark('trajectoryModule');
         if (ctl.signal.aborted) return;
         const id = bundle.snapshot.snapshotId;
         let engine = get().engine;
@@ -374,7 +394,11 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
             storageKey: `vc-memory-learning:${id}`,
           });
           engineSnapshotId = id;
-          unsubProgress = engine.onProgress((done, total) => set({ buildProgress: progressFraction(done, total) }));
+          timer.mark('engineCreated');
+          unsubProgress = engine.onProgress((done, total) => {
+            timer.mark('firstProgress');
+            set({ buildProgress: progressFraction(done, total) });
+          });
           applyLearning(engine, get().learning);
           set({
             snapshot: bundle.snapshot,
@@ -388,17 +412,28 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
           await engine.ready;
           if (ctl.signal.aborted || get().engine !== engine) return;
           unavailableStreak = 0;
+          timer.mark('ready');
+          outcome = 'ready';
           set({ status: 'ready', buildProgress: 1 });
         } else {
           unavailableStreak = 0;
+          timer.mark('ready');
+          outcome = 'ready';
           set({ snapshot: bundle.snapshot, vectors: bundle.vectors, trajectory: traj, status: 'ready' });
         }
       } catch (e) {
         if (isAbortError(e) || ctl.signal.aborted) return;
-        if (handleAvailability(e)) return;
+        if (handleAvailability(e)) {
+          outcome = get().status === 'forbidden' ? 'forbidden' : 'unavailable';
+          return;
+        }
+        outcome = 'error';
         set({ status: 'error', error: errorText(e) });
       } finally {
         if (loadCtl === ctl) loadCtl = null;
+        const timing = timer.finish(outcome);
+        set({ lastLoadTiming: timing });
+        console.debug(formatLoadTiming(timing));
       }
     };
 
@@ -413,6 +448,7 @@ export function createMemoryCloudStore(deps: MemoryCloudDeps): UseBoundStore<Sto
       buildProgress: 0,
       loadingCount: null,
       loadingBytes: null,
+      lastLoadTiming: null,
       health: null,
       healthError: null,
       query: emptyQuery(),
