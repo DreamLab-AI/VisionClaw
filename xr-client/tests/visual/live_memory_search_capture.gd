@@ -97,7 +97,8 @@ func run() -> void:
 		"route_active": mc.route_active(), "route_source": mc.route_source(),
 		"hops": int(mc._route.hop_count()) if mc.route_active() else 0,
 		"agreement": mc.agreement_line()}))
-	await create_timer(1.6).timeout
+	await _walk_shot(mc)
+	await create_timer(1.0).timeout
 	await _shot("route")
 	if not sampled.is_empty():
 		var hi: int = hits.find(sampled[sampled.size() - 1])
@@ -154,7 +155,8 @@ func _run_typed(text: String, mc, search) -> void:
 		"agreement": line, "from_query_point": line.contains("query point"),
 		"cloud_scale": place.get("scale", 0.0), "cloud_position": str(place.get("position", ""))}))
 	print("XR_MEMORY_SEARCH ", JSON.stringify(_cloud_in_metres(mc)))
-	await create_timer(1.6).timeout
+	await _walk_shot(mc)
+	await create_timer(1.0).timeout
 	await _shot("typed-route")
 	quit(0 if mc.route_active() and line.contains("query point") else 6)
 
@@ -181,6 +183,43 @@ func _cloud_in_metres(mc) -> Dictionary:
 		"graph_centre_m": [snappedf(graph_centre.x, 0.01), snappedf(graph_centre.y, 0.01), snappedf(graph_centre.z, 0.01)],
 		# what the HUD Memory button says: drawn of sampled (ADR-2133, 2026-10-08)
 		"sampled": int(mc.point_count()), "drawn": int(mc.drawn_count()), "memory_label": mc.status_label()}
+
+
+## Mid-walk proof (walk-fix, 2026-10-08): ~1 s into the trace, report the
+## comet head's world radius, its distance from the camera, its angular
+## diameter there and at 15 m, and where it lands on screen; then capture
+## `xr-memory-search-walk-mid.png`. Run with XR_REDUCED_MOTION=0 (the comfort
+## default shows a static route, and this step then reports shown=false).
+func _walk_shot(mc) -> void:
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 4000:
+		var v: Dictionary = mc.comet_view()
+		if v.is_empty() or (bool(v["shown"]) and float(v["path_t"]) >= 0.3):
+			break
+		if not bool(v["shown"]) and float(v.get("path_t", 0.0)) >= 1.0:
+			break
+		await process_frame
+	await RenderingServer.frame_post_draw
+	var v: Dictionary = mc.comet_view()
+	var out := {"step": "walk_mid", "reduced_motion": bool(mc.reduced_motion)}
+	if not v.is_empty():
+		out["shown"] = v["shown"]
+		out["path_t"] = snappedf(float(v["path_t"]), 0.01)
+		out["comet_u"] = snappedf(float(v["u"]), 0.01)
+		out["walk"] = snappedf(float(v["walk"]), 0.01)
+		if bool(v["shown"]):
+			var r: float = float(v["radius_m"])
+			out["comet_radius_m"] = snappedf(r, 0.0001)
+			out["distance_m"] = snappedf(float(v["distance_m"]), 0.01)
+			out["angle_deg"] = snappedf(float(v["angle_deg"]), 0.001)
+			out["angle_deg_at_15m"] = snappedf(rad_to_deg(2.0 * atan(r / 15.0)), 0.001)
+			var cam: Camera3D = scene.get_viewport().get_camera_3d()
+			if cam != null and not cam.is_position_behind(v["world"]):
+				var px: Vector2 = cam.unproject_position(v["world"])
+				out["screen_px"] = [roundi(px.x), roundi(px.y)]
+				out["viewport_px"] = [root.size.x, root.size.y]
+	print("XR_MEMORY_SEARCH ", JSON.stringify(out))
+	await _shot("walk-mid")
 
 
 func _shot(view: String) -> void:

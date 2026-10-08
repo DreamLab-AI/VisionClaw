@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.19
+version: 0.1.20
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.20 (2026-10-08): the animated walk has its own scale in the headset (operator: at the 0.1 line factor the walk vanished in the VIVE). Comet head, glow and tail, the segment drawing in behind the trace head and a bead popping in draw at XR_WALK_THICKNESS_SCALE 1.0 / XR_WALK_GLOW_SCALE 0.5 (comet head at least COMET_MIN_DEG 0.5° at COMET_VIEW_M 15 m) and settle to the 0.1 line factor over WALK_SETTLE_S 0.8 s after convergence. A headset query (preset or typed) always replays the walk, even on the same hits; only the desktop's 10 s repeat keeps the trace. Reduced motion: a static thin route. Triangle budget and draw calls unchanged. No invariant changed."
   - "0.1.19 (2026-10-08): server sample 30 000 (ADR-2133 amendment). The frame budget still caps the cloud at 8 000 sprites; a 30 000 snapshot draws 8 000 (namespace-stratified, route and hit rows pinned) and the HUD Memory button reads 'Memory: <drawn> of <sampled>' whenever it draws fewer. Triangle budget unchanged. No invariant changed."
   - "0.1.18 (2026-10-08): memory body at half its clear distance (ADR-2135 amendment, MEMORY_DISTANCE_FACTOR 0.5; the ×10 cloud now encloses both graphs) and the headset route lines at a tenth of the desktop thickness and brightness (XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE 0.1; rings and hit marks keep the desktop size). Operator decision. Triangle budget unchanged. No invariant changed."
   - "0.1.17 (2026-10-08): always separate, memory ×10, typed search (ADR-2135 amendment, ADR-2136). The separation slider is gone from the HUD Layout page and the desktop (separation_control.gd deleted); the triangle is permanent at the fixed SEPARATION 190 derived from the live graph radii. The memory cloud is MEMORY_BODY_SCALE 10 graphs wide on the memory vertex's ray, clear of both graphs (TriangleFrame::memory_centre); route tubes, beads and rings grow with it (cloud-local), guide dots grow to half the answer ring at the far end, the hover label, its lift and its reach ×10. Memory Search gains a press-fire on-screen keyboard (onscreen_keyboard.gd, in place of the lists, ≤ 532 px); a typed query searches globally. The query response carries query.position (the snapshot's PCA basis), and the headset route runs query point → sidecar top-k in rank order with the answer ring on the top hit. Triangle budget unchanged (scale is free). No invariant changed."
@@ -356,18 +357,35 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   route_source=query` measures a route built this way, and
   `tests/visual/live_memory_search_capture.gd` runs one preset against a live
   backend through the HUD intent path.
-- **Route line factor (headset only, operator decision 2026-10-08).** The
-  route's lines — the five tube layers, the beads and their halos, the comet
-  and its glow, and the guide dots — draw at `XR_ROUTE_THICKNESS_SCALE` 0.1 of
-  the desktop width and `XR_ROUTE_GLOW_SCALE` 0.1 of its emissive brightness
-  (`memory_route.rs`: `build_route_mesh` and `bead_buffer` are the desktop look,
-  `build_route_mesh_desktop_look` / `bead_buffer_desktop_look`, scaled; opacity,
-  triangles and instance counts unchanged). The desktop keeps its values; the
-  drift test still pins the desktop constants to `TrajectoryLayer.tsx`, so these
-  two factors are the one named divergence. The root, answer, pulse and hit
-  rings are marks, not lines, and keep the desktop size so every hit stays
-  findable. The guide cue's far dots still grow towards half the answer ring,
-  now at a tenth: dimmer and finer, pointing the same way.
+- **Route line and walk factors (headset only, operator decisions 2026-10-08).**
+  The settled route's lines — the four line layers of the tube (sheaths, body,
+  core), the beads and halos once popped in, and the guide dots — draw at
+  `XR_ROUTE_THICKNESS_SCALE` 0.1 of the desktop width and `XR_ROUTE_GLOW_SCALE`
+  0.1 of its emissive brightness. The animated walk has its own factors,
+  `XR_WALK_THICKNESS_SCALE` 1.0 and `XR_WALK_GLOW_SCALE` 0.5 (about half the
+  desktop's glow): the comet head and glow, the comet tail (tube layer 4), the
+  segment drawing in behind the trace head and a bead popping in. The comet
+  head never drops below `COMET_MIN_DEG` 0.5° for a viewer `COMET_VIEW_M` 15 m
+  away (it grows with the cloud-local units per metre when the cloud is scaled
+  down); at the live scale (6.66 units/m) the walk factor alone gives ~0.57°.
+  The drawing-in segment is the line layers widened ×`walk_width` (10) and
+  brightened ×`walk_glow` (5) in `memory_route.gdshader`, weighted by
+  `walk_envelope` (1 at the head, smoothstep to 0 `WALK_WINDOW` = 0.18 of the
+  route behind it) times the draw-in envelope (1 while tracing, easing to 0
+  over `WALK_SETTLE_S` 0.8 s after convergence), so the route settles to the
+  thin line factor; beads blend by the same envelope at their knot. Opacity,
+  triangles and instance counts are the desktop's (`build_route_mesh` /
+  `bead_buffer` scale `build_route_mesh_desktop_look` /
+  `bead_buffer_desktop_look`). The desktop keeps its values; the drift test
+  still pins the desktop constants to `TrajectoryLayer.tsx`, so these factors
+  are the named divergence. The root, answer, pulse and hit rings are marks,
+  not lines, and keep the desktop size so every hit stays findable. Every
+  route source walks: a relayed route, a preset and a typed query; a headset
+  query is an operator action and replays the walk even when its answer
+  matches the route shown, and only the desktop's 10 s repeat keeps the trace
+  (`ActiveRoute::set`). Under reduced motion (the comfort default, ADR-2107;
+  `XR_REDUCED_MOTION=0` or the HUD toggle opts in) the route is static and
+  thin: no comet, no drawing-in segment.
 - **Separated layout (ADR-2135; always on since 2026-10-08).** The cloud folds
   each node position into its nearest graph's frame before the bounds are
   taken (`TriangleFrame::separated`, the shared `visionclaw-tri-layout` crate),

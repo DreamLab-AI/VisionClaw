@@ -632,6 +632,10 @@ func _tick_route(delta: float) -> void:
 	_tube_mat.set_shader_parameter("comet_u", float(p.get("comet_u", -1.0)))
 	_tube_mat.set_shader_parameter("tail_u", float(p.get("tail_u", 0.18)))
 	_tube_mat.set_shader_parameter("glow", float(p.get("glow", ROUTE_GLOW)) / ROUTE_GLOW)
+	_tube_mat.set_shader_parameter("walk", float(p.get("walk", 0.0)))
+	_tube_mat.set_shader_parameter("walk_window", float(p.get("walk_window", 0.18)))
+	_tube_mat.set_shader_parameter("walk_width", float(p.get("walk_width", 1.0)))
+	_tube_mat.set_shader_parameter("walk_glow", float(p.get("walk_glow", 1.0)))
 	var o := _cue_origin()
 	_write_mm(_beads.multimesh, _route.bead_buffer(pulse, o[0], o[1]))
 	var root_pulse := 1.0
@@ -659,6 +663,36 @@ func _cue_origin() -> Array:
 	if world_per_local <= 0.0:
 		return [Vector3.ZERO, 0.0]
 	return [xf.affine_inverse() * from_world, 1.0 / world_per_local]
+
+
+## The animated walk now, in the world: `{shown, u, walk, path_t,
+## radius_m, distance_m, angle_deg}` — the comet head's world radius, its
+## distance from `eye` (the camera when omitted) and its angular diameter.
+## For the scene test and the live capture; empty without a route.
+func comet_view(eye: Variant = null) -> Dictionary:
+	if not route_active() or _cloud_core == null or not _cloud_core.is_inside_tree():
+		return {}
+	var o := _cue_origin()
+	var c: Dictionary = _route.comet_state(o[0], o[1])
+	var out := {"shown": bool(c["shown"]), "u": float(c["u"]), "walk": float(c["walk"]),
+		"path_t": float(c["path_t"]), "radius_m": 0.0, "distance_m": 0.0, "angle_deg": 0.0}
+	if not out["shown"]:
+		return out
+	var xf: Transform3D = _cloud_core.global_transform
+	var world: Vector3 = xf * (c["position"] as Vector3)
+	var r_m: float = float(c["radius"]) * xf.basis.get_scale().x
+	var at: Vector3
+	if eye is Vector3:
+		at = eye
+	else:
+		var cam := get_viewport().get_camera_3d() if get_viewport() != null else null
+		at = cam.global_position if cam != null else Vector3.ZERO
+	var dist: float = at.distance_to(world)
+	out["radius_m"] = r_m
+	out["distance_m"] = dist
+	out["angle_deg"] = rad_to_deg(2.0 * atan(r_m / dist)) if dist > 0.0 else 180.0
+	out["world"] = world
+	return out
 
 
 ## Test seam: framing-cue opacity now (0 when not showing).
