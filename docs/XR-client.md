@@ -381,7 +381,10 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   `cloud_metres`; GraphRoot fit 0.0086 m per unit): cloud radius 20.1 m,
   centre 17.2 m from the head and 14.4 m beyond the graphs' centre, so the
   user's head sits 2.9 m inside the cloud's robust sphere (before the change:
-  radius 16.3 m, centre 25.1 m away, near side 8.8 m in front). Sparse cloud
+  radius 16.3 m, centre 25.1 m away, near side 8.8 m in front). Re-measured at
+  9492f49de with the 30 000 sample (GraphRoot fit 0.0169 m per unit): radius
+  16.7 m, centre 15.0 m from the head, head 1.7 m inside; the HUD reads
+  "Memory: 8000 of 30000". Sparse cloud
   points can therefore pass close to the head; the camera's near plane clips
   any nearer than it. Cloud points write no depth (`depth_draw_never`) and draw
   before the HUD and hover label (overlay priority 20), so they never cover

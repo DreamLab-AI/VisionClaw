@@ -178,7 +178,9 @@ func _cloud_in_metres(mc) -> Dictionary:
 		"head_m": [snappedf(head.x, 0.01), snappedf(head.y, 0.01), snappedf(head.z, 0.01)],
 		"head_to_cloud_centre_m": snappedf(head.distance_to(centre), 0.01),
 		"head_to_near_side_m": snappedf(head.distance_to(centre) - radius_m, 0.01),
-		"graph_centre_m": [snappedf(graph_centre.x, 0.01), snappedf(graph_centre.y, 0.01), snappedf(graph_centre.z, 0.01)]}
+		"graph_centre_m": [snappedf(graph_centre.x, 0.01), snappedf(graph_centre.y, 0.01), snappedf(graph_centre.z, 0.01)],
+		# what the HUD Memory button says: drawn of sampled (ADR-2133, 2026-10-08)
+		"sampled": int(mc.point_count()), "drawn": int(mc.drawn_count()), "memory_label": mc.status_label()}
 
 
 func _shot(view: String) -> void:
