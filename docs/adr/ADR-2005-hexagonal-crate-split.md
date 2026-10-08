@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: ebb9cd17441f8feaf4093f2f4de8cdfd4d951f63
+verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -284,3 +284,7 @@ Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main'
 
 ## Re-verification — 2026-10-07 at ebb9cd174
 fix/ws-heartbeat-60s only moves doc comments back onto their own handlers in `gpu_manager_actor.rs` and `physics_supervisor.rs` and documents the new subscription handlers. No layer or crate boundary changes. Decision holds.
+
+## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
+
+`display_projection.rs` and `force_compute_actor.rs` drop the separation parameter: the triangle is always on at `visionclaw_tri_layout::SEPARATION`. The projection still sits in the server's GPU adapter and takes its geometry from the shared crate. Crate boundaries are unchanged. Decision holds. Server lib 1,568 passed, clippy `-D warnings` clean.

@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.16
+version: 0.1.17
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.17 (2026-10-08): always separate, memory ×10, typed search (ADR-2135 amendment, ADR-2136). The separation slider is gone from the HUD Layout page and the desktop (separation_control.gd deleted); the triangle is permanent at the fixed SEPARATION 190 derived from the live graph radii. The memory cloud is MEMORY_BODY_SCALE 10 graphs wide on the memory vertex's ray, clear of both graphs (TriangleFrame::memory_centre); route tubes, beads and rings grow with it (cloud-local), guide dots grow to half the answer ring at the far end, the hover label, its lift and its reach ×10. Memory Search gains a press-fire on-screen keyboard (onscreen_keyboard.gd, in place of the lists, ≤ 532 px); a typed query searches globally. The query response carries query.position (the snapshot's PCA basis), and the headset route runs query point → sidecar top-k in rank order with the answer ring on the top hit. Triangle budget unchanged (scale is free). No invariant changed."
   - "0.1.16 (2026-10-07): HUD Graph Separation control (ADR-2135 in the headset) — Sep −/slider/value/Sep + share the Layout Mode row (page stays 529 px); separation_control.gd writes graphSeparationX through the physics PUT at ≤ 4 Hz while dragging plus a final write on release; read-back moves the slider. Memory search from the headset — Query page Graph Query / Memory Search modes; presets POST /api/memory-cloud/query (NIP-98) and draw a sidecar top-k route (sampled hits in rank order, labelled as such) through the same MemoryRoute gate; a hit press retargets the guide cue; shared query-response fixture pins the headset parser to the server's wire types; benchmark route_source=query. No invariant changed."
   - "0.1.15 (2026-10-07): ADR-2135 separated layout — Graph Separation opens a ground-plane triangle (knowledge −60°, ontology +60°, memory 180°; R = 2/√3 × separation) from the shared visionclaw-tri-layout crate; the cloud folds the graph bounds and takes the memory vertex (graph_robust_bounds(separation), CloudFrame.set_separation, physics read-back of graphSeparationX); work agents rest at the centroid plus their activity drift (render-store DriftField fed by 0x23 and memory_flash agentId; the choreography stays the single pose writer). No invariant changed."
   - "0.1.14 (2026-10-07): intermittent CPU gate root-caused and fixed. The cause was cross-L3-domain migration of the main thread on HP's multi-L3 CPU (~8x on-CPU spikes for two frames), not the first build. The benchmark pins its main thread to its L3 domain, and the first plan build is gated on its own limits (pack 12 ms, LOD 33 ms) instead of being dropped silently. No invariant changed."
@@ -25,7 +26,7 @@ sources:
   - xr-client/project.godot
   - xr-client/scripts/xr_boot.gd
   - xr-client/scripts/hud.gd
-  - xr-client/scripts/separation_control.gd
+  - xr-client/scripts/onscreen_keyboard.gd
   - xr-client/scripts/memory_search.gd
   - xr-client/rust/src/memory_query.rs
   - xr-client/scripts/graph_scene.gd
@@ -196,25 +197,20 @@ Two overflow lessons are baked in as INVARIANTS:
   default separation — 32px past the host — and the tighter separation buys
   ~35px. A dev-only overflow guard warns once per tab if a page's min-height
   exceeds the host (`hud.gd:756-766`).
-- **Graph Separation row (ADR-2135, 2026-10-07).** The Layout page has no free
-  row (529 of 532 px; Graph is 500, 530 with the route line), so the desktop's
-  "Separate Knowledge · Ontology · Memory" control shares the Layout Mode row:
-  `Sep −` · HSlider (0–400, step 5) · value · `Sep +`. The −/+ buttons fire on
-  press; the slider is the wand-drag path (a press on the track grabs it, the
-  trigger release ends the drag) and reports `separation_drag:<v>` /
-  `separation_release:<v>`. `separation_control.gd` decides when a value goes
-  out — at most every 250 ms while dragging, at once on release or a press,
-  newest intent only behind the one-in-flight physics gate, nothing when it
-  equals the server's — and `GraphScene._pump_separation` (per frame) PUTs
-  `{"graphSeparationX": v}` through `_put_physics_body` (`?graph=knowledge`,
-  ADR-2041), committing on 2xx. `_refresh_controls_status` pushes the value to
-  `hud.set_graph_separation`, so a peer's change read back through
-  `settingsUpdated` moves the slider; it is ignored mid-drag and never echoes.
+- **No separation control (ADR-2135 amendment, 2026-10-08).** The knowledge
+  graph, ontology and memory cloud are always apart, so the Layout page's Layout
+  Mode row holds only the layout-mode button; the 2026-10-07 slider row and
+  `separation_control.gd` are gone. The page stays 529 of 532 px.
 - **Query page: Graph Query / Memory Search (2026-10-07).** A mode row (press
   fire, styled like the tab bar) replaces the 39 px header: graph mode is the
-  desktop query builder (522 px); memory mode is a one-line caption, a preset
-  list and the top hits, each list in a fixed-height scroll region (≤ 532 px
-  with both full). See *Memory search from the headset* below.
+  desktop query builder (522 px); memory mode is a one-line caption, a "Type a
+  query…" button, a preset list (120 px) and the top hits, each list in a
+  fixed-height scroll region (≤ 532 px with both full). The keyboard (ADR-2136,
+  2026-10-08) opens in place of the lists: an entry line, four rows of ten
+  press-fire keys (digits, QWERTY, `' - . ?`) and Cancel · Space · Delete ·
+  Search →, about 430 px (only glyphs in the HUD font, `test_hud_batching`); `onscreen_keyboard.gd` holds the buffer (120 characters)
+  and Search emits `memory_typed:<text>`. See *Memory search from the headset*
+  below.
 - **ACTION_MODE_BUTTON_PRESS everywhere.** Every action button, tab button and
   type-toggle fires on *press*, not release (`hud.gd:252`, `637`, `647`):
   pulling the Vive trigger jolts the ray 20–30px, so a release-mode button often
@@ -295,14 +291,14 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
 - **Placement (desktop `cloudFrame.ts`, `rust/src/cloud_frame.rs`).** The layer
   sits under `GraphRoot` (server space). `CloudRoot` (outer) sits at the graph's
   robust centre — the 5th–95th percentile box of every node position,
-  `BinaryProtocolClient.graph_robust_bounds(separation)`, the TS `robustBounds` order
-  statistics exactly (folded per graph when separated, see below) — and scales the cloud's robust radius to the graph's times
-  `cloud_scale / 5` (the layer's `cloud_scale`, default 5 = equal radii, linear
-  from there); `CloudCore` (inner) shifts the cloud by minus its own robust
+  `BinaryProtocolClient.graph_robust_bounds()`, the TS `robustBounds` order
+  statistics exactly (folded per graph, see below) — and scales the cloud's robust radius to `MEMORY_BODY_SCALE` (10) times the graph's times
+  `cloud_scale / 5` (the layer's `cloud_scale`, default 5, linear from there); `CloudCore` (inner) shifts the cloud by minus its own robust
   centre, so rotation turns the core in place. The graph extent is re-read once a
   second and the outer node glides by `min(1, dt / 0.8)` per frame (snapping on
   the first placement, on a new snapshot and under reduced motion), so physics
-  never jitters it. Without a graph the old placement holds (origin, ×5). A Rust
+  never jitters it. Without a graph the scale is `cloud_scale` × 10 and the
+  cloud clears a live-sized graph. A Rust
   test parses `cloudFrame.ts`, `robustBounds.ts` and `EmbeddingCloudLayer.tsx`
   for the constants and formulas. Sprite size follows `cloudPointSize` (constant
   in cloud-local units above its 0.5 floor).
@@ -314,9 +310,10 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   within its estate namespace when the snapshot has it, else globally), and
   "what does <namespace> hold" for the eight namespaces with the most sampled
   rows (at least two, and no whitespace in the name: the live store holds
-  stray sentence-length values there) — because text entry in VR is
-  impractical. A press POSTs `/api/memory-cloud/query {text, k: 50,
-  namespace?}` signed by
+  stray sentence-length values there) — as shortcuts beside the on-screen
+  keyboard (ADR-2136), whose typed query is searched globally. A press or a
+  typed Search POSTs `/api/memory-cloud/query {text, k: 50, namespace?}`
+  signed by
   `_auth_headers` for the exact URL (ADR-2076, Invariant 6), one query in
   flight; 401/403 (power user or dev mode needed, ADR-2133), 429, 503, 400 and
   transport failures are spelled out on the caption line. The hits list shows
@@ -325,18 +322,23 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   samples a few thousand rows of a much larger store: measured live on
   2026-10-07, a namespace-scoped top-10 had 0–3 sampled hits and a top-50 had
   2–11, while a global query (dominated by the thinly sampled `ruvnet-kb`) had
-  none. **The route is the sidecar top-k, not a search path:** the
+  none. **The route is query point → sidecar top-k, not a search path:** the
   response carries no traversal, and the headset holds neither the vectors nor
-  the snapshot's PCA basis, so it cannot place the query vector. The path runs
-  through the sampled hits in rank order with the top hit last (where the
-  answer ring sits); every sampled hit gets a gold mark. `RouteSource::
-  SidecarTopK` makes both the caption ("route: sidecar top-k in rank order
-  (not a search path)") and the Memory-row line ("Route: sidecar top-k in rank
-  order · n of k sidecar hits are in the sample") say so; there is no local
-  top-k, so no agreement figure is shown. `MemoryRoute.offer_query_response`
+  the PCA basis, so the server places the query (ADR-2136): `query.position`
+  is the query vector projected with the snapshot's own basis and scale (a
+  sampled row's vector lands exactly on its row). The route starts at that
+  point and runs through the sampled hits in rank order; the root ring marks
+  the query point and the answer ring the top hit (`RouteSamples::answer`);
+  every sampled hit gets a gold mark. One sampled hit is enough. From a server
+  without `position` the old line through the hits alone, top hit last, is
+  drawn (two hits needed). `RouteSource::SidecarTopK` makes both the caption
+  ("route: query point → sidecar top-k (not a search path)") and the
+  Memory-row line ("Route: query point → sidecar top-k · n of k sidecar hits
+  are in the sample") say so; there is no local top-k, so no agreement figure
+  is shown. `MemoryRoute.offer_query_response`
   feeds the same `RouteGate` as a relay (Unix-ms `sentAt`, so a later desktop
   frame replaces it; a response naming another snapshot reloads the cloud
-  once). Fewer than two sampled hits draw no route. Pressing a sampled hit
+  once). Pressing a sampled hit
   replays the guide cue towards that point (`ActiveRoute::focus_row`; the
   answer ring is not highlighted while the cue points elsewhere); an unsampled
   hit flashes a notice instead. Running a query turns the cloud on. There is
@@ -349,23 +351,26 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   route_source=query` measures a route built this way, and
   `tests/visual/live_memory_search_capture.gd` runs one preset against a live
   backend through the HUD intent path.
-- **Separated layout (ADR-2135).** `graph_separation` (from the physics read-back
-  of `graphSeparationX`, `graph_parity.gd` → `GraphScene._graph_separation` →
-  the layer) moves `CloudRoot` by the memory vertex of the shared triangle
-  (`visionclaw-tri-layout`, 180°: behind the graphs) and folds each node position
-  into its nearest graph's frame before the bounds are taken, so the cloud keeps
-  one graph's size. A slider change makes the next read due at once. The server
+- **Separated layout (ADR-2135; always on since 2026-10-08).** The cloud folds
+  each node position into its nearest graph's frame before the bounds are
+  taken (`TriangleFrame::separated`, the shared `visionclaw-tri-layout` crate),
+  so the bounds are one graph's, and `CloudRoot` sits at
+  `TriangleFrame::memory_centre`: on the memory vertex's ray (180°: behind the
+  graphs, in front of a user facing them), at least `CLEARANCE` 1.25 × the
+  summed radii from each graph. At live scale (graph radius ~93, scale ~0.005
+  m/unit) the cloud is about 4.5 m in radius with its near side about 3 m from
+  the user: past the near clip and the HUD, and inside the 12 m × 10 hover
+  reach. The guide cue still runs from the wand to the answer. The server
   places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
   and keeps agent nodes at the centroid. Work-layer avatars still have one pose
-  writer (Invariant 8) and travel to target nodes that now sit on the separated
-  graphs. While separated, `GraphScene._apply_drift_rest_slots` (4 Hz) moves
-  the slot each avatar parks at to the centroid plus its activity drift. That
-  is `BinaryProtocolClient.agent_drift_offset`, from the shared `DriftField` in
-  the render store: applied `0x23` actions credit their target's class vertex,
-  and `memory_flash` frames credit memory through `record_memory_flash`
+  writer (Invariant 8) and travel to target nodes on the separated graphs.
+  `GraphScene._apply_drift_rest_slots` (4 Hz) moves the slot each avatar parks
+  at to the centroid plus its activity drift. That is
+  `BinaryProtocolClient.agent_drift_offset`, from the shared `DriftField` in the
+  render store: applied `0x23` actions credit their target's class vertex, and
+  `memory_flash` frames credit memory through `record_memory_flash`
   (`beat_pulse.gd`, the frame's optional `agentId`, else every agent). New
-  avatars materialise at the centroid. At separation 0 the front-arc rim slots
-  return.
+  avatars materialise at the centroid.
 - **Look.** One MultiMesh of camera-facing sprites, each
   a single triangle circumscribing the disc (`SPRITE_TRIANGLE_UV`; the shader's
   round mask discards the corners), billboarded on the main camera so both eyes
