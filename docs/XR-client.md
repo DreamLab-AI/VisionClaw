@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.18
+version: 0.1.19
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.19 (2026-10-08): server sample 30 000 (ADR-2133 amendment). The frame budget still caps the cloud at 8 000 sprites; a 30 000 snapshot draws 8 000 (namespace-stratified, route and hit rows pinned) and the HUD Memory button reads 'Memory: <drawn> of <sampled>' whenever it draws fewer. Triangle budget unchanged. No invariant changed."
   - "0.1.18 (2026-10-08): memory body at half its clear distance (ADR-2135 amendment, MEMORY_DISTANCE_FACTOR 0.5; the ×10 cloud now encloses both graphs) and the headset route lines at a tenth of the desktop thickness and brightness (XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE 0.1; rings and hit marks keep the desktop size). Operator decision. Triangle budget unchanged. No invariant changed."
   - "0.1.17 (2026-10-08): always separate, memory ×10, typed search (ADR-2135 amendment, ADR-2136). The separation slider is gone from the HUD Layout page and the desktop (separation_control.gd deleted); the triangle is permanent at the fixed SEPARATION 190 derived from the live graph radii. The memory cloud is MEMORY_BODY_SCALE 10 graphs wide on the memory vertex's ray, clear of both graphs (TriangleFrame::memory_centre); route tubes, beads and rings grow with it (cloud-local), guide dots grow to half the answer ring at the far end, the hover label, its lift and its reach ×10. Memory Search gains a press-fire on-screen keyboard (onscreen_keyboard.gd, in place of the lists, ≤ 532 px); a typed query searches globally. The query response carries query.position (the snapshot's PCA basis), and the headset route runs query point → sidecar top-k in rank order with the answer ring on the top hit. Triangle budget unchanged (scale is free). No invariant changed."
   - "0.1.16 (2026-10-07): HUD Graph Separation control (ADR-2135 in the headset) — Sep −/slider/value/Sep + share the Layout Mode row (page stays 529 px); separation_control.gd writes graphSeparationX through the physics PUT at ≤ 4 Hz while dragging plus a final write on release; read-back moves the slider. Memory search from the headset — Query page Graph Query / Memory Search modes; presets POST /api/memory-cloud/query (NIP-98) and draw a sidecar top-k route (sampled hits in rank order, labelled as such) through the same MemoryRoute gate; a hit press retargets the guide cue; shared query-response fixture pins the headset parser to the server's wire types; benchmark route_source=query. No invariant changed."

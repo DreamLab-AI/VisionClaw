@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: a9d587976591cdaedcd0c72e85febd9c6d61a97a
+verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default
@@ -202,3 +202,9 @@ fires. `verified_commit` moved to the CI-repair commit.
 **Deploy path.** `./scripts/launch.sh redeploy dev` publishes, then runs `supervisorctl -c /app/supervisord.dev.conf restart rust-backend` in the running container; it refuses, naming `up dev`, when the compose config drifted. `up` on a running container with newer build inputs now redeploys instead of stopping and starting the container. Pre-existing defect fixed alongside: `up` against a running healthy container never applied compose changes. Both app services carry `visionclaw.compose-hash` (sha256 of the service's resolved `docker compose config`, computed with the label empty), and `up` recreates on mismatch. `needs_recompile` reads this record's build-input inventory and counts a redeploy since start.
 
 **Verification.** `bash scripts/tests/test-dev-inputs.sh`: 83 pass; against the parent's compose file the mount checks fail. `SECRETS_ROOT=<main checkout>` runs the secret scan over the real checkout's mount sources (clean). `python3 scripts/tests/test_dev_launcher.py`: 2 pass (8 consecutive runs). `cargo test -p visionclaw-integration-tests --test dev_build_inputs` 18/18 and `--test prod_ingress` 9/9. No container operation ran. Activation needs a recreate for the new mounts and label (`launch.sh up dev` does it); `LIVE=1 bash scripts/tests/test-dev-inputs.sh` then checks the running container read-only.
+
+## Re-verification — 2026-10-08 at 67086c29e
+
+`docker-compose.unified.yml` changed only in the memory-cloud sample default
+(`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `docker-compose.unified.yml:136`, `:275`). Nothing
+this decision governs moved, so it holds as written.

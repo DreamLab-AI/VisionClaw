@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -192,3 +192,9 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). The boot pull is unchanged (`spawn_boot_pull`, `:904`). Decision holds.
+
+## Re-verification — 2026-10-08 at 67086c29e
+
+`env.example` changed only in the memory-cloud sample default
+(`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `env.example:133`). Nothing
+this decision governs moved, so it holds as written.

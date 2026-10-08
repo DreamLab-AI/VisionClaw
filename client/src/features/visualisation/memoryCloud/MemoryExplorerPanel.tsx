@@ -125,11 +125,20 @@ const RateLimitNote: React.FC<{ retryAt: number | null }> = ({ retryAt }) => {
   );
 };
 
+/** What the loading line can honestly claim: the size only once the header is in. */
+function loadingLine(count: number | null, bytes: number | null): string {
+  if (count == null) return 'Loading sample…';
+  const mb = bytes == null ? '' : ` (${Math.round(bytes / 1e6)} MB of vectors)`;
+  return `Loading the ${count.toLocaleString('en-GB')}-point sample${mb}…`;
+}
+
 const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting: (k: string, v: unknown) => void }> = ({ cfg, setSetting }) => {
   const snapshot = useMemoryCloudStore((s) => s.snapshot);
   const status = useMemoryCloudStore((s) => s.status);
   const loadError = useMemoryCloudStore((s) => s.error);
   const buildProgress = useMemoryCloudStore((s) => s.buildProgress);
+  const loadingCount = useMemoryCloudStore((s) => s.loadingCount);
+  const loadingBytes = useMemoryCloudStore((s) => s.loadingBytes);
   const query = useMemoryCloudStore((s) => s.query);
   const view = useMemoryCloudStore((s) => s.view);
   const playback = useMemoryCloudStore((s) => s.playback);
@@ -206,7 +215,11 @@ const ExploreTab: React.FC<{ cfg: EmbeddingCloudSettings | undefined; setSetting
       {query.status === 'rate_limited' && <RateLimitNote retryAt={query.retryAt} />}
       {(status === 'building' || status === 'loading') && (
         <div style={{ marginTop: 8 }} aria-live="polite">
-          <span style={css.label}>{status === 'loading' ? 'Loading sample…' : `Building local index ${pct(buildProgress)}`}</span>
+          <span style={css.label}>
+            {status === 'loading'
+              ? loadingLine(loadingCount, loadingBytes)
+              : `Building local index of ${(snapshot?.count ?? loadingCount ?? 0).toLocaleString('en-GB')} points ${pct(buildProgress)}`}
+          </span>
           <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginTop: 3 }}>
             <div style={{ width: pct(status === 'loading' ? 0 : buildProgress), height: 3, background: ROUTE_PALETTE.root, borderRadius: 2 }} />
           </div>

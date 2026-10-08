@@ -133,7 +133,7 @@ services:
       # sidecar on visionclaw_network. Empty RUVECTOR_PG_CONNINFO disables it
       # (data endpoints answer 503). Never put a password default here.
       RUVECTOR_PG_CONNINFO: ${RUVECTOR_PG_CONNINFO:-}
-      MEMORY_CLOUD_SAMPLE: ${MEMORY_CLOUD_SAMPLE:-6000}
+      MEMORY_CLOUD_SAMPLE: ${MEMORY_CLOUD_SAMPLE:-30000}
       MEMORY_CLOUD_REFRESH_SECS: ${MEMORY_CLOUD_REFRESH_SECS:-900}
       MEMORY_CLOUD_EXCLUDE_NAMESPACES: ${MEMORY_CLOUD_EXCLUDE_NAMESPACES:-personal-context}
       MEMORY_CLOUD_EMBED_URL: ${MEMORY_CLOUD_EMBED_URL:-http://xinference:9997/v1}
@@ -272,7 +272,7 @@ services:
       # sidecar on visionclaw_network. Empty RUVECTOR_PG_CONNINFO disables it
       # (data endpoints answer 503). Never put a password default here.
       RUVECTOR_PG_CONNINFO: ${RUVECTOR_PG_CONNINFO:-}
-      MEMORY_CLOUD_SAMPLE: ${MEMORY_CLOUD_SAMPLE:-6000}
+      MEMORY_CLOUD_SAMPLE: ${MEMORY_CLOUD_SAMPLE:-30000}
       MEMORY_CLOUD_REFRESH_SECS: ${MEMORY_CLOUD_REFRESH_SECS:-900}
       MEMORY_CLOUD_EXCLUDE_NAMESPACES: ${MEMORY_CLOUD_EXCLUDE_NAMESPACES:-personal-context}
       MEMORY_CLOUD_EMBED_URL: ${MEMORY_CLOUD_EMBED_URL:-http://xinference:9997/v1}
