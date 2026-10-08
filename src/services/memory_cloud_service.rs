@@ -634,6 +634,7 @@ impl MemoryCloudService {
             embed_model: self.config.embed_model.clone(),
             query: QueryEcho {
                 text: q.text,
+                position: query_position(&snap.built, &vector),
                 vector,
             },
             sidecar: SidecarResults {
@@ -799,6 +800,13 @@ impl MemoryCloudService {
 }
 
 /// Non-excluded namespace counts, largest first.
+/// Where a query embedding sits in the snapshot's cloud (ADR-2136): the
+/// snapshot's own PCA map applied to `vector`. `None` for an empty snapshot or
+/// a dimension mismatch, so the field degrades to `null`, never an error.
+fn query_position(built: &BuiltSnapshot, vector: &[f32]) -> Option<[f32; 3]> {
+    built.projector.as_ref()?.project(vector)
+}
+
 fn visible_counts(
     mut counts: Vec<(String, u64, u64)>,
     excluded: &NamespacePatterns,
@@ -970,6 +978,43 @@ mod tests {
     fn malformed_conninfo_is_reported() {
         let err = build_pool("host=x port=notaport").unwrap_err();
         assert!(err.contains(CONNINFO_ENV));
+    }
+
+    #[test]
+    fn query_position_of_a_sampled_rows_vector_is_its_snapshot_position() {
+        use visionclaw_memory_cloud::config::NamespacePatterns;
+        use visionclaw_memory_cloud::snapshot::{build_snapshot, SampledRow};
+        use visionclaw_memory_cloud::vector::format_ruvector_literal;
+        use visionclaw_memory_cloud::wire::MemoryCloudMeta;
+        let rows: Vec<SampledRow> = (0..60)
+            .map(|i| SampledRow {
+                meta: MemoryCloudMeta {
+                    id: format!("id-{i}"),
+                    key: format!("k{i}"),
+                    namespace: "project-state".into(),
+                    source_type: "memory".into(),
+                    updated_at: 0,
+                },
+                embedding: format_ruvector_literal(
+                    &(0..12)
+                        .map(|j| ((i * 12 + j) as f32 * 0.43).cos() + 0.1 * (i % 5) as f32)
+                        .collect::<Vec<_>>(),
+                ),
+            })
+            .collect();
+        let built = build_snapshot(rows, &[], &NamespacePatterns::default(), 1).unwrap();
+        let row = built.index_of["id-17"];
+        // the service embeds and L2-normalises; the snapshot stores normalised rows
+        let vector = &built.vectors[row * 12..row * 12 + 12];
+        let p = query_position(&built, vector).expect("a position");
+        assert_eq!(&p[..], &built.snapshot.positions[row * 3..row * 3 + 3]);
+        assert_eq!(
+            query_position(&built, &vector[..11]),
+            None,
+            "dimension mismatch"
+        );
+        let empty = build_snapshot(Vec::new(), &[], &NamespacePatterns::default(), 1).unwrap();
+        assert_eq!(query_position(&empty, vector), None, "empty snapshot");
     }
 
     #[test]

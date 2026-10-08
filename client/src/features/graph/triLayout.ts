@@ -2,11 +2,12 @@
  * Separated-layout triangle (ADR-2135) — TypeScript port of
  * `crates/visionclaw-tri-layout/src/lib.rs`.
  *
- * The Graph Separation slider pulls the knowledge graph, the formal ontology
- * and the memory cloud apart as an equilateral triangle in the ground plane
- * (X–Z, Y up), centred on the scene origin, with the agents at the centroid.
- * The server places the two graphs (display-only projection); the client
- * places the memory cloud on its vertex with this port. A vertex angle is a
+ * The knowledge graph, the formal ontology and the memory cloud are always
+ * apart (operator decision 2026-10-08), on an equilateral triangle in the
+ * ground plane (X–Z, Y up) at the fixed SEPARATION, centred on the scene
+ * origin, with the agents at the centroid. The server places the two graphs
+ * (display-only projection); the client places the memory cloud, ten graphs
+ * wide, on the memory vertex's ray (`memoryCentre`) with this port. A vertex angle is a
  * yaw about +Y from +Z towards +X: knowledge −60° (front-left), ontology
  * +60° (front-right), memory 180° (back), so a camera on +Z sees all three.
  *
@@ -15,6 +16,19 @@
  */
 
 export type Vec3 = [number, number, number];
+
+/** p99 radius of the larger graph body at live scale (2026-10-08, 9,473 nodes) */
+export const LIVE_GRAPH_RADIUS = 152;
+/** body centres sit at least CLEARANCE × (r₁ + r₂) apart */
+export const CLEARANCE = 1.25;
+/** smallest separation at which graph bodies of radii a and b clear each other */
+export function separationForRadii(a: number, b: number): number {
+  return (CLEARANCE * (a + b)) / 2;
+}
+/** the layout's one separation, derived from the live radii (190) */
+export const SEPARATION = separationForRadii(LIVE_GRAPH_RADIUS, LIVE_GRAPH_RADIUS);
+/** the memory cloud's robust radius relative to one graph's */
+export const MEMORY_BODY_SCALE = 10;
 
 /** separation at which the triangle reaches full strength */
 export const FULL_STRENGTH_SEPARATION = 100;
@@ -67,6 +81,31 @@ export function triangleFrame(separation: number): TriangleFrame {
   }) as [Vec3, Vec3, Vec3];
   const yaws = VERTEX_ANGLES_DEG.map((deg) => ((deg * Math.PI) / 180) * s) as [number, number, number];
   return { separation: sep, radius, strength: s, vertices, yaws };
+}
+
+/** the frame every reader uses: the triangle at SEPARATION */
+export function separatedFrame(): TriangleFrame {
+  return triangleFrame(SEPARATION);
+}
+
+/**
+ * Centre of the memory body for one graph's robust radius and the cloud's
+ * drawn radius: on the memory vertex's ray, at the vertex or further out, so
+ * its sphere clears both graph spheres by CLEARANCE. Bad radii count as 0.
+ */
+export function memoryCentre(f: TriangleFrame, graphRadius: number, memoryRadius: number): Vec3 {
+  const r = (x: number) => (Number.isFinite(x) ? Math.max(0, x) : 0);
+  const need = CLEARANCE * (r(graphRadius) + r(memoryRadius));
+  const dir = rotateY([0, 0, 1], (VERTEX_ANGLES_DEG[Vertex.Memory] * Math.PI) / 180);
+  let dist = f.radius;
+  for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
+    const g = f.vertices[v];
+    const b = g[0] * dir[0] + g[2] * dir[2];
+    const disc = b * b - (g[0] * g[0] + g[2] * g[2]) + need * need;
+    if (disc > 0) dist = Math.max(dist, b + Math.sqrt(disc));
+  }
+  // `+ 0` keeps a 0 × sin(180°) at +0
+  return [dir[0] * dist + 0, 0, dir[2] * dist + 0];
 }
 
 export function isMerged(f: TriangleFrame): boolean {

@@ -118,8 +118,6 @@ pub struct LayoutModeConfig {
     pub ring_count: u32,
     // Zone constraints
     pub zones: Vec<ConstraintZone>,
-    // Graph separation
-    pub graph_separation_x: f32,
 }
 
 impl Default for LayoutModeConfig {
@@ -139,7 +137,6 @@ impl Default for LayoutModeConfig {
             centrality_measure: "pagerank".to_string(),
             ring_count: 8,
             zones: vec![],
-            graph_separation_x: 0.0,
         }
     }
 }

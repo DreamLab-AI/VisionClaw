@@ -61,6 +61,9 @@ const DIM_STEP := 0.05
 const HOVER_HZ := 15.0
 ## ray-pick cone half-angle (radians), ~1.5°
 const HOVER_ANGLE := 0.026
+## Hover reach, label lift and label pixel size for a one-graph cloud; all
+## three are multiplied by the memory body scale (10, ADR-2135) so the label
+## stays readable on a cloud ten graphs wide and the far side is reachable.
 const HOVER_REACH_M := 12.0
 const LABEL_LIFT_M := 0.04
 const LABEL_PIXEL := 0.0009
@@ -73,17 +76,13 @@ var beat_source: Object = null
 ## Wand whose ray drives hover and anchors the framing cue (set by GraphScene).
 var pointer: Node3D = null
 ## Returns the graph's robust bounds `[cx, cy, cz, radius]` in GraphRoot space
-## (GraphScene: BinaryProtocolClient.graph_robust_bounds(graph_separation),
-## which folds the separated layout out so the bounds are one graph's). Unset
-## or empty → the cloud keeps the origin placement.
+## (GraphScene: BinaryProtocolClient.graph_robust_bounds(), which folds the
+## always-separated layout out so the bounds are one graph's). Unset or empty
+## → the cloud is placed for a live-sized graph.
 var graph_bounds_source: Callable = Callable()
-## The desktop Graph Separation slider (`graphSeparationX`, ADR-2135). Above 0
-## the cloud glides to the memory vertex of the separated-layout triangle,
-## behind the graphs; 0 is the merged placement. Set by GraphScene from the
-## physics read-back.
-var graph_separation: float = 0.0
-## The desktop `embeddingCloud.cloudScale`: 5 makes the cloud's radius equal
-## the graph's; linear from there.
+## The desktop `embeddingCloud.cloudScale`: 5 makes the cloud's radius ten
+## times the graph's (MEMORY_BODY_SCALE, ADR-2135); linear from there. The
+## cloud sits behind the graphs on the memory vertex's ray, clear of both.
 var cloud_scale: float = 5.0
 
 var _cloud: RefCounted = null   # Rust MemoryCloud
@@ -226,7 +225,7 @@ func _build_nodes() -> void:
 	_label.no_depth_test = true
 	_label.render_priority = overlay_prio  # above the depth-test-free route
 	_label.fixed_size = false
-	_label.pixel_size = LABEL_PIXEL
+	_label.pixel_size = LABEL_PIXEL * body_scale()
 	_label.font_size = 28
 	_label.outline_size = 8
 	_label.modulate = Color(1, 1, 1, 0.95)
@@ -690,7 +689,6 @@ func _process(delta: float) -> void:
 func _apply_placement(delta: float) -> void:
 	if _frame == null or _cloud_root == null:
 		return
-	_frame.set_separation(graph_separation)  # a change makes the read due now
 	if bool(_frame.graph_read_due(delta)):
 		var b := PackedFloat32Array()
 		if graph_bounds_source.is_valid():
@@ -755,7 +753,7 @@ func update_hover(origin_world: Vector3, dir_world: Vector3) -> int:
 	var row: int = _cloud.pick(o, d, HOVER_ANGLE)
 	if row >= 0:
 		var wp := world_point(row)
-		if wp.distance_to(origin_world) > HOVER_REACH_M:
+		if wp.distance_to(origin_world) > HOVER_REACH_M * body_scale():
 			row = -1
 	if row < 0:
 		_hide_label()
@@ -767,9 +765,14 @@ func update_hover(origin_world: Vector3, dir_world: Vector3) -> int:
 			str(info.get("namespace", "")),
 			str(info.get("sourceType", ""))]
 	_hover_row = row
-	_label.global_position = world_point(row) + Vector3(0.0, LABEL_LIFT_M, 0.0)
+	_label.global_position = world_point(row) + Vector3(0.0, LABEL_LIFT_M * body_scale(), 0.0)
 	_label.visible = true
 	return row
+
+
+## The memory body's size relative to one graph (Rust CloudFrame; 10).
+func body_scale() -> float:
+	return float(_frame.memory_body_scale()) if _frame != null else 1.0
 
 
 func hovered_row() -> int:

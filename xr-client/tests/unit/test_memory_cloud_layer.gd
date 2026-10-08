@@ -1,5 +1,8 @@
 extends "res://addons/gut/test.gd"
 
+## visionclaw_tri_layout::SEPARATION (crate constant; the fixture holds it)
+const SEPARATION := 190.0
+
 # Memory cloud + route layer (scripts/memory_cloud_layer.gd, XR WP6/WP7).
 # Drives the real load path (_on_http_completed with a JSON body), the real
 # memoryRoute gate, the flash lookup and the hover pick. No network: the
@@ -47,7 +50,7 @@ func test_snapshot_loads_into_one_stride_16_multimesh() -> void:
 	assert_true(mm.use_custom_data, "flash emphasis per instance")
 	assert_eq(mm.buffer.size(), 9 * 20, "12 transform + 4 colour + 4 custom floats per sprite")
 	var root: Node3D = l.get_node("CloudRoot")
-	assert_almost_eq(root.scale.x, 5.0, 0.0001, "no graph: the old ×cloudScale placement")
+	assert_almost_eq(root.scale.x, 50.0, 0.0001, "no graph: cloudScale × the memory body scale (10)")
 	l.queue_free()
 
 
@@ -410,39 +413,36 @@ func test_cloud_is_framed_on_the_graph_centre_and_radius() -> void:
 	_load(l, "s1", 9)
 	l._process(0.016)
 	var p: Dictionary = l.placement()
-	assert_eq(p["position"], Vector3(90, -3, -14), "outer node on the graph's robust centre")
 	var cb: PackedFloat32Array = l._frame.cloud_bounds()
-	assert_almost_eq(float(p["scale"]) * cb[3], 300.0, 0.01, "cloudScale 5: cloud radius = graph radius")
+	assert_almost_eq(float(p["scale"]) * cb[3], 3000.0, 0.1, "cloudScale 5: cloud radius = 10 graph radii")
 	assert_eq(p["offset"], -Vector3(cb[0], cb[1], cb[2]), "inner node recentres the cloud on its core")
-	# the cloud's own centre lands on the graph's centre
+	# behind the graphs on the memory vertex's ray (−Z), clear of both graph bodies
+	var pos: Vector3 = p["position"]
+	assert_almost_eq(pos.x, 90.0, 0.01, "on the memory ray through the graph centre")
+	assert_almost_eq(pos.y, -3.0, 0.01)
+	var R: float = SEPARATION * 2.0 / sqrt(3.0)
+	assert_lt(pos.z, -14.0 - R, "further out than the memory vertex")
+	for sx in [-1.0, 1.0]:
+		var g := Vector3(90.0 + sx * R * sin(deg_to_rad(60.0)), -3.0, -14.0 + R * cos(deg_to_rad(60.0)))
+		assert_gt(pos.distance_to(g), 3000.0 + 300.0, "the ×10 cloud clears the graph at %s" % g)
+	# the cloud's own centre lands on the placement position
 	var core_world: Vector3 = l.cloud_root().global_transform * Vector3(cb[0], cb[1], cb[2])
-	assert_true(core_world.is_equal_approx(l.global_transform * Vector3(90, -3, -14)), "%s" % core_world)
+	assert_true(core_world.is_equal_approx(l.global_transform * pos), "%s" % core_world)
 	# the user's scale setting keeps its meaning
 	l.cloud_scale = 2.5
 	l._process(0.016)
-	assert_almost_eq(float(l.placement()["scale"]) * cb[3], 150.0, 0.01, "2.5 = half the graph radius")
+	assert_almost_eq(float(l.placement()["scale"]) * cb[3], 1500.0, 0.1, "2.5 = five graph radii")
 	l.queue_free()
 
 
-func test_separation_moves_the_cloud_to_the_memory_vertex() -> void:
-	# ADR-2135: the memory vertex sits behind the graphs at radius 2/sqrt(3) x
-	# separation on -Z; the cloud keeps its size relative to one graph.
+func test_there_is_no_separation_control_and_world_helpers_scale_with_the_body() -> void:
+	# ADR-2135 (2026-10-08): always separated, the cloud ten graphs wide; the
+	# hover label and its reach grow with it so a hit stays readable.
 	var l: Node3D = await _make()
-	l._enabled = true
-	l.reduced_motion = true  # snap, so one frame places it
-	l.graph_bounds_source = _graph_bounds(Vector3(90, -3, -14), 300.0)
-	_load(l, "s1", 9)
-	l._process(0.016)
-	var merged: Dictionary = l.placement()
-	l.graph_separation = 300.0
-	l._process(0.016)
-	var p: Dictionary = l.placement()
-	var r: float = 300.0 * 2.0 / sqrt(3.0)
-	assert_true(p["position"].is_equal_approx(Vector3(90, -3, -14 - r)), "%s" % p["position"])
-	assert_almost_eq(float(p["scale"]), float(merged["scale"]), 1e-4, "size kept")
-	l.graph_separation = 0.0
-	l._process(0.016)
-	assert_eq(l.placement()["position"], Vector3(90, -3, -14), "0 is the merged placement")
+	assert_false("graph_separation" in l, "no separation property")
+	assert_almost_eq(l.body_scale(), 10.0, 1e-6)
+	var label: Label3D = l.get_node("HoverLabel")
+	assert_almost_eq(label.pixel_size, l.LABEL_PIXEL * 10.0, 1e-7, "label ×10")
 	l.queue_free()
 
 
@@ -454,10 +454,11 @@ func test_placement_glides_when_physics_moves_the_graph() -> void:
 	l.graph_bounds_source = func() -> PackedFloat32Array: return PackedFloat32Array([centre[0].x, centre[0].y, centre[0].z, 200.0])
 	_load(l, "s1", 9)
 	l._process(0.011)
-	assert_eq(l.placement()["position"], Vector3.ZERO, "first placement snaps")
+	var p0: Vector3 = l.placement()["position"]
+	assert_almost_eq(p0.x, 0.0, 0.01, "first placement snaps")
 	centre[0] = Vector3(100, 0, 0)
 	l._process(0.011)  # not yet due: 1 Hz reads
-	assert_eq(l.placement()["position"], Vector3.ZERO, "graph re-read at 1 Hz, not every frame")
+	assert_eq(l.placement()["position"], p0, "graph re-read at 1 Hz, not every frame")
 	# ~1 s of 90 Hz frames: the 1 Hz read lands, then each frame moves dt/0.8 of the way
 	for i in 92:
 		l._process(1.0 / 90.0)

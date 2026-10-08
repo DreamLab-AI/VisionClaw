@@ -120,13 +120,14 @@ func test_hits_list_and_sidecar_route_from_the_response() -> void:
 	assert_eq((rows[0] as Button).text, "1. adr-2135-separated-layout · project-state · 0.81 ●")
 	assert_eq((rows[1] as Button).text, "2. xr-hud-532px-host · patterns · 0.77 —", "unsampled hit marked")
 	assert_true(hud._memory_search_status.text.contains("4 of 6 in the sample"), hud._memory_search_status.text)
-	assert_true(hud._memory_search_status.text.contains("sidecar top-k in rank order"), "honest about what the route is")
-	# the route: real gate, real geometry
+	assert_true(hud._memory_search_status.text.contains("query point → sidecar top-k"), "honest about what the route is")
+	assert_true(hud._memory_search_status.text.contains("not a search path"))
+	# the route: real gate, real geometry, from the query point (ADR-2136)
 	assert_true(layer.route_active(), "route drawn")
 	assert_eq(layer.route_source(), "sidecar_top_k")
-	assert_eq(int(layer._route.hop_count()), 3, "four sampled hits, three hops")
+	assert_eq(int(layer._route.hop_count()), 4, "query point + four sampled hits, four hops")
 	assert_gt(layer.cue_alpha(), -0.001)
-	assert_eq(layer.agreement_line(), "Route: sidecar top-k in rank order · 4 of 6 sidecar hits are in the sample",
+	assert_eq(layer.agreement_line(), "Route: query point → sidecar top-k · 4 of 6 sidecar hits are in the sample",
 		"the Memory row line works without a desktop relay")
 	s.queue_free()
 	layer.queue_free()
@@ -231,6 +232,80 @@ func test_query_page_has_graph_and_memory_modes_inside_532px() -> void:
 	assert_true(hud._query_graph_box.visible, "back to the graph query")
 	hud.queue_free()
 	await get_tree().process_frame
+
+
+# --- typed queries: the on-screen keyboard (ADR-2136) ---------------------------
+
+func test_the_keyboard_opens_in_place_types_and_submits_inside_532px() -> void:
+	var hud: Node3D = await _make_hud()
+	hud._show_tab("query")
+	hud._query_mode_memory_button.pressed.emit()
+	var page: Control = hud.get_node("%s/QueryPage" % TABS)
+	assert_true(page.is_ancestor_of(hud._memory_type_button))
+	assert_eq(hud._memory_type_button.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "press-fire (Invariant 4)")
+	assert_false(hud._memory_keyboard_box.visible, "closed until asked")
+	hud._memory_type_button.pressed.emit()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	assert_true(hud._memory_keyboard_box.visible, "the keyboard opens")
+	assert_false(hud._query_memory_box.visible, "in place of the lists")
+	assert_lte(page.get_combined_minimum_size().y, 532.0, "keyboard page fits (Invariant 5)")
+	# QWERTY, digits, space, backspace, enter; every key press-fire with a hint
+	for k in ["q", "w", "e", "r", "t", "y", "a", "z", "m", "1", "0", "-", "space", "backspace", "enter", "cancel"]:
+		var b: Button = hud._keyboard_buttons.get(k)
+		assert_not_null(b, "key %s" % k)
+		assert_eq(b.action_mode, BaseButton.ACTION_MODE_BUTTON_PRESS, "press-fire: %s" % k)
+		assert_true(b.has_meta(hud.HINT_META), "hint: %s" % k)
+		assert_gte(b.size.x, 56.0, "wand-sized key: %s (%.0f px)" % [k, b.size.x])
+	watch_signals(hud)
+	for k in ["h", "u", "d", "space", "x", "backspace", "l", "a", "y", "o", "u", "t"]:
+		(hud._keyboard_buttons[k] as Button).pressed.emit()
+	assert_string_contains(hud._memory_keyboard_entry.text, "hud layout")
+	(hud._keyboard_buttons["enter"] as Button).pressed.emit()
+	assert_signal_emitted_with_parameters(hud, "control_pressed", ["memory_typed:hud layout"])
+	assert_false(hud._memory_keyboard_box.visible, "closes on search")
+	assert_true(hud._query_memory_box.visible, "back to the results")
+	# cancel closes without searching
+	hud.open_memory_keyboard()
+	(hud._keyboard_buttons["q"] as Button).pressed.emit()
+	(hud._keyboard_buttons["cancel"] as Button).pressed.emit()
+	assert_false(hud._memory_keyboard_box.visible)
+	assert_eq(get_signal_emit_count(hud, "control_pressed"), 1, "cancel sends nothing")
+	# leaving memory mode closes it too
+	hud.open_memory_keyboard()
+	hud._query_mode_graph_button.pressed.emit()
+	assert_false(hud._memory_keyboard_box.visible)
+	hud.queue_free()
+	await get_tree().process_frame
+
+
+func test_a_typed_query_posts_globally_and_becomes_recent() -> void:
+	var layer: Node3D = await _make_layer("snap-7f3a", 40)
+	var s := _search(layer, null)
+	assert_false(s.run_text("   "), "blank is not sent")
+	assert_true(s.handle_control("memory_typed:how does the headset lay out the graphs"))
+	assert_eq(s.posts.size(), 1)
+	var body: Dictionary = JSON.parse_string(str(s.posts[0]["body"]))
+	assert_eq(body, {"text": "how does the headset lay out the graphs", "k": 50.0}, "searched globally")
+	s.on_query_completed(OK_RESULT, 200, PackedStringArray(), _fixture_text().to_utf8_buffer())
+	assert_eq(str(s.presets()[0]["text"]), "how does the headset lay out the graphs", "typed query is now a preset")
+	assert_true(layer.route_active(), "drawn from the query point")
+	DirAccess.remove_absolute(s.recent_path)
+	s.queue_free()
+	layer.queue_free()
+
+
+func test_scene_routes_typed_queries_to_the_search() -> void:
+	var gs: Node3D = (load("res://scenes/GraphScene.tscn") as PackedScene).instantiate()
+	var layer: Node3D = await _make_layer("snap-7f3a", 40)
+	var s := _search(layer, null)
+	gs._memory_search = s
+	gs._on_hud_control("memory_typed:open bugs")
+	assert_eq(s.posts.size(), 1, "a typed query runs")
+	assert_eq(JSON.parse_string(str(s.posts[0]["body"]))["text"], "open bugs")
+	gs.free()
+	s.queue_free()
+	layer.queue_free()
 
 
 func test_scene_routes_memory_intents_to_the_search() -> void:

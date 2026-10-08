@@ -23,7 +23,7 @@
   "queryResponse": {
     "snapshotId": "a1aa10d448ea",
     "embedModel": "bge-small-en-v1.5",
-    "query": { "text": "how is the memory cloud sampled", "vector": [1.0, 0.0, 0.0, 0.0] },
+    "query": { "text": "how is the memory cloud sampled", "vector": [1.0, 0.0, 0.0, 0.0], "position": [12.5, -3.25, 40.0] },
     "sidecar": {
       "results": [
         { "id": "id-0", "key": "adr-2133", "namespace": "project-state", "sourceType": "memory", "score": 0.875, "snippet": "stratified sample", "sampleIndex": 0 },

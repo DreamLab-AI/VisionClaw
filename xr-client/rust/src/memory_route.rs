@@ -110,9 +110,12 @@ pub const CUE_DOTS: usize = 12;
 pub const CUE_SECONDS: f32 = 4.5;
 pub const CUE_FADE_IN_S: f32 = 0.25;
 pub const CUE_FADE_OUT_S: f32 = 1.0;
-/// World radius of the nearest guide dot (m); dots grow to 3× towards the
-/// answer so the far end stays legible.
+/// World radius of the nearest guide dot (m). Dots grow towards the answer
+/// to 3× this or half the answer ring, whichever is larger, so the far end
+/// stays legible and scales with the memory body (ADR-2135, ×10 cloud).
 pub const CUE_DOT_M: f32 = 0.006;
+/// Far-end dot size as a fraction of the answer ring's radius.
+pub const CUE_FAR_DOT_OF_RING: f32 = 0.5;
 /// Gap left in front of the controller (m) before the first dot.
 pub const CUE_START_M: f32 = 0.12;
 /// Speed of the brightness wave that runs along the dots towards the answer
@@ -271,6 +274,17 @@ pub struct RouteFrame {
     pub stats: Option<SidecarStats>,
     /// Where the path came from; decides the HUD caption.
     pub source: RouteSource,
+    /// Cloud-local start point ahead of `path[0]`: the query's own position
+    /// in the snapshot's PCA frame (`QueryEcho::position`, ADR-2136). Only a
+    /// headset query sets it; a desktop relay always starts on a row.
+    pub origin: Option<Vec3>,
+}
+
+impl RouteFrame {
+    /// Points the route passes through: the origin (when set) and every row.
+    pub fn anchors(&self) -> usize {
+        self.path.len() + usize::from(self.origin.is_some())
+    }
 }
 
 /// Where a route's path came from. The HUD caption names it, so a rank-order
@@ -281,8 +295,8 @@ pub enum RouteSource {
     #[default]
     Relay,
     /// Built in the headset from `POST /api/memory-cloud/query`: the response
-    /// carries no traversal, so the path runs through the sampled sidecar hits
-    /// in rank order, the top hit last (`memory_query::sidecar_route`).
+    /// carries no traversal, so the path runs from the query point through the
+    /// sampled sidecar hits in rank order (`memory_query::sidecar_route`).
     SidecarTopK,
 }
 
@@ -345,14 +359,19 @@ impl SidecarStats {
 /// one line, or, from a relay that does not carry the counts, only what the
 /// headset knows (no denominator it cannot vouch for). Empty without a route.
 pub fn agreement_line(f: Option<&RouteFrame>) -> String {
-    let Some(f) = f.filter(|f| f.path.len() >= 2) else {
+    let Some(f) = f.filter(|f| f.anchors() >= 2) else {
         return String::new();
     };
     if f.source == RouteSource::SidecarTopK {
         // no local top-k to agree with: the route IS the sidecar's ranking
+        let what = if f.origin.is_some() {
+            "query point → sidecar top-k"
+        } else {
+            "sidecar top-k in rank order"
+        };
         return match f.stats {
-            Some(s) => format!("Route: sidecar top-k in rank order · {}", s.coverage_text()),
-            None => "Route: sidecar top-k in rank order".into(),
+            Some(s) => format!("Route: {what} · {}", s.coverage_text()),
+            None => format!("Route: {what}"),
         };
     }
     match f.stats {
@@ -434,6 +453,7 @@ pub fn parse_route(json: &str) -> Result<RouteFrame, RouteError> {
         query,
         stats,
         source: RouteSource::Relay,
+        origin: None,
     })
 }
 
@@ -494,7 +514,8 @@ impl RouteGate {
             self.pending = Some(f);
             return RouteDecision::Reload;
         }
-        if f.path.len() < 2 || f.path.iter().any(|&r| r as usize >= row_count) {
+        let origin_ok = f.origin.is_none_or(|o| o.iter().all(|c| c.is_finite()));
+        if f.anchors() < 2 || !origin_ok || f.path.iter().any(|&r| r as usize >= row_count) {
             return RouteDecision::Drop;
         }
         self.last = Some((f.sent_at, f.seq));
@@ -559,30 +580,61 @@ pub struct RouteSamples {
     pub pts: Vec<Vec3>,
     /// sample index of each path node (first is 0)
     pub knots: Vec<usize>,
+    /// sample index of the answer (the answer ring, its pulse and the default
+    /// cue target): the last sample for a relayed search path, the top hit
+    /// (the first knot after the query point) for a headset query.
+    pub answer: usize,
+}
+
+impl RouteSamples {
+    /// The answer's point (origin when empty).
+    pub fn answer_point(&self) -> Vec3 {
+        self.pts
+            .get(self.answer)
+            .or(self.pts.last())
+            .copied()
+            .unwrap_or([0.0; 3])
+    }
 }
 
 /// Dense polyline through the path rows (`sampleRoute`), `n` samples per hop,
 /// shared endpoints once. Out-of-range rows sit on their parent, as
 /// `spaceLayout` does.
 pub fn sample_route(path: &[u32], positions: &[f32], n: usize) -> RouteSamples {
-    if path.len() < 2 || n == 0 {
+    sample_route_from(None, path, positions, n)
+}
+
+/// [`sample_route`] starting at `origin` when it is set (a headset query's
+/// point in the cloud). With an origin the answer is the first row, the
+/// sidecar's top hit; without one it is the last row.
+pub fn sample_route_from(
+    origin: Option<Vec3>,
+    path: &[u32],
+    positions: &[f32],
+    n: usize,
+) -> RouteSamples {
+    let anchors = path.len() + usize::from(origin.is_some());
+    if anchors < 2 || n == 0 {
         return RouteSamples::default();
     }
-    let mut at: Vec<Vec3> = Vec::with_capacity(path.len());
-    for (i, &r) in path.iter().enumerate() {
+    let mut at: Vec<Vec3> = Vec::with_capacity(anchors);
+    if let Some(o) = origin {
+        at.push(o);
+    }
+    for &r in path {
         let o = r as usize * 3;
         let ok = o + 2 < positions.len() && positions[o..o + 3].iter().all(|v| v.is_finite());
         at.push(if ok {
             [positions[o], positions[o + 1], positions[o + 2]]
-        } else if i > 0 {
-            at[i - 1]
+        } else if let Some(&prev) = at.last() {
+            prev
         } else {
             [0.0; 3]
         });
     }
-    let mut pts = Vec::with_capacity((path.len() - 1) * n + 1);
+    let mut pts = Vec::with_capacity((anchors - 1) * n + 1);
     let mut knots = vec![0];
-    for i in 0..path.len() - 1 {
+    for i in 0..anchors - 1 {
         let (a, b) = (at[i], at[i + 1]);
         let c = space_control(a, b);
         for k in (if i == 0 { 0 } else { 1 })..=n {
@@ -590,7 +642,12 @@ pub fn sample_route(path: &[u32], positions: &[f32], n: usize) -> RouteSamples {
         }
         knots.push(pts.len() - 1);
     }
-    RouteSamples { pts, knots }
+    let answer = if origin.is_some() {
+        knots[1]
+    } else {
+        pts.len() - 1
+    };
+    RouteSamples { pts, knots, answer }
 }
 
 /// Point at a fractional sample index, clamped.
@@ -959,10 +1016,12 @@ pub fn push_cue_dots(buf: &mut Vec<f32>, to: Vec3, origin: Option<CueOrigin>, cu
                     1.0 + (tip[2] - 1.0) * t,
                 ];
                 let k = 1.6 * wave;
+                let near = CUE_DOT_M * o.local_per_m;
+                let far = (3.0 * near).max(CUE_FAR_DOT_OF_RING * RING_R);
                 push_instance(
                     buf,
                     p,
-                    CUE_DOT_M * o.local_per_m * (1.0 + 2.0 * t),
+                    near + (far - near) * t,
                     [col[0] * k, col[1] * k, col[2] * k, c.alpha],
                 );
             }
@@ -1035,7 +1094,7 @@ pub fn bead_buffer(
         (COMET_R * 5.0 * size * st.glow.min(1.6) * pulse).max(1e-5),
         [tip[0], tip[1], tip[2], 0.6],
     );
-    let answer = cue_target.unwrap_or_else(|| r.pts.last().copied().unwrap_or([0.0; 3]));
+    let answer = cue_target.unwrap_or_else(|| r.answer_point());
     push_cue_dots(
         &mut buf,
         answer,
@@ -1057,7 +1116,7 @@ pub fn ring_buffer(
 ) -> Vec<f32> {
     let mut buf = Vec::with_capacity((3 + sidecar.len()) * STRIDE);
     let root = r.pts.first().copied().unwrap_or([0.0; 3]);
-    let tipp = r.pts.last().copied().unwrap_or([0.0; 3]);
+    let tipp = r.answer_point();
     let tip = hex_rgb(ROUTE_TIP);
     let shown = r.pts.len() >= 2;
     push_instance(
@@ -1138,11 +1197,16 @@ impl ActiveRoute {
         let Some(f) = self.frame.as_ref() else {
             return false;
         };
-        let rows = f.path.len();
+        let rows = f.anchors();
         if samples_per_hop_within(rows, before) == samples_per_hop_within(rows, self.cap()) {
             return false;
         }
-        self.samples = sample_route(&f.path, positions, samples_per_hop_within(rows, self.cap()));
+        self.samples = sample_route_from(
+            f.origin,
+            &f.path,
+            positions,
+            samples_per_hop_within(rows, self.cap()),
+        );
         true
     }
 
@@ -1152,15 +1216,15 @@ impl ActiveRoute {
     /// sidecar marks, query and stats, so the trace is not replayed and the
     /// cue does not fire again.
     pub fn set(&mut self, f: RouteFrame, positions: &[f32]) -> bool {
-        let same = self
-            .frame
-            .as_ref()
-            .is_some_and(|c| c.snapshot_id == f.snapshot_id && c.path == f.path);
+        let same = self.frame.as_ref().is_some_and(|c| {
+            c.snapshot_id == f.snapshot_id && c.path == f.path && c.origin == f.origin
+        });
         if !same {
-            self.samples = sample_route(
+            self.samples = sample_route_from(
+                f.origin,
                 &f.path,
                 positions,
-                samples_per_hop_within(f.path.len(), self.cap()),
+                samples_per_hop_within(f.anchors(), self.cap()),
             );
             self.el = 0.0;
             self.cue_age = Some(0.0);
@@ -1208,9 +1272,7 @@ impl ActiveRoute {
 
     /// Where the guide cue points: the picked hit, else the answer.
     pub fn cue_target(&self) -> Vec3 {
-        self.focus
-            .or_else(|| self.samples.pts.last().copied())
-            .unwrap_or([0.0; 3])
+        self.focus.unwrap_or_else(|| self.samples.answer_point())
     }
 
     /// Advance the trace and cue clocks.
@@ -1413,7 +1475,7 @@ impl MemoryRoute {
         self.route
             .frame
             .as_ref()
-            .map_or(0, |f| f.path.len().saturating_sub(1) as i64)
+            .map_or(0, |f| f.anchors().saturating_sub(1) as i64)
     }
 
     #[func]
@@ -1452,7 +1514,7 @@ impl MemoryRoute {
     fn route_shape(&self) -> PackedInt32Array {
         match (&self.route.frame, self.route.samples.pts.len() >= 2) {
             (Some(f), true) => PackedInt32Array::from(
-                &[f.path.len() as i32, self.route.sidecar_pts.len() as i32][..],
+                &[f.anchors() as i32, self.route.sidecar_pts.len() as i32][..],
             ),
             _ => PackedInt32Array::from(&[0, 0][..]),
         }
@@ -1650,7 +1712,78 @@ mod tests {
             query: String::new(),
             stats: None,
             source: RouteSource::Relay,
+            origin: None,
         }
+    }
+
+    // ── query point origin (ADR-2136) ──
+
+    #[test]
+    fn an_origin_route_starts_at_the_query_point_and_answers_on_the_top_hit() {
+        // rows 0..3 on a line; the query point beside row 0
+        let pos: Vec<f32> = vec![10.0, 0.0, 0.0, 20.0, 0.0, 0.0, 30.0, 0.0, 0.0];
+        let r = sample_route_from(Some([0.0, 5.0, 0.0]), &[0, 1, 2], &pos, 4);
+        assert_eq!(r.pts[0], [0.0, 5.0, 0.0], "starts at the query point");
+        assert_eq!(r.knots, vec![0, 4, 8, 12]);
+        assert_eq!(r.answer, 4, "the answer is the top hit, the first row");
+        assert_eq!(r.answer_point(), [10.0, 0.0, 0.0]);
+        assert_eq!(*r.pts.last().unwrap(), [30.0, 0.0, 0.0], "then rank order");
+        // the relay path keeps its answer at the end
+        let plain = sample_route(&[0, 1, 2], &pos, 4);
+        assert_eq!(plain.answer, plain.pts.len() - 1);
+        assert_eq!(plain.answer_point(), [30.0, 0.0, 0.0]);
+        // one row plus the origin is a route; one row alone is not
+        assert_eq!(
+            sample_route_from(Some([0.0; 3]), &[2], &pos, 4).pts.len(),
+            5
+        );
+        assert!(sample_route(&[2], &pos, 4).pts.is_empty());
+    }
+
+    #[test]
+    fn the_answer_ring_and_the_cue_go_to_the_top_hit() {
+        let pos: Vec<f32> = vec![10.0, 0.0, 0.0, 20.0, 0.0, 0.0, 30.0, 0.0, 0.0];
+        let mut f = frame("s", 1, 0.0, &[0, 1, 2]);
+        f.source = RouteSource::SidecarTopK;
+        f.origin = Some([0.0, 5.0, 0.0]);
+        let mut r = ActiveRoute::default();
+        assert!(r.set(f, &pos));
+        assert_eq!(r.cue_target(), [10.0, 0.0, 0.0]);
+        let st = animate(r.samples.pts.len(), 10.0, 1.0, None, true);
+        let rings = ring_buffer(&r.samples, &st, &[], 1.0, None);
+        // ring 0 = root (the query point), ring 1 = answer (the top hit)
+        let at = |i: usize| {
+            [
+                rings[i * STRIDE + 3],
+                rings[i * STRIDE + 7],
+                rings[i * STRIDE + 11],
+            ]
+        };
+        assert_eq!(at(0), [0.0, 5.0, 0.0], "root ring on the query point");
+        assert_eq!(at(1), [10.0, 0.0, 0.0], "answer ring on the top hit");
+    }
+
+    #[test]
+    fn the_gate_takes_one_row_with_an_origin_and_drops_a_bad_origin() {
+        let mut g = RouteGate::default();
+        let mut f = frame("s", 1, 1.0, &[3]);
+        f.origin = Some([1.0, 2.0, 3.0]);
+        assert!(matches!(
+            g.offer(f.clone(), Some("s"), 10),
+            RouteDecision::Apply(_)
+        ));
+        let mut bad = f.clone();
+        bad.seq = 2;
+        bad.sent_at = 2.0;
+        bad.origin = Some([f32::NAN, 0.0, 0.0]);
+        assert_eq!(g.offer(bad, Some("s"), 10), RouteDecision::Drop);
+        let mut lone = frame("s", 3, 3.0, &[3]);
+        lone.origin = None;
+        assert_eq!(
+            g.offer(lone, Some("s"), 10),
+            RouteDecision::Drop,
+            "one row, no origin"
+        );
     }
 
     // ── headset-picked cue target ──
@@ -2003,6 +2136,7 @@ mod tests {
                     query: String::new(),
                     stats: None,
                     source: RouteSource::Relay,
+                    origin: None,
                 },
                 &pos,
             );
@@ -2055,6 +2189,7 @@ mod tests {
                 query: String::new(),
                 stats: None,
                 source: RouteSource::Relay,
+                origin: None,
             },
             &pos,
         );
@@ -2080,6 +2215,7 @@ mod tests {
                 query: String::new(),
                 stats: None,
                 source: RouteSource::Relay,
+                origin: None,
             },
             &pos,
         );
@@ -2103,6 +2239,7 @@ mod tests {
                 query: String::new(),
                 stats: None,
                 source: RouteSource::Relay,
+                origin: None,
             },
             &pos,
         );
@@ -2367,9 +2504,17 @@ mod tests {
             dots[0] < dots[(CUE_DOTS - 1) * STRIDE],
             "dots grow towards the answer"
         );
+        let near = CUE_DOT_M * lpm;
+        let far = (3.0 * near).max(CUE_FAR_DOT_OF_RING * RING_R);
+        let t0 = 0.5 / CUE_DOTS as f32;
         assert!(
-            (dots[0] - CUE_DOT_M * lpm * (1.0 + 2.0 * 0.5 / CUE_DOTS as f32)).abs() < 1e-4,
-            "world size in metres"
+            (dots[0] - (near + (far - near) * t0)).abs() < 1e-4,
+            "world size in metres near the hand"
+        );
+        let tn = (CUE_DOTS as f32 - 0.5) / CUE_DOTS as f32;
+        assert!(
+            (dots[(CUE_DOTS - 1) * STRIDE] - (near + (far - near) * tn)).abs() < 1e-4,
+            "the far end grows to half the answer ring (×10 cloud) or 3×, whichever is larger"
         );
         // no cue / no origin / controller inside the ring: hidden, count unchanged
         for (o, c) in [

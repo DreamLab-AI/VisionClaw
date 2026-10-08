@@ -1480,12 +1480,12 @@ impl BinaryProtocolClient {
     }
 
     /// ADR-2135: an agent's offset from the separated-layout centroid in server
-    /// space for this Graph Separation (zero when merged or idle). The work
-    /// layer rests at the centroid plus this offset.
+    /// space (zero when idle). The work layer rests at the centroid plus this
+    /// offset.
     #[func]
-    fn agent_drift_offset(&self, agent_id: i64, separation: f32) -> Vector3 {
+    fn agent_drift_offset(&self, agent_id: i64) -> Vector3 {
         let o = u32::try_from(agent_id)
-            .map(|a| self.store.agent_drift_offset(a, separation))
+            .map(|a| self.store.agent_drift_offset(a))
             .unwrap_or([0.0; 3]);
         Vector3::new(o[0], o[1], o[2])
     }
@@ -1901,13 +1901,12 @@ impl BinaryProtocolClient {
 
     /// The graph's robust bounds `[cx, cy, cz, radius]` in server (GraphRoot)
     /// space over every node position — the desktop's `graphBoundsFor` of the
-    /// live position buffer, used to frame the memory cloud. `separation` is
-    /// the Graph Separation slider: above 0 the separated layout is folded out
-    /// first so the bounds are one graph's (ADR-2135). Empty when the store
-    /// holds no finite position.
+    /// live position buffer, used to frame the memory cloud. The separated
+    /// layout is folded out first so the bounds are one graph's (ADR-2135).
+    /// Empty when the store holds no finite position.
     #[func]
-    fn graph_robust_bounds(&self, separation: f32) -> PackedFloat32Array {
-        match self.store.robust_bounds_for(separation) {
+    fn graph_robust_bounds(&self) -> PackedFloat32Array {
+        match self.store.graph_robust_bounds() {
             Some(b) => {
                 PackedFloat32Array::from(&[b.centre[0], b.centre[1], b.centre[2], b.radius][..])
             }

@@ -1,13 +1,13 @@
 //! Geometry of the VisionClaw separated layout (ADR-2135).
 //!
-//! The Graph Separation slider pulls the three bodies of the scene apart as
-//! an equilateral triangle in the ground plane: the knowledge graph, the
-//! formal ontology and the memory cloud each sit on one vertex, and the
-//! agents keep the centroid, drifting towards whichever graph they are
-//! working on. This crate is the single definition of that geometry. The
-//! server's display projection, the Quest client (`xr-client/rust`) and the
-//! desktop TypeScript port (`client/src/features/graph/triLayout.ts`, checked
-//! against `fixtures/tri_layout_fixture.json`) all follow it.
+//! The scene's three bodies are always apart (operator decision 2026-10-08):
+//! the knowledge graph, the formal ontology and the memory cloud each sit on
+//! one vertex of an equilateral triangle in the ground plane, and the agents
+//! keep the centroid, drifting towards whichever graph they are working on.
+//! This crate is the single definition of that geometry. The server's display
+//! projection, the Quest client (`xr-client/rust`) and the desktop TypeScript
+//! port (`client/src/features/graph/triLayout.ts`, checked against
+//! `fixtures/tri_layout_fixture.json`) all follow it.
 //!
 //! # Frame
 //!
@@ -21,30 +21,41 @@
 //!
 //! # Separation
 //!
-//! `graph_separation` (the slider, 0–400) drives two quantities:
+//! There is no separation control any more. The layout uses one fixed
+//! [`SEPARATION`], derived from the graphs' measured radii by
+//! [`separation_for_radii`] so the two graph bodies never overlap at live
+//! scale. [`TriangleFrame::separated`] is the frame every reader uses.
+//! [`TriangleFrame::new`] still builds the frame for any separation (the
+//! geometry is general, and the tests and fixture exercise it):
 //!
 //! * the circumradius `R = separation × 2/√3`, so the distance between two
-//!   vertices equals `2 × separation` — exactly the gap the old ±Z disc pair
-//!   put between the knowledge and ontology disc centres, so a saved value
-//!   keeps its meaning;
+//!   vertices equals `2 × separation`;
 //! * the strength `s`, a smoothstep from 0 at separation 0 to 1 at
 //!   [`FULL_STRENGTH_SEPARATION`]. Each graph is yawed by `θ × s` so that, once
 //!   separated, its disc normal (local +Z) points along the line through the
-//!   centroid; at separation 0 every yaw is 0 and the old merged layout is
-//!   reproduced exactly.
+//!   centroid. [`SEPARATION`] is past full strength.
+//!
+//! # Memory body
+//!
+//! The memory cloud is drawn [`MEMORY_BODY_SCALE`] times one graph's size, so
+//! it would swallow the triangle if it sat on its vertex. It sits on the
+//! memory vertex's ray instead, at [`TriangleFrame::memory_centre`]: never
+//! nearer than the vertex, and far enough out that its sphere clears both
+//! graph spheres by [`CLEARANCE`].
 //!
 //! ```
-//! use visionclaw_tri_layout::{TriangleFrame, Vertex};
+//! use visionclaw_tri_layout::{TriangleFrame, Vertex, SEPARATION};
 //!
-//! let merged = TriangleFrame::new(0.0);
-//! assert!(merged.is_merged());
-//! assert_eq!(merged.place(Vertex::Knowledge, [1.0, 2.0, 3.0]), [1.0, 2.0, 3.0]);
-//!
-//! let apart = TriangleFrame::new(250.0);
-//! let k = apart.vertex(Vertex::Knowledge);
-//! let o = apart.vertex(Vertex::Ontology);
+//! let f = TriangleFrame::separated();
+//! assert_eq!(f.separation, SEPARATION);
+//! let k = f.vertex(Vertex::Knowledge);
+//! let o = f.vertex(Vertex::Ontology);
 //! let gap = ((k[0] - o[0]).powi(2) + (k[2] - o[2]).powi(2)).sqrt();
-//! assert!((gap - 500.0).abs() < 1e-3);
+//! assert!((gap - 2.0 * SEPARATION).abs() < 1e-3);
+//!
+//! // a cloud ten graphs wide is pushed back until it clears both graphs
+//! let m = f.memory_centre(93.0, 930.0);
+//! assert!(m[2] < f.vertex(Vertex::Memory)[2]);
 //! ```
 //!
 //! # Agents
@@ -59,6 +70,39 @@ pub mod drift;
 
 /// A point or direction in scene space, `[x, y, z]`, Y up.
 pub type Vec3 = [f32; 3];
+
+/// Radius of the larger graph body at live scale, scene units: the 99th
+/// percentile distance of the ontology's nodes from their median, measured on
+/// the live backend on 2026-10-08 (9,473 nodes: 9,367 ontology, p99 152; 106
+/// knowledge, p99 106). Each population is re-centred on its median before it
+/// is placed, so this is the radius the body has at its vertex.
+pub const LIVE_GRAPH_RADIUS: f32 = 152.0;
+
+/// Clearance factor between two bodies: their centres sit at least
+/// `CLEARANCE × (r₁ + r₂)` apart, a quarter of their combined radii as an
+/// empty margin between them.
+pub const CLEARANCE: f32 = 1.25;
+
+/// Smallest separation at which two graph bodies of radii `a` and `b` clear
+/// each other by [`CLEARANCE`]: adjacent vertices sit `2 × separation` apart,
+/// so `2 × separation = CLEARANCE × (a + b)`.
+///
+/// ```
+/// use visionclaw_tri_layout::{separation_for_radii, CLEARANCE};
+/// assert_eq!(separation_for_radii(100.0, 60.0), CLEARANCE * 80.0);
+/// ```
+pub const fn separation_for_radii(a: f32, b: f32) -> f32 {
+    CLEARANCE * (a + b) / 2.0
+}
+
+/// The layout's one separation, derived from [`LIVE_GRAPH_RADIUS`] for both
+/// graphs: 190 scene units, so the knowledge and ontology centres sit 380
+/// apart and their live bodies (p99 radii 106 and 152) never touch.
+pub const SEPARATION: f32 = separation_for_radii(LIVE_GRAPH_RADIUS, LIVE_GRAPH_RADIUS);
+
+/// The memory cloud's size relative to one graph: its robust radius is this
+/// many times the graph's (operator decision 2026-10-08; it was 1).
+pub const MEMORY_BODY_SCALE: f32 = 10.0;
 
 /// Separation at which the triangle reaches full strength: each graph is
 /// fully yawed to face the centroid and, without dual-disc, fully re-centred
@@ -166,6 +210,34 @@ impl TriangleFrame {
             vertices,
             yaws,
         }
+    }
+
+    /// The layout every reader uses: [`TriangleFrame::new`] at [`SEPARATION`].
+    pub fn separated() -> Self {
+        Self::new(SEPARATION)
+    }
+
+    /// Centre of the memory body, given the robust radius of one graph and of
+    /// the memory cloud as drawn (both in scene units). It lies on the memory
+    /// vertex's ray from the centroid, at the vertex or further out: as far as
+    /// it takes for the cloud's sphere to clear each graph's sphere by
+    /// [`CLEARANCE`], `|centre − vertexᵍ| ≥ CLEARANCE × (graph + memory)`.
+    /// Non-finite or negative radii count as 0.
+    pub fn memory_centre(&self, graph_radius: f32, memory_radius: f32) -> Vec3 {
+        let r = |x: f32| if x.is_finite() { x.max(0.0) } else { 0.0 };
+        let need = CLEARANCE * (r(graph_radius) + r(memory_radius));
+        let dir = rotate_y([0.0, 0.0, 1.0], Vertex::Memory.angle_rad());
+        let mut dist = self.radius;
+        for v in [Vertex::Knowledge, Vertex::Ontology] {
+            // |g − D·dir|² ≥ need²  ⇔  D² − 2(g·dir)D + |g|² − need² ≥ 0
+            let g = self.vertex(v);
+            let b = g[0] * dir[0] + g[2] * dir[2];
+            let disc = b * b - (g[0] * g[0] + g[2] * g[2]) + need * need;
+            if disc > 0.0 {
+                dist = dist.max(b + disc.sqrt());
+            }
+        }
+        [dir[0] * dist, 0.0, dir[2] * dist]
     }
 
     /// True at separation 0: every vertex is the origin and every yaw is 0,
@@ -366,6 +438,82 @@ mod tests {
     }
 
     #[test]
+    fn the_fixed_separation_is_derived_from_the_live_radii() {
+        assert_eq!(SEPARATION, CLEARANCE * LIVE_GRAPH_RADIUS);
+        assert!((SEPARATION - 190.0).abs() < 1e-4);
+        let f = TriangleFrame::separated();
+        assert!(!f.is_merged(), "the layout is never merged");
+        assert_eq!(f.strength, 1.0, "past full strength");
+        assert_eq!(f, TriangleFrame::new(SEPARATION));
+    }
+
+    #[test]
+    fn the_two_graphs_never_overlap_at_live_scale() {
+        let f = TriangleFrame::separated();
+        let gap = dist(f.vertex(Vertex::Knowledge), f.vertex(Vertex::Ontology));
+        // the measured p99 radii (knowledge 106, ontology 152), with margin
+        assert!(gap >= CLEARANCE * (106.0 + 152.0), "gap {gap}");
+        assert!(
+            gap >= CLEARANCE * 2.0 * LIVE_GRAPH_RADIUS - 1e-3,
+            "gap {gap}"
+        );
+    }
+
+    #[test]
+    fn memory_centre_is_on_the_memory_ray_and_clears_both_graphs() {
+        let f = TriangleFrame::separated();
+        let mv = f.vertex(Vertex::Memory);
+        for (g, m) in [
+            (93.0, 930.0),
+            (152.0, 1520.0),
+            (40.0, 400.0),
+            (93.0, 93.0),
+            (0.0, 0.0),
+        ] {
+            let c = f.memory_centre(g, m);
+            assert!(c[0].abs() < 1e-3 && c[1] == 0.0, "on the ray {c:?}");
+            assert!(c[2] <= mv[2] + 1e-3, "never nearer than the vertex {c:?}");
+            for v in [Vertex::Knowledge, Vertex::Ontology] {
+                let d = dist(c, f.vertex(v));
+                assert!(d >= CLEARANCE * (g + m) - 1e-2, "{g}/{m}: {d}");
+            }
+        }
+    }
+
+    #[test]
+    fn memory_centre_is_the_tightest_clear_point() {
+        // a ×10 cloud is pushed out exactly to the clearance, no further
+        let f = TriangleFrame::separated();
+        let (g, m) = (93.0, 930.0);
+        let c = f.memory_centre(g, m);
+        let d = dist(c, f.vertex(Vertex::Knowledge));
+        assert!((d - CLEARANCE * (g + m)).abs() < 0.05, "{d}");
+        // a small cloud keeps the vertex
+        assert!(close(
+            f.memory_centre(10.0, 10.0),
+            f.vertex(Vertex::Memory),
+            1e-3
+        ));
+        // bad radii count as zero
+        assert!(close(
+            f.memory_centre(f32::NAN, -5.0),
+            f.vertex(Vertex::Memory),
+            1e-3
+        ));
+    }
+
+    #[test]
+    fn a_memory_body_ten_graphs_wide_clears_the_live_graphs() {
+        let f = TriangleFrame::separated();
+        let m = MEMORY_BODY_SCALE * LIVE_GRAPH_RADIUS;
+        let c = f.memory_centre(LIVE_GRAPH_RADIUS, m);
+        for v in [Vertex::Knowledge, Vertex::Ontology] {
+            let gap = dist(c, f.vertex(v)) - m - LIVE_GRAPH_RADIUS;
+            assert!(gap > 0.2 * (m + LIVE_GRAPH_RADIUS), "empty margin {gap}");
+        }
+    }
+
+    #[test]
     fn rotate_y_turns_plus_z_towards_plus_x() {
         let r = rotate_y([0.0, 0.0, 1.0], std::f32::consts::FRAC_PI_2);
         assert!(close(r, [1.0, 0.0, 0.0], 1e-6));
@@ -489,8 +637,29 @@ mod tests {
             })).collect::<Vec<_>>(),
             "checkpoints": checkpoints,
         });
+        let sep = TriangleFrame::separated();
+        let memory: Vec<serde_json::Value> = [
+            (93.0f32, 930.0f32),
+            (152.0, 1520.0),
+            (93.0, 93.0),
+            (40.0, 400.0),
+        ]
+        .iter()
+        .map(|&(g, m)| {
+            serde_json::json!({
+                "graph_radius": g,
+                "memory_radius": m,
+                "centre": v3(sep.memory_centre(g, m)),
+            })
+        })
+        .collect();
         let doc = serde_json::json!({
             "contract": "ADR-2135 separated layout triangle",
+            "live_graph_radius": LIVE_GRAPH_RADIUS,
+            "clearance": CLEARANCE,
+            "separation": SEPARATION,
+            "memory_body_scale": MEMORY_BODY_SCALE,
+            "memory_centre": memory,
             "drift": drift_doc,
             "full_strength_separation": FULL_STRENGTH_SEPARATION,
             "radius_per_separation": round(RADIUS_PER_SEPARATION),

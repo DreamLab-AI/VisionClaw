@@ -99,6 +99,12 @@ export interface MemoryCloudQueryResponse {
     text: string;
     /** L2-normalised query embedding, length = snapshot `dim` */
     vector: number[];
+    /**
+     * The query's point in the snapshot's cloud coordinates, projected with
+     * the snapshot's own PCA basis and scale (ADR-2136); null when the
+     * snapshot is empty. Older servers omit it.
+     */
+    position?: [number, number, number] | null;
   };
   sidecar: {
     results: MemoryCloudHit[];

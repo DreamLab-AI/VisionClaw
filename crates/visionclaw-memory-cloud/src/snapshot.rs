@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 use sha2::{Digest, Sha256};
 
 use crate::config::NamespacePatterns;
-use crate::pca::{project_to_3d, PcaError};
+use crate::pca::{project_to_3d, PcaError, Projector};
 use crate::sampling::Allocation;
 use crate::vector::{encode_vectors_blob, l2_normalise, parse_ruvector_literal};
 use crate::wire::{MemoryCloudMeta, MemoryCloudSnapshot, MemoryCloudStratum, SNAPSHOT_VERSION};
@@ -36,6 +36,9 @@ pub struct BuiltSnapshot {
     pub index_of: HashMap<String, usize>,
     /// Rows dropped (unparsable, wrong dimension, zero norm, duplicate id).
     pub skipped: usize,
+    /// The PCA map behind `snapshot.positions`, for placing a query vector
+    /// in the cloud; `None` for an empty sample.
+    pub projector: Option<Projector>,
 }
 
 /// Short, stable id for a snapshot: the first 12 hex digits of
@@ -126,10 +129,12 @@ pub fn build_snapshot(
     }
 
     let dim = dim.unwrap_or(0);
-    let positions = if dim == 0 {
-        Vec::new()
+    let (positions, projector) = if dim == 0 {
+        (Vec::new(), None)
     } else {
-        project_to_3d(&vectors, dim)?.positions
+        let p = project_to_3d(&vectors, dim)?;
+        let projector = p.projector();
+        (p.positions, Some(projector))
     };
 
     let mut sampled_per_ns: HashMap<&str, u64> = HashMap::new();
@@ -182,6 +187,7 @@ pub fn build_snapshot(
         blob,
         index_of,
         skipped,
+        projector,
     })
 }
 
@@ -269,6 +275,43 @@ mod tests {
         assert_eq!(b.snapshot.count, 0);
         assert_eq!(b.snapshot.dim, 0);
         assert!(b.blob.is_empty());
+        assert!(b.projector.is_none(), "nothing to project into");
+    }
+
+    /// The query point contract (`QueryEcho::position`): a sampled row's own
+    /// vector, projected with the snapshot's map, lands on that row's
+    /// snapshot position. Rows go in unnormalised and duplicated-direction, as
+    /// the sidecar returns them.
+    #[test]
+    fn projecting_a_sampled_rows_vector_lands_on_its_position() {
+        let rows: Vec<SampledRow> = (0..120)
+            .map(|i| {
+                let v: Vec<f32> = (0..16)
+                    .map(|j| ((i * 16 + j) as f32 * 0.61).sin() * (1.0 + (i % 7) as f32))
+                    .collect();
+                row(
+                    &format!("r{i}"),
+                    if i % 3 == 0 { "a" } else { "b" },
+                    "s",
+                    &crate::vector::format_ruvector_literal(&v),
+                )
+            })
+            .collect();
+        let b = build_snapshot(rows, &[], &NamespacePatterns::default(), 7).unwrap();
+        let proj = b.projector.as_ref().expect("a projector");
+        assert_eq!(proj.dim(), 16);
+        for (i, v) in b.vectors.as_chunks::<16>().0.iter().enumerate() {
+            let at = &b.snapshot.positions[i * 3..i * 3 + 3];
+            assert_eq!(proj.project(v).unwrap(), [at[0], at[1], at[2]], "row {i}");
+        }
+        // an unsampled direction still lands inside the cloud's frame
+        let q: Vec<f32> = (0..16).map(|j| (j as f32 * 0.3).cos()).collect();
+        let p = proj.project(&q).unwrap();
+        assert!(p.iter().all(|c| c.is_finite() && c.abs() < 1000.0), "{p:?}");
+        assert!(proj.project(&q[..15]).is_none(), "wrong dimension");
+        let mut bad = q.clone();
+        bad[3] = f32::NAN;
+        assert!(proj.project(&bad).is_none(), "non-finite input");
     }
 
     #[test]

@@ -124,9 +124,6 @@ export interface PhysicsSettings {
   linLogMode?: boolean;
   adaptiveSpeed?: boolean;
 
-  // Dual-graph X-axis separation (knowledge ←→ ontology populations)
-  graphSeparationX?: number;
-
   // Continuous single-axis Z scale for disk-style layouts. Default 1.0 = fully 3D;
   // lower values compress toward the z=0 plane. Backend clamps to 0.05–1.0.
   axisCompressionZ?: number;

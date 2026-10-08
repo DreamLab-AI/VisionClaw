@@ -335,10 +335,6 @@ pub struct PhysicsSettings {
     #[serde(alias = "clustering_iterations")]
     pub clustering_iterations: u32,
 
-    /// X-axis separation between knowledge and ontology graph populations.
-    #[serde(default, alias = "graph_separation_x")]
-    pub graph_separation_x: f32,
-
     /// Continuous Z-axis scale factor applied to node positions in the force
     /// sim. `1.0` = no compression (fully 3D — the default); smaller values
     /// squash the layout toward the X-Y plane, down to a clamp floor of 0.05.
@@ -354,8 +350,8 @@ pub struct PhysicsSettings {
     pub axis_compression_z: f32,
 
     /// Opt-in canonical "facing dual-disc" display layout (default OFF → fully
-    /// 3D force layout). When enabled, the two graph populations are re-centred
-    /// into X-Y discs separated along Z by `graph_separation_x`, with disc
+    /// 3D force layout). When enabled, each graph population is shaped as an
+    /// X-Y disc facing the centre of the always-on ADR-2135 triangle, with disc
     /// thinness driven by `axis_compression_z`. Complementary to the continuous
     /// `axis_compression_z`: this bool gates the disc *re-centre*, the float is
     /// the Z-scale applied in both modes.
@@ -501,10 +497,9 @@ impl Default for PhysicsSettings {
             clustering_iterations: 50,
 
             // Dual-disc layout is OFF by default → clients get a natural, fully
-            // 3D force layout. `graph_separation_x` still defines the disc gap
-            // for users who opt into `enable_dual_disc_layout`; ~100 keeps the
-            // knowledge/ontology discs close when that mode is enabled.
-            graph_separation_x: 100.0,
+            // 3D force layout on each vertex of the ADR-2135 triangle, whose
+            // separation is fixed (visionclaw_tri_layout::SEPARATION), not a
+            // setting.
             // 1.0 = no Z compression → fully 3D by default (was 0.9, the flatten
             // the user disliked).
             axis_compression_z: default_axis_compression_z(),
@@ -693,10 +688,6 @@ mod tests {
         assert_eq!(ps.cluster_strength, 0.0);
         assert!(ps.enabled);
         assert!(!ps.auto_balance);
-        // Close full-size dual-disc envelope: the canonical separation must be
-        // the close value (~100), never 0 (merged single plane) or 250 (far
-        // apart). reset_layout and the boot SQLite seed both source this.
-        assert_eq!(ps.graph_separation_x, 100.0);
         // Z-scale default is 1.0 = no compression (fully 3D). NOT the old 0.9.
         assert!((ps.axis_compression_z - 1.0).abs() < 1e-9);
         // Dual-disc layout is opt-in; default OFF → fully 3D.

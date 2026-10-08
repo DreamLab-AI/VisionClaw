@@ -1000,10 +1000,10 @@ impl RenderStore {
         self.agent_drift.step(now_s);
     }
 
-    /// An agent's drift offset from the triangle centroid (server space) at
-    /// this Graph Separation; zero when merged or idle.
-    pub fn agent_drift_offset(&self, agent_id: u32, separation: f32) -> [f32; 3] {
-        let frame = visionclaw_tri_layout::TriangleFrame::new(separation);
+    /// An agent's drift offset from the triangle centroid (server space);
+    /// zero when idle. The layout is always separated (ADR-2135).
+    pub fn agent_drift_offset(&self, agent_id: u32) -> [f32; 3] {
+        let frame = visionclaw_tri_layout::TriangleFrame::separated();
         self.agent_drift.offset(agent_id & NODE_ID_MASK, &frame)
     }
 
@@ -2030,13 +2030,9 @@ impl RenderStore {
 
     /// Robust bounds of every node position (the desktop's `robustBounds`
     /// of the live buffer) with the separated layout folded out (ADR-2135,
-    /// `cloud_frame::graph_bounds_for`): one graph's extent. Separation 0 is
-    /// the plain bounds.
-    pub fn robust_bounds_for(&self, separation: f32) -> Option<crate::cloud_frame::RobustBounds> {
-        crate::cloud_frame::graph_bounds_for(
-            self.positions[..self.ids.len()].iter().copied(),
-            separation,
-        )
+    /// `cloud_frame::graph_bounds_for`): one graph's extent.
+    pub fn graph_robust_bounds(&self) -> Option<crate::cloud_frame::RobustBounds> {
+        crate::cloud_frame::graph_bounds_for(self.positions[..self.ids.len()].iter().copied())
     }
 
     /// All node ids currently in the store (slot order), for the LOD selection.
@@ -3926,21 +3922,16 @@ mod tests {
         s.record_agent_action(0x8000_0005, 11, 0, 1000, "");
         s.record_agent_drift(0x8000_0005, 11, 0.0);
         s.step_agent_drift(0.0);
-        assert_eq!(
-            s.agent_drift_offset(5, 300.0),
-            [0.0; 3],
-            "spawns at the centroid"
-        );
+        assert_eq!(s.agent_drift_offset(5), [0.0; 3], "spawns at the centroid");
         for i in 1..=40 {
             s.step_agent_drift(i as f64 * 0.1);
         }
-        let o = s.agent_drift_offset(0x8000_0005, 300.0);
+        let o = s.agent_drift_offset(0x8000_0005);
         assert!(o[0] > 10.0, "towards the ontology (front-right): {o:?}");
-        assert_eq!(s.agent_drift_offset(5, 0.0), [0.0; 3], "merged: home");
         for i in 0..400 {
             s.step_agent_drift(4.0 + i as f64 * 0.5);
         }
-        assert_eq!(s.agent_drift_offset(5, 300.0), [0.0; 3], "idle: back home");
+        assert_eq!(s.agent_drift_offset(5), [0.0; 3], "idle: back home");
     }
 
     #[test]
@@ -3952,7 +3943,7 @@ mod tests {
         for i in 0..20 {
             s.step_agent_drift(i as f64 * 0.1);
         }
-        assert_eq!(s.agent_drift_offset(5, 300.0), [0.0; 3]);
+        assert_eq!(s.agent_drift_offset(5), [0.0; 3]);
     }
 
     #[test]
@@ -3966,17 +3957,13 @@ mod tests {
         for i in 1..=40 {
             s.step_agent_drift(i as f64 * 0.1);
         }
-        let a = s.agent_drift_offset(1, 300.0);
-        let b = s.agent_drift_offset(2, 300.0);
+        let a = s.agent_drift_offset(1);
+        let b = s.agent_drift_offset(2);
         assert!(
             a[2] < b[2] && b[2] < -1.0,
             "both behind, the named one further: {a:?} {b:?}"
         );
         s.clear();
-        assert_eq!(
-            s.agent_drift_offset(1, 300.0),
-            [0.0; 3],
-            "clear resets drift"
-        );
+        assert_eq!(s.agent_drift_offset(1), [0.0; 3], "clear resets drift");
     }
 }

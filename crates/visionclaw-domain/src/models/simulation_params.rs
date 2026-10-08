@@ -167,11 +167,6 @@ pub struct SimulationParams {
     #[serde(default)]
     pub settle_mode: SettleMode,
 
-    /// X-axis separation between knowledge and ontology graph populations
-    /// (disc gap when `enable_dual_disc_layout` is on).
-    #[serde(default)]
-    pub graph_separation_x: f32,
-
     /// Continuous Z-scale factor (1.0 = no compression → fully 3D; down to 0.05).
     /// Applied in the force sim as the Z multiplier; also drives the dual-disc
     /// face thinness when `enable_dual_disc_layout` is on.
@@ -471,7 +466,6 @@ impl From<&PhysicsSettings> for SimulationParams {
             phase: SimulationPhase::Dynamic,
             mode: SimulationMode::Remote,
             settle_mode: SettleMode::default(),
-            graph_separation_x: physics.graph_separation_x,
             axis_compression_z: physics.axis_compression_z,
             enable_dual_disc_layout: physics.enable_dual_disc_layout,
             layout_mode: LayoutMode::default(),
@@ -623,14 +617,13 @@ mod tests {
         assert_eq!(back.enabled, p.enabled);
     }
 
-    // Regression: the three graph-layout controls (graph separation, Z-axis
-    // compression, adaptive speed) must propagate verbatim from persisted
+    // Regression: the graph-layout controls (Z-axis compression, dual-disc,
+    // adaptive speed) must propagate verbatim from persisted
     // PhysicsSettings into the GPU SimulationParams. A previous bug hardcoded
     // these on the GPU path, so non-default user values had no visible effect.
     #[test]
     fn test_layout_controls_propagate_from_physics_settings() {
         let physics = PhysicsSettings {
-            graph_separation_x: 700.0,
             axis_compression_z: 0.5,
             enable_dual_disc_layout: true,
             adaptive_speed: false,
@@ -639,7 +632,6 @@ mod tests {
 
         let params = SimulationParams::from(&physics);
 
-        assert!((params.graph_separation_x - 700.0).abs() < f32::EPSILON);
         assert!((params.axis_compression_z - 0.5).abs() < f32::EPSILON);
         assert!(params.enable_dual_disc_layout);
         assert!(!params.adaptive_speed);
@@ -652,7 +644,6 @@ mod tests {
     #[test]
     fn test_physics_settings_camelcase_roundtrip_preserves_layout_controls() {
         let physics = PhysicsSettings {
-            graph_separation_x: 700.0,
             axis_compression_z: 0.5,
             enable_dual_disc_layout: true,
             adaptive_speed: false,
@@ -661,11 +652,9 @@ mod tests {
 
         let stored = serde_json::to_value(&physics).unwrap();
         // The stored object uses camelCase keys (serde rename_all).
-        assert!(stored.get("graphSeparationX").is_some());
         assert!(stored.get("axisCompressionZ").is_some());
 
         let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
-        assert!((loaded.graph_separation_x - 700.0).abs() < f32::EPSILON);
         assert!((loaded.axis_compression_z - 0.5).abs() < f32::EPSILON);
         assert!(loaded.enable_dual_disc_layout);
         assert!(!loaded.adaptive_speed);
@@ -723,20 +712,39 @@ mod tests {
         let physics = PhysicsSettings::default();
         let mut stored = serde_json::to_value(&physics).unwrap();
         let obj = stored.as_object_mut().unwrap();
-        obj.remove("graphSeparationX");
         obj.remove("axisCompressionZ");
         obj.remove("enableDualDiscLayout");
         obj.remove("adaptiveSpeed");
-        obj.insert("graph_separation_x".into(), serde_json::json!(700.0));
         obj.insert("axis_compression_z".into(), serde_json::json!(0.5));
         obj.insert("enable_dual_disc_layout".into(), serde_json::json!(true));
         obj.insert("adaptive_speed".into(), serde_json::json!(false));
 
         let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
-        assert!((loaded.graph_separation_x - 700.0).abs() < f32::EPSILON);
         assert!((loaded.axis_compression_z - 0.5).abs() < f32::EPSILON);
         assert!(loaded.enable_dual_disc_layout);
         assert!(!loaded.adaptive_speed);
+    }
+
+    // Retired setting (ADR-2135 amendment, 2026-10-08): the separation is fixed,
+    // so a stored or sent `graphSeparationX` (either spelling) still loads, is
+    // ignored, and is not written back.
+    #[test]
+    fn test_retired_graph_separation_x_loads_and_is_ignored() {
+        let base = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        for key in ["graphSeparationX", "graph_separation_x"] {
+            let mut stored = base.clone();
+            stored
+                .as_object_mut()
+                .unwrap()
+                .insert(key.into(), serde_json::json!(250.0));
+            let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
+            let again = serde_json::to_value(&loaded).unwrap();
+            assert_eq!(again, base, "{key} is dropped on load");
+            let params = SimulationParams::from(&loaded);
+            let params_json = serde_json::to_value(&params).unwrap();
+            assert!(params_json.get("graphSeparationX").is_none());
+            assert!(params_json.get("graph_separation_x").is_none());
+        }
     }
 
     // Round-trip / migration: an absent axisCompressionZ defaults to 1.0 (no

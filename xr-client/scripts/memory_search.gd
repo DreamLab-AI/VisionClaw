@@ -2,15 +2,17 @@ extends Node
 
 ## Memory search from the headset (ADR-2133 client side; route look ADR-2134).
 ##
-## The Query page's Memory mode lists presets (recent queries on this headset,
-## a curated set, one question per namespace in the loaded snapshot); pressing
-## one POSTs /api/memory-cloud/query with GraphScene's NIP-98 headers
+## The Query page's Memory mode takes a typed query from the on-screen
+## keyboard (ADR-2136) and keeps presets as shortcuts (recent queries on this
+## headset, a curated set, one question per namespace in the loaded snapshot).
+## Either POSTs /api/memory-cloud/query with GraphScene's NIP-98 headers
 ## (ADR-2076) and shows the sidecar's top hits. The headset never runs HNSW,
-## so the route it draws is the **sidecar top-k**: through the sampled hits in
-## rank order, the top hit last (`memory_query.rs`). It goes through the same
-## MemoryRoute gate as a desktop relay, so beads, comet, answer ring, the guide
-## cue and the Memory-row line all work, and a later desktop relay replaces it.
-## The HUD caption says which kind of route is shown.
+## so the route it draws is **query point → sidecar top-k**: from the query's
+## own point in the cloud (`query.position`, the snapshot's PCA basis) through
+## the sampled hits in rank order (`memory_query.rs`). It goes through the
+## same MemoryRoute gate as a desktop relay, so beads, comet, answer ring, the
+## guide cue and the Memory-row line all work, and a later desktop relay
+## replaces it. The HUD caption says which kind of route is shown.
 ##
 ## Pressing a hit sends the guide cue to its point (sampled hits only).
 ## There is no voice entry: the headset's only microphone path is the beat
@@ -61,7 +63,7 @@ func setup(http_base: String, auth: Callable, layer: Node, hud: Node) -> void:
 		_http.request_completed.connect(on_query_completed)
 	_load_recent()
 	refresh_presets()
-	_status("Pick a query · hits come from the memory sidecar's own search")
+	_status("Type a query or pick one · hits come from the memory sidecar's own search")
 
 
 func _process(delta: float) -> void:
@@ -73,10 +75,14 @@ func _process(delta: float) -> void:
 		refresh_presets()
 
 
-## HUD intents: "memory_preset:<i>", "memory_hit:<i>". True when consumed.
+## HUD intents: "memory_preset:<i>", "memory_hit:<i>", "memory_typed:<text>".
+## True when consumed.
 func handle_control(action: String) -> bool:
 	if action.begins_with("memory_preset:"):
 		run_preset(int(action.get_slice(":", 1)))
+		return true
+	if action.begins_with("memory_typed:"):
+		run_text(action.substr("memory_typed:".length()))
 		return true
 	if action.begins_with("memory_hit:"):
 		focus_hit(int(action.get_slice(":", 1)))
@@ -103,9 +109,24 @@ func refresh_presets() -> void:
 ## Run preset `i`. False when it was not sent (out of range, one already in
 ## flight, or the request could not start).
 func run_preset(i: int) -> bool:
-	if _pending or i < 0 or i >= _presets.size() or _query == null:
+	if i < 0 or i >= _presets.size():
 		return false
-	var p: Dictionary = _presets[i]
+	return _run(_presets[i])
+
+
+## Run a typed query (the on-screen keyboard), searched globally. False when
+## it was not sent (blank, one already in flight, or the request could not
+## start).
+func run_text(text: String) -> bool:
+	var t: String = text.strip_edges()
+	if t.is_empty():
+		return false
+	return _run({"label": t, "text": t, "namespace": ""})
+
+
+func _run(p: Dictionary) -> bool:
+	if _pending or _query == null:
+		return false
 	var body: String = str(_query.request_body(str(p["text"]), K, str(p["namespace"])))
 	if body.is_empty():
 		_status("Query not sent: %s" % str(_query.last_error()))

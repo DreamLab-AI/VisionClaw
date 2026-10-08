@@ -1,68 +1,61 @@
 import { describe, it, expect } from 'vitest';
 import { cloudPlacement, discSpritePixels, createRouteFramer, cloudPointSize, DEFAULT_CLOUD_SCALE, graphBoundsFor } from '../cloudFrame';
-import { triangleFrame, place, Vertex } from '../../../graph/triLayout';
+import { separatedFrame, memoryCentre, place, Vertex, LIVE_GRAPH_RADIUS, MEMORY_BODY_SCALE } from '../../../graph/triLayout';
 import { robustBounds } from '@/utils/robustBounds';
 
 const cloud = { centre: [-10, 20, -15] as [number, number, number], radius: 120 };
 const graph = { centre: [90, -3, -14] as [number, number, number], radius: 300 };
 
+const dist = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
 describe('cloudPlacement', () => {
-  it('sits the cloud on the graph centre, its dense core at the pivot', () => {
+  it('sits the cloud behind the graphs on the memory ray, its dense core at the pivot', () => {
     const p = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE);
-    expect(p.position).toEqual([90, -3, -14]);
+    const m = memoryCentre(separatedFrame(), graph.radius, p.scale * cloud.radius);
+    p.position.forEach((x, k) => expect(x).toBeCloseTo(graph.centre[k] + m[k], 4));
+    expect(p.position[2]).toBeLessThan(graph.centre[2] + separatedFrame().vertices[Vertex.Memory][2]);
     expect(p.offset).toEqual([10, -20, 15]);
   });
 
-  it('at the default scale the cloud radius equals the graph radius', () => {
+  it('at the default scale the cloud is MEMORY_BODY_SCALE graphs wide', () => {
     const p = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE);
-    expect(p.scale * cloud.radius).toBeCloseTo(graph.radius);
+    expect(MEMORY_BODY_SCALE).toBe(10);
+    expect(p.scale * cloud.radius).toBeCloseTo(MEMORY_BODY_SCALE * graph.radius);
   });
 
   it('cloudScale stays a linear multiplier relative to that fit', () => {
     const p = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE * 2);
-    expect(p.scale * cloud.radius).toBeCloseTo(2 * graph.radius);
+    expect(p.scale * cloud.radius).toBeCloseTo(2 * MEMORY_BODY_SCALE * graph.radius);
   });
 
-  it('without a graph keeps the legacy world-origin placement at cloudScale', () => {
+  it('never overlaps either graph, whatever the graph size', () => {
+    const f = separatedFrame();
+    for (const r of [20, 93, 152, 300]) {
+      const g = { centre: [0, 0, 0] as [number, number, number], radius: r };
+      for (const k of [DEFAULT_CLOUD_SCALE, DEFAULT_CLOUD_SCALE * 2]) {
+        const p = cloudPlacement(cloud, g, k);
+        const rc = p.scale * cloud.radius;
+        for (const v of [Vertex.Knowledge, Vertex.Ontology]) {
+          expect(dist(p.position, f.vertices[v]), `r=${r} k=${k}`).toBeGreaterThanOrEqual(rc + r);
+        }
+      }
+    }
+  });
+
+  it('without a graph keeps the cloudScale size rule and clears a live-sized graph', () => {
     const p = cloudPlacement(cloud, null, 5);
-    expect(p.position).toEqual([0, 0, 0]);
-    expect(p.scale).toBe(5);
+    expect(p.scale).toBe(5 * MEMORY_BODY_SCALE);
+    const m = memoryCentre(separatedFrame(), LIVE_GRAPH_RADIUS, p.scale * cloud.radius);
+    p.position.forEach((x, k) => expect(x).toBeCloseTo(m[k], 4));
     expect(p.offset).toEqual([10, -20, 15]);
+    // no cloud yet: the memory vertex itself
+    const bare = cloudPlacement(null, null, 5);
+    bare.position.forEach((x, k) => expect(x).toBeCloseTo(separatedFrame().vertices[Vertex.Memory][k], 4));
   });
 
   it('guards a bad scale setting', () => {
     expect(cloudPlacement(cloud, graph, 0).scale).toBeGreaterThan(0);
-    expect(cloudPlacement(cloud, graph, NaN).scale).toBeCloseTo(graph.radius / cloud.radius);
-  });
-});
-
-describe('cloudPlacement in the separated layout (ADR-2135)', () => {
-  it('separation 0 is exactly the merged placement', () => {
-    expect(cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0)).toEqual(cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE));
-  });
-
-  it('moves the cloud to the memory vertex, keeping its size relative to the graph', () => {
-    const merged = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0);
-    const apart = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 250);
-    const m = triangleFrame(250).vertices[Vertex.Memory];
-    apart.position.forEach((x, k) => expect(x).toBeCloseTo(graph.centre[k] + m[k], 4));
-    expect(apart.scale).toBeCloseTo(merged.scale);
-    expect(apart.offset).toEqual(merged.offset);
-  });
-
-  it('eases continuously with the slider', () => {
-    let prev = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, 0).position;
-    for (let sep = 1; sep <= 400; sep += 1) {
-      const p = cloudPlacement(cloud, graph, DEFAULT_CLOUD_SCALE, sep).position;
-      expect(Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2])).toBeLessThan(1.5);
-      prev = p;
-    }
-  });
-
-  it('without a graph sits at the memory vertex of an origin-centred triangle', () => {
-    const p = cloudPlacement(cloud, null, 5, 100);
-    const m = triangleFrame(100).vertices[Vertex.Memory];
-    p.position.forEach((x, k) => expect(x).toBeCloseTo(m[k], 4));
+    expect(cloudPlacement(cloud, graph, NaN).scale).toBeCloseTo((MEMORY_BODY_SCALE * graph.radius) / cloud.radius);
   });
 });
 
@@ -73,20 +66,15 @@ describe('graphBoundsFor', () => {
   const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
   for (let i = 0; i < 200; i++) blob.push([rnd() * 150, rnd() * 150, rnd() * 150]);
 
-  it('measures one graph, not the whole triangle, once separated', () => {
-    const f = triangleFrame(400);
+  it('measures one graph, not the whole triangle', () => {
+    const f = separatedFrame();
     const flat: number[] = [];
     for (const v of [Vertex.Knowledge, Vertex.Ontology]) for (const p of blob) flat.push(...place(f, v, p));
     const local = robustBounds(blob.flat(), blob.length)!;
-    const folded = graphBoundsFor(flat, flat.length / 3, 400)!;
+    const folded = graphBoundsFor(flat, flat.length / 3)!;
     const raw = robustBounds(flat, flat.length / 3)!;
     expect(folded.radius).toBeCloseTo(local.radius, 0);
-    expect(raw.radius).toBeGreaterThan(2 * local.radius);
-  });
-
-  it('is plain robustBounds at separation 0', () => {
-    const flat = blob.flat();
-    expect(graphBoundsFor(flat, blob.length, 0)).toEqual(robustBounds(flat, blob.length));
+    expect(raw.radius).toBeGreaterThan(1.5 * local.radius);
   });
 });
 

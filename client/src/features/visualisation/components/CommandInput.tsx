@@ -176,24 +176,16 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
     });
   }
 
-  // Separated layout (ADR-2135). graphSeparationX pulls the knowledge graph, the
-  // ontology and the memory cloud apart into a ground-plane triangle with the agents
-  // at its centre; axisCompressionZ (1.0 = fully 3D blobs .. 0.05 = flat discs) thins
-  // each graph into a disc facing the centre. This acts on the display projection,
-  // NOT the force constants, so it is kept distinct from the repulsion rule above.
-  // Handles e.g. "separate and flatten the two graphs" and
-  // "reset the separation and flattening to zero" in a single PUT.
+  // Disc shape (ADR-2135). The knowledge graph, the ontology and the memory cloud are
+  // always apart at a fixed separation (not a setting); axisCompressionZ (1.0 = fully
+  // 3D blobs .. 0.05 = flat discs) thins each graph into a disc facing the centre. This
+  // acts on the display projection, NOT the force constants, so it is kept distinct
+  // from the repulsion rule above. Handles e.g. "flatten the graphs" and
+  // "reset the flattening".
   {
     const toZero = lower.includes('zero') || lower.includes('reset')
       || lower.includes('off') || lower.includes('remove') || lower.includes('un-');
     const discBody: Record<string, number> = {};
-
-    if (lower.includes('separat') || lower.includes('split') || lower.includes('apart')) {
-      discBody.graphSeparationX = toZero ? 0 : 250;
-    } else if (lower.includes('merge') || lower.includes('combine') || lower.includes('overlap')
-      || (lower.includes('together') && lower.includes('graph'))) {
-      discBody.graphSeparationX = 0;
-    }
 
     if (lower.includes('flatten') || /\bflat\b/.test(lower) || lower.includes('facing disc')
       || lower.includes('co-planar') || lower.includes('coplanar')) {
@@ -205,10 +197,9 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
 
     if (Object.keys(discBody).length > 0) {
       const parts: string[] = [];
-      if ('graphSeparationX' in discBody) parts.push(`separation→${discBody.graphSeparationX}`);
       if ('axisCompressionZ' in discBody) parts.push(`flatten→${discBody.axisCompressionZ}`);
       actions.push({
-        description: `Separated layout: ${parts.join(', ')}`,
+        description: `Disc layout: ${parts.join(', ')}`,
         endpoint: '/api/settings/physics',
         method: 'PUT',
         body: discBody,

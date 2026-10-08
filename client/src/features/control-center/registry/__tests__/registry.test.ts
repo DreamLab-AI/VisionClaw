@@ -9,7 +9,7 @@ import manifestJson from '../settings-manifest.json';
 import legacyFixture from './legacy-paths.fixture.json';
 
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
-  motion: 55,
+  motion: 54,
   look: 29,
   labels: 10,
   quality: 32,
@@ -73,8 +73,17 @@ const NETWORK_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.broadcastFps',
 ];
 
+/**
+ * Frozen legacy paths deliberately retired from the registry. Graph Separation
+ * (`graphSeparationX`) went with ADR-2135's 2026-10-08 amendment: the three
+ * bodies are always apart at a fixed separation, so it is no longer a setting.
+ */
+const RETIRED_PATHS: string[] = [
+  'visualisation.graphs.knowledge.physics.graphSeparationX',
+];
+
 const TOTAL_FIELDS =
-  168 + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
+  168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
   + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length;
 
 /**
@@ -160,7 +169,7 @@ function legacyPaths(): string[] {
     p.startsWith('visualisation.graphs.logseq.')
       ? p.replace('visualisation.graphs.logseq.', 'visualisation.graphs.knowledge.')
       : p,
-  );
+  ).filter((p) => !RETIRED_PATHS.includes(p));
 }
 
 /** Every field (path or localKey/action) declared in the legacy config. */
@@ -356,19 +365,13 @@ describe('control-center settings registry', () => {
     expect(Math.abs(snapped - 0.0074725277)).toBeLessThan(0.0001);
   });
 
-  it('(j) the Graph Separation slider describes the three-body triangle (ADR-2135)', () => {
-    const sep = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.physics.graphSeparationX')!;
-    expect(sep.type).toBe('slider');
-    expect(sep.label).toMatch(/knowledge/i);
-    expect(sep.label).toMatch(/ontology/i);
-    expect(sep.label).toMatch(/memory/i);
-    expect(sep.description).toMatch(/triangle/i);
-    expect(sep.description).toMatch(/agents/i);
-    // same range, so saved values keep working; a fine step so the vertices glide
-    expect([sep.min, sep.max]).toEqual([0, 400]);
-    expect(sep.step!).toBeLessThanOrEqual(5);
-    for (const saved of [0, 100, 250, 400]) expect((saved / sep.step!) % 1).toBe(0);
+  it('(j) there is no separation control: the three bodies are always apart (ADR-2135, 2026-10-08)', () => {
+    for (const p of RETIRED_PATHS) expect(ALL_PATHS).not.toContain(p);
+    expect(ALL_FIELDS.some((f) => /graph separation|separate knowledge/i.test(f.label))).toBe(false);
+    // the frozen baseline still records the retired path, so the retirement is deliberate
+    expect(legacyFixture.paths).toContain('visualisation.graphs.logseq.physics.graphSeparationX');
     const dual = ALL_FIELDS.find((f) => f.path === 'visualisation.graphs.knowledge.physics.enableDualDiscLayout')!;
     expect(dual.description).toMatch(/centre/i);
+    expect(dual.description).toMatch(/always/i);
   });
 });

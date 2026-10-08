@@ -1,14 +1,14 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 236,
+  "count": 235,
   "groups": [
     {
       "id": "motion",
       "label": "Motion & Forces",
       "testid": "group-motion",
       "hotkey": "1",
-      "fieldCount": 55
+      "fieldCount": 54
     },
     {
       "id": "look",
@@ -494,20 +494,6 @@
       "min": 0,
       "max": 5,
       "step": 0.1
-    },
-    {
-      "key": "graphSeparationX",
-      "path": "visualisation.graphs.knowledge.physics.graphSeparationX",
-      "testid": "setting-visualisation.graphs.knowledge.physics.graphSeparationX",
-      "control": "slider",
-      "group": "motion",
-      "label": "Separate Knowledge · Ontology · Memory",
-      "clientOnly": false,
-      "server": "physics",
-      "subgroup": "Layout Forces",
-      "min": 0,
-      "max": 400,
-      "step": 5
     },
     {
       "key": "axisCompressionZ",

@@ -46,7 +46,6 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   scalingRatio: 10.0,
   adaptiveSpeed: true,
   ssspAlpha: 1.5,
-  graphSeparationX: 0.0,
   axisCompressionZ: 1.0,
   enableDualDiscLayout: false,
   dagBiasK: 0.0,

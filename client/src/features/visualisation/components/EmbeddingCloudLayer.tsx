@@ -11,10 +11,10 @@
  * The cloud frames itself on the graph (cloudFrame.ts): an outer group sits at
  * the graph's robust centre and scales the cloud's robust radius to the
  * graph's (times cloudScale / 5); an inner group recentres the cloud on its
- * dense core. Points draw as round sprites. With Graph Separation > 0 the
- * cloud glides to the memory vertex of the separated-layout triangle
- * (ADR-2135), sized to one graph; route, beads, bursts and the camera rig
- * live inside the groups, so they follow it.
+ * dense core. Points draw as round sprites. The layout is always separated
+ * (ADR-2135): the cloud sits behind the two graphs on the memory vertex's
+ * ray, ten graphs wide and clear of both; route, beads, bursts and the
+ * camera rig live inside the groups, so they follow it and grow with it.
  *
  * While a query route is shown the cloud stops rotating, points off the route
  * dim (focus pull), and TrajectoryLayer draws the route inside the inner group
@@ -74,13 +74,13 @@ const SPRITE_SIZE = 64;
 /**
  * The graph's robust bounds: the live position buffer while physics runs,
  * else the positions in the cached graph data (no binary stream yet, or the
- * socket is down). Null when there is no graph. With the layout separated
- * the positions are folded into one graph's frame first (graphBoundsFor).
+ * socket is down). Null when there is no graph. The positions are folded
+ * into one graph's frame first (graphBoundsFor).
  */
-function readGraphBounds(separation: number): RobustBounds | null {
+function readGraphBounds(): RobustBounds | null {
   const n = sharedNodeIdToIndexMap.size;
   if (sharedNodePositions && n > 0) {
-    const b = graphBoundsFor(sharedNodePositions, n, separation);
+    const b = graphBoundsFor(sharedNodePositions, n);
     if (b) return b;
   }
   const nodes = graphDataManager.getLastGraphData()?.nodes;
@@ -94,7 +94,7 @@ function readGraphBounds(separation: number): RobustBounds | null {
     flat[k++] = p.y;
     flat[k++] = p.z;
   }
-  return graphBoundsFor(flat, k / 3, separation);
+  return graphBoundsFor(flat, k / 3);
 }
 
 interface BurstSlot {
@@ -120,7 +120,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   const placeRef = useRef<THREE.Group>(null);
   /** inner: cloud-local frame (recentred on the dense core); the route and rig use this */
   const groupRef = useRef<THREE.Group>(null);
-  const placeState = useRef({ graph: null as RobustBounds | null, sinceRead: Infinity, placed: false, separation: 0 });
+  const placeState = useRef({ graph: null as RobustBounds | null, sinceRead: Infinity, placed: false });
   const pointsRef = useRef<THREE.Points>(null);
   const [hovered, setHovered] = useState<{ index: number; point: THREE.Vector3 } | null>(null);
   const reducedMotion = useReducedMotion();
@@ -150,11 +150,6 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   const rotationSpeed = settings?.rotationSpeed ?? 0.0005;
   const maxPoints = settings?.maxPoints ?? 50000;
   const cloudScale = settings?.cloudScale ?? 5.0;
-  // Graph Separation (ADR-2135): the cloud takes the triangle's memory vertex.
-  const rawSeparation = useSettingsStore(
-    s => s.settings?.visualisation?.graphs?.knowledge?.physics?.graphSeparationX,
-  );
-  const separation = typeof rawSeparation === 'number' && Number.isFinite(rawSeparation) ? rawSeparation : 0;
   const routeGlow = settings?.routeGlow ?? 1.2;
   const showRejected = settings?.showRejected ?? true;
   const dimOffRoute = settings?.dimOffRoute ?? 0.75;
@@ -323,13 +318,11 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
     const outer = placeRef.current;
     if (outer) {
       ps.sinceRead += dt;
-      // a slider move re-reads at once: the fold depends on the separation
-      if (ps.sinceRead >= GRAPH_BOUNDS_EVERY || ps.separation !== separation) {
+      if (ps.sinceRead >= GRAPH_BOUNDS_EVERY) {
         ps.sinceRead = 0;
-        ps.separation = separation;
-        ps.graph = readGraphBounds(separation);
+        ps.graph = readGraphBounds();
       }
-      const place = cloudPlacement(cloudBounds, ps.graph, cloudScale, separation);
+      const place = cloudPlacement(cloudBounds, ps.graph, cloudScale);
       // glide while physics settles; snap on first placement or under reduced motion
       const f = !ps.placed || reducedMotion ? 1 : Math.min(1, dt / PLACE_GLIDE);
       outer.position.x += (place.position[0] - outer.position.x) * f;

@@ -19,7 +19,7 @@
 //! a calm glide rather than a jump.
 //!
 //! The state is kept as vertex *coefficients* rather than a position, so the
-//! offset is recomputed from the current [`TriangleFrame`]: moving the slider
+//! offset is recomputed from the current [`TriangleFrame`]: a change of frame
 //! carries every agent with the triangle and none can end up outside it.
 //!
 //! Everything is a pure function of event times and step times (seconds on
