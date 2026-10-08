@@ -376,14 +376,18 @@ with the hot path in Rust (`memory_cloud.rs`, `memory_route.rs`).
   graphs, in front of a user facing them), at `MEMORY_DISTANCE_FACTOR` 0.5 of
   the distance that would clear each graph by `CLEARANCE` 1.25 × the summed
   radii (operator decision 2026-10-08). At live scale the ×10 cloud therefore
-  encloses both graphs (ADR-2135 amendment). The figures below were
-  measured before that change; the halved placement is re-measured live after
-  deploy. Measured live on 2026-10-08
-  (`live_memory_search_capture.gd`, step `cloud_metres`; GraphRoot fit 0.0084
-  m per unit): cloud radius 16.3 m, centre 25.1 m ahead of the head and 22 m
-  beyond the graphs' centre, near side 8.8 m from the head: past the near clip
-  and the HUD, inside the 12 m × 10 hover reach, and large enough that the user
-  turns their head (or teleports) to take it in. The guide cue still runs from the wand to the answer. The server
+  encloses both graphs (ADR-2135 amendment). Measured live on
+  2026-10-08 at c65cc5a9e (`live_memory_search_capture.gd`, step
+  `cloud_metres`; GraphRoot fit 0.0086 m per unit): cloud radius 20.1 m,
+  centre 17.2 m from the head and 14.4 m beyond the graphs' centre, so the
+  user's head sits 2.9 m inside the cloud's robust sphere (before the change:
+  radius 16.3 m, centre 25.1 m away, near side 8.8 m in front). Sparse cloud
+  points can therefore pass close to the head; the camera's near plane clips
+  any nearer than it. Cloud points write no depth (`depth_draw_never`) and draw
+  before the HUD and hover label (overlay priority 20), so they never cover
+  the controls; the guide cue still runs from the wand to the answer.
+  The radius follows the live graph's robust radius (10×), so it varies with
+  the graph as it settles. The guide cue still runs from the wand to the answer. The server
   places the knowledge (−60°) and ontology (+60°) graphs on the other vertices
   and keeps agent nodes at the centroid. Work-layer avatars still have one pose
   writer (Invariant 8) and travel to target nodes on the separated graphs.
