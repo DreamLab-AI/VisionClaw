@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -200,3 +200,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `src/main.rs` gains one line, `.on_connect(socket_flow_handler::transport::capture_transport)` (`:1234`), just before `.bind()` (`:1235`). It keeps a dup of each plain-TCP connection's fd so the coordinator can `shutdown(2)` a `/wss` client that never reads. It reads no env var or flag and grants nothing. The new heartbeat and stall-timeout paths only *close* connections, and the heartbeat config is read after NIP-98 auth has resolved `signed_user` (`http_handler.rs:159-182` before `:391`). `enforce_release_env_hygiene` is unchanged (real `:117-118`, stub `:167-169`, call `:209`), and so are the `RBAC_*` defaults and the owner-less refusal. Fail-closed posture unchanged. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. Decision holds.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -369,3 +369,7 @@ Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main'
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `force_compute_actor.rs` changes only the display-projection call sites and a change-detection comparison for the retired separation field. DAG rank code is untouched. Decision holds. Citations at 31bc3d3a1: `src/actors/gpu/force_compute_actor.rs:2046`, `:2987` (projection call sites), `:2713` (`physics_unchanged`, separation comparison removed); DAG rank path `:2474` unchanged.
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/actors/gpu/force_compute_actor.rs` changes only the `UpdateGPUGraphData` (`:3279`) and `UploadConstraintsToGPU` (`:3513`) handlers, which now send H4 acks (`:3309`, `:3542`). DAG-rank detection and `compute_dag_ranks` (`:464`) are untouched. Decision holds.

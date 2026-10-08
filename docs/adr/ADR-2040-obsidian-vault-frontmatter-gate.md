@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -174,3 +174,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/services/ontology_mutation_service.rs`: drops the never-read `whelk` field and its constructor parameter (callers updated).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/services/file_service.rs`: `initialize_local_storage` (`:307`) now returns `LocalStorageSync::SkippedLocalCorpus` for `CORPUS_SOURCE=local` (ADR-2114) without mirroring. This cannot route a page past the inclusion gate. Corpus pages reach the KG through `GitHubSyncService` for every `CorpusSource`, gated at `src/services/github_sync_service.rs:1662` (`process_fetched_file`) and `:1839` (`process_plain_vault_file`), both via `vault::parse(..).is_kg_included()` (`:2069`). The skipped mirror was a second, gated copy (`file_service.rs:383`), and the fallback scan still gates at `:684`. Skipping it narrows input and widens nothing; a GitHub corpus takes the unchanged path. Decision holds. Test: `the_markdown_mirror_is_skipped_for_a_local_corpus`.

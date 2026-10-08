@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -342,3 +342,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `src/main.rs` changes by one line only: the `on_connect` fd-capture hook (`:1234`). It sets no profile and reads no flag. In `position_updates.rs` two unused imports were removed (anchors shift by −2: env const `:24`, `parse_visibility_flag` `:32`, still default-ON). `handle_subscribe_position_updates` (`:596`) now sends one snapshot instead of running a self-re-subscribing loop, and the confirmation reports `"mode": "push"` (`:660`). That snapshot still applies the ADR-060 drop set before encoding (`:705-706`), and an anonymous session still fails closed to public-only. No profile flag, default or gate changed. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). No profile, profile default or compose security default changes (`docker-compose.unified.yml` is untouched); the profile is still asserted at `:934-944`. Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. Decision holds.

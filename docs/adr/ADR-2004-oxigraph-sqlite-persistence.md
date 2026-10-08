@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -233,3 +233,7 @@ ADR-2135 adds the path dependency `visionclaw-tri-layout` to the root `Cargo.tom
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `src/app_state.rs` changes only log text and comments: the boot physics logs name `axis_compression_z` instead of the retired `graph_separation_x`. Persistence is unchanged. Decision holds. Citations at 31bc3d3a1: `src/app_state.rs:715`, `:725` (boot log lines).
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+`src/app_state.rs` changes one log line: the ACSP client now says its relay is set rather than claiming a connection (`:1343`). Persistence is unchanged. Decision holds.

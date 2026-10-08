@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -288,3 +288,7 @@ fix/ws-heartbeat-60s only moves doc comments back onto their own handlers in `gp
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `display_projection.rs` and `force_compute_actor.rs` drop the separation parameter: the triangle is always on at `visionclaw_tri_layout::SEPARATION`. The projection still sits in the server's GPU adapter and takes its geometry from the shared crate. Crate boundaries are unchanged. Decision holds. Server lib 1,568 passed, clippy `-D warnings` clean. Citations at 31bc3d3a1: `src/actors/gpu/display_projection.rs:110` (`display_mode`: triangle whenever populations are known), `:204` (`TriangleFrame::separated()`), `:324` (no-overlap test); `src/actors/gpu/force_compute_actor.rs:2046`, `:2987` (`LayoutParams::new(axis, dual)`); `crates/visionclaw-tri-layout/src/lib.rs:101` (`SEPARATION`).
+
+## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
+
+The H4 tracker rewrite stays inside the root binary's `src/actors/messaging/` (`message_tracker.rs:85` `MessageTracker`, `:184` deadline check; nothing is resent, retry machinery removed). `src/actors/gpu/force_compute_actor.rs` adds acks for `UpdateGPUGraphData` (`:3279`, ack `:3309`) and `UploadConstraintsToGPU` (`:3513`, ack `:3542`); `src/actors/physics_orchestrator_actor.rs` gains test-only probes and tests. No module moves between the root binary and the `visionclaw-*` crates. Decision holds. Server lib 1,575 passed, clippy `--all-targets -D warnings` clean.
