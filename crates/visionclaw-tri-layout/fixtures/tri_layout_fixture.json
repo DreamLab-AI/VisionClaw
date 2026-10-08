@@ -1673,16 +1673,16 @@
       "centre": [
         -0.0001,
         0.0,
-        -1154.8594
+        -577.4297
       ],
       "graph_radius": 93.0,
       "memory_radius": 930.0
     },
     {
       "centre": [
-        -0.0002,
+        -0.0001,
         0.0,
-        -1971.6492
+        -985.8246
       ],
       "graph_radius": 152.0,
       "memory_radius": 1520.0
@@ -1691,7 +1691,7 @@
       "centre": [
         -0.0,
         0.0,
-        -219.3931
+        -109.6965
       ],
       "graph_radius": 93.0,
       "memory_radius": 93.0
@@ -1700,12 +1700,13 @@
       "centre": [
         -0.0,
         0.0,
-        -406.443
+        -203.2215
       ],
       "graph_radius": 40.0,
       "memory_radius": 400.0
     }
   ],
+  "memory_distance_factor": 0.5,
   "radius_per_separation": 1.1547,
   "separation": 190.0,
   "vertex_angles_deg": [

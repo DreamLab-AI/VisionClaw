@@ -631,41 +631,40 @@ mod tests {
     }
 
     #[test]
-    fn the_cloud_never_overlaps_either_graph() {
+    fn the_cloud_sits_at_the_memory_distance_factor_whatever_the_graph_size() {
+        // operator decision 2026-10-08 (ADR-2135): half the distance that
+        // would clear both graphs, so at live scale it overlaps them
         let f = TriangleFrame::separated();
         let cloud = rb([0.0; 3], 100.0);
         for r in [20.0, 93.0, 152.0, 300.0] {
             for k in [DEFAULT_CLOUD_SCALE, 2.0 * DEFAULT_CLOUD_SCALE] {
                 let p = cloud_placement(cloud, rb([0.0; 3], r), k);
                 let rc = p.scale * 100.0;
-                for v in [
-                    visionclaw_tri_layout::Vertex::Knowledge,
-                    visionclaw_tri_layout::Vertex::Ontology,
-                ] {
-                    assert!(dist(p.position, f.vertex(v)) >= rc + r, "r {r} k {k}");
-                }
+                let want =
+                    visionclaw_tri_layout::MEMORY_DISTANCE_FACTOR * f.memory_clear_distance(r, rc);
                 assert!(
-                    p.position[2] < f.vertex(visionclaw_tri_layout::Vertex::Memory)[2] + 1e-3,
-                    "behind the graphs"
+                    (dist(p.position, [0.0; 3]) - want).abs() < 1e-2,
+                    "r {r} k {k}"
                 );
+                // no "behind the graphs" claim: for a small graph half the
+                // clear distance falls inside the triangle
             }
         }
     }
 
     #[test]
-    fn without_a_graph_the_scale_rule_holds_and_it_clears_a_live_graph() {
+    fn without_a_graph_the_scale_rule_holds_at_a_live_graph_memory_centre() {
         let p = cloud_placement(rb([10.0, 0.0, 0.0], 60.0), None, 5.0);
         assert_eq!((p.scale, p.offset), (50.0, [-10.0, 0.0, 0.0]));
         let want = TriangleFrame::separated().memory_centre(LIVE_GRAPH_RADIUS, 50.0 * 60.0);
         assert!(dist(p.position, want) < 1e-3);
         let q = cloud_placement(None, rb([1.0, 1.0, 1.0], 3.0), 5.0);
         assert_eq!(q.offset, [0.0; 3]);
+        let mv = TriangleFrame::separated().vertex(visionclaw_tri_layout::Vertex::Memory);
+        let half = mv.map(|x| visionclaw_tri_layout::MEMORY_DISTANCE_FACTOR * x);
         assert!(
-            dist(
-                q.position,
-                TriangleFrame::separated().vertex(visionclaw_tri_layout::Vertex::Memory)
-            ) < 1e-3,
-            "no cloud yet: the memory vertex"
+            dist(q.position, half) < 1e-3,
+            "no cloud yet: the memory distance factor of the way to the vertex"
         );
         assert_eq!(
             cloud_placement(None, None, f32::NAN).scale,

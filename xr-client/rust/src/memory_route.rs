@@ -62,6 +62,18 @@ pub const COMET_R: f32 = 0.5;
 pub const RING_R: f32 = 2.0;
 pub const MARK_R: f32 = 1.7;
 
+/// Headset-only factor on the route's line widths: tube layers, beads, the
+/// comet and its glow, and the guide dots are drawn at this fraction of the
+/// desktop sizes above (operator decision 2026-10-08, "make the bloomed
+/// connecting lines about 1/10 the thickness/brightness in the headset").
+/// Rings and hit marks are not lines and keep the desktop size. The desktop
+/// keeps its values; the drift test pins the desktop constants and these
+/// factors are the one, named divergence (docs/XR-client.md).
+pub const XR_ROUTE_THICKNESS_SCALE: f32 = 0.1;
+/// Headset-only factor on the same layers' emissive brightness (vertex and
+/// instance colour; opacity is untouched), as [`XR_ROUTE_THICKNESS_SCALE`].
+pub const XR_ROUTE_GLOW_SCALE: f32 = 0.1;
+
 /// Ring vertices per tube cross-section (desktop 8; 6 keeps the headset share
 /// of the triangle budget small).
 pub const RADIAL: usize = 6;
@@ -788,9 +800,26 @@ pub fn transport_frames(pts: &[Vec3]) -> Vec<(Vec3, Vec3)> {
     out
 }
 
-/// The five-layer route surface. Colours are at glow 1 (the desktop default
-/// `routeGlow` is 1.2; the shader multiplies by the live glow).
+/// The headset's five-layer route surface: [`build_route_mesh_desktop_look`]
+/// with every layer radius at [`XR_ROUTE_THICKNESS_SCALE`] and every colour
+/// at [`XR_ROUTE_GLOW_SCALE`] (opacity kept).
 pub fn build_route_mesh(pts: &[Vec3], glow: f32) -> TubeMesh {
+    let mut m = build_route_mesh_desktop_look(pts, glow);
+    for u in &mut m.uv2 {
+        u[0] *= XR_ROUTE_THICKNESS_SCALE;
+    }
+    for c in &mut m.colour {
+        for k in c.iter_mut().take(3) {
+            *k *= XR_ROUTE_GLOW_SCALE;
+        }
+    }
+    m
+}
+
+/// The five-layer route surface at the desktop's sizes and brightness
+/// (`TrajectoryLayer.tsx`). Colours are at glow 1 (the desktop default
+/// `routeGlow` is 1.2; the shader multiplies by the live glow).
+pub fn build_route_mesh_desktop_look(pts: &[Vec3], glow: f32) -> TubeMesh {
     let mut m = TubeMesh::default();
     let n = pts.len();
     if n < 2 {
@@ -1095,10 +1124,33 @@ fn push_instance(buf: &mut Vec<f32>, p: Vec3, s: f32, c: [f32; 4]) {
     ]);
 }
 
+/// The headset's bead MultiMesh: [`bead_buffer_desktop_look`] with every
+/// disc's size at [`XR_ROUTE_THICKNESS_SCALE`] and colour at
+/// [`XR_ROUTE_GLOW_SCALE`] (position and opacity kept, instance count too).
+pub fn bead_buffer(
+    r: &RouteSamples,
+    st: &RouteFrameState,
+    beat_pulse: f32,
+    cue_origin: Option<CueOrigin>,
+    cue: Option<Cue>,
+    cue_target: Option<Vec3>,
+) -> Vec<f32> {
+    let mut buf = bead_buffer_desktop_look(r, st, beat_pulse, cue_origin, cue, cue_target);
+    for inst in buf.chunks_mut(STRIDE) {
+        for k in [0, 5, 10] {
+            inst[k] *= XR_ROUTE_THICKNESS_SCALE;
+        }
+        for c in &mut inst[12..15] {
+            *c *= XR_ROUTE_GLOW_SCALE;
+        }
+    }
+    buf
+}
+
 /// Bead + halo per knot (the root bead stays hidden), the comet head and its
 /// glow, then the framing cue's guide dots — one additive disc MultiMesh,
-/// stride 16.
-pub fn bead_buffer(
+/// stride 16, at the desktop's sizes and brightness.
+pub fn bead_buffer_desktop_look(
     r: &RouteSamples,
     st: &RouteFrameState,
     beat_pulse: f32,
@@ -1749,6 +1801,18 @@ impl MemoryRoute {
     }
 
     /// `ROUTE_RENDER_PRIORITY` / `OVERLAY_RENDER_PRIORITY` for the scripts.
+    /// Headset factor on the route's line widths ([`XR_ROUTE_THICKNESS_SCALE`]).
+    #[func]
+    fn xr_route_thickness_scale() -> f32 {
+        XR_ROUTE_THICKNESS_SCALE
+    }
+
+    /// Headset factor on the route lines' brightness ([`XR_ROUTE_GLOW_SCALE`]).
+    #[func]
+    fn xr_route_glow_scale() -> f32 {
+        XR_ROUTE_GLOW_SCALE
+    }
+
     #[func]
     fn route_render_priority(&self) -> i32 {
         ROUTE_RENDER_PRIORITY
@@ -2217,6 +2281,96 @@ mod tests {
         assert!(layout.contains("0.12 * len"), "space-view lift");
     }
 
+    // ── XR route look (operator decision 2026-10-08) ──
+
+    #[test]
+    fn xr_route_factors_are_a_tenth() {
+        assert_eq!(XR_ROUTE_THICKNESS_SCALE, 0.1);
+        assert_eq!(XR_ROUTE_GLOW_SCALE, 0.1);
+    }
+
+    fn xr_look_route() -> RouteSamples {
+        let pos = [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0];
+        sample_route(&[0, 1, 2], &pos, 16)
+    }
+
+    #[test]
+    fn xr_tube_is_the_desktop_tube_at_the_xr_factors() {
+        let r = xr_look_route();
+        let desk = build_route_mesh_desktop_look(&r.pts, 1.2);
+        let xr = build_route_mesh(&r.pts, 1.2);
+        assert_eq!(desk.vertex, xr.vertex, "same centreline");
+        assert_eq!(desk.index, xr.index, "same triangles");
+        for (d, x) in desk.uv2.iter().zip(&xr.uv2) {
+            assert!(
+                (x[0] - d[0] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
+                "radius"
+            );
+        }
+        for (d, x) in desk.colour.iter().zip(&xr.colour) {
+            for k in 0..3 {
+                assert!(
+                    (x[k] - d[k] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6,
+                    "brightness"
+                );
+            }
+            assert_eq!(x[3], d[3], "alpha (layer opacity) unchanged");
+        }
+        let widest = xr.uv2.iter().map(|u| u[0]).fold(0.0f32, f32::max);
+        assert!(
+            (widest - TUBE_R * 7.0 * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
+            "outer sheath {widest}"
+        );
+    }
+
+    #[test]
+    fn xr_beads_comet_and_cue_dots_are_the_desktop_look_at_the_xr_factors() {
+        let r = xr_look_route();
+        let mut st = animate(r.pts.len(), 3.5, 1.2, None, false);
+        st.comet = Some(0.5);
+        st.comet_size = 1.0;
+        let o = Some(CueOrigin {
+            from: [0.0, -30.0, 40.0],
+            local_per_m: 5.0,
+        });
+        let cue = cue_at(1.5, false);
+        assert!(cue.is_some());
+        let desk = bead_buffer_desktop_look(&r, &st, 0.0, o, cue, None);
+        let xr = bead_buffer(&r, &st, 0.0, o, cue, None);
+        assert_eq!(
+            desk.len(),
+            xr.len(),
+            "instance count (triangle budget) unchanged"
+        );
+        for (d, x) in desk.chunks(STRIDE).zip(xr.chunks(STRIDE)) {
+            for k in [0, 5, 10] {
+                assert!(
+                    (x[k] - d[k] * XR_ROUTE_THICKNESS_SCALE).abs() < 1e-6,
+                    "size"
+                );
+            }
+            assert_eq!([x[3], x[7], x[11]], [d[3], d[7], d[11]], "position");
+            for k in 12..15 {
+                assert!(
+                    (x[k] - d[k] * XR_ROUTE_GLOW_SCALE).abs() < 1e-6,
+                    "brightness"
+                );
+            }
+            assert_eq!(x[15], d[15], "alpha");
+        }
+    }
+
+    #[test]
+    fn rings_and_marks_keep_the_desktop_size() {
+        // hit marks are not lines: they keep their size so every hit stays findable
+        let r = xr_look_route();
+        let st = animate(r.pts.len(), 3.5, 1.2, None, false);
+        let rings = ring_buffer(&r, &st, &[[5.0, 0.0, 0.0]], &[[6.0, 0.0, 0.0]], 0.0, None);
+        assert_eq!(rings[STRIDE], RING_R);
+        assert_eq!(rings[3 * STRIDE], MARK_R * 1.25);
+        assert_eq!(rings[4 * STRIDE], GHOST_R);
+    }
+
     // ── maths ──
 
     #[test]
@@ -2682,12 +2836,14 @@ mod tests {
         let far = (3.0 * near).max(CUE_FAR_DOT_OF_RING * RING_R);
         let t0 = 0.5 / CUE_DOTS as f32;
         assert!(
-            (dots[0] - (near + (far - near) * t0)).abs() < 1e-4,
-            "world size in metres near the hand"
+            (dots[0] - XR_ROUTE_THICKNESS_SCALE * (near + (far - near) * t0)).abs() < 1e-4,
+            "world size in metres near the hand, at the headset's line factor"
         );
         let tn = (CUE_DOTS as f32 - 0.5) / CUE_DOTS as f32;
         assert!(
-            (dots[(CUE_DOTS - 1) * STRIDE] - (near + (far - near) * tn)).abs() < 1e-4,
+            (dots[(CUE_DOTS - 1) * STRIDE] - XR_ROUTE_THICKNESS_SCALE * (near + (far - near) * tn))
+                .abs()
+                < 1e-4,
             "the far end grows to half the answer ring (×10 cloud) or 3×, whichever is larger"
         );
         // no cue / no origin / controller inside the ring: hidden, count unchanged

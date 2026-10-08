@@ -158,6 +158,30 @@ func test_route_applies_draws_and_dims_off_route() -> void:
 	l.queue_free()
 
 
+# Operator decision 2026-10-08: the headset draws the route's lines (tube,
+# beads, comet, guide dots) at a tenth of the desktop thickness and brightness.
+func test_route_lines_draw_at_the_xr_factor() -> void:
+	assert_almost_eq(MemoryRoute.xr_route_thickness_scale(), 0.1, 1e-6)
+	assert_almost_eq(MemoryRoute.xr_route_glow_scale(), 0.1, 1e-6)
+	var l: Node3D = await _make()
+	l._enabled = true
+	l.visible = true
+	_load(l, "s1", 6)
+	assert_eq(l.apply_route_json('{"type":"memoryRoute","snapshotId":"s1","seq":1,"sentAt":10,"path":[0,3,5]}'), "apply")
+	var tube: MeshInstance3D = l.get_node("CloudRoot/CloudCore/Route/Tube")
+	var arrays: Array = tube.mesh.surface_get_arrays(0)
+	var widest := 0.0
+	for uv in arrays[Mesh.ARRAY_TEX_UV2]:
+		widest = maxf(widest, uv.x)
+	# the outer glow sheath: desktop TUBE_R 0.45 × 7, at the factor
+	assert_almost_eq(widest, 0.45 * 7.0 * 0.1, 1e-4, "tube a tenth as thick")
+	var brightest := 0.0
+	for c in arrays[Mesh.ARRAY_COLOR]:
+		brightest = maxf(brightest, maxf(c.r, maxf(c.g, c.b)))
+	assert_lt(brightest, 0.25, "tube a tenth as bright (desktop core ~1.5)")
+	l.queue_free()
+
+
 func test_route_for_another_snapshot_waits_for_the_reload_then_applies() -> void:
 	var l: Node3D = await _make()
 	_load(l, "old", 6)
@@ -416,15 +440,20 @@ func test_cloud_is_framed_on_the_graph_centre_and_radius() -> void:
 	var cb: PackedFloat32Array = l._frame.cloud_bounds()
 	assert_almost_eq(float(p["scale"]) * cb[3], 3000.0, 0.1, "cloudScale 5: cloud radius = 10 graph radii")
 	assert_eq(p["offset"], -Vector3(cb[0], cb[1], cb[2]), "inner node recentres the cloud on its core")
-	# behind the graphs on the memory vertex's ray (−Z), clear of both graph bodies
+	# on the memory vertex's ray (−Z) at half the distance that would clear both
+	# graph bodies (operator decision 2026-10-08, ADR-2135), so it overlaps them
 	var pos: Vector3 = p["position"]
 	assert_almost_eq(pos.x, 90.0, 0.01, "on the memory ray through the graph centre")
 	assert_almost_eq(pos.y, -3.0, 0.01)
 	var R: float = SEPARATION * 2.0 / sqrt(3.0)
-	assert_lt(pos.z, -14.0 - R, "further out than the memory vertex")
+	var need := 1.25 * (3000.0 + 300.0)  # CLEARANCE × (cloud + graph)
+	var b := R * cos(deg_to_rad(120.0))
+	var clear_d := b + sqrt(b * b - R * R + need * need)
+	assert_almost_eq(pos.z, -14.0 - 0.5 * clear_d, 0.5, "half the clear distance")
+	assert_lt(pos.z, -14.0 - R, "still further out than the memory vertex")
 	for sx in [-1.0, 1.0]:
 		var g := Vector3(90.0 + sx * R * sin(deg_to_rad(60.0)), -3.0, -14.0 + R * cos(deg_to_rad(60.0)))
-		assert_gt(pos.distance_to(g), 3000.0 + 300.0, "the ×10 cloud clears the graph at %s" % g)
+		assert_lt(pos.distance_to(g) + 300.0, 3000.0, "the closer ×10 cloud encloses the graph at %s" % g)
 	# the cloud's own centre lands on the placement position
 	var core_world: Vector3 = l.cloud_root().global_transform * Vector3(cb[0], cb[1], cb[2])
 	assert_true(core_world.is_equal_approx(l.global_transform * pos), "%s" % core_world)
