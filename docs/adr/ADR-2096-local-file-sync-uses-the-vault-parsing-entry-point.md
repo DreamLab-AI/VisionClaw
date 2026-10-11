@@ -6,7 +6,7 @@ decision_status: accepted
 implementation_status: complete
 activation_status: live
 supersedes: []
-superseded_by: [ADR-2114]
+superseded_by: [ADR-2114, ADR-2137] # lands with ontomark step 1
 verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
 verified_paths: []
 owner: jjohare
@@ -17,6 +17,17 @@ lineage: enforces ADR-2040 (single parsing entry point, supersedes ADR-2014); di
 ---
 
 # ADR-2096 — Route local file sync's inclusion gate through the vault parsing entry point
+
+## Status note
+<!-- lands with ontomark step 1 -->
+The entry point named in this ADR is superseded. `visionclaw_domain::vault::parse`
+and the `vault-core` page, frontmatter, definition and graph modules are deleted
+by ontomark step 1 (ADR-2137). The single parsing entry point is now the
+`ontomark-parse` crate, and the §V4 inclusion gate is evaluated on the page it
+returns. The decision itself stands: `LocalFileSyncService`, `FileService` and
+`GitHubSyncService` share one gate, and none of them scans for a vault property
+by hand. Read every `visionclaw_domain::vault::parse` reference below as
+`ontomark-parse` once the step has landed.
 
 ## Context
 ADR-2040 makes `visionclaw_domain::vault::parse` the single parsing entry point
