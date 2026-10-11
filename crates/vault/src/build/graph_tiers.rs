@@ -6,7 +6,7 @@
 //!
 //! | file | tier | contents |
 //! |---|---|---|
-//! | `overview.json` | T0 | 6 domain roots + 34 categories, member counts, baked force-layout positions |
+//! | `overview.json` | T0 | 8 domain roots + 53 categories, member counts, baked force-layout positions |
 //! | `domain-<slug>.bin` ×6 | T1 | every class of one domain; full backbone; relations capped per node at top-8 by target degree |
 //! | `full.bin` | — | the uncapped whole graph, CSR |
 //! | `stats.json` | — | pipeline-derived truth (DDD INV-5) |
@@ -76,6 +76,7 @@ const DOMAIN_ALIASES: &[(&str, &str)] = &[
     ("security", "infrastructure"),
     ("standards", "infrastructure"),
     ("finance", "blockchain"),
+    ("economics", "blockchain"),
 ];
 
 /// `(slug, label, domain id)` — position is the category id.
@@ -122,6 +123,39 @@ pub const CATEGORY_ORDER: &[(&str, &str, u16)] = &[
     ("infra-data-management", "Data Management", 5),
     ("infra-legal-and-regulatory", "Legal and Regulatory", 5),
     ("infra-software-engineering", "Software Engineering", 5),
+    // Space science and systems (domain 6): the research-campaign branches.
+    ("astronomy", "Astronomy", 6),
+    ("heliophysics", "Heliophysics", 6),
+    ("planetary-science", "Planetary Science", 6),
+    ("orbital-dynamics", "Orbital Dynamics", 6),
+    ("space-reference-systems", "Space Reference Systems", 6),
+    (
+        "positioning-navigation-and-timing",
+        "Positioning, Navigation and Timing",
+        6,
+    ),
+    ("spacecraft-bus", "Spacecraft Systems", 6),
+    ("spacecraft-propulsion", "Spacecraft Propulsion", 6),
+    (
+        "spacecraft-power-and-thermal-control",
+        "Spacecraft Power and Thermal Control",
+        6,
+    ),
+    (
+        "spacecraft-guidance-navigation-and-control",
+        "Guidance, Navigation and Control",
+        6,
+    ),
+    ("spacecraft-communications", "Satellite Communications", 6),
+    ("space-life-sciences", "Space Life Sciences", 6),
+    ("space-prime", "Space Industry", 6),
+    // Earth observation and geospatial sensing (domain 7).
+    ("earth-observation-sensor", "Observation Methods", 7),
+    ("earth-system-phenomena", "Observed Phenomena", 7),
+    ("earth-observation-processing", "Data Processing", 7),
+    ("earth-observation-data-quality", "Data Quality", 7),
+    ("earth-observation-applications", "Applications", 7),
+    ("geodesy", "Geodesy", 7),
 ];
 
 /// Maximum ancestry depth the category resolver walks.
@@ -963,7 +997,7 @@ mod tests {
             resolve_domain("earth-observation-and-geospatial-sensing"),
             7
         );
-        assert_eq!(CATEGORY_ORDER.len(), 34);
+        assert_eq!(CATEGORY_ORDER.len(), 53);
         // Category ids are contiguous per domain, in DOMAIN_SLUGS order.
         let mut last = 0u16;
         for (_, _, dom) in CATEGORY_ORDER {
@@ -1164,9 +1198,9 @@ mod tests {
         assert_eq!(nodes[0]["label"], "Artificial Intelligence");
         assert_eq!(nodes[DOMAIN_SLUGS.len()]["id"], DOMAIN_SLUGS.len());
         assert_eq!(nodes[DOMAIN_SLUGS.len()]["label"], "AI Technique");
-        assert_eq!(ov["taxonomy"].as_array().unwrap().len(), 34);
-        // 34 backbone edges, category -> domain.
-        assert_eq!(ov["edges"].as_array().unwrap().len(), 34);
+        assert_eq!(ov["taxonomy"].as_array().unwrap().len(), 53);
+        // 53 backbone edges, category -> domain.
+        assert_eq!(ov["edges"].as_array().unwrap().len(), 53);
         assert_eq!(ov["attributedTo"], ATTRIBUTED_TO);
     }
 

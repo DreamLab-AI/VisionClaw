@@ -58,7 +58,7 @@ pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
     "earth-observation-and-geospatial-sensing",
 ];
 
-/// The 34 intermediate taxonomy categories.
+/// The 53 intermediate taxonomy categories (34 legacy + 19 for the two space domains).
 pub const CATEGORY_SLUGS: &[&str] = &[
     "ai-technique",
     "ai-model-architecture",
@@ -94,6 +94,25 @@ pub const CATEGORY_SLUGS: &[&str] = &[
     "dc-workspace-tools",
     "dc-telepresence",
     "dc-protocol-and-infra",
+    "astronomy",
+    "heliophysics",
+    "planetary-science",
+    "orbital-dynamics",
+    "space-reference-systems",
+    "positioning-navigation-and-timing",
+    "spacecraft-bus",
+    "spacecraft-propulsion",
+    "spacecraft-power-and-thermal-control",
+    "spacecraft-guidance-navigation-and-control",
+    "spacecraft-communications",
+    "space-life-sciences",
+    "space-prime",
+    "earth-observation-sensor",
+    "earth-system-phenomena",
+    "earth-observation-processing",
+    "earth-observation-data-quality",
+    "earth-observation-applications",
+    "geodesy",
 ];
 
 /// The comparable tail of a class reference: the segment after the last `/`,
@@ -258,7 +277,7 @@ mod tests {
             }
         }
         assert_eq!(DOMAIN_ROOT_SLUGS.len(), 8);
-        assert_eq!(CATEGORY_SLUGS.len(), 34);
+        assert_eq!(CATEGORY_SLUGS.len(), 53);
     }
 
     #[test]

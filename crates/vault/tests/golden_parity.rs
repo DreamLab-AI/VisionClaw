@@ -484,6 +484,8 @@ fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
         assert_eq!(scope["bytes"], 44); // header + empty CSR offsets + empty string table
     }
     actual["domains"] = serde_json::json!(6);
+    assert_eq!(actual["categories"], 53, "19 space categories appended");
+    actual["categories"] = serde_json::json!(34);
     assert_eq!(
         actual, expected,
         "every existing scope and corpus metric retains golden parity"
@@ -516,8 +518,26 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
     for i in [6, 7] {
         assert_eq!(actual["domains"][i]["memberCount"], 0);
     }
+    // The 2026-10-11 taxonomy appends 19 space categories (ids 34..53) after
+    // the legacy 34 and their category nodes after the legacy ones; strip them
+    // the same way the two appended domain roots are stripped above.
+    const LEGACY_CATEGORIES: usize = 34;
     actual["domains"].as_array_mut().unwrap().truncate(6);
-    actual["nodes"].as_array_mut().unwrap().drain(6..8);
+    actual["categories"].as_array_mut().unwrap().truncate(LEGACY_CATEGORIES);
+    actual["taxonomy"].as_array_mut().unwrap().truncate(LEGACY_CATEGORIES);
+    {
+        let nodes = actual["nodes"].as_array_mut().unwrap();
+        nodes.drain(6..8);
+        nodes.retain(|n| {
+            !n["category"].is_number() || n["category"].as_u64().unwrap() < LEGACY_CATEGORIES as u64
+        });
+    }
+    let legacy_node_ceiling = 8 + LEGACY_CATEGORIES as u64; // 8 roots + 34 legacy category nodes
+    actual["edges"].as_array_mut().unwrap().retain(|e| {
+        ["source", "target"]
+            .iter()
+            .all(|k| e[k].as_u64().unwrap() < legacy_node_ceiling)
+    });
     for node in actual["nodes"].as_array_mut().unwrap() {
         if node["category"].is_number() {
             node["id"] = serde_json::json!(node["id"].as_u64().unwrap() - 2);
@@ -631,5 +651,5 @@ fn the_graph_tiers_agree_with_the_class_count() {
         "stats.json and scaffold-index.json must report the same class count"
     );
     assert_eq!(stats["domains"], 8);
-    assert_eq!(stats["categories"], 34);
+    assert_eq!(stats["categories"], 53);
 }
