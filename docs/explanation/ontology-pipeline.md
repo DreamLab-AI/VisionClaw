@@ -136,6 +136,9 @@ flowchart TD
     READ["Query path"] -->|"shape check advisory"| OUT["Results<br/>(log + metric, never block)"]
 ```
 
+<!-- lands with ontomark step 6 -->
+**SHACL and JSON-LD validation (after ontomark step 6).** The hand-written JSON-LD validator stack (`jsonld_validator/{shacl_lite,owl_el_profile,class_bit,frame,shacl}.rs`) is removed; SHACL, the EL profile check and the Turtle and WebVOWL compile come from `ontomark-compile`. The paragraph below describes the retired stack and is kept for the gate semantics (fail-closed on writes, advisory on reads) that carry over.
+
 **SHACL-lite + JSON-LD validation.** On the write path, the JSON-LD validator (schema, profile, and PROV-O attribution checks) is a hard gate — a failure rejects the payload. The SHACL-lite shape gate (`jsonld_ingest/shacl_gate.rs`, `jsonld_validator/shacl_lite.rs`) then checks every parsed shape against the shapes graph. Shape gating is **fail-closed on writes** (a violation on ingest rejects) and **fail-open on reads** (a violation on a consumer query is advisory: logged and metered, never blocking). The OWL 2 EL profile validator (`jsonld_validator/owl_el_profile.rs`) flags constructs outside EL (universal quantification, cardinality, disjunction) before they reach the reasoner.
 
 **PROV-O provenance (PRD-022).** `provenance_emitter::reify_activity` writes each contribution as PROV-O triples into the append-only provenance graph (`INSERT DATA` only — no `DELETE`/`DROP`/`CLEAR`):
@@ -187,11 +190,13 @@ The ontology subsystem is the `visionclaw-ontology` crate, extracted under the h
 
 | Module | Responsibility |
 |--------|----------------|
-| `inference` | OWL 2 EL++ parser, inference cache, optimisation |
+<!-- lands with ontomark step 6 -->
+| `inference` | inference cache, optimisation (the stub Turtle `owl_parser` is removed; RDF reading is `ontomark-compile`) |
 | `reasoning` | custom Whelk-backed reasoner |
 | `ontology` | actor and physics modules, OWL validator service (page parsing moved to `vault_core`, ADR-2113) |
 | `services/jsonld_ingest` | extractor → expander → validator → SHACL gate → triple emitter |
-| `services/jsonld_validator` | EL profile, SHACL-lite, IRI/class checks |
+<!-- lands with ontomark step 6 -->
+| `services/jsonld_validator` | IRI and error types only; SHACL and EL-profile checks moved to `ontomark-compile` |
 | `validation`, `types`, `utils` | actor-state validation, MCP tool surface, time helpers |
 
 Services that need actors, GPU, or config stay in the `webxr` crate: the ontology query, mutation, pipeline, enrichment, reasoner, and schema services.
