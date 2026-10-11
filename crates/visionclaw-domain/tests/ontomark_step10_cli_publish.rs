@@ -164,15 +164,31 @@ fn step10_publish_workflow_builds_with_the_released_ontomark_cli() {
     if !wf.lines().any(|l| l.contains("ontomark") && l.contains("build")) {
         out.push("VC-60: ontology-publish.yml never runs `ontomark build`".into());
     }
-    let pinned = wf.lines().any(|l| {
-        let l = l.trim();
-        l.starts_with("ONTOMARK_TAG:") && l.split(':').nth(1).is_some_and(|v| {
-            let v = v.trim().trim_matches(['\'', '"']);
-            v.starts_with('v') && v[1..].split('.').count() == 3 && v[1..].split('.').all(|p| p.parse::<u32>().is_ok())
+    // One pin convention across the estate (visionGraph publish.yml uses the same):
+    // ONTOMARK_RELEASE_TAG = vX.Y.Z and ONTOMARK_SHA256 = the asset digest, checked
+    // with sha256sum --check before the binary runs.
+    let env_value = |key: &str| -> Option<String> {
+        wf.lines().map(str::trim).find_map(|l| {
+            let rest = l.strip_prefix(key)?.strip_prefix(':')?;
+            let v = rest.split(" #").next().unwrap_or("").trim().trim_matches(['\'', '"']);
+            Some(v.to_string())
         })
+    };
+    let tag_ok = env_value("ONTOMARK_RELEASE_TAG").is_some_and(|v| {
+        let core = v.strip_prefix('v').unwrap_or("");
+        let core = core.split(['-', '+']).next().unwrap_or("");
+        core.split('.').count() == 3 && core.split('.').all(|p| p.parse::<u32>().is_ok())
     });
-    if !pinned {
-        out.push("VC-60: ontology-publish.yml has no `ONTOMARK_TAG: vX.Y.Z` release pin".into());
+    if !tag_ok {
+        out.push("VC-60: ontology-publish.yml has no `ONTOMARK_RELEASE_TAG: vX.Y.Z` release pin".into());
+    }
+    let digest_ok = env_value("ONTOMARK_SHA256")
+        .is_some_and(|v| v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    if !digest_ok {
+        out.push("VC-60: ontology-publish.yml has no `ONTOMARK_SHA256` digest pin for the release asset".into());
+    }
+    if !(wf.contains("sha256sum --check") || wf.contains("sha256sum -c")) {
+        out.push("VC-60: ontology-publish.yml does not verify the ontomark asset with sha256sum --check".into());
     }
     finish(out);
 }
