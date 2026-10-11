@@ -42,8 +42,12 @@ use crate::model::{ClassRecord, Corpus, EntityType, RELATION_KEYS};
 
 /// Pipeline identity carried into `overview.json` and `stats.json`.
 pub const PIPELINE_VERSION: &str = "ng-1.0.0";
-/// `did:nostr` provenance for the published corpus.
-pub const ATTRIBUTED_TO: &str = "did:nostr:jjohare";
+/// `did:nostr` of the human director of the published corpus (the secp256k1 x-only key
+/// listed as `jjohare` in the corpus repository's `ontology/attribution.yaml`). Per-class
+/// attribution comes from each page's `generated.by` via the roster; this is the
+/// dataset-level fallback.
+pub const ATTRIBUTED_TO: &str =
+    "did:nostr:d598abc6edefc37e10523aec4c00f8d9674a93791aa34a1db03bfa9b60b9f246";
 const ATTRIBUTED_LABEL: &str = "DreamLab AI";
 const CORPUS_NATURE: &str = "synthetic-ai-generated-human-directed";
 const CORPUS_DESCRIPTION: &str = "Mostly AI-generated synthetic content, produced under human direction, by design — this corpus exists to exercise and demonstrate the VisionFlow pipeline and VisionClaw engine on a medium-scale ontology (~8.1k classes, ~100k relations). Provenance (did:nostr, generatedAtTime, URNs) attests traceable generation under human direction, not human authorship.";

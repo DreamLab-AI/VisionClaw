@@ -37,7 +37,22 @@ const DIVERGENCES: &str =
     "search-index labels (superset); ontology-inferred (Whelk, by contract); \
      prose-index cl (superset: markdown-form Current Landscape headings); \
      ontology.ttl drops owl:Thing property domain/range (ADR-2128); \
-     ontology.ttl declares prov:wasAttributedTo (per-class attribution, 2026-10-11)";
+     ontology.ttl declares prov:wasAttributedTo (per-class attribution, 2026-10-11); \
+     attributedTo is the human director's real did:nostr, not the golden placeholder";
+
+
+/// Divergence 5: the Python reference attributed the corpus to the placeholder
+/// `did:nostr:jjohare`; vault attributes it to the human director's real key
+/// (`graph_tiers::ATTRIBUTED_TO`). Compare shape, not the key.
+fn normalise_attribution(v: &mut serde_json::Value) {
+    const GOLDEN: &str = "did:nostr:jjohare";
+    if let Some(o) = v.as_object_mut() {
+        if o.contains_key("attributedTo") { o["attributedTo"] = serde_json::json!(GOLDEN); }
+        if let Some(p) = o.get_mut("provenance").and_then(|p| p.as_object_mut()) {
+            if p.contains_key("did") { p["did"] = serde_json::json!(GOLDEN); }
+        }
+    }
+}
 
 /// Divergence 4: `true` for a `vc:P rdfs:domain|rdfs:range owl:Thing` line as
 /// [`ground_triples`] renders it.
@@ -489,6 +504,7 @@ fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
         assert_eq!(scope["bytes"], 44); // header + empty CSR offsets + empty string table
     }
     actual["domains"] = serde_json::json!(6);
+    normalise_attribution(&mut actual);
     assert_eq!(actual["categories"], 53, "19 space categories appended");
     actual["categories"] = serde_json::json!(34);
     assert_eq!(
@@ -567,6 +583,7 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
             }
         }
     }
+    normalise_attribution(&mut actual);
     assert_eq!(actual, expected);
 }
 
