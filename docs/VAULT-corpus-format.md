@@ -455,3 +455,8 @@ for rationale and history, never as authority.
 ### Space and Earth vocabulary publication (2026-10-01)
 
 ADR-2118 appends the two domain identities after the legacy six. `vault-core::domains` is the shared registry for exporter IDs, live navigation roots and GPU class mapping; long canonical slugs and historical short names resolve consistently. Domain grouping remains navigation rather than an invented OWL subclass axiom. The owner authorised publication of 922 draft vocabulary pages with empty article bodies. Public visibility does not assert scientific verification. Site deployment dispatches the exact corpus revision to VisionClaw’s ontology release workflow; validation and build use the same source commit. The local ingest path consumes that frontmatter independently of the Solid pod release pull.
+
+
+## Proposed shared ontology workspace extension — 2026-10-11
+
+[Shared workspace proposal](adr/ADR-2137-consume-shared-ontology-workspace.md) is proposed, unimplemented and inactive. Share the parser, lossless writer, ontology model, reasoning and export contracts across native and WASM consumers, with explicit corpus policies and Markdown authority. Existing accepted invariants and running behaviour are unchanged. OCR and document ingestion are outside this scope.

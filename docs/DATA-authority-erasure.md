@@ -208,3 +208,8 @@ of immutable history or off-volume durability must be read with these limits.
 The ownership table describes canonical stores, not a distributed transaction. The optional `redis` feature adds Nostr-session persistence (`src/services/nostr_service.rs:149-187,245-299`) beyond the default embedded graph and per-writer SQLite stores. Include it in erasure/restore membership when enabled; do not infer that it is deployed from this source path.
 
 Ontology pull publication is not generation-atomic: `src/services/ontology_pull.rs:345-373` writes resources sequentially and writes the manifest last. Storage failure can expose a mixed generation; an ACL existence error is currently treated as absence. ADR-2106 now records the limitation and failure-injection acceptance work. Neither manifest presence nor HTTP success substitutes for cross-store erasure, restore or generation acceptance.
+
+
+## Proposed shared ontology workspace extension — 2026-10-11
+
+[Shared workspace proposal](adr/ADR-2137-consume-shared-ontology-workspace.md) is proposed, unimplemented and inactive. Keep authored Markdown and machine-readable headers authoritative while making ontology query stores optional rebuildable projections. Existing accepted invariants and running behaviour are unchanged. OCR and document ingestion are outside this scope.
