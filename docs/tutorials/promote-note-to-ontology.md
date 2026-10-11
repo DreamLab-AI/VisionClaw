@@ -28,7 +28,8 @@ Before you start, confirm all three of these hold:
 
    If it is not running, follow the [Installation Guide](installation.md) and [Build Your First Graph](first-graph.md).
 
-2. **A vault is connected.** VisionClaw must be synced to a GitHub repository containing your vault's `pages/` folder. Confirm in the left sidebar that GitHub sync shows a green connected status and a non-zero page count.
+<!-- lands with ontomark step 10 -->
+2. **A vault is connected.** VisionClaw reads the corpus from a mounted vault directory by default, or from a GitHub repository when that source is selected (ADR-2114, ADR-2115). Either way the vault's `pages/` folder must be reachable and the ingest status must show a non-zero page count. To check a page before it is picked up, run `ontomark validate --vault knowledge` in the corpus repository.
 
 3. **You have the Broker role.** Only users with the `Broker` role can see the migration candidate inbox and approve promotions. Check with your VisionClaw admin, or check your own role at `http://localhost:3030/api/me`.
 

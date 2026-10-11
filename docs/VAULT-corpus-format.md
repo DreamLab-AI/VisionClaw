@@ -1,19 +1,29 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 2.2.0
+version: 2.3.0
 status: living
 verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
 ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
-proposed: [ADR-2124, ADR-2125, ADR-2126, ADR-2127, ADR-2128]
+# <!-- lands with ontomark step 10 --> ADR-2015 defect 8: ADR-2124 to ADR-2128 are accepted, not proposed.
+accepted: [ADR-2124, ADR-2125, ADR-2126, ADR-2127, ADR-2128]
+machine_contract: ontomark estate profile (version recorded in the visionGraph pin)
 ---
 
 # VAULT — authored corpus format
 
+<!-- lands with ontomark step 10 -->
+**After ontomark (ADR-2137, step 10).** The machine contract for this format is the
+estate profile shipped with ontomark; this document keeps the corpus rules and
+names the profile version it was written against. Where the text below says `vault`
+or `vault-core`, read the `ontomark` CLI and the `ontomark-parse`, `ontomark-model`,
+`ontomark-reason` and `ontomark-compile` crates. The `vault` binary survives in
+VisionClaw only as the AGPL governance adapter (`propose`, `apply`, `panel publish`).
+
 This is the governing document for the **authored knowledge corpus**: the markdown
-files that VisionClaw ingests into the knowledge graph, that `vault build` turns
+files that VisionClaw ingests into the knowledge graph, that `ontomark build` turns
 into the Loom bundle and narrativegoldmine.com, that the governance loop writes
 back to, and that agentbox skills read and extend.
 
@@ -83,28 +93,33 @@ because they contradict v1.4.2:
   relation edges across 34 predicates are dropped because `rel_map` has twelve
   entries. v2 fixes the first two and makes the third visible.
 
-### Readers and writers (post-ADR-2113)
+<!-- lands with ontomark step 10 -->
+### Readers and writers (post-ADR-2137)
 
-**One parser, one vocabulary, one reasoner.** `vault-core` (VisionClaw
-`crates/vault`) holds the frontmatter parser, the vocabulary model, the OKF types
-and the promotion state machine. VisionClaw's ingest, the `vault` CLI and CI all
-call it; nothing else parses the corpus.
+**One parser, one vocabulary, one reasoner, owned by ontomark.** The `ontomark-parse`
+crate holds the frontmatter parser and guarded writer, `ontomark-model` the
+vocabulary model, OKF types and promotion state machine, `ontomark-reason` (over
+`whelk-el`) the reasoning, and `ontomark-compile` validation and the bundle.
+VisionClaw's ingest, the `ontomark` CLI and CI all call them; nothing else parses
+the corpus. `crates/vault-core` no longer exists (ADR-2113 is superseded by ADR-2137).
 
 | Component | Role | Contract |
 |---|---|---|
-| `vault-core::parse` | the one parser: frontmatter → `Page { type, title, resource, public, status, generated, verified, sources, relations, scalars }` | ADR-2113 |
-| `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
-| `vault find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap | C2 |
-| `vault edit --expect docs=N blocks=M` | guarded mutation; refused without a declared blast radius | C2 |
-| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + forum 31402 | C4, C5 |
-| `vault gate` / `vault conflicts` | the autonomous quality gate and the conflict detector | C2 |
-| `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
-| `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via `vault-core` | ADR-2114 |
-| Loom | consumes the `vault build` bundle; generation `visionGraph@<sha>` | Loom ADR-141 |
-| Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish ⇐ `public` | PRD Q13 |
-| agentbox skills (`ontology-augment`, `podcast-knowledge-ingest`, `ontology-curator`) | read and write via the `vault` binary; **no MCP server** | ADR-2107 |
+| `ontomark-parse` | the one parser: frontmatter to a page with type, title, resource, public, status, generated, verified, sources, relations and scalars | ADR-2137 |
+| `ontomark validate` | OKF conformance, `vocabulary.yaml` and `types.json` agreement, link integrity, public gate | C2 |
+| `ontomark find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap | C2 |
+| `ontomark edit --expect docs=N blocks=M` | guarded mutation; refused without a declared blast radius | C2 |
+| `vault propose` (AGPL adapter) | `PatchProposal` (C4) with reasoning and conflict blockers, posted as forum 31402 | C4, C5 |
+| `vault apply`, `vault panel publish` (AGPL adapter) | land a human-approved `kind: amend` proposal; publish the `ontology-governance` 31400 panel | C4, C5 |
+| `ontomark gate` / `ontomark conflicts` | the autonomous quality gate and the conflict detector | C2 |
+| `ontomark build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
+| `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via the ontomark crates | ADR-2114 |
+| Loom | consumes the `ontomark build` bundle; generation `visionGraph@<sha>` | Loom ADR-141 |
+| Quartz v4 | renders narrativegoldmine.com from `knowledge/`, ExplicitPublish when `public` | PRD Q13 |
+| agentbox skills (`ontology-augment`, `podcast-knowledge-ingest`, `ontology-curator`) | read, validate and build through `ontomark`; propose and apply through the governance adapter; **no MCP server** | ADR-2107 |
 
-Deleted by this change: `pipeline/*.py`, `publishing-tools/`,
+Deleted by this change: `crates/vault-core` and every `crates/vault` module except
+the governance adapter, plus (earlier) `pipeline/*.py`, `publishing-tools/`,
 `crates/vault-migrate`, `agentbox/mcp/servers/ontology-bridge.js` and
 `ontology-propose.js`, `loom-mcp-stdio`, the ADR-2041 `serde(alias = "logseq")`.
 
@@ -389,30 +404,40 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 | EXP-V12 | medium | Quartz builds narrativegoldmine.com from `knowledge/` locally, `static/api/search-index.json` and `static/data/ontology.ttl` are present, and only `public: true` pages are rendered. | PRD acceptance 6 |
 | EXP-V13 | medium | `grep -ri logseq` across loom, VisionClaw, agentbox, VisionFlow and visionGraph returns only ADR and history references. | PRD acceptance 7 |
 
-## Proposed amendments — reasoning and integrity (2026-10-05, NOT ratified)
+<!-- lands with ontomark step 10 -->
+## Accepted amendments: reasoning and integrity (ADR-2015 defect 8)
 
-These records are `decision_status: proposed`. They change nothing above; the
-Invariants are the compliance surface until each one is accepted and folded in.
-Scope and sequencing: [PRD-029](proposals/visiongraph-executable-reasoning.md);
-domain model: [DDD-023](proposals/visiongraph-executable-reasoning-domain.md).
+These records are `decision_status: accepted` in their ADR files. The earlier
+heading and the `proposed:` frontmatter key listed them as proposed and "not
+ratified"; that was stale. Implementation status is the figure each ADR file
+records, which is not the same as acceptance. Scope and sequencing:
+[PRD-029](proposals/visiongraph-executable-reasoning.md); domain model:
+[DDD-023](proposals/visiongraph-executable-reasoning-domain.md).
 
-- **PROPOSED — ADR-2126: integrity is closed-world validation, never OWL.**
-  "Must have" rules live in `vault validate`; the emitted OWL stays inside EL, and a
+- **ADR-2126 (accepted, implementation complete): integrity is closed-world validation, never OWL.**
+  "Must have" rules live in validation; the emitted OWL stays inside EL, and a
   vocabulary key mapping to `allValuesFrom`, a cardinality or `hasValue` is refused at load.
-- **PROPOSED — ADR-2128: the ontology names its generation.** `owl:versionIRI` from a
+- **ADR-2128 (accepted, implementation partial): the ontology names its generation.** `owl:versionIRI` from a
   digest of the emitted ontology (the page-only `content_digest` misses vocabulary changes); property `rdfs:domain`/`rdfs:range` become opt-in per
   property instead of blanket `owl:Thing` (each a signed Schema change).
-- **PROPOSED — ADR-2125: the Whelk gate is provably armed.** Register and wire the
-  elevation actor's existing `disjoint-with` key, sibling-only, on both write paths (never domain roots — see the `turtle.rs` note on the 98.8% failure),
-  standing probe cases on `vault propose` and the elevation actor, and a
-  zero-unsatisfiable `vault build` gate. Would extend Invariant 9 with "and a probe
+- **ADR-2125 (accepted, implementation complete): the Whelk gate is provably armed.** The
+  elevation actor's `disjoint-with` key is registered and wired, sibling-only, on both write paths (never domain roots), with
+  standing probe cases on `propose` and the elevation actor, and a
+  zero-unsatisfiable build gate. Extends Invariant 9 with "and a probe
   proves the blocker can fire".
-- **PROPOSED — ADR-2124: curated EL defined classes.** An opt-in `defines-as` key
-  emitted as `owl:equivalentClass`; `whelk::reason` saturates restrictions whenever one
-  is present (relevance-filtered: full saturation does not finish on this corpus). Would amend Invariant 6 (a new emitted construct).
-- **PROPOSED — ADR-2127 / agentbox ADR-2129: answers distinguish silence from "no".**
+- **ADR-2124 (accepted, implementation complete): curated EL defined classes.** An opt-in `defines-as` key
+  emitted as `owl:equivalentClass`; the reasoner saturates restrictions whenever one
+  is present (relevance-filtered: full saturation does not finish on this corpus). Amends Invariant 6 (a new emitted construct).
+- **ADR-2127 (accepted, implementation partial) and agentbox ADR-2129 (accepted, implementation complete): answers distinguish silence from "no".**
   Agent-facing answers carry `basis`, a tri-valued truth and the generation; an empty
   result is "not asserted", never "false".
+
+Status labels elsewhere in this document were checked against the ADR files: ADR-2040,
+ADR-2041 and ADR-2042 are superseded; ADR-2112, 2113, 2114, 2116, 2127 and 2128 are
+accepted with implementation partial; ADR-2115, 2117, 2118, 2124, 2125 and 2126 are
+accepted and complete. Agentbox ADR-2107 is accepted (partial) and ADR-2109 accepted (complete).
+Agentbox ADR-2108 is still `decision_status: proposed` in its file although its
+implementation status reads complete; that file needs its own fix.
 
 ## Change process
 
@@ -431,6 +456,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 2.3.0 | 2026-10-11 | <!-- lands with ontomark step 10 --> Estate profile in ontomark is the machine contract; readers and writers table rewritten for the ontomark crates and the AGPL governance adapter (ADR-2137, ontomark step 10); ADR-2124 to 2128 relabelled accepted (ADR-2015 defect 8); `vault-core` no longer described as `crates/vault`. |
 | 2.2.0 | 2026-10-05 | Proposed-amendments section for ADR-2124–2128 and agentbox ADR-2129 (PRD-029 / DDD-023, reasoning and integrity). Not ratified; Invariants unchanged. |
 | 2.0.1 | 2026-09-22 | Invariant 11 (no credentials in either vault) and the V4 note that the publish gate is a visibility control, not a safety one, after 14 live credentials were found in `working/`, one on a `public: true` page. |
 | 2.0.0 | 2026-09-22 | **Format break.** Frontmatter-only; the two json-ld fences fold into typed Obsidian Properties; `ontology/vocabulary.yaml` becomes the normative key set and `vault.toml` the manifest; two vault roles with distinct type sets and unknown-key policies (PRD Q9); the `owl-class` gate bypass removed; all legacy tolerance removed — `key::`, `{{embed}}`, `((block-ref))`, `a___b.md` and journals are now validation failures; `vault` (Rust) replaces `vault-migrate`, the Python pipeline and the ontology MCP servers. ADR-2112, supersedes ADR-2040. |
@@ -454,9 +480,9 @@ for rationale and history, never as authority.
 
 ### Space and Earth vocabulary publication (2026-10-01)
 
-ADR-2118 appends the two domain identities after the legacy six. `vault-core::domains` is the shared registry for exporter IDs, live navigation roots and GPU class mapping; long canonical slugs and historical short names resolve consistently. Domain grouping remains navigation rather than an invented OWL subclass axiom. The owner authorised publication of 922 draft vocabulary pages with empty article bodies. Public visibility does not assert scientific verification. Site deployment dispatches the exact corpus revision to VisionClaw’s ontology release workflow; validation and build use the same source commit. The local ingest path consumes that frontmatter independently of the Solid pod release pull.
+ADR-2118 appends the two domain identities after the legacy six. the estate profile's domain registry (formerly `vault-core::domains`) is the shared registry for exporter IDs, live navigation roots and GPU class mapping; long canonical slugs and historical short names resolve consistently. Domain grouping remains navigation rather than an invented OWL subclass axiom. The owner authorised publication of 922 draft vocabulary pages with empty article bodies. Public visibility does not assert scientific verification. Site deployment dispatches the exact corpus revision to VisionClaw’s ontology release workflow; validation and build use the same source commit. The local ingest path consumes that frontmatter independently of the Solid pod release pull.
 
 
-## Proposed shared ontology workspace extension — 2026-10-11
+## Shared ontology workspace extension — 2026-10-11
 
-[Shared workspace proposal](adr/ADR-2137-consume-shared-ontology-workspace.md) is proposed, unimplemented and inactive. Share the parser, lossless writer, ontology model, reasoning and export contracts across native and WASM consumers, with explicit corpus policies and Markdown authority. Existing accepted invariants and running behaviour are unchanged. OCR and document ingestion are outside this scope.
+[ADR-2137](adr/ADR-2137-consume-shared-ontology-workspace.md) is accepted and implemented by the ontomark removal steps; running behaviour changes only when the queen merges and activates them. Share the parser, lossless writer, ontology model, reasoning and export contracts across native and WASM consumers, with explicit corpus policies and Markdown authority. Existing accepted invariants and running behaviour are unchanged. OCR and document ingestion are outside this scope.

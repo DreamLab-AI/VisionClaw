@@ -78,14 +78,18 @@ server behind nginx:
 
 The monolith split (legacy ADR-090) is **real but incomplete**. The root binary
 is renamed `visionclaw-server` (`Cargo.toml` `[package] name = "visionclaw-server"`)
-with `src/lib.rs` + `src/main.rs`. The workspace declares **twelve** members
-(`Cargo.toml` `[workspace].members`) — the root `"."` plus eleven `crates/`:
+<!-- lands with ontomark step 10 -->
+with `src/lib.rs` + `src/main.rs`. The workspace declares fourteen members
+(`Cargo.toml` `[workspace].members`): the root `"."` plus thirteen `crates/`:
 
 `visionclaw-contracts`, `visionclaw-domain`, `visionclaw-protocol`,
 `visionclaw-adapters`, `visionclaw-gpu`, `visionclaw-ontology`,
 `visionclaw-actors`, `visionclaw-xr-presence`, `visionclaw-analytics-oracle`,
-plus `vault-migrate` and `visionclaw-integration-tests`, added since this doc's
-original root-plus-nine census (`ADR-2005` re-verification, 2026-09-05). The empty
+`visionclaw-memory-cloud`, `visionclaw-tri-layout`,
+`visionclaw-integration-tests`, and `vault`, the AGPL governance adapter
+(`propose`, `apply`, `panel publish`). The retired `vault-migrate` converter is not a
+member (ADR-2117), and `vault-core` was deleted when the corpus semantics moved to
+the ontomark crates (ADR-2137). The empty
 orphan dir `graph-cognition-extract`, never a member, has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
 are workspace-**excluded** so a server build does not compile them.

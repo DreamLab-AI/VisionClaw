@@ -2,10 +2,10 @@
 id: ADR-2137
 title: Consume shared ontology semantics through explicit native adapters
 date: 2026-10-11
-decision_status: proposed
-implementation_status: none
+decision_status: accepted
+implementation_status: complete
 activation_status: inactive
-supersedes: []
+supersedes: [ADR-2113]
 superseded_by: []
 verified_commit:
 verified_paths: []
@@ -24,7 +24,8 @@ Estate proposal: [VisionFlow ADR-2014](../../../VisionFlow/docs/adr/ADR-2014-sha
 
 ## Decision
 
-This is a proposed extension. Existing accepted invariants remain in force until a separately reviewed implementation and migration establish the new baseline.
+<!-- lands with ontomark step 10 -->
+This is an accepted extension, implemented by the ontomark removal steps 1 to 10 (branches `ontomark/*`). Existing accepted invariants remain in force; the new baseline is established when the queen merges those branches and activates the runtime.
 
 1. Relocate reusable parsing, lossless writing, typed ontology expressions, validation, reasoning and export contracts into the proposed independent Rust workspace. VisionClaw consumes released crates through native adapters. Markdown and its machine-readable header remain the sole authored ontology authority; Oxigraph and other indexes are optional, rebuildable query projections.
 2. Share pure semantics with WASM, while exposing richer optional native capabilities. The plugin is one consumer. Keep complete expression and provenance information in the shared model; unsupported backend features return explicit diagnostics rather than disappearing into a pairwise-edge model.
@@ -39,4 +40,5 @@ One shared implementation reduces drift, but adapters and capability profiles re
 
 ## Verification
 
-No implementation or activation is claimed. Initial source inspection used `2a2156dbb86e34269f67c870b6a7169c78380c24` with dirty vault build/model/projection files. The documentation worktree starts at `1044b0722`; this is not verification of intervening code. Before implementation, freeze a fresh baseline and run parser/writer round trips, private/public collision and redaction tests, golden exports, defined-class and inconsistent-filler cases, restriction-mode parity with stated limits, native/WASM semantic fixtures and existing mutation/constraint tests. Acceptance also requires the same released fixture generation in native serving, publication and Loom, followed by a separately authorised runtime activation and rollback rehearsal.
+<!-- lands with ontomark step 10 -->
+Implementation evidence, per step: step 1 `ontomark/parse` (VC-01, 02, 07, 08, 13, 40, 41, 42, 57, 58), step 2 `ontomark/iri`, step 3 `ontomark/taxonomy`, step 4 `ontomark/reason`, step 5 `ontomark/ngg1`, step 6 `ontomark/rdf`, step 7 `ontomark/validate`, step 8 `ontomark/attribution`, step 9 `ontomark/write`, step 10 `ontomark/cli-publish`. Each branch carries a consumer migration test in `crates/visionclaw-domain/tests/` named for its step, which passes only when the consumer is on ontomark and the legacy code is gone. `verified_commit` is set to the merge commit when the branches land; activation stays `inactive` until the separately authorised runtime activation and rollback rehearsal. Initial source inspection used `2a2156dbb86e34269f67c870b6a7169c78380c24` with dirty vault build/model/projection files. The documentation worktree starts at `1044b0722`; this is not verification of intervening code. Before implementation, freeze a fresh baseline and run parser/writer round trips, private/public collision and redaction tests, golden exports, defined-class and inconsistent-filler cases, restriction-mode parity with stated limits, native/WASM semantic fixtures and existing mutation/constraint tests. Acceptance also requires the same released fixture generation in native serving, publication and Loom, followed by a separately authorised runtime activation and rollback rehearsal.

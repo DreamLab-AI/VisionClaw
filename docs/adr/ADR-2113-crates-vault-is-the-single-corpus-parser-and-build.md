@@ -2,11 +2,11 @@
 id: ADR-2113
 title: crates/vault is the single corpus parser and build
 date: 2026-09-22
-decision_status: accepted
+decision_status: superseded
 implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2042]
-superseded_by: []
+superseded_by: [ADR-2137]
 verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
 verified_paths: []
 owner: jjohare
@@ -15,6 +15,9 @@ repo: visionclaw
 ---
 
 # ADR-2113 — `crates/vault` is the single corpus parser and build
+
+<!-- lands with ontomark step 10 -->
+> **Superseded by [ADR-2137](ADR-2137-consume-shared-ontology-workspace.md).** The single parser, reasoner and build are now the ontomark crates and the `ontomark` CLI; `crates/vault-core` is deleted and `crates/vault` is only the AGPL governance adapter (`propose`, `apply`, `panel publish`). The text below is the historical decision.
 
 > Current amendment: [ADR-2117](ADR-2117-retire-corpus-format-migration.md)
 > removes the completed one-shot converter and core fence reader. Migration

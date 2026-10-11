@@ -240,6 +240,19 @@ ADR-2021 is partial against universal constructor use: direct provenance formatt
 
 ADR-2024's release overflow warning belongs to the typed flag setters. **Resolved since — ADR-2070 (2026-09-05):** the untyped branch no longer debug-asserts and passes the ID through unchanged; it calls the same `enforce_wire_id_bounds` as the five typed branches (`src/utils/binary_protocol.rs:445`), so all six log `error!` and mask in release. **Still open:** shared 26-bit masks do not prove allocator safety or generation consistency, and reconnect mapping evidence per class is still required; see [estate wire review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/rendered-state.md#wire-identifier-overflow-coverage).
 
+<!-- lands with ontomark step 10 -->
+## Slug and IRI ownership after ontomark (ADR-2137)
+
+The slug rule (`[^a-z0-9]+` collapsed to `-`), the `urn:ngm:class:<slug>` and
+`resource:` mint, and the namespace constants are owned by `ontomark-model` and the
+estate profile, not by `vault-core::slug`. VisionClaw keeps no slug function of its
+own: the competing variants in `src/uri/mod.rs`, `canonical_iri.rs`, the JSON-LD
+expander, `knowledge_graph_parser.rs`, the Oxigraph repository and the client's
+`pageLinks.ts` are repinned to that one rule (TypeScript through `ontomark-wasm`).
+`class_iri`, `parse_class_iri` and `CLASS_PREFIX` in `visionclaw-domain/src/uri.rs`
+remain the typed constructors for the minted string. Resource IRIs are immutable, and
+a rename keeps the old title as an alias.
+
 ## Remediation — 2026-09-05
 
 - **ADR-2070** — corrects the wire node-ID text: every encoder branch, the untyped fallback included,

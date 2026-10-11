@@ -17,14 +17,15 @@ The graph store is an **embedded Oxigraph** RDF quad-store (in-process, RocksDB-
 
 ## 1. Pipeline at a glance
 
-The corpus is frontmatter-only (ADR-2112): a page's ontology identity is its OKF `type`, `resource`, `title` and `slug` properties, and its relations are the list-of-wikilink keys that `ontology/vocabulary.yaml` declares. Every page is parsed once, by the same parser `vault build` uses (`vault_core::page::parse_page`, ADR-2113), so the graph and the published ontology read the corpus through one implementation. Neither `key:: value` lines nor `json-ld` fences carry meaning.
+The corpus is frontmatter-only (ADR-2112): a page's ontology identity is its OKF `type`, `resource`, `title` and `slug` properties, and its relations are the list-of-wikilink keys that `ontology/vocabulary.yaml` declares. <!-- lands with ontomark step 10 -->
+Every page is parsed once, by the same parser `ontomark build` uses (`ontomark-parse`, ADR-2137, which superseded the `vault-core` parser of ADR-2113), so the graph and the published ontology read the corpus through one implementation. Neither `key:: value` lines nor `json-ld` fences carry meaning.
 
 ```mermaid
 flowchart LR
     SRC["CorpusSource<br/>mounted vault (default) or GitHub"]
 
     subgraph Parse["Parse (src/services/page_parser.rs)"]
-        PP["parse_page<br/>→ vault_core::page::parse_page"]
+        PP["parse_page<br/>→ ontomark-parse"]
         PROJ["project_ontology<br/>vocabulary.yaml relations → OwlClass + OwlAxiom"]
     end
 
@@ -61,9 +62,10 @@ Each page is parsed once by `page_parser::parse_page`. A page whose frontmatter 
 
 ## 3. Stage 2 — OWL projection
 
-`page_parser::project_ontology` turns the ontology pages into an `OntologyProjection` — one `OwlClass` per page, keyed by its `resource`, plus the asserted axioms — through the vocabulary. A relation target resolves to the `resource` of the page it names (by page id, title or slug, case-insensitively), otherwise to `namespace + slug(target)`, the same long-tail IRI `vault build` mints. The taxonomy relation (the key whose property is `rdfs:subClassOf`) fills `parent_classes` and yields the `SubClassOf` axioms; the other vocabulary relations fill the class's relationship lists. The projection is loaded into `urn:ngm:graph:ontology:assert` (`load_ontology`, ADR-2064), rebuilt from the corpus on each full sync.
+`page_parser::project_ontology` turns the ontology pages into an `OntologyProjection` — one `OwlClass` per page, keyed by its `resource`, plus the asserted axioms — through the vocabulary. A relation target resolves to the `resource` of the page it names (by page id, title or slug, case-insensitively), otherwise to `namespace + slug(target)`, the same long-tail IRI `ontomark build` mints. The taxonomy relation (the key whose property is `rdfs:subClassOf`) fills `parent_classes` and yields the `SubClassOf` axioms; the other vocabulary relations fill the class's relationship lists. The projection is loaded into `urn:ngm:graph:ontology:assert` (`load_ontology`, ADR-2064), rebuilt from the corpus on each full sync.
 
-> The published ontology (`ontology.ttl`) is emitted by `vault build` (`crates/vault/src/build/turtle.rs`) from the same parsed pages; the two projections agree by construction.
+<!-- lands with ontomark step 10 -->
+> The published ontology (`ontology.ttl`) is emitted by `ontomark build` (`ontomark-compile`) from the same parsed pages; the two projections agree by construction. Oxigraph holds a query projection that is rebuilt from the markdown, not a source of record.
 
 ---
 
@@ -189,7 +191,8 @@ The ontology subsystem is the `visionclaw-ontology` crate, extracted under the h
 |--------|----------------|
 | `inference` | OWL 2 EL++ parser, inference cache, optimisation |
 | `reasoning` | custom Whelk-backed reasoner |
-| `ontology` | actor and physics modules, OWL validator service (page parsing moved to `vault_core`, ADR-2113) |
+<!-- lands with ontomark step 10 -->
+| `ontology` | actor and physics modules (page parsing and corpus validation moved to the ontomark crates, ADR-2137) |
 | `services/jsonld_ingest` | extractor → expander → validator → SHACL gate → triple emitter |
 | `services/jsonld_validator` | EL profile, SHACL-lite, IRI/class checks |
 | `validation`, `types`, `utils` | actor-state validation, MCP tool surface, time helpers |

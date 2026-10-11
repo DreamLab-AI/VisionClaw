@@ -83,12 +83,12 @@ VisionClaw is the embodiment-and-observation layer of the **Dynamic Agentic Mesh
 ```mermaid
 flowchart LR
     subgraph Corpus["Corpus (Obsidian vault, GitHub)"]
-        Vault["knowledge/ + working/ vaults\nYAML frontmatter · JSON-LD fences"]
+        Vault["knowledge/ + working/ vaults\nYAML frontmatter only"]
     end
 
     subgraph Server["Rust backend (Actix, hexagonal crates)"]
-        Sync["GitHub sync → PageMeta gate\n+ wikilink resolution"]
-        Whelk["OWL 2 EL (Whelk)\nintegrity → consistency → governance"]
+        Sync["Corpus ingest (local volume or GitHub)\nontomark-parse → PageMeta gate"]
+        Whelk["OWL 2 EL (ontomark-reason over whelk-el)\nintegrity → consistency → governance"]
         Elev["ElevationActor\n(judgment-broker case queue)"]
         Ingest["/wss/agent-events ingest\n→ 0x23 AGENT_ACTION beams"]
         MCP["MCP ontology tools"]
@@ -135,7 +135,8 @@ flowchart LR
     Loom -.->|"reads published corpus"| Vault
 ```
 
-A Cargo workspace of extracted crates makes up the backend (`contracts → domain → {gpu, ontology, protocol} → adapters → actors → xr-presence → server`) with hexagonal boundaries and direct dispatch, no CQRS bus. Oxigraph plus SQLite is the single canonical store ([ADR-2004](docs/adr/ADR-2004-oxigraph-sqlite-persistence.md)); the governing documents for stores, identity, data ownership, wire protocol, identifiers, security profiles, GPU ABI, the XR client and the corpus are indexed in [`docs/adr/README.md`](docs/adr/README.md). Longer reads: [System overview](docs/explanation/system-overview.md) · [Bounded contexts](docs/explanation/bounded-contexts.md).
+<!-- lands with ontomark step 10 -->
+The corpus semantics (parsing, vocabulary model, reasoning, validation, bundle compile) belong to the separate [ontomark](https://github.com/jjohare/ontomark) crates and CLI, not to this repository; the only corpus code left here is the AGPL `vault` governance adapter (`propose`, `apply`, `panel publish`). Oxigraph is a query projection rebuilt from the markdown, never the source of record. A Cargo workspace of extracted crates makes up the backend (`contracts → domain → {gpu, ontology, protocol} → adapters → actors → xr-presence → server`) with hexagonal boundaries and direct dispatch, no CQRS bus. Oxigraph plus SQLite is the single canonical store ([ADR-2004](docs/adr/ADR-2004-oxigraph-sqlite-persistence.md)); the governing documents for stores, identity, data ownership, wire protocol, identifiers, security profiles, GPU ABI, the XR client and the corpus are indexed in [`docs/adr/README.md`](docs/adr/README.md). Longer reads: [System overview](docs/explanation/system-overview.md) · [Bounded contexts](docs/explanation/bounded-contexts.md).
 
 ---
 
