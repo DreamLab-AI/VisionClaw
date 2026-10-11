@@ -31,7 +31,8 @@ The ontology processing pipeline transforms OWL data from GitHub into physics fo
 ### Pipeline Stages
 
 1. **GitHub Sync** - Parse and store OWL data
-2. **Reasoning** - Infer missing axioms with CustomReasoner
+<!-- lands with ontomark step 4 -->
+2. **Reasoning** - Infer missing axioms with `ontomark-reason` (Whelk EL). The hand-rolled `CustomReasoner` transitive-closure stage is removed (ADR-2137, decision D5); the inferred-edge view and the physics constraint projection both read `ontomark-reason`'s inferred set
 3. **Constraint Generation** - Convert axioms to physics forces
 4. **GPU Upload** - Transfer constraints to CUDA
 5. **Physics Simulation** - Apply forces to node positions
