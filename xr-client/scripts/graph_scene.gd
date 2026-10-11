@@ -296,9 +296,11 @@ const HUD_QUAD_W: float = 1.4
 # SubViewport exactly so the ray→UV mapping below is undistorted (task #20 redesign;
 # was 0.9 against a 1024×640 viewport — a latent aspect mismatch).
 const HUD_QUAD_H: float = 0.875
-# Physics param clamps.
+# Physics param clamps. REPEL_K_MAX must not exceed the server's validator bound
+# (physics_bounds::REPEL_K, 0..500): a Spread press that clamps above it is rejected
+# with HTTP 400 and the whole PUT is discarded.
 const REPEL_K_MIN: float = 20.0
-const REPEL_K_MAX: float = 1000.0
+const REPEL_K_MAX: float = 500.0
 const REST_LENGTH_MIN: float = 10.0
 const REST_LENGTH_MAX: float = 400.0
 const NODE_SIZE_FACTOR_MIN: float = 0.3
