@@ -51,10 +51,23 @@ pub struct PageDocument {
 /// `expect` asserts that invariant rather than hiding it.
 #[must_use]
 #[allow(clippy::implicit_hasher, clippy::too_many_lines)]
+/// [`build_attributed`] with an empty roster.
 pub fn build(
     corpus: &Corpus,
     closure: &Closure,
     backlinks: &HashMap<String, Vec<String>>,
+) -> (Vec<PageDocument>, Value) {
+    build_attributed(corpus, closure, backlinks, &super::attribution::Roster::default())
+}
+
+/// Page documents with a `provenance` block when the page's generator resolves in the roster.
+#[must_use]
+#[allow(clippy::implicit_hasher, clippy::too_many_lines)]
+pub fn build_attributed(
+    corpus: &Corpus,
+    closure: &Closure,
+    backlinks: &HashMap<String, Vec<String>>,
+    roster: &super::attribution::Roster,
 ) -> (Vec<PageDocument>, Value) {
     let public: Vec<&ClassRecord> = corpus.public().collect();
     let slug_to_title: HashMap<&str, &str> = public
@@ -75,6 +88,13 @@ pub fn build(
         if record.has_ontology {
             entry.insert("classIri".into(), json!(record.iri));
             entry.insert("domain".into(), json!(record.domain));
+            if let Some(gen) = record.generated_by.as_ref().and_then(|a| roster.resolve(a)) {
+                entry.insert("provenance".into(), json!({
+                    "wasAttributedTo": gen.did,
+                    "label": gen.label,
+                    "actor": record.generated_by.as_ref().map(|a| a.as_string()),
+                }));
+            }
             entry.insert("definition".into(), json!(record.definition));
             entry.insert("subClassOf".into(), refs_to_json(&record.sub_class_of));
             entry.insert("entityType".into(), json!(record.entity_type.as_str()));
@@ -192,6 +212,7 @@ mod tests {
             maturity: "draft".into(),
             quality: 0.5,
             legacy_term_id: String::new(),
+            generated_by: None,
             sub_class_of: Vec::new(),
             instance_of: Vec::new(),
             relations: IndexMap::new(),

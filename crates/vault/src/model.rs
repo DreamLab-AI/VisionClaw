@@ -153,6 +153,10 @@ pub struct ClassRecord {
     /// `legacy-term-id` — the pre-urn identifier (`AI-0376`, `RB-0162`) the
     /// `WebVOWL` node attributes carry as `term_id`. 2,466 pages have one.
     pub legacy_term_id: String,
+    /// Who generated the page, from the OKF `generated.by` stamp (an [`Actor`]), or
+    /// `None` when the page carries no parseable stamp. Resolved to a `did:nostr`
+    /// by the attribution roster at emit time; never guessed.
+    pub generated_by: Option<vault_core::okf::Actor>,
     /// `is-a`.
     pub sub_class_of: Vec<Ref>,
     /// `instance-of`.
@@ -394,6 +398,7 @@ impl Corpus {
                     .unwrap_or_else(|| "draft".to_owned()),
                 quality: fm.number("quality").unwrap_or(0.0),
                 legacy_term_id: fm.text("legacy-term-id").unwrap_or_default(),
+                generated_by: fm.get("generated").and_then(vault_core::okf::Stamp::from_yaml).map(|st| st.by),
                 sub_class_of: links_of(page, IS_A_KEY),
                 instance_of: links_of(page, INSTANCE_OF_KEY),
                 relations,

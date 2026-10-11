@@ -211,6 +211,7 @@ scalars:
             maturity: "established".into(),
             quality: 0.5,
             legacy_term_id: String::new(),
+            generated_by: None,
             sub_class_of: Vec::new(),
             instance_of: Vec::new(),
             relations: IndexMap::new(),

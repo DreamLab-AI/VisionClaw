@@ -36,7 +36,8 @@ use vault_core::vocabulary::Vocabulary;
 const DIVERGENCES: &str =
     "search-index labels (superset); ontology-inferred (Whelk, by contract); \
      prose-index cl (superset: markdown-form Current Landscape headings); \
-     ontology.ttl drops owl:Thing property domain/range (ADR-2128)";
+     ontology.ttl drops owl:Thing property domain/range (ADR-2128); \
+     ontology.ttl declares prov:wasAttributedTo (per-class attribution, 2026-10-11)";
 
 /// Divergence 4: `true` for a `vc:P rdfs:domain|rdfs:range owl:Thing` line as
 /// [`ground_triples`] renders it.
@@ -257,7 +258,7 @@ fn the_asserted_turtle_has_the_same_triples() {
     let produced = out.join("data/ontology.ttl");
 
     let mut expected = ground_triples(&golden);
-    let actual = ground_triples(&produced);
+    let mut actual = ground_triples(&produced);
 
     // Divergence 4 (ADR-2128), removed by rule and pinned by count so nothing
     // else can hide behind it.
@@ -273,6 +274,10 @@ fn the_asserted_turtle_has_the_same_triples() {
         "vault emits no owl:Thing property signature ({DIVERGENCES})"
     );
 
+    // Divergence 3: vault declares prov:wasAttributedTo as an annotation property so the
+    // per-class attribution it emits stays EL-conformant; the Python reference never
+    // attributed classes, so the golden lacks the declaration.
+    actual.retain(|t| !t.starts_with("<http://www.w3.org/ns/prov#wasAttributedTo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"));
     let missing: Vec<&String> = expected.difference(&actual).take(5).collect();
     let extra: Vec<&String> = actual.difference(&expected).take(5).collect();
     assert!(
