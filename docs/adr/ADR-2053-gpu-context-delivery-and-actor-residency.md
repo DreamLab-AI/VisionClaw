@@ -164,3 +164,26 @@ The release check matters here beyond habit: it is the arm in which the
 `#[cfg(any(debug_assertions, feature = "dev-auth"))]` gates added under ADR-2044
 and ADR-2058 disappear, so it type-checks the code path a shipped binary actually
 takes.
+
+## Addendum 2026-10-12: the `ForceComputeActor` self-initialisation fallback (TODO-unified S-4 item 4)
+
+This record names `ResourceSupervisor` as the authoritative path for GPU context
+delivery. It did not mention that `ForceComputeActor::initialize_own_gpu_context`
+(`src/actors/gpu/force_compute_actor.rs`) can build a `SharedGPUContext` itself: it
+opens a CUDA device, loads the PTX modules and constructs the context directly, outside
+the supervisor chain. That is deliberate and is recorded here as such.
+
+- **When it runs.** Only if `shared_context` is still `None`; a context delivered by
+  `SetSharedGPUContext` always wins and the method returns at once. It is also attempted
+  lazily on the first physics step if no context has arrived.
+- **Why it exists.** The supervisor chain (`GPUResourceActor` to `GPUManagerActor` to
+  `ResourceSupervisor` to `PhysicsSupervisor` to `ForceComputeActor`) is subject to message
+  races at boot; the fallback keeps GPU physics from staying disabled behind a lost message.
+- **Bounded.** A retry budget with exponential backoff; when it is exhausted the actor stops
+  trying and reports through `notify_gpu_init_failed`.
+- **Cost.** A context built this way is invisible to `ResourceSupervisor`'s accounting and
+  health view, so memory limits and `GetSubsystemHealth` do not cover it. Treat it as a
+  degraded path, not a second authority: a boot log line `GPU context self-initialized
+  successfully` means the supervisor path failed.
+- **Review trigger.** Remove the fallback once context delivery has been boot-reliable
+  across a release, or fold it into the supervisor so the context is registered there.
