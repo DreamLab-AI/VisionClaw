@@ -234,6 +234,9 @@ Row changes: **S-2 closed (source)**, **S-7** restated (a, b closed), **S-3** an
 | S-3 | open (annotated) | The record half is done: agentbox ADR-2042 (`aa40b24d5`) now exists, `accepted`/`partial`/`live`, stating the two-path identity rule and the `0.0.0.0` trust caveat. Its README row is hand-added because `adr-index-gen.js` still refuses on 35 stale records. The code half (loopback bind, or NIP-98 on path 2) is not started: both change a wire contract for callers (VisionClaw `management_api_client`, the proxy, break-glass tooling) and need their own plan. |
 | S-4 | open (annotated) | Not deleted this pass. (1) The handler is registered at `src/main.rs:1174`, a file carrying uncommitted edits; remove the registration, the module and `tests/examples/multi_mcp_integration_demo.rs` together once `main.rs` is clean. (2) Do not delete the two feature bits: `docs/GPU-wire-abi.md:77,79,214` and ADR-2060 deliberately keep them declared as wire ABI, so the row's "delete" contradicts the ABI record; correct the row or amend ADR-2060 first. (3) `OntologyReasoningService` has an integration test (`tests/ontology_reasoning_integration_test.rs`) and a unit-test helper beyond `test_helpers.rs:276`, so removal is a test migration, not a one-line delete. (4) unchanged. |
 
+
+**Location correction (same day).** The S-7a/b and ADR-2042 work was first committed as `aa40b24d5` on the agentbox feature branch `feat/ontomark-cli-ab-p6`, not main. It is cherry-picked onto agentbox branch `fix/s7-hygiene` (`2ee7c4874`, `86308cc91`), cut from main and unmerged, with `BASELINE-container.md` corrected to main's 4,581-line flake. Treat S-2 as closed in nostr-rust-forum `main` (`66ca8d8`, unpushed) and S-7a/b and the S-3 record half as closed on `fix/s7-hygiene` until it merges.
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
