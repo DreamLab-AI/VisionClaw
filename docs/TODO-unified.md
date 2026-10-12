@@ -230,12 +230,38 @@ Row changes: **S-2 closed (source)**, **S-7** restated (a, b closed), **S-3** an
 | ID | State | Evidence and remaining boundary |
 |---|---|---|
 | S-2 | closed (source) `66ca8d8` | **Forum relay schema.** Migration `0009_events.sql` creates `events` with the full column set (`d_tag`, `received_at` included) and `channel_creators`; `ensure_schema` runs the same DDL, ALTERs a seven-column table up to it, and adds the pubkey, created and replaceable indexes. SETUP.md now points at the migration. The dead `members` query is gone from `auth.rs` (admin resolution is `ADMIN_PUBKEYS` plus `whitelist.is_admin`). The creator is written to `channel_creators` when a kind-40 is saved and `is_channel_creator` reads it first, falling back to the kind-40 event for channels that predate the table. `tests/events_schema.rs` runs the migration and the real `save_event` INSERT against SQLite, shows the old seven-column table rejecting writes, and shows the creator surviving a kind-5 deletion; 370 + 7 relay-worker tests pass and wasm32 checks. Remaining boundary: a deployed D1 is not migrated by this commit; it picks the change up at the next relay deploy, and a pre-0009 channel with a deleted kind-40 has no recorded creator to recover. |
-| S-7 | open (a, b closed) | (a) closed `aa40b24d5`: `junkiejarvis` has a CATALOGUE entry (`boot`, gate `sovereign_mesh.junkiejarvis`) and `tests/config/sovereign-mesh-catalogue.test.cjs`. (b) closed `aa40b24d5`: BASELINE-container says flake 4,684 lines and ruvector 0.3.3. (c) not changed: the feeder already reports `engine_stored` beside `fed`, and its header comment explains the 384-dimension steady state; relabelling the headline count is a metrics-contract choice for the owner. (d) not changed: `deploy.yml` reads the scripts' output under `set -euo pipefail` and greps for the OK marker; a non-zero exit would fail the `$(...)` assignment before the report is echoed, and the dream-cycle annexe dispatch also expects exit 0, so this needs a deliberate change to both consumers. (e), (f) untouched. |
+| S-7 | open (a, b closed) | (a) closed `aa40b24d5`: `junkiejarvis` has a CATALOGUE entry (`boot`, gate `sovereign_mesh.junkiejarvis`) and `tests/config/sovereign-mesh-catalogue.test.cjs`. (b) closed `aa40b24d5`: BASELINE-container says flake 4,581 lines on main (4,684 was the feature-branch figure, corrected in `86308cc91`) and ruvector 0.3.3. (c) not changed: the feeder already reports `engine_stored` beside `fed`, and its header comment explains the 384-dimension steady state; relabelling the headline count is a metrics-contract choice for the owner. (d) not changed: `deploy.yml` reads the scripts' output under `set -euo pipefail` and greps for the OK marker; a non-zero exit would fail the `$(...)` assignment before the report is echoed, and the dream-cycle annexe dispatch also expects exit 0, so this needs a deliberate change to both consumers. (e), (f) untouched. |
 | S-3 | open (annotated) | The record half is done: agentbox ADR-2042 (`aa40b24d5`) now exists, `accepted`/`partial`/`live`, stating the two-path identity rule and the `0.0.0.0` trust caveat. Its README row is hand-added because `adr-index-gen.js` still refuses on 35 stale records. The code half (loopback bind, or NIP-98 on path 2) is not started: both change a wire contract for callers (VisionClaw `management_api_client`, the proxy, break-glass tooling) and need their own plan. |
 | S-4 | open (annotated) | Not deleted this pass. (1) The handler is registered at `src/main.rs:1174`, a file carrying uncommitted edits; remove the registration, the module and `tests/examples/multi_mcp_integration_demo.rs` together once `main.rs` is clean. (2) Do not delete the two feature bits: `docs/GPU-wire-abi.md:77,79,214` and ADR-2060 deliberately keep them declared as wire ABI, so the row's "delete" contradicts the ABI record; correct the row or amend ADR-2060 first. (3) `OntologyReasoningService` has an integration test (`tests/ontology_reasoning_integration_test.rs`) and a unit-test helper beyond `test_helpers.rs:276`, so removal is a test migration, not a one-line delete. (4) unchanged. |
 
 
 **Location correction (same day).** The S-7a/b and ADR-2042 work was first committed as `aa40b24d5` on the agentbox feature branch `feat/ontomark-cli-ab-p6`, not main. It is cherry-picked onto agentbox branch `fix/s7-hygiene` (`2ee7c4874`, `86308cc91`), cut from main and unmerged, with `BASELINE-container.md` corrected to main's 4,581-line flake. Treat S-2 as closed in nostr-rust-forum `main` (`66ca8d8`, unpushed) and S-7a/b and the S-3 record half as closed on `fix/s7-hygiene` until it merges.
+
+
+### Second pass, 2026-10-12: every open row assessed
+
+Closed on evidence this pass (source or record; no deployment asserted):
+
+| ID | State | Evidence |
+|---|---|---|
+| N-5 | closed | Forum ADR-2019 is committed (`8044871`, `649b1c0`), `accepted`/`complete`/`staged`; the forum working tree carries no ADR edits. |
+| N-7 | closed | The prompt egress register exists (agentbox `docs/SECURITY-profiles.md`, 31 routes, rendered from `config/egress-policy.json`) with `skill-router` (ADR-2091) and `system-one-local` (ADR-2094) rows, each citing its accepted-egress ADR, and `docs/LAN-door-threat-model.md` links it. |
+| N-11 | closed | prose-sanitiser `v0.1.3` tagged, crates.io max version 0.1.3, lockfile at rustls 0.23.45 (`b134ddb`), 0.1.3 baked in the running image. |
+| N-12 | closed (source) | Engine repairs `06ddf72ca`, `da800ade9` plus fixture tests in `services/dream-engine/src/persist.rs` (headerless, mid-file, miscounted-hunk, recount, normalising never changes a line): 16 persist tests pass. Unobserved: whether subsequent nights land patches; confirm against the next ledger rows. |
+| S-7e | closed (source) | solid-pod-rs `ci.yml` job `fuzz-and-bench` (weekly and dispatch only, outside `ci-required`): 60 s `sparql_update` fuzz plus `cargo bench -- --test`. Locally verified: the fuzz crate type-checks and a bench runs in `--test` mode; `cargo-fuzz` itself is not installed here, so the job is unrun. |
+| S-4 (4) | closed (record) | ADR-2053 addendum names the `ForceComputeActor` self-initialisation fallback. Items (1)-(3) stay as annotated above. |
+
+Left open, with the reason each is not batchable from this container:
+
+| ID | Why not now |
+|---|---|
+| S-7f | Fix is three lines in `http_handler.rs`: keep the validated legacy session (`signed_user = session;` after the `get_session` result is checked) so a header-session client gets `ws_server.pubkey`. Not applied: the crate's GPU build script fails in this container (nvcc), so it could not be type-checked, and it changes an auth-adjacent path. Needs a host build. |
+| S-7c, S-7d | Owner choice of metric (c); two consumers to change together (d), see the 2026-10-12 annotation. |
+| S-3 code, S-4 (1)-(3), S-5, S-6 | Wire contract needing its own plan; `main.rs` dirty; test migration and an ABI record that contradicts the row; gated on ADR-VG-004; S-6: the podkey repo publishes no GitHub release (`releases` is empty), so there is no asset to re-pin to before 2026-12-24 and the fix is upstream. |
+| X-1, X-2, X-3, X-4, N-6 | Programmes with their own ADR (role isolation staged under ADR-2122; X-4 waits on ADR-2071, still `proposed`). |
+| N-2 | Forum ActionRequest `vault propose` apply path: a cross-repo wire contract needing a plan and review first. |
+| N-1, N-4, N-10, CY-A2, CY-A3, N-13, AC-FORUM-1 and the `blocked` rows | Need a running deployment, host build, owner receipt or green nights. |
+| N-3 | Host ADR-2111 is `proposed`: an owner decision. |
 
 ## Removed as resolved in this execution
 
