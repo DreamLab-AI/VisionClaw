@@ -1,0 +1,366 @@
+{
+  "fields": [
+    {
+      "default": false,
+      "description": "Pull nodes onto the plane for their hierarchy level. Imposes layers: meaningful only for hierarchical corpora",
+      "group": "DAG Layering",
+      "kind": "toggle",
+      "label": "DAG Layering",
+      "path": "dag.enabled"
+    },
+    {
+      "default": 100.0,
+      "description": "Distance between hierarchy levels",
+      "group": "DAG Layering",
+      "kind": "slider",
+      "label": "Level Spacing",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "dag.verticalSpacing",
+      "step": 10.0
+    },
+    {
+      "default": 50.0,
+      "description": "Minimum separation between siblings on one level",
+      "group": "DAG Layering",
+      "kind": "slider",
+      "label": "Sibling Spacing",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "dag.horizontalSpacing",
+      "step": 10.0
+    },
+    {
+      "default": 0.03,
+      "description": "Pull toward the level plane",
+      "group": "DAG Layering",
+      "kind": "slider",
+      "label": "Level Attraction",
+      "max": 1.0,
+      "min": 0.0,
+      "path": "dag.levelAttraction",
+      "step": 0.005
+    },
+    {
+      "default": 0.05,
+      "description": "Push between same-level nodes closer than the sibling spacing",
+      "group": "DAG Layering",
+      "kind": "slider",
+      "label": "Sibling Repulsion",
+      "max": 5.0,
+      "min": 0.0,
+      "path": "dag.siblingRepulsion",
+      "step": 0.01
+    },
+    {
+      "default": true,
+      "description": "Gather nodes of the same ontology type around the type centroid",
+      "group": "Type Clustering",
+      "kind": "toggle",
+      "label": "Type Clustering",
+      "path": "typeCluster.enabled"
+    },
+    {
+      "default": 0.4,
+      "description": "Pull toward the type centroid beyond the cluster radius",
+      "group": "Type Clustering",
+      "kind": "slider",
+      "label": "Attraction",
+      "max": 2.0,
+      "min": 0.0,
+      "path": "typeCluster.clusterAttraction",
+      "step": 0.01
+    },
+    {
+      "default": 150.0,
+      "description": "Distance within which no pull applies",
+      "group": "Type Clustering",
+      "kind": "slider",
+      "label": "Cluster Radius",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "typeCluster.clusterRadius",
+      "step": 10.0
+    },
+    {
+      "default": 0.2,
+      "description": "Push away from nodes of other types",
+      "group": "Type Clustering",
+      "kind": "slider",
+      "label": "Inter-Cluster Repulsion",
+      "max": 50.0,
+      "min": 0.0,
+      "path": "typeCluster.interClusterRepulsion",
+      "step": 0.1
+    },
+    {
+      "default": true,
+      "description": "Keep nodes from overlapping",
+      "group": "Collision",
+      "kind": "toggle",
+      "label": "Collision",
+      "path": "collision.enabled"
+    },
+    {
+      "default": 5.0,
+      "description": "Smallest allowed gap between nodes",
+      "group": "Collision",
+      "kind": "slider",
+      "label": "Minimum Distance",
+      "max": 100.0,
+      "min": 0.0,
+      "path": "collision.minDistance",
+      "step": 1.0
+    },
+    {
+      "default": 0.2,
+      "description": "Push applied when nodes collide",
+      "group": "Collision",
+      "kind": "slider",
+      "label": "Strength",
+      "max": 5.0,
+      "min": 0.0,
+      "path": "collision.collisionStrength",
+      "step": 0.05
+    },
+    {
+      "default": 10.0,
+      "description": "Collision radius of a node",
+      "group": "Collision",
+      "kind": "slider",
+      "label": "Node Radius",
+      "max": 200.0,
+      "min": 1.0,
+      "path": "collision.nodeRadius",
+      "step": 1.0
+    },
+    {
+      "default": true,
+      "description": "Springs whose rest length follows the edge weight",
+      "group": "Weighted Springs",
+      "kind": "toggle",
+      "label": "Weighted Springs",
+      "path": "attributeSpring.enabled"
+    },
+    {
+      "default": 0.01,
+      "description": "Base spring constant",
+      "group": "Weighted Springs",
+      "kind": "slider",
+      "label": "Base Strength",
+      "max": 1.0,
+      "min": 0.0,
+      "path": "attributeSpring.baseSpringK",
+      "step": 0.005
+    },
+    {
+      "default": 0.5,
+      "description": "How strongly the edge weight scales the spring",
+      "group": "Weighted Springs",
+      "kind": "slider",
+      "label": "Weight Influence",
+      "max": 5.0,
+      "min": 0.0,
+      "path": "attributeSpring.weightMultiplier",
+      "step": 0.05
+    },
+    {
+      "default": 30.0,
+      "description": "Rest length of the heaviest edges",
+      "group": "Weighted Springs",
+      "kind": "slider",
+      "label": "Shortest Rest Length",
+      "max": 1000.0,
+      "min": 5.0,
+      "path": "attributeSpring.restLengthMin",
+      "step": 5.0
+    },
+    {
+      "default": 200.0,
+      "description": "Rest length of the lightest edges",
+      "group": "Weighted Springs",
+      "kind": "slider",
+      "label": "Longest Rest Length",
+      "max": 1000.0,
+      "min": 5.0,
+      "path": "attributeSpring.restLengthMax",
+      "step": 5.0
+    },
+    {
+      "default": true,
+      "description": "Gather virtual, physical and conceptual nodes separately",
+      "group": "Physicality Clustering",
+      "kind": "toggle",
+      "label": "Physicality Clustering",
+      "path": "physicalityCluster.enabled"
+    },
+    {
+      "default": 0.5,
+      "description": "Pull toward the physicality centroid",
+      "group": "Physicality Clustering",
+      "kind": "slider",
+      "label": "Attraction",
+      "max": 2.0,
+      "min": 0.0,
+      "path": "physicalityCluster.clusterAttraction",
+      "step": 0.01
+    },
+    {
+      "default": 180.0,
+      "description": "Distance within which no pull applies",
+      "group": "Physicality Clustering",
+      "kind": "slider",
+      "label": "Cluster Radius",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "physicalityCluster.clusterRadius",
+      "step": 10.0
+    },
+    {
+      "default": 0.25,
+      "description": "Push away from nodes of another physicality",
+      "group": "Physicality Clustering",
+      "kind": "slider",
+      "label": "Inter-Cluster Repulsion",
+      "max": 50.0,
+      "min": 0.0,
+      "path": "physicalityCluster.interPhysicalityRepulsion",
+      "step": 0.1
+    },
+    {
+      "default": true,
+      "description": "Gather process, agent, resource and concept nodes separately",
+      "group": "Role Clustering",
+      "kind": "toggle",
+      "label": "Role Clustering",
+      "path": "roleCluster.enabled"
+    },
+    {
+      "default": 0.45,
+      "description": "Pull toward the role centroid",
+      "group": "Role Clustering",
+      "kind": "slider",
+      "label": "Attraction",
+      "max": 2.0,
+      "min": 0.0,
+      "path": "roleCluster.clusterAttraction",
+      "step": 0.01
+    },
+    {
+      "default": 160.0,
+      "description": "Distance within which no pull applies",
+      "group": "Role Clustering",
+      "kind": "slider",
+      "label": "Cluster Radius",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "roleCluster.clusterRadius",
+      "step": 10.0
+    },
+    {
+      "default": 0.2,
+      "description": "Push away from nodes of another role",
+      "group": "Role Clustering",
+      "kind": "slider",
+      "label": "Inter-Cluster Repulsion",
+      "max": 50.0,
+      "min": 0.0,
+      "path": "roleCluster.interRoleRepulsion",
+      "step": 0.1
+    },
+    {
+      "default": false,
+      "description": "Layer nodes along Z by maturity stage. Imposes layers: off unless wanted",
+      "group": "Maturity Layering",
+      "kind": "toggle",
+      "label": "Maturity Layering",
+      "path": "maturityLayout.enabled"
+    },
+    {
+      "default": 150.0,
+      "description": "Spacing between maturity stages",
+      "group": "Maturity Layering",
+      "kind": "slider",
+      "label": "Stage Spacing",
+      "max": 1000.0,
+      "min": 10.0,
+      "path": "maturityLayout.verticalSpacing",
+      "step": 10.0
+    },
+    {
+      "default": 0.08,
+      "description": "Pull toward the stage plane",
+      "group": "Maturity Layering",
+      "kind": "slider",
+      "label": "Stage Attraction",
+      "max": 1.0,
+      "min": 0.0,
+      "path": "maturityLayout.levelAttraction",
+      "step": 0.005
+    },
+    {
+      "default": 100.0,
+      "description": "Z distance between adjacent stages",
+      "group": "Maturity Layering",
+      "kind": "slider",
+      "label": "Stage Separation",
+      "max": 1000.0,
+      "min": 0.0,
+      "path": "maturityLayout.stageSeparation",
+      "step": 10.0
+    },
+    {
+      "default": true,
+      "description": "Strengthen links that cross ontology domains",
+      "group": "Cross-Domain Links",
+      "kind": "toggle",
+      "label": "Cross-Domain Links",
+      "path": "crossDomain.enabled"
+    },
+    {
+      "default": 0.3,
+      "description": "Strength of a cross-domain link",
+      "group": "Cross-Domain Links",
+      "kind": "slider",
+      "label": "Base Strength",
+      "max": 2.0,
+      "min": 0.0,
+      "path": "crossDomain.baseStrength",
+      "step": 0.01
+    },
+    {
+      "default": 0.1,
+      "description": "Extra strength per cross-domain link a node has",
+      "group": "Cross-Domain Links",
+      "kind": "slider",
+      "label": "Per-Link Boost",
+      "max": 1.0,
+      "min": 0.0,
+      "path": "crossDomain.linkCountMultiplier",
+      "step": 0.01
+    },
+    {
+      "default": 2.0,
+      "description": "Upper bound on the link-count boost",
+      "group": "Cross-Domain Links",
+      "kind": "slider",
+      "label": "Maximum Boost",
+      "max": 10.0,
+      "min": 0.0,
+      "path": "crossDomain.maxStrengthBoost",
+      "step": 0.1
+    },
+    {
+      "default": 200.0,
+      "description": "Rest length of cross-domain links",
+      "group": "Cross-Domain Links",
+      "kind": "slider",
+      "label": "Rest Length",
+      "max": 1000.0,
+      "min": 5.0,
+      "path": "crossDomain.restLength",
+      "step": 5.0
+    }
+  ],
+  "generatedFrom": "visionclaw_domain::types::semantic_config::FIELDS"
+}

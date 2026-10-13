@@ -7,9 +7,10 @@ import manifestJson from '../settings-manifest.json';
 // ControlPanel/unifiedSettingsConfig.ts (now deleted — WP5 cutover) before deletion.
 // Every registry path must equal one of these, and vice versa — zero drift.
 import legacyFixture from './legacy-paths.fixture.json';
+import semanticDoc from '../semanticFields.json';
 
 const EXPECTED_GROUP_COUNTS: Record<string, number> = {
-  motion: 54,
+  motion: 84,
   look: 29,
   labels: 10,
   quality: 32,
@@ -78,13 +79,26 @@ const NETWORK_PATHS: string[] = [
  * (`graphSeparationX`) went with ADR-2135's 2026-10-08 amendment: the three
  * bodies are always apart at a fixed separation, so it is no longer a setting.
  */
+/** The semantic-force controls: the physics `semantic` group, defined once in Rust and emitted as
+ *  semanticFields.json. They post-date the WP5 baseline, so (c) excludes them and (c6) asserts them. */
+const SEMANTIC_PATHS: string[] = (semanticDoc as { fields: { path: string }[] }).fields.map(
+  (f) => `visualisation.graphs.knowledge.physics.semantic.${f.path}`,
+);
+
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
+  // Moved into the physics `semantic` group (one stored definition, applied unscaled by the
+  // GPU); the quality-gate copies and their REST propagation were removed (ADR-2140).
+  'qualityGates.semanticForces',
+  'qualityGates.dagLevelAttraction',
+  'qualityGates.dagSiblingRepulsion',
+  'qualityGates.typeClusterAttraction',
+  'qualityGates.typeClusterRadius',
 ];
 
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
-  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length;
+  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -202,12 +216,13 @@ describe('control-center settings registry', () => {
     const wave1Set = new Set(WAVE1_LAYOUT_PATHS);
     const memorySet = new Set(MEMORY_EXPLORER_PATHS);
     const networkSet = new Set(NETWORK_PATHS);
+    const semanticSet = new Set(SEMANTIC_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -266,6 +281,29 @@ describe('control-center settings registry', () => {
     expect(WAVE1_LAYOUT_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     // and they all route to the physics bucket (not clientOnly)
     for (const p of WAVE1_LAYOUT_PATHS) expect(serverBucketFor(p)).toBe('physics');
+  });
+
+  it('(c6) the semantic-force controls are the shared JSON document, on the physics bucket', () => {
+    const motion = REGISTRY.find((g) => g.id === 'motion')!;
+    const byPath = new Map(motion.fields.map((f) => [f.path, f]));
+    const rows = (semanticDoc as { fields: { path: string; kind: string; label: string; min?: number; max?: number; step?: number }[] }).fields;
+    expect(rows).toHaveLength(35);
+    for (const row of rows) {
+      const f = byPath.get(`visualisation.graphs.knowledge.physics.semantic.${row.path}`);
+      expect(f, row.path).toBeDefined();
+      expect(f!.type).toBe(row.kind);
+      expect(f!.label).toBe(row.label);
+      if (row.kind === 'slider') {
+        expect([f!.min, f!.max, f!.step]).toEqual([row.min, row.max, row.step]);
+      }
+      expect(serverBucketFor(f!.path)).toBe('physics');
+    }
+    // eight forces, each with exactly one enable toggle
+    expect(rows.filter((r) => r.kind === 'toggle')).toHaveLength(8);
+    // and none of the retired quality-gate copies is still registered
+    for (const old of ['semanticForces', 'dagLevelAttraction', 'dagSiblingRepulsion', 'typeClusterAttraction', 'typeClusterRadius']) {
+      expect(ALL_PATHS).not.toContain(`qualityGates.${old}`);
+    }
   });
 
   it('(c5) the memory explorer paths sit in Atmosphere, disjoint from legacy, on the visual bucket', () => {

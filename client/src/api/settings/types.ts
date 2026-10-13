@@ -1,7 +1,17 @@
 // api/settings/types.ts
 // Type definitions matching Rust backend exactly
 
+/**
+ * The semantic-force group of the physics settings (`physics.semantic`). Its shape, ranges and
+ * defaults are defined once, in the Rust field table (`semantic_config::FIELDS`), which is also
+ * emitted as `registry/semanticFields.json`; this is deliberately an open nested record rather
+ * than a hand-copied list of 35 fields.
+ */
+export type SemanticForceSettings = Record<string, Record<string, number | boolean>>;
+
 export interface PhysicsSettings {
+  /** Every semantic force with its own `enabled` flag (see SemanticForceSettings). */
+  semantic?: SemanticForceSettings;
   // --- Simulation control ---
   enabled: boolean;
   autoBalance: boolean;
@@ -113,7 +123,6 @@ export interface NodeFilterSettings {
 export interface QualityGateSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
-  semanticForces: boolean;
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;
@@ -126,10 +135,6 @@ export interface QualityGateSettings {
   maxNodeCount: number;
   autoAdjust: boolean;
   ontologyStrength: number;
-  dagLevelAttraction: number;
-  dagSiblingRepulsion: number;
-  typeClusterAttraction: number;
-  typeClusterRadius: number;
 }
 
 export interface AllSettings {

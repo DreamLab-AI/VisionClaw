@@ -31,16 +31,16 @@ use validator::Validate;
 #[serde(rename_all = "camelCase", default)]
 pub struct DagForce {
     /// Distance between hierarchy levels.
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub vertical_spacing: f32,
     /// Minimum separation between siblings on one level.
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub horizontal_spacing: f32,
     /// Pull toward the level plane (force per unit of distance from it).
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 1.0))]
     pub level_attraction: f32,
     /// Push between nodes closer than `horizontalSpacing` on the same level.
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 5.0))]
     pub sibling_repulsion: f32,
     pub enabled: bool,
 }
@@ -56,12 +56,12 @@ impl Default for DagForce {
 #[serde(rename_all = "camelCase", default)]
 pub struct TypeClusterForce {
     /// Pull toward the centroid once a node is farther from it than `clusterRadius`.
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 2.0))]
     pub cluster_attraction: f32,
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub cluster_radius: f32,
     /// Push away from nodes of other types within `2 x clusterRadius` (falls off as 1/d^2).
-    #[validate(range(min = 0.0, max = 1000.0))]
+    #[validate(range(min = 0.0, max = 50.0))]
     pub inter_cluster_repulsion: f32,
     pub enabled: bool,
 }
@@ -76,11 +76,11 @@ impl Default for TypeClusterForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CollisionForce {
-    #[validate(range(min = 0.0, max = 5000.0))]
-    pub min_distance: f32,
     #[validate(range(min = 0.0, max = 100.0))]
+    pub min_distance: f32,
+    #[validate(range(min = 0.0, max = 5.0))]
     pub collision_strength: f32,
-    #[validate(range(min = 0.0, max = 5000.0))]
+    #[validate(range(min = 1.0, max = 200.0))]
     pub node_radius: f32,
     pub enabled: bool,
 }
@@ -95,14 +95,14 @@ impl Default for CollisionForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AttributeSpringForce {
-    #[validate(range(min = 0.0, max = 100.0))]
+    #[validate(range(min = 0.0, max = 1.0))]
     pub base_spring_k: f32,
     /// How strongly the edge weight scales the spring.
-    #[validate(range(min = 0.0, max = 100.0))]
+    #[validate(range(min = 0.0, max = 5.0))]
     pub weight_multiplier: f32,
-    #[validate(range(min = 0.0, max = 5000.0))]
+    #[validate(range(min = 5.0, max = 1000.0))]
     pub rest_length_min: f32,
-    #[validate(range(min = 0.0, max = 5000.0))]
+    #[validate(range(min = 5.0, max = 1000.0))]
     pub rest_length_max: f32,
     pub enabled: bool,
 }
@@ -117,11 +117,11 @@ impl Default for AttributeSpringForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PhysicalityClusterForce {
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 2.0))]
     pub cluster_attraction: f32,
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub cluster_radius: f32,
-    #[validate(range(min = 0.0, max = 1000.0))]
+    #[validate(range(min = 0.0, max = 50.0))]
     pub inter_physicality_repulsion: f32,
     pub enabled: bool,
 }
@@ -136,11 +136,11 @@ impl Default for PhysicalityClusterForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RoleClusterForce {
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 2.0))]
     pub cluster_attraction: f32,
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub cluster_radius: f32,
-    #[validate(range(min = 0.0, max = 1000.0))]
+    #[validate(range(min = 0.0, max = 50.0))]
     pub inter_role_repulsion: f32,
     pub enabled: bool,
 }
@@ -155,12 +155,12 @@ impl Default for RoleClusterForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MaturityLayoutForce {
-    #[validate(range(min = 1.0, max = 5000.0))]
+    #[validate(range(min = 10.0, max = 1000.0))]
     pub vertical_spacing: f32,
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 1.0))]
     pub level_attraction: f32,
     /// Z distance between adjacent stages.
-    #[validate(range(min = 0.0, max = 5000.0))]
+    #[validate(range(min = 0.0, max = 1000.0))]
     pub stage_separation: f32,
     pub enabled: bool,
 }
@@ -175,15 +175,15 @@ impl Default for MaturityLayoutForce {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CrossDomainForce {
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 2.0))]
     pub base_strength: f32,
     /// Extra strength per cross-domain link a node has.
-    #[validate(range(min = 0.0, max = 10.0))]
+    #[validate(range(min = 0.0, max = 1.0))]
     pub link_count_multiplier: f32,
     /// Upper bound on the link-count boost.
-    #[validate(range(min = 0.0, max = 100.0))]
+    #[validate(range(min = 0.0, max = 10.0))]
     pub max_strength_boost: f32,
-    #[validate(range(min = 0.0, max = 5000.0))]
+    #[validate(range(min = 5.0, max = 1000.0))]
     pub rest_length: f32,
     pub enabled: bool,
 }
@@ -282,9 +282,186 @@ impl SemanticForces {
     }
 }
 
+/// One control-panel field of the semantic group. This table is the SINGLE description of the
+/// group's controls: the web registry and the XR HUD both load the JSON emitted from it
+/// ([`fields_json`]), so labels, ranges and steps cannot drift. A test proves every `min`/`max`
+/// is exactly the validator's accepted range, and that the committed JSON copies are current.
+#[derive(Debug, Clone, Copy)]
+pub struct FieldSpec {
+    /// Wire path below `physics.semantic`, e.g. `dag.levelAttraction`.
+    pub path: &'static str,
+    pub group: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    /// `slider` or `toggle`.
+    pub kind: &'static str,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+}
+
+const fn slider(path: &'static str, group: &'static str, label: &'static str, description: &'static str, min: f32, max: f32, step: f32) -> FieldSpec {
+    FieldSpec { path, group, label, description, kind: "slider", min, max, step }
+}
+const fn toggle(path: &'static str, group: &'static str, label: &'static str, description: &'static str) -> FieldSpec {
+    FieldSpec { path, group, label, description, kind: "toggle", min: 0.0, max: 0.0, step: 0.0 }
+}
+
+pub const FIELDS: &[FieldSpec] = &[
+    toggle("dag.enabled", "DAG Layering", "DAG Layering", "Pull nodes onto the plane for their hierarchy level. Imposes layers: meaningful only for hierarchical corpora"),
+    slider("dag.verticalSpacing", "DAG Layering", "Level Spacing", "Distance between hierarchy levels", 10.0, 1000.0, 10.0),
+    slider("dag.horizontalSpacing", "DAG Layering", "Sibling Spacing", "Minimum separation between siblings on one level", 10.0, 1000.0, 10.0),
+    slider("dag.levelAttraction", "DAG Layering", "Level Attraction", "Pull toward the level plane", 0.0, 1.0, 0.005),
+    slider("dag.siblingRepulsion", "DAG Layering", "Sibling Repulsion", "Push between same-level nodes closer than the sibling spacing", 0.0, 5.0, 0.01),
+    toggle("typeCluster.enabled", "Type Clustering", "Type Clustering", "Gather nodes of the same ontology type around the type centroid"),
+    slider("typeCluster.clusterAttraction", "Type Clustering", "Attraction", "Pull toward the type centroid beyond the cluster radius", 0.0, 2.0, 0.01),
+    slider("typeCluster.clusterRadius", "Type Clustering", "Cluster Radius", "Distance within which no pull applies", 10.0, 1000.0, 10.0),
+    slider("typeCluster.interClusterRepulsion", "Type Clustering", "Inter-Cluster Repulsion", "Push away from nodes of other types", 0.0, 50.0, 0.1),
+    toggle("collision.enabled", "Collision", "Collision", "Keep nodes from overlapping"),
+    slider("collision.minDistance", "Collision", "Minimum Distance", "Smallest allowed gap between nodes", 0.0, 100.0, 1.0),
+    slider("collision.collisionStrength", "Collision", "Strength", "Push applied when nodes collide", 0.0, 5.0, 0.05),
+    slider("collision.nodeRadius", "Collision", "Node Radius", "Collision radius of a node", 1.0, 200.0, 1.0),
+    toggle("attributeSpring.enabled", "Weighted Springs", "Weighted Springs", "Springs whose rest length follows the edge weight"),
+    slider("attributeSpring.baseSpringK", "Weighted Springs", "Base Strength", "Base spring constant", 0.0, 1.0, 0.005),
+    slider("attributeSpring.weightMultiplier", "Weighted Springs", "Weight Influence", "How strongly the edge weight scales the spring", 0.0, 5.0, 0.05),
+    slider("attributeSpring.restLengthMin", "Weighted Springs", "Shortest Rest Length", "Rest length of the heaviest edges", 5.0, 1000.0, 5.0),
+    slider("attributeSpring.restLengthMax", "Weighted Springs", "Longest Rest Length", "Rest length of the lightest edges", 5.0, 1000.0, 5.0),
+    toggle("physicalityCluster.enabled", "Physicality Clustering", "Physicality Clustering", "Gather virtual, physical and conceptual nodes separately"),
+    slider("physicalityCluster.clusterAttraction", "Physicality Clustering", "Attraction", "Pull toward the physicality centroid", 0.0, 2.0, 0.01),
+    slider("physicalityCluster.clusterRadius", "Physicality Clustering", "Cluster Radius", "Distance within which no pull applies", 10.0, 1000.0, 10.0),
+    slider("physicalityCluster.interPhysicalityRepulsion", "Physicality Clustering", "Inter-Cluster Repulsion", "Push away from nodes of another physicality", 0.0, 50.0, 0.1),
+    toggle("roleCluster.enabled", "Role Clustering", "Role Clustering", "Gather process, agent, resource and concept nodes separately"),
+    slider("roleCluster.clusterAttraction", "Role Clustering", "Attraction", "Pull toward the role centroid", 0.0, 2.0, 0.01),
+    slider("roleCluster.clusterRadius", "Role Clustering", "Cluster Radius", "Distance within which no pull applies", 10.0, 1000.0, 10.0),
+    slider("roleCluster.interRoleRepulsion", "Role Clustering", "Inter-Cluster Repulsion", "Push away from nodes of another role", 0.0, 50.0, 0.1),
+    toggle("maturityLayout.enabled", "Maturity Layering", "Maturity Layering", "Layer nodes along Z by maturity stage. Imposes layers: off unless wanted"),
+    slider("maturityLayout.verticalSpacing", "Maturity Layering", "Stage Spacing", "Spacing between maturity stages", 10.0, 1000.0, 10.0),
+    slider("maturityLayout.levelAttraction", "Maturity Layering", "Stage Attraction", "Pull toward the stage plane", 0.0, 1.0, 0.005),
+    slider("maturityLayout.stageSeparation", "Maturity Layering", "Stage Separation", "Z distance between adjacent stages", 0.0, 1000.0, 10.0),
+    toggle("crossDomain.enabled", "Cross-Domain Links", "Cross-Domain Links", "Strengthen links that cross ontology domains"),
+    slider("crossDomain.baseStrength", "Cross-Domain Links", "Base Strength", "Strength of a cross-domain link", 0.0, 2.0, 0.01),
+    slider("crossDomain.linkCountMultiplier", "Cross-Domain Links", "Per-Link Boost", "Extra strength per cross-domain link a node has", 0.0, 1.0, 0.01),
+    slider("crossDomain.maxStrengthBoost", "Cross-Domain Links", "Maximum Boost", "Upper bound on the link-count boost", 0.0, 10.0, 0.1),
+    slider("crossDomain.restLength", "Cross-Domain Links", "Rest Length", "Rest length of cross-domain links", 5.0, 1000.0, 5.0),
+];
+
+/// The field table as the JSON document the web registry and the XR HUD load, with each field's
+/// default taken from [`SemanticForces::default`] so the table cannot disagree with it.
+pub fn fields_json() -> serde_json::Value {
+    // f32 -> the shortest decimal that round-trips as an f32 (0.03, not 0.029999999329447746).
+    let clean = |v: f32| -> serde_json::Value {
+        serde_json::Value::from(format!("{v}").parse::<f64>().expect("a finite f32 prints as a number"))
+    };
+    let defaults = serde_json::to_value(SemanticForces::default()).expect("defaults serialise");
+    let rows: Vec<serde_json::Value> = FIELDS
+        .iter()
+        .map(|f| {
+            let pointer = format!("/{}", f.path.replace('.', "/"));
+            let default = match defaults.pointer(&pointer) {
+                Some(serde_json::Value::Number(n)) => clean(n.as_f64().unwrap_or(0.0) as f32),
+                Some(other) => other.clone(),
+                None => serde_json::Value::Null,
+            };
+            let mut row = serde_json::json!({
+                "path": f.path, "group": f.group, "label": f.label,
+                "description": f.description, "kind": f.kind, "default": default,
+            });
+            if f.kind == "slider" {
+                row["min"] = clean(f.min);
+                row["max"] = clean(f.max);
+                row["step"] = clean(f.step);
+            }
+            row
+        })
+        .collect();
+    serde_json::json!({ "generatedFrom": "visionclaw_domain::types::semantic_config::FIELDS", "fields": rows })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Set one field of the default document by wire path and return the resulting group.
+    fn with_field(path: &str, v: serde_json::Value) -> SemanticForces {
+        let mut doc = serde_json::to_value(SemanticForces::default()).unwrap();
+        *doc.pointer_mut(&format!("/{}", path.replace('.', "/"))).expect("path exists") = v;
+        serde_json::from_value(doc).expect("still a valid document")
+    }
+
+    #[test]
+    fn the_field_table_lists_every_control_exactly_once() {
+        let mut paths: Vec<&str> = FIELDS.iter().map(|f| f.path).collect();
+        let n = paths.len();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), n, "no duplicate path");
+        // every float and every enable flag has a row
+        let mut expected: Vec<String> = SemanticForces::default().floats().into_iter().map(|(p, _)| p.to_string()).collect();
+        for g in ["dag", "typeCluster", "collision", "attributeSpring", "physicalityCluster", "roleCluster", "maturityLayout", "crossDomain"] {
+            expected.push(format!("{g}.enabled"));
+        }
+        expected.sort();
+        let mut listed: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
+        listed.sort();
+        assert_eq!(listed, expected);
+    }
+
+    #[test]
+    fn every_slider_range_is_exactly_the_validators_range() {
+        for f in FIELDS.iter().filter(|f| f.kind == "slider") {
+            // the ends are accepted ...
+            for edge in [f.min, f.max] {
+                let c = with_field(f.path, serde_json::json!(edge));
+                let mut c = c;
+                // keep the cross-field rule satisfied while probing a rest-length end
+                if f.path.starts_with("attributeSpring.restLength") {
+                    c.attribute_spring.rest_length_min = c.attribute_spring.rest_length_min.min(c.attribute_spring.rest_length_max);
+                }
+                assert!(c.validate().is_ok(), "{} = {edge} must be accepted: {:?}", f.path, c.validate());
+            }
+            // ... and just outside either end is rejected
+            let below = f.min - f.step.max(1e-3);
+            let above = f.max + f.step.max(1e-3);
+            assert!(with_field(f.path, serde_json::json!(below)).validate().is_err(), "{} = {below} must be rejected", f.path);
+            assert!(with_field(f.path, serde_json::json!(above)).validate().is_err(), "{} = {above} must be rejected", f.path);
+            // and the default lies inside
+            let d = SemanticForces::default();
+            let doc = serde_json::to_value(&d).unwrap();
+            let dv = doc.pointer(&format!("/{}", f.path.replace('.', "/"))).and_then(|v| v.as_f64()).unwrap() as f32;
+            assert!(dv >= f.min && dv <= f.max, "{} default {dv} outside {}..{}", f.path, f.min, f.max);
+            assert!(f.step > 0.0 && f.step <= f.max - f.min, "{} has a usable step", f.path);
+        }
+    }
+
+    /// The committed JSON copies (docs reference, web registry data, XR HUD data) must equal what
+    /// the table emits now. Regenerate with `cargo test -p visionclaw-domain -- --ignored
+    /// regenerate_semantic_field_copies`.
+    #[test]
+    fn the_committed_json_copies_are_current() {
+        let want = serde_json::to_string_pretty(&fields_json()).unwrap() + "\n";
+        for rel in COPIES {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+            let have = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert_eq!(have, want, "{rel} is stale: regenerate the semantic field copies");
+        }
+    }
+
+    #[test]
+    #[ignore = "writes the committed JSON copies"]
+    fn regenerate_semantic_field_copies() {
+        let want = serde_json::to_string_pretty(&fields_json()).unwrap() + "\n";
+        for rel in COPIES {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &want).unwrap();
+        }
+    }
+
+    const COPIES: &[&str] = &[
+        "docs/reference/semantic-forces-fields.json",
+        "client/src/features/control-center/registry/semanticFields.json",
+        "xr-client/data/semantic_fields.json",
+    ];
 
     #[test]
     fn defaults_pass_validation_and_round_trip() {

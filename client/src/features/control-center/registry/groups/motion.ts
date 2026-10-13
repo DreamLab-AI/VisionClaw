@@ -2,9 +2,10 @@
  * Group 1 — Motion & Forces (id `motion`, hotkey 1, 48 fields).
  * All fields migrated verbatim from the legacy Physics tab. Path strings are the
  * FROZEN backend contract — transcribed byte-identically from unifiedSettingsConfig.ts.
- * `qualityGates.*` semantic fields route to the quality-gates endpoint (not physics).
+ * The semantic-force controls come from groups/semanticForces.ts (one shared JSON document).
  */
 import type { GroupData, RegistryField } from '../types';
+import { semanticFields } from './semanticForces';
 
 const P = 'visualisation.graphs.knowledge.physics.';
 
@@ -59,13 +60,10 @@ const fields: RegistryField[] = [
   { key: 'clusteringAlgorithm', subgroup: 'Constraints', label: 'Community Method', type: 'select', options: ['leiden', 'louvain'], path: `${P}clusteringAlgorithm`, description: 'Detector used to partition the graph into communities for the cohesion force. Leiden (default) yields well-connected communities; Louvain is faster but can produce disconnected ones. Applied live on the GPU.' },
   { key: 'clusteringResolution', subgroup: 'Constraints', label: 'Community Resolution', type: 'slider', min: 0.1, max: 5.0, step: 0.1, path: `${P}clusteringResolution`, description: 'Resolution of the GPU community detection — higher splits the graph into more, smaller communities; lower merges into fewer, larger ones (default 1.0). Re-runs the detector live; the cohesion force then pulls toward the new centroids.' },
   { key: 'temperature', subgroup: 'Constraints', label: 'Temperature', type: 'slider', min: 0, max: 1, step: 0.05, path: `${P}temperature`, description: 'Simulation temperature (energy) — higher = more movement (default 0, backend caps at 1.0)', macro: 'motion' },
-  // Semantic & Layout Forces (route to quality-gates / semantic endpoints, not physics)
-  { key: 'layoutMode', subgroup: 'Semantic & Layout Forces', label: 'Layout Mode', type: 'select', options: ['force-directed', 'dag-topdown', 'dag-leftright', 'dag-radial', 'type-clustering', 'spectral', 'clustered'], path: 'qualityGates.layoutMode', description: 'Graph layout (quality-gate vocabulary, validated server-side; layoutApi maps it to the engine LayoutMode) — force-directed uses spring/repulsion; dag-topdown/dag-leftright apply Sugiyama layering (cycles share a layer); dag-radial arranges rings; type-clustering groups by node type; spectral places nodes on Laplacian eigenvectors; clustered packs communities on a Fibonacci sphere' },
-  { key: 'semanticForces', subgroup: 'Semantic & Layout Forces', label: 'Semantic Layout Forces', type: 'toggle', path: 'qualityGates.semanticForces', description: 'Enable DAG hierarchy layout and type-based clustering forces' },
-  { key: 'dagLevelAttraction', subgroup: 'Semantic & Layout Forces', label: 'DAG Level Attraction', type: 'slider', min: 0, max: 2.0, step: 0.05, path: 'qualityGates.dagLevelAttraction', description: 'How strongly nodes pull toward their hierarchy level' },
-  { key: 'dagSiblingRepulsion', subgroup: 'Semantic & Layout Forces', label: 'DAG Sibling Repulsion', type: 'slider', min: 0, max: 2.0, step: 0.05, path: 'qualityGates.dagSiblingRepulsion', description: 'How strongly same-level nodes spread apart' },
-  { key: 'typeClusterAttraction', subgroup: 'Semantic & Layout Forces', label: 'Type Cluster Attraction', type: 'slider', min: 0, max: 2.0, step: 0.05, path: 'qualityGates.typeClusterAttraction', description: 'How strongly same-type nodes group together' },
-  { key: 'typeClusterRadius', subgroup: 'Semantic & Layout Forces', label: 'Type Cluster Radius', type: 'slider', min: 10, max: 500, step: 10, path: 'qualityGates.typeClusterRadius', description: 'Target radius for type-based cluster zones' },
+  // Layout mode (a quality-gate setting that selects the layout engine)
+  { key: 'layoutMode', subgroup: 'Layout', label: 'Layout Mode', type: 'select', options: ['force-directed', 'dag-topdown', 'dag-leftright', 'dag-radial', 'type-clustering', 'spectral', 'clustered'], path: 'qualityGates.layoutMode', description: 'Graph layout (quality-gate vocabulary, validated server-side; layoutApi maps it to the engine LayoutMode) — force-directed uses spring/repulsion; dag-topdown/dag-leftright apply Sugiyama layering (cycles share a layer); dag-radial arranges rings; type-clustering groups by node type; spectral places nodes on Laplacian eigenvectors; clustered packs communities on a Fibonacci sphere' },
+  // The semantic forces (DAG, clustering, collision, springs, ...) are the physics `semantic` group.
+  ...semanticFields,
   // Smooth Movement (client-side tweening)
   { key: 'tweeningEnabled', subgroup: 'Smooth Movement', label: 'Smooth Node Movement', type: 'toggle', path: 'visualisation.graphs.knowledge.tweening.enabled', description: 'Smoothly animate nodes toward server positions instead of snapping instantly' },
   { key: 'tweeningLerpBase', subgroup: 'Smooth Movement', label: 'Node Animation Speed', type: 'slider', min: 0.0001, max: 0.15, step: 0.001, path: 'visualisation.graphs.knowledge.tweening.lerpBase', description: 'How quickly nodes reach their target positions (lower = faster, higher = smoother)' },

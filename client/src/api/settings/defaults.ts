@@ -1,13 +1,29 @@
 // api/settings/defaults.ts
 // Default settings objects — must mirror Rust backend defaults exactly
 
-import type { PhysicsSettings, QualityGateSettings } from './types';
+import type { PhysicsSettings, QualityGateSettings, SemanticForceSettings } from './types';
+import semanticDoc from '../../features/control-center/registry/semanticFields.json';
+
+/**
+ * Defaults of the physics `semantic` group, taken from the document the Rust definition emits
+ * (so a client-side reset can never disagree with the server's defaults, and nothing here is
+ * typed in by hand).
+ */
+export function semanticDefaults(): SemanticForceSettings {
+  const out: SemanticForceSettings = {};
+  for (const row of (semanticDoc as { fields: { path: string; default: number | boolean }[] }).fields) {
+    const [group, field] = row.path.split('.');
+    (out[group] ??= {})[field] = row.default;
+  }
+  return out;
+}
 
 // ============================================================================
 // Physics defaults — must mirror Rust SimParams defaults exactly
 // ============================================================================
 
 export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
+  semantic: semanticDefaults(),
   // --- Simulation control ---
   enabled: true,
   autoBalance: false,
@@ -162,7 +178,6 @@ export const DEFAULT_CLUSTER_HULLS = {
 export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   gpuAcceleration: true,
   ontologyPhysics: false,
-  semanticForces: false,
   layoutMode: 'force-directed',
   showClusters: true,
   showAnomalies: true,
@@ -176,10 +191,6 @@ export const DEFAULT_QUALITY_GATES: QualityGateSettings = {
   maxNodeCount: Number.MAX_SAFE_INTEGER,
   autoAdjust: true,
   ontologyStrength: 0.5,
-  dagLevelAttraction: 0.5,
-  dagSiblingRepulsion: 0.3,
-  typeClusterAttraction: 0.3,
-  typeClusterRadius: 100,
 };
 
 // W-G phase-1 client-only overlay defaults. All fields DEFAULT-OFF: the governed

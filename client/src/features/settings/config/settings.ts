@@ -732,7 +732,6 @@ export interface PerformanceSettings {
 export interface QualityGatesSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
-  semanticForces: boolean;
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;
@@ -746,12 +745,9 @@ export interface QualityGatesSettings {
   minFpsThreshold: number;
   maxNodeCount: number;
   autoAdjust: boolean;
-  // Semantic force parameters (propagated to GPU actors)
+  // Ontology constraint weight (propagated to GPU actors). The semantic-force parameters are
+  // NOT here: they are the physics settings' `semantic` group.
   ontologyStrength?: number;       // 0-1, default 0.5 — global ontology constraint weight
-  dagLevelAttraction?: number;     // 0-2, default 0.5 — DAG hierarchy level pull
-  dagSiblingRepulsion?: number;    // 0-2, default 0.3 — same-level spread force
-  typeClusterAttraction?: number;  // 0-2, default 0.3 — same-type grouping force
-  typeClusterRadius?: number;      // 10-500, default 100 — cluster zone radius
 }
 
 export interface DeveloperSettings {

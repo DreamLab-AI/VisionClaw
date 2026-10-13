@@ -4,6 +4,7 @@
 import axios, { AxiosResponse } from 'axios';
 import { nostrAuth } from '../../services/nostrAuthService';
 import { computeAuthHeaders } from '../../services/api/authInterceptor';
+import { physicsPatchEntry } from './physicsPatch';
 import { createLogger } from '../../utils/loggerConfig';
 import type {
   PhysicsSettings,
@@ -154,12 +155,8 @@ export const updateQualityGates = async (
     toggleOntologyPhysics(!!settings.ontologyPhysics);
   }
 
-  const semanticKeys = [
-    'semanticForces', 'layoutMode', 'ontologyStrength',
-    'dagLevelAttraction', 'dagSiblingRepulsion', 'typeClusterAttraction', 'typeClusterRadius',
-  ];
-  if (semanticKeys.some(k => k in settings)) {
-    configureSemanticForces(settings);
+  if ('ontologyStrength' in settings) {
+    configureOntologyWeights(settings);
   }
 
   return result;
@@ -179,62 +176,20 @@ export const toggleOntologyPhysics = async (enabled: boolean): Promise<void> => 
   }
 };
 
-/** Configure semantic forces on GPU based on current quality gate settings (fire-and-forget). */
-export const configureSemanticForces = async (
+/** Push the ontology constraint weight to the server (fire-and-forget). The semantic-force
+ * parameters are not sent from here: they are the physics settings' `semantic` group, written
+ * by the ordinary physics PUT. */
+export const configureOntologyWeights = async (
   settings: Partial<QualityGateSettings>
 ): Promise<void> => {
+  if (settings.ontologyStrength === undefined) return;
   try {
-    const promises: Promise<unknown>[] = [];
-
-    if (
-      'semanticForces' in settings || 'layoutMode' in settings ||
-      'dagLevelAttraction' in settings || 'dagSiblingRepulsion' in settings
-    ) {
-      const current = await axios.get(`${API_BASE}/api/settings/quality-gates`);
-      const qg = current.data?.data ?? current.data ?? {};
-      const merged = { ...qg, ...settings };
-
-      const isDagMode = ['dag-topdown', 'dag-radial', 'dag-leftright'].includes(merged.layoutMode);
-      const isTypeClustering = merged.layoutMode === 'type-clustering';
-
-      const dagModeMap: Record<string, string> = {
-        'dag-topdown': 'top-down',
-        'dag-radial': 'radial',
-        'dag-leftright': 'left-right',
-      };
-
-      promises.push(
-        axios.post(`${API_BASE}/api/semantic-forces/dag/configure`, {
-          mode: dagModeMap[merged.layoutMode] || 'top-down',
-          enabled: merged.semanticForces && isDagMode,
-          level_attraction: merged.dagLevelAttraction ?? 0.5,
-          sibling_repulsion: merged.dagSiblingRepulsion ?? 0.3,
-        }).catch(err => logger.warn('[settingsApi] DAG configure failed:', err))
-      );
-
-      promises.push(
-        axios.post(`${API_BASE}/api/semantic-forces/type-clustering/configure`, {
-          enabled: merged.semanticForces && (isTypeClustering || merged.layoutMode === 'force-directed'),
-          cluster_attraction: merged.typeClusterAttraction ?? 0.3,
-          cluster_radius: merged.typeClusterRadius ?? 100,
-        }).catch(err => logger.warn('[settingsApi] Type clustering configure failed:', err))
-      );
-    }
-
-    if ('ontologyStrength' in settings && settings.ontologyStrength !== undefined) {
-      promises.push(
-        axios.put(`${API_BASE}/api/ontology-physics/weights`, {
-          globalStrength: settings.ontologyStrength,
-        }).catch(err => logger.warn('[settingsApi] Ontology weights update failed:', err))
-      );
-    }
-
-    if (promises.length > 0) {
-      await Promise.all(promises);
-      logger.info('[settingsApi] Semantic forces configured:', Object.keys(settings));
-    }
+    await axios.put(`${API_BASE}/api/ontology-physics/weights`, {
+      globalStrength: settings.ontologyStrength,
+    });
+    logger.info('[settingsApi] ontology weight updated:', settings.ontologyStrength);
   } catch (err) {
-    logger.warn('[settingsApi] configureSemanticForces error:', err);
+    logger.warn('[settingsApi] Ontology weights update failed:', err);
   }
 };
 
@@ -352,6 +307,19 @@ export const updateSettingByPath = async <T>(path: string, value: T): Promise<vo
   }
 };
 
+/** Merge `patch` into `target`, descending into objects so two sliders of one group in the same
+ * debounce window both survive (a shallow assign would keep only the last). */
+function mergeInto(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(patch)) {
+    const cur = target[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)) {
+      mergeInto(cur as Record<string, unknown>, v as Record<string, unknown>);
+    } else {
+      target[k] = v;
+    }
+  }
+}
+
 export const updateSettingsByPaths = async (
   updates: Array<{ path: string; value: unknown }>
 ): Promise<void> => {
@@ -367,9 +335,9 @@ export const updateSettingsByPaths = async (
 
   for (const { path, value } of updates) {
     if (path.startsWith('visualisation.graphs.') && path.includes('.physics.')) {
-      const key = path.split('.').pop()!;
-      physicsUpdates[key] = value;
-      logger.debug(`[SETTINGS-DIAG] routing ${path} → physics.${key} = ${value}`);
+      const entry = physicsPatchEntry(path, value)!;
+      mergeInto(physicsUpdates, entry);
+      logger.debug(`[SETTINGS-DIAG] routing ${path} → physics ${JSON.stringify(entry)}`);
     } else if (path.startsWith('visualisation.rendering.')) {
       const key = path.split('.').pop()!;
       renderingUpdates[key] = value;

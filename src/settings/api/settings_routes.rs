@@ -525,28 +525,16 @@ pub async fn update_physics_settings(
     let current_physics = &full_settings.visualisation.graphs.knowledge.physics;
     let current_json = serde_json::to_value(current_physics).unwrap_or_default();
 
-    let new_physics =
-        if let (serde_json::Value::Object(mut base), serde_json::Value::Object(patch)) =
-            (current_json, body.into_inner())
-        {
-            // Normalize incoming keys: map common aliases (snake_case, legacy names)
-            // to the canonical camelCase field names used by PhysicsSettings.
-            let normalized_patch = normalize_physics_keys(patch);
-            for (k, v) in normalized_patch {
-                base.insert(k, v);
-            }
-            match serde_json::from_value::<PhysicsSettings>(serde_json::Value::Object(base)) {
-                Ok(merged) => merged,
-                Err(e) => {
-                    warn!("Physics settings merge failed: {}", e);
-                    return HttpResponse::BadRequest().json(ErrorResponse {
-                        error: format!("Invalid settings value: {}", e),
-                    });
-                }
-            }
-        } else {
-            full_settings.visualisation.graphs.knowledge.physics.clone()
-        };
+    let new_physics = match merge_physics_patch(current_json, body.into_inner()) {
+        Ok(Some(merged)) => merged,
+        Ok(None) => full_settings.visualisation.graphs.knowledge.physics.clone(),
+        Err(e) => {
+            warn!("Physics settings merge failed: {}", e);
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!("Invalid settings value: {}", e),
+            });
+        }
+    };
 
     // Validate before applying
     if let Err(validation_err) = validate_physics_settings(&new_physics) {
@@ -1266,6 +1254,27 @@ fn deep_merge_json(base: &mut serde_json::Value, patch: serde_json::Value) {
     }
 }
 
+/// Apply a partial physics patch onto the stored document.
+///
+/// Nested objects are merged DEEPLY. The merge used to replace each top-level key, so a patch of
+/// `{"semantic":{"dag":{"levelAttraction":0.1}}}` replaced the whole `semantic` object and serde
+/// refilled every other force from its default: one slider silently reset the rest. Returns
+/// `Ok(None)` when either side is not a JSON object (nothing to merge).
+pub(crate) fn merge_physics_patch(
+    current: serde_json::Value,
+    patch: serde_json::Value,
+) -> Result<Option<PhysicsSettings>, serde_json::Error> {
+    let (serde_json::Value::Object(_), serde_json::Value::Object(patch)) = (&current, patch.clone()) else {
+        return Ok(None);
+    };
+    let mut base = current;
+    // Normalize incoming keys: map common aliases (snake_case, legacy names) to the canonical
+    // camelCase field names used by PhysicsSettings.
+    deep_merge_json(&mut base, serde_json::Value::Object(normalize_physics_keys(patch)));
+    serde_json::from_value::<PhysicsSettings>(base).map(Some)
+}
+
+
 /// GET /api/settings/visual
 /// Returns the stored visual settings blob (glow, hologram, graphTypeVisuals,
 /// gemMaterial, sceneEffects, clusterHulls, animations, interaction, nodes, edges, labels).
@@ -1748,6 +1757,38 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nested_patch_changes_only_the_field_it_names() {
+        let mut stored = PhysicsSettings::default();
+        stored.semantic.dag.level_attraction = 0.9;
+        stored.semantic.type_cluster.cluster_radius = 321.0;
+        stored.semantic.collision.collision_strength = 0.7;
+        let current = serde_json::to_value(&stored).unwrap();
+
+        // What the control panel sends for ONE slider.
+        let patch = serde_json::json!({"semantic": {"typeCluster": {"clusterAttraction": 1.5}}});
+        let merged = merge_physics_patch(current, patch).unwrap().unwrap();
+
+        assert_eq!(merged.semantic.type_cluster.cluster_attraction, 1.5, "the patched field");
+        assert_eq!(merged.semantic.type_cluster.cluster_radius, 321.0, "sibling in the same group survives");
+        assert_eq!(merged.semantic.dag.level_attraction, 0.9, "other groups survive");
+        assert_eq!(merged.semantic.collision.collision_strength, 0.7, "other groups survive");
+        assert_eq!(merged.repel_k, stored.repel_k, "top-level fields survive");
+    }
+
+    #[test]
+    fn a_top_level_patch_still_works_and_aliases_are_normalised() {
+        let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        let merged = merge_physics_patch(current, serde_json::json!({"repelK": 77.0})).unwrap().unwrap();
+        assert_eq!(merged.repel_k, 77.0);
+    }
+
+    #[test]
+    fn a_non_object_patch_merges_nothing() {
+        let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        assert!(merge_physics_patch(current, serde_json::json!(5)).unwrap().is_none());
+    }
 
     #[test]
     fn semantic_parameters_are_validated_up_front_by_the_one_central_validator() {
