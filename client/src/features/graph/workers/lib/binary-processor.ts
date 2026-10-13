@@ -1,7 +1,7 @@
 /**
  * Binary position frame processing for the graph worker.
  *
- * Parses a server position frame (full or delta), updates target positions and
+ * Applies a server position frame (always a full snapshot), updates target positions and
  * optional V3 analytics fields, and writes compact output into the caller's
  * pre-allocated positionArray. Zero allocation per call when buffers are reused.
  */
@@ -23,7 +23,6 @@ export const WORKER_ANALYTICS_STRIDE = 5;
 
 export interface ProcessFrameInput {
   nodeUpdates: BinaryFrameUpdate[];
-  isDelta: boolean;
   /** Target positions array (mutated in place). */
   targetPositions: Float32Array;
   /** Analytics buffer — 5 floats per node: [clusterId, anomalyScore, communityId, centrality, ssspDistance] (ADR-031 D2). */
@@ -53,7 +52,7 @@ export function processFrameUpdates(
   existingUnknownIds: Set<number>,
 ): number {
   const {
-    nodeUpdates, isDelta, targetPositions, analyticsBuffer,
+    nodeUpdates, targetPositions, analyticsBuffer,
     positionArray, reverseNodeIdMap, nodeIndexMap, pinnedNodeIds,
   } = input;
 
@@ -74,15 +73,9 @@ export function processFrameUpdates(
       const nodeIndex = nodeIndexMap.get(stringNodeId);
       if (nodeIndex !== undefined && !pinnedNodeIds.has(actualNodeId)) {
         const i3 = nodeIndex * 3;
-        if (isDelta) {
-          targetPositions[i3]     += update.position.x;
-          targetPositions[i3 + 1] += update.position.y;
-          targetPositions[i3 + 2] += update.position.z;
-        } else {
-          targetPositions[i3]     = update.position.x;
-          targetPositions[i3 + 1] = update.position.y;
-          targetPositions[i3 + 2] = update.position.z;
-        }
+        targetPositions[i3]     = update.position.x;
+        targetPositions[i3 + 1] = update.position.y;
+        targetPositions[i3 + 2] = update.position.z;
         // Store V3 analytics fields per node (stride 5; ADR-031 D2).
         if (analyticsBuffer && update.clusterId !== undefined) {
           const a = nodeIndex * WORKER_ANALYTICS_STRIDE;
@@ -97,23 +90,9 @@ export function processFrameUpdates(
 
     const arrayOffset = index * 4;
     positionArray[arrayOffset] = actualNodeId;
-    if (isDelta && stringNodeId) {
-      const nodeIndex = nodeIndexMap.get(stringNodeId);
-      if (nodeIndex !== undefined) {
-        const i3 = nodeIndex * 3;
-        positionArray[arrayOffset + 1] = targetPositions[i3];
-        positionArray[arrayOffset + 2] = targetPositions[i3 + 1];
-        positionArray[arrayOffset + 3] = targetPositions[i3 + 2];
-      } else {
-        positionArray[arrayOffset + 1] = update.position.x;
-        positionArray[arrayOffset + 2] = update.position.y;
-        positionArray[arrayOffset + 3] = update.position.z;
-      }
-    } else {
-      positionArray[arrayOffset + 1] = update.position.x;
-      positionArray[arrayOffset + 2] = update.position.y;
-      positionArray[arrayOffset + 3] = update.position.z;
-    }
+    positionArray[arrayOffset + 1] = update.position.x;
+    positionArray[arrayOffset + 2] = update.position.y;
+    positionArray[arrayOffset + 3] = update.position.z;
   }
 
   return unknownCount;

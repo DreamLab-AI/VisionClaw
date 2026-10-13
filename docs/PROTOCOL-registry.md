@@ -52,6 +52,7 @@ is safe. The registry below is the source of truth for tag allocation.
 | Tag | Name | Socket / path | Direction | Owning module (file:line) |
 |-----|------|---------------|-----------|---------------------------|
 | `0x03` | Graph position frame **V3** | `/wss` | server→client | `src/utils/binary_protocol.rs:12,54` |
+| `0x04` | **RETIRED — V4 delta position frame** (reserved, never reuse) | `/wss` | none | no encoder exists; decoders refuse it (ADR-2139): web `types/binaryProtocol.ts` `PROTOCOL_V4` branch, XR `DecodeError::BadVersion` |
 | `0x05` | Graph position frame **V5 envelope** (wraps V3) | `/wss` | server→client | `src/utils/binary_protocol.rs:592` (`PROTOCOL_V5` branch); `xr-client/rust/src/binary_protocol.rs:25` |
 | `0x23` | `AGENT_ACTION` beam event | `/wss` (fanned by ClientCoordinator) | server→client | `src/utils/binary_protocol.rs:1721` (`MessageType::AgentAction`) |
 | `0x43` | Avatar pose (`OPCODE_AVATAR_POSE`) | `/ws/presence` | bidirectional | `crates/visionclaw-xr-presence/src/wire.rs:9` |
@@ -240,6 +241,14 @@ already versions itself via the leading tag byte, and the decoder branches on it
    (`:510-511`); they are not silently accepted.
 5. **Registry-gated allocation.** New tag bytes are allocated only in this document, per socket,
    to prevent cross-feature collision.
+6. **Position frames are full snapshots of the entitled set (ADR-2139).** Every `0x03`/`0x05`
+   position frame carries every node the receiving session may see, as absolute positions that
+   replace the previous ones. The set is decided by entitlement (the visibility drop-set, applied
+   identically on connect sync, snapshot request and the live broadcast) and by a filter the
+   client explicitly requested — never by whether a node moved, by camera position, or by a
+   quality cut. There is no delta encoding: tag `0x04` (the retired V4 delta frame) stays
+   reserved, no encoder exists, and every decoder refuses it. The broadcast layer decides only
+   *when* (`broadcastFps`), never *which nodes*.
 
 ### Deprecation process
 

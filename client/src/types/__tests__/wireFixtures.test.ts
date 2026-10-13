@@ -76,8 +76,8 @@ describe('wire constants (pinned against crates/visionclaw-protocol/src/wire_fix
 
   it('gates the framed header on V3/V5 only — 4 was never written there (ADR-2078)', () => {
     // The framed header's version byte carries the POSITION protocol version.
-    // `PROTOCOL_V4` now names exactly one thing: delta node encoding, in
-    // client/src/types/binaryProtocol.ts. It is not a header version.
+    // `PROTOCOL_V4` names exactly one thing: the RETIRED delta tag, in
+    // client/src/types/binaryProtocol.ts, which the decoder refuses. It is not a header version.
     expect([...SUPPORTED_HEADER_VERSIONS].sort()).toEqual([PROTOCOL_V3, PROTOCOL_V5]);
     expect(SUPPORTED_HEADER_VERSIONS).not.toContain(4);
   });

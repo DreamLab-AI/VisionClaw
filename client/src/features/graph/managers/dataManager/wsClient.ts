@@ -1,7 +1,7 @@
 import { createLogger, createErrorMetadata } from '../../../../utils/loggerConfig';
 import { debugState } from '../../../../utils/clientDebugState';
 import { useSettingsStore } from '../../../../store/settingsStore';
-import { BinaryNodeData, createBinaryNodeData, Vec3, BINARY_NODE_SIZE, PROTOCOL_V4 } from '../../../../types/binaryProtocol';
+import { BinaryNodeData, createBinaryNodeData, Vec3, BINARY_NODE_SIZE } from '../../../../types/binaryProtocol';
 import { binaryProtocol } from '../../../../services/BinaryWebSocketProtocol';
 import { graphWorkerProxy } from '../graphWorkerProxy';
 import { useWorkerErrorStore } from '../../../../store/workerErrorStore';
@@ -31,12 +31,9 @@ export async function handleBinaryFrame(
     if (debugState.isDataDebugEnabled()) {
       logger.debug(`Received binary data: ${positionData.byteLength} bytes`);
 
-      const protoVersion = positionData.byteLength >= 1 ? new DataView(positionData).getUint8(0) : 0;
-      if (protoVersion !== PROTOCOL_V4) {
-        const remainder = (positionData.byteLength - 1) % BINARY_NODE_SIZE;
-        if (remainder !== 0) {
-          logger.warn(`Binary data size (${positionData.byteLength} bytes) is not a multiple of ${BINARY_NODE_SIZE}. Remainder: ${remainder}`);
-        }
+      const remainder = (positionData.byteLength - 1) % BINARY_NODE_SIZE;
+      if (remainder !== 0) {
+        logger.warn(`Binary data size (${positionData.byteLength} bytes) is not a multiple of ${BINARY_NODE_SIZE}. Remainder: ${remainder}`);
       }
     }
 

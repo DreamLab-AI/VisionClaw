@@ -119,10 +119,24 @@ describe('ADR-2019 position frame policy (0x03 / 0x05)', () => {
 
   it('decodes a V5 frame and exposes its broadcast sequence', () => {
     const parsed = parseBinaryFrameData(v5Frame(9000, 2));
-    expect(parsed.type).toBe('full');
     expect(parsed.nodes).toHaveLength(2);
     expect(parsed.broadcastSequence).toBe(9000);
     expect(lastBroadcastSequence).toBe(9000);
+  });
+
+  it('never decodes a delta frame: a V4 frame yields no nodes, and no frame carries a delta flavour', () => {
+    // Hard rule: position updates are always full snapshots. A V4 frame (the retired delta
+    // encoding: [4][frame][count:u16] then 20-byte records) must be declined, not applied.
+    const v4 = new Uint8Array(4 + 20);
+    v4[0] = 4; v4[2] = 1; // one "changed" node
+    new DataView(v4.buffer).setUint32(4, 7, true);
+    new DataView(v4.buffer).setUint8(8, 0x01);
+    new DataView(v4.buffer).setInt16(12, 500, true); // would be dx = +5.0 under the old decoder
+    expect(parseBinaryNodeData(v4.buffer)).toEqual([]);
+    const parsed = parseBinaryFrameData(v4.buffer);
+    expect(parsed.nodes).toEqual([]);
+    expect('type' in parsed).toBe(false);
+    expect('frameNumber' in parsed).toBe(false);
   });
 
   it('treats the V5 envelope as purely additive over the V3 body', () => {

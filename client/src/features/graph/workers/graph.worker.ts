@@ -277,7 +277,6 @@ class GraphWorker {
 
     const frame = parseBinaryFrameData(data);
     const nodeUpdates = frame.nodes;
-    const isDelta = frame.type === 'delta';
 
     // Reuse binary output buffer, only reallocate if size changed
     const requiredBinarySize = nodeUpdates.length * 4;
@@ -291,7 +290,6 @@ class GraphWorker {
     const unknownCount = processFrameUpdates(
       {
         nodeUpdates,
-        isDelta,
         targetPositions: this.targetPositions!,
         analyticsBuffer: this.analyticsBuffer,
         positionArray,

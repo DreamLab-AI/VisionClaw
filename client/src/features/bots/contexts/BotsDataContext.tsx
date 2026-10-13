@@ -102,14 +102,13 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
 
       const frame = parseBinaryFrameData(binaryData);
-      const isDelta = frame.type === 'delta';
       const agentUpdates = frame.nodes.filter(node => isAgentNode(node.nodeId));
 
       if (agentUpdates.length === 0) {
         return;
       }
 
-      logger.debug(`Processing ${agentUpdates.length} agent position updates from binary data (${frame.type})`);
+      logger.debug(`Processing ${agentUpdates.length} agent position updates from binary data`);
 
       setBotsData(prev => {
         if (!prev) return prev;
@@ -124,27 +123,7 @@ export const BotsDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           });
 
           if (positionUpdate) {
-            if (isDelta) {
-              // Delta frame: ADD deltas to existing agent position
-              const prevPos = agent.position || { x: 0, y: 0, z: 0 };
-              const prevVel = agent.velocity || { x: 0, y: 0, z: 0 };
-              return {
-                ...agent,
-                position: {
-                  x: prevPos.x + positionUpdate.position.x,
-                  y: prevPos.y + positionUpdate.position.y,
-                  z: prevPos.z + positionUpdate.position.z,
-                },
-                velocity: {
-                  x: prevVel.x + positionUpdate.velocity.x,
-                  y: prevVel.y + positionUpdate.velocity.y,
-                  z: prevVel.z + positionUpdate.velocity.z,
-                },
-                lastPositionUpdate: Date.now()
-              };
-            }
-
-            // Full frame: SET absolute positions
+            // Every frame is a full snapshot: SET absolute positions
             return {
               ...agent,
               position: positionUpdate.position,

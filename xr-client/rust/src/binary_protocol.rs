@@ -506,23 +506,6 @@ pub fn decode_position_frame_with_sequence(
     Ok((sequence, out))
 }
 
-/// Whether a position frame is a full snapshot or an incremental update.
-///
-/// ADR-2018: the V5 envelope carries no full/delta discriminator, so this is
-/// *consumer context*, not a wire field — the caller knows whether it asked for
-/// a snapshot (after connect/reconnect) or is reading the steady-state stream.
-/// The distinction matters only at one point: after a reconnect, the sequence
-/// space may have restarted, so only a Full frame is allowed to re-baseline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameKind {
-    /// A complete snapshot of every visible node. Safe to apply against no prior
-    /// state, and the only frame permitted to re-baseline after a reconnect.
-    Full,
-    /// An incremental update that only makes sense applied on top of a baseline
-    /// established by an earlier accepted frame.
-    Delta,
-}
-
 /// The gate's verdict on one frame. Every variant names *why*, so a caller can
 /// report a stale-state incident rather than silently dropping a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -533,22 +516,19 @@ pub enum Freshness {
     /// ordering claim and leaves the watermark untouched — accepting it is a
     /// statement about legacy compatibility, not about freshness.
     AcceptUnsequenced,
-    /// A Full frame re-baselining the sequence space after a reconnect. The
-    /// sequence may legitimately move backwards here (the producer restarted),
-    /// which is precisely why a bare `seq > watermark` rule is not sufficient.
+    /// The first sequenced frame after a reconnect, re-baselining the sequence space. The
+    /// sequence may legitimately move backwards here (the producer restarted), which is
+    /// precisely why a bare `seq > watermark` rule is not sufficient. Every position frame is
+    /// a full snapshot, so any frame can re-baseline.
     AcceptResync {
         sequence: u64,
         previous: Option<u64>,
     },
-    /// Exactly the watermark: a re-delivery. Applying it is idempotent for a
-    /// Full frame but can double-apply a Delta, so it is refused either way.
+    /// Exactly the watermark: a re-delivery. Refused: a snapshot already applied adds nothing.
     RejectDuplicate { sequence: u64 },
     /// Older than the watermark: a genuinely stale frame from a slower producer
     /// or a reordered path. This is the case the closeout finding is about.
     RejectStale { sequence: u64, watermark: u64 },
-    /// A Delta arriving after a reconnect, before any Full frame has re-established
-    /// a baseline. There is nothing coherent to apply it to.
-    RejectAwaitingResync { sequence: u64 },
 }
 
 impl Freshness {
@@ -571,7 +551,6 @@ pub struct FreshnessStats {
     pub resyncs: u64,
     pub rejected_duplicate: u64,
     pub rejected_stale: u64,
-    pub rejected_awaiting_resync: u64,
 }
 
 /// Consumer-side ordering gate for the V5 broadcast sequence (ADR-2018).
@@ -579,9 +558,9 @@ pub struct FreshnessStats {
 /// # The contract
 ///
 /// A sequence *envelope* only supplies ordering information; it does not enforce
-/// it. Ordered delivery on one socket does not prove that concurrent full/delta
-/// producers, or a reconnect to a restarted producer, can never hand this
-/// consumer older state than it already has. This gate is the missing half:
+/// it. Ordered delivery on one socket does not prove that concurrent producers, or a
+/// reconnect to a restarted producer, can never hand this consumer older state than it
+/// already has. (Every frame is a full snapshot: there are no deltas to order.) This gate is the missing half:
 ///
 /// | Situation | Verdict |
 /// |---|---|
@@ -590,8 +569,7 @@ pub struct FreshnessStats {
 /// | `seq == watermark` | `RejectDuplicate` |
 /// | `seq < watermark` | `RejectStale` |
 /// | V3 frame (no sequence) | `AcceptUnsequenced`, watermark untouched |
-/// | after [`reconnect`](Self::reconnect), Full frame | `AcceptResync`, watermark re-based |
-/// | after [`reconnect`](Self::reconnect), Delta frame | `RejectAwaitingResync` |
+/// | first sequenced frame after [`reconnect`](Self::reconnect) | `AcceptResync`, watermark re-based |
 ///
 /// The watermark is monotonic *within* a connection epoch and only ever moves
 /// backwards through an explicit resync, so a stale frame can never overwrite
@@ -620,22 +598,20 @@ impl FreshnessGate {
         self.stats
     }
 
-    /// Whether the gate is waiting for a Full frame to re-establish a baseline.
+    /// Whether the gate is waiting for the first sequenced frame to re-establish a baseline.
     pub fn awaiting_resync(&self) -> bool {
         self.awaiting_resync
     }
 
     /// Note that the socket dropped and reconnected. The producer may have
     /// restarted its sequence space, so the existing watermark can no longer be
-    /// compared against incoming sequences: the next Full frame re-baselines,
-    /// and until it arrives every Delta is refused.
+    /// compared against incoming sequences: the next sequenced frame re-baselines.
     pub fn reconnect(&mut self) {
         self.awaiting_resync = true;
     }
 
-    /// Judge one frame's sequence. `sequence` is `None` for an unsequenced V3
-    /// frame; `kind` is the caller's own full/delta context.
-    pub fn admit(&mut self, sequence: Option<u64>, kind: FrameKind) -> Freshness {
+    /// Judge one frame's sequence. `sequence` is `None` for an unsequenced V3 frame.
+    pub fn admit(&mut self, sequence: Option<u64>) -> Freshness {
         let Some(seq) = sequence else {
             // V3 carries no ordering information. Accept for compatibility, but
             // never let it move the watermark — an unsequenced frame must not be
@@ -645,22 +621,11 @@ impl FreshnessGate {
         };
 
         if self.awaiting_resync {
-            return match kind {
-                FrameKind::Full => {
-                    let previous = self.watermark;
-                    self.watermark = Some(seq);
-                    self.awaiting_resync = false;
-                    self.stats.resyncs += 1;
-                    Freshness::AcceptResync {
-                        sequence: seq,
-                        previous,
-                    }
-                }
-                FrameKind::Delta => {
-                    self.stats.rejected_awaiting_resync += 1;
-                    Freshness::RejectAwaitingResync { sequence: seq }
-                }
-            };
+            let previous = self.watermark;
+            self.watermark = Some(seq);
+            self.awaiting_resync = false;
+            self.stats.resyncs += 1;
+            return Freshness::AcceptResync { sequence: seq, previous };
         }
 
         match self.watermark {
@@ -694,10 +659,9 @@ impl FreshnessGate {
     pub fn admit_frame(
         &mut self,
         bytes: &[u8],
-        kind: FrameKind,
     ) -> Result<(Freshness, Option<Vec<NodeUpdate>>), DecodeError> {
         let (sequence, updates) = decode_position_frame_with_sequence(bytes)?;
-        let verdict = self.admit(sequence, kind);
+        let verdict = self.admit(sequence);
         Ok(if verdict.is_accepted() {
             (verdict, Some(updates))
         } else {
@@ -2078,7 +2042,7 @@ impl BinaryProtocolClient {
     }
 
     /// Position frames refused by the freshness gate since connect, split by
-    /// reason: `[stale, duplicate, awaiting_resync, resyncs]` (ADR-2018). A
+    /// reason: `[stale, duplicate, resyncs]` (ADR-2018). A
     /// non-zero stale/duplicate count is the observable signal that the ordering
     /// problem the ADR describes is real on this deployment.
     #[func]
@@ -2087,7 +2051,6 @@ impl BinaryProtocolClient {
         PackedInt64Array::from(&[
             s.rejected_stale as i64,
             s.rejected_duplicate as i64,
-            s.rejected_awaiting_resync as i64,
             s.resyncs as i64,
         ])
     }
@@ -2223,7 +2186,7 @@ impl BinaryProtocolClient {
         // ADR-2018: gate on the V5 broadcast sequence before applying anything.
         // Position frames on this socket are full-state broadcasts, so a snapshot
         // after a reconnect is what re-baselines the watermark.
-        let emit_buf: Vec<NodeUpdate> = match self.freshness.admit_frame(bytes, FrameKind::Full) {
+        let emit_buf: Vec<NodeUpdate> = match self.freshness.admit_frame(bytes) {
             Ok((_, Some(updates))) => updates,
             Ok((verdict, None)) => {
                 warn!(?verdict, "dropping stale position frame");
@@ -2925,5 +2888,41 @@ mod tests {
             r#"{"type":"initialGraphLoad","nodes":[{"id":1,"did_nostr":""}],"edges":[],"timestamp":1}"#
         )
         .is_empty());
+    }
+
+    // ---- hard rule: position updates are full snapshots, never deltas ----
+
+    #[test]
+    fn a_retired_v4_delta_frame_is_refused_not_applied() {
+        // [4][frame][count:u16] + one 20-byte delta record: what the old encoder produced.
+        let mut v4 = vec![0u8; 4 + 20];
+        v4[0] = 4;
+        v4[2] = 1;
+        let err = decode_position_frame(&v4).expect_err("a V4 frame must never decode");
+        assert!(matches!(err, DecodeError::BadVersion { version: 4, .. }), "got {err:?}");
+    }
+
+    fn v5_frame(seq: u64, nodes: usize) -> Vec<u8> {
+        let mut f = vec![PROTOCOL_V5];
+        f.extend_from_slice(&seq.to_le_bytes());
+        f.extend(std::iter::repeat_n(0u8, nodes * NODE_RECORD_BYTES));
+        f
+    }
+
+    #[test]
+    fn the_first_sequenced_frame_after_a_reconnect_rebaselines_and_nothing_is_awaiting_a_delta() {
+        let mut gate = FreshnessGate::new();
+        assert!(gate.admit_frame(&v5_frame(500, 3)).unwrap().0.is_accepted());
+        gate.reconnect();
+        assert!(gate.awaiting_resync());
+        // The producer restarted: the sequence moves BACKWARDS, and the frame is still taken
+        // because every frame is a complete snapshot that can re-baseline on its own.
+        let (verdict, updates) = gate.admit_frame(&v5_frame(7, 3)).unwrap();
+        assert!(matches!(verdict, Freshness::AcceptResync { sequence: 7, previous: Some(500) }), "got {verdict:?}");
+        assert_eq!(updates.map(|u| u.len()), Some(3));
+        assert!(!gate.awaiting_resync());
+        assert_eq!(gate.stats().resyncs, 1);
+        // And a stale frame in the new epoch is still refused.
+        assert!(matches!(gate.admit_frame(&v5_frame(6, 3)).unwrap().0, Freshness::RejectStale { .. }));
     }
 }

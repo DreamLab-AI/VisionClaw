@@ -376,13 +376,11 @@ async function handleLegacyBinaryData(
   const parsedNodes = frame.nodes;
 
   // ADR-03 D7 "Phase 5": ingest per-node analytics on the main thread.
-  // Only V3/V5 full frames carry cluster_id/anomaly/community (offsets 36/40/44);
-  // V2 and V4 delta frames omit them and must NOT overwrite live analytics.
-  if (frame.type === 'full') {
-    const protoByte = new DataView(data).getUint8(0);
-    if (protoByte === PROTOCOL_V3 || protoByte === PROTOCOL_V5) {
-      nodeAnalyticsStore.ingest(parsedNodes);
-    }
+  // Only V3/V5 frames carry cluster_id/anomaly/community (offsets 36/40/44);
+  // V2 omits them and must NOT overwrite live analytics.
+  const protoByte = new DataView(data).getUint8(0);
+  if (protoByte === PROTOCOL_V3 || protoByte === PROTOCOL_V5) {
+    nodeAnalyticsStore.ingest(parsedNodes);
   }
 
   updateNodeTypeMapFromParsed(parsedNodes, set);

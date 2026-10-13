@@ -10,7 +10,7 @@ const logger = createLogger('binaryProtocol');
  * Protocol Versions:
  * - V2: 36 bytes per node (basic pathfinding)
  * - V3: 52 bytes per node (adds cluster_id, anomaly_score, community_id, centrality)
- * - V4: Delta encoding (20 bytes per changed node, only changed nodes sent)
+ * - V4: RETIRED delta encoding. Position frames are always full snapshots; a V4 frame is declined.
  *
  * V3 wire layout (ADR-031 D2): id@0, position@4 (12B), velocity@16 (12B),
  * sssp_distance@28 (f32), sssp_parent@32 (i32), cluster_id@36 (u32),
@@ -38,26 +38,16 @@ export interface BinaryNodeData {
 }
 
 /**
- * Result of parsing binary node data, distinguishing full vs delta updates.
- * - Full updates: nodes contain absolute positions (replace targetPositions)
- * - Delta updates: nodes contain position/velocity DELTAS (add to targetPositions)
+ * Result of parsing a binary position frame. Every position frame is a FULL snapshot of the
+ * nodes this client is entitled to: nodes carry absolute positions that replace the previous
+ * ones. There is no delta encoding anywhere in the protocol.
  */
 export interface ParsedBinaryFrame {
-  /** 'full' for V2/V3/V5 full state, 'delta' for V4 delta encoding */
-  type: 'full' | 'delta';
-  /** Parsed node data. For delta frames, position/velocity are DELTAS, not absolute. */
+  /** Parsed node data: absolute positions and velocities. */
   nodes: BinaryNodeData[];
-  /** V4 only: frame number within the delta cycle (0-59) */
-  frameNumber?: number;
   /** V5 only: authoritative server broadcast sequence for backpressure ack correlation */
   broadcastSequence?: number;
 }
-
-// V4 delta encoding constants (must match server delta_encoding.rs)
-const DELTA_SCALE_FACTOR = 100.0;
-const DELTA_ITEM_SIZE = 20;
-const DELTA_POSITION_CHANGED = 0x01;
-const DELTA_VELOCITY_CHANGED = 0x02;
 
 // Protocol version constants (must match server)
 export const PROTOCOL_V2 = 2;
@@ -198,9 +188,14 @@ export function parseBinaryNodeData(buffer: ArrayBuffer): BinaryNodeData[] {
         hasAnalytics = true;
         break;
       case PROTOCOL_V4:
-        // Delta encoding - decode via parseBinaryFrameData() instead
-        // Return empty from this legacy function; callers should use parseBinaryFrameData()
-        return parseDeltaNodes(safeBuffer);
+        // Hard rule: position updates are never deltas. The server has no V4 encoder, so a
+        // V4 frame is a stale or foreign sender. Decline it; applying one would add offsets to
+        // positions that were never established.
+        logger.warn(
+          'Declining V4 frame: delta position encoding is not part of the protocol. ' +
+          'Expected V3 (0x03) or the V5 envelope (0x05).'
+        );
+        return [];
       case PROTOCOL_V5:
         // V5 = V3 node data with 8-byte broadcast sequence prefix
         // Extract sequence, then parse remainder as V3
@@ -326,83 +321,6 @@ export function parseBinaryNodeData(buffer: ArrayBuffer): BinaryNodeData[] {
 }
 
 /**
- * Parse V4 delta-encoded frame into BinaryNodeData entries.
- * The returned nodes contain DELTA values (not absolute positions).
- * Position and velocity fields represent the CHANGE from the previous frame.
- *
- * V4 wire format:
- *   [1 byte: version=4][1 byte: frame_number][2 bytes: num_changed (u16 LE)]
- *   For each changed node (20 bytes):
- *     [4 bytes: node_id (u32 LE)][1 byte: change_flags][3 bytes: padding]
- *     [2 bytes: dx (i16 LE)][2 bytes: dy][2 bytes: dz]
- *     [2 bytes: dvx (i16 LE)][2 bytes: dvy][2 bytes: dvz]
- */
-function parseDeltaNodes(buffer: ArrayBuffer): BinaryNodeData[] {
-  const view = new DataView(buffer);
-  const nodes: BinaryNodeData[] = [];
-
-  // Minimum size: 1 (version) + 1 (frame) + 2 (count) = 4 bytes
-  if (buffer.byteLength < 4) {
-    return [];
-  }
-
-  // Skip version byte (already validated as V4)
-  const _frameNumber = view.getUint8(1);
-  const numChanged = view.getUint16(2, true);
-
-  const expectedSize = 4 + numChanged * DELTA_ITEM_SIZE;
-  if (buffer.byteLength < expectedSize) {
-    logger.warn(`V4 delta frame truncated: expected ${expectedSize} bytes, got ${buffer.byteLength}`);
-    return [];
-  }
-
-  let offset = 4;
-  for (let i = 0; i < numChanged; i++) {
-    const nodeId = view.getUint32(offset, true);
-    const changeFlags = view.getUint8(offset + 4);
-    // offset + 5..7 = padding
-
-    const dxScaled = view.getInt16(offset + 8, true);
-    const dyScaled = view.getInt16(offset + 10, true);
-    const dzScaled = view.getInt16(offset + 12, true);
-    const dvxScaled = view.getInt16(offset + 14, true);
-    const dvyScaled = view.getInt16(offset + 16, true);
-    const dvzScaled = view.getInt16(offset + 18, true);
-
-    const dx = (changeFlags & DELTA_POSITION_CHANGED) ? dxScaled / DELTA_SCALE_FACTOR : 0;
-    const dy = (changeFlags & DELTA_POSITION_CHANGED) ? dyScaled / DELTA_SCALE_FACTOR : 0;
-    const dz = (changeFlags & DELTA_POSITION_CHANGED) ? dzScaled / DELTA_SCALE_FACTOR : 0;
-    const dvx = (changeFlags & DELTA_VELOCITY_CHANGED) ? dvxScaled / DELTA_SCALE_FACTOR : 0;
-    const dvy = (changeFlags & DELTA_VELOCITY_CHANGED) ? dvyScaled / DELTA_SCALE_FACTOR : 0;
-    const dvz = (changeFlags & DELTA_VELOCITY_CHANGED) ? dvzScaled / DELTA_SCALE_FACTOR : 0;
-
-    // FIX 3 (client): V4 delta overflow sanity check.
-    // If applying this delta would produce an out-of-range position (> 100000),
-    // the delta was likely clamped due to i16 overflow on the server.
-    // Log a warning so developers can diagnose the issue.
-    const POSITION_SANITY_BOUND = 100000;
-    if (Math.abs(dx) > POSITION_SANITY_BOUND || Math.abs(dy) > POSITION_SANITY_BOUND || Math.abs(dz) > POSITION_SANITY_BOUND) {
-      logger.warn(
-        `V4 delta overflow detected for node ${nodeId}: delta=[${dx.toFixed(2)}, ${dy.toFixed(2)}, ${dz.toFixed(2)}]. ` +
-        `Likely i16 clamping corruption. Wait for next full V3 frame.`
-      );
-    }
-
-    nodes.push({
-      nodeId,
-      position: { x: dx, y: dy, z: dz },
-      velocity: { x: dvx, y: dvy, z: dvz },
-      ssspDistance: Infinity,
-      ssspParent: -1,
-    });
-
-    offset += DELTA_ITEM_SIZE;
-  }
-
-  return nodes;
-}
-
-/**
  * Parse V5 frame: [1 byte: version=5][8 bytes: broadcast_sequence LE][V3 node data without version byte]
  * Extracts broadcast sequence, reconstructs a V3 buffer, and delegates to V3 parsing.
  * Updates the module-level `lastBroadcastSequence` export.
@@ -434,41 +352,24 @@ function parseV5Nodes(buffer: ArrayBuffer): BinaryNodeData[] {
  * Parse binary data and return a typed frame that distinguishes full vs delta updates.
  * This is the preferred entry point for callers that need to handle delta encoding.
  *
- * - Full frames (V2/V3/V5): nodes contain absolute positions
- * - Delta frames (V4): nodes contain position/velocity DELTAS
+ * Every frame is a full snapshot: nodes contain absolute positions.
  */
 export function parseBinaryFrameData(buffer: ArrayBuffer): ParsedBinaryFrame {
   if (!buffer || buffer.byteLength === 0) {
-    return { type: 'full', nodes: [] };
+    return { nodes: [] };
   }
 
   const safeBuffer = buffer.slice(0);
-  const view = new DataView(safeBuffer);
-  const protocolVersion = view.getUint8(0);
-
-  if (protocolVersion === PROTOCOL_V4) {
-    const frameNumber = safeBuffer.byteLength >= 2 ? view.getUint8(1) : 0;
-    const deltaNodes = parseDeltaNodes(safeBuffer);
-    return {
-      type: 'delta',
-      nodes: deltaNodes,
-      frameNumber,
-    };
-  }
+  const protocolVersion = new DataView(safeBuffer).getUint8(0);
 
   if (protocolVersion === PROTOCOL_V5) {
     // V5: extract broadcast sequence, parse node data as V3
     const v5Nodes = parseV5Nodes(safeBuffer);
-    return {
-      type: 'full',
-      nodes: v5Nodes,
-      broadcastSequence: lastBroadcastSequence,
-    };
+    return { nodes: v5Nodes, broadcastSequence: lastBroadcastSequence };
   }
 
-  // V2/V3: delegate to existing full-state parser
-  const fullNodes = parseBinaryNodeData(buffer);
-  return { type: 'full', nodes: fullNodes };
+  // V2/V3 (and a declined V4): the legacy parser, which also declines what it must.
+  return { nodes: parseBinaryNodeData(buffer) };
 }
 
 /**

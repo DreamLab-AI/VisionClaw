@@ -32,9 +32,10 @@ export const PROTOCOL_VERSION = PROTOCOL_V3;  // Default to the live V3 position
 // writes PROTOCOL_VERSION (= PROTOCOL_V3) there, and a V5 envelope may be framed,
 // so those are the two. ADR-2078: the old list also carried a `PROTOCOL_V4 = 4`
 // declared in THIS file, which nothing ever wrote into the header byte and which
-// collided by name with the unrelated delta-node-encoding PROTOCOL_V4 in
-// client/src/types/binaryProtocol.ts:65. That constant is gone from here: the name
-// PROTOCOL_V4 now means exactly one thing in the codebase — delta node encoding.
+// collided by name with the retired-delta-encoding PROTOCOL_V4 in
+// client/src/types/binaryProtocol.ts. That constant is gone from here: the name
+// PROTOCOL_V4 means exactly one thing in the codebase — the RETIRED delta tag, which
+// the decoder names only to refuse it (ADR-2139: position frames are full snapshots).
 export const SUPPORTED_HEADER_VERSIONS = [PROTOCOL_V3, PROTOCOL_V5];
 
 // Message types (1 byte header)
