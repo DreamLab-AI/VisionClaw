@@ -33,7 +33,7 @@ export interface RegistryField {
   max?: number;
   step?: number;
   options?: string[];
-  /** 'reset_layout' | 'refresh_graph' | 'toggle-webgpu' | 'run_clustering' */
+  /** 'reset_layout' | 'refresh_graph' | 'toggle-webgpu' | 'toggle-agent-offsets' | 'run_clustering' */
   action?: string;
   description?: string;
   /** divider label within the group */

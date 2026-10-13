@@ -17,7 +17,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   xr: 5,
   ai: 6,
   system: 17,
-  agents: 44,
+  agents: 45,
   decisions: 2,
   provenance: 4,
 };
@@ -230,9 +230,10 @@ describe('control-center settings registry', () => {
     const agentsPaths = agentsGroup.fields.map((f) => f.path).filter((p): p is string => Boolean(p));
     // the group's paths are exactly the declared set (no accidental additions/drops)
     expect(new Set(agentsPaths)).toEqual(new Set(AGENT_GROUP_PATHS));
-    // the demo toggle is the only action-button (no path); all other fields carry one
+    // the only path-less fields are the two per-viewer action buttons (demo toggle, agent
+    // offset toggle); all other fields carry a path
     const actionButtons = agentsGroup.fields.filter(f => f.type === 'action-button');
-    expect(actionButtons.length).toBe(1);
+    expect(actionButtons.map(f => f.action).sort()).toEqual(['toggle-agent-offsets', 'toggle-demo']);
     expect(agentsPaths.length).toBe(agentsGroup.fields.length - actionButtons.length);
     // and none of them collide with the frozen legacy baseline
     const collisions = agentsPaths.filter((p) => legacySet.has(p));

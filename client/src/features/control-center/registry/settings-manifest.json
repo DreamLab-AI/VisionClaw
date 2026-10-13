@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedFrom": "settingsRegistry.ts",
-  "count": 235,
+  "count": 236,
   "groups": [
     {
       "id": "motion",
@@ -64,7 +64,7 @@
       "label": "Agents",
       "testid": "group-agents",
       "hotkey": "9",
-      "fieldCount": 44
+      "fieldCount": 45
     },
     {
       "id": "decisions",
@@ -2954,6 +2954,18 @@
       "min": 5,
       "max": 60,
       "step": 1
+    },
+    {
+      "key": "agentOffsetToggle",
+      "path": null,
+      "testid": "setting-agents.agentOffsetToggle",
+      "control": "action-button",
+      "group": "agents",
+      "label": "Agent Offset Animation",
+      "clientOnly": true,
+      "server": null,
+      "subgroup": "Behaviour",
+      "action": "toggle-agent-offsets"
     },
     {
       "key": "agentDemoToggle",

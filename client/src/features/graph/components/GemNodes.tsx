@@ -33,6 +33,7 @@ import { getTypeColor, getDomainColor } from '../hooks/useGraphNodeColors';
 import { agentStatusActivity } from '../../bots/agentVisualConstants';
 import { getAgentWork, AGENT_DONE_ACTIVITY } from '../../bots/agentWorkTargets';
 import { stepAgentOffset } from '../utils/agentNudge';
+import { agentOffsetsEnabled } from '../../../store/agentOffsetPrefs';
 import { agentDriftFeed } from '../../bots/agentDriftFeed';
 import { separatedFrame, type TriangleFrame } from '../triLayout';
 import { attentionHeat } from '../../visualisation/attentionHeat';
@@ -1012,8 +1013,13 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
         }
         _nudgeBase[0] = x; _nudgeBase[1] = y; _nudgeBase[2] = z;
         _nudgeCentre[0] = graphCX; _nudgeCentre[1] = graphCY; _nudgeCentre[2] = graphCZ;
-        stepAgentOffset(agentOff, o3, _nudgeBase, hasTarget ? _nudgeTarget : null, work?.state ?? null,
-          _nudgeCentre, separatedRef.current);
+        if (agentOffsetsEnabled()) {
+          stepAgentOffset(agentOff, o3, _nudgeBase, hasTarget ? _nudgeTarget : null, work?.state ?? null,
+            _nudgeCentre, separatedRef.current);
+        } else {
+          // Offsets off: draw the agent exactly at the server position.
+          agentOff[o3] = 0; agentOff[o3 + 1] = 0; agentOff[o3 + 2] = 0;
+        }
         x += agentOff[o3];
         y += agentOff[o3 + 1];
         z += agentOff[o3 + 2];

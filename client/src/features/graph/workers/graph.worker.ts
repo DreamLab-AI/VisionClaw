@@ -6,6 +6,7 @@ import { isZlibCompressed, decompressZlib } from './lib/compression';
 import { tickTween } from './lib/tween';
 import { processFrameUpdates, warnUnknownNodes, WORKER_ANALYTICS_STRIDE } from './lib/binary-processor';
 import { reallocateAfterRemoval, syncToSharedBuffer, initPositionBuffers } from './lib/buffer-manager';
+import { settingsIdempotencyKey } from './lib/settingsKey';
 import {
   Node, Edge, GraphData, ForcePhysicsSettings, TweenSettings, PhysicsSettings,
 } from './lib/types';
@@ -235,8 +236,10 @@ class GraphWorker {
       ? (graphs?.visionclaw?.physics as Record<string, unknown> | undefined ?? {})
       : null;
 
-    // Idempotency: bail if physics values haven't changed
-    const physicsKey = JSON.stringify({ gs: graphSettings, vf: vfPhysics });
+    const tweening = graphs?.[this.graphType]?.tweening as Record<string, unknown> | undefined;
+
+    // Idempotency: bail if neither physics nor tweening values have changed
+    const physicsKey = settingsIdempotencyKey(graphSettings, vfPhysics, tweening);
     if (physicsKey === this._lastPhysicsKey) return;
     this._lastPhysicsKey = physicsKey;
 
@@ -247,7 +250,6 @@ class GraphWorker {
       updateThreshold: (graphSettings?.updateThreshold as number | undefined) ?? 0.05
     };
 
-    const tweening = graphs?.[this.graphType]?.tweening as Record<string, unknown> | undefined;
     if (tweening) {
       await this.setTweeningSettings({
         enabled: tweening.enabled as boolean | undefined,

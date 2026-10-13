@@ -1,18 +1,19 @@
 /**
  * SettingAction — action buttons (reset_layout, refresh_graph, toggle-webgpu,
- * run_clustering). design-spec.md §1.1, §1.5, §1.9.
+ * toggle-agent-offsets, run_clustering). design-spec.md §1.1, §1.5, §1.9.
  *
  * Every call site is ported verbatim from UnifiedSettingsTabContent.handleAction
  * so writes/side-effects hit the exact same endpoints and reload semantics as
  * the legacy panel.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useSyncExternalStore } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { RegistryField } from '../registry/types';
 import { webSocketService } from '../../../store/websocketStore';
 import { isWebGPURenderer, setForceWebGLOverride } from '../../../rendering/rendererFactory';
 import { toggleDemo, isDemoRunning } from '../../bots/agentDemoMode';
+import { agentOffsetsEnabled, setAgentOffsetsEnabled, subscribeAgentOffsets } from '../../../store/agentOffsetPrefs';
 import { createLogger } from '../../../utils/loggerConfig';
 import { cn } from '../../../utils/classNameUtils';
 
@@ -33,6 +34,7 @@ const BUTTON_STYLE: Record<string, string> = {
   run_clustering: 'bg-violet-600 hover:bg-violet-500 shadow-violet-600/30',
   'toggle-webgpu': '', // computed dynamically below (active/inactive)
   'toggle-demo': '',   // computed dynamically below (active/inactive)
+  'toggle-agent-offsets': '', // computed dynamically below (on/off)
   refresh_graph: 'bg-primary hover:bg-primary/90 shadow-primary/30',
 };
 
@@ -49,6 +51,8 @@ export const SettingAction: React.FC<SettingActionProps> = ({
   const isRunClustering = field.action === 'run_clustering';
   const isWebGPUToggle = field.action === 'toggle-webgpu';
   const isDemoToggle = field.action === 'toggle-demo';
+  const isAgentOffsetToggle = field.action === 'toggle-agent-offsets';
+  const agentOffsetsOn = useSyncExternalStore(subscribeAgentOffsets, agentOffsetsEnabled);
   const webgpuActive = isWebGPUToggle ? isWebGPURenderer : false;
 
   const handleAction = useCallback(async () => {
@@ -73,6 +77,14 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     if (field.action === 'toggle-webgpu') {
       setForceWebGLOverride(isWebGPURenderer);
       window.location.reload();
+      return;
+    }
+
+    if (field.action === 'toggle-agent-offsets') {
+      setAgentOffsetsEnabled(!agentOffsetsEnabled());
+      onSuccess?.(agentOffsetsEnabled()
+        ? 'Agent offsets on: agents animate toward their work target (this browser only)'
+        : 'Agent offsets off: agents are drawn at the server position (this browser only)');
       return;
     }
 
@@ -117,6 +129,10 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     ? webgpuActive
       ? 'WebGPU Active — Click for WebGL'
       : 'WebGL Active — Click for WebGPU'
+    : isAgentOffsetToggle
+      ? agentOffsetsOn
+        ? 'Agent Offsets On — Click to Turn Off'
+        : 'Agent Offsets Off — Click to Turn On'
     : isDemoToggle
       ? demoActive
         ? 'Demo Running — Click to Stop'
@@ -129,6 +145,10 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     ? webgpuActive
       ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
       : 'bg-gray-600 hover:bg-gray-500 shadow-gray-600/30'
+    : isAgentOffsetToggle
+      ? agentOffsetsOn
+        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+        : 'bg-gray-600 hover:bg-gray-500 shadow-gray-600/30'
     : isDemoToggle
       ? demoActive
         ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
