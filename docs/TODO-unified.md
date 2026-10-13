@@ -297,6 +297,8 @@ Owner answers, 2026-10-12: S-4(1) = wire real discovery; X-2 first part = delete
 
 S-4(1) built (2026-10-12), per the owner answer "wire real discovery": `AppState.multi_mcp_discovery`, refcounted `acquire`/`release`, only `claude-flow` enabled by default, `send_discovery_data` simulation removed and replaced by a real `discovery_data` frame, the health gate now folding the service's own `is_connected`. The hub endpoint turned out to be the existing `multi-agent-container:9500` that `BotsClient` polls (ADR-2084), so the question I put to the owner earlier was answerable from the repo. `cargo check --lib --tests` clean, 14 module tests pass. Not observed against a live hub, no client consumes the frame yet, and `ruv-swarm`/`daa` have no confirmed endpoint. Recorded in the ADR-2091 addendum.
 
+S-7e observed on GitHub (2026-10-12): `gh workflow run ci.yml --ref main` on DreamLab-AI/solid-pod-rs (run `38385377803`, head `bfbeea05`) completed the `fuzz sparql_update (60 s) + bench smoke` job with every step green: nightly toolchain, `cargo-fuzz` install, 60 s fuzz, bench smoke. S-7e is closed on observation, not only on source. The job is cron-and-dispatch only, so a weekly red there is a finding, not a merge blocker.
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
