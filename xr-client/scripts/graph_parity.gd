@@ -55,6 +55,15 @@ var _physics_inflight: bool = false
 var _physics_retry_in: float = 0.0
 const PHYSICS_RETRY_SEC: float = 5.0
 
+# Server physics state (GET /api/graph/settlement): the GPU actor's own settlement
+# telemetry, polled every few seconds. One request in flight; failures show as
+# "unavailable" instead of leaving a stale value on the HUD.
+const SETTLE_PATH := "/api/graph/settlement"
+const SETTLE_POLL_SEC: float = 3.0
+var _settle_get: HTTPRequest = null
+var _settle_inflight: bool = false
+var _settle_timer: float = 0.0
+
 
 ## Wire to the scene. `graph_root` is the fitted server-space root the node
 ## MultiMeshes live under; the hull mesh goes there so it shares their space.
@@ -76,6 +85,10 @@ func setup(scene: Node, client: RefCounted, graph_root: Node3D, hud: Node) -> vo
 	_physics_get.timeout = 8.0
 	add_child(_physics_get)
 	_physics_get.request_completed.connect(_on_physics_get_completed)
+	_settle_get = HTTPRequest.new()
+	_settle_get.timeout = 4.0
+	add_child(_settle_get)
+	_settle_get.request_completed.connect(_on_settle_completed)
 	_refresh_hud()
 
 
@@ -133,6 +146,7 @@ func _process(delta: float) -> void:
 		if _physics_retry_in <= 0.0:
 			_physics_wanted = true
 	_maybe_fetch_physics()
+	_poll_settlement(delta)
 	if hull_source == 0 or _client == null or not _client.has_method("build_hull_mesh"):
 		return
 	_hull_accum += delta
@@ -224,6 +238,66 @@ func apply_physics_body(text: String) -> Dictionary:
 	if not view.is_empty() and _scene != null and _scene.has_method("_refresh_controls_status"):
 		_scene._refresh_controls_status()
 	return view
+
+
+# --- server physics state ----------------------------------------------------
+
+## One-line, honest description of a /api/graph/settlement body. A fallback (the GPU did
+## not answer) and an unreachable or malformed endpoint are their own states, never a
+## guess dressed up as a measurement. Static so tests can drive it without a server.
+static func describe_physics_state(text: String) -> String:
+	# JSON.new().parse() reports failure as a code. parse_string() would log an engine
+	# error on every bad or empty body, i.e. every poll while the server is unreachable.
+	var json := JSON.new()
+	if json.parse(text) != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return "unavailable"
+	var body: Dictionary = json.data
+	if body.has("data") and typeof(body["data"]) == TYPE_DICTIONARY:
+		body = body["data"]
+	var st: Variant = body.get("settlementState")
+	if typeof(st) != TYPE_DICTIONARY:
+		return "unavailable"
+	if body.get("telemetryLive", false) != true:
+		return "GPU not reporting"
+	if body.get("physicsRunning", false) != true:
+		return "paused"
+	if (st as Dictionary).get("isSettled", false) == true:
+		return "settled"
+	return "settling KE %.2f" % float((st as Dictionary).get("kineticEnergy", 0.0))
+
+
+## Apply a settlement body to the HUD status line. Public so tests can drive it.
+func apply_settlement_body(text: String) -> String:
+	var label: String = describe_physics_state(text)
+	_set_scene("_physics_state_text", label)
+	if _scene != null and _scene.has_method("_refresh_controls_status"):
+		_scene._refresh_controls_status()
+	return label
+
+
+func _poll_settlement(delta: float) -> void:
+	if _settle_get == null or _settle_inflight or _scene == null:
+		return
+	_settle_timer -= delta
+	if _settle_timer > 0.0:
+		return
+	if not _scene.has_method("_http_base") or not _scene.has_method("_auth_headers"):
+		return
+	var url: String = "%s%s" % [_scene._http_base(), SETTLE_PATH]
+	var headers: PackedStringArray = _scene._auth_headers(url, "GET")
+	if _settle_get.request(url, headers, HTTPClient.METHOD_GET) != OK:
+		_settle_timer = SETTLE_POLL_SEC
+		return
+	_settle_inflight = true
+
+
+func _on_settle_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_settle_inflight = false
+	_settle_timer = SETTLE_POLL_SEC
+	if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300:
+		apply_settlement_body("")
+		return
+	apply_settlement_body(body.get_string_from_utf8())
 
 
 # --- helpers -----------------------------------------------------------------

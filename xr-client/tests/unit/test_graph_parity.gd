@@ -20,6 +20,7 @@ class StubScene:
 	var _dag_level_distance: float = 60.0
 	var _plane_bias_k: float = 0.0
 	var _plane_spacing: float = 60.0
+	var _physics_state_text: String = ""
 	var _z_compression: float = 1.0
 	var refreshed: int = 0
 	func _refresh_controls_status() -> void:
@@ -295,3 +296,28 @@ func _collect_keys(root: Node, out: Array) -> void:
 		if n.has_meta(&"key"):
 			out.append(String(n.get_meta(&"key")))
 		_collect_keys(n, out)
+
+# GET /api/graph/settlement: the server's own settlement telemetry. A fallback (no GPU
+# answer) or an unreachable endpoint must never read as a measurement.
+func test_physics_state_text_is_honest_about_what_it_knows() -> void:
+	var live := "{\"settlementState\":{\"isSettled\":false,\"stableFrameCount\":0,\"kineticEnergy\":0.207},\"telemetryLive\":true,\"physicsRunning\":true}"
+	assert_eq(ParityScript.describe_physics_state(live), "settling KE 0.21")
+	var settled := "{\"settlementState\":{\"isSettled\":true,\"stableFrameCount\":9,\"kineticEnergy\":0.0},\"telemetryLive\":true,\"physicsRunning\":true}"
+	assert_eq(ParityScript.describe_physics_state(settled), "settled")
+	var paused := "{\"settlementState\":{\"isSettled\":false,\"stableFrameCount\":0,\"kineticEnergy\":0.3},\"telemetryLive\":true,\"physicsRunning\":false}"
+	assert_eq(ParityScript.describe_physics_state(paused), "paused")
+	var fallback := "{\"settlementState\":{\"isSettled\":true,\"stableFrameCount\":0,\"kineticEnergy\":0.0},\"telemetryLive\":false,\"physicsRunning\":true}"
+	assert_eq(ParityScript.describe_physics_state(fallback), "GPU not reporting")
+	assert_eq(ParityScript.describe_physics_state("not json"), "unavailable")
+	assert_eq(ParityScript.describe_physics_state("{}"), "unavailable")
+	# An enveloped body is accepted too.
+	assert_eq(ParityScript.describe_physics_state("{\"data\":" + settled + "}"), "settled")
+
+
+func test_settlement_body_updates_the_hud_state() -> void:
+	var p: Array = _parity_with(_client())
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	parity.apply_settlement_body("{\"settlementState\":{\"isSettled\":false,\"stableFrameCount\":0,\"kineticEnergy\":1.5},\"telemetryLive\":true,\"physicsRunning\":true}")
+	assert_eq(scene._physics_state_text, "settling KE 1.50")
+	assert_gt(scene.refreshed, 0, "status line refreshed")

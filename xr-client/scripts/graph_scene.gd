@@ -200,6 +200,9 @@ var _physics_http: HTTPRequest = null
 # successful dispatch (a dropped ERR_BUSY press must not drift the tracked values).
 var _physics_pending: bool = false
 var _last_known_nodes: int = -1
+# Server physics state label (settling / settled / paused / GPU not reporting / unavailable),
+# set by GraphParity from GET /api/graph/settlement. Empty until the first answer.
+var _physics_state_text: String = ""
 # Runtime visual factors (client-side only, no HTTP).
 var _node_size_factor: float = 1.0
 # Hierarchy / view physics state (server-routed via _physics_http, same one-in-flight
@@ -956,9 +959,10 @@ func _refresh_controls_status() -> void:
 		# "nodes drawn/known": the draw budget against every node the server sent, so a
 		# graph shown partially (only edge-endpoint nodes are drawn) is never mistaken
 		# for the whole graph.
-		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes drawn<=%d of %d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d%s%s%s" % [
+		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes drawn<=%d of %d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d  physics %s%s%s%s" % [
 			_repel_k, _rest_length, _edge_show_count, _edge_budget, _node_budget, _known_nodes(), _node_size_factor,
-			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(), busy, fold, err])
+			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(),
+			_physics_state_text if not _physics_state_text.is_empty() else "…", busy, fold, err])
 	# Reflect the toggle/pin state on the button faces (press-only, no per-frame cost).
 	if hud.has_method("set_control_states"):
 		hud.set_control_states(_dag_bias_on, _z_compression < Z_COMPRESSION_FULL_3D, _pinned_ids.size(), not is_zero_approx(_plane_bias_k))
