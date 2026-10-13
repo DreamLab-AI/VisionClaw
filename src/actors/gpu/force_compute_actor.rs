@@ -216,6 +216,8 @@ pub struct ForceComputeActor {
     /// `update_settlement`, so this is the only truthful "at rest" signal.
     /// Cleared by any real compute tick (motion resumed) or a resume signal.
     settle_paused: bool,
+    /// Rolling step timing (period / kernels+readback / total), logged every STEP_TIMING_WINDOW steps.
+    step_timing: StepTiming,
 }
 
 impl ForceComputeActor {
@@ -301,6 +303,7 @@ impl ForceComputeActor {
             settle_stable_frames: 0,
             last_mean_kinetic_energy: 0.0,
             settle_paused: false,
+            step_timing: StepTiming::default(),
         }
     }
 
@@ -1833,6 +1836,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
         }
 
         let step_start = Instant::now();
+        self.step_timing.begin(step_start);
         let correlation_id = CorrelationId::new();
         let iteration = self.iteration_count();
 
@@ -2336,6 +2340,13 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
                             actor.gpu_state.iteration_count += 1;
                             actor.last_step_duration_ms = step_start.elapsed().as_millis() as f32;
+                            if let Some(line) = actor.step_timing.finish(
+                                execution_duration,
+                                step_start.elapsed().as_secs_f64() * 1000.0,
+                                actor.gpu_state.iteration_count,
+                            ) {
+                                info!("{}", line);
+                            }
 
                             if actor.iteration_count() % 300 == 0 {
                                 debug!("ForceComputeActor: {} iterations completed, {} GPU failures, {} skipped frames, last step: {:.2}ms",
@@ -4356,6 +4367,76 @@ mod complete_snapshot_tests {
     fn a_short_readback_is_a_shortfall_too() {
         let (out, omitted) = complete_snapshot(&[1, 2, 3], &[(Vec3::ZERO, Vec3::ZERO)]);
         assert_eq!((out.len(), omitted), (1, 2));
+    }
+}
+
+/// Steps per timing log line.
+const STEP_TIMING_WINDOW: u32 = 120;
+
+/// Rolling timing of the compute step, so "why is the physics tick slow" is a log line and not a
+/// guess. `period` is start-to-start (what the stream rate follows), `gpu` is handler start to
+/// kernels + readback done (includes waiting for the GPU lock), `total` adds the CPU
+/// post-processing on the actor thread. period - total is time spent outside this actor.
+#[derive(Default)]
+struct StepTiming {
+    last_begin: Option<Instant>,
+    period_ms: f64,
+    gpu_ms: f64,
+    total_ms: f64,
+    n: u32,
+}
+
+impl StepTiming {
+    fn begin(&mut self, now: Instant) {
+        if let Some(prev) = self.last_begin {
+            self.period_ms += now.duration_since(prev).as_secs_f64() * 1000.0;
+        }
+        self.last_begin = Some(now);
+    }
+
+    /// Record one finished step; returns a log line every `STEP_TIMING_WINDOW` steps.
+    fn finish(&mut self, gpu_ms: f64, total_ms: f64, iteration: u32) -> Option<String> {
+        self.gpu_ms += gpu_ms;
+        self.total_ms += total_ms;
+        self.n += 1;
+        if self.n < STEP_TIMING_WINDOW {
+            return None;
+        }
+        let n = f64::from(self.n);
+        let line = format!(
+            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms, total in actor {:.1} ms, outside actor {:.1} ms",
+            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, self.total_ms / n, (self.period_ms - self.total_ms) / n
+        );
+        self.period_ms = 0.0;
+        self.gpu_ms = 0.0;
+        self.total_ms = 0.0;
+        self.n = 0;
+        Some(line)
+    }
+}
+
+#[cfg(test)]
+mod step_timing_tests {
+    use super::*;
+
+    #[test]
+    fn a_line_is_logged_once_per_window_with_the_right_averages() {
+        let mut t = StepTiming::default();
+        let t0 = Instant::now();
+        let mut line = None;
+        for i in 0..STEP_TIMING_WINDOW {
+            t.begin(t0 + std::time::Duration::from_millis(70 * u64::from(i)));
+            line = t.finish(20.0, 25.0, i);
+            if i + 1 < STEP_TIMING_WINDOW {
+                assert!(line.is_none(), "no line before the window fills");
+            }
+        }
+        let line = line.expect("a line at the end of the window");
+        // 119 intervals of 70 ms over 120 steps: ~69 ms period, kernels 20, total 25
+        assert!(line.contains("kernels+readback 20.0 ms"), "{line}");
+        assert!(line.contains("total in actor 25.0 ms"), "{line}");
+        assert!(line.contains("period 69."), "{line}");
+        assert!(t.n == 0 && t.gpu_ms == 0.0, "the window resets");
     }
 }
 

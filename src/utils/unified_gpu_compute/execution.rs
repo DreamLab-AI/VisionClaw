@@ -1694,6 +1694,43 @@ mod grid_gpu_tests {
         }
     }
 
+    /// Measurement: where one physics step's time goes at the live graph size. Run with
+    /// `--ignored --nocapture`.
+    #[test]
+    #[ignore = "timing measurement; run explicitly with --ignored --nocapture"]
+    fn step_stage_timings_at_the_live_graph_size() {
+        const M: usize = 9478;
+        let _ctx = cust::quick_init().expect("cuda");
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
+        let mut g = UnifiedGPUCompute::new(M, M * 2, &ptx).expect("gpu");
+        let mut seed = 5u64;
+        let (mut x, mut y, mut z) = (vec![0f32; M], vec![0f32; M], vec![0f32; M]);
+        for i in 0..M {
+            x[i] = (lcg(&mut seed) - 0.5) * 600.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 400.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 400.0;
+        }
+        g.upload_positions(&x, &y, &z).unwrap();
+        let n = M as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::new();
+        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2]).unwrap();
+        let mut p = SimParams::new();
+        p.stability_threshold = 0.0;
+        p.repulsion_cutoff = 400.0;
+        let time = |label: &str, reps: u32, f: &mut dyn FnMut()| {
+            let t0 = std::time::Instant::now();
+            for _ in 0..reps { f(); }
+            println!("STEP_TIMING {label:<28} {:8.2} ms", t0.elapsed().as_secs_f64() * 1000.0 / reps as f64);
+        };
+        for _ in 0..3 { g.execute(p).unwrap(); }
+        time("execute (kernels, no sync)", 20, &mut || { g.execute(p).unwrap(); });
+        time("execute + stream sync", 20, &mut || { g.execute(p).unwrap(); g.stream.synchronize().unwrap(); });
+        time("get_node_positions (D2H)", 20, &mut || { let _ = g.get_node_positions().unwrap(); });
+        time("update_positions_only (H2D)", 20, &mut || { g.update_positions_only(&x, &y, &z).unwrap(); });
+    }
+
     #[test]
     fn cell_bounds_cover_every_node() {
         let Some((_ctx, mut g)) = gpu() else { return };
