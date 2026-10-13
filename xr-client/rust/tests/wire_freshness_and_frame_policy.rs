@@ -15,7 +15,7 @@ mod wire_fixtures;
 
 use visionclaw_xr_gdext::binary_protocol::{
     decode_agent_action_frame, decode_position_frame, decode_position_frame_with_sequence,
-    DecodeError, FrameKind, Freshness, FreshnessGate,
+    encode_broadcast_ack, DecodeError, Freshness, FreshnessGate,
 };
 use wire_fixtures as fx;
 
@@ -48,7 +48,7 @@ fn increasing_sequences_are_accepted_and_advance_the_watermark() {
     let mut gate = FreshnessGate::new();
     for seq in [1u64, 2, 7, 8] {
         let frame = fx::v5_frame(seq, &records(1));
-        let (verdict, applied) = gate.admit_frame(&frame, FrameKind::Delta).expect("valid");
+        let (verdict, applied) = gate.admit_frame(&frame).expect("valid");
         assert_eq!(verdict, Freshness::Accept { sequence: seq });
         assert_eq!(applied.expect("records applied").len(), 1);
     }
@@ -61,13 +61,13 @@ fn a_duplicate_sequence_is_refused_and_its_records_withheld() {
     let mut gate = FreshnessGate::new();
     let first = fx::v5_frame(5, &records(1));
     assert!(gate
-        .admit_frame(&first, FrameKind::Delta)
+        .admit_frame(&first)
         .unwrap()
         .0
         .is_accepted());
 
-    // Re-delivery of the same sequence. A duplicate Delta would double-apply.
-    let (verdict, applied) = gate.admit_frame(&first, FrameKind::Delta).expect("valid");
+    // Re-delivery of the same sequence adds nothing.
+    let (verdict, applied) = gate.admit_frame(&first).expect("valid");
     assert_eq!(verdict, Freshness::RejectDuplicate { sequence: 5 });
     assert!(
         applied.is_none(),
@@ -80,12 +80,12 @@ fn a_duplicate_sequence_is_refused_and_its_records_withheld() {
 #[test]
 fn a_decreasing_sequence_is_refused_as_stale() {
     let mut gate = FreshnessGate::new();
-    gate.admit(Some(100), FrameKind::Full);
+    gate.admit(Some(100));
 
     // The exact case the closeout names: a slower/reordered producer hands the
     // consumer older state than it already holds.
     let stale = fx::v5_frame(99, &records(1));
-    let (verdict, applied) = gate.admit_frame(&stale, FrameKind::Delta).expect("valid");
+    let (verdict, applied) = gate.admit_frame(&stale).expect("valid");
     assert_eq!(
         verdict,
         Freshness::RejectStale {
@@ -100,35 +100,34 @@ fn a_decreasing_sequence_is_refused_as_stale() {
 }
 
 #[test]
-fn full_and_delta_share_one_watermark_across_concurrent_production() {
-    // Concurrent full/delta producers on the same socket: whichever frame is
-    // older loses, regardless of which producer emitted it.
+fn a_late_frame_built_before_a_newer_one_never_wins() {
+    // Whichever frame is older loses, however it got delayed.
     let mut gate = FreshnessGate::new();
-    assert!(gate.admit(Some(10), FrameKind::Full).is_accepted());
-    assert!(gate.admit(Some(11), FrameKind::Delta).is_accepted());
-    // A Full snapshot built before seq 11 arrives late and must not win.
+    assert!(gate.admit(Some(10)).is_accepted());
+    assert!(gate.admit(Some(11)).is_accepted());
+    // A chunk built before seq 11 arrives late and must not win.
     assert_eq!(
-        gate.admit(Some(10), FrameKind::Full),
+        gate.admit(Some(10)),
         Freshness::RejectStale {
             sequence: 10,
             watermark: 11
         }
     );
-    assert!(gate.admit(Some(12), FrameKind::Full).is_accepted());
+    assert!(gate.admit(Some(12)).is_accepted());
     assert_eq!(gate.watermark(), Some(12));
 }
 
 #[test]
-fn reconnect_rebaselines_on_a_full_frame_even_when_the_sequence_restarts() {
+fn reconnect_rebaselines_on_the_first_frame_even_when_the_sequence_restarts() {
     let mut gate = FreshnessGate::new();
-    assert!(gate.admit(Some(5_000), FrameKind::Delta).is_accepted());
+    assert!(gate.admit(Some(5_000)).is_accepted());
 
     // The producer restarted: its sequence space begins again from 1. Under a
     // bare `seq > watermark` rule the client would reject every frame forever.
     gate.reconnect();
     assert!(gate.awaiting_resync());
     let resync = fx::v5_frame(1, &records(3));
-    let (verdict, applied) = gate.admit_frame(&resync, FrameKind::Full).expect("valid");
+    let (verdict, applied) = gate.admit_frame(&resync).expect("valid");
     assert_eq!(
         verdict,
         Freshness::AcceptResync {
@@ -144,12 +143,12 @@ fn reconnect_rebaselines_on_a_full_frame_even_when_the_sequence_restarts() {
     // just accepted is a duplicate, and anything older than the new watermark
     // is stale — the pre-reconnect 5_000 no longer has any authority.
     assert_eq!(
-        gate.admit(Some(1), FrameKind::Delta),
+        gate.admit(Some(1)),
         Freshness::RejectDuplicate { sequence: 1 }
     );
-    assert!(gate.admit(Some(2), FrameKind::Delta).is_accepted());
+    assert!(gate.admit(Some(2)).is_accepted());
     assert_eq!(
-        gate.admit(Some(1), FrameKind::Delta),
+        gate.admit(Some(1)),
         Freshness::RejectStale {
             sequence: 1,
             watermark: 2
@@ -158,36 +157,47 @@ fn reconnect_rebaselines_on_a_full_frame_even_when_the_sequence_restarts() {
 }
 
 #[test]
-fn a_delta_before_the_post_reconnect_snapshot_is_refused() {
+fn the_first_frame_after_a_reconnect_is_taken_whatever_its_sequence() {
+    // Every position frame is a complete snapshot of what the server holds for this client
+    // (ADR-2141), so there is nothing to wait for: the first sequenced frame after a reconnect
+    // re-baselines, and is applied.
     let mut gate = FreshnessGate::new();
-    assert!(gate.admit(Some(40), FrameKind::Delta).is_accepted());
+    assert!(gate.admit(Some(40)).is_accepted());
     gate.reconnect();
-
-    // There is no coherent baseline to apply a delta against yet.
     let (verdict, applied) = gate
-        .admit_frame(&fx::v5_frame(41, &records(1)), FrameKind::Delta)
+        .admit_frame(&fx::v5_frame(41, &records(1)))
         .expect("valid");
-    assert_eq!(verdict, Freshness::RejectAwaitingResync { sequence: 41 });
-    assert!(applied.is_none());
-    assert!(gate.awaiting_resync(), "still waiting for the snapshot");
-    assert_eq!(gate.stats().rejected_awaiting_resync, 1);
+    assert_eq!(verdict, Freshness::AcceptResync { sequence: 41, previous: Some(40) });
+    assert_eq!(applied.expect("applied").len(), 1);
+    assert!(!gate.awaiting_resync());
+}
+
+#[test]
+fn the_position_acknowledgement_is_byte_identical_to_the_shared_wire_fixture() {
+    // The server decodes the fixture's bytes (src/utils/binary_protocol.rs); this proves the XR
+    // encoder produces exactly them, so a chunk's ack is never mis-read.
+    for (seq, nodes, ts) in [(1u64, 0u32, 0u64), (48_113, 2500, 1_700_000_000_123), (u64::MAX, u32::MAX, u64::MAX)] {
+        assert_eq!(encode_broadcast_ack(seq, nodes, ts), fx::broadcast_ack_frame(seq, nodes, ts));
+    }
+    assert_eq!(fx::BROADCAST_ACK_BYTES, 21);
+    assert_eq!(fx::OPCODE_BROADCAST_ACK, 0x34);
 }
 
 #[test]
 fn an_unsequenced_v3_frame_never_moves_the_watermark() {
     let mut gate = FreshnessGate::new();
-    assert!(gate.admit(Some(70), FrameKind::Full).is_accepted());
+    assert!(gate.admit(Some(70)).is_accepted());
 
     // V3 is accepted for compatibility but must not be able to unblock a
     // sequence the gate has already refused.
     let (verdict, applied) = gate
-        .admit_frame(&fx::v3_frame(&records(2)), FrameKind::Full)
+        .admit_frame(&fx::v3_frame(&records(2)))
         .expect("valid");
     assert_eq!(verdict, Freshness::AcceptUnsequenced);
     assert_eq!(applied.expect("applied").len(), 2);
     assert_eq!(gate.watermark(), Some(70));
     assert_eq!(
-        gate.admit(Some(69), FrameKind::Delta),
+        gate.admit(Some(69)),
         Freshness::RejectStale {
             sequence: 69,
             watermark: 70

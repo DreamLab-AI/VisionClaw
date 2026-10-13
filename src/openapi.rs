@@ -571,13 +571,22 @@ pub struct PhysicsSettingsDoc {
     /// Target iterations per frame
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iterations_per_frame: Option<u32>,
-    /// Position-broadcast rate in Hz, 1-60 (default 8; `broadcastFps` in the
-    /// response). Each broadcast is a full snapshot, so the cost per client is
-    /// linear in the rate: ~3.9 MB/s at 8 Hz, ~12 MB/s at 25 Hz for the
-    /// ~9.5k-node graph. Applied live.
+    /// Most nodes in one position chunk, 100-20000 (default 2500; `streamChunkNodes` in the
+    /// response). Each client is sent the nodes that changed since it last acknowledged, in
+    /// chunks of at most this size (ADR-2141). Applied live.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(minimum = 1, maximum = 60)]
-    pub broadcast_fps: Option<u32>,
+    #[schema(minimum = 100, maximum = 20000)]
+    pub stream_chunk_nodes: Option<u32>,
+    /// A node is re-sent once it is this far from what the client acknowledged, 0-100
+    /// (default 0.25; `streamMoveThreshold`). Applied live.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(minimum = 0, maximum = 100)]
+    pub stream_move_threshold: Option<f32>,
+    /// Milliseconds before an unacknowledged chunk is rebuilt and resent, 20-10000
+    /// (default 500; `streamAckTimeoutMs`). Applied live.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(minimum = 20, maximum = 10000)]
+    pub stream_ack_timeout_ms: Option<u32>,
 }
 
 /// Request to start physics simulation - matches physics_handler::StartSimulationRequest

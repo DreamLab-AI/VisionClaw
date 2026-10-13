@@ -160,9 +160,12 @@ export interface PhysicsSettings {
   cluster_count: number;
   clustering_resolution: number;
   clustering_iterations: number;
-  /** Position-broadcast rate in Hz, 1-60 (default 8); ~0.49 MB per client per broadcast. */
-  broadcast_fps: number;
-  interaction_broadcast_fps: number;
+  /** Most nodes in one position chunk, 100-20000 (default 2500). */
+  stream_chunk_nodes: number;
+  /** Re-send a node once it is this far from what the client acknowledged, 0-100 (default 0.25). */
+  stream_move_threshold: number;
+  /** Milliseconds before an unacknowledged chunk is rebuilt and resent, 20-10000 (default 500). */
+  stream_ack_timeout_ms: number;
 }
 
 // Rendering settings

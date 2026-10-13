@@ -75,6 +75,12 @@ pub const V5_SEQ_BYTES: usize = 8;
 /// Message-type byte prefixing a binary agent-action batch frame.
 pub const OPCODE_AGENT_ACTION: u8 = 0x23;
 
+/// Opcode of the client -> server position acknowledgement (ADR-2141).
+pub const OPCODE_BROADCAST_ACK: u8 = 0x34;
+
+/// Size of an acknowledgement frame: opcode + `u64` sequence + `u32` nodes + `u64` timestamp.
+pub const BROADCAST_ACK_BYTES: usize = 21;
+
 /// Fixed header size of a single agent-action event body, excluding payload.
 pub const AGENT_ACTION_HEADER_BYTES: usize = 15;
 
@@ -289,6 +295,24 @@ pub fn agent_action_frame_header_only(claimed: u16) -> Vec<u8> {
     out
 }
 
+/// The client -> server acknowledgement of one position chunk (ADR-2141), exactly as the server
+/// decodes it (`BinaryProtocol::decode_message`, opcode `0x34`): NO generic six-byte header,
+///
+/// ```text
+/// [0x34][u64 sequence_LE][u32 nodes_received_LE][u64 timestamp_ms_LE]
+/// ```
+///
+/// `sequence` is the V5 sequence of the chunk being acknowledged. The server marks the nodes of
+/// that chunk as held by this client and builds its next chunk.
+pub fn broadcast_ack_frame(sequence: u64, nodes_received: u32, timestamp_ms: u64) -> Vec<u8> {
+    let mut v = Vec::with_capacity(BROADCAST_ACK_BYTES);
+    v.push(OPCODE_BROADCAST_ACK);
+    v.extend_from_slice(&sequence.to_le_bytes());
+    v.extend_from_slice(&nodes_received.to_le_bytes());
+    v.extend_from_slice(&timestamp_ms.to_le_bytes());
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +369,26 @@ mod tests {
         assert_eq!(u16::from_le_bytes([frame[1], frame[2]]), 9);
         // Only one real body is present despite the claimed count of nine.
         assert_eq!(frame.len(), 3 + 2 + AGENT_ACTION_HEADER_BYTES);
+    }
+
+    #[test]
+    fn broadcast_ack_frame_is_21_bytes_with_no_generic_header() {
+        let f = broadcast_ack_frame(0x0102_0304_0506_0708, 9470, 1_700_000_000_123);
+        assert_eq!(f.len(), BROADCAST_ACK_BYTES);
+        assert_eq!(f[0], OPCODE_BROADCAST_ACK);
+        assert_eq!(&f[1..9], &0x0102_0304_0506_0708u64.to_le_bytes());
+        assert_eq!(&f[9..13], &9470u32.to_le_bytes());
+        assert_eq!(&f[13..21], &1_700_000_000_123u64.to_le_bytes());
+    }
+
+    /// The same bytes are asserted in the web client's test (`BinaryWebSocketProtocol.ack.test.ts`):
+    /// three encoders, one golden frame.
+    #[test]
+    fn broadcast_ack_golden_bytes() {
+        let hex: String = broadcast_ack_frame(48_113, 2500, 1_700_000_000_123)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(hex, "34f1bb000000000000c40900007b68e5cf8b010000");
     }
 }

@@ -1,7 +1,7 @@
 /**
  * Group 8 — System & Developer (id `system`, hotkey 8, 17 fields).
  * Renderer toggle (Effects tab), authentication + network (System tab), and the
- * debug logging switches (Developer tab). `broadcastFps` is a server physics
+ * debug logging switches (Developer tab). the `stream*` settings are server physics
  * setting (physics bucket) shown under Network because it sets the per-client
  * position-stream bandwidth, not the simulation. `rendererInfo` is a readonly readout of
  * `rendererCapabilities`; `nostr` is the NIP-07 login button bound to `auth.nostr`.
@@ -20,8 +20,9 @@ const fields: RegistryField[] = [
   { key: 'authRequired', subgroup: 'Authentication', label: 'Auth Required', type: 'toggle', path: 'auth.required', description: 'Require authentication' },
   // Network
   { key: 'customBackendURL', subgroup: 'Network', label: 'Custom Backend URL', type: 'text', path: 'system.customBackendUrl', description: 'Override backend URL' },
-  { key: 'broadcastFps', subgroup: 'Network', label: 'Position Broadcast Rate (Hz)', type: 'slider', min: 1, max: 60, step: 1, path: 'visualisation.graphs.knowledge.physics.broadcastFps', description: 'How often the server sends every client a full position snapshot (default 8 Hz; nodes tween in between). Applies live, to all clients. Cost is linear in the rate, ~0.49 MB per snapshot on the ~9.5k-node graph: ~3.9 MB/s per client at 8 Hz, ~12 MB/s per client at 25 Hz.' },
-  { key: 'interactionBroadcastFps', subgroup: 'Network', label: 'Interaction Broadcast Rate (Hz)', type: 'slider', min: 1, max: 60, step: 1, path: 'visualisation.graphs.knowledge.physics.interactionBroadcastFps', description: 'Position snapshot rate while any node is being grabbed or moved; the idle rate applies otherwise (default 30 Hz). Applies live, to all clients' },
+  { key: 'streamChunkNodes', subgroup: 'Network', label: 'Stream Chunk Size (nodes)', type: 'slider', min: 100, max: 20000, step: 100, path: 'visualisation.graphs.knowledge.physics.streamChunkNodes', description: 'Most nodes in one position chunk. Each client is sent the nodes that changed since it last acknowledged, most-moved first, in chunks of this size; a new client\'s initial sync is simply every node in chunks. ~52 bytes per node (default 2500, about 130 KB). Applies live, to all clients' },
+  { key: 'streamMoveThreshold', subgroup: 'Network', label: 'Stream Move Threshold', type: 'slider', min: 0, max: 100, step: 0.05, path: 'visualisation.graphs.knowledge.physics.streamMoveThreshold', description: 'A node is sent again only once it is this far (layout units) from what the client last acknowledged. 0 sends any change; the default 0.25 is about a third of a pixel at full-graph zoom. Slow drift accumulates until it crosses this, so nothing is lost' },
+  { key: 'streamAckTimeoutMs', subgroup: 'Network', label: 'Stream Ack Timeout (ms)', type: 'slider', min: 20, max: 10000, step: 10, path: 'visualisation.graphs.knowledge.physics.streamAckTimeoutMs', description: 'How long a chunk may go unacknowledged before it is rebuilt and sent again. A lost frame or a client that never acknowledges costs this once; a healthy client never waits for it' },
   // Debug Logging
   { key: 'enableDebug', subgroup: 'Debug Logging', label: 'Debug Mode', type: 'toggle', path: `${D}enabled`, description: 'Enable debug mode' },
   { key: 'enableDataDebug', subgroup: 'Debug Logging', label: 'Data Debug', type: 'toggle', path: `${D}enableDataDebug`, description: 'Log data operations' },

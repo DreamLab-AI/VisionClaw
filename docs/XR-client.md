@@ -931,3 +931,16 @@ The HUD has a tenth tab, **Forces**, for the physics `semantic` group. It lists 
 - A step snaps to the step grid and is held inside the stored range.
 - Values are only ever ones read from the server (`GET /api/settings/physics`) or just written. Before the first read the rows show `…` and stepping or toggling does nothing; a PUT that cannot start (one is in flight) leaves the page unchanged.
 - Verify by eye on a headset: the tab bar now has ten expand-fill buttons; the GUT fit guard proves the page fits the 532 px host, not the bar's horizontal fit.
+
+
+## Position stream and acknowledgement (ADR-2141)
+
+The client does not subscribe to positions: the server streams them to every registered session in
+chunks (only the nodes that changed since this client's last acknowledgement) and sends the next
+chunk when this client acknowledges the last. After a chunk has been **applied** (accepted by the
+freshness gate and written to the render store) the client sends `[0x34][u64 sequence][u32 nodes]
+[u64 timestamp_ms]` over the same socket (`transport::Outbound::Binary`). A rejected (stale or
+duplicate) frame is not acknowledged. The encoder is pinned to the shared wire fixture and to a
+golden frame also asserted by the server and the web client. Because chunks are partial, the HUD
+"nodes drawn of known" figure counts every node ever received, and the first sequenced frame after a
+reconnect re-baselines the freshness gate.

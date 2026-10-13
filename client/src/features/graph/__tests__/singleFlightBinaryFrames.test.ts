@@ -1,15 +1,14 @@
 /**
- * T7 — single-flight binary-frame test (ADR-03 D2).
+ * T7 — ordered single-flight binary-frame test (ADR-03 D2, amended by ADR-2141).
  *
  * The proxy enforces:
  *   1. At most one frame is being processed across the Comlink await.
- *   2. Intermediate frames collapse to one (newest-wins slot).
- *   3. The pending slot drains after the in-flight promise settles,
- *      yielding via queueMicrotask before re-entering.
+ *   2. Frames that arrive meanwhile queue in arrival order; NONE is collapsed or dropped (each is
+ *      one chunk of the client's acknowledged stream, so a newer chunk never supersedes an older).
+ *   3. Each call's promise resolves when THAT frame has been applied (when it may be acknowledged).
  *
- * We mock the Comlink-wrapped worker so processBinaryFrame() resolves
- * after a controlled delay. Then we fire N frames rapidly and assert
- * the resulting call sequence on the underlying API.
+ * We mock the Comlink-wrapped worker so processBinaryFrame() resolves after a controlled delay,
+ * fire N frames rapidly and assert the resulting call sequence on the underlying API.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -83,51 +82,49 @@ describe('single-flight binary frame discipline (ADR-03 D2)', () => {
     expect(WORKER_USES_SAB).toBe(false);
   });
 
-  it('processes only first + newest-wins of 10 rapid frames', async () => {
-    // Fire 10 frames before any resolves.
-    const frames = Array.from({ length: 10 }, (_, i) => new Uint8Array([i]));
-    const promises = frames.map(f => graphWorkerProxy.processBinaryFrame(f));
+  const settle = async () => {
+    for (let i = 0; i < 6; i++) await new Promise((r) => queueMicrotask(() => r(undefined)));
+  };
 
-    // First frame should be in flight; subsequent frames should NOT have
-    // reached the worker (single-flight guard).
-    await Promise.resolve(); // let microtasks settle
+  it('processes every one of 10 rapid frames, in order, one at a time', async () => {
+    const frames = Array.from({ length: 10 }, (_, i) => new Uint8Array([i]));
+    const done = frames.map((f) => graphWorkerProxy.processBinaryFrame(f));
+
+    await settle();
+    // Only the first has reached the worker (single-flight).
     expect(fakeApi.processBinaryFrame).toHaveBeenCalledTimes(1);
 
-    // Resolve the first call. Pending slot (newest = frame[9]) should drain
-    // via queueMicrotask.
-    resolvers[0]();
-    await Promise.all(promises.slice(0, 1));
+    for (let i = 0; i < 10; i++) {
+      resolvers[i]();
+      await settle();
+    }
+    await Promise.all(done);
 
-    // Drain microtask queue.
-    await new Promise(r => queueMicrotask(() => r(undefined)));
-    await new Promise(r => queueMicrotask(() => r(undefined)));
-
-    // Only two calls total: first + newest-wins.
-    expect(fakeApi.processBinaryFrame).toHaveBeenCalledTimes(2);
+    expect(fakeApi.processBinaryFrame).toHaveBeenCalledTimes(10);
+    const order = fakeApi.processBinaryFrame.mock.calls.map((c) => new Uint8Array(c[0] as ArrayBufferLike)[0]);
+    expect(order).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(graphWorkerProxy.getStats().framesDropped).toBe(0);
   });
 
-  it('drops intermediate frames; pending slot always holds newest', async () => {
-    const f1 = new Uint8Array([1]);
-    const f2 = new Uint8Array([2]);
-    const f3 = new Uint8Array([3]);
-
-    // Fire 3 frames: f1 takes the in-flight slot; f2 is replaced by f3.
-    void graphWorkerProxy.processBinaryFrame(f1);
-    void graphWorkerProxy.processBinaryFrame(f2);
-    void graphWorkerProxy.processBinaryFrame(f3);
-
-    await Promise.resolve();
-    expect(fakeApi.processBinaryFrame).toHaveBeenCalledTimes(1);
-
-    // Resolve f1 → pending slot drains with f3 (not f2).
+  it('a frame is only reported applied after the worker has applied it', async () => {
+    let applied = false;
+    const p = graphWorkerProxy.processBinaryFrame(new Uint8Array([1])).then(() => { applied = true; });
+    await settle();
+    expect(applied).toBe(false);
     resolvers[0]();
-    await new Promise(r => queueMicrotask(() => r(undefined)));
-    await new Promise(r => queueMicrotask(() => r(undefined)));
+    await p;
+    expect(applied).toBe(true);
+  });
 
+  it('a failing frame rejects only its own promise; the next frame still runs', async () => {
+    fakeApi.processBinaryFrame.mockImplementationOnce(() => Promise.reject(new Error('worker error')));
+    const bad = graphWorkerProxy.processBinaryFrame(new Uint8Array([1]));
+    const good = graphWorkerProxy.processBinaryFrame(new Uint8Array([2]));
+    await expect(bad).rejects.toThrow('worker error');
+    await settle();
+    resolvers[0]();
+    await expect(good).resolves.toBeUndefined();
     expect(fakeApi.processBinaryFrame).toHaveBeenCalledTimes(2);
-    // The dropped frame counter reflects f2 being replaced.
-    const stats = graphWorkerProxy.getStats();
-    expect(stats.framesDropped).toBeGreaterThanOrEqual(1);
   });
 
   it('reports stats: framesProcessed counter increments on success', async () => {

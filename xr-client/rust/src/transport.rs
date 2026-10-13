@@ -42,8 +42,15 @@ use crate::runtime::runtime;
 use crate::signer::NostrSigner;
 
 const GRAPH_REQUEST_INITIAL: &str = r#"{"type":"requestInitialData"}"#;
-const GRAPH_SUBSCRIBE: &str =
-    r#"{"type":"subscribe_position_updates","data":{"interval":60,"binary":true}}"#;
+
+/// A message to the graph socket. Text carries the server-authoritative interactions (drag, pin,
+/// topology refetch); Binary carries the position acknowledgement (ADR-2141), which the server
+/// answers with this client's next chunk.
+#[derive(Debug, Clone)]
+pub enum Outbound {
+    Text(String),
+    Binary(Vec<u8>),
+}
 
 type WsConn = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -60,17 +67,18 @@ impl ConnHandle {
 
 // --- graph stream (/wss V3) --------------------------------------------------
 
-/// Connect to `/wss`, subscribe to binary position updates, and push every
-/// frame into `inbox` for `BinaryProtocolClient::poll` to decode. Returns the
-/// outbound text-message channel used for server-authoritative interactions
-/// (node drag/pin). When `nostr_secret_hex` is non-empty, a NIP-98 `authenticate`
+/// Connect to `/wss`, request the topology, and push every frame into `inbox` for
+/// `BinaryProtocolClient::poll` to decode. There is no position subscription: the server streams
+/// every registered session its positions and waits for this client's acknowledgements.
+/// Returns the outbound channel used for server-authoritative interactions (node drag/pin) and
+/// the position acknowledgements. When `nostr_secret_hex` is non-empty, a NIP-98 `authenticate`
 /// message is sent after subscribe so the server accepts mutating messages.
 pub fn spawn_graph_stream(
     url: String,
     nostr_secret_hex: String,
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
-) -> (ConnHandle, mpsc::UnboundedSender<String>) {
-    let (tx, rx) = mpsc::unbounded_channel::<String>();
+) -> (ConnHandle, mpsc::UnboundedSender<Outbound>) {
+    let (tx, rx) = mpsc::unbounded_channel::<Outbound>();
     let handle = runtime().spawn(async move {
         graph_pump(url, nostr_secret_hex, inbox, rx).await;
     });
@@ -81,7 +89,7 @@ async fn graph_pump(
     url: String,
     nostr_secret_hex: String,
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
-    outbound: mpsc::UnboundedReceiver<String>,
+    outbound: mpsc::UnboundedReceiver<Outbound>,
 ) {
     match connect_async_with_config(url.clone(), Some(ws_config()), false).await {
         Ok((ws, _resp)) => {
@@ -90,14 +98,10 @@ async fn graph_pump(
                 .send(Message::Text(GRAPH_REQUEST_INITIAL.to_owned()))
                 .await
                 .is_err()
-                || sink
-                    .send(Message::Text(GRAPH_SUBSCRIBE.to_owned()))
-                    .await
-                    .is_err()
             {
-                error!("graph stream: failed to send subscribe control frames");
+                error!("graph stream: failed to send the topology request");
             } else {
-                // Only now, once the subscribe control frames are on the wire, is
+                // Only now, once the topology request is on the wire, is
                 // the stream usable — surface Connected here (not on bare TCP
                 // connect) so the scene's reconnect FSM never treats a half-open
                 // socket as live (#3d).
@@ -131,7 +135,7 @@ async fn pump_graph_messages(
     sink: &mut SplitSink<WsConn, Message>,
     stream: &mut SplitStream<WsConn>,
     inbox: &Arc<Mutex<VecDeque<GraphInbound>>>,
-    mut outbound: mpsc::UnboundedReceiver<String>,
+    mut outbound: mpsc::UnboundedReceiver<Outbound>,
 ) {
     loop {
         tokio::select! {
@@ -157,8 +161,12 @@ async fn pump_graph_messages(
             }
             out = outbound.recv() => {
                 match out {
-                    Some(text) => {
-                        if let Err(e) = sink.send(Message::Text(text)).await {
+                    Some(out) => {
+                        let msg = match out {
+                            Outbound::Text(t) => Message::Text(t),
+                            Outbound::Binary(b) => Message::Binary(b),
+                        };
+                        if let Err(e) = sink.send(msg).await {
                             warn!(err = %e, "graph stream outbound send failed");
                             break;
                         }

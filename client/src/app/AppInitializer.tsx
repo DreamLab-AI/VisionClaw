@@ -62,15 +62,6 @@ const loadServices = async (): Promise<void> => {
 
 const logger = createLogger('AppInitializer');
 
-// Idempotency guard: `subscribe_position_updates` must be sent exactly ONCE per
-// established WebSocket connection. The connection-status handler can fire more
-// than once for a single socket (immediate-invoke on registration, the onopen
-// notification, StrictMode double-mount, and backend-driven `connection_established`
-// re-emits), and each subscribe restarts the backend GPU warmup/reheat window —
-// producing the observed resubscribe storm. This flag is set when the subscribe is
-// sent and reset on disconnect so a genuine reconnect resubscribes.
-let hasSubscribedToPositions = false;
-
 interface AppInitializerProps {
   onInitialized: () => void;
   onError: (error: Error) => void;
@@ -272,10 +263,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ onInitialized, onError 
         }
 
 
-        // A genuine disconnect must clear the guard so the next established
-        // connection resubscribes exactly once.
         if (!connected) {
-          hasSubscribedToPositions = false;
           return;
         }
 
@@ -286,43 +274,14 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ onInitialized, onError 
               logger.info('WebSocket is connected and fully established - enabling binary updates');
               graphDataManager.setBinaryUpdatesEnabled(true);
 
-              // Idempotent: skip if already subscribed on this connection.
-              if (!hasSubscribedToPositions) {
-                hasSubscribedToPositions = true;
-                logger.info('Sending subscribe_position_updates message to server');
-                // One-shot snapshot; the stream itself is pushed at the server's
-                // physics.broadcastFps, so there is no client-side rate.
-                websocketService.sendMessage('subscribe_position_updates', { binary: true });
-
-                if (debugState.isDataDebugEnabled()) {
-                  logger.debug('Binary updates enabled and subscribed to position updates');
-                }
-              }
+              // Nothing to subscribe to: the server streams positions to every registered
+              // session and sends the next chunk when this client acknowledges the last.
             } else {
               logger.info('WebSocket connected but not fully established yet - waiting for readiness');
 
 
 
               graphDataManager.enableBinaryUpdates();
-
-
-              const unsubscribe = websocketService.onMessage((message) => {
-                if (message.type === 'connection_established') {
-                  unsubscribe();
-
-                  // Idempotent: the backend re-emits `connection_established` when it
-                  // restarts the warmup/reheat window, so guard against resubscribing.
-                  if (hasSubscribedToPositions) return;
-                  hasSubscribedToPositions = true;
-
-                  logger.info('Connection established message received, sending subscribe_position_updates');
-                  websocketService.sendMessage('subscribe_position_updates', { binary: true });
-
-                  if (debugState.isDataDebugEnabled()) {
-                    logger.debug('Connection established, subscribed to position updates');
-                  }
-                }
-              });
             }
           } catch (connectionError) {
             logger.error('Error during WebSocket status change handling:', createErrorMetadata(connectionError));

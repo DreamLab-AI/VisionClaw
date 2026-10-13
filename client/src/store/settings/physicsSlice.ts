@@ -77,12 +77,15 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
     if (validatedParams.springKAgent !== undefined) {
       validatedParams.springKAgent = Math.max(0.0, Math.min(10.0, validatedParams.springKAgent));
     }
-    if (validatedParams.broadcastFps !== undefined) {
-      // Integer Hz, server-validated 1-60 (physics_bounds::BROADCAST_FPS).
-      validatedParams.broadcastFps = Math.round(Math.max(1, Math.min(60, validatedParams.broadcastFps)));
+    if (validatedParams.streamChunkNodes !== undefined) {
+      // Integer node count, server-validated 100-20000 (physics_bounds::STREAM_CHUNK_NODES).
+      validatedParams.streamChunkNodes = Math.round(Math.max(100, Math.min(20000, validatedParams.streamChunkNodes)));
     }
-    if (validatedParams.interactionBroadcastFps !== undefined) {
-      validatedParams.interactionBroadcastFps = Math.round(Math.max(1, Math.min(60, validatedParams.interactionBroadcastFps)));
+    if (validatedParams.streamMoveThreshold !== undefined) {
+      validatedParams.streamMoveThreshold = Math.max(0, Math.min(100, validatedParams.streamMoveThreshold));
+    }
+    if (validatedParams.streamAckTimeoutMs !== undefined) {
+      validatedParams.streamAckTimeoutMs = Math.round(Math.max(20, Math.min(10000, validatedParams.streamAckTimeoutMs)));
     }
     if (validatedParams.repelK !== undefined) {
       validatedParams.repelK = Math.max(0.001, Math.min(2000.0, validatedParams.repelK));

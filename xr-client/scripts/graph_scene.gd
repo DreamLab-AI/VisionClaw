@@ -2956,9 +2956,9 @@ func _find_xr_camera() -> XRCamera3D:
 	return null
 
 
-# Graph (/wss) socket state. `connected` is emitted only once the subscribe
-# handshake completes (transport.rs), so a live signal always means a usable
-# stream. Clear any pending graph reconnect timer on connect, else a queued
+# Graph (/wss) socket state. `connected` is emitted only once the topology request is on
+# the wire (transport.rs), so a live signal always means a usable stream; positions then
+# arrive in chunks the client acknowledges (ADR-2141). Clear any pending graph reconnect timer on connect, else a queued
 # _tick_reconnect would tear the fresh socket back down.
 func _on_connection_changed(connected: bool) -> void:
 	emit_signal("connection_status_changed", connected)

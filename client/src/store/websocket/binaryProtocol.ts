@@ -35,7 +35,6 @@ import { nodeAnalyticsStore } from '../../features/analytics/store/nodeAnalytics
 const logger = createLogger('WebSocketStore');
 
 // ── Constants ──────────────────────────────────────────────────────────
-const ACK_BATCH_SIZE = 10;
 // Upper bound on the node-type cache. The graph tops out near ~30k nodes;
 // agent ids churn (spawn/despawn) so without a bound this Map grows for the
 // life of the session. Cap well above the live node count and evict oldest
@@ -46,8 +45,6 @@ const MAX_NODE_TYPE_ENTRIES = 65536;
 let positionBatchQueue: NodePositionBatchQueue | null = null;
 let binaryMessageCount = 0;
 let currentNodeTypeMap: Map<number, NodeType> = new Map();
-let positionUpdateSequence = 0;
-let lastAckSentSequence = 0;
 
 // ── State accessors (used by index.ts for _getInternals / _reset) ──
 
@@ -62,8 +59,6 @@ export function resetBinaryState() {
   positionBatchQueue = null;
   binaryMessageCount = 0;
   currentNodeTypeMap = new Map();
-  positionUpdateSequence = 0;
-  lastAckSentSequence = 0;
 }
 
 // ── Batch queue initialization ─────────────────────────────────────────
@@ -313,8 +308,6 @@ async function handlePositionUpdate(
   if (!header) return;
 
   const payload = binaryProtocol.extractPayload(data, header);
-  const estimatedNodeCount = Math.floor(payload.byteLength / 28);
-
   let parsedNodes: BinaryNodeData[] | null = null;
   try {
     parsedNodes = parseBinaryNodeData(payload);
@@ -351,11 +344,8 @@ async function handlePositionUpdate(
     logger.error('Error processing position data in graphDataManager:', createErrorMetadata(error));
   }
 
-  positionUpdateSequence++;
-  if (positionUpdateSequence - lastAckSentSequence >= ACK_BATCH_SIZE) {
-    sendPositionAck(get, positionUpdateSequence, estimatedNodeCount);
-    lastAckSentSequence = positionUpdateSequence;
-  }
+  // No acknowledgement here: this is the framed message path, which carries no stream sequence.
+  // Stream chunks arrive as raw V3/V5 frames and are acknowledged in handleLegacyBinaryData.
 }
 
 async function handleLegacyBinaryData(
@@ -363,8 +353,6 @@ async function handleLegacyBinaryData(
   get: () => { socket: WebSocket | null },
   set: (partial: { nodeTypeMap: Map<number, NodeType> }) => void,
 ) {
-  const estimatedNodeCount = Math.floor(data.byteLength / 28);
-
   let frame: ReturnType<typeof parseBinaryFrameData>;
   try {
     frame = parseBinaryFrameData(data);
@@ -407,14 +395,16 @@ async function handleLegacyBinaryData(
       logger.debug('Node positions updated successfully (legacy)', { graphType });
     }
   } catch (error) {
+    // Not applied, so not acknowledged: the server rebuilds this chunk after its ack timeout.
     logger.error('Error processing legacy binary data:', createErrorMetadata(error));
+    return;
   }
 
-  positionUpdateSequence++;
-  const ackSequence = frame.broadcastSequence ?? positionUpdateSequence;
-  if (positionUpdateSequence - lastAckSentSequence >= ACK_BATCH_SIZE) {
-    sendPositionAck(get, ackSequence, estimatedNodeCount);
-    lastAckSentSequence = positionUpdateSequence;
+  // Applied: acknowledge THIS chunk by the sequence it carried (ADR-2141). The server marks its
+  // nodes as held by this client and builds the next chunk. A frame with no sequence (V3) has
+  // nothing to name.
+  if (frame.broadcastSequence !== undefined) {
+    sendPositionAck(get, frame.broadcastSequence, parsedNodes.length);
   }
 }
 

@@ -5,8 +5,9 @@ pub const MIN_DISTANCE: f32 = 0.75;
 pub const MAX_DISTANCE: f32 = 10.0;
 
 // The /wss heartbeat lives in `system.websocket.heartbeat{Interval,Timeout}`
-// (handlers/socket_flow_handler/heartbeat.rs) and the position-stream rate in
-// `physics.broadcastFps`; the unused constants that shadowed them are gone.
+// (handlers/socket_flow_handler/heartbeat.rs) and the position stream in
+// `physics.stream{ChunkNodes,MoveThreshold,AckTimeoutMs}` (ADR-2141); the unused constants that
+// shadowed them are gone.
 
 // Binary message constants
 pub const NODE_POSITION_SIZE: usize = 24;

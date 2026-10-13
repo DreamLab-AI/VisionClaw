@@ -17,7 +17,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   atmosphere: 32,
   xr: 5,
   ai: 6,
-  system: 18,
+  system: 19,
   agents: 45,
   decisions: 2,
   provenance: 4,
@@ -67,12 +67,13 @@ const MEMORY_EXPLORER_PATHS: string[] = [
 
 /**
  * Server network paths that post-date the WP5 baseline: the position-broadcast
- * rate (`broadcastFps`). It is a PhysicsSettings field, so it routes to the
+ * stream settings (`streamChunkNodes` / `streamMoveThreshold` / `streamAckTimeoutMs`). They are PhysicsSettings fields, so they route to the
  * physics bucket, but it is presented under System > Network. Asserted in (c6).
  */
 const NETWORK_PATHS: string[] = [
-  'visualisation.graphs.knowledge.physics.broadcastFps',
-  'visualisation.graphs.knowledge.physics.interactionBroadcastFps',
+  'visualisation.graphs.knowledge.physics.streamChunkNodes',
+  'visualisation.graphs.knowledge.physics.streamMoveThreshold',
+  'visualisation.graphs.knowledge.physics.streamAckTimeoutMs',
 ];
 
 /** Client tweening paths that post-date the baseline: the chase time replaced `lerpBase`. */
@@ -321,20 +322,26 @@ describe('control-center settings registry', () => {
     for (const p of MEMORY_EXPLORER_PATHS) expect(serverBucketFor(p)).toBe('visual');
   });
 
-  it('(c6) the broadcast rate sits in System > Network on the physics bucket, 1-60 Hz', () => {
+  it('(c6b) the stream settings sit in System > Network on the physics bucket with the validated ranges', () => {
     const legacySet = new Set(legacyPaths());
     const systemGroup = REGISTRY.find((g) => g.id === 'system')!;
-    const field = systemGroup.fields.find((f) => f.path === NETWORK_PATHS[0]);
-    expect(field).toBeDefined();
-    expect(field!.subgroup).toBe('Network');
-    expect(field!.type).toBe('slider');
-    expect([field!.min, field!.max, field!.step]).toEqual([1, 60, 1]);
-    // the bandwidth cost per client is stated where the operator changes it
-    expect(field!.description).toMatch(/MB\/s per client/);
+    const byPath = (p: string) => systemGroup.fields.find((f) => f.path === p)!;
+    const [chunk, thr, timeout] = NETWORK_PATHS.map(byPath);
+    for (const f of [chunk, thr, timeout]) {
+      expect(f).toBeDefined();
+      expect(f.subgroup).toBe('Network');
+      expect(f.type).toBe('slider');
+    }
+    // the same ranges the server validates (physics_bounds::STREAM_*)
+    expect([chunk.min, chunk.max]).toEqual([100, 20000]);
+    expect([thr.min, thr.max]).toEqual([0, 100]);
+    expect([timeout.min, timeout.max]).toEqual([20, 10000]);
     expect(NETWORK_PATHS.filter((p) => legacySet.has(p))).toEqual([]);
     for (const p of NETWORK_PATHS) expect(serverBucketFor(p)).toBe('physics');
-    // the group loads the physics subtree, so the slider shows the live value
+    // the group loads the physics subtree, so the sliders show the live values
     expect(systemGroup.loadPaths).toContain('visualisation.graphs.knowledge.physics');
+    // the retired rate settings are gone
+    expect(systemGroup.fields.some((f) => /broadcastFps|interactionBroadcastFps/.test(f.path))).toBe(false);
   });
 
   it('(d) every testid is unique', () => {

@@ -1,15 +1,16 @@
 /**
- * binaryFrameDispatcher.ts — single-flight binary frame discipline
+ * binaryFrameDispatcher.ts — ordered, single-flight binary frame discipline
  *
- * ADR-03 D2: at most one frame is processed across the `await` inside
- * processBinaryData (which crosses the Comlink boundary into the worker).
- * A second frame arriving during in-flight processing replaces the pending
- * slot (newest-wins, max one pending). Drained via queueMicrotask once the
- * in-flight promise settles.
+ * At most one frame is processed across the `await` inside processBinaryData (which crosses the
+ * Comlink boundary into the worker); frames that arrive meanwhile wait in arrival order and are
+ * drained via queueMicrotask. NOTHING is dropped or replaced: since ADR-2141 a position frame is
+ * one CHUNK of a client's stream (only the nodes that changed since its last acknowledgement),
+ * not a full snapshot a newer frame could supersede, and the server sends the next chunk only
+ * after this client acknowledges the previous one, so the queue stays at most a few frames deep.
+ * The bound below is a backstop against a misbehaving sender, not a normal path.
  *
- * Extracted from index.ts to keep the store factory under the 500-line
- * project limit. Each WebSocket connection gets its own dispatcher instance
- * so in-flight/pending state never leaks across reconnects.
+ * Each WebSocket connection gets its own dispatcher instance so queue state never leaks across
+ * reconnects.
  */
 
 import { createLogger, createErrorMetadata } from '../../utils/loggerConfig';
@@ -17,11 +18,14 @@ import { debugState } from '../../utils/clientDebugState';
 import type { WebSocketMessage } from '../../types/websocketTypes';
 import type { NodeType } from '../../types/binaryProtocol';
 import { processBinaryData, validateBinaryData } from './binaryProtocol';
-import { handleHeartbeatResponse, noteInboundBinary } from './connectionManager';
+import { handleHeartbeatResponse } from './connectionManager';
 import { handleTextMessage } from './textMessageHandler';
 import type { WebSocketStatistics } from '../../types/websocketTypes';
 
 const logger = createLogger('WebSocketStore');
+
+/** Backstop against a misbehaving sender; the acknowledged stream keeps the real depth tiny. */
+const MAX_QUEUED_FRAMES = 256;
 
 export interface BinaryFrameDispatcher {
   handle(buffer: ArrayBuffer): void;
@@ -45,21 +49,13 @@ export function createBinaryFrameDispatcher(
   set: (partial: { nodeTypeMap: Map<number, NodeType> }) => void,
 ): BinaryFrameDispatcher {
   let inFlight = false;
-  let pendingLatest: ArrayBuffer | null = null;
-  let dropCount = 0;
+  const queue: ArrayBuffer[] = [];
+  let overflowed = 0;
 
-  const handle = (buffer: ArrayBuffer): void => {
-    if (inFlight) {
-      if (pendingLatest !== null) {
-        dropCount++;
-        if (dropCount % 100 === 1) {
-          logger.debug(`[BinaryVelocity] Dropped ${dropCount} stale binary frames (newest-wins)`);
-        }
-      }
-      pendingLatest = buffer;
-      return;
-    }
-
+  const pump = (): void => {
+    if (inFlight) return;
+    const buffer = queue.shift();
+    if (buffer === undefined) return;
     inFlight = true;
     Promise.resolve(processBinaryData(buffer, get, set))
       .catch(err => {
@@ -67,13 +63,21 @@ export function createBinaryFrameDispatcher(
       })
       .finally(() => {
         inFlight = false;
-        if (pendingLatest !== null) {
-          const next = pendingLatest;
-          pendingLatest = null;
-          // Microtask yield between frames so React render loop gets a chance.
-          queueMicrotask(() => handle(next));
-        }
+        // Microtask yield between frames so React render loop gets a chance.
+        if (queue.length > 0) queueMicrotask(pump);
       });
+  };
+
+  const handle = (buffer: ArrayBuffer): void => {
+    if (queue.length >= MAX_QUEUED_FRAMES) {
+      queue.shift();
+      overflowed++;
+      if (overflowed % 100 === 1) {
+        logger.warn(`Binary frame queue overflowed ${overflowed} times; oldest frame dropped (the server rebuilds it after its ack timeout)`);
+      }
+    }
+    queue.push(buffer);
+    pump();
   };
 
   return { handle };
@@ -130,7 +134,6 @@ export function createMessageHandler(
       if (debugState.isDataDebugEnabled()) {
         logger.debug('Received binary blob data');
       }
-      noteInboundBinary();
       bumpRx(event.data.size);
 
       event.data.arrayBuffer().then(buffer => {
@@ -149,7 +152,6 @@ export function createMessageHandler(
       if (debugState.isDataDebugEnabled()) {
         logger.debug(`Received binary ArrayBuffer data: ${event.data.byteLength} bytes`);
       }
-      noteInboundBinary();
       bumpRx(event.data.byteLength);
       if (validateBinaryData(event.data)) {
         dispatcher.handle(event.data);

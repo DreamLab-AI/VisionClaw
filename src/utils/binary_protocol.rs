@@ -2146,3 +2146,39 @@ mod control_frame_tests {
         assert_eq!(MessageType::BroadcastAck as u8, 0x34);
     }
 }
+
+#[cfg(test)]
+mod broadcast_ack_wire_tests {
+    use super::*;
+
+    /// The acknowledgement the clients send is decoded by the server from the SAME bytes the
+    /// shared fixture defines: any drift in either side fails here. (The web client once sent
+    /// a six-byte generic header the server does not expect, so every sequence it acknowledged
+    /// was read as garbage.)
+    #[test]
+    fn the_shared_ack_fixture_decodes_to_the_fields_it_was_built_from() {
+        let frame = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(48_113, 2500, 1_700_000_000_000);
+        match BinaryProtocol::decode_message(&frame).expect("a valid ack") {
+            Message::BroadcastAck { sequence_id, nodes_received, timestamp } => {
+                assert_eq!((sequence_id, nodes_received, timestamp), (48_113, 2500, 1_700_000_000_000));
+            }
+            other => panic!("decoded as {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_frame_with_the_web_clients_old_generic_header_is_not_a_valid_ack() {
+        // [0x34][version 3][u32 length 20][20-byte payload]: what the web client used to send.
+        let mut old = vec![0x34, 3];
+        old.extend_from_slice(&20u32.to_le_bytes());
+        old.extend_from_slice(&48_113u64.to_le_bytes());
+        old.extend_from_slice(&2500u32.to_le_bytes());
+        old.extend_from_slice(&1_700_000_000_000u64.to_le_bytes());
+        match BinaryProtocol::decode_message(&old) {
+            Ok(Message::BroadcastAck { sequence_id, .. }) => {
+                assert_ne!(sequence_id, 48_113, "the old layout can never carry the right sequence");
+            }
+            _ => {}
+        }
+    }
+}

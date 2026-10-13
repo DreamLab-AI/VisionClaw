@@ -66,10 +66,12 @@ export interface PhysicsSettings {
   springKKnowledge: number;
   springKOntology: number;
   springKAgent: number;
-  /** Position-broadcast rate in Hz, 1-60 (server default 8). */
-  broadcastFps: number;
-  /** Hz while any node is being grabbed or moved (server-validated 1-60). */
-  interactionBroadcastFps: number;
+  /** Most nodes in one position chunk, 100-20000 (server default 2500). */
+  streamChunkNodes: number;
+  /** A node is re-sent once it is this far from what the client acknowledged, 0-100 (default 0.25). */
+  streamMoveThreshold: number;
+  /** Milliseconds before an unacknowledged chunk is rebuilt and resent, 20-10000 (default 500). */
+  streamAckTimeoutMs: number;
 
   // --- Constraints ---
   constraintRampFrames: number;

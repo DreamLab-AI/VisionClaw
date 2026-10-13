@@ -75,39 +75,34 @@ sends an opening sequence over JSON text frames:
 [binary-protocol.md](./binary-protocol.md)). A full state sync and a
 `{"type":"loading"}` notice follow immediately.
 
-### Subscribing to positions
+### Position stream (ADR-2141)
 
-Every registered `/wss` client receives the position stream: the
-`ClientCoordinatorActor` pushes a full V5 snapshot at
-`visualisation.graphs.knowledge.physics.broadcastFps` (default 8 Hz, 1-60, set
-through `PUT /api/settings/physics`). There is no per-client rate.
+There is nothing to subscribe to. Every registered `/wss` client is streamed its positions by the
+`ClientCoordinatorActor`, in **chunks**: for each client the server remembers the position and
+analytics it last *acknowledged* for every node, and sends the entitled nodes that are new, have
+moved more than `streamMoveThreshold` from the acknowledged position, or whose analytics changed,
+most-displaced first, at most `streamChunkNodes` per chunk. A new or reconnecting client has
+acknowledged nothing, so its initial sync is simply every node, in chunks. When a client holds the
+latest positions the server sends it nothing.
 
-`subscribe_position_updates` asks for one immediate snapshot, which is useful
-when a client joins while physics is settled and the push stream is quiet:
+Each chunk is a V5 frame (`[0x05][u64 sequence][52-byte records]`) with absolute positions, built
+fresh under a new increasing sequence. One chunk is in flight per client; the next is built when
+the client acknowledges the sequence, or after `streamAckTimeoutMs` without an acknowledgement.
+The three settings live in the physics settings (`PUT /api/settings/physics`) and apply live.
 
-```json
-{ "type": "subscribe_position_updates",
-  "data": { "binary": true, "nodeTypes": ["knowledge", "agent"] } }
+### Position acknowledgement
+
+After a client has **applied** a chunk it sends
+
+```
+[0x34][u64 sequence_LE][u32 nodes_received_LE][u64 timestamp_ms_LE]      (21 bytes)
 ```
 
-- `nodeTypes` is an optional filter applied to that snapshot only.
-- An `interval` field is ignored (it used to drive a per-socket polling loop
-  that, because of the debounce below, never sent more than one frame).
-
-The server replies `{"type":"subscription_confirmed","subscription":"position_updates","mode":"push",...}`
-and sends the snapshot. Subscribes arriving within 2 s of the last accepted one
-are ignored, and a newer subscribe supersedes a snapshot still being fetched.
-
-### Backpressure acknowledgement
-
-The stream supports application-level flow control. After consuming a binary
-frame the client may send a `ClientBroadcastAck` carrying the broadcast sequence
-number embedded in the frame. The `ClientCoordinatorActor` forwards it to the
-GPU compute actor as `PositionBroadcastAck`, which replenishes the broadcast
-token budget. The sequence number is the V5 frame's monotonic
-`broadcast_sequence`; gaps signal dropped frames and warrant a
-`request_full_snapshot`. The wire encoding of the sequence header is documented
-in [binary-protocol.md](./binary-protocol.md).
+with the sequence of the chunk it applied. There is no generic message header on this frame. A
+chunk that was not applied (stale, duplicate, worker failure) is not acknowledged; the server
+rebuilds it after the timeout instead of marking its nodes as held. The bytes are pinned by the
+shared fixture `crates/visionclaw-protocol/src/wire_fixtures.rs` (`broadcast_ack_frame`), which the
+server decodes and both clients assert against a golden frame.
 
 ### Inbound control frames
 
@@ -116,13 +111,10 @@ in [binary-protocol.md](./binary-protocol.md).
 | `type` | Effect |
 |--------|--------|
 | `ping` (plain `"ping"` or JSON) | refresh activity clock, reply `pong` |
-| `subscribe_position_updates` | send one full binary snapshot now (the stream itself is pushed) |
-| `request_full_snapshot` | emit one full binary frame immediately |
 | `requestInitialData` | send the sparse initial graph load |
 | `filter_update` | adjust server-side node filtering |
 | `authenticate` | upgrade an unauthenticated session in place |
 | `nodeDragStart` / `nodeDragUpdate` / `nodeDragEnd` | pin/move/release a node |
-| `update_physics_params` | **rejected** — physics changes go via REST |
 
 Unknown types are logged and ignored; malformed JSON returns a
 `{"type":"error"}` frame.

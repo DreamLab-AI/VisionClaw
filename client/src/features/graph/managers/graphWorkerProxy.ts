@@ -24,10 +24,13 @@
  *   - Comlink mode: positions are transferred back from the worker (zero-copy
  *     by neutering the ArrayBuffer). `getPositions()` returns the latest view.
  *
- * Single-flight discipline (T2):
- *   - `_binaryFrameInFlight: boolean` guard.
- *   - `_pendingLatest: Uint8Array | null` newest-wins slot.
- *   - At most one Comlink call is in flight; intermediate frames collapse.
+ * Ordered single-flight discipline (T2, amended by ADR-2141):
+ *   - At most one Comlink call is in flight.
+ *   - Frames that arrive meanwhile wait in a FIFO queue and are processed in order. NONE is
+ *     collapsed: a position frame is one chunk of the client's acknowledged stream (only the
+ *     nodes that changed since its last acknowledgement), so a newer chunk does not supersede an
+ *     older one. Each call's promise resolves when THAT frame has been applied, which is when the
+ *     caller may acknowledge it.
  */
 
 import { wrap, transfer, Remote } from 'comlink';
@@ -35,6 +38,9 @@ import type { GraphWorkerType, NodeMetadata } from '../workers/graph.worker';
 import { createLogger } from '../../../utils/loggerConfig';
 
 const logger = createLogger('GraphWorkerProxy');
+
+/** Backstop on the frame queue; see processBinaryFrame. */
+const MAX_QUEUED_FRAMES = 256;
 
 // ── Re-exported types (kept for backwards-compatible imports) ────────────
 export type { NodeMetadata } from '../workers/graph.worker';
@@ -119,9 +125,9 @@ class GraphWorkerProxy {
   // Comlink mode: latest transferred ArrayBuffer wrapped as Float32Array.
   private lastTransferredView: Float32Array | null = null;
 
-  // Single-flight binary-frame discipline (ADR-03 D2).
-  private _binaryFrameInFlight = false;
-  private _pendingLatest: Uint8Array | null = null;
+  // Ordered single-flight binary-frame discipline (ADR-03 D2, ADR-2141).
+  private _frameQueue: Array<{ frame: Uint8Array; resolve: () => void; reject: (e: unknown) => void }> = [];
+  private _draining = false;
   private _framesProcessed = 0;
   private _framesDropped = 0;
 
@@ -193,50 +199,51 @@ class GraphWorkerProxy {
     return this.isInitialized && this.workerApi !== null;
   }
 
-  // ── D7 method 1: processBinaryFrame (single-flight) ───────────────────
+  // ── D7 method 1: processBinaryFrame (ordered single-flight) ───────────
 
   /**
-   * Process a binary position frame. Single-flight: at most one frame is
-   * in flight; intermediate frames collapse to one (newest-wins slot).
+   * Process a binary position frame. At most one frame is in flight; the rest queue in arrival
+   * order and none is dropped (see the module comment). The returned promise resolves once THIS
+   * frame has been applied by the worker.
    *
-   * The caller transfers ownership of `frame.buffer` — the underlying
-   * ArrayBuffer is neutered after this call returns (zero-copy).
+   * The caller transfers ownership of `frame.buffer` — the underlying ArrayBuffer is neutered
+   * after the frame is dispatched (zero-copy).
    */
-  public async processBinaryFrame(frame: Uint8Array): Promise<void> {
+  public processBinaryFrame(frame: Uint8Array): Promise<void> {
     if (!this.workerApi) {
-      throw new Error('Worker not initialized; call initialize() first');
+      return Promise.reject(new Error('Worker not initialized; call initialize() first'));
     }
-
-    if (this._binaryFrameInFlight) {
-      // Drop the previously-pending frame (if any) — newest wins.
-      if (this._pendingLatest !== null) {
+    return new Promise<void>((resolve, reject) => {
+      if (this._frameQueue.length >= MAX_QUEUED_FRAMES) {
+        // Backstop against a misbehaving sender; the acknowledged stream keeps the real depth tiny.
+        const dropped = this._frameQueue.shift()!;
         this._framesDropped++;
+        dropped.reject(new Error('binary frame queue overflow'));
       }
-      this._pendingLatest = frame;
-      return;
-    }
+      this._frameQueue.push({ frame, resolve, reject });
+      void this._drain();
+    });
+  }
 
-    this._binaryFrameInFlight = true;
+  private async _drain(): Promise<void> {
+    if (this._draining) return;
+    this._draining = true;
     try {
-      await this._dispatchFrame(frame);
-      this._framesProcessed++;
-    } catch (err) {
-      logger.error('processBinaryFrame failed:', err);
-      throw err;
-    } finally {
-      this._binaryFrameInFlight = false;
-
-      // Drain newest-wins slot via microtask yield (D2).
-      if (this._pendingLatest !== null) {
-        const next = this._pendingLatest;
-        this._pendingLatest = null;
-        queueMicrotask(() => {
-          // Fire-and-forget: errors surface via logger.error in _dispatchFrame.
-          void this.processBinaryFrame(next).catch((err) => {
-            logger.error('pending frame dispatch failed:', err);
-          });
-        });
+      while (this._frameQueue.length > 0) {
+        const job = this._frameQueue.shift()!;
+        try {
+          await this._dispatchFrame(job.frame);
+          this._framesProcessed++;
+          job.resolve();
+        } catch (err) {
+          logger.error('processBinaryFrame failed:', err);
+          job.reject(err);
+        }
+        // Yield between frames so the render loop gets a turn (D2).
+        await new Promise<void>((r) => queueMicrotask(r));
       }
+    } finally {
+      this._draining = false;
     }
   }
 
@@ -323,8 +330,10 @@ class GraphWorkerProxy {
     this.sharedBuffer = null;
     this.sharedPositionView = null;
     this.lastTransferredView = null;
-    this._binaryFrameInFlight = false;
-    this._pendingLatest = null;
+    // Frames still queued will never be applied: fail them rather than leave callers hanging.
+    for (const job of this._frameQueue.splice(0)) {
+      job.reject(new Error('worker disposed'));
+    }
     this.isInitialized = false;
     this.initPromise = null;
   }

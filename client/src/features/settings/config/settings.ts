@@ -60,8 +60,9 @@ export interface PhysicsSettings {
   springKKnowledge: number;
   springKOntology: number;
   springKAgent: number;
-  broadcastFps: number;
-  interactionBroadcastFps: number;
+  streamChunkNodes: number;
+  streamMoveThreshold: number;
+  streamAckTimeoutMs: number;
   repelK: number;
   attractionK: number;
   gravity: number;

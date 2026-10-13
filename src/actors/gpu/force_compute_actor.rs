@@ -212,8 +212,6 @@ impl ForceComputeActor {
     }
 
     pub fn new() -> Self {
-        // Initialize broadcast optimizer with default config
-        // Full snapshots at DEFAULT_BROADCAST_FPS (8 Hz); clients tween at 60 fps.
         let initial_params = SimulationParams::default();
         info!(
             "ForceComputeActor::new() — initial params: dt={}, damping={}, repel_k={}, spring_k={}, center_gravity_k={}, max_force={}, max_velocity={}",

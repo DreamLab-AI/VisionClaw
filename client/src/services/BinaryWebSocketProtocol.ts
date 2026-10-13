@@ -243,10 +243,15 @@ export class BinaryWebSocketProtocol {
    * @returns Binary message ready to send over WebSocket
    */
   public createBroadcastAck(sequenceId: number, nodesReceived: number): ArrayBuffer {
-    return this.createMessage(
-      MessageType.BROADCAST_ACK,
-      encodeBroadcastAckPayload(sequenceId, nodesReceived)
-    );
+    // The server decodes an acknowledgement as `[0x34][20-byte payload]` with NO generic message
+    // header (BinaryProtocol::decode_message). This used to go through createMessage(), whose
+    // six-byte `[type][version][u32 length]` header shifted the payload, so the server read
+    // garbage for the sequence and no acknowledgement ever matched a chunk.
+    const payload = encodeBroadcastAckPayload(sequenceId, nodesReceived);
+    const frame = new Uint8Array(1 + payload.byteLength);
+    frame[0] = MessageType.BROADCAST_ACK;
+    frame.set(new Uint8Array(payload), 1);
+    return frame.buffer;
   }
 
   /**

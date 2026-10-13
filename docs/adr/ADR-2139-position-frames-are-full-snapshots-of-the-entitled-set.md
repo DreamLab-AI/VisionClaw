@@ -3,10 +3,10 @@ id: ADR-2139
 title: Position frames are full snapshots of the entitled set — never deltas, never partial
 date: 2026-10-13
 decision_status: accepted
-implementation_status: partial
+implementation_status: complete
 activation_status: staged
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-2141]
 verified_commit:
 verified_paths: []
 owner: jjohare
@@ -15,6 +15,8 @@ repo: visionclaw
 ---
 
 # ADR-2139 — Position frames are full snapshots of the entitled set — never deltas, never partial
+
+> **Superseded by [ADR-2141](ADR-2141-positions-are-streamed-per-client-until-acknowledged.md)** for decisions 1, 5 and 9: delivery is now per-client chunks of what each client has not yet acknowledged, not periodic full snapshots. The no-delta rule, entitlement, fail-closed policy and class flags below still stand.
 
 ## Context
 - BROADCAST-001 / PRD-007 §3 / ADR-061 prohibit delta position updates, but the prohibition lived in a comment while the machinery stayed reachable: the web client decoded V4 delta frames and added them to target positions; the XR client carried a Full/Delta frame classifier; the server kept a spatial-culling subset path and a `delta_threshold` wire field.

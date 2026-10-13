@@ -66,7 +66,7 @@ impl Default for NetworkSettings {
 }
 
 /// `/wss` socket settings. Only what the socket server reads lives here: the
-/// heartbeat. The position-stream rate is `PhysicsSettings::broadcast_fps`.
+/// heartbeat. The position stream is configured by `PhysicsSettings::stream_*` (ADR-2141).
 /// Keys retired on 2026-10-07 because nothing read them (`binaryChunkSize`,
 /// `binaryUpdateRate`, `minUpdateRate`, `maxUpdateRate`, `motionThreshold`,
 /// `motionDamping`, `binaryMessageVersion`, `compressionEnabled`,
@@ -163,7 +163,7 @@ mod tests {
 
     /// `system.websocket` holds only settings the socket server reads: the
     /// heartbeat ping interval and idle timeout. The update-rate and motion
-    /// knobs are gone (the one position-stream rate is physics.broadcastFps),
+    /// knobs are gone (position streaming is physics.stream*),
     /// as are the never-read chunk, compression, reconnect and limit fields.
     #[test]
     fn websocket_settings_hold_only_the_heartbeat() {

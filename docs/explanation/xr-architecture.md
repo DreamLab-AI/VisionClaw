@@ -200,8 +200,9 @@ the existing `/wss` endpoint. The V3 body is a fixed **52 bytes per node** behin
 position, velocity, SSSP distance and parent, cluster id, anomaly, community id,
 and centrality. The client also decodes the **V5 wrapper** (`0x05`), which prefixes
 a V3 body with an **8-byte broadcast sequence** (`[0x05][u64 broadcast_seq LE][V3
-records]`); the sequence drives the `ClientBroadcastAck` flow-control loop and
-gap-detected `request_full_snapshot`. The V5 wrapper and the frame table are the
+records]`); the sequence names the chunk, and the client
+acknowledges it (`0x34`) after applying it, which is what makes the server build the next one
+(ADR-2141). The V5 wrapper and the frame table are the
 healthy source of truth in
 [reference/binary-protocol.md](../reference/binary-protocol.md) (§"V5 wrapper —
 sequenced V3 body") and [reference/websocket-protocol.md](../reference/websocket-protocol.md),

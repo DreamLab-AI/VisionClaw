@@ -112,7 +112,7 @@ describe('deepMergeVisual', () => {
 
 describe('retired system.websocket settings', () => {
   // The update-rate, motion, chunk, compression and reconnect knobs did nothing:
-  // the position stream rate is visualisation.graphs.knowledge.physics.broadcastFps,
+  // position streaming is configured by visualisation.graphs.knowledge.physics.stream*,
   // and the server heartbeat is file config (settings.yaml), not a client setting.
   it('the client settings model carries no system.websocket block', async () => {
     const { transformApiToClientSettings } = await import('../schemaMappings');

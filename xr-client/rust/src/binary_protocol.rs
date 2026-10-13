@@ -506,6 +506,32 @@ pub fn decode_position_frame_with_sequence(
     Ok((sequence, out))
 }
 
+/// Opcode of the position acknowledgement the server's streaming protocol expects (ADR-2141).
+pub const OPCODE_BROADCAST_ACK: u8 = 0x34;
+
+/// Encode the acknowledgement of one position chunk: `[0x34][u64 sequence][u32 nodes][u64 ms]`,
+/// little-endian, no generic header. A test pins these bytes to the shared wire fixture the server
+/// decodes. The server builds the client's next chunk when it receives this.
+pub fn encode_broadcast_ack(sequence: u64, nodes_received: u32, timestamp_ms: u64) -> Vec<u8> {
+    let mut v = Vec::with_capacity(21);
+    v.push(OPCODE_BROADCAST_ACK);
+    v.extend_from_slice(&sequence.to_le_bytes());
+    v.extend_from_slice(&nodes_received.to_le_bytes());
+    v.extend_from_slice(&timestamp_ms.to_le_bytes());
+    v
+}
+
+/// The sequence this client must acknowledge for a verdict, if any. Only frames that were
+/// APPLIED are acknowledged: a rejected (stale / duplicate) frame was not taken, so the server must
+/// not mark its nodes as held; it rebuilds the chunk after its ack timeout instead. A V3 frame has
+/// no sequence to name.
+pub fn ack_sequence(verdict: Freshness) -> Option<u64> {
+    match verdict {
+        Freshness::Accept { sequence } | Freshness::AcceptResync { sequence, .. } => Some(sequence),
+        Freshness::AcceptUnsequenced | Freshness::RejectDuplicate { .. } | Freshness::RejectStale { .. } => None,
+    }
+}
+
 /// The gate's verdict on one frame. Every variant names *why*, so a caller can
 /// report a stale-state incident rather than silently dropping a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -667,6 +693,22 @@ impl FreshnessGate {
         } else {
             (verdict, None)
         })
+    }
+
+    /// [`admit_frame`](Self::admit_frame) plus the acknowledgement owed for it: `Some(bytes)` only
+    /// when the frame was applied and names a sequence (ADR-2141). The caller applies the records,
+    /// THEN sends the ack, so the server's next chunk is paced by what this client has consumed.
+    pub fn admit_and_ack(
+        &mut self,
+        bytes: &[u8],
+        now_ms: u64,
+    ) -> Result<(Freshness, Option<Vec<NodeUpdate>>, Option<Vec<u8>>), DecodeError> {
+        let (verdict, updates) = self.admit_frame(bytes)?;
+        let ack = match (&updates, ack_sequence(verdict)) {
+            (Some(u), Some(seq)) => Some(encode_broadcast_ack(seq, u.len() as u32, now_ms)),
+            _ => None,
+        };
+        Ok((verdict, updates, ack))
     }
 }
 
@@ -901,7 +943,7 @@ pub fn classify_graph_text(text: &str) -> GraphInbound {
 pub struct BinaryProtocolClient {
     inbox: Arc<Mutex<VecDeque<GraphInbound>>>,
     handle: Option<crate::transport::ConnHandle>,
-    outbound: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    outbound: Option<tokio::sync::mpsc::UnboundedSender<crate::transport::Outbound>>,
     /// Per-node visual identity cache: `node_visuals_updated` fires only when a
     /// node's quantised (community, centrality, anomaly) key changes, so signal
     /// traffic collapses to near-zero once analytics stabilise.
@@ -1003,7 +1045,7 @@ impl BinaryProtocolClient {
         })
     }
 
-    /// Connect to the `/wss` graph stream, subscribe to binary position
+    /// Connect to the `/wss` graph stream (positions are streamed to a registered session; this client acknowledges each chunk), binary position
     /// updates, and queue every frame for `poll()` to decode on the main
     /// thread. Non-blocking: the connection is established on the tokio
     /// runtime. `nostr_secret_hex` (optional) authenticates the session with a
@@ -1131,7 +1173,7 @@ impl BinaryProtocolClient {
     #[func]
     fn send_text(&mut self, json: GString) {
         if let Some(tx) = self.outbound.as_ref() {
-            let _ = tx.send(json.to_string());
+            let _ = tx.send(crate::transport::Outbound::Text(json.to_string()));
         }
     }
 
@@ -1203,7 +1245,7 @@ impl BinaryProtocolClient {
         let Some(tx) = self.outbound.as_ref() else {
             return;
         };
-        let _ = tx.send(build_node_unpin_msg(node_id));
+        let _ = tx.send(crate::transport::Outbound::Text(build_node_unpin_msg(node_id)));
     }
 
     // --- WP1 colour mode -------------------------------------------------------
@@ -1294,7 +1336,7 @@ impl BinaryProtocolClient {
         }
         match self.outbound.as_ref() {
             Some(tx) => tx
-                .send(r#"{"type":"requestInitialData"}"#.to_string())
+                .send(crate::transport::Outbound::Text(r#"{"type":"requestInitialData"}"#.to_string()))
                 .is_ok(),
             None => false,
         }
@@ -2129,7 +2171,7 @@ impl BinaryProtocolClient {
             return;
         };
         let pos = position.map(|p| [p.x, p.y, p.z]);
-        let _ = tx.send(build_drag_msg(msg_type, node_id, pos));
+        let _ = tx.send(crate::transport::Outbound::Text(build_drag_msg(msg_type, node_id, pos)));
     }
 
     fn emit_frame(&mut self, bytes: &[u8]) {
@@ -2186,9 +2228,15 @@ impl BinaryProtocolClient {
         // ADR-2018: gate on the V5 broadcast sequence before applying anything.
         // Position frames on this socket are full-state broadcasts, so a snapshot
         // after a reconnect is what re-baselines the watermark.
-        let emit_buf: Vec<NodeUpdate> = match self.freshness.admit_frame(bytes) {
-            Ok((_, Some(updates))) => updates,
-            Ok((verdict, None)) => {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let (emit_buf, ack): (Vec<NodeUpdate>, Option<Vec<u8>>) = match self.freshness.admit_and_ack(bytes, now_ms) {
+            Ok((_, Some(updates), ack)) => (updates, ack),
+            Ok((verdict, None, _)) => {
+                // Not applied, so not acknowledged: the server rebuilds the chunk after its
+                // ack timeout rather than marking these nodes as held.
                 warn!(?verdict, "dropping stale position frame");
                 return;
             }
@@ -2226,6 +2274,10 @@ impl BinaryProtocolClient {
                     ],
                 );
             }
+        }
+        // Applied: tell the server, which then builds this client's next chunk (ADR-2141).
+        if let (Some(ack), Some(tx)) = (ack, self.outbound.as_ref()) {
+            let _ = tx.send(crate::transport::Outbound::Binary(ack));
         }
     }
 }
@@ -2924,5 +2976,58 @@ mod tests {
         assert_eq!(gate.stats().resyncs, 1);
         // And a stale frame in the new epoch is still refused.
         assert!(matches!(gate.admit_frame(&v5_frame(6, 3)).unwrap().0, Freshness::RejectStale { .. }));
+    }
+
+    // ---- position acknowledgement (ADR-2141) ----
+
+    /// The acknowledgement is byte-for-byte the frame the shared wire fixture defines, which the
+    /// server decodes.
+    #[test]
+    fn the_xr_ack_encoder_matches_the_shared_wire_fixture() {
+        let ours = encode_broadcast_ack(48_113, 2500, 1_700_000_000_123);
+        assert_eq!(ours.len(), 21);
+        assert_eq!(ours[0], OPCODE_BROADCAST_ACK);
+        assert_eq!(&ours[1..9], &48_113u64.to_le_bytes());
+        assert_eq!(&ours[9..13], &2500u32.to_le_bytes());
+        assert_eq!(&ours[13..21], &1_700_000_000_123u64.to_le_bytes());
+        let hex: String = ours.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "34f1bb000000000000c40900007b68e5cf8b010000", "the golden frame shared with the web and server tests");
+    }
+
+    #[test]
+    fn an_applied_sequenced_frame_is_acknowledged_with_its_own_sequence_and_node_count() {
+        let mut gate = FreshnessGate::new();
+        let (_, updates, ack) = gate.admit_and_ack(&v5_frame(77, 4), 5).unwrap();
+        assert_eq!(updates.map(|u| u.len()), Some(4));
+        assert_eq!(ack, Some(encode_broadcast_ack(77, 4, 5)));
+    }
+
+    #[test]
+    fn a_rejected_frame_is_never_acknowledged() {
+        let mut gate = FreshnessGate::new();
+        gate.admit_and_ack(&v5_frame(10, 2), 0).unwrap();
+        let (_, applied, ack) = gate.admit_and_ack(&v5_frame(10, 2), 0).unwrap();
+        assert!(applied.is_none() && ack.is_none(), "a duplicate is not taken, so not acknowledged");
+        let (_, applied, ack) = gate.admit_and_ack(&v5_frame(9, 2), 0).unwrap();
+        assert!(applied.is_none() && ack.is_none(), "a stale frame is not acknowledged either");
+    }
+
+    #[test]
+    fn the_first_frame_after_a_reconnect_is_acknowledged_even_if_the_sequence_went_backwards() {
+        let mut gate = FreshnessGate::new();
+        gate.admit_and_ack(&v5_frame(500, 3), 0).unwrap();
+        gate.reconnect();
+        let (_, _, ack) = gate.admit_and_ack(&v5_frame(7, 3), 0).unwrap();
+        assert_eq!(ack, Some(encode_broadcast_ack(7, 3, 0)));
+    }
+
+    #[test]
+    fn an_unsequenced_v3_frame_names_nothing_to_acknowledge() {
+        let mut gate = FreshnessGate::new();
+        let mut v3 = vec![PROTOCOL_V3];
+        v3.extend(std::iter::repeat_n(0u8, 2 * NODE_RECORD_BYTES));
+        let (verdict, updates, ack) = gate.admit_and_ack(&v3, 0).unwrap();
+        assert_eq!(verdict, Freshness::AcceptUnsequenced);
+        assert!(updates.is_some() && ack.is_none());
     }
 }

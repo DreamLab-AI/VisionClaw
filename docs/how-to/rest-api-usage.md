@@ -470,8 +470,9 @@ ws.onopen = () => {
   // Authenticate over the socket (required if not passing token in URL)
   ws.send(JSON.stringify({ type: 'authenticate', token, pubkey: publicKey }))
 
-  // Subscribe to position updates
-  ws.send(JSON.stringify({ type: 'subscribe_position_updates' }))
+  // Nothing to subscribe to: the server streams positions to every registered session in
+  // chunks. Acknowledge each chunk you apply with a 0x34 frame (see websocket-protocol.md,
+  // "Position acknowledgement"), or the server resends it after its ack timeout.
 }
 
 ws.onmessage = (event: MessageEvent) => {

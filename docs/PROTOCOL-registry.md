@@ -54,6 +54,7 @@ is safe. The registry below is the source of truth for tag allocation.
 | `0x03` | Graph position frame **V3** | `/wss` | server→client | `src/utils/binary_protocol.rs:12,54` |
 | `0x04` | **RETIRED — V4 delta position frame** (reserved, never reuse) | `/wss` | none | no encoder exists; decoders refuse it (ADR-2139): web `types/binaryProtocol.ts` `PROTOCOL_V4` branch, XR `DecodeError::BadVersion` |
 | `0x05` | Graph position frame **V5 envelope** (wraps V3) | `/wss` | server→client | `src/utils/binary_protocol.rs:592` (`PROTOCOL_V5` branch); `xr-client/rust/src/binary_protocol.rs:25` |
+| `0x34` | `BROADCAST_ACK` position acknowledgement (ADR-2141) | `/wss` | client→server | `src/utils/binary_protocol.rs` `decode_broadcast_ack`; fixture `wire_fixtures::broadcast_ack_frame` | `[0x34][u64 sequence][u32 nodes][u64 timestamp_ms]` LE, 21 bytes, **no generic header**; sent after a chunk is applied; asserted against one golden frame by the server, web and XR tests |
 | `0x23` | `AGENT_ACTION` beam event | `/wss` (fanned by ClientCoordinator) | server→client | `src/utils/binary_protocol.rs:1721` (`MessageType::AgentAction`) |
 | `0x43` | Avatar pose (`OPCODE_AVATAR_POSE`) | `/ws/presence` | bidirectional | `crates/visionclaw-xr-presence/src/wire.rs:9` |
 | `0x44` | Agent co-presence (`OPCODE_AGENT_PRESENCE`) | `/ws/presence` (sibling channel) | bidirectional | `crates/visionclaw-xr-presence/src/agent_presence.rs:40` |
@@ -241,14 +242,7 @@ already versions itself via the leading tag byte, and the decoder branches on it
    (`:510-511`); they are not silently accepted.
 5. **Registry-gated allocation.** New tag bytes are allocated only in this document, per socket,
    to prevent cross-feature collision.
-6. **Position frames are full snapshots of the entitled set (ADR-2139).** Every `0x03`/`0x05`
-   position frame carries every node the receiving session may see, as absolute positions that
-   replace the previous ones. The set is decided by entitlement (the visibility drop-set, applied
-   identically on connect sync, snapshot request and the live broadcast) and by a filter the
-   client explicitly requested — never by whether a node moved, by camera position, or by a
-   quality cut. There is no delta encoding: tag `0x04` (the retired V4 delta frame) stays
-   reserved, no encoder exists, and every decoder refuses it. The broadcast layer decides only
-   *when* (`broadcastFps`), never *which nodes*.
+6. **Every entitled node is eventually delivered and acknowledged; frames carry absolute positions; there are no deltas (ADR-2139, ADR-2141).** A `0x03`/`0x05` position frame is one *chunk* of a client's stream: the nodes that client is entitled to see and has not acknowledged (or that have since moved past `streamMoveThreshold`, or whose analytics changed), most-displaced first, at most `streamChunkNodes`. Each chunk is absolute and freshly built under a new, increasing sequence; one is in flight per client; the next is built when the client acknowledges the sequence (`0x34`) or after `streamAckTimeoutMs`. Entitlement (the visibility drop-set) is applied identically to every chunk and nothing is sent until the policy has loaded. Tag `0x04` (the retired V4 delta frame) stays reserved: no encoder exists and every decoder refuses it.
 
 ### Deprecation process
 

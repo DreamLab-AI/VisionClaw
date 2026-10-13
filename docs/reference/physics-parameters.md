@@ -123,18 +123,22 @@ node is `spring_k × spring_k_<population>`.
 
 ---
 
-## Position-broadcast rate
+## Position stream (ADR-2141)
 
-Not a simulation parameter: `broadcastFps` sets how often the server sends every client a full
-position snapshot (clients tween in between). It lives in the physics settings object, so it rides
-`PUT/GET /api/settings/physics` and `GET /api/settings/all`, is validated against
-`physics_bounds::BROADCAST_FPS`, persists with the other physics settings, and is pushed to the live
-`ForceComputeActor` as `ConfigureBroadcastOptimization` on every physics PUT and at boot, so it applies
-without a restart. Control Center: System › Network › Position Broadcast Rate.
+Not simulation parameters: three settings control how the server delivers positions to each
+client. They live in the physics settings object, so they ride `PUT/GET /api/settings/physics` and
+`GET /api/settings/all`, are validated against `physics_bounds::STREAM_*`, persist with the other
+physics settings and are pushed to the client coordinator on every physics PUT (and read by it at
+start), so they apply without a restart. Control Center: System › Network.
 
 | UI label | Settings key | Type | Range | Default | Effect |
 |---|---|---|---|---|---|
-| Position Broadcast Rate (Hz) | `broadcastFps` | u32 | 1 – 60 | **8** | Full snapshots per second per client. Cost is linear: ~0.49 MB per snapshot on the ~9.5k-node graph, so ~3.9 MB/s per client at 8 Hz and ~12 MB/s at 25 Hz. 8 Hz is the cadence clients received before the rate limiter fix (`src/gpu/broadcast_optimizer.rs`) |
+| Stream Chunk Size (nodes) | `streamChunkNodes` | u32 | 100 – 20000 | **2500** | Most nodes in one chunk (~52 bytes each; 2500 ≈ 130 KB). A new client's initial sync is every node, in chunks of this size |
+| Stream Move Threshold | `streamMoveThreshold` | f32 | 0 – 100 | **0.25** | A node is sent again once it is this far (layout units) from what the client last acknowledged. 0 sends any change. Slow drift accumulates against the acknowledged position, so nothing is lost |
+| Stream Ack Timeout (ms) | `streamAckTimeoutMs` | u32 | 20 – 10000 | **500** | How long a chunk may go unacknowledged before it is rebuilt and sent again |
+
+There is no broadcast rate: delivery follows each client's own acknowledgements and stops when every
+client is current. See [websocket-protocol.md](./websocket-protocol.md).
 
 ---
 

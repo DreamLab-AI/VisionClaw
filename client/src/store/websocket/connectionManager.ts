@@ -203,34 +203,13 @@ export async function processMessageQueue(
 }
 
 // ── Heartbeat ──────────────────────────────────────────────────────────
-
-// ── Inbound-binary watchdog ────────────────────────────────────────────
-// Binary silence alone is legitimate (converged physics broadcasts nothing),
-// so silence never triggers a reconnect directly. Instead, after prolonged
-// silence each heartbeat re-sends the idempotent position subscription, which
-// the server always answers with an on-demand binary snapshot. Consecutive
-// unanswered probes mean the binary path is genuinely dead (half-open socket
-// or wedged pipeline) → recycle the connection. Probes are per-connection,
-// so this is multi-client safe; the server-side subscribe rate limit keeps a
-// probing client cheap.
-const BINARY_SILENCE_PROBE_MS = 60000;
-let lastInboundBinaryAt = 0;
-let unansweredProbes = 0;
-
-/** Called by the binary frame dispatcher on every inbound binary frame. */
-export function noteInboundBinary() {
-  lastInboundBinaryAt = Date.now();
-  unansweredProbes = 0;
-}
+// Liveness is ping/pong only. Binary silence is NOT a failure signal: with acknowledged
+// streaming (ADR-2141) a client that holds the latest positions is sent nothing at all.
 
 export function startHeartbeat(
   get: () => { isConnected: boolean; socket: WebSocket | null },
 ) {
   stopHeartbeat();
-  // Arm the watchdog from connect time so a feed that never delivers its
-  // FIRST frame is also caught (that failure mode is real — see 2026-06-12).
-  lastInboundBinaryAt = Date.now();
-  unansweredProbes = 0;
   heartbeatInterval = window.setInterval(() => {
     sendHeartbeat(get);
   }, HEARTBEAT_INTERVAL_MS);
@@ -274,30 +253,6 @@ function sendHeartbeat(
       logger.warn('Heartbeat timeout - server not responding');
       handleHeartbeatTimeout(get);
     }, HEARTBEAT_TIMEOUT_MS);
-
-    // Inbound-binary watchdog (see module comment above).
-    if (Date.now() - lastInboundBinaryAt > BINARY_SILENCE_PROBE_MS) {
-      if (unansweredProbes >= 2) {
-        logger.warn('Binary feed silent and subscription probes unanswered — recycling connection');
-        unansweredProbes = 0;
-        handleHeartbeatTimeout(get);
-        return;
-      }
-      unansweredProbes += 1;
-      logger.info(`Binary feed silent ${Math.round((Date.now() - lastInboundBinaryAt) / 1000)}s — sending subscription probe ${unansweredProbes}/2`);
-      state.socket.send(JSON.stringify({
-        type: 'subscribe_position_updates',
-        data: { interval: 200, binary: true },
-      }));
-      // A settled physics sim legitimately stops broadcasting, so silence
-      // alone is not death — but only BINARY traffic resets this watchdog.
-      // request_full_snapshot forces the server to emit one binary frame
-      // immediately: a healthy pipeline answers (resetting the counter via
-      // noteInboundBinary), a dead one stays silent and still gets recycled.
-      // Without this, an idle-but-healthy connection was recycled forever
-      // (~90s cycle: probe at 30s, probe at 60s, close(4000) at 90s).
-      state.socket.send(JSON.stringify({ type: 'request_full_snapshot' }));
-    }
 
     if (debugState.isDataDebugEnabled()) {
       logger.debug('Sent heartbeat ping');
