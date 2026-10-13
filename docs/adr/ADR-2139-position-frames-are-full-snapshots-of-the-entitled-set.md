@@ -28,7 +28,8 @@ repo: visionclaw
 4. **Entitlement is applied identically on every path** — connect sync, snapshot request and the live broadcast — through the one domain function `visibility_filter::compute_private_opaque_ids`.
 5. **The broadcast layer decides only *when*** (`broadcastFps`), never *which nodes*: spatial culling, `delta_threshold` and bandwidth-reduction statistics are removed.
 6. **A non-finite position is a physics fault.** The snapshot builder counts omitted nodes and the actor logs an error naming the shortfall; an incomplete frame is never passed off as complete.
-7. **Class-flag bits are set on every V5 frame**: the classification is pushed to the coordinator at wiring, at GPU initialisation and on every graph update.
+7. **Class-flag bits are set on every V5 frame**: the classification is pushed to the coordinator at wiring, at GPU initialisation and, immediately (not after the debounce), on every graph update.
+8. **Entitlement fails closed.** With the visibility filter on, no frame is broadcast until a real classification snapshot (`NodeTypeArrays.loaded`) has arrived: "the policy has not arrived" is never read as "nothing is private". A cross-vendor review (Codex) found that the first version failed open.
 
 ## Consequences
 - Clients may treat any position frame as "replace what I have for these nodes"; the web worker and bots context lost their add-delta branches and the XR gate lost its resync-awaiting-a-delta verdict.
@@ -36,8 +37,13 @@ repo: visionclaw
 - Anonymous sessions no longer receive private nodes' positions on the live stream (a privacy gap closed).
 - Removed APIs: `UpdateCameraFrustum`, `ConfigureBroadcastOptimization.{delta_threshold,enable_spatial_culling}`, the bandwidth statistics, V4 decoding on the web, `FrameKind::Delta` on XR.
 
+## Known limits
+- Entitlement is a deny-list keyed to the last classification snapshot. A node that turns private is withheld from other sessions as soon as the update is pushed; frames already queued to a socket are not revoked.
+- Shared layout: private nodes take part in the force layout, so the motion of public nodes is influenced by them. Record-level filtering does not hide that.
+
 ## Verification
 - Server: `complete_snapshot_tests`, `live_broadcast_withholds_private_nodes_from_sessions_that_may_not_see_them`, `with_no_private_nodes_every_session_gets_the_whole_snapshot`, `the_optimizer_gates_whole_snapshots_and_never_selects_nodes`.
 - Web: `never decodes a delta frame` in `binaryProtocol.framePolicy.test.ts`.
 - XR: `a_retired_v4_delta_frame_is_refused_not_applied`, `the_first_sequenced_frame_after_a_reconnect_rebaselines_and_nothing_is_awaiting_a_delta`.
+- Fail closed: `nothing_is_broadcast_until_the_visibility_policy_has_arrived`.
 - Live (after redeploy): the per-frame probe must show only `0x05` frames, each with the session's full entitled node count, and non-zero class-flag bits.

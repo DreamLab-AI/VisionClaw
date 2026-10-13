@@ -921,3 +921,13 @@ Still required for the ADR-2032 and ADR-2033 items: actual scene/headset evidenc
 - **ADR-2077** — dead browser-client surfaces deleted: `interactionApi.ts`, the never-emitted `message:graph` bus event, the uncalled `WebSocketRegistry.closeAll()`, and the empty `contributor-studio/` and `workspace/` feature directories.
 - **ADR-2079** — closeout narrative corrected: no HUD constructor omits press-mode any more (`_press_fire` centralises it across all eleven controls) and ADR-2035's predicate test agrees with its implementation. ADR-2033 stays `partial` because its behavioural half is unverified, and the ADR-2032 headset/export/mobile receipt item stands.
 - **ADR-2100** — the browser client's two independent WebSockets to `VITE_JSS_WS_URL` are consolidated onto the single `podNotificationManager` (registry name `solid-pod`); the store's `solid-store` client is now a thin adapter over it, `state.solidSubscriptions` is a bookkeeping mirror rather than a second dispatch path, and one shared constant pair (`SOLID_MAX_RECONNECT_ATTEMPTS = 5`, `SOLID_RECONNECT_DELAY_MS = 1000`) replaces the divergent 10-vs-5 retry ladders.
+
+
+## Forces tab (semantic forces)
+
+The HUD has a tenth tab, **Forces**, for the physics `semantic` group. It lists the eight semantic forces one at a time (`< Prev` / `Next >`), with that force's enable toggle and up to four `−` / `+` stepper rows. Everything shown comes from `data/semantic_fields.json`, the document emitted by the Rust definition (`semantic_config::FIELDS`) and loaded by the web registry too, so the labels, ranges and steps are identical on both clients and defined in one place.
+
+- A press sends **one** nested field (`{"semantic":{"dag":{"levelAttraction":0.035}}}`); the server deep-merges it.
+- A step snaps to the step grid and is held inside the stored range.
+- Values are only ever ones read from the server (`GET /api/settings/physics`) or just written. Before the first read the rows show `…` and stepping or toggling does nothing; a PUT that cannot start (one is in flight) leaves the page unchanged.
+- Verify by eye on a headset: the tab bar now has ten expand-fill buttons; the GUT fit guard proves the page fits the 532 px host, not the bar's horizontal fit.

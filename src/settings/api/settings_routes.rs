@@ -1785,6 +1785,14 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_typo_in_a_patch_is_an_error_not_a_silent_no_op() {
+        let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        let err = merge_physics_patch(current, serde_json::json!({"semantic": {"dag": {"level_attraction": 0.9}}}))
+            .expect_err("the control would otherwise do nothing and still answer 200");
+        assert!(err.to_string().contains("unknown field"), "{err}");
+    }
+
+    #[test]
     fn a_non_object_patch_merges_nothing() {
         let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
         assert!(merge_physics_patch(current, serde_json::json!(5)).unwrap().is_none());

@@ -8,6 +8,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <cfloat>
+#include <cstddef>
 #include <cmath>
 
 extern "C" {
@@ -132,10 +133,34 @@ struct SemanticConfig {
 };
 
 // Global constant memory for semantic configuration
+// The host writes these structs as flat 32-bit word images (src/utils/unified_gpu_compute/
+// semantic.rs). Every offset and size it assumes is asserted here, so a layout the compiler
+// does not give us fails the BUILD instead of silently shifting every semantic parameter.
+static_assert(sizeof(float) == 4 && sizeof(bool) == 1, "host image assumes 4-byte floats, 1-byte bools");
+static_assert(sizeof(DAGConfig) == 20 && offsetof(DAGConfig, enabled) == 16, "DAGConfig layout");
+static_assert(sizeof(TypeClusterConfig) == 16 && offsetof(TypeClusterConfig, enabled) == 12, "TypeClusterConfig layout");
+static_assert(sizeof(CollisionConfig) == 16 && offsetof(CollisionConfig, enabled) == 12, "CollisionConfig layout");
+static_assert(sizeof(AttributeSpringConfig) == 20 && offsetof(AttributeSpringConfig, enabled) == 16, "AttributeSpringConfig layout");
+static_assert(sizeof(PhysicalityClusterConfig) == 16 && offsetof(PhysicalityClusterConfig, enabled) == 12, "PhysicalityClusterConfig layout");
+static_assert(sizeof(RoleClusterConfig) == 16 && offsetof(RoleClusterConfig, enabled) == 12, "RoleClusterConfig layout");
+static_assert(sizeof(MaturityLayoutConfig) == 16 && offsetof(MaturityLayoutConfig, enabled) == 12, "MaturityLayoutConfig layout");
+static_assert(sizeof(CrossDomainConfig) == 20 && offsetof(CrossDomainConfig, enabled) == 16, "CrossDomainConfig layout");
+static_assert(sizeof(SemanticConfig) == 140, "SemanticConfig is 35 words (host CONFIG_WORDS)");
+static_assert(offsetof(SemanticConfig, type_cluster) == 20 && offsetof(SemanticConfig, collision) == 36 &&
+              offsetof(SemanticConfig, attribute_spring) == 52 && offsetof(SemanticConfig, physicality_cluster) == 72 &&
+              offsetof(SemanticConfig, role_cluster) == 88 && offsetof(SemanticConfig, maturity_layout) == 104 &&
+              offsetof(SemanticConfig, cross_domain) == 120, "SemanticConfig member offsets");
+
 __constant__ SemanticConfig c_semantic_config;
 
 // Global constant memory for dynamic relationship buffer
 // This enables ontology changes without CUDA recompilation
+static_assert(sizeof(DynamicForceConfig) == 16, "DynamicForceConfig is 4 words");
+static_assert(offsetof(DynamicRelationshipBuffer, num_types) == 4096 &&
+              offsetof(DynamicRelationshipBuffer, buffer_version) == 4100 &&
+              offsetof(DynamicRelationshipBuffer, enabled) == 4104 &&
+              sizeof(DynamicRelationshipBuffer) == 4108, "DynamicRelationshipBuffer layout (host DYNAMIC_WORDS)");
+
 __constant__ DynamicRelationshipBuffer c_dynamic_relationships;
 
 // Device-side relationship buffer pointer (for larger configurations)

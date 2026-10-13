@@ -28,7 +28,7 @@ use validator::Validate;
 
 /// DAG layering: pull each node onto the plane for its hierarchy level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct DagForce {
     /// Distance between hierarchy levels.
     #[validate(range(min = 10.0, max = 1000.0))]
@@ -53,7 +53,7 @@ impl Default for DagForce {
 
 /// Cluster nodes of the same ontology type around the type's centroid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct TypeClusterForce {
     /// Pull toward the centroid once a node is farther from it than `clusterRadius`.
     #[validate(range(min = 0.0, max = 2.0))]
@@ -74,7 +74,7 @@ impl Default for TypeClusterForce {
 
 /// Keep nodes from overlapping.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct CollisionForce {
     #[validate(range(min = 0.0, max = 100.0))]
     pub min_distance: f32,
@@ -93,7 +93,7 @@ impl Default for CollisionForce {
 
 /// Springs whose rest length follows the edge weight.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct AttributeSpringForce {
     #[validate(range(min = 0.0, max = 1.0))]
     pub base_spring_k: f32,
@@ -115,7 +115,7 @@ impl Default for AttributeSpringForce {
 
 /// Cluster nodes by physicality (virtual / physical / conceptual).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct PhysicalityClusterForce {
     #[validate(range(min = 0.0, max = 2.0))]
     pub cluster_attraction: f32,
@@ -134,7 +134,7 @@ impl Default for PhysicalityClusterForce {
 
 /// Cluster nodes by ontology role (process / agent / resource / concept).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct RoleClusterForce {
     #[validate(range(min = 0.0, max = 2.0))]
     pub cluster_attraction: f32,
@@ -153,7 +153,7 @@ impl Default for RoleClusterForce {
 
 /// Layer nodes along Z by maturity stage (emerging -> mature -> declining).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct MaturityLayoutForce {
     #[validate(range(min = 10.0, max = 1000.0))]
     pub vertical_spacing: f32,
@@ -173,7 +173,7 @@ impl Default for MaturityLayoutForce {
 
 /// Strength of links that cross ontology domains (applied by the relationship kernel).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct CrossDomainForce {
     #[validate(range(min = 0.0, max = 2.0))]
     pub base_strength: f32,
@@ -196,7 +196,7 @@ impl Default for CrossDomainForce {
 
 /// Every semantic force, as stored in the central physics settings.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, Type, Validate)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct SemanticForces {
     #[validate(nested)]
     pub dag: DagForce,
@@ -480,6 +480,21 @@ mod tests {
         assert!(j["dag"].get("levelAttraction").is_some() && j["dag"].get("enabled").is_some());
         assert!(j["typeCluster"].get("interClusterRepulsion").is_some());
         assert!(j["crossDomain"].get("maxStrengthBoost").is_some());
+    }
+
+    #[test]
+    fn a_misspelt_or_snake_case_key_is_rejected_not_silently_ignored() {
+        // A control must never do nothing quietly: serde would otherwise drop these keys and the
+        // PUT would answer 200 with the old value in force.
+        for bad in [
+            r#"{"dag":{"level_attraction":0.1}}"#,
+            r#"{"dag":{"levelAtraction":0.1}}"#,
+            r#"{"dagg":{"enabled":true}}"#,
+            r#"{"typeCluster":{"clusterRadius":100,"extra":1}}"#,
+        ] {
+            let err = serde_json::from_str::<SemanticForces>(bad).expect_err(bad);
+            assert!(err.to_string().contains("unknown field"), "{bad}: {err}");
+        }
     }
 
     #[test]

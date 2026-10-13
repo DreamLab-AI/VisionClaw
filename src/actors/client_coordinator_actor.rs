@@ -419,6 +419,14 @@ impl ClientManager {
             return BroadcastResult::default();
         }
 
+        // Fail closed: with the visibility filter on, "no classification has arrived yet" must not
+        // read as "no node is private". Until a real snapshot is in hand nothing is broadcast.
+        let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
+        if policy_on && !node_type_arrays.loaded {
+            log::warn!("broadcast withheld: node classification (visibility policy) has not arrived yet");
+            return BroadcastResult::default();
+        }
+
         // Pre-serialize the full unfiltered payload ONCE
         let unfiltered_binary = self.serialize_positions(
             positions,
@@ -431,8 +439,7 @@ impl ClientManager {
         // computed once per distinct session identity per broadcast. Without it the live
         // stream sent private nodes' positions to sessions the connect sync had withheld them
         // from. The set is stable per session, so a frame is always the full entitled set.
-        let entitlement_on = visionclaw_domain::utils::visibility_filter::filter_enabled()
-            && !node_type_arrays.private_nodes.is_empty();
+        let entitlement_on = policy_on && !node_type_arrays.private_nodes.is_empty();
         let mut drop_sets: std::collections::HashMap<Option<&str>, std::collections::HashSet<u32>> =
             std::collections::HashMap::new();
         // Sessions with the same identity and no explicit filter share one encoded payload.
@@ -2296,6 +2303,7 @@ mod tests {
         m.get_client_mut(other).unwrap().pubkey = Some("someone-else".into());
 
         let nta = crate::actors::messages::NodeTypeArrays {
+            loaded: true,
             private_nodes: vec![NodeVisibility::private_owned_by(5, "owner-key"), NodeVisibility::private_unowned(6)],
             ..Default::default()
         };
@@ -2313,6 +2321,27 @@ mod tests {
         assert_eq!(ids(&other_frames), vec![1, 2, 3, 4, 7, 8], "a different authenticated user sees public only");
     }
 
+    /// Fail closed: before any classification snapshot has arrived, the broadcast must not read
+    /// "nothing is private" and send everything to everyone.
+    #[actix::test]
+    async fn nothing_is_broadcast_until_the_visibility_policy_has_arrived() {
+        let mut m = ClientManager::new();
+        let (r, frames) = capture_client();
+        let id = m.register_client(r);
+        m.get_client_mut(id).unwrap().filter.enabled = false;
+        let positions: Vec<_> = (1..=4).map(node).collect();
+
+        let before = m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays::default(), 1, None);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(before.sent, 0);
+        assert!(frames.lock().unwrap().is_empty(), "no frame before the policy is known");
+
+        let nta = crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() };
+        m.broadcast_with_filter(&positions, &nta, 2, None);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(frame_ids(&frames.lock().unwrap()[0]), vec![1, 2, 3, 4], "a loaded, empty policy means nothing is private");
+    }
+
     /// Nothing private in the graph: every session still gets the complete snapshot, and the
     /// entitlement logic costs nothing (one shared payload).
     #[actix::test]
@@ -2325,7 +2354,7 @@ mod tests {
             m.get_client_mut(id).unwrap().filter.enabled = false;
         }
         let positions: Vec<_> = (1..=5).map(node).collect();
-        m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays::default(), 9, None);
+        m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() }, 9, None);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         for f in [&f1, &f2] {
             assert_eq!(frame_ids(&f.lock().unwrap()[0]), vec![1, 2, 3, 4, 5]);
@@ -2399,7 +2428,7 @@ mod tests {
             vy: 0.0,
             vz: 0.0,
         }];
-        let nta = crate::actors::messages::NodeTypeArrays::default();
+        let nta = crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() };
 
         // The receiver is not polled until we yield, so this fills its mailbox.
         let mut congested_seen = false;

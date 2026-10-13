@@ -59,6 +59,10 @@ pub struct NodeTypeArrays {
     /// the connect-time sync does; without it the broadcast leaked private nodes' positions to
     /// every session. Public nodes are not listed (the common case stays empty).
     pub private_nodes: Vec<visionclaw_domain::utils::visibility_filter::NodeVisibility>,
+    /// True only for a snapshot produced by the graph state actor. A `Default` value (nothing has
+    /// arrived yet) is NOT a statement that there are no private nodes: with the visibility filter
+    /// on, the broadcast withholds every frame until a real snapshot is in hand (fail closed).
+    pub loaded: bool,
 }
 
 /// Get node type classification arrays for binary protocol flags

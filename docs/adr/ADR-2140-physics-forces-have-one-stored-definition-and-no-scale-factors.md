@@ -34,6 +34,13 @@ repo: visionclaw
 - A control cannot silently do nothing: the web client nests semantic paths into the PUT, and the server deep-merges, so one slider changes one field.
 - Every force costs GPU time (each O(n²) kernel ≈ 1–1.7 ms at 9.5k nodes); disabling a force in the store removes it from the step.
 
+## Layout lock
+The host writes the device config as flat 32-bit word images. `semantic_forces.cu` carries `static_assert`s for every size and offset the image assumes (140 bytes; per-group offsets; the 4108-byte relationship table), so a layout the compiler does not give fails the build. The group's types reject unknown keys (`deny_unknown_fields`): a misspelt or snake_case key is a 400, never a quiet no-op.
+
+## Not yet done (recorded, not hidden)
+- The layout MODE and its bias priming (`fill_mode_defaults`) still live in the compute actor; the store holds a different vocabulary (`qualityGates.layoutMode`). Moving the mode into `physics.*` is a schema change of its own.
+- `POST /sssp/toggle` patches the persisted parameters but does not write the toggle back to the store.
+
 ## Verification
 - `the_stored_settings_document_is_what_the_device_holds` (GPU): JSON as stored → actor parameters → device constant memory, read back through the device's own struct view.
 - `every_slider_range_is_exactly_the_validators_range`, `the_committed_json_copies_are_current`, `a_nested_patch_changes_only_the_field_it_names`, `semantic_parameters_are_validated_up_front_by_the_one_central_validator`.

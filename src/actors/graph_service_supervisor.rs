@@ -549,13 +549,15 @@ impl GraphServiceSupervisor {
     /// clients blind to every structural change until reconnect.
     fn notify_graph_updated(&mut self, ctx: &mut Context<Self>, reason: &'static str) {
         self.graph_revision += 1;
+        // The visibility policy goes out NOW, not after the debounce below: a node that turned
+        // private must stop being broadcast to other sessions as soon as the change is known.
+        actix::spawn(push_node_type_arrays(self.graph_state.clone(), self.client.clone()));
         if self.graph_update_notify_pending {
             return;
         }
         self.graph_update_notify_pending = true;
         ctx.run_later(Duration::from_millis(500), move |act, _ctx| {
             act.graph_update_notify_pending = false;
-            actix::spawn(push_node_type_arrays(act.graph_state.clone(), act.client.clone()));
             if let Some(ref client) = act.client {
                 let payload = format!(
                     "{{\"type\":\"graphUpdated\",\"revision\":{},\"reason\":\"{}\"}}",

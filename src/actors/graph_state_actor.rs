@@ -176,6 +176,7 @@ impl GraphStateActor {
             ontology_class_ids: self.ontology_class_ids.iter().copied().collect(),
             ontology_individual_ids: self.ontology_individual_ids.iter().copied().collect(),
             ontology_property_ids: self.ontology_property_ids.iter().copied().collect(),
+            loaded: true,
             private_nodes: self
                 .graph_data
                 .nodes
