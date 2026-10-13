@@ -14,10 +14,17 @@
 //!   first, in id order, so a new client's initial sync needs no special case). Chunks are built
 //!   fresh from current state with a new sequence number, so a lost chunk is simply rebuilt and
 //!   the receiver's monotonic-sequence freshness checks stay valid.
-//! * One chunk is in flight per client. The next is built when the client acknowledges the
-//!   previous one, or when `ack_timeout` passes without an acknowledgement (the client, or the
-//!   frame, was lost). The delivery rate is therefore set by each client's own round trip, and
-//!   when every client has the latest positions there are no candidates and nothing is sent.
+//! * The next chunk is built when the client acknowledges the previous one, or when `ack_timeout`
+//!   passes without an acknowledgement (the client, or the frame, was lost). The delivery rate is
+//!   therefore set by each client's own round trip, and when every client has the latest
+//!   positions there are no candidates and nothing is sent.
+//! * A chunk that timed out is NOT forgotten: the last few stay on a small list, so a healthy but
+//!   slow client whose acknowledgement arrives after its chunk was replaced still makes progress
+//!   (without this, a client slower than the timeout would never advance). Each consecutive
+//!   timeout doubles the wait, up to 8x, so a client that never acknowledges costs a bounded
+//!   trickle, and any acknowledgement resets it.
+//! * Part of each chunk is reserved for the longest-waiting candidates, so nodes that move a
+//!   little cannot be starved forever by nodes that move a lot.
 //!
 //! There are no deltas: a chunk carries absolute positions, and every entitled node is eventually
 //! delivered and acknowledged.
@@ -48,7 +55,17 @@ pub type AnalyticsKey = [u32; 4];
 struct Held {
     pos: [f32; 3],
     key: AnalyticsKey,
+    /// The chunk this was acknowledged in: an older acknowledgement never overwrites a newer one,
+    /// and a smaller value means a longer wait since the client last heard about the node.
+    seq: u64,
 }
+
+/// Chunks kept after a timeout so a late acknowledgement can still be honoured.
+const IN_FLIGHT_HISTORY: usize = 8;
+/// A chunk's capacity reserved for the longest-waiting candidates: `1 / FAIR_SHARE_DIVISOR`.
+const FAIR_SHARE_DIVISOR: usize = 4;
+/// Most consecutive timeouts that still lengthen the wait (2^3 = 8x).
+const MAX_BACKOFF_DOUBLINGS: u32 = 3;
 
 #[derive(Debug, Clone)]
 struct InFlight {
@@ -61,7 +78,10 @@ struct InFlight {
 #[derive(Debug, Clone, Default)]
 pub struct ClientStream {
     acked: HashMap<u32, Held>,
-    in_flight: Option<InFlight>,
+    /// Oldest first; the last entry is the chunk most recently sent.
+    in_flight: std::collections::VecDeque<InFlight>,
+    /// Chunks that timed out one after another since the last acknowledgement.
+    consecutive_timeouts: u32,
 }
 
 fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -74,16 +94,23 @@ impl ClientStream {
         Self::default()
     }
 
-    /// True while a chunk is on its way and has not yet timed out: nothing new should be sent.
-    pub fn is_waiting(&self, now: Instant, ack_timeout: Duration) -> bool {
-        self.in_flight
-            .as_ref()
-            .is_some_and(|f| now.saturating_duration_since(f.sent_at) < ack_timeout)
+    /// The wait before an unacknowledged chunk is replaced: the timeout, doubled for each
+    /// consecutive timeout up to 8x.
+    pub fn effective_timeout(&self, ack_timeout: Duration) -> Duration {
+        ack_timeout * (1u32 << self.consecutive_timeouts.min(MAX_BACKOFF_DOUBLINGS))
     }
 
-    /// True when a chunk has been sent and is neither acknowledged nor timed out.
+    /// True while the latest chunk is on its way and has not yet timed out: nothing new should be sent.
+    pub fn is_waiting(&self, now: Instant, ack_timeout: Duration) -> bool {
+        let wait = self.effective_timeout(ack_timeout);
+        self.in_flight
+            .back()
+            .is_some_and(|f| now.saturating_duration_since(f.sent_at) < wait)
+    }
+
+    /// True when a chunk has been sent and not yet acknowledged.
     pub fn has_in_flight(&self) -> bool {
-        self.in_flight.is_some()
+        !self.in_flight.is_empty()
     }
 
     /// Number of nodes this client has acknowledged a position for.
@@ -103,24 +130,26 @@ impl ClientStream {
         settings: &StreamSettings,
     ) -> Vec<u32> {
         let thr2 = settings.move_threshold * settings.move_threshold;
-        // (displacement², id); never-acknowledged nodes are infinitely displaced.
-        let mut candidates: Vec<(f32, u32)> = Vec::new();
+        // (displacement², age key, id). Never-acknowledged nodes are infinitely displaced and the
+        // oldest possible (age key 0); an acknowledged node's age key is the chunk it was last
+        // acknowledged in, so a smaller key has waited longer.
+        let mut candidates: Vec<(f32, u64, u32)> = Vec::new();
         for (&id, p) in cache {
             if !visible(id) {
                 continue;
             }
             let pos = [p.x, p.y, p.z];
             match self.acked.get(&id) {
-                None => candidates.push((f32::INFINITY, id)),
+                None => candidates.push((f32::INFINITY, 0, id)),
                 Some(held) => {
                     let d2 = dist2(pos, held.pos);
                     // A zero threshold means "any change"; an identical position is never a change.
                     if d2 > thr2 && d2 > 0.0 {
-                        candidates.push((d2, id));
+                        candidates.push((d2, held.seq, id));
                     } else if analytics(id) != held.key {
                         // Same place, different cluster / anomaly / centrality: still news, but
                         // behind every node that actually moved.
-                        candidates.push((0.0, id));
+                        candidates.push((0.0, held.seq, id));
                     }
                 }
             }
@@ -129,17 +158,29 @@ impl ClientStream {
             return Vec::new();
         }
         // Largest displacement first; ties (all the never-sent nodes) by id for determinism.
-        let order = |a: &(f32, u32), b: &(f32, u32)| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1));
+        let by_move = |a: &(f32, u64, u32), b: &(f32, u64, u32)| b.0.total_cmp(&a.0).then(a.2.cmp(&b.2));
+        // Longest-waiting first.
+        let by_age = |a: &(f32, u64, u32), b: &(f32, u64, u32)| a.1.cmp(&b.1).then(a.2.cmp(&b.2));
         let k = settings.chunk_nodes.max(1);
         if candidates.len() > k {
-            candidates.select_nth_unstable_by(k - 1, order);
-            candidates.truncate(k);
+            // Most of the chunk goes to the biggest movers; a reserved share goes to whatever has
+            // waited longest, so small movers are never starved behind a constantly moving set.
+            let fair = (k / FAIR_SHARE_DIVISOR).min(k.saturating_sub(1));
+            let movers = k - fair;
+            candidates.select_nth_unstable_by(movers - 1, by_move);
+            let rest = &mut candidates[movers..];
+            let take = fair.min(rest.len());
+            if take > 0 {
+                rest.select_nth_unstable_by(take - 1, by_age);
+            }
+            candidates.truncate(movers + take);
         }
-        candidates.sort_unstable_by(order);
-        candidates.into_iter().map(|(_, id)| id).collect()
+        candidates.sort_unstable_by(by_move);
+        candidates.into_iter().map(|(_, _, id)| id).collect()
     }
 
-    /// Record the chunk just sent, replacing any timed-out one.
+    /// Record the chunk just sent. If an earlier chunk is still unacknowledged it has timed out, so
+    /// the backoff lengthens; it stays on the list so a late acknowledgement can still be honoured.
     pub fn record_sent(
         &mut self,
         seq: u64,
@@ -147,27 +188,43 @@ impl ClientStream {
         positions: &[BinaryNodeDataClient],
         analytics: &dyn Fn(u32) -> AnalyticsKey,
     ) {
-        self.in_flight = Some(InFlight {
+        if !self.in_flight.is_empty() {
+            self.consecutive_timeouts = self.consecutive_timeouts.saturating_add(1);
+        }
+        if self.in_flight.len() >= IN_FLIGHT_HISTORY {
+            self.in_flight.pop_front();
+        }
+        self.in_flight.push_back(InFlight {
             seq,
             sent_at: now,
             nodes: positions
                 .iter()
-                .map(|p| (p.node_id, Held { pos: [p.x, p.y, p.z], key: analytics(p.node_id) }))
+                .map(|p| (p.node_id, Held { pos: [p.x, p.y, p.z], key: analytics(p.node_id), seq }))
                 .collect(),
         });
     }
 
-    /// The client acknowledged chunk `seq`: the positions in it are now what it holds. Returns the
-    /// number of nodes acknowledged, or `None` for an unknown or superseded sequence (a late ack
-    /// for a chunk that already timed out and was rebuilt), which changes nothing.
+    /// The client acknowledged chunk `seq`: what that chunk carried is now what it holds. Returns
+    /// the number of nodes in it, or `None` for a sequence not on the in-flight list (unknown, or
+    /// aged out), which changes nothing.
+    ///
+    /// A late acknowledgement for a chunk that was already replaced is honoured. It never makes the
+    /// server believe the client holds OLDER state than a later acknowledgement established, and
+    /// chunks sent before it are dropped from the list (the connection delivers in order, so a
+    /// still-unacknowledged older chunk is lost or was rejected; its nodes simply stay candidates).
     pub fn acknowledge(&mut self, seq: u64) -> Option<usize> {
-        if self.in_flight.as_ref().map(|f| f.seq) != Some(seq) {
-            return None;
-        }
-        let f = self.in_flight.take()?;
+        let at = self.in_flight.iter().position(|f| f.seq == seq)?;
+        let f = self.in_flight.remove(at)?;
+        self.in_flight.retain(|o| o.seq > seq);
+        self.consecutive_timeouts = 0;
         let n = f.nodes.len();
         for (id, held) in f.nodes {
-            self.acked.insert(id, held);
+            match self.acked.get(&id) {
+                Some(cur) if cur.seq > held.seq => {}
+                _ => {
+                    self.acked.insert(id, held);
+                }
+            }
         }
         Some(n)
     }
@@ -279,18 +336,95 @@ mod tests {
     }
 
     #[test]
-    fn a_late_ack_for_a_superseded_chunk_changes_nothing() {
+    fn a_late_ack_for_a_replaced_chunk_still_commits_it() {
+        // A healthy client slower than the timeout: its ack for chunk 1 arrives after chunk 2 was
+        // already built. Without honouring it the client would never advance.
         let c = cache(4);
         let set = settings(10, 0.25);
         let mut s = ClientStream::new();
         let t0 = Instant::now();
         let chunk: Vec<_> = s.plan(&c, &all, &no_analytics, &set).iter().map(|i| c[i]).collect();
         s.record_sent(1, t0, &chunk, &no_analytics);
-        s.record_sent(2, t0 + Duration::from_secs(1), &chunk, &no_analytics); // timed out, rebuilt as seq 2
-        assert_eq!(s.acknowledge(1), None, "seq 1 was superseded");
-        assert_eq!(s.acknowledged_nodes(), 0);
-        assert_eq!(s.acknowledge(2), Some(4));
-        assert_eq!(s.acknowledge(2), None, "an ack is consumed once");
+        s.record_sent(2, t0 + Duration::from_secs(1), &chunk, &no_analytics);
+        assert_eq!(s.acknowledge(1), Some(4), "the late ack for chunk 1 is honoured");
+        assert_eq!(s.acknowledged_nodes(), 4);
+        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "the client is current");
+        assert_eq!(s.acknowledge(1), None, "an ack is consumed once");
+        assert_eq!(s.acknowledge(2), Some(4), "chunk 2 is still on the list");
+        assert_eq!(s.acknowledge(99), None, "an unknown sequence changes nothing");
+    }
+
+    #[test]
+    fn an_older_ack_never_makes_the_server_believe_the_client_holds_older_state() {
+        let mut c = cache(1);
+        let set = settings(10, 0.25);
+        let mut s = ClientStream::new();
+        let t0 = Instant::now();
+        // chunk 1 carries x=1; the node then moves to x=50 and chunk 2 carries that
+        s.record_sent(1, t0, &[c[&1]], &no_analytics);
+        c.insert(1, node(1, 50.0));
+        s.record_sent(2, t0 + Duration::from_secs(1), &[c[&1]], &no_analytics);
+        assert_eq!(s.acknowledge(2), Some(1), "the newer chunk is acknowledged first");
+        assert_eq!(s.acknowledge(1), None, "chunks sent before an acknowledged one are dropped from the list");
+        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "still believed to hold x=50, not x=1");
+    }
+
+    #[test]
+    fn each_consecutive_timeout_doubles_the_wait_up_to_eight_times_and_an_ack_resets_it() {
+        let c = cache(2);
+        let set = settings(10, 0.25);
+        let mut s = ClientStream::new();
+        let t0 = Instant::now();
+        let ms = |n: u64| Duration::from_millis(n);
+        s.record_sent(1, t0, &[c[&1]], &no_analytics);
+        assert_eq!(s.effective_timeout(set.ack_timeout), ms(500));
+        s.record_sent(2, t0, &[c[&1]], &no_analytics);
+        assert_eq!(s.effective_timeout(set.ack_timeout), ms(1000));
+        s.record_sent(3, t0, &[c[&1]], &no_analytics);
+        s.record_sent(4, t0, &[c[&1]], &no_analytics);
+        s.record_sent(5, t0, &[c[&1]], &no_analytics);
+        assert_eq!(s.effective_timeout(set.ack_timeout), ms(4000), "capped at 8x");
+        assert!(s.is_waiting(t0 + ms(3999), set.ack_timeout) && !s.is_waiting(t0 + ms(4001), set.ack_timeout));
+        s.acknowledge(5);
+        assert_eq!(s.effective_timeout(set.ack_timeout), ms(500), "an acknowledgement resets the backoff");
+    }
+
+    #[test]
+    fn the_late_ack_list_is_bounded() {
+        let c = cache(1);
+        let mut s = ClientStream::new();
+        let t0 = Instant::now();
+        for seq in 1..=20u64 {
+            s.record_sent(seq, t0, &[c[&1]], &no_analytics);
+        }
+        assert_eq!(s.acknowledge(1), None, "aged out of the list");
+        assert!(s.acknowledge(20).is_some());
+    }
+
+    #[test]
+    fn small_movers_are_not_starved_behind_a_constantly_moving_set() {
+        // 40 nodes keep moving a lot; 10 nodes moved a little once. With a chunk of 8 and no
+        // fairness the small movers would never be sent. A quarter of each chunk goes to the
+        // longest-waiting, so every one of them is delivered.
+        let mut c = cache(50);
+        let set = settings(8, 0.1);
+        let (mut s, mut seq) = (ClientStream::new(), 0u64);
+        while !cycle(&mut s, &c, &set, &mut seq).is_empty() {}
+        for id in 41..=50u32 {
+            c.insert(id, node(id, id as f32 + 1.0)); // small, one-off
+        }
+        let mut delivered = std::collections::HashSet::new();
+        for round in 0..40u32 {
+            for id in 1..=40u32 {
+                c.insert(id, node(id, id as f32 + 100.0 * (round as f32 + 1.0))); // large, forever
+            }
+            for id in cycle(&mut s, &c, &set, &mut seq) {
+                if id > 40 {
+                    delivered.insert(id);
+                }
+            }
+        }
+        assert_eq!(delivered.len(), 10, "every small mover was delivered, got {delivered:?}");
     }
 
     #[test]

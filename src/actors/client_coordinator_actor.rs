@@ -474,6 +474,11 @@ impl ClientManager {
             })
         };
 
+        // What this client is no longer entitled to (a node turned private, the session changed
+        // identity) or that left the graph is forgotten, so the acknowledged state cannot grow
+        // without bound or keep believing it holds a node it should no longer be sent.
+        client.stream.retain_nodes(&|id| cx.cache.contains_key(&id) && visible(id));
+
         let ids = client.stream.plan(cx.cache, &visible, &analytics_key, cx.settings);
         if ids.is_empty() {
             return;
@@ -2112,6 +2117,47 @@ mod tests {
         assert_eq!(manager.get_client_count(), 0);
     }
 
+    /// Revocation: a node that turns private stops being sent to a session that may not see it AND
+    /// is forgotten, so the server no longer believes that session holds it; if it later becomes
+    /// public again it is delivered afresh.
+    #[actix::test]
+    async fn a_node_that_turns_private_is_forgotten_for_that_session_and_resent_when_public_again() {
+        use visionclaw_domain::utils::visibility_filter::NodeVisibility;
+        let mut m = ClientManager::new();
+        let (r, frames) = capture_client();
+        let id = m.register_client(r);
+        m.get_client_mut(id).unwrap().filter.enabled = false;
+        let cache = cache_of(6);
+        let (set, mut seq) = (stream(100, 0.25, 5000), 0u64);
+
+        pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq);
+        actix::clock::sleep(Duration::from_millis(10)).await;
+        let f = frames.lock().unwrap().last().unwrap().clone();
+        assert_eq!(frame_ids(&f), vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(m.acknowledge(id, frame_seq(&f)), Some(6));
+        assert_eq!(m.get_client(id).unwrap().stream.acknowledged_nodes(), 6);
+
+        // node 4 turns private
+        let private = crate::actors::messages::NodeTypeArrays {
+            loaded: true,
+            private_nodes: vec![NodeVisibility::private_unowned(4)],
+            ..Default::default()
+        };
+        let sent = pump_all_now(&mut m, &cache, &private, &set, &mut seq);
+        assert_eq!(sent.sent, 0, "nothing new for this session");
+        assert_eq!(
+            m.get_client(id).unwrap().stream.acknowledged_nodes(),
+            5,
+            "node 4 is forgotten: the server no longer believes this session holds it"
+        );
+
+        // and public again: delivered afresh
+        assert_eq!(pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq).sent, 1);
+        actix::clock::sleep(Duration::from_millis(10)).await;
+        let n = frames.lock().unwrap().len();
+        assert_eq!(ids_of(&frames, n - 1), vec![4]);
+    }
+
     /// The whole protocol on the manager: a client with a small chunk size is brought up to date in
     /// chunks, each sent only after the previous one is acknowledged, every node exactly once;
     /// then the stream is quiet until something moves.
@@ -2171,8 +2217,8 @@ mod tests {
         assert_eq!(frame_ids(&f[1]), frame_ids(&f[0]), "the same nodes");
         assert!(frame_seq(&f[1]) > frame_seq(&f[0]), "a fresh, larger sequence number");
         drop(f);
-        assert!(m.acknowledge(id, 1).is_none(), "the late ack for the superseded chunk changes nothing");
-        assert_eq!(m.acknowledge(id, 2), Some(4));
+        assert_eq!(m.acknowledge(id, 1), Some(4), "the late ack for the replaced chunk is honoured");
+        assert_eq!(m.acknowledge(id, 2), Some(4), "and the newer chunk is still acknowledgeable");
     }
 
     /// One client's acknowledgement never settles another client's chunk.
