@@ -8,7 +8,6 @@ pub mod client_messages_handler;
 pub mod consolidated_health_handler;
 pub mod constraints_handler;
 pub mod graph_export_handler;
-pub mod graph_state_handler;
 pub mod mcp_relay_handler;
 pub mod metrics_handler;
 pub mod multi_mcp_websocket_handler;

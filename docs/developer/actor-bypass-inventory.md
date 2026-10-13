@@ -1,5 +1,8 @@
 # Actor bypass inventory (TODO-unified X-2, inventory half)
 
+> **Status 2026-10-12: the `graph_state_handler.rs` rows below (9 sites) are deleted.** Its `/graph` scope was registered after `graph::config` (`api_handler/mod.rs`), so actix answered 404 for all nine routes. A standalone actix test with the same registration order returned 200 for the first scope and 404 for the second. No client, test or live document called them. The module, its registration and `tests/graph_state_integration.rs` are removed (`cargo check --lib --tests` passes). The remaining sites are unchanged recommendations.
+
+
 Status: inventory and recommendations only. **The decisions below are recommendations, and none of the deletions or re-routings has been done.** No source file was edited to produce this document. The owner decides; the dead half is deleted in a later, separately reviewed change (the X-2 row calls for GPU-feature builds and the handler tests before any deletion).
 
 Read at: VisionClaw `main` HEAD `93f38c6`. Every `file:line` below was resolved from `git show HEAD:<path>`, not from the working tree (which carries other people's uncommitted edits).

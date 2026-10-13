@@ -288,6 +288,8 @@ S-6 verified (2026-10-12): `browsercontainer/podkey.pin` already points at run `
 
 X-2 and X-3, documentation halves done (2026-10-12): `docs/developer/actor-bypass-inventory.md` lists all 36 production `execute_in_thread` sites (the row's "35" undercounts its own per-file breakdown) with a recommended decision each: 13 route-through-actor, 18 direct-store-is-correct, 5 needs-owner-call. It also found that the nine `graph_state_handler` routes are shadowed by `graph::config`, which registers `/graph` first (`api_handler/mod.rs:112-113`, comment at `api_handler/graph/mod.rs:1487`), so that module is likely dead and deleting it beats re-routing it (unconfirmed against a running server). `docs/developer/tracing-one-write.md` traces one write across the seven layers, checked against code only. Still open: the X-2 deletions and the X-3 request id, which changes the locked 52-byte frame contract.
 
+X-2 deletion, first part done (2026-10-12): `graph_state_handler.rs` (9 sites) removed with its registration and its test. Shadowing proven with a same-order actix test (first scope 200, second 404) and the nine paths are absent from the first scope. The other 27 sites remain recommendations awaiting review.
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
