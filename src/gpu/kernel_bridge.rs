@@ -85,6 +85,9 @@ mod gpu_ffi {
     use super::DynamicForceConfigGPU;
 
     extern "C" {
+        /// 1 when the FFI symbols are the no-op stubs of a PTX-only build.
+        pub fn visionclaw_ffi_stubbed() -> i32;
+
         pub fn set_dynamic_relationship_buffer(
             configs: *const DynamicForceConfigGPU,
             num_types: i32,
@@ -710,8 +713,20 @@ pub fn finalize_role_centroids(role_centroids: &mut [Float3], role_counts: &[i32
 }
 
 /// Returns true when the build includes GPU/CUDA support.
+///
+/// `feature = "gpu"` alone is not enough: a PTX-only build links no-op stubs for
+/// every `extern "C"` entry point here, so those calls would silently do nothing.
+/// The link-time probe `visionclaw_ffi_stubbed` distinguishes the two.
 pub fn gpu_available() -> bool {
-    cfg!(feature = "gpu")
+    #[cfg(feature = "gpu")]
+    {
+        // SAFETY: argument-less pure probe defined in either the stub or the real object.
+        unsafe { gpu_ffi::visionclaw_ffi_stubbed() == 0 }
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -724,7 +739,13 @@ mod tests {
         // The assertion is conditional so the test passes regardless of feature state.
         let available = gpu_available();
         if cfg!(feature = "gpu") {
-            assert!(available);
+            // With the feature on, availability must mirror the link probe: a
+            // PTX-only (stubbed) build reports false, a real object build true.
+            #[cfg(feature = "gpu")]
+            {
+                let stubbed = unsafe { gpu_ffi::visionclaw_ffi_stubbed() } == 1;
+                assert_eq!(available, !stubbed);
+            }
         } else {
             assert!(!available);
         }

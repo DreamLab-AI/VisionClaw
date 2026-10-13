@@ -9,6 +9,11 @@ typedef struct { float x, y, z; } Float3;
 typedef struct { /* opaque */ char _pad[256]; } DynamicForceConfigGPU;
 typedef struct { /* opaque */ char _pad[512]; } SemanticConfigGPU;
 
+// Link-time probe: the real object build defines this as 0 (semantic_forces.cu).
+// Rust's kernel_bridge::gpu_available() calls it so a stubbed build can never
+// report GPU semantic forces as available.
+int visionclaw_ffi_stubbed(void) { return 1; }
+
 // --- visionclaw_unified.cu (thrust_wrapper) ---
 void thrust_sort_key_value(const void *k_in, void *k_out, const void *v_in, void *v_out,
                            int n, int key_size, int val_size, void *stream) {}

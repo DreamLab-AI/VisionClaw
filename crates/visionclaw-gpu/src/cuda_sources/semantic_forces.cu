@@ -11,6 +11,12 @@
 #include <cmath>
 
 extern "C" {
+// Link-time probe paired with the stub in src/utils/cuda_ffi_stubs.c (returns 1
+// there). 0 means the semantic-force host wrappers in this file are real.
+int visionclaw_ffi_stubbed(void) { return 0; }
+}
+
+extern "C" {
 
 // =============================================================================
 // Configuration Structures

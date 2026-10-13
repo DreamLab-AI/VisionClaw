@@ -134,6 +134,10 @@ pub struct ForceComputeActor {
     /// (and held there rather than integrated) so the force kernel relaxes their
     /// neighbours around the dragged location. Populated by `PinNodePositions`.
     pinned_nodes: std::collections::HashMap<u32, Vec3>,
+    /// Settings-supplied values the advanced-weight multipliers scale from, so
+    /// repeated `UpdateAdvancedParams` are idempotent. Cleared whenever fresh
+    /// absolute settings arrive.
+    advanced_baseline: Option<AdvancedBaseline>,
 
     /// Set whenever `pinned_nodes` changes (pin/unpin). The next physics step
     /// rebuilds the per-node GPU pinned mask from `pinned_nodes` and uploads it,
@@ -281,6 +285,7 @@ impl ForceComputeActor {
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
             pinned_nodes: std::collections::HashMap::new(),
+            advanced_baseline: None,
             pinned_mask_dirty: false,
             pending_graph_data: None,
             acks_received: 0,
@@ -2791,6 +2796,8 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
                     >= eps
                 || (self.simulation_params.spring_k_agent - msg.params.spring_k_agent).abs() >= eps;
 
+        // Fresh absolute settings supersede any advanced-weight baseline.
+        self.advanced_baseline = None;
         self.update_simulation_parameters(msg.params);
 
         // Re-upload spring_scale on any per-population spring change so the new
@@ -3072,17 +3079,15 @@ impl Handler<UpdateAdvancedParams> for ForceComputeActor {
         // Write through to simulation_params (the canonical source) so that the
         // live physics step path — which clones simulation_params and rebuilds
         // SimParams via to_sim_params() — picks up these changes.
-        if msg.params.semantic_force_weight > 0.0 {
-            self.simulation_params.temperature *= msg.params.semantic_force_weight;
-        }
-
-        if msg.params.temporal_force_weight > 0.0 {
-            self.simulation_params.alignment_strength *= msg.params.temporal_force_weight;
-        }
-
-        if msg.params.constraint_force_weight > 0.0 {
-            self.simulation_params.cluster_strength *= msg.params.constraint_force_weight;
-        }
+        // Multipliers scale the settings-supplied baseline, never the stored
+        // (already scaled) value, so repeating the same request changes nothing.
+        // `semantic_force_weight` does not touch `temperature`: annealing jitter
+        // has its own control, and that coupling made every request compound it.
+        apply_advanced_weights(
+            &mut self.simulation_params,
+            &mut self.advanced_baseline,
+            &msg.params,
+        );
 
         // Rebuild unified_params from the updated simulation_params so the
         // derived cache stays in sync.
@@ -4229,6 +4234,81 @@ impl Handler<ProbeReceived> for ForceComputeActor {
                 .or((self.gpu_state.num_nodes > 0).then_some(self.gpu_state.num_nodes as usize)),
             acks_received: self.acks_received,
         }
+    }
+}
+
+/// Values the advanced-weight multipliers scale from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AdvancedBaseline {
+    alignment_strength: f32,
+    cluster_strength: f32,
+}
+
+/// Apply `UpdateAdvancedParams` multipliers idempotently: capture the baseline on
+/// first use, then always write `baseline * weight`.
+fn apply_advanced_weights(
+    sim: &mut SimulationParams,
+    baseline: &mut Option<AdvancedBaseline>,
+    p: &visionclaw_domain::models::constraints::AdvancedParams,
+) {
+    let base = *baseline.get_or_insert(AdvancedBaseline {
+        alignment_strength: sim.alignment_strength,
+        cluster_strength: sim.cluster_strength,
+    });
+    if p.temporal_force_weight > 0.0 {
+        sim.alignment_strength = base.alignment_strength * p.temporal_force_weight;
+    }
+    if p.constraint_force_weight > 0.0 {
+        sim.cluster_strength = base.cluster_strength * p.constraint_force_weight;
+    }
+}
+
+#[cfg(test)]
+mod advanced_weight_tests {
+    use super::*;
+    use visionclaw_domain::models::constraints::AdvancedParams;
+
+    fn weights(semantic: f32, temporal: f32, constraint: f32) -> AdvancedParams {
+        let mut p = AdvancedParams::default();
+        p.semantic_force_weight = semantic;
+        p.temporal_force_weight = temporal;
+        p.constraint_force_weight = constraint;
+        p
+    }
+
+    #[test]
+    fn repeating_the_same_request_is_idempotent() {
+        let mut sim = SimulationParams::default();
+        let (t0, a0, c0) = (sim.temperature, sim.alignment_strength, sim.cluster_strength);
+        let mut base = None;
+        let req = weights(2.0, 1.5, 3.0);
+        for _ in 0..5 {
+            apply_advanced_weights(&mut sim, &mut base, &req);
+        }
+        assert_eq!(sim.temperature, t0, "semantic weight must not scale annealing temperature");
+        assert!((sim.alignment_strength - a0 * 1.5).abs() < 1e-6, "alignment must be baseline * weight, not compounded");
+        assert!((sim.cluster_strength - c0 * 3.0).abs() < 1e-6, "cluster must be baseline * weight, not compounded");
+    }
+
+    #[test]
+    fn changing_the_weight_rescales_from_the_baseline() {
+        let mut sim = SimulationParams::default();
+        let a0 = sim.alignment_strength;
+        let mut base = None;
+        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
+        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 0.5, 1.0));
+        assert!((sim.alignment_strength - a0 * 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cleared_baseline_adopts_fresh_settings() {
+        let mut sim = SimulationParams::default();
+        let mut base = None;
+        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
+        sim.alignment_strength = 0.7; // fresh absolute value from settings
+        base = None; // what the settings handler does
+        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
+        assert!((sim.alignment_strength - 1.4).abs() < 1e-6);
     }
 }
 
