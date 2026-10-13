@@ -9,20 +9,18 @@ use actix_web_actors::ws;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-use crate::services::agent_visualization_protocol::McpServerType;
-use crate::AppState;
-// DEPRECATED: HybridHealthManager removed
-use crate::utils::network::{
-    retry_with_backoff, CircuitBreaker, HealthCheckConfig, HealthCheckManager, RetryConfig,
-    RetryableError, ServiceEndpoint, TimeoutConfig,
+use crate::services::agent_visualization_protocol::{
+    McpServerInfo, McpServerType, MultiMcpAgentStatus, SwarmTopologyData,
 };
-
-/// MCP services whose health gates discovery and performance responses.
-const MONITORED_SERVICES: &[&str] = &["claude-flow", "ruv-swarm", "flow-nexus"];
+use crate::services::multi_mcp_agent_discovery::{DiscoveryStats, MultiMcpAgentDiscovery};
+use crate::utils::network::{CircuitBreaker, RetryConfig};
+use crate::AppState;
 
 /// How often the single per-connection health monitor re-probes.
 const HEALTH_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
@@ -49,24 +47,6 @@ fn fold_service_health(results: &[(&str, bool)]) -> (bool, Vec<String>) {
     (any_usable, unhealthy)
 }
 
-// Define a simple retryable error type for MCP operations
-#[derive(Debug, Clone)]
-struct McpError(String);
-
-impl std::fmt::Display for McpError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MCP Error: {}", self.0)
-    }
-}
-
-impl std::error::Error for McpError {}
-
-impl RetryableError for McpError {
-    fn is_retryable(&self) -> bool {
-        true
-    }
-}
-
 pub struct MultiMcpVisualizationWs {
     client_id: String,
 
@@ -75,12 +55,13 @@ pub struct MultiMcpVisualizationWs {
     subscription_filters: SubscriptionFilters,
     performance_mode: PerformanceMode,
 
-    timeout_config: TimeoutConfig,
     circuit_breaker: Option<std::sync::Arc<CircuitBreaker>>,
-    health_manager: Option<std::sync::Arc<HealthCheckManager>>,
-    /// Cached "at least one MCP service is usable" verdict, published by the
-    /// single health-monitor task started at connection init (ADR-2094).
-    /// Optimistic until the first probe lands.
+    /// Shared discovery service (TODO-unified S-4(1)): the one source of server,
+    /// agent and topology state this socket relays.
+    discovery: Arc<MultiMcpAgentDiscovery>,
+    /// Cached "at least one configured MCP server is connected" verdict,
+    /// published by the single health-monitor task started at connection init
+    /// (ADR-2094). Optimistic until the first discovery cycle lands.
     healthy_services: std::sync::Arc<AtomicBool>,
     retry_config: RetryConfig,
     connection_failures: u32,
@@ -132,14 +113,8 @@ pub enum PerformanceMode {
     OnDemand,
 }
 
-impl Default for MultiMcpVisualizationWs {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MultiMcpVisualizationWs {
-    pub fn new() -> Self {
+    pub fn new(discovery: Arc<MultiMcpAgentDiscovery>) -> Self {
         let client_id = Uuid::new_v4().to_string();
         info!(
             "Creating new Multi-MCP WebSocket client with resilience and hybrid integration: {}",
@@ -148,8 +123,6 @@ impl MultiMcpVisualizationWs {
 
         let circuit_breaker = std::sync::Arc::new(CircuitBreaker::mcp_operations());
 
-        let health_manager_network = std::sync::Arc::new(HealthCheckManager::new());
-
         Self {
             client_id,
 
@@ -157,9 +130,8 @@ impl MultiMcpVisualizationWs {
             last_discovery_request: Instant::now(),
             subscription_filters: SubscriptionFilters::default(),
             performance_mode: PerformanceMode::default(),
-            timeout_config: TimeoutConfig::websocket(),
             circuit_breaker: Some(circuit_breaker),
-            health_manager: Some(health_manager_network),
+            discovery,
             healthy_services: std::sync::Arc::new(AtomicBool::new(true)),
             retry_config: RetryConfig::mcp_operations(),
             connection_failures: 0,
@@ -202,9 +174,10 @@ impl MultiMcpVisualizationWs {
     /// [`Weak`](std::sync::Weak) handle on that cell, so when the actor is
     /// dropped on disconnect the next tick fails to upgrade and the task
     /// terminates — no task outlives its connection.
-    fn start_health_monitor(&self, health_manager: std::sync::Arc<HealthCheckManager>) {
+    fn start_health_monitor(&self) {
         let cache = std::sync::Arc::downgrade(&self.healthy_services);
         let client_id = self.client_id.clone();
+        let discovery = self.discovery.clone();
 
         actix::spawn(async move {
             loop {
@@ -219,19 +192,20 @@ impl MultiMcpVisualizationWs {
                     return;
                 };
 
-                let mut results = Vec::with_capacity(MONITORED_SERVICES.len());
-                for service in MONITORED_SERVICES {
-                    let is_healthy = health_manager
-                        .check_service_now(service)
-                        .await
-                        .is_some_and(|result| result.status.is_usable());
-                    results.push((*service, is_healthy));
-                }
+                // Read the discovery service's own per-server verdicts. These
+                // replace the old probes of `localhost:8080+i`, which were not
+                // the servers discovery polls and so gated every request on
+                // services that did not exist.
+                let statuses = discovery.get_server_statuses().await;
+                let results: Vec<(&str, bool)> = statuses
+                    .iter()
+                    .map(|server| (server.server_id.as_str(), server.is_connected))
+                    .collect();
 
                 let (any_usable, unhealthy) = fold_service_health(&results);
                 for service in &unhealthy {
                     warn!(
-                        "[Multi-MCP] Service {} unhealthy for client {}",
+                        "[Multi-MCP] Server {} not connected for client {}",
                         service, client_id
                     );
                 }
@@ -263,22 +237,24 @@ impl MultiMcpVisualizationWs {
         );
     }
 
+    /// Send the current discovery snapshot to this client.
+    ///
+    /// Reads the shared [`MultiMcpAgentDiscovery`] caches and pushes one
+    /// `discovery_data` frame. Nothing here simulates a failure or a delay:
+    /// when no configured server is connected the client gets an `error`
+    /// frame, otherwise the real state.
     fn send_discovery_data(&mut self, ctx: &mut ws::WebsocketContext<Self>) {
         let client_id = self.client_id.clone();
-        let circuit_breaker = self.circuit_breaker.clone();
-        let _timeout_config = self.timeout_config.clone();
-
-        let _app_state = ctx.address();
 
         if !self.has_healthy_services() {
             warn!(
-                "[Multi-MCP] No healthy services available for discovery, client {}",
+                "[Multi-MCP] No connected MCP servers for discovery, client {}",
                 client_id
             );
             ctx.text(
                 serde_json::json!({
                     "type": "error",
-                    "message": "No healthy MCP services available",
+                    "message": "No connected MCP servers",
                     "timestamp": chrono::Utc::now().timestamp_millis()
                 })
                 .to_string(),
@@ -286,78 +262,28 @@ impl MultiMcpVisualizationWs {
             return;
         }
 
-        if let Some(cb) = circuit_breaker {
-            let addr = ctx.address();
-            let retry_config = self.retry_config.clone();
-            let failures = self.connection_failures;
+        let discovery = self.discovery.clone();
+        let filters = self.subscription_filters.clone();
+        let addr = ctx.address();
 
-            actix::spawn(async move {
-                let result = retry_with_backoff(retry_config, || {
-                    let cb_clone = cb.clone();
-                    Box::pin(async move {
-                        cb_clone
-                            .execute(async {
-                                if fastrand::f32() < 0.2 && failures > 0 {
-                                    return Err(Box::new(std::io::Error::new(
-                                        std::io::ErrorKind::ConnectionRefused,
-                                        "Discovery service temporarily unavailable",
-                                    ))
-                                        as Box<dyn std::error::Error + Send + Sync>);
-                                }
+        actix::spawn(async move {
+            let servers = discovery.get_server_statuses().await;
+            let agents = discovery.get_all_agents().await;
+            let topology = discovery.get_topology_data().await;
+            let stats = discovery.get_discovery_stats().await;
 
-                                tokio::time::sleep(Duration::from_millis(100)).await;
-                                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-                            })
-                            .await
-                            .map_err(|e| McpError(format!("{:?}", e)))
-                    })
-                })
-                .await;
-
-                match result {
-                    Ok(_) => {
-                        debug!("Discovery operation successful for client: {}", client_id);
-                        addr.do_send(DiscoverySuccess);
-                        addr.do_send(RequestDiscoveryData);
-                    }
-                    Err(e) => {
-                        error!(
-                            "Discovery operation failed for client {} after retries: {:?}",
-                            client_id, e
-                        );
-                        addr.do_send(DiscoveryFailure(format!("{:?}", e)));
-                    }
-                }
-            });
-        } else {
-            let addr = ctx.address();
-            let retry_config = self.retry_config.clone();
-
-            actix::spawn(async move {
-                let result = retry_with_backoff(retry_config, || {
-                    Box::pin(async {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                        if fastrand::f32() < 0.1 {
-                            Err::<(), McpError>(McpError("Random failure".to_string()))
-                        } else {
-                            Ok::<(), McpError>(())
-                        }
-                    })
-                })
-                .await;
-
-                match result {
-                    Ok(_) => addr.do_send(RequestDiscoveryData),
-                    Err(e) => {
-                        error!(
-                            "Discovery fallback failed for client {}: {:?}",
-                            client_id, e
-                        );
-                        addr.do_send(DiscoveryFailure(format!("{:?}", e)));
-                    }
-                }
-            });
-        }
+            let frame = build_discovery_frame(
+                &client_id,
+                &filters,
+                &servers,
+                &agents,
+                &topology,
+                &stats,
+                chrono::Utc::now().timestamp_millis(),
+            );
+            addr.do_send(DiscoveryFrame(frame.to_string()));
+            addr.do_send(DiscoverySuccess);
+        });
     }
 
     fn handle_client_config(&mut self, config: ClientConfig, ctx: &mut ws::WebsocketContext<Self>) {
@@ -400,6 +326,60 @@ impl MultiMcpVisualizationWs {
     }
 }
 
+/// Build the `discovery_data` frame for one client.
+///
+/// Pure so the filtering and shape can be tested without a socket or a live
+/// discovery service. `server_types` and `agent_types` narrow what is sent
+/// (an empty `agent_types` or `swarm_ids` means no narrowing), and topology is
+/// included only when the client asked for it.
+fn build_discovery_frame(
+    client_id: &str,
+    filters: &SubscriptionFilters,
+    servers: &[McpServerInfo],
+    agents: &[MultiMcpAgentStatus],
+    topology: &HashMap<String, SwarmTopologyData>,
+    stats: &DiscoveryStats,
+    now_ms: i64,
+) -> serde_json::Value {
+    let servers: Vec<&McpServerInfo> = servers
+        .iter()
+        .filter(|s| filters.server_types.contains(&s.server_type))
+        .collect();
+    let agents: Vec<&MultiMcpAgentStatus> = agents
+        .iter()
+        .filter(|a| filters.server_types.contains(&a.server_source))
+        .filter(|a| filters.agent_types.is_empty() || filters.agent_types.contains(&a.agent_type))
+        .filter(|a| filters.swarm_ids.is_empty() || filters.swarm_ids.contains(&a.swarm_id))
+        .collect();
+    let topology: HashMap<&String, &SwarmTopologyData> = if filters.include_topology {
+        topology
+            .iter()
+            .filter(|(id, _)| filters.swarm_ids.is_empty() || filters.swarm_ids.contains(*id))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    json!({
+        "type": "discovery_data",
+        "client_id": client_id,
+        "timestamp": now_ms,
+        "servers": servers,
+        "agents": agents,
+        "topology": topology,
+        "stats": {
+            "total_discoveries": stats.total_discoveries,
+            "successful_discoveries": stats.successful_discoveries,
+            "failed_discoveries": stats.failed_discoveries,
+            "total_agents_discovered": stats.total_agents_discovered,
+            "last_discovery_time": stats.last_discovery_time.map(|t| t.timestamp_millis()),
+            "average_discovery_time_ms": stats.average_discovery_time_ms,
+            "servers_online": stats.servers_online,
+            "servers_offline": stats.servers_offline,
+        },
+    })
+}
+
 impl Actor for MultiMcpVisualizationWs {
     type Context = ws::WebsocketContext<Self>;
 
@@ -408,27 +388,11 @@ impl Actor for MultiMcpVisualizationWs {
 
         self.start_heartbeat(ctx);
 
-        if let Some(health_manager) = &self.health_manager {
-            let health_manager = health_manager.clone();
-            let registrations = health_manager.clone();
-            actix::spawn(async move {
-                for (i, service) in MONITORED_SERVICES.iter().enumerate() {
-                    let endpoint = ServiceEndpoint {
-                        name: service.to_string(),
-                        host: "localhost".to_string(),
-                        port: 8080 + i as u16,
-                        config: HealthCheckConfig::default(),
-                        additional_endpoints: vec![],
-                    };
-                    registrations.register_service(endpoint).await;
-                }
-            });
-
-            // ADR-2094: exactly one health task per connection, replacing both
-            // the 30s `run_interval` spawn and the per-call spawn that
-            // `has_healthy_services` used to leak.
-            self.start_health_monitor(health_manager);
-        }
+        // Start polling when the first client connects (refcounted in the
+        // service) and run exactly one health task per connection (ADR-2094).
+        let discovery = self.discovery.clone();
+        actix::spawn(async move { discovery.acquire().await });
+        self.start_health_monitor();
 
         self.start_position_updates(ctx);
 
@@ -461,6 +425,8 @@ impl Actor for MultiMcpVisualizationWs {
 
     fn stopped(&mut self, _: &mut Self::Context) {
         info!("Multi-MCP WebSocket client {} disconnected", self.client_id);
+        let discovery = self.discovery.clone();
+        actix::spawn(async move { discovery.release().await });
     }
 }
 
@@ -638,6 +604,10 @@ struct RequestTopologyUpdate {
 
 #[derive(Message)]
 #[rtype(result = "()")]
+struct DiscoveryFrame(String);
+
+#[derive(Message)]
+#[rtype(result = "()")]
 struct DiscoverySuccess;
 
 #[derive(Message)]
@@ -663,8 +633,17 @@ impl Handler<RequestAgentUpdate> for MultiMcpVisualizationWs {
 impl Handler<RequestDiscoveryData> for MultiMcpVisualizationWs {
     type Result = ();
 
-    fn handle(&mut self, _: RequestDiscoveryData, _ctx: &mut Self::Context) {
+    fn handle(&mut self, _: RequestDiscoveryData, ctx: &mut Self::Context) {
         debug!("Requesting discovery data for client {}", self.client_id);
+        self.send_discovery_data(ctx);
+    }
+}
+
+impl Handler<DiscoveryFrame> for MultiMcpVisualizationWs {
+    type Result = ();
+
+    fn handle(&mut self, msg: DiscoveryFrame, ctx: &mut Self::Context) {
+        ctx.text(msg.0);
     }
 }
 
@@ -837,7 +816,11 @@ pub async fn multi_mcp_visualization_ws(
         }
     }
 
-    ws::start(MultiMcpVisualizationWs::new(), &req, stream)
+    ws::start(
+        MultiMcpVisualizationWs::new(app_state.multi_mcp_discovery.clone()),
+        &req,
+        stream,
+    )
 }
 
 pub fn configure_multi_mcp_routes(cfg: &mut web::ServiceConfig) {
@@ -952,5 +935,74 @@ mod tests {
             observer.upgrade().is_none(),
             "dropped client must terminate the monitor task"
         );
+    }
+
+    fn server(id: &str, kind: McpServerType, connected: bool) -> McpServerInfo {
+        McpServerInfo {
+            server_id: id.to_string(),
+            server_type: kind,
+            host: "h".to_string(),
+            port: 1,
+            is_connected: connected,
+            last_heartbeat: 0,
+            supported_tools: vec![],
+            agent_count: 0,
+        }
+    }
+
+    /// The frame carries real state, honours the subscription filters, and
+    /// drops topology unless the client asked for it.
+    #[test]
+    fn discovery_frame_applies_server_filter_and_topology_flag() {
+        let servers = vec![
+            server("claude-flow", McpServerType::ClaudeFlow, true),
+            server("daa", McpServerType::Daa, false),
+        ];
+        let mut topo = HashMap::new();
+        topo.insert(
+            "swarm-1".to_string(),
+            SwarmTopologyData {
+                topology_type: "mesh".to_string(),
+                total_agents: 0,
+                coordination_layers: 1,
+                efficiency_score: 1.0,
+                load_distribution: vec![],
+                critical_paths: vec![],
+                bottlenecks: vec![],
+            },
+        );
+        let mut filters = SubscriptionFilters {
+            server_types: vec![McpServerType::ClaudeFlow],
+            ..SubscriptionFilters::default()
+        };
+
+        let frame = build_discovery_frame(
+            "c1",
+            &filters,
+            &servers,
+            &[],
+            &topo,
+            &DiscoveryStats::default(),
+            42,
+        );
+        assert_eq!(frame["type"], "discovery_data");
+        assert_eq!(frame["client_id"], "c1");
+        assert_eq!(frame["timestamp"], 42);
+        assert_eq!(frame["servers"].as_array().unwrap().len(), 1);
+        assert_eq!(frame["servers"][0]["server_id"], "claude-flow");
+        assert!(frame["topology"].get("swarm-1").is_some());
+        assert_eq!(frame["stats"]["servers_online"], 0);
+
+        filters.include_topology = false;
+        let frame = build_discovery_frame(
+            "c1",
+            &filters,
+            &servers,
+            &[],
+            &topo,
+            &DiscoveryStats::default(),
+            42,
+        );
+        assert!(frame["topology"].as_object().unwrap().is_empty());
     }
 }

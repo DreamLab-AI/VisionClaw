@@ -95,3 +95,15 @@ tree is uncommitted, and verification must be re-run at the landing commit.
   the same change).
 - `cargo test -p visionclaw-server --lib multi_mcp` → **ok. 5 passed; 0 failed**
   (the ADR-2083 discovery-interval suite, unaffected and still green).
+
+## Addendum 2026-10-12: the owner decision to implement discovery (TODO-unified S-4(1))
+
+The review trigger above (a client needing multi-MCP state, implemented against `services/multi_mcp_agent_discovery.rs`) is met by an explicit owner decision on 2026-10-12: retire was offered and "wire real discovery" was chosen, knowing that no client in this repository consumes `/multi-mcp/ws` today. What was built, and nothing more:
+
+- `AppState.multi_mcp_discovery` holds one `MultiMcpAgentDiscovery`, initialised at boot with its default servers. Only `claude-flow` is enabled by default (the same `CLAUDE_FLOW_HOST`/`MCP_TCP_PORT` that `BotsClient` polls, ADR-2084); `ruv-swarm` and `daa` stay disabled until `RUV_SWARM_*` / `DAA_*` are set, so an unconfigured server is not polled and does not log a failure every few seconds.
+- Polling is refcounted: `acquire()` on the first WebSocket connect, `release()` on the last disconnect. An idle server adds no second poller beside `BotsClient` on the same port.
+- `send_discovery_data` no longer simulates anything (the `fastrand` failures and the 100 ms sleeps are gone). It sends a `discovery_data` frame (`servers`, `agents`, `topology`, `stats`) filtered by the client's subscription, built by the pure `build_discovery_frame`. With no connected server it sends an `error` frame.
+- The ADR-2094 health gate now folds the discovery service's own per-server `is_connected` instead of probing `localhost:8080+i` services that were not the ones discovery polls. One health task per connection is kept.
+- `Handler<RequestDiscoveryData>` used to log a debug line and send nothing, so no client ever received discovery data; it now triggers the send.
+
+Not done, and still true: no client consumes the frame and its shape is defined only by `build_discovery_frame` and its test, so the first consumer should treat that shape as provisional. `request_agents` still carries its own circuit-breaker simulation and was not changed here. The `ruv-swarm` and `daa` servers have no confirmed endpoint in this estate (agentbox lists `ruflo-daa` as "purpose unknown").

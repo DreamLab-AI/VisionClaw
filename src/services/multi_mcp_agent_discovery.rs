@@ -104,6 +104,21 @@ pub struct MultiMcpAgentDiscovery {
     topology_data: Arc<RwLock<HashMap<String, SwarmTopologyData>>>,
     stats: Arc<RwLock<DiscoveryStats>>,
     discovery_running: Arc<RwLock<bool>>,
+    /// Number of live subscribers (WebSocket connections). Discovery polls only
+    /// while this is above zero, so an idle server adds no second poller beside
+    /// `BotsClient` on the same MCP port (TODO-unified S-4(1)).
+    subscribers: Arc<tokio::sync::Mutex<usize>>,
+}
+
+/// True when any of the named environment variables is set to a non-empty value.
+///
+/// Used so only the MCP servers an operator has actually configured are polled:
+/// `claude-flow` shares `CLAUDE_FLOW_HOST`/`MCP_TCP_PORT` with `BotsClient` and is
+/// always on, while `ruv-swarm` and `daa` stay off until their own variables
+/// exist, instead of logging a connection failure every few seconds.
+fn env_configured(vars: &[&str]) -> bool {
+    vars.iter()
+        .any(|v| std::env::var(v).map(|s| !s.is_empty()).unwrap_or(false))
 }
 
 impl MultiMcpAgentDiscovery {
@@ -115,6 +130,25 @@ impl MultiMcpAgentDiscovery {
             topology_data: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(DiscoveryStats::default())),
             discovery_running: Arc::new(RwLock::new(false)),
+            subscribers: Arc::new(tokio::sync::Mutex::new(0)),
+        }
+    }
+
+    /// Register one subscriber and start the poll loop if it is the first.
+    pub async fn acquire(&self) {
+        let mut n = self.subscribers.lock().await;
+        *n += 1;
+        if *n == 1 {
+            self.start_discovery().await;
+        }
+    }
+
+    /// Drop one subscriber and stop the poll loop when none remain.
+    pub async fn release(&self) {
+        let mut n = self.subscribers.lock().await;
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            self.stop_discovery().await;
         }
     }
 
@@ -148,7 +182,7 @@ impl MultiMcpAgentDiscovery {
                     .unwrap_or_else(|_| "9501".to_string())
                     .parse()
                     .unwrap_or(9501),
-                enabled: true,
+                enabled: env_configured(&["RUV_SWARM_HOST", "RUV_SWARM_PORT"]),
                 discovery_interval_ms: 3000,
                 timeout_ms: 10000,
                 retry_attempts: 3,
@@ -165,7 +199,7 @@ impl MultiMcpAgentDiscovery {
                     .unwrap_or_else(|_| "9502".to_string())
                     .parse()
                     .unwrap_or(9502),
-                enabled: true,
+                enabled: env_configured(&["DAA_HOST", "DAA_PORT"]),
                 discovery_interval_ms: 5000,
                 timeout_ms: 15000,
                 retry_attempts: 2,
@@ -818,5 +852,44 @@ mod discovery_interval_tests {
             select_discovery_interval_ms(empty.iter()),
             DEFAULT_DISCOVERY_INTERVAL_MS
         );
+    }
+}
+
+#[cfg(test)]
+mod subscriber_tests {
+    use super::*;
+
+    /// TODO-unified S-4(1): the poll loop runs only while a client is attached.
+    #[tokio::test]
+    async fn polls_only_while_a_subscriber_is_attached() {
+        let discovery = MultiMcpAgentDiscovery::new();
+        assert!(!*discovery.discovery_running.read().await);
+
+        discovery.acquire().await;
+        discovery.acquire().await;
+        assert!(*discovery.discovery_running.read().await);
+
+        discovery.release().await;
+        assert!(
+            *discovery.discovery_running.read().await,
+            "one subscriber remains"
+        );
+
+        discovery.release().await;
+        assert!(!*discovery.discovery_running.read().await);
+
+        // An unbalanced release must not underflow or restart anything.
+        discovery.release().await;
+        assert!(!*discovery.discovery_running.read().await);
+    }
+
+    #[test]
+    fn env_configured_requires_a_non_empty_value() {
+        std::env::set_var("VC_TEST_MCP_SET", "host");
+        std::env::set_var("VC_TEST_MCP_EMPTY", "");
+        assert!(env_configured(&["VC_TEST_MCP_SET"]));
+        assert!(!env_configured(&["VC_TEST_MCP_EMPTY"]));
+        assert!(!env_configured(&["VC_TEST_MCP_UNSET_XYZ"]));
+        assert!(env_configured(&["VC_TEST_MCP_UNSET_XYZ", "VC_TEST_MCP_SET"]));
     }
 }

@@ -356,6 +356,10 @@ pub struct AppState {
     pub ragflow_session_id: String,
     pub active_connections: Arc<AtomicUsize>,
     pub bots_client: Arc<BotsClient>,
+    /// Multi-MCP discovery service behind `/multi-mcp/ws` (TODO-unified S-4(1)).
+    /// Idle until the first WebSocket client connects, so it adds no poller of
+    /// its own beside `bots_client` on a quiet server.
+    pub multi_mcp_discovery: Arc<crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery>,
     pub task_orchestrator_addr: Addr<TaskOrchestratorActor>,
     pub debug_enabled: bool,
     pub client_message_tx: mpsc::UnboundedSender<ClientMessage>,
@@ -1190,6 +1194,11 @@ impl AppState {
         info!("[AppState::new] Initializing BotsClient with graph service");
         let bots_client = Arc::new(BotsClient::with_graph_service(graph_service_addr.clone()));
 
+        let multi_mcp_discovery = Arc::new(
+            crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery::new(),
+        );
+        multi_mcp_discovery.initialize_default_servers().await;
+
         // D1 (PRD-023 WP-2): start the agent-list poll at boot. connect() tests MCP
         // reachability, initialises the session, and spawns the 2s polling loop that
         // populates the agents cache behind /api/bots/agents — the beam and avatar
@@ -1413,6 +1422,7 @@ impl AppState {
             ragflow_session_id,
             active_connections: Arc::new(AtomicUsize::new(0)),
             bots_client,
+            multi_mcp_discovery,
             task_orchestrator_addr,
             debug_enabled,
             client_message_tx,
