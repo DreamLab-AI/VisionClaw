@@ -227,6 +227,36 @@ pub(crate) fn project_display<T: HasPosition>(
     mode
 }
 
+/// The physics-space position that [`project_display`] would show at `display`: the exact
+/// inverse of the projection for one node of population `pop`, given the populations'
+/// current physics-space `centroids` (from [`population_centroids`] over the physics buffer).
+///
+/// Clients see, and drag in, DISPLAY space, but the integrator runs in physics space. A pin
+/// taken from a client therefore has to be converted here, or the pinned node is displayed at
+/// `projection(command)` instead of at the command. Exact for the triangle placement, the
+/// Z-scale and identity; the dual-disc rim clamp is not invertible, and only affects points
+/// beyond [`DISC_RIM_RADIUS`] from their population centre.
+pub(crate) fn unproject_point(
+    display: Vec3,
+    pop: GraphPopulation,
+    centroids: &[Vec3; 3],
+    params: &LayoutParams,
+    mode: DisplayMode,
+) -> Vec3 {
+    match mode {
+        DisplayMode::Identity => display,
+        DisplayMode::ZScale => Vec3::new(display.x, display.y, display.z / params.face_scale),
+        DisplayMode::Triangle => {
+            let mut local = match pop.vertex() {
+                Some(v) => Vec3::from_array(TriangleFrame::separated().unplace(v, display.to_array())),
+                None => display,
+            };
+            local.z /= params.face_scale;
+            centroids[pop.index()] + local
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +288,42 @@ mod tests {
         (pos, pops)
     }
 
+    #[test]
+    fn unprojecting_a_displayed_point_gives_back_its_physics_position() {
+        let (pos, pops) = sample(300, 11);
+        for (dual, z) in [(false, 1.0), (false, 0.4), (true, 0.7)] {
+            let params = LayoutParams::new(z, dual);
+            let centroids = population_centroids(&pos, &pops);
+            let mut shown = pos.clone();
+            let mode = project_display(&mut shown, &pops, &params);
+            assert_eq!(mode, DisplayMode::Triangle);
+            for i in 0..pos.len() {
+                let back = unproject_point(shown[i], pops[i], &centroids, &params, mode);
+                let local = pos[i] - centroids[pops[i].index()];
+                let beyond_rim = dual && (local.x * local.x + local.y * local.y).sqrt() > DISC_RIM_RADIUS;
+                if beyond_rim {
+                    // The rim clamp is not invertible: such a point comes back ON the rim.
+                    let back_local = back - centroids[pops[i].index()];
+                    let r = (back_local.x * back_local.x + back_local.y * back_local.y).sqrt();
+                    assert!((r - DISC_RIM_RADIUS).abs() < 1.0, "node {i} should land on the rim, r={r}");
+                } else {
+                    assert!((back - pos[i]).length() < 1e-2, "dual={dual} z={z} node {i}: {:?} vs {:?}", back, pos[i]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_z_scale_fallback_and_identity_invert_too() {
+        let params = LayoutParams::new(0.5, false);
+        let c = [Vec3::ZERO; 3];
+        let back = unproject_point(Vec3::new(1.0, 2.0, 3.0), GraphPopulation::Knowledge, &c, &params, DisplayMode::ZScale);
+        assert_eq!(back, Vec3::new(1.0, 2.0, 6.0));
+        let id = unproject_point(Vec3::new(1.0, 2.0, 3.0), GraphPopulation::Agent, &c, &params, DisplayMode::Identity);
+        assert_eq!(id, Vec3::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
     #[test]
     fn the_triangle_is_always_on_once_populations_are_known() {
         let m = |axis, dual, n| display_mode(&LayoutParams::new(axis, dual), n);

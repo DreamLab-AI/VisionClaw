@@ -21,7 +21,9 @@ use glam::Vec3;
 
 use cudarc::driver::CudaDevice;
 
-use super::display_projection::{project_display, DisplayMode, GraphPopulation, LayoutParams};
+use super::display_projection::{
+    display_mode, population_centroids, project_display, unproject_point, DisplayMode, GraphPopulation, LayoutParams,
+};
 
 // ---------------------------------------------------------------------------
 // Divergence hardening constants
@@ -586,17 +588,54 @@ impl ForceComputeActor {
         }
     }
 
+    /// Overwrite the BROADCAST copy of every pinned node with its pin (display space). Called
+    /// after the display projection; the physics state is restored separately before the next
+    /// step, so this never reaches the integrator.
+    fn show_pinned_at_pin(&mut self) {
+        if self.pinned_nodes.is_empty() {
+            return;
+        }
+        for idx in 0..self.node_id_buffer.len().min(self.position_velocity_buffer.len()) {
+            if let Some(shown) = self.pinned_nodes.get(&self.node_id_buffer[idx]).copied() {
+                self.position_velocity_buffer[idx].0 = shown;
+            }
+        }
+    }
+
     fn apply_node_pins(&mut self) {
         if self.pinned_nodes.is_empty() {
             return;
         }
 
+        // Pins are DISPLAY-space positions: they are what a client sent, in the same space it
+        // sees positions in. The integrator runs in physics space, so each pin is converted
+        // through the exact inverse of the display projection before it is written. Without
+        // this a pinned node was displayed at projection(command), not at the command.
+        let layout = LayoutParams::new(
+            self.simulation_params.axis_compression_z,
+            self.simulation_params.enable_dual_disc_layout,
+        );
+        let populations: &[GraphPopulation] = if self.node_population.len() == self.position_velocity_buffer.len() {
+            &self.node_population
+        } else {
+            &[]
+        };
+        let mode = display_mode(&layout, populations.len());
+        let centroids = if mode == DisplayMode::Triangle {
+            let physics: Vec<Vec3> = self.position_velocity_buffer.iter().map(|(p, _)| *p).collect();
+            population_centroids(&physics, populations)
+        } else {
+            [Vec3::ZERO; 3]
+        };
+
         let mut any = false;
         for idx in 0..self.node_id_buffer.len() {
             let id = self.node_id_buffer[idx];
-            if let Some(pos) = self.pinned_nodes.get(&id).copied() {
+            if let Some(shown) = self.pinned_nodes.get(&id).copied() {
                 if idx < self.position_velocity_buffer.len() {
-                    self.position_velocity_buffer[idx] = (pos, Vec3::ZERO);
+                    let pop = populations.get(idx).copied().unwrap_or(GraphPopulation::Knowledge);
+                    let physics = unproject_point(shown, pop, &centroids, &layout, mode);
+                    self.position_velocity_buffer[idx] = (physics, Vec3::ZERO);
                     any = true;
                 }
             }
@@ -2234,6 +2273,10 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     &actor.node_population,
                                     &layout,
                                 );
+
+                                // A held node is shown exactly where the hand holds it (its pin is a
+                                // display-space position), not at the projection of the converted pin.
+                                actor.show_pinned_at_pin();
 
                                 // Diagnostic: log first few positions on early frames (6 decimal places for velocity)
                                 if actor.gpu_state.iteration_count < 5 || actor.gpu_state.iteration_count % 300 == 0 {
