@@ -263,6 +263,27 @@ Left open, with the reason each is not batchable from this container:
 | N-1, N-4, N-10, CY-A2, CY-A3, N-13, AC-FORUM-1 and the `blocked` rows | Need a running deployment, host build, owner receipt or green nights. |
 | N-3 | Host ADR-2111 is `proposed`: an owner decision. |
 
+
+### Third pass, 2026-10-12: rows re-examined with evidence
+
+The second pass left several rows open on judgement alone, and three of those judgements were wrong (S-3, S-4 item 3 and S-7f were doable). Corrections, each verified in this session:
+
+| ID | State | Evidence |
+|---|---|---|
+| S-7f | closed (source) | `0d636fd0e`: `http_handler.rs` carries the validated header-token session into `signed_user`, so `pubkey` and `is_power_user` are set. `cargo check --lib` passes in this container once `CUDA_PATH`/`CPATH` point at the merged CUDA store path (the earlier "needs a host build" was wrong: nvcc failed only for want of `cuda_runtime.h`). No behavioural test: the handler needs a live actix upgrade. |
+| S-7d | closed (source) | `4159e08` (VisionFlow): both scripts exit 1 after printing their FAIL marker. `deploy.yml` keeps the marker grep as the verdict (`|| true` so the output is echoed first). The dream engine already vetoes both outcomes the same way (`receipts.rs` `classify`: `Failed{exit_code}` and `ExplicitFail`), and `links` is piped through `tail`, which masks the code anyway. `tests/gates/dream-evaluator-exit.test.sh` (10 cases) runs in `harness-fitness-gates.yml`. |
+| S-7c | closed (source) | agentbox `c274ae233`: `fed` is kept (cursor and event contract), `engine_accumulating` is added to `SonaRunCompleted` and the tick result, and the human lines read "accepted by learn ... engine accumulating: yes/no/unknown". 7 spec tests pass. |
+| S-3 code | closed (source) | agentbox `b9e0ea9a8`: `X-Agentbox-Pubkey` is honoured only from a loopback TCP peer (the proxy's upstream is `127.0.0.1:9090`), in `agent-event-auth.js` and in `action-plane.js` `resolveAgentDid`, with `AGENTBOX_PROXY_PEERS` as an override. Binding loopback was rejected: it cuts off legitimate non-header callers. Only `proxy.mjs` sends the header. 28 sovereign and integration tests pass. Residual: a process inside the container can still connect over loopback (the same-UID boundary, X-1). Not deployed. |
+| S-4 (3) | closed (source) | `a6de5a421`: `OntologyReasoningService` removed. The second-pass annotation that it was "a test migration" was wrong: the integration test was entirely commented out and `tests/unit/ontology_reasoning_test.rs` was in no target. `cargo check --lib --tests` passes. |
+| S-4 (2) | row corrected | Do not delete `ENABLE_TEMPORAL_COHERENCE` and `ENABLE_STRESS_MAJORIZATION`: `docs/GPU-wire-abi.md:77,79,214` and ADR-2060 keep them declared as wire ABI. The deliverable becomes "keep, and say so in the ABI doc", which `docs/GPU-wire-abi.md:214` already does. Nothing to delete. |
+| S-4 (1) | open, design decision | The 20% synthetic failure and 100 ms sleep in `send_discovery_data` are the discovery flow itself; deleting them leaves the `/multi-mcp/ws` handler with no data source. The handler is a registered, authenticated route (ADR-2044, ADR-2058, ADR-2090, ADR-2094), and ADR-2091 names the review trigger. Choosing between wiring `MultiMcpAgentDiscovery` and retiring the route is an owner call. |
+| CY-A2 | stale row | `scripts/ci/check-declared-vs-running.js` exists (`e434a7a59`), runs in `invariants.yml` against `tests/config/fixtures/runtime-state.json`, and agrees with the live box. The remaining half is voice acceptance, which is N-4. |
+| AC-FORUM-1 | partly stale | `nostr-bbs-core` beta.15 is published (the row says beta.11 unpublished). Still open: three `*.client.evidence.md` files have empty `audited_by` (an attestation I cannot supply), the deepsec gate store needs an owner reset, and nothing is deployed. |
+| N-13 | partly stale | dreamlab-ai-website `forum-config/Cargo.toml` pins the overlay crates at `=1.0.0-beta.15`, so the "align beta.11 to beta.12" follow-up is done. Still open: the VisionFlow orphan-asset prune (owner) and the engine image rebuild that picks up card withdrawal. |
+| S-6 | date-triggered | The pinned artefact is podkey `main`'s latest CI run (`36134082610`, 2026-09-25) and expires 2026-12-24, ten weeks out; the documented procedure (`browsercontainer/README.md`) is "pick a green `ci.yml` run, edit `podkey.pin`". We hold admin on the repo, so a CI rerun is possible, but doing it now only restarts the clock. Re-pin in early December. `k_browser`/`k_broker` pubkeys in `g5-key-split.json` are an owner key ceremony. |
+
+Where the work lives: agentbox fixes are on local `main` (fast-forwarded from `fix/s7-hygiene`) at `b9e0ea9a8`; the `project` checkout of agentbox is still on `feat/ontomark-cli-ab-p6` with someone else's edits, so its pointer is unchanged. Nothing is pushed.
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
