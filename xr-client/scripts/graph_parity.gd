@@ -58,11 +58,19 @@ const PHYSICS_RETRY_SEC: float = 5.0
 # Server physics state (GET /api/graph/settlement): the GPU actor's own settlement
 # telemetry, polled every few seconds. One request in flight; failures show as
 # "unavailable" instead of leaving a stale value on the HUD.
+const SemanticFields := preload("res://scripts/semantic_fields.gd")
 const SETTLE_PATH := "/api/graph/settlement"
 const SETTLE_POLL_SEC: float = 3.0
 var _settle_get: HTTPRequest = null
 var _settle_inflight: bool = false
 var _settle_timer: float = 0.0
+
+# Forces tab (the physics `semantic` group). Everything is driven by the shared document
+# (data/semantic_fields.json); values shown are only ones READ from the server or just written
+# through the physics PUT, never a default presented as live.
+var _fields: RefCounted = null
+var _forces_values: Dictionary = {}
+var _forces_group: int = 0
 
 
 ## Wire to the scene. `graph_root` is the fitted server-space root the node
@@ -106,12 +114,30 @@ func handle_control(action: String) -> bool:
 				if _hud != null and _hud.has_method("set_agent_offsets_state"):
 					_hud.set_agent_offsets_state(bool(_client.get_agent_offsets()))
 			return true
+		"forces_prev":
+			_forces_group = posmod(_forces_group - 1, _fields_ref().groups.size())
+			_render_forces()
+			return true
+		"forces_next":
+			_forces_group = posmod(_forces_group + 1, _fields_ref().groups.size())
+			_render_forces()
+			return true
+		"forces_toggle":
+			var t: Dictionary = _fields_ref().toggle_for(_current_group())
+			if _forces_values.has(t["path"]):   # nothing read yet => no state to flip
+				_forces_write(t, not bool(_forces_values[t["path"]]))
+			return true
 		"hulls_cycle":
 			hull_source = (hull_source + 1) % 3
 			_hull_accum = HULL_REBUILD_SEC   # rebuild on the next frame
 			if hull_source == 0:
 				_clear_hulls()
 			_refresh_hud()
+			return true
+	if action.begins_with("forces_step:"):
+		var parts: PackedStringArray = action.split(":")
+		if parts.size() == 3:
+			_forces_step(int(parts[1]), int(parts[2]))
 			return true
 	return false
 
@@ -237,7 +263,74 @@ func apply_physics_body(text: String) -> Dictionary:
 		_set_scene("_dag_bias_on", float(view["dag_bias_k"]) > 0.0)
 	if not view.is_empty() and _scene != null and _scene.has_method("_refresh_controls_status"):
 		_scene._refresh_controls_status()
+	_read_forces(text)
 	return view
+
+
+# --- Forces tab ---------------------------------------------------------------
+
+func _fields_ref() -> RefCounted:
+	if _fields == null:
+		_fields = SemanticFields.load_default()
+	return _fields
+
+
+func _current_group() -> String:
+	return String(_fields_ref().groups[_forces_group])
+
+
+## Take the `semantic` group out of a GET /api/settings/physics body (flat or enveloped).
+func _read_forces(text: String) -> void:
+	var json := JSON.new()
+	if json.parse(text) != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return
+	var body: Dictionary = json.data
+	if body.has("data") and typeof(body["data"]) == TYPE_DICTIONARY:
+		body = body["data"]
+	var read: Dictionary = _fields_ref().read_view(body)
+	if read.is_empty():
+		return
+	_forces_values.merge(read, true)
+	_render_forces()
+
+
+func _render_forces() -> void:
+	if _hud == null or not _hud.has_method("render_forces"):
+		return
+	var f: RefCounted = _fields_ref()
+	var group: String = _current_group()
+	var rows: Array = []
+	for r: Dictionary in f.sliders_for(group):
+		var known: bool = _forces_values.has(r["path"])
+		rows.append({
+			"label": String(r["label"]),
+			"value": f.format_value(r, _forces_values[r["path"]]) if known else "…",
+			"hint": String(r["description"]),
+		})
+	var t: Dictionary = f.toggle_for(group)
+	var enabled: Variant = _forces_values.get(t["path"], null)
+	_hud.render_forces(group, _forces_group, f.groups.size(), enabled, rows)
+
+
+## One -/+ press on slider row `index` of the current force.
+func _forces_step(index: int, direction: int) -> void:
+	var sliders: Array = _fields_ref().sliders_for(_current_group())
+	if index < 0 or index >= sliders.size():
+		return
+	var r: Dictionary = sliders[index]
+	if not _forces_values.has(r["path"]):
+		return   # nothing read from the server yet: there is no value to step from
+	_forces_write(r, _fields_ref().stepped(r, float(_forces_values[r["path"]]), direction))
+
+
+## Write ONE field through the physics PUT (the server deep-merges it). The page changes only
+## if the request could actually start; a read-back then confirms or corrects it.
+func _forces_write(row: Dictionary, value: Variant) -> void:
+	if _scene == null or not _scene.has_method("_put_physics_body"):
+		return
+	if _scene._put_physics_body(_fields_ref().patch_for(String(row["path"]), value)):
+		_forces_values[row["path"]] = value
+		_render_forces()
 
 
 # --- server physics state ----------------------------------------------------

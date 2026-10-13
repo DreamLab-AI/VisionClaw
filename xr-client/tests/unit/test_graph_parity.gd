@@ -21,10 +21,15 @@ class StubScene:
 	var _plane_bias_k: float = 0.0
 	var _plane_spacing: float = 60.0
 	var _physics_state_text: String = ""
+	var put_bodies: Array = []
+	var put_accepts: bool = true
 	var _z_compression: float = 1.0
 	var refreshed: int = 0
 	func _refresh_controls_status() -> void:
 		refreshed += 1
+	func _put_physics_body(body: Dictionary) -> bool:
+		put_bodies.append(body)
+		return put_accepts
 	func _http_base() -> String:
 		return "http://127.0.0.1:9"
 	func _auth_headers(_url: String, _method: String) -> PackedStringArray:
@@ -33,6 +38,9 @@ class StubScene:
 
 class StubHud:
 	extends Node
+	var forces: Array = []
+	func render_forces(group: String, index: int, total: int, enabled: Variant, rows: Array) -> void:
+		forces.append({"group": group, "index": index, "total": total, "enabled": enabled, "rows": rows})
 	var modes: Array = []
 	var notices: Array = []
 	func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -> void:
@@ -321,3 +329,79 @@ func test_settlement_body_updates_the_hud_state() -> void:
 	parity.apply_settlement_body("{\"settlementState\":{\"isSettled\":false,\"stableFrameCount\":0,\"kineticEnergy\":1.5},\"telemetryLive\":true,\"physicsRunning\":true}")
 	assert_eq(scene._physics_state_text, "settling KE 1.50")
 	assert_gt(scene.refreshed, 0, "status line refreshed")
+
+
+# ---- semantic forces (Forces tab): driven by the shared document, written through the physics PUT ----
+
+func _forces_parity() -> Array:
+	var p: Array = _parity_with(_client())
+	return p
+
+
+func test_forces_page_shows_the_first_force_without_inventing_values() -> void:
+	var p: Array = _forces_parity()
+	var parity: Node = p[0]
+	var hud: StubHud = p[2]
+	parity.handle_control("forces_next")
+	parity.handle_control("forces_prev")
+	var last: Dictionary = hud.forces.back()
+	assert_eq(last["total"], 8)
+	assert_eq(last["index"], 0)
+	for r: Dictionary in last["rows"]:
+		assert_eq(r["value"], "…", "nothing has been read from the server yet: no default is shown as if it were live")
+
+
+func test_a_server_body_fills_the_page_and_stepping_puts_one_nested_field() -> void:
+	var p: Array = _forces_parity()
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	var hud: StubHud = p[2]
+	parity.apply_physics_body('{"semantic":{"dag":{"verticalSpacing":100,"horizontalSpacing":50,"levelAttraction":0.03,"siblingRepulsion":0.05,"enabled":false}}}')
+	var shown: Dictionary = hud.forces.back()
+	assert_eq(shown["group"], "DAG Layering")
+	assert_eq(shown["enabled"], false)
+	assert_eq(shown["rows"][2]["label"], "Level Attraction")
+	assert_eq(shown["rows"][2]["value"], "0.030")
+
+	# "+" on Level Attraction: one step of 0.005, sent as a nested single-field patch
+	assert_true(parity.handle_control("forces_step:2:1"))
+	assert_eq(scene.put_bodies.size(), 1)
+	assert_eq(scene.put_bodies[0], {"semantic": {"dag": {"levelAttraction": 0.035}}})
+	assert_eq(hud.forces.back()["rows"][2]["value"], "0.035", "the page shows the value just written")
+
+
+func test_the_toggle_flips_enabled_only_and_a_refused_put_changes_nothing() -> void:
+	var p: Array = _forces_parity()
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	var hud: StubHud = p[2]
+	parity.apply_physics_body('{"semantic":{"dag":{"levelAttraction":0.03,"enabled":false}}}')
+	scene.put_accepts = false
+	parity.handle_control("forces_toggle")
+	assert_eq(scene.put_bodies.back(), {"semantic": {"dag": {"enabled": true}}})
+	assert_eq(hud.forces.back()["enabled"], false, "the PUT could not start (one is in flight): the page does not claim a change")
+	scene.put_accepts = true
+	parity.handle_control("forces_toggle")
+	assert_eq(hud.forces.back()["enabled"], true)
+
+
+func test_stepping_a_value_not_yet_read_does_nothing() -> void:
+	var p: Array = _forces_parity()
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	parity.handle_control("forces_step:0:1")
+	assert_eq(scene.put_bodies.size(), 0, "no value read from the server: nothing to step from")
+
+
+func test_group_navigation_wraps_and_names_each_force() -> void:
+	var p: Array = _forces_parity()
+	var parity: Node = p[0]
+	var hud: StubHud = p[2]
+	var seen: Array = []
+	for i in 8:
+		parity.handle_control("forces_next")
+		seen.append(hud.forces.back()["group"])
+	assert_eq(seen.size(), 8)
+	assert_eq(hud.forces.back()["group"], "DAG Layering", "eight steps forward wrap to the first force")
+	parity.handle_control("forces_prev")
+	assert_eq(hud.forces.back()["index"], 7)

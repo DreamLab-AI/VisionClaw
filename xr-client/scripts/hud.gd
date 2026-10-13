@@ -222,9 +222,9 @@ var _mic_badge: Label = null
 var _beat_mic_on: bool = false
 var _bursts_on: bool = true
 
-const TAB_ORDER: Array[String] = ["graph", "layout", "shapes", "query", "pins", "swarm", "key", "session", "help"]
+const TAB_ORDER: Array[String] = ["graph", "layout", "forces", "shapes", "query", "pins", "swarm", "key", "session", "help"]
 const TAB_LABELS: Dictionary = {
-	"graph": "Graph", "layout": "Layout", "shapes": "Shapes", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
+	"graph": "Graph", "layout": "Layout", "forces": "Forces", "shapes": "Shapes", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
 }
 
 # Agent status → roster dot colour (ADR-140, Pillar 3). Mirrors
@@ -457,6 +457,7 @@ func _build_pages_host() -> void:
 
 	_pages["graph"] = _build_graph_page()
 	_pages["layout"] = _build_layout_page()
+	_pages["forces"] = _build_forces_page()
 	_pages["shapes"] = _build_shapes_page()
 	_pages["query"] = _build_query_page()
 	_pages["pins"] = _build_pins_page()
@@ -583,6 +584,90 @@ func _build_layout_page() -> VBoxContainer:
 	row.add_child(_layout_mode_button)
 	page.add_child(row)
 	return page
+
+
+# --- Forces tab (the physics `semantic` group) ---------------------------------
+# A force selector, that force's enable toggle, and up to FORCE_ROWS stepper rows. All text comes
+# from GraphParity via render_forces(); the controls and ranges come from the shared document
+# (data/semantic_fields.json), so this page defines no force, label or range of its own.
+
+const FORCE_ROWS: int = 4
+var _forces_title: Label = null
+var _forces_toggle: Button = null
+var _forces_rows: Array = []   ## Array[Dictionary{box,name,value,minus,plus}]
+
+
+func _build_forces_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_child(_group_header("Semantic Forces"))
+
+	var sel := HBoxContainer.new()
+	sel.custom_minimum_size = Vector2(0, BTN_H)
+	sel.add_theme_constant_override("separation", 8)
+	sel.add_child(_action_btn("< Prev", "forces_prev", "Previous force"))
+	_forces_title = Label.new()
+	_forces_title.name = "ForceTitle"
+	_forces_title.text = "…"
+	_forces_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_forces_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_forces_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	sel.add_child(_forces_title)
+	sel.add_child(_action_btn("Next >", "forces_next", "Next force"))
+	page.add_child(sel)
+
+	_forces_toggle = _action_btn("…", "forces_toggle", "Switch this force on or off (applied by the GPU exactly as stored)")
+	page.add_child(_forces_toggle)
+
+	_forces_rows.clear()
+	for i in FORCE_ROWS:
+		var row := HBoxContainer.new()
+		row.custom_minimum_size = Vector2(0, BTN_H)
+		row.add_theme_constant_override("separation", 8)
+		var name_l := Label.new()
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		name_l.clip_text = true
+		var value_l := Label.new()
+		value_l.custom_minimum_size = Vector2(120, 0)
+		value_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		value_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var minus := _action_btn("−", "forces_step:%d:-1" % i, "Decrease")
+		var plus := _action_btn("+", "forces_step:%d:1" % i, "Increase")
+		minus.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		plus.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		minus.custom_minimum_size = Vector2(72, BTN_H)
+		plus.custom_minimum_size = Vector2(72, BTN_H)
+		row.add_child(name_l)
+		row.add_child(value_l)
+		row.add_child(minus)
+		row.add_child(plus)
+		page.add_child(row)
+		_forces_rows.append({"box": row, "name": name_l, "value": value_l, "minus": minus, "plus": plus})
+		row.visible = false
+	return page
+
+
+## Show one force. `enabled` is true/false once the server's value is known, null before that.
+## `rows` is [{label, value, hint}], at most FORCE_ROWS; unused rows are hidden.
+func render_forces(group: String, index: int, total: int, enabled: Variant, rows: Array) -> void:
+	if _forces_title == null:
+		return
+	_forces_title.text = "%s  (%d/%d)" % [group, index + 1, total]
+	if enabled == null:
+		_forces_toggle.text = "%s: …" % group
+	else:
+		_forces_toggle.text = "%s: %s" % [group, "On" if bool(enabled) else "Off"]
+		_forces_toggle.add_theme_color_override("font_color", ACCENT if bool(enabled) else IDLE)
+	for i in FORCE_ROWS:
+		var r: Dictionary = _forces_rows[i]
+		var live: bool = i < rows.size()
+		(r["box"] as Control).visible = live
+		if live:
+			(r["name"] as Label).text = String(rows[i]["label"])
+			(r["value"] as Label).text = String(rows[i]["value"])
+			var hint: String = String(rows[i].get("hint", ""))
+			(r["name"] as Label).set_meta(HINT_META, hint)
+
 
 
 func _build_shapes_page() -> VBoxContainer:
