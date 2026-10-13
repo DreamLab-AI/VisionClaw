@@ -284,6 +284,8 @@ The second pass left several rows open on judgement alone, and three of those ju
 
 S-7e observed run (2026-10-12): `cargo fuzz run sparql_update -- -max_total_time=60` ran 1,572,868 times with exit 0 and no panic, using cargo-fuzz 0.13.2 on stable rustc 1.99 with `RUSTC_BOOTSTRAP=1` (the CI job uses nightly) and `ASAN_OPTIONS=detect_leaks=0`. Leak detection must be off in this container: LeakSanitizer aborts at exit under the ptrace restriction and reports a false crash on the empty input, which is not a defect in the target. The GitHub-hosted job itself has still not run.
 
+S-6 verified (2026-10-12): `browsercontainer/podkey.pin` already points at run `36134082610`, which `gh run list -R JavaScriptSolidServer/podkey --workflow ci.yml` shows as the newest successful run on upstream `main` (2026-09-25, head `3752aa2b`); no upstream commit has landed since. There is no newer artefact to re-pin to. Extending the 2026-12-24 expiry means dispatching `ci.yml` on that external repository, which is outside this estate and was not done without the owner's say-so. Then edit `podkey.pin` (`run_id`, `artifact_id`, `sha256`, `artifact_expires`) on the agentbox branch that carries the browsercontainer.
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
