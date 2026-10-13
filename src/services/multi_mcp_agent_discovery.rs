@@ -136,6 +136,16 @@ fn env_configured(vars: &[&str]) -> bool {
         .any(|v| std::env::var(v).map(|s| !s.is_empty()).unwrap_or(false))
 }
 
+/// Host of the claude-flow MCP server, resolved exactly as `BotsClient` does:
+/// `CLAUDE_FLOW_HOST`, then `MCP_HOST`, then the `multi-agent-container` service
+/// name. The two clients must agree or they poll different machines whenever
+/// the variable is unset.
+fn claude_flow_host(get: impl Fn(&str) -> Option<String>) -> String {
+    get("CLAUDE_FLOW_HOST")
+        .or_else(|| get("MCP_HOST"))
+        .unwrap_or_else(|| "multi-agent-container".to_string())
+}
+
 impl MultiMcpAgentDiscovery {
     pub fn new() -> Self {
         Self {
@@ -207,7 +217,7 @@ impl MultiMcpAgentDiscovery {
             McpServerConfig {
                 server_id: "claude-flow".to_string(),
                 server_type: McpServerType::ClaudeFlow,
-                host: std::env::var("CLAUDE_FLOW_HOST").unwrap_or_else(|_| "localhost".to_string()),
+                host: claude_flow_host(|k| std::env::var(k).ok()),
                 port: std::env::var("MCP_TCP_PORT")
                     .unwrap_or_else(|_| "9500".to_string())
                     .parse()
@@ -1052,6 +1062,24 @@ mod subscriber_tests {
         assert_eq!(statuses.len(), 1, "failure must create the record");
         assert!(!statuses[0].is_connected);
         assert_eq!(statuses[0].server_id, "dead");
+    }
+
+    #[test]
+    fn claude_flow_host_matches_the_bots_client_order() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(name, _)| *name == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(claude_flow_host(env(&[])), "multi-agent-container");
+        assert_eq!(claude_flow_host(env(&[("MCP_HOST", "mcp")])), "mcp");
+        assert_eq!(
+            claude_flow_host(env(&[("MCP_HOST", "mcp"), ("CLAUDE_FLOW_HOST", "cf")])),
+            "cf"
+        );
     }
 
     #[test]

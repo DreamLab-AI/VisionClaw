@@ -390,14 +390,16 @@ fn build_discovery_frame(
         "agents": agents,
         "topology": topology,
         "stats": {
-            "total_discoveries": stats.total_discoveries,
+            "total_discoveries": stats.successful_discoveries + stats.failed_discoveries,
             "successful_discoveries": stats.successful_discoveries,
             "failed_discoveries": stats.failed_discoveries,
-            "total_agents_discovered": stats.total_agents_discovered,
+            // The poll loop never writes the stored totals below, so report
+            // what this frame actually carries.
+            "total_agents_discovered": agents.len(),
             "last_discovery_time": stats.last_discovery_time.map(|t| t.timestamp_millis()),
             "average_discovery_time_ms": stats.average_discovery_time_ms,
-            "servers_online": stats.servers_online,
-            "servers_offline": stats.servers_offline,
+            "servers_online": servers.iter().filter(|s| s.is_connected).count(),
+            "servers_offline": servers.iter().filter(|s| !s.is_connected).count(),
         },
     })
 }
@@ -418,6 +420,10 @@ impl Actor for MultiMcpVisualizationWs {
         let discovery = self.discovery.clone();
         actix::spawn(async move { discovery.sync_running().await });
         self.start_health_monitor();
+
+        // Only a cycle completed after this point may produce a frame: whatever
+        // is cached now may be empty or from an earlier session.
+        self.last_frame_cycle = self.discovery.cycle_count();
 
         // Push a frame whenever a new discovery cycle has landed. Nothing is
         // sent at connect: the caches may be empty or stale until the first
@@ -1027,7 +1033,9 @@ mod tests {
         assert_eq!(frame["servers"].as_array().unwrap().len(), 1);
         assert_eq!(frame["servers"][0]["server_id"], "claude-flow");
         assert!(frame["topology"].get("swarm-1").is_some());
-        assert_eq!(frame["stats"]["servers_online"], 0);
+        assert_eq!(frame["stats"]["servers_online"], 1);
+        assert_eq!(frame["stats"]["servers_offline"], 0);
+        assert_eq!(frame["stats"]["total_agents_discovered"], 0);
 
         filters.include_topology = false;
         let frame = build_discovery_frame(
