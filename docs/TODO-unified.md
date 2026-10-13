@@ -282,6 +282,8 @@ The second pass left several rows open on judgement alone, and three of those ju
 | N-13 | partly stale | dreamlab-ai-website `forum-config/Cargo.toml` pins the overlay crates at `=1.0.0-beta.15`, so the "align beta.11 to beta.12" follow-up is done. Still open: the VisionFlow orphan-asset prune (owner) and the engine image rebuild that picks up card withdrawal. |
 | S-6 | date-triggered | The pinned artefact is podkey `main`'s latest CI run (`36134082610`, 2026-09-25) and expires 2026-12-24, ten weeks out; the documented procedure (`browsercontainer/README.md`) is "pick a green `ci.yml` run, edit `podkey.pin`". We hold admin on the repo, so a CI rerun is possible, but doing it now only restarts the clock. Re-pin in early December. `k_browser`/`k_broker` pubkeys in `g5-key-split.json` are an owner key ceremony. |
 
+S-7e observed run (2026-10-12): `cargo fuzz run sparql_update -- -max_total_time=60` ran 1,572,868 times with exit 0 and no panic, using cargo-fuzz 0.13.2 on stable rustc 1.99 with `RUSTC_BOOTSTRAP=1` (the CI job uses nightly) and `ASAN_OPTIONS=detect_leaks=0`. Leak detection must be off in this container: LeakSanitizer aborts at exit under the ptrace restriction and reports a false crash on the empty input, which is not a defect in the target. The GitHub-hosted job itself has still not run.
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
