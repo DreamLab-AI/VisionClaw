@@ -56,6 +56,7 @@ Documentation follows the [Diátaxis](https://diataxis.fr/) framework — each q
 
 - **New user** — Start with [What is VisionClaw?](tutorials/what-is-visionclaw.md), then [Installation](tutorials/installation.md), [Your first graph](tutorials/first-graph.md), and the [navigation guide](how-to/navigation-guide.md).
 - **Developer** — Building against the API: [REST API](reference/rest-api.md), [WebSocket protocol](reference/websocket-protocol.md), [Binary protocol](reference/binary-protocol.md). Understanding the internals: [System overview](explanation/system-overview.md), [Backend architecture](explanation/backend-architecture.md), [Client architecture](explanation/client-architecture.md), and [Physics & GPU engine](explanation/physics-gpu-engine.md). Contributing: [CONTRIBUTING](CONTRIBUTING.md) and the [development guide](how-to/development.md).
+- **Debugging and architecture audits** — [Tracing one agent write across seven layers](developer/tracing-one-write.md) (the command at each hop to find which layer dropped a request) and the [actor bypass inventory](developer/actor-bypass-inventory.md) (per-site recommendations for X-2; recommendations only, nothing deleted).
 - **Operator** — Running it in production: [Deployment](how-to/deployment.md), the [operations runbooks](how-to/operations/README.md), [Configuration reference](reference/configuration.md), [Known issues](KNOWN_ISSUES.md), and the [pre-demo security audit (2026-08-21)](security/PRE-DEMO-SECURITY-AUDIT-2026-08-21.md).
 
 ## Known issues

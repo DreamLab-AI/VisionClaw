@@ -286,6 +286,8 @@ S-7e observed run (2026-10-12): `cargo fuzz run sparql_update -- -max_total_time
 
 S-6 verified (2026-10-12): `browsercontainer/podkey.pin` already points at run `36134082610`, which `gh run list -R JavaScriptSolidServer/podkey --workflow ci.yml` shows as the newest successful run on upstream `main` (2026-09-25, head `3752aa2b`); no upstream commit has landed since. There is no newer artefact to re-pin to. Extending the 2026-12-24 expiry means dispatching `ci.yml` on that external repository, which is outside this estate and was not done without the owner's say-so. Then edit `podkey.pin` (`run_id`, `artifact_id`, `sha256`, `artifact_expires`) on the agentbox branch that carries the browsercontainer.
 
+X-2 and X-3, documentation halves done (2026-10-12): `docs/developer/actor-bypass-inventory.md` lists all 36 production `execute_in_thread` sites (the row's "35" undercounts its own per-file breakdown) with a recommended decision each: 13 route-through-actor, 18 direct-store-is-correct, 5 needs-owner-call. It also found that the nine `graph_state_handler` routes are shadowed by `graph::config`, which registers `/graph` first (`api_handler/mod.rs:112-113`, comment at `api_handler/graph/mod.rs:1487`), so that module is likely dead and deleting it beats re-routing it (unconfirmed against a running server). `docs/developer/tracing-one-write.md` traces one write across the seven layers, checked against code only. Still open: the X-2 deletions and the X-3 request id, which changes the locked 52-byte frame contract.
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
