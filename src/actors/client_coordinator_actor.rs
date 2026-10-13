@@ -1,24 +1,15 @@
 //! Client Coordinator Actor - WebSocket Communication Management
 //!
-//! This actor coordinates all client-related WebSocket communications, handling:
-//! - Real-time position updates broadcasting
-//! - Client connection state management
-//! - Force broadcasts for new clients
-//! - Initial client synchronization
-//! - Adaptive broadcasting based on graph state
-//!
-//! ## Key Features
-//! - **Time-based Broadcasting**: Prevents spam during stable periods
-//! - **Force Broadcast Support**: Immediate updates for new clients
-//! - **Efficient Binary Protocol**: Optimized WebSocket data transmission
-//! - **Telemetry Integration**: Comprehensive logging and monitoring
-//! - **Connection Tracking**: Manages client lifecycle and state
-//!
-//! ## Broadcasting Strategy
-//! - **Active Periods**: 20Hz (50ms intervals) during graph changes
-//! - **Stable Periods**: 1Hz (1s intervals) during settled states
-//! - **New Client**: Immediate broadcast regardless of graph state
-//! - **Binary Protocol**: 28-byte optimized node data for network efficiency
+//! Coordinates all client-related WebSocket communication:
+//! - Client connection state and lifecycle
+//! - **Per-client acknowledged position streaming** (ADR-2141): each client has its own stream
+//!   state ([`ClientStream`]); a chunk of the nodes that changed since that client's last
+//!   acknowledged positions is built and sent when the previous chunk is acknowledged (or times
+//!   out). There is no global broadcast rate, bandwidth cap or token bucket: delivery follows
+//!   each client's own round trip, and stops when every client holds the latest positions.
+//! - Per-session entitlement (private nodes are never in a session's candidate set, and nothing
+//!   is sent until the visibility policy has loaded)
+//! - Telemetry, voice relay and reconnect buffering for text messages
 
 use actix::prelude::*;
 use log::{debug, error, info, warn};
@@ -31,6 +22,7 @@ use std::time::{Duration, Instant};
 // Import required types and messages
 use crate::actors::messages::*;
 use crate::telemetry::agent_telemetry::{get_telemetry_logger, CorrelationId, Position3D};
+use crate::actors::position_stream::{AnalyticsKey, ClientStream, StreamSettings};
 use crate::utils::socket_flow_messages::BinaryNodeDataClient;
 
 #[derive(Debug, Clone)]
@@ -41,8 +33,6 @@ pub struct ClientState {
     pub addr: ClientRecipients,
     pub connected_at: Instant,
     pub last_update: Instant,
-    pub position_sent: bool,
-    pub initial_sync_completed: bool,
     pub pubkey: Option<String>,
     pub is_power_user: bool,
     pub filter: ClientFilter,
@@ -57,6 +47,8 @@ pub struct ClientState {
     /// congested broadcasts; `None` once a broadcast reaches it again. A
     /// client congested for longer than `addr.stall_timeout` is evicted.
     pub congested_since: Option<Instant>,
+    /// What this client has acknowledged and the chunk in flight (ADR-2141).
+    pub stream: ClientStream,
 }
 
 /// Per-client filter settings for graph visibility
@@ -222,6 +214,8 @@ impl DisconnectedClientQueue {
 #[derive(Debug, Default)]
 pub struct BroadcastResult {
     pub sent: usize,
+    /// Bytes handed to clients' mailboxes.
+    pub bytes: usize,
     pub congested_clients: Vec<usize>,
     pub closed_clients: Vec<usize>,
 }
@@ -229,8 +223,12 @@ pub struct BroadcastResult {
 impl BroadcastResult {
     /// Try to hand `data` to one client and record the outcome.
     fn deliver_binary(&mut self, client_id: usize, client_state: &ClientState, data: Vec<u8>) {
+        let len = data.len();
         match client_state.addr.binary.try_send(SendToClientBinary(data)) {
-            Ok(()) => self.sent += 1,
+            Ok(()) => {
+                self.sent += 1;
+                self.bytes += len;
+            }
             // Full = the socket actor has not drained its mailbox yet (the peer
             // is momentarily not reading). Skip this frame for it; evicting it
             // here would silence an open socket for good.
@@ -242,6 +240,16 @@ impl BroadcastResult {
             }
         }
     }
+}
+
+/// Everything a pump needs, borrowed from the coordinator for the duration of one call.
+pub struct PumpContext<'a> {
+    pub cache: &'a HashMap<u32, BinaryNodeDataClient>,
+    pub nta: &'a crate::actors::messages::NodeTypeArrays,
+    pub settings: &'a StreamSettings,
+    pub analytics:
+        Option<&'a std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>>,
+    pub now: Instant,
 }
 
 pub struct ClientManager {
@@ -281,14 +289,13 @@ impl ClientManager {
             addr,
             connected_at: now,
             last_update: now,
-            position_sent: false,
-            initial_sync_completed: false,
             pubkey: None,
             is_power_user: false,
             filter: ClientFilter::default(),
             settings_override: None,
             ephemeral_session: false,
             congested_since: None,
+            stream: ClientStream::new(),
         };
 
         self.clients.insert(client_id, client_state);
@@ -369,13 +376,6 @@ impl ClientManager {
         }
     }
 
-    pub fn mark_client_synced(&mut self, client_id: usize) {
-        if let Some(client) = self.clients.get_mut(&client_id) {
-            client.initial_sync_completed = true;
-            client.last_update = Instant::now();
-        }
-    }
-
     pub fn update_client_timestamp(&mut self, client_id: usize) {
         if let Some(client) = self.clients.get_mut(&client_id) {
             client.last_update = Instant::now();
@@ -395,119 +395,113 @@ impl ClientManager {
         result
     }
 
-    /// Broadcast with per-client filtering, including node type flags in binary protocol
-    ///
-    /// Pre-serializes the unfiltered payload once so that clients without active filters
-    /// receive a cheap `Vec<u8>` clone instead of re-encoding per client.
-    /// Complexity: O(N + F*N_f) where F = filtered-client count, N_f = per-filter node count.
-    /// Broadcast position frames with per-client filtering.
-    ///
-    /// Pre-serialises the unfiltered payload once so clients without active
-    /// filters get a cheap `Vec<u8>` clone instead of re-encoding per client.
-    /// Uses `try_send` (ADR-031 item 5) to detect backpressure.
-    /// Complexity: O(N + F×N_f) where F = filtered-client count, N_f = per-filter node count.
-    pub fn broadcast_with_filter(
-        &self,
-        positions: &[BinaryNodeDataClient],
-        node_type_arrays: &crate::actors::messages::NodeTypeArrays,
-        broadcast_sequence: u64,
-        analytics_data: Option<
-            &std::collections::HashMap<u32, crate::utils::binary_protocol::NodeAnalytics>,
-        >,
-    ) -> BroadcastResult {
-        if positions.is_empty() || self.clients.is_empty() {
-            return BroadcastResult::default();
-        }
-
-        // Fail closed: with the visibility filter on, "no classification has arrived yet" must not
-        // read as "no node is private". Until a real snapshot is in hand nothing is broadcast.
-        let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
-        if policy_on && !node_type_arrays.loaded {
-            log::warn!("broadcast withheld: node classification (visibility policy) has not arrived yet");
-            return BroadcastResult::default();
-        }
-
-        // Pre-serialize the full unfiltered payload ONCE
-        let unfiltered_binary = self.serialize_positions(
-            positions,
-            node_type_arrays,
-            broadcast_sequence,
-            analytics_data,
-        );
-
-        // Entitlement (ADR-060): the same private-node drop-set the connect-time sync applies,
-        // computed once per distinct session identity per broadcast. Without it the live
-        // stream sent private nodes' positions to sessions the connect sync had withheld them
-        // from. The set is stable per session, so a frame is always the full entitled set.
-        let entitlement_on = policy_on && !node_type_arrays.private_nodes.is_empty();
-        let mut drop_sets: std::collections::HashMap<Option<&str>, std::collections::HashSet<u32>> =
-            std::collections::HashMap::new();
-        // Sessions with the same identity and no explicit filter share one encoded payload.
-        let mut shared_payloads: std::collections::HashMap<Option<&str>, Vec<u8>> =
-            std::collections::HashMap::new();
-
+    /// Send the next chunk to every client that is due one (ADR-2141). Called when new positions
+    /// arrive and from the safety timer.
+    pub fn pump_all(&mut self, cx: &PumpContext<'_>, seq: &mut u64) -> BroadcastResult {
         let mut result = BroadcastResult::default();
-        for (&client_id, client_state) in &self.clients {
-            let hidden: Option<&std::collections::HashSet<u32>> = if entitlement_on {
-                let key = client_state.pubkey.as_deref();
-                Some(&*drop_sets.entry(key).or_insert_with(|| {
-                    visionclaw_domain::utils::visibility_filter::compute_private_opaque_ids(
-                        &node_type_arrays.private_nodes,
-                        key,
-                    )
-                }))
-            } else {
-                None
-            };
-            let hides_something = hidden.is_some_and(|h| !h.is_empty());
-
-            let payload = if !client_state.filter.enabled && !hides_something {
-                // Send pre-serialized payload — no re-encoding needed
-                Some(unfiltered_binary.clone())
-            } else if !client_state.filter.enabled {
-                // Entitlement only: everyone with this identity gets the same bytes.
-                let key = client_state.pubkey.as_deref();
-                let encoded = shared_payloads.entry(key).or_insert_with(|| {
-                    let h = hidden.expect("hides_something implies a drop set");
-                    let visible: Vec<_> =
-                        positions.iter().filter(|pos| !h.contains(&pos.node_id)).copied().collect();
-                    self.serialize_positions(&visible, node_type_arrays, broadcast_sequence, analytics_data)
-                });
-                Some(encoded.clone())
-            } else {
-                // The client's own explicit filter, and entitlement on top of it.
-                let filtered_positions: Vec<_> = positions
-                    .iter()
-                    .filter(|pos| client_state.filter.filtered_node_ids.contains(&pos.node_id))
-                    .filter(|pos| hidden.is_none_or(|h| !h.contains(&pos.node_id)))
-                    .copied()
-                    .collect();
-                if filtered_positions.is_empty() {
-                    None
-                } else {
-                    Some(self.serialize_positions(
-                        &filtered_positions,
-                        node_type_arrays,
-                        broadcast_sequence,
-                        analytics_data,
-                    ))
-                }
-            };
-
-            if let Some(data) = payload {
-                result.deliver_binary(client_id, client_state, data);
-            }
+        if cx.cache.is_empty() || self.clients.is_empty() {
+            return result;
+        }
+        // Fail closed: with the visibility filter on, "no classification has arrived yet" must not
+        // read as "no node is private". Until a real snapshot is in hand nothing is sent.
+        let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
+        if policy_on && !cx.nta.loaded {
+            log::warn!("positions withheld: node classification (visibility policy) has not arrived yet");
+            return result;
+        }
+        let mut drop_sets: HashMap<Option<String>, std::collections::HashSet<u32>> = HashMap::new();
+        let ids: Vec<usize> = self.clients.keys().copied().collect();
+        for id in ids {
+            self.pump_one(id, cx, seq, policy_on, &mut drop_sets, &mut result);
         }
         result
     }
 
-    /// Serialize positions into V5 binary frame format.
+    /// Send the next chunk to one client if it is due one (after its acknowledgement).
+    pub fn pump_client(&mut self, client_id: usize, cx: &PumpContext<'_>, seq: &mut u64) -> BroadcastResult {
+        let mut result = BroadcastResult::default();
+        if cx.cache.is_empty() {
+            return result;
+        }
+        let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
+        if policy_on && !cx.nta.loaded {
+            return result;
+        }
+        let mut drop_sets = HashMap::new();
+        self.pump_one(client_id, cx, seq, policy_on, &mut drop_sets, &mut result);
+        result
+    }
+
+    fn pump_one(
+        &mut self,
+        client_id: usize,
+        cx: &PumpContext<'_>,
+        seq: &mut u64,
+        policy_on: bool,
+        drop_sets: &mut HashMap<Option<String>, std::collections::HashSet<u32>>,
+        result: &mut BroadcastResult,
+    ) {
+        let Some(client) = self.clients.get_mut(&client_id) else {
+            return;
+        };
+        if client.stream.is_waiting(cx.now, cx.settings.ack_timeout) {
+            return;
+        }
+        // Entitlement (ADR-060): the private-node drop-set for this session's identity, computed
+        // once per distinct identity per pump. A candidate set that never contains a private node
+        // means a frame can never carry one.
+        let entitlement_on = policy_on && !cx.nta.private_nodes.is_empty();
+        let hidden = if entitlement_on {
+            let key = client.pubkey.clone();
+            Some(&*drop_sets.entry(key).or_insert_with(|| {
+                visionclaw_domain::utils::visibility_filter::compute_private_opaque_ids(
+                    &cx.nta.private_nodes,
+                    client.pubkey.as_deref(),
+                )
+            }))
+        } else {
+            None
+        };
+        let filter_on = client.filter.enabled;
+        let allowed = &client.filter.filtered_node_ids;
+        let visible = |id: u32| (!filter_on || allowed.contains(&id)) && hidden.is_none_or(|h| !h.contains(&id));
+
+        // The analytics a record carries are part of what a client holds: a re-clustered node is
+        // news even if it did not move.
+        let analytics_key = |id: u32| -> AnalyticsKey {
+            cx.analytics.and_then(|m| m.get(&id)).map_or([0; 4], |a| {
+                [a.cluster_id, a.community_id, a.anomaly.to_bits(), a.centrality.to_bits()]
+            })
+        };
+
+        let ids = client.stream.plan(cx.cache, &visible, &analytics_key, cx.settings);
+        if ids.is_empty() {
+            return;
+        }
+        let chunk: Vec<BinaryNodeDataClient> = ids.iter().filter_map(|i| cx.cache.get(i).copied()).collect();
+        *seq += 1;
+        let frame = Self::serialize_positions(&chunk, cx.nta, *seq, cx.analytics);
+        let before = result.sent;
+        result.deliver_binary(client_id, client, frame);
+        if result.sent > before {
+            client.stream.record_sent(*seq, cx.now, &chunk, &analytics_key);
+        } else {
+            // Not delivered (mailbox full or closed): the sequence number is simply skipped.
+            // Nothing is in flight, so the same nodes are planned again next time.
+        }
+    }
+
+    /// The client acknowledged chunk `seq`. Returns the number of nodes acknowledged.
+    pub fn acknowledge(&mut self, client_id: usize, seq: u64) -> Option<usize> {
+        self.clients.get_mut(&client_id)?.stream.acknowledge(seq)
+    }
+
+    /// Serialize positions into a V5 binary frame.
     ///
-    /// V5 wire format: `[1 byte: version=5][8 bytes: broadcast_sequence LE][V3 node data without version byte]`
-    /// This embeds the authoritative server broadcast sequence so clients can echo it
-    /// back in acks, enabling true end-to-end backpressure correlation.
+    /// V5 wire format: `[1 byte: version=5][8 bytes: sequence LE][V3 node data without version byte]`.
+    /// The sequence names the chunk: clients echo it in their acknowledgement, and the XR client's
+    /// freshness gate requires it to increase on a connection.
     fn serialize_positions(
-        &self,
         positions: &[BinaryNodeDataClient],
         nta: &crate::actors::messages::NodeTypeArrays,
         broadcast_sequence: u64,
@@ -517,9 +511,7 @@ impl ClientManager {
     ) -> Vec<u8> {
         use crate::utils::binary_protocol::{encode_node_data_extended_with_sssp, NodeClassIds};
         use crate::utils::socket_flow_messages::BinaryNodeData;
-        // Convert to (u32, BinaryNodeData) format for V3 protocol encoding
-        let nodes: Vec<(u32, BinaryNodeData)> =
-            positions.iter().map(|pos| (pos.node_id, *pos)).collect();
+        let nodes: Vec<(u32, BinaryNodeData)> = positions.iter().map(|pos| (pos.node_id, *pos)).collect();
         let encoded = encode_node_data_extended_with_sssp(
             &nodes,
             NodeClassIds {
@@ -532,12 +524,11 @@ impl ClientManager {
             None,
             analytics_data,
         );
-        // Build V5 frame: [version=5][8-byte sequence LE][V3 node data without version byte]
         let mut result = Vec::with_capacity(1 + 8 + encoded.len().saturating_sub(1));
-        result.push(5u8); // Protocol V5 = V3 nodes + embedded broadcast sequence
+        result.push(5u8);
         result.extend_from_slice(&broadcast_sequence.to_le_bytes());
         if encoded.len() > 1 {
-            result.extend_from_slice(&encoded[1..]); // node data without V3 version byte
+            result.extend_from_slice(&encoded[1..]);
         }
         result
     }
@@ -586,14 +577,6 @@ impl ClientManager {
         }
         n
     }
-
-    pub fn get_unsynced_clients(&self) -> Vec<usize> {
-        self.clients
-            .values()
-            .filter(|client| !client.initial_sync_completed)
-            .map(|client| client.client_id)
-            .collect()
-    }
 }
 
 impl Default for ClientManager {
@@ -605,39 +588,26 @@ impl Default for ClientManager {
 pub struct ClientCoordinatorActor {
     client_manager: Arc<RwLock<ClientManager>>,
 
-    last_broadcast: Instant,
-
-    broadcast_interval: Duration,
-
-    active_broadcast_interval: Duration,
-
-    stable_broadcast_interval: Duration,
-
-    initial_positions_sent: bool,
-
     graph_service_addr: Option<Addr<crate::actors::GraphServiceSupervisor>>,
 
-    /// GPU compute actor address for backpressure acknowledgements
-    gpu_compute_addr: Option<Addr<crate::actors::gpu::force_compute_actor::ForceComputeActor>>,
-
-    /// Broadcast sequence counter for acknowledgement correlation
+    /// Chunk sequence counter: each chunk sent to any client takes the next number, so a client
+    /// sees strictly increasing sequences and echoes the one it received in its acknowledgement.
     broadcast_sequence: u64,
+
+    /// Stored stream settings (`physics.streamChunkNodes` / `streamMoveThreshold` /
+    /// `streamAckTimeoutMs`), applied live by `ConfigureStream`.
+    stream_settings: StreamSettings,
 
     // Settings repository for loading/saving user filters (Oxigraph migration: ADR-11)
     settings_repository: Option<Arc<crate::adapters::SqliteSettingsRepository>>,
 
     position_cache: HashMap<u32, BinaryNodeDataClient>,
 
+    /// Chunks delivered to clients' mailboxes, and their bytes.
     broadcast_count: u64,
     bytes_sent: u64,
 
-    force_broadcast_requests: u32,
-
     connection_stats: ConnectionStats,
-
-    bandwidth_limit_bytes_per_sec: usize,
-    bytes_sent_this_second: usize,
-    last_bandwidth_check: Instant,
 
     pending_voice_data: Vec<Vec<u8>>,
     voice_data_queued_bytes: usize,
@@ -692,25 +662,23 @@ impl ClientCoordinatorActor {
     }
 
     pub fn new() -> Self {
+        use visionclaw_domain::types::physics_config::{
+            DEFAULT_STREAM_ACK_TIMEOUT_MS, DEFAULT_STREAM_CHUNK_NODES, DEFAULT_STREAM_MOVE_THRESHOLD,
+        };
         Self {
             client_manager: Arc::new(RwLock::new(ClientManager::new())),
-            last_broadcast: Instant::now(),
-            broadcast_interval: Duration::from_millis(50),
-            active_broadcast_interval: Duration::from_millis(50),
-            stable_broadcast_interval: Duration::from_millis(1000),
-            initial_positions_sent: false,
             graph_service_addr: None,
-            gpu_compute_addr: None,
             broadcast_sequence: 0,
+            stream_settings: StreamSettings {
+                chunk_nodes: DEFAULT_STREAM_CHUNK_NODES as usize,
+                move_threshold: DEFAULT_STREAM_MOVE_THRESHOLD,
+                ack_timeout: Duration::from_millis(u64::from(DEFAULT_STREAM_ACK_TIMEOUT_MS)),
+            },
             settings_repository: None,
             position_cache: HashMap::new(),
             broadcast_count: 0,
             bytes_sent: 0,
-            force_broadcast_requests: 0,
             connection_stats: ConnectionStats::default(),
-            bandwidth_limit_bytes_per_sec: 1_000_000,
-            bytes_sent_this_second: 0,
-            last_bandwidth_check: Instant::now(),
             pending_voice_data: Vec::new(),
             voice_data_queued_bytes: 0,
             node_type_arrays: crate::actors::messages::NodeTypeArrays::default(),
@@ -761,44 +729,12 @@ impl ClientCoordinatorActor {
     }
 
     /// Set the GPU compute actor address for backpressure acknowledgements
-    pub fn set_gpu_compute_addr(
-        &mut self,
-        addr: Addr<crate::actors::gpu::force_compute_actor::ForceComputeActor>,
-    ) {
-        self.gpu_compute_addr = Some(addr);
-        info!("GPU compute address configured for ClientCoordinatorActor backpressure acks");
-    }
-
-    pub fn set_bandwidth_limit(&mut self, bytes_per_sec: usize) {
-        self.bandwidth_limit_bytes_per_sec = bytes_per_sec;
-        info!("Bandwidth limit set to {} bytes/sec", bytes_per_sec);
-    }
-
-    /// Set the SQLite settings repository for loading user filters (ADR-11)
     pub fn set_settings_repository(
         &mut self,
         repo: Arc<crate::adapters::SqliteSettingsRepository>,
     ) {
         self.settings_repository = Some(repo);
         info!("SQLite settings repository configured for ClientCoordinatorActor");
-    }
-
-    fn check_bandwidth_available(&mut self, bytes_needed: usize) -> bool {
-        if self.bandwidth_limit_bytes_per_sec == 0 {
-            return true;
-        }
-
-        if self.last_bandwidth_check.elapsed() >= Duration::from_secs(1) {
-            self.bytes_sent_this_second = 0;
-            self.last_bandwidth_check = Instant::now();
-        }
-
-        self.bytes_sent_this_second + bytes_needed <= self.bandwidth_limit_bytes_per_sec
-    }
-
-    fn record_bytes_sent(&mut self, bytes: usize) {
-        self.bytes_sent_this_second += bytes;
-        self.bytes_sent += bytes as u64;
     }
 
     pub fn queue_voice_data(&mut self, audio: Vec<u8>) {
@@ -811,22 +747,14 @@ impl ClientCoordinatorActor {
         );
     }
 
-    fn send_prioritized_broadcasts(&mut self) -> Result<usize, String> {
+    /// Relay queued voice data to every client.
+    fn flush_voice(&mut self) -> Result<usize, String> {
         use crate::utils::binary_protocol::BinaryProtocol;
 
         let mut total_sent = 0;
-
         while !self.pending_voice_data.is_empty() {
             let voice_data_len = self.pending_voice_data[0].len();
             let encoded = BinaryProtocol::encode_voice_data(&self.pending_voice_data[0]);
-
-            if !self.check_bandwidth_available(encoded.len()) {
-                debug!(
-                    "Bandwidth limit reached, deferring {} voice messages",
-                    self.pending_voice_data.len()
-                );
-                break;
-            }
 
             let broadcast_result = {
                 let manager = match handle_rwlock_error(self.client_manager.read()) {
@@ -839,60 +767,14 @@ impl ClientCoordinatorActor {
                 manager.broadcast_to_all(encoded.clone())
             };
             self.settle_broadcast_result(&broadcast_result, "voice broadcast");
-            self.record_bytes_sent(encoded.len());
+            self.bytes_sent += encoded.len() as u64;
             total_sent += broadcast_result.sent;
 
             self.voice_data_queued_bytes -= voice_data_len;
             self.pending_voice_data.remove(0);
 
-            debug!(
-                "Sent voice data: {} bytes to {} clients",
-                encoded.len(),
-                broadcast_result.sent
-            );
+            debug!("Sent voice data: {} bytes to {} clients", encoded.len(), broadcast_result.sent);
         }
-
-        if !self.position_cache.is_empty() && self.should_broadcast() {
-            let position_data: Vec<BinaryNodeDataClient> = self.position_cache.values().copied().collect();
-
-            // Same wire path as the physics and force broadcasts: per-client filtered V5 with a
-            // monotonic sequence. This flush used to send the whole cache as bare V3 (no
-            // sequence, no per-client filter, no analytics), so clients saw 0x03 and 0x05 frames
-            // interleaved on one socket and could not order or drop-detect them.
-            let approx_bytes = 1 + 8 + 52 * position_data.len();
-            if self.check_bandwidth_available(approx_bytes) {
-                self.broadcast_sequence += 1;
-                let sequence = self.broadcast_sequence;
-                let analytics_guard = self.node_analytics.read().ok();
-                let analytics_ref = analytics_guard.as_deref();
-                let broadcast_result = {
-                    let manager = match handle_rwlock_error(self.client_manager.read()) {
-                        Ok(manager) => manager,
-                        Err(e) => {
-                            error!("RwLock error: {}", e);
-                            return Err(format!("Failed to acquire client manager lock: {}", e));
-                        }
-                    };
-                    manager.broadcast_with_filter(&position_data, &self.node_type_arrays, sequence, analytics_ref)
-                };
-                drop(analytics_guard);
-                self.settle_broadcast_result(&broadcast_result, "position cache");
-                self.record_bytes_sent(approx_bytes);
-                self.broadcast_count += 1;
-                self.last_broadcast = Instant::now();
-                total_sent += broadcast_result.sent;
-
-                debug!(
-                    "Sent graph update: {} nodes (seq {}) to {} clients",
-                    position_data.len(),
-                    sequence,
-                    broadcast_result.sent
-                );
-            } else {
-                debug!("Bandwidth limit reached, deferring graph update");
-            }
-        }
-
         Ok(total_sent)
     }
 
@@ -901,131 +783,6 @@ impl ClientCoordinatorActor {
         debug!("Graph service address set in client coordinator");
     }
 
-    pub fn update_broadcast_interval(&mut self, is_stable: bool) {
-        let new_interval = if is_stable {
-            self.stable_broadcast_interval
-        } else {
-            self.active_broadcast_interval
-        };
-
-        if new_interval != self.broadcast_interval {
-            self.broadcast_interval = new_interval;
-            debug!(
-                "Broadcast interval updated: {}ms (stable: {})",
-                new_interval.as_millis(),
-                is_stable
-            );
-        }
-    }
-
-    pub fn should_broadcast(&self) -> bool {
-        self.last_broadcast.elapsed() >= self.broadcast_interval
-    }
-
-    pub fn force_broadcast(&mut self, reason: &str) -> bool {
-        info!("Force broadcasting positions: {}", reason);
-        self.force_broadcast_requests += 1;
-
-        let client_count = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return false;
-                }
-            };
-            manager.get_client_count()
-        };
-
-        if client_count == 0 {
-            debug!("No clients connected for force broadcast");
-            return false;
-        }
-
-        let mut position_data = Vec::new();
-        for node_data in self.position_cache.values() {
-            position_data.push(*node_data);
-        }
-
-        if position_data.is_empty() {
-            warn!(
-                "Force broadcast requested but no position data available (reason: {})",
-                reason
-            );
-            return false;
-        }
-
-        // Increment sequence BEFORE broadcast so it's embedded in the wire frame
-        self.broadcast_sequence += 1;
-        let current_sequence = self.broadcast_sequence;
-
-        // Read analytics data for embedding in binary protocol
-        let analytics_guard = self.node_analytics.read().ok();
-        let analytics_ref = analytics_guard.as_deref();
-
-        // Use per-client filtered broadcast for consistency with BroadcastPositions
-        let result = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return false;
-                }
-            };
-            manager.broadcast_with_filter(
-                &position_data,
-                &self.node_type_arrays,
-                current_sequence,
-                analytics_ref,
-            )
-        };
-        let broadcast_count = result.sent;
-        self.settle_broadcast_result(&result, "force broadcast");
-
-        // Approximate byte size (V5 protocol: 48 bytes per node + 1 header + 8 sequence)
-        let approx_bytes = 1 + 8 + position_data.len() * 48;
-
-        self.broadcast_count += 1;
-        self.bytes_sent += approx_bytes as u64;
-        self.last_broadcast = Instant::now();
-        self.initial_positions_sent = true;
-
-        // NOTE: No immediate PositionBroadcastAck here — that was a false ack
-        // (queue-enqueue, not client receipt). Real acks come from ClientBroadcastAck
-        // handler when clients confirm receipt, providing true end-to-end backpressure.
-
-        if let Some(logger) = get_telemetry_logger() {
-            let correlation_id = CorrelationId::new();
-            logger.log_event(
-                crate::telemetry::agent_telemetry::TelemetryEvent::new(
-                    correlation_id,
-                    crate::telemetry::agent_telemetry::LogLevel::INFO,
-                    "client_coordinator",
-                    "force_broadcast",
-                    &format!(
-                        "Force broadcast: {} nodes to {} clients (reason: {})",
-                        position_data.len(),
-                        broadcast_count,
-                        reason
-                    ),
-                    "client_coordinator_actor",
-                )
-                .with_metadata("bytes_sent", serde_json::json!(approx_bytes))
-                .with_metadata("client_count", serde_json::json!(broadcast_count))
-                .with_metadata("reason", serde_json::json!(reason)),
-            );
-        }
-
-        info!(
-            "Force broadcast complete: {} nodes sent to {} clients (reason: {})",
-            position_data.len(),
-            broadcast_count,
-            reason
-        );
-        true
-    }
-
-    /// Update cached node type arrays from GraphStateActor
     pub fn update_node_type_arrays(&mut self, arrays: crate::actors::messages::NodeTypeArrays) {
         info!(
             "Node type arrays updated: knowledge={}, agent={}, owl_class={}, owl_individual={}, owl_property={}",
@@ -1045,120 +802,40 @@ impl ClientCoordinatorActor {
         );
     }
 
-    pub fn broadcast_positions(&mut self, is_stable: bool) -> Result<usize, String> {
-        self.update_broadcast_interval(is_stable);
-
-        let client_count = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e));
-                }
-            };
-            manager.get_client_count()
-        };
-
-        if client_count == 0 {
-            return Ok(0);
+    /// Send each client its next chunk where one is due (ADR-2141): called when new positions
+    /// arrive, after an acknowledgement (for that client) and from the safety timer.
+    fn pump(&mut self, only: Option<usize>) {
+        if self.position_cache.is_empty() {
+            return;
         }
-
-        let force_broadcast = !self.initial_positions_sent;
-
-        if !force_broadcast && !self.should_broadcast() {
-            return Ok(0);
-        }
-
-        let mut position_data = Vec::new();
-        for node_data in self.position_cache.values() {
-            position_data.push(*node_data);
-        }
-
-        if position_data.is_empty() {
-            return Err("No position data available for broadcast".to_string());
-        }
-
-        // Increment sequence BEFORE broadcast so it's embedded in the wire frame
-        self.broadcast_sequence += 1;
-        let current_sequence = self.broadcast_sequence;
-
-        // Read analytics data for embedding in binary protocol
         let analytics_guard = self.node_analytics.read().ok();
         let analytics_ref = analytics_guard.as_deref();
-
-        // Use per-client filtered broadcast for consistency with BroadcastPositions
+        let cx = PumpContext {
+            cache: &self.position_cache,
+            nta: &self.node_type_arrays,
+            settings: &self.stream_settings,
+            analytics: analytics_ref,
+            now: Instant::now(),
+        };
+        let mut seq = self.broadcast_sequence;
         let result = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
+            let mut manager = match handle_rwlock_error(self.client_manager.write()) {
                 Ok(manager) => manager,
                 Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e));
+                    error!("RwLock error while pumping positions: {}", e);
+                    return;
                 }
             };
-            manager.broadcast_with_filter(
-                &position_data,
-                &self.node_type_arrays,
-                current_sequence,
-                analytics_ref,
-            )
-        };
-        let broadcast_count = result.sent;
-        self.settle_broadcast_result(&result, "position broadcast");
-
-        // Approximate byte size (V5 protocol: 48 bytes per node + 1 header + 8 sequence)
-        let approx_bytes = 1 + 8 + position_data.len() * 48;
-
-        self.broadcast_count += 1;
-        self.bytes_sent += approx_bytes as u64;
-        self.last_broadcast = Instant::now();
-
-        // NOTE: No immediate PositionBroadcastAck here — that was a false ack
-        // (queue-enqueue, not client receipt). Real acks come from ClientBroadcastAck
-        // handler when clients confirm receipt, providing true end-to-end backpressure.
-
-        if force_broadcast {
-            self.initial_positions_sent = true;
-            info!(
-                "Sent initial positions to clients ({} nodes to {} clients)",
-                position_data.len(),
-                broadcast_count
-            );
-        }
-
-        if crate::utils::logging::is_debug_enabled() && !force_broadcast {
-            debug!(
-                "Broadcast positions: {} nodes to {} clients, stable: {}",
-                position_data.len(),
-                broadcast_count,
-                is_stable
-            );
-        }
-
-        if force_broadcast || position_data.len() > 100 {
-            if let Some(logger) = get_telemetry_logger() {
-                let correlation_id = CorrelationId::new();
-                logger.log_event(
-                    crate::telemetry::agent_telemetry::TelemetryEvent::new(
-                        correlation_id,
-                        crate::telemetry::agent_telemetry::LogLevel::DEBUG,
-                        "client_coordinator",
-                        "position_broadcast",
-                        &format!(
-                            "Broadcast: {} nodes to {} clients",
-                            position_data.len(),
-                            broadcast_count
-                        ),
-                        "client_coordinator_actor",
-                    )
-                    .with_metadata("bytes_sent", serde_json::json!(approx_bytes))
-                    .with_metadata("client_count", serde_json::json!(broadcast_count))
-                    .with_metadata("is_initial", serde_json::json!(force_broadcast))
-                    .with_metadata("is_stable", serde_json::json!(is_stable)),
-                );
+            match only {
+                Some(id) => manager.pump_client(id, &cx, &mut seq),
+                None => manager.pump_all(&cx, &mut seq),
             }
-        }
-
-        Ok(broadcast_count)
+        };
+        drop(analytics_guard);
+        self.broadcast_sequence = seq;
+        self.broadcast_count += result.sent as u64;
+        self.bytes_sent += result.bytes as u64;
+        self.settle_broadcast_result(&result, "position stream");
     }
 
     fn generate_initial_position(&self, client_id: usize) -> Position3D {
@@ -1207,30 +884,21 @@ impl ClientCoordinatorActor {
     }
 
     pub fn get_stats(&self) -> ClientCoordinatorStats {
-        let manager = match handle_rwlock_error(self.client_manager.read()) {
-            Ok(manager) => manager,
+        let (active_clients, clients_in_flight) = match handle_rwlock_error(self.client_manager.read()) {
+            Ok(m) => (m.get_client_count(), m.clients.values().filter(|c| c.stream.has_in_flight()).count()),
             Err(e) => {
                 error!("RwLock error: {}", e);
-                return ClientCoordinatorStats {
-                    active_clients: 0,
-                    total_broadcasts: self.broadcast_count,
-                    bytes_sent: self.bytes_sent,
-                    force_broadcasts: self.force_broadcast_requests,
-                    position_cache_size: self.position_cache.len(),
-                    initial_positions_sent: self.initial_positions_sent,
-                    current_broadcast_interval: self.broadcast_interval,
-                    connection_stats: self.connection_stats.clone(),
-                };
+                (0, 0)
             }
         };
         ClientCoordinatorStats {
-            active_clients: manager.get_client_count(),
-            total_broadcasts: self.broadcast_count,
+            active_clients,
+            chunks_sent: self.broadcast_count,
             bytes_sent: self.bytes_sent,
-            force_broadcasts: self.force_broadcast_requests,
             position_cache_size: self.position_cache.len(),
-            initial_positions_sent: self.initial_positions_sent,
-            current_broadcast_interval: self.broadcast_interval,
+            clients_in_flight,
+            stream_chunk_nodes: self.stream_settings.chunk_nodes,
+            stream_ack_timeout_ms: self.stream_settings.ack_timeout.as_millis() as u64,
             connection_stats: self.connection_stats.clone(),
         }
     }
@@ -1245,12 +913,14 @@ impl Default for ClientCoordinatorActor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCoordinatorStats {
     pub active_clients: usize,
-    pub total_broadcasts: u64,
+    /// Position chunks delivered to client mailboxes.
+    pub chunks_sent: u64,
     pub bytes_sent: u64,
-    pub force_broadcasts: u32,
     pub position_cache_size: usize,
-    pub initial_positions_sent: bool,
-    pub current_broadcast_interval: Duration,
+    /// Clients with a chunk sent and not yet acknowledged.
+    pub clients_in_flight: usize,
+    pub stream_chunk_nodes: usize,
+    pub stream_ack_timeout_ms: u64,
     pub connection_stats: ConnectionStats,
 }
 
@@ -1266,6 +936,28 @@ impl Actor for ClientCoordinatorActor {
             if let Ok(mut manager) = act.client_manager.write() {
                 manager.evict_stalled(Instant::now());
             }
+        });
+
+        // The stored stream settings (the saved physics row) apply from the first client on; the
+        // physics PUT keeps them current afterwards.
+        if let Some(repo) = self.settings_repository.clone() {
+            let me = ctx.address();
+            actix::spawn(async move {
+                if let Some(p) = crate::actors::gpu::physics_restore::load_saved_physics(repo.as_ref()).await {
+                    me.do_send(ConfigureStream {
+                        chunk_nodes: p.stream_chunk_nodes,
+                        move_threshold: p.stream_move_threshold,
+                        ack_timeout_ms: p.stream_ack_timeout_ms,
+                    });
+                }
+            });
+        }
+
+        // Position stream safety net (ADR-2141). New positions and acknowledgements drive the
+        // stream; this tick covers what neither does: a chunk that timed out unacknowledged, and
+        // a client whose visible set just changed (filter recomputed, authenticated).
+        ctx.run_interval(Duration::from_millis(50), |act, _ctx| {
+            act.pump(None);
         });
 
         // ADR-031 gap 3b: Periodic cleanup of stale disconnected client buffers (every 60s).
@@ -1285,16 +977,12 @@ impl Actor for ClientCoordinatorActor {
                     "client_coordinator_actor",
                 )
                 .with_metadata(
-                    "broadcast_interval_ms",
-                    serde_json::json!(self.broadcast_interval.as_millis()),
+                    "stream_chunk_nodes",
+                    serde_json::json!(self.stream_settings.chunk_nodes),
                 )
                 .with_metadata(
-                    "stable_interval_ms",
-                    serde_json::json!(self.stable_broadcast_interval.as_millis()),
-                )
-                .with_metadata(
-                    "active_interval_ms",
-                    serde_json::json!(self.active_broadcast_interval.as_millis()),
+                    "stream_ack_timeout_ms",
+                    serde_json::json!(self.stream_settings.ack_timeout.as_millis()),
                 ),
             );
         }
@@ -1303,8 +991,8 @@ impl Actor for ClientCoordinatorActor {
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         let stats = self.get_stats();
         info!(
-            "ClientCoordinatorActor stopped - {} clients, {} broadcasts, {} bytes sent",
-            stats.active_clients, stats.total_broadcasts, stats.bytes_sent
+            "ClientCoordinatorActor stopped - {} clients, {} chunks, {} bytes sent",
+            stats.active_clients, stats.chunks_sent, stats.bytes_sent
         );
 
         if let Some(logger) = get_telemetry_logger() {
@@ -1372,11 +1060,9 @@ impl Handler<RegisterClient> for ClientCoordinatorActor {
             );
         }
 
-        if !self.position_cache.is_empty() {
-            self.force_broadcast(&format!("new_client_{}", client_id));
-        } else {
-            debug!("No position data available for new client {} - broadcast will occur when data is available", client_id);
-        }
+        // A new client has acknowledged nothing, so every node it may see is a candidate: the
+        // stream delivers its initial sync, in chunks, through the same path as everything else.
+        self.pump(Some(client_id));
 
         // ADR-031 gap 3b: Replay buffered messages to reconnected client.
         // If this client_id was previously tracked in the disconnected queue
@@ -1488,70 +1174,6 @@ impl Handler<UnregisterClient> for ClientCoordinatorActor {
     }
 }
 
-impl Handler<BroadcastNodePositions> for ClientCoordinatorActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: BroadcastNodePositions, _ctx: &mut Self::Context) -> Self::Result {
-        // ADR-031 gap 3b: buffer to disconnected clients for reconnect replay.
-        self.buffer_to_disconnected(&msg.positions);
-
-        let broadcast_result = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e));
-                }
-            };
-            manager.broadcast_to_all(msg.positions.clone())
-        };
-        self.settle_broadcast_result(&broadcast_result, "node positions");
-        let client_count = broadcast_result.sent;
-
-        if client_count > 0 {
-            self.broadcast_count += 1;
-            self.bytes_sent += msg.positions.len() as u64;
-            self.last_broadcast = Instant::now();
-
-            debug!(
-                "Broadcasted {} bytes to {} clients",
-                msg.positions.len(),
-                client_count
-            );
-
-            if msg.positions.len() > 1000 || client_count > 10 {
-                info!(
-                    "Large broadcast: {} bytes to {} clients",
-                    msg.positions.len(),
-                    client_count
-                );
-
-                if let Some(logger) = get_telemetry_logger() {
-                    let correlation_id = CorrelationId::new();
-                    logger.log_event(
-                        crate::telemetry::agent_telemetry::TelemetryEvent::new(
-                            correlation_id,
-                            crate::telemetry::agent_telemetry::LogLevel::INFO,
-                            "client_coordinator",
-                            "large_broadcast",
-                            &format!(
-                                "Large broadcast: {} bytes to {} clients",
-                                msg.positions.len(),
-                                client_count
-                            ),
-                            "client_coordinator_actor",
-                        )
-                        .with_metadata("bytes_sent", serde_json::json!(msg.positions.len()))
-                        .with_metadata("client_count", serde_json::json!(client_count)),
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
 /// Handler for `BroadcastAgentActionFrame` (ADR-059 §4, Phase 2b).
 ///
 /// Fans out a pre-encoded `0x23 AGENT_ACTION` wire frame to every connected
@@ -1583,63 +1205,9 @@ impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
         if client_count > 0 {
             self.broadcast_count += 1;
             self.bytes_sent += frame_len as u64;
-            self.last_broadcast = Instant::now();
             debug!(
                 "Broadcasted agent-action frame ({} bytes) to {} clients",
                 frame_len, client_count
-            );
-        }
-    }
-}
-
-/// Handler for BroadcastPositions - modern position broadcasting with backpressure ack
-impl Handler<BroadcastPositions> for ClientCoordinatorActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: BroadcastPositions, _ctx: &mut Self::Context) -> Self::Result {
-        // Increment sequence BEFORE broadcast so it's embedded in the wire frame
-        self.broadcast_sequence += 1;
-        let current_sequence = self.broadcast_sequence;
-
-        // Read analytics data for embedding in binary protocol
-        let analytics_guard = self.node_analytics.read().ok();
-        let analytics_ref = analytics_guard.as_deref();
-
-        let result = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error in BroadcastPositions: {}", e);
-                    return;
-                }
-            };
-            manager.broadcast_with_filter(
-                &msg.positions,
-                &self.node_type_arrays,
-                current_sequence,
-                analytics_ref,
-            )
-        };
-        let client_count = result.sent;
-        self.settle_broadcast_result(&result, "BroadcastPositions");
-
-        if client_count > 0 {
-            self.broadcast_count += 1;
-            // Approximate byte size (V5 protocol: 48 bytes per node + 1 header + 8 sequence)
-            let approx_bytes = 1 + 8 + msg.positions.len() * 48;
-            self.bytes_sent += approx_bytes as u64;
-            self.last_broadcast = Instant::now();
-
-            // NOTE: No immediate PositionBroadcastAck here — that was a false ack
-            // (queue-enqueue, not client receipt). Real acks come from ClientBroadcastAck
-            // handler when clients confirm receipt, providing true end-to-end backpressure.
-
-            debug!(
-                "Broadcasted {} node positions to {} clients (~{} bytes), seq: {}",
-                msg.positions.len(),
-                client_count,
-                approx_bytes,
-                self.broadcast_sequence
             );
         }
     }
@@ -1697,120 +1265,33 @@ impl Handler<GetClientCount> for ClientCoordinatorActor {
     }
 }
 
-impl Handler<ForcePositionBroadcast> for ClientCoordinatorActor {
-    type Result = Result<(), String>;
+/// New display positions from the physics (one full set per step, every entitled node). They
+/// replace the cache; each client then gets its own next chunk where one is due (ADR-2141).
+impl Handler<PublishPositions> for ClientCoordinatorActor {
+    type Result = ();
 
-    fn handle(&mut self, msg: ForcePositionBroadcast, _ctx: &mut Self::Context) -> Self::Result {
-        if self.force_broadcast(&msg.reason) {
-            Ok(())
-        } else {
-            let error_msg = format!("Force broadcast failed: {}", msg.reason);
-            warn!("{}", error_msg);
-            Err(error_msg)
-        }
+    fn handle(&mut self, msg: PublishPositions, _ctx: &mut Self::Context) -> Self::Result {
+        self.update_position_cache(msg.positions.into_iter().map(|p| (p.node_id, p)).collect());
+        self.pump(None);
     }
 }
 
-impl Handler<InitialClientSync> for ClientCoordinatorActor {
-    type Result = Result<(), String>;
+/// Stored stream settings changed (`physics.streamChunkNodes` / `streamMoveThreshold` /
+/// `streamAckTimeoutMs`): applied to every client's next chunk.
+impl Handler<ConfigureStream> for ClientCoordinatorActor {
+    type Result = ();
 
-    fn handle(&mut self, msg: InitialClientSync, _ctx: &mut Self::Context) -> Self::Result {
-        info!(
-            "Initial client sync requested by {} from {}",
-            msg.client_identifier, msg.trigger_source
-        );
-
-        let broadcast_reason = format!(
-            "initial_sync_{}_{}",
-            msg.client_identifier, msg.trigger_source
-        );
-
-        if self.force_broadcast(&broadcast_reason) {
-            if let Ok(client_id) = msg.client_identifier.parse::<usize>() {
-                let mut manager = match handle_rwlock_error(self.client_manager.write()) {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        error!("RwLock error: {}", e);
-                        return Err(format!("Failed to acquire client manager lock: {}", e));
-                    }
-                };
-                manager.mark_client_synced(client_id);
-            }
-
-            info!(
-                "Initial sync broadcast complete for client {} from {}",
-                msg.client_identifier, msg.trigger_source
-            );
-            Ok(())
-        } else {
-            let error_msg = format!(
-                "Initial sync failed for client {} - no position data available",
-                msg.client_identifier
-            );
-            warn!("{}", error_msg);
-            Err(error_msg)
-        }
-    }
-}
-
-impl Handler<UpdateNodePositions> for ClientCoordinatorActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: UpdateNodePositions, _ctx: &mut Self::Context) -> Self::Result {
-        let mut client_positions = Vec::new();
-        for (node_id, node_data) in msg.positions {
-            let client_data = BinaryNodeDataClient {
-                node_id: node_data.node_id,
-                x: node_data.x,
-                y: node_data.y,
-                z: node_data.z,
-                vx: node_data.vx,
-                vy: node_data.vy,
-                vz: node_data.vz,
-            };
-            client_positions.push((node_id, client_data));
-        }
-
-        self.update_position_cache(client_positions);
-
-        let client_count = {
-            let manager = match handle_rwlock_error(self.client_manager.read()) {
-                Ok(manager) => manager,
-                Err(e) => {
-                    error!("RwLock error: {}", e);
-                    return Err(format!("Failed to acquire client manager lock: {}", e));
-                }
-            };
-            manager.get_client_count()
+    fn handle(&mut self, msg: ConfigureStream, _ctx: &mut Self::Context) -> Self::Result {
+        self.stream_settings = StreamSettings {
+            chunk_nodes: msg.chunk_nodes.max(1) as usize,
+            move_threshold: msg.move_threshold,
+            ack_timeout: Duration::from_millis(u64::from(msg.ack_timeout_ms)),
         };
-
-        if client_count > 0 {
-            let unsynced_clients = {
-                let manager = match handle_rwlock_error(self.client_manager.read()) {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        error!("RwLock error: {}", e);
-                        return Err(format!("Failed to acquire client manager lock: {}", e));
-                    }
-                };
-                manager.get_unsynced_clients()
-            };
-
-            let force_broadcast = !unsynced_clients.is_empty() || !self.initial_positions_sent;
-
-            if force_broadcast {
-                self.force_broadcast("position_update_with_unsynced_clients");
-            } else {
-                self.broadcast_positions(false)?;
-            }
-        }
-
-        debug!(
-            "Updated position cache with {} nodes for {} clients",
-            self.position_cache.len(),
-            client_count
+        info!(
+            "ClientCoordinator: stream settings chunk={} nodes, threshold={}, ack timeout={} ms",
+            self.stream_settings.chunk_nodes, self.stream_settings.move_threshold, msg.ack_timeout_ms
         );
-        Ok(())
+        self.pump(None);
     }
 }
 
@@ -1832,57 +1313,37 @@ impl Handler<UpdateNodeTypeArrays> for ClientCoordinatorActor {
     }
 }
 
-/// A supervisor restart replaced the ForceComputeActor: send acks to the new one.
-impl Handler<crate::actors::messages::ForceComputeActorReplaced> for ClientCoordinatorActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: crate::actors::messages::ForceComputeActorReplaced,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        info!("ClientCoordinatorActor: ForceComputeActor replaced — acks now go to the new actor");
-        self.gpu_compute_addr = Some(msg.addr);
-    }
-}
-
-/// Handler for SetGpuComputeAddress - enables backpressure acknowledgements
-impl Handler<SetGpuComputeAddress> for ClientCoordinatorActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetGpuComputeAddress, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_gpu_compute_addr(msg.addr);
-    }
-}
-
-/// Handler for ClientBroadcastAck - true end-to-end backpressure flow control
-/// Forwards client ACKs to GPU actor to replenish tokens based on actual client receipt
-/// This replaces queue-only ACKs with application-level acknowledgements
+/// A client acknowledged position chunk `sequence_id`: what that chunk carried is now what the
+/// client holds, and its next chunk (if anything moved) is built and sent at once.
 impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
     type Result = ();
 
     fn handle(&mut self, msg: ClientBroadcastAck, _ctx: &mut Self::Context) -> Self::Result {
-        // Forward the acknowledgement to GPU actor for backpressure token restoration
-        if let Some(ref gpu_addr) = self.gpu_compute_addr {
-            gpu_addr.do_send(PositionBroadcastAck {
-                correlation_id: msg.sequence_id,
-                clients_delivered: 1, // Each client ACK counts as 1 delivery
-            });
-
-            // Log at trace level to avoid spam (every 100th ACK at debug)
-            if msg.sequence_id.is_multiple_of(100) {
-                debug!(
-                    "ClientBroadcastAck: seq={}, nodes={}, client_timestamp={}ms, client_id={:?}",
-                    msg.sequence_id, msg.nodes_received, msg.timestamp, msg.client_id
-                );
+        let Some(client_id) = msg.client_id else {
+            debug!("ClientBroadcastAck without a client id (seq {}): ignored", msg.sequence_id);
+            return;
+        };
+        let acknowledged = match handle_rwlock_error(self.client_manager.write()) {
+            Ok(mut m) => m.acknowledge(client_id, msg.sequence_id),
+            Err(e) => {
+                error!("RwLock error: {}", e);
+                return;
             }
-        } else {
-            // GPU address not set, log warning once per 1000 ACKs
-            if msg.sequence_id.is_multiple_of(1000) {
-                warn!("ClientBroadcastAck: GPU compute address not set, cannot forward ACK");
+        };
+        match acknowledged {
+            Some(n) => {
+                if msg.sequence_id.is_multiple_of(200) {
+                    debug!("ack seq={} client={} nodes={} (client says {})", msg.sequence_id, client_id, n, msg.nodes_received);
+                }
+                self.pump(Some(client_id));
             }
+            None => trace_stale_ack(client_id, msg.sequence_id),
         }
     }
+}
+
+fn trace_stale_ack(client_id: usize, seq: u64) {
+    log::trace!("ack seq={} from client {} matches no chunk in flight (late or duplicate)", seq, client_id);
 }
 
 #[derive(Message)]
@@ -1913,7 +1374,7 @@ impl Handler<QueueVoiceData> for ClientCoordinatorActor {
     fn handle(&mut self, msg: QueueVoiceData, _ctx: &mut Self::Context) -> Self::Result {
         self.queue_voice_data(msg.audio);
 
-        match self.send_prioritized_broadcasts() {
+        match self.flush_voice() {
             Ok(count) => {
                 debug!("Voice data queued and {} broadcasts sent", count);
                 Ok(())
@@ -1926,20 +1387,6 @@ impl Handler<QueueVoiceData> for ClientCoordinatorActor {
                 Ok(())
             }
         }
-    }
-}
-
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct SetBandwidthLimit {
-    pub bytes_per_sec: usize,
-}
-
-impl Handler<SetBandwidthLimit> for ClientCoordinatorActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetBandwidthLimit, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_bandwidth_limit(msg.bytes_per_sec);
     }
 }
 
@@ -2284,12 +1731,44 @@ mod tests {
         BinaryNodeDataClient { node_id: id, x: id as f32, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0 }
     }
 
+    /// A cache of `n` nodes (ids 1..=n) and a pump context over it.
+    fn cache_of(n: u32) -> HashMap<u32, BinaryNodeDataClient> {
+        (1..=n).map(|i| (i, node(i))).collect()
+    }
+
+    fn stream(chunk: usize, thr: f32, timeout_ms: u64) -> StreamSettings {
+        StreamSettings { chunk_nodes: chunk, move_threshold: thr, ack_timeout: Duration::from_millis(timeout_ms) }
+    }
+
+    fn loaded() -> crate::actors::messages::NodeTypeArrays {
+        crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() }
+    }
+
+    fn pump_all_now(
+        m: &mut ClientManager,
+        cache: &HashMap<u32, BinaryNodeDataClient>,
+        nta: &crate::actors::messages::NodeTypeArrays,
+        set: &StreamSettings,
+        seq: &mut u64,
+    ) -> BroadcastResult {
+        m.pump_all(&PumpContext { cache, nta, settings: set, analytics: None, now: Instant::now() }, seq)
+    }
+
+    fn ids_of(f: &std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>, frame: usize) -> Vec<u32> {
+        frame_ids(&f.lock().unwrap()[frame])
+    }
+
+    /// The sequence number a V5 frame carries.
+    fn frame_seq(frame: &[u8]) -> u64 {
+        u64::from_le_bytes(frame[1..9].try_into().unwrap())
+    }
+
     /// The connect-time sync withholds private nodes from sessions that may not see them, but
-    /// the live broadcast used to send every node to every session (measured: an anonymous
+    /// the live stream used to send every node to every session (measured: an anonymous
     /// connection received all 9478 nodes in V5 frames after being sent 9470 on connect).
     /// Each session must receive exactly the nodes it is entitled to, in every frame.
     #[actix::test]
-    async fn live_broadcast_withholds_private_nodes_from_sessions_that_may_not_see_them() {
+    async fn the_stream_withholds_private_nodes_from_sessions_that_may_not_see_them() {
         use visionclaw_domain::utils::visibility_filter::NodeVisibility;
         let mut m = ClientManager::new();
         let (anon_r, anon_frames) = capture_client();
@@ -2307,13 +1786,14 @@ mod tests {
             private_nodes: vec![NodeVisibility::private_owned_by(5, "owner-key"), NodeVisibility::private_unowned(6)],
             ..Default::default()
         };
-        let positions: Vec<_> = (1..=8).map(node).collect();
-        m.broadcast_with_filter(&positions, &nta, 1, None);
+        let cache = cache_of(8);
+        let mut seq = 0;
+        pump_all_now(&mut m, &cache, &nta, &stream(100, 0.25, 500), &mut seq);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
 
         let ids = |f: &std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>| {
             let frames = f.lock().unwrap();
-            assert_eq!(frames.len(), 1, "exactly one frame per session");
+            assert_eq!(frames.len(), 1, "exactly one chunk per session");
             frame_ids(&frames[0])
         };
         assert_eq!(ids(&anon_frames), vec![1, 2, 3, 4, 7, 8], "anonymous: public only (fail closed)");
@@ -2321,31 +1801,31 @@ mod tests {
         assert_eq!(ids(&other_frames), vec![1, 2, 3, 4, 7, 8], "a different authenticated user sees public only");
     }
 
-    /// Fail closed: before any classification snapshot has arrived, the broadcast must not read
+    /// Fail closed: before any classification snapshot has arrived, the stream must not read
     /// "nothing is private" and send everything to everyone.
     #[actix::test]
-    async fn nothing_is_broadcast_until_the_visibility_policy_has_arrived() {
+    async fn nothing_is_streamed_until_the_visibility_policy_has_arrived() {
         let mut m = ClientManager::new();
         let (r, frames) = capture_client();
         let id = m.register_client(r);
         m.get_client_mut(id).unwrap().filter.enabled = false;
-        let positions: Vec<_> = (1..=4).map(node).collect();
+        let cache = cache_of(4);
+        let set = stream(100, 0.25, 500);
+        let mut seq = 0;
 
-        let before = m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays::default(), 1, None);
+        let before = pump_all_now(&mut m, &cache, &crate::actors::messages::NodeTypeArrays::default(), &set, &mut seq);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(before.sent, 0);
-        assert!(frames.lock().unwrap().is_empty(), "no frame before the policy is known");
+        assert!(frames.lock().unwrap().is_empty(), "no chunk before the policy is known");
 
-        let nta = crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() };
-        m.broadcast_with_filter(&positions, &nta, 2, None);
+        pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(frame_ids(&frames.lock().unwrap()[0]), vec![1, 2, 3, 4], "a loaded, empty policy means nothing is private");
     }
 
-    /// Nothing private in the graph: every session still gets the complete snapshot, and the
-    /// entitlement logic costs nothing (one shared payload).
+    /// Nothing private in the graph: every session gets every node (when the chunk is large enough).
     #[actix::test]
-    async fn with_no_private_nodes_every_session_gets_the_whole_snapshot() {
+    async fn with_no_private_nodes_every_session_gets_every_node() {
         let mut m = ClientManager::new();
         let (r1, f1) = capture_client();
         let (r2, f2) = capture_client();
@@ -2353,8 +1833,9 @@ mod tests {
         for id in [a, b] {
             m.get_client_mut(id).unwrap().filter.enabled = false;
         }
-        let positions: Vec<_> = (1..=5).map(node).collect();
-        m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() }, 9, None);
+        let cache = cache_of(5);
+        let mut seq = 0;
+        pump_all_now(&mut m, &cache, &loaded(), &stream(100, 0.25, 500), &mut seq);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         for f in [&f1, &f2] {
             assert_eq!(frame_ids(&f.lock().unwrap()[0]), vec![1, 2, 3, 4, 5]);
@@ -2414,28 +1895,23 @@ mod tests {
     /// snapshot is latest-wins, so the right response to `Full` is to skip
     /// that one frame for that client and keep it registered.
     #[actix::test]
-    async fn full_mailbox_skips_the_frame_and_keeps_the_client() {
+    async fn full_mailbox_skips_the_chunk_and_keeps_the_client() {
         let mut m = ClientManager::new();
         let (r, _addr, frames) = counter();
         let id = m.register_client(r);
         m.get_client_mut(id).unwrap().filter.enabled = false;
-        let positions = vec![BinaryNodeDataClient {
-            node_id: 1,
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-            vx: 0.0,
-            vy: 0.0,
-            vz: 0.0,
-        }];
-        let nta = crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() };
+        let cache = cache_of(1);
+        let nta = loaded();
+        let set = stream(100, 0.25, 500);
 
         // The receiver is not polled until we yield, so this fills its mailbox.
         let mut congested_seen = false;
-        for seq in 0..64u64 {
+        let mut seq = 0;
+        for _ in 0..64u64 {
             let to_all = m.broadcast_to_all(vec![0u8; 8]);
-            let filtered = m.broadcast_with_filter(&positions, &nta, seq, None);
-            for res in [&to_all, &filtered] {
+            // A chunk that could not be delivered is not "in flight": it is planned again.
+            let streamed = pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
+            for res in [&to_all, &streamed] {
                 assert!(
                     res.closed_clients.is_empty(),
                     "a congested client must not be marked for eviction"
@@ -2451,11 +1927,17 @@ mod tests {
         );
         assert!(m.get_client_mut(id).is_some(), "client stays registered");
 
-        // Once the receiver drains, broadcasts reach it again.
+        // Once the receiver drains, the stream reaches it again. (One chunk was delivered before
+        // the mailbox filled and was never acknowledged, so the client is still waiting on it: it
+        // is rebuilt after the ack timeout, here reached by advancing the clock.)
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         let before = frames.load(std::sync::atomic::Ordering::SeqCst);
-        let res = m.broadcast_with_filter(&positions, &nta, 99, None);
-        assert_eq!(res.sent, 1, "the recovered client receives the next frame");
+        let later = Instant::now() + Duration::from_secs(1);
+        let res = m.pump_all(
+            &PumpContext { cache: &cache, nta: &nta, settings: &set, analytics: None, now: later },
+            &mut seq,
+        );
+        assert_eq!(res.sent, 1, "the recovered client receives its chunk");
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(frames.load(std::sync::atomic::Ordering::SeqCst), before + 1);
     }
@@ -2630,17 +2112,86 @@ mod tests {
         assert_eq!(manager.get_client_count(), 0);
     }
 
-    #[test]
-    fn test_broadcast_timing() {
-        let mut actor = ClientCoordinatorActor::new();
+    /// The whole protocol on the manager: a client with a small chunk size is brought up to date in
+    /// chunks, each sent only after the previous one is acknowledged, every node exactly once;
+    /// then the stream is quiet until something moves.
+    #[actix::test]
+    async fn chunks_follow_acknowledgements_and_the_stream_goes_quiet_when_the_client_is_current() {
+        let mut m = ClientManager::new();
+        let (r, frames) = capture_client();
+        let id = m.register_client(r);
+        m.get_client_mut(id).unwrap().filter.enabled = false;
+        let mut cache = cache_of(8);
+        let (nta, set, mut seq) = (loaded(), stream(3, 0.25, 5000), 0u64);
 
-        // Immediately after creation, last_broadcast is set to now, so should NOT broadcast
-        assert!(!actor.should_broadcast());
+        let mut delivered = Vec::new();
+        for round in 0..3 {
+            pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
+            // Nothing more is sent while the chunk is unacknowledged.
+            let again = pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
+            assert_eq!(again.sent, 0, "round {round}: one chunk in flight at a time");
+            actix::clock::sleep(Duration::from_millis(10)).await;
+            let f = frames.lock().unwrap().last().unwrap().clone();
+            assert!(frame_ids(&f).len() <= 3);
+            delivered.extend(frame_ids(&f));
+            assert!(m.acknowledge(id, frame_seq(&f)).is_some());
+        }
+        delivered.sort_unstable();
+        assert_eq!(delivered, (1..=8).collect::<Vec<_>>(), "all eight, once each, in chunks of at most three");
 
-        // Set last_broadcast to the past (beyond broadcast_interval of 50ms)
-        actor.last_broadcast = Instant::now() - Duration::from_millis(100);
+        let quiet = pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
+        assert_eq!(quiet.sent, 0, "current client: nothing to send");
 
-        // Now should broadcast since elapsed > broadcast_interval
-        assert!(actor.should_broadcast());
+        cache.insert(5, BinaryNodeDataClient { x: 5.0 + 3.0, ..node(5) });
+        assert_eq!(pump_all_now(&mut m, &cache, &nta, &set, &mut seq).sent, 1, "a real move is sent");
+        actix::clock::sleep(Duration::from_millis(10)).await;
+        let n = frames.lock().unwrap().len();
+        assert_eq!(ids_of(&frames, n - 1), vec![5], "only the node that moved");
+    }
+
+    /// A client that never acknowledges (or a lost frame) is not abandoned: after the stored timeout
+    /// its chunk is rebuilt and sent again with a new sequence number.
+    #[actix::test]
+    async fn an_unacknowledged_chunk_is_rebuilt_and_resent_after_the_timeout() {
+        let mut m = ClientManager::new();
+        let (r, frames) = capture_client();
+        let id = m.register_client(r);
+        m.get_client_mut(id).unwrap().filter.enabled = false;
+        let cache = cache_of(4);
+        let (nta, set, mut seq) = (loaded(), stream(100, 0.25, 500), 0u64);
+        let t0 = Instant::now();
+
+        let cx = |now| PumpContext { cache: &cache, nta: &nta, settings: &set, analytics: None, now };
+        assert_eq!(m.pump_all(&cx(t0), &mut seq).sent, 1);
+        assert_eq!(m.pump_all(&cx(t0 + Duration::from_millis(100)), &mut seq).sent, 0, "still waiting");
+        assert_eq!(m.pump_all(&cx(t0 + Duration::from_millis(501)), &mut seq).sent, 1, "timed out: resent");
+        actix::clock::sleep(Duration::from_millis(10)).await;
+        let f = frames.lock().unwrap();
+        assert_eq!(f.len(), 2);
+        assert_eq!(frame_ids(&f[1]), frame_ids(&f[0]), "the same nodes");
+        assert!(frame_seq(&f[1]) > frame_seq(&f[0]), "a fresh, larger sequence number");
+        drop(f);
+        assert!(m.acknowledge(id, 1).is_none(), "the late ack for the superseded chunk changes nothing");
+        assert_eq!(m.acknowledge(id, 2), Some(4));
+    }
+
+    /// One client's acknowledgement never settles another client's chunk.
+    #[actix::test]
+    async fn acknowledgements_are_per_client() {
+        let mut m = ClientManager::new();
+        let ((r1, f1), (r2, f2)) = (capture_client(), capture_client());
+        let (a, b) = (m.register_client(r1), m.register_client(r2));
+        for id in [a, b] {
+            m.get_client_mut(id).unwrap().filter.enabled = false;
+        }
+        let cache = cache_of(3);
+        let (nta, set, mut seq) = (loaded(), stream(100, 0.25, 5000), 0u64);
+        pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
+        actix::clock::sleep(Duration::from_millis(10)).await;
+        let (sa, sb) = (frame_seq(&f1.lock().unwrap()[0]), frame_seq(&f2.lock().unwrap()[0]));
+        assert_ne!(sa, sb, "each chunk has its own sequence");
+        assert!(m.acknowledge(a, sb).is_none(), "client a cannot acknowledge client b's chunk");
+        assert_eq!(m.acknowledge(a, sa), Some(3));
+        assert_eq!(m.acknowledge(b, sb), Some(3));
     }
 }

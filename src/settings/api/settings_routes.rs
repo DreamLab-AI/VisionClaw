@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::actors::messages::{
-    BroadcastMessage, ConfigureBroadcastOptimization, ForceResumePhysics, GetSettings,
+    BroadcastMessage, ConfigureStream, ForceResumePhysics, GetSettings,
     ResetPositions, SetComputeMode, UpdateClusteringParams, UpdateConstraints, UpdateSettings,
     UpdateSimulationParams,
 };
@@ -94,8 +94,9 @@ fn normalize_physics_keys(
             "auto_balance" => "autoBalance",
             "cluster_strength" => "clusterStrength",
             "sssp_alpha" => "ssspAlpha",
-            "broadcast_fps" => "broadcastFps",
-            "interaction_broadcast_fps" => "interactionBroadcastFps",
+            "stream_chunk_nodes" => "streamChunkNodes",
+            "stream_move_threshold" => "streamMoveThreshold",
+            "stream_ack_timeout_ms" => "streamAckTimeoutMs",
             // Legacy/client aliases
             "springStrength" => "springK",
             "repulsionStrength" => "repelK",
@@ -267,17 +268,24 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
         &mut errors,
     );
     check_range(
-        settings.broadcast_fps as f32,
-        "broadcast_fps",
-        bounds::BROADCAST_FPS.0,
-        bounds::BROADCAST_FPS.1,
+        settings.stream_chunk_nodes as f32,
+        "stream_chunk_nodes",
+        bounds::STREAM_CHUNK_NODES.0,
+        bounds::STREAM_CHUNK_NODES.1,
         &mut errors,
     );
     check_range(
-        settings.interaction_broadcast_fps as f32,
-        "interaction_broadcast_fps",
-        bounds::BROADCAST_FPS.0,
-        bounds::BROADCAST_FPS.1,
+        settings.stream_move_threshold,
+        "stream_move_threshold",
+        bounds::STREAM_MOVE_THRESHOLD.0,
+        bounds::STREAM_MOVE_THRESHOLD.1,
+        &mut errors,
+    );
+    check_range(
+        settings.stream_ack_timeout_ms as f32,
+        "stream_ack_timeout_ms",
+        bounds::STREAM_ACK_TIMEOUT_MS.0,
+        bounds::STREAM_ACK_TIMEOUT_MS.1,
         &mut errors,
     );
 
@@ -458,11 +466,14 @@ fn broadcast_settings_change(state: &web::Data<AppState>, category: &str, update
 // Physics Settings Routes
 // ============================================================================
 
-/// The message that applies `physics.broadcast_fps` to the live
-/// ForceComputeActor. Rate only: spatial culling is not a settings field and
-/// is left as the actor has it.
-pub fn broadcast_rate_message(physics: &PhysicsSettings) -> ConfigureBroadcastOptimization {
-    ConfigureBroadcastOptimization::rates(physics.broadcast_fps, physics.interaction_broadcast_fps)
+/// The message that applies the stored stream settings to the live client coordinator
+/// (`physics.streamChunkNodes` / `streamMoveThreshold` / `streamAckTimeoutMs`).
+pub fn stream_settings_message(physics: &PhysicsSettings) -> ConfigureStream {
+    ConfigureStream {
+        chunk_nodes: physics.stream_chunk_nodes,
+        move_threshold: physics.stream_move_threshold,
+        ack_timeout_ms: physics.stream_ack_timeout_ms,
+    }
 }
 
 /// GET /api/settings/physics
@@ -618,19 +629,12 @@ pub async fn update_physics_settings(
                     resolution: new_physics.clustering_resolution,
                     iterations: new_physics.clustering_iterations,
                 });
-                // The broadcast rate is not a SimParams field either: it goes
-                // straight to the live broadcast optimiser (already validated).
-                match gpu_addr.send(broadcast_rate_message(&new_physics)).await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => warn!("broadcast rate not applied: {}", e),
-                    Err(e) => warn!("broadcast rate not delivered to ForceComputeActor: {}", e),
-                }
             } else {
-                warn!(
-                    "ForceComputeActor not available; broadcast rate {} Hz applies at its next boot push",
-                    new_physics.broadcast_fps
-                );
+                warn!("ForceComputeActor not available; clustering parameters apply at its next boot push");
             }
+            // The stream settings are not SimParams fields either: they go straight to the
+            // client coordinator that builds each client's chunks (already validated).
+            state.client_manager_addr.do_send(stream_settings_message(&new_physics));
 
             info!("Sending UpdateSimulationParams to GraphServiceSupervisor");
             if let Err(e) = state.graph_service_addr.send(update_msg).await {
@@ -1847,39 +1851,51 @@ mod tests {
         assert!(validate_for_gpu(&PhysicsSettings::default()).is_ok());
     }
 
-    fn with_rate(fps: u32) -> PhysicsSettings {
+    fn with_stream(chunk: u32, thr: f32, timeout: u32) -> PhysicsSettings {
         PhysicsSettings {
-            broadcast_fps: fps,
+            stream_chunk_nodes: chunk,
+            stream_move_threshold: thr,
+            stream_ack_timeout_ms: timeout,
             ..PhysicsSettings::default()
         }
     }
 
-    /// `broadcastFps` is validated against the shared 1-60 Hz bound.
+    /// The stream settings are validated against the shared bounds, with the field named.
     #[test]
-    fn broadcast_fps_is_validated_1_to_60() {
-        assert!(validate_physics_settings(&with_rate(8)).is_ok());
-        assert!(validate_physics_settings(&with_rate(1)).is_ok());
-        assert!(validate_physics_settings(&with_rate(60)).is_ok());
-        for bad in [0, 61, 1000] {
-            let err = validate_physics_settings(&with_rate(bad)).unwrap_err();
-            assert!(err.contains("broadcast_fps"), "{err}");
+    fn stream_settings_are_validated_against_the_shared_bounds() {
+        assert!(validate_physics_settings(&with_stream(2500, 0.25, 500)).is_ok());
+        assert!(validate_physics_settings(&with_stream(100, 0.0, 20)).is_ok());
+        assert!(validate_physics_settings(&with_stream(20000, 100.0, 10000)).is_ok());
+        for (c, t, to, field) in [
+            (99, 0.25, 500, "stream_chunk_nodes"),
+            (20001, 0.25, 500, "stream_chunk_nodes"),
+            (2500, -0.5, 500, "stream_move_threshold"),
+            (2500, 100.5, 500, "stream_move_threshold"),
+            (2500, 0.25, 5, "stream_ack_timeout_ms"),
+            (2500, 0.25, 20000, "stream_ack_timeout_ms"),
+        ] {
+            let err = validate_physics_settings(&with_stream(c, t, to)).unwrap_err();
+            assert!(err.contains(field), "{err}");
         }
     }
 
-    /// The snake_case alias is normalised like the other physics keys.
+    /// The snake_case spellings are normalised like the other physics keys.
     #[test]
-    fn broadcast_fps_snake_case_alias_is_normalised() {
+    fn stream_setting_snake_case_aliases_are_normalised() {
         let mut patch = serde_json::Map::new();
-        patch.insert("broadcast_fps".into(), serde_json::json!(12));
+        patch.insert("stream_chunk_nodes".into(), serde_json::json!(800));
+        patch.insert("stream_move_threshold".into(), serde_json::json!(0.5));
+        patch.insert("stream_ack_timeout_ms".into(), serde_json::json!(250));
         let n = normalize_physics_keys(patch);
-        assert_eq!(n.get("broadcastFps"), Some(&serde_json::json!(12)));
+        assert_eq!(n.get("streamChunkNodes"), Some(&serde_json::json!(800)));
+        assert_eq!(n.get("streamMoveThreshold"), Some(&serde_json::json!(0.5)));
+        assert_eq!(n.get("streamAckTimeoutMs"), Some(&serde_json::json!(250)));
     }
 
-    /// A physics PUT is turned into exactly the message the live
-    /// ForceComputeActor applies: the rate only, culling left as it is.
+    /// A physics PUT is turned into exactly the message the client coordinator applies.
     #[test]
-    fn physics_settings_map_to_a_rate_only_broadcast_message() {
-        let msg = broadcast_rate_message(&with_rate(12));
-        assert_eq!(msg.target_fps, Some(12));
+    fn physics_settings_map_to_the_stream_message() {
+        let msg = stream_settings_message(&with_stream(800, 0.5, 250));
+        assert_eq!((msg.chunk_nodes, msg.move_threshold, msg.ack_timeout_ms), (800, 0.5, 250));
     }
 }

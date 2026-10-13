@@ -431,7 +431,6 @@ pub struct GraphServiceSupervisor {
     // Whether the orchestrator / client coordinator are subscribed to
     // ForceComputeActorReplaced (restart re-wiring).
     fc_subscribed_physics: bool,
-    fc_subscribed_client: bool,
 
     // AppState's gpu_compute_addr — kept in sync when ForceComputeActor is respawned
     app_gpu_compute_addr:
@@ -517,7 +516,6 @@ impl GraphServiceSupervisor {
             client: None,
             gpu_manager: None,
             fc_subscribed_physics: false,
-            fc_subscribed_client: false,
             app_gpu_compute_addr: None,
             kg_repo: Some(kg_repo),
             strategy: GraphSupervisionStrategy::OneForOne,
@@ -587,9 +585,8 @@ impl GraphServiceSupervisor {
         supervisor
     }
 
-    /// Subscribe the physics orchestrator and the client coordinator to
-    /// ForceComputeActor replacements, so a supervisor restart re-sends the
-    /// graph to the new actor and re-targets client acks at once.
+    /// Subscribe the physics orchestrator to ForceComputeActor replacements, so a
+    /// supervisor restart re-sends the graph to the new actor at once.
     fn wire_force_compute_subscribers(&mut self) {
         let Some(gpu_manager) = self.gpu_manager.clone() else {
             return;
@@ -600,25 +597,40 @@ impl GraphServiceSupervisor {
             });
             self.fc_subscribed_physics = true;
         }
-        if let (false, Some(client)) = (self.fc_subscribed_client, &self.client) {
-            gpu_manager.do_send(msgs::SubscribeForceComputeReplaced {
-                recipient: client.clone().recipient(),
+    }
+
+    /// Fan one step's positions out: to the graph state (REST polling) and to the client
+    /// coordinator (the per-client stream).
+    fn publish_positions(&self, msg: msgs::UpdateNodePositions) {
+        use crate::utils::socket_flow_messages::BinaryNodeDataClient;
+        if let Some(ref client) = self.client {
+            client.do_send(msgs::PublishPositions {
+                positions: msg
+                    .positions
+                    .iter()
+                    .map(|(id, d)| BinaryNodeDataClient {
+                        node_id: *id,
+                        x: d.x,
+                        y: d.y,
+                        z: d.z,
+                        vx: d.vx,
+                        vy: d.vy,
+                        vz: d.vz,
+                    })
+                    .collect(),
             });
-            self.fc_subscribed_client = true;
+        }
+        if let Some(ref graph_state_addr) = self.graph_state {
+            graph_state_addr.do_send(msg);
         }
     }
 
-    /// Wire physics and client coordinator together for position broadcasting
+    /// Deliver the graph's node classification to the client coordinator (class-flag bits and the
+    /// visibility policy that gates every position chunk).
     fn wire_physics_and_client(&mut self) {
         actix::spawn(push_node_type_arrays(self.graph_state.clone(), self.client.clone()));
-        if let (Some(ref physics_addr), Some(ref client_addr)) = (&self.physics, &self.client) {
-            use crate::actors::SetClientCoordinator;
-            physics_addr.do_send(SetClientCoordinator {
-                addr: client_addr.clone(),
-            });
-            info!("Wired PhysicsOrchestrator and ClientCoordinator for position broadcasting");
-        }
     }
+
 
     fn initialize_actors(&mut self, ctx: &mut Context<Self>) {
         info!("Initializing supervised actors");
@@ -752,7 +764,6 @@ impl GraphServiceSupervisor {
             ActorType::ClientCoordinator => {
                 let actor = ClientCoordinatorActor::new().start();
                 self.client = Some(actor);
-                self.fc_subscribed_client = false;
             }
         }
 
@@ -923,12 +934,8 @@ impl GraphServiceSupervisor {
                         }
                     }
                     BufferedMessage::UpdateNodePositions(msg) => {
-                        if let Some(ref addr) = self.physics {
-                            addr.do_send(msg);
-                            true
-                        } else {
-                            false
-                        }
+                        self.publish_positions(msg);
+                        true
                     }
                     // Client operations → ClientCoordinatorActor
                     BufferedMessage::BroadcastMessage(msg) => {
@@ -1049,15 +1056,8 @@ impl GraphServiceSupervisor {
                 }
             }
             SupervisorMessage::UpdateNodePositions(msg) => {
-                if let Some(ref addr) = self.physics {
-                    debug!("Forwarding UpdateNodePositions to PhysicsOrchestratorActor");
-                    addr.do_send(msg);
-                    Ok(())
-                } else {
-                    Err(VisionClawError::Actor(ActorError::ActorNotAvailable(
-                        "Physics".to_string(),
-                    )))
-                }
+                self.publish_positions(msg);
+                Ok(())
             }
             // --- Client operations → ClientCoordinatorActor ---
             SupervisorMessage::BroadcastMessage(msg) => {
@@ -1327,17 +1327,10 @@ impl Actor for GraphServiceSupervisor {
                 let gpu_manager_clone = gpu_manager.clone();
                 let physics_clone = act.physics.clone();
                 let app_gpu_addr_clone = act.app_gpu_compute_addr.clone();
-                let client_clone = act.client.clone();
                 ctx.spawn(
                     async move {
                         match gpu_manager_clone.send(msgs::GetForceComputeActor).await {
                             Ok(Ok(force_compute_addr)) if force_compute_addr.connected() => {
-                                // Keep client backpressure acks on the live actor.
-                                if let Some(client) = client_clone {
-                                    client.do_send(msgs::SetGpuComputeAddress {
-                                        addr: force_compute_addr.clone(),
-                                    });
-                                }
                                 // Update PhysicsOrchestratorActor
                                 if let Some(physics) = physics_clone {
                                     physics.do_send(msgs::StoreGPUComputeAddress {
@@ -1570,7 +1563,6 @@ impl Handler<SetClientCoordinatorAddr> for GraphServiceSupervisor {
 
     fn handle(&mut self, msg: SetClientCoordinatorAddr, _ctx: &mut Self::Context) -> Self::Result {
         self.client = Some(msg.addr);
-        self.fc_subscribed_client = false;
         self.wire_physics_and_client();
         self.wire_force_compute_subscribers();
         info!("GraphServiceSupervisor: client coordinator rebound to application instance");
@@ -1912,7 +1904,6 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
             self.gpu_manager = Some(gpu_manager.clone());
             info!("GraphServiceSupervisor: GPU manager address stored");
             self.wire_force_compute_subscribers();
-            let client_addr = self.client.clone();
             let client_for_types = self.client.clone();
 
             // Get ForceComputeActor from GPUManagerActor and forward to PhysicsOrchestratorActor
@@ -1930,12 +1921,6 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
                         Ok(Ok(force_compute_addr)) => {
                             info!("GraphServiceSupervisor: Got ForceComputeActor address from GPUManagerActor");
 
-                            // Client backpressure acks go to this actor.
-                            if let Some(client) = client_addr {
-                                client.do_send(msgs::SetGpuComputeAddress {
-                                    addr: force_compute_addr.clone(),
-                                });
-                            }
                             // Forward to PhysicsOrchestratorActor
                             if let Some(physics) = physics_addr {
                                 physics.do_send(msgs::StoreGPUComputeAddress {
@@ -2047,36 +2032,18 @@ impl Handler<msgs::UpdateChainPayments> for GraphServiceSupervisor {
     }
 }
 
-/// Handler for UpdateNodePositions - delegates to PhysicsOrchestratorActor AND GraphStateActor.
-/// PhysicsOrchestratorActor forwards to ClientCoordinatorActor for WebSocket push (BroadcastPositions).
-/// GraphStateActor stores positions so the polling path (subscribe_position_updates → GetGraphData)
-/// returns GPU-computed layout instead of stale initial positions.
+/// Handler for UpdateNodePositions: the physics' full display-position set for this step. It
+/// goes to the GraphStateActor (so polling-based position delivery returns GPU positions) and,
+/// as one `PublishPositions`, to the client coordinator, which streams each client its next chunk
+/// (ADR-2141).
 impl Handler<msgs::UpdateNodePositions> for GraphServiceSupervisor {
     type Result = Result<(), String>;
 
     fn handle(&mut self, msg: msgs::UpdateNodePositions, _ctx: &mut Self::Context) -> Self::Result {
-        // Forward to GraphStateActor so polling-based position delivery returns GPU positions
-        if let Some(ref graph_state_addr) = self.graph_state {
-            graph_state_addr.do_send(msgs::UpdateNodePositions {
-                positions: msg.positions.clone(),
-                correlation_id: msg.correlation_id,
-            });
-        }
-
-        // Forward to PhysicsOrchestratorActor for WebSocket push broadcast
-        if let Some(ref physics_addr) = self.physics {
-            debug!(
-                "Forwarding UpdateNodePositions to PhysicsOrchestratorActor and GraphStateActor"
-            );
-            physics_addr.do_send(msg);
-            Ok(())
-        } else {
-            debug!("Cannot forward UpdateNodePositions: PhysicsOrchestratorActor not initialized");
-            Err("PhysicsOrchestratorActor not initialized".to_string())
-        }
+        self.publish_positions(msg);
+        Ok(())
     }
 }
-
 /// Forward NodeInteractionMessage to PhysicsOrchestratorActor for drag resume/pause handling.
 impl Handler<msgs::NodeInteractionMessage> for GraphServiceSupervisor {
     type Result = Result<(), crate::errors::VisionClawError>;

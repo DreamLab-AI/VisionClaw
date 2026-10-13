@@ -57,13 +57,3 @@ pub use memory_manager::{BufferConfig, BufferStats, GpuBuffer, GpuMemoryManager,
 
 // Semantic metadata derivation (the forces themselves run on the GPU from the central settings)
 pub use semantic_forces::SemanticForcesEngine;
-
-// Broadcast optimization module
-pub mod broadcast_optimizer;
-pub use broadcast_optimizer::{
-    BroadcastConfig, BroadcastOptimizer, BroadcastPerformanceStats,
-};
-
-// Network backpressure control module
-pub mod backpressure;
-pub use backpressure::{BackpressureConfig, BackpressureMetrics, NetworkBackpressure, TokenBucket};

@@ -3,7 +3,7 @@ use actix_web::web;
 use log::{debug, error, info, warn};
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use tokio::sync::RwLock;
@@ -571,15 +571,6 @@ impl AppState {
         > = std::sync::Arc::new(tokio::sync::Mutex::new(None));
         let graph_service_addr_clone_for_sync = graph_service_addr_ref.clone();
 
-        // Signals that the post-sync Oxigraph reload of GraphStateActor has been
-        // requested. The reload resets GraphStateActor positions to the stored
-        // layout, clobbering the dual-graph projection applied at boot. A
-        // dedicated task (below) waits on this flag and re-emits a projected
-        // ForceFullBroadcast so a fresh boot WITHOUT a connected client still
-        // serves separated/compressed positions on the REST polling path.
-        let sync_reloaded = Arc::new(AtomicBool::new(false));
-        let sync_reloaded_for_task = sync_reloaded.clone();
-
         let sync_handle = tokio::spawn(async move {
             info!("Background GitHub sync task spawned successfully");
             debug!("Task ID: {:?}", std::thread::current().id());
@@ -611,7 +602,6 @@ impl AppState {
                         info!("[GitHub Sync] Notifying GraphServiceActor to reload synced data...");
                         graph_addr.do_send(crate::actors::messages::ReloadGraphFromDatabase);
                         info!("[GitHub Sync] Reload notification sent to GraphServiceActor");
-                        sync_reloaded.store(true, Ordering::SeqCst);
                     } else {
                         info!("[GitHub Sync] Graph service not yet initialized - will load on startup");
                     }
@@ -1013,7 +1003,6 @@ impl AppState {
                 // then register deferred CQRS physics handlers.
                 let gpu_manager_clone = gpu_manager.clone();
                 let gpu_compute_addr_clone = gpu_compute_addr.clone();
-                let gpu_compute_addr_for_rebroadcast = gpu_compute_addr.clone();
                 // Persisted physics params must reach ForceComputeActor on boot.
                 // The actor initialises with default SimulationParams (axis_compression_z,
                 // enable_dual_disc_layout=false, adaptive_speed off); without this push the persisted
@@ -1025,36 +1014,6 @@ impl AppState {
                 gpu_manager.do_send(crate::actors::messages::SetPhysicsSettingsSource {
                     repo: sqlite_settings_repository.clone()
                         as Arc<dyn crate::ports::settings_repository::SettingsRepository>,
-                });
-
-                // Re-project after the post-sync Oxigraph reload. The reload resets
-                // GraphStateActor to the stored (un-separated) layout AFTER the boot
-                // projection broadcast; without this, a fresh boot with no connected
-                // client serves un-separated positions on the REST polling path until
-                // a client PUTs settings. The GPU still holds the converged+projected
-                // state, so a ForceFullBroadcast re-emits projected UpdateNodePositions
-                // and re-syncs GraphStateActor.
-                actix::spawn(async move {
-                    // Wait for the sync task to request the reload (bounded).
-                    let mut waited_ms = 0u64;
-                    while !sync_reloaded_for_task.load(Ordering::SeqCst) && waited_ms < 180_000 {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        waited_ms += 500;
-                    }
-                    if !sync_reloaded_for_task.load(Ordering::SeqCst) {
-                        debug!("[AppState] Post-sync re-broadcast skipped — sync reload not signalled within timeout");
-                        return;
-                    }
-                    // Settle margin: let the GraphStateActor reload + any GPU re-upload
-                    // churn finish (reload observed ~4s after the notification).
-                    tokio::time::sleep(tokio::time::Duration::from_secs(8)).await;
-                    let addr = { gpu_compute_addr_for_rebroadcast.read().await.clone() };
-                    if let Some(addr) = addr {
-                        addr.do_send(crate::actors::gpu::force_compute_actor::ForceFullBroadcast);
-                        info!("[AppState] Sent post-sync ForceFullBroadcast to re-project GraphStateActor positions");
-                    } else {
-                        warn!("[AppState] Post-sync re-broadcast skipped — ForceComputeActor address not available");
-                    }
                 });
 
                 actix::spawn(async move {

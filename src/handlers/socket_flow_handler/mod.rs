@@ -13,7 +13,6 @@ pub mod transport;
 pub mod types;
 
 // Re-export public API (preserves all external imports)
-pub use actor_messages::BroadcastPositionUpdate;
 // REMOVED (ADR-2054): PushDirective — zero senders tree-wide, see actor_messages.rs.
 pub use http_handler::socket_flow_handler;
 pub use types::SocketFlowServer;

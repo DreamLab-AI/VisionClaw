@@ -471,33 +471,10 @@ pub struct ForceResumePhysics {
 #[rtype(result = "Result<bool, VisionClawError>")]
 pub struct GetEquilibriumStatus;
 
-// ---------------------------------------------------------------------------
-// Broadcast optimization (Phase 7)
-// ---------------------------------------------------------------------------
-
-/// Configure broadcast optimization parameters
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct ConfigureBroadcastOptimization {
-    /// Target broadcast frequency in Hz, 1-60 (default 8). Each broadcast is
-    /// a full snapshot (~490 KB for the ~9.5k-node graph), so 8 Hz costs
-    /// ~3.9 MB/s per client and 25 Hz ~12 MB/s.
-    pub target_fps: Option<u32>,
-    /// Broadcast frequency in Hz, 1-60 (default 30), while a node is being interacted with.
-    pub interaction_fps: Option<u32>,
-}
-
-impl ConfigureBroadcastOptimization {
-    /// Both stored rates, as `physics.broadcastFps` / `physics.interactionBroadcastFps` hold them.
-    pub fn rates(target_fps: u32, interaction_fps: u32) -> Self {
-        Self { target_fps: Some(target_fps), interaction_fps: Some(interaction_fps) }
-    }
-}
-
 /// The PhysicsSupervisor replaced its ForceComputeActor (a restart). Sent to
 /// every `SubscribeForceComputeReplaced` subscriber so actors holding the old
 /// address re-point to the new one: the physics orchestrator re-sends its
-/// graph, the client coordinator re-targets its backpressure acks.
+/// graph to it.
 #[derive(Message, Clone)]
 #[rtype(result = "()")]
 pub struct ForceComputeActorReplaced {
@@ -517,20 +494,6 @@ pub struct SubscribeForceComputeReplaced {
 #[rtype(result = "()")]
 pub struct SetPhysicsSettingsSource {
     pub repo: std::sync::Arc<dyn crate::ports::settings_repository::SettingsRepository>,
-}
-
-/// Get current broadcast performance statistics
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<BroadcastPerformanceStats, String>")]
-pub struct GetBroadcastStats;
-
-/// Broadcast performance statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BroadcastPerformanceStats {
-    pub total_frames_processed: u64,
-    pub total_snapshots_broadcast: u64,
-    pub interaction_fps: u32,
-    pub target_fps: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -638,16 +601,6 @@ pub struct BoundingBox {
 // GPU Backpressure (Phase 5)
 // ---------------------------------------------------------------------------
 
-/// Acknowledgment from network layer that position broadcast was delivered
-#[derive(Message, Debug, Clone)]
-#[rtype(result = "()")]
-pub struct PositionBroadcastAck {
-    /// Correlation ID matching the broadcast iteration
-    pub correlation_id: u64,
-    /// Number of clients that received the update
-    pub clients_delivered: u32,
-}
-
 // ---------------------------------------------------------------------------
 // Sequential physics pipeline (Step 5)
 // ---------------------------------------------------------------------------
@@ -685,13 +638,6 @@ pub struct PhysicsStepCompleted {
 #[rtype(result = "()")]
 pub struct SetPhysicsOrchestratorAddr {
     pub addr: Addr<crate::actors::physics_orchestrator_actor::PhysicsOrchestratorActor>,
-}
-
-/// Message to set GPU compute actor address in ClientCoordinatorActor
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct SetGpuComputeAddress {
-    pub addr: actix::Addr<crate::actors::gpu::force_compute_actor::ForceComputeActor>,
 }
 
 /// Re-randomize all node positions using a uniform 3D sphere distribution,

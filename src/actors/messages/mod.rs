@@ -39,11 +39,9 @@ pub use physics_messages::{
     ApplyConstraintsToNodes,
     // GPU position snapshot (REST API)
     BoundingBox,
-    BroadcastPerformanceStats,
     // Phase 5 (ADR-01 D9): event emission only
     ClampKind,
     ComputeForces,
-    ConfigureBroadcastOptimization,
     ConfigureStressMajorization,
     CurrentPositionsSnapshot,
     EmitPhysicsEvent,
@@ -53,7 +51,6 @@ pub use physics_messages::{
     GPUInitialized,
     GPUStatus,
     GetActiveConstraints,
-    GetBroadcastStats,
     GetConstraintBuffer,
     GetConstraints,
     GetCurrentPositions,
@@ -80,7 +77,6 @@ pub use physics_messages::{
     // Sequential pipeline (Step 5)
     PhysicsStepCompleted,
     PinNodePositions,
-    PositionBroadcastAck,
     PositionSnapshot,
     RecalculateHierarchy,
     RegenerateSemanticConstraints,
@@ -95,10 +91,10 @@ pub use physics_messages::{
     SetAppGpuComputeAddr,
     SetComputeMode,
     SetForceComputeAddr,
-    SetGpuComputeAddress,
     SetLayoutMode,
     SetPhysicsOrchestratorAddr,
     SetPhysicsSettingsSource,
+    SubscribeForceComputeReplaced,
     SetPhysicsSettled,
     SetRadialLayout,
     SetSharedGPUContext,
@@ -109,7 +105,6 @@ pub use physics_messages::{
     StoreAdvancedGPUContext,
     StoreGPUComputeAddress,
     StressMajorizationConfig,
-    SubscribeForceComputeReplaced,
     TriggerStressMajorization,
     UpdateClusteringParams,
     UpdateConstraintData,
@@ -144,11 +139,10 @@ pub use ontology_messages::{
 
 // --- client_messages ---
 pub use client_messages::{
-    AuthenticateClient, BroadcastAgentActionFrame, BroadcastMessage, BroadcastNodePositions,
-    BroadcastPositions, ClientBroadcastAck, ClientRecipients, CloseClientSession,
-    ForcePositionBroadcast, GetClientCount, InitialClientSync, RegisterClient, RelayToUserSessions,
-    SendInitialGraphLoad, SendPositionUpdate, SendToClientBinary, SendToClientText,
-    SetGraphServiceAddress, TransportCloser, UnregisterClient, UpdateClientFilter,
+    AuthenticateClient, BroadcastAgentActionFrame, BroadcastMessage, ClientBroadcastAck,
+    ClientRecipients, CloseClientSession, ConfigureStream, GetClientCount, PublishPositions,
+    RegisterClient, RelayToUserSessions, SendInitialGraphLoad, SendToClientBinary, SendToClientText, SetGraphServiceAddress, TransportCloser,
+    UnregisterClient, UpdateClientFilter,
 };
 
 // --- analytics_messages ---

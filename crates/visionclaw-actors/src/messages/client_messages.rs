@@ -2,10 +2,9 @@
 //!
 //! Blocked in webxr (stay in src/actors/messages/client_messages.rs):
 //!   - `RegisterClient`        — refs `Addr<handlers::socket_flow_handler::SocketFlowServer>`
-//!   - `BroadcastPositions`    — refs `utils::socket_flow_messages::BinaryNodeDataClient`
+//!   - `PublishPositions`      — refs `utils::socket_flow_messages::BinaryNodeDataClient`
 //!   - `SetGraphServiceAddress`— refs `Addr<actors::GraphServiceSupervisor>`
 //!   - `SendInitialGraphLoad`  — refs `utils::socket_flow_messages::{InitialNodeData, InitialEdgeData}`
-//!   - `SendPositionUpdate`    — refs field types from socket_flow_messages
 //!
 //! Everything below depends only on `actix`, `serde`, `std`.
 
@@ -24,12 +23,6 @@ pub struct UnregisterClient {
 
 #[derive(Message)]
 #[rtype(result = "Result<(), String>")]
-pub struct BroadcastNodePositions {
-    pub positions: Vec<u8>,
-}
-
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
 pub struct BroadcastMessage {
     pub message: String,
 }
@@ -37,19 +30,6 @@ pub struct BroadcastMessage {
 #[derive(Message)]
 #[rtype(result = "Result<usize, String>")]
 pub struct GetClientCount;
-
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
-pub struct ForcePositionBroadcast {
-    pub reason: String,
-}
-
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
-pub struct InitialClientSync {
-    pub client_identifier: String,
-    pub trigger_source: String,
-}
 
 // Messages for ClientManagerActor to send to individual SocketFlowServer clients
 #[derive(Message)]

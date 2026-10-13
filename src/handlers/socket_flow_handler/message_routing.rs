@@ -1,6 +1,5 @@
 use actix::prelude::*;
-use actix_web_actors::ws;
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use crate::utils::socket_flow_messages::PingMessage;
 
@@ -8,10 +7,11 @@ use super::types::SocketFlowServer;
 
 /// Text message dispatch -- routes parsed JSON messages to the appropriate handler.
 ///
-/// Handles: ping, update_physics_params, request_full_snapshot, requestInitialData,
-/// enableRandomization, requestBotsGraph, requestBotsPositions, subscribe_position_updates,
-/// requestPositionUpdates (legacy), authenticate, filter_update, requestSwarmTelemetry,
-/// ontology_* messages.
+/// Handles: ping, requestInitialData (the JSON topology), authenticate, filter_update,
+/// requestSwarmTelemetry, the node drag/unpin messages and ontology_* messages.
+///
+/// There is NO position request message: every registered session is streamed its positions by
+/// the client coordinator (ADR-2141) and acknowledges each chunk with a binary `BroadcastAck`.
 impl SocketFlowServer {
     pub(crate) fn handle_text_message(&mut self, text: &str, ctx: &mut <Self as Actor>::Context) {
         // Handle plain-text heartbeat before JSON parsing
@@ -28,38 +28,8 @@ impl SocketFlowServer {
         match serde_json::from_str::<serde_json::Value>(text) {
             Ok(msg) => match msg.get("type").and_then(|t| t.as_str()) {
                 Some("ping") => self.handle_json_ping(&msg, ctx),
-                Some("update_physics_params") => {
-                    warn!("Client attempted deprecated WebSocket physics update - ignoring");
-                    ctx.text(r#"{"type":"error","message":"Physics updates must use REST API: POST /api/analytics/params"}"#);
-                }
-                Some("request_full_snapshot") => {
-                    super::position_updates::handle_request_full_snapshot(self, &msg, ctx);
-                }
                 Some("requestInitialData") => {
                     super::position_updates::handle_request_initial_data(self, ctx);
-                }
-                Some("enableRandomization") => {
-                    super::position_updates::handle_enable_randomization(&msg);
-                }
-                Some("requestBotsGraph") => {
-                    super::position_updates::handle_request_bots_graph(self, ctx);
-                }
-                Some("requestBotsPositions") => {
-                    super::position_updates::handle_request_bots_positions(self, ctx);
-                }
-                Some("subscribe_position_updates") => {
-                    super::position_updates::handle_subscribe_position_updates(self, &msg, ctx);
-                }
-                Some("requestPositionUpdates") => {
-                    info!("Client requested position updates (legacy format)");
-                    let subscription_msg = r#"{"type":"subscribe_position_updates","data":{"interval":60,"binary":true}}"#;
-                    <SocketFlowServer as StreamHandler<
-                            Result<ws::Message, ws::ProtocolError>,
-                        >>::handle(
-                            self,
-                            Ok(ws::Message::Text(subscription_msg.to_string().into())),
-                            ctx,
-                        );
                 }
                 Some("authenticate") => {
                     super::filter_auth::handle_authenticate(self, &msg, ctx);

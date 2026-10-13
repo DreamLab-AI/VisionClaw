@@ -400,3 +400,20 @@ mod tests {
         assert_eq!(labels, vec![(1, "public".to_string())]);
     }
 }
+
+#[cfg(test)]
+mod flag_tests {
+    use super::parse_visibility_flag;
+
+    /// The secure-by-default truth table. Pure: no process env is touched.
+    #[test]
+    fn parse_visibility_flag_defaults_on_and_honours_opt_out() {
+        assert!(parse_visibility_flag(None), "absent value must default the filter ON");
+        for on in ["1", "true", "on", "yes", "TRUE", "  1  ", "banana", ""] {
+            assert!(parse_visibility_flag(Some(on)), "{on:?} must leave the filter ON");
+        }
+        for off in ["0", "false", "off", "no", "FALSE", "  off  ", "No"] {
+            assert!(!parse_visibility_flag(Some(off)), "{off:?} must turn the filter OFF");
+        }
+    }
+}

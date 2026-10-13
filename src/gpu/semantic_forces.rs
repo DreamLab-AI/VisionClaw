@@ -150,11 +150,6 @@ impl SemanticForcesEngine {
         self.registry.edge_type_to_int(edge_type)
     }
 
-    /// Get force configuration for an edge type
-    fn get_edge_force_config(&self, edge_type_id: i32) -> Option<RelationshipForceConfig> {
-        self.registry.get_config(edge_type_id as u32)
-    }
-
     /// Extract physicality classification from node metadata
     fn extract_physicality(&self, node: &visionclaw_domain::models::node::Node) -> i32 {
         // Check owl:physicality metadata

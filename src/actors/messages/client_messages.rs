@@ -9,8 +9,7 @@
 // ---------------------------------------------------------------------------
 
 pub use visionclaw_actors::messages::client_messages::{
-    AuthenticateClient, BroadcastMessage, BroadcastNodePositions, ClientBroadcastAck,
-    ForcePositionBroadcast, GetClientCount, InitialClientSync, RelayToUserSessions,
+    AuthenticateClient, BroadcastMessage, ClientBroadcastAck, GetClientCount, RelayToUserSessions,
     SendToClientBinary, SendToClientText, UnregisterClient, UpdateClientFilter,
 };
 
@@ -140,14 +139,6 @@ pub struct RegisterClient {
     pub recipients: ClientRecipients,
 }
 
-/// Broadcast positions to all connected clients.
-/// Blocked: references `utils::socket_flow_messages::BinaryNodeDataClient`.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct BroadcastPositions {
-    pub positions: Vec<crate::utils::socket_flow_messages::BinaryNodeDataClient>,
-}
-
 /// Set the graph service supervisor address in client manager.
 /// Blocked: references `Addr<actors::GraphServiceSupervisor>`.
 #[derive(Message)]
@@ -163,20 +154,6 @@ pub struct SetGraphServiceAddress {
 pub struct SendInitialGraphLoad {
     pub nodes: Vec<InitialNodeData>,
     pub edges: Vec<InitialEdgeData>,
-}
-
-/// WebSocket protocol: Streamed position updates indexed by node ID.
-/// Blocked: field types from socket_flow_messages context.
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct SendPositionUpdate {
-    pub node_id: u32,
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub vx: f32,
-    pub vy: f32,
-    pub vz: f32,
 }
 
 /// Broadcast a fully-encoded `0x23 AGENT_ACTION` binary frame to every connected
@@ -195,3 +172,22 @@ pub struct SendPositionUpdate {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct BroadcastAgentActionFrame(pub Vec<u8>);
+
+/// One full set of display positions from the physics (every entitled node, absolute
+/// coordinates). The client coordinator replaces its cache with it and sends each client the next
+/// chunk of what that client has not yet acknowledged (ADR-2141).
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct PublishPositions {
+    pub positions: Vec<crate::utils::socket_flow_messages::BinaryNodeDataClient>,
+}
+
+/// The stored stream settings (`physics.streamChunkNodes`, `streamMoveThreshold`,
+/// `streamAckTimeoutMs`), applied by the client coordinator to every client's next chunk.
+#[derive(Message, Debug, Clone, Copy)]
+#[rtype(result = "()")]
+pub struct ConfigureStream {
+    pub chunk_nodes: u32,
+    pub move_threshold: f32,
+    pub ack_timeout_ms: u32,
+}

@@ -92,9 +92,12 @@ pub const ITERATIONS: Bound = (1.0, 1000.0);
 
 // --- Network ---------------------------------------------------------------
 
-/// Position-broadcast rate in Hz (`broadcast_fps`). Canonical default 8
-/// (`visionclaw_domain::types::physics_config::DEFAULT_BROADCAST_FPS`).
-pub const BROADCAST_FPS: Bound = (1.0, 60.0);
+/// Most nodes in one position chunk (`stream_chunk_nodes`).
+pub const STREAM_CHUNK_NODES: Bound = (100.0, 20000.0);
+/// Move threshold in display units (`stream_move_threshold`); 0 sends any change.
+pub const STREAM_MOVE_THRESHOLD: Bound = (0.0, 100.0);
+/// Unacknowledged-chunk timeout in milliseconds (`stream_ack_timeout_ms`).
+pub const STREAM_ACK_TIMEOUT_MS: Bound = (20.0, 10000.0);
 
 /// `true` if `value` is within `[bound.0, bound.1]` inclusive and finite.
 #[inline]
@@ -144,18 +147,13 @@ mod tests {
             DAMPING
         );
         assert!(within(d.dt, DT), "dt {} outside {:?}", d.dt, DT);
-        assert!(
-            within(d.interaction_broadcast_fps as f32, BROADCAST_FPS),
-            "interaction_broadcast_fps {} outside {:?}",
-            d.interaction_broadcast_fps,
-            BROADCAST_FPS
-        );
-        assert!(
-            within(d.broadcast_fps as f32, BROADCAST_FPS),
-            "broadcast_fps {} outside {:?}",
-            d.broadcast_fps,
-            BROADCAST_FPS
-        );
+        for (name, v, b) in [
+            ("stream_chunk_nodes", d.stream_chunk_nodes as f32, STREAM_CHUNK_NODES),
+            ("stream_move_threshold", d.stream_move_threshold, STREAM_MOVE_THRESHOLD),
+            ("stream_ack_timeout_ms", d.stream_ack_timeout_ms as f32, STREAM_ACK_TIMEOUT_MS),
+        ] {
+            assert!(within(v, b), "{name} default {v} outside {b:?}");
+        }
         assert!(
             within(d.cooling_rate, COOLING_RATE),
             "cooling_rate {} outside {:?}",

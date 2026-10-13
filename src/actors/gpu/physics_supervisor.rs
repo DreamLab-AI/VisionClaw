@@ -1042,6 +1042,25 @@ impl Handler<AdjustConstraintWeights> for PhysicsSupervisor {
     }
 }
 
+impl Handler<SetRelationshipTable> for PhysicsSupervisor {
+    type Result = ResponseActFuture<Self, Result<(), String>>;
+
+    fn handle(&mut self, msg: SetRelationshipTable, _ctx: &mut Self::Context) -> Self::Result {
+        let addr = match &self.force_compute_actor {
+            Some(a) if self.force_compute_state.is_running => a.clone(),
+            _ => {
+                return Box::pin(
+                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
+                );
+            }
+        };
+        Box::pin(
+            async move { addr.send(msg).await.map_err(|e| format!("Communication failed: {}", e))? }
+                .into_actor(self),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1052,8 +1071,7 @@ mod tests {
     /// A restarted ForceComputeActor used to come back with compiled-in
     /// defaults until the next settings PUT. The supervisor's restart hook now
     /// reloads the saved physics (the SQLite `physics` row the settings routes
-    /// read and write), so the new actor runs with the saved values,
-    /// broadcastFps included.
+    /// read and write), so the new actor runs with the saved values.
     #[actix::test]
     async fn a_restarted_force_compute_actor_gets_the_saved_physics_back() {
         let repo = Arc::new(
@@ -1062,7 +1080,6 @@ mod tests {
                 .expect("in-memory settings repo"),
         );
         let saved = PhysicsSettings {
-            broadcast_fps: 25,
             spring_k: 33.0,
             repel_k: 77.0,
             ..PhysicsSettings::default()
@@ -1098,28 +1115,20 @@ mod tests {
         // saved values (or give up after 3 s).
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            let fps = after
-                .send(GetBroadcastStats)
-                .await
-                .unwrap()
-                .unwrap()
-                .target_fps;
             let params = after
                 .send(GetPhysicsStats)
                 .await
                 .unwrap()
                 .unwrap()
                 .current_params;
-            if fps == 25
-                && (params.spring_k - 33.0).abs() < 1e-4
+            if (params.spring_k - 33.0).abs() < 1e-4
                 && (params.repel_k - 77.0).abs() < 1e-4
             {
                 break;
             }
             assert!(
                 Instant::now() < deadline,
-                "restarted actor still has fps={} spring_k={} repel_k={}",
-                fps,
+                "restarted actor still has spring_k={} repel_k={}",
                 params.spring_k,
                 params.repel_k
             );
@@ -1127,15 +1136,11 @@ mod tests {
         }
     }
 
-    /// After a restart the new ForceComputeActor must get the real graph back
-    /// (so physics resumes on it, not on an empty one) and the client
-    /// coordinator must send backpressure acks to it, not to the dead actor.
-    /// The supervisor announces the replacement to its subscribers; the
-    /// physics orchestrator re-sends its graph and the coordinator re-points
-    /// its acks.
+    /// After a restart the new ForceComputeActor must get the real graph back (so physics
+    /// resumes on it, not on an empty one). The supervisor announces the replacement to its
+    /// subscribers; the physics orchestrator re-sends its graph.
     #[actix::test]
-    async fn a_restarted_force_compute_actor_gets_the_graph_and_the_acks() {
-        use crate::actors::client_coordinator_actor::ClientCoordinatorActor;
+    async fn a_restarted_force_compute_actor_gets_the_graph_back() {
         use crate::actors::physics_orchestrator_actor::PhysicsOrchestratorActor;
         use visionclaw_domain::models::graph::GraphData;
         use visionclaw_domain::models::node::Node;
@@ -1153,20 +1158,11 @@ mod tests {
             Some(Arc::new(graph)),
         )
         .start();
-        let coordinator = ClientCoordinatorActor::new().start();
-        coordinator.do_send(SetGpuComputeAddress {
-            addr: first.clone(),
-        });
-        for r in [
-            orchestrator
-                .clone()
-                .recipient::<ForceComputeActorReplaced>(),
-            coordinator.clone().recipient::<ForceComputeActorReplaced>(),
-        ] {
-            sup.send(SubscribeForceComputeReplaced { recipient: r })
-                .await
-                .unwrap();
-        }
+        sup.send(SubscribeForceComputeReplaced {
+            recipient: orchestrator.clone().recipient::<ForceComputeActorReplaced>(),
+        })
+        .await
+        .unwrap();
 
         sup.send(RestartActor {
             actor_name: "ForceComputeActor".to_string(),
@@ -1179,50 +1175,20 @@ mod tests {
         assert!(!after.eq(&first));
 
         let deadline = Instant::now() + Duration::from_secs(3);
-        let mut acked = false;
         loop {
-            if !acked {
-                coordinator.do_send(crate::actors::messages::ClientBroadcastAck {
-                    sequence_id: 1,
-                    nodes_received: 7,
-                    timestamp: 0,
-                    client_id: Some(1),
-                });
-            }
             let probe = after
                 .send(crate::actors::gpu::force_compute_actor::ProbeReceived)
                 .await
                 .unwrap();
-            acked = probe.acks_received > 0;
-            if probe.graph_nodes == Some(7) && acked {
+            if probe.graph_nodes == Some(7) {
                 break;
             }
             assert!(
                 Instant::now() < deadline,
-                "new actor: graph_nodes={:?}, acks_received={}",
-                probe.graph_nodes,
-                probe.acks_received
+                "new actor: graph_nodes={:?}",
+                probe.graph_nodes
             );
             actix::clock::sleep(Duration::from_millis(50)).await;
         }
-    }
-}
-
-impl Handler<SetRelationshipTable> for PhysicsSupervisor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: SetRelationshipTable, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.force_compute_actor {
-            Some(a) if self.force_compute_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-        Box::pin(
-            async move { addr.send(msg).await.map_err(|e| format!("Communication failed: {}", e))? }
-                .into_actor(self),
-        )
     }
 }

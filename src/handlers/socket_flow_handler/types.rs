@@ -10,9 +10,6 @@ use crate::app_state::AppState;
 use crate::utils::socket_flow_messages::BinaryNodeData;
 use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
 
-// Constants for throttling debug logs
-pub(crate) const DEBUG_LOG_SAMPLE_RATE: usize = 10;
-
 // Default values for deadbands if not provided in settings
 
 // Create a global rate limiter for WebSocket position updates
@@ -28,7 +25,6 @@ pub struct SocketFlowServer {
     pub(crate) client_manager_addr:
         actix::Addr<crate::actors::client_coordinator_actor::ClientCoordinatorActor>,
     pub(crate) last_ping: Option<u64>,
-    pub(crate) update_counter: usize,
     pub(crate) last_activity: std::time::Instant,
     pub(crate) heartbeat_timer_set: bool,
     /// Inbound-liveness tracker driven by `system.websocket.heartbeat*`
@@ -39,14 +35,6 @@ pub struct SocketFlowServer {
     pub(crate) transport: Option<crate::actors::messages::TransportCloser>,
 
     pub(crate) _node_position_cache: HashMap<String, BinaryNodeData>,
-
-    pub(crate) last_transfer_size: usize,
-    pub(crate) total_bytes_sent: usize,
-    pub(crate) update_count: usize,
-    pub(crate) nodes_sent_count: usize,
-
-    pub(crate) nodes_in_motion: usize,
-    pub(crate) total_node_count: usize,
 
     pub(crate) client_ip: String,
     pub(crate) is_reconnection: bool,
@@ -78,29 +66,6 @@ pub struct SocketFlowServer {
     pub(crate) drag_last_update: HashMap<u32, Instant>,
     /// Maximum time (ms) with no position update before auto-unpin. Default 500ms.
     pub(crate) drag_timeout_ms: u64,
-
-    // FIX 6: Per-client node type filter for binary position stream.
-    // When non-empty, only nodes whose type matches one of these strings
-    // (e.g. "knowledge", "agent", "ontology") are included in position broadcasts.
-    // Set via subscribe_position_updates { data: { nodeTypes: ["knowledge", "agent"] } }.
-    pub(crate) subscribed_node_types: HashSet<String>,
-
-    /// Generation counter for the position-update re-subscription loop.
-    /// A client that subscribes more than once (e.g. AppInitializer fires both
-    /// on connection-status-change and on connection_established) would otherwise
-    /// spawn one independent `run_later` self-loop per subscribe, doubling the
-    /// binary broadcast rate. Each subscribe bumps this counter; every loop tick
-    /// captures the generation it was started under and stops re-injecting once a
-    /// newer subscribe supersedes it, leaving exactly one active loop.
-    pub(crate) position_sub_generation: u64,
-
-    /// Rate limit for `subscribe_position_updates`. A buggy client in a
-    /// reconnect loop (observed 2026-06-12: a zombie tab resubscribing every
-    /// ~400ms for hours) constantly restarts the broadcast loop and
-    /// re-snapshots, degrading the position pipeline for EVERY connected
-    /// client. Per-session state: one client's storm never throttles another
-    /// client's subscription.
-    pub(crate) last_position_subscribe: Option<Instant>,
 
     /// Last time this connection served a `requestInitialData` full-graph push.
     /// Guards against a client spamming `requestInitialData` to force unbounded
@@ -135,7 +100,6 @@ impl SocketFlowServer {
             client_id: None,
             client_manager_addr,
             last_ping: None,
-            update_counter: 0,
             last_activity: std::time::Instant::now(),
             heartbeat_timer_set: false,
             heartbeat: super::heartbeat::Heartbeat::new(
@@ -144,12 +108,6 @@ impl SocketFlowServer {
             ),
             transport: None,
             _node_position_cache: HashMap::new(),
-            last_transfer_size: 0,
-            total_bytes_sent: 0,
-            update_count: 0,
-            nodes_sent_count: 0,
-            nodes_in_motion: 0,
-            total_node_count: 0,
             client_ip,
             is_reconnection: false,
             state_synced: false,
@@ -163,9 +121,6 @@ impl SocketFlowServer {
             dragged_nodes: HashSet::new(),
             drag_last_update: HashMap::new(),
             drag_timeout_ms: 500,
-            subscribed_node_types: HashSet::new(),
-            position_sub_generation: 0,
-            last_position_subscribe: None,
             last_initial_data_request: None,
             sync_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
@@ -198,12 +153,8 @@ impl SocketFlowServer {
         }
     }
 
-    pub(crate) fn should_log_update(&mut self) -> bool {
-        self.update_counter = (self.update_counter + 1) % DEBUG_LOG_SAMPLE_RATE;
-        self.update_counter == 0
-    }
-
-    /// Send full state sync to a newly connected client (graph data + initial load).
+    /// Send the JSON state sync and initial graph load (topology) to a newly connected client.
+    /// Positions are NOT sent here: the client coordinator streams them (ADR-2141).
     pub(crate) fn send_full_state_sync(&self, ctx: &mut <Self as Actor>::Context) {
         let app_state = self.app_state.clone();
         let addr = ctx.address();
@@ -392,70 +343,6 @@ impl SocketFlowServer {
                         info!("Sent InitialGraphLoad: {} nodes (sparse from {} total), {} edges [limit: {}]",
                               nodes.len(), graph_data.nodes.len(),
                               edges.len(), initial_node_limit);
-
-                        // Fetch node type arrays for binary protocol flags
-                        let nta = app_state
-                            .graph_service_addr
-                            .send(crate::actors::messages::GetNodeTypeArrays)
-                            .await
-                            .unwrap_or_default();
-                        let agent_set: std::collections::HashSet<u32> =
-                            nta.agent_ids.iter().copied().collect();
-                        let knowledge_set: std::collections::HashSet<u32> =
-                            nta.knowledge_ids.iter().copied().collect();
-
-                        // Binary positions are a FULL snapshot of every node this session may
-                        // see, not the quality-limited topology subset above. `initialNodeLimit`
-                        // is a budget for the heavy JSON topology payload only; the position
-                        // protocol never sends a subset chosen by anything but entitlement.
-                        // (It used to reuse `filtered_node_ids`, so a connecting client got a
-                        // 3000-node position frame from a 9478-node graph.)
-                        let node_data: Vec<(u32, BinaryNodeData)> = graph_data
-                            .nodes
-                            .iter()
-                            .filter(|node| is_visible(node))
-                            .map(|node| {
-                                let flagged_id = if agent_set.contains(&node.id) {
-                                    crate::utils::binary_protocol::set_agent_flag(node.id)
-                                } else if knowledge_set.contains(&node.id) {
-                                    crate::utils::binary_protocol::set_knowledge_flag(node.id)
-                                } else {
-                                    node.id
-                                };
-                                (
-                                    flagged_id,
-                                    BinaryNodeData {
-                                        node_id: flagged_id,
-                                        x: node.data.x,
-                                        y: node.data.y,
-                                        z: node.data.z,
-                                        vx: node.data.vx,
-                                        vy: node.data.vy,
-                                        vz: node.data.vz,
-                                    },
-                                )
-                            })
-                            .collect();
-
-                        // Re-check: a newer sync may have superseded this one
-                        // during the GetNodeTypeArrays await above. Skip the
-                        // binary frame so it cannot overwrite a fresher sync's
-                        // positions.
-                        if !is_current() {
-                            debug!(
-                                "Discarding stale full-state sync binary frame (generation superseded)"
-                            );
-                            return;
-                        }
-
-                        addr.do_send(super::actor_messages::BroadcastPositionUpdate(
-                            node_data.clone(),
-                            Some(my_generation),
-                        ));
-                        debug!(
-                            "Sent initial full position snapshot for {} visible nodes (binary)",
-                            node_data.len()
-                        );
                     }
                 }
             }

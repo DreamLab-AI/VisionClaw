@@ -442,7 +442,7 @@ pub fn public_reads_enabled_in(env: &EnvSnapshot) -> bool {
 
 /// Is the ADR-060 pubkey visibility filter enabled, read off an [`EnvSnapshot`]?
 ///
-/// ADR-2043: mirrors `position_updates::parse_visibility_flag` — the filter is
+/// ADR-2043: mirrors `visionclaw_domain::utils::visibility_filter::parse_visibility_flag` — the filter is
 /// ON by default and only an explicit `0`, `false`, `off` or `no` disables it,
 /// so an unrecognised value fails safe (filter stays on).
 pub fn visibility_filter_enabled_in(env: &EnvSnapshot) -> bool {
@@ -544,7 +544,7 @@ pub fn evaluate_effective_profile(
     //     the assertion cannot disagree with the runtime behaviour it predicts:
     //     `RBAC_PUBLIC_READS` mirrors `rbac_gate::public_reads_enabled` (only
     //     `1`/`true` enable, absence is off), and `PUBKEY_VISIBILITY_FILTER`
-    //     mirrors `position_updates::parse_visibility_flag` (default ON, only
+    //     mirrors `visionclaw_domain::utils::visibility_filter::parse_visibility_flag` (default ON, only
     //     `0`/`false`/`off`/`no` disable).
     if public_reads_enabled_in(env) && !visibility_filter_enabled_in(env) {
         findings.push(ProfileFinding::FullDisclosureFlagPair {

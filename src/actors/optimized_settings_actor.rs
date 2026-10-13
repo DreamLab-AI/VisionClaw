@@ -251,10 +251,22 @@ impl OptimizedSettingsActor {
                 bounds::ITERATIONS.1,
             ),
             (
-                "visualisation.graphs.knowledge.physics.broadcast_fps",
+                "visualisation.graphs.knowledge.physics.stream_chunk_nodes",
                 FieldType::Int32,
-                bounds::BROADCAST_FPS.0,
-                bounds::BROADCAST_FPS.1,
+                bounds::STREAM_CHUNK_NODES.0,
+                bounds::STREAM_CHUNK_NODES.1,
+            ),
+            (
+                "visualisation.graphs.knowledge.physics.stream_move_threshold",
+                FieldType::Float32,
+                bounds::STREAM_MOVE_THRESHOLD.0,
+                bounds::STREAM_MOVE_THRESHOLD.1,
+            ),
+            (
+                "visualisation.graphs.knowledge.physics.stream_ack_timeout_ms",
+                FieldType::Int32,
+                bounds::STREAM_ACK_TIMEOUT_MS.0,
+                bounds::STREAM_ACK_TIMEOUT_MS.1,
             ),
             (
                 "visualisation.graphs.knowledge.physics.enabled",

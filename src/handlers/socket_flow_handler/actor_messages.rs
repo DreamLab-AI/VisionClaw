@@ -1,8 +1,5 @@
 use actix::{Handler, Message};
-use log::{debug, error, info, trace, warn};
-
-use crate::utils::binary_protocol;
-use crate::utils::socket_flow_messages::BinaryNodeData;
+use log::{debug, error, info, warn};
 
 use super::types::SocketFlowServer;
 
@@ -30,59 +27,6 @@ impl Handler<SetClientId> for SocketFlowServer {
                 is_power_user: self.is_power_user,
                 ephemeral: false,
             });
-        }
-    }
-}
-
-// Broadcast position update to the client.
-//
-// The optional second field is the sync generation this frame belongs to
-// (codex round-3). `send_full_state_sync` stamps it; the handler drops the
-// frame if the session generation has advanced between enqueue and delivery
-// (auth/re-auth or a newer sync landed in the mailbox first). `None` = not
-// generation-gated (delivered unconditionally); no such caller exists today
-// but the option keeps the message reusable.
-#[derive(Message, Clone)]
-#[rtype(result = "()")]
-pub struct BroadcastPositionUpdate(pub Vec<(u32, BinaryNodeData)>, pub Option<u64>);
-
-impl Handler<BroadcastPositionUpdate> for SocketFlowServer {
-    type Result = ();
-
-    fn handle(&mut self, msg: BroadcastPositionUpdate, ctx: &mut Self::Context) -> Self::Result {
-        if msg.0.is_empty() {
-            return;
-        }
-        // codex round-3: validate the generation at the write, not just before
-        // do_send. Auth can bump the generation between the pre-send early-out
-        // and this handler running, so a stale identity's positions could
-        // otherwise still be written.
-        if let Some(generation) = msg.1 {
-            if !super::types::sync_generation_is_current(&self.sync_generation, generation) {
-                debug!("[WebSocket] Dropping stale position broadcast (generation superseded)");
-                return;
-            }
-        }
-
-        // Single full-state frame per broadcast. No delta encoding, no per-client
-        // previous-state tracking, no version negotiation. Physics is whole-graph:
-        // all nodes settle or none do, and the client lerps toward the latest
-        // received positions. Delta encoding was deprecated; ship one format.
-        let binary_data = {
-            let analytics_guard = self.app_state.node_analytics.read().ok();
-            let analytics_ref = analytics_guard.as_deref();
-            binary_protocol::encode_node_data_extended_with_sssp(
-                &msg.0,
-                // Class flags are already set on node IDs by callers.
-                binary_protocol::NodeClassIds::default(),
-                None, // sssp_data
-                analytics_ref,
-            )
-        };
-        ctx.binary(binary_data);
-
-        if self.should_log_update() {
-            debug!("[WebSocket] Position broadcast sent: {} nodes", msg.0.len());
         }
     }
 }
@@ -128,7 +72,7 @@ impl Handler<SendToClientText> for SocketFlowServer {
 }
 
 // Handler for initial graph load - sends all nodes and edges as JSON
-use crate::actors::messages::{SendInitialGraphLoad, SendPositionUpdate};
+use crate::actors::messages::SendInitialGraphLoad;
 
 impl Handler<SendInitialGraphLoad> for SocketFlowServer {
     type Result = ();
@@ -223,38 +167,6 @@ impl Handler<GenGatedInitialGraphLoad> for SocketFlowServer {
             }
         } else {
             error!("[WebSocket] Failed to serialize initial graph load message");
-        }
-    }
-}
-
-// Handler for streamed position updates
-impl Handler<SendPositionUpdate> for SocketFlowServer {
-    type Result = ();
-
-    fn handle(&mut self, msg: SendPositionUpdate, ctx: &mut Self::Context) -> Self::Result {
-        use crate::utils::socket_flow_messages::Message;
-
-        let position_update = Message::PositionUpdate {
-            node_id: msg.node_id,
-            x: msg.x,
-            y: msg.y,
-            z: msg.z,
-            vx: msg.vx,
-            vy: msg.vy,
-            vz: msg.vz,
-            timestamp: chrono::Utc::now().timestamp_millis() as u64,
-        };
-
-        if let Ok(json) = serde_json::to_string(&position_update) {
-            ctx.text(json);
-            if self.should_log_update() {
-                trace!("[WebSocket] Sent position update for node {}", msg.node_id);
-            }
-        } else {
-            error!(
-                "[WebSocket] Failed to serialize position update for node {}",
-                msg.node_id
-            );
         }
     }
 }

@@ -90,6 +90,7 @@ mod broadcast_result_tests {
     fn broadcast_result_tracks_sent_congested_and_closed() {
         let r = BroadcastResult {
             sent: 5,
+            bytes: 0,
             congested_clients: vec![3],
             closed_clients: vec![2, 4],
         };

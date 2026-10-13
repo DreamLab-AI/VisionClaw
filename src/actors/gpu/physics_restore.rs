@@ -2,20 +2,18 @@
 //!
 //! A ForceComputeActor starts with compiled-in defaults. The saved settings
 //! (the SQLite `physics` row that `GET/PUT /api/settings/physics` read and
-//! write) reach it through three messages, because they span three concerns:
-//! `UpdateSimulationParams` (the GPU `SimParams`), `UpdateClusteringParams`
-//! (community-detector settings that do not fit `SimParams`) and
-//! `ConfigureBroadcastOptimization` (`broadcastFps`). Boot and every
+//! write) reach it through two messages, because they span two concerns:
+//! `UpdateSimulationParams` (the GPU `SimParams`) and `UpdateClusteringParams`
+//! (community-detector settings that do not fit `SimParams`). Boot and every
 //! supervisor restart use this one path, so a restarted actor runs with the
-//! same settings as the one it replaced.
+//! same settings as the one it replaced. (The position-stream settings are not
+//! the compute actor's: the client coordinator loads them itself at start.)
 
 use actix::Addr;
 use log::{info, warn};
 
 use super::force_compute_actor::ForceComputeActor;
-use crate::actors::messages::{
-    ConfigureBroadcastOptimization, UpdateClusteringParams, UpdateSimulationParams,
-};
+use crate::actors::messages::{UpdateClusteringParams, UpdateSimulationParams};
 use crate::config::PhysicsSettings;
 use crate::ports::settings_repository::{SettingValue, SettingsRepository};
 
@@ -45,8 +43,7 @@ pub async fn load_saved_physics(repo: &dyn SettingsRepository) -> Option<Physics
     }
 }
 
-/// Send `physics` to `actor`: simulation params, clustering params and the
-/// broadcast rate.
+/// Send `physics` to `actor`: simulation params and clustering params.
 pub fn push_physics(actor: &Addr<ForceComputeActor>, physics: &PhysicsSettings) {
     actor.do_send(UpdateSimulationParams {
         params: physics.into(),
@@ -56,12 +53,8 @@ pub fn push_physics(actor: &Addr<ForceComputeActor>, physics: &PhysicsSettings) 
         resolution: physics.clustering_resolution,
         iterations: physics.clustering_iterations,
     });
-    actor.do_send(ConfigureBroadcastOptimization::rates(
-        physics.broadcast_fps,
-        physics.interaction_broadcast_fps,
-    ));
     info!(
-        "Pushed saved physics to ForceComputeActor (spring_k={}, repel_k={}, broadcast {} Hz)",
-        physics.spring_k, physics.repel_k, physics.broadcast_fps
+        "Pushed saved physics to ForceComputeActor (spring_k={}, repel_k={})",
+        physics.spring_k, physics.repel_k
     );
 }

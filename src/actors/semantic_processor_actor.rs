@@ -180,15 +180,11 @@ pub struct SemanticProcessorActor {
 
     ai_features_cache: HashMap<String, AISemanticFeatures>,
 
-    advanced_params: AdvancedParams,
-
     config: SemanticProcessorConfig,
 
     stats: SemanticStats,
 
     graph_data: Option<Arc<GraphData>>,
-
-    relationship_threshold: f32,
 
     clustering_params: SemanticClusteringParams,
 
@@ -660,11 +656,9 @@ impl SemanticProcessorActor {
             stress_solver,
             semantic_features_cache: HashMap::new(),
             ai_features_cache: HashMap::new(),
-            advanced_params,
             config,
             stats: SemanticStats::default(),
             graph_data: None,
-            relationship_threshold: 0.7,
             clustering_params: SemanticClusteringParams::default(),
             performance_metrics: HashMap::new(),
             gpu_analyzer: Some(GpuSemanticAnalyzerAdapter::new()),

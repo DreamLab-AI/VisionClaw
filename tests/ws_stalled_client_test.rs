@@ -19,9 +19,11 @@ use std::time::{Duration, Instant};
 
 use visionclaw_server::actors::client_coordinator_actor::ClientCoordinatorActor;
 use visionclaw_server::actors::messages::{
-    BroadcastNodePositions, ClientRecipients, CloseClientSession, GetClientCount, RegisterClient,
-    SendInitialGraphLoad, SendToClientBinary, SendToClientText,
+    ClientRecipients, CloseClientSession, ConfigureStream, GetClientCount, NodeTypeArrays,
+    PublishPositions, RegisterClient, SendInitialGraphLoad, SendToClientBinary, SendToClientText,
+    UpdateClientFilter, UpdateNodeTypeArrays,
 };
+use visionclaw_server::utils::socket_flow_messages::BinaryNodeDataClient;
 use visionclaw_server::handlers::socket_flow_handler::transport::{
     capture_transport, ConnTransport,
 };
@@ -145,8 +147,35 @@ async fn a_client_that_never_reads_is_closed_after_the_stall_timeout() {
         actix_rt::time::sleep(Duration::from_millis(20)).await;
     }
 
-    // Stream ~490 KB snapshots at 8 Hz, as the live broadcast does.
-    let frame = vec![5u8; 490_000];
+    // A fresh session starts with the quality filter on and nothing yet selected (its node set is
+    // computed from the graph, which this test does not have): turn it off so the session is
+    // entitled to every node and there is something to stream. (The first session is id 1.)
+    coordinator
+        .send(UpdateClientFilter {
+            client_id: 1,
+            enabled: false,
+            quality_threshold: 0.0,
+            authority_threshold: 0.0,
+            filter_by_quality: false,
+            filter_by_authority: false,
+            filter_mode: "or".to_string(),
+            max_nodes: None,
+            include_linked_pages: false,
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    // The classification (visibility policy) must have arrived before anything is streamed.
+    coordinator.do_send(UpdateNodeTypeArrays {
+        arrays: NodeTypeArrays { loaded: true, ..Default::default() },
+    });
+    // Fast chunk timeout: this peer never acknowledges, so each timeout rebuilds and resends a
+    // chunk, which is what fills its socket buffer (and then its mailbox) in test time.
+    coordinator.do_send(ConfigureStream { chunk_nodes: 2500, move_threshold: 0.0, ack_timeout_ms: 20 });
+
+    // A moving ~9.5k-node layout: every tick every node is somewhere new, so there is always a
+    // chunk to send to a client that has acknowledged nothing.
+    let mut tick = 0f32;
     let started = Instant::now();
     let deadline = started + Duration::from_secs(20);
     while !stopped.load(Ordering::SeqCst) {
@@ -154,10 +183,21 @@ async fn a_client_that_never_reads_is_closed_after_the_stall_timeout() {
             Instant::now() < deadline,
             "the never-reading client was not closed within 20 s"
         );
-        coordinator.do_send(BroadcastNodePositions {
-            positions: frame.clone(),
+        tick += 1.0;
+        coordinator.do_send(PublishPositions {
+            positions: (1..=9478u32)
+                .map(|id| BinaryNodeDataClient {
+                    node_id: id,
+                    x: id as f32 + tick,
+                    y: 0.0,
+                    z: 0.0,
+                    vx: 0.0,
+                    vy: 0.0,
+                    vz: 0.0,
+                })
+                .collect(),
         });
-        actix_rt::time::sleep(Duration::from_millis(125)).await;
+        actix_rt::time::sleep(Duration::from_millis(50)).await;
     }
     let closed_after = started.elapsed();
     eprintln!("never-reading client closed {closed_after:?} after streaming began");

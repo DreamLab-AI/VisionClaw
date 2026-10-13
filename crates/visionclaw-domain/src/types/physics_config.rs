@@ -15,27 +15,36 @@ pub const CANONICAL_MAX_VELOCITY: f32 = 200.0;
 /// Canonical maximum force (from `src/config/mod.rs`).
 pub const CANONICAL_MAX_FORCE: f32 = 50.0;
 
-/// Default position-broadcast rate in Hz (`PhysicsSettings::broadcast_fps`).
+/// Most nodes in one position chunk (`PhysicsSettings::stream_chunk_nodes`).
 ///
-/// 8 Hz is the cadence live clients received before the broadcast rate
-/// limiter was corrected, so keeping it keeps per-client bandwidth unchanged.
-/// Every broadcast is a full snapshot (~52 B per node, ~490 KB for the
-/// ~9.5k-node corpus graph), so bandwidth per client scales with the rate:
-/// 8 Hz is ~3.9 MB/s, 25 Hz is ~12 MB/s.
-pub const DEFAULT_BROADCAST_FPS: u32 = 8;
+/// Each client is sent chunks of the nodes that changed since it last acknowledged (ADR-2141); a
+/// new client's initial sync is simply every node as "changed", in chunks. 2,500 nodes is ~130 KB:
+/// small enough that a chunk lands in one round trip on any link, large enough that the ~9.5k-node
+/// corpus graph syncs in four.
+pub const DEFAULT_STREAM_CHUNK_NODES: u32 = 2500;
 
-fn default_broadcast_fps() -> u32 {
-    DEFAULT_BROADCAST_FPS
+fn default_stream_chunk_nodes() -> u32 {
+    DEFAULT_STREAM_CHUNK_NODES
 }
 
-/// Default position-broadcast rate in Hz while a node is being interacted with
-/// (`PhysicsSettings::interaction_broadcast_fps`). A grab springs every neighbour; other users'
-/// clients chase the resulting stream, so it runs faster than the idle rate. 30 Hz is ~14.7 MB/s
-/// per client for the ~9.5k-node graph, for as long as the interaction lasts.
-pub const DEFAULT_INTERACTION_BROADCAST_FPS: u32 = 30;
+/// Display-space distance below which a node counts as unchanged for a client
+/// (`PhysicsSettings::stream_move_threshold`). Measured on the live ~9.5k-node graph: settled
+/// per-node motion is ~0.008 units per frame, and the graph spans ~1,400 units, so 0.25 is a
+/// third of a pixel at full-graph zoom: invisible, yet low enough that slow drift is delivered
+/// (it accumulates against the acknowledged position until it crosses).
+pub const DEFAULT_STREAM_MOVE_THRESHOLD: f32 = 0.25;
 
-fn default_interaction_broadcast_fps() -> u32 {
-    DEFAULT_INTERACTION_BROADCAST_FPS
+fn default_stream_move_threshold() -> f32 {
+    DEFAULT_STREAM_MOVE_THRESHOLD
+}
+
+/// How long a chunk may go unacknowledged before it is rebuilt and sent again
+/// (`PhysicsSettings::stream_ack_timeout_ms`). A client or frame that vanished costs this much
+/// delay once; an acknowledging client never waits for it.
+pub const DEFAULT_STREAM_ACK_TIMEOUT_MS: u32 = 500;
+
+fn default_stream_ack_timeout_ms() -> u32 {
+    DEFAULT_STREAM_ACK_TIMEOUT_MS
 }
 
 fn default_auto_balance_interval() -> u32 {
@@ -444,21 +453,22 @@ pub struct PhysicsSettings {
     #[serde(default = "default_spring_pop_scale", alias = "spring_k_agent")]
     pub spring_k_agent: f32,
 
-    /// Position-broadcast rate in Hz, 1-60 (default [`DEFAULT_BROADCAST_FPS`]).
-    /// Not a simulation parameter: it sets how often the server sends each
-    /// client a full position snapshot, which clients tween between. Cost per
-    /// client is linear in the rate: ~3.9 MB/s at 8 Hz, ~12 MB/s at 25 Hz for
-    /// the ~9.5k-node graph. Applied live through
-    /// `ConfigureBroadcastOptimization`.
-    #[serde(default = "default_broadcast_fps", alias = "broadcast_fps")]
-    #[validate(range(min = 1, max = 60))]
-    pub broadcast_fps: u32,
-    /// Position-broadcast rate in Hz while any node is being grabbed or moved (see
-    /// [`DEFAULT_INTERACTION_BROADCAST_FPS`]); the idle rate applies the rest of the time.
-    /// Applied live through `ConfigureBroadcastOptimization`.
-    #[serde(default = "default_interaction_broadcast_fps", alias = "interaction_broadcast_fps")]
-    #[validate(range(min = 1, max = 60))]
-    pub interaction_broadcast_fps: u32,
+    /// Most nodes in one position chunk, 100-20000 (default [`DEFAULT_STREAM_CHUNK_NODES`]).
+    /// Not a simulation parameter: how the server delivers positions to each client (ADR-2141).
+    /// Applied live through `ConfigureStream`.
+    #[serde(default = "default_stream_chunk_nodes", alias = "stream_chunk_nodes")]
+    #[validate(range(min = 100, max = 20000))]
+    pub stream_chunk_nodes: u32,
+    /// A node is sent again once it is this far (display units) from what the client last
+    /// acknowledged, 0-100 (default [`DEFAULT_STREAM_MOVE_THRESHOLD`]); 0 sends any change.
+    #[serde(default = "default_stream_move_threshold", alias = "stream_move_threshold")]
+    #[validate(range(min = 0.0, max = 100.0))]
+    pub stream_move_threshold: f32,
+    /// Milliseconds before an unacknowledged chunk is rebuilt and sent again, 20-10000
+    /// (default [`DEFAULT_STREAM_ACK_TIMEOUT_MS`]).
+    #[serde(default = "default_stream_ack_timeout_ms", alias = "stream_ack_timeout_ms")]
+    #[validate(range(min = 20, max = 10000))]
+    pub stream_ack_timeout_ms: u32,
     /// Every semantic force (DAG, type / physicality / role clustering, collision, attribute
     /// springs, maturity, cross-domain) with its own enable flag. One definition, validated
     /// once, applied as stored.
@@ -544,8 +554,9 @@ impl Default for PhysicsSettings {
             spring_k_knowledge: 1.0,
             spring_k_ontology: 1.0,
             spring_k_agent: 1.0,
-            broadcast_fps: DEFAULT_BROADCAST_FPS,
-            interaction_broadcast_fps: DEFAULT_INTERACTION_BROADCAST_FPS,
+            stream_chunk_nodes: DEFAULT_STREAM_CHUNK_NODES,
+            stream_move_threshold: DEFAULT_STREAM_MOVE_THRESHOLD,
+            stream_ack_timeout_ms: DEFAULT_STREAM_ACK_TIMEOUT_MS,
             semantic: SemanticForces::default(),
         }
     }
@@ -665,36 +676,67 @@ pub struct PhysicsUpdate {
 mod tests {
     use super::*;
 
-    /// The position-broadcast rate is a physics setting with default 8 Hz,
-    /// and a blob persisted before the field existed still deserialises.
+    /// The stream settings are physics settings with calibrated defaults; a blob persisted before
+    /// they existed (it carried `broadcastFps`) still deserialises, taking the defaults.
     #[test]
-    fn broadcast_fps_defaults_to_8_and_round_trips() {
-        assert_eq!(DEFAULT_BROADCAST_FPS, 8);
+    fn stream_settings_have_defaults_round_trip_and_ignore_the_retired_broadcast_rate() {
+        let d = PhysicsSettings::default();
         assert_eq!(
-            PhysicsSettings::default().broadcast_fps,
-            DEFAULT_BROADCAST_FPS
+            (d.stream_chunk_nodes, d.stream_move_threshold, d.stream_ack_timeout_ms),
+            (DEFAULT_STREAM_CHUNK_NODES, DEFAULT_STREAM_MOVE_THRESHOLD, DEFAULT_STREAM_ACK_TIMEOUT_MS)
         );
 
-        let mut legacy = serde_json::to_value(PhysicsSettings::default()).unwrap();
-        legacy.as_object_mut().unwrap().remove("broadcastFps");
+        let mut legacy = serde_json::to_value(&d).unwrap();
+        let obj = legacy.as_object_mut().unwrap();
+        for k in ["streamChunkNodes", "streamMoveThreshold", "streamAckTimeoutMs"] {
+            obj.remove(k);
+        }
+        obj.insert("broadcastFps".into(), serde_json::json!(25));
+        obj.insert("interactionBroadcastFps".into(), serde_json::json!(40));
         let ps: PhysicsSettings = serde_json::from_value(legacy).unwrap();
-        assert_eq!(ps.broadcast_fps, DEFAULT_BROADCAST_FPS);
+        assert_eq!(ps.stream_chunk_nodes, DEFAULT_STREAM_CHUNK_NODES, "old blobs take the defaults");
 
-        let ps = PhysicsSettings {
-            broadcast_fps: 25,
+        let custom = PhysicsSettings {
+            stream_chunk_nodes: 4000,
+            stream_move_threshold: 0.5,
+            stream_ack_timeout_ms: 250,
             ..PhysicsSettings::default()
         };
-        let json = serde_json::to_value(&ps).unwrap();
-        assert_eq!(json["broadcastFps"], 25);
+        let json = serde_json::to_value(&custom).unwrap();
+        assert_eq!(json["streamChunkNodes"], 4000);
+        assert_eq!(json["streamAckTimeoutMs"], 250);
         let back: PhysicsSettings = serde_json::from_value(json).unwrap();
-        assert_eq!(back.broadcast_fps, 25);
+        assert_eq!(back.stream_move_threshold, 0.5);
 
-        let mut snake = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        let mut snake = serde_json::to_value(&d).unwrap();
         let obj = snake.as_object_mut().unwrap();
-        obj.remove("broadcastFps");
-        obj.insert("broadcast_fps".into(), serde_json::json!(12));
-        let snake: PhysicsSettings = serde_json::from_value(snake).unwrap();
-        assert_eq!(snake.broadcast_fps, 12);
+        obj.remove("streamChunkNodes");
+        obj.insert("stream_chunk_nodes".into(), serde_json::json!(800));
+        assert_eq!(serde_json::from_value::<PhysicsSettings>(snake).unwrap().stream_chunk_nodes, 800);
+    }
+
+    #[test]
+    fn stream_settings_are_range_checked() {
+        use validator::Validate;
+        for (chunk, thr, timeout, ok) in [
+            (2500, 0.25, 500, true),
+            (100, 0.0, 20, true),
+            (20000, 100.0, 10000, true),
+            (99, 0.25, 500, false),
+            (20001, 0.25, 500, false),
+            (2500, -0.1, 500, false),
+            (2500, 100.1, 500, false),
+            (2500, 0.25, 19, false),
+            (2500, 0.25, 10001, false),
+        ] {
+            let ps = PhysicsSettings {
+                stream_chunk_nodes: chunk,
+                stream_move_threshold: thr,
+                stream_ack_timeout_ms: timeout,
+                ..PhysicsSettings::default()
+            };
+            assert_eq!(ps.validate().is_ok(), ok, "chunk {chunk} thr {thr} timeout {timeout}");
+        }
     }
 
     #[test]
