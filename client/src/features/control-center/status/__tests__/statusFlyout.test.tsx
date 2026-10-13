@@ -49,6 +49,12 @@ vi.mock('../../../graph/managers/graphDataManager', () => ({
 vi.mock('../../agents/AgentOpsSurface', () => ({
   OPEN_AGENT_OPS_EVENT: 'visionclaw:open-agent-ops',
 }));
+const physicsState = vi.hoisted(() => ({
+  current: { isSettled: false, stableFrameCount: 0, kineticEnergy: 0.207, telemetryLive: true, physicsRunning: true } as
+    | { isSettled: boolean; stableFrameCount: number; kineticEnergy: number; telemetryLive: boolean; physicsRunning: boolean }
+    | null,
+}));
+vi.mock('../usePhysicsState', () => ({ usePhysicsState: () => physicsState.current }));
 vi.mock('../useConnectionTelemetry', () => ({
   useLayoutMotion: () => ({ motion: 'settled', ratePerSec: 0, feedFresh: true }),
 }));
@@ -90,6 +96,20 @@ describe('StatusFlyout', () => {
     expect(screen.getByTestId('status-agents')).toBeInTheDocument();
     expect(screen.getByTestId('status-spacepilot')).toBeInTheDocument();
     expect(screen.getByTestId('status-motion')).toBeInTheDocument();
+  });
+
+  it('shows the server physics state, and says so plainly when the GPU is not reporting', () => {
+    const { rerender } = render(<StatusFlyout websocketStatus="connected" spacePilot={makeSpacePilot({})} onClose={() => {}} />);
+    expect(screen.getByTestId('status-physics')).toHaveTextContent('Settling');
+    expect(screen.getByTestId('status-physics')).toHaveTextContent('KE 0.21');
+
+    physicsState.current = { isSettled: true, stableFrameCount: 5, kineticEnergy: 0, telemetryLive: false, physicsRunning: true };
+    rerender(<StatusFlyout websocketStatus="connected" spacePilot={makeSpacePilot({})} onClose={() => {}} />);
+    expect(screen.getByTestId('status-physics')).toHaveTextContent('GPU not reporting');
+
+    physicsState.current = null;
+    rerender(<StatusFlyout websocketStatus="connected" spacePilot={makeSpacePilot({})} onClose={() => {}} />);
+    expect(screen.getByTestId('status-physics')).toHaveTextContent('Unavailable');
   });
 
   it('fires the SpacePilot connect callback when a device can be connected', () => {

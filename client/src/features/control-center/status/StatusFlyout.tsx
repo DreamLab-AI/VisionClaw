@@ -40,6 +40,8 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import { graphDataManager, type GraphData } from '../../graph/managers/graphDataManager';
 import { OPEN_AGENT_OPS_EVENT } from '../agents/AgentOpsSurface';
 import { useLayoutMotion, type WebSocketStatus } from './useConnectionTelemetry';
+import { usePhysicsState } from './usePhysicsState';
+import { describePhysicsState, type PhysicsTone } from './physicsState';
 import type { SpacePilotState } from './useSpacePilot';
 
 type BotsSummary = {
@@ -149,6 +151,8 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
   const showOntology = typeCounts.ontology > 0 || constraintStats.axiomsProcessed > 0 || inferredCount > 0;
   const isFullyConnected = websocketStatus === 'connected' && nodeCount > 0 && feedFresh;
 
+  const physics = describePhysicsState(usePhysicsState());
+  const physicsColor: Record<PhysicsTone, string> = { moving: '#f59e0b', settled: '#22c55e', paused: '#60a5fa', unknown: '#ef4444' };
   const motionColor = motion === 'morphing' ? '#f59e0b' : motion === 'stale' ? '#ef4444' : '#22c55e';
   const motionLabel = motion === 'morphing' ? 'Morphing' : motion === 'stale' ? 'Feed stale' : 'Settled';
 
@@ -234,9 +238,24 @@ export const StatusFlyout: React.FC<StatusFlyoutProps> = ({ websocketStatus, spa
         </>
       )}
 
-      {/* (d) Layout motion — honest readout. Server nit: settlementState.kineticEnergy
-          reports 0.0 / isSettled=true even during live motion (queen-measured), so we
-          derive morphing/settled from real inbound position-frame throughput instead. */}
+      {/* Physics — the GPU actor's own settlement telemetry (GET /api/graph/settlement),
+          polled only while this flyout is open. "GPU not reporting" / "Unavailable" are
+          shown as such; a fallback is never presented as a measurement. */}
+      <div
+        data-testid="status-physics"
+        className="mb-1 flex items-center gap-1.5 rounded bg-foreground/5 px-2 py-1.5"
+        title={physics.detail}
+      >
+        <Zap size={12} style={{ color: physicsColor[physics.tone] }} />
+        <span className="cc-helper-text">Physics</span>
+        <span className="cc-helper-text ml-1 truncate">{physics.detail}</span>
+        <span className="ml-auto font-semibold" style={{ color: physicsColor[physics.tone] }}>{physics.label}</span>
+      </div>
+
+      {/* (d) Layout motion — inferred from real inbound position-frame throughput, so it
+          also proves frames are arriving; the Physics row above is the server's own
+          number. (The server's settlementState was once unreliable, which is why this
+          exists; it now reports measured values, so both are kept.) */}
       <div
         data-testid="status-motion"
         className="mb-2 flex items-center gap-1.5 rounded bg-foreground/5 px-2 py-1.5"
