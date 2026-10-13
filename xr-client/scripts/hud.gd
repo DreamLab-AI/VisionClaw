@@ -22,6 +22,7 @@ extends Node3D
 ##   HudViewport/HudControl/Root/Tabs              — page host (one visible page)
 ##   HudViewport/HudControl/Root/Tabs/GraphPage    — physics/layout controls
 ##   HudViewport/HudControl/Root/Tabs/QueryPage    — visual query builder
+##   (LayoutPage: hierarchy/view/fold + layout mode; ShapesPage: planes, radial shells, cycles)
 ##   HudViewport/HudControl/Root/Tabs/PinsPage     — pinned nodes + Unpin All
 ##   HudViewport/HudControl/Root/Tabs/KeyPage      — colour swatch key (legend)
 ##   HudViewport/HudControl/Root/Tabs/SessionPage  — room/mute/connection/debug
@@ -145,6 +146,7 @@ var _hierarchy_button: Button = null
 var _flat_toggle_button: Button = null
 var _planes_toggle_button: Button = null
 var _layout_mode_button: Button = null
+var _cycles_button: Button = null
 # Query page modes and memory search (memory_search.gd).
 var _query_mode: String = "graph"
 var _query_mode_graph_button: Button = null
@@ -219,9 +221,9 @@ var _mic_badge: Label = null
 var _beat_mic_on: bool = false
 var _bursts_on: bool = true
 
-const TAB_ORDER: Array[String] = ["graph", "layout", "query", "pins", "swarm", "key", "session", "help"]
+const TAB_ORDER: Array[String] = ["graph", "layout", "shapes", "query", "pins", "swarm", "key", "session", "help"]
 const TAB_LABELS: Dictionary = {
-	"graph": "Graph", "layout": "Layout", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
+	"graph": "Graph", "layout": "Layout", "shapes": "Shapes", "query": "Query", "pins": "Pins", "swarm": "Swarm", "key": "Key", "session": "Session", "help": "Help",
 }
 
 # Agent status → roster dot colour (ADR-140, Pillar 3). Mirrors
@@ -454,6 +456,7 @@ func _build_pages_host() -> void:
 
 	_pages["graph"] = _build_graph_page()
 	_pages["layout"] = _build_layout_page()
+	_pages["shapes"] = _build_shapes_page()
 	_pages["query"] = _build_query_page()
 	_pages["pins"] = _build_pins_page()
 	_pages["swarm"] = _build_swarm_page()
@@ -549,9 +552,8 @@ func _build_graph_page() -> VBoxContainer:
 # now fit; keep the height arithmetic in mind before adding groups here.
 func _build_layout_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
-	# 3 (not the usual 8): four groups put this page at 564px with the default
-	# separation — 32px past the 532px host. Tighter separation buys ~35px.
-	page.add_theme_constant_override("separation", 3)
+	# Two groups now (Planes, Radial Shells and Cycles moved to the Shapes tab), so
+	# the default separation fits the 532px host with room to spare.
 
 	page.add_child(_group_header("Hierarchy & View"))
 	var g2 := _grid(3)
@@ -566,6 +568,24 @@ func _build_layout_page() -> VBoxContainer:
 	g2.add_child(_fold_plus_button)
 	g2.add_child(_fold_minus_button)
 	page.add_child(g2)
+
+	# ADR-141 Phase 1 — constrained-layout engine picker. Single cycling button
+	# steps through the backend LayoutMode enum; graph_scene POSTs /api/layout/mode.
+	# The knowledge graph, ontology and memory cloud are always apart (ADR-2135,
+	# 2026-10-08), so there is no separation control on this page.
+	page.add_child(_group_header("Layout Mode"))
+	var row := HBoxContainer.new()
+	row.name = "LayoutModeRow"
+	row.custom_minimum_size = Vector2(0, BTN_H)
+	row.add_theme_constant_override("separation", 8)
+	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
+	row.add_child(_layout_mode_button)
+	page.add_child(row)
+	return page
+
+
+func _build_shapes_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
 
 	page.add_child(_group_header("Planes"))
 	var g_planes := _grid(3)
@@ -585,18 +605,14 @@ func _build_layout_page() -> VBoxContainer:
 	g_radial.add_child(_action_btn("Radial Off", "radial_off", "Disable the radial shell force"))
 	page.add_child(g_radial)
 
-	# ADR-141 Phase 1 — constrained-layout engine picker. Single cycling button
-	# steps through the backend LayoutMode enum; graph_scene POSTs /api/layout/mode.
-	# The knowledge graph, ontology and memory cloud are always apart (ADR-2135,
-	# 2026-10-08), so there is no separation control on this page.
-	page.add_child(_group_header("Layout Mode"))
-	var row := HBoxContainer.new()
-	row.name = "LayoutModeRow"
-	row.custom_minimum_size = Vector2(0, BTN_H)
-	row.add_theme_constant_override("separation", 8)
-	_layout_mode_button = _action_btn("Layout: Force", "layout_mode_cycle", "Cycle graph layout mode (force, hierarchical, radial, spectral, temporal, clustered)")
-	row.add_child(_layout_mode_button)
-	page.add_child(row)
+	# Directed-cycle overlay. The server finds the cycles (GET /api/analytics/cycles,
+	# hierarchy edges); the toggle dims everything else and lights the cycle members.
+	page.add_child(_group_header("Cycles"))
+	var g_cycles := _grid(2)
+	_cycles_button = _action_btn("Cycles: Off", "cycles_toggle", "Light nodes on a directed cycle (e.g. a subclass loop) and dim the rest")
+	g_cycles.add_child(_cycles_button)
+	g_cycles.add_child(_action_btn("Cycles: Refresh", "cycles_refresh", "Re-fetch the cycle report from the server after the graph changes"))
+	page.add_child(g_cycles)
 	return page
 
 
@@ -1491,6 +1507,19 @@ func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -
 			label += " (%d)" % hull_count
 		_hulls_button.text = label
 		_hulls_button.add_theme_color_override("font_color", ACCENT if hull_source > 0 else IDLE)
+
+
+## Reflect the directed-cycle overlay on the Cycles button face: off, fetching, or
+## on with the number of nodes on a cycle.
+func set_cycles_state(on: bool, pending: bool, cyclic_count: int) -> void:
+	if _cycles_button != null:
+		if pending:
+			_cycles_button.text = "Cycles: ..."
+		elif on:
+			_cycles_button.text = "Cycles: On (%d)" % cyclic_count
+		else:
+			_cycles_button.text = "Cycles: Off"
+		_cycles_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
 
 
 ## Reflect the active layout mode on the Layout Mode cycling button face.

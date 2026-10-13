@@ -247,6 +247,11 @@ const FOLD_LEVEL_MIN: int = 0
 const FOLD_LEVEL_MAX: int = 3
 var _fold_level: int = 0
 var _fold_http: HTTPRequest = null
+# Directed-cycle overlay (GET /api/analytics/cycles). Own request + gate so a cycle
+# fetch never blocks or is blocked by the physics write path.
+var _cycles_http: HTTPRequest = null
+var _cycles_pending: bool = false
+var _cycles_count: int = 0
 # One fold fetch in flight at a time; the requested level is staged and committed
 # to _fold_level only on a 2xx, mirroring the physics one-in-flight discipline.
 var _fold_pending: bool = false
@@ -586,6 +591,11 @@ func _ready() -> void:
 	_fold_http.request_completed.connect(_on_fold_completed)
 	_fold_http.timeout = 10.0
 
+	_cycles_http = HTTPRequest.new()
+	add_child(_cycles_http)
+	_cycles_http.request_completed.connect(_on_cycles_completed)
+	_cycles_http.timeout = 10.0
+
 	_init_label_pool()
 	_probe_eye_gaze()
 	_wire_hud()
@@ -869,6 +879,11 @@ func _on_hud_control(action: String) -> void:
 			_request_flat_toggle()
 		"layout_mode_cycle":
 			_request_layout_mode_cycle()
+		"cycles_toggle":
+			_request_cycles_toggle()
+		"cycles_refresh":
+			if _cycles_active():
+				_fetch_cycles()
 		"fold_plus":
 			_request_fold(1)
 		"fold_minus":
@@ -940,6 +955,8 @@ func _refresh_controls_status() -> void:
 		hud.set_layout_mode_label(LAYOUT_MODE_LABELS[_layout_mode_idx])
 	if hud.has_method("set_fold_state"):
 		hud.set_fold_state(_fold_level)
+	if hud.has_method("set_cycles_state"):
+		hud.set_cycles_state(_cycles_active(), _cycles_pending, _cycles_count)
 	# Populate the Pins tab list (cheap; press/ack-only, no per-frame cost).
 	if hud.has_method("set_pinned_ids"):
 		hud.set_pinned_ids(_pinned_ids.keys())
@@ -1029,6 +1046,61 @@ func _on_fold_completed(result: int, response_code: int, _headers: PackedStringA
 		_binary_client.set_fold_plan(hidden, members, reps)
 	_fold_level = _fold_staged_level
 	_selection_dirty = true  # force one node/edge buffer rebuild with the new plan
+	_refresh_controls_status()
+
+
+# Cycles toggle: off -> fetch the server's cycle report and light the overlay;
+# on -> clear it. The overlay is committed only on a 2xx, so the button face never
+# claims a state the renderer is not showing.
+func _request_cycles_toggle() -> void:
+	if _cycles_active():
+		_cycles_count = 0
+		if _binary_client != null and _binary_client.has_method("clear_cycle_overlay"):
+			_binary_client.clear_cycle_overlay()
+		_selection_dirty = true
+		_refresh_controls_status()
+		return
+	_fetch_cycles()
+
+
+# The Rust store owns whether the overlay is on (a full store reset clears it), so
+# read it from there rather than shadowing it in a flag that could go stale.
+func _cycles_active() -> bool:
+	return _binary_client != null and _binary_client.has_method("cycle_overlay_active") and _binary_client.cycle_overlay_active()
+
+
+# GET {base}/api/analytics/cycles (subsumption edges by default; the server owns the analysis).
+func _fetch_cycles() -> void:
+	if _cycles_http == null or _cycles_pending:
+		return
+	var url := "%s/api/analytics/cycles" % _http_base()
+	var headers := _auth_headers(url, "GET")
+	var err := _cycles_http.request(url, headers, HTTPClient.METHOD_GET)
+	if err != OK:
+		push_warning("GraphScene: cycles GET failed to start (%d)" % err)
+		return
+	_cycles_pending = true
+	_refresh_controls_status()
+
+
+# The endpoint answers the standard envelope: {"success":true,"data":{"cyclicNodeIds":[...],...}}.
+func _on_cycles_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_cycles_pending = false
+	var ok := result == HTTPRequest.RESULT_SUCCESS and response_code >= 200 and response_code < 300
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8()) if ok else null
+	if typeof(parsed) != TYPE_DICTIONARY or typeof(parsed.get("data")) != TYPE_DICTIONARY:
+		push_warning("GraphScene: cycles request failed (result=%d code=%d)" % [result, response_code])
+		_refresh_controls_status()
+		return
+	var ids := PackedInt32Array()
+	for v: Variant in parsed["data"].get("cyclicNodeIds", []):
+		ids.push_back(int(v))
+	if _binary_client != null and _binary_client.has_method("set_cycle_overlay"):
+		_binary_client.set_cycle_overlay(ids)
+		_cycles_count = ids.size()
+	else:
+		push_warning("GraphScene: native library lacks set_cycle_overlay — rebuild the gdext library to use Cycles")
+	_selection_dirty = true  # force one node-buffer rebuild with the overlay
 	_refresh_controls_status()
 
 

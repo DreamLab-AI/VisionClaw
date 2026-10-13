@@ -188,22 +188,23 @@ also parse the TS source tables and the beam shader uniforms.
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
 SubViewport shown on a world-space, wand-grabbable quad — one source of truth so
 every control fits its page (`hud.gd:1-28`). Tab order:
-`graph, layout, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
+`graph, layout, shapes, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
 `key` is the colour swatch legend, 2026-09-08). Stable node
 paths are documented in-file (`hud.gd:20-28`) for rebases.
 
 Two overflow lessons are baked in as INVARIANTS:
 - **532px page host.** The constrained-layout controls were split out of the
   Graph tab onto a dedicated Layout tab (commit 2358cda4a) because the combined
-  page needed ~1050px in a 532px host. The Layout page uses tightened separation
-  `3` not the usual `8` (`hud.gd:340-345`): four groups land at 564px with
-  default separation — 32px past the host — and the tighter separation buys
-  ~35px. A dev-only overflow guard warns once per tab if a page's min-height
+  page needed ~1050px in a 532px host. The Layout page then carried four groups
+  at tightened separation `3` (564px with the default `8`, 32px past the host);
+  ADR-2138 moved Planes and Radial Shells to a ninth **Shapes** tab, together
+  with the new Cycles group, so Layout is back to two groups at the default
+  separation and Shapes holds three. A dev-only overflow guard warns once per tab if a page's min-height
   exceeds the host (`hud.gd:756-766`).
 - **No separation control (ADR-2135 amendment, 2026-10-08).** The knowledge
   graph, ontology and memory cloud are always apart, so the Layout page's Layout
   Mode row holds only the layout-mode button; the 2026-10-07 slider row and
-  `separation_control.gd` are gone. The page stays 529 of 532 px.
+  `separation_control.gd` are gone. (Page height is no longer a constraint there: ADR-2138 moved the radial and plane groups to the Shapes tab.)
 - **Query page: Graph Query / Memory Search (2026-10-07).** A mode row (press
   fire, styled like the tab bar) replaces the 39 px header: graph mode is the
   desktop query builder (522 px); memory mode is a one-line caption, a "Type a

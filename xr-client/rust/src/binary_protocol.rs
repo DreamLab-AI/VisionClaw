@@ -2001,6 +2001,26 @@ impl BinaryProtocolClient {
         self.store.clear_query_vars();
     }
 
+    /// Turn the directed-cycle overlay on for the server's cyclic node ids
+    /// (`GET /api/analytics/cycles`). Cycle members glow, every other node dims.
+    #[func]
+    fn set_cycle_overlay(&mut self, ids: PackedInt32Array) {
+        let ids: Vec<u32> = ids.as_slice().iter().map(|&i| i as u32).collect();
+        self.store.set_cycle_overlay(&ids);
+    }
+
+    /// Turn the directed-cycle overlay off, restoring every node's own colour.
+    #[func]
+    fn clear_cycle_overlay(&mut self) {
+        self.store.clear_cycle_overlay();
+    }
+
+    /// Whether the directed-cycle overlay is on.
+    #[func]
+    fn cycle_overlay_active(&self) -> bool {
+        self.store.cycle_overlay_active()
+    }
+
     /// Whether a node is currently marked as a query variable.
     #[func]
     fn is_query_var(&self, node_id: u32) -> bool {

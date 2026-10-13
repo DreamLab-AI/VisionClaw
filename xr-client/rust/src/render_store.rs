@@ -536,6 +536,11 @@ pub struct RenderStore {
     // rim-glow them. Kept separate from `color` (community colour) so unmarking a
     // node restores its original colour with no reload.
     query_vars: HashMap<u32, u8>,
+    // Directed-cycle overlay (server `GET /api/analytics/cycles`): `Some(ids)` =
+    // overlay on, nodes in `ids` glow cycle-orange and every other node dims;
+    // `None` = off. A separate channel from `query_vars`, so the two never clobber
+    // each other and clearing one restores the other's colours untouched.
+    cycle_nodes: Option<HashSet<u32>>,
     // Co-proximate label fade. `labelled` = ids whose label overlay is showing
     // right now (GDScript replaces it at the label cadence); `label_alpha` = the
     // per-node current alpha, eased toward LABEL_FADE_ALPHA while labelled and
@@ -634,6 +639,13 @@ pub fn query_var_color(palette_idx: u8) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], 1.0]
 }
 
+/// Colour of a node on a directed cycle while the cycle overlay is on
+/// (matches the desktop client's `#FF5722`).
+pub const CYCLE_NODE_COLOR: [f32; 4] = [1.0, 0.341, 0.133, 1.0];
+
+/// Factor the colour of a node OFF every cycle is scaled by while the overlay is on.
+pub const CYCLE_DIM: f32 = 0.22;
+
 impl RenderStore {
     pub fn new() -> Self {
         Self::default()
@@ -660,6 +672,7 @@ impl RenderStore {
         self.folding.clear();
         self.unfolding.clear();
         self.query_vars.clear();
+        self.cycle_nodes = None;
         self.labelled.clear();
         self.label_alpha.clear();
         self.faded_buf.clear();
@@ -1143,6 +1156,25 @@ impl RenderStore {
     /// Whether a node is currently marked as a query variable.
     pub fn is_query_var(&self, node_id: u32) -> bool {
         self.query_vars.contains_key(&node_id)
+    }
+
+    /// Turn the directed-cycle overlay on for `ids` (the server's cyclic node ids).
+    /// An empty slice still turns it on: every node dims, which is the honest
+    /// picture of "no cycles".
+    pub fn set_cycle_overlay(&mut self, ids: &[u32]) {
+        self.touch();
+        self.cycle_nodes = Some(ids.iter().copied().collect());
+    }
+
+    /// Turn the directed-cycle overlay off, restoring every node's own colour.
+    pub fn clear_cycle_overlay(&mut self) {
+        self.touch();
+        self.cycle_nodes = None;
+    }
+
+    /// Whether the directed-cycle overlay is on.
+    pub fn cycle_overlay_active(&self) -> bool {
+        self.cycle_nodes.is_some()
     }
 
     /// Replace the set of nodes whose label overlay is showing (proximity or
@@ -1805,6 +1837,24 @@ impl RenderStore {
             if let Some(rec) = self.agent_registry.get(&id) {
                 col = agent_status_color(rec.status);
                 halo = halo.max(AGENT_HALO_MIN);
+            }
+        }
+        // Directed-cycle overlay: cycle members glow, everything else dims. Applied
+        // after the agent tint so the overlay reads uniformly, but never over a
+        // query-marked node (an explicit user selection outranks an ambient overlay).
+        if let Some(cycles) = &self.cycle_nodes {
+            if query_flag == 0.0 {
+                if cycles.contains(&id) {
+                    col = CYCLE_NODE_COLOR;
+                    halo = halo.max(AGENT_HALO_MIN);
+                } else {
+                    col = [
+                        col[0] * CYCLE_DIM,
+                        col[1] * CYCLE_DIM,
+                        col[2] * CYCLE_DIM,
+                        col[3],
+                    ];
+                }
             }
         }
         // Attention heat is applied per frame in `live_tint` (render_store_pack.rs),
@@ -3281,6 +3331,36 @@ mod tests {
         s.clear_query_var(1);
         let restored = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
         assert!(approx(restored[12], community[0]) && approx(restored[18], 0.0));
+    }
+
+    #[test]
+    fn cycle_overlay_lights_members_dims_the_rest_and_restores() {
+        let mut s = RenderStore::new();
+        s.set_color_mode(crate::domain_palette::ColorMode::Community);
+        s.upsert(1, [0.0, 0.0, 0.0], 3, 0.0, 1.0);
+        s.upsert(2, [1.0, 0.0, 0.0], 3, 0.0, 1.0);
+        let base = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
+
+        s.set_cycle_overlay(&[1]);
+        assert!(s.cycle_overlay_active());
+        let on = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
+        // Node 1 (on a cycle) takes the cycle colour; node 2 is its own colour dimmed.
+        assert!(approx(on[12], CYCLE_NODE_COLOR[0]) && approx(on[13], CYCLE_NODE_COLOR[1]));
+        let o2 = NODE_STRIDE;
+        assert!(approx(on[o2 + 12], base[o2 + 12] * CYCLE_DIM));
+        assert!(approx(on[o2 + 13], base[o2 + 13] * CYCLE_DIM));
+
+        // A query mark outranks the overlay.
+        s.set_query_var(2, 0);
+        let marked = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
+        assert!(approx(marked[o2 + 12], query_var_color(0)[0]));
+
+        // Off restores the original colours.
+        s.clear_query_var(2);
+        s.clear_cycle_overlay();
+        assert!(!s.cycle_overlay_active());
+        let off = s.build_node_buffer(&[1, 2], 1.0, 0.7, 1.9);
+        assert!(approx(off[12], base[12]) && approx(off[o2 + 12], base[o2 + 12]));
     }
 
     #[test]
