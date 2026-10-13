@@ -405,3 +405,24 @@ func test_group_navigation_wraps_and_names_each_force() -> void:
 	assert_eq(hud.forces.back()["group"], "DAG Layering", "eight steps forward wrap to the first force")
 	parity.handle_control("forces_prev")
 	assert_eq(hud.forces.back()["index"], 7)
+
+
+# ---- chase speed (shared with the desktop client) ----
+
+const SceneScript := preload("res://scripts/graph_scene.gd")
+
+
+func test_the_chase_ease_covers_63_percent_in_one_chase_time_at_any_frame_rate() -> void:
+	for fps in [30.0, 45.0, 90.0, 120.0]:
+		var dt: float = 1.0 / fps
+		var remaining: float = 1.0
+		var t: float = 0.0
+		while t < SceneScript.CHASE_MS / 1000.0 - 1e-6:
+			remaining *= 1.0 - SceneScript.chase_ease(dt)
+			t += dt
+		assert_almost_eq(1.0 - remaining, 0.632, 0.04, "63%% after one chase time at %d fps" % int(fps))
+
+
+func test_a_longer_frame_eases_further_so_slow_frames_do_not_slow_the_motion() -> void:
+	assert_gt(SceneScript.chase_ease(0.022), SceneScript.chase_ease(0.011))
+	assert_lt(SceneScript.chase_ease(0.011), 1.0)

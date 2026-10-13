@@ -3,7 +3,7 @@ import { settingsIdempotencyKey } from '../settingsKey';
 
 describe('settingsIdempotencyKey', () => {
   const physics = { springStrength: 0.001, damping: 0.98 };
-  const tween = { enabled: true, lerpBase: 0.003, snapThreshold: 0.05, maxDivergence: 50 };
+  const tween = { enabled: true, responseMs: 60, snapThreshold: 0.05, maxDivergence: 50 };
 
   it('is stable for identical input, so unchanged pushes are skipped', () => {
     expect(settingsIdempotencyKey(physics, null, tween)).toBe(settingsIdempotencyKey({ ...physics }, null, { ...tween }));
@@ -11,7 +11,7 @@ describe('settingsIdempotencyKey', () => {
 
   it('changes when only a tweening value changes, so the Smooth Movement sliders reach the worker', () => {
     const before = settingsIdempotencyKey(physics, null, tween);
-    expect(settingsIdempotencyKey(physics, null, { ...tween, lerpBase: 0.02 })).not.toBe(before);
+    expect(settingsIdempotencyKey(physics, null, { ...tween, responseMs: 90 })).not.toBe(before);
     expect(settingsIdempotencyKey(physics, null, { ...tween, enabled: false })).not.toBe(before);
   });
 

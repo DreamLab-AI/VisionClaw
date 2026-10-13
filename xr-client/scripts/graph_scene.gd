@@ -1513,7 +1513,7 @@ func _physics_process(delta: float) -> void:
 	# targets and pins the grabbed node to the wand — replaces the old GDScript
 	# per-node lerp over a 13k Dictionary.
 	if _binary_client != null and _binary_client.has_method("hunt"):
-		_binary_client.hunt(POSITION_HUNT_EASE, _grabbed_id, _grab_target_server)
+		_binary_client.hunt(chase_ease(delta), _grabbed_id, _grab_target_server)
 	_fit_graph_to_view(delta)
 	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
 	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
@@ -2003,7 +2003,16 @@ func _uniform_scale(xform: Transform3D) -> float:
 # so motion stays smooth between (and independent of) update ticks — the same
 # pattern the desktop client uses. The grabbed node is exempt (it tracks the
 # hand locally and the server echoes it back).
-const POSITION_HUNT_EASE: float = 0.06
+# Chase time constant in milliseconds: a node covers 63% of the way to its server target in this
+# long, at any frame rate (lower = faster). Identical to the desktop client's default
+# `tweening.responseMs`; a cross-client test pins the two values together. This replaced a fixed
+# 6% per frame, which was ~180 ms at 90 FPS but ~360 ms at 45 FPS, and slower than it looked.
+const CHASE_MS: float = 60.0
+
+
+## The per-frame ease for `delta` seconds: 1 - exp(-dt / tau).
+static func chase_ease(delta: float) -> float:
+	return 1.0 - exp(-(delta * 1000.0) / CHASE_MS)
 
 
 # Recompute the drawn-node selection (LOD budget + topology bias). Cached in

@@ -75,6 +75,9 @@ const NETWORK_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.interactionBroadcastFps',
 ];
 
+/** Client tweening paths that post-date the baseline: the chase time replaced `lerpBase`. */
+const TWEENING_PATHS: string[] = ['visualisation.graphs.knowledge.tweening.responseMs'];
+
 /**
  * Frozen legacy paths deliberately retired from the registry. Graph Separation
  * (`graphSeparationX`) went with ADR-2135's 2026-10-08 amendment: the three
@@ -88,6 +91,7 @@ const SEMANTIC_PATHS: string[] = (semanticDoc as { fields: { path: string }[] })
 
 const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.graphSeparationX',
+  'visualisation.graphs.knowledge.tweening.lerpBase',   // replaced by tweening.responseMs (a time constant, lower = faster)
   // Moved into the physics `semantic` group (one stored definition, applied unscaled by the
   // GPU); the quality-gate copies and their REST propagation were removed (ADR-2140).
   'qualityGates.semanticForces',
@@ -99,7 +103,7 @@ const RETIRED_PATHS: string[] = [
 
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
-  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length;
+  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -218,12 +222,13 @@ describe('control-center settings registry', () => {
     const memorySet = new Set(MEMORY_EXPLORER_PATHS);
     const networkSet = new Set(NETWORK_PATHS);
     const semanticSet = new Set(SEMANTIC_PATHS);
+    const tweeningSet = new Set(TWEENING_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -371,7 +376,6 @@ describe('control-center settings registry', () => {
   // Known pre-existing off-grid sliders are whitelisted by path (out of defect-3
   // scope; documented here so future drift on the FIXED fields is still caught).
   const OFF_GRID_WHITELIST = new Set<string>([
-    'visualisation.graphs.knowledge.tweening.lerpBase',            // (0.15-0.0001)/0.001 = 149.9
     'visualisation.graphs.knowledge.physics.maxForce',            // (2000-1)/5     = 399.8
     'visualisation.graphs.knowledge.physics.constraintMaxForcePerNode', // (2000-1)/5 = 399.8
     'perplexity.maxTokens',                                    // (4096-100)/100 = 39.96

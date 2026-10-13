@@ -151,7 +151,7 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
     // so the change still reaches the backend exactly once.
   },
 
-  updateTweening: (graphName: string, params: Partial<{ enabled: boolean; lerpBase: number; snapThreshold: number; maxDivergence: number }>) => {
+  updateTweening: (graphName: string, params: Partial<{ enabled: boolean; responseMs: number; snapThreshold: number; maxDivergence: number }>) => {
     if (typeof graphName !== 'string' || !graphName || graphName === '[object Object]') {
       logger.warn('updateTweening called with invalid graphName, defaulting to "knowledge":', graphName);
       graphName = 'knowledge';
@@ -166,8 +166,8 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
 
     // Validate ranges
     const validatedParams = { ...params };
-    if (validatedParams.lerpBase !== undefined) {
-      validatedParams.lerpBase = Math.max(0.0001, Math.min(0.5, validatedParams.lerpBase));
+    if (validatedParams.responseMs !== undefined) {
+      validatedParams.responseMs = Math.max(5, Math.min(1000, validatedParams.responseMs));
     }
     if (validatedParams.snapThreshold !== undefined) {
       validatedParams.snapThreshold = Math.max(0.01, Math.min(1.0, validatedParams.snapThreshold));
@@ -198,7 +198,7 @@ export const createPhysicsSlice: StateCreator<SettingsState, [], [], PhysicsSlic
     state.notifyTweeningUpdate(validatedParams);
   },
 
-  notifyTweeningUpdate: (params: Partial<{ enabled: boolean; lerpBase: number; snapThreshold: number; maxDivergence: number }>) => {
+  notifyTweeningUpdate: (params: Partial<{ enabled: boolean; responseMs: number; snapThreshold: number; maxDivergence: number }>) => {
     if (typeof window !== 'undefined') {
       const event = new CustomEvent('tweeningSettingsUpdated', {
         detail: params

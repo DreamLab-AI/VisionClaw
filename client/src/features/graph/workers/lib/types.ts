@@ -133,7 +133,8 @@ export interface ForcePhysicsSettings {
 
 export interface TweenSettings {
   enabled: boolean;
-  lerpBase: number;
+  /** Chase time constant in milliseconds; lower is faster. */
+  responseMs: number;
   snapThreshold: number;
   maxDivergence: number;
 }

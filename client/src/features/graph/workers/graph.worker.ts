@@ -40,10 +40,10 @@ class GraphWorker {
   // This flag is kept for API compatibility but always returns true.
   private useServerPhysics: boolean = true;
 
-  // Client-side tweening toward server targets. lerpFactor = 1 - lerpBase^dt.
+  // Client-side tweening toward server targets: exponential approach, time constant responseMs.
   private tweenSettings: TweenSettings = {
     enabled: true,
-    lerpBase: 0.003,      // ~200ms smooth settle — clients interpolate to server targets
+    responseMs: 60,       // chase time constant (XR uses the same value: CHASE_MS in graph_scene.gd)
     snapThreshold: 0.05,  // Snap when within 0.05 units (sub-pixel)
     maxDivergence: 50.0,  // Force snap on large jumps (topology change)
   };
@@ -253,7 +253,7 @@ class GraphWorker {
     if (tweening) {
       await this.setTweeningSettings({
         enabled: tweening.enabled as boolean | undefined,
-        lerpBase: tweening.lerpBase as number | undefined,
+        responseMs: tweening.responseMs as number | undefined,
         snapThreshold: tweening.snapThreshold as number | undefined,
         maxDivergence: tweening.maxDivergence as number | undefined,
       });
@@ -473,10 +473,10 @@ class GraphWorker {
 
   async setTweeningSettings(settings: Partial<TweenSettings>): Promise<void> {
     if (settings.enabled !== undefined) this.tweenSettings.enabled = settings.enabled;
-    if (settings.lerpBase !== undefined) this.tweenSettings.lerpBase = Math.max(0.0001, Math.min(0.5, settings.lerpBase));
+    if (settings.responseMs !== undefined) this.tweenSettings.responseMs = Math.max(5, Math.min(1000, settings.responseMs));
     if (settings.snapThreshold !== undefined) this.tweenSettings.snapThreshold = Math.max(0.01, settings.snapThreshold);
     if (settings.maxDivergence !== undefined) this.tweenSettings.maxDivergence = Math.max(1, settings.maxDivergence);
-    workerLogger.info(`Tweening settings updated: lerpBase=${this.tweenSettings.lerpBase}, snap=${this.tweenSettings.snapThreshold}`);
+    workerLogger.info(`Tweening settings updated: responseMs=${this.tweenSettings.responseMs}, snap=${this.tweenSettings.snapThreshold}`);
   }
 
   recomputeAnalytics(): void {

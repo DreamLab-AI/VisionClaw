@@ -4084,4 +4084,22 @@ mod tests {
         s.clear();
         assert_eq!(s.agent_drift_offset(1), [0.0; 3], "clear resets drift");
     }
+
+    /// The headset and the desktop chase their server targets with the SAME time constant, so a
+    /// node moves the same way on both and the effect of a force reads the same. The value is
+    /// defined in two places only because they are two languages; this pins them together.
+    #[test]
+    fn xr_and_web_chase_with_the_same_time_constant() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let web = std::fs::read_to_string(root.join("client/src/features/graph/workers/graph.worker.ts"))
+            .expect("web worker source");
+        let xr = std::fs::read_to_string(root.join("xr-client/scripts/graph_scene.gd")).expect("graph_scene.gd");
+        let find = |src: &str, key: &str| -> f32 {
+            let at = src.find(key).unwrap_or_else(|| panic!("{key} not found"));
+            let tail = &src[at + key.len()..];
+            let num: String = tail.chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            num.parse().unwrap_or_else(|_| panic!("no number after {key}"))
+        };
+        assert_eq!(find(&web, "responseMs:"), find(&xr, "const CHASE_MS"), "web responseMs vs XR CHASE_MS");
+    }
 }

@@ -66,7 +66,7 @@ const fields: RegistryField[] = [
   ...semanticFields,
   // Smooth Movement (client-side tweening)
   { key: 'tweeningEnabled', subgroup: 'Smooth Movement', label: 'Smooth Node Movement', type: 'toggle', path: 'visualisation.graphs.knowledge.tweening.enabled', description: 'Smoothly animate nodes toward server positions instead of snapping instantly' },
-  { key: 'tweeningLerpBase', subgroup: 'Smooth Movement', label: 'Node Animation Speed', type: 'slider', min: 0.0001, max: 0.15, step: 0.001, path: 'visualisation.graphs.knowledge.tweening.lerpBase', description: 'How quickly nodes reach their target positions (lower = faster, higher = smoother)' },
+  { key: 'tweeningResponseMs', subgroup: 'Smooth Movement', label: 'Node Chase Time (ms)', type: 'slider', min: 10, max: 500, step: 5, path: 'visualisation.graphs.knowledge.tweening.responseMs', description: 'How long a node takes to cover 63% of the way to its target position (lower = faster, higher = smoother). Default 60 ms; the headset uses the same value' },
   { key: 'tweeningMaxDivergence', subgroup: 'Smooth Movement', label: 'Maximum Node Jump', type: 'slider', min: 1, max: 100, step: 1, path: 'visualisation.graphs.knowledge.tweening.maxDivergence', description: 'Distance threshold above which nodes snap instantly instead of animating' },
   { key: 'tweeningSnapThreshold', subgroup: 'Smooth Movement', label: 'Snap Distance', type: 'slider', min: 0.01, max: 1.0, step: 0.01, path: 'visualisation.graphs.knowledge.tweening.snapThreshold', description: 'Distance below which nodes snap to their target (sub-pixel precision)' },
 ];

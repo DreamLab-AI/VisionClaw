@@ -4,7 +4,7 @@ import type { TweenSettings } from '../types';
 
 const DEFAULT_SETTINGS: TweenSettings = {
   enabled: true,
-  lerpBase: 0.003,
+  responseMs: 60,
   snapThreshold: 0.01,
   maxDivergence: 500,
 };
@@ -114,5 +114,33 @@ describe('tickTween', () => {
     const input = makeInput({ curPos: cur, tgtPos: tgt, deltaTime: 1 });
     const result = tickTween(input);
     expect(result.totalMovement).toBeGreaterThan(0);
+  });
+
+  describe('response time (responseMs)', () => {
+    const run = (responseMs: number, dt: number, seconds: number) => {
+      const input = makeInput({
+        curPos: new Float32Array([0, 0, 0]),
+        tgtPos: new Float32Array([100, 0, 0]),
+        tweenSettings: { ...DEFAULT_SETTINGS, responseMs, snapThreshold: 0.0001 },
+        deltaTime: dt,
+      });
+      for (let t = 0; t < seconds; t += dt) tickTween(input);
+      return input.curPos[0];
+    };
+
+    it('covers ~63% of the gap in one response time', () => {
+      expect(run(60, 0.001, 0.06)).toBeGreaterThan(62);
+      expect(run(60, 0.001, 0.06)).toBeLessThan(64.5);
+    });
+
+    it('is independent of the frame rate', () => {
+      const at30 = run(60, 1 / 30, 0.2);
+      const at144 = run(60, 1 / 144, 0.2);
+      expect(Math.abs(at30 - at144)).toBeLessThan(1.5);
+    });
+
+    it('lower is faster', () => {
+      expect(run(30, 0.016, 0.1)).toBeGreaterThan(run(120, 0.016, 0.1));
+    });
   });
 });

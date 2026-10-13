@@ -62,9 +62,10 @@ export function tickTween(input: TweenInput): TweenResult {
     return { totalMovement: 0, hadMovement: false };
   }
 
-  // lerpFactor: 1 − lerpBase^dt
-  // Lower lerpBase = smoother/slower interpolation. Default 0.003 ≈ 200 ms settle.
-  const lerpFactor = 1 - Math.pow(tweenSettings.lerpBase, deltaTime);
+  // Exponential approach with time constant `responseMs`: a node covers 63% of the remaining
+  // distance in one response time, whatever the frame rate. LOWER = FASTER. (The earlier
+  // `lerpBase` form, 1 - base^dt, had a comment saying the opposite of what it did.)
+  const lerpFactor = 1 - Math.exp(-(deltaTime * 1000) / Math.max(tweenSettings.responseMs, 1));
   const snapThreshold = tweenSettings.snapThreshold;
   const maxDiv = tweenSettings.maxDivergence;
 

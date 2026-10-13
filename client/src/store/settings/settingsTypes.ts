@@ -106,6 +106,6 @@ export interface SettingsState {
 
   notifyPhysicsUpdate: (graphName: string, params: Partial<GPUPhysicsParams>) => void;
 
-  updateTweening: (graphName: string, params: Partial<{ enabled: boolean; lerpBase: number; snapThreshold: number; maxDivergence: number }>) => void;
-  notifyTweeningUpdate: (params: Partial<{ enabled: boolean; lerpBase: number; snapThreshold: number; maxDivergence: number }>) => void;
+  updateTweening: (graphName: string, params: Partial<{ enabled: boolean; responseMs: number; snapThreshold: number; maxDivergence: number }>) => void;
+  notifyTweeningUpdate: (params: Partial<{ enabled: boolean; responseMs: number; snapThreshold: number; maxDivergence: number }>) => void;
 }

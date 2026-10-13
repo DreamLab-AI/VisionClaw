@@ -424,7 +424,7 @@ export const createCoreSlice: StateCreator<SettingsState, [], [], CoreSlice> = (
       const topLevelTweening = tweening.clientTweening as Record<string, unknown> | undefined;
       const tweeningSettings = perGraphTweening || topLevelTweening;
       if (tweeningSettings) {
-        state.notifyTweeningUpdate(tweeningSettings as Partial<{ enabled: boolean; lerpBase: number; snapThreshold: number; maxDivergence: number }>);
+        state.notifyTweeningUpdate(tweeningSettings as Partial<{ enabled: boolean; responseMs: number; snapThreshold: number; maxDivergence: number }>);
       }
     }
 

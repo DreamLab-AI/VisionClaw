@@ -143,7 +143,7 @@ export interface ClientTweeningSettings {
   /** Whether optimistic tweening is enabled (disable for instant snap) */
   enabled: boolean;
   /** Interpolation base factor: 1 - Math.pow(base, deltaTime). Lower = smoother. Default 0.001 */
-  lerpBase: number;
+  responseMs: number;
   /** Distance below which positions snap instantly (no tweening). Default 5.0 */
   snapThreshold: number;
   /** Maximum allowed divergence from server before forcing snap. Default 50.0 */
