@@ -259,6 +259,11 @@ pub async fn socket_flow_handler(
                                 "WebSocket token validated successfully for client {}",
                                 client_ip
                             );
+                            // Carry the validated session forward so the connection is
+                            // attributed (pubkey, power-user) like the signed-subprotocol
+                            // path; without this the header-token client stays anonymous
+                            // after a successful check (TODO-unified S-7f).
+                            signed_user = session;
                         }
                     }
                     None => {
