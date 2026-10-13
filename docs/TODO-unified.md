@@ -299,6 +299,8 @@ S-4(1) built (2026-10-12), per the owner answer "wire real discovery": `AppState
 
 S-7e observed on GitHub (2026-10-12): `gh workflow run ci.yml --ref main` on DreamLab-AI/solid-pod-rs (run `38385377803`, head `bfbeea05`) completed the `fuzz sparql_update (60 s) + bench smoke` job with every step green: nightly toolchain, `cargo-fuzz` install, 60 s fuzz, bench smoke. S-7e is closed on observation, not only on source. The job is cron-and-dispatch only, so a weekly red there is a finding, not a merge blocker.
 
+S-6 closed (2026-10-12), owner chose option (b): podkey `ci.yml` gained `workflow_dispatch` (podkey `bd39ce8`, pushed to its `main`); the push built run `38386898958`, green. `browsercontainer/podkey.pin` now names commit `bd39ce83`, run `38386898958`, artefact `11807381112`, sha256 `d78107a0...e64e5`, expiring **2027-01-11** (agentbox `8fad68285`). Verified with a real authenticated `fetch-podkey.sh fetch` (sha256 matches the pin, `build.json` names `bd39ce83`, manifest Podkey 0.0.11) and the 17-case `fetch-podkey.test.sh`. The extension source is the same as the previous pin; only the CI file differs. Next re-pin is due before 2027-01-11, and can now be a manual dispatch with no upstream commit. The `project` agentbox pointer was bumped twice at the owner's request (`1ebb60074`, then to `8fad68285`).
+
 Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
 
 | ID | Why it is not a batch item |
