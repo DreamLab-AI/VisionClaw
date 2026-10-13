@@ -161,6 +161,11 @@ pub struct ForceComputeActor {
     /// Graph data waiting to be uploaded to GPU (set by InitializeGPU/UpdateGPUGraphData,
     /// consumed when shared_context becomes available)
     pending_graph_data: Option<Arc<visionclaw_domain::models::graph::GraphData>>,
+    /// Derives the per-node / per-edge metadata the GPU semantic forces read. Re-run on every
+    /// graph upload; its hierarchy levels back `GET /api/semantic-forces/hierarchy-levels`.
+    semantic_engine: crate::gpu::semantic_forces::SemanticForcesEngine,
+    /// The graph the semantic metadata was derived from (for RecalculateHierarchy).
+    semantic_graph: Option<Arc<visionclaw_domain::models::graph::GraphData>>,
     /// Client backpressure acks received (PositionBroadcastAck).
     acks_received: u64,
 
@@ -281,6 +286,8 @@ impl ForceComputeActor {
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
             pinned_nodes: std::collections::HashMap::new(),
+            semantic_engine: crate::gpu::semantic_forces::SemanticForcesEngine::new(),
+            semantic_graph: None,
             pinned_mask_dirty: false,
             pending_graph_data: None,
             acks_received: 0,
@@ -1231,6 +1238,17 @@ impl ForceComputeActor {
                 }
 
                 debug!("ForceComputeActor: [DIAG] class metadata done, about to update gpu_state");
+                // Derive the ontology metadata for THIS graph and upload it for the semantic
+                // forces, configured exactly as the central settings store says. Failure is an
+                // error in the log and leaves semantic forces off; there is no fallback.
+                refresh_semantic(
+                    &mut compute,
+                    &mut self.semantic_engine,
+                    graph_data,
+                    &self.simulation_params.semantic,
+                );
+                self.semantic_graph = Some(graph_data.clone());
+
                 let was_uninitialized = self.gpu_state.num_nodes == 0;
                 self.gpu_state.num_nodes = num_nodes as u32;
                 self.gpu_state.num_edges = edge_count;
@@ -2701,6 +2719,8 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             // Layout mode (ADR-141 P1) is GPU-relevant — it rides SimParams.layout_mode.
             // Omitting it would silently drop a mode-only switch at the early return.
             && cur.layout_mode == msg.params.layout_mode
+            // The semantic group is not part of the SimParams image: compare it directly.
+            && cur.semantic == msg.params.semantic
             // Catch-all: anything else the GPU would receive differently (see gpu_image_changed).
             && !gpu_image_changed(cur, &msg.params);
 
@@ -2737,7 +2757,25 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
                     >= eps
                 || (self.simulation_params.spring_k_agent - msg.params.spring_k_agent).abs() >= eps;
 
+        let semantic_changed = self.simulation_params.semantic != msg.params.semantic;
         self.update_simulation_parameters(msg.params);
+
+        // The stored semantic group goes to the device as it is: no scaling, no clamping.
+        if semantic_changed {
+            if let Some(ref ctx) = self.shared_context {
+                if let Ok(mut compute) = ctx.unified_compute.lock() {
+                    if compute.semantic.is_some() {
+                        match compute.set_semantic_config(&self.simulation_params.semantic) {
+                            Ok(()) => info!(
+                                "ForceComputeActor: semantic config applied (active={})",
+                                compute.semantic_active
+                            ),
+                            Err(e) => error!("ForceComputeActor: semantic config NOT applied: {e:#}"),
+                        }
+                    }
+                }
+            }
+        }
 
         // Re-upload spring_scale on any per-population spring change so the new
         // coefficients reach the GPU without requiring a full graph re-upload.
@@ -3004,6 +3042,56 @@ impl Handler<GetPhysicsStats> for ForceComputeActor {
 
     fn handle(&mut self, _msg: GetPhysicsStats, _ctx: &mut Self::Context) -> Self::Result {
         Ok(self.get_physics_stats())
+    }
+}
+
+
+/// Hierarchy levels derived for the current graph (backs GET /api/semantic-forces/hierarchy-levels).
+impl Handler<GetHierarchyLevels> for ForceComputeActor {
+    type Result = Result<HierarchyLevels, String>;
+
+    fn handle(&mut self, _msg: GetHierarchyLevels, _ctx: &mut Self::Context) -> Self::Result {
+        if !self.semantic_engine.is_initialized() {
+            return Err("no graph has been uploaded yet".to_string());
+        }
+        let node_levels = self.semantic_engine.hierarchy_levels().to_vec();
+        let max_level = node_levels.iter().copied().max().unwrap_or(-1);
+        let mut level_counts = vec![0usize; (max_level.max(-1) + 1) as usize];
+        for &l in &node_levels {
+            if l >= 0 {
+                level_counts[l as usize] += 1;
+            }
+        }
+        Ok(HierarchyLevels { node_levels, max_level, level_counts })
+    }
+}
+
+/// Re-derive the semantic metadata from the graph last uploaded and put it on the GPU.
+impl Handler<RecalculateHierarchy> for ForceComputeActor {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, _msg: RecalculateHierarchy, _ctx: &mut Self::Context) -> Self::Result {
+        let graph = self.semantic_graph.clone().ok_or_else(|| "no graph has been uploaded yet".to_string())?;
+        let ctx = self.shared_context.clone().ok_or_else(|| "GPU context not ready".to_string())?;
+        let mut compute = ctx.unified_compute.lock().map_err(|e| format!("GPU lock poisoned: {e}"))?;
+        refresh_semantic(&mut compute, &mut self.semantic_engine, &graph, &self.simulation_params.semantic);
+        if compute.semantic.is_some() {
+            Ok(())
+        } else {
+            Err("semantic metadata could not be uploaded (see the server log)".to_string())
+        }
+    }
+}
+
+/// Replace the ontology relationship table on the device.
+impl Handler<SetRelationshipTable> for ForceComputeActor {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, msg: SetRelationshipTable, _ctx: &mut Self::Context) -> Self::Result {
+        let ctx = self.shared_context.clone().ok_or_else(|| "GPU context not ready".to_string())?;
+        let mut compute = ctx.unified_compute.lock().map_err(|e| format!("GPU lock poisoned: {e}"))?;
+        let sem = compute.semantic.as_mut().ok_or_else(|| "semantic forces are not initialised for this graph".to_string())?;
+        sem.set_relationships(&msg.configs, !msg.configs.is_empty(), msg.version).map_err(|e| format!("{e:#}"))
     }
 }
 
@@ -4162,6 +4250,45 @@ const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
 /// Default Sugiyama layer-spring strength / spacing for Hierarchical (ADR-141 P4).
 const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
 const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
+
+/// Derive the semantic metadata for `graph` and put it on the GPU with `cfg` (the stored
+/// `physics.semantic` group). On any failure the semantic state is cleared and the error is
+/// logged: semantic forces are then OFF for this graph, visibly, never silently approximated.
+fn refresh_semantic(
+    compute: &mut crate::utils::unified_gpu_compute::UnifiedGPUCompute,
+    engine: &mut crate::gpu::semantic_forces::SemanticForcesEngine,
+    graph: &visionclaw_domain::models::graph::GraphData,
+    cfg: &visionclaw_domain::types::SemanticForces,
+) {
+    use crate::services::semantic_type_registry::SEMANTIC_TYPE_REGISTRY;
+    use crate::utils::unified_gpu_compute::semantic::SemanticInputs;
+    let result = (|| -> anyhow::Result<()> {
+        engine.initialize(graph).map_err(|e| anyhow::anyhow!(e))?;
+        let inputs = SemanticInputs::from_engine(engine, graph)?;
+        let ptx = visionclaw_gpu::ptx_loader::load_ptx_module_sync(
+            visionclaw_gpu::ptx_loader::PTXModule::SemanticForces,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+        compute.enable_semantic(&ptx, &inputs, cfg)?;
+        let table = SEMANTIC_TYPE_REGISTRY.build_gpu_buffer();
+        if let Some(sem) = compute.semantic.as_mut() {
+            sem.set_relationships(&table, !table.is_empty(), SEMANTIC_TYPE_REGISTRY.version() as i32)?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => info!(
+            "ForceComputeActor: semantic forces ready for {} nodes (active={})",
+            graph.nodes.len(),
+            compute.semantic_active
+        ),
+        Err(e) => {
+            error!("ForceComputeActor: semantic forces UNAVAILABLE for this graph: {e:#}");
+            compute.semantic = None;
+            compute.semantic_active = false;
+        }
+    }
+}
 
 /// Build the complete position snapshot from the GPU readback: one entry per node, in node order.
 ///

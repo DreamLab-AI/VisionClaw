@@ -51,7 +51,6 @@ pub mod pagerank_actor;
 /// Single source of truth for physics validation bounds (T4 fix, 2026-06-03).
 pub mod physics_bounds;
 pub mod physics_restore;
-pub mod semantic_forces_actor;
 pub mod shared;
 pub mod shortest_path_actor;
 pub mod stress_majorization_actor;
@@ -76,7 +75,6 @@ pub use gpu_manager_actor::GPUManagerActor;
 pub use gpu_resource_actor::GPUResourceActor;
 pub use ontology_constraint_actor::OntologyConstraintActor;
 pub use pagerank_actor::PageRankActor;
-pub use semantic_forces_actor::SemanticForcesActor;
 pub use shared::{GPUContext, SharedGPUContext, UnifiedGPUCompute};
 pub use shortest_path_actor::ShortestPathActor;
 pub use stress_majorization_actor::StressMajorizationActor;

@@ -55,21 +55,8 @@ pub use conversion_utils::{
 // Unified memory management exports (NEW - recommended)
 pub use memory_manager::{BufferConfig, BufferStats, GpuBuffer, GpuMemoryManager, MemoryStats};
 
-// Semantic forces exports
-pub use semantic_forces::{
-    AttributeSpringConfig,
-    CollisionConfig,
-    DAGConfig,
-    // Dynamic relationship buffer management (schema-code decoupling)
-    DynamicForceConfigGPU,
-    DynamicRelationshipBufferManager,
-    SemanticConfig,
-    SemanticForcesEngine,
-    TypeClusterConfig,
-};
-
-// CUDA kernel bridge (safe wrappers with CPU fallback)
-pub mod kernel_bridge;
+// Semantic metadata derivation (the forces themselves run on the GPU from the central settings)
+pub use semantic_forces::SemanticForcesEngine;
 
 // Broadcast optimization module
 pub mod broadcast_optimizer;

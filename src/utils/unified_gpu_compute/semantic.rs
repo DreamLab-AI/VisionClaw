@@ -608,6 +608,51 @@ mod tests {
         }
     }
 
+    /// The whole chain, for real: a settings document as a client would PUT it and the store
+    /// would hold it -> parsed -> converted to the actor's parameters -> validated -> uploaded
+    /// -> read back through the DEVICE's view of its struct. Nothing in between scales, clamps
+    /// or substitutes a default.
+    #[test]
+    fn the_stored_settings_document_is_what_the_device_holds() {
+        use visionclaw_domain::models::simulation_params::SimulationParams;
+        use visionclaw_domain::types::PhysicsSettings;
+        let Some((_ctx, stream, ptx)) = device() else { return };
+
+        let mut doc = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        doc["semantic"]["dag"]["verticalSpacing"] = serde_json::json!(321.0);
+        doc["semantic"]["dag"]["enabled"] = serde_json::json!(false);
+        doc["semantic"]["typeCluster"]["clusterRadius"] = serde_json::json!(222.5);
+        doc["semantic"]["collision"]["nodeRadius"] = serde_json::json!(33.25);
+        doc["semantic"]["attributeSpring"]["restLengthMax"] = serde_json::json!(444.0);
+        doc["semantic"]["physicalityCluster"]["interPhysicalityRepulsion"] = serde_json::json!(5.5);
+        doc["semantic"]["maturityLayout"]["stageSeparation"] = serde_json::json!(66.0);
+        doc["semantic"]["crossDomain"]["restLength"] = serde_json::json!(77.0);
+        doc["semantic"]["crossDomain"]["enabled"] = serde_json::json!(true);
+
+        let stored: PhysicsSettings = serde_json::from_value(doc).expect("the stored document parses");
+        let sim: SimulationParams = (&stored).into();
+        sim.validate().expect("the actor's validation accepts it");
+
+        let g = SemanticGpu::new(&ptx, &four_nodes(), &sim.semantic).expect("upload");
+        let p = g.probe(&stream).expect("probe");
+        assert_eq!(&p[1..10], &[321.0, 0.0, 222.5, 33.25, 444.0, 5.5, 66.0, 77.0, 1.0], "device == stored document");
+    }
+
+    #[test]
+    fn a_settings_update_that_changes_one_force_changes_only_that_force_on_the_device() {
+        let Some((_ctx, stream, ptx)) = device() else { return };
+        let mut cfg = SemanticForces::default();
+        let mut g = SemanticGpu::new(&ptx, &four_nodes(), &cfg).expect("upload");
+        let before = g.probe(&stream).expect("probe");
+        cfg.type_cluster.cluster_radius = 999.0;
+        g.set_config(&cfg).expect("set_config");
+        let after = g.probe(&stream).expect("probe");
+        assert_eq!(after[3], 999.0);
+        for i in (1..10).filter(|&i| i != 3) {
+            assert_eq!(after[i], before[i], "field {i} must not move");
+        }
+    }
+
     #[test]
     fn a_disabled_force_adds_nothing() {
         let Some((_ctx, stream, ptx)) = device() else { return };

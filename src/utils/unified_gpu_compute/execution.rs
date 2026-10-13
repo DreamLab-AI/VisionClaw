@@ -1607,6 +1607,93 @@ mod grid_gpu_tests {
         assert!(rel < 0.01, "GPU repulsion differs from the all-pairs reference by {:.1}%: pairs inside the cutoff are being dropped by the grid", rel * 100.0);
     }
 
+    fn stats(mut v: Vec<f32>) -> (f32, f32, f32) {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        (v[v.len() / 2], v[v.len() * 95 / 100], *v.last().unwrap())
+    }
+
+    /// Measurement, not a pass/fail check: per-node force magnitude of the live force pass and of
+    /// each semantic force at its default, on a 9.5k-node graph with random types/levels. Run with
+    /// `--nocapture` to read the table that the stored defaults were chosen from.
+    #[test]
+    #[ignore = "calibration measurement; run explicitly with --ignored --nocapture"]
+    fn semantic_force_magnitudes_against_the_live_force_field() {
+        use crate::utils::unified_gpu_compute::semantic::{SemanticGpu, SemanticInputs};
+        use visionclaw_domain::types::SemanticForces;
+        const M: usize = 9478;
+        let ctx = cust::quick_init().expect("cuda");
+        let _ctx = ctx;
+        let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
+        let sem_ptx = visionclaw_gpu::ptx_loader::load_ptx_module_sync(visionclaw_gpu::ptx_loader::PTXModule::SemanticForces).expect("semantic ptx");
+        let mut g = UnifiedGPUCompute::new(M, M * 2, &ptx).expect("gpu");
+        let mut seed = 99u64;
+        let (mut x, mut y, mut z) = (vec![0f32; M], vec![0f32; M], vec![0f32; M]);
+        for i in 0..M {
+            // a cloud like the live one: centred off-origin, ~r 100
+            x[i] = (lcg(&mut seed) - 0.5) * 300.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 200.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 200.0;
+        }
+        g.upload_positions(&x, &y, &z).unwrap();
+        let n = M as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::new();
+        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2]).unwrap();
+
+        // live field
+        let mut p = params();
+        p.center_gravity_k = 0.0; p.gravity = 0.0; p.temperature = 0.0; p.viewport_bounds = 1.0e9;
+        p.repulsion_cutoff = 400.0; p.repel_k = 120.0; p.spring_k = 12.0; p.rest_length = 50.0;
+        g.execute(p).unwrap(); g.stream.synchronize().unwrap();
+        let (fx, fy, fz) = (read_f32(&g.force_x, M), read_f32(&g.force_y, M), read_f32(&g.force_z, M));
+        let live: Vec<f32> = (0..M).map(|i| (fx[i]*fx[i]+fy[i]*fy[i]+fz[i]*fz[i]).sqrt()).collect();
+        let (m, p95, mx) = stats(live);
+        println!("MAGNITUDE live repulsion+spring           median {m:9.3}  p95 {p95:9.3}  max {mx:9.3}");
+
+        // random metadata
+        let mut r = |k: u32| (lcg(&mut seed) * k as f32) as i32 % k as i32;
+        let inputs = SemanticInputs {
+            node_types: (0..M).map(|_| r(9)).collect(),
+            hierarchy_levels: (0..M).map(|_| if r(10) < 6 { r(8) } else { -1 }).collect(),
+            physicality: (0..M).map(|_| r(4)).collect(),
+            role: (0..M).map(|_| r(5)).collect(),
+            maturity: (0..M).map(|_| r(4)).collect(),
+            cross_domain: (0..M).map(|_| r(4)).collect(),
+            edge_src: (0..M as i32).collect(),
+            edge_dst: (0..M as i32).map(|i| (i + 1) % n).collect(),
+            edge_type: vec![0; M],
+            edge_weight: vec![1.0; M],
+        };
+        let stream = &g.stream;
+        let xs = DeviceBuffer::from_slice(&x).unwrap();
+        let ys = DeviceBuffer::from_slice(&y).unwrap();
+        let zs = DeviceBuffer::from_slice(&z).unwrap();
+        let only = |name: &str| -> SemanticForces {
+            let mut c = SemanticForces::default();
+            c.dag.enabled = name == "dag"; c.type_cluster.enabled = name == "type_cluster";
+            c.collision.enabled = name == "collision"; c.attribute_spring.enabled = name == "attribute_spring";
+            c.physicality_cluster.enabled = name == "physicality"; c.role_cluster.enabled = name == "role";
+            c.maturity_layout.enabled = name == "maturity"; c.cross_domain.enabled = name == "cross_domain";
+            c
+        };
+        for name in ["dag", "type_cluster", "collision", "attribute_spring", "physicality", "role", "maturity", "cross_domain"] {
+            // (`only` enables exactly the force under test, whatever its stored default is)
+            let sem = SemanticGpu::new(&sem_ptx, &inputs, &only(name)).expect("semantic");
+            let fx = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
+            let fy = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
+            let fz = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
+            let t0 = std::time::Instant::now();
+            sem.apply(stream, xs.as_device_ptr(), ys.as_device_ptr(), zs.as_device_ptr(), fx.as_device_ptr(), fy.as_device_ptr(), fz.as_device_ptr()).unwrap();
+            stream.synchronize().unwrap();
+            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+            let (a, b, c) = (read_f32(&fx, M), read_f32(&fy, M), read_f32(&fz, M));
+            let mags: Vec<f32> = (0..M).map(|i| (a[i]*a[i]+b[i]*b[i]+c[i]*c[i]).sqrt()).collect();
+            let (m, p95, mx) = stats(mags);
+            println!("MAGNITUDE semantic {name:<18} median {m:9.3}  p95 {p95:9.3}  max {mx:9.3}   ({ms:.1} ms incl. launch)");
+        }
+    }
+
     #[test]
     fn cell_bounds_cover_every_node() {
         let Some((_ctx, mut g)) = gpu() else { return };

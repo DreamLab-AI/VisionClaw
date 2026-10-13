@@ -1,5 +1,9 @@
 //! Semantic Forces API Handler
-//! Provides endpoints for configuring DAG layout, type clustering, and hierarchy management
+//!
+//! Force PARAMETERS are not configured here: they are the central physics settings' `semantic`
+//! group (`PUT /api/settings/physics`), validated and applied to the GPU by that one path. This
+//! module serves the derived hierarchy, a read-only view of the stored parameters, and the
+//! ontology relationship type registry.
 //!
 //! ## Hot-Reload Support
 //!
@@ -13,292 +17,10 @@ use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::actors::gpu::semantic_forces_actor::{
-    CollisionConfig, DAGConfig, DAGLayoutMode, GetHierarchyLevels, GetSemanticConfig,
-    RecalculateHierarchy, TypeClusterConfig,
-};
+use crate::actors::messages::{GetHierarchyLevels, RecalculateHierarchy, SetRelationshipTable};
 use crate::services::semantic_type_registry::{RelationshipForceConfig, SEMANTIC_TYPE_REGISTRY};
 use crate::AppState;
 use crate::{bad_request, error_json, ok_json};
-
-/// Request payload for DAG configuration
-#[derive(Debug, Deserialize, Serialize)]
-pub struct DAGConfigRequest {
-    pub mode: String, // "top-down", "radial", "left-right"
-    pub vertical_spacing: Option<f32>,
-    pub horizontal_spacing: Option<f32>,
-    pub level_attraction: Option<f32>,
-    pub sibling_repulsion: Option<f32>,
-    pub enabled: bool,
-}
-
-/// Request payload for type clustering configuration
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TypeClusterConfigRequest {
-    pub cluster_attraction: Option<f32>,
-    pub cluster_radius: Option<f32>,
-    pub inter_cluster_repulsion: Option<f32>,
-    pub enabled: bool,
-}
-
-/// Request payload for collision configuration
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CollisionConfigRequest {
-    pub min_distance: Option<f32>,
-    pub collision_strength: Option<f32>,
-    pub node_radius: Option<f32>,
-    pub enabled: bool,
-}
-
-/// Configure DAG layout mode and parameters
-/// POST /api/semantic-forces/dag/configure
-pub async fn configure_dag(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    state: web::Data<AppState>,
-    payload: web::Json<DAGConfigRequest>,
-) -> impl Responder {
-    info!(
-        "DAG configuration request - mode: {}, enabled: {}",
-        payload.mode, payload.enabled
-    );
-
-    // Parse layout mode
-    let layout_mode = match payload.mode.to_lowercase().as_str() {
-        "top-down" | "topdown" => DAGLayoutMode::TopDown,
-        "radial" => DAGLayoutMode::Radial,
-        "left-right" | "leftright" => DAGLayoutMode::LeftRight,
-        _ => {
-            error!("Invalid DAG layout mode: {}", payload.mode);
-            return bad_request!("Invalid layout mode. Use: top-down, radial, or left-right");
-        }
-    };
-
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // Build DAG config
-    let mut dag_config = DAGConfig {
-        layout_mode,
-        enabled: payload.enabled,
-        ..Default::default()
-    };
-
-    // Apply optional parameters
-    if let Some(v) = payload.vertical_spacing {
-        dag_config.vertical_spacing = v;
-    }
-    if let Some(h) = payload.horizontal_spacing {
-        dag_config.horizontal_spacing = h;
-    }
-    if let Some(a) = payload.level_attraction {
-        dag_config.level_attraction = a;
-    }
-    if let Some(r) = payload.sibling_repulsion {
-        dag_config.sibling_repulsion = r;
-    }
-
-    // Send configuration to semantic forces actor via GPU manager
-    use crate::actors::messages::ConfigureDAG as ConfigureDAGMsg;
-    let configure_msg = ConfigureDAGMsg {
-        vertical_spacing: payload.vertical_spacing,
-        horizontal_spacing: payload.horizontal_spacing,
-        level_attraction: payload.level_attraction,
-        sibling_repulsion: payload.sibling_repulsion,
-        enabled: Some(dag_config.enabled),
-    };
-
-    match gpu_manager.send(configure_msg).await {
-        Ok(Ok(())) => {
-            info!(
-                "DAG configuration applied: mode={:?}, enabled={}",
-                dag_config.layout_mode, dag_config.enabled
-            );
-        }
-        Ok(Err(e)) => {
-            error!("Failed to apply DAG configuration: {}", e);
-            return error_json!("Failed to apply DAG configuration: {}", e);
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            return error_json!("Actor communication failed: {}", e);
-        }
-    }
-
-    ok_json!(json!({
-        "status": "success",
-        "message": "DAG layout configured",
-        "config": {
-            "mode": payload.mode,
-            "enabled": dag_config.enabled,
-            "vertical_spacing": dag_config.vertical_spacing,
-            "horizontal_spacing": dag_config.horizontal_spacing,
-            "level_attraction": dag_config.level_attraction,
-            "sibling_repulsion": dag_config.sibling_repulsion,
-        }
-    }))
-}
-
-/// Configure type clustering parameters
-/// POST /api/semantic-forces/type-clustering/configure
-pub async fn configure_type_clustering(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    state: web::Data<AppState>,
-    payload: web::Json<TypeClusterConfigRequest>,
-) -> impl Responder {
-    info!(
-        "Type clustering configuration request - enabled: {}",
-        payload.enabled
-    );
-
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // Build type cluster config
-    let mut cluster_config = TypeClusterConfig {
-        enabled: payload.enabled,
-        ..Default::default()
-    };
-
-    // Apply optional parameters
-    if let Some(a) = payload.cluster_attraction {
-        cluster_config.cluster_attraction = a;
-    }
-    if let Some(r) = payload.cluster_radius {
-        cluster_config.cluster_radius = r;
-    }
-    if let Some(i) = payload.inter_cluster_repulsion {
-        cluster_config.inter_cluster_repulsion = i;
-    }
-
-    // Send configuration to semantic forces actor via GPU manager
-    use crate::actors::messages::ConfigureTypeClustering as ConfigureTypeClusteringMsg;
-    let configure_msg = ConfigureTypeClusteringMsg {
-        cluster_attraction: payload.cluster_attraction,
-        cluster_radius: payload.cluster_radius,
-        inter_cluster_repulsion: payload.inter_cluster_repulsion,
-        enabled: Some(cluster_config.enabled),
-    };
-
-    match gpu_manager.send(configure_msg).await {
-        Ok(Ok(())) => {
-            info!(
-                "Type clustering configured: enabled={}, attraction={:.2}, radius={:.2}",
-                cluster_config.enabled,
-                cluster_config.cluster_attraction,
-                cluster_config.cluster_radius
-            );
-        }
-        Ok(Err(e)) => {
-            error!("Failed to apply type clustering configuration: {}", e);
-            return error_json!("Failed to apply type clustering configuration: {}", e);
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            return error_json!("Actor communication failed: {}", e);
-        }
-    }
-
-    ok_json!(json!({
-        "status": "success",
-        "message": "Type clustering configured",
-        "config": {
-            "enabled": cluster_config.enabled,
-            "cluster_attraction": cluster_config.cluster_attraction,
-            "cluster_radius": cluster_config.cluster_radius,
-            "inter_cluster_repulsion": cluster_config.inter_cluster_repulsion,
-        }
-    }))
-}
-
-/// Configure collision detection parameters
-/// POST /api/semantic-forces/collision/configure
-pub async fn configure_collision(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    state: web::Data<AppState>,
-    payload: web::Json<CollisionConfigRequest>,
-) -> impl Responder {
-    info!(
-        "Collision detection configuration request - enabled: {}",
-        payload.enabled
-    );
-
-    // Get GPU manager actor
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
-    };
-
-    // Build collision config
-    let mut collision_config = CollisionConfig {
-        enabled: payload.enabled,
-        ..Default::default()
-    };
-
-    // Apply optional parameters
-    if let Some(d) = payload.min_distance {
-        collision_config.min_distance = d;
-    }
-    if let Some(s) = payload.collision_strength {
-        collision_config.collision_strength = s;
-    }
-    if let Some(r) = payload.node_radius {
-        collision_config.node_radius = r;
-    }
-
-    // Send configuration to semantic forces actor via GPU manager
-    use crate::actors::messages::ConfigureCollision as ConfigureCollisionMsg;
-    let configure_msg = ConfigureCollisionMsg {
-        min_distance: payload.min_distance,
-        collision_strength: payload.collision_strength,
-        node_radius: payload.node_radius,
-        enabled: Some(collision_config.enabled),
-    };
-
-    match gpu_manager.send(configure_msg).await {
-        Ok(Ok(())) => {
-            info!(
-                "Collision detection configured: enabled={}, min_distance={:.2}, strength={:.2}",
-                collision_config.enabled,
-                collision_config.min_distance,
-                collision_config.collision_strength
-            );
-        }
-        Ok(Err(e)) => {
-            error!("Failed to apply collision configuration: {}", e);
-            return error_json!("Failed to apply collision configuration: {}", e);
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            return error_json!("Actor communication failed: {}", e);
-        }
-    }
-
-    ok_json!(json!({
-        "status": "success",
-        "message": "Collision detection configured",
-        "config": {
-            "enabled": collision_config.enabled,
-            "min_distance": collision_config.min_distance,
-            "collision_strength": collision_config.collision_strength,
-            "node_radius": collision_config.node_radius,
-        }
-    }))
-}
 
 /// Get hierarchy level assignments for all nodes
 /// GET /api/semantic-forces/hierarchy-levels
@@ -339,41 +61,19 @@ pub async fn get_hierarchy_levels(state: web::Data<AppState>) -> impl Responder 
     }
 }
 
-/// Get current semantic forces configuration
+/// Get the stored semantic forces configuration (read-only view of `physics.semantic`).
 /// GET /api/semantic-forces/config
 pub async fn get_semantic_config(state: web::Data<AppState>) -> impl Responder {
-    info!("Semantic forces config request received");
-
-    let gpu_manager = match state.gpu_manager_addr.as_ref() {
-        Some(manager) => manager,
-        None => {
-            error!("GPU manager not available");
-            return error_json!("GPU manager not initialized");
-        }
+    use crate::config::PhysicsSettings;
+    use crate::ports::settings_repository::{SettingValue, SettingsRepository};
+    let stored = state.sqlite_settings_repository.get_setting("physics").await;
+    let semantic = match stored {
+        Ok(Some(SettingValue::Json(json))) => serde_json::from_value::<PhysicsSettings>(json)
+            .map(|p| p.semantic)
+            .unwrap_or_default(),
+        _ => PhysicsSettings::default().semantic,
     };
-
-    match gpu_manager.send(GetSemanticConfig).await {
-        Ok(Ok(config)) => {
-            ok_json!(json!({
-                "status": "success",
-                "config": config
-            }))
-        }
-        Ok(Err(e)) => {
-            error!("Failed to get semantic config: {}", e);
-            error_json!(json!({
-                "error": "Semantic config retrieval failed",
-                "details": e
-            }))
-        }
-        Err(e) => {
-            error!("GPU Manager mailbox error: {}", e);
-            error_json!(json!({
-                "error": "Actor communication failed",
-                "details": e.to_string()
-            }))
-        }
-    }
+    ok_json!(json!({ "status": "success", "config": semantic }))
 }
 
 /// Recalculate hierarchy levels (useful after graph structure changes)
@@ -636,38 +336,44 @@ pub async fn get_relationship_type(path: web::Path<String>) -> HttpResponse {
 /// POST /api/semantic-forces/relationship-types/reload
 pub async fn reload_relationship_buffer(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    _state: web::Data<AppState>,
+    state: web::Data<AppState>,
 ) -> HttpResponse {
-    info!("Triggering GPU relationship buffer reload");
+    info!("Triggering GPU relationship table reload");
 
     let version = SEMANTIC_TYPE_REGISTRY.version();
+    let configs = SEMANTIC_TYPE_REGISTRY.build_gpu_buffer();
+    let count = configs.len();
 
-    // Use DynamicRelationshipBufferManager to upload registry to GPU via FFI.
-    // SemanticForcesActor is not yet routed through the supervisor hierarchy,
-    // so we call through the buffer manager directly.
-    let mut buffer_manager = crate::gpu::semantic_forces::DynamicRelationshipBufferManager::new();
-    match buffer_manager.upload_from_registry(&SEMANTIC_TYPE_REGISTRY) {
-        Ok(()) => {
-            let count = SEMANTIC_TYPE_REGISTRY.len();
-            info!(
-                "Relationship buffer reloaded to GPU: {} types, version {}",
-                count, version
-            );
+    let Some(gpu_manager) = state.gpu_manager_addr.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "status": "error",
+            "message": "GPU manager not initialized",
+            "version": version,
+        }));
+    };
+    match gpu_manager.send(SetRelationshipTable { configs, version: version as i32 }).await {
+        Ok(Ok(())) => {
+            info!("Relationship table reloaded to GPU: {} types, version {}", count, version);
             HttpResponse::Ok().json(serde_json::json!({
                 "status": "success",
-                "message": "GPU buffer reloaded",
+                "message": "GPU relationship table reloaded",
                 "count": count,
                 "version": version,
             }))
         }
-        Err(e) => {
-            error!("GPU buffer upload failed: {}", e);
+        Ok(Err(e)) => {
+            error!("GPU relationship table upload failed: {}", e);
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "status": "error",
-                "message": format!("GPU buffer upload failed: {}", e),
+                "message": format!("GPU relationship table upload failed: {}", e),
                 "version": version,
             }))
         }
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "status": "error",
+            "message": format!("GPU manager unreachable: {}", e),
+            "version": version,
+        })),
     }
 }
 
@@ -675,12 +381,6 @@ pub async fn reload_relationship_buffer(
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/semantic-forces")
-            .route("/dag/configure", web::post().to(configure_dag))
-            .route(
-                "/type-clustering/configure",
-                web::post().to(configure_type_clustering),
-            )
-            .route("/collision/configure", web::post().to(configure_collision))
             .route("/hierarchy-levels", web::get().to(get_hierarchy_levels))
             .route("/config", web::get().to(get_semantic_config))
             .route(

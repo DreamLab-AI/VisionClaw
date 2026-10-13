@@ -893,38 +893,13 @@ impl Handler<GetPhysicsStats> for GPUManagerActor {
 }
 
 // ============================================================================
-// Semantic Forces - routes to PhysicsSupervisor -> SemanticForcesActor
+// Semantic hierarchy - routes to PhysicsSupervisor -> ForceComputeActor
 // ============================================================================
-
-impl Handler<GetSemanticConfig> for GPUManagerActor {
-    type Result = ResponseActFuture<
-        Self,
-        Result<crate::actors::gpu::semantic_forces_actor::SemanticConfig, String>,
-    >;
-
-    fn handle(&mut self, msg: GetSemanticConfig, ctx: &mut Self::Context) -> Self::Result {
-        let supervisors = match self.get_supervisors(ctx) {
-            Ok(s) => s.clone(),
-            Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
-        };
-
-        Box::pin(
-            async move {
-                supervisors
-                    .physics
-                    .send(msg)
-                    .await
-                    .map_err(|e| format!("PhysicsSupervisor communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
 
 impl Handler<GetHierarchyLevels> for GPUManagerActor {
     type Result = ResponseActFuture<
         Self,
-        Result<crate::actors::gpu::semantic_forces_actor::HierarchyLevels, String>,
+        Result<crate::actors::messages::HierarchyLevels, String>,
     >;
 
     fn handle(&mut self, msg: GetHierarchyLevels, ctx: &mut Self::Context) -> Self::Result {
@@ -950,72 +925,6 @@ impl Handler<RecalculateHierarchy> for GPUManagerActor {
     type Result = ResponseActFuture<Self, Result<(), String>>;
 
     fn handle(&mut self, msg: RecalculateHierarchy, ctx: &mut Self::Context) -> Self::Result {
-        let supervisors = match self.get_supervisors(ctx) {
-            Ok(s) => s.clone(),
-            Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
-        };
-
-        Box::pin(
-            async move {
-                supervisors
-                    .physics
-                    .send(msg)
-                    .await
-                    .map_err(|e| format!("PhysicsSupervisor communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureDAG> for GPUManagerActor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureDAG, ctx: &mut Self::Context) -> Self::Result {
-        let supervisors = match self.get_supervisors(ctx) {
-            Ok(s) => s.clone(),
-            Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
-        };
-
-        Box::pin(
-            async move {
-                supervisors
-                    .physics
-                    .send(msg)
-                    .await
-                    .map_err(|e| format!("PhysicsSupervisor communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureTypeClustering> for GPUManagerActor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureTypeClustering, ctx: &mut Self::Context) -> Self::Result {
-        let supervisors = match self.get_supervisors(ctx) {
-            Ok(s) => s.clone(),
-            Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
-        };
-
-        Box::pin(
-            async move {
-                supervisors
-                    .physics
-                    .send(msg)
-                    .await
-                    .map_err(|e| format!("PhysicsSupervisor communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureCollision> for GPUManagerActor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureCollision, ctx: &mut Self::Context) -> Self::Result {
         let supervisors = match self.get_supervisors(ctx) {
             Ok(s) => s.clone(),
             Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
@@ -1082,5 +991,27 @@ impl Handler<WriteClusterAnalytics> for GPUManagerActor {
         } else {
             warn!("GPUManagerActor: Supervisors not available for WriteClusterAnalytics");
         }
+    }
+}
+
+/// Relationship table reload - routes to PhysicsSupervisor -> ForceComputeActor
+impl Handler<SetRelationshipTable> for GPUManagerActor {
+    type Result = ResponseActFuture<Self, Result<(), String>>;
+
+    fn handle(&mut self, msg: SetRelationshipTable, ctx: &mut Self::Context) -> Self::Result {
+        let supervisors = match self.get_supervisors(ctx) {
+            Ok(s) => s,
+            Err(e) => return Box::pin(async move { Err(e) }.into_actor(self)),
+        };
+        let physics = supervisors.physics.clone();
+        Box::pin(
+            async move {
+                physics
+                    .send(msg)
+                    .await
+                    .map_err(|e| format!("Failed to delegate SetRelationshipTable: {}", e))?
+            }
+            .into_actor(self),
+        )
     }
 }

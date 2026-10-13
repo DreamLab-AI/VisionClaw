@@ -57,9 +57,6 @@ pub struct QualityGateSettings {
     /// Enable ontology constraint forces in physics simulation
     pub ontology_physics: bool,
 
-    /// Enable semantic forces (DAG layout, type clustering)
-    pub semantic_forces: bool,
-
     /// Layout mode: force-directed, dag-topdown, dag-radial, dag-leftright, type-clustering, spectral, clustered
     pub layout_mode: String,
 
@@ -90,38 +87,10 @@ pub struct QualityGateSettings {
     /// Global strength of ontology constraint forces (0.0 - 1.0)
     #[serde(default = "default_ontology_strength")]
     pub ontology_strength: f32,
-
-    /// DAG hierarchy level attraction strength (0.0 - 2.0)
-    #[serde(default = "default_dag_level_attraction")]
-    pub dag_level_attraction: f32,
-
-    /// DAG sibling repulsion strength (0.0 - 2.0)
-    #[serde(default = "default_dag_sibling_repulsion")]
-    pub dag_sibling_repulsion: f32,
-
-    /// Type cluster attraction strength (0.0 - 2.0)
-    #[serde(default = "default_type_cluster_attraction")]
-    pub type_cluster_attraction: f32,
-
-    /// Type cluster radius (10.0 - 500.0)
-    #[serde(default = "default_type_cluster_radius")]
-    pub type_cluster_radius: f32,
 }
 
 fn default_ontology_strength() -> f32 {
     0.5
-}
-fn default_dag_level_attraction() -> f32 {
-    0.5
-}
-fn default_dag_sibling_repulsion() -> f32 {
-    0.3
-}
-fn default_type_cluster_attraction() -> f32 {
-    0.3
-}
-fn default_type_cluster_radius() -> f32 {
-    100.0
 }
 
 impl Default for QualityGateSettings {
@@ -129,7 +98,6 @@ impl Default for QualityGateSettings {
         Self {
             gpu_acceleration: true,  // GPU on by default if available
             ontology_physics: false, // Off by default (expensive)
-            semantic_forces: true,   // Semantic clustering enabled by default
             layout_mode: "force-directed".to_string(),
             show_clusters: true,     // Show clustering by default
             show_anomalies: true,    // Show anomalies by default
@@ -141,10 +109,6 @@ impl Default for QualityGateSettings {
             max_node_count: usize::MAX,
             auto_adjust: true, // Auto-adjust on by default
             ontology_strength: 0.5,
-            dag_level_attraction: 0.5,
-            dag_sibling_repulsion: 0.3,
-            type_cluster_attraction: 0.3,
-            type_cluster_radius: 100.0,
         }
     }
 }

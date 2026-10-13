@@ -186,6 +186,10 @@ impl SimParams {
             axis_compression_z: PhysicsSettings::default().axis_compression_z,
             enable_dual_disc_layout: PhysicsSettings::default().enable_dual_disc_layout,
             layout_mode: LayoutMode::from_gpu_u32(self.layout_mode),
+            // The GPU image carries no semantic group (it lives in constant memory of the
+            // semantic module, written from the stored settings): this lossy reverse view
+            // reports the defaults, never a value that was applied.
+            semantic: visionclaw_domain::types::SemanticForces::default(),
             lin_log_mode: self.lin_log_mode != 0,
             scaling_ratio: self.scaling_ratio,
             adaptive_speed: self.adaptive_speed != 0,

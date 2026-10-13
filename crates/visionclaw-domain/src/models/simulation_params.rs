@@ -183,6 +183,11 @@ pub struct SimulationParams {
     #[serde(default)]
     pub layout_mode: LayoutMode,
 
+    /// Semantic forces, exactly as stored in the central physics settings (`physics.semantic`).
+    /// Applied by the GPU as configured: no scale, no cap, each force with its own enable flag.
+    #[serde(default)]
+    pub semantic: crate::types::SemanticForces,
+
     /// ForceAtlas2 LinLog mode: attraction uses log(1+d) instead of Hooke's law.
     #[serde(default = "default_lin_log_mode")]
     pub lin_log_mode: bool,
@@ -265,6 +270,9 @@ impl SimulationParams {
 
         if self.dt <= 0.0 || self.dt > 0.1 {
             errors.push(format!("dt must be in (0, 0.1], got {}", self.dt));
+        }
+        if let Err(problems) = self.semantic.check() {
+            errors.extend(problems);
         }
         if self.damping <= 0.0 || self.damping > 1.0 {
             errors.push(format!("damping must be in (0, 1], got {}", self.damping));
@@ -469,6 +477,7 @@ impl From<&PhysicsSettings> for SimulationParams {
             axis_compression_z: physics.axis_compression_z,
             enable_dual_disc_layout: physics.enable_dual_disc_layout,
             layout_mode: LayoutMode::default(),
+            semantic: physics.semantic.clone(),
             lin_log_mode: physics.lin_log_mode,
             scaling_ratio: physics.scaling_ratio,
             adaptive_speed: physics.adaptive_speed,

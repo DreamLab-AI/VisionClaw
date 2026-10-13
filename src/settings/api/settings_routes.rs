@@ -387,42 +387,6 @@ pub fn validate_quality_gate_settings(settings: &QualityGateSettings) -> Result<
             settings.ontology_strength
         ));
     }
-    if !settings.dag_level_attraction.is_finite()
-        || settings.dag_level_attraction < 0.0
-        || settings.dag_level_attraction > 2.0
-    {
-        errors.push(format!(
-            "dag_level_attraction must be between 0.0 and 2.0 (got {})",
-            settings.dag_level_attraction
-        ));
-    }
-    if !settings.dag_sibling_repulsion.is_finite()
-        || settings.dag_sibling_repulsion < 0.0
-        || settings.dag_sibling_repulsion > 2.0
-    {
-        errors.push(format!(
-            "dag_sibling_repulsion must be between 0.0 and 2.0 (got {})",
-            settings.dag_sibling_repulsion
-        ));
-    }
-    if !settings.type_cluster_attraction.is_finite()
-        || settings.type_cluster_attraction < 0.0
-        || settings.type_cluster_attraction > 2.0
-    {
-        errors.push(format!(
-            "type_cluster_attraction must be between 0.0 and 2.0 (got {})",
-            settings.type_cluster_attraction
-        ));
-    }
-    if !settings.type_cluster_radius.is_finite()
-        || settings.type_cluster_radius < 10.0
-        || settings.type_cluster_radius > 500.0
-    {
-        errors.push(format!(
-            "type_cluster_radius must be between 10.0 and 500.0 (got {})",
-            settings.type_cluster_radius
-        ));
-    }
     let valid_modes = [
         "force-directed",
         "dag-topdown",
@@ -1169,9 +1133,9 @@ pub async fn update_quality_gate_settings(
         });
     }
 
-    info!("User {} updated quality gate settings: gpu={}, ontology={}, semantic={}, layout={}, maxNodeCount={}",
+    info!("User {} updated quality gate settings: gpu={}, ontology={}, layout={}, maxNodeCount={}",
           auth.pubkey, settings.gpu_acceleration, settings.ontology_physics,
-          settings.semantic_forces, settings.layout_mode, settings.max_node_count);
+          settings.layout_mode, settings.max_node_count);
 
     // Propagate GPU-affecting quality gate changes to the physics engine.
     // Fetch current physics from the settings actor so SimulationParams is built
@@ -1250,61 +1214,18 @@ pub async fn update_quality_gate_settings(
                 settings.layout_mode
             );
 
-            // --- Propagate semantic forces configuration to SemanticForcesActor ---
-            if let Some(ref gpu_manager) = state.gpu_manager_addr {
-                use crate::actors::messages::{
-                    AdjustConstraintWeights, ConfigureDAG, ConfigureTypeClustering,
-                };
-
-                let is_dag_mode = matches!(
-                    settings.layout_mode.as_str(),
-                    "dag-topdown" | "dag-radial" | "dag-leftright"
-                );
-                let is_type_clustering = settings.layout_mode == "type-clustering";
-
-                // Configure DAG layout forces
-                let dag_msg = ConfigureDAG {
-                    vertical_spacing: None,
-                    horizontal_spacing: None,
-                    level_attraction: Some(settings.dag_level_attraction),
-                    sibling_repulsion: Some(settings.dag_sibling_repulsion),
-                    enabled: Some(settings.semantic_forces && is_dag_mode),
-                };
-                if let Err(e) = gpu_manager.send(dag_msg).await {
-                    warn!("Quality gates: failed to propagate DAG config: {}", e);
-                }
-
-                // Configure type clustering forces
-                let cluster_msg = ConfigureTypeClustering {
-                    cluster_attraction: Some(settings.type_cluster_attraction),
-                    cluster_radius: Some(settings.type_cluster_radius),
-                    inter_cluster_repulsion: None,
-                    enabled: Some(
-                        settings.semantic_forces
-                            && (is_type_clustering || settings.layout_mode == "force-directed"),
-                    ),
-                };
-                if let Err(e) = gpu_manager.send(cluster_msg).await {
-                    warn!(
-                        "Quality gates: failed to propagate type clustering config: {}",
-                        e
-                    );
-                }
-
-                // Adjust ontology constraint weights when strength changes
-                if settings.ontology_physics {
-                    let weight_msg = AdjustConstraintWeights {
+            // Ontology constraint weights follow the quality gate's ontology strength. (The
+            // semantic-force parameters are NOT propagated from here any more: they are the
+            // central physics settings' `semantic` group, applied by the physics PUT.)
+            if settings.ontology_physics {
+                if let Some(ref gpu_manager) = state.gpu_manager_addr {
+                    let weight_msg = crate::actors::messages::AdjustConstraintWeights {
                         global_strength: settings.ontology_strength,
                     };
                     if let Err(e) = gpu_manager.send(weight_msg).await {
                         warn!("Quality gates: failed to propagate ontology weights: {}", e);
                     }
                 }
-
-                info!("Quality gates: semantic forces propagated — dag_enabled={}, clustering_enabled={}, ontology_strength={}",
-                      settings.semantic_forces && is_dag_mode,
-                      settings.semantic_forces && (is_type_clustering || settings.layout_mode == "force-directed"),
-                      settings.ontology_strength);
             }
         }
         Ok(Err(e)) => {
@@ -1827,6 +1748,25 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_parameters_are_validated_up_front_by_the_one_central_validator() {
+        let ok = PhysicsSettings::default();
+        assert!(validate_for_gpu(&ok).is_ok());
+
+        let mut nan = PhysicsSettings::default();
+        nan.semantic.type_cluster.cluster_radius = f32::NAN;
+        let err = validate_for_gpu(&nan).expect_err("NaN must be refused before it is stored");
+        assert!(err.contains("typeCluster.clusterRadius"), "{err}");
+
+        let mut range = PhysicsSettings::default();
+        range.semantic.dag.level_attraction = 50.0;
+        assert!(validate_for_gpu(&range).is_err(), "above the stored range");
+
+        let mut order = PhysicsSettings::default();
+        order.semantic.attribute_spring.rest_length_min = 400.0;
+        assert!(validate_for_gpu(&order).is_err(), "inverted rest-length range");
+    }
 
     #[test]
     fn values_only_the_gpu_actor_rejects_are_refused_before_they_are_stored() {

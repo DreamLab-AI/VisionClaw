@@ -17,8 +17,7 @@ use std::time::{Duration, Instant};
 use super::shared::SharedGPUContext;
 use super::supervisor_messages::*;
 use super::{
-    ConstraintActor, ForceComputeActor, OntologyConstraintActor, SemanticForcesActor,
-    StressMajorizationActor,
+    ConstraintActor, ForceComputeActor, OntologyConstraintActor, StressMajorizationActor,
 };
 use crate::actors::messages::*;
 
@@ -95,14 +94,12 @@ pub struct PhysicsSupervisor {
     stress_majorization_actor: Option<Addr<StressMajorizationActor>>,
     constraint_actor: Option<Addr<ConstraintActor>>,
     ontology_constraint_actor: Option<Addr<OntologyConstraintActor>>,
-    semantic_forces_actor: Option<Addr<SemanticForcesActor>>,
 
     /// Actor states for supervision
     force_compute_state: SupervisedActorState,
     stress_majorization_state: SupervisedActorState,
     constraint_state: SupervisedActorState,
     ontology_constraint_state: SupervisedActorState,
-    semantic_forces_state: SupervisedActorState,
 
     /// Supervision policy
     policy: SupervisionPolicy,
@@ -141,12 +138,10 @@ impl PhysicsSupervisor {
             stress_majorization_actor: None,
             constraint_actor: None,
             ontology_constraint_actor: None,
-            semantic_forces_actor: None,
             force_compute_state: SupervisedActorState::new("ForceComputeActor"),
             stress_majorization_state: SupervisedActorState::new("StressMajorizationActor"),
             constraint_state: SupervisedActorState::new("ConstraintActor"),
             ontology_constraint_state: SupervisedActorState::new("OntologyConstraintActor"),
-            semantic_forces_state: SupervisedActorState::new("SemanticForcesActor"),
             policy: SupervisionPolicy::critical(), // Physics is critical
             last_success: None,
             restart_count: 0,
@@ -190,12 +185,6 @@ impl PhysicsSupervisor {
         self.ontology_constraint_actor = Some(ontology_constraint_actor);
         self.ontology_constraint_state.is_running = true;
         debug!("PhysicsSupervisor: OntologyConstraintActor spawned");
-
-        // Spawn SemanticForcesActor
-        let semantic_forces_actor = SemanticForcesActor::new().start();
-        self.semantic_forces_actor = Some(semantic_forces_actor);
-        self.semantic_forces_state.is_running = true;
-        debug!("PhysicsSupervisor: SemanticForcesActor spawned");
 
         // Wire ForceComputeActor address to OntologyConstraintActor for constraint synchronization
         if let (Some(ref force_addr), Some(ref onto_addr)) =
@@ -306,23 +295,6 @@ impl PhysicsSupervisor {
                 }
             }
         }
-
-        // Send context to SemanticForcesActor
-        if let Some(ref addr) = self.semantic_forces_actor {
-            match addr.try_send(SetSharedGPUContext {
-                context: context.clone(),
-                graph_service_addr: graph_service_addr.clone(),
-                correlation_id: None,
-            }) {
-                Ok(_) => {
-                    self.semantic_forces_state.has_context = true;
-                    info!("PhysicsSupervisor: Context sent to SemanticForcesActor");
-                }
-                Err(e) => {
-                    self.handle_actor_failure("SemanticForcesActor", &e.to_string(), ctx);
-                }
-            }
-        }
     }
 
     /// Handle actor failure with supervision policy
@@ -337,7 +309,6 @@ impl PhysicsSupervisor {
             "StressMajorizationActor" => &mut self.stress_majorization_state,
             "ConstraintActor" => &mut self.constraint_state,
             "OntologyConstraintActor" => &mut self.ontology_constraint_state,
-            "SemanticForcesActor" => &mut self.semantic_forces_state,
             _ => {
                 warn!("PhysicsSupervisor: Unknown actor: {}", actor_name);
                 return;
@@ -419,7 +390,6 @@ impl PhysicsSupervisor {
         self.stress_majorization_actor = None;
         self.constraint_actor = None;
         self.ontology_constraint_actor = None;
-        self.semantic_forces_actor = None;
 
         // Mark all actors as stopped
         let all_names = [
@@ -427,7 +397,6 @@ impl PhysicsSupervisor {
             "StressMajorizationActor",
             "ConstraintActor",
             "OntologyConstraintActor",
-            "SemanticForcesActor",
         ];
         for name in &all_names {
             let state = match *name {
@@ -435,8 +404,7 @@ impl PhysicsSupervisor {
                 "StressMajorizationActor" => &mut self.stress_majorization_state,
                 "ConstraintActor" => &mut self.constraint_state,
                 "OntologyConstraintActor" => &mut self.ontology_constraint_state,
-                "SemanticForcesActor" => &mut self.semantic_forces_state,
-                _ => continue,
+                    _ => continue,
             };
             state.is_running = false;
             state.has_context = false;
@@ -473,11 +441,6 @@ impl PhysicsSupervisor {
         self.ontology_constraint_actor = Some(ontology_constraint_actor);
         self.ontology_constraint_state.is_running = true;
         self.ontology_constraint_state.last_restart = Some(Instant::now());
-
-        let semantic_forces_actor = SemanticForcesActor::new().start();
-        self.semantic_forces_actor = Some(semantic_forces_actor);
-        self.semantic_forces_state.is_running = true;
-        self.semantic_forces_state.last_restart = Some(Instant::now());
 
         // Re-wire ForceComputeActor address to OntologyConstraintActor
         if let (Some(ref force_addr), Some(ref onto_addr)) =
@@ -520,7 +483,6 @@ impl PhysicsSupervisor {
             &self.stress_majorization_state,
             &self.constraint_state,
             &self.ontology_constraint_state,
-            &self.semantic_forces_state,
         ];
 
         let running_count = states.iter().filter(|s| s.is_running).count();
@@ -595,15 +557,6 @@ impl Actor for PhysicsSupervisor {
                     return;
                 }
             }
-
-            // Check SemanticForcesActor
-            if let Some(ref addr) = act.semantic_forces_actor {
-                if !addr.connected() && act.semantic_forces_state.is_running {
-                    warn!("PhysicsSupervisor: SemanticForcesActor mailbox disconnected — triggering restart");
-                    act.semantic_forces_state.is_running = false;
-                    act.handle_actor_failure("SemanticForcesActor", "Mailbox disconnected (detected by health check)", ctx);
-                }
-            }
         });
     }
 
@@ -625,7 +578,6 @@ impl Handler<GetSubsystemHealth> for PhysicsSupervisor {
             self.stress_majorization_state.to_health_state(),
             self.constraint_state.to_health_state(),
             self.ontology_constraint_state.to_health_state(),
-            self.semantic_forces_state.to_health_state(),
         ];
 
         let healthy = actor_states
@@ -1014,45 +966,18 @@ impl Handler<GetOntologyConstraintStats> for PhysicsSupervisor {
 // Semantic Forces Forwarding Handlers
 // ============================================================================
 
-impl Handler<GetSemanticConfig> for PhysicsSupervisor {
-    type Result = ResponseActFuture<
-        Self,
-        Result<crate::actors::gpu::semantic_forces_actor::SemanticConfig, String>,
-    >;
-
-    fn handle(&mut self, msg: GetSemanticConfig, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-
-        Box::pin(
-            async move {
-                addr.send(msg)
-                    .await
-                    .map_err(|e| format!("Communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
 impl Handler<GetHierarchyLevels> for PhysicsSupervisor {
     type Result = ResponseActFuture<
         Self,
-        Result<crate::actors::gpu::semantic_forces_actor::HierarchyLevels, String>,
+        Result<crate::actors::messages::HierarchyLevels, String>,
     >;
 
     fn handle(&mut self, msg: GetHierarchyLevels, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
+        let addr = match &self.force_compute_actor {
+            Some(a) if self.force_compute_state.is_running => a.clone(),
             _ => {
                 return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
+                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
                 );
             }
         };
@@ -1072,83 +997,11 @@ impl Handler<RecalculateHierarchy> for PhysicsSupervisor {
     type Result = ResponseActFuture<Self, Result<(), String>>;
 
     fn handle(&mut self, msg: RecalculateHierarchy, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
+        let addr = match &self.force_compute_actor {
+            Some(a) if self.force_compute_state.is_running => a.clone(),
             _ => {
                 return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-
-        Box::pin(
-            async move {
-                addr.send(msg)
-                    .await
-                    .map_err(|e| format!("Communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureDAG> for PhysicsSupervisor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureDAG, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-
-        Box::pin(
-            async move {
-                addr.send(msg)
-                    .await
-                    .map_err(|e| format!("Communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureTypeClustering> for PhysicsSupervisor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureTypeClustering, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-
-        Box::pin(
-            async move {
-                addr.send(msg)
-                    .await
-                    .map_err(|e| format!("Communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
-impl Handler<ConfigureCollision> for PhysicsSupervisor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: ConfigureCollision, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.semantic_forces_actor {
-            Some(a) if self.semantic_forces_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("SemanticForcesActor not available".to_string()) }.into_actor(self),
+                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
                 );
             }
         };
@@ -1352,5 +1205,24 @@ mod tests {
             );
             actix::clock::sleep(Duration::from_millis(50)).await;
         }
+    }
+}
+
+impl Handler<SetRelationshipTable> for PhysicsSupervisor {
+    type Result = ResponseActFuture<Self, Result<(), String>>;
+
+    fn handle(&mut self, msg: SetRelationshipTable, _ctx: &mut Self::Context) -> Self::Result {
+        let addr = match &self.force_compute_actor {
+            Some(a) if self.force_compute_state.is_running => a.clone(),
+            _ => {
+                return Box::pin(
+                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
+                );
+            }
+        };
+        Box::pin(
+            async move { addr.send(msg).await.map_err(|e| format!("Communication failed: {}", e))? }
+                .into_actor(self),
+        )
     }
 }

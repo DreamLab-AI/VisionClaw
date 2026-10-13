@@ -8,6 +8,15 @@
 //! defaults downstream: what is stored is what the kernels apply, and each force has its own
 //! `enabled` flag.
 //!
+//! # Defaults are calibrated, not guessed
+//!
+//! With no scale or cap downstream, the defaults below are the only thing bounding these
+//! forces, so they were measured (`semantic_force_magnitudes_against_the_live_force_field`,
+//! 9.5k nodes, live field median |f| ~36, p95 ~50): each enabled force sits at or below the
+//! live field's median at its p95. The two forces that work by pulling nodes onto horizontal
+//! planes (`dag`, `maturityLayout`) ship OFF: they are meaningful only for hierarchical or
+//! staged corpora, and switching them on is a deliberate act in the control panel.
+//!
 //! The field order and widths mirror the device struct `SemanticConfig` in
 //! `semantic_forces.cu`; the host image is built field by field in
 //! `unified_gpu_compute/semantic.rs` and verified against the device by a GPU test, so adding
@@ -38,7 +47,7 @@ pub struct DagForce {
 
 impl Default for DagForce {
     fn default() -> Self {
-        Self { vertical_spacing: 100.0, horizontal_spacing: 50.0, level_attraction: 0.5, sibling_repulsion: 0.3, enabled: true }
+        Self { vertical_spacing: 100.0, horizontal_spacing: 50.0, level_attraction: 0.03, sibling_repulsion: 0.05, enabled: false }
     }
 }
 
@@ -78,7 +87,7 @@ pub struct CollisionForce {
 
 impl Default for CollisionForce {
     fn default() -> Self {
-        Self { min_distance: 5.0, collision_strength: 1.0, node_radius: 10.0, enabled: true }
+        Self { min_distance: 5.0, collision_strength: 0.2, node_radius: 10.0, enabled: true }
     }
 }
 
@@ -158,7 +167,7 @@ pub struct MaturityLayoutForce {
 
 impl Default for MaturityLayoutForce {
     fn default() -> Self {
-        Self { vertical_spacing: 150.0, level_attraction: 0.4, stage_separation: 100.0, enabled: true }
+        Self { vertical_spacing: 150.0, level_attraction: 0.08, stage_separation: 100.0, enabled: false }
     }
 }
 

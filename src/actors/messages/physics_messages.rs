@@ -402,40 +402,28 @@ pub struct GetKernelMode;
 // ---------------------------------------------------------------------------
 
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct ConfigureDAG {
-    pub vertical_spacing: Option<f32>,
-    pub horizontal_spacing: Option<f32>,
-    pub level_attraction: Option<f32>,
-    pub sibling_repulsion: Option<f32>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct ConfigureTypeClustering {
-    pub cluster_attraction: Option<f32>,
-    pub cluster_radius: Option<f32>,
-    pub inter_cluster_repulsion: Option<f32>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct ConfigureCollision {
-    pub min_distance: Option<f32>,
-    pub collision_strength: Option<f32>,
-    pub node_radius: Option<f32>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<crate::actors::gpu::semantic_forces_actor::SemanticConfig, String>")]
-pub struct GetSemanticConfig;
-
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<crate::actors::gpu::semantic_forces_actor::HierarchyLevels, String>")]
+#[rtype(result = "Result<HierarchyLevels, String>")]
 pub struct GetHierarchyLevels;
+
+/// Node hierarchy level assignment derived from the graph's `hierarchy` edges.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyLevels {
+    /// Hierarchy level for each node (-1 = not in a hierarchy)
+    pub node_levels: Vec<i32>,
+    pub max_level: i32,
+    /// Number of nodes at each level
+    pub level_counts: Vec<usize>,
+}
+
+/// Replace the ontology relationship table (edge type id -> spring parameters) on the GPU.
+/// The table is built from the semantic type registry; the strengths are registry data, not
+/// request parameters, so there is nothing to scale.
+#[derive(Message, Debug, Clone)]
+#[rtype(result = "Result<(), String>")]
+pub struct SetRelationshipTable {
+    pub configs: Vec<crate::services::semantic_type_registry::RelationshipForceConfig>,
+    pub version: i32,
+}
 
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<(), String>")]
@@ -445,14 +433,6 @@ pub struct RecalculateHierarchy;
 #[rtype(result = "Result<serde_json::Value, String>")]
 pub struct AdjustConstraintWeights {
     pub global_strength: f32,
-}
-
-/// Reload the dynamic relationship buffer on the GPU from the semantic type registry
-#[derive(Message, Debug, Clone)]
-#[rtype(result = "Result<(), String>")]
-pub struct ReloadRelationshipBuffer {
-    pub buffer: Vec<crate::gpu::semantic_forces::DynamicForceConfigGPU>,
-    pub version: u64,
 }
 
 // ---------------------------------------------------------------------------
