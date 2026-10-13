@@ -1,5 +1,5 @@
 use log::info;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use super::types::{LayoutMode, LayoutModeConfig};
 
@@ -47,7 +47,7 @@ fn build_adj(
 }
 
 // ---------------------------------------------------------------------------
-// 1. Hierarchical Layout (Sugiyama-inspired BFS)
+// 1. Hierarchical Layout (Sugiyama-inspired, SCC-condensed longest-path ranks)
 // ---------------------------------------------------------------------------
 
 fn hierarchical_layout(
@@ -64,68 +64,15 @@ fn hierarchical_layout(
         .map(|(i, (id, _))| (*id, i))
         .collect();
 
-    // Build directed in-degree count to find roots
-    let mut in_degree = vec![0u32; n];
-    for &(src, tgt, _) in edges {
-        if let (Some(&si), Some(&ti)) = (id_to_idx.get(&src), id_to_idx.get(&tgt)) {
-            if si != ti {
-                in_degree[ti] += 1;
-            }
-        }
-    }
+    // Directed adjacency (source -> targets), shared with the cycle report
+    let node_ids: Vec<u32> = nodes.iter().map(|(id, _)| *id).collect();
+    let dir_adj = super::scc::directed_adjacency(&node_ids, edges.iter().map(|&(s, t, _)| (s, t)));
 
-    // Directed adjacency (source -> targets)
-    let mut dir_adj: Vec<Vec<usize>> = vec![vec![]; n];
-    for &(src, tgt, _) in edges {
-        if let (Some(&si), Some(&ti)) = (id_to_idx.get(&src), id_to_idx.get(&tgt)) {
-            if si != ti {
-                dir_adj[si].push(ti);
-            }
-        }
-    }
-
-    // BFS depth assignment from roots
-    let mut depth = vec![usize::MAX; n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
-
-    // Start from nodes with no incoming edges
-    for i in 0..n {
-        if in_degree[i] == 0 {
-            depth[i] = 0;
-            queue.push_back(i);
-        }
-    }
-
-    // If no true roots (cycle), seed with highest-degree nodes
-    if queue.is_empty() {
-        let undirected_adj = build_adj(n, &id_to_idx, edges);
-        let root = (0..n).max_by_key(|&i| undirected_adj[i].len()).unwrap_or(0);
-        depth[root] = 0;
-        queue.push_back(root);
-    }
-
-    while let Some(u) = queue.pop_front() {
-        for &v in &dir_adj[u] {
-            if depth[v] == usize::MAX {
-                depth[v] = depth[u] + 1;
-                queue.push_back(v);
-            }
-        }
-    }
-
-    // Assign unreachable nodes to the next layer after the deepest reached
-    let max_depth = depth
-        .iter()
-        .filter(|&&d| d != usize::MAX)
-        .max()
-        .copied()
-        .unwrap_or(0);
-    for d in depth.iter_mut() {
-        if *d == usize::MAX {
-            *d = max_depth + 1;
-        }
-    }
-    let total_layers = max_depth + 2;
+    // Longest-path ranks over the SCC condensation: a cycle shares one layer
+    // and nothing is stranded on a trailing "unreachable" layer.
+    let depth = super::scc::longest_path_ranks(&dir_adj);
+    let max_depth = depth.iter().copied().max().unwrap_or(0);
+    let total_layers = max_depth + 1;
 
     // Group nodes by layer
     let mut layers: Vec<Vec<usize>> = vec![vec![]; total_layers];
@@ -580,4 +527,30 @@ fn clustered_layout(
     }
 
     positions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nodes(n: u32) -> Vec<(u32, String)> {
+        (1..=n).map(|i| (i, format!("n{i}"))).collect()
+    }
+
+    #[test]
+    fn hierarchical_layout_ranks_a_cycle_on_one_layer_with_exits_below() {
+        // 1 -> 2 -> 3 -> 2 (cycle {2,3}), 3 -> 4
+        let edges = [(1, 2, 1.0), (2, 3, 1.0), (3, 2, 1.0), (3, 4, 1.0)];
+        let cfg = LayoutModeConfig::default();
+        let p = hierarchical_layout(&nodes(4), &edges, &cfg);
+        let layer = |i: usize| (p[i].1 / cfg.layer_spacing).round() as usize;
+        assert_eq!((layer(0), layer(1), layer(2), layer(3)), (0, 1, 1, 2));
+    }
+
+    #[test]
+    fn hierarchical_layout_places_a_rootless_cycle_on_the_first_layer() {
+        let edges = [(1, 2, 1.0), (2, 3, 1.0), (3, 1, 1.0)];
+        let p = hierarchical_layout(&nodes(3), &edges, &LayoutModeConfig::default());
+        assert!(p.iter().all(|pos| pos.1 == 0.0));
+    }
 }

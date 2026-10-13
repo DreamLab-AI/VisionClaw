@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.9
+version: 0.1.10
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.10 (2026-10-13): ADR-2138 — /api/analytics/cycles row (GET, optional edgeType, default subsumption edges); layout-mode whitelist gains spectral and clustered; REST only, no frame change"
   - "0.1.9 (2026-10-08): ADR-2136 amendment — each MemoryCloudHit in the /api/memory-cloud/query response gains optional position [x,y,z] | null, the hit's own embedding projected with the snapshot's PCA basis (on its row when sampled); additive"
   - "0.1.8 (2026-10-08): ADR-2136 — /api/memory-cloud/query response gains optional query.position [x,y,z] | null, the query vector projected with the snapshot's own PCA basis and scale (a sampled row lands on its row); additive, older clients ignore it. ADR-2135 amendment — graphSeparationX retired from PUT/GET /api/settings/physics: a sent or stored value is accepted and ignored, never returned"
   - "0.1.7 (2026-10-07): ADR-2135 — /api/memory-flash{,/batch} rows; optional agentId (alias agent_id) accepted and relayed in the memory_flash frame (omitted when absent) so clients drift that agent towards the memory cloud; additive"
@@ -197,6 +198,7 @@ Routes registered in `src/main.rs:986-1016`:
 | `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); `query.position` = the query's point and each hit's `position` = the hit's own point in the snapshot's PCA cloud, or `null` (ADR-2136); validation 400 |
 | `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
 | `/api/memory-flash`, `/api/memory-flash/batch` | POST | central `/api` policy | `{key, namespace?, action?, agentId?}` (batch: `{events: [...]}`) → `memory_flash` text frame `{type, data: {key, namespace, action, timestamp, agentId?}}` to every client; `agentId` (an agent wire id, flag bits allowed) is relayed only when given and names the agent the clients drift towards the memory cloud (ADR-2135) |
+| `/api/analytics/cycles[?edgeType=<type>\|all]` | GET | public read inside the `/analytics` scope (`mutations_only`) | `{nodeCount, edgeCount, edgeFilter, cyclicNodeIds, components}`; default = edges asserting subClassOf (`Edge::asserts_subsumption`, the DAG ranker's predicate); `layout::scc` shared with the CPU layout engine (ADR-2138) |
 
 **RBAC posture (open by *deployment*, fail-closed in code).** `RbacGate` middleware enforces
 Owner>Admin>Editor>Viewer on NIP-98 pubkeys. The enforcement code **fails closed**:

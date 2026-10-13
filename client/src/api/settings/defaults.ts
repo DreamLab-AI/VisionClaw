@@ -243,7 +243,7 @@ export const DEFAULT_NODES_SETTINGS = {
   // ADR-031 D6: default to 'community' so the live Louvain partition renders out
   // of the box. Nodes the server left unclustered (community_id 0) fall through
   // to per-type colouring in computeColor, so the default is never all-grey.
-  colorScheme: 'community' as 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp',
+  colorScheme: 'community' as 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp' | 'cycles',
   sizeScheme: 'hybrid' as 'degree' | 'fileSize' | 'hybrid',
   perNodeGlow: true,
   metalness: 0.1,

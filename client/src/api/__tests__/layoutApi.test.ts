@@ -36,6 +36,8 @@ describe('layoutApi.setMode', () => {
     expect(toEngineLayoutMode('dag-topdown')).toBe('hierarchical');
     expect(toEngineLayoutMode('dag-leftright')).toBe('hierarchical');
     expect(toEngineLayoutMode('dag-radial')).toBe('radial');
+    expect(toEngineLayoutMode('spectral')).toBe('spectral');
+    expect(toEngineLayoutMode('clustered')).toBe('clustered');
   });
 
   it('passes engine-vocabulary modes through unchanged', () => {

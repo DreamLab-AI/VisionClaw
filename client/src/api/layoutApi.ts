@@ -54,6 +54,8 @@ export const QUALITY_GATE_LAYOUT_MODES = [
   'dag-radial',
   'dag-leftright',
   'type-clustering',
+  'spectral',
+  'clustered',
 ] as const;
 
 /**
@@ -70,6 +72,8 @@ const QUALITY_GATE_TO_ENGINE: Record<string, string> = {
   'dag-leftright': 'hierarchical',
   'dag-radial': 'radial',
   'type-clustering': 'forceDirected',
+  spectral: 'spectral',
+  clustered: 'clustered',
 };
 
 /** Translate a quality-gate layout mode; engine-vocabulary names pass through. */

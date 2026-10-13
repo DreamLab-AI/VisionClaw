@@ -114,7 +114,7 @@ export interface QualityGateSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
   semanticForces: boolean;
-  layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering';
+  layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;
   showCommunities: boolean;

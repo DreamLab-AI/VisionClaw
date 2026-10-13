@@ -60,7 +60,7 @@ pub struct QualityGateSettings {
     /// Enable semantic forces (DAG layout, type clustering)
     pub semantic_forces: bool,
 
-    /// Layout mode: force-directed, dag-topdown, dag-radial, dag-leftright, type-clustering
+    /// Layout mode: force-directed, dag-topdown, dag-radial, dag-leftright, type-clustering, spectral, clustered
     pub layout_mode: String,
 
     /// Enable cluster visualization (color-coded node groups)

@@ -120,6 +120,17 @@ export interface AnomalyDetectionConfig {
 }
 
 
+/** Server-computed directed cycles (`GET /api/analytics/cycles`). */
+export interface CycleReport {
+  nodeCount: number;
+  edgeCount: number;
+  /** `subsumption` (default), `all`, or the exact edge type requested. */
+  edgeFilter: string;
+  cyclicNodeIds: number[];
+  /** Multi-node strongly connected components, largest first. */
+  components: number[][];
+}
+
 export class AnalyticsAPI {
   private websocket: WebSocket | null = null;
   private taskSubscriptions = new Map<string, (task: AnalysisTask) => void>();
@@ -394,6 +405,21 @@ export class AnalyticsAPI {
   }
 
   
+  /** Nodes on a directed cycle. Defaults to subClassOf-asserting edges; pass `'all'` for every edge. */
+  public async getCycles(edgeType?: string): Promise<CycleReport> {
+    const query = edgeType ? `?edgeType=${encodeURIComponent(edgeType)}` : '';
+    const response = await unifiedApiClient.getData<{
+      success: boolean;
+      data?: CycleReport;
+      error?: string;
+    }>(`/analytics/cycles${query}`);
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to fetch cycle report');
+    }
+    return response.data;
+  }
+
   public async getCurrentAnomalies(): Promise<any[]> {
     try {
       const response = await unifiedApiClient.getData<{

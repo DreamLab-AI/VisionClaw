@@ -8,7 +8,7 @@ export interface NodeSettings {
   // ADR-031 D6: analytic colour modes (community/cluster/centrality/sssp) join
   // the semantic schemes. An analytic mode falls through to 'type' colouring for
   // nodes the server left without that signal, so no node goes dark.
-  colorScheme?: 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp';
+  colorScheme?: 'type' | 'domain' | 'base' | 'community' | 'cluster' | 'centrality' | 'sssp' | 'cycles';
   sizeScheme?: 'degree' | 'fileSize' | 'hybrid';
   perNodeGlow?: boolean;
   metalness: number;
@@ -733,7 +733,7 @@ export interface QualityGatesSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
   semanticForces: boolean;
-  layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering';
+  layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;
   showCommunities: boolean;

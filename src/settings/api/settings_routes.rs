@@ -416,6 +416,8 @@ pub fn validate_quality_gate_settings(settings: &QualityGateSettings) -> Result<
         "dag-radial",
         "dag-leftright",
         "type-clustering",
+        "spectral",
+        "clustered",
     ];
     if !valid_modes.contains(&settings.layout_mode.as_str()) {
         errors.push(format!(

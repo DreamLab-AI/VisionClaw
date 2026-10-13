@@ -10,6 +10,7 @@ import { applyGlslMetadataGlow, GLSL_GLOW_PRESETS } from '../../../rendering/mat
 import { useSettingsStore } from '../../../store/settingsStore';
 import type { GemMaterialSettings, GraphTypeVisualsSettings, QualityGatesSettings } from '../../settings/config/settings';
 import type { Edge } from '../managers/graphDataManager';
+import { useCyclicNodeIds } from '../hooks/useCyclicNodeIds';
 import type { ThreeEvent } from '@react-three/fiber';
 import { createLogger } from '../../../utils/loggerConfig';
 // ADR-03 D7: analytics buffer no longer lives in the worker — it is rebuilt on
@@ -233,6 +234,8 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
   // KG colour scheme: 'type' (per node-type palette), 'domain' (per domain palette),
   // or 'base' (legacy baseColor + label-hash hue jitter). Default 'type'.
   const colorScheme = useSettingsStore(s => s.get<string>('visualisation.graphs.knowledge.nodes.colorScheme')) ?? 'type';
+  // 'cycles' scheme: directed-cycle members, computed only while it is active.
+  const cyclicIds = useCyclicNodeIds(colorScheme === 'cycles', props.nodes.length, props.edges.length);
   // The layout is always separated (ADR-2135): idle agents relax back to the
   // centre, and drift from the triangle's centroid towards the graphs they
   // work on (agentDriftFeed).
@@ -477,6 +480,10 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     // no-data nodes stay visible rather than collapsing to one dark colour.
     // Anomaly is the one exception — an always-on red overlay (gated by
     // qualityGates.showAnomalies) that wins over whatever scheme is active.
+    // Cycles: members of a directed cycle glow red-orange; everything else recedes.
+    if (colorScheme === 'cycles' && cyclicIds) {
+      return cyclicIds.has(String(node.id)) ? _col.set('#FF5722') : _col.set('#37474F');
+    }
     const analytics = analyticsRef.current;
     if (analytics && nodeIndex !== undefined && nodeIndex * ANALYTICS_STRIDE + ANALYTICS_SSSP_OFFSET < analytics.length) {
       const a = nodeIndex * ANALYTICS_STRIDE;
@@ -589,7 +596,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     const lit = 0.45 + auth * 0.2;
     _col.setHSL(hue, Math.min(sat, 0.9), Math.min(lit, 0.75));
     return _col;
-  }, [ssspResult, hierarchyMap, connectionCountMap, qualityGates, baseNodeColor, colorScheme]);
+  }, [ssspResult, hierarchyMap, connectionCountMap, qualityGates, baseNodeColor, colorScheme, cyclicIds]);
 
   // Progressive reveal: ramp up visible instance count over frames so nodes
   // appear in waves (~120 nodes/frame at 60fps → full 1090 in ~0.15s).
@@ -881,7 +888,7 @@ const GemNodesInner: React.ForwardRefRenderFunction<GemNodesHandle, GemNodesProp
     }
 
     // --- Colour cache: recompute + upload only when colour inputs change -----
-    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}`;
+    const colorHash = `${nodeCount}-${connectionCountMap.size}-${colorScheme}-${cyclicIds?.size ?? ''}-${baseNodeColor ?? ''}-${selectedNodeId ?? ''}-${ssspResult ? 's' : ''}-${qualityGates?.showClusters ? 1 : 0}${qualityGates?.showAnomalies ? 1 : 0}${qualityGates?.showCommunities ? 1 : 0}${qualityGates?.showCentrality ? 1 : 0}${qualityGates?.showSSSP ? 1 : 0}-${analyticsVersionRef.current}-${heatEnabled ? 1 : 0}`;
     if (colorHash !== prevColorHashRef.current) {
       prevColorHashRef.current = colorHash;
       // Cache the UNHEATED base RGB so the 2Hz heat pass can rescale without
