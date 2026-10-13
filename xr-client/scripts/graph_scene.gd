@@ -189,14 +189,17 @@ var _hud_grab_offset: Transform3D = Transform3D.IDENTITY
 
 # --- HUD control-panel state (M2+ operator controls) -------------------------
 # Physics params tracked locally (server is authoritative but has no read-back on
-# this path); seeded to the desktop defaults and mutated by Spread+/- presses.
-var _repel_k: float = 190.0
-var _rest_length: float = 85.0
+# this path); seeded to the server's defaults (repelK 120, restLength 50) and then
+# overwritten by GraphParity's boot read-back of GET /api/settings/physics, so the HUD
+# never shows numbers the GPU is not running. Mutated by Spread+/- presses.
+var _repel_k: float = 120.0
+var _rest_length: float = 50.0
 var _physics_http: HTTPRequest = null
 # One physics write in flight at a time: _physics_http is single-request, so gate
 # presses until request_completed and only commit local repelK/restLength on a
 # successful dispatch (a dropped ERR_BUSY press must not drift the tracked values).
 var _physics_pending: bool = false
+var _last_known_nodes: int = -1
 # Runtime visual factors (client-side only, no HTTP).
 var _node_size_factor: float = 1.0
 # Hierarchy / view physics state (server-routed via _physics_http, same one-in-flight
@@ -937,6 +940,11 @@ func _apply_type_toggle(spec: String) -> void:
 	_selection_dirty = true
 
 
+# Every node the server has sent a position for (0 before the first frame).
+func _known_nodes() -> int:
+	return _binary_client.node_count() if _binary_client != null else 0
+
+
 func _refresh_controls_status() -> void:
 	if hud == null:
 		return
@@ -945,8 +953,11 @@ func _refresh_controls_status() -> void:
 		var dag: String = "on" if _dag_bias_on else "off"
 		var fold: String = "  [fold busy]" if _fold_pending else ""
 		var err: String = "" if _last_write_error.is_empty() else "\n⚠ " + _last_write_error
-		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes<=%d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d%s%s%s" % [
-			_repel_k, _rest_length, _edge_show_count, _edge_budget, _node_budget, _node_size_factor,
+		# "nodes drawn/known": the draw budget against every node the server sent, so a
+		# graph shown partially (only edge-endpoint nodes are drawn) is never mistaken
+		# for the whole graph.
+		hud.set_controls_status("repelK %.0f  restLen %.0f  edges %d/%d  nodes drawn<=%d of %d  node×%.2f  dag %s/%.0f  z%.2f  fold L%d  pin %d%s%s%s" % [
+			_repel_k, _rest_length, _edge_show_count, _edge_budget, _node_budget, _known_nodes(), _node_size_factor,
 			dag, _dag_level_distance, _z_compression, _fold_level, _pinned_ids.size(), busy, fold, err])
 	# Reflect the toggle/pin state on the button faces (press-only, no per-frame cost).
 	if hud.has_method("set_control_states"):
@@ -1470,6 +1481,11 @@ func _connect_presence() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# Keep the "drawn of known" readout honest as the position stream grows.
+	var known_now: int = _known_nodes()
+	if known_now != _last_known_nodes:
+		_last_known_nodes = known_now
+		_refresh_controls_status()
 	# Drain network inboxes on the scene-tree thread; both clients emit their
 	# signals from inside poll().
 	if _binary_client != null and _binary_client.has_method("poll"):

@@ -14,8 +14,8 @@ class StubScene:
 	extends Node
 	var _selection_dirty: bool = false
 	var _physics_pending: bool = false
-	var _repel_k: float = 190.0
-	var _rest_length: float = 85.0
+	var _repel_k: float = 120.0
+	var _rest_length: float = 50.0
 	var _dag_bias_on: bool = false
 	var _dag_level_distance: float = 60.0
 	var _plane_bias_k: float = 0.0

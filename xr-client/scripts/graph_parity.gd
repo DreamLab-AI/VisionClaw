@@ -46,8 +46,14 @@ var _hud: Node = null
 var _hull_inst: MeshInstance3D = null
 var _hull_accum: float = 0.0
 var _physics_get: HTTPRequest = null
-var _physics_wanted: bool = false
+# True at boot: read the server's physics once so the HUD starts from real values
+# instead of the scene's seeds. Peers' later changes set it again (see settings events).
+var _physics_wanted: bool = true
 var _physics_inflight: bool = false
+# Seconds until a failed read is retried (0 = not waiting). A failed boot read must not
+# leave the HUD on seeds forever, and must not hammer a down server every frame.
+var _physics_retry_in: float = 0.0
+const PHYSICS_RETRY_SEC: float = 5.0
 
 
 ## Wire to the scene. `graph_root` is the fitted server-space root the node
@@ -80,6 +86,12 @@ func handle_control(action: String) -> bool:
 			if _client != null and _client.has_method("set_color_mode"):
 				_client.set_color_mode(1 - int(_client.get_color_mode()))
 			_refresh_hud()
+			return true
+		"agent_offsets_toggle":
+			if _client != null and _client.has_method("set_agent_offsets"):
+				_client.set_agent_offsets(not bool(_client.get_agent_offsets()))
+				if _hud != null and _hud.has_method("set_agent_offsets_state"):
+					_hud.set_agent_offsets_state(bool(_client.get_agent_offsets()))
 			return true
 		"hulls_cycle":
 			hull_source = (hull_source + 1) % 3
@@ -116,6 +128,10 @@ func route_text(json: String, msg_type: String) -> bool:
 func _process(delta: float) -> void:
 	if _client != null and _client.has_method("poll_graph_refetch"):
 		_client.poll_graph_refetch()
+	if _physics_retry_in > 0.0:
+		_physics_retry_in -= delta
+		if _physics_retry_in <= 0.0:
+			_physics_wanted = true
 	_maybe_fetch_physics()
 	if hull_source == 0 or _client == null or not _client.has_method("build_hull_mesh"):
 		return
@@ -188,7 +204,8 @@ func _maybe_fetch_physics() -> void:
 func _on_physics_get_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_physics_inflight = false
 	if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300:
-		push_warning("GraphParity: physics re-read failed (result=%d code=%d)" % [result, code])
+		push_warning("GraphParity: physics re-read failed (result=%d code=%d); retrying in %ds" % [result, code, int(PHYSICS_RETRY_SEC)])
+		_physics_retry_in = PHYSICS_RETRY_SEC
 		return
 	apply_physics_body(body.get_string_from_utf8())
 

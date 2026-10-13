@@ -194,6 +194,7 @@ const MEMORY_ROUTE_FONT := 20
 var _fold_plus_button: Button = null
 var _fold_minus_button: Button = null
 var _demo_button: Button = null
+var _agent_offsets_button: Button = null
 var _demo_active: bool = false
 # Query page.
 var _query_summary_label: Label = null
@@ -941,7 +942,11 @@ func _build_swarm_page() -> VBoxContainer:
 	page.add_child(_swarm_count_label)
 	_demo_button = _action_btn("Start Agent Demo", "toggle_demo", "Run six agents through a live work loop on the graph (they appear and behave as real agents)")
 	page.add_child(_demo_button)
-	var region := _scroll_region(360)
+	# Same switch and default (on) as the desktop Agents panel: off draws agents exactly
+	# at the server position instead of gliding them to the node they work on.
+	_agent_offsets_button = _action_btn("Agent Offsets: On", "agent_offsets_toggle", "Agents glide toward the node they work on. Off draws every agent exactly at its server position")
+	page.add_child(_agent_offsets_button)
+	var region := _scroll_region(320)
 	_swarm_list = VBoxContainer.new()
 	_swarm_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_swarm_list.add_child(_mk_label("(no agents active)", "Agents appear here as they work"))
@@ -1967,6 +1972,13 @@ func set_beat_status(line: String, mic_on: bool, mic_state: String = "off") -> v
 		var badge: String = "● MIC" if mic_state == "off" or mic_state.is_empty() else "● MIC %s" % mic_state
 		if _mic_badge.text != badge:
 			_mic_badge.text = badge
+
+
+## Reflect the agent-offset switch on its button face (on = glide toward work target).
+func set_agent_offsets_state(on: bool) -> void:
+	if _agent_offsets_button != null:
+		_agent_offsets_button.text = "Agent Offsets: On" if on else "Agent Offsets: Off"
+		_agent_offsets_button.add_theme_color_override("font_color", ACCENT if on else IDLE)
 
 
 func set_demo_active(active: bool) -> void:

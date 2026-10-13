@@ -565,6 +565,9 @@ pub struct RenderStore {
     // in one O(E) pass at topology and incremented additively on expansion merge.
     // Drives the sqrt(degree) term of the metadata size formula.
     degree: HashMap<u32, u32>,
+    /// Agent hover offsets disabled (per-viewer switch). Stored inverted so the derived
+    /// `Default` (false) keeps the long-standing behaviour: offsets on.
+    agent_offsets_off: bool,
     // Agent-swarm data plane (Pillar 1-3). Live agents keyed by masked agent id
     // (node-id space, flag bits stripped). Fed by the binary `0x23 AGENT_ACTION`
     // beam frame and refined by the JSON `state` channel. Read by the hover glide
@@ -649,6 +652,16 @@ pub const CYCLE_DIM: f32 = 0.22;
 impl RenderStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Switch the agent hover offset (active agents glide to a ring around the node they
+    /// work on). Off draws every agent at its server position. Per viewer; default on.
+    pub fn set_agent_offsets(&mut self, on: bool) {
+        self.agent_offsets_off = !on;
+    }
+
+    pub fn agent_offsets(&self) -> bool {
+        !self.agent_offsets_off
     }
 
     pub fn clear(&mut self) {
@@ -1639,7 +1652,7 @@ impl RenderStore {
         // home). Idle/done agents, and agents whose target position is unknown, keep
         // their server target (the proxemics/layout fallback). Snapshot the hover
         // points first (reads other slots) to avoid clashing with the per-slot write.
-        let hover: HashMap<u32, [f32; 3]> = if self.agent_registry.is_empty() {
+        let hover: HashMap<u32, [f32; 3]> = if self.agent_registry.is_empty() || self.agent_offsets_off {
             HashMap::new()
         } else {
             let mut m = HashMap::new();
@@ -2641,6 +2654,31 @@ mod tests {
             approx(work_pos[1], expected[1]),
             "hover lifts above the node"
         );
+    }
+
+    #[test]
+    fn agent_offsets_off_keeps_the_agent_at_its_server_position() {
+        let mut s = RenderStore::new();
+        assert!(s.agent_offsets(), "offsets default to on, like the web client");
+        s.upsert(5, [0.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.upsert(20, [10.0, 0.0, 0.0], 0, 0.0, 0.0);
+        s.record_agent_action(5, 20, 0, 100, "");
+        s.set_agent_state(5, "busy", "");
+        s.set_agent_offsets(false);
+        for _ in 0..64 {
+            s.hunt(0.5, None, [0.0, 0.0, 0.0]);
+        }
+        let p = s.position_of(5);
+        assert!(
+            approx(p[0], 0.0) && approx(p[1], 0.0) && approx(p[2], 0.0),
+            "offsets off: a working agent stays at its server position, got {p:?}"
+        );
+        // Switching back on resumes the glide toward the hover ring.
+        s.set_agent_offsets(true);
+        for _ in 0..64 {
+            s.hunt(0.5, None, [0.0, 0.0, 0.0]);
+        }
+        assert!(s.position_of(5)[0] > 5.0, "offsets on again: the agent glides to its target");
     }
 
     #[test]

@@ -1256,6 +1256,18 @@ impl BinaryProtocolClient {
         self.store.color_mode().code()
     }
 
+    /// Per-viewer switch for the agent hover offset (default on). Off draws agents at
+    /// their server position; the desktop client has the matching toggle.
+    #[func]
+    fn set_agent_offsets(&mut self, on: bool) {
+        self.store.set_agent_offsets(on);
+    }
+
+    #[func]
+    fn get_agent_offsets(&self) -> bool {
+        self.store.agent_offsets()
+    }
+
     // --- WP2 settings / filter sync ---------------------------------------------
 
     /// This session's signing pubkey, so its own `settingsUpdated` echoes drop.
