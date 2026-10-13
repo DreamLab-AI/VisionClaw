@@ -1894,6 +1894,7 @@ impl Handler<ComputeForces> for ForceComputeActor {
         // to the blocking thread pool to keep async executor threads responsive
         let fut = async move {
             // Acquire GPU access asynchronously (this uses tokio::sync::RwLock - non-blocking)
+            let gate_wait = Instant::now();
             let _gpu_guard = match shared_context.acquire_gpu_access().await {
                 Ok(guard) => guard,
                 Err(e) => {
@@ -1902,12 +1903,15 @@ impl Handler<ComputeForces> for ForceComputeActor {
                 }
             };
 
+            add_phase(0, gate_wait);
+
             // Clone Arc for move into spawn_blocking
             let unified_compute_arc = shared_context.unified_compute.clone();
 
             // Move blocking GPU operations to dedicated blocking thread pool
             // This prevents std::sync::Mutex::lock() from blocking Tokio worker threads
             let blocking_result = tokio::task::spawn_blocking(move || {
+                let mutex_wait = Instant::now();
                 let mut unified_compute = match unified_compute_arc.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => {
@@ -1926,12 +1930,17 @@ impl Handler<ComputeForces> for ForceComputeActor {
                     }
                 }
 
+                add_phase(1, mutex_wait);
+                let exec_timer = Instant::now();
                 let gpu_result = unified_compute.execute_physics_step_with_bypass(&sim_params, stability_bypass);
+                add_phase(2, exec_timer);
                 let execution_duration = step_start.elapsed().as_secs_f64() * 1000.0;
 
                 // Get positions and velocities for broadcast
+                let read_timer = Instant::now();
                 let positions_result = unified_compute.get_node_positions();
                 let velocities_result = unified_compute.get_node_velocities();
+                add_phase(3, read_timer);
 
                 Ok((gpu_result, execution_duration, positions_result, velocities_result))
             }).await;
@@ -4373,6 +4382,20 @@ mod complete_snapshot_tests {
 /// Steps per timing log line.
 const STEP_TIMING_WINDOW: u32 = 120;
 
+/// Microseconds accumulated inside the step's blocking section since the last timing line:
+/// [waiting for the GPU access gate, waiting for the compute mutex, kernels (`execute`), readback].
+/// Statics because the blocking closure runs on another thread and the line is logged by the actor.
+static PHASE_US: [std::sync::atomic::AtomicU64; 4] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+fn add_phase(slot: usize, since: Instant) {
+    PHASE_US[slot].fetch_add(since.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Rolling timing of the compute step, so "why is the physics tick slow" is a log line and not a
 /// guess. `period` is start-to-start (what the stream rate follows), `gpu` is handler start to
 /// kernels + readback done (includes waiting for the GPU lock), `total` adds the CPU
@@ -4403,9 +4426,10 @@ impl StepTiming {
             return None;
         }
         let n = f64::from(self.n);
+        let ph: Vec<f64> = PHASE_US.iter().map(|a| a.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0 / n).collect();
         let line = format!(
-            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms, total in actor {:.1} ms, outside actor {:.1} ms",
-            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, self.total_ms / n, (self.period_ms - self.total_ms) / n
+            "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms",
+            self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n
         );
         self.period_ms = 0.0;
         self.gpu_ms = 0.0;
@@ -4433,7 +4457,7 @@ mod step_timing_tests {
         }
         let line = line.expect("a line at the end of the window");
         // 119 intervals of 70 ms over 120 steps: ~69 ms period, kernels 20, total 25
-        assert!(line.contains("kernels+readback 20.0 ms"), "{line}");
+        assert!(line.contains("kernels+readback 20.0 ms ["), "{line}");
         assert!(line.contains("total in actor 25.0 ms"), "{line}");
         assert!(line.contains("period 69."), "{line}");
         assert!(t.n == 0 && t.gpu_ms == 0.0, "the window resets");
