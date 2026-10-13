@@ -810,14 +810,18 @@ impl ClientCoordinatorActor {
         }
 
         if !self.position_cache.is_empty() && self.should_broadcast() {
-            let mut position_data = Vec::new();
-            for node_data in self.position_cache.values() {
-                position_data.push(*node_data);
-            }
+            let position_data: Vec<BinaryNodeDataClient> = self.position_cache.values().copied().collect();
 
-            let binary_data = self.serialize_positions(&position_data);
-
-            if self.check_bandwidth_available(binary_data.len()) {
+            // Same wire path as the physics and force broadcasts: per-client filtered V5 with a
+            // monotonic sequence. This flush used to send the whole cache as bare V3 (no
+            // sequence, no per-client filter, no analytics), so clients saw 0x03 and 0x05 frames
+            // interleaved on one socket and could not order or drop-detect them.
+            let approx_bytes = 1 + 8 + 52 * position_data.len();
+            if self.check_bandwidth_available(approx_bytes) {
+                self.broadcast_sequence += 1;
+                let sequence = self.broadcast_sequence;
+                let analytics_guard = self.node_analytics.read().ok();
+                let analytics_ref = analytics_guard.as_deref();
                 let broadcast_result = {
                     let manager = match handle_rwlock_error(self.client_manager.read()) {
                         Ok(manager) => manager,
@@ -826,18 +830,19 @@ impl ClientCoordinatorActor {
                             return Err(format!("Failed to acquire client manager lock: {}", e));
                         }
                     };
-                    manager.broadcast_to_all(binary_data.clone())
+                    manager.broadcast_with_filter(&position_data, &self.node_type_arrays, sequence, analytics_ref)
                 };
+                drop(analytics_guard);
                 self.settle_broadcast_result(&broadcast_result, "position cache");
-                self.record_bytes_sent(binary_data.len());
+                self.record_bytes_sent(approx_bytes);
                 self.broadcast_count += 1;
                 self.last_broadcast = Instant::now();
                 total_sent += broadcast_result.sent;
 
                 debug!(
-                    "Sent graph update: {} nodes, {} bytes to {} clients",
+                    "Sent graph update: {} nodes (seq {}) to {} clients",
                     position_data.len(),
-                    binary_data.len(),
+                    sequence,
                     broadcast_result.sent
                 );
             } else {
@@ -975,23 +980,6 @@ impl ClientCoordinatorActor {
             reason
         );
         true
-    }
-
-    fn serialize_positions(&self, positions: &[BinaryNodeDataClient]) -> Vec<u8> {
-        use crate::utils::binary_protocol::encode_node_data_extended;
-        use crate::utils::socket_flow_messages::BinaryNodeData;
-        // Convert to (u32, BinaryNodeData) format for V3 protocol encoding
-        let nodes: Vec<(u32, BinaryNodeData)> =
-            positions.iter().map(|pos| (pos.node_id, *pos)).collect();
-        let nta = &self.node_type_arrays;
-        encode_node_data_extended(
-            &nodes,
-            &nta.agent_ids,
-            &nta.knowledge_ids,
-            &nta.ontology_class_ids,
-            &nta.ontology_individual_ids,
-            &nta.ontology_property_ids,
-        )
     }
 
     /// Update cached node type arrays from GraphStateActor
@@ -2474,24 +2462,6 @@ mod tests {
     fn test_client_manager_registration() {
         let manager = ClientManager::new();
         assert_eq!(manager.get_client_count(), 0);
-    }
-
-    #[test]
-    fn test_position_serialization() {
-        let actor = ClientCoordinatorActor::new();
-        let positions = vec![BinaryNodeDataClient {
-            node_id: 1,
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-            vx: 0.1,
-            vy: 0.2,
-            vz: 0.3,
-        }];
-
-        let serialized = actor.serialize_positions(&positions);
-        // V3 protocol (ADR-031 analytics extension): 1 header byte + 52 bytes per node
-        assert_eq!(serialized.len(), 1 + 52);
     }
 
     #[test]

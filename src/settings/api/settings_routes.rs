@@ -1767,6 +1767,10 @@ pub async fn reset_layout(
         });
     }
 
+    // Tell connected clients the physics settings changed (reset to canonical defaults);
+    // without this their sliders kept showing the pre-reset values.
+    broadcast_settings_change(&state, "physics", "reset-layout");
+
     // 3. Force-resume physics so the new layout starts settling
     if let Err(e) = state
         .graph_service_addr

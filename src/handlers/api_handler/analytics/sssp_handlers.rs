@@ -7,6 +7,43 @@ use crate::{error_json, ok_json};
 use super::state::FEATURE_FLAGS;
 use super::types::{SSSPToggleRequest, SSSPToggleResponse};
 
+use crate::models::simulation_params::SimulationParams;
+
+/// The params to send for an SSSP toggle: the current ones with ONLY the SSSP fields
+/// changed. This used to start from `SimulationParams::new()`, so toggling SSSP silently
+/// reset every other physics setting to its default on the GPU (and clients were never told).
+pub(crate) fn sssp_patched(mut base: SimulationParams, enabled: bool, alpha: Option<f32>) -> SimulationParams {
+    base.use_sssp_distances = enabled;
+    if alpha.is_some() {
+        base.sssp_alpha = alpha;
+    }
+    base
+}
+
+#[cfg(test)]
+mod sssp_patch_tests {
+    use super::*;
+
+    #[test]
+    fn toggling_sssp_changes_only_the_sssp_fields() {
+        let mut live = SimulationParams::default();
+        live.repel_k = 321.0;
+        live.rest_length = 77.0;
+        live.damping = 0.42;
+        let out = sssp_patched(live.clone(), true, Some(0.4));
+        assert!(out.use_sssp_distances);
+        assert_eq!(out.sssp_alpha, Some(0.4));
+        assert_eq!((out.repel_k, out.rest_length, out.damping), (321.0, 77.0, 0.42), "other physics must survive the toggle");
+    }
+
+    #[test]
+    fn omitted_alpha_keeps_the_current_alpha() {
+        let mut live = SimulationParams::default();
+        live.sssp_alpha = Some(0.3);
+        assert_eq!(sssp_patched(live, false, None).sssp_alpha, Some(0.3));
+    }
+}
+
 pub async fn toggle_sssp(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<AppState>,
@@ -31,12 +68,7 @@ pub async fn toggle_sssp(
 
     if let Some(gpu_addr) = app_state.get_gpu_compute_addr().await {
         let message = crate::actors::messages::UpdateSimulationParams {
-            params: {
-                let mut params = crate::models::simulation_params::SimulationParams::new();
-                params.use_sssp_distances = request.enabled;
-                params.sssp_alpha = request.alpha;
-                params
-            },
+            params: sssp_patched(live_params(&app_state).await, request.enabled, request.alpha),
         };
 
         match gpu_addr.send(message).await {
@@ -203,4 +235,17 @@ pub async fn compute_sssp(
             error_json!("Failed to communicate with graph service")
         }
     }
+}
+
+/// Current physics as the GPU should hold them: the persisted settings (what the control
+/// panel shows), falling back to defaults only when nothing is stored.
+async fn live_params(app_state: &web::Data<AppState>) -> SimulationParams {
+    use crate::config::PhysicsSettings;
+    use crate::ports::settings_repository::{SettingValue, SettingsRepository};
+    if let Ok(Some(SettingValue::Json(json))) = app_state.sqlite_settings_repository.get_setting("physics").await {
+        if let Ok(ps) = serde_json::from_value::<PhysicsSettings>(json) {
+            return (&ps).into();
+        }
+    }
+    SimulationParams::default()
 }

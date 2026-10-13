@@ -2454,17 +2454,6 @@ impl Handler<SetLayoutMode> for ForceComputeActor {
     fn handle(&mut self, msg: SetLayoutMode, ctx: &mut Self::Context) -> Self::Result {
         use crate::layout::types::LayoutMode;
 
-        // Default radial shell strength when Radial is selected with the DAG bias
-        // still at its off-default (0.0). Kept modest so the shell guides rather than
-        // dominates springs; the user can retune via /api/settings/physics dagBiasK.
-        const RADIAL_DEFAULT_DAG_BIAS_K: f32 = 1.0;
-        const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
-
-        // Default Sugiyama layer-spring strength/spacing when Hierarchical is
-        // selected with the layer bias still at its off-default (ADR-141 P4).
-        const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
-        const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
-
         // Layout mode is authoritative on the actor and only SetLayoutMode may change
         // it. Commit the new mode to self FIRST so the UpdateSimulationParams handler
         // (which preserves self.simulation_params.layout_mode — see below) carries it
@@ -2474,41 +2463,20 @@ impl Handler<SetLayoutMode> for ForceComputeActor {
         let mut params = self.simulation_params.clone();
         params.layout_mode = msg.mode;
 
+        // The mode owns its bias term: fill what it needs, clear the opposing one so a
+        // switch (Radial/Hierarchical -> Clustered/ForceDirected, or between the two) does
+        // not leave a stale term firing. dagBiasK/layerBiasK can still be raised explicitly
+        // via /api/settings/physics. Clustered rides cluster_strength; Spectral/Temporal
+        // are placed once by the layout handler.
         match msg.mode {
-            LayoutMode::Radial => {
-                if params.dag_bias_k <= 0.0 {
-                    params.dag_bias_k = RADIAL_DEFAULT_DAG_BIAS_K;
-                }
-                if params.dag_level_distance <= 0.0 {
-                    params.dag_level_distance = RADIAL_DEFAULT_DAG_LEVEL_DISTANCE;
-                }
-                // Radial owns the shell term, not the Sugiyama layer spring.
-                params.layer_bias_k = 0.0;
-            }
-            // Hierarchical (ADR-141 P4) is now a GPU-resident layered layout: prime
-            // the Sugiyama Y-by-rank layer spring so ranked nodes settle onto
-            // top-down layers. The radial shell is cleared so the two don't fight.
-            LayoutMode::Hierarchical => {
-                if params.layer_bias_k <= 0.0 {
-                    params.layer_bias_k = HIERARCHICAL_DEFAULT_LAYER_BIAS_K;
-                }
-                if params.layer_spacing <= 0.0 {
-                    params.layer_spacing = HIERARCHICAL_DEFAULT_LAYER_SPACING;
-                }
-                params.dag_bias_k = 0.0;
-            }
-            // Every other mode clears both the radial-shell bias and the Sugiyama
-            // layer spring so a mode switch (e.g. Radial/Hierarchical →
-            // Clustered/ForceDirected) does not leave a stale bias term firing. The
-            // mode is authoritative over these; dagBiasK/layerBiasK can still be
-            // raised explicitly via /api/settings/physics. Clustered rides the
-            // existing cluster-cohesion term (cluster_strength); the remaining CPU
-            // one-shot modes (Spectral/Temporal) are placed by the layout handler.
+            LayoutMode::Radial => params.layer_bias_k = 0.0,
+            LayoutMode::Hierarchical => params.dag_bias_k = 0.0,
             _ => {
                 params.dag_bias_k = 0.0;
                 params.layer_bias_k = 0.0;
             }
         }
+        fill_mode_defaults(&mut params);
 
         info!(
             "ForceComputeActor: SetLayoutMode -> {:?} (gpu_resident={}, dag_bias_k={:.3}, layer_bias_k={:.3})",
@@ -2682,6 +2650,8 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
         // the new mode to `self` before delegating here, so this preserves the *new*
         // mode on that path (no clobber, no lost switch).
         msg.params.layout_mode = self.simulation_params.layout_mode;
+        // ...and keep that mode's bias terms (a settings update carries 0 for them).
+        fill_mode_defaults(&mut msg.params);
 
         // ADR-141 P3: the radial shell centre is owned by SetRadialLayout (Ego mode
         // centres it on the focus node). A settings-driven update is built from
@@ -4287,6 +4257,89 @@ mod gpu_image_gate_tests {
     fn ordinary_fields_are_still_seen() {
         assert!(changed(|p| p.repel_k += 5.0), "repel_k");
         assert!(changed(|p| p.damping -= 0.05), "damping");
+    }
+}
+
+/// Default radial shell strength / spacing when Radial is active but the DAG bias is still
+/// at its off-default (0.0). Modest so the shell guides rather than dominates springs.
+const RADIAL_DEFAULT_DAG_BIAS_K: f32 = 1.0;
+const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
+/// Default Sugiyama layer-spring strength / spacing for Hierarchical (ADR-141 P4).
+const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
+const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
+
+/// Give the active layout mode the bias terms it needs, where they are still off (<= 0).
+///
+/// Used by BOTH `SetLayoutMode` and `UpdateSimulationParams`. A settings-driven update is
+/// built from `PhysicsSettings`, whose `dagBiasK`/`layerBiasK` default to 0, so without this
+/// any physics slider change after switching to Radial or Hierarchical overwrote the bias the
+/// mode had primed: the mode still read "Radial" while its shell had silently switched off.
+/// Only fills missing values; an explicit positive setting is never replaced, and the
+/// opposing term is not touched here (SetLayoutMode clears that on a real mode switch).
+fn fill_mode_defaults(p: &mut SimulationParams) {
+    use crate::layout::types::LayoutMode;
+    match p.layout_mode {
+        LayoutMode::Radial => {
+            if p.dag_bias_k <= 0.0 {
+                p.dag_bias_k = RADIAL_DEFAULT_DAG_BIAS_K;
+            }
+            if p.dag_level_distance <= 0.0 {
+                p.dag_level_distance = RADIAL_DEFAULT_DAG_LEVEL_DISTANCE;
+            }
+        }
+        LayoutMode::Hierarchical => {
+            if p.layer_bias_k <= 0.0 {
+                p.layer_bias_k = HIERARCHICAL_DEFAULT_LAYER_BIAS_K;
+            }
+            if p.layer_spacing <= 0.0 {
+                p.layer_spacing = HIERARCHICAL_DEFAULT_LAYER_SPACING;
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod mode_default_tests {
+    use super::*;
+    use crate::layout::types::LayoutMode;
+
+    #[test]
+    fn a_settings_update_keeps_the_radial_shell_the_mode_primed() {
+        let mut p = SimulationParams::default();
+        p.layout_mode = LayoutMode::Radial;
+        p.dag_bias_k = 0.0; // what a PhysicsSettings-built update carries
+        p.dag_level_distance = 0.0;
+        fill_mode_defaults(&mut p);
+        assert_eq!(p.dag_bias_k, RADIAL_DEFAULT_DAG_BIAS_K);
+        assert_eq!(p.dag_level_distance, RADIAL_DEFAULT_DAG_LEVEL_DISTANCE);
+    }
+
+    #[test]
+    fn hierarchical_keeps_its_layer_spring() {
+        let mut p = SimulationParams::default();
+        p.layout_mode = LayoutMode::Hierarchical;
+        p.layer_bias_k = 0.0;
+        p.layer_spacing = 0.0;
+        fill_mode_defaults(&mut p);
+        assert_eq!(p.layer_bias_k, HIERARCHICAL_DEFAULT_LAYER_BIAS_K);
+        assert_eq!(p.layer_spacing, HIERARCHICAL_DEFAULT_LAYER_SPACING);
+    }
+
+    #[test]
+    fn explicit_values_and_other_modes_are_left_alone() {
+        let mut p = SimulationParams::default();
+        p.layout_mode = LayoutMode::Radial;
+        p.dag_bias_k = 3.5;
+        fill_mode_defaults(&mut p);
+        assert_eq!(p.dag_bias_k, 3.5, "an explicit user value is never replaced");
+
+        let mut q = SimulationParams::default();
+        q.layout_mode = LayoutMode::ForceDirected;
+        q.dag_bias_k = 0.0;
+        q.layer_bias_k = 0.0;
+        fill_mode_defaults(&mut q);
+        assert_eq!((q.dag_bias_k, q.layer_bias_k), (0.0, 0.0), "force-directed has no bias to fill");
     }
 }
 
