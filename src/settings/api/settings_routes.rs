@@ -116,6 +116,19 @@ fn normalize_physics_keys(
 
 /// Validates physics settings values are within safe ranges.
 /// Rejects NaN, Infinity, and out-of-range values.
+/// Run the GPU actor's own validation (`SimulationParams::validate`) BEFORE settings are
+/// persisted. The route-level `validate_physics_settings` is a different, partly narrower
+/// check (for example it never looked at `ssspAlpha`), so a value could pass it, be stored,
+/// then be rejected by the actor, leaving the answer at 200 while the GPU kept the old
+/// value and clients were told the new one was applied.
+pub fn validate_for_gpu(
+    physics: &PhysicsSettings,
+) -> Result<crate::models::simulation_params::SimulationParams, String> {
+    let sim: crate::models::simulation_params::SimulationParams = physics.into();
+    sim.validate().map_err(|e| format!("GPU rejected these values: {e}"))?;
+    Ok(sim)
+}
+
 pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), String> {
     let mut errors = Vec::new();
 
@@ -576,6 +589,15 @@ pub async fn update_physics_settings(
         warn!("Physics settings validation failed: {}", validation_err);
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: format!("Validation failed: {}", validation_err),
+        });
+    }
+
+    // The GPU actor validates again with stricter rules; reject here, before anything is
+    // persisted, instead of answering 200 for values the GPU will refuse.
+    if let Err(e) = validate_for_gpu(&new_physics) {
+        warn!("Physics settings rejected by GPU validation: {}", e);
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: format!("Validation failed: {}", e),
         });
     }
 
@@ -1801,6 +1823,28 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn values_only_the_gpu_actor_rejects_are_refused_before_they_are_stored() {
+        // Found by sweeping extreme values through every numeric field: the route-level
+        // check passes all of these, `SimulationParams::validate` (the actor) refuses them.
+        let cases: [(&str, PhysicsSettings); 4] = [
+            ("rest_length", PhysicsSettings { rest_length: 0.0, ..PhysicsSettings::default() }),
+            ("rest_length", PhysicsSettings { rest_length: -1.0, ..PhysicsSettings::default() }),
+            ("separation_radius", PhysicsSettings { separation_radius: -1.0, ..PhysicsSettings::default() }),
+            ("center_gravity_k", PhysicsSettings { center_gravity_k: -1.0, ..PhysicsSettings::default() }),
+        ];
+        for (field, bad) in cases {
+            assert!(validate_physics_settings(&bad).is_ok(), "{field}: the route-level check lets this through");
+            let err = validate_for_gpu(&bad).expect_err("the actor's validation must be applied up front");
+            assert!(err.contains(field), "{field}: {err}");
+        }
+    }
+
+    #[test]
+    fn defaults_pass_gpu_validation() {
+        assert!(validate_for_gpu(&PhysicsSettings::default()).is_ok());
+    }
 
     fn with_rate(fps: u32) -> PhysicsSettings {
         PhysicsSettings {

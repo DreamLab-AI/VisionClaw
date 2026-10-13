@@ -185,6 +185,40 @@ fn build_settlement_state(
     }
 }
 
+/// Compact physics state for status displays: `GET /api/graph/settlement`.
+///
+/// Both clients show "settling / settled / GPU unavailable" without pulling the whole
+/// graph (`/api/graph/data` is tens of MB). `telemetry_live` says whether the GPU actor
+/// answered; when false the settlement fields are run-state fallbacks, not measurements.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhysicsStateSummary {
+    pub settlement_state: SettlementState,
+    pub telemetry_live: bool,
+    pub physics_running: bool,
+}
+
+pub fn physics_state_summary(
+    settlement: Option<&SettlementSnapshot>,
+    physics_running: bool,
+) -> PhysicsStateSummary {
+    PhysicsStateSummary {
+        settlement_state: build_settlement_state(settlement, physics_running),
+        telemetry_live: settlement.is_some(),
+        physics_running,
+    }
+}
+
+pub async fn get_physics_state_summary(state: web::Data<AppState>) -> impl Responder {
+    let physics_handler = state.graph_query_handlers.get_physics_state.clone();
+    let running = match execute_in_thread(move || physics_handler.handle(GetPhysicsState).map_err(Box::new)).await {
+        Ok(Ok(ps)) => ps.is_running,
+        _ => false,
+    };
+    let settlement = fetch_settlement(&state).await;
+    HttpResponse::Ok().json(physics_state_summary(settlement.as_ref(), running))
+}
+
 pub async fn get_graph_data(
     state: web::Data<AppState>,
     query: web::Query<GraphQuery>,
@@ -1491,6 +1525,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::scope("/graph")
             .wrap(RateLimit::per_minute(600)) // Rate limit: 600 requests/min (10/sec) for public reads
             // Read operations - public with rate limiting
+            .route("/settlement", web::get().to(get_physics_state_summary))
             .route("/data", web::get().to(get_graph_data))
             .route("/data/paginated", web::get().to(get_paginated_graph_data))
             .route("/positions", web::get().to(get_graph_positions))
@@ -2135,5 +2170,36 @@ mod relations_expand_tests {
         let ej = serde_json::to_string(&e).unwrap();
         assert!(ej.contains("\"edgeType\""));
         assert!(!ej.contains("edge_type"));
+    }
+}
+
+#[cfg(test)]
+mod physics_state_summary_tests {
+    use super::*;
+
+    #[test]
+    fn live_telemetry_is_reported_as_measured() {
+        let snap = SettlementSnapshot { is_settled: false, stable_frame_count: 3, kinetic_energy: 0.207 };
+        let s = physics_state_summary(Some(&snap), true);
+        assert!(s.telemetry_live && s.physics_running);
+        assert!(!s.settlement_state.is_settled);
+        assert_eq!(s.settlement_state.stable_frame_count, 3);
+        assert!((s.settlement_state.kinetic_energy - 0.207).abs() < 1e-6);
+    }
+
+    #[test]
+    fn without_telemetry_the_numbers_are_flagged_as_fallbacks() {
+        let running = physics_state_summary(None, true);
+        assert!(!running.telemetry_live, "no GPU answer must not look like a measurement");
+        assert!(!running.settlement_state.is_settled, "a running loop is not settled");
+        let paused = physics_state_summary(None, false);
+        assert!(!paused.telemetry_live && paused.settlement_state.is_settled);
+    }
+
+    #[test]
+    fn wire_names_are_camel_case() {
+        let j = serde_json::to_value(physics_state_summary(None, true)).unwrap();
+        assert!(j.get("settlementState").is_some() && j.get("telemetryLive").is_some() && j.get("physicsRunning").is_some(), "{j}");
+        assert!(j["settlementState"].get("kineticEnergy").is_some());
     }
 }

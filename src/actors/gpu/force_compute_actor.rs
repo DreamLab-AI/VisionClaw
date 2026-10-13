@@ -2761,7 +2761,9 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             && (cur.radial_center[2] - msg.params.radial_center[2]).abs() < eps
             // Layout mode (ADR-141 P1) is GPU-relevant — it rides SimParams.layout_mode.
             // Omitting it would silently drop a mode-only switch at the early return.
-            && cur.layout_mode == msg.params.layout_mode;
+            && cur.layout_mode == msg.params.layout_mode
+            // Catch-all: anything else the GPU would receive differently (see gpu_image_changed).
+            && !gpu_image_changed(cur, &msg.params);
 
         if physics_unchanged {
             debug!(
@@ -4234,6 +4236,57 @@ impl Handler<ProbeReceived> for ForceComputeActor {
                 .or((self.gpu_state.num_nodes > 0).then_some(self.gpu_state.num_nodes as usize)),
             acks_received: self.acks_received,
         }
+    }
+}
+
+/// True when the two parameter sets would put different bytes on the GPU.
+///
+/// The settings gate used to compare a hand-maintained field list, so every GPU field
+/// someone forgot to add (ten of them: `rest_length`, `global_speed`, `scaling_ratio`,
+/// `grid_cell_size`, ...) was silently dropped while the PUT still answered 200 and
+/// broadcast the value as applied. Comparing the exact `SimParams` image the kernels
+/// receive cannot miss a field. Conversion is deterministic (fixed seed, iteration 0),
+/// so equal settings give equal bytes.
+fn gpu_image_changed(cur: &SimulationParams, new: &SimulationParams) -> bool {
+    let (a, b) = (SimParams::from(cur), SimParams::from(new));
+    bytemuck::bytes_of(&a) != bytemuck::bytes_of(&b)
+}
+
+#[cfg(test)]
+mod gpu_image_gate_tests {
+    use super::*;
+
+    fn changed(mutate: impl FnOnce(&mut SimulationParams)) -> bool {
+        let cur = SimulationParams::default();
+        let mut new = cur.clone();
+        mutate(&mut new);
+        gpu_image_changed(&cur, &new)
+    }
+
+    #[test]
+    fn identical_settings_are_unchanged_so_redundant_autosaves_do_not_reheat() {
+        let cur = SimulationParams::default();
+        assert!(!gpu_image_changed(&cur, &cur.clone()));
+    }
+
+    #[test]
+    fn every_field_the_old_gate_dropped_is_now_seen() {
+        assert!(changed(|p| p.rest_length += 10.0), "rest_length");
+        assert!(changed(|p| p.global_speed += 0.1), "global_speed");
+        assert!(changed(|p| p.lin_log_mode = !p.lin_log_mode), "lin_log_mode");
+        assert!(changed(|p| p.grid_cell_size += 5.0), "grid_cell_size");
+        assert!(changed(|p| p.sssp_alpha = Some(p.sssp_alpha.unwrap_or(0.0) + 0.2)), "sssp_alpha");
+        assert!(changed(|p| p.enable_bounds = !p.enable_bounds), "enable_bounds");
+        // min_distance is deliberately absent: it never reaches a kernel (the semantic-forces
+        // actor keeps its own collision.min_distance), so it is a dead setting, not a dropped one.
+        assert!(changed(|p| p.scaling_ratio += 1.0), "scaling_ratio");
+        assert!(changed(|p| p.max_repulsion_dist += 10.0), "max_repulsion_dist");
+    }
+
+    #[test]
+    fn ordinary_fields_are_still_seen() {
+        assert!(changed(|p| p.repel_k += 5.0), "repel_k");
+        assert!(changed(|p| p.damping -= 0.05), "damping");
     }
 }
 
