@@ -322,6 +322,7 @@ The pay402 ledger meters per-call costs in sats (loopback ledger by default).
 |----------|------|---------|-------------|
 | `RUST_LOG` | string | see [Core](#core-system) | Per-module log filter. |
 | `LOG_DIR` | string | `/app/logs` | Log file directory. |
+| `TELEMETRY_ENABLED` | bool | `true` when unset | Central agent telemetry switch, applied at startup. Set `false` to skip the global logger and its hourly `agent_telemetry_*.jsonl` files. The example environment disables it. |
 | `TELEMETRY_LOG_DIR` | string | `${LOG_DIR}` | Structured telemetry directory. |
 | `AUDIT_LOG_PATH` | string | `/app/logs/audit.log` | Persistent audit log (auth events, admin actions). |
 

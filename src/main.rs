@@ -281,7 +281,7 @@ async fn main() -> std::io::Result<()> {
 
     if let Err(e) = init_telemetry_logger(&log_dir, 100) {
         error!("Failed to initialize telemetry logger: {}", e);
-    } else {
+    } else if visionclaw_server::telemetry::get_telemetry_logger().is_some() {
         info!("Telemetry logger initialized with directory: {}", log_dir);
     }
 

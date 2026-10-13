@@ -304,6 +304,12 @@ static GLOBAL_TELEMETRY_LOGGER: once_cell::sync::OnceCell<AgentTelemetryLogger> 
     once_cell::sync::OnceCell::new();
 
 pub fn init_telemetry_logger(log_dir: &str, buffer_size: usize) -> Result<(), std::io::Error> {
+    // One gate for every caller: disabled telemetry never creates a file sink
+    // or publishes a logger through get_telemetry_logger().
+    if !telemetry_enabled(std::env::var("TELEMETRY_ENABLED").ok().as_deref()) {
+        info!("Agent telemetry disabled by TELEMETRY_ENABLED");
+        return Ok(());
+    }
     GLOBAL_TELEMETRY_LOGGER.get_or_try_init(
         || -> Result<AgentTelemetryLogger, std::io::Error> {
             let logger = AgentTelemetryLogger::new(log_dir, buffer_size)?;
@@ -315,6 +321,15 @@ pub fn init_telemetry_logger(log_dir: &str, buffer_size: usize) -> Result<(), st
         },
     )?;
     Ok(())
+}
+
+fn telemetry_enabled(value: Option<&str>) -> bool {
+    // Preserve the existing default when the setting is absent. Explicit
+    // values must opt in; a misspelling must not silently enable disk writes.
+    value.is_none_or(|value| {
+        let value = value.trim();
+        value == "1" || value.eq_ignore_ascii_case("true")
+    })
 }
 
 pub fn get_telemetry_logger() -> Option<&'static AgentTelemetryLogger> {
@@ -377,6 +392,17 @@ macro_rules! telemetry_trace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_switch_honours_disabled_values() {
+        for value in ["false", "FALSE", "0", "off", "no", "", "invalid"] {
+            assert!(!telemetry_enabled(Some(value)), "{value}");
+        }
+        for value in ["true", "TRUE", "1", " true "] {
+            assert!(telemetry_enabled(Some(value)), "{value}");
+        }
+        assert!(telemetry_enabled(None));
+    }
 
     #[test]
     fn test_position_3d() {
