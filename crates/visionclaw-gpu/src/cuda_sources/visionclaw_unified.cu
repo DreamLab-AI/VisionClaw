@@ -6,6 +6,7 @@
 #include <device_launch_parameters.h>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
+#include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
 #include <cub/cub.cuh>
 #include <curand_kernel.h>
@@ -1176,17 +1177,20 @@ void thrust_sort_key_value(
     int num_items,
     cudaStream_t stream
 ) {
-    // Copy input to output first
+    // Keys are copied; the VALUES are always the identity 0..n-1, whatever
+    // d_values_in holds. The grid sort wants "which node owns each sorted slot", and
+    // cell_keys is indexed by node id, so the value paired with key i must be i.
+    // Copying the previous frame's permutation here (as this once did) made the output
+    // P_prev[argsort(keys)] instead of argsort(keys): wrong from the second frame on.
+    (void)d_values_in;
     cudaMemcpyAsync(d_keys_out, d_keys_in, 
                     num_items * sizeof(int), 
-                    cudaMemcpyDeviceToDevice, stream);
-    cudaMemcpyAsync(d_values_out, d_values_in,
-                    num_items * sizeof(int),
                     cudaMemcpyDeviceToDevice, stream);
     
     // Sort in-place on output buffers
     thrust::device_ptr<int> keys(static_cast<int*>(d_keys_out));
     thrust::device_ptr<int> vals(static_cast<int*>(d_values_out));
+    thrust::sequence(thrust::cuda::par.on(stream), vals, vals + num_items);
     thrust::sort_by_key(thrust::cuda::par.on(stream),
                        keys, keys + num_items, vals);
 }

@@ -620,7 +620,11 @@ impl UnifiedGPUCompute {
         safe_copy_to_device(&mut self.cell_end, &self.zero_buffer, "cell_end")?;
 
         let cell_block_size = block_size;
-        let grid_cells_blocks = (num_grid_cells as u32).div_ceil(cell_block_size);
+        // One thread per SORTED NODE, not per cell: the kernel guards on `idx >= num_nodes`
+        // and each thread compares its key with its predecessor's. Sizing this by cell
+        // count left most nodes without a thread whenever cells < nodes, so their
+        // cell_start/cell_end were never written (including the last cell's end).
+        let grid_cells_blocks = (self.num_nodes as u32).div_ceil(cell_block_size);
         let compute_cell_bounds_kernel = self
             ._module
             .get_function(self.compute_cell_bounds_kernel_name)?;
@@ -1323,5 +1327,137 @@ mod peripheral_shell_tests {
         };
         let r = peripheral_shell_radius(&nan_aabb, 0.0);
         assert!(r.is_finite(), "NaN AABB must not yield a NaN shell radius");
+    }
+}
+
+/// Real-device regression tests for the spatial-grid build (audit findings #1, #2).
+///
+/// They skip, loudly, when no CUDA device or PTX is available so non-GPU CI stays
+/// green; on a GPU host they run the actual kernels over several frames, because the
+/// sort defect only appears from the second frame onwards.
+#[cfg(test)]
+mod grid_gpu_tests {
+    use super::*;
+    use cust::memory::CopyDestination;
+
+    const N: usize = 3000;
+
+    fn lcg(seed: &mut u64) -> f32 {
+        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((*seed >> 33) as f32) / (u32::MAX >> 1) as f32
+    }
+
+    fn gpu() -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[grid_gpu_tests] SKIPPED, CUDA init failed: {e}");
+                return None;
+            }
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[grid_gpu_tests] SKIPPED, no PTX: {e}");
+                return None;
+            }
+        };
+        let mut g = match UnifiedGPUCompute::new(N, N, &ptx) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[grid_gpu_tests] SKIPPED, no CUDA device: {e}");
+                return None;
+            }
+        };
+        let mut seed = 42u64;
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 2000.0;
+        }
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        // A ring, so the CSR upload is valid.
+        let offsets: Vec<i32> = (0..=N as i32).collect();
+        let cols: Vec<i32> = (0..N as i32).map(|i| (i + 1) % N as i32).collect();
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N]).expect("upload edges");
+        Some((ctx, g))
+    }
+
+    /// Physics must actually run: with the stability gate on, a fresh graph (all
+    /// velocities zero) is judged "at rest" and the whole step, grid build included,
+    /// is skipped, leaving every buffer zero.
+    fn params() -> SimParams {
+        let mut p = SimParams::new();
+        p.stability_threshold = 0.0;
+        p
+    }
+
+    /// Guards against a vacuous pass: a collapsed grid (one key for every node) makes
+    /// any pairing or bounds check trivially true.
+    fn assert_grid_is_populated(keys: &[i32]) {
+        let mut d = keys.to_vec();
+        d.sort_unstable();
+        d.dedup();
+        assert!(d.len() > 50, "grid collapsed to {} distinct cells; the test would prove nothing", d.len());
+    }
+
+    fn read(buf: &DeviceBuffer<i32>, len: usize) -> Vec<i32> {
+        let mut v = vec![0i32; len];
+        buf.index(0..len).copy_to(&mut v[..]).expect("device read");
+        v
+    }
+
+    #[test]
+    fn sort_pairs_every_key_with_its_own_node_on_every_frame() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        for frame in 0..4 {
+            g.execute(params()).expect("execute");
+            g.stream.synchronize().expect("sync");
+            let keys = read(&g.cell_keys, N);
+            let sorted = read(&g.sorted_node_indices, N);
+            let sorted_keys = read(&g.sort_keys_out, N);
+            assert_grid_is_populated(&keys);
+
+            let mut seen = vec![false; N];
+            for &i in &sorted {
+                assert!((0..N as i32).contains(&i), "frame {frame}: index {i} out of range");
+                assert!(!seen[i as usize], "frame {frame}: node {i} listed twice");
+                seen[i as usize] = true;
+            }
+            let wrong = (0..N).filter(|&j| keys[sorted[j] as usize] != sorted_keys[j]).count();
+            assert_eq!(wrong, 0, "frame {frame}: {wrong}/{N} sorted slots hold a node whose cell key differs from the slot's key");
+        }
+    }
+
+    #[test]
+    fn cell_bounds_cover_every_node() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        for frame in 0..3 {
+            g.execute(params()).expect("execute");
+            g.stream.synchronize().expect("sync");
+            let sorted_keys = read(&g.sort_keys_out, N);
+            assert_grid_is_populated(&sorted_keys);
+            let cells = g.max_grid_cells;
+            let (start, end) = (read(&g.cell_start, cells), read(&g.cell_end, cells));
+
+            let mut covered = 0usize;
+            let mut bad = 0usize;
+            let mut j = 0;
+            while j < N {
+                let c = sorted_keys[j] as usize;
+                let mut k = j;
+                while k < N && sorted_keys[k] as usize == c {
+                    k += 1;
+                }
+                if start[c] != j as i32 || end[c] != k as i32 {
+                    bad += 1;
+                } else {
+                    covered += k - j;
+                }
+                j = k;
+            }
+            assert_eq!(bad, 0, "frame {frame}: {bad} occupied cells have wrong bounds ({covered}/{N} nodes covered)");
+        }
     }
 }
