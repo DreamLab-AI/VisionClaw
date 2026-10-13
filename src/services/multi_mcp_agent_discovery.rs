@@ -11,6 +11,7 @@
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -104,10 +105,24 @@ pub struct MultiMcpAgentDiscovery {
     topology_data: Arc<RwLock<HashMap<String, SwarmTopologyData>>>,
     stats: Arc<RwLock<DiscoveryStats>>,
     discovery_running: Arc<RwLock<bool>>,
-    /// Number of live subscribers (WebSocket connections). Discovery polls only
-    /// while this is above zero, so an idle server adds no second poller beside
-    /// `BotsClient` on the same MCP port (TODO-unified S-4(1)).
-    subscribers: Arc<tokio::sync::Mutex<usize>>,
+    /// Number of attached subscribers (WebSocket connections). Discovery polls
+    /// only while this is above zero, so an idle server adds no second poller
+    /// beside `BotsClient` on the same MCP port (TODO-unified S-4(1)).
+    subscribers: Arc<AtomicUsize>,
+    /// Serialises start/stop transitions so `sync_running` is order-independent.
+    transition: Arc<tokio::sync::Mutex<()>>,
+    /// Bumped on every start and stop. A poll loop runs only while its own
+    /// epoch is current, so a stop followed by a quick restart cannot leave the
+    /// previous loop alive beside the new one.
+    epoch: Arc<AtomicU64>,
+    /// Woken on start and stop so a sleeping loop notices a stale epoch at once.
+    wake: Arc<tokio::sync::Notify>,
+    /// Completed discovery cycles, so a subscriber can push only when new data
+    /// has landed.
+    cycles: Arc<AtomicU64>,
+    /// Poll loops currently alive (tests assert this never exceeds one).
+    #[cfg(test)]
+    live_loops: Arc<AtomicUsize>,
 }
 
 /// True when any of the named environment variables is set to a non-empty value.
@@ -130,26 +145,58 @@ impl MultiMcpAgentDiscovery {
             topology_data: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(DiscoveryStats::default())),
             discovery_running: Arc::new(RwLock::new(false)),
-            subscribers: Arc::new(tokio::sync::Mutex::new(0)),
+            subscribers: Arc::new(AtomicUsize::new(0)),
+            transition: Arc::new(tokio::sync::Mutex::new(())),
+            epoch: Arc::new(AtomicU64::new(0)),
+            wake: Arc::new(tokio::sync::Notify::new()),
+            cycles: Arc::new(AtomicU64::new(0)),
+            #[cfg(test)]
+            live_loops: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    /// Register one subscriber and start the poll loop if it is the first.
-    pub async fn acquire(&self) {
-        let mut n = self.subscribers.lock().await;
-        *n += 1;
-        if *n == 1 {
+    /// Count one subscriber. Synchronous, so the count is right even if the
+    /// task that follows it is scheduled late or out of order.
+    pub fn attach(&self) {
+        self.subscribers.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Drop one subscriber (never below zero).
+    pub fn detach(&self) {
+        let _ = self
+            .subscribers
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+    }
+
+    /// Make the poll loop match the subscriber count: running iff any are
+    /// attached. Idempotent and order-independent, so it is safe to spawn after
+    /// every `attach`/`detach`.
+    pub async fn sync_running(&self) {
+        let _guard = self.transition.lock().await;
+        let want = self.subscribers.load(Ordering::SeqCst) > 0;
+        let running = *self.discovery_running.read().await;
+        if want && !running {
             self.start_discovery().await;
-        }
-    }
-
-    /// Drop one subscriber and stop the poll loop when none remain.
-    pub async fn release(&self) {
-        let mut n = self.subscribers.lock().await;
-        *n = n.saturating_sub(1);
-        if *n == 0 {
+        } else if !want && running {
             self.stop_discovery().await;
         }
+    }
+
+    /// `attach` then `sync_running`.
+    pub async fn acquire(&self) {
+        self.attach();
+        self.sync_running().await;
+    }
+
+    /// `detach` then `sync_running`.
+    pub async fn release(&self) {
+        self.detach();
+        self.sync_running().await;
+    }
+
+    /// Discovery cycles completed so far (monotonic).
+    pub fn cycle_count(&self) -> u64 {
+        self.cycles.load(Ordering::SeqCst)
     }
 
     pub async fn initialize_default_servers(&self) {
@@ -247,6 +294,14 @@ impl MultiMcpAgentDiscovery {
         *discovery_running = true;
         drop(discovery_running);
 
+        let my_epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        self.wake.notify_waiters();
+        let epoch = Arc::clone(&self.epoch);
+        let wake = Arc::clone(&self.wake);
+        let cycles = Arc::clone(&self.cycles);
+        #[cfg(test)]
+        let live_loops = Arc::clone(&self.live_loops);
+
         info!("Starting multi-MCP agent discovery service");
 
         let servers = self.servers.clone();
@@ -257,7 +312,9 @@ impl MultiMcpAgentDiscovery {
         let discovery_running = self.discovery_running.clone();
 
         tokio::spawn(async move {
-            while *discovery_running.read().await {
+            #[cfg(test)]
+            live_loops.fetch_add(1, Ordering::SeqCst);
+            while *discovery_running.read().await && epoch.load(Ordering::SeqCst) == my_epoch {
                 let servers_config = servers.read().await.clone();
 
                 // ADR-2083: derive the inter-cycle sleep from the configured
@@ -316,11 +373,26 @@ impl MultiMcpAgentDiscovery {
                                         guard.failed_discoveries += 1;
                                     }
                                     {
+                                        // Record the failure even on a server's very first
+                                        // cycle: with no entry the status map stayed empty and
+                                        // subscribers could not tell "not polled yet" from
+                                        // "polled and unreachable".
                                         let mut guard = statuses.write().await;
-                                        if let Some(server_info) = guard.get_mut(&server_id) {
-                                            server_info.is_connected = false;
-                                            server_info.last_heartbeat = time::timestamp_seconds();
-                                        }
+                                        let server_info =
+                                            guard.entry(server_id.clone()).or_insert_with(|| {
+                                                McpServerInfo {
+                                                    server_id: server_id.clone(),
+                                                    server_type: config.server_type.clone(),
+                                                    host: config.host.clone(),
+                                                    port: config.port,
+                                                    is_connected: false,
+                                                    last_heartbeat: 0,
+                                                    supported_tools: vec![],
+                                                    agent_count: 0,
+                                                }
+                                            });
+                                        server_info.is_connected = false;
+                                        server_info.last_heartbeat = time::timestamp_seconds();
                                     }
                                 }
                             }
@@ -329,14 +401,26 @@ impl MultiMcpAgentDiscovery {
                     .collect();
 
                 futures::future::join_all(discovery_futures).await;
+                cycles.fetch_add(1, Ordering::SeqCst);
+
+                // A stop or restart during the cycle makes this loop stale: leave
+                // now rather than sleeping a whole interval beside its successor.
+                if epoch.load(Ordering::SeqCst) != my_epoch {
+                    break;
+                }
 
                 // ADR-2083: sleep for the configured discovery cadence rather
                 // than a hardcoded 1000ms — honours each server's
                 // discovery_interval_ms (minimum across enabled servers,
                 // floored at MIN_DISCOVERY_INTERVAL_MS).
-                tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)) => {}
+                    _ = wake.notified() => {}
+                }
             }
 
+            #[cfg(test)]
+            live_loops.fetch_sub(1, Ordering::SeqCst);
             info!("Multi-MCP agent discovery service stopped");
         });
     }
@@ -344,6 +428,15 @@ impl MultiMcpAgentDiscovery {
     pub async fn stop_discovery(&self) {
         let mut discovery_running = self.discovery_running.write().await;
         *discovery_running = false;
+        drop(discovery_running);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.wake.notify_waiters();
+        // Drop the cached state so the next subscriber is not shown the previous
+        // session's agents as current. A cycle already in flight can still write
+        // once after this; the epoch check ends its loop straight afterwards.
+        self.discovered_agents.write().await.clear();
+        self.server_statuses.write().await.clear();
+        self.topology_data.write().await.clear();
         info!("Stopping multi-MCP agent discovery service");
     }
 
@@ -881,6 +974,84 @@ mod subscriber_tests {
         // An unbalanced release must not underflow or restart anything.
         discovery.release().await;
         assert!(!*discovery.discovery_running.read().await);
+    }
+
+    /// A page reload is release then acquire inside one poll interval. The old
+    /// loop must end rather than run beside its replacement.
+    #[tokio::test]
+    async fn a_quick_reconnect_leaves_exactly_one_loop() {
+        let discovery = MultiMcpAgentDiscovery::new();
+        discovery.acquire().await;
+        discovery.release().await;
+        discovery.acquire().await;
+
+        // The default interval is seconds; the stale loop must leave on the
+        // wake-up, not after it.
+        for _ in 0..50 {
+            if discovery.live_loops.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(discovery.live_loops.load(Ordering::SeqCst), 1);
+
+        discovery.release().await;
+        for _ in 0..50 {
+            if discovery.live_loops.load(Ordering::SeqCst) == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(discovery.live_loops.load(Ordering::SeqCst), 0);
+    }
+
+    /// Order independence: a release that lands before the matching acquire's
+    /// start task must not leave polling running with no subscriber.
+    #[tokio::test]
+    async fn sync_running_follows_the_count_not_the_call_order() {
+        let discovery = MultiMcpAgentDiscovery::new();
+        discovery.attach();
+        discovery.detach();
+        discovery.sync_running().await;
+        assert!(!*discovery.discovery_running.read().await);
+        discovery.attach();
+        discovery.sync_running().await;
+        discovery.sync_running().await;
+        assert!(*discovery.discovery_running.read().await);
+        discovery.detach();
+        discovery.sync_running().await;
+        assert!(!*discovery.discovery_running.read().await);
+    }
+
+    /// A first-ever failed cycle must leave a disconnected record, so a
+    /// subscriber can tell "unreachable" from "not polled yet".
+    #[tokio::test]
+    async fn an_unreachable_server_is_recorded_as_disconnected() {
+        let discovery = MultiMcpAgentDiscovery::new();
+        discovery
+            .add_server(McpServerConfig {
+                server_id: "dead".to_string(),
+                server_type: McpServerType::ClaudeFlow,
+                host: "127.0.0.1".to_string(),
+                port: 1,
+                enabled: true,
+                discovery_interval_ms: 250,
+                timeout_ms: 500,
+                retry_attempts: 1,
+            })
+            .await;
+        discovery.acquire().await;
+        for _ in 0..100 {
+            if discovery.cycle_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let statuses = discovery.get_server_statuses().await;
+        discovery.release().await;
+        assert_eq!(statuses.len(), 1, "failure must create the record");
+        assert!(!statuses[0].is_connected);
+        assert_eq!(statuses[0].server_id, "dead");
     }
 
     #[test]

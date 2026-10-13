@@ -59,6 +59,8 @@ pub struct MultiMcpVisualizationWs {
     /// Shared discovery service (TODO-unified S-4(1)): the one source of server,
     /// agent and topology state this socket relays.
     discovery: Arc<MultiMcpAgentDiscovery>,
+    /// Discovery cycle count at the last frame pushed to this client.
+    last_frame_cycle: u64,
     /// Cached "at least one configured MCP server is connected" verdict,
     /// published by the single health-monitor task started at connection init
     /// (ADR-2094). Optimistic until the first discovery cycle lands.
@@ -132,6 +134,7 @@ impl MultiMcpVisualizationWs {
             performance_mode: PerformanceMode::default(),
             circuit_breaker: Some(circuit_breaker),
             discovery,
+            last_frame_cycle: 0,
             healthy_services: std::sync::Arc::new(AtomicBool::new(true)),
             retry_config: RetryConfig::mcp_operations(),
             connection_failures: 0,
@@ -268,6 +271,25 @@ impl MultiMcpVisualizationWs {
 
         actix::spawn(async move {
             let servers = discovery.get_server_statuses().await;
+
+            // Judge connectivity on the state just read, not on the verdict the
+            // monitor cached up to 30 s ago.
+            let verdicts: Vec<(&str, bool)> = servers
+                .iter()
+                .map(|server| (server.server_id.as_str(), server.is_connected))
+                .collect();
+            if !fold_service_health(&verdicts).0 {
+                addr.do_send(DiscoveryFrame(
+                    serde_json::json!({
+                        "type": "error",
+                        "message": "No connected MCP servers",
+                        "timestamp": chrono::Utc::now().timestamp_millis()
+                    })
+                    .to_string(),
+                ));
+                return;
+            }
+
             let agents = discovery.get_all_agents().await;
             let topology = discovery.get_topology_data().await;
             let stats = discovery.get_discovery_stats().await;
@@ -390,9 +412,23 @@ impl Actor for MultiMcpVisualizationWs {
 
         // Start polling when the first client connects (refcounted in the
         // service) and run exactly one health task per connection (ADR-2094).
+        // The count changes synchronously here, so a late or reordered start
+        // task cannot leave polling running with nobody attached.
+        self.discovery.attach();
         let discovery = self.discovery.clone();
-        actix::spawn(async move { discovery.acquire().await });
+        actix::spawn(async move { discovery.sync_running().await });
         self.start_health_monitor();
+
+        // Push a frame whenever a new discovery cycle has landed. Nothing is
+        // sent at connect: the caches may be empty or stale until the first
+        // cycle completes, and an empty frame would read as "no agents".
+        ctx.run_interval(Duration::from_secs(1), |act, ctx| {
+            let cycles = act.discovery.cycle_count();
+            if cycles > act.last_frame_cycle {
+                act.last_frame_cycle = cycles;
+                act.send_discovery_data(ctx);
+            }
+        });
 
         self.start_position_updates(ctx);
 
@@ -420,13 +456,13 @@ impl Actor for MultiMcpVisualizationWs {
             }
         });
 
-        self.send_discovery_data(ctx);
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
         info!("Multi-MCP WebSocket client {} disconnected", self.client_id);
+        self.discovery.detach();
         let discovery = self.discovery.clone();
-        actix::spawn(async move { discovery.release().await });
+        actix::spawn(async move { discovery.sync_running().await });
     }
 }
 

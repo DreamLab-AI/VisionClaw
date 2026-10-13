@@ -85,3 +85,7 @@ load. `perform_health_checks` and its `run_interval` are deleted.
 constant-`true` gate — and `monitor_stops_when_the_client_is_dropped`) pass.
 Verification ran on the uncommitted working tree above commit
 `b0bc275f6501aae7751b85a72ce15fe1e730e7e8`.
+
+## Addendum 2026-10-12
+
+The cached-health half of this record still holds (one monitor task per connection, a cached verdict, no per-call spawn), but its probe set changed: the monitor no longer probes `MONITORED_SERVICES` on `localhost:8080+i`. It folds the discovery service's own per-server `is_connected`. See the ADR-2091 addendum of the same date (TODO-unified S-4(1)).
