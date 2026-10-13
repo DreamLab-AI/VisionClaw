@@ -68,6 +68,8 @@ export interface PhysicsSettings {
   springKAgent: number;
   /** Position-broadcast rate in Hz, 1-60 (server default 8). */
   broadcastFps: number;
+  /** Hz while any node is being grabbed or moved (server-validated 1-60). */
+  interactionBroadcastFps: number;
 
   // --- Constraints ---
   constraintRampFrames: number;

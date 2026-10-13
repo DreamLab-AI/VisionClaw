@@ -95,6 +95,7 @@ fn normalize_physics_keys(
             "cluster_strength" => "clusterStrength",
             "sssp_alpha" => "ssspAlpha",
             "broadcast_fps" => "broadcastFps",
+            "interaction_broadcast_fps" => "interactionBroadcastFps",
             // Legacy/client aliases
             "springStrength" => "springK",
             "repulsionStrength" => "repelK",
@@ -268,6 +269,13 @@ pub fn validate_physics_settings(settings: &PhysicsSettings) -> Result<(), Strin
     check_range(
         settings.broadcast_fps as f32,
         "broadcast_fps",
+        bounds::BROADCAST_FPS.0,
+        bounds::BROADCAST_FPS.1,
+        &mut errors,
+    );
+    check_range(
+        settings.interaction_broadcast_fps as f32,
+        "interaction_broadcast_fps",
         bounds::BROADCAST_FPS.0,
         bounds::BROADCAST_FPS.1,
         &mut errors,
@@ -454,7 +462,7 @@ fn broadcast_settings_change(state: &web::Data<AppState>, category: &str, update
 /// ForceComputeActor. Rate only: spatial culling is not a settings field and
 /// is left as the actor has it.
 pub fn broadcast_rate_message(physics: &PhysicsSettings) -> ConfigureBroadcastOptimization {
-    ConfigureBroadcastOptimization::rate_only(physics.broadcast_fps)
+    ConfigureBroadcastOptimization::rates(physics.broadcast_fps, physics.interaction_broadcast_fps)
 }
 
 /// GET /api/settings/physics

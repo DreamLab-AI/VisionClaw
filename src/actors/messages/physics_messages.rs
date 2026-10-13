@@ -483,6 +483,15 @@ pub struct ConfigureBroadcastOptimization {
     /// a full snapshot (~490 KB for the ~9.5k-node graph), so 8 Hz costs
     /// ~3.9 MB/s per client and 25 Hz ~12 MB/s.
     pub target_fps: Option<u32>,
+    /// Broadcast frequency in Hz, 1-60 (default 30), while a node is being interacted with.
+    pub interaction_fps: Option<u32>,
+}
+
+impl ConfigureBroadcastOptimization {
+    /// Both stored rates, as `physics.broadcastFps` / `physics.interactionBroadcastFps` hold them.
+    pub fn rates(target_fps: u32, interaction_fps: u32) -> Self {
+        Self { target_fps: Some(target_fps), interaction_fps: Some(interaction_fps) }
+    }
 }
 
 /// The PhysicsSupervisor replaced its ForceComputeActor (a restart). Sent to
@@ -510,14 +519,6 @@ pub struct SetPhysicsSettingsSource {
     pub repo: std::sync::Arc<dyn crate::ports::settings_repository::SettingsRepository>,
 }
 
-impl ConfigureBroadcastOptimization {
-    /// Set the broadcast rate. It is the only thing there is to configure: every broadcast is a
-    /// full snapshot (no delta threshold, no culling).
-    pub fn rate_only(target_fps: u32) -> Self {
-        Self { target_fps: Some(target_fps) }
-    }
-}
-
 /// Get current broadcast performance statistics
 #[derive(Message, Debug, Clone, Serialize, Deserialize)]
 #[rtype(result = "Result<BroadcastPerformanceStats, String>")]
@@ -528,6 +529,7 @@ pub struct GetBroadcastStats;
 pub struct BroadcastPerformanceStats {
     pub total_frames_processed: u64,
     pub total_snapshots_broadcast: u64,
+    pub interaction_fps: u32,
     pub target_fps: u32,
 }
 

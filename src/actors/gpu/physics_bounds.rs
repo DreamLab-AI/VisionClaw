@@ -145,6 +145,12 @@ mod tests {
         );
         assert!(within(d.dt, DT), "dt {} outside {:?}", d.dt, DT);
         assert!(
+            within(d.interaction_broadcast_fps as f32, BROADCAST_FPS),
+            "interaction_broadcast_fps {} outside {:?}",
+            d.interaction_broadcast_fps,
+            BROADCAST_FPS
+        );
+        assert!(
             within(d.broadcast_fps as f32, BROADCAST_FPS),
             "broadcast_fps {} outside {:?}",
             d.broadcast_fps,

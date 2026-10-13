@@ -56,8 +56,9 @@ pub fn push_physics(actor: &Addr<ForceComputeActor>, physics: &PhysicsSettings) 
         resolution: physics.clustering_resolution,
         iterations: physics.clustering_iterations,
     });
-    actor.do_send(ConfigureBroadcastOptimization::rate_only(
+    actor.do_send(ConfigureBroadcastOptimization::rates(
         physics.broadcast_fps,
+        physics.interaction_broadcast_fps,
     ));
     info!(
         "Pushed saved physics to ForceComputeActor (spring_k={}, repel_k={}, broadcast {} Hz)",

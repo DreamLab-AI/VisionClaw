@@ -31,6 +31,8 @@ repo: visionclaw
 7. **Class-flag bits are set on every V5 frame**: the classification is pushed to the coordinator at wiring, at GPU initialisation and, immediately (not after the debounce), on every graph update.
 8. **Entitlement fails closed.** With the visibility filter on, no frame is broadcast until a real classification snapshot (`NodeTypeArrays.loaded`) has arrived: "the policy has not arrived" is never read as "nothing is private". A cross-vendor review (Codex) found that the first version failed open.
 
+9. **Interaction goes through the GPU stream, nowhere else.** `nodeDragStart/Update/End` do exactly one thing: pin (move) the node on the GPU and wake the loop. The handlers used to also run CPU `SimulationStep`s on the graph-state copy and broadcast all of it as bare V3 to every session (measured: ~190 un-entitled 490 KB frames in 4 s, private nodes included, fighting the GPU physics) plus single-node frames. Both are removed. While pins are being updated the stream runs at the stored `interactionBroadcastFps` (default 30 Hz; the idle `broadcastFps` is 8), held for two idle intervals after the last pin update; a grab start sends the next frame immediately.
+
 ## Consequences
 - Clients may treat any position frame as "replace what I have for these nodes"; the web worker and bots context lost their add-delta branches and the XR gate lost its resync-awaiting-a-delta verdict.
 - Bandwidth is exactly `broadcastFps × 52 B × entitled nodes`; reducing it means lowering the rate or the entitled set, never sending less per frame.

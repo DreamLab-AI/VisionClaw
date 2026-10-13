@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 /// linearly with the rate: 8 Hz is ~3.9 MB/s, 25 Hz is ~12 MB/s. Clients
 /// tween between snapshots, so a higher rate buys smoothness, not
 /// correctness.
-pub use visionclaw_domain::types::physics_config::DEFAULT_BROADCAST_FPS;
+pub use visionclaw_domain::types::physics_config::{DEFAULT_BROADCAST_FPS, DEFAULT_INTERACTION_BROADCAST_FPS};
 
 /// Configuration for broadcast optimization
 #[derive(Debug, Clone)]
@@ -33,12 +33,17 @@ pub struct BroadcastConfig {
     /// Target broadcast rate in Hz (below the physics tick rate). See
     /// [`DEFAULT_BROADCAST_FPS`] for the bandwidth each rate costs.
     pub target_fps: u32,
+    /// Broadcast rate in Hz while a node is being interacted with (grabbed): other users' nodes
+    /// react to the grabbed one, and their clients chase the stream, so it runs faster than the
+    /// idle rate. Stored as `PhysicsSettings::interaction_broadcast_fps`.
+    pub interaction_fps: u32,
 }
 
 impl Default for BroadcastConfig {
     fn default() -> Self {
         Self {
             target_fps: DEFAULT_BROADCAST_FPS,
+            interaction_fps: DEFAULT_INTERACTION_BROADCAST_FPS,
         }
     }
 }
@@ -56,9 +61,10 @@ impl Default for BroadcastConfig {
 /// interval. After a stall longer than one interval the limiter re-phases
 /// from the late frame rather than bursting to catch up.
 pub struct BroadcastRateLimiter {
-    /// The earliest instant at which the next broadcast may go out.
-    next_due: Instant,
+    /// The slot of the last broadcast (`None`: the next frame broadcasts immediately).
+    last_slot: Option<Instant>,
     broadcast_interval: Duration,
+    interaction_interval: Duration,
     frames_since_broadcast: u32,
 }
 
@@ -69,38 +75,51 @@ impl BroadcastRateLimiter {
     }
 
     /// [`new`](Self::new) against an explicit clock.
-    pub fn new_at(config: &BroadcastConfig, now: Instant) -> Self {
-        let fps = u64::from(config.target_fps.max(1));
+    pub fn new_at(config: &BroadcastConfig, _now: Instant) -> Self {
+        let interval = |fps: u32| Duration::from_micros(1_000_000 / u64::from(fps.max(1)));
         Self {
-            next_due: now,
-            broadcast_interval: Duration::from_micros(1_000_000 / fps),
+            last_slot: None,
+            broadcast_interval: interval(config.target_fps),
+            interaction_interval: interval(config.interaction_fps),
             frames_since_broadcast: 0,
         }
     }
 
-    /// Check if we should broadcast this frame
+    /// Check if we should broadcast this frame at the idle rate.
     pub fn should_broadcast(&mut self) -> bool {
         self.should_broadcast_at(Instant::now())
     }
 
-    /// [`should_broadcast`](Self::should_broadcast) against an explicit clock.
+    /// [`should_broadcast`](Self::should_broadcast) against an explicit clock (idle rate).
     pub fn should_broadcast_at(&mut self, now: Instant) -> bool {
+        self.should_broadcast_at_with(now, false)
+    }
+
+    /// The decision at `now`, at the interaction rate when `interactive`. The interval is
+    /// chosen per decision from the last slot, so entering interaction mid-interval is due one
+    /// INTERACTION interval after that slot rather than waiting out the rest of an idle one.
+    pub fn should_broadcast_at_with(&mut self, now: Instant, interactive: bool) -> bool {
         self.frames_since_broadcast += 1;
-        if now < self.next_due {
+        let interval = if interactive { self.interaction_interval } else { self.broadcast_interval };
+        let Some(last) = self.last_slot else {
+            self.last_slot = Some(now);
+            self.frames_since_broadcast = 0;
+            return true;
+        };
+        let due = last + interval;
+        if now < due {
             return false;
         }
-        self.next_due += self.broadcast_interval;
-        if self.next_due <= now {
-            // More than one interval behind (a stall): re-phase, no burst.
-            self.next_due = now + self.broadcast_interval;
-        }
+        // Phase-locked to the interval; after a stall longer than one interval, re-phase from
+        // the late frame instead of bursting to catch up.
+        self.last_slot = Some(if due + interval <= now { now } else { due });
         self.frames_since_broadcast = 0;
         true
     }
 
     /// Let the very next frame broadcast.
     pub fn reset(&mut self) {
-        self.next_due = Instant::now();
+        self.last_slot = None;
     }
 
     /// Record a snapshot sent outside `should_broadcast` (a forced or
@@ -111,7 +130,7 @@ impl BroadcastRateLimiter {
 
     /// [`mark_broadcast`](Self::mark_broadcast) against an explicit clock.
     pub fn mark_broadcast_at(&mut self, now: Instant) {
-        self.next_due = now + self.broadcast_interval;
+        self.last_slot = Some(now);
         self.frames_since_broadcast = 0;
     }
 }
@@ -122,23 +141,44 @@ pub struct BroadcastOptimizer {
     rate_limiter: BroadcastRateLimiter,
     total_frames_processed: u64,
     total_snapshots_broadcast: u64,
+    /// The interaction rate applies until this instant; refreshed by every pin update.
+    interactive_until: Option<Instant>,
 }
 
 impl BroadcastOptimizer {
     pub fn new(config: BroadcastConfig) -> Self {
         let rate_limiter = BroadcastRateLimiter::new(&config);
-        Self { config, rate_limiter, total_frames_processed: 0, total_snapshots_broadcast: 0 }
+        Self { config, rate_limiter, total_frames_processed: 0, total_snapshots_broadcast: 0, interactive_until: None }
     }
 
     /// Called once per physics frame. Returns true when a full snapshot of every node should be
     /// broadcast on this frame.
     pub fn should_broadcast(&mut self) -> bool {
         self.total_frames_processed += 1;
-        let go = self.rate_limiter.should_broadcast();
+        let now = Instant::now();
+        let go = self.rate_limiter.should_broadcast_at_with(now, self.interactive_at(now));
         if go {
             self.total_snapshots_broadcast += 1;
         }
         go
+    }
+
+    /// A node was just pinned/moved: run at the interaction rate for two idle intervals from
+    /// `now` (derived from the stored idle rate, so there is no separate hold-time setting).
+    /// Continuous drag updates keep extending it.
+    pub fn note_interaction(&mut self) {
+        self.note_interaction_at(Instant::now());
+    }
+
+    /// [`note_interaction`](Self::note_interaction) against an explicit clock.
+    pub fn note_interaction_at(&mut self, now: Instant) {
+        let idle = Duration::from_micros(1_000_000 / u64::from(self.config.target_fps.max(1)));
+        self.interactive_until = Some(now + idle * 2);
+    }
+
+    /// Whether the interaction rate applies at `now`.
+    pub fn interactive_at(&self, now: Instant) -> bool {
+        self.interactive_until.is_some_and(|until| now < until)
     }
 
     /// Get overall counters.
@@ -147,28 +187,29 @@ impl BroadcastOptimizer {
             total_frames_processed: self.total_frames_processed,
             total_snapshots_broadcast: self.total_snapshots_broadcast,
             target_fps: self.config.target_fps,
+            interaction_fps: self.config.interaction_fps,
         }
     }
 
     /// Change the broadcast rate at runtime. Rejects a rate outside
     /// [`physics_bounds::BROADCAST_FPS`](crate::actors::gpu::physics_bounds::BROADCAST_FPS)
     /// without changing anything.
-    pub fn configure(&mut self, target_fps: Option<u32>) -> Result<(), String> {
+    pub fn configure(&mut self, target_fps: Option<u32>, interaction_fps: Option<u32>) -> Result<(), String> {
         use crate::actors::gpu::physics_bounds::{within, BROADCAST_FPS};
         let target_fps = target_fps.unwrap_or(self.config.target_fps);
-        if !within(target_fps as f32, BROADCAST_FPS) {
-            return Err(format!(
-                "Invalid target_fps: {} (must be {}-{})",
-                target_fps, BROADCAST_FPS.0, BROADCAST_FPS.1
-            ));
+        let interaction_fps = interaction_fps.unwrap_or(self.config.interaction_fps);
+        for (name, v) in [("target_fps", target_fps), ("interaction_fps", interaction_fps)] {
+            if !within(v as f32, BROADCAST_FPS) {
+                return Err(format!("Invalid {name}: {v} (must be {}-{})", BROADCAST_FPS.0, BROADCAST_FPS.1));
+            }
         }
-        self.update_config(BroadcastConfig { target_fps });
+        self.update_config(BroadcastConfig { target_fps, interaction_fps });
         Ok(())
     }
 
     /// Update configuration at runtime
     pub fn update_config(&mut self, config: BroadcastConfig) {
-        info!("BroadcastOptimizer: target FPS {} -> {}", self.config.target_fps, config.target_fps);
+        info!("BroadcastOptimizer: idle {} -> {} Hz, interaction {} -> {} Hz", self.config.target_fps, config.target_fps, self.config.interaction_fps, config.interaction_fps);
         self.config = config;
         self.rate_limiter = BroadcastRateLimiter::new(&self.config);
     }
@@ -201,6 +242,7 @@ pub struct BroadcastPerformanceStats {
     pub total_frames_processed: u64,
     pub total_snapshots_broadcast: u64,
     pub target_fps: u32,
+    pub interaction_fps: u32,
 }
 
 #[cfg(test)]
@@ -229,9 +271,7 @@ mod tests {
     #[test]
     fn measured_interval_matches_configured_rate() {
         for (target_fps, frame_ms) in [(8u32, 40u64), (10, 40), (25, 16), (8, 16), (60, 5)] {
-            let config = BroadcastConfig {
-                target_fps,
-            };
+            let config = BroadcastConfig { target_fps, interaction_fps: target_fps };
             let start = Instant::now();
             let mut limiter = BroadcastRateLimiter::new_at(&config, start);
             let secs = 30;
@@ -303,7 +343,7 @@ mod tests {
     #[test]
     fn configure_changes_the_rate_live_and_validates() {
         let mut optimizer = BroadcastOptimizer::new(BroadcastConfig::default());
-        optimizer.configure(Some(12)).unwrap();
+        optimizer.configure(Some(12), None).unwrap();
         assert_eq!(optimizer.config().target_fps, 12);
 
         let start = Instant::now();
@@ -312,10 +352,10 @@ mod tests {
         assert!(n.abs_diff(120) <= 1, "12 Hz for 10 s gave {n}");
 
         for bad in [0, 61] {
-            assert!(optimizer.configure(Some(bad)).is_err());
+            assert!(optimizer.configure(Some(bad), None).is_err());
             assert_eq!(optimizer.config().target_fps, 12, "a rejected rate changes nothing");
         }
-        optimizer.configure(None).unwrap();
+        optimizer.configure(None, None).unwrap();
         assert_eq!(optimizer.config().target_fps, 12, "rate kept");
     }
 
@@ -324,7 +364,7 @@ mod tests {
     /// skipped whole; broadcast frames are always the whole graph.
     #[test]
     fn the_optimizer_gates_whole_snapshots_and_never_selects_nodes() {
-        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig { target_fps: 60 });
+        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig { target_fps: 60, interaction_fps: 60 });
         std::thread::sleep(Duration::from_millis(20));
         assert!(optimizer.should_broadcast(), "frame after the interval broadcasts");
         assert!(!optimizer.should_broadcast(), "frame inside the interval is skipped whole");
@@ -333,5 +373,57 @@ mod tests {
         let stats = optimizer.get_performance_stats();
         assert_eq!(stats.total_frames_processed, 3);
         assert_eq!(stats.total_snapshots_broadcast, 2);
+    }
+
+    /// While a node is being interacted with the stream runs at the stored interaction rate, and
+    /// returns to the idle rate once interaction stops. Rates are the stored settings, not
+    /// multiples of each other.
+    #[test]
+    fn interaction_raises_the_rate_to_the_stored_interaction_fps_and_then_releases_it() {
+        let cfg = BroadcastConfig { target_fps: 8, interaction_fps: 30 };
+        let start = Instant::now();
+        let mut idle = BroadcastRateLimiter::new_at(&cfg, start);
+        let idle_n = (0..125).filter(|i| idle.should_broadcast_at_with(start + Duration::from_millis(16 * i), false)).count();
+        let mut busy = BroadcastRateLimiter::new_at(&cfg, start);
+        let busy_n = (0..125).filter(|i| busy.should_broadcast_at_with(start + Duration::from_millis(16 * i), true)).count();
+        // 125 frames x 16 ms = 2 s
+        assert!((15..=17).contains(&idle_n), "idle 8 Hz over 2 s: {idle_n}");
+        assert!((58..=62).contains(&busy_n), "interaction 30 Hz over 2 s: {busy_n}");
+    }
+
+    /// Switching to interaction mid-interval must not wait out the rest of a long idle interval.
+    #[test]
+    fn going_interactive_is_due_one_interaction_interval_after_the_last_slot() {
+        let cfg = BroadcastConfig { target_fps: 2, interaction_fps: 50 }; // idle 500 ms, interaction 20 ms
+        let t0 = Instant::now();
+        let mut l = BroadcastRateLimiter::new_at(&cfg, t0);
+        assert!(l.should_broadcast_at_with(t0, false), "first frame broadcasts");
+        assert!(!l.should_broadcast_at_with(t0 + Duration::from_millis(10), false));
+        assert!(l.should_broadcast_at_with(t0 + Duration::from_millis(21), true), "20 ms after the last slot, not 500");
+    }
+
+    #[test]
+    fn the_optimizer_holds_the_interaction_rate_for_two_idle_intervals_after_the_last_pin() {
+        let mut o = BroadcastOptimizer::new(BroadcastConfig { target_fps: 8, interaction_fps: 30 });
+        let t0 = Instant::now();
+        assert!(!o.interactive_at(t0), "idle until something is pinned");
+        o.note_interaction_at(t0);
+        assert!(o.interactive_at(t0 + Duration::from_millis(249)), "2 x 125 ms idle intervals");
+        assert!(!o.interactive_at(t0 + Duration::from_millis(251)), "then back to the idle rate");
+        // continuous drag updates keep extending it
+        o.note_interaction_at(t0 + Duration::from_millis(200));
+        assert!(o.interactive_at(t0 + Duration::from_millis(400)));
+    }
+
+    #[test]
+    fn configure_validates_the_interaction_rate_like_the_idle_rate() {
+        let mut o = BroadcastOptimizer::new(BroadcastConfig::default());
+        o.configure(None, Some(45)).unwrap();
+        assert_eq!(o.config().interaction_fps, 45);
+        assert_eq!(o.config().target_fps, DEFAULT_BROADCAST_FPS, "idle rate untouched");
+        for bad in [0, 61] {
+            assert!(o.configure(None, Some(bad)).is_err());
+            assert_eq!(o.config().interaction_fps, 45, "a rejected rate changes nothing");
+        }
     }
 }

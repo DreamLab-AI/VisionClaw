@@ -28,6 +28,16 @@ fn default_broadcast_fps() -> u32 {
     DEFAULT_BROADCAST_FPS
 }
 
+/// Default position-broadcast rate in Hz while a node is being interacted with
+/// (`PhysicsSettings::interaction_broadcast_fps`). A grab springs every neighbour; other users'
+/// clients chase the resulting stream, so it runs faster than the idle rate. 30 Hz is ~14.7 MB/s
+/// per client for the ~9.5k-node graph, for as long as the interaction lasts.
+pub const DEFAULT_INTERACTION_BROADCAST_FPS: u32 = 30;
+
+fn default_interaction_broadcast_fps() -> u32 {
+    DEFAULT_INTERACTION_BROADCAST_FPS
+}
+
 fn default_auto_balance_interval() -> u32 {
     500
 }
@@ -443,6 +453,12 @@ pub struct PhysicsSettings {
     #[serde(default = "default_broadcast_fps", alias = "broadcast_fps")]
     #[validate(range(min = 1, max = 60))]
     pub broadcast_fps: u32,
+    /// Position-broadcast rate in Hz while any node is being grabbed or moved (see
+    /// [`DEFAULT_INTERACTION_BROADCAST_FPS`]); the idle rate applies the rest of the time.
+    /// Applied live through `ConfigureBroadcastOptimization`.
+    #[serde(default = "default_interaction_broadcast_fps", alias = "interaction_broadcast_fps")]
+    #[validate(range(min = 1, max = 60))]
+    pub interaction_broadcast_fps: u32,
     /// Every semantic force (DAG, type / physicality / role clustering, collision, attribute
     /// springs, maturity, cross-domain) with its own enable flag. One definition, validated
     /// once, applied as stored.
@@ -529,6 +545,7 @@ impl Default for PhysicsSettings {
             spring_k_ontology: 1.0,
             spring_k_agent: 1.0,
             broadcast_fps: DEFAULT_BROADCAST_FPS,
+            interaction_broadcast_fps: DEFAULT_INTERACTION_BROADCAST_FPS,
             semantic: SemanticForces::default(),
         }
     }

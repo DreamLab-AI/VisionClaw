@@ -9,6 +9,7 @@ export interface GPUPhysicsParams {
   springKOntology: number;
   springKAgent: number;
   broadcastFps: number;
+  interactionBroadcastFps: number;
   repelK: number;
   attractionK: number;
   gravity: number;

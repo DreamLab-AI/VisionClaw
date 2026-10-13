@@ -17,7 +17,7 @@ const EXPECTED_GROUP_COUNTS: Record<string, number> = {
   atmosphere: 32,
   xr: 5,
   ai: 6,
-  system: 17,
+  system: 18,
   agents: 45,
   decisions: 2,
   provenance: 4,
@@ -72,6 +72,7 @@ const MEMORY_EXPLORER_PATHS: string[] = [
  */
 const NETWORK_PATHS: string[] = [
   'visualisation.graphs.knowledge.physics.broadcastFps',
+  'visualisation.graphs.knowledge.physics.interactionBroadcastFps',
 ];
 
 /**

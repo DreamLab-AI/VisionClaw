@@ -74,7 +74,6 @@ fn node_visibility(wire_id: u32, node: &visionclaw_domain::models::Node) -> Node
 }
 
 /// Maximum time budget (ms) for settle iterations per drag update.
-const DRAG_SETTLE_BUDGET_MS: u64 = 50;
 
 /// Maximum number of nodes a single client may drag simultaneously.
 const MAX_DRAGGED_NODES_PER_CLIENT: usize = 5;
@@ -954,23 +953,7 @@ pub(crate) fn handle_node_drag_start(
                 position: Some([pos_x, pos_y, pos_z]),
             });
 
-        // 2. Update the node position in graph state (velocity zeroed -- pinned)
-        use crate::actors::messages::UpdateNodePositions;
-        let pinned_data = BinaryNodeData {
-            node_id,
-            x: pos_x,
-            y: pos_y,
-            z: pos_z,
-            vx: 0.0,
-            vy: 0.0,
-            vz: 0.0,
-        };
-        app_state.graph_service_addr.do_send(UpdateNodePositions {
-            positions: vec![(node_id, pinned_data)],
-            correlation_id: None,
-        });
-
-        // 3. Grab→spring: pin the node ON THE GPU so the force kernel holds it at
+        // 2. Grab→spring: pin the node ON THE GPU so the force kernel holds it at
         //    the hand position and springs its neighbours around it. Reheat on
         //    drag-start so a settled graph has energy to visibly react.
         use crate::actors::messages::PinNodePositions;
@@ -1103,30 +1086,14 @@ pub(crate) fn handle_node_drag_update(
     act.drag_last_update.insert(node_id, Instant::now());
 
     let app_state = act.app_state.clone();
-    let client_manager_addr = act.client_manager_addr.clone();
-
+    // The GPU is the only physics. A drag update does exactly one thing: move the node's GPU pin
+    // (grab -> spring: the force kernel holds it at the hand position and its neighbours spring
+    // around it). What other users see is the GPU's own full, entitled snapshot stream, broadcast
+    // at the interaction rate while pins are being updated. This handler used to ALSO run CPU
+    // `SimulationStep`s on the graph-state copy and broadcast the whole of it as bare V3 to every
+    // session: a second, un-entitled physics fighting the real one, leaking private nodes, and
+    // flooding ~190 x 490 KB frames in 4 s.
     let fut = async move {
-        let settle_start = Instant::now();
-
-        // 1. Move the pinned node to the new client-reported position (velocity zeroed)
-        use crate::actors::messages::UpdateNodePositions;
-        let pinned_data = BinaryNodeData {
-            node_id,
-            x: pos_x,
-            y: pos_y,
-            z: pos_z,
-            vx: 0.0,
-            vy: 0.0,
-            vz: 0.0,
-        };
-        app_state.graph_service_addr.do_send(UpdateNodePositions {
-            positions: vec![(node_id, pinned_data)],
-            correlation_id: None,
-        });
-
-        // 1b. Grab→spring: update the GPU pin so the force kernel holds the node at
-        //     the new hand position and its neighbours spring around it. No reheat on
-        //     per-frame updates (only on drag-start).
         use crate::actors::messages::PinNodePositions;
         if let Some(gpu_addr) = app_state.get_gpu_compute_addr().await {
             gpu_addr.do_send(PinNodePositions {
@@ -1134,76 +1101,6 @@ pub(crate) fn handle_node_drag_update(
                 unpin: Vec::new(),
                 reheat: false,
             });
-        }
-
-        // 2. Run time-budgeted settle iterations for neighbor relaxation
-        //    We run multiple SimulationSteps within our time budget.
-        use crate::actors::messages::SimulationStep;
-        let budget = std::time::Duration::from_millis(DRAG_SETTLE_BUDGET_MS);
-
-        let mut iterations = 0u32;
-        while settle_start.elapsed() < budget && iterations < 10 {
-            // We use send() to await completion of each step before the next
-            match app_state.graph_service_addr.send(SimulationStep).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    debug!("[Drag] Settle step {} failed: {}", iterations, e);
-                    break;
-                }
-                Err(e) => {
-                    debug!("[Drag] Settle step {} mailbox error: {}", iterations, e);
-                    break;
-                }
-            }
-            iterations += 1;
-        }
-
-        debug!(
-            "[Drag] Ran {} settle iterations for node {} in {:.1}ms",
-            iterations,
-            node_id,
-            settle_start.elapsed().as_secs_f64() * 1000.0
-        );
-
-        // 3. Fetch updated positions and broadcast to all clients (IDs already compact)
-        use crate::actors::messages::GetGraphData;
-
-        if let Ok(Ok(graph_data)) = app_state.graph_service_addr.send(GetGraphData).await {
-            let node_data: Vec<(u32, BinaryNodeData)> = graph_data
-                .nodes
-                .iter()
-                .map(|node| {
-                    // Node IDs are already compact (0..N-1) from source remapping
-                    (
-                        node.id,
-                        BinaryNodeData {
-                            node_id: node.id,
-                            x: node.data.x,
-                            y: node.data.y,
-                            z: node.data.z,
-                            vx: node.data.vx,
-                            vy: node.data.vy,
-                            vz: node.data.vz,
-                        },
-                    )
-                })
-                .collect();
-
-            if !node_data.is_empty() {
-                use crate::actors::messages::BroadcastNodePositions;
-                let analytics = app_state.node_analytics.read().ok();
-                let analytics_ref = analytics.as_deref();
-                let sssp = app_state.node_sssp.read().ok();
-                let sssp_ref = sssp.as_deref();
-                let binary_data = binary_protocol::encode_node_data_with_live_analytics(
-                    &node_data,
-                    analytics_ref,
-                    sssp_ref,
-                );
-                client_manager_addr.do_send(BroadcastNodePositions {
-                    positions: binary_data,
-                });
-            }
         }
     };
 
@@ -1256,10 +1153,12 @@ pub(crate) fn handle_node_drag_end(
     act.drag_last_update.remove(&node_id);
 
     let app_state = act.app_state.clone();
-    let client_manager_addr = act.client_manager_addr.clone();
 
     let fut = async move {
-        // 1. Notify physics that the drag interaction ended (node released)
+        // Notify physics that the drag interaction ended (node released). The node STAYS pinned
+        // on the GPU at the drop position until an explicit `nodeUnpin` (persistent grab-and-place
+        // semantics); the GPU keeps relaxing the neighbours and streams the result like any other
+        // frame. No CPU settle, no side-channel broadcast.
         use crate::actors::messages::{NodeInteractionMessage, NodeInteractionType};
         app_state
             .graph_service_addr
@@ -1268,86 +1167,6 @@ pub(crate) fn handle_node_drag_end(
                 interaction_type: NodeInteractionType::Released,
                 position: None,
             });
-
-        // 1b. Grab→pin-in-place: on drag-END the node STAYS pinned at the position
-        //     where it was dropped. It is NOT released here — it remains anchored
-        //     on the GPU (integration skipped, still exerting forces) until an
-        //     explicit `nodeUnpin` message (handle_node_unpin) clears it. This is
-        //     the persistent VR grab-and-place semantics (see task PHASE 1). The
-        //     node was already pinned at its final position by the last drag update,
-        //     so no further pin message is required here.
-
-        // 2. Run one final settle cycle so neighbours relax around the held node
-        use crate::actors::messages::SimulationStep;
-        let budget = std::time::Duration::from_millis(DRAG_SETTLE_BUDGET_MS);
-        let settle_start = Instant::now();
-        let mut iterations = 0u32;
-
-        while settle_start.elapsed() < budget && iterations < 10 {
-            match app_state.graph_service_addr.send(SimulationStep).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    debug!("[Drag] Final settle step {} failed: {}", iterations, e);
-                    break;
-                }
-                Err(e) => {
-                    debug!(
-                        "[Drag] Final settle step {} mailbox error: {}",
-                        iterations, e
-                    );
-                    break;
-                }
-            }
-            iterations += 1;
-        }
-
-        debug!(
-            "[Drag] Final settle: {} iterations for node {} in {:.1}ms",
-            iterations,
-            node_id,
-            settle_start.elapsed().as_secs_f64() * 1000.0
-        );
-
-        // 3. Broadcast final positions to all clients (IDs already compact)
-        use crate::actors::messages::GetGraphData;
-
-        if let Ok(Ok(graph_data)) = app_state.graph_service_addr.send(GetGraphData).await {
-            let node_data: Vec<(u32, BinaryNodeData)> = graph_data
-                .nodes
-                .iter()
-                .map(|node| {
-                    // Node IDs are already compact (0..N-1) from source remapping
-                    (
-                        node.id,
-                        BinaryNodeData {
-                            node_id: node.id,
-                            x: node.data.x,
-                            y: node.data.y,
-                            z: node.data.z,
-                            vx: node.data.vx,
-                            vy: node.data.vy,
-                            vz: node.data.vz,
-                        },
-                    )
-                })
-                .collect();
-
-            if !node_data.is_empty() {
-                use crate::actors::messages::BroadcastNodePositions;
-                let analytics = app_state.node_analytics.read().ok();
-                let analytics_ref = analytics.as_deref();
-                let sssp = app_state.node_sssp.read().ok();
-                let sssp_ref = sssp.as_deref();
-                let binary_data = binary_protocol::encode_node_data_with_live_analytics(
-                    &node_data,
-                    analytics_ref,
-                    sssp_ref,
-                );
-                client_manager_addr.do_send(BroadcastNodePositions {
-                    positions: binary_data,
-                });
-            }
-        }
     };
 
     ctx.spawn(actix::fut::wrap_future::<_, SocketFlowServer>(fut).map(|_, _act, _ctx| {}));

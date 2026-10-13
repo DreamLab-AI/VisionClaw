@@ -61,6 +61,7 @@ export interface PhysicsSettings {
   springKOntology: number;
   springKAgent: number;
   broadcastFps: number;
+  interactionBroadcastFps: number;
   repelK: number;
   attractionK: number;
   gravity: number;

@@ -21,6 +21,7 @@ const fields: RegistryField[] = [
   // Network
   { key: 'customBackendURL', subgroup: 'Network', label: 'Custom Backend URL', type: 'text', path: 'system.customBackendUrl', description: 'Override backend URL' },
   { key: 'broadcastFps', subgroup: 'Network', label: 'Position Broadcast Rate (Hz)', type: 'slider', min: 1, max: 60, step: 1, path: 'visualisation.graphs.knowledge.physics.broadcastFps', description: 'How often the server sends every client a full position snapshot (default 8 Hz; nodes tween in between). Applies live, to all clients. Cost is linear in the rate, ~0.49 MB per snapshot on the ~9.5k-node graph: ~3.9 MB/s per client at 8 Hz, ~12 MB/s per client at 25 Hz.' },
+  { key: 'interactionBroadcastFps', subgroup: 'Network', label: 'Interaction Broadcast Rate (Hz)', type: 'slider', min: 1, max: 60, step: 1, path: 'visualisation.graphs.knowledge.physics.interactionBroadcastFps', description: 'Position snapshot rate while any node is being grabbed or moved; the idle rate applies otherwise (default 30 Hz). Applies live, to all clients' },
   // Debug Logging
   { key: 'enableDebug', subgroup: 'Debug Logging', label: 'Debug Mode', type: 'toggle', path: `${D}enabled`, description: 'Enable debug mode' },
   { key: 'enableDataDebug', subgroup: 'Debug Logging', label: 'Data Debug', type: 'toggle', path: `${D}enableDataDebug`, description: 'Log data operations' },

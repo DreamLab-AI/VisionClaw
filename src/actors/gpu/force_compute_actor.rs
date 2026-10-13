@@ -3171,7 +3171,12 @@ impl Handler<PinNodePositions> for ForceComputeActor {
         if Self::apply_pin_ops(&mut self.pinned_nodes, &msg.pins, &msg.unpin) {
             self.pinned_mask_dirty = true;
         }
+        // Something is being grabbed or moved: stream at the interaction rate while updates keep
+        // arriving. A grab START (reheat) also sends the next frame immediately, so a settled,
+        // quiet graph does not make the first reaction wait out an idle interval.
+        self.broadcast_optimizer.note_interaction();
         if msg.reheat {
+            self.broadcast_optimizer.reset_broadcast_timer();
             // Mild reheat: enough to give neighbours energy to spring, gentle enough
             // not to disturb the wider layout. Decays over ~230 steps (see step loop).
             self.reheat_factor = self.reheat_factor.max(0.3);
@@ -3891,7 +3896,7 @@ impl Handler<crate::actors::messages::ConfigureBroadcastOptimization> for ForceC
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let old_fps = self.broadcast_optimizer.config().target_fps;
-        self.broadcast_optimizer.configure(msg.target_fps)?;
+        self.broadcast_optimizer.configure(msg.target_fps, msg.interaction_fps)?;
         info!(
             "ForceComputeActor: broadcast rate {} -> {} Hz",
             old_fps,
@@ -3916,6 +3921,7 @@ impl Handler<crate::actors::messages::GetBroadcastStats> for ForceComputeActor {
             total_frames_processed: stats.total_frames_processed,
             total_snapshots_broadcast: stats.total_snapshots_broadcast,
             target_fps: stats.target_fps,
+            interaction_fps: stats.interaction_fps,
         })
     }
 }
