@@ -209,7 +209,6 @@ src/
 │
 ├── services/                    # Domain/business logic
 │   ├── github/                  # GitHub sync and PR services
-│   ├── ontology_reasoning_service.rs
 │   ├── semantic_analyzer.rs
 │   ├── speech_service.rs
 │   ├── ragflow_service.rs

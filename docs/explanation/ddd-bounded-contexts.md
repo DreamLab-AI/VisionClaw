@@ -147,9 +147,8 @@ graph LR
 ## BC7: Ontology & Reasoning
 **Aggregate Root**: `Ontology`
 **Entities**: `OntologyAxiom`, `InferredRelation`, `OntologyClass`
-**Services**: `OntologyPipelineService`, `OntologyReasoningService`
-**Key Files**: `ontology_pipeline_service.rs`, `ontology_actor.rs`,
-`ontology_reasoning_service.rs`
+**Services**: `OntologyPipelineService` (reasoning runs through `WhelkInferenceEngine`)
+**Key Files**: `ontology_pipeline_service.rs`, `ontology_actor.rs`
 **Invariants**:
 - Depth/descendant computation has cycle detection
 - Single API surface (remove duplicate ontology handlers)
