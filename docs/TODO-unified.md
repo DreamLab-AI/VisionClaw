@@ -282,6 +282,20 @@ The second pass left several rows open on judgement alone, and three of those ju
 | N-13 | partly stale | dreamlab-ai-website `forum-config/Cargo.toml` pins the overlay crates at `=1.0.0-beta.15`, so the "align beta.11 to beta.12" follow-up is done. Still open: the VisionFlow orphan-asset prune (owner) and the engine image rebuild that picks up card withdrawal. |
 | S-6 | date-triggered | The pinned artefact is podkey `main`'s latest CI run (`36134082610`, 2026-09-25) and expires 2026-12-24, ten weeks out; the documented procedure (`browsercontainer/README.md`) is "pick a green `ci.yml` run, edit `podkey.pin`". We hold admin on the repo, so a CI rerun is possible, but doing it now only restarts the clock. Re-pin in early December. `k_browser`/`k_broker` pubkeys in `g5-key-split.json` are an owner key ceremony. |
 
+Remaining rows, read in full on 2026-10-12 and left open for the stated reason:
+
+| ID | Why it is not a batch item |
+|---|---|
+| N-1 | The outstanding evidence is VisionClaw boot and ingest activation, which needs a live deploy and observation. The converter is retired, so there is nothing to run here. |
+| N-2 | Needs the forum ActionRequest `vault propose` apply path (WS-C): a new feature across the forum, the vault CLI and E-5, with a wire contract. It needs its own plan and design pass, not a batch edit. |
+| N-6 | Custody surfaces run as the shared UID and are gated by X-1 and G-5. ADR-2101 is `proposed`/`none`, so there is no accepted design to implement. |
+| N-10 | Needs per-capability activation receipts from live deployments (producer, pools, markets, EVM). P21, X-1, N-3 and N-6 gate it. |
+| CY-A3 | Time-gated: the exit condition is three green nights, and the `ESTATE_READ_TOKEN` scope for visionGraph (G-23) is an owner action. |
+| X-1 | Step 1 (per-role service accounts and `/run/secrets`) changes the boot path and secret ownership for the identity port, the AoE token and the signer roots. It is an auth/identity change that needs a plan and an advisor pass first, and a host boot rehearsal (X-4). |
+| X-2 | Deliverable is a decision per site across about 35 `execute_in_thread` call sites, with the dead half deleted. Each decision is an architecture call (route through the actor, or drop the supervision layer), and the deletions need GPU-feature builds and the handler tests. Multi-session work. |
+| X-3 | Needs a request id threaded through NIP-98, actor messages, the 52-byte wire frame and the client console. That changes the binary wire contract, which is locked by static assertions (ADR-2018/2019/2024), so it needs a design first. |
+| X-4 | Depends on the execution journal (agentbox ADR-2071, still `proposed`/`none`/`inactive`). Cannot start until that lands. |
+
 Where the work lives: agentbox fixes are on local `main` (fast-forwarded from `fix/s7-hygiene`) at `b9e0ea9a8`; the `project` checkout of agentbox is still on `feat/ontomark-cli-ab-p6` with someone else's edits, so its pointer is unchanged. Nothing is pushed.
 
 ## Removed as resolved in this execution
