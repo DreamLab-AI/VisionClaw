@@ -1731,6 +1731,104 @@ mod grid_gpu_tests {
         time("update_positions_only (H2D)", 20, &mut || { g.update_positions_only(&x, &y, &z).unwrap(); });
     }
 
+    /// A pinned node must DRAG its graph neighbours: the spring between a held node and its
+    /// neighbours pulls them after it. Runs the real kernels with the live stored parameters on a
+    /// ring laid out at its rest length, once with node 0 held 300 units out (its position
+    /// rewritten every step, as `apply_node_pins` does) and once unheld as the control, and
+    /// compares how far node 0's two neighbours move relative to the ring's own centroid.
+    #[test]
+    fn a_held_node_pulls_its_neighbours_after_it() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let n = N as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::new();
+        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("edges");
+        let r = 50.0 * N as f32 / (2.0 * std::f32::consts::PI);
+        let ring = || -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+            let (mut x, mut y, z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+            for i in 0..N {
+                let a = 2.0 * std::f32::consts::PI * i as f32 / N as f32;
+                x[i] = r * a.cos();
+                y[i] = r * a.sin();
+            }
+            (x, y, z)
+        };
+        let mut p = params();
+        p.spring_k = 12.0; p.repel_k = 120.0; p.rest_length = 50.0; p.damping = 0.9;
+        p.max_force = 150.0; p.max_velocity = 100.0; p.dt = 0.016; p.global_speed = 0.4;
+        p.center_gravity_k = 0.0; p.gravity = 0.0; p.viewport_bounds = 1.0e9; p.temperature = 0.0; p.repulsion_cutoff = 400.0;
+
+        let mut run = |g: &mut UnifiedGPUCompute, hold: bool| -> (f32, f32) {
+            let (mut x, mut y, mut z) = ring();
+            g.upload_positions(&x, &y, &z).expect("positions");
+            let (hx0, hy0) = (x[0], y[0]);
+            let start: Vec<(f32, f32)> = (0..N).map(|i| (x[i], y[i])).collect();
+            for _ in 0..120 {
+                if hold {
+                    x[0] = hx0 + 300.0; y[0] = hy0;
+                    g.update_positions_only(&x, &y, &z).expect("pin");
+                }
+                g.execute(p).expect("step");
+                g.stream.synchronize().expect("sync");
+                let (px, py, pz) = g.get_node_positions().expect("read");
+                for i in 0..N { if !(hold && i == 0) { x[i] = px[i]; y[i] = py[i]; z[i] = pz[i]; } }
+            }
+            let (cx, cy) = ((0..N).map(|i| x[i] - start[i].0).sum::<f32>() / N as f32, (0..N).map(|i| y[i] - start[i].1).sum::<f32>() / N as f32);
+            let rel = |i: usize| ((x[i] - start[i].0 - cx).powi(2) + (y[i] - start[i].1 - cy).powi(2)).sqrt();
+            (rel(1), rel(N - 1))
+        };
+        let control = run(&mut g, false);
+        let held = run(&mut g, true);
+        println!("PIN_RESPONSE neighbours of node 0, motion relative to ring centroid: control {:?}, held {:?}", control, held);
+        assert!(held.0 > control.0 + 5.0 && held.1 > control.1 + 5.0,
+            "neighbours of a held node must move clearly more than in the unheld control: held {held:?}, control {control:?}");
+    }
+
+    /// Measurement: which stored parameter limits how fast a held node's neighbours follow.
+    #[test]
+    #[ignore = "measurement; run with --ignored --nocapture"]
+    fn held_node_response_by_parameter() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let n = N as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::new();
+        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("edges");
+        let r = 50.0 * N as f32 / (2.0 * std::f32::consts::PI);
+        let mut base = params();
+        base.spring_k = 12.0; base.repel_k = 120.0; base.rest_length = 50.0; base.damping = 0.9;
+        base.max_force = 150.0; base.max_velocity = 100.0; base.dt = 0.016; base.global_speed = 0.4;
+        base.center_gravity_k = 0.0; base.gravity = 0.0; base.temperature = 0.0; base.viewport_bounds = 1.0e9;
+        let mut run = |g: &mut UnifiedGPUCompute, p: SimParams| -> f32 {
+            let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+            for i in 0..N { let a = 2.0 * std::f32::consts::PI * i as f32 / N as f32; x[i] = r * a.cos(); y[i] = r * a.sin(); }
+            g.upload_positions(&x, &y, &z).unwrap();
+            let (hx0, hy0) = (x[0], y[0]); let s1 = (x[1], y[1]);
+            for _ in 0..120 {
+                x[0] = hx0 + 300.0; y[0] = hy0;
+                g.update_positions_only(&x, &y, &z).unwrap();
+                g.execute(p).unwrap(); g.stream.synchronize().unwrap();
+                let (px, py, pz) = g.get_node_positions().unwrap();
+                for i in 1..N { x[i] = px[i]; y[i] = py[i]; z[i] = pz[i]; }
+            }
+            (x[1] - s1.0).hypot(y[1] - s1.1)
+        };
+        println!("RESPONSE live stored values                         {:7.1} units", run(&mut g, base));
+        for (name, f) in [
+            ("global_speed 1.0", Box::new(|p: &mut SimParams| p.global_speed = 1.0) as Box<dyn Fn(&mut SimParams)>),
+            ("global_speed 2.0", Box::new(|p| p.global_speed = 2.0)),
+            ("damping 0.7", Box::new(|p| p.damping = 0.7)),
+            ("max_force 1500", Box::new(|p| p.max_force = 1500.0)),
+            ("max_velocity 1000", Box::new(|p| p.max_velocity = 1000.0)),
+            ("dt 0.032", Box::new(|p| p.dt = 0.032)),
+            ("speed 1 + force 1500 + vel 1000", Box::new(|p| { p.global_speed = 1.0; p.max_force = 1500.0; p.max_velocity = 1000.0; })),
+        ] {
+            let mut p = base; f(&mut p);
+            println!("RESPONSE {name:<44} {:7.1} units", run(&mut g, p));
+        }
+    }
+
     #[test]
     fn cell_bounds_cover_every_node() {
         let Some((_ctx, mut g)) = gpu() else { return };
