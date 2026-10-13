@@ -137,6 +137,7 @@ mod execution;
 mod leiden;
 mod memory;
 mod metrics;
+pub mod semantic;
 mod sssp;
 mod types;
 

@@ -134,10 +134,6 @@ pub struct ForceComputeActor {
     /// (and held there rather than integrated) so the force kernel relaxes their
     /// neighbours around the dragged location. Populated by `PinNodePositions`.
     pinned_nodes: std::collections::HashMap<u32, Vec3>,
-    /// Settings-supplied values the advanced-weight multipliers scale from, so
-    /// repeated `UpdateAdvancedParams` are idempotent. Cleared whenever fresh
-    /// absolute settings arrive.
-    advanced_baseline: Option<AdvancedBaseline>,
 
     /// Set whenever `pinned_nodes` changes (pin/unpin). The next physics step
     /// rebuilds the per-node GPU pinned mask from `pinned_nodes` and uploads it,
@@ -285,7 +281,6 @@ impl ForceComputeActor {
             graph_adjacency: Vec::new(),
             radial_node_index: std::collections::HashMap::new(),
             pinned_nodes: std::collections::HashMap::new(),
-            advanced_baseline: None,
             pinned_mask_dirty: false,
             pending_graph_data: None,
             acks_received: 0,
@@ -376,6 +371,9 @@ impl ForceComputeActor {
             is_settled,
             stable_frame_count,
             kinetic_energy: self.last_mean_kinetic_energy,
+            physics_running: self.gpu_state.is_initialized
+                && self.gpu_state.num_nodes > 0
+                && !self.settle_paused,
         }
     }
 
@@ -2227,18 +2225,9 @@ impl Handler<ComputeForces> for ForceComputeActor {
 
                                     if let Some(_sequence_id) = actor.backpressure.try_acquire() {
                                         actor.broadcast_optimizer.mark_broadcast();
-                                        let mut node_updates = Vec::with_capacity(actor.node_id_buffer.len());
-                                        for idx in 0..actor.node_id_buffer.len() {
-                                            let node_id = actor.node_id_buffer[idx];
-                                            let (position, velocity) = actor.position_velocity_buffer[idx];
-                                            if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
-                                                continue;
-                                            }
-                                            node_updates.push((node_id, BinaryNodeDataClient::new(
-                                                node_id,
-                                                glam_to_vec3data(position),
-                                                glam_to_vec3data(velocity),
-                                            )));
+                                        let (node_updates, omitted) = complete_snapshot(&actor.node_id_buffer, &actor.position_velocity_buffer);
+                                        if omitted > 0 {
+                                            error!("ForceComputeActor: position snapshot is INCOMPLETE: {} of {} nodes have non-finite positions and were omitted (iter {}). This is a physics fault, not a delta.", omitted, actor.node_id_buffer.len(), actor.gpu_state.iteration_count);
                                         }
                                         if let Some(ref graph_addr) = actor.graph_service_addr {
                                             info!(
@@ -2253,29 +2242,19 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     }
                                 } else if actor.suppress_intermediate_broadcasts {
                                     // FastSettle burst in progress — skip intermediate broadcasts.
-                                    // Still call process_frame to advance the rate-limit timer.
-                                    let _ = actor.broadcast_optimizer.process_frame(&actor.position_velocity_buffer, &actor.node_id_buffer);
+                                    // Still ask the optimizer so the rate-limit timer advances.
+                                    let _ = actor.broadcast_optimizer.should_broadcast();
                                 } else {
                                     // Continuous mode: always send full position snapshots.
                                     // Clients tween at 60fps — they need complete target state,
                                     // not incremental deltas. Rate-limited by broadcast_optimizer.
-                                    let (should_broadcast, _) =
-                                        actor.broadcast_optimizer.process_frame(&actor.position_velocity_buffer, &actor.node_id_buffer);
+                                    let should_broadcast = actor.broadcast_optimizer.should_broadcast();
 
                                     if should_broadcast {
                                         if let Some(_sequence_id) = actor.backpressure.try_acquire() {
-                                            let mut node_updates = Vec::with_capacity(actor.node_id_buffer.len());
-                                            for idx in 0..actor.node_id_buffer.len() {
-                                                let node_id = actor.node_id_buffer[idx];
-                                                let (position, velocity) = actor.position_velocity_buffer[idx];
-                                                if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
-                                                    continue;
-                                                }
-                                                node_updates.push((node_id, BinaryNodeDataClient::new(
-                                                    node_id,
-                                                    glam_to_vec3data(position),
-                                                    glam_to_vec3data(velocity),
-                                                )));
+                                            let (node_updates, omitted) = complete_snapshot(&actor.node_id_buffer, &actor.position_velocity_buffer);
+                                            if omitted > 0 {
+                                                error!("ForceComputeActor: position snapshot is INCOMPLETE: {} of {} nodes have non-finite positions and were omitted (iter {}). This is a physics fault, not a delta.", omitted, actor.node_id_buffer.len(), actor.gpu_state.iteration_count);
                                             }
                                             if let Some(ref graph_addr) = actor.graph_service_addr {
                                                 if actor.gpu_state.iteration_count % 300 == 0 {
@@ -2296,19 +2275,9 @@ impl Handler<ComputeForces> for ForceComputeActor {
                                     } else if actor.gpu_state.iteration_count.saturating_sub(actor.last_full_broadcast_iteration) >= 300 {
                                         // Periodic full broadcast for late-connecting clients
                                         if let Some(_sequence_id) = actor.backpressure.try_acquire() {
-                                            let mut node_updates = Vec::with_capacity(actor.node_id_buffer.len());
-                                            for idx in 0..actor.node_id_buffer.len() {
-                                                let node_id = actor.node_id_buffer[idx];
-                                                let (position, velocity) = actor.position_velocity_buffer[idx];
-                                                // Skip NaN/Inf positions
-                                                if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
-                                                    continue;
-                                                }
-                                                node_updates.push((node_id, BinaryNodeDataClient::new(
-                                                    node_id,
-                                                    glam_to_vec3data(position),
-                                                    glam_to_vec3data(velocity),
-                                                )));
+                                            let (node_updates, omitted) = complete_snapshot(&actor.node_id_buffer, &actor.position_velocity_buffer);
+                                            if omitted > 0 {
+                                                error!("ForceComputeActor: position snapshot is INCOMPLETE: {} of {} nodes have non-finite positions and were omitted (iter {}). This is a physics fault, not a delta.", omitted, actor.node_id_buffer.len(), actor.gpu_state.iteration_count);
                                             }
 
                                             if let Some(ref graph_addr) = actor.graph_service_addr {
@@ -2768,8 +2737,6 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
                     >= eps
                 || (self.simulation_params.spring_k_agent - msg.params.spring_k_agent).abs() >= eps;
 
-        // Fresh absolute settings supersede any advanced-weight baseline.
-        self.advanced_baseline = None;
         self.update_simulation_parameters(msg.params);
 
         // Re-upload spring_scale on any per-population spring change so the new
@@ -3037,42 +3004,6 @@ impl Handler<GetPhysicsStats> for ForceComputeActor {
 
     fn handle(&mut self, _msg: GetPhysicsStats, _ctx: &mut Self::Context) -> Self::Result {
         Ok(self.get_physics_stats())
-    }
-}
-
-impl Handler<UpdateAdvancedParams> for ForceComputeActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: UpdateAdvancedParams, _ctx: &mut Self::Context) -> Self::Result {
-        info!("ForceComputeActor: UpdateAdvancedParams received");
-        info!("  Advanced params - semantic_weight: {:.2}, temporal_weight: {:.2}, constraint_weight: {:.2}",
-              msg.params.semantic_force_weight, msg.params.temporal_force_weight, msg.params.constraint_force_weight);
-
-        // Write through to simulation_params (the canonical source) so that the
-        // live physics step path — which clones simulation_params and rebuilds
-        // SimParams via to_sim_params() — picks up these changes.
-        // Multipliers scale the settings-supplied baseline, never the stored
-        // (already scaled) value, so repeating the same request changes nothing.
-        // `semantic_force_weight` does not touch `temperature`: annealing jitter
-        // has its own control, and that coupling made every request compound it.
-        apply_advanced_weights(
-            &mut self.simulation_params,
-            &mut self.advanced_baseline,
-            &msg.params,
-        );
-
-        // Rebuild unified_params from the updated simulation_params so the
-        // derived cache stays in sync.
-        self.update_simulation_parameters(self.simulation_params.clone());
-
-        info!("Advanced physics parameters written to simulation_params (canonical) and unified_params (cache)");
-
-        if matches!(self.compute_mode, ComputeMode::Basic) {
-            info!("ForceComputeActor: Switching to Advanced compute mode due to advanced params");
-            self.compute_mode = ComputeMode::Advanced;
-        }
-
-        Ok(())
     }
 }
 
@@ -3871,42 +3802,13 @@ impl Handler<crate::actors::messages::ConfigureBroadcastOptimization> for ForceC
         msg: crate::actors::messages::ConfigureBroadcastOptimization,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        // NOTE: `delta_threshold` is accepted on the wire for backward
-        // compatibility but ignored — the broadcast is full-snapshot only
-        // (BROADCAST-001). There is no delta path to configure.
-        if msg.delta_threshold.is_some() {
-            debug!("ConfigureBroadcastOptimization: delta_threshold ignored (BROADCAST-001)");
-        }
         let old_fps = self.broadcast_optimizer.config().target_fps;
-        self.broadcast_optimizer
-            .configure(msg.target_fps, msg.enable_spatial_culling)?;
+        self.broadcast_optimizer.configure(msg.target_fps)?;
         info!(
-            "ForceComputeActor: broadcast rate {} -> {} Hz, spatial culling {}",
+            "ForceComputeActor: broadcast rate {} -> {} Hz",
             old_fps,
-            self.broadcast_optimizer.config().target_fps,
-            self.broadcast_optimizer.config().enable_spatial_culling
+            self.broadcast_optimizer.config().target_fps
         );
-        Ok(())
-    }
-}
-
-/// Handler for UpdateCameraFrustum
-impl Handler<crate::actors::messages::UpdateCameraFrustum> for ForceComputeActor {
-    type Result = Result<(), String>;
-
-    fn handle(
-        &mut self,
-        msg: crate::actors::messages::UpdateCameraFrustum,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        debug!(
-            "ForceComputeActor: UpdateCameraFrustum received - min: {:?}, max: {:?}",
-            msg.min, msg.max
-        );
-
-        let min = Vec3::new(msg.min.0, msg.min.1, msg.min.2);
-        let max = Vec3::new(msg.max.0, msg.max.1, msg.max.2);
-        self.broadcast_optimizer.update_camera_bounds(min, max);
         Ok(())
     }
 }
@@ -3922,17 +3824,10 @@ impl Handler<crate::actors::messages::GetBroadcastStats> for ForceComputeActor {
     ) -> Self::Result {
         let stats = self.broadcast_optimizer.get_performance_stats();
 
-        // Convert from gpu::broadcast_optimizer::BroadcastPerformanceStats
-        // to actors::messages::BroadcastPerformanceStats
         Ok(crate::actors::messages::BroadcastPerformanceStats {
             total_frames_processed: stats.total_frames_processed,
-            total_nodes_sent: stats.total_nodes_sent,
-            total_nodes_processed: stats.total_nodes_processed,
-            average_bandwidth_reduction: stats.average_bandwidth_reduction,
+            total_snapshots_broadcast: stats.total_snapshots_broadcast,
             target_fps: stats.target_fps,
-            // Retained on the wire for compatibility; broadcast is full-snapshot
-            // only, so there is no delta threshold — always reported as 0.0.
-            delta_threshold: 0.0,
         })
     }
 }
@@ -4268,6 +4163,69 @@ const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
 const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
 const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
 
+/// Build the complete position snapshot from the GPU readback: one entry per node, in node order.
+///
+/// Every position broadcast is a FULL snapshot. A node whose position is not finite (a physics
+/// fault) cannot be sent, so it is omitted and COUNTED: the caller logs an error naming the
+/// shortfall rather than letting an incomplete frame pass as complete. On a healthy run the
+/// count is always 0 (verified on the live stream: every frame carries every node).
+fn complete_snapshot(
+    node_ids: &[u32],
+    pv: &[(Vec3, Vec3)],
+) -> (Vec<(u32, BinaryNodeDataClient)>, usize) {
+    let mut out = Vec::with_capacity(node_ids.len());
+    let mut omitted = 0usize;
+    for (idx, &node_id) in node_ids.iter().enumerate() {
+        let Some(&(position, velocity)) = pv.get(idx) else {
+            omitted += 1;
+            continue;
+        };
+        if !position.x.is_finite() || !position.y.is_finite() || !position.z.is_finite() {
+            omitted += 1;
+            continue;
+        }
+        out.push((
+            node_id,
+            BinaryNodeDataClient::new(node_id, glam_to_vec3data(position), glam_to_vec3data(velocity)),
+        ));
+    }
+    (out, omitted)
+}
+
+#[cfg(test)]
+mod complete_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn a_healthy_readback_yields_every_node_in_order() {
+        let ids = [10u32, 11, 12];
+        let pv = [(Vec3::new(1.0, 2.0, 3.0), Vec3::ZERO), (Vec3::new(4.0, 5.0, 6.0), Vec3::ZERO), (Vec3::new(7.0, 8.0, 9.0), Vec3::ZERO)];
+        let (out, omitted) = complete_snapshot(&ids, &pv);
+        assert_eq!(omitted, 0);
+        assert_eq!(out.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![10, 11, 12]);
+    }
+
+    #[test]
+    fn a_non_finite_position_is_counted_not_hidden() {
+        let ids = [1u32, 2, 3, 4];
+        let pv = [
+            (Vec3::new(f32::NAN, 0.0, 0.0), Vec3::ZERO),
+            (Vec3::ZERO, Vec3::ZERO),
+            (Vec3::new(0.0, f32::INFINITY, 0.0), Vec3::ZERO),
+            (Vec3::ZERO, Vec3::ZERO),
+        ];
+        let (out, omitted) = complete_snapshot(&ids, &pv);
+        assert_eq!(omitted, 2, "the shortfall is reported so the caller can raise an error");
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn a_short_readback_is_a_shortfall_too() {
+        let (out, omitted) = complete_snapshot(&[1, 2, 3], &[(Vec3::ZERO, Vec3::ZERO)]);
+        assert_eq!((out.len(), omitted), (1, 2));
+    }
+}
+
 /// Give the active layout mode the bias terms it needs, where they are still off (<= 0).
 ///
 /// Used by BOTH `SetLayoutMode` and `UpdateSimulationParams`. A settings-driven update is
@@ -4340,81 +4298,6 @@ mod mode_default_tests {
         q.layer_bias_k = 0.0;
         fill_mode_defaults(&mut q);
         assert_eq!((q.dag_bias_k, q.layer_bias_k), (0.0, 0.0), "force-directed has no bias to fill");
-    }
-}
-
-/// Values the advanced-weight multipliers scale from.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct AdvancedBaseline {
-    alignment_strength: f32,
-    cluster_strength: f32,
-}
-
-/// Apply `UpdateAdvancedParams` multipliers idempotently: capture the baseline on
-/// first use, then always write `baseline * weight`.
-fn apply_advanced_weights(
-    sim: &mut SimulationParams,
-    baseline: &mut Option<AdvancedBaseline>,
-    p: &visionclaw_domain::models::constraints::AdvancedParams,
-) {
-    let base = *baseline.get_or_insert(AdvancedBaseline {
-        alignment_strength: sim.alignment_strength,
-        cluster_strength: sim.cluster_strength,
-    });
-    if p.temporal_force_weight > 0.0 {
-        sim.alignment_strength = base.alignment_strength * p.temporal_force_weight;
-    }
-    if p.constraint_force_weight > 0.0 {
-        sim.cluster_strength = base.cluster_strength * p.constraint_force_weight;
-    }
-}
-
-#[cfg(test)]
-mod advanced_weight_tests {
-    use super::*;
-    use visionclaw_domain::models::constraints::AdvancedParams;
-
-    fn weights(semantic: f32, temporal: f32, constraint: f32) -> AdvancedParams {
-        let mut p = AdvancedParams::default();
-        p.semantic_force_weight = semantic;
-        p.temporal_force_weight = temporal;
-        p.constraint_force_weight = constraint;
-        p
-    }
-
-    #[test]
-    fn repeating_the_same_request_is_idempotent() {
-        let mut sim = SimulationParams::default();
-        let (t0, a0, c0) = (sim.temperature, sim.alignment_strength, sim.cluster_strength);
-        let mut base = None;
-        let req = weights(2.0, 1.5, 3.0);
-        for _ in 0..5 {
-            apply_advanced_weights(&mut sim, &mut base, &req);
-        }
-        assert_eq!(sim.temperature, t0, "semantic weight must not scale annealing temperature");
-        assert!((sim.alignment_strength - a0 * 1.5).abs() < 1e-6, "alignment must be baseline * weight, not compounded");
-        assert!((sim.cluster_strength - c0 * 3.0).abs() < 1e-6, "cluster must be baseline * weight, not compounded");
-    }
-
-    #[test]
-    fn changing_the_weight_rescales_from_the_baseline() {
-        let mut sim = SimulationParams::default();
-        let a0 = sim.alignment_strength;
-        let mut base = None;
-        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
-        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 0.5, 1.0));
-        assert!((sim.alignment_strength - a0 * 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn cleared_baseline_adopts_fresh_settings() {
-        let mut sim = SimulationParams::default();
-        let mut base = None;
-        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
-        sim.alignment_strength = 0.7; // fresh absolute value from settings
-        base = None; // what the settings handler does
-        apply_advanced_weights(&mut sim, &mut base, &weights(1.0, 2.0, 1.0));
-        assert!((sim.alignment_strength - 1.4).abs() < 1e-6);
     }
 }
 

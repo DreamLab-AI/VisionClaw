@@ -1191,7 +1191,9 @@ void thrust_sort_key_value(
     thrust::device_ptr<int> keys(static_cast<int*>(d_keys_out));
     thrust::device_ptr<int> vals(static_cast<int*>(d_values_out));
     thrust::sequence(thrust::cuda::par.on(stream), vals, vals + num_items);
-    thrust::sort_by_key(thrust::cuda::par.on(stream),
+    // stable: equal keys keep ascending node-id order, so in-cell traversal order (and the
+    // floating-point accumulation order built on it) is a guarantee, not an implementation detail.
+    thrust::stable_sort_by_key(thrust::cuda::par.on(stream),
                        keys, keys + num_items, vals);
 }
 

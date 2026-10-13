@@ -16,6 +16,26 @@
 //! node (public-only graph), matching ADR-050 §Visibility transitions.
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
+/// Env flag gating the drop-set filter. Default ON (secure by default); opt out with
+/// `0` / `false` / `off` / `no`.
+pub const PUBKEY_VISIBILITY_FILTER_ENV: &str = "PUBKEY_VISIBILITY_FILTER";
+
+/// Parse the flag. Absent or unrecognised means ON: the filter fails closed.
+pub fn parse_visibility_flag(raw: Option<&str>) -> bool {
+    match raw {
+        Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"),
+        None => true,
+    }
+}
+
+/// Whether the filter is enabled, read once from the environment. Every position path (connect
+/// sync, snapshot request AND the live broadcast) must consult this one function.
+pub fn filter_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| parse_visibility_flag(std::env::var(PUBKEY_VISIBILITY_FILTER_ENV).ok().as_deref()))
+}
 
 /// Per-node visibility metadata (ADR-050 primitives) projected onto the wire id.
 ///

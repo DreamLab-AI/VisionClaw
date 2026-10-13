@@ -54,6 +54,11 @@ pub struct NodeTypeArrays {
     pub ontology_class_ids: Vec<u32>,
     pub ontology_individual_ids: Vec<u32>,
     pub ontology_property_ids: Vec<u32>,
+    /// Visibility of every NON-public node, keyed by raw node id (no class flag bits). The live
+    /// position broadcast drops these per client with `compute_private_opaque_ids`, exactly as
+    /// the connect-time sync does; without it the broadcast leaked private nodes' positions to
+    /// every session. Public nodes are not listed (the common case stays empty).
+    pub private_nodes: Vec<visionclaw_domain::utils::visibility_filter::NodeVisibility>,
 }
 
 /// Get node type classification arrays for binary protocol flags

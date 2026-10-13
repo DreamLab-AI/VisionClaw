@@ -217,6 +217,8 @@ pub enum PTXModule {
     // generic live force_pass_kernel constraint loop, not a separate kernel.
     Pagerank,
     GpuConnectedComponents,
+    /// Type-aware semantic forces (DAG, type/physicality/role clustering, collision, ...).
+    SemanticForces,
 }
 
 impl PTXModule {
@@ -230,6 +232,7 @@ impl PTXModule {
             PTXModule::SsspCompact => "sssp_compact.cu",
             PTXModule::Pagerank => "pagerank.cu",
             PTXModule::GpuConnectedComponents => "gpu_connected_components.cu",
+            PTXModule::SemanticForces => "semantic_forces.cu",
         }
     }
 
@@ -243,6 +246,7 @@ impl PTXModule {
             PTXModule::SsspCompact => "SSSP_COMPACT_PTX_PATH",
             PTXModule::Pagerank => "PAGERANK_PTX_PATH",
             PTXModule::GpuConnectedComponents => "GPU_CONNECTED_COMPONENTS_PTX_PATH",
+            PTXModule::SemanticForces => "SEMANTIC_FORCES_PTX_PATH",
         }
     }
 
@@ -263,6 +267,7 @@ impl PTXModule {
             PTXModule::SsspCompact => option_env!("SSSP_COMPACT_PTX_PATH"),
             PTXModule::Pagerank => option_env!("PAGERANK_PTX_PATH"),
             PTXModule::GpuConnectedComponents => option_env!("GPU_CONNECTED_COMPONENTS_PTX_PATH"),
+            PTXModule::SemanticForces => option_env!("SEMANTIC_FORCES_PTX_PATH"),
         }
     }
 
@@ -276,6 +281,7 @@ impl PTXModule {
             PTXModule::SsspCompact,
             PTXModule::Pagerank,
             PTXModule::GpuConnectedComponents,
+            PTXModule::SemanticForces,
         ]
     }
 }
@@ -647,7 +653,7 @@ mod tests {
     fn all_modules_returns_eight_variants() {
         // ADR-098 D3 retired the OntologyConstraints kernel; OWL axioms now feed
         // the generic live force_pass_kernel constraint loop.
-        assert_eq!(PTXModule::all_modules().len(), 8);
+        assert_eq!(PTXModule::all_modules().len(), 9);
     }
 
     #[test]

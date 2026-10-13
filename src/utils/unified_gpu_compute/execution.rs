@@ -380,7 +380,11 @@ impl UnifiedGPUCompute {
         };
         let mut auto_tuned_cell_size =
             if candidate_cell_size.is_finite() && candidate_cell_size > 0.0 {
-                candidate_cell_size.max(cutoff_floor.min(10.0))
+                // The floor is the cutoff itself. It was `cutoff_floor.min(10.0)`, which capped the
+                // floor at 10 and let the cell stay far below the cutoff: the 3x3x3 stencil then
+                // dropped most pairs inside the cutoff (64% force error against an all-pairs
+                // oracle, see gpu_repulsion_matches_an_all_pairs_cpu_reference_within_the_cutoff).
+                candidate_cell_size.max(cutoff_floor)
             } else {
                 cutoff_floor.max(10.0)
             };
@@ -909,6 +913,33 @@ impl UnifiedGPUCompute {
             }
         }
 
+        // Semantic forces: add the ontology-derived forces to the live force buffers before
+        // integration, exactly as configured in the central settings store. Present only after
+        // `enable_semantic`; `semantic_active` is false when every force is switched off.
+        if self.semantic_active {
+            if let Some(sem) = &self.semantic {
+                if sem.num_nodes() == self.num_nodes {
+                    sem.apply(
+                        &self.stream,
+                        self.pos_in_x.as_device_ptr(),
+                        self.pos_in_y.as_device_ptr(),
+                        self.pos_in_z.as_device_ptr(),
+                        self.force_x.as_device_ptr(),
+                        self.force_y.as_device_ptr(),
+                        self.force_z.as_device_ptr(),
+                    )?;
+                } else {
+                    // Graph resized since the metadata was uploaded: applying stale per-node
+                    // arrays would push the wrong nodes. Skip until `enable_semantic` runs again.
+                    log::warn!(
+                        "semantic forces skipped: metadata for {} nodes, graph has {}",
+                        sem.num_nodes(),
+                        self.num_nodes
+                    );
+                }
+            }
+        }
+
         let integrate_pass_kernel = self._module.get_function(self.integrate_pass_kernel_name)?;
         let stream = &self.stream;
         // SAFETY: Integration kernel launch is safe because:
@@ -977,6 +1008,38 @@ impl UnifiedGPUCompute {
                   utilization * 100.0, grid_occupancy * 100.0, resize_count);
         }
 
+        Ok(())
+    }
+
+    /// Load the semantic PTX and upload `inputs` for the current graph, then apply `config`.
+    /// Replaces any previous semantic state.
+    pub fn enable_semantic(
+        &mut self,
+        ptx: &str,
+        inputs: &super::semantic::SemanticInputs,
+        config: &visionclaw_domain::types::SemanticForces,
+    ) -> Result<()> {
+        if inputs.num_nodes() != self.num_nodes {
+            return Err(anyhow!(
+                "semantic inputs describe {} nodes but the GPU graph has {}",
+                inputs.num_nodes(),
+                self.num_nodes
+            ));
+        }
+        self.semantic = Some(super::semantic::SemanticGpu::new(ptx, inputs, config)?);
+        self.semantic_active = config.any_enabled();
+        Ok(())
+    }
+
+    /// Push a new stored configuration to the device. A no-op error if semantic state was
+    /// never uploaded (the caller decides whether to build it first).
+    pub fn set_semantic_config(&mut self, config: &visionclaw_domain::types::SemanticForces) -> Result<()> {
+        let sem = self
+            .semantic
+            .as_mut()
+            .ok_or_else(|| anyhow!("semantic forces are not initialised for this graph"))?;
+        sem.set_config(config)?;
+        self.semantic_active = config.any_enabled();
         Ok(())
     }
 
@@ -1362,7 +1425,7 @@ mod grid_gpu_tests {
                 return None;
             }
         };
-        let mut g = match UnifiedGPUCompute::new(N, N, &ptx) {
+        let mut g = match UnifiedGPUCompute::new(N, N * 2, &ptx) {
             Ok(g) => g,
             Err(e) => {
                 eprintln!("[grid_gpu_tests] SKIPPED, no CUDA device: {e}");
@@ -1390,6 +1453,9 @@ mod grid_gpu_tests {
     fn params() -> SimParams {
         let mut p = SimParams::new();
         p.stability_threshold = 0.0;
+        // The grid cell is floored at the repulsion cutoff, so a small cutoff is what gives the
+        // sort / bounds tests many cells to be meaningful about (the live 400 gives only a few).
+        p.repulsion_cutoff = 60.0;
         p
     }
 
@@ -1428,6 +1494,117 @@ mod grid_gpu_tests {
             let wrong = (0..N).filter(|&j| keys[sorted[j] as usize] != sorted_keys[j]).count();
             assert_eq!(wrong, 0, "frame {frame}: {wrong}/{N} sorted slots hold a node whose cell key differs from the slot's key");
         }
+    }
+
+    #[test]
+    fn cells_with_no_nodes_are_empty_ranges_every_frame() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        for frame in 0..3 {
+            g.execute(params()).expect("execute");
+            g.stream.synchronize().expect("sync");
+            let keys = read(&g.sort_keys_out, N);
+            let cells = g.max_grid_cells;
+            let (start, end) = (read(&g.cell_start, cells), read(&g.cell_end, cells));
+            let occupied: std::collections::HashSet<i32> = keys.iter().copied().collect();
+            let stale = (0..cells).filter(|&c| !occupied.contains(&(c as i32)) && start[c] != end[c]).count();
+            assert_eq!(stale, 0, "frame {frame}: {stale} empty cells still carry a non-empty range");
+        }
+    }
+
+    fn read_f32(buf: &DeviceBuffer<f32>, len: usize) -> Vec<f32> {
+        let mut v = vec![0f32; len];
+        buf.index(0..len).copy_to(&mut v[..]).expect("device read");
+        v
+    }
+
+    /// Newton's third law for the whole step: with gravity, jitter and bounds off, repulsion
+    /// and spring forces are equal and opposite, so the NET force over a closed system is ~0
+    /// and its centroid cannot translate. A systematic net force is what makes a whole
+    /// layout creep across the scene (the live graph's centroid sat at (188, 1, 115) and
+    /// kept moving while 43% of nodes were outside the bounds box).
+    #[test]
+    fn net_force_over_a_closed_system_is_zero() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let n = N as i32;
+        let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
+        let mut cols = Vec::with_capacity(N * 2);
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("symmetric edges");
+        let mut p = params();
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.temperature = 0.0;
+        p.viewport_bounds = 1.0e9;
+        g.execute(p).expect("execute");
+        g.stream.synchronize().expect("sync");
+        let (fx, fy, fz) = (read_f32(&g.force_x, N), read_f32(&g.force_y, N), read_f32(&g.force_z, N));
+        let net = [fx.iter().sum::<f32>(), fy.iter().sum::<f32>(), fz.iter().sum::<f32>()];
+        let total: f32 = (0..N).map(|i| (fx[i] * fx[i] + fy[i] * fy[i] + fz[i] * fz[i]).sqrt()).sum();
+        let net_mag = (net[0] * net[0] + net[1] * net[1] + net[2] * net[2]).sqrt();
+        println!("NET_FORCE net={net:?} |net|={net_mag} sum|f|={total} ratio={}", net_mag / total.max(1e-9));
+        assert!(total > 0.0, "forces must actually be computed (got all zeros)");
+        assert!(net_mag / total < 1.0e-3, "net force {net_mag} is {:.4} of the total {total}: forces are not equal and opposite", net_mag / total);
+    }
+
+    /// The neighbour stencil visits only the 3x3x3 cells around a node, so it sees every node
+    /// inside `repulsion_cutoff` ONLY when the cell is at least as large as the cutoff. The
+    /// step auto-tunes the cell from the scene volume and meant to floor it at the cutoff, but
+    /// the floor was `cutoff.min(10.0)`: the cell stayed ~57 units while the live cutoff was
+    /// 400, so repulsion silently stopped at 1-2 cells and which pairs interacted depended on
+    /// cell boundaries, not distance. This compares the GPU repulsion field with an independent
+    /// CPU all-pairs reference (classic branch: repel_k / (d^2 + eps), no charges, no springs).
+    #[test]
+    fn gpu_repulsion_matches_an_all_pairs_cpu_reference_within_the_cutoff() {
+        let Some((_ctx, mut g)) = gpu() else { return };
+        let mut seed = 7u64;
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (lcg(&mut seed) - 0.5) * 600.0;
+            y[i] = (lcg(&mut seed) - 0.5) * 600.0;
+            z[i] = (lcg(&mut seed) - 0.5) * 600.0;
+        }
+        g.upload_positions(&x, &y, &z).expect("positions");
+        let mut p = params();
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.temperature = 0.0;
+        p.viewport_bounds = 1.0e9;
+        p.spring_k = 0.0;
+        p.separation_radius = 0.0;
+        p.max_force = 1.0e9;
+        p.lin_log_mode = 0;
+        p.repulsion_cutoff = 400.0;
+        let (repel_k, eps, cutoff) = (p.repel_k as f64, p.repulsion_softening_epsilon as f64, p.repulsion_cutoff as f64);
+        g.execute(p).expect("execute");
+        g.stream.synchronize().expect("sync");
+        let (fx, fy, fz) = (read_f32(&g.force_x, N), read_f32(&g.force_y, N), read_f32(&g.force_z, N));
+
+        let (mut diff2, mut ref2) = (0f64, 0f64);
+        for i in 0..N {
+            let mut r = [0f64; 3];
+            for j in 0..N {
+                if i == j { continue; }
+                let d = [(x[i] - x[j]) as f64, (y[i] - y[j]) as f64, (z[i] - z[j]) as f64];
+                let d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if d2 < cutoff * cutoff && d2 > 1e-6 {
+                    let dist = d2.sqrt();
+                    let k = repel_k / (d2 + eps) / dist;
+                    for a in 0..3 { r[a] += d[a] * k; }
+                }
+            }
+            let got = [fx[i] as f64, fy[i] as f64, fz[i] as f64];
+            for a in 0..3 {
+                diff2 += (got[a] - r[a]).powi(2);
+                ref2 += r[a].powi(2);
+            }
+        }
+        let rel = (diff2 / ref2.max(1e-30)).sqrt();
+        println!("REPULSION_ORACLE relative L2 error vs CPU all-pairs (cutoff 400): {rel:.4}");
+        assert!(ref2 > 0.0, "reference forces must be non-zero");
+        assert!(rel < 0.01, "GPU repulsion differs from the all-pairs reference by {:.1}%: pairs inside the cutoff are being dropped by the grid", rel * 100.0);
     }
 
     #[test]

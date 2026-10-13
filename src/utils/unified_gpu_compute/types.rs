@@ -77,6 +77,11 @@ impl Default for GPUPerformanceMetrics {
 // 3. The stream pointer is a valid CUDA stream handle or null for default stream
 // 4. The caller ensures proper synchronization before reading output buffers
 unsafe extern "C" {
+    /// NOT a generic key/value sort. `d_values_in` is IGNORED: `d_values_out` receives the
+    /// stable argsort of the `int` keys (output slot j = index of the j-th smallest key).
+    /// Only int keys/values are supported. The single caller is the spatial-grid build, which
+    /// needs exactly that. An earlier version copied `d_values_in` through, so from the second
+    /// frame the output was last frame's permutation composed with this one (audit #1).
     pub(crate) fn thrust_sort_key_value(
         d_keys_in: *const ::std::os::raw::c_void,
         d_keys_out: *mut ::std::os::raw::c_void,

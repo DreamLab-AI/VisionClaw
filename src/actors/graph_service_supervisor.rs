@@ -555,6 +555,7 @@ impl GraphServiceSupervisor {
         self.graph_update_notify_pending = true;
         ctx.run_later(Duration::from_millis(500), move |act, _ctx| {
             act.graph_update_notify_pending = false;
+            actix::spawn(push_node_type_arrays(act.graph_state.clone(), act.client.clone()));
             if let Some(ref client) = act.client {
                 let payload = format!(
                     "{{\"type\":\"graphUpdated\",\"revision\":{},\"reason\":\"{}\"}}",
@@ -607,6 +608,7 @@ impl GraphServiceSupervisor {
 
     /// Wire physics and client coordinator together for position broadcasting
     fn wire_physics_and_client(&mut self) {
+        actix::spawn(push_node_type_arrays(self.graph_state.clone(), self.client.clone()));
         if let (Some(ref physics_addr), Some(ref client_addr)) = (&self.physics, &self.client) {
             use crate::actors::SetClientCoordinator;
             physics_addr.do_send(SetClientCoordinator {
@@ -1523,6 +1525,28 @@ impl Handler<NotifyGraphUpdated> for GraphServiceSupervisor {
     }
 }
 
+/// Hand the graph's node classification (knowledge / agent / ontology class, individual,
+/// property) to the client coordinator so every position broadcast can set the class flag
+/// bits in the node ids.
+///
+/// Nothing used to send `UpdateNodeTypeArrays`, so the coordinator's arrays stayed empty and
+/// the steady-state V5 frames carried NO class flags: clients typed nodes correctly on the
+/// per-connection initial sync (which pulls the arrays itself), then lost agent/knowledge
+/// typing on the first live frame. Measured on the live stream before this fix:
+/// initial V3 frame flag bits {1,16}, every V5 frame {0}.
+async fn push_node_type_arrays(
+    graph_state: Option<Addr<GraphStateActor>>,
+    client: Option<Addr<ClientCoordinatorActor>>,
+) {
+    let (Some(graph_state), Some(client)) = (graph_state, client) else {
+        return;
+    };
+    match graph_state.send(msgs::GetNodeTypeArrays).await {
+        Ok(arrays) => client.do_send(msgs::UpdateNodeTypeArrays { arrays }),
+        Err(e) => warn!("GraphServiceSupervisor: could not read node type arrays: {}", e),
+    }
+}
+
 /// Replace the supervisor's client-coordinator address with the application's
 /// canonical instance — the one SocketFlowServer actually registers clients
 /// with (`AppState::client_manager_addr`). The supervisor's own
@@ -1887,6 +1911,7 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
             info!("GraphServiceSupervisor: GPU manager address stored");
             self.wire_force_compute_subscribers();
             let client_addr = self.client.clone();
+            let client_for_types = self.client.clone();
 
             // Get ForceComputeActor from GPUManagerActor and forward to PhysicsOrchestratorActor
             let physics_addr = self.physics.clone();
@@ -1926,6 +1951,9 @@ impl Handler<msgs::InitializeGPUConnection> for GraphServiceSupervisor {
                             error!("GraphServiceSupervisor: GPUManagerActor communication error: {}", e);
                         }
                     }
+
+                    // The graph is loaded by now: give the coordinator its classification.
+                    push_node_type_arrays(graph_state_addr.clone(), client_for_types).await;
 
                     // Also send InitializeGPU to GPUManagerActor to create SharedGPUContext
                     // First, get graph data from GraphStateActor

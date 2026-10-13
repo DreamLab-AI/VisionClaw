@@ -116,8 +116,6 @@ pub use physics_messages::{
     StressMajorizationConfig,
     SubscribeForceComputeReplaced,
     TriggerStressMajorization,
-    UpdateAdvancedParams,
-    UpdateCameraFrustum,
     UpdateClusteringParams,
     UpdateConstraintData,
     UpdateConstraints,

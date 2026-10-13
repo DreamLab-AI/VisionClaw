@@ -427,16 +427,52 @@ impl ClientManager {
             analytics_data,
         );
 
+        // Entitlement (ADR-060): the same private-node drop-set the connect-time sync applies,
+        // computed once per distinct session identity per broadcast. Without it the live
+        // stream sent private nodes' positions to sessions the connect sync had withheld them
+        // from. The set is stable per session, so a frame is always the full entitled set.
+        let entitlement_on = visionclaw_domain::utils::visibility_filter::filter_enabled()
+            && !node_type_arrays.private_nodes.is_empty();
+        let mut drop_sets: std::collections::HashMap<Option<&str>, std::collections::HashSet<u32>> =
+            std::collections::HashMap::new();
+        // Sessions with the same identity and no explicit filter share one encoded payload.
+        let mut shared_payloads: std::collections::HashMap<Option<&str>, Vec<u8>> =
+            std::collections::HashMap::new();
+
         let mut result = BroadcastResult::default();
         for (&client_id, client_state) in &self.clients {
-            let payload = if !client_state.filter.enabled {
+            let hidden: Option<&std::collections::HashSet<u32>> = if entitlement_on {
+                let key = client_state.pubkey.as_deref();
+                Some(&*drop_sets.entry(key).or_insert_with(|| {
+                    visionclaw_domain::utils::visibility_filter::compute_private_opaque_ids(
+                        &node_type_arrays.private_nodes,
+                        key,
+                    )
+                }))
+            } else {
+                None
+            };
+            let hides_something = hidden.is_some_and(|h| !h.is_empty());
+
+            let payload = if !client_state.filter.enabled && !hides_something {
                 // Send pre-serialized payload — no re-encoding needed
                 Some(unfiltered_binary.clone())
+            } else if !client_state.filter.enabled {
+                // Entitlement only: everyone with this identity gets the same bytes.
+                let key = client_state.pubkey.as_deref();
+                let encoded = shared_payloads.entry(key).or_insert_with(|| {
+                    let h = hidden.expect("hides_something implies a drop set");
+                    let visible: Vec<_> =
+                        positions.iter().filter(|pos| !h.contains(&pos.node_id)).copied().collect();
+                    self.serialize_positions(&visible, node_type_arrays, broadcast_sequence, analytics_data)
+                });
+                Some(encoded.clone())
             } else {
-                // Only re-serialize for clients with active filters
+                // The client's own explicit filter, and entitlement on top of it.
                 let filtered_positions: Vec<_> = positions
                     .iter()
                     .filter(|pos| client_state.filter.filtered_node_ids.contains(&pos.node_id))
+                    .filter(|pos| hidden.is_none_or(|h| !h.contains(&pos.node_id)))
                     .copied()
                     .collect();
                 if filtered_positions.is_empty() {
@@ -2193,6 +2229,107 @@ mod tests {
             anon.lock().unwrap().is_empty(),
             "never to an unauthenticated session"
         );
+    }
+
+    /// Captures every binary frame it is handed, so a test can decode what a session received.
+    struct BinaryCapture(std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
+    impl Actor for BinaryCapture {
+        type Context = Context<Self>;
+    }
+    impl Handler<CloseClientSession> for BinaryCapture {
+        type Result = ();
+        fn handle(&mut self, _: CloseClientSession, _: &mut Self::Context) {}
+    }
+    impl Handler<SendToClientBinary> for BinaryCapture {
+        type Result = ();
+        fn handle(&mut self, m: SendToClientBinary, _: &mut Self::Context) {
+            self.0.lock().unwrap().push(m.0);
+        }
+    }
+    impl Handler<SendToClientText> for BinaryCapture {
+        type Result = ();
+        fn handle(&mut self, _: SendToClientText, _: &mut Self::Context) {}
+    }
+    impl Handler<crate::actors::messages::SendInitialGraphLoad> for BinaryCapture {
+        type Result = ();
+        fn handle(&mut self, _: crate::actors::messages::SendInitialGraphLoad, _: &mut Self::Context) {}
+    }
+
+    fn capture_client() -> (ClientRecipients, std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
+        let frames = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let addr = BinaryCapture(frames.clone()).start();
+        let r = ClientRecipients::new(
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+            addr.clone().recipient(),
+        );
+        (r, frames)
+    }
+
+    /// Node ids carried by a V5 frame: `[0x05][seq:8]` then 52-byte records, id in the low 26 bits.
+    fn frame_ids(frame: &[u8]) -> Vec<u32> {
+        assert_eq!(frame[0], 5, "live broadcasts are V5");
+        frame[9..].chunks_exact(52).map(|r| u32::from_le_bytes([r[0], r[1], r[2], r[3]]) & 0x03FF_FFFF).collect()
+    }
+
+    fn node(id: u32) -> BinaryNodeDataClient {
+        BinaryNodeDataClient { node_id: id, x: id as f32, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0 }
+    }
+
+    /// The connect-time sync withholds private nodes from sessions that may not see them, but
+    /// the live broadcast used to send every node to every session (measured: an anonymous
+    /// connection received all 9478 nodes in V5 frames after being sent 9470 on connect).
+    /// Each session must receive exactly the nodes it is entitled to, in every frame.
+    #[actix::test]
+    async fn live_broadcast_withholds_private_nodes_from_sessions_that_may_not_see_them() {
+        use visionclaw_domain::utils::visibility_filter::NodeVisibility;
+        let mut m = ClientManager::new();
+        let (anon_r, anon_frames) = capture_client();
+        let (owner_r, owner_frames) = capture_client();
+        let (other_r, other_frames) = capture_client();
+        let (anon, owner, other) = (m.register_client(anon_r), m.register_client(owner_r), m.register_client(other_r));
+        for id in [anon, owner, other] {
+            m.get_client_mut(id).unwrap().filter.enabled = false;
+        }
+        m.get_client_mut(owner).unwrap().pubkey = Some("owner-key".into());
+        m.get_client_mut(other).unwrap().pubkey = Some("someone-else".into());
+
+        let nta = crate::actors::messages::NodeTypeArrays {
+            private_nodes: vec![NodeVisibility::private_owned_by(5, "owner-key"), NodeVisibility::private_unowned(6)],
+            ..Default::default()
+        };
+        let positions: Vec<_> = (1..=8).map(node).collect();
+        m.broadcast_with_filter(&positions, &nta, 1, None);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+
+        let ids = |f: &std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>| {
+            let frames = f.lock().unwrap();
+            assert_eq!(frames.len(), 1, "exactly one frame per session");
+            frame_ids(&frames[0])
+        };
+        assert_eq!(ids(&anon_frames), vec![1, 2, 3, 4, 7, 8], "anonymous: public only (fail closed)");
+        assert_eq!(ids(&owner_frames), vec![1, 2, 3, 4, 5, 7, 8], "the owner also sees their own private node 5, never the unowned 6");
+        assert_eq!(ids(&other_frames), vec![1, 2, 3, 4, 7, 8], "a different authenticated user sees public only");
+    }
+
+    /// Nothing private in the graph: every session still gets the complete snapshot, and the
+    /// entitlement logic costs nothing (one shared payload).
+    #[actix::test]
+    async fn with_no_private_nodes_every_session_gets_the_whole_snapshot() {
+        let mut m = ClientManager::new();
+        let (r1, f1) = capture_client();
+        let (r2, f2) = capture_client();
+        let (a, b) = (m.register_client(r1), m.register_client(r2));
+        for id in [a, b] {
+            m.get_client_mut(id).unwrap().filter.enabled = false;
+        }
+        let positions: Vec<_> = (1..=5).map(node).collect();
+        m.broadcast_with_filter(&positions, &crate::actors::messages::NodeTypeArrays::default(), 9, None);
+        actix::clock::sleep(std::time::Duration::from_millis(20)).await;
+        for f in [&f1, &f2] {
+            assert_eq!(frame_ids(&f.lock().unwrap()[0]), vec![1, 2, 3, 4, 5]);
+        }
     }
 
     /// Counts binary frames it is handed (stands in for a SocketFlowServer

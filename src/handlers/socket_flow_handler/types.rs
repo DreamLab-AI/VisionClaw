@@ -404,12 +404,16 @@ impl SocketFlowServer {
                         let knowledge_set: std::collections::HashSet<u32> =
                             nta.knowledge_ids.iter().copied().collect();
 
-                        // Also send binary position data for SAME limited nodes only,
-                        // with node type flags applied for client-side rendering
+                        // Binary positions are a FULL snapshot of every node this session may
+                        // see, not the quality-limited topology subset above. `initialNodeLimit`
+                        // is a budget for the heavy JSON topology payload only; the position
+                        // protocol never sends a subset chosen by anything but entitlement.
+                        // (It used to reuse `filtered_node_ids`, so a connecting client got a
+                        // 3000-node position frame from a 9478-node graph.)
                         let node_data: Vec<(u32, BinaryNodeData)> = graph_data
                             .nodes
                             .iter()
-                            .filter(|node| filtered_node_ids.contains(&node.id))
+                            .filter(|node| is_visible(node))
                             .map(|node| {
                                 let flagged_id = if agent_set.contains(&node.id) {
                                     crate::utils::binary_protocol::set_agent_flag(node.id)
@@ -449,7 +453,7 @@ impl SocketFlowServer {
                             Some(my_generation),
                         ));
                         debug!(
-                            "Sent initial node positions for {} limited nodes (binary)",
+                            "Sent initial full position snapshot for {} visible nodes (binary)",
                             node_data.len()
                         );
                     }

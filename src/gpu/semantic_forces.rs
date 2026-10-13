@@ -440,6 +440,31 @@ impl SemanticForcesEngine {
     }
 
     /// Get type centroids
+    /// Per-node ontology physicality (0=None, 1=Virtual, 2=Physical, 3=Conceptual).
+    pub fn node_physicality(&self) -> &[i32] {
+        &self.node_physicality
+    }
+
+    /// Per-node ontology role (0=None, 1=Process, 2=Agent, 3=Resource, 4=Concept).
+    pub fn node_role(&self) -> &[i32] {
+        &self.node_role
+    }
+
+    /// Per-node maturity stage (0=None, 1=emerging, 2=mature, 3=declining).
+    pub fn node_maturity(&self) -> &[i32] {
+        &self.node_maturity
+    }
+
+    /// Per-node count of cross-domain links.
+    pub fn node_cross_domain_count(&self) -> &[i32] {
+        &self.node_cross_domain_count
+    }
+
+    /// Per-edge type id from the semantic type registry, aligned with `graph.edges`.
+    pub fn edge_types(&self) -> &[i32] {
+        &self.edge_types
+    }
+
     pub fn type_centroids(&self) -> &HashMap<i32, (f32, f32, f32)> {
         &self.type_centroids
     }

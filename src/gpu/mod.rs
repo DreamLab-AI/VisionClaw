@@ -74,7 +74,7 @@ pub mod kernel_bridge;
 // Broadcast optimization module
 pub mod broadcast_optimizer;
 pub use broadcast_optimizer::{
-    BroadcastConfig, BroadcastOptimizer, BroadcastPerformanceStats, CompressionStats, SpatialCuller,
+    BroadcastConfig, BroadcastOptimizer, BroadcastPerformanceStats,
 };
 
 // Network backpressure control module

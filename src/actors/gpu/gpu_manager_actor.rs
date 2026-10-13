@@ -587,20 +587,6 @@ impl Handler<UpdateSimulationParams> for GPUManagerActor {
     }
 }
 
-/// Update advanced params - routes to PhysicsSupervisor
-impl Handler<UpdateAdvancedParams> for GPUManagerActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: UpdateAdvancedParams, ctx: &mut Self::Context) -> Self::Result {
-        let supervisors = self.get_supervisors(ctx)?;
-
-        match supervisors.physics.try_send(msg) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to delegate UpdateAdvancedParams: {}", e)),
-        }
-    }
-}
-
 /// Set shared GPU context - now handled by ResourceSupervisor distributing to all
 impl Handler<SetSharedGPUContext> for GPUManagerActor {
     type Result = Result<(), String>;

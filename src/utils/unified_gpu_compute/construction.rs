@@ -215,6 +215,14 @@ pub struct UnifiedGPUCompute {
     /// Whether degree weights have been uploaded (graph data available).
     pub(crate) degree_weights_available: bool,
 
+    /// Semantic forces (DAG / type / physicality / role clustering, collision, attribute
+    /// springs, maturity, cross-domain). `None` until a graph's derived metadata is uploaded
+    /// with `enable_semantic`. Never a hidden fallback: absent means not applied.
+    pub semantic: Option<super::semantic::SemanticGpu>,
+    /// True when the stored configuration has at least one force enabled; the step skips the
+    /// whole pass otherwise. Derived from the store's `enabled` flags, not a separate switch.
+    pub semantic_active: bool,
+
     /// FA2 adaptive speed: previous-step force per node (for swing/traction calculation).
     /// Initialized to zero; updated each integration step when adaptive_speed is enabled.
     pub(crate) prev_force_x: DeviceBuffer<f32>,
@@ -572,6 +580,8 @@ impl UnifiedGPUCompute {
 
             degree_weight: DeviceBuffer::from_slice(&vec![1.0f32; num_nodes])?,
             degree_weights_available: false,
+            semantic: None,
+            semantic_active: false,
 
             prev_force_x: DeviceBuffer::zeroed(num_nodes)?,
             prev_force_y: DeviceBuffer::zeroed(num_nodes)?,

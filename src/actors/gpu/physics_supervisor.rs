@@ -930,30 +930,6 @@ impl Handler<UpdateGPUGraphData> for PhysicsSupervisor {
     }
 }
 
-impl Handler<UpdateAdvancedParams> for PhysicsSupervisor {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
-
-    fn handle(&mut self, msg: UpdateAdvancedParams, _ctx: &mut Self::Context) -> Self::Result {
-        let addr = match &self.force_compute_actor {
-            Some(a) if self.force_compute_state.is_running => a.clone(),
-            _ => {
-                return Box::pin(
-                    async { Err("ForceComputeActor not available".to_string()) }.into_actor(self),
-                );
-            }
-        };
-
-        Box::pin(
-            async move {
-                addr.send(msg)
-                    .await
-                    .map_err(|e| format!("Communication failed: {}", e))?
-            }
-            .into_actor(self),
-        )
-    }
-}
-
 impl Handler<UploadConstraintsToGPU> for PhysicsSupervisor {
     type Result = ResponseActFuture<Self, Result<(), String>>;
 

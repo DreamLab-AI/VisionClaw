@@ -30,13 +30,7 @@ pub(crate) const PUBKEY_VISIBILITY_FILTER_ENV: &str = "PUBKEY_VISIBILITY_FILTER"
 /// case-insensitive, surrounding whitespace ignored) turns the filter OFF. Kept
 /// pure so it is exhaustively unit-testable without touching process env.
 pub(crate) fn parse_visibility_flag(raw: Option<&str>) -> bool {
-    match raw {
-        Some(v) => !matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "off" | "no"
-        ),
-        None => true,
-    }
+    visionclaw_domain::utils::visibility_filter::parse_visibility_flag(raw)
 }
 
 /// Cached result of the first env read (genuine parse-once).

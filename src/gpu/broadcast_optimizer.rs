@@ -1,16 +1,14 @@
-//! GPU Physics Broadcast Optimization
+//! GPU Physics Broadcast Rate Limiting
 //!
-//! Reduces network bandwidth through:
-//! - Adaptive broadcast frequency (broadcast rate below the physics tick rate)
-//! - Spatial partitioning (visibility culling)
+//! Decides on WHICH physics frames a position snapshot is broadcast, so the broadcast rate
+//! can sit below the physics tick rate. That is the only thing this module does.
 //!
-//! The broadcast is FULL-SNAPSHOT ONLY — every broadcast sends complete target
-//! positions and clients tween to them. Delta encoding is prohibited by design
-//! (docs/KNOWN_ISSUES.md BROADCAST-001, PRD-007 §3, ADR-061); there is no
-//! delta/diff path here. Indices returned by the optimizer are visibility-culled,
-//! never delta-filtered.
+//! Every broadcast is a FULL SNAPSHOT of every node: clients tween to complete target
+//! positions. Delta encoding is prohibited (docs/KNOWN_ISSUES.md BROADCAST-001, PRD-007 §3,
+//! ADR-061), and so is any other way of sending a subset (spatial culling was removed with
+//! the same rule): what a client receives is decided by its entitlement and its explicit
+//! filter, never by whether a node moved or where the camera is.
 
-use glam::Vec3;
 use log::{debug, info};
 use std::time::{Duration, Instant};
 
@@ -35,20 +33,12 @@ pub struct BroadcastConfig {
     /// Target broadcast rate in Hz (below the physics tick rate). See
     /// [`DEFAULT_BROADCAST_FPS`] for the bandwidth each rate costs.
     pub target_fps: u32,
-
-    /// Enable spatial visibility culling
-    pub enable_spatial_culling: bool,
-
-    /// Camera frustum bounds for culling (min, max)
-    pub camera_bounds: Option<(Vec3, Vec3)>,
 }
 
 impl Default for BroadcastConfig {
     fn default() -> Self {
         Self {
             target_fps: DEFAULT_BROADCAST_FPS,
-            enable_spatial_culling: false,
-            camera_bounds: None,
         }
     }
 }
@@ -124,169 +114,46 @@ impl BroadcastRateLimiter {
         self.next_due = now + self.broadcast_interval;
         self.frames_since_broadcast = 0;
     }
-
-    /// Get rate-limiter statistics
-    pub fn get_stats(&self, total_nodes: usize, sent_nodes: usize) -> CompressionStats {
-        let reduction_percent = if total_nodes > 0 {
-            ((total_nodes - sent_nodes) as f32 / total_nodes as f32) * 100.0
-        } else {
-            0.0
-        };
-
-        CompressionStats {
-            total_nodes,
-            sent_nodes,
-            reduction_percent,
-            frames_since_broadcast: self.frames_since_broadcast,
-        }
-    }
 }
 
-/// Statistics for broadcast rate-limiting / culling performance
-#[derive(Debug, Clone)]
-pub struct CompressionStats {
-    pub total_nodes: usize,
-    pub sent_nodes: usize,
-    pub reduction_percent: f32,
-    pub frames_since_broadcast: u32,
-}
-
-/// Spatial partitioning for visibility culling
-pub struct SpatialCuller {
-    enabled: bool,
-    camera_bounds: Option<(Vec3, Vec3)>,
-}
-
-impl SpatialCuller {
-    pub fn new(config: &BroadcastConfig) -> Self {
-        Self {
-            enabled: config.enable_spatial_culling,
-            camera_bounds: config.camera_bounds,
-        }
-    }
-
-    /// Update camera frustum bounds
-    pub fn update_camera_bounds(&mut self, min: Vec3, max: Vec3) {
-        self.camera_bounds = Some((min, max));
-    }
-
-    /// Filter positions to only visible nodes
-    pub fn filter_visible(&self, positions: &[Vec3], node_ids: &[u32]) -> Vec<usize> {
-        if !self.enabled {
-            // Return all indices if culling disabled
-            return (0..node_ids.len()).collect();
-        }
-
-        let Some((min, max)) = self.camera_bounds else {
-            // No bounds set, return all
-            return (0..node_ids.len()).collect();
-        };
-
-        let mut visible_indices = Vec::new();
-
-        for (idx, pos) in positions.iter().enumerate() {
-            // Simple AABB test
-            if pos.x >= min.x
-                && pos.x <= max.x
-                && pos.y >= min.y
-                && pos.y <= max.y
-                && pos.z >= min.z
-                && pos.z <= max.z
-            {
-                visible_indices.push(idx);
-            }
-        }
-
-        visible_indices
-    }
-}
-
-/// Main broadcast optimizer combining all techniques
+/// Rate limiter plus counters. Owns no position data and never selects nodes.
 pub struct BroadcastOptimizer {
     config: BroadcastConfig,
     rate_limiter: BroadcastRateLimiter,
-    spatial_culler: SpatialCuller,
     total_frames_processed: u64,
-    total_nodes_sent: u64,
-    total_nodes_processed: u64,
+    total_snapshots_broadcast: u64,
 }
 
 impl BroadcastOptimizer {
     pub fn new(config: BroadcastConfig) -> Self {
         let rate_limiter = BroadcastRateLimiter::new(&config);
-        let spatial_culler = SpatialCuller::new(&config);
-
-        Self {
-            config,
-            rate_limiter,
-            spatial_culler,
-            total_frames_processed: 0,
-            total_nodes_sent: 0,
-            total_nodes_processed: 0,
-        }
+        Self { config, rate_limiter, total_frames_processed: 0, total_snapshots_broadcast: 0 }
     }
 
-    /// Process positions and return indices of nodes to broadcast.
-    ///
-    /// Returns `(should_broadcast, visible_indices)`. This is a full-snapshot
-    /// broadcast; `visible_indices` are visibility-culled, never delta-filtered.
-    /// When spatial culling is disabled (the default) `visible_indices` contains
-    /// every node index, i.e. the complete snapshot.
-    pub fn process_frame(
-        &mut self,
-        positions: &[(Vec3, Vec3)], // (position, velocity)
-        node_ids: &[u32],
-    ) -> (bool, Vec<usize>) {
+    /// Called once per physics frame. Returns true when a full snapshot of every node should be
+    /// broadcast on this frame.
+    pub fn should_broadcast(&mut self) -> bool {
         self.total_frames_processed += 1;
-
-        // Rate-limit: only broadcast on frames within the target frequency.
-        if !self.rate_limiter.should_broadcast() {
-            return (false, Vec::new());
+        let go = self.rate_limiter.should_broadcast();
+        if go {
+            self.total_snapshots_broadcast += 1;
         }
-
-        // Apply spatial culling to determine which nodes are visible. When
-        // culling is disabled this returns all indices (full snapshot).
-        let visible_indices = if self.spatial_culler.enabled {
-            let pos_only: Vec<Vec3> = positions.iter().map(|(p, _)| *p).collect();
-            self.spatial_culler.filter_visible(&pos_only, node_ids)
-        } else {
-            (0..node_ids.len()).collect()
-        };
-
-        self.total_nodes_sent += visible_indices.len() as u64;
-        self.total_nodes_processed += node_ids.len() as u64;
-
-        (true, visible_indices)
+        go
     }
 
-    /// Get overall performance statistics
+    /// Get overall counters.
     pub fn get_performance_stats(&self) -> BroadcastPerformanceStats {
-        let avg_reduction = if self.total_nodes_processed > 0 {
-            ((self.total_nodes_processed - self.total_nodes_sent) as f64
-                / self.total_nodes_processed as f64)
-                * 100.0
-        } else {
-            0.0
-        };
-
         BroadcastPerformanceStats {
             total_frames_processed: self.total_frames_processed,
-            total_nodes_sent: self.total_nodes_sent,
-            total_nodes_processed: self.total_nodes_processed,
-            average_bandwidth_reduction: avg_reduction as f32,
+            total_snapshots_broadcast: self.total_snapshots_broadcast,
             target_fps: self.config.target_fps,
         }
     }
 
-    /// Change the rate and/or culling at runtime, leaving any field passed as
-    /// `None` as it is. Rejects a rate outside
+    /// Change the broadcast rate at runtime. Rejects a rate outside
     /// [`physics_bounds::BROADCAST_FPS`](crate::actors::gpu::physics_bounds::BROADCAST_FPS)
-    /// without changing anything. Camera bounds are kept.
-    pub fn configure(
-        &mut self,
-        target_fps: Option<u32>,
-        enable_spatial_culling: Option<bool>,
-    ) -> Result<(), String> {
+    /// without changing anything.
+    pub fn configure(&mut self, target_fps: Option<u32>) -> Result<(), String> {
         use crate::actors::gpu::physics_bounds::{within, BROADCAST_FPS};
         let target_fps = target_fps.unwrap_or(self.config.target_fps);
         if !within(target_fps as f32, BROADCAST_FPS) {
@@ -295,36 +162,15 @@ impl BroadcastOptimizer {
                 target_fps, BROADCAST_FPS.0, BROADCAST_FPS.1
             ));
         }
-        let config = BroadcastConfig {
-            target_fps,
-            enable_spatial_culling: enable_spatial_culling
-                .unwrap_or(self.config.enable_spatial_culling),
-            camera_bounds: self.config.camera_bounds,
-        };
-        self.update_config(config);
+        self.update_config(BroadcastConfig { target_fps });
         Ok(())
     }
 
     /// Update configuration at runtime
     pub fn update_config(&mut self, config: BroadcastConfig) {
-        info!("BroadcastOptimizer: Updating configuration");
-        info!(
-            "  Target FPS: {} -> {}",
-            self.config.target_fps, config.target_fps
-        );
-
+        info!("BroadcastOptimizer: target FPS {} -> {}", self.config.target_fps, config.target_fps);
         self.config = config;
         self.rate_limiter = BroadcastRateLimiter::new(&self.config);
-        self.spatial_culler = SpatialCuller::new(&self.config);
-    }
-
-    /// Update camera bounds for spatial culling
-    pub fn update_camera_bounds(&mut self, min: Vec3, max: Vec3) {
-        self.spatial_culler.update_camera_bounds(min, max);
-        debug!(
-            "BroadcastOptimizer: Camera bounds updated to [{:?}, {:?}]",
-            min, max
-        );
     }
 
     /// Reset the broadcast rate-limit timer so the next frame broadcasts
@@ -337,7 +183,7 @@ impl BroadcastOptimizer {
         self.rate_limiter.reset();
     }
 
-    /// Record a full snapshot sent outside `process_frame` (FastSettle final,
+    /// Record a full snapshot sent outside `should_broadcast` (FastSettle final,
     /// periodic or `ForceFullBroadcast`), so the rate limiter waits a full
     /// interval before the next one instead of duplicating it.
     pub fn mark_broadcast(&mut self) {
@@ -353,9 +199,7 @@ impl BroadcastOptimizer {
 #[derive(Debug, Clone)]
 pub struct BroadcastPerformanceStats {
     pub total_frames_processed: u64,
-    pub total_nodes_sent: u64,
-    pub total_nodes_processed: u64,
-    pub average_bandwidth_reduction: f32,
+    pub total_snapshots_broadcast: u64,
     pub target_fps: u32,
 }
 
@@ -387,7 +231,6 @@ mod tests {
         for (target_fps, frame_ms) in [(8u32, 40u64), (10, 40), (25, 16), (8, 16), (60, 5)] {
             let config = BroadcastConfig {
                 target_fps,
-                ..BroadcastConfig::default()
             };
             let start = Instant::now();
             let mut limiter = BroadcastRateLimiter::new_at(&config, start);
@@ -423,26 +266,12 @@ mod tests {
     #[test]
     fn reset_makes_the_next_frame_broadcast() {
         let mut optimizer = BroadcastOptimizer::new(BroadcastConfig::default());
-        let positions = vec![(Vec3::ZERO, Vec3::ZERO)];
-        let ids = vec![0];
         std::thread::sleep(Duration::from_millis(130));
-        assert!(
-            optimizer.process_frame(&positions, &ids).0,
-            "interval elapsed"
-        );
-        assert!(
-            !optimizer.process_frame(&positions, &ids).0,
-            "inside the interval"
-        );
+        assert!(optimizer.should_broadcast(), "interval elapsed");
+        assert!(!optimizer.should_broadcast(), "inside the interval");
         optimizer.reset_broadcast_timer();
-        assert!(
-            optimizer.process_frame(&positions, &ids).0,
-            "next frame after a reset"
-        );
-        assert!(
-            !optimizer.process_frame(&positions, &ids).0,
-            "then rate-limited again"
-        );
+        assert!(optimizer.should_broadcast(), "next frame after a reset");
+        assert!(!optimizer.should_broadcast(), "then rate-limited again");
     }
 
     /// `mark_broadcast` records an out-of-band snapshot (FastSettle final,
@@ -469,18 +298,13 @@ mod tests {
         assert_eq!(BroadcastConfig::default().target_fps, 8);
     }
 
-    /// The runtime setter (what `ConfigureBroadcastOptimization` and the
-    /// physics settings route drive) changes the measured rate live, keeps
-    /// spatial culling unless told otherwise, and rejects out-of-range rates.
+    /// The runtime setter (what `ConfigureBroadcastOptimization` and the physics settings route
+    /// drive) changes the measured rate live and rejects out-of-range rates.
     #[test]
     fn configure_changes_the_rate_live_and_validates() {
-        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig {
-            enable_spatial_culling: true,
-            ..BroadcastConfig::default()
-        });
-        optimizer.configure(Some(12), None).unwrap();
+        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig::default());
+        optimizer.configure(Some(12)).unwrap();
         assert_eq!(optimizer.config().target_fps, 12);
-        assert!(optimizer.config().enable_spatial_culling, "culling kept");
 
         let start = Instant::now();
         optimizer.rate_limiter = BroadcastRateLimiter::new_at(optimizer.config(), start);
@@ -488,82 +312,26 @@ mod tests {
         assert!(n.abs_diff(120) <= 1, "12 Hz for 10 s gave {n}");
 
         for bad in [0, 61] {
-            assert!(optimizer.configure(Some(bad), None).is_err());
-            assert_eq!(
-                optimizer.config().target_fps,
-                12,
-                "a rejected rate changes nothing"
-            );
+            assert!(optimizer.configure(Some(bad)).is_err());
+            assert_eq!(optimizer.config().target_fps, 12, "a rejected rate changes nothing");
         }
-        optimizer.configure(None, Some(false)).unwrap();
+        optimizer.configure(None).unwrap();
         assert_eq!(optimizer.config().target_fps, 12, "rate kept");
-        assert!(!optimizer.config().enable_spatial_culling);
     }
 
+    /// The optimizer owns no position data and has no way to select nodes: it answers one
+    /// question per frame, "broadcast the complete snapshot now?". Rate-limited frames are
+    /// skipped whole; broadcast frames are always the whole graph.
     #[test]
-    fn test_spatial_culling() {
-        let config = BroadcastConfig {
-            target_fps: 30,
-            enable_spatial_culling: true,
-            camera_bounds: Some((Vec3::new(-10.0, -10.0, -10.0), Vec3::new(10.0, 10.0, 10.0))),
-        };
-
-        let culler = SpatialCuller::new(&config);
-
-        let positions = vec![
-            Vec3::new(0.0, 0.0, 0.0),  // Inside
-            Vec3::new(15.0, 0.0, 0.0), // Outside
-            Vec3::new(5.0, 5.0, 5.0),  // Inside
-            Vec3::new(0.0, 20.0, 0.0), // Outside
-        ];
-        let node_ids = vec![0, 1, 2, 3];
-
-        let visible = culler.filter_visible(&positions, &node_ids);
-        assert_eq!(visible.len(), 2, "Only 2 nodes should be visible");
-        assert!(visible.contains(&0));
-        assert!(visible.contains(&2));
-    }
-
-    #[test]
-    fn test_broadcast_optimizer_integration() {
-        let config = BroadcastConfig {
-            target_fps: 60, // High rate for testing
-            enable_spatial_culling: false,
-            camera_bounds: None,
-        };
-
-        let mut optimizer = BroadcastOptimizer::new(config);
-
-        // Simulate multiple frames
-        let positions = vec![
-            (Vec3::new(0.0, 0.0, 0.0), Vec3::ZERO),
-            (Vec3::new(1.0, 0.0, 0.0), Vec3::ZERO),
-        ];
-        let node_ids = vec![0, 1];
-
-        // First frame after the interval elapses should broadcast the full snapshot.
+    fn the_optimizer_gates_whole_snapshots_and_never_selects_nodes() {
+        let mut optimizer = BroadcastOptimizer::new(BroadcastConfig { target_fps: 60 });
         std::thread::sleep(Duration::from_millis(20));
-        let (should_broadcast, indices) = optimizer.process_frame(&positions, &node_ids);
-        assert!(should_broadcast, "Frame after interval should broadcast");
-        assert_eq!(indices.len(), 2, "Full snapshot: all node indices returned");
-
-        // A frame taken immediately afterwards is inside the rate-limit interval
-        // and must be gated out (no broadcast, no indices).
-        let (should_broadcast, indices) = optimizer.process_frame(&positions, &node_ids);
-        assert!(
-            !should_broadcast,
-            "Frame inside interval should be rate-limited"
-        );
-        assert!(indices.is_empty(), "Rate-limited frame returns no indices");
-
-        // After the interval elapses again the full snapshot is emitted — every
-        // node, never a delta-filtered subset.
+        assert!(optimizer.should_broadcast(), "frame after the interval broadcasts");
+        assert!(!optimizer.should_broadcast(), "frame inside the interval is skipped whole");
         std::thread::sleep(Duration::from_millis(20));
-        let (should_broadcast, indices) = optimizer.process_frame(&positions, &node_ids);
-        assert!(
-            should_broadcast,
-            "Frame after interval should broadcast again"
-        );
-        assert_eq!(indices.len(), 2, "Full snapshot always returns all nodes");
+        assert!(optimizer.should_broadcast());
+        let stats = optimizer.get_performance_stats();
+        assert_eq!(stats.total_frames_processed, 3);
+        assert_eq!(stats.total_snapshots_broadcast, 2);
     }
 }

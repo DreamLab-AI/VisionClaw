@@ -30,7 +30,7 @@ use visionclaw_domain::models::node::Node;
 // Message types
 use crate::actors::messages::{
     ComputeAllPairsShortestPaths, ComputeShortestPaths, GetConstraints,
-    RegenerateSemanticConstraints, TriggerStressMajorization, UpdateAdvancedParams,
+    RegenerateSemanticConstraints, TriggerStressMajorization,
     UpdateConstraints,
 };
 
@@ -1483,27 +1483,6 @@ impl Handler<RegenerateSemanticConstraints> for SemanticProcessorActor {
         });
 
         Box::pin(fut)
-    }
-}
-
-impl Handler<UpdateAdvancedParams> for SemanticProcessorActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: UpdateAdvancedParams, _ctx: &mut Self::Context) -> Self::Result {
-        info!("Updating advanced parameters for semantic processing");
-
-        self.advanced_params = msg.params.clone();
-
-        self.stress_solver = Some(StressMajorizationSolver::from_advanced_params(&msg.params));
-
-        self.relationship_threshold = msg.params.semantic_force_weight * 0.1;
-
-        info!(
-            "Updated semantic processor with advanced parameters - semantic_force_weight: {}",
-            msg.params.semantic_force_weight
-        );
-
-        Ok(())
     }
 }
 

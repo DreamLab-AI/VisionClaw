@@ -1884,7 +1884,5 @@ mod tests {
     fn physics_settings_map_to_a_rate_only_broadcast_message() {
         let msg = broadcast_rate_message(&with_rate(12));
         assert_eq!(msg.target_fps, Some(12));
-        assert_eq!(msg.enable_spatial_culling, None);
-        assert_eq!(msg.delta_threshold, None);
     }
 }

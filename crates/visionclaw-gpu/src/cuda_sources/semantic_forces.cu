@@ -56,21 +56,6 @@ struct AttributeSpringConfig {
     bool enabled;
 };
 
-// Ontology relationship forces configuration
-// NOTE: The 'enabled' flag is used by CPU fallback; GPU uses DynamicRelationshipBuffer.
-// Force parameters in this struct are legacy - CPU fallback uses SemanticTypeRegistry instead.
-struct OntologyRelationshipConfig {
-    float requires_strength;      // Legacy: unused by GPU (uses DynamicRelationshipBuffer)
-    float requires_rest_length;   // Legacy: unused by GPU
-    float enables_strength;       // Legacy: unused by GPU
-    float enables_rest_length;    // Legacy: unused by GPU
-    float has_part_strength;      // Legacy: unused by GPU
-    float has_part_orbit_radius;  // Legacy: unused by GPU
-    float bridges_to_strength;    // Legacy: unused by GPU
-    float bridges_to_rest_length; // Legacy: unused by GPU
-    bool enabled;                 // Used by CPU fallback as feature toggle
-};
-
 // =============================================================================
 // Dynamic Semantic Force Configuration Buffer (Schema-Code Decoupling)
 // =============================================================================
@@ -140,7 +125,6 @@ struct SemanticConfig {
     TypeClusterConfig type_cluster;
     CollisionConfig collision;
     AttributeSpringConfig attribute_spring;
-    OntologyRelationshipConfig ontology_relationship;
     PhysicalityClusterConfig physicality_cluster;
     RoleClusterConfig role_cluster;
     MaturityLayoutConfig maturity_layout;
@@ -912,6 +896,72 @@ int get_dynamic_relationship_buffer_version() {
 // Get maximum supported relationship types
 int get_max_relationship_types() {
     return MAX_RELATIONSHIP_TYPES;
+}
+
+// =============================================================================
+// SoA <-> AoS adapters (live path stores positions/forces as separate x/y/z arrays,
+// the semantic kernels above use float3 arrays). The semantic kernels only ever ADD to
+// `forces` and READ `positions`, so the adapter is: gather positions, zero a scratch force
+// array, run the enabled kernels, then scatter-ADD the scratch forces into the live SoA
+// force buffers. Nothing the semantic kernels do can overwrite live state.
+// =============================================================================
+
+__global__ void sf_gather_positions(
+    const float* x, const float* y, const float* z, float3* out, const int n
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    out[idx] = make_float3(x[idx], y[idx], z[idx]);
+}
+
+// Zero `n` 32-bit words (floats or ints: all-zero bits is 0 for both). Used instead of a host
+// memcpy so every reset is ordered with the kernels on the same stream.
+__global__ void sf_zero_words(unsigned int* p, const int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    p[idx] = 0u;
+}
+
+__global__ void sf_zero_forces(float3* f, const int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    f[idx] = make_float3(0.0f, 0.0f, 0.0f);
+}
+
+// Add the semantic forces into the live SoA force buffers. There is deliberately no scale and
+// no clamping here: the strengths come from the central settings store and are what is applied.
+// Non-finite values are rejected where they enter (settings validation), not dropped here.
+__global__ void sf_scatter_add_forces(
+    const float3* f, float* fx, float* fy, float* fz, const int n
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float3 v = f[idx];
+    fx[idx] += v.x;
+    fy[idx] += v.y;
+    fz[idx] += v.z;
+}
+
+// Layout self-check: the host writes c_semantic_config from a Rust repr(C) mirror, so this
+// reads values back through the device's own view of the struct. A mismatch in padding or
+// field order shows up as a wrong value here (see the GPU test), not as silently wrong forces.
+__global__ void sf_config_probe(float* out) {
+    if (blockIdx.x != 0 || threadIdx.x != 0) return;
+    out[0] = (float)sizeof(SemanticConfig);
+    out[1] = c_semantic_config.dag.vertical_spacing;
+    out[2] = c_semantic_config.dag.enabled ? 1.0f : 0.0f;
+    out[3] = c_semantic_config.type_cluster.cluster_radius;
+    out[4] = c_semantic_config.collision.node_radius;
+    out[5] = c_semantic_config.attribute_spring.rest_length_max;
+    out[6] = c_semantic_config.physicality_cluster.inter_physicality_repulsion;
+    out[7] = c_semantic_config.maturity_layout.stage_separation;
+    out[8] = c_semantic_config.cross_domain.rest_length;
+    out[9] = c_semantic_config.cross_domain.enabled ? 1.0f : 0.0f;
+    out[10] = (float)sizeof(DynamicRelationshipBuffer);
+    out[11] = (float)c_dynamic_relationships.num_types;
+    out[12] = c_dynamic_relationships.configs[1].rest_length;
+    out[13] = (float)c_dynamic_relationships.configs[1].force_type;
+    out[14] = c_dynamic_relationships.enabled ? 1.0f : 0.0f;
 }
 
 } // extern "C"

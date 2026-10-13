@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use validator::Validate;
 
+use super::semantic_config::SemanticForces;
+
 /// Canonical maximum velocity (from `src/config/mod.rs`).
 pub const CANONICAL_MAX_VELOCITY: f32 = 200.0;
 
@@ -441,6 +443,12 @@ pub struct PhysicsSettings {
     #[serde(default = "default_broadcast_fps", alias = "broadcast_fps")]
     #[validate(range(min = 1, max = 60))]
     pub broadcast_fps: u32,
+    /// Every semantic force (DAG, type / physicality / role clustering, collision, attribute
+    /// springs, maturity, cross-domain) with its own enable flag. One definition, validated
+    /// once, applied as stored.
+    #[serde(default)]
+    #[validate(nested)]
+    pub semantic: SemanticForces,
 }
 
 impl Default for PhysicsSettings {
@@ -521,6 +529,7 @@ impl Default for PhysicsSettings {
             spring_k_ontology: 1.0,
             spring_k_agent: 1.0,
             broadcast_fps: DEFAULT_BROADCAST_FPS,
+            semantic: SemanticForces::default(),
         }
     }
 }

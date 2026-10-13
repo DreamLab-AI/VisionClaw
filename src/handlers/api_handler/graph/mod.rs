@@ -198,10 +198,8 @@ pub struct PhysicsStateSummary {
     pub physics_running: bool,
 }
 
-pub fn physics_state_summary(
-    settlement: Option<&SettlementSnapshot>,
-    physics_running: bool,
-) -> PhysicsStateSummary {
+pub fn physics_state_summary(settlement: Option<&SettlementSnapshot>) -> PhysicsStateSummary {
+    let physics_running = settlement.map(|s| s.physics_running).unwrap_or(false);
     PhysicsStateSummary {
         settlement_state: build_settlement_state(settlement, physics_running),
         telemetry_live: settlement.is_some(),
@@ -210,13 +208,10 @@ pub fn physics_state_summary(
 }
 
 pub async fn get_physics_state_summary(state: web::Data<AppState>) -> impl Responder {
-    let physics_handler = state.graph_query_handlers.get_physics_state.clone();
-    let running = match execute_in_thread(move || physics_handler.handle(GetPhysicsState).map_err(Box::new)).await {
-        Ok(Ok(ps)) => ps.is_running,
-        _ => false,
-    };
+    // The GPU actor is the only source of truth for both the numbers and whether the loop is
+    // running. (The graph repository's `get_physics_state` is a stub returning "not running".)
     let settlement = fetch_settlement(&state).await;
-    HttpResponse::Ok().json(physics_state_summary(settlement.as_ref(), running))
+    HttpResponse::Ok().json(physics_state_summary(settlement.as_ref()))
 }
 
 pub async fn get_graph_data(
@@ -334,7 +329,7 @@ pub async fn get_graph_data(
                 // falls back to run-state truth only when no telemetry exists.
                 settlement_state: build_settlement_state(
                     settlement.as_ref(),
-                    physics_state.is_running,
+                    settlement.as_ref().map(|snap| snap.physics_running).unwrap_or(false),
                 ),
             };
 
@@ -2179,8 +2174,8 @@ mod physics_state_summary_tests {
 
     #[test]
     fn live_telemetry_is_reported_as_measured() {
-        let snap = SettlementSnapshot { is_settled: false, stable_frame_count: 3, kinetic_energy: 0.207 };
-        let s = physics_state_summary(Some(&snap), true);
+        let snap = SettlementSnapshot { is_settled: false, stable_frame_count: 3, kinetic_energy: 0.207, physics_running: true };
+        let s = physics_state_summary(Some(&snap));
         assert!(s.telemetry_live && s.physics_running);
         assert!(!s.settlement_state.is_settled);
         assert_eq!(s.settlement_state.stable_frame_count, 3);
@@ -2189,16 +2184,17 @@ mod physics_state_summary_tests {
 
     #[test]
     fn without_telemetry_the_numbers_are_flagged_as_fallbacks() {
-        let running = physics_state_summary(None, true);
-        assert!(!running.telemetry_live, "no GPU answer must not look like a measurement");
-        assert!(!running.settlement_state.is_settled, "a running loop is not settled");
-        let paused = physics_state_summary(None, false);
-        assert!(!paused.telemetry_live && paused.settlement_state.is_settled);
+        let none = physics_state_summary(None);
+        assert!(!none.telemetry_live, "no GPU answer must not look like a measurement");
+        assert!(!none.physics_running, "without the GPU actor nothing can claim to be running");
+        let paused_snap = SettlementSnapshot { is_settled: true, stable_frame_count: 90, kinetic_energy: 0.0, physics_running: false };
+        let paused = physics_state_summary(Some(&paused_snap));
+        assert!(paused.telemetry_live && !paused.physics_running && paused.settlement_state.is_settled);
     }
 
     #[test]
     fn wire_names_are_camel_case() {
-        let j = serde_json::to_value(physics_state_summary(None, true)).unwrap();
+        let j = serde_json::to_value(physics_state_summary(None)).unwrap();
         assert!(j.get("settlementState").is_some() && j.get("telemetryLive").is_some() && j.get("physicsRunning").is_some(), "{j}");
         assert!(j["settlementState"].get("kineticEnergy").is_some());
     }

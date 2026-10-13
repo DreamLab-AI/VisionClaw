@@ -267,12 +267,6 @@ pub struct PositionSnapshot {
 
 #[derive(Message)]
 #[rtype(result = "Result<(), String>")]
-pub struct UpdateAdvancedParams {
-    pub params: AdvancedParams,
-}
-
-#[derive(Message)]
-#[rtype(result = "Result<(), String>")]
 pub struct UpdateConstraintData {
     pub constraint_data: serde_json::Value,
 }
@@ -509,11 +503,6 @@ pub struct ConfigureBroadcastOptimization {
     /// a full snapshot (~490 KB for the ~9.5k-node graph), so 8 Hz costs
     /// ~3.9 MB/s per client and 25 Hz ~12 MB/s.
     pub target_fps: Option<u32>,
-    /// Deprecated: accepted for compatibility, ignored. The broadcast is
-    /// full-snapshot only, so there is no delta threshold (BROADCAST-001).
-    pub delta_threshold: Option<f32>,
-    /// Enable spatial visibility culling
-    pub enable_spatial_culling: Option<bool>,
 }
 
 /// The PhysicsSupervisor replaced its ForceComputeActor (a restart). Sent to
@@ -542,24 +531,11 @@ pub struct SetPhysicsSettingsSource {
 }
 
 impl ConfigureBroadcastOptimization {
-    /// Change only the broadcast rate; culling stays as it is.
+    /// Set the broadcast rate. It is the only thing there is to configure: every broadcast is a
+    /// full snapshot (no delta threshold, no culling).
     pub fn rate_only(target_fps: u32) -> Self {
-        Self {
-            target_fps: Some(target_fps),
-            delta_threshold: None,
-            enable_spatial_culling: None,
-        }
+        Self { target_fps: Some(target_fps) }
     }
-}
-
-/// Update camera frustum for spatial culling
-#[derive(Message, Debug, Clone, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
-pub struct UpdateCameraFrustum {
-    /// Minimum bounds (x, y, z)
-    pub min: (f32, f32, f32),
-    /// Maximum bounds (x, y, z)
-    pub max: (f32, f32, f32),
 }
 
 /// Get current broadcast performance statistics
@@ -571,13 +547,8 @@ pub struct GetBroadcastStats;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BroadcastPerformanceStats {
     pub total_frames_processed: u64,
-    pub total_nodes_sent: u64,
-    pub total_nodes_processed: u64,
-    pub average_bandwidth_reduction: f32,
+    pub total_snapshots_broadcast: u64,
     pub target_fps: u32,
-    /// Deprecated: accepted for compatibility, always 0.0. The broadcast is
-    /// full-snapshot only, so there is no delta threshold (BROADCAST-001).
-    pub delta_threshold: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +597,11 @@ pub struct SettlementSnapshot {
     pub is_settled: bool,
     pub stable_frame_count: u32,
     pub kinetic_energy: f64,
+    /// The GPU loop is initialised, has a graph, and is not latched paused at convergence.
+    /// This is the ONLY honest source of "running": the graph repository's physics state is a
+    /// stub that always answers default (not running).
+    #[serde(default)]
+    pub physics_running: bool,
 }
 
 /// Latch/unlatch the settlement telemetry when the physics loop pauses at
