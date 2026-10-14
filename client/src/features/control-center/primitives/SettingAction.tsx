@@ -12,7 +12,7 @@ import { RefreshCw } from 'lucide-react';
 import type { RegistryField } from '../registry/types';
 import { webSocketService } from '../../../store/websocketStore';
 import { isWebGPURenderer, setForceWebGLOverride } from '../../../rendering/rendererFactory';
-import { toggleDemo, isDemoRunning } from '../../bots/agentDemoMode';
+import { useAgentDemo } from '../../bots/agentDemo';
 import { agentOffsetsEnabled, setAgentOffsetsEnabled, subscribeAgentOffsets } from '../../../store/agentOffsetPrefs';
 import { createLogger } from '../../../utils/loggerConfig';
 import { cn } from '../../../utils/classNameUtils';
@@ -47,7 +47,9 @@ export const SettingAction: React.FC<SettingActionProps> = ({
   onError,
 }) => {
   const [running, setRunning] = useState(false);
-  const [demoActive, setDemoActive] = useState(() => isDemoRunning());
+  // The shared demo's server state (ADR-2142); the Agents pill uses the same control.
+  const demo = useAgentDemo();
+  const demoActive = demo.running;
   const isRunClustering = field.action === 'run_clustering';
   const isWebGPUToggle = field.action === 'toggle-webgpu';
   const isDemoToggle = field.action === 'toggle-demo';
@@ -89,9 +91,8 @@ export const SettingAction: React.FC<SettingActionProps> = ({
     }
 
     if (field.action === 'toggle-demo') {
-      await toggleDemo();
-      setDemoActive(isDemoRunning());
-      onSuccess?.(isDemoRunning() ? 'Demo agents injected — 6 synthetic agents cycling work→idle' : 'Demo agents removed');
+      await demo.toggle();
+      onSuccess?.(demo.error ? `Demo: ${demo.error}` : 'Agent demo toggled for every connected client');
       return;
     }
 

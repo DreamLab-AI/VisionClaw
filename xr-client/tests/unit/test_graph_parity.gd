@@ -23,6 +23,8 @@ class StubScene:
 	var _physics_state_text: String = ""
 	var put_bodies: Array = []
 	var put_accepts: bool = true
+	var demo_posts: Array = []
+	var demo_accepts: bool = true
 	var _z_compression: float = 1.0
 	var refreshed: int = 0
 	func _refresh_controls_status() -> void:
@@ -30,6 +32,9 @@ class StubScene:
 	func _put_physics_body(body: Dictionary) -> bool:
 		put_bodies.append(body)
 		return put_accepts
+	func _post_demo(running: bool) -> bool:
+		demo_posts.append(running)
+		return demo_accepts
 	func _http_base() -> String:
 		return "http://127.0.0.1:9"
 	func _auth_headers(_url: String, _method: String) -> PackedStringArray:
@@ -39,6 +44,9 @@ class StubScene:
 class StubHud:
 	extends Node
 	var forces: Array = []
+	var demo_states: Array = []
+	func set_demo_active(active: bool) -> void:
+		demo_states.append(active)
 	func render_forces(group: String, index: int, total: int, enabled: Variant, rows: Array) -> void:
 		forces.append({"group": group, "index": index, "total": total, "enabled": enabled, "rows": rows})
 	var modes: Array = []
@@ -426,3 +434,113 @@ func test_the_chase_ease_covers_63_percent_in_one_chase_time_at_any_frame_rate()
 func test_a_longer_frame_eases_further_so_slow_frames_do_not_slow_the_motion() -> void:
 	assert_gt(SceneScript.chase_ease(0.022), SceneScript.chase_ease(0.011))
 	assert_lt(SceneScript.chase_ease(0.011), 1.0)
+
+
+# ---- shared agents demo (ADR-2142): the server produces it, this client only controls it ----
+
+const DEMO_IDS: Array = [0x8000D001, 0x8000D002, 0x8000D003, 0x8000D004, 0x8000D005, 0x8000D006]
+
+
+# A 0x23 AGENT_ACTION batch with one event per demo agent, exactly as the server encodes it.
+func _demo_frame(targets: Array) -> PackedByteArray:
+	var out := PackedByteArray()
+	out.resize(3)
+	out.encode_u8(0, 0x23)
+	out.encode_u16(1, DEMO_IDS.size())
+	for i in DEMO_IDS.size():
+		var body := PackedByteArray()
+		body.resize(15)
+		body.encode_u32(0, int(DEMO_IDS[i]) & 0xFFFFFFFF)
+		body.encode_u32(4, int(targets[i % targets.size()]))
+		body.encode_u8(8, 0)
+		body.encode_u32(9, 1000 + i)
+		body.encode_u16(13, 2000)
+		var len_bytes := PackedByteArray()
+		len_bytes.resize(2)
+		len_bytes.encode_u16(0, body.size())
+		out.append_array(len_bytes)
+		out.append_array(body)
+	return out
+
+
+func test_demo_status_body_is_parsed_into_running_stopped_or_unavailable() -> void:
+	assert_eq(ParityScript.parse_demo_status('{"running":true,"agentIds":[1,2]}'), 1)
+	assert_eq(ParityScript.parse_demo_status('{"running":false,"agentIds":[]}'), 0)
+	assert_eq(ParityScript.parse_demo_status('{"data":{"running":true,"agentIds":[]}}'), 1, "enveloped body")
+	assert_eq(ParityScript.parse_demo_status(""), -1)
+	assert_eq(ParityScript.parse_demo_status("not json"), -1)
+	assert_eq(ParityScript.parse_demo_status('{"nope":1}'), -1)
+	assert_eq(ParityScript.parse_demo_status('{"running":"yes"}'), -1, "a non-boolean is not a state")
+
+
+func test_the_demo_button_asks_the_server_for_the_opposite_of_what_it_is_doing() -> void:
+	var p: Array = _parity_with(_client())
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	parity.apply_demo_body('{"running":false,"agentIds":[]}')
+	assert_true(parity.handle_control("toggle_demo"))
+	assert_eq(scene.demo_posts, [true], "stopped -> ask to start")
+	parity.apply_demo_body('{"running":true,"agentIds":[1]}')
+	assert_true(parity.handle_control("toggle_demo"))
+	assert_eq(scene.demo_posts, [true, false], "running -> ask to stop")
+
+
+func test_the_button_does_not_guess_before_the_server_has_answered() -> void:
+	var p: Array = _parity_with(_client())
+	var parity: Node = p[0]
+	var scene: StubScene = p[1]
+	assert_true(parity.handle_control("toggle_demo"))
+	assert_eq(scene.demo_posts, [true], "unknown state is treated as stopped: the safe request is to start")
+	scene.demo_accepts = false
+	parity.handle_control("toggle_demo")
+	assert_eq(parity.demo_running(), false, "a request that could not start changes nothing")
+
+
+func test_the_hud_button_follows_the_server_state_not_the_local_click() -> void:
+	var p: Array = _parity_with(_client())
+	var parity: Node = p[0]
+	var hud: StubHud = p[2]
+	parity.apply_demo_body('{"running":true,"agentIds":[1]}')
+	assert_eq(hud.demo_states.back(), true, "started from the desktop: this headset's button shows running")
+	parity.apply_demo_body('{"running":false,"agentIds":[]}')
+	assert_eq(hud.demo_states.back(), false)
+
+
+func test_when_the_demo_stops_its_agents_leave_at_once_and_real_agents_stay() -> void:
+	var c: RefCounted = _client()
+	_seed_graph(c)
+	var p: Array = _parity_with(c)
+	var parity: Node = p[0]
+	c.ingest(_demo_frame([1, 2]))
+	assert_eq(c.agent_count(), 6, "the six server-sent demo agents are in the registry like any agent")
+	# a real agent too
+	var real := PackedByteArray()
+	real.resize(3)
+	real.encode_u8(0, 0x23)
+	real.encode_u16(1, 1)
+	var body := PackedByteArray()
+	body.resize(15)
+	body.encode_u32(0, 0x80000010)
+	body.encode_u32(4, 1)
+	body.encode_u32(9, 5000)
+	body.encode_u16(13, 2000)
+	var lb := PackedByteArray()
+	lb.resize(2)
+	lb.encode_u16(0, 15)
+	real.append_array(lb)
+	real.append_array(body)
+	c.ingest(real)
+	assert_eq(c.agent_count(), 7)
+	parity.apply_demo_body('{"running":true,"agentIds":[1]}')
+	parity.apply_demo_body('{"running":false,"agentIds":[]}')
+	assert_eq(c.agent_count(), 1, "exactly the six reserved ids were retired")
+	# The registry keys agents by their 26-bit node id (class and agent flag bits masked off).
+	assert_true(c.agent_ids().has(0x10), "the real agent is untouched")
+
+
+func test_demo_agents_are_named_for_their_roles_like_the_server_labels_them() -> void:
+	var SceneScript := preload("res://scripts/graph_scene.gd")
+	assert_eq(SceneScript.demo_role_name(0x8000D001), "Architect")
+	assert_eq(SceneScript.demo_role_name(0xD003), "Coder", "class and agent flag bits are masked off")
+	assert_eq(SceneScript.demo_role_name(0x8000D006), "Optimizer")
+	assert_eq(SceneScript.demo_role_name(0x80000010), "", "a real agent has no synthetic name")

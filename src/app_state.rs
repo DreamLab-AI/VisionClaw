@@ -327,6 +327,8 @@ pub struct AppState {
     pub protected_settings_addr: Addr<ProtectedSettingsActor>,
     pub metadata_addr: Addr<MetadataActor>,
     pub client_manager_addr: Addr<ClientCoordinatorActor>,
+    /// The shared agents demo (ADR-2142): one director whose action frames reach every client.
+    pub agent_demo_addr: Addr<crate::actors::AgentDemoDirector>,
     pub agent_monitor_addr: Addr<AgentMonitorActor>,
     pub workspace_addr: Addr<WorkspaceActor>,
     pub ontology_actor_addr: Option<Addr<OntologyActor>>,
@@ -807,6 +809,10 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to send GetGraphStateActor message: {}", e))?
             .ok_or_else(|| "GraphStateActor not initialized in supervisor".to_string())?;
+
+        // The shared agents demo: reads the live graph, writes only 0x23 frames to the clients.
+        let agent_demo_addr =
+            crate::actors::AgentDemoDirector::new(graph_actor_addr.clone(), client_manager_addr.clone()).start();
 
         // Create ActorGraphRepository using the graph actor (Oxigraph-backed, ADR-11)
         let graph_repository = Arc::new(crate::adapters::ActorGraphRepository::new(
@@ -1364,6 +1370,7 @@ impl AppState {
             protected_settings_addr,
             metadata_addr,
             client_manager_addr,
+            agent_demo_addr,
             agent_monitor_addr,
             workspace_addr,
             ontology_actor_addr,

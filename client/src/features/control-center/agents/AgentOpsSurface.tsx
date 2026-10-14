@@ -17,6 +17,7 @@ import { AgentDetailPanel } from '../../bots/components/AgentDetailPanel';
 import { SwarmObservabilityPanel } from '../../bots/components/SwarmObservabilityPanel';
 import { ChainPaymentsPanel } from '../../bots/chain/ChainPaymentsPanel';
 import { resolveSelectedAgentId } from '../../bots/agentSelection';
+import { useAgentDemo } from '../../bots/agentDemo';
 import { GlassPanel } from '../primitives/GlassPanel';
 
 /** Dock/other surfaces can summon the AgentOps panel with this event. */
@@ -51,6 +52,7 @@ export const AgentOpsSurface: React.FC = () => {
     return () => window.removeEventListener(OPEN_AGENT_OPS_EVENT, onOpen);
   }, []);
 
+  const demo = useAgentDemo();
   const agentCount = agents?.length ?? 0;
   const handleAgentSelect = useCallback((id: string) => setSelectedAgentId(id), []);
 
@@ -75,6 +77,29 @@ export const AgentOpsSurface: React.FC = () => {
               ✕
             </button>
           </div>
+
+          {/* Shared demo (ADR-2142): one producer on the server, so the headset sees the same six
+              agents working the same nodes, and either client's button starts or stops it. */}
+          <div className="mb-3 flex items-center justify-between gap-2" data-testid="agent-demo-row">
+            <span className="text-xs text-muted-foreground">
+              {demo.running ? 'Demo running for all clients' : 'Run six agents on the graph'}
+            </span>
+            <button
+              type="button"
+              data-testid="agent-demo-toggle"
+              aria-pressed={demo.running}
+              disabled={demo.busy}
+              onClick={() => void demo.toggle()}
+              className={`rounded px-2 py-1 text-xs font-medium ${demo.running ? 'bg-emerald-600 text-white' : 'bg-cyan-600 text-white'} disabled:opacity-50`}
+            >
+              {demo.running ? 'Stop Agent Demo' : 'Start Agent Demo'}
+            </button>
+          </div>
+          {demo.error && (
+            <p role="alert" data-testid="agent-demo-error" className="mb-2 text-xs text-red-400">
+              {demo.error}
+            </p>
+          )}
 
           <SwarmObservabilityPanel className="mb-3" />
 

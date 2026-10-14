@@ -5,6 +5,7 @@ pub mod graph;
 pub mod ontology;
 pub mod ontology_physics;
 // pub mod sessions;
+pub mod agents_demo;
 pub mod semantic_forces;
 pub mod visualisation;
 
@@ -126,5 +127,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         // Ontology-physics integration routes (P0-2)
         .configure(ontology_physics::configure_routes)
         // Semantic forces routes (GPU feature)
-        .configure(semantic_forces::config);
+        .configure(semantic_forces::config)
+        // Shared agents demo (ADR-2142)
+        .configure(agents_demo::config);
 }

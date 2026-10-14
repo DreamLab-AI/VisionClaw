@@ -590,6 +590,13 @@ func _ready() -> void:
 	_physics_http.request_completed.connect(_on_physics_completed)
 	_physics_http.timeout = 10.0
 
+	# Dedicated request for the shared agents demo POST (ADR-2142): its own gate, so the demo
+	# button can never block, or be blocked by, the physics writes.
+	_demo_http = HTTPRequest.new()
+	add_child(_demo_http)
+	_demo_http.request_completed.connect(_on_demo_completed)
+	_demo_http.timeout = 10.0
+
 	# Dedicated request for the fold-ladder GET (own gate, so a fold fetch never
 	# blocks or is blocked by the physics PUT path).
 	_fold_http = HTTPRequest.new()
@@ -896,8 +903,6 @@ func _on_hud_control(action: String) -> void:
 			_request_fold(-1)
 		"unpin_all":
 			_unpin_all()
-		"toggle_demo":
-			_toggle_demo()
 		"memory_cloud_toggle":
 			if _memory_cloud != null:
 				_memory_cloud.set_enabled(not _memory_cloud.is_enabled())
@@ -1527,7 +1532,6 @@ func _physics_process(delta: float) -> void:
 	# the flowing stream stays crisp at 90 Hz.
 	# Embodiment poses (and their beam anchors) are settled BEFORE the beam
 	# buffer is built, so a beam always starts at the body the user sees.
-	_demo.tick(delta)
 	_update_agents(delta)
 	_update_beam_multimesh()
 	_update_interaction()
@@ -2470,7 +2474,6 @@ const AgentEffects := preload("res://scripts/agent_effects.gd")
 # WP3/WP5/WP8: beat clock, memory_flash bursts and attention heat (beat_pulse.gd
 # owns the behaviour; the hooks here only create it and route frames/intents).
 const BeatPulseScript := preload("res://scripts/beat_pulse.gd")
-const AgentDemoDirector := preload("res://scripts/agent_demo_director.gd")
 const AgentRole := preload("res://scripts/agent_role.gd")
 const WORK_LAYER := "work"
 const CONVERSATION_LAYER := "conversation"
@@ -2483,7 +2486,8 @@ const DRIFT_REST_SPREAD_M: float = 0.18
 var _choreo: RefCounted = AgentChoreography.new()
 var _effects: Node3D = null
 var _beat: Node = null
-var _demo: RefCounted = AgentDemoDirector.new()
+var _demo_http: HTTPRequest = null   # POST /api/agents/demo (the shared demo; ADR-2142)
+var _demo_pending: bool = false      # one demo request in flight at a time
 var _embodied: Dictionary = {}       # wire id (int) -> scene id (String)
 var _selected_agent_id: String = ""  # last agent the arbiter resolved (caption stays up)
 var _rim_slot_cursor: int = 0
@@ -2524,16 +2528,29 @@ func _update_swarm_roster() -> void:
 	hud.set_swarm_roster(rows)
 
 
-# Display name for a registry agent: its wire label, else the director's name
-# for a synthetic id (which the registry has no label for), else a plain id.
+# Role names of the shared demo's six agents (reserved ids 0xD001..0xD006), the same labels the
+# server's director uses. The registry has no label for them, so the scene names them here.
+const DEMO_ROLE_NAMES: Dictionary = {
+	0xD001: "Architect", 0xD002: "Analyst", 0xD003: "Coder",
+	0xD004: "Reviewer", 0xD005: "Tester", 0xD006: "Optimizer",
+}
+
+
+## The role name for a shared-demo agent id (class and agent flag bits ignored), else "".
+static func demo_role_name(wire_id: int) -> String:
+	return String(DEMO_ROLE_NAMES.get(wire_id & 0x03FFFFFF, ""))
+
+
+# Display name for a registry agent: its wire label, else the shared demo's role name for a
+# reserved id (which the registry has no label for), else a plain id.
 func _work_agent_name(wire_id: int) -> String:
 	if _binary_client != null and _binary_client.has_method("label_of"):
 		var s: String = String(_binary_client.label_of(wire_id))
 		if s.length() > 0:
 			return s
-	var synthetic_name: String = AgentDemoDirector.display_name_for(wire_id)
-	if synthetic_name.length() > 0:
-		return synthetic_name
+	var role_name: String = demo_role_name(wire_id)
+	if role_name.length() > 0:
+		return role_name
 	return "agent %d" % wire_id
 
 
@@ -3950,20 +3967,38 @@ func _plane_binding_label(binding: Dictionary) -> String:
 	return ""
 
 
-# ── Demo mode ─────────────────────────────────────────────────────────────────
-# All demo code lives in agent_demo_director.gd. It produces synthetic 0x23
-# frames into the SAME Rust registry a live swarm feeds; the scene has no demo
-# branch — synthetic agents are embodied, beamed and listed exactly like live
-# ones and play as real agents. The HUD button is the only visible demo marker.
+# ── Shared agents demo (ADR-2142) ─────────────────────────────────────────────
+# The demo is produced ONCE, on the server: a director sends ordinary 0x23 frames to every
+# client, which this client ingests like any agent action (embodied, beamed and listed exactly as
+# live agents are; the scene has no demo branch). The HUD button only asks the server to start or
+# stop it. graph_parity.gd decides which, polls the server's state and retires the six reserved
+# agents when it stops; this is the HTTP half.
 
-func _toggle_demo() -> void:
-	if _demo.is_running():
-		_demo.stop()
+func _post_demo(running: bool) -> bool:
+	if _demo_http == null or _demo_pending:
+		return false
+	var url := "%s/api/agents/demo" % _http_base()
+	var headers := _auth_headers(url, "POST")
+	headers.append("Content-Type: application/json")
+	var err := _demo_http.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify({"running": running}))
+	if err != OK:
+		push_warning("GraphScene: demo POST failed to start (%d)" % err)
+		return false
+	_demo_pending = true
+	return true
+
+
+func _on_demo_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_demo_pending = false
+	if result == HTTPRequest.RESULT_SUCCESS and response_code >= 200 and response_code < 300:
+		if _parity != null and _parity.has_method("apply_demo_body"):
+			_parity.apply_demo_body(body.get_string_from_utf8())
 	else:
-		var ok: bool = _demo.start(_binary_client, Callable(self, "_server_to_world"))
-		if not ok and hud != null and hud.has_method("flash_notice"):
-			hud.flash_notice("Demo needs a loaded graph", 2.5)
-	if hud != null and hud.has_method("set_demo_active"):
-		hud.set_demo_active(_demo.is_running())
-	# Reflect the registry change without waiting for the next 4 Hz tick.
+		# The server refused (for example an empty graph) or was unreachable: say so.
+		var why: String = "Demo failed (HTTP %d)" % response_code
+		var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+		if typeof(parsed) == TYPE_DICTIONARY and (parsed as Dictionary).has("error"):
+			why = "Demo: %s" % String((parsed as Dictionary)["error"])
+		if hud != null and hud.has_method("flash_notice"):
+			hud.flash_notice(why, 4.0)
 	_reconcile_embodiment()

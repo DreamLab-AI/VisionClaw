@@ -14,6 +14,9 @@ import { useGraphEventHandlers } from '../hooks/useGraphEventHandlers'
 import { EdgeSettings } from '../../settings/config/settings'
 import { useAnalyticsStore, useCurrentSSSPResult } from '../../analytics/store/analyticsStore'
 import { TransientBeamsLayer, type BeamPositionResolver } from '../../visualisation/components/TransientBeamsLayer'
+import { VirtualAgentMarkers } from '../../visualisation/components/VirtualAgentMarkers'
+import { isVirtualAgentId, resolveVirtualAgentPosition } from '../../bots/virtualAgents'
+import { useAgentTargetStore } from '../../../store/agentTargetStore'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { useBotsData } from '../../bots/contexts/BotsDataContext'
 import { useGraphVisualState, type GraphVisualMode } from '../hooks/useGraphVisualState'
@@ -162,10 +165,28 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
     const map = agentPositionMapRef.current
     const masked = getActualNodeId(id)
     const pos = map.get(String(masked)) ?? map.get(String(id))
-    if (!pos) return false
-    out.set(pos.x, pos.y, pos.z)
-    return true
-  }, [])
+    if (pos) {
+      out.set(pos.x, pos.y, pos.z)
+      return true
+    }
+    // The shared demo's agents are not graph nodes: hover beside the node they are working on
+    // (ADR-2142). Real agents always resolve above, so this never changes them.
+    if (isVirtualAgentId(id)) {
+      return resolveVirtualAgentPosition(
+        id,
+        out,
+        useAgentTargetStore.getState(),
+        (nodeId, p) => {
+          const w = resolveNodeWorldPosition(nodeId, nodeIdToIndexMap, nodePositionsRef.current)
+          if (!w) return false
+          p.x = w.x; p.y = w.y; p.z = w.z
+          return true
+        },
+        Date.now(),
+      )
+    }
+    return false
+  }, [nodeIdToIndexMap])
 
   // Resolve target_node_id → KG node world position from the LIVE position
   // buffer (SAB), via the same nodeIdToIndexMap the edge renderer uses. Tries
@@ -699,6 +720,8 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
       {/* Embodied agent-action beams (0x23): agent node → KG node, coloured
           by action type, opacity fades in → holds → out over duration_ms.
           Radius/opacity are control-centre Agents → Behaviour knobs. */}
+      <VirtualAgentMarkers resolveNodePosition={resolveNodePosition} />
+
       <TransientBeamsLayer
         resolveAgentPosition={resolveAgentPosition}
         resolveNodePosition={resolveNodePosition}

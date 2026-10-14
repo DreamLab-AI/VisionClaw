@@ -131,13 +131,14 @@ announcing or selected. Work cues — the beam (`AgentMulti`, origin synchronise
 to the body via `set_agent_anchors`), a pulsing node ring, hand-off packet beads
 along the real edge, an arrival flash and a completion burst
 (`scripts/agent_effects.gd` under `AgentEffectsRoot`) — follow the registry. The **conversation layer** (`spawn_agent`, did:nostr keyed) is the
-only thing the proxemics arc places. **Demo mode** is `scripts/agent_demo_director.gd`
-alone: it produces real `0x23` frames into `ingest()` (wire ids
-`0x80000000|0xD001..`), reports completion via `apply_agent_state`, and
-`retire_agents` on Stop; the scene has no demo branch, and the synthetic agents
-play as real ones — no name, roster or payload marker; the HUD's Start/Stop
-Agent Demo button is the only visible sign. Reduced motion (comfort default)
-turns travel into fade/relocate/fade.
+only thing the proxemics arc places. **The agents demo** is produced once, on the server (ADR-2142): a director sends ordinary
+`0x23` frames (wire ids `0x80000000|0xD001..0xD006`) to every connected client, which `ingest()`
+treats as any agent action. The scene has no demo branch, and the synthetic agents play as real
+ones: nothing in the frames says demo. The HUD's Start/Stop Agent Demo button only asks
+`POST /api/agents/demo` for the opposite of the server's state, and the button follows the
+server's state (polled every 4 s), so a demo started from the desktop shows as running here and
+either client can stop it. When the demo stops, `retire_agents` removes exactly the six reserved
+ids at once. Reduced motion (comfort default) turns travel into fade/relocate/fade.
 
 ### Memory activity, attention heat and the beat clock (ADR-2134)
 These are ports of desktop behaviour, pinned to it by
@@ -879,9 +880,9 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 8. Work-layer embodiments have ONE pose writer (`agent_choreography.gd`); the
    proxemics arc, nudges or drifts must never write their transforms. Avatars
    and effects sit under unit-scale roots, never under `GraphRoot` (ADR-2109).
-9. Demo mode enters only through the real registry doors (`ingest`,
-   `apply_agent_state`, `retire_agents`) from `agent_demo_director.gd`; no
-   scene-side demo rendering branch, no synthetic position frames (ADR-2109).
+9. The demo enters only through the real registry door (`ingest`, from the server's `0x23`
+   frames) and leaves through `retire_agents`; no scene-side demo rendering branch, no synthetic
+   position frames, no client-side producer (ADR-2109, ADR-2142).
 10. Microphone capture is opt-in per session (HUD Mic toggle, off by default),
     shows the `● MIC` header badge while active, and its audio is only analysed
     in memory: never recorded, stored or transmitted (ADR-2134,

@@ -60,10 +60,20 @@ const PHYSICS_RETRY_SEC: float = 5.0
 # "unavailable" instead of leaving a stale value on the HUD.
 const SemanticFields := preload("res://scripts/semantic_fields.gd")
 const SETTLE_PATH := "/api/graph/settlement"
+const DEMO_PATH := "/api/agents/demo"
+const DEMO_POLL_SEC: float = 4.0
+# The six reserved agent ids of the shared demo (agent flag | 0xD001..0xD006).
+const DEMO_AGENT_IDS: Array = [0x8000D001, 0x8000D002, 0x8000D003, 0x8000D004, 0x8000D005, 0x8000D006]
 const SETTLE_POLL_SEC: float = 3.0
 var _settle_get: HTTPRequest = null
 var _settle_inflight: bool = false
 var _settle_timer: float = 0.0
+
+# Shared agents demo (ADR-2142): the server runs it; this only mirrors its state and controls it.
+var _demo_get: HTTPRequest = null
+var _demo_inflight: bool = false
+var _demo_timer: float = 0.0
+var _demo_running: bool = false
 
 # Forces tab (the physics `semantic` group). Everything is driven by the shared document
 # (data/semantic_fields.json); values shown are only ones READ from the server or just written
@@ -97,6 +107,10 @@ func setup(scene: Node, client: RefCounted, graph_root: Node3D, hud: Node) -> vo
 	_settle_get.timeout = 4.0
 	add_child(_settle_get)
 	_settle_get.request_completed.connect(_on_settle_completed)
+	_demo_get = HTTPRequest.new()
+	_demo_get.timeout = 4.0
+	add_child(_demo_get)
+	_demo_get.request_completed.connect(_on_demo_get_completed)
 	_refresh_hud()
 
 
@@ -113,6 +127,12 @@ func handle_control(action: String) -> bool:
 				_client.set_agent_offsets(not bool(_client.get_agent_offsets()))
 				if _hud != null and _hud.has_method("set_agent_offsets_state"):
 					_hud.set_agent_offsets_state(bool(_client.get_agent_offsets()))
+			return true
+		"toggle_demo":
+			# Ask the server for the OPPOSITE of what it is doing. The state shown follows the
+			# server's answer, never the click, so both clients always agree.
+			if _scene != null and _scene.has_method("_post_demo"):
+				_scene._post_demo(not _demo_running)
 			return true
 		"forces_prev":
 			_forces_group = posmod(_forces_group - 1, _fields_ref().groups.size())
@@ -173,6 +193,7 @@ func _process(delta: float) -> void:
 			_physics_wanted = true
 	_maybe_fetch_physics()
 	_poll_settlement(delta)
+	_poll_demo(delta)
 	if hull_source == 0 or _client == null or not _client.has_method("build_hull_mesh"):
 		return
 	_hull_accum += delta
@@ -331,6 +352,71 @@ func _forces_write(row: Dictionary, value: Variant) -> void:
 	if _scene._put_physics_body(_fields_ref().patch_for(String(row["path"]), value)):
 		_forces_values[row["path"]] = value
 		_render_forces()
+
+
+# --- shared agents demo --------------------------------------------------------
+
+## The server's demo state from a GET/POST /api/agents/demo body: 1 running, 0 stopped, -1 when the
+## body is not a demo status (unreachable, malformed, not a boolean). Static so tests need no server.
+static func parse_demo_status(text: String) -> int:
+	var json := JSON.new()
+	if json.parse(text) != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return -1
+	var body: Dictionary = json.data
+	if body.has("data") and typeof(body["data"]) == TYPE_DICTIONARY:
+		body = body["data"]
+	var running: Variant = body.get("running")
+	if typeof(running) != TYPE_BOOL:
+		return -1
+	return 1 if running else 0
+
+
+func demo_running() -> bool:
+	return _demo_running
+
+
+## Adopt the server's demo state. When the demo has just STOPPED (from either client) its six
+## agents leave the registry at once instead of fading over the evidence TTL; real agents are
+## untouched because only the reserved ids are retired.
+func apply_demo_body(text: String) -> void:
+	var st: int = parse_demo_status(text)
+	if st < 0:
+		return
+	var running: bool = st == 1
+	var stopped_now: bool = _demo_running and not running
+	_demo_running = running
+	if stopped_now and _client != null and _client.has_method("retire_agents"):
+		var ids := PackedInt32Array()
+		for id: int in DEMO_AGENT_IDS:
+			ids.append(id)
+		_client.retire_agents(ids)
+		if _scene != null and _scene.has_method("_reconcile_embodiment"):
+			_scene._reconcile_embodiment()
+	if _hud != null and _hud.has_method("set_demo_active"):
+		_hud.set_demo_active(running)
+
+
+func _poll_demo(delta: float) -> void:
+	if _demo_get == null or _demo_inflight or _scene == null:
+		return
+	_demo_timer -= delta
+	if _demo_timer > 0.0:
+		return
+	if not _scene.has_method("_http_base") or not _scene.has_method("_auth_headers"):
+		return
+	var url: String = "%s%s" % [_scene._http_base(), DEMO_PATH]
+	if _demo_get.request(url, _scene._auth_headers(url, "GET"), HTTPClient.METHOD_GET) != OK:
+		_demo_timer = DEMO_POLL_SEC
+		return
+	_demo_inflight = true
+
+
+func _on_demo_get_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_demo_inflight = false
+	_demo_timer = DEMO_POLL_SEC
+	if result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300:
+		apply_demo_body(body.get_string_from_utf8())
+
 
 
 # --- server physics state ----------------------------------------------------

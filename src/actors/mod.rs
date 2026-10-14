@@ -1,6 +1,7 @@
 //! Actor system modules for replacing Arc<RwLock<T>> patterns with Actix actors
 
 pub mod agent_beam_actor;
+pub mod agent_demo_director;
 // ADR-110 — flagship ACSP agentic actor (knowledge elevation via forum cases)
 pub mod elevation_actor;
 pub mod elevation_voice;
@@ -47,6 +48,7 @@ pub mod workspace_actor;
 pub mod presence_actor;
 
 pub use agent_beam_actor::AgentBeamActor;
+pub use agent_demo_director::AgentDemoDirector;
 pub use agent_monitor_actor::AgentMonitorActor;
 pub use client_coordinator_actor::{
     ClientCoordinatorActor, ClientCoordinatorStats, ClientManager, ClientState,

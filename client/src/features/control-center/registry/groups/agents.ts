@@ -89,7 +89,7 @@ const fields: RegistryField[] = [
   // Per-viewer visual layer; the XR HUD has the matching toggle (same default: on).
   { key: 'agentOffsetToggle', subgroup: 'Behaviour', label: 'Agent Offset Animation', type: 'action-button', action: 'toggle-agent-offsets', description: 'Agents move toward the node they work on and drift when idle. Off draws every agent exactly at its server position. This browser only; the headset has its own switch' },
   // Demo mode — synthetic agent injection for visual verification (no backend path).
-  { key: 'agentDemoToggle', subgroup: 'Demo', label: 'Toggle Agent Demo', type: 'action-button', action: 'toggle-demo', description: 'Run six agents through a live work loop on the graph; they appear and behave as real agents' },
+  { key: 'agentDemoToggle', subgroup: 'Demo', label: 'Toggle Agent Demo', type: 'action-button', action: 'toggle-demo', description: 'Run six agents through a live work loop on the graph. One server-side demo: the headset shows the same agents working the same nodes, and either client can start or stop it' },
 ];
 
 export const agents: GroupData = {
