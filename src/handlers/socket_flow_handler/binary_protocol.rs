@@ -1,25 +1,42 @@
 use actix::prelude::*;
-use log::{debug, error, info, trace, warn};
-
-use crate::utils::binary_protocol;
+use log::{debug, info, trace, warn};
 
 use super::types::{SocketFlowServer, WEBSOCKET_RATE_LIMITER};
 
-/// Handle incoming binary WebSocket messages (position updates, voice data, broadcast acks).
+/// Opcode of the client -> server position acknowledgement (ADR-2141).
+const OPCODE_BROADCAST_ACK: u8 = 0x34;
+
+/// Whether this binary frame is a position acknowledgement.
+pub(crate) fn is_stream_ack(data: &[u8]) -> bool {
+    data.first() == Some(&OPCODE_BROADCAST_ACK)
+}
+
+/// Whether a binary frame counts against the per-IP message rate limit.
+///
+/// Acknowledgements do NOT. They are the flow control of the position stream: one per chunk the
+/// client applied, so their rate is the stream's rate. Counting them against a 300-per-minute
+/// limiter (designed for chatty position WRITES) silently dropped acks past the burst, after which
+/// the server resent every chunk on its backed-off timeout and, after ten violations, banned the
+/// address for ten minutes. An ack is cheap and harmless to over-send: it names a sequence, and an
+/// unknown one is a no-op.
+pub(crate) fn rate_limit_applies(data: &[u8]) -> bool {
+    !is_stream_ack(data)
+}
+
+/// Handle incoming binary WebSocket messages: position acknowledgements and voice data. There is
+/// no binary position WRITE: clients move nodes with the JSON drag messages (the GPU pin), and the
+/// old decode-and-simulate fallback for client-sent positions is gone.
 impl SocketFlowServer {
     pub(crate) fn handle_binary_message(
         &mut self,
         data: &[u8],
         ctx: &mut <Self as Actor>::Context,
     ) {
-        if !WEBSOCKET_RATE_LIMITER.is_allowed(&self.client_ip) {
-            warn!(
-                "Position update rate limit exceeded for client: {}",
-                self.client_ip
-            );
+        if rate_limit_applies(data) && !WEBSOCKET_RATE_LIMITER.is_allowed(&self.client_ip) {
+            warn!("Binary message rate limit exceeded for client: {}", self.client_ip);
             let error_msg = serde_json::json!({
                 "type": "rate_limit_warning",
-                "message": "Update rate too high, some updates may be dropped",
+                "message": "Message rate too high, some messages may be dropped",
                 "retry_after": WEBSOCKET_RATE_LIMITER.reset_time(&self.client_ip).as_secs()
             });
             if let Ok(msg_str) = serde_json::to_string(&error_msg) {
@@ -28,10 +45,8 @@ impl SocketFlowServer {
             return;
         }
 
-        info!("Received binary message, length: {}", data.len());
         self.last_activity = std::time::Instant::now();
 
-        // Try new binary protocol first
         use crate::utils::binary_protocol::{BinaryProtocol, Message as ProtocolMessage};
 
         match BinaryProtocol::decode_message(data) {
@@ -45,14 +60,12 @@ impl SocketFlowServer {
                 if let Ok(msg_str) = serde_json::to_string(&response) {
                     ctx.text(msg_str);
                 }
-                return;
             }
             Ok(ProtocolMessage::BroadcastAck {
                 sequence_id,
                 nodes_received,
                 timestamp,
             }) => {
-                // True end-to-end backpressure: client confirms receipt of position broadcast
                 use crate::actors::messages::ClientBroadcastAck;
 
                 trace!(
@@ -68,119 +81,52 @@ impl SocketFlowServer {
                     timestamp,
                     client_id: self.client_id,
                 });
-                return;
             }
             Err(e) => {
-                debug!("New protocol decode failed ({}), trying legacy protocol", e);
-            }
-        }
-
-        // Fall back to legacy binary node data protocol.
-        //
-        // #11: this branch drives a server-side physics `SimulationStep` (a write
-        // to shared graph state). It must be authenticated — an anonymous client
-        // must not be able to trigger layout recomputation. Matches the VULN-01
-        // gating on the JSON drag path (`handle_node_drag_*`), which also rejects
-        // `pubkey.is_none()`. Reject + warn for anon clients before decoding.
-        if self.pubkey.is_none() {
-            warn!(
-                "Ignoring legacy binary node-data write from unauthenticated client: {}",
-                self.client_ip
-            );
-            let error_msg = serde_json::json!({
-                "type": "error",
-                "message": "Authentication required for position writes",
-                "recoverable": false,
-            });
-            if let Ok(msg_str) = serde_json::to_string(&error_msg) {
-                ctx.text(msg_str);
-            }
-            return;
-        }
-
-        match binary_protocol::decode_node_data(data) {
-            Ok(nodes) => {
-                info!("Decoded {} nodes from binary message", nodes.len());
-                let _nodes_vec: Vec<_> = nodes.clone().into_iter().collect();
-
-                {
-                    let app_state = self.app_state.clone();
-                    let nodes_vec: Vec<_> = nodes.clone().into_iter().collect();
-
-                    let fut = async move {
-                        for (node_id, node_data) in &nodes_vec {
-                            if *node_id < 5 {
-                                debug!(
-                                    "Processing binary update for node ID: {} with position [{:.3}, {:.3}, {:.3}]",
-                                    node_id, node_data.x, node_data.y, node_data.z
-                                );
-                            }
-                        }
-
-                        info!(
-                            "Received {} node positions from client (feedback loop disabled)",
-                            nodes_vec.len()
-                        );
-                        info!("Updated node positions from binary data (preserving server-side properties)");
-                        info!("Preparing to recalculate layout after client-side node position update");
-
-                        use crate::actors::messages::GetSettingByPath;
-                        let settings_addr = app_state.settings_addr.clone();
-
-                        if let Ok(Ok(_iterations_val)) = settings_addr
-                            .send(GetSettingByPath {
-                                path: "visualisation.graphs.knowledge.physics.iterations"
-                                    .to_string(),
-                            })
-                            .await
-                        {
-                            if let Ok(Ok(_spring_val)) = settings_addr
-                                .send(GetSettingByPath {
-                                    path: "visualisation.graphs.knowledge.physics.spring_k"
-                                        .to_string(),
-                                })
-                                .await
-                            {
-                                if let Ok(Ok(_repulsion_val)) = settings_addr
-                                    .send(GetSettingByPath {
-                                        path: "visualisation.graphs.knowledge.physics.repel_k"
-                                            .to_string(),
-                                    })
-                                    .await
-                                {
-                                    use crate::actors::messages::SimulationStep;
-                                    if let Err(e) =
-                                        app_state.graph_service_addr.send(SimulationStep).await
-                                    {
-                                        error!("Failed to trigger simulation step: {}", e);
-                                    } else {
-                                        info!("Successfully triggered layout recalculation");
-                                    }
-                                }
-                            }
-                        }
-                    };
-
-                    let fut = fut.into_actor(self);
-                    ctx.spawn(fut.map(|_, _, _| ()));
-                }
-            }
-            Err(e) => {
-                error!("Failed to decode binary message: {}", e);
+                debug!("Unsupported binary message ({} bytes): {}", data.len(), e);
                 let error_msg = serde_json::json!({
                     "type": "error",
-                    "message": format!("Failed to decode binary message: {}", e),
+                    "message": format!("Unsupported binary message: {}", e),
                     "recoverable": true,
-                    "details": {
-                        "data_length": data.len(),
-                        "expected_item_size": 26,
-                        "remainder": data.len() % 26
-                    }
+                    "details": { "data_length": data.len() }
                 });
                 if let Ok(msg_str) = serde_json::to_string(&error_msg) {
                     ctx.text(msg_str);
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn position_acknowledgements_are_exempt_from_the_message_rate_limit() {
+        let ack = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(48_113, 2500, 1_700_000_000_000);
+        assert!(is_stream_ack(&ack));
+        assert!(!rate_limit_applies(&ack), "an ack must never be rate limited: it IS the flow control");
+    }
+
+    #[test]
+    fn other_binary_traffic_is_still_rate_limited() {
+        assert!(rate_limit_applies(&[0x02, 1, 2, 3]), "voice data");
+        assert!(rate_limit_applies(&[0x03, 0, 0, 0]), "a stray V3 frame");
+        assert!(rate_limit_applies(&[]), "an empty frame");
+        assert!(!is_stream_ack(&[]));
+    }
+
+    /// The failure this guards against, end to end: a sustained ack stream well above the limiter's
+    /// per-minute budget keeps being accepted, while the same count of non-ack frames is cut off.
+    #[actix::test]
+    async fn a_sustained_ack_stream_never_exhausts_the_limiter_but_other_frames_do() {
+        use crate::utils::validation::rate_limit::{EndpointRateLimits, RateLimiter};
+        let limiter = RateLimiter::new(EndpointRateLimits::socket_flow_updates());
+        let ack = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(1, 1, 0);
+        let voice = [0x02u8, 1];
+        let admitted = |frame: &[u8], ip: &str| (0..2000).filter(|_| !rate_limit_applies(frame) || limiter.is_allowed(ip)).count();
+        assert_eq!(admitted(&ack, "10.0.0.1"), 2000, "2000 acks in a burst: all admitted");
+        assert!(admitted(&voice, "10.0.0.2") < 400, "the same volume of other frames is limited");
     }
 }
