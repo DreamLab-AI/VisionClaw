@@ -72,7 +72,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   springKOntology: 1.0,
   springKAgent: 1.0,
   streamChunkNodes: 2500,
-  streamMoveThreshold: 0.25,
+  streamMoveThreshold: 0.05,
   streamAckTimeoutMs: 500,
 
   // --- Constraints ---

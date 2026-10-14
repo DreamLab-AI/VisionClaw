@@ -28,11 +28,13 @@ fn default_stream_chunk_nodes() -> u32 {
 }
 
 /// Display-space distance below which a node counts as unchanged for a client
-/// (`PhysicsSettings::stream_move_threshold`). Measured on the live ~9.5k-node graph: settled
-/// per-node motion is ~0.008 units per frame, and the graph spans ~1,400 units, so 0.25 is a
-/// third of a pixel at full-graph zoom: invisible, yet low enough that slow drift is delivered
-/// (it accumulates against the acknowledged position until it crosses).
-pub const DEFAULT_STREAM_MOVE_THRESHOLD: f32 = 0.25;
+/// (`PhysicsSettings::stream_move_threshold`). Measured on the live ~9.5k-node graph with an
+/// acknowledging client (per-node update interval, p50 / p95): threshold 0.25 gave 318 / 1017 ms
+/// (nodes arrive in visible 0.25-unit steps while the layout moves), 0.05 gave 81 / 204 ms at
+/// ~4.7 MB/s per client, 0.01 gave 69 / 80 ms at ~7 MB/s. 0.05 is the middle: ~12 updates a second
+/// per moving node without paying for sub-pixel changes. Slow drift still accumulates against the
+/// acknowledged position, so nothing is lost at any setting.
+pub const DEFAULT_STREAM_MOVE_THRESHOLD: f32 = 0.05;
 
 fn default_stream_move_threshold() -> f32 {
     DEFAULT_STREAM_MOVE_THRESHOLD

@@ -578,7 +578,7 @@ pub struct PhysicsSettingsDoc {
     #[schema(minimum = 100, maximum = 20000)]
     pub stream_chunk_nodes: Option<u32>,
     /// A node is re-sent once it is this far from what the client acknowledged, 0-100
-    /// (default 0.25; `streamMoveThreshold`). Applied live.
+    /// (default 0.05; `streamMoveThreshold`). Applied live.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(minimum = 0, maximum = 100)]
     pub stream_move_threshold: Option<f32>,

@@ -134,7 +134,7 @@ start), so they apply without a restart. Control Center: System › Network.
 | UI label | Settings key | Type | Range | Default | Effect |
 |---|---|---|---|---|---|
 | Stream Chunk Size (nodes) | `streamChunkNodes` | u32 | 100 – 20000 | **2500** | Most nodes in one chunk (~52 bytes each; 2500 ≈ 130 KB). A new client's initial sync is every node, in chunks of this size |
-| Stream Move Threshold | `streamMoveThreshold` | f32 | 0 – 100 | **0.25** | A node is sent again once it is this far (layout units) from what the client last acknowledged. 0 sends any change. Slow drift accumulates against the acknowledged position, so nothing is lost |
+| Stream Move Threshold | `streamMoveThreshold` | f32 | 0 – 100 | **0.05** | A node is sent again once it is this far (layout units) from what the client last acknowledged. 0 sends any change. Measured per-node update interval p50/p95 and bandwidth per client: 0.25 → 318/1017 ms, 1.1 MB/s (visible stepping); 0.05 → 81/204 ms, 4.7 MB/s; 0.01 → 69/80 ms, 7 MB/s. Slow drift accumulates against the acknowledged position, so nothing is lost |
 | Stream Ack Timeout (ms) | `streamAckTimeoutMs` | u32 | 20 – 10000 | **500** | How long a chunk may go unacknowledged before it is rebuilt and sent again |
 
 There is no broadcast rate: delivery follows each client's own acknowledgements and stops when every
