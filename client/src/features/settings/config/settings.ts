@@ -567,7 +567,7 @@ export interface ClusterHullSettings {
 export interface EmbeddingCloudSettings {
   enabled: boolean;
   pointSize: number;       // 0.5-25, default 7.5
-  opacity: number;         // 0-1, default 0.6
+  opacity: number;         // 0-1, default 0.12 (30k overlapping points: higher saturates dense clusters)
   colorBy: 'namespace' | 'sourceType' | 'age';
   rotationSpeed: number;   // rad/frame, default 0.0005 (paused while a query route is shown)
   maxPoints: number;       // cap on rendered points, default 50000

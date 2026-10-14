@@ -216,7 +216,7 @@ export const DEFAULT_EMBEDDING_CLOUD = {
   // 2026-07-17 — 'to get a clear view'). Opt in via Atmosphere → Embedding Cloud.
   enabled: false,
   pointSize: 7.5,
-  opacity: 0.6,
+  opacity: 0.12,
   colorBy: 'namespace' as const,
   rotationSpeed: 0.0005,
   maxPoints: 50000,

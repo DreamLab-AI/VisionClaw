@@ -2290,7 +2290,7 @@
       "subgroup": "Embedding Cloud",
       "min": 0,
       "max": 1,
-      "step": 0.05
+      "step": 0.01
     },
     {
       "key": "embeddingRotation",

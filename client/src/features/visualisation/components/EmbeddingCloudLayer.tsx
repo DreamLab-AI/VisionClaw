@@ -150,7 +150,7 @@ const EmbeddingCloudLayer: React.FC<EmbeddingCloudProps> = ({ enabled }) => {
   ) as EmbeddingCloudSettings | undefined;
 
   const pointSize = settings?.pointSize ?? 7.5;
-  const opacity = settings?.opacity ?? 0.6;
+  const opacity = settings?.opacity ?? 0.12;
   const colorBy = settings?.colorBy ?? 'namespace';
   const rotationSpeed = settings?.rotationSpeed ?? 0.0005;
   const maxPoints = settings?.maxPoints ?? 50000;
