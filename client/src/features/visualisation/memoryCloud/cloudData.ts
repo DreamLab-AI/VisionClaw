@@ -97,10 +97,19 @@ export function ageRanks(metadata: MemoryCloudMeta[]): number[] {
   return out;
 }
 
+/** one sRGB channel (0-1) to the renderer's linear working space */
+const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+
+/**
+ * A palette hex as the colour-buffer value. The palette is authored in sRGB, but the buffer is read
+ * as linear working-space colour and sRGB-encoded on output, so raw hex fractions came out lifted
+ * toward white (0x4fc3f7 showed as pale cyan, and dense clusters saturated, which also fed the
+ * bloom pass far more light than intended). Converting here makes the screen show the hex.
+ */
 const hexRgb = (hex: number): [number, number, number] => [
-  ((hex >> 16) & 255) / 255,
-  ((hex >> 8) & 255) / 255,
-  (hex & 255) / 255,
+  srgbToLinear(((hex >> 16) & 255) / 255),
+  srgbToLinear(((hex >> 8) & 255) / 255),
+  srgbToLinear((hex & 255) / 255),
 ];
 
 /** age ramp: oldest deep blue → mid blue → newest mint */

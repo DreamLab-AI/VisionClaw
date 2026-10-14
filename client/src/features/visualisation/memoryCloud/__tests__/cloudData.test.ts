@@ -68,17 +68,32 @@ describe('ageRanks', () => {
 
 describe('buildCloudColours', () => {
   const snap = { count: 4, metadata: rows, namespaces: ['patterns', 'project-state'], sourceTypes: ['doc', 'hook', 'memory'] };
-  const rgb = (hex: number) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+  // The palette is authored as sRGB hex; the colour buffer must hold the renderer's linear working
+  // space (it is sRGB-encoded on output), or every colour comes out lifted toward white.
+  const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const rgb = (hex: number) =>
+    [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255].map(toLinear);
 
+  const expectClose = (got: number[], want: number[]) =>
+    want.forEach((w, i) => expect(got[i]).toBeCloseTo(w, 5));
+
+  it('stores working-space values: encoding them back to sRGB returns the palette hex', () => {
+    const c = buildCloudColours(snap, 'namespace');
+    const encode = (v: number) => Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055) * 255);
+    const hex = (encode(c[0]) << 16) | (encode(c[1]) << 8) | encode(c[2]);
+    expect(hex).toBe(CLOUD_PALETTE[0]);
+    // and it is darker than the raw hex fractions, which is the whole point
+    expect(c[0]).toBeLessThan(((CLOUD_PALETTE[0] >> 16) & 255) / 255);
+  });
   it('colours by namespace category', () => {
     const c = buildCloudColours(snap, 'namespace');
     expect(c.length).toBe(12);
-    expect(Array.from(c.slice(0, 3))).toEqual(rgb(CLOUD_PALETTE[0]).map((v) => Math.fround(v)));
-    expect(Array.from(c.slice(3, 6))).toEqual(rgb(CLOUD_PALETTE[1]).map((v) => Math.fround(v)));
+    expectClose(Array.from(c.slice(0, 3)), rgb(CLOUD_PALETTE[0]));
+    expectClose(Array.from(c.slice(3, 6)), rgb(CLOUD_PALETTE[1]));
   });
   it('colours by source type category', () => {
     const c = buildCloudColours(snap, 'sourceType');
-    expect(Array.from(c.slice(9, 12))).toEqual(rgb(CLOUD_PALETTE[0]).map((v) => Math.fround(v)));
+    expectClose(Array.from(c.slice(9, 12)), rgb(CLOUD_PALETTE[0]));
   });
   it('colours by age: newest brightest mint, oldest dim blue', () => {
     const c = buildCloudColours(snap, 'age');
