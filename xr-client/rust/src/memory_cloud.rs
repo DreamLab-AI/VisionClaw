@@ -35,7 +35,7 @@ pub const DESKTOP_POINT_SIZE: f32 = 7.5;
 /// Desktop camera vertical field of view (GraphCanvas `fov: 75`).
 pub const DESKTOP_FOV_DEG: f32 = 75.0;
 /// `opacity` default.
-pub const DESKTOP_OPACITY: f32 = 0.6;
+pub const DESKTOP_OPACITY: f32 = 0.12;
 /// `dimOffRoute` default: focus-pull dimming applied to rows off the route.
 pub const DESKTOP_DIM_OFF_ROUTE: f32 = 0.75;
 /// `rotationSpeed` default, radians per rendered frame at the desktop's 60 Hz.

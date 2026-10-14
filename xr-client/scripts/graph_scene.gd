@@ -2004,10 +2004,12 @@ func _uniform_scale(xform: Transform3D) -> float:
 # pattern the desktop client uses. The grabbed node is exempt (it tracks the
 # hand locally and the server echoes it back).
 # Chase time constant in milliseconds: a node covers 63% of the way to its server target in this
-# long, at any frame rate (lower = faster). Identical to the desktop client's default
+# long, at any frame rate (lower = faster). 120 is the measured knee for the ~16 Hz per-node update
+# rate of the acknowledged stream: it halves frame-to-frame jerk against 60 ms for ~0.26 units of
+# lag on a ~1,400-unit graph; beyond ~160 the gain is small and the graph feels sluggish. Identical to the desktop client's default
 # `tweening.responseMs`; a cross-client test pins the two values together. This replaced a fixed
 # 6% per frame, which was ~180 ms at 90 FPS but ~360 ms at 45 FPS, and slower than it looked.
-const CHASE_MS: float = 60.0
+const CHASE_MS: float = 120.0
 
 
 ## The per-frame ease for `delta` seconds: 1 - exp(-dt / tau).

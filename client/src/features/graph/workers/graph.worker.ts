@@ -43,7 +43,7 @@ class GraphWorker {
   // Client-side tweening toward server targets: exponential approach, time constant responseMs.
   private tweenSettings: TweenSettings = {
     enabled: true,
-    responseMs: 60,       // chase time constant (XR uses the same value: CHASE_MS in graph_scene.gd)
+    responseMs: 120,      // chase time constant: measured knee for ~16 Hz updates (XR uses the same value: CHASE_MS in graph_scene.gd)
     snapThreshold: 0.05,  // Snap when within 0.05 units (sub-pixel)
     maxDivergence: 50.0,  // Force snap on large jumps (topology change)
   };
