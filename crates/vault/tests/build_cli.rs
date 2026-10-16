@@ -27,7 +27,7 @@ fn a_path_claimed_twice_exits_2_and_promotes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     write(&repo.join("ontology/vocabulary.yaml"), VOCABULARY);
-    let pages = repo.join("knowledge/pages");
+    let pages = repo.join("knowledge");
     // `Foo` loses the slug `foo` to the page declaring it, and its fallback —
     // its resource tail `bar` — is the slug `Bar` derives from its title.
     write(

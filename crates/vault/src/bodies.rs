@@ -808,7 +808,7 @@ pub fn run(options: &Options) -> anyhow::Result<Report> {
         if !scope.dir.is_dir() {
             continue;
         }
-        for path in vault_core::page::walk_pages(&scope.dir)?.files {
+        for path in scope.files()? {
             report.pages_examined += 1;
             let before = std::fs::read_to_string(&path)?;
             let after = convert(&before);

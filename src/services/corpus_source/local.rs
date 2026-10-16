@@ -15,22 +15,28 @@ pub const VAULT_ROOT_ENV: &str = "VAULT_ROOT";
 /// Environment variable naming the comma-separated ingest base paths,
 /// relative to the vault root. Mirrors `GITHUB_BASE_PATHS`.
 pub const VAULT_BASE_PATHS_ENV: &str = "VAULT_BASE_PATHS";
-/// Base paths used when [`VAULT_BASE_PATHS_ENV`] is unset — the dual-source
-/// split of the sovereign corpus.
-pub const DEFAULT_VAULT_BASE_PATHS: &str = "knowledge/pages,working/pages";
+/// Base paths used when [`VAULT_BASE_PATHS_ENV`] is unset — the two vault
+/// roots of the sovereign corpus. Pages sit at each root (the flat Obsidian
+/// layout, owner decision 2026-10-16); the Logseq-era `pages/` folder is gone.
+pub const DEFAULT_VAULT_BASE_PATHS: &str = "knowledge,working";
 /// The vocabulary's location relative to the vault root (contract C1).
 pub const VOCABULARY_PATH: &str = "ontology/vocabulary.yaml";
 
-/// Directory names never descended into: app config, backups, bins and the
-/// non-content namespaces the vault contract excludes from KG ingest
-/// (`docs/VAULT-corpus-format.md` V4, ADR-2040 D6). Any name starting with
-/// `.` is skipped as well.
+/// Directory names never descended into: app config, backups, bins, the
+/// Obsidian furniture at a vault root
+/// ([`visionclaw_domain::vault::VAULT_FURNITURE_DIRS`]: `templates/`,
+/// `bases/`, `assets/`, `journals/`) and the non-content namespaces the vault
+/// contract excludes from KG ingest (`docs/VAULT-corpus-format.md` V4,
+/// ADR-2040 D6). Any name starting with `.` is skipped as well.
 const SKIP_DIRS: &[&str] = &[
     ".obsidian",
     ".trash",
     ".recycle",
     ".git",
     "bak",
+    "templates",
+    "bases",
+    "assets",
     "journals",
     "_misc",
 ];
@@ -61,7 +67,7 @@ impl LocalDirectorySource {
     }
 
     /// Construct from the environment: `VAULT_ROOT` plus `VAULT_BASE_PATHS`
-    /// (default `knowledge/pages,working/pages`).
+    /// (default `knowledge,working`).
     ///
     /// Fails when `VAULT_ROOT` is unset or empty — the local source cannot
     /// guess where the vault is mounted.
@@ -261,8 +267,9 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    /// A vault with both halves, an `.obsidian/` config dir, an `_misc`
-    /// namespace, a nested page and a non-markdown asset.
+    /// A flat vault with both halves, the Obsidian furniture at each root
+    /// (`.obsidian/`, `templates/`, `bases/`, `assets/`, `journals/`), an
+    /// `_misc` namespace, a nested page and a non-markdown asset.
     fn fixture_vault() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
@@ -272,30 +279,29 @@ mod tests {
             std::fs::write(path, body).unwrap();
         };
 
-        write(
-            "knowledge/pages/Alpha.md",
-            "---\npublic: true\n---\nalpha\n",
-        );
-        write("knowledge/pages/Beta.md", "---\npublic: true\n---\nbeta\n");
-        write("knowledge/pages/nested/Gamma.md", "nested gamma\n");
-        write("knowledge/pages/.obsidian/workspace.json", "{}");
-        write("knowledge/pages/.obsidian/types.md", "not a page");
-        write("knowledge/pages/_misc/Scratch.md", "ignored");
-        write("knowledge/pages/diagram.png", "not markdown");
-        write("knowledge/pages/.hidden.md", "hidden");
-        write("working/pages/Journal Entry.md", "working page\n");
-        write("working/pages/journals/2026-09-22.md", "journal");
-        write("elsewhere/pages/Unreachable.md", "outside the base paths");
+        write("knowledge/Alpha.md", "---\npublic: true\n---\nalpha\n");
+        write("knowledge/Beta.md", "---\npublic: true\n---\nbeta\n");
+        write("knowledge/nested/Gamma.md", "nested gamma\n");
+        write("knowledge/.obsidian/workspace.json", "{}");
+        write("knowledge/.obsidian/types.md", "not a page");
+        write("knowledge/_misc/Scratch.md", "ignored");
+        write("knowledge/templates/Class.md", "---\ntype: Class\n---\n");
+        write("knowledge/bases/All Classes.md", "not a page");
+        write("knowledge/assets/diagram.md", "not a page");
+        write("knowledge/assets/diagram.png", "not markdown");
+        write("knowledge/.hidden.md", "hidden");
+        write("working/Journal Entry.md", "working page\n");
+        write("working/podcast-evidence/Episode One.md", "evidence\n");
+        write("working/journals/2026-09-22.md", "journal");
+        write("working/templates/Daily.md", "template");
+        write("elsewhere/Unreachable.md", "outside the base paths");
         dir
     }
 
     fn source(root: &Path) -> LocalDirectorySource {
         LocalDirectorySource::new(
             root,
-            vec![
-                PathBuf::from("knowledge/pages"),
-                PathBuf::from("working/pages"),
-            ],
+            vec![PathBuf::from("knowledge"), PathBuf::from("working")],
         )
     }
 
@@ -308,14 +314,35 @@ mod tests {
         assert_eq!(
             paths,
             HashSet::from([
-                "knowledge/pages/Alpha.md",
-                "knowledge/pages/Beta.md",
-                "knowledge/pages/nested/Gamma.md",
-                "working/pages/Journal Entry.md",
+                "knowledge/Alpha.md",
+                "knowledge/Beta.md",
+                "knowledge/nested/Gamma.md",
+                "working/Journal Entry.md",
+                "working/podcast-evidence/Episode One.md",
             ]),
-            "both halves ingest; .obsidian, _misc, journals, dotfiles, \
-             non-markdown and out-of-base paths do not"
+            "both vaults ingest with nested namespaces kept; .obsidian, _misc, \
+             the furniture folders, dotfiles, non-markdown and out-of-base paths do not"
         );
+    }
+
+    /// One assertion per furniture folder, so a regression names the folder.
+    #[tokio::test]
+    async fn each_furniture_folder_is_skipped() {
+        let vault = fixture_vault();
+        let pages = source(vault.path()).list_pages().await.unwrap();
+        for furniture in [
+            "knowledge/templates/",
+            "knowledge/bases/",
+            "knowledge/assets/",
+            "working/journals/",
+            "working/templates/",
+            "knowledge/.obsidian/",
+        ] {
+            assert!(
+                pages.iter().all(|p| !p.path.starts_with(furniture)),
+                "{furniture} must yield no page"
+            );
+        }
     }
 
     #[tokio::test]
@@ -325,7 +352,7 @@ mod tests {
         let pages = src.list_pages().await.unwrap();
         let alpha = pages
             .iter()
-            .find(|p| p.path == "knowledge/pages/Alpha.md")
+            .find(|p| p.path == "knowledge/Alpha.md")
             .unwrap();
 
         assert_eq!(alpha.name, "Alpha.md");
@@ -346,7 +373,7 @@ mod tests {
         assert_eq!(first, second, "an untouched vault lists identically");
 
         std::fs::write(
-            vault.path().join("knowledge/pages/Alpha.md"),
+            vault.path().join("knowledge/Alpha.md"),
             "---\npublic: true\n---\nalpha rewritten\n",
         )
         .unwrap();
@@ -361,13 +388,13 @@ mod tests {
                 .clone()
         };
         assert_ne!(
-            marker_of(&first, "knowledge/pages/Alpha.md"),
-            marker_of(&third, "knowledge/pages/Alpha.md"),
+            marker_of(&first, "knowledge/Alpha.md"),
+            marker_of(&third, "knowledge/Alpha.md"),
             "a rewritten page gets a new marker"
         );
         assert_eq!(
-            marker_of(&first, "knowledge/pages/Beta.md"),
-            marker_of(&third, "knowledge/pages/Beta.md"),
+            marker_of(&first, "knowledge/Beta.md"),
+            marker_of(&third, "knowledge/Beta.md"),
             "an untouched sibling does not"
         );
     }
@@ -377,21 +404,19 @@ mod tests {
         let vault = fixture_vault();
         let src = source(vault.path());
 
-        let under = src.list_pages_under("knowledge/pages").await.unwrap();
+        let under = src.list_pages_under("knowledge").await.unwrap();
         let paths: Vec<&str> = under.iter().map(|p| p.path.as_str()).collect();
         assert_eq!(
             paths,
             vec![
-                "knowledge/pages/Alpha.md",
-                "knowledge/pages/Beta.md",
-                "knowledge/pages/nested/Gamma.md",
+                "knowledge/Alpha.md",
+                "knowledge/Beta.md",
+                "knowledge/nested/Gamma.md",
             ]
         );
 
         assert!(
-            src.list_pages_under("knowledge/pages/decisions")
-                .await
-                .is_err(),
+            src.list_pages_under("knowledge/decisions").await.is_err(),
             "an absent namespace is an error, not an empty list"
         );
     }
@@ -401,7 +426,7 @@ mod tests {
         let vault = fixture_vault();
         std::fs::remove_dir_all(vault.path().join("working")).unwrap();
         let pages = source(vault.path()).list_pages().await.unwrap();
-        assert!(pages.iter().all(|p| p.path.starts_with("knowledge/pages/")));
+        assert!(pages.iter().all(|p| p.path.starts_with("knowledge/")));
         assert_eq!(pages.len(), 3);
     }
 
@@ -417,18 +442,15 @@ mod tests {
         let d = src.describe();
         assert_eq!(d.kind, "local");
         assert_eq!(d.location, "/vault/visionGraph");
-        assert_eq!(d.base_paths, vec!["knowledge/pages", "working/pages"]);
+        assert_eq!(d.base_paths, vec!["knowledge", "working"]);
         assert_eq!(src.base_paths(), d.base_paths.as_slice());
     }
 
     #[test]
     fn base_paths_parse_from_a_comma_separated_list() {
         assert_eq!(
-            parse_base_paths(" knowledge/pages , /working/pages/ ,, "),
-            vec![
-                PathBuf::from("knowledge/pages"),
-                PathBuf::from("working/pages")
-            ]
+            parse_base_paths(" knowledge , /working/ ,, "),
+            vec![PathBuf::from("knowledge"), PathBuf::from("working")]
         );
         assert!(parse_base_paths(" , ").is_empty());
     }

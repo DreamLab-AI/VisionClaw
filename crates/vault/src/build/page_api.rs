@@ -57,10 +57,19 @@ pub fn build(
     closure: &Closure,
     backlinks: &HashMap<String, Vec<String>>,
 ) -> (Vec<PageDocument>, Value) {
-    build_attributed(corpus, closure, backlinks, &super::attribution::Roster::default())
+    build_attributed(
+        corpus,
+        closure,
+        backlinks,
+        &super::attribution::Roster::default(),
+    )
 }
 
 /// Page documents with a `provenance` block when the page's generator resolves in the roster.
+///
+/// # Panics
+/// Never in practice: every domain-index entry is created as an array here,
+/// and the `expect` asserts that invariant rather than hide it.
 #[must_use]
 #[allow(clippy::implicit_hasher, clippy::too_many_lines)]
 pub fn build_attributed(
@@ -89,11 +98,14 @@ pub fn build_attributed(
             entry.insert("classIri".into(), json!(record.iri));
             entry.insert("domain".into(), json!(record.domain));
             if let Some(gen) = record.generated_by.as_ref().and_then(|a| roster.resolve(a)) {
-                entry.insert("provenance".into(), json!({
-                    "wasAttributedTo": gen.did,
-                    "label": gen.label,
-                    "actor": record.generated_by.as_ref().map(|a| a.as_string()),
-                }));
+                entry.insert(
+                    "provenance".into(),
+                    json!({
+                        "wasAttributedTo": gen.did,
+                        "label": gen.label,
+                        "actor": record.generated_by.as_ref().map(vault_core::Actor::as_string),
+                    }),
+                );
             }
             entry.insert("definition".into(), json!(record.definition));
             entry.insert("subClassOf".into(), refs_to_json(&record.sub_class_of));

@@ -1298,9 +1298,15 @@ mod tests {
     #[test]
     fn category_order_matches_the_consistency_slugs() {
         // Two tables, one truth: every slug the validator knows must have a tier id, and vice versa.
-        let order: std::collections::BTreeSet<&str> = CATEGORY_ORDER.iter().map(|(s, _, _)| *s).collect();
-        let slugs: std::collections::BTreeSet<&str> =
-            vault_core::consistency::CATEGORY_SLUGS.iter().copied().collect();
-        assert_eq!(order, slugs, "CATEGORY_ORDER and CATEGORY_SLUGS have drifted");
+        let order: std::collections::BTreeSet<&str> =
+            CATEGORY_ORDER.iter().map(|(s, _, _)| *s).collect();
+        let slugs: std::collections::BTreeSet<&str> = vault_core::consistency::CATEGORY_SLUGS
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(
+            order, slugs,
+            "CATEGORY_ORDER and CATEGORY_SLUGS have drifted"
+        );
     }
 }

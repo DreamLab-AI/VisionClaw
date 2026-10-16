@@ -1,19 +1,20 @@
 //! `vault` — the single door onto the sovereign corpus.
 //!
-//! The CLI validates, queries, edits and builds the Obsidian ontology corpus.
-//! Agents use this CLI; humans use Obsidian.
+//! The CLI validates, proposes against and builds the Obsidian ontology
+//! corpus. Agents use this CLI; humans use Obsidian.
 //!
 //! | subcommand | what it does |
 //! |---|---|
 //! | `validate` | OKF v0.2 conformance, vocabulary agreement, link integrity, the public gate, and the obsolete-format rejection checks |
-//! | `find` / `retrieve` / `tree` | the graph over frontmatter links, with per-edge-type expansion depths |
-//! | `edit --expect` | guarded mutation; refused without a declared blast radius |
 //! | `propose` | a contract-C4 `PatchProposal`, Whelk and `conflicts` as blockers, posted as a forum 31402 |
-//! | `apply` | land a human-approved `kind: amend` proposal: its exact diff, plus `--set` keys, in one atomic write |
 //! | `panel publish` | the `ontology-governance` 31400 the proposals are routed to, signed by the proposing key |
 //! | `gate` / `conflicts` | the autonomous continuation gate and the semantic conflict detector |
 //! | `build` | pages to one generation: asserted and inferred TTL, the scaffold / prose / search indexes, the page API, the OKF bundle, the JSON-LD context and the generation stamp |
 //! | `repair fences` / `repair bodies` | close unmatched code fences; rewrite Logseq outliner bodies as Obsidian markdown |
+//!
+//! The graph and mutation verbs — `find`, `retrieve`, `tree`, `edit`, `create`
+//! and `apply` — moved to the `ontomark` CLI (ADR-OM-005; ontomark
+//! `docs/DEPRECATION.md` §2.1, rows VC-29/VC-30) and are no longer here.
 //!
 //! # Layers
 //!
@@ -59,14 +60,11 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod apply;
 pub mod bodies;
 pub mod build;
 pub mod closure;
 pub mod conflicts;
-pub mod create;
 mod diff;
-pub mod edit;
 pub mod gate;
 pub mod model;
 pub mod nostr;

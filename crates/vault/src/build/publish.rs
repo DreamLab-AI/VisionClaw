@@ -118,14 +118,14 @@ pub struct Staging {
 ///
 /// `_misc` is the projection's own rule ([`is_unpublished`], top level only).
 /// `misc` is the owner's 2026-09-02 scratch-tray decision, which the migration
-/// moved to `working/pages/misc/`; the published site holds it back with the
+/// moved to `working/misc/`; the published site holds it back with the
 /// `**/misc/**` Quartz ignore pattern and the site's `stage-content.sh` with the
 /// same list. Staging a page Quartz then ignores would make the site's
 /// completeness check (`check-urls.sh` [0/7]: staged == built) fail, so the
 /// staging applies the same rule rather than relying on the renderer alone.
 const HELD_BACK_DIRS: &[&str] = &["_misc", "misc"];
 
-/// `true` when a page path (relative to its vault's `pages/`) is outside the
+/// `true` when a page path (relative to its vault root) is outside the
 /// publish scope.
 fn held_back(rel: &Path) -> bool {
     if is_unpublished(rel) {
@@ -185,11 +185,7 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
         // `vault validate`.
         let tree = tree_dir(vault.kind);
         for page in &vault.pages {
-            let rel = page
-                .rel_path
-                .strip_prefix("pages")
-                .unwrap_or(&page.rel_path);
-            if held_back(rel) {
+            if held_back(&page.rel_path) {
                 continue;
             }
             counts.considered += 1;
@@ -206,7 +202,7 @@ pub fn stage(vaults: &[&Vault]) -> Result<Staging, SecretsFound> {
                 });
             }
             staging.files.push(StagedPage {
-                // `id` is the path under `pages/` without `.md`, so a
+                // `id` is the path under the vault root without `.md`, so a
                 // working subdirectory survives into the slug.
                 path: format!("publish/{tree}/{}.md", page.id),
                 content: render(page),
@@ -309,7 +305,7 @@ pub fn sibling_working(vault_root: &Path) -> Result<Option<Vault>, vault_core::e
         return Ok(None);
     };
     let working = repo.join("working");
-    if !working.join("pages").is_dir() {
+    if !working.is_dir() {
         return Ok(None);
     }
     Vault::load(&working, vault_core::page::VaultKind::Working).map(Some)
@@ -327,13 +323,7 @@ mod tests {
             pages: pages
                 .into_iter()
                 .map(|(id, text)| {
-                    Page::parse(
-                        format!("/v/pages/{id}.md"),
-                        format!("pages/{id}.md"),
-                        id,
-                        text,
-                    )
-                    .unwrap()
+                    Page::parse(format!("/v/{id}.md"), format!("{id}.md"), id, text).unwrap()
                 })
                 .collect(),
             journals: Vec::new(),
@@ -405,7 +395,7 @@ mod tests {
             VaultKind::Knowledge,
             vec![("Held", "---\ntype: Class\npublic: true\n---\nProse.\n")],
         );
-        knowledge.pages[0].rel_path = std::path::PathBuf::from("pages/_misc/Held.md");
+        knowledge.pages[0].rel_path = std::path::PathBuf::from("_misc/Held.md");
         let staging = stage(&[&knowledge]).unwrap();
         assert!(
             staging.files.iter().all(|f| !f.path.contains("Held")),

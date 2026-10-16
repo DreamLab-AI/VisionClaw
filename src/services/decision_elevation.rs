@@ -38,25 +38,21 @@ use visionclaw_domain::vault;
 use crate::services::decision_service::{build_decision_quads, DecisionInput};
 
 /// Corpus namespace for elevated decision pages. Mirrors the class-elevation
-/// convention (`knowledge/pages/…`) with a dedicated `decisions/`
-/// sub-namespace so a `force_full` read-half can list them cheaply.
+/// convention (`knowledge/…`) with a dedicated `decisions/` sub-namespace so a
+/// `force_full` read-half can list them cheaply.
 ///
 /// Repo-root-relative, matching the prefixes [`CorpusSource::list_pages_under`]
-/// takes — `knowledge/pages` is the governed role's page root in the
-/// visionGraph `vault.toml`. The old `mainKnowledgeGraph/pages/decisions`
-/// named a corpus layout that no longer exists (PRD-sovereign-corpus Q1: the
-/// canonical vault is `visionGraph`, `knowledge/` + `working/`); against the
-/// real corpus it resolved to nothing, so the ADR-050 read-half silently
-/// re-materialised zero decision records on every sync.
-pub const DECISIONS_DIR: &str = "knowledge/pages/decisions";
+/// takes — `knowledge` is the governed vault's root, and pages sit at it (the
+/// flat Obsidian layout, owner decision 2026-10-16). The earlier
+/// `mainKnowledgeGraph/pages/decisions` and `knowledge/pages/decisions` each
+/// named a layout that no longer exists; against the real corpus a stale
+/// prefix resolves to nothing, so the ADR-050 read-half silently
+/// re-materialises zero decision records on every sync.
+pub const DECISIONS_DIR: &str = "knowledge/decisions";
 
-/// The governed vault's page root — `$VAULT_ROOT/knowledge/pages`, the prefix
+/// The governed vault's root — `$VAULT_ROOT/knowledge`, the prefix
 /// [`DECISIONS_DIR`] and the class-elevation writer both live under.
-///
-/// The old `mainKnowledgeGraph/pages` named a corpus layout that no longer
-/// exists (PRD-sovereign-corpus Q1), so every writer that still used it was
-/// writing to a path the corpus source never lists.
-pub const KNOWLEDGE_PAGES_DIR: &str = "knowledge/pages";
+pub const KNOWLEDGE_VAULT_DIR: &str = "knowledge";
 
 // ---------------------------------------------------------------------------
 // Significance predicate (ADR-050 DECIDED: broker-gated, significant-only)
@@ -234,7 +230,7 @@ fn unwikilink(items: &[String]) -> Vec<String> {
 
 /// Draft the canonical corpus page for a significant decision — the inverse of
 /// [`crate::actors::elevation_actor::draft_class_page`], for `dl:DecisionRecord`
-/// instances. Emits `knowledge/pages/decisions/<slug>.md` as **frontmatter
+/// instances. Emits `knowledge/decisions/<slug>.md` as **frontmatter
 /// only** (PRD-sovereign-corpus Q4: no ```json-ld fence; `vault validate` lists
 /// a fence under `rejected_constructs`):
 ///
@@ -540,8 +536,8 @@ mod tests {
         // Repo-root-relative under the governed vault role, so the write-half's
         // path and the read-half's `list_pages_under(DECISIONS_DIR)` prefix are
         // the same string against the real visionGraph corpus.
-        assert!(path.starts_with("knowledge/pages/decisions/"));
-        assert_eq!(DECISIONS_DIR, "knowledge/pages/decisions");
+        assert!(path.starts_with("knowledge/decisions/"));
+        assert_eq!(DECISIONS_DIR, "knowledge/decisions");
         assert!(path.ends_with(".md"));
         // Deterministic: same decision → same path.
         let (path2, _) = draft_decision_page(&dec);

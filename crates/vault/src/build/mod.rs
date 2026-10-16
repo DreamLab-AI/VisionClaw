@@ -15,8 +15,8 @@
 //! successful one never leaves an obsolete page export behind, because the
 //! whole tree is replaced rather than written over.
 
-pub mod generation;
 pub mod attribution;
+pub mod generation;
 pub mod graph_tiers;
 pub mod indexes;
 pub mod ngg1;
@@ -289,7 +289,9 @@ fn alias_map(vault: &Vault) -> HashMap<String, Vec<String>> {
 /// on), or any I/O failure while staging or promoting the bundle.
 #[allow(clippy::too_many_lines)] // The pipeline, in the order it must run.
 pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
-    let pages_dir = options.vault_root.join("pages");
+    // Pages sit at the vault root; the census and the held-identity scan walk
+    // it with the furniture folders excluded, exactly as `load_vault` does.
+    let pages_dir = options.vault_root.clone();
     let census = projection::inspect_inputs(&pages_dir)?;
 
     let vault = load_vault(&options.vault_root)?;
@@ -328,7 +330,11 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
 
     let structural = closure::compute(&corpus);
     let backlinks = indexes::backlink_index(&corpus);
-    let roster = options.vault_root.parent().map(attribution::Roster::discover).unwrap_or_default();
+    let roster = options
+        .vault_root
+        .parent()
+        .map(attribution::Roster::discover)
+        .unwrap_or_default();
     let graph = turtle::build_graph_attributed(&corpus, vocab, true, &roster);
     // ADR-2124: a definition over a transitive hierarchy is refused here,
     // before the reasoner runs, with the named `WHELK_RELEVANT_CAP` error —
@@ -378,7 +384,8 @@ pub fn run(options: &Options, vocab: &Vocabulary) -> anyhow::Result<Report> {
     let search_entries = search.as_array().map_or(0, Vec::len);
     staged.add("api/search-index.json", to_indented(&search)?);
 
-    let (documents, domain_index) = page_api::build_attributed(&corpus, &structural, &backlinks, &roster);
+    let (documents, domain_index) =
+        page_api::build_attributed(&corpus, &structural, &backlinks, &roster);
     for doc in &documents {
         staged.add_for(
             format!("api/pages/{}.json", doc.slug),
@@ -610,7 +617,7 @@ mod tests {
     use super::*;
 
     fn fixture_vault(dir: &Path) {
-        let pages = dir.join("knowledge/pages");
+        let pages = dir.join("knowledge");
         std::fs::create_dir_all(&pages).unwrap();
         std::fs::write(
             pages.join("Root Concept.md"),
@@ -823,7 +830,7 @@ scalars:
 
     fn build_pages(pages: &[(&str, &str)]) -> (tempfile::TempDir, anyhow::Result<Report>) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("knowledge/pages");
+        let root = dir.path().join("knowledge");
         std::fs::create_dir_all(&root).unwrap();
         for (id, text) in pages {
             std::fs::write(root.join(format!("{id}.md")), text).unwrap();
@@ -991,7 +998,7 @@ scalars:
         )
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("knowledge/pages");
+        let root = dir.path().join("knowledge");
         std::fs::create_dir_all(&root).unwrap();
         for (id, text) in pages {
             std::fs::write(root.join(format!("{id}.md")), text).unwrap();
@@ -1098,7 +1105,7 @@ scalars:
             ),
         ];
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("knowledge/pages");
+        let root = dir.path().join("knowledge");
         std::fs::create_dir_all(&root).unwrap();
         for (id, text) in &pages {
             std::fs::write(root.join(format!("{id}.md")), text).unwrap();
@@ -1181,7 +1188,7 @@ scalars:
         let dir = tempfile::tempdir().unwrap();
         fixture_vault(dir.path());
         std::fs::write(
-            dir.path().join("knowledge/pages/Duplicate.md"),
+            dir.path().join("knowledge/Duplicate.md"),
             "---\ntype: Class\npublic: true\nresource: urn:ngm:class:root-concept\nstatus: draft\n---\n",
         )
         .unwrap();

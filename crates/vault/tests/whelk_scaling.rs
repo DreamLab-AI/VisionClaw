@@ -50,8 +50,8 @@ fn synthetic(n: usize, vocab: &Vocabulary) -> Corpus {
         );
         pages.push(
             Page::parse(
-                format!("/v/pages/Domain {d}.md"),
-                format!("pages/Domain {d}.md"),
+                format!("/v/Domain {d}.md"),
+                format!("Domain {d}.md"),
                 format!("Domain {d}"),
                 &text,
             )
@@ -93,8 +93,8 @@ fn synthetic(n: usize, vocab: &Vocabulary) -> Corpus {
         );
         pages.push(
             Page::parse(
-                format!("/v/pages/Class {i}.md"),
-                format!("pages/Class {i}.md"),
+                format!("/v/Class {i}.md"),
+                format!("Class {i}.md"),
                 format!("Class {i}"),
                 &text,
             )
@@ -266,8 +266,8 @@ fn synthetic_dag(n: usize, parents: usize, vocab: &Vocabulary) -> Corpus {
     let mut pages: Vec<Page> = Vec::with_capacity(n + 1);
     pages.push(
         Page::parse(
-            "/v/pages/Root.md",
-            "pages/Root.md",
+            "/v/Root.md",
+            "Root.md",
             "Root",
             "---\ntype: Class\ntitle: Root\nresource: urn:ngm:class:root\n\
              status: stable\npublic: true\n---\n\nRoot.\n",
@@ -296,8 +296,8 @@ fn synthetic_dag(n: usize, parents: usize, vocab: &Vocabulary) -> Corpus {
         );
         pages.push(
             Page::parse(
-                format!("/v/pages/Class {i}.md"),
-                format!("pages/Class {i}.md"),
+                format!("/v/Class {i}.md"),
+                format!("Class {i}.md"),
                 format!("Class {i}"),
                 &text,
             )

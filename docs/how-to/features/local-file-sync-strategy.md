@@ -35,7 +35,7 @@ difficulty-level: advanced
 **Pass 2**: For every page in the batch → emit `KGNodeDraft`. For every wikilink target NOT in batch → emit private stub. Every `WikilinkRef` edge stamped with `last_seen_run_id` UUID for orphan retraction.
 
 ```
-File: pages/Foo.md (public:: true)
+File: knowledge/Foo.md (public:: true)
     ↓ Pass 1: Visibility::Public + wikilinks [[Bar]], [[Baz]]
     ↓ Pass 2: emit KGNodeDraft(Foo, visibility=Public)
              emit KGNodeDraft(Bar, visibility=Private, is_stub=true)
@@ -43,7 +43,7 @@ File: pages/Foo.md (public:: true)
              emit WikilinkRef(Foo→Bar, last_seen_run_id=UUID-X)
              emit WikilinkRef(Foo→Baz, last_seen_run_id=UUID-X)
 
-File: pages/Private.md (no public:: true)
+File: knowledge/Private.md (no public:: true)
     ↓ Pass 1: Visibility::Private (not marked public)
     ↓ Pass 2: emit KGNodeDraft(Private, visibility=Private)
              (and wikilink edges if any)
@@ -226,11 +226,12 @@ SYNC_BATCH_SIZE=50
 
 # GitHub credentials (for GitHubSyncService)
 # GITHUB_REPO is the corpus repo NAME on GitHub (unchanged); its contents are an
-# Obsidian vault — see docs/VAULT-corpus-format.md. GITHUB_BASE_PATH is the vault's pages/ folder.
+# Obsidian vault — see docs/VAULT-corpus-format.md. GITHUB_BASE_PATH lists the
+# vault roots; pages sit at each root.
 GITHUB_OWNER=jjohare
 GITHUB_REPO=visionGraph
 GITHUB_BRANCH=main
-GITHUB_BASE_PATH=knowledge/pages,working/pages
+GITHUB_BASE_PATH=knowledge,working
 GITHUB_TOKEN=github_pat_...
 ```
 

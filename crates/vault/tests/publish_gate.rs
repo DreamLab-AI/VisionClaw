@@ -59,7 +59,7 @@ fn options(repo: &Path, out: &Path) -> build::Options {
 
 /// The first `public: true` page in the knowledge vault.
 fn a_public_page(repo: &Path) -> PathBuf {
-    let pages = repo.join("knowledge/pages");
+    let pages = repo.join("knowledge");
     let mut candidates: Vec<PathBuf> = vault_core::page::page_files(&pages)
         .expect("walk the pages")
         .into_iter()
@@ -215,7 +215,7 @@ fn publish_out_matches_the_site_url_contract() {
         .to_owned();
     let note = "---\ntype: Note\nstatus: draft\npublic: true\n---\nA public working note.\n";
     for rel in ["podcast-evidence/Episode One.md", "misc/Scratch Note.md"] {
-        let path = repo.join("working/pages").join(rel);
+        let path = repo.join("working").join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, note).unwrap();
     }

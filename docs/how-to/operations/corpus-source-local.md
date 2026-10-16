@@ -36,13 +36,16 @@ services:
     environment:
       CORPUS_SOURCE: "local"
       VAULT_ROOT: "/vault/visionGraph"
-      VAULT_BASE_PATHS: "knowledge/pages,working/pages"
+      VAULT_BASE_PATHS: "knowledge,working"
 ```
 
-Ingest then walks `${VAULT_ROOT}/knowledge/pages` and
-`${VAULT_ROOT}/working/pages` — the same dual-source split `GITHUB_BASE_PATHS`
-used to express. `.obsidian/`, `.trash/`, `_misc`, `journals/`, `bak/`, dot-files
-and anything that is not `.md` are skipped at listing time. The incremental
+Ingest then walks `${VAULT_ROOT}/knowledge` and `${VAULT_ROOT}/working` — the
+two vault roots, where the pages sit (the flat Obsidian layout; the Logseq-era
+`pages/` folder is gone). The Obsidian furniture beside the pages —
+`templates/`, `bases/`, `assets/`, `journals/` — plus `.obsidian/`, `.trash/`,
+`_misc`, `bak/`, dot-files and anything that is not `.md` are skipped at
+listing time. A page's identity is its path relative to the base
+(`working/podcast-evidence/x.md` ⇒ `podcast-evidence/x`). The incremental
 filter keys on `mtime:size` per page instead of a blob SHA; an untouched vault
 re-syncs nothing.
 
@@ -70,9 +73,9 @@ volume, so a missing volume is a loud failure, not a silent empty corpus.
 ## Verifying
 
 ```bash
-docker compose exec visionclaw ls /vault/visionGraph/knowledge/pages | head
+docker compose exec visionclaw ls /vault/visionGraph/knowledge | head
 docker compose logs visionclaw | grep 'Corpus source:'
-# → Corpus source: local corpus at /vault/visionGraph (sources: knowledge/pages, working/pages)
+# → Corpus source: local corpus at /vault/visionGraph (sources: knowledge, working)
 ```
 
 `GET /api/ontology/classes` after the first sync reports the ingested class
@@ -87,7 +90,7 @@ CORPUS_SOURCE=github
 PRIVATE_REPO_GITHUB_PAT=<token>
 GITHUB_OWNER=<owner>
 GITHUB_REPO=<repo>
-GITHUB_BASE_PATHS=knowledge/pages,working/pages
+GITHUB_BASE_PATHS=knowledge,working
 ```
 
 With `CORPUS_SOURCE=local` (or unset with `VAULT_ROOT` present) none of the

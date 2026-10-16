@@ -201,12 +201,24 @@ impl Graph {
 #[must_use]
 #[allow(clippy::too_many_lines)] // One faithful port of one Python function.
 pub fn build_graph(corpus: &Corpus, vocab: &Vocabulary, public_only: bool) -> Graph {
-    build_graph_attributed(corpus, vocab, public_only, &super::attribution::Roster::default())
+    build_graph_attributed(
+        corpus,
+        vocab,
+        public_only,
+        &super::attribution::Roster::default(),
+    )
 }
 
 /// [`build_graph`] with an attribution roster: each class whose OKF `generated.by`
 /// resolves in the roster carries `prov:wasAttributedTo <did:nostr:...>`.
-pub fn build_graph_attributed(corpus: &Corpus, vocab: &Vocabulary, public_only: bool, roster: &super::attribution::Roster) -> Graph {
+#[must_use]
+#[allow(clippy::too_many_lines)] // One faithful port of one Python function.
+pub fn build_graph_attributed(
+    corpus: &Corpus,
+    vocab: &Vocabulary,
+    public_only: bool,
+    roster: &super::attribution::Roster,
+) -> Graph {
     let mut g = Graph::new();
 
     // Imported external vocabulary, declared so the ontology is self-contained
@@ -221,7 +233,11 @@ pub fn build_graph_attributed(corpus: &Corpus, vocab: &Vocabulary, public_only: 
         &format!("{RDFS}label"),
         Term::lang("Concept", "en"),
     );
-    for annotation in [format!("{SKOS}broader"), format!("{DCTERMS}creator"), format!("{PROV}wasAttributedTo")] {
+    for annotation in [
+        format!("{SKOS}broader"),
+        format!("{DCTERMS}creator"),
+        format!("{PROV}wasAttributedTo"),
+    ] {
         g.add_iri(
             &annotation,
             &format!("{RDF}type"),
@@ -303,7 +319,11 @@ pub fn build_graph_attributed(corpus: &Corpus, vocab: &Vocabulary, public_only: 
             Term::plain(&record.domain),
         );
         if let Some(gen) = record.generated_by.as_ref().and_then(|a| roster.resolve(a)) {
-            g.add_iri(&uri, &format!("{PROV}wasAttributedTo"), Term::Iri(gen.did.clone()));
+            g.add_iri(
+                &uri,
+                &format!("{PROV}wasAttributedTo"),
+                Term::Iri(gen.did.clone()),
+            );
         }
         g.add_iri(
             &uri,

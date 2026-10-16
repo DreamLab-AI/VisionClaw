@@ -443,8 +443,8 @@ relations:
 
     fn page(id: &str, fm: &str, body: &str) -> Page {
         Page::parse(
-            format!("/v/pages/{id}.md"),
-            format!("pages/{id}.md"),
+            format!("/v/{id}.md"),
+            format!("{id}.md"),
             id,
             &format!("---\n{fm}---\n{body}"),
         )

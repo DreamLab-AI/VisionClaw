@@ -127,7 +127,7 @@ with an `### OntologyBlock` contributes ontology data regardless of visibility.
 | `GITHUB_OWNER` | string | *required* | Repository owner. `GITHUB_REPO_OWNER` is accepted as an alias. |
 | `GITHUB_REPO` | string | *required* | Repository name. `GITHUB_REPO_NAME` is accepted as an alias. |
 | `GITHUB_BRANCH` | string | `main` | Branch to sync. `GITHUB_BASE_BRANCH` is accepted as an alias. |
-| `GITHUB_BASE_PATH` | string | *required* | Path prefix within the repo to ingest (e.g. `knowledge/pages,working/pages`). Changing it clears stale data. |
+| `GITHUB_BASE_PATH` | string | *required* | Vault roots within the repo to ingest (e.g. `knowledge,working`; pages sit at each root, and `templates/`, `bases/`, `assets/`, `journals/` and dot-folders beneath are skipped). Page identity is the path relative to the matching root. Changing it clears stale data. |
 | `GITHUB_BASE_PATHS` | string (CSV) | `${GITHUB_BASE_PATH}` | Multiple ingest roots. |
 | `GITHUB_API_VERSION` | string | `v3` | GitHub REST API version header. |
 | `GITHUB_RATE_LIMIT` | boolean | `true` | Honour GitHub rate-limit headers and back off. |

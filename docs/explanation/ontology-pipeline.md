@@ -53,7 +53,7 @@ The SHACL-lite gate (`visionclaw_ontology::services::jsonld_ingest::shacl_gate`)
 
 ## 2. Stage 1 — corpus ingestion
 
-`GitHubSyncService::sync_graphs()` (`src/services/github_sync_service.rs`; the type keeps its historical name) is the entry point. It lists pages through the `CorpusSource` port — a mounted vault directory by default, the GitHub repository when selected (ADR-2114) — under `VAULT_BASE_PATHS` (local; `GITHUB_BASE_PATHS` for GitHub; default `knowledge/pages,working/pages`), in batches, and skips unchanged pages by the source's change marker. `FORCE_FULL_SYNC=1` bypasses the incremental filter and reprocesses every file; reset it to `0` afterwards.
+`GitHubSyncService::sync_graphs()` (`src/services/github_sync_service.rs`; the type keeps its historical name) is the entry point. It lists pages through the `CorpusSource` port — a mounted vault directory by default, the GitHub repository when selected (ADR-2114) — under `VAULT_BASE_PATHS` (local; `GITHUB_BASE_PATHS` for GitHub; default `knowledge,working`), in batches, and skips unchanged pages by the source's change marker. `FORCE_FULL_SYNC=1` bypasses the incremental filter and reprocesses every file; reset it to `0` afterwards.
 
 Each page is parsed once by `page_parser::parse_page`. A page whose frontmatter carries `public: true` becomes a knowledge-graph page node and its links (the curated `links` list, else the body's wikilinks) become edges in `urn:ngm:graph:knowledge`. A page without frontmatter is private, fail-closed. **Independently of the publish gate**, a page under `knowledge/` whose `type` is `Class`, `Property` or `Individual` is an ontology page, so private ontology pages still contribute axioms.
 

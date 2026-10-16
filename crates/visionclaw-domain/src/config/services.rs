@@ -283,7 +283,9 @@ fn default_max_discovery_results() -> usize {
     20
 }
 fn default_notes_path_prefix() -> String {
-    "pages/".to_string()
+    // The curator's vault root: pages sit at it (flat Obsidian layout), and
+    // agent-authored notes belong in `working/`, never the governed `knowledge/`.
+    "working/".to_string()
 }
 fn default_pr_labels() -> Vec<String> {
     vec!["ontology".to_string(), "agent-proposed".to_string()]

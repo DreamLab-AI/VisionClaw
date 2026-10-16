@@ -3,8 +3,8 @@
 //! This is the security-relevant half of the build. Three things happen here
 //! and all three must keep happening:
 //!
-//! 1. **Input census** ([`inspect_inputs`]). Every markdown file under
-//!    `pages/` is accounted for before the parser gets a chance to silently
+//! 1. **Input census** ([`inspect_inputs`]). Every markdown file under the
+//!    vault root is accounted for before the parser gets a chance to silently
 //!    drop it. A `public` value that is not a real boolean is refusal, not
 //!    coercion — "true" the string never becomes publication permission.
 //! 2. **Identity collision check.** If one identity (page id, slug or IRI) is
@@ -17,7 +17,8 @@
 //!
 //! Pages under a dot-directory or an unpublished namespace are force-marked
 //! private and carried into the marker set, so an incoming link cannot make a
-//! held page public.
+//! held page public. The vault furniture ([`vault_core::page::FURNITURE_DIRS`])
+//! is not corpus at all and is counted as an excluded directory.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -25,7 +26,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use regex::Regex;
 use vault_core::frontmatter;
-use vault_core::page::is_unpublished;
+use vault_core::page::{is_furniture, is_unpublished};
 
 use crate::model::{ClassRecord, Conjunct, Corpus, Ref};
 
@@ -87,7 +88,7 @@ pub fn inspect_inputs(pages_dir: impl AsRef<Path>) -> Result<Census, Publication
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
-        if parts.iter().any(|p| p.starts_with('.')) || is_unpublished(rel) {
+        if parts.iter().any(|p| p.starts_with('.')) || is_furniture(rel) || is_unpublished(rel) {
             bump("excluded_directory");
             continue;
         }
@@ -176,7 +177,7 @@ pub fn excluded_identities(pages_dir: impl AsRef<Path>) -> Result<HashSet<String
             continue;
         }
         let rel = entry.path().strip_prefix(pages_dir).unwrap_or(entry.path());
-        if !is_unpublished(rel) {
+        if is_furniture(rel) || !is_unpublished(rel) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(entry.path()) else {
@@ -597,23 +598,31 @@ mod tests {
     #[test]
     fn census_counts_and_balances() {
         let dir = tempfile::tempdir().unwrap();
-        let pages = dir.path().join("pages");
+        let pages = dir.path().join("knowledge");
         std::fs::create_dir_all(pages.join("_misc")).unwrap();
+        std::fs::create_dir_all(pages.join("templates")).unwrap();
         std::fs::write(pages.join("A.md"), "---\npublic: true\n---\n").unwrap();
         std::fs::write(pages.join("B.md"), "---\npublic: false\n---\n").unwrap();
         std::fs::write(pages.join("C.md"), "no frontmatter\n").unwrap();
         std::fs::write(pages.join("_misc/D.md"), "---\npublic: true\n---\n").unwrap();
+        // Furniture is excluded, not refused: a template's `public: "true"`
+        // would otherwise block the build over a file that is not a page.
+        std::fs::write(
+            pages.join("templates/Class.md"),
+            "---\npublic: \"true\"\n---\n",
+        )
+        .unwrap();
         let census = inspect_inputs(&pages).unwrap();
         assert_eq!(census.public_pages, 1);
         assert_eq!(census.non_public_pages, 1);
-        assert_eq!(census.excluded, 2);
+        assert_eq!(census.excluded, 3);
         assert!(census.balanced);
     }
 
     #[test]
     fn a_string_public_flag_refuses_the_build() {
         let dir = tempfile::tempdir().unwrap();
-        let pages = dir.path().join("pages");
+        let pages = dir.path().join("knowledge");
         std::fs::create_dir_all(&pages).unwrap();
         std::fs::write(pages.join("A.md"), "---\npublic: \"true\"\n---\n").unwrap();
         assert!(matches!(

@@ -40,16 +40,19 @@ const DIVERGENCES: &str =
      ontology.ttl declares prov:wasAttributedTo (per-class attribution, 2026-10-11); \
      attributedTo is the human director's real did:nostr, not the golden placeholder";
 
-
 /// Divergence 5: the Python reference attributed the corpus to the placeholder
 /// `did:nostr:jjohare`; vault attributes it to the human director's real key
 /// (`graph_tiers::ATTRIBUTED_TO`). Compare shape, not the key.
 fn normalise_attribution(v: &mut serde_json::Value) {
     const GOLDEN: &str = "did:nostr:jjohare";
     if let Some(o) = v.as_object_mut() {
-        if o.contains_key("attributedTo") { o["attributedTo"] = serde_json::json!(GOLDEN); }
+        if o.contains_key("attributedTo") {
+            o["attributedTo"] = serde_json::json!(GOLDEN);
+        }
         if let Some(p) = o.get_mut("provenance").and_then(|p| p.as_object_mut()) {
-            if p.contains_key("did") { p["did"] = serde_json::json!(GOLDEN); }
+            if p.contains_key("did") {
+                p["did"] = serde_json::json!(GOLDEN);
+            }
         }
     }
 }
@@ -366,7 +369,7 @@ fn the_migrated_corpus_validates_clean() {
 #[test]
 fn the_migration_leaves_no_residue() {
     let (scratch, _out) = fixture_and_build();
-    let pages = scratch.path().join("repo/knowledge/pages");
+    let pages = scratch.path().join("repo/knowledge");
     let mut checked = 0usize;
     for entry in std::fs::read_dir(&pages).expect("read pages") {
         let path = entry.expect("entry").path();
@@ -544,8 +547,14 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
     // the same way the two appended domain roots are stripped above.
     const LEGACY_CATEGORIES: usize = 34;
     actual["domains"].as_array_mut().unwrap().truncate(6);
-    actual["categories"].as_array_mut().unwrap().truncate(LEGACY_CATEGORIES);
-    actual["taxonomy"].as_array_mut().unwrap().truncate(LEGACY_CATEGORIES);
+    actual["categories"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(LEGACY_CATEGORIES);
+    actual["taxonomy"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(LEGACY_CATEGORIES);
     {
         let nodes = actual["nodes"].as_array_mut().unwrap();
         nodes.drain(6..8);

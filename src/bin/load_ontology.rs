@@ -1,7 +1,7 @@
 // src/bin/load_ontology.rs
 //! Ontology Loader Binary (ADR-2064)
 //!
-//! Walks the real authored corpus (the vault's `pages/` tree — see
+//! Walks the real authored corpus (the pages at each vault root — see
 //! `docs/VAULT-corpus-format.md`), parses every page through the ingest seam
 //! ([`parse_page`], `vault_core`), projects the pages that declare ontology
 //! (`type: Class|Property|Individual` under `knowledge/`) through the corpus
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        match parse_page(&content, &page.path) {
+        match parse_page(&content, &page.path, source.base_paths()) {
             // The same §V4 gate the sync applies, and the same public boundary
             // `vault build` projects the ontology through.
             Ok(Some(parsed)) if visionclaw_domain::vault::parse(&content).is_kg_included() => {

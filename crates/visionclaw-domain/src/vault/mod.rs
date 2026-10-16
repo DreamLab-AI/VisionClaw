@@ -322,47 +322,101 @@ pub fn render_page(meta: &PageMeta, body: &str) -> String {
     out
 }
 
+/// Top-level vault folders that hold **no pages**: the Obsidian furniture that
+/// sits beside the pages at a vault root (owner decision 2026-10-16, the flat
+/// layout). `templates/`, `bases/` and `assets/` are editor material;
+/// `journals/` is the daily-note tree, which the graph ingest has never read.
+/// Any folder whose name starts with `.` (`.obsidian/`, `.trash/`,
+/// `.deleted/`) is furniture too.
+///
+/// Mirrors `vault_core::page::FURNITURE_DIRS`; this crate does not link
+/// `vault-core`, so the list is restated here and the two are kept equal.
+pub const VAULT_FURNITURE_DIRS: &[&str] = &["templates", "bases", "assets", "journals"];
+
+/// The configured base path that prefixes `path`, when one does.
+///
+/// Longest match wins, so a nested base cannot strip the wrong prefix. Base
+/// paths are compared with their surrounding `/` trimmed; an empty base (the
+/// GitHub config's `/` default) matches nothing here and is handled by the
+/// caller as "no base configured".
+pub fn vault_base_of<'a, 'p>(
+    path: &'p str,
+    base_paths: &'a [String],
+) -> Option<(&'a str, &'p str)> {
+    let trimmed = path.trim().trim_start_matches("./").trim_start_matches('/');
+    base_paths
+        .iter()
+        .map(|base| base.trim_matches('/'))
+        .filter(|base| !base.is_empty())
+        .filter_map(|base| {
+            trimmed
+                .strip_prefix(base)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .map(|rest| (base, rest))
+        })
+        .max_by_key(|(base, _)| base.len())
+}
+
+/// `true` when a **base-relative** path sits under vault furniture: its first
+/// component is one of [`VAULT_FURNITURE_DIRS`], or any component starts with
+/// `.`.
+pub fn is_vault_furniture(rel: &str) -> bool {
+    let mut parts = rel.trim_start_matches('/').split('/').peekable();
+    let first_is_furniture = parts
+        .peek()
+        .is_some_and(|first| VAULT_FURNITURE_DIRS.contains(first));
+    first_is_furniture || parts.any(|p| p.starts_with('.'))
+}
+
+/// Derive a page's vault identity from a **repository** path, given the
+/// configured base paths (§V1).
+///
+/// The identity is the path relative to whichever configured base path
+/// prefixes it, without `.md`: `knowledge/Ns/Title.md` and
+/// `working/Ns/Title.md` both yield `Ns/Title`. That is load bearing: the two
+/// vaults deliberately share basenames so a working page and its knowledge
+/// twin resolve to the SAME node (the cross-graph join), and 254 such pairs
+/// exist in the corpus. Keeping the base prefix in the identity would split
+/// every one of them. Nested folders stay in the name
+/// (`working/podcast-evidence/x.md` ⇒ `podcast-evidence/x`).
+///
+/// `None` — the path is **not a page** and the caller must skip it — when
+///
+/// * no configured base path prefixes it, or
+/// * it sits under vault furniture ([`is_vault_furniture`]): `templates/`,
+///   `bases/`, `assets/`, `journals/` or a dot-folder beneath the base.
+///
+/// With no base paths configured at all the whole repo is ingested, so the
+/// full path is the identity (furniture still excluded).
+pub fn page_name_from_repo_path(path: &str, base_paths: &[String]) -> Option<String> {
+    let trimmed = path.trim().trim_start_matches("./").trim_start_matches('/');
+    let no_bases = base_paths
+        .iter()
+        .all(|base| base.trim_matches('/').is_empty());
+    let rel = if no_bases {
+        trimmed
+    } else {
+        vault_base_of(trimmed, base_paths)?.1
+    };
+    if rel.is_empty() || is_vault_furniture(rel) {
+        return None;
+    }
+    Some(page_name_from_path(rel))
+}
+
 /// Derive a page's vault identity from a vault-relative path (§V1).
 ///
-/// Strips the `.md` extension and a leading `pages/` segment, then decodes the
-/// legacy namespace encodings `___` and `%2F` to `/`. The result is the page
-/// name in the `[[Ns/Title]]` form the corpus already links with.
+/// Strips the `.md` extension, then decodes the legacy namespace encodings
+/// `___` and `%2F` to `/`. The result is the page name in the `[[Ns/Title]]`
+/// form the corpus already links with.
 ///
 /// Identity is stable across the conversion (governing doc Invariant 4):
 /// slugification collapses any run of non-alphanumerics to a single `-`, so
 /// `A___B Testing`, `A%2FB Testing` and `A/B Testing` all slugify identically.
-/// Derive a page's vault identity from a **repository** path, given the
-/// configured GitHub base paths (§V1).
-///
-/// The base path is stripped first, so `mainKnowledgeGraph/pages/Ns/Title.md`
-/// and `workingGraph/pages/Ns/Title.md` both yield `Ns/Title`. That is load
-/// bearing: the two source graphs deliberately share basenames so a working
-/// page and its knowledge twin resolve to the SAME node (the cross-graph
-/// join), and 254 such pairs exist in the corpus. Keeping the base prefix in
-/// the identity would split every one of them.
-///
-/// With no base paths configured the whole repo is ingested, so the full path
-/// is the identity.
-pub fn page_name_from_repo_path(path: &str, base_paths: &[String]) -> String {
-    let trimmed = path.trim().trim_start_matches('/');
-
-    // Longest matching prefix wins, so nested bases cannot strip the wrong one.
-    let stripped = base_paths
-        .iter()
-        .map(|base| base.trim_matches('/'))
-        .filter(|base| !base.is_empty())
-        .filter_map(|base| trimmed.strip_prefix(&format!("{}/", base)))
-        .max_by_key(|rest| trimmed.len() - rest.len())
-        .unwrap_or(trimmed);
-
-    page_name_from_path(stripped)
-}
-
 pub fn page_name_from_path(rel: &str) -> String {
     let trimmed = rel.trim().trim_start_matches('/');
     let without_ext = trimmed.strip_suffix(".md").unwrap_or(trimmed);
-    let without_pages = without_ext.strip_prefix("pages/").unwrap_or(without_ext);
-    without_pages
+    without_ext
         .replace("___", "/")
         .replace("%2F", "/")
         .replace("%2f", "/")
@@ -913,36 +967,41 @@ mod tests {
 
     // -- page_name_from_path (§V1) -------------------------------------------
 
+    fn flat_bases() -> Vec<String> {
+        vec!["knowledge".to_string(), "working".to_string()]
+    }
+
     #[test]
     fn repo_path_identity_strips_the_configured_base_path() {
-        let bases = vec![
-            "mainKnowledgeGraph/pages".to_string(),
-            "workingGraph/pages".to_string(),
-        ];
+        let bases = flat_bases();
         assert_eq!(
-            page_name_from_repo_path("mainKnowledgeGraph/pages/podcast-evidence/foo.md", &bases),
-            "podcast-evidence/foo"
+            page_name_from_repo_path("working/podcast-evidence/foo.md", &bases).as_deref(),
+            Some("podcast-evidence/foo")
         );
         assert_eq!(
-            page_name_from_repo_path(
-                "mainKnowledgeGraph/pages/ETSI_Domain_Governance/Economy.md",
-                &bases
-            ),
-            "ETSI_Domain_Governance/Economy"
+            page_name_from_repo_path("knowledge/ETSI_Domain_Governance/Economy.md", &bases)
+                .as_deref(),
+            Some("ETSI_Domain_Governance/Economy")
+        );
+        // Leading `./` and `/`, as the corpus sources emit, are normalised.
+        assert_eq!(
+            page_name_from_repo_path("./knowledge/Agentic AI.md", &bases).as_deref(),
+            Some("Agentic AI")
+        );
+        assert_eq!(
+            page_name_from_repo_path("/knowledge/Agentic AI.md", &bases).as_deref(),
+            Some("Agentic AI")
         );
     }
 
     #[test]
     fn the_cross_graph_twin_join_survives_base_stripping() {
-        // 254 basename pairs exist across the two source graphs and MUST land
-        // on one node. Keeping the base prefix in the identity would split them.
-        let bases = vec![
-            "mainKnowledgeGraph/pages".to_string(),
-            "workingGraph/pages".to_string(),
-        ];
+        // 254 basename pairs exist across the two vaults and MUST land on one
+        // node. Keeping the base prefix in the identity would split them.
+        let bases = flat_bases();
         assert_eq!(
-            page_name_from_repo_path("mainKnowledgeGraph/pages/Agentic AI.md", &bases),
-            page_name_from_repo_path("workingGraph/pages/Agentic AI.md", &bases)
+            page_name_from_repo_path("knowledge/Agentic AI.md", &bases),
+            page_name_from_repo_path("working/Agentic AI.md", &bases)
         );
     }
 
@@ -950,30 +1009,138 @@ mod tests {
     fn a_legacy_flat_namespace_file_and_its_converted_folder_share_an_identity() {
         // Invariant 4: conversion must not move a node. The flat `___` file and
         // the folder it becomes yield the same identity, hence the same id.
-        let bases = vec!["mainKnowledgeGraph/pages".to_string()];
+        let bases = vec!["knowledge".to_string()];
         assert_eq!(
-            page_name_from_repo_path(
-                "mainKnowledgeGraph/pages/ETSI_Domain_Governance___Economy.md",
-                &bases
-            ),
-            page_name_from_repo_path(
-                "mainKnowledgeGraph/pages/ETSI_Domain_Governance/Economy.md",
-                &bases
-            )
+            page_name_from_repo_path("knowledge/ETSI_Domain_Governance___Economy.md", &bases),
+            page_name_from_repo_path("knowledge/ETSI_Domain_Governance/Economy.md", &bases)
         );
+    }
+
+    #[test]
+    fn a_path_under_no_configured_base_is_not_a_page() {
+        let bases = flat_bases();
+        assert_eq!(page_name_from_repo_path("elsewhere/Foo.md", &bases), None);
+        assert_eq!(page_name_from_repo_path("README.md", &bases), None);
+        // A base must match a whole component: `knowledgeable/` is not
+        // `knowledge/`.
+        assert_eq!(
+            page_name_from_repo_path("knowledgeable/Foo.md", &bases),
+            None
+        );
+        // The base directory itself is not a page.
+        assert_eq!(page_name_from_repo_path("knowledge", &bases), None);
+    }
+
+    #[test]
+    fn the_longest_matching_base_wins() {
+        let bases = vec!["knowledge".to_string(), "knowledge/deep".to_string()];
+        assert_eq!(
+            page_name_from_repo_path("knowledge/deep/Foo.md", &bases).as_deref(),
+            Some("Foo")
+        );
+    }
+
+    #[test]
+    fn with_no_bases_configured_the_whole_path_is_the_identity() {
+        for bases in [Vec::<String>::new(), vec!["/".to_string()]] {
+            assert_eq!(
+                page_name_from_repo_path("knowledge/Foo.md", &bases).as_deref(),
+                Some("knowledge/Foo"),
+                "{bases:?}"
+            );
+            // The repo root is then the vault root: furniture at the top
+            // level is skipped, and a vault's own `templates/` is one level
+            // down, so it reads as a namespace. Configure the base paths to
+            // get the vault-level rule.
+            assert_eq!(
+                page_name_from_repo_path("templates/Foo.md", &bases),
+                None,
+                "{bases:?}"
+            );
+            assert_eq!(
+                page_name_from_repo_path(".obsidian/Foo.md", &bases),
+                None,
+                "{bases:?}"
+            );
+            assert_eq!(
+                page_name_from_repo_path("knowledge/templates/Foo.md", &bases).as_deref(),
+                Some("knowledge/templates/Foo"),
+                "{bases:?}"
+            );
+        }
+    }
+
+    // One test per furniture folder: the sync must skip each of them.
+
+    #[test]
+    fn a_templates_file_is_not_a_page() {
+        assert_eq!(
+            page_name_from_repo_path("knowledge/templates/Class.md", &flat_bases()),
+            None
+        );
+        assert_eq!(
+            page_name_from_repo_path("working/templates/Daily.md", &flat_bases()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_bases_file_is_not_a_page() {
+        assert_eq!(
+            page_name_from_repo_path("knowledge/bases/All Classes.md", &flat_bases()),
+            None
+        );
+    }
+
+    #[test]
+    fn an_assets_file_is_not_a_page() {
+        assert_eq!(
+            page_name_from_repo_path("working/assets/diagram.md", &flat_bases()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_journals_file_is_not_a_page() {
+        // `working/journals/` was outside `working/pages/` in the old layout
+        // and never ingested; the flat layout keeps it out.
+        assert_eq!(
+            page_name_from_repo_path("working/journals/2026-09-22.md", &flat_bases()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_dot_folder_file_is_not_a_page() {
+        for path in [
+            "knowledge/.obsidian/types.md",
+            "knowledge/.deleted/AI-0376-algorithmic-accountability.md",
+            "working/.trash/Gone.md",
+            "knowledge/Ns/.hidden/Deep.md",
+        ] {
+            assert_eq!(
+                page_name_from_repo_path(path, &flat_bases()),
+                None,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn furniture_names_one_level_down_are_ordinary_namespaces() {
+        assert_eq!(
+            page_name_from_repo_path("knowledge/Ns/templates/Foo.md", &flat_bases()).as_deref(),
+            Some("Ns/templates/Foo")
+        );
+        assert!(!is_vault_furniture("Ns/assets/Foo.md"));
+        for d in VAULT_FURNITURE_DIRS {
+            assert!(is_vault_furniture(&format!("{d}/Foo.md")), "{d}");
+        }
     }
 
     #[test]
     fn page_name_decodes_triple_underscore_namespaces() {
         assert_eq!(page_name_from_path("A___B Testing.md"), "A/B Testing");
-    }
-
-    #[test]
-    fn page_name_strips_a_leading_pages_segment() {
-        assert_eq!(
-            page_name_from_path("pages/ETSI_Domain_Governance___Economy.md"),
-            "ETSI_Domain_Governance/Economy"
-        );
     }
 
     #[test]
@@ -985,7 +1152,7 @@ mod tests {
     #[test]
     fn page_name_passes_through_folder_namespaces() {
         assert_eq!(page_name_from_path("Ns/Title.md"), "Ns/Title");
-        assert_eq!(page_name_from_path("pages/Ns/Title.md"), "Ns/Title");
+        assert_eq!(page_name_from_path("Ns/Deep/Title.md"), "Ns/Deep/Title");
     }
 
     #[test]
