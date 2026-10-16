@@ -372,8 +372,8 @@ relations:
                 .into_iter()
                 .map(|(id, fm)| {
                     Page::parse(
-                        format!("/v/pages/{id}.md"),
-                        format!("pages/{id}.md"),
+                        format!("/v/{id}.md"),
+                        format!("{id}.md"),
                         id,
                         &format!("---\ntype: Class\npublic: true\n{fm}---\n"),
                     )
@@ -487,15 +487,15 @@ relations:
             skipped: Vec::new(),
             pages: vec![
                 Page::parse(
-                    "/v/pages/A.md",
-                    "pages/A.md",
+                    "/v/A.md",
+                    "A.md",
                     "A",
                     "---\ntype: Class\npublic: true\nis-a: [\"[[B]]\"]\n---\n",
                 )
                 .unwrap(),
                 Page::parse(
-                    "/v/pages/B.md",
-                    "pages/B.md",
+                    "/v/B.md",
+                    "B.md",
                     "B",
                     "---\ntype: Individual\npublic: true\n---\n",
                 )
@@ -534,20 +534,8 @@ relations:
             journals: Vec::new(),
             skipped: Vec::new(),
             pages: vec![
-                Page::parse(
-                    "/v/pages/A.md",
-                    "pages/A.md",
-                    "A",
-                    "---\npublic: true\n---\n",
-                )
-                .unwrap(),
-                Page::parse(
-                    "/v/pages/B.md",
-                    "pages/B.md",
-                    "B",
-                    "---\npublic: true\n---\n",
-                )
-                .unwrap(),
+                Page::parse("/v/A.md", "A.md", "A", "---\npublic: true\n---\n").unwrap(),
+                Page::parse("/v/B.md", "B.md", "B", "---\npublic: true\n---\n").unwrap(),
             ],
         };
         let _ = IndexMap::<String, usize>::new();

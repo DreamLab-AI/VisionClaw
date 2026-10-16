@@ -274,9 +274,9 @@ impl GitHubSyncService {
 
         let base_path_changed = self.detect_and_handle_base_path_change().await;
 
-        let files = match self.source.list_pages().await {
+        let listed = match self.source.list_pages().await {
             Ok(files) => {
-                info!("Found {} markdown pages", files.len());
+                info!("Found {} markdown files", files.len());
                 files
             }
             Err(e) => {
@@ -287,17 +287,39 @@ impl GitHubSyncService {
             }
         };
 
+        // A listed file is a page only if it resolves to a §V1 identity: under
+        // a configured base path and outside the vault furniture (`templates/`,
+        // `bases/`, `assets/`, `journals/`, dot-folders). The local source
+        // already declines to walk those folders; this is the one rule both
+        // sources are held to, so a GitHub listing cannot smuggle a template in.
+        let base_paths = self.source.base_paths().to_vec();
+        let files: Vec<CorpusPage> = listed
+            .into_iter()
+            .filter(|f| {
+                let is_page =
+                    visionclaw_domain::vault::page_name_from_repo_path(&f.path, &base_paths)
+                        .is_some();
+                if !is_page {
+                    debug!("Skipping non-page file: {}", f.path);
+                }
+                is_page
+            })
+            .collect();
+        info!(
+            "{} markdown pages under base paths {:?}",
+            files.len(),
+            base_paths
+        );
+
         stats.total_files = files.len();
 
         // ADR-2040 §V1: build the vault index from the FULL listing, never the
         // changed subset — an incremental sync must still resolve links into
         // unchanged pages, or every one of them mints a phantom stub.
-        let base_paths = self.source.base_paths().to_vec();
-        let vault_index = visionclaw_domain::vault::VaultIndex::from_identities(
-            files
-                .iter()
-                .map(|f| visionclaw_domain::vault::page_name_from_repo_path(&f.path, &base_paths)),
-        );
+        let vault_index =
+            visionclaw_domain::vault::VaultIndex::from_identities(files.iter().filter_map(|f| {
+                visionclaw_domain::vault::page_name_from_repo_path(&f.path, &base_paths)
+            }));
         info!(
             "Vault index: {} page identities from {} files",
             vault_index.len(),
@@ -334,10 +356,8 @@ impl GitHubSyncService {
         let knowledge_ids: std::collections::HashSet<u32> = files
             .iter()
             .filter(|f| is_knowledge_path(&f.path))
-            .map(|f| {
-                self.kg_parser
-                    .page_name_to_id(&vault_ctx.identity_of(&f.path))
-            })
+            .filter_map(|f| vault_ctx.identity_of(&f.path))
+            .map(|identity| self.kg_parser.page_name_to_id(&identity))
             .collect();
         let scope = SyncScope {
             vault: vault_ctx,
@@ -1642,7 +1662,7 @@ impl GitHubSyncService {
     ) -> Result<(), String> {
         debug!("Processing file: {} ({} bytes)", file.name, content.len());
 
-        let parsed = match parse_page(content, &file.path) {
+        let parsed = match parse_page(content, &file.path, scope.vault.base_paths()) {
             Ok(Some(parsed)) => parsed,
             Ok(None) => {
                 self.process_plain_vault_file(file, content, nodes, edges, stub_ids, scope);
@@ -1667,7 +1687,12 @@ impl GitHubSyncService {
             return Ok(());
         }
 
-        let identity = scope.vault.identity_of(&file.path);
+        // The listing was filtered on this rule, so `None` here is a defect in
+        // the caller, not a page to invent an identity for.
+        let Some(identity) = scope.vault.identity_of(&file.path) else {
+            warn!("Skipping {}: not a page under the base paths", file.path);
+            return Ok(());
+        };
         let source_id = self.kg_parser.page_name_to_id(&identity);
         let entity = &parsed.entity;
         let mut page_node =
@@ -1848,7 +1873,11 @@ impl GitHubSyncService {
         // collapses every namespaced page onto its leaf, which merged distinct
         // pages (`ETSI_Domain_Infrastructure/Security` with the root
         // `Security`) and orphaned every bare link into a subfolder.
-        let vault_path = format!("{}.md", scope.vault.identity_of(&file.path));
+        let Some(identity) = scope.vault.identity_of(&file.path) else {
+            warn!("Skipping {}: not a page under the base paths", file.path);
+            return;
+        };
+        let vault_path = format!("{identity}.md");
         let parsed =
             self.kg_parser
                 .parse_with_index(content, &vault_path, Some(scope.vault.index()));
@@ -3095,24 +3124,25 @@ mod sovereign_corpus_scope_tests {
 
     /// The ontology type the ingest seam reports for a page, if any.
     fn declared_ontology_type(path: &str, content: &str) -> Option<String> {
-        parse_page(content, path)
+        let bases = vec!["knowledge".to_string(), "working".to_string()];
+        parse_page(content, path, &bases)
             .expect("fixture frontmatter parses")
             .map(|parsed| parsed.ontology_type)
     }
 
     #[test]
     fn only_knowledge_paths_are_knowledge() {
-        assert!(is_knowledge_path("knowledge/pages/A.md"));
-        assert!(is_knowledge_path("./knowledge/pages/A.md"));
-        assert!(is_knowledge_path("/knowledge/pages/A.md"));
-        assert!(!is_knowledge_path("working/pages/A.md"));
-        assert!(!is_knowledge_path("working/pages/knowledge/A.md"));
+        assert!(is_knowledge_path("knowledge/A.md"));
+        assert!(is_knowledge_path("./knowledge/A.md"));
+        assert!(is_knowledge_path("/knowledge/A.md"));
+        assert!(!is_knowledge_path("working/A.md"));
+        assert!(!is_knowledge_path("working/knowledge/A.md"));
     }
 
     #[test]
     fn a_working_twin_yields_to_its_knowledge_page_and_nothing_else_does() {
         let index = visionclaw_domain::vault::VaultIndex::from_identities(["Camera"]);
-        let bases = vec!["knowledge/pages".to_string(), "working/pages".to_string()];
+        let bases = vec!["knowledge".to_string(), "working".to_string()];
         let parser = KnowledgeGraphParser::new();
         let camera = parser.page_name_to_id("Camera");
         let knowledge_ids: std::collections::HashSet<u32> = [camera].into_iter().collect();
@@ -3121,13 +3151,13 @@ mod sovereign_corpus_scope_tests {
             knowledge_ids: &knowledge_ids,
             vocabulary: None,
         };
-        assert!(scope.yields_to_knowledge("working/pages/Camera.md", camera));
+        assert!(scope.yields_to_knowledge("working/Camera.md", camera));
         assert!(
-            !scope.yields_to_knowledge("knowledge/pages/Camera.md", camera),
+            !scope.yields_to_knowledge("knowledge/Camera.md", camera),
             "the knowledge page itself never yields"
         );
         assert!(
-            !scope.yields_to_knowledge("working/pages/Lens.md", parser.page_name_to_id("Lens")),
+            !scope.yields_to_knowledge("working/Lens.md", parser.page_name_to_id("Lens")),
             "a working page with no knowledge twin is authored in its own right"
         );
     }
@@ -3156,10 +3186,7 @@ mod sovereign_corpus_scope_tests {
         // It is NOT part of the ontology bundle — it declares no ontology type,
         // so nothing stamps it and the assert-graph rebuild cannot see it.
         assert_eq!(
-            declared_ontology_type(
-                "working/pages/podcast-evidence/black-friday-gpt.md",
-                episode
-            ),
+            declared_ontology_type("working/podcast-evidence/black-friday-gpt.md", episode),
             None,
             "an Episode is not a Class, Property or Individual"
         );
@@ -3167,7 +3194,7 @@ mod sovereign_corpus_scope_tests {
         // …and the same page is still not ontology if it were misfiled under
         // knowledge/: the `type` is the declaration, not the directory.
         assert_eq!(
-            declared_ontology_type("knowledge/pages/black-friday-gpt.md", episode),
+            declared_ontology_type("knowledge/black-friday-gpt.md", episode),
             None
         );
     }
@@ -3176,12 +3203,12 @@ mod sovereign_corpus_scope_tests {
     fn only_a_knowledge_page_with_an_ontology_type_joins_the_bundle() {
         let class_page = knowledge_class_page();
         assert_eq!(
-            declared_ontology_type("knowledge/pages/Camera.md", class_page),
+            declared_ontology_type("knowledge/Camera.md", class_page),
             Some("Class".to_string())
         );
         // Leading `./` and `/` are normalised — the corpus source emits both.
         assert_eq!(
-            declared_ontology_type("./knowledge/pages/Camera.md", class_page),
+            declared_ontology_type("./knowledge/Camera.md", class_page),
             Some("Class".to_string())
         );
 
@@ -3190,7 +3217,7 @@ mod sovereign_corpus_scope_tests {
             let page =
                 format!("---\ntype: {t}\nresource: urn:ngm:class:x\nstatus: draft\n---\n\n# X\n");
             assert_eq!(
-                declared_ontology_type("knowledge/pages/X.md", &page),
+                declared_ontology_type("knowledge/X.md", &page),
                 Some(t.to_string())
             );
         }
@@ -3199,16 +3226,13 @@ mod sovereign_corpus_scope_tests {
         // bundle to knowledge/ only, so a working-vault draft cannot smuggle a
         // class into Whelk.
         assert_eq!(
-            declared_ontology_type("working/pages/Camera.md", class_page),
+            declared_ontology_type("working/Camera.md", class_page),
             None
         );
 
         // A knowledge page with no `type` at all is graph-only.
         assert_eq!(
-            declared_ontology_type(
-                "knowledge/pages/Plain.md",
-                "---\npublic: true\n---\n\n# Plain\n"
-            ),
+            declared_ontology_type("knowledge/Plain.md", "---\npublic: true\n---\n\n# Plain\n"),
             None
         );
     }

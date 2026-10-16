@@ -99,7 +99,7 @@ services:
       # become required again).
       CORPUS_SOURCE: "${CORPUS_SOURCE:-local}"
       VAULT_ROOT: "${VAULT_ROOT:-/vault/visionGraph}"
-      VAULT_BASE_PATHS: "${VAULT_BASE_PATHS:-knowledge/pages,working/pages}"
+      VAULT_BASE_PATHS: "${VAULT_BASE_PATHS:-knowledge,working}"
       # ADR-142 multi-user RBAC (defaults are fail-closed; these preserve the
       # current single-operator behaviour *visibly*):
       #  - RBAC_PUBLIC_READS=1 keeps anonymous /api GET reads open (client fetches

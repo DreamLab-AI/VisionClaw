@@ -206,9 +206,16 @@ impl<'a> VaultContext<'a> {
         Self { index, base_paths }
     }
 
-    /// The vault identity (§V1) of a repository path.
-    pub fn identity_of(&self, repo_path: &str) -> String {
+    /// The vault identity (§V1) of a repository path, or `None` when the path
+    /// is not a page: outside every configured base path, or under vault
+    /// furniture ([`crate::vault::page_name_from_repo_path`]).
+    pub fn identity_of(&self, repo_path: &str) -> Option<String> {
         crate::vault::page_name_from_repo_path(repo_path, self.base_paths)
+    }
+
+    /// The configured base paths this context resolves identities against.
+    pub fn base_paths(&self) -> &'a [String] {
+        self.base_paths
     }
 
     /// Resolve a wikilink target as it appears on the page `from`.
@@ -386,13 +393,15 @@ mod context_tests {
     #[test]
     fn context_derives_identity_and_resolves_against_the_index() {
         let index = VaultIndex::from_identities(["podcast-evidence/black-friday-gpt"]);
-        let bases = vec!["mainKnowledgeGraph/pages".to_string()];
+        let bases = vec!["working".to_string()];
         let ctx = VaultContext::new(&index, &bases);
 
         assert_eq!(
-            ctx.identity_of("mainKnowledgeGraph/pages/podcast-evidence/black-friday-gpt.md"),
-            "podcast-evidence/black-friday-gpt"
+            ctx.identity_of("working/podcast-evidence/black-friday-gpt.md")
+                .as_deref(),
+            Some("podcast-evidence/black-friday-gpt")
         );
+        assert_eq!(ctx.identity_of("working/templates/Episode.md"), None);
         assert_eq!(
             ctx.resolve("[[black-friday-gpt]]", "AI Daily Brief"),
             LinkResolution::Resolved("podcast-evidence/black-friday-gpt".to_string())

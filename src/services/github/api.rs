@@ -226,22 +226,19 @@ mod closeout_path_tests {
     #[tokio::test]
     async fn base_prefix_requires_a_directory_boundary() {
         let mut config = GitHubConfig::disabled();
-        config.base_path = "knowledge/pages".into();
+        config.base_path = "knowledge".into();
         let client = GitHubClient::new(config, Arc::new(RwLock::new(AppFullSettings::default())))
             .await
             .unwrap();
         for (input, expected) in [
-            ("knowledge/pages/A.md", "knowledge/pages/A.md"),
-            (
-                "knowledge/pages-extra/A.md",
-                "knowledge/pages/knowledge/pages-extra/A.md",
-            ),
+            ("knowledge/A.md", "knowledge/A.md"),
+            ("knowledge-extra/A.md", "knowledge/knowledge-extra/A.md"),
             (
                 "Presentation%3A Conclusion.md",
-                "knowledge/pages/Presentation%3A Conclusion.md",
+                "knowledge/Presentation%3A Conclusion.md",
             ),
-            ("/knowledge/pages/", "knowledge/pages"),
-            ("", "knowledge/pages"),
+            ("/knowledge/", "knowledge"),
+            ("", "knowledge"),
         ] {
             assert_eq!(client.get_full_path(input).await, expected);
         }

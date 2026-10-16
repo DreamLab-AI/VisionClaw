@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn parsed_markdown_round_trips() {
         let v = ParsedMarkdown {
-            canonical_path: "knowledge/pages/example.md".into(),
+            canonical_path: "knowledge/example.md".into(),
             raw: "public:: true\n\n# Example\n".into(),
             frontmatter_json: json!({ "public": true }),
             jsonld_blocks: vec![json!({"@id": "x", "@type": "Thing"})],

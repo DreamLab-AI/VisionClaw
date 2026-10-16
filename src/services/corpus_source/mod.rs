@@ -37,7 +37,7 @@ use vault_core::vocabulary::Vocabulary;
 pub struct CorpusPage {
     /// File name including the `.md` extension.
     pub name: String,
-    /// Source-relative path with `/` separators, e.g. `knowledge/pages/Foo.md`.
+    /// Source-relative path with `/` separators, e.g. `knowledge/Foo.md`.
     /// Always prefixed by one of [`CorpusSource::base_paths`].
     pub path: String,
     /// Opaque change marker: the blob SHA for GitHub, `mtime:size` on disk.
@@ -277,7 +277,7 @@ mod tests {
     fn a_local_source_boots_without_any_github_configuration() {
         let _guard = ENV_LOCK.lock().unwrap();
         let vault = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(vault.path().join("knowledge/pages")).unwrap();
+        std::fs::create_dir_all(vault.path().join("knowledge")).unwrap();
 
         std::env::remove_var("PRIVATE_REPO_GITHUB_PAT");
         std::env::remove_var("GITHUB_OWNER");
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(descriptor.kind, "local");
         assert_eq!(
             descriptor.base_paths,
-            vec!["knowledge/pages", "working/pages"],
+            vec!["knowledge", "working"],
             "the default dual-source split applies"
         );
 
@@ -323,17 +323,17 @@ mod tests {
         let local = SourceDescriptor {
             kind: "local",
             location: "/vault/visionGraph".to_string(),
-            base_paths: vec!["knowledge/pages".into(), "working/pages".into()],
+            base_paths: vec!["knowledge".into(), "working".into()],
         };
         let github = SourceDescriptor {
             kind: "github",
             location: "jjohare/visionGraph@main".to_string(),
-            base_paths: vec!["knowledge/pages".into(), "working/pages".into()],
+            base_paths: vec!["knowledge".into(), "working".into()],
         };
         assert_ne!(local.identity(), github.identity());
         assert_eq!(
             local.identity(),
-            "local:/vault/visionGraph:knowledge/pages,working/pages"
+            "local:/vault/visionGraph:knowledge,working"
         );
     }
 }

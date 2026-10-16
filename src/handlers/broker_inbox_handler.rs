@@ -197,7 +197,7 @@ mod tests {
         EnrichmentProposal {
             id: "case-7".into(),
             status: ProposalStatus::Pending,
-            target_path: Some("knowledge/pages/foo.md".into()),
+            target_path: Some("knowledge/foo.md".into()),
             content: Some("proposed body".into()),
             enrichment_type: Some("wikilink".into()),
             proposer_did: Some("did:nostr:aaaa".into()),
@@ -253,10 +253,7 @@ mod tests {
         assert_eq!(c.status, "pending");
         assert_eq!(c.id, "case-7");
         // metadata keys the bridge reads in _enrichCase.
-        assert_eq!(
-            c.metadata.target_path.as_deref(),
-            Some("knowledge/pages/foo.md")
-        );
+        assert_eq!(c.metadata.target_path.as_deref(), Some("knowledge/foo.md"));
         assert_eq!(c.metadata.content.as_deref(), Some("proposed body"));
         assert_eq!(c.metadata.proposed_by.as_deref(), Some("did:nostr:aaaa"));
         assert_eq!(c.metadata.enrichment_type.as_deref(), Some("wikilink"));

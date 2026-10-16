@@ -41,13 +41,23 @@ impl Roster {
     pub fn from_yaml_str(text: &str) -> Self {
         let mut gens: Vec<Generator> = Vec::new();
         let mut cur: Option<(String, String, Option<String>, Option<String>)> = None; // did,label,npub,process
-        let flush = |cur: &mut Option<(String, String, Option<String>, Option<String>)>, gens: &mut Vec<Generator>, keys: &mut Vec<(String, usize)>| {
+        let flush = |cur: &mut Option<(String, String, Option<String>, Option<String>)>,
+                     gens: &mut Vec<Generator>,
+                     keys: &mut Vec<(String, usize)>| {
             if let Some((did, label, npub, process)) = cur.take() {
                 let idx = gens.len();
-                gens.push(Generator { did, label: label.clone(), npub: npub.clone() });
+                gens.push(Generator {
+                    did,
+                    label: label.clone(),
+                    npub: npub.clone(),
+                });
                 keys.push((format!("agent:{label}/0"), idx));
-                if let Some(n) = npub { keys.push((format!("human:{n}"), idx)); }
-                if let Some(p) = process { keys.push((p, idx)); }
+                if let Some(n) = npub {
+                    keys.push((format!("human:{n}"), idx));
+                }
+                if let Some(p) = process {
+                    keys.push((p, idx));
+                }
                 keys.push((label, idx));
             }
         };
@@ -55,13 +65,17 @@ impl Roster {
         for raw in text.lines() {
             let line = raw.trim_end();
             let t = line.trim_start();
-            if t.is_empty() || t.starts_with('#') { continue; }
+            if t.is_empty() || t.starts_with('#') {
+                continue;
+            }
             if let Some(rest) = t.strip_prefix("- did:") {
                 flush(&mut cur, &mut gens, &mut keys);
                 cur = Some((rest.trim().to_owned(), String::new(), None, None));
                 continue;
             }
-            let Some((k, v)) = t.split_once(':') else { continue };
+            let Some((k, v)) = t.split_once(':') else {
+                continue;
+            };
             let v = v.trim().trim_matches('"').to_owned();
             if let Some(c) = cur.as_mut() {
                 match k.trim() {
@@ -74,7 +88,9 @@ impl Roster {
         }
         flush(&mut cur, &mut gens, &mut keys);
         let mut by_actor = HashMap::new();
-        for (k, idx) in keys { by_actor.insert(k, gens[idx].clone()); }
+        for (k, idx) in keys {
+            by_actor.insert(k, gens[idx].clone());
+        }
         Self { by_actor }
     }
 
@@ -84,14 +100,21 @@ impl Roster {
     pub fn resolve(&self, actor: &Actor) -> Option<&Generator> {
         match actor {
             Actor::Human(npub) => self.by_actor.get(&format!("human:{npub}")),
-            Actor::Agent { producer, .. } => self.by_actor.get(&format!("agent:{producer}/0")).or_else(|| self.by_actor.get(producer)),
-            Actor::Process { name, version } => self.by_actor.get(&format!("process:{name}/{version}")),
+            Actor::Agent { producer, .. } => self
+                .by_actor
+                .get(&format!("agent:{producer}/0"))
+                .or_else(|| self.by_actor.get(producer)),
+            Actor::Process { name, version } => {
+                self.by_actor.get(&format!("process:{name}/{version}"))
+            }
         }
     }
 
     /// Whether the roster holds any generator.
     #[must_use]
-    pub fn is_empty(&self) -> bool { self.by_actor.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.by_actor.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -103,9 +126,24 @@ mod tests {
     #[test]
     fn resolves_each_actor_spelling() {
         let r = Roster::from_yaml_str(ROSTER);
-        assert_eq!(r.resolve(&"human:npub1x".parse().unwrap()).unwrap().did, "did:nostr:aa");
-        assert_eq!(r.resolve(&"agent:enrichment-swarm/1".parse().unwrap()).unwrap().did, "did:nostr:bb");
-        assert_eq!(r.resolve(&"process:space-corpus-research/0.1.0".parse().unwrap()).unwrap().did, "did:nostr:cc");
-        assert!(r.resolve(&"process:vault-migrate/1.0".parse().unwrap()).is_none());
+        assert_eq!(
+            r.resolve(&"human:npub1x".parse().unwrap()).unwrap().did,
+            "did:nostr:aa"
+        );
+        assert_eq!(
+            r.resolve(&"agent:enrichment-swarm/1".parse().unwrap())
+                .unwrap()
+                .did,
+            "did:nostr:bb"
+        );
+        assert_eq!(
+            r.resolve(&"process:space-corpus-research/0.1.0".parse().unwrap())
+                .unwrap()
+                .did,
+            "did:nostr:cc"
+        );
+        assert!(r
+            .resolve(&"process:vault-migrate/1.0".parse().unwrap())
+            .is_none());
     }
 }

@@ -318,6 +318,7 @@ fn definition_of(
 impl Corpus {
     /// Project a loaded vault through its vocabulary.
     #[must_use]
+    #[allow(clippy::too_many_lines)] // One pass over the vault, in corpus order.
     pub fn build(vault: &Vault, vocab: &Vocabulary) -> Self {
         let names = NameIndex::build(&vault.pages);
         let resources: Vec<String> = vault
@@ -398,7 +399,10 @@ impl Corpus {
                     .unwrap_or_else(|| "draft".to_owned()),
                 quality: fm.number("quality").unwrap_or(0.0),
                 legacy_term_id: fm.text("legacy-term-id").unwrap_or_default(),
-                generated_by: fm.get("generated").and_then(vault_core::okf::Stamp::from_yaml).map(|st| st.by),
+                generated_by: fm
+                    .get("generated")
+                    .and_then(vault_core::okf::Stamp::from_yaml)
+                    .map(|st| st.by),
                 sub_class_of: links_of(page, IS_A_KEY),
                 instance_of: links_of(page, INSTANCE_OF_KEY),
                 relations,
@@ -480,7 +484,7 @@ mod tests {
             ]
             .into_iter()
             .map(|(id, text)| {
-                Page::parse(format!("/v/pages/{id}.md"), format!("pages/{id}.md"), id, text)
+                Page::parse(format!("/v/{id}.md"), format!("{id}.md"), id, text)
                     .unwrap()
             })
             .collect(),
@@ -524,8 +528,8 @@ tail_iris:
 
     fn page(id: &str, fm: &str, body: &str) -> Page {
         Page::parse(
-            format!("/v/pages/{id}.md"),
-            format!("pages/{id}.md"),
+            format!("/v/{id}.md"),
+            format!("{id}.md"),
             id,
             &format!("---\n{fm}---\n{body}"),
         )

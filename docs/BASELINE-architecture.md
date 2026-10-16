@@ -161,7 +161,9 @@ vault** — plain markdown with YAML frontmatter, specified in
 [`VAULT-corpus-format.md`](VAULT-corpus-format.md), read through the
 `CorpusSource` port — the mounted local vault (`VAULT_ROOT`, default) or the
 GitHub repo `jjohare/visionGraph` (`CORPUS_SOURCE=github`, ADR-2114) — with base
-paths `knowledge/pages,working/pages`. A page is ingested as a KG node iff its
+paths `knowledge,working` (pages sit at each vault root; `templates/`, `bases/`,
+`assets/`, `journals/` and dot-folders are furniture and never pages). A page is
+ingested as a KG node iff its
 frontmatter carries `public: true` **or** a non-empty `owl-class` (formal data
 bypasses the publish gate); absence of both is private, fail-closed. The corpus
 is frontmatter-only (ADR-2112): the retired Logseq property lines

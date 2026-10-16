@@ -36,10 +36,7 @@ fn grouped_propose_json_stdout_is_one_document() {
     write(&repo.join("ontology/vocabulary.yaml"), VOCABULARY);
     let manifest = dir.path().join("manifest");
     for id in ["Alpha", "Beta", "Gamma"] {
-        write(
-            &repo.join(format!("knowledge/pages/{id}.md")),
-            &class(id, "0.35"),
-        );
+        write(&repo.join(format!("knowledge/{id}.md")), &class(id, "0.35"));
         write(&manifest.join(format!("{id}.md")), &class(id, "0.55"));
     }
 

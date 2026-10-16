@@ -89,8 +89,8 @@ impl KnowledgeGraphParser {
     ) -> GraphData {
         info!("Parsing knowledge graph file: {}", filename);
 
-        // Page identity is the vault-relative path under `pages/` without the
-        // `.md`, with `/` as the namespace separator (ADR-2040 §V1). The legacy
+        // Page identity is the path under the vault root without the `.md`,
+        // with `/` as the namespace separator (ADR-2040 §V1). The legacy
         // `___` and `%2F` encodings decode to `/` here. Node ids are unchanged
         // by the decode: slugify collapses any run of non-alphanumerics to a
         // single `-`, so `A___B Testing` and `A/B Testing` hash identically

@@ -235,7 +235,7 @@ impl PageChange {
 }
 
 /// `vault` with every change applied: an amendment substitutes the page of
-/// that id, a creation adds a page at `pages/<id>.md`. A proposed page whose
+/// that id, a creation adds a page at `<root>/<id>.md`. A proposed page whose
 /// frontmatter does not parse cannot be applied; it is returned as a blocker
 /// instead, and the base page (or no page) stays in place.
 fn apply(vault: &Vault, changes: &[PageChange]) -> (Vault, Vec<Blocker>) {
@@ -246,8 +246,8 @@ fn apply(vault: &Vault, changes: &[PageChange]) -> (Vault, Vec<Blocker>) {
         let (path, rel_path) = match patched.get(id) {
             Some(slot) => (slot.path.clone(), slot.rel_path.clone()),
             None if change.is_creation() => (
-                vault.root.join("pages").join(format!("{id}.md")),
-                std::path::PathBuf::from("pages").join(format!("{id}.md")),
+                vault.root.join(format!("{id}.md")),
+                std::path::PathBuf::from(format!("{id}.md")),
             ),
             None => continue,
         };
@@ -689,13 +689,7 @@ scalars:
             pages: pages
                 .into_iter()
                 .map(|(id, text)| {
-                    Page::parse(
-                        format!("/v/pages/{id}.md"),
-                        format!("pages/{id}.md"),
-                        id,
-                        text,
-                    )
-                    .unwrap()
+                    Page::parse(format!("/v/{id}.md"), format!("{id}.md"), id, text).unwrap()
                 })
                 .collect(),
         }

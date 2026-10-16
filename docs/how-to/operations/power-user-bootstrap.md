@@ -36,7 +36,7 @@ The CLI reads five keys from the supplied `.env` file:
 | `GITHUB_OWNER`     | `jjohare`                                             | GitHub login |
 | `GITHUB_REPO`      | `visionGraph`                                         | Repository name — the corpus is the `jjohare/visionGraph` Obsidian vault ([`VAULT-corpus-format.md`](../../VAULT-corpus-format.md)); the former `jjohare/logseq` repository is archived |
 | `GITHUB_BRANCH`    | `main`                                                | Branch to track |
-| `GITHUB_BASE_PATH` | `knowledge/pages,working/pages`         | Comma-separated **or** repeated over multiple lines |
+| `GITHUB_BASE_PATH` | `knowledge,working`                                   | The vault roots (pages sit at each root). Comma-separated **or** repeated over multiple lines |
 | `GITHUB_TOKEN`     | `ghp_xxx...`                                          | Personal access token |
 
 Lines starting with `#` and blank lines are ignored. An optional `export `

@@ -13,7 +13,7 @@ the same crate, so the build and the live graph parse a page identically
 
 | Module | Responsibility |
 |---|---|
-| `page` | A page is YAML frontmatter plus a body. Its id is its path under `pages/` without `.md`. Loads a whole vault. |
+| `page` | A page is YAML frontmatter plus a body. Its id is its path under the vault root without `.md`. Loads a whole vault, skipping and reporting the Obsidian furniture (`templates/`, `bases/`, `assets/`, `journals/`, dot-folders). |
 | `frontmatter` | Typed access to frontmatter values and the `[[wikilinks]]` inside them. |
 | `vocabulary` | `ontology/vocabulary.yaml`: the declared keys, their OWL meaning, the namespaces and the prefixes. |
 | `okf` | The OKF v0.2 lifecycle and trust block (`status`, `stale_after`, `generated`, `verified`, `sources`). |
@@ -31,8 +31,8 @@ explicit `load` and `walk` functions.
 use vault_core::page::Page;
 
 let page = Page::parse(
-    "/v/pages/Knowledge Graph.md",
-    "pages/Knowledge Graph.md",
+    "/v/Knowledge Graph.md",
+    "Knowledge Graph.md",
     "Knowledge Graph",
     "---\ntype: Class\npublic: true\nis-a: [\"[[Content and Assets]]\"]\n---\nbody\n",
 ).unwrap();

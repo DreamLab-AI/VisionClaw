@@ -360,14 +360,20 @@ fn distinct_pages_sharing_a_basename_stay_distinct_nodes() {
 
 #[test]
 fn the_cross_graph_twin_join_is_preserved() {
-    // 254 basename pairs span the two source graphs and MUST share one node.
-    let bases = vec![
-        "mainKnowledgeGraph/pages".to_string(),
-        "workingGraph/pages".to_string(),
-    ];
+    // 254 basename pairs span the two vaults and MUST share one node. The
+    // vaults are flat: pages sit at `knowledge/` and `working/` (owner
+    // decision 2026-10-16).
+    let bases = vec!["knowledge".to_string(), "working".to_string()];
     let parser = KnowledgeGraphParser::new();
-    let main = vault::page_name_from_repo_path("mainKnowledgeGraph/pages/Agentic AI.md", &bases);
-    let work = vault::page_name_from_repo_path("workingGraph/pages/Agentic AI.md", &bases);
+    let main = vault::page_name_from_repo_path("knowledge/Agentic AI.md", &bases)
+        .expect("a knowledge page has an identity");
+    let work = vault::page_name_from_repo_path("working/Agentic AI.md", &bases)
+        .expect("a working page has an identity");
     assert_eq!(main, work);
     assert_eq!(parser.page_name_to_id(&main), parser.page_name_to_id(&work));
+    // The furniture beside the pages has none.
+    assert_eq!(
+        vault::page_name_from_repo_path("knowledge/templates/Agentic AI.md", &bases),
+        None
+    );
 }

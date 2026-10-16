@@ -53,13 +53,8 @@ fn vault_of(pages: &[(&str, String)]) -> Vault {
         pages: pages
             .iter()
             .map(|(id, text)| {
-                Page::parse(
-                    format!("/v/pages/{id}.md"),
-                    format!("pages/{id}.md"),
-                    *id,
-                    text,
-                )
-                .expect("fixture page parses")
+                Page::parse(format!("/v/{id}.md"), format!("{id}.md"), *id, text)
+                    .expect("fixture page parses")
             })
             .collect(),
     }

@@ -238,13 +238,7 @@ relations:
             pages: pages
                 .into_iter()
                 .map(|(id, text)| {
-                    Page::parse(
-                        format!("/v/pages/{id}.md"),
-                        format!("pages/{id}.md"),
-                        id,
-                        text,
-                    )
-                    .unwrap()
+                    Page::parse(format!("/v/{id}.md"), format!("{id}.md"), id, text).unwrap()
                 })
                 .collect(),
         };

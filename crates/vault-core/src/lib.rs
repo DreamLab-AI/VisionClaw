@@ -11,7 +11,9 @@
 //! # The model in one page
 //!
 //! * [`page::Page`] is a markdown file: YAML [`frontmatter::Frontmatter`] plus
-//!   a body. Its **id** is its path under `pages/` without `.md`.
+//!   a body. Its **id** is its path under the vault root without `.md`; the
+//!   Obsidian furniture beside the pages ([`page::FURNITURE_DIRS`] and
+//!   dot-folders) is never a page.
 //! * [`vocabulary::Vocabulary`] (`ontology/vocabulary.yaml`) declares every
 //!   legal frontmatter key and what it means in OWL. An undeclared key in
 //!   `knowledge/` is a validation error; `working/` tolerates them.
@@ -46,8 +48,8 @@
 //! use vault_core::page::Page;
 //!
 //! let page = Page::parse(
-//!     "/v/pages/Knowledge Graph.md",
-//!     "pages/Knowledge Graph.md",
+//!     "/v/Knowledge Graph.md",
+//!     "Knowledge Graph.md",
 //!     "Knowledge Graph",
 //!     "---\ntype: Class\npublic: true\nis-a: [\"[[Content and Assets]]\"]\n---\nbody\n",
 //! ).unwrap();

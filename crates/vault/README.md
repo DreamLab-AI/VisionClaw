@@ -1,11 +1,28 @@
 # `vault` — the single door onto the sovereign corpus
 
-The CLI validates, queries, edits and builds the Obsidian ontology corpus.
+The CLI validates, proposes against and builds the Obsidian ontology corpus.
 Agents reach the corpus through this CLI and nothing else; humans use Obsidian.
 
 See [ADR-2113](../../docs/adr/ADR-2113-crates-vault-is-the-single-corpus-parser-and-build.md)
 for the decision and [PRD-sovereign-corpus](../../../VisionFlow/docs/PRD-sovereign-corpus.md)
 for why.
+
+**Moved to `ontomark`.** The graph and mutation verbs — `find`, `retrieve`,
+`tree`, `edit`, `create` and `apply` — were ported to the `ontomark` CLI
+(ADR-OM-005; ontomark `docs/DEPRECATION.md` §2.1, rows VC-29/VC-30) and removed
+from this binary. `vault --help` says so in one line; invoking one of them is an
+unknown subcommand (exit 2).
+
+## Layout
+
+The vaults are flat (owner decision 2026-10-16): pages sit at the vault root —
+`knowledge/<Title>.md`, `working/<Title>.md`, `working/podcast-evidence/<x>.md`
+— and a page's **id** is its path under that root without `.md`. The folders
+beside the pages are Obsidian furniture, never pages: `templates/`, `bases/`,
+`assets/`, `journals/` (`vault_core::page::FURNITURE_DIRS`) and every
+dot-folder. The walk skips a markdown file under one of them and reports the
+skip with its reason (`furniture` / `hidden_directory`); `journals/` is
+read as its own tree. The Logseq-era `pages/` folder is gone.
 
 ## Install
 
@@ -42,7 +59,7 @@ The finding names the file, the line and the credential **type** and never the
 value — a validation report is itself a published artefact:
 
 ```
-pages/2026 links.md:1854 carries what looks like a openai_key credential;
+2026 links.md:1854 carries what looks like a openai_key credential;
 the value is deliberately not reported
 ```
 
@@ -58,21 +75,21 @@ nobody looked.
 
 These are two different questions and `vault` now keeps them apart.
 
-**Enumerated** — loaded by the vault, and therefore reachable by `validate`,
-`find` and `retrieve` — is every `.md` file under `pages/` and
-`journals/` except those in a dot-directory. Each skip is reported with a reason,
-so an absent page can never be confused with a page that does not exist:
+**Enumerated** — loaded by the vault, and therefore reachable by `validate`
+and `build` — is every `.md` file under the vault root and `journals/` except
+those in a dot-directory or a furniture folder. Each skip is reported with a
+reason, so an absent page can never be confused with a page that does not exist:
 
 ```bash
 vault validate --vault all --json | jq '.knowledge.skipped'
-# [{"path": "pages/.deleted/AI-0376-algorithmic-accountability.md",
-#   "reason": "hidden_directory"}, …]   # 28 of them
+# [{"path": "templates/Class.md", "reason": "furniture"},
+#  {"path": ".trash/Old Draft.md", "reason": "hidden_directory"}, …]
 ```
 
 **Published** is narrower: it excludes `_misc/` (`UNPUBLISHED_DIRS`) and every
 page without `public: true`. `_misc` used to be applied during *enumeration*,
 which quietly turned a publication decision into an existence decision — a
-`_misc` page could not be validated, found or edited. It now lives only in the
+`_misc` page could not be validated or built. It now lives only in the
 projection's publish scope.
 
 A `.deleted/` or `.trash/` page is a **tombstone**, not a held page, and its
@@ -80,52 +97,6 @@ identity is not reserved. Treating it as held meant the live
 `Recurrent Neural Network.md` could not publish because its own tombstone
 slugified to the same thing, and the build refused the whole bundle. Deletion is
 not a publication hold.
-
-### `vault find` / `retrieve` / `tree`
-
-```bash
-vault find --query "knowledge graph" --type Class --limit 5
-vault find --query "knowlege grph" --fuzzy
-
-# Per-edge-type depths. An edge type absent from --expand is never traversed,
-# so the blast radius is always declared.
-vault retrieve "Knowledge Graph" --expand is-a=2,requires=1 --max-documents 40
-
-vault tree "Spatial Computing" --depth 3 --predicate is-a
-```
-
-Scoring is deterministic, not a ranking model: exact title `1.0`, exact alias
-`0.95`, prefix `0.8`, substring `0.6`, token overlap (with `--fuzzy`) up to
-`0.5`.
-
-### `vault edit --expect`
-
-Guarded mutation. **An edit that has not declared its blast radius is refused**,
-and the refusal names the missing guard.
-
-```bash
-vault edit "Knowledge Graph" \
-  --set status=stable \
-  --set 'verified+={by: human:npub1abc, at: 2026-09-22T00:00:00Z}' \
-  --expect docs=1,blocks=2
-```
-
-| form | meaning |
-|---|---|
-| `--set key=value` | set or replace |
-| `--set 'key+=value'` | append to a list, creating it if absent |
-| `--unset key` | remove |
-
-A value that parses as YAML is stored as YAML, so `quality=0.35` is a number
-and a mapping round-trips as a mapping rather than a string:
-
-```bash
-vault edit "Some Page" \
-  --set 'generated={by: process:vault/1.0, at: 2026-09-22T11:37:06Z}' \
-  --expect docs=1,blocks=1
-```
-
-`--dry-run` shows the result without writing it.
 
 ### `vault propose`
 
@@ -173,7 +144,8 @@ not hold refuses the proposal rather than being skipped, because a typo in one o
 Class — is a page that does not exist yet. When the subject names no page by id
 or title and the `--diff` file declares a `title` no page has, the proposal is
 `kind: "create"` (every other proposal is `kind: "amend"`): its diff is against
-`/dev/null`, its `iri` is the staged page's `resource`, and it is blocked by
+`/dev/null`, its `iri` is the staged page's `resource`, it is landed with
+`ontomark create` once promoted, and it is blocked by
 
 * validation errors on the staged page (it is assessed inside the real corpus,
   so a dangling relation target is judged against the pages that exist),
@@ -200,23 +172,8 @@ non-empty `blockers` list is emitted (so the refusal is auditable) and exits 1
 **without** being posted. A `--level schema` proposal declares
 `Stakes::Critical`, which floors the panel's risk tier at High.
 
-### `vault create`
-
-The apply side of a creation, once a human has promoted the case:
-
-```bash
-vault --repo . create staged/agentic-workshop.md --expect docs=1 \
-  --set status=stable --set 'verified+={by: human:npub1…, at: 2026-09-22T20:00:00Z}' --json
-```
-
-Writes `knowledge/pages/<title>.md` — the staged page with the `--set`/`--unset`
-keys applied, in one write — **only if it is absent**. Every refusal writes
-nothing and exits **2**, with `{created: false, code, message, blockers}` on
-stdout under `--json`: `--expect` without `docs=1` (or a wrong `blocks=N`), an
-unparseable or untitled staged page, a page that already exists (checked against
-the vault *and* by an exclusive create on disk, so a second call never
-overwrites the first), and a result that fails validation or the collision
-checks `vault propose` applied.
+Landing a promoted proposal — the amend (`apply`) and the creation (`create`)
+— is `ontomark`'s job now; `vault` only builds, blocks and posts the proposal.
 
 ### `vault gate` / `vault conflicts`
 
@@ -456,8 +413,8 @@ Python emitted a plain transitive BFS — contract C3 asks for the reasoner.
 
 | crate | owns |
 |---|---|
-| [`vault-core`](../vault-core) | frontmatter, page identity, vocabulary, OKF v0.2, the link graph, the promotion state machine, `PatchProposal`, credential detection |
-| `vault` | the projections (`model`, `projection`, `closure`, `whelk`) and the command surface |
+| [`vault-core`](../vault-core) | frontmatter, page identity and the vault walk (furniture excluded), vocabulary, OKF v0.2, the link graph, the promotion state machine, `PatchProposal`, credential detection |
+| `vault` | the projections (`model`, `projection`, `closure`, `whelk`) and the command surface: `validate`, `propose`, `panel`, `gate`, `conflicts`, `build`, `repair` |
 
 `vault-core` is linked by VisionClaw's ingest too, so the corpus is parsed by
 exactly one implementation.

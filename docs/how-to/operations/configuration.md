@@ -198,7 +198,7 @@ ENABLE-GITHUB-WEBHOOKS=true
 # Vault corpus source (ADR-2114 / ADR-2115: local by default, GitHub optional)
 CORPUS_SOURCE=local
 VAULT_ROOT=/vault/visionGraph
-VAULT_BASE_PATHS=knowledge/pages,working/pages
+VAULT_BASE_PATHS=knowledge,working
 ```
 
 Set up graph-specific visualisation in `data/settings.yaml`. The graph key is `knowledge`

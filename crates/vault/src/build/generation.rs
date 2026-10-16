@@ -338,8 +338,8 @@ mod tests {
                 .filter(|o| o.status.success())
         };
         git(&["init", "-q"])?;
-        std::fs::create_dir_all(dir.path().join("knowledge/pages")).unwrap();
-        std::fs::write(dir.path().join("knowledge/pages/A.md"), "a").unwrap();
+        std::fs::create_dir_all(dir.path().join("knowledge")).unwrap();
+        std::fs::write(dir.path().join("knowledge/A.md"), "a").unwrap();
         std::fs::write(dir.path().join("elsewhere.txt"), "x").unwrap();
         git(&["add", "-A"])?;
         git(&[
@@ -368,7 +368,7 @@ mod tests {
             "a change outside the vault paths does not dirty the build"
         );
 
-        std::fs::write(repo.path().join("knowledge/pages/B.md"), "new").unwrap();
+        std::fs::write(repo.path().join("knowledge/B.md"), "new").unwrap();
         assert!(
             git_dirty(repo.path(), &[&knowledge]),
             "an untracked page dirties it"

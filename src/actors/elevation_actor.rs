@@ -568,7 +568,7 @@ pub fn draft_class_page(c: &FrontierCandidate) -> (String, String) {
     (
         format!(
             "{}/{name}.md",
-            crate::services::decision_elevation::KNOWLEDGE_PAGES_DIR
+            crate::services::decision_elevation::KNOWLEDGE_VAULT_DIR
         ),
         content,
     )
@@ -2015,7 +2015,7 @@ mod tests {
         let (path, content) = draft_class_page(&c);
         // PRD-sovereign-corpus Q1: the governed vault role, not the retired
         // `mainKnowledgeGraph/` layout.
-        assert_eq!(path, "knowledge/pages/Finality Mechanism.md");
+        assert_eq!(path, "knowledge/Finality Mechanism.md");
 
         // Q4: frontmatter only — a fence is a `rejected_construct`, and
         // Invariant 1 forbids `key:: value` lines.
@@ -2353,7 +2353,7 @@ mod tests {
             iri: iri.into(),
             label: Some(title.into()),
             preferred_term: Some(title.into()),
-            source_file: Some(format!("knowledge/pages/{title}.md")),
+            source_file: Some(format!("knowledge/{title}.md")),
             ..Default::default()
         }
     }
@@ -2367,7 +2367,7 @@ mod tests {
             stored("urn:ngm:class:fig-jam", "FigJam"),
             OwlClass {
                 iri: "urn:ngm:class:l2-rollup".into(),
-                source_file: Some("knowledge/pages/Layer2 Rollup.md".into()),
+                source_file: Some("knowledge/Layer2 Rollup.md".into()),
                 ..Default::default()
             },
         ]);
@@ -2388,7 +2388,7 @@ mod tests {
         // the order; the other is reached by its own file stem.
         let shared = BaseClassIndex::new(&[
             OwlClass {
-                source_file: Some("knowledge/pages/bc-cryptographic-primitive.md".into()),
+                source_file: Some("knowledge/bc-cryptographic-primitive.md".into()),
                 ..stored(
                     "urn:ngm:class:bc-cryptographic-primitive",
                     "Cryptographic Primitive",

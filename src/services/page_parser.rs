@@ -61,12 +61,30 @@ pub struct ParsedPage {
 ///   The caller skips it and logs: a page whose metadata cannot be read has no
 ///   readable publication flag either, so skipping is the fail-closed answer.
 ///
-/// `source_path` is the source-relative page path (`knowledge/pages/Ns/Foo.md`);
-/// the page id is its path under the `pages/` directory, without `.md`.
-pub fn parse_page(content: &str, source_path: &str) -> Result<Option<ParsedPage>, String> {
+/// `source_path` is the source-relative page path (`knowledge/Ns/Foo.md`) and
+/// `base_paths` the configured vault roots (`GITHUB_BASE_PATH` /
+/// `VAULT_BASE_PATHS`, e.g. `knowledge,working`); the page id is the path
+/// relative to the base that prefixes it, without `.md`
+/// ([`visionclaw_domain::vault::page_name_from_repo_path`]). A path under no
+/// configured base, or under vault furniture (`templates/`, `bases/`,
+/// `assets/`, `journals/`, a dot-folder), is not a page and is an `Err`: the
+/// corpus listing is filtered on the same rule before anything is fetched, so
+/// reaching here with one is a caller defect, and fail-closed is the answer.
+pub fn parse_page(
+    content: &str,
+    source_path: &str,
+    base_paths: &[String],
+) -> Result<Option<ParsedPage>, String> {
     let path = source_path.trim_start_matches("./").trim_start_matches('/');
+    if visionclaw_domain::vault::page_name_from_repo_path(path, base_paths).is_none() {
+        return Err(format!(
+            "{path} is not a page under the configured base paths {base_paths:?}"
+        ));
+    }
+    let vault_root =
+        visionclaw_domain::vault::vault_base_of(path, base_paths).map_or("", |(base, _)| base);
     let page =
-        vault_core::page::parse_page(pages_dir(path), path, content).map_err(|e| e.to_string())?;
+        vault_core::page::parse_page(vault_root, path, content).map_err(|e| e.to_string())?;
     let Some(ontology_type) = declared_ontology_type(path, &page) else {
         return Ok(None);
     };
@@ -99,17 +117,6 @@ pub fn declared_ontology_type(source_path: &str, page: &Page) -> Option<String> 
     ONTOLOGY_PAGE_TYPES
         .contains(&page_type)
         .then(|| page_type.to_string())
-}
-
-/// The `pages/` directory a source path sits in (`knowledge/pages`), so the
-/// page id is the path beneath it. A path with no `pages/` segment is its own
-/// id.
-fn pages_dir(path: &str) -> &str {
-    if path.starts_with("pages/") {
-        return "pages";
-    }
-    path.find("/pages/")
-        .map_or("", |i| &path[..i + "/pages".len()])
 }
 
 fn canonical_entity(page: &Page, ontology_type: &str, source_path: &str) -> CanonicalEntity {
@@ -249,6 +256,11 @@ pub fn project_ontology(pages: &[ParsedPage], vocab: &Vocabulary) -> OntologyPro
 mod tests {
     use super::*;
 
+    /// The flat-vault base paths every fixture path is resolved against.
+    fn bases() -> Vec<String> {
+        vec!["knowledge".to_string(), "working".to_string()]
+    }
+
     const CLASS_PAGE: &str = "---
 type: Class
 title: Alpha Beta
@@ -268,7 +280,7 @@ A fixture class. See [[Body Only]].
 
     #[test]
     fn a_knowledge_class_page_yields_an_entity() {
-        let parsed = parse_page(CLASS_PAGE, "knowledge/pages/Ns/Alpha Beta.md")
+        let parsed = parse_page(CLASS_PAGE, "knowledge/Ns/Alpha Beta.md", &bases())
             .expect("valid frontmatter parses")
             .expect("a knowledge Class is ontology content");
         assert_eq!(parsed.ontology_type, "Class");
@@ -292,7 +304,7 @@ A fixture class. See [[Body Only]].
 
     #[test]
     fn the_same_type_under_working_is_not_ontology() {
-        assert!(parse_page(CLASS_PAGE, "working/pages/Alpha Beta.md")
+        assert!(parse_page(CLASS_PAGE, "working/Alpha Beta.md", &bases())
             .expect("parses")
             .is_none());
     }
@@ -300,7 +312,7 @@ A fixture class. See [[Body Only]].
     #[test]
     fn a_non_ontology_type_is_not_ontology() {
         let note = "---\ntype: Note\npublic: true\n---\n\nBody.\n";
-        assert!(parse_page(note, "knowledge/pages/N.md")
+        assert!(parse_page(note, "knowledge/N.md", &bases())
             .expect("parses")
             .is_none());
     }
@@ -308,7 +320,7 @@ A fixture class. See [[Body Only]].
     #[test]
     fn an_individual_mints_in_the_individual_namespace() {
         let page = "---\ntype: Individual\ntitle: Ada\n---\n";
-        let parsed = parse_page(page, "knowledge/pages/Ada.md")
+        let parsed = parse_page(page, "knowledge/Ada.md", &bases())
             .expect("parses")
             .expect("ontology content");
         assert_eq!(parsed.entity.kind, EntityKind::OntologyIndividual);
@@ -321,7 +333,7 @@ A fixture class. See [[Body Only]].
     #[test]
     fn invalid_frontmatter_is_an_error() {
         let broken = "---\ntype: [unclosed\n---\nbody\n";
-        assert!(parse_page(broken, "knowledge/pages/B.md").is_err());
+        assert!(parse_page(broken, "knowledge/B.md", &bases()).is_err());
     }
 
     /// ADR-2112: the corpus is frontmatter-only. A `key:: value` line carries
@@ -331,7 +343,7 @@ A fixture class. See [[Body Only]].
     fn a_logseq_property_line_is_body_text_not_metadata() {
         let page = "type:: Class\npublic:: true\nowl:class:: mv:Alpha\n\n# Alpha\n\nProse.\n";
         assert!(
-            parse_page(page, "knowledge/pages/Alpha.md")
+            parse_page(page, "knowledge/Alpha.md", &bases())
                 .expect("parsing must not fail")
                 .is_none(),
             "a `key:: value` block contributes no structured content"
@@ -346,7 +358,7 @@ A fixture class. See [[Body Only]].
             "A fixture class.",
             "resource:: urn:ngm:class:impostor\npublic:: false\n\nA fixture class.",
         );
-        let parsed = parse_page(&page, "knowledge/pages/Alpha Beta.md")
+        let parsed = parse_page(&page, "knowledge/Alpha Beta.md", &bases())
             .expect("parses")
             .expect("frontmatter is still ontology content");
         assert_eq!(
@@ -362,7 +374,7 @@ A fixture class. See [[Body Only]].
     #[test]
     fn a_json_ld_fence_is_body_text() {
         let fenced = "---\npublic: true\n---\n\n```json-ld\n{ \"@type\": \"Class\", \"@id\": \"urn:ngm:class:x\" }\n```\n";
-        assert!(parse_page(fenced, "knowledge/pages/X.md")
+        assert!(parse_page(fenced, "knowledge/X.md", &bases())
             .expect("parses")
             .is_none());
     }
@@ -386,11 +398,11 @@ relations:
         let parent = "---\ntype: Class\ntitle: Device\nresource: urn:ngm:class:the-device\npublic: true\n---\nA thing.\n";
         let child = "---\ntype: Class\ntitle: Camera\nresource: urn:ngm:class:camera\npublic: true\ndomain: robotics\nquality: 0.7\nis-a:\n- '[[Device]]'\nrequires:\n- '[[Lens]]'\nuses:\n- '[[Light]]'\n---\nCaptures light.\n";
         let pages: Vec<ParsedPage> = [
-            (parent, "knowledge/pages/Device.md"),
-            (child, "knowledge/pages/Camera.md"),
+            (parent, "knowledge/Device.md"),
+            (child, "knowledge/Camera.md"),
         ]
         .into_iter()
-        .map(|(text, path)| parse_page(text, path).unwrap().unwrap())
+        .map(|(text, path)| parse_page(text, path, &bases()).unwrap().unwrap())
         .collect();
 
         let projection = project_ontology(&pages, &test_vocabulary());
@@ -421,10 +433,30 @@ relations:
         assert_eq!(axiom.object, "urn:ngm:class:the-device");
     }
 
+    /// A nested namespace stays in the id, and a furniture path is refused
+    /// rather than quietly given an identity.
     #[test]
-    fn pages_dir_is_the_segment_holding_the_page() {
-        assert_eq!(pages_dir("knowledge/pages/Ns/Foo.md"), "knowledge/pages");
-        assert_eq!(pages_dir("pages/Foo.md"), "pages");
-        assert_eq!(pages_dir("Foo.md"), "");
+    fn the_id_is_relative_to_the_matching_base_and_furniture_is_refused() {
+        let parsed = parse_page(CLASS_PAGE, "knowledge/Ns/Deep/Alpha Beta.md", &bases())
+            .expect("parses")
+            .expect("ontology content");
+        assert_eq!(parsed.page.id, "Ns/Deep/Alpha Beta");
+        assert_eq!(
+            parsed.page.rel_path,
+            std::path::Path::new("Ns/Deep/Alpha Beta.md")
+        );
+        for path in [
+            "knowledge/templates/Class.md",
+            "knowledge/bases/All.md",
+            "working/assets/x.md",
+            "working/journals/2026-09-22.md",
+            "knowledge/.deleted/Gone.md",
+            "elsewhere/Alpha.md",
+        ] {
+            assert!(
+                parse_page(CLASS_PAGE, path, &bases()).is_err(),
+                "{path} must not be parsed as a page"
+            );
+        }
     }
 }

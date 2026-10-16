@@ -1,7 +1,7 @@
 //! Canonical entity model — the single source of truth for a knowledge graph
 //! page or ontology entity, distilled from a file's JSON-LD blocks.
 //!
-//! Every page in `mainKnowledgeGraph/pages/` is **one** canonical entity. The
+//! Every page in `knowledge/` is **one** canonical entity. The
 //! file's JSON-LD blocks describe that entity in two slices:
 //!
 //! - `@type: "Page"` — identity (`vc:slug`), title, wikilinks, provenance.

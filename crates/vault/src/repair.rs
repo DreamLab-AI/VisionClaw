@@ -68,13 +68,31 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use vault_core::code::CodeMap;
 
-/// One tree to repair: a vault's `pages/` or `journals/`.
+/// One tree to repair: a vault's root (its pages) or its `journals/`.
 #[derive(Debug, Clone)]
 pub struct Scope {
     /// The vault name — `knowledge` or `working`.
     pub vault: String,
     /// The directory walked.
     pub dir: PathBuf,
+    /// `true` when `dir` is the vault root, so the walk excludes the
+    /// [`vault_core::page::FURNITURE_DIRS`]; `false` for `journals/`.
+    pub is_root: bool,
+}
+
+impl Scope {
+    /// The markdown files this scope covers, in corpus order.
+    ///
+    /// # Errors
+    /// As [`vault_core::page::walk_pages`].
+    pub fn files(&self) -> vault_core::Result<Vec<PathBuf>> {
+        let walk = if self.is_root {
+            vault_core::page::walk_vault_root(&self.dir)?
+        } else {
+            vault_core::page::walk_pages(&self.dir)?
+        };
+        Ok(walk.files)
+    }
 }
 
 /// What to repair and how.
@@ -372,7 +390,7 @@ pub fn run(options: &Options) -> anyhow::Result<Report> {
         if !scope.dir.is_dir() {
             continue;
         }
-        for path in vault_core::page::walk_pages(&scope.dir)?.files {
+        for path in scope.files()? {
             report.pages_examined += 1;
             let before = std::fs::read_to_string(&path)?;
             let rel = path.strip_prefix(&scope.dir).unwrap_or(&path);
@@ -424,12 +442,16 @@ pub fn run(options: &Options) -> anyhow::Result<Report> {
 pub fn scopes_for(root: &Path, vaults: &[&str]) -> Vec<Scope> {
     let mut out = Vec::new();
     for vault in vaults {
-        for tree in ["pages", "journals"] {
-            out.push(Scope {
-                vault: (*vault).to_owned(),
-                dir: root.join(vault).join(tree),
-            });
-        }
+        out.push(Scope {
+            vault: (*vault).to_owned(),
+            dir: root.join(vault),
+            is_root: true,
+        });
+        out.push(Scope {
+            vault: (*vault).to_owned(),
+            dir: root.join(vault).join("journals"),
+            is_root: false,
+        });
     }
     out
 }
@@ -603,7 +625,7 @@ mod tests {
     #[test]
     fn an_ambiguous_page_is_reported_and_left_byte_identical() {
         let dir = tempfile::tempdir().unwrap();
-        let pages = dir.path().join("knowledge/pages");
+        let pages = dir.path().join("knowledge");
         std::fs::create_dir_all(&pages).unwrap();
         let text =
             "```mermaid\nA --> B\n```\n\nprose\n\ngraph TD\n  X -->|to| Y\n```\n\n- ### After\n";
@@ -660,7 +682,7 @@ mod tests {
     #[test]
     fn a_run_reports_every_change_and_writes_only_when_asked() {
         let dir = tempfile::tempdir().unwrap();
-        let pages = dir.path().join("knowledge/pages");
+        let pages = dir.path().join("knowledge");
         std::fs::create_dir_all(&pages).unwrap();
         std::fs::write(pages.join("Stray.md"), "- A bullet.\n```\n- More.\n").unwrap();
         std::fs::write(

@@ -37,7 +37,7 @@ relations:
         .to_string(),
     );
 
-    // Four ontology pages in knowledge/pages: OKF frontmatter with
+    // Four ontology pages in knowledge: OKF frontmatter with
     // Alpha :> Beta :> Gamma :> Delta as the subclass chain the reasoner
     // closes over.
     let chain = ["Alpha", "Beta", "Gamma", "Delta"];
@@ -49,7 +49,7 @@ relations:
             format!("is-a:\n- '[[{}]]'\n", chain[i - 1])
         };
         write(
-            &format!("knowledge/pages/{}.md", name),
+            &format!("knowledge/{}.md", name),
             format!(
                 "---\ntype: Class\ntitle: {name}\nresource: urn:ngm:class:{slug}\n\
                  status: stable\npublic: true\ndomain: data\nmaturity: established\n\
@@ -62,7 +62,7 @@ relations:
     for i in 0..12 {
         let next = (i + 1) % 12;
         write(
-            &format!("knowledge/pages/Page {:02}.md", i),
+            &format!("knowledge/Page {:02}.md", i),
             format!(
                 "---\npublic: true\n---\n\n# Page {:02}\n\nLinks to [[Page {:02}]] and [[Alpha]].\n",
                 i, next
@@ -74,7 +74,7 @@ relations:
     for i in 0..4 {
         let public = if i == 3 { "false" } else { "true" };
         write(
-            &format!("working/pages/Note {:02}.md", i),
+            &format!("working/Note {:02}.md", i),
             format!(
                 "---\npublic: {}\n---\n\n# Note {:02}\n\nSee [[Page 00]].\n",
                 public, i
@@ -82,9 +82,28 @@ relations:
         );
     }
 
-    // Excluded by the walk: app config and a non-markdown asset.
-    write("knowledge/pages/.obsidian/workspace.json", "{}".to_string());
-    write("knowledge/pages/diagram.png", "binary".to_string());
+    // Excluded by the walk: app config, a non-markdown asset, and the
+    // Obsidian furniture that sits beside the pages at a flat vault root
+    // (owner decision 2026-10-16). Each carries `public: true` so that, were
+    // it ingested, it would show up as an extra node.
+    write("knowledge/.obsidian/workspace.json", "{}".to_string());
+    write("knowledge/diagram.png", "binary".to_string());
+    write(
+        "knowledge/templates/Class.md",
+        "---\ntype: Class\npublic: true\n---\n\n# Template\n".to_string(),
+    );
+    write(
+        "knowledge/bases/All Classes.md",
+        "---\npublic: true\n---\n\nnot a page\n".to_string(),
+    );
+    write(
+        "working/assets/diagram.md",
+        "---\npublic: true\n---\n\nnot a page\n".to_string(),
+    );
+    write(
+        "working/journals/2026-09-22.md",
+        "---\npublic: true\n---\n\nSee [[Page 00]].\n".to_string(),
+    );
 }
 
 struct Harness {
@@ -119,8 +138,8 @@ async fn harness() -> Harness {
     let source = Arc::new(LocalDirectorySource::new(
         vault.path(),
         vec![
-            std::path::PathBuf::from("knowledge/pages"),
-            std::path::PathBuf::from("working/pages"),
+            std::path::PathBuf::from("knowledge"),
+            std::path::PathBuf::from("working"),
         ],
     ));
 
@@ -159,7 +178,7 @@ async fn header_only_space_domains_survive_fresh_ingest_and_have_navigation_root
         ),
     ] {
         std::fs::write(
-            h.vault.path().join(format!("knowledge/pages/{title}.md")),
+            h.vault.path().join(format!("knowledge/{title}.md")),
             format!("---\ntype: Class\ntitle: {title}\nresource: urn:ngm:class:{slug}-fixture\npublic: true\nstatus: draft\nmaturity: draft\ndomain: {slug}\n---\n"),
         ).unwrap();
     }
@@ -412,7 +431,7 @@ async fn frontmatter_relations_are_typed_edges_and_a_class_wins_its_working_twin
     // after `knowledge/`, so without the yield rule its batch would upsert
     // over the class node.
     std::fs::write(
-        h.vault.path().join("working/pages/Alpha.md"),
+        h.vault.path().join("working/Alpha.md"),
         "---\ntype: Note\npublic: true\n---\n\n# Alpha\n\nA working note.\n",
     )
     .unwrap();
@@ -482,7 +501,7 @@ async fn a_second_sync_skips_unchanged_pages() {
     );
 
     std::fs::write(
-        h.vault.path().join("knowledge/pages/Page 00.md"),
+        h.vault.path().join("knowledge/Page 00.md"),
         "---\npublic: true\n---\n\n# Page 00\n\nLinks to [[Page 01]].\n",
     )
     .unwrap();
