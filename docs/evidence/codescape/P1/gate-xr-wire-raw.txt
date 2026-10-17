@@ -1,0 +1,19 @@
+# Codescape XR wire gate - raw output
+date: 2026-10-17T21:14:22Z  rustc 1.99.0 (b940084d7 2026-09-28)
+fixtures captured from codescape-server /wss at visionclaw_container:4100 (CUDA engine, VisionClaw repo) on 2026-10-17; v5_after_action.bin is the first frame after a hook-driven agent action
+$ cargo test -p visionclaw-xr-gdext --test codescape_wire
+
+
+
+  Permission denied (os error 13)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1.41s
+     Running tests/codescape_wire.rs (/home/devuser/workspace/project/target/xr-client-test/debug/deps/codescape_wire-619641be74c8ab52)
+
+running 3 tests
+test initial_graph_load_parses_with_the_xr_parser ... ok
+test agent_action_frame_targets_an_announced_node ... ok
+test v5_keyframe_decodes_and_maps_fields_as_adr_2143_says ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+exit=0

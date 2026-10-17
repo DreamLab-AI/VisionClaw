@@ -110,3 +110,28 @@ The audit was run by Codex gpt-6-astra and returned at 2026-10-17T20:30Z, anti-f
 - `ids.rs:38,47-71`: `#[serde(from = "RawInterner")]` rebuilds the index. Test: `:286-301`.
 - `tests/isolation.rs:122-128`: the negative control fails, not skips, when its fixture is missing.
 - `tests/isolation.rs:53-59`: the offline-to-online retry prints the offline diagnostic.
+
+## XR wire (raw output committed)
+
+`xr-client/rust/tests/codescape_wire.rs` decodes three frames captured from the running
+Codescape server (`/wss` on `visionclaw_container:4100`, CUDA engine, VisionClaw repository,
+2026-10-17) with the Godot client's own parsers: the `initialGraphLoad` text frame (1,432 nodes,
+3,329 edges, file tier), the join V5 keyframe (every announced node exactly once, no flag bits,
+`community_id` equal to `metadata.community` on more than 100 nodes), the first V5 frame after a
+hook-driven agent action (exactly one agent-flagged actor record carrying heat) and the `0x23`
+agent-action frame (plain target id, a `file` node, source equal to that actor). Result: 3 passed,
+`gate-xr-wire-raw.txt`. The fixtures live in `xr-client/rust/tests/fixtures/codescape/`.
+
+## Not exercised in P1, and why
+
+- **Compose deployment.** The `codescape` service is defined and the YAML validated, but it was not
+  started: `./scripts/launch.sh up dev` must run from the host shell, and that shell (tmux window 6)
+  is following the live stack's logs, where an interrupt tears the stack down. First start compiles
+  the workspace in a fresh container (`start_period` 900 s). The live P1 evidence comes from the
+  release binary run directly inside the VisionClaw container instead.
+- **Activity-sink hook enablement.** The hook ships on the agentbox branch
+  `feat/codescape-activity-sink` and its registration is projected at image boot, so enabling
+  `[integrations.activity_sink]` needs a host rebuild from that branch. The hook itself was exercised
+  by hand against the agentbox-side Codescape instance (actor and speech bubble visible,
+  `04-agentbox-l0-hook-driven-actor.png`).
+- **Headset run.** The XR evidence is decoder-level (above), not a Godot capture.

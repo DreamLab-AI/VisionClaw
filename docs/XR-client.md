@@ -934,6 +934,27 @@ The HUD has a tenth tab, **Forces**, for the physics `semantic` group. It lists 
 - Verify by eye on a headset: the tab bar now has ten expand-fill buttons; the GUT fit guard proves the page fits the 532 px host, not the bar's horizontal fit.
 
 
+## Codescape as a second server (ADR-2143)
+
+Codescape (`crates/codescape`, port 4100) is a separate section of the estate that visualises a
+code graph rather than the knowledge graph. It emulates this client's `/wss` contract so the Godot
+client needs no change: point `XR_BACKEND_WS` at `ws://<codescape-host>:4100` and the client receives
+an `initialGraphLoad` text frame (file-tier projection: directories and files, `node_type` is `file`
+or `directory`, `metadata.source_file`, `metadata.community`, `metadata.tier`), then V5 position
+frames in the frozen 52-byte record and `0x23` agent-action frames for agent activity delivered by
+the activity-sink hook. Field mapping on the record: `community_id` is the Leiden community,
+`cluster_id` the crate or top-level directory, `centrality` the importance in 0..1, `anomaly` the
+recent activity heat in 0..1, and the SSSP fields the hop distance from the current focus. Code
+nodes carry no flag bits; actors (agents and humans) carry `0x8000_0000` and render as agents.
+`0x34` acknowledgements pace the stream exactly as for the VisionClaw server.
+
+Known divergences from the VisionClaw server: actors are not listed in `initialGraphLoad`, so an
+agent's hover label is empty (`render_store` `label_of` reads topology metadata); knowledge-graph
+routes (`/api/memory-cloud/*`, `/api/analytics/*`, `/api/graph/fold`, `/api/canary/*`) return 404
+and the HUD panels that depend on them stay empty; the `authenticate` envelope is accepted but not
+yet verified (NIP-98 arrives with Codescape P6). The wire is pinned by `tests/codescape_wire.rs`,
+which decodes frames captured from a running Codescape server with this crate's own parsers.
+
 ## Position stream and acknowledgement (ADR-2141)
 
 The client does not subscribe to positions: the server streams them to every registered session in
