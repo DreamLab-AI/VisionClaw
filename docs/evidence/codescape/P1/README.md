@@ -145,4 +145,11 @@ agent-action frame (plain target id, a `file` node, source equal to that actor).
   `[integrations.activity_sink]` needs a host rebuild from that branch. The hook itself was exercised
   by hand against the agentbox-side Codescape instance (actor and speech bubble visible,
   `04-agentbox-l0-hook-driven-actor.png`).
-- **Headset run.** The XR evidence is decoder-level (above), not a Godot capture.
+- **Headset run: done at 21:48Z, see `xr-headset-run.txt`.** The Godot XR client on the HP host
+  (Godot 4.6.1, SteamVR, Vive) was restarted against Codescape through a reverse SSH tunnel
+  (`127.0.0.1:4100` on HP to `visionclaw_container:4100`), because port 4100 is not yet published
+  on the host. It received the Codescape file-tier topology (1,432 nodes, 3,329 edges), applied
+  positions for all of them plus the actor record (`positions_known=1433`), the server accepted its
+  authenticate envelope, and it rendered at 90 FPS. Gap found: Codescape has no `/ws/presence`
+  route, so the client logs a 404 and schedules a reconnect every 2 s (`graph_scene.gd:2958`);
+  P4 should add a presence shim or a response the client treats as "presence disabled".

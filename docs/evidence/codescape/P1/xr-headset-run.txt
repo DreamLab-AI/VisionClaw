@@ -1,0 +1,55 @@
+# Codescape headset run - Godot XR client log excerpt (HP host)
+date: 2026-10-17T21:49:19Z
+client: Godot 4.6.1 + visionclaw-xr-gdext (debug .so, gdext-fresh), SteamVR, HTC Vive controllers; launched by ~/restart-xr.sh with XR_BACKEND_WS=ws://127.0.0.1:4100 XR_SKIP_STEAMVR=1
+transport: reverse SSH tunnel HP 127.0.0.1:4100 -> agentbox -> visionclaw_container:4100 (compose service not yet started, so 4100 is not published on the host)
+server: codescape-server CUDA engine, 28,159 nodes; /api/health connections rose to 3 on connect; server log: 'authenticate envelope accepted pubkey=None verifier=open'
+
+$ grep -ivE "Project FPS|OpenXR: Found" /tmp/godot-xr-fresh.log  (first 40 lines)
+WorkerThreadPool: 48 threads, 14 max low-priority.
+Initialize godot-rust (API v4.3.stable.official, runtime v4.6.1.stable.official)
+Godot Engine v4.6.1.stable.official.14d19694e - https://godotengine.org
+TextServer: Added interface "Dummy"
+Error [GENERAL | xrCreateInstance | OpenXR-Loader] : LoaderInstance::CreateInstance chained CreateInstance call failed
+Error [GENERAL | xrCreateInstance | OpenXR-Loader] : xrCreateInstance failed
+OpenXR: Falling back to OpenXR 1.0
+OpenXR: Created instance for OpenXR 1.0.54
+OpenXR: Enabled extension  XR_EXT_palm_pose
+OpenXR: Enabled extension  XR_EXT_local_floor
+OpenXR: Enabled extension  XR_KHR_composition_layer_depth
+OpenXR: Enabled extension  XR_HTC_vive_cosmos_controller_interaction
+OpenXR: Enabled extension  XR_HTC_vive_focus3_controller_interaction
+OpenXR: Enabled extension  XR_HTCX_vive_tracker_interaction
+OpenXR: Enabled extension  XR_FB_display_refresh_rate
+OpenXR: Enabled extension  XR_EXT_hp_mixed_reality_controller
+OpenXR: Enabled extension  XR_KHR_visibility_mask
+OpenXR: Enabled extension  XR_VALVE_frame_controller_interaction
+OpenXR: Enabled extension  XR_KHR_opengl_enable
+OpenXR: Enabled extension  XR_MNDX_egl_enable
+OpenXR: Running on OpenXR runtime:  SteamVR/OpenXR   2.17.10
+ - width:  8192
+ - height:  8192
+ - sample count:  1
+ - recommended render width:  2468
+ - recommended render height:  2740
+ - recommended render sample count:  1
+ - width:  8192
+ - height:  8192
+ - sample count:  1
+ - recommended render width:  2468
+ - recommended render height:  2740
+ - recommended render sample count:  1
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Unrecognized output string "misc2" in mapping:
+030000000d0f0000ab01000011010000,Horipad Steam,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:a5,leftx:a0,lefty:a1,misc2:b2,paddle1:b19,paddle2:b18,paddle3:b15,paddle4:b5,rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,righty:a3,start:b11,x:b3,y:b4,platform:Linux,
+Unrecognized output string "misc2" in mapping:
+050000000d0f00009601000091000000,Horipad Steam,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:a5,leftx:a0,lefty:a1,misc2:b2,paddle1:b19,paddle2:b18,paddle3:b15,paddle4:b5,rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,righty:a3,start:b11,x:b3,y:b4,platform:Linux,
+Unrecognized output string "misc2" in mapping:
+030000007e0500006920000011010000,Nintendo Switch 2 Pro Controller,a:b0,b:b1,back:b14,dpdown:b8,dpleft:b10,dpright:b9,dpup:b11,guide:b16,leftshoulder:b12,leftstick:b15,lefttrigger:b13,leftx:a0,lefty:a1~,misc1:b17,misc2:b20,paddle1:b18,paddle2:b19,rightshoulder:b4,rightstick:b7,righttrigger:b5,rightx:a2,righty:a3~,start:b6,x:b2,y:b3,platform:Linux,
+
+grep: FPS:: No such file or directory
+grep: 90": No such file or directory
+grep: FPS": No such file or directory
+FPS: lines at 90 then last = 58 Project FPS: 90 (11.11 mspf) 
+
+=== position frames applied
+GraphScene DEBUG: topology arrived edges=3329 nodes=1432 positions_known=1433 budgets=1432/3329
