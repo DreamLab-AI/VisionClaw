@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 458b0ded5da35b968ebd7ad056eba8bc06da38a5
+verified_commit: b63068e3dfeecf0622d4b68f8e59a52479c59deb
 verified_paths: [crates/codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
