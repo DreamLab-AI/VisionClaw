@@ -126,9 +126,20 @@ agent-action frame (plain target id, a `file` node, source equal to that actor).
 
 - **Compose deployment.** The `codescape` service is defined and the YAML validated, but it was not
   started: `./scripts/launch.sh up dev` must run from the host shell, and that shell (tmux window 6)
-  is following the live stack's logs, where an interrupt tears the stack down. First start compiles
-  the workspace in a fresh container (`start_period` 900 s). The live P1 evidence comes from the
-  release binary run directly inside the VisionClaw container instead.
+  is following the live stack's logs, where an interrupt runs `cleanup_dev` (`scripts/launch.sh:479-486`,
+  `docker compose down`) on the whole stack. First start compiles the workspace in a fresh container
+  (`start_period` 900 s). The live P1 evidence comes from the release binary run directly inside the
+  VisionClaw container instead. Operator command, from a second host shell in the checkout:
+
+  ```bash
+  CODESCAPE=1 ./scripts/launch.sh up dev        # mints secrets/codescape-ingest-token on first use
+  docker logs -f codescape                       # until "starting codescape-server on :4100"
+  curl -s http://127.0.0.1:4100/api/health       # engine should read "cuda"
+  ```
+
+  With `NVIDIA_VISIBLE_DEVICES=all` the engine picks the visible card with the most free memory
+  (`codescape-layout/src/cuda.rs` `best_by_free`), so on this host it lands on an idle RTX 6000 Ada
+  rather than the A6000 the VisionClaw server already loads; pin with `CODESCAPE_CUDA_DEVICE=<ordinal>`.
 - **Activity-sink hook enablement.** The hook ships on the agentbox branch
   `feat/codescape-activity-sink` and its registration is projected at image boot, so enabling
   `[integrations.activity_sink]` needs a host rebuild from that branch. The hook itself was exercised

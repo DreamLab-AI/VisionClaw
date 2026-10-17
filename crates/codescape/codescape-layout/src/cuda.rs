@@ -66,8 +66,21 @@ const BLOCK: u32 = 256;
 /// single far-out body from inflating every upload.
 const GRID_CELLS_PER_BODY: usize = 2;
 const MIN_GRID_CELLS: usize = 4096;
-/// Selects the device ordinal for [`CudaEngine::new`]; default 0.
+/// Pins the device ordinal for [`CudaEngine::new`]. When unset, the engine
+/// picks the visible device with the most free memory, so a Codescape
+/// container that can see several cards lands on an idle one instead of
+/// sharing device 0 with the VisionClaw server.
 pub const DEVICE_ENV: &str = "CODESCAPE_CUDA_DEVICE";
+
+/// The ordinal with the most free memory; ties go to the lower ordinal.
+/// Pure so it can be tested without a device.
+pub(crate) fn best_by_free(free_by_ordinal: &[(u32, usize)]) -> Option<u32> {
+    free_by_ordinal
+        .iter()
+        .copied()
+        .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+        .map(|(ordinal, _)| ordinal)
+}
 
 const ENABLE_REPULSION: u32 = 1 << 0;
 const ENABLE_SPRINGS: u32 = 1 << 1;
@@ -480,10 +493,35 @@ impl CudaEngine {
         let (ptx, artefact) = verified_ptx()?;
         cust::init(cust::CudaFlags::empty()).map_err(dev("cuInit"))?;
         let count = Device::num_devices().map_err(dev("device count"))?;
-        let ordinal: u32 = std::env::var(DEVICE_ENV)
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+        if count == 0 {
+            return Err(LayoutError::Device("no CUDA device visible".into()));
+        }
+        let pinned: Option<u32> = std::env::var(DEVICE_ENV).ok().and_then(|v| v.parse().ok());
+        let ordinal: u32 = match pinned {
+            Some(o) => o,
+            None => {
+                // Probe free memory on every visible device. Each probe needs a
+                // context; it is dropped before the chosen one is created.
+                let mut free_by_ordinal: Vec<(u32, usize)> = Vec::with_capacity(count as usize);
+                for o in 0..count {
+                    let d = Device::get_device(o).map_err(dev("get device"))?;
+                    let probe = Context::new(d).map_err(dev("probe context"))?;
+                    CurrentContext::set_current(&probe).map_err(dev("probe set context"))?;
+                    let (free, _total) =
+                        cust::memory::mem_get_info().map_err(dev("mem_get_info"))?;
+                    free_by_ordinal.push((o, free));
+                    drop(probe);
+                }
+                let chosen = best_by_free(&free_by_ordinal).unwrap_or(0);
+                tracing::info!(
+                    target: "codescape_layout",
+                    ?free_by_ordinal,
+                    chosen,
+                    "cuda device chosen by free memory (pin with {DEVICE_ENV})"
+                );
+                chosen
+            }
+        };
         if ordinal >= count {
             return Err(LayoutError::Device(format!(
                 "device {ordinal} requested, {count} present"
@@ -958,6 +996,22 @@ mod tests {
     use crate::model::test_graphs::{repo_graph, Repo};
     use crate::{knn_overlap, CpuEngine};
     use codescape_model::Tier;
+
+    #[test]
+    fn device_picker_prefers_most_free_memory_then_lowest_ordinal() {
+        // The estate shape on 2026-10-17: device 0 busy, two idle cards.
+        assert_eq!(
+            best_by_free(&[(0, 20 << 30), (1, 21 << 30), (2, 45 << 30)]),
+            Some(2)
+        );
+        assert_eq!(
+            best_by_free(&[(0, 10), (1, 10)]),
+            Some(0),
+            "tie goes to the lower ordinal"
+        );
+        assert_eq!(best_by_free(&[(3, 1)]), Some(3));
+        assert_eq!(best_by_free(&[]), None);
+    }
 
     #[test]
     fn sim_params_mirror_is_212_bytes_of_four_byte_fields() {
