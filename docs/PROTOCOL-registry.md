@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.10
+version: 0.1.11
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.11 (2026-10-17): ADR-2143: Codescape recorded as a second producer of V3/V5 on :4100 (no new tags or flag bits, field mapping, 0x23 mapping, 404 list); citation refresh: routes main.rs:1093-1123, 0x23 :1792/:1561/:1571/:1534-1541, batch framing stated"
   - "0.1.10 (2026-10-13): ADR-2138 — /api/analytics/cycles row (GET, optional edgeType, default subsumption edges); layout-mode whitelist gains spectral and clustered; REST only, no frame change"
   - "0.1.9 (2026-10-08): ADR-2136 amendment — each MemoryCloudHit in the /api/memory-cloud/query response gains optional position [x,y,z] | null, the hit's own embedding projected with the snapshot's PCA basis (on its row when sampled); additive"
   - "0.1.8 (2026-10-08): ADR-2136 — /api/memory-cloud/query response gains optional query.position [x,y,z] | null, the query vector projected with the snapshot's own PCA basis and scale (a sampled row lands on its row); additive, older clients ignore it. ADR-2135 amendment — graphSeparationX retired from PUT/GET /api/settings/physics: a sent or stored value is accepted and ignored, never returned"
@@ -130,11 +131,13 @@ only one of the three decoders with no fixture-backed cross-check.
 
 ### `0x23` — AGENT_ACTION beam event
 
-`MessageType::AgentAction = 0x23` (`binary_protocol.rs:1721`). Frame =
-`[0x23]` then one or more 15-byte headers with optional variable payloads. Header
-(`AgentActionEvent`, `binary_protocol.rs:1490`, `AGENT_ACTION_HEADER_SIZE = 15` at `:1500`):
+`MessageType::AgentAction = 0x23` (`binary_protocol.rs:1792`). Frame =
+`[0x23][u16 count LE]( [u16 event_len LE][event_len bytes] )*`, each event a 15-byte header plus
+optional variable payload (`encode_agent_actions` `:1652`, `decode_agent_actions` `:1675-1697`;
+fixture `crates/visionclaw-protocol/src/wire_fixtures.rs:52`). Header
+(`AgentActionEvent`, `binary_protocol.rs:1561`, `AGENT_ACTION_HEADER_SIZE = 15` at `:1571`):
 `source_agent_id u32 @0`, `target_node_id u32 @4`, `action_type u8 @8`
-(Query/Update/Create/Delete/Link/Transform, `:1098-1105`), `timestamp u32 @9` (ms),
+(`AgentActionType` Query/Update/Create/Delete/Link/Transform, `:1534-1541`), `timestamp u32 @9` (ms),
 `duration_ms u16 @13`, then variable `payload`. Multiple actions coalesce into one frame
 (`src/actors/agent_beam_actor.rs`). Identity-blind by design — carries agent-id-space numeric ids
 only.
@@ -183,18 +186,53 @@ Relay rules:
 
 A session authenticated at the upgrade now reports its pubkey to the coordinator on `SetClientId`, so pubkey scoping covers it.
 
+### Second producer: Codescape (`:4100`, ADR-2143)
+
+Codescape is a second, independent producer of the frozen contract above, in its own Cargo
+workspace (`crates/codescape/`). It allocates **no** tag byte and **no** flag bit. Encoders and
+their fixture-pinned tests exist now (`crates/codescape/codescape-model/src/wire.rs`; the record
+layout is included by `#[path]` from `wire_fixtures.rs` at `wire.rs:18-19`). Serving is phased:
+`/ws/positions`, ack pacing and the 404 list land in P1, `/wss` emulation in P4.
+
+- **Frames.** V3 records inside V5 envelopes (`[0x05][u64 seq][52 B × n]`) on `/ws/positions`,
+  and from P4 on `/wss` behind an `initialGraphLoad` text frame so the XR client is unchanged.
+  It honours `0x34` acks for pacing (ADR-2141); ack bytes match the shared fixture (`wire.rs:174-181`).
+- **Ids.** 26-bit interned ids, never hashed, never reused within an epoch (ADR-2024;
+  `codescape-model/src/ids.rs`). Code nodes carry **no flag bits** (`wire.rs:34`); actors carry
+  `AGENT = 0x8000_0000` (`wire.rs:29,48`). Bit 29 stays unallocated.
+- **Field mapping** (`wire.rs:32-44`):
+
+| V3 field | Codescape meaning |
+|---|---|
+| `cluster_id @36` | structural cluster: crate / top-level directory |
+| `anomaly_score @40` | activity heat 0..1 (recent agent/human touches) |
+| `community_id @44` | Leiden community, stable-matched across recomputes |
+| `centrality @48` | importance 0..1 |
+| `sssp_distance @28` / `sssp_parent @32` | BFS hop distance and parent from the current focus |
+| `velocity @16` | layout velocity |
+
+- **`0x23`.** Same batch framing and existing `AgentActionType` values, no new ones
+  (`wire.rs:100-126`): Read/Grep/Glob → `Query 0`; Edit (existing file) → `Update 1`; Write of a
+  new file → `Create 2`; file removed in a delta → `Delete 3`.
+- **Knowledge routes are never served.** `/api/memory-cloud/*`, `/api/analytics/*`,
+  `/api/graph/fold` and `/api/canary/*` return 404 on `:4100`. `:4101` (hook ingest, bearer
+  token) is never published.
+- **Scope of the invariants below.** The fail-closed visibility filter and the ADR-2139/2141
+  entitlement rules govern the `:4000` producer. Codescape serves no knowledge graph; its
+  entitlement is the P6 NIP-98 pubkey allowlist on every route. Until P6 `:4100` is unpublished.
+
 ### REST + WebSocket endpoints and auth
 
-Routes registered in `src/main.rs:986-1016`:
+Routes registered in `src/main.rs:1093-1123`:
 
 | Path | Method | Auth | Notes |
 |------|--------|------|-------|
 | `/wss` | WS upgrade | NIP-98 Bearer **or** `?token=` query (`http_handler.rs:139-150`) | graph position stream; Origin header required (`:130`) |
-| `/wss/agent-events` | WS | inherits `/wss` seam | agent-event hub (`main.rs:990,1156`) |
-| `/ws/presence` | WS | XR presence registry + `NostrIdentityVerifier` (`main.rs:996` route → handler `ws_presence`; state built at `:812-816`) | `0x43`/`0x44` traffic |
-| `/ws/speech`, `/ws/mcp-relay`, `/ws/client-messages` | WS | per-handler | `main.rs:991-994` |
-| `/healthz`, `/readyz` | GET | none (probes) | `main.rs:986-987` |
-| `/client-logs` | POST | none | `main.rs:1016` |
+| `/wss/agent-events` | WS | inherits `/wss` seam | agent-event hub (`main.rs:1097`) |
+| `/ws/presence` | WS | XR presence registry + `NostrIdentityVerifier` (`main.rs:1103` route → handler `ws_presence`; state built at `:870-875`) | `0x43`/`0x44` traffic |
+| `/ws/speech`, `/ws/mcp-relay`, `/ws/client-messages` | WS | per-handler | `main.rs:1098-1101` |
+| `/healthz`, `/readyz` | GET | none (probes) | `main.rs:1093-1094` |
+| `/client-logs` | POST | none | `main.rs:1123` |
 | `/api/memory-cloud` | GET | `PowerUser` in handler (`memory_cloud_handler.rs:44`), regardless of `RBAC_PUBLIC_READS` | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO` |
 | `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
 | `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); `query.position` = the query's point and each hit's `position` = the hit's own point in the snapshot's PCA cloud, or `null` (ADR-2136); validation 400 |

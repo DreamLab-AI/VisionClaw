@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.2.1
+version: 0.3.0
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.3.0 (2026-10-17): ADR-2143: Codescape section (separate workspace and lock, ports 4100/4101, tested build-graph isolation) and one invariant; citation refresh in Processes and ports (compose :8/:26,215/:48-49/:70-71/:204/:304, HttpServer::new at main.rs:959). Minor bump: new subsystem and one additive invariant; no existing invariant changed"
   - "0.2.1 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.2.0 — Data pipeline: the authored corpus is an Obsidian vault (docs/VAULT-corpus-format.md); inclusion gate is frontmatter `public: true` or `owl-class` (ADR-2040), superseding the Logseq `public:: true` property line."
   - "0.1.1 — Corrected wire-protocol citation: WireNodeDataItemV3 struct is defined in src/utils/binary_protocol.rs (webxr crate), not the visionclaw-protocol lib.rs doc-comment."
@@ -62,17 +63,32 @@ Persistence is embedded, not networked. Neo4j is fully removed — no `neo4rs` o
 ### Processes and ports
 
 Single application container `visionclaw_container`
-(`docker-compose.unified.yml:47`) running the Actix backend plus a Vite dev
+(`docker-compose.unified.yml:48-49`) running the Actix backend plus a Vite dev
 server behind nginx:
 
 - **actix backend** — `SYSTEM_NETWORK_PORT` default `4000`
-  (`docker-compose.unified.yml:6`); health `GET /api/health`
-  (`docker-compose.unified.yml:24,137`). Started via `HttpServer::new`,
-  `src/main.rs:852`.
-- **nginx** — dev `3001` (`DEV_NGINX_PORT`, `docker-compose.unified.yml:126`);
-  production readiness `GET /readyz` on `3001` (`:211`).
+  (`docker-compose.unified.yml:8`); health `GET /api/health`
+  (`docker-compose.unified.yml:26,215`). Started via `HttpServer::new`,
+  `src/main.rs:959`.
+- **nginx** — dev `3001` (`DEV_NGINX_PORT`, `docker-compose.unified.yml:204`);
+  production readiness `GET /readyz` on `3001` (`:304`).
 - **Vite** — dev server `5173` (`VITE_DEV_SERVER_PORT`,
-  `docker-compose.unified.yml:63`), proxying the API on `4000` (`:64`).
+  `docker-compose.unified.yml:70`), proxying the API on `4000` (`:71`).
+
+### Codescape (separate section, ADR-2143)
+
+Codescape, a voice-collaborative live code-graph view, is a **separate section**, not part of the
+knowledge-work system. It is its own Cargo workspace at `crates/codescape/` with its own
+`Cargo.lock` (`crates/codescape/Cargo.toml:1-20`), never a root-workspace member, because the
+graphicle engine it consumes (pinned git rev, `:40`) turns on serde_json `arbitrary_precision`,
+which Cargo would unify into every root build. Ports: `4100` for clients and `4101` for
+token-authenticated hook ingest, never published. It produces the frozen V3/V5 contract unchanged
+(see `PROTOCOL-registry.md`, "Second producer: Codescape"). **Isolation** from the ontology,
+memory-cloud, vault, Oxigraph, RuVector/Postgres and Solid stores is enforced in four layers:
+the build graph (`crates/codescape/codescape-server/tests/isolation.rs`, in force now), an
+egress allowlist and its own compose service without `/vault` (P2), and the client import
+graph (with the client). Until P2 it runs inside `visionclaw_container` on an unpublished port.
+Status: P0 (workspace, model, isolation test) only; nothing is served yet.
 
 ### Crate layout
 
@@ -281,6 +297,10 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
   → `ClientCoordinatorActor` → WebSocket. The live `ClientCoordinatorActor` must
   be the one clients register with (registry not empty).
 - Backend on `4000`, nginx `3001`, Vite `5173`, all inside `visionclaw_container`.
+- Codescape (ADR-2143) is a separate Cargo workspace and lock at `crates/codescape/`, on ports
+  `4100`/`4101`, and its build graph contains no knowledge-work crate (ontology, memory-cloud,
+  vault, Oxigraph, Postgres/RuVector, Solid, `visionclaw-server`), enforced by
+  `crates/codescape/codescape-server/tests/isolation.rs`.
 - RBAC open-by-default is a compose-env choice, not a structural code default;
   changing the compose defaults changes the security posture and requires a named
   security profile.

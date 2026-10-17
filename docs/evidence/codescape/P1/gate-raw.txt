@@ -1,0 +1,375 @@
+# Codescape P1 gate - raw output (final, post-review)
+date: 2026-10-17T21:05:26Z  host: agentbox  rustc 1.99.0 (b940084d7 2026-09-28)
+git HEAD: 458b0ded5da35b968ebd7ad056eba8bc06da38a5 (staged, uncommitted)
+graphicle rev: source = "git+https://github.com/Graphicle-AI/graphicle?rev=003f93605d895ed69f0cf06690dd296474385b99#003f93605d895ed69f0cf06690dd296474385b99"
+Cargo.lock sha256: 34ddf4c9d53d6650
+note: 'failed to auto-clean cache data ... Permission denied' lines are cargo's read-only registry cache in this sandbox, not test output
+
+$ cargo test --workspace
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+
+Caused by:
+  Permission denied (os error 13)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.48s
+     Running unittests src/lib.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_collab-27d3060f9ac0531d)
+
+running 39 tests
+test actors::tests::heat_clamps_at_one ... ok
+test actors::tests::heat_decay_numbers ... ok
+test actors::tests::remove_drops_actor_and_history_but_not_others ... ok
+test actors::tests::upsert_refreshes_without_rewinding ... ok
+test floor::tests::busy_with_empty_queue_then_free ... ok
+test actors::tests::recent_focus_and_staleness ... ok
+test floor::tests::busy_demotes_holder_and_blocks_promotion ... ok
+test actors::tests::stale_actor_heat_is_below_floor_before_eviction ... ok
+test floor::tests::expiry_is_applied_lazily_by_request ... ok
+test floor::tests::fifo_sequence ... ok
+test floor::tests::hold_cap_expiry_promotes_and_restarts_clock ... ok
+test floor::tests::non_holder_release_dequeues ... ok
+test fuzzy::tests::edge_cases ... ok
+test fuzzy::tests::spoken_form_matches_identifier ... ok
+test grammar::tests::depth_suffixes ... ok
+test fuzzy::tests::graph_service_ranking_order ... ok
+test grammar::tests::validate_messages ... ok
+test heat::tests::accumulation_clamps_and_out_of_order_decays_forward ... ok
+test grammar::tests::rejects_out_of_range ... ok
+test heat::tests::half_life_is_exact ... ok
+test heat::tests::snapshot_and_prune_drop_cold_nodes ... ok
+test actors::tests::prune_keeps_registry_bounded ... ok
+test grammar::tests::normalisation_cases ... ok
+test paths::tests::empty_target_relativises_and_root_rules_work ... ok
+test paths::tests::longest_prefix_wins_regardless_of_order ... ok
+test paths::tests::parse_and_rewrite_cases ... ok
+test llm::tests::wire_shapes ... ok
+test paths::tests::resolve_prefers_longest_suffix_and_dedupes ... ok
+test timeline::tests::ring_evicts_oldest_and_sorts_late_arrivals ... ok
+test paths::tests::parse_errors_and_replacement ... ok
+test timeline::tests::heat_at_replays_decay ... ok
+test timeline::tests::window_is_inclusive ... ok
+test llm::tests::rejects_bad_replies ... ok
+test llm::tests::every_variant_conforms_and_round_trips ... ok
+test llm::tests::schema_tags_match_serde ... ok
+test llm::tests::llm_never_panics_on_junk ... ok
+test grammar::tests::never_panics_on_grammar_soup ... ok
+test grammar::tests::never_panics_on_any_string ... ok
+test llm::tests::llm_round_trips_every_variant ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+
+     Running tests/grammar_golden.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/grammar_golden-9cba5dc5638fbb25)
+
+running 4 tests
+test every_command_variant_is_reachable_by_voice ... ok
+test golden_commands_pass_the_llm_gate ... ok
+test non_commands ... ok
+test golden_table ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_ingest-247d1f0def829765)
+
+running 27 tests
+test analytics::tests::new_nodes_join_their_neighbours ... ok
+test engine::tests::truthiness_matches_python ... ok
+test engine::tests::noise_and_hidden_paths_are_not_visible ... ok
+test engine::tests::lexical_and_lenient_resolution ... ok
+test map::tests::locations_parse_both_forms ... ok
+test tests::dogfood_visionclaw_crates ... ignored, reads the host checkout; run manually
+test map::tests::confidence_and_labels ... ok
+test map::tests::kinds_follow_graphicle_records ... ok
+test tests::path_scanner_sees_every_form ... ok
+test view::tests::paths_avoid_directories_and_bfs_reports_parents ... ok
+test view::tests::search_ranks_exact_then_partial ... ok
+test watch::tests::continuous_writes_flush_at_the_max_wait ... ok
+test watch::tests::quiet_period_closes_a_batch ... ok
+test tests::open_rejects_bad_configuration ... ok
+test tests::only_allowlisted_graphicle_paths_are_used ... ok
+test analytics::tests::path_centre_has_the_highest_betweenness ... ok
+test analytics::tests::directories_are_excluded_and_aggregate_their_files ... ok
+test analytics::tests::sampling_is_deterministic ... ok
+test tests::watcher_fails_only_for_an_unwatchable_root ... ok
+test tests::watcher_skips_unreadable_and_ignored_subtrees ... ok
+test tests::ignored_churn_does_not_hold_back_a_batch ... ok
+test tests::continuous_real_writes_flush_at_the_max_wait ... ok
+test tests::drop_returns_promptly_while_events_stream ... ok
+test tests::golden_fixture_maps_structure_and_loads_from_cache ... ok
+test tests::apply_changed_patches_only_the_touched_files ... ok
+test tests::watcher_batches_filters_and_stops_on_drop ... ok
+test tests::single_file_patch_on_a_50k_node_graph_is_fast ... ok
+
+test result: ok. 26 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 14.88s
+
+     Running unittests src/lib.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_layout-1e550f51eef0e3a9)
+
+running 32 tests
+test cpu::tests::bench_cpu_settle_and_delta_100k ... ignored, benchmark: run in release with --ignored --nocapture
+test cpu::tests::bench_cpu_step ... ignored, benchmark: run in release with --ignored --nocapture
+test abi::tests::parser_edge_cases ... ok
+test cpu::tests::energy_concentration_on_plateau ... ignored, diagnostic: run in release with --ignored --nocapture
+test abi::tests::arity_drift_is_refused_even_with_the_right_params_size ... ok
+test abi::tests::committed_fallback_is_refused ... ok
+test abi::tests::provenance_must_be_compiled ... ok
+test abi::tests::fresh_build_passes ... ok
+test cpu::tests::delta_for_another_revision_is_refused ... ok
+test model::tests::bench_host_terms ... ignored, benchmark: run in release with --ignored --nocapture
+test knn::tests::only_shared_ids_count ... ok
+test model::tests::bodies_and_aggregates_are_classified ... ok
+test model::tests::csr_is_symmetric_merged_and_weighted ... ok
+test octree::tests::coincident_points_terminate ... ok
+test model::tests::focus_expands_aggregates_and_one_hop ... ok
+test seed::tests::known_positions_are_kept_and_children_follow_parents ... ok
+test seed::tests::fibonacci_points_are_unit_and_spread ... ok
+test octree::tests::theta_zero_is_exact ... ok
+test model::tests::aggregate_matches_lod_aggregate_positions ... ok
+test model::tests::host_forces_pull_members_to_their_file_and_balance ... ok
+test seed::tests::hierarchy_is_nested ... ok
+test seed::tests::seed_is_deterministic_and_order_independent ... ok
+test octree::tests::approximation_error_is_small_at_default_theta ... ok
+test knn::tests::grid_matches_brute_force ... ok
+test knn::tests::unrelated_layouts_disagree ... ok
+test cpu::tests::focus_mask_freezes_everything_else_exactly ... ok
+test knn::tests::identical_and_rigidly_moved_layouts_agree ... ok
+test cpu::tests::warm_start_keeps_unrelated_nodes_exactly ... ok
+test cpu::tests::steps_are_deterministic ... ok
+test cpu::tests::star_is_roughly_symmetric ... ok
+test cpu::tests::two_cliques_separate ... ok
+test cpu::tests::settles_on_a_2k_random_graph ... ok
+
+test result: ok. 28 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 3.02s
+
+     Running unittests src/lib.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_model-c8c41d4089b327d3)
+
+running 30 tests
+test community::tests::a_split_keeps_the_bigger_half_and_mints_a_label_for_the_rest ... ok
+test community::tests::permuted_labels_are_restored ... ok
+test community::tests::unassigned_zero_passes_through ... ok
+test graph::tests::kinds_and_relations_round_trip_strings ... ok
+test events::tests::events_are_tagged_snake_case_json ... ok
+test delta::tests::diff_then_apply_reproduces_after ... ok
+test ids::tests::exhaustion_is_an_error_not_a_wrap ... ok
+test graph::tests::validate_catches_broken_graphs ... ok
+test ids::tests::hostile_count_is_refused_before_allocation ... ok
+test ids::tests::ids_are_monotonic_and_stable ... ok
+test ids::tests::next_epoch_forgets_everything ... ok
+test ids::tests::rejects_garbage ... ok
+test ids::tests::serde_round_trip_restores_the_index ... ok
+test lod::tests::top_dir_handles_edges ... ok
+test lod::tests::tiers_are_built_and_clusters_propagate ... ok
+test lod::tests::aggregate_positions_take_centroids ... ok
+test wire::fixtures::tests::action_event_body_is_header_plus_payload ... ok
+test wire::fixtures::tests::broadcast_ack_frame_is_21_bytes_with_no_generic_header ... ok
+test wire::fixtures::tests::broadcast_ack_golden_bytes ... ok
+test wire::fixtures::tests::misaligned_fixture_is_not_a_record_multiple ... ok
+test wire::fixtures::tests::node_record_is_exactly_the_frozen_52_bytes ... ok
+test wire::fixtures::tests::overstated_count_keeps_the_real_bodies ... ok
+test wire::fixtures::tests::truncated_v5_sequence_is_not_readable ... ok
+test wire::fixtures::tests::v3_and_v5_bodies_are_identical_after_their_headers ... ok
+test wire::tests::ack_round_trips_and_matches_fixture_shape ... ok
+test wire::tests::actors_carry_the_agent_flag ... ok
+test wire::tests::agent_action_frame_shape ... ok
+test wire::tests::code_records_never_carry_flag_bits ... ok
+test wire::tests::record_matches_frozen_fixture_bytes ... ok
+test ids::tests::round_trips_through_bytes ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_server-0cefb9547c7720b8)
+
+running 64 tests
+test auth::tests::rate_limiter_refills ... ok
+test auth::tests::require_auth_refuses_until_p6 ... ok
+test auth::tests::token_compare ... ok
+test auth::tests::alloc_limiter_caps_per_address_per_window ... ok
+test auth::tests::ip_buckets_allow_the_burst_then_the_rate ... ok
+test cache::tests::bounded_and_evicts_the_oldest_insert ... ok
+test cache::tests::get_or_insert_builds_once ... ok
+test auth::tests::token_fails_closed ... ok
+test config::tests::ruvector_conninfo_refuses_boot ... ok
+test egress::tests::malformed_config_is_an_error ... ok
+test egress::tests::listed_origins_pass_and_others_are_refused ... ok
+test config::tests::egress_urls_include_optional_endpoints ... ok
+test config::tests::boolish_flags_accept_digits ... ok
+test config::tests::defaults_and_repeatable_repos ... ok
+test http::tests::backend_paths ... ok
+test http::tests::public_url_ignores_the_host_header ... ok
+test config::tests::ephemeral_ports_parse ... ok
+test ingest_api::tests::agent_text_is_private_by_default ... ok
+test http::tests::auth_rejections_still_carry_isolation_headers ... ok
+test http::tests::api_rate_limit_is_per_peer_and_keeps_isolation_headers ... ok
+test http::tests::without_static_dir_everything_unknown_is_json_404 ... ok
+test config::tests::bad_values_are_rejected ... ok
+test ingest_api::tests::presence_kinds_follow_the_tool ... ok
+test origin::tests::configured_list_replaces_loopback_defaults ... ok
+test origin::tests::cross_site_origins_are_refused ... ok
+test origin::tests::malformed_patterns_are_rejected ... ok
+test origin::tests::missing_origin_is_a_native_client ... ok
+test egress::tests::redirects_to_unlisted_hosts_are_refused ... ok
+test config::tests::public_origin_defaults_from_bind_and_port ... ok
+test origin::tests::same_origin_and_loopback_are_allowed_by_default ... ok
+test persist::tests::actor_ids_allocate_downward_and_persist ... ok
+test ingest_api::tests::rate_limit_answers_429 ... ok
+test persist::tests::positions_round_trip_and_epoch_guard ... ok
+test persist::tests::persisted_ephemeral_labels_are_dropped_on_load ... ok
+test ingest_api::tests::token_gates_ingest ... ok
+test voice::asr::tests::live_tts_to_asr_round_trip ... ignored, needs pocket-tts and nemotron-asr on the network
+test voice::asr::tests::finaliser_waits_for_settle_and_quiet ... ok
+test voice::asr::tests::pcm_bytes_and_transcript ... ok
+test voice::asr::tests::server_messages_decode ... ok
+test ingest_api::tests::failed_auth_cannot_exhaust_the_hook_bucket ... ok
+test voice::asr::tests::slicer_emits_exact_frames_and_pads_the_tail ... ok
+test voice::loom::tests::content_extraction_tolerates_think_and_fences ... ok
+test voice::loom::tests::request_declines_the_scaffold_and_carries_the_schema ... ok
+test voice::tts::tests::aligner_keeps_whole_samples ... ok
+test voice::tts::tests::request_shape_matches_pocket_tts ... ok
+test voice::loom::tests::unlisted_loom_is_refused ... ok
+test wire::tests::acking_clients_get_at_most_two_in_flight ... ok
+test voice::tts::tests::unlisted_tts_host_is_refused_before_any_io ... ok
+test wire::tests::field_changes_resend_and_heat_is_quantised ... ok
+test wire::tests::budget_spreads_a_keyframe_over_ticks ... ok
+test wire::tests::keyframe_interval_and_forced_keyframes ... ok
+test wire::tests::first_select_is_a_keyframe_then_only_movers ... ok
+test wire::tests::non_acking_clients_are_never_paced ... ok
+test wire::tests::leaving_the_projection_forgets_the_node ... ok
+test wire::tests::small_moves_accumulate_against_last_sent ... ok
+test wire::tests::timeout_recovers_instead_of_deadlocking ... ok
+test xr::tests::presence_maps_onto_existing_action_types ... ok
+test xr::tests::text_messages_are_classified_tolerantly ... ok
+test xr::tests::initial_graph_load_parses_with_the_xr_expectations ... ok
+test persist::tests::rotating_log_bounds_size_and_keeps_three ... ok
+test voice::asr::tests::audio_encodes_as_a_named_msgpack_map_of_float32 ... ok
+test http::tests::static_spa_and_404s_all_carry_isolation_headers ... ok
+test persist::tests::atomic_write_replaces_and_leaves_no_temp ... ok
+test persist::tests::ephemeral_range_sits_below_and_never_overlaps ... ok
+
+test result: ok. 63 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running unittests src/main.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/codescape_server-15956ecf017371e4)
+
+running 16 tests
+test engine::tests::change_queue_drops_the_oldest_batch_when_full ... ok
+test queries::tests::callable_outside_the_margin_does_not_win ... ok
+test engine::tests::evictions_take_the_oldest_stale_actors_only ... ok
+test queries::tests::callable_beyond_the_first_three_still_wins ... ok
+test ingest_sink::tests::only_files_and_known_deletions_are_accepted ... ok
+test routes::voice::tests::floor_messages_are_typed ... ok
+test routes::tests::snapshot_projection_keeps_tier_and_focus_symbols_only ... ok
+test state::tests::connection_slots_are_capped_and_freed_on_drop ... ok
+test routes::tests::loom_prompt_examples_are_valid_commands ... ok
+test state::tests::disconnect_releases_only_its_own_hold ... ok
+test state::tests::events_need_a_linked_open_voice_connection ... ok
+test state::tests::shared_view_versions_move ... ok
+test state::tests::only_the_claiming_connection_moves_the_floor ... ok
+test state::tests::tiers_parse ... ok
+test routes::voice::tests::preroll_keeps_the_newest_two_seconds ... ok
+test engine::tests::eviction_removes_stale_actors_and_keeps_the_rest_intact ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/isolation.rs (/home/devuser/workspace/project/target/codescape-server/debug/deps/isolation-5b766abc8195d556)
+
+running 4 tests
+test server_refuses_to_boot_with_a_ruvector_connection_string ... ok
+test the_check_itself_catches_an_injected_dependency ... ok
+test cuda_feature_graph_contains_no_knowledge_work_crates ... ok
+test build_graph_contains_no_knowledge_work_crates ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+   Doc-tests codescape_collab
+
+running 14 tests
+test codescape-collab/src/grammar.rs - grammar::Command::validate (line 203) ... ok
+test codescape-collab/src/grammar.rs - grammar::parse_command (line 477) ... ok
+test codescape-collab/src/heat.rs - heat::intensity (line 21) ... ok
+test codescape-collab/src/paths.rs - paths::PathMap (line 32) ... ok
+test codescape-collab/src/heat.rs - heat::decay_factor (line 41) ... ok
+test codescape-collab/src/timeline.rs - timeline::TimelineLog (line 36) ... ok
+test codescape-collab/src/fuzzy.rs - fuzzy::split_identifier (line 24) ... ok
+test codescape-collab/src/lib.rs - (line 29) ... ok
+test codescape-collab/src/llm.rs - llm::command_schema (line 105) ... ok
+test codescape-collab/src/floor.rs - floor::FloorArbiter (line 34) ... ok
+test codescape-collab/src/paths.rs - paths::resolve_paths (line 150) ... ok
+test codescape-collab/src/grammar.rs - grammar::normalise_spoken (line 336) ... ok
+test codescape-collab/src/llm.rs - llm::command_from_llm (line 202) ... ok
+test codescape-collab/src/fuzzy.rs - fuzzy::fuzzy_rank (line 72) ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+   Doc-tests codescape_ingest
+
+running 1 test
+test codescape-ingest/src/lib.rs - (line 22) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+   Doc-tests codescape_layout
+
+running 7 tests
+test codescape-layout/src/lib.rs - (line 87) ... ok
+test codescape-layout/src/knn.rs - knn::knn_overlap (line 20) ... ok
+test codescape-layout/src/seed.rs - seed::hierarchical_seed (line 39) ... ok
+test codescape-layout/src/abi.rs - abi::parse_manifest (line 148) ... ok
+test codescape-layout/src/cpu.rs - cpu::CpuEngine (line 22) ... ok
+test codescape-layout/src/abi.rs - abi (line 20) ... ok
+test codescape-layout/src/lib.rs - select_engine (line 338) ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+   Doc-tests codescape_model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests codescape_server
+
+running 3 tests
+test codescape-server/src/lib.rs - (line 23) ... ok
+test codescape-server/src/origin.rs - origin (line 16) ... ok
+test codescape-server/src/cache.rs - cache (line 11) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+exit=0
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+warning: failed to auto-clean cache data
+failed to clean entries from the global cache
+Caused by:
+Caused by:
+  Permission denied (os error 13)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.90s
+exit=0
+
+$ cargo fmt --all --check
+exit=0
+
+
+$ vitest run --config src/codescape/vitest.config.ts
+ [32m✓[39m src/__tests__/isolation.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/labels.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 107[2mms[22m[39m
+ [32m✓[39m src/__tests__/lod.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/__tests__/graph.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/__tests__/protocol.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/__tests__/store.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 63[2mms[22m[39m
+ [32m✓[39m src/__tests__/misc.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 138[2mms[22m[39m
+[2m Test Files [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[32m60 passed[39m[22m[90m (60)[39m
+[2m   Duration [22m 1.07s[2m (transform 1.29s, setup 0ms, import 1.63s, tests 367ms, environment 2.97s)[22m
+exit=0
+$ RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --no-deps  (re-run after fixing an intra-doc link to a private item in ids.rs)
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+
+Caused by:
+  Permission denied (os error 13)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.67s
+   Generated /home/devuser/workspace/project/target/codescape-server/doc/codescape_collab/index.html and 4 other files
+exit=0

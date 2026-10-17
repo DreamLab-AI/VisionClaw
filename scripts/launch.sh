@@ -256,6 +256,20 @@ set_environment_vars() {
             export CONTAINER_NAME="visionclaw_container"
             export BUILD_TARGET="development"
             export COMPOSE_PROFILES="dev"
+            # Codescape (ADR-2143) is an opt-in sidecar on its own port; it
+            # never starts unless CODESCAPE=1 is in the environment or .env.
+            if [[ "${CODESCAPE:-0}" == "1" ]]; then
+                export COMPOSE_PROFILES="dev,codescape"
+                info "  - Codescape sidecar enabled on :${CODESCAPE_PORT:-4100}"
+                # The ingest bearer token (ADR-2144) is a local secret; mint it
+                # on first use so compose never fails on a missing file.
+                local cs_token="${CODESCAPE_INGEST_TOKEN:-$PROJECT_ROOT/secrets/codescape-ingest-token}"
+                if [[ ! -s "$cs_token" ]]; then
+                    mkdir -p "$(dirname "$cs_token")"
+                    (umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$cs_token")
+                    info "  - Minted Codescape ingest token at $cs_token"
+                fi
+            fi
             export LOG_LEVEL="debug"
             export RESTART_POLICY="no"
             info "Environment: Development"

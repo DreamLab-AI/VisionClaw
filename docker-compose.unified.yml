@@ -423,6 +423,120 @@ services:
     profiles:
       - loom
 
+  # Codescape (ADR-2143): human/agent voice collaboration over a near-real-time
+  # code graph. A SEPARATE section of the estate: its own Cargo workspace
+  # (crates/codescape), its own port, its own target and data volumes, and no
+  # path to the knowledge-work system. Deliberately NOT given: env_file .env
+  # (which carries RUVECTOR_PG_CONNINFO), the /vault corpus, data/markdown or
+  # data/metadata, the Neo4j/Oxigraph hosts. Opt in with CODESCAPE=1 in .env;
+  # launch.sh then adds the `codescape` profile.
+  codescape:
+    container_name: ${CODESCAPE_CONTAINER:-codescape}
+    hostname: codescape
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE:-Dockerfile.unified}
+      target: development
+    entrypoint: ["/app/scripts/codescape-entrypoint.sh"]
+    environment:
+      CODESCAPE_PORT: "4100"
+      CODESCAPE_INGEST_PORT: "4101"
+      CODESCAPE_BIND: "0.0.0.0"
+      CODESCAPE_DATA_DIR: /data/codescape
+      CODESCAPE_TARGET_DIR: /codescape-target
+      CODESCAPE_PREFER_CUDA: ${CODESCAPE_PREFER_CUDA:-1}
+      # label=path, comma separated; paths are the read-only mounts below.
+      CODESCAPE_REPO: ${CODESCAPE_REPO:-visionclaw=/repos/visionclaw,agentbox=/repos/agentbox}
+      # The visionclaw mount contains agentbox as a nested checkout and the
+      # build trees; exclude them from the visionclaw graph (agentbox has its own).
+      CODESCAPE_EXCLUDES: ${CODESCAPE_EXCLUDES:-target/**,node_modules/**,agentbox/**,data/**,logs/**,.dev-inputs/**,archive/**,vircadia-world/**}
+      # Rewrites the paths agents report (their own view of the checkout) to the
+      # mount paths above: "<agent-side>=<mount>:<agent-side>=<mount>".
+      CODESCAPE_PATH_MAP: ${CODESCAPE_PATH_MAP:-/home/devuser/workspace/project=/repos/visionclaw:/home/devuser/workspace/project/agentbox=/repos/agentbox}
+      CODESCAPE_INGEST_TOKEN_FILE: /run/secrets/codescape-ingest-token
+      CODESCAPE_ASR_URL: ${CODESCAPE_ASR_URL:-ws://nemotron-asr:8000/api/asr-streaming}
+      CODESCAPE_TTS_URL: ${CODESCAPE_TTS_URL:-http://pocket-tts:8000}
+      CODESCAPE_LOOM_URL: ${CODESCAPE_LOOM_URL:-}
+      # info by default: debug logs hook-reported paths (security finding, low).
+      RUST_LOG: ${CODESCAPE_RUST_LOG:-info}
+      NVIDIA_VISIBLE_DEVICES: ${CODESCAPE_GPU:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    secrets:
+      - codescape-ingest-token
+    volumes:
+      - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/scripts:/app/scripts:ro
+      # Dogfood repositories as SOURCE-ONLY views (ADR-2143 §8, security
+      # review finding 3). The whole checkout is never mounted: it carries the
+      # knowledge corpus (data/), the root .env and local secrets. Only source
+      # directories are bound, read-only, so no code path in this container
+      # can read them, whatever the exclude list says.
+      # Root ignore rules stay visible so graphicle applies them to the view.
+      - ${HOST_PROJECT_ROOT:-.}/.gitignore:/repos/visionclaw/.gitignore:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/.gitignore:/repos/agentbox/.gitignore:ro
+      - ${HOST_PROJECT_ROOT:-.}/src:/repos/visionclaw/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/crates:/repos/visionclaw/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/client/src:/repos/visionclaw/client/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/xr-client:/repos/visionclaw/xr-client:ro
+      - ${HOST_PROJECT_ROOT:-.}/scripts:/repos/visionclaw/scripts:ro
+      - ${HOST_PROJECT_ROOT:-.}/docs:/repos/visionclaw/docs:ro
+      - ${HOST_PROJECT_ROOT:-.}/tests:/repos/visionclaw/tests:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/config:/repos/agentbox/config:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/services:/repos/agentbox/services:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/management-api:/repos/agentbox/management-api:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/crates:/repos/agentbox/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/lib:/repos/agentbox/lib:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/scripts:/repos/agentbox/scripts:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/skills:/repos/agentbox/skills:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/voice:/repos/agentbox/voice:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/tests:/repos/agentbox/tests:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/docs:/repos/agentbox/docs:ro
+      # Own cargo caches (security review finding 9): sharing VisionClaw's
+      # writable registry would let this container poison its crate sources.
+      - codescape-cargo-cache:/root/.cargo/registry
+      - codescape-cargo-git:/root/.cargo/git
+      - codescape-target:/codescape-target
+      - codescape-data:/data/codescape
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      # Clients only; 4101 (hook ingest) stays on the compose network.
+      # Bound to the host loopback by default because auth is "open" until the
+      # P6 NIP-98 verifier lands (cross-vendor audit, ADR-2143 A2). Set
+      # CODESCAPE_PUBLISH_ADDR=0.0.0.0 to expose it on the LAN deliberately.
+      - "${CODESCAPE_PUBLISH_ADDR:-127.0.0.1}:${CODESCAPE_PORT:-4100}:4100"
+    networks:
+      visionclaw_network:
+        aliases:
+          - codescape
+    deploy:
+      <<: *gpu-resources
+    runtime: nvidia
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4100/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # First start compiles the workspace in release mode.
+      start_period: 900s
+    logging:
+      <<: *common-logging
+    profiles:
+      - codescape
+
+secrets:
+  # Bearer token for the agentbox activity-sink hook (ADR-2144). Generate once:
+  #   mkdir -p secrets && head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > secrets/codescape-ingest-token
+  # Compose validates a file secret only when a service that uses it is
+  # selected; with the `codescape` profile off a missing file is harmless.
+  # scripts/launch.sh creates it when CODESCAPE=1 and it is absent.
+  codescape-ingest-token:
+    file: ${CODESCAPE_INGEST_TOKEN:-./secrets/codescape-ingest-token}
+
 networks:
   visionclaw_network:
     external: true
@@ -458,4 +572,18 @@ volumes:
     driver: local
   cargo-target-cache:
     name: ${CARGO_TARGET_CACHE_VOLUME:-visionclaw-cargo-target-cache}
+    driver: local
+  # Codescape (ADR-2143): separate target and data so a Codescape build never
+  # touches the VisionClaw cargo cache and its state survives recreation.
+  codescape-target:
+    name: ${CODESCAPE_TARGET_VOLUME:-codescape-target}
+    driver: local
+  codescape-cargo-cache:
+    name: ${CODESCAPE_CARGO_CACHE_VOLUME:-codescape-cargo-cache}
+    driver: local
+  codescape-cargo-git:
+    name: ${CODESCAPE_CARGO_GIT_VOLUME:-codescape-cargo-git}
+    driver: local
+  codescape-data:
+    name: ${CODESCAPE_DATA_VOLUME:-codescape-data}
     driver: local

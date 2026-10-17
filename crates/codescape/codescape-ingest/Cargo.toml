@@ -1,0 +1,26 @@
+[package]
+name = "codescape-ingest"
+description = "Codescape adapter over the graphicle code-graph engine: extraction, incremental cache, live patching, Leiden communities, centrality, affected/path/search queries, mapped into codescape-model types. The only Codescape crate that depends on graphicle."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+codescape-model = { workspace = true }
+graphicle = { workspace = true }
+tree-sitter = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+notify = { workspace = true }
+crossbeam-channel = { workspace = true }
+parking_lot = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

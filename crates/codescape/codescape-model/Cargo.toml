@@ -1,0 +1,18 @@
+[package]
+name = "codescape-model"
+description = "Codescape code-graph domain model: nodes, edges, interned wire ids, snapshots, deltas, LOD tiers, community matching and the frozen V3 record mapping. I/O-free."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

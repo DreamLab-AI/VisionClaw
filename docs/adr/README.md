@@ -20,6 +20,7 @@ sections say how to amend them:
 | SimParams ABI, force channels, kernels | [`../GPU-wire-abi.md`](../GPU-wire-abi.md) |
 | Godot XR client, HUD, deploy | [`../XR-client.md`](../XR-client.md) |
 | Authored corpus: vault layout, frontmatter, inclusion gate, converter | [`../VAULT-corpus-format.md`](../VAULT-corpus-format.md) |
+| Codescape: live code-graph visualisation, separate workspace and ports, isolation (ADR-2143) | [`../BASELINE-architecture.md`](../BASELINE-architecture.md) §Codescape + [`../PROTOCOL-registry.md`](../PROTOCOL-registry.md) §Second producer |
 
 **Lookup order:** governing doc → its `file:line` citations into code → the ledger
 records below → `docs/archive/` **only for rationale and history — never as
@@ -165,3 +166,4 @@ _122 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2135](ADR-2135-graph-separation-opens-a-three-body-triangle-with-agents-at-the-centre.md) | Graph Separation opens a ground-plane triangle of knowledge, ontology and memory, with agents drifting at its centre | XR-client | 2026-10-07 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2136](ADR-2136-the-memory-cloud-query-response-carries-the-query-point.md) | The memory-cloud query response carries the query's point in the snapshot's cloud | PROTOCOL-registry | 2026-10-08 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2137](ADR-2137-consume-shared-ontology-workspace.md) | Consume shared ontology semantics through explicit native adapters | — | 2026-10-11 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2143](ADR-2143-codescape-section-separate-workspace-and-port.md) | Codescape is a separate section with its own Cargo workspace, its own port and a tested isolation boundary | BASELINE-architecture | 2026-10-17 | accepted | partial | inactive | — | — | jjohare | visionclaw |

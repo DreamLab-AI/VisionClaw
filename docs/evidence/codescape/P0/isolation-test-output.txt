@@ -1,0 +1,27 @@
+2026-10-17T18:08:02Z
+
+thread 'no_ruvector_connection_string_reaches_the_process' (290689) panicked at codescape-server/tests/isolation.rs:123:5:
+RUVECTOR_PG_CONNINFO must not be set for Codescape
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/panicking.rs:80:14
+   2: isolation::no_ruvector_connection_string_reaches_the_process
+             at ./tests/isolation.rs:123:5
+   3: isolation::no_ruvector_connection_string_reaches_the_process::{closure#0}
+             at ./tests/isolation.rs:119:55
+   4: <isolation::no_ruvector_connection_string_reaches_the_process::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /nix/store/np3jnsrvjgbl3jy6jzg8wcjhs2wk6g6n-rust-minimal-1.99.0/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    no_ruvector_connection_string_reaches_the_process
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+error: test failed, to rerun pass `-p codescape-server --test isolation`
+2026-10-17T18:10:10Z

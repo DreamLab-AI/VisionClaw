@@ -1,0 +1,28 @@
+[package]
+name = "codescape-layout"
+description = "Codescape layout engines: a CPU Barnes-Hut force layout (also the conformance oracle) and, behind the `cuda` feature, a thin cust driver over visionclaw-gpu's PTX. Community- and hierarchy-aware, warm-started across deltas."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+cuda = ["dep:cust", "dep:visionclaw-gpu"]
+
+[dependencies]
+codescape-model = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+cust = { version = "0.3.2", optional = true }
+visionclaw-gpu = { path = "../../visionclaw-gpu", optional = true, default-features = false, features = ["gpu"] }
+
+[dev-dependencies]
+proptest = { workspace = true }

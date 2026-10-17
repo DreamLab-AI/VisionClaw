@@ -1,0 +1,43 @@
+# Codescape P1 GPU conformance gate - raw output (visionclaw_container)
+date: 2026-10-17T20:43:16Z  GPU 0: NVIDIA RTX A6000 (UUID: GPU-553dc306-dab3-32e2-c69b-28175a6f4da6)  nvcc Build cuda_13.4.r13.4/compiler.38855100_0
+note: the earlier full --ignored run (gate-gpu-raw.txt) hit the 580 s timeout with two CPU 100k benchmarks still running under host contention; this run executes only the required P2 gate tests.
+$ CODESCAPE_GPU_TESTS=1 cargo test -p codescape-layout --features cuda -- --ignored --test-threads=1 gpu_conforms_to_cpu_oracle gpu_settle_step_parity select_engine_prefers_verified_cuda host_grid_matches_device_grid gpu_focus_mask_freezes_exactly
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: Building for sm_86
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: Using CUDA host compiler: /usr/bin/g++-14
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: Compiling 8 CUDA kernels to PTX
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: visionclaw_unified — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_clustering_kernels — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_aabb_reduction — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_landmark_apsp — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: sssp_compact — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: semantic_forces — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: pagerank — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_connected_components — declared ISA 9.4 rewritten to 9.0 (declared-version change only; instruction support is not proven)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: visionclaw_unified source=src/cuda_sources/visionclaw_unified.cu provenance=compiled isa=9.0 original=f48d05001f71c3d6 rewritten=9324794fc535881a
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_clustering_kernels source=src/cuda_sources/gpu_clustering_kernels.cu provenance=compiled isa=9.0 original=595e057d69086986 rewritten=a2d5197152ede99a
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_aabb_reduction source=src/cuda_sources/gpu_aabb_reduction.cu provenance=compiled isa=9.0 original=b440f0136832f890 rewritten=4cff7eb8bd62b89c
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_landmark_apsp source=src/cuda_sources/gpu_landmark_apsp.cu provenance=compiled isa=9.0 original=80bd76fd03a5be10 rewritten=25cf34b53c6f6ecc
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: sssp_compact source=src/cuda_sources/sssp_compact.cu provenance=compiled isa=9.0 original=6dd4a4bac953da8f rewritten=ae2316cff19ceb1b
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: semantic_forces source=src/cuda_sources/semantic_forces.cu provenance=compiled isa=9.0 original=ceb14377cb2ccf1f rewritten=7dd8070af693051b
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: pagerank source=src/cuda_sources/pagerank.cu provenance=compiled isa=9.0 original=86c13d2c2c9ae56c rewritten=85e8e9356f683518
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: gpu_connected_components source=src/cuda_sources/gpu_connected_components.cu provenance=compiled isa=9.0 original=8be60e1c3bbee7ee rewritten=ae0f662370878aea
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: All PTX compilation done (8 modules)
+warning: visionclaw-gpu@0.1.0: visionclaw-gpu: Native CUDA linking complete
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running unittests src/lib.rs (/app/target/codescape-cuda/debug/deps/codescape_layout-ea1a1f0622849aa1)
+running 5 tests
+test cuda::tests::gpu_conforms_to_cpu_oracle ... energy cpu [57558.65, 5490.6147, 1172.0464, 861.5954, 619.0537, 419.25357, 323.5353, 232.45459]
+energy gpu [60672.836, 5711.6895, 1190.7745, 824.18976, 554.6426, 421.93454, 340.08267, 230.09914]
+k-NN overlap (k=10) after 400 steps: GPU vs CPU symbols 0.868 files 1.000; CPU vs CPU(0.9 dt) symbols 0.734 files 0.980
+ok
+test cuda::tests::gpu_focus_mask_freezes_exactly ... ok
+test cuda::tests::gpu_settle_step_parity ... parity 2000 symbols, steep (avg < 0.2): cpu [390, 305, 348, 330] gpu [378, 296, 350, 328], median gpu/cpu 1.000
+parity 20000 symbols, steep (avg < 0.2): cpu [561, 579, 634, 707] gpu [573, 626, 581, 599], median gpu/cpu 0.973
+ok
+test cuda::tests::host_grid_matches_device_grid ... ok
+test cuda::tests::select_engine_prefers_verified_cuda ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 203.32s
+   Doc-tests codescape_layout
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+exit=0
