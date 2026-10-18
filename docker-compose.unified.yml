@@ -168,6 +168,9 @@ services:
         bind:
           create_host_path: false
       - ${HOST_PROJECT_ROOT:-.}/src:/app/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/codescape:/app/codescape:ro
+      # visionclaw-gpu (PTX build) path-depends on visionclaw-domain, so the
+      # whole crates tree stays mounted read-only for the artefact build.
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
       - ${HOST_PROJECT_ROOT:-.}/docs:/app/docs:ro
       # src/uri/mod.rs include_str!s agentbox/schema/federation-kinds.json at COMPILE
@@ -437,13 +440,19 @@ services:
       context: .
       dockerfile: ${DOCKERFILE:-Dockerfile.unified}
       target: development
-    entrypoint: ["/app/scripts/codescape-entrypoint.sh"]
+    # The service runs the standalone repository (DreamLab-AI/codescape, git
+    # submodule at ./codescape, ADR-2143 A5); VisionClaw supplies only the
+    # deploy surface, the GPU sources for the PTX artefact and the node_modules.
+    entrypoint: ["/app/codescape/deploy/codescape-entrypoint.sh"]
     environment:
       CODESCAPE_PORT: "4100"
       CODESCAPE_INGEST_PORT: "4101"
       CODESCAPE_BIND: "0.0.0.0"
       CODESCAPE_DATA_DIR: /data/codescape
       CODESCAPE_TARGET_DIR: /codescape-target
+      CODESCAPE_SRC: /app/codescape
+      CODESCAPE_GPU_SRC: /app/crates/visionclaw-gpu
+      CODESCAPE_NODE_MODULES: /app/client/node_modules
       # CUDA PTX pair staged by the entrypoint from visionclaw-gpu's own build
       # script (ADR-2143 A5); a fixed directory, never a globbed build `out`.
       CODESCAPE_PTX_DIR: /codescape-target/ptx

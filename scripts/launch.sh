@@ -258,7 +258,10 @@ set_environment_vars() {
             export COMPOSE_PROFILES="dev"
             # Codescape (ADR-2143) is an opt-in sidecar on its own port; it
             # never starts unless CODESCAPE=1 is in the environment or .env.
-            if [[ "${CODESCAPE:-0}" == "1" ]]; then
+            if [[ "${CODESCAPE:-0}" == "1" && ! -f "$PROJECT_ROOT/codescape/Cargo.toml" ]]; then
+                warning "  - CODESCAPE=1 but the codescape submodule is not initialised; run: git submodule update --init codescape"
+                warning "  - Codescape is NOT started this time"
+            elif [[ "${CODESCAPE:-0}" == "1" ]]; then
                 export COMPOSE_PROFILES="dev,codescape"
                 info "  - Codescape sidecar enabled on :${CODESCAPE_PORT:-4100}"
                 # The ingest bearer token (ADR-2144) is a local secret; mint it

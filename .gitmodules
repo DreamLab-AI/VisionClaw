@@ -1,3 +1,6 @@
 [submodule "agentbox"]
 	path = agentbox
 	url = https://github.com/DreamLab-AI/agentbox.git
+[submodule "codescape"]
+	path = codescape
+	url = https://github.com/DreamLab-AI/codescape
