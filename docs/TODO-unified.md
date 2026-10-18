@@ -461,6 +461,22 @@ Each row's latest state across this register was recomputed after the sprint (14
 | S-7 | open, work | Part (c), the feeder change; (a) and (b) are closed. Not started this sprint. |
 | ER-15 | closed (index row) | Every item it lists is tracked in its own row (X-1, X-3, S-3, S-6, G-5 and others); it carries no work of its own. |
 
+### Security review of the sprint's riskiest commits (2026-10-18)
+
+An independent reviewer read the full diffs and their surrounding code for seven commits. Findings and their fate:
+
+| Severity | Finding | Fate |
+|---|---|---|
+| High, pre-existing | `RbacGate` classified the raw URI while actix routes on the percent-decoded path, so `PUT /api/%73ettings/...` reached the settings handlers under `WriteGraph` (any self-generated key) and `GET /api/%61dmin/...` skipped the Admin rule. | Fixed, VisionClaw `7070eb04f`: the gate classifies `req.match_info().as_str()`; tests pin actix's decoding and show the raw classification differed. |
+| Medium, introduced by `1877018eb`/`41f3632fe` | The revived `/semantic` and `/pathfinding` POSTs took unbounded iteration, constraint and node counts and ran whole-graph work under one write lock. | Fixed, `65dc3e5c2`: named caps on every input and 30 requests per minute per client on each scope, with tests. |
+| Medium, introduced by `5ea307093` | A timestamp-shaped invalid `expires_at` (`2026-99-99T00`) made the cast throw and failed every memory-cloud query. The memory MCP's own read and sweep predicates had the same flaw, so the sweep could never remove such a row. | Fixed, VisionClaw `7e8a8f7d5` and agentbox `87e8c9e04`: `pg_input_is_valid` guards the cast (server is PostgreSQL 17.9); evaluated live on crafted rows. The running MCP server takes it on restart. |
+| Low, introduced by `75eff8a` | `to_lowercase` leaves the long s, sharp s and ligatures alone, which case-insensitive filesystems fold to ASCII, so `x.meta.j\u{17F}on` passed the dotfile guard. | Fixed, solid-pod-rs `70cabee`: public `fold_case` used by both guards; 2130 workspace tests pass. |
+| Low, pre-existing | nginx passes the client's `X-Forwarded-Proto` on `/wss` and never sets `X-Forwarded-Host` or clears `Forwarded`, so a captured NIP-98 token could be replayed against another deployment within its 60 s window. | Open, design: copying `$host` would not help, since the client controls Host too. The fix is to pin a configured canonical public origin in `nip98_request_url` instead of trusting headers. |
+| Low, pre-existing | `POST /api/physics/optimize` takes an uncapped `max_iterations`; the route is power-user gated. | Open, small. |
+| Nit | The client applied `whoami` when the answer named no key. | Fixed, `c52602d9e`. |
+
+The reviewer found nothing exploitable in the `whoami` exemption itself (an encoded or altered path only becomes stricter), in the `/wss` URL change (net-neutral against the previous behaviour), or in the `effective_tier` change (it can only tighten the gate).
+
 **Pushing.** Nothing from this sprint is pushed. Every commit named above is local in its repository; pushing, publishing prose-sanitiser 0.1.4, and the host image rebuild are owner actions.
 
 ## Removed as resolved in this execution
