@@ -10,13 +10,14 @@ use actix_web::{web, HttpResponse, Result as ActixResult};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+
+use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
+use actix::Addr;
 
 use crate::application::physics_service::{
     LayoutOptimizationRequest, PhysicsService, SimulationParams,
 };
 use crate::models::simulation_params::SettleMode;
-use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::gpu_physics_adapter::PhysicsParameters;
 
 #[derive(Debug, Deserialize)]
@@ -120,11 +121,14 @@ pub struct UpdateParametersRequest {
 pub async fn start_simulation(
     user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<StartSimulationRequest>,
 ) -> ActixResult<HttpResponse> {
     user.require_power_user()?;
-    let graph = graph_data.read().await.clone();
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
 
     let mut params = PhysicsParameters::default();
     if let Some(v) = req.time_step {
@@ -162,10 +166,7 @@ pub async fn start_simulation(
         settle_mode: req.settle_mode.clone().unwrap_or_default(),
     };
 
-    match physics_service
-        .start_simulation(Arc::new(graph), sim_params)
-        .await
-    {
+    match physics_service.start_simulation(graph, sim_params).await {
         Ok(simulation_id) => ok_json!(StartSimulationResponse {
             simulation_id,
             status: "started".to_string(),
@@ -216,10 +217,13 @@ pub async fn get_status(app_state: web::Data<AppState>) -> ActixResult<HttpRespo
 
 pub async fn optimize_layout(
     physics_service: web::Data<Arc<PhysicsService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<OptimizeLayoutRequest>,
 ) -> ActixResult<HttpResponse> {
-    let graph = graph_data.read().await.clone();
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
 
     let optimization_req = LayoutOptimizationRequest {
         algorithm: req.algorithm.clone(),
@@ -228,7 +232,7 @@ pub async fn optimize_layout(
     };
 
     match physics_service
-        .optimize_layout(Arc::new(graph), optimization_req)
+        .optimize_layout(graph, optimization_req)
         .await
     {
         Ok(nodes) => ok_json!(OptimizeLayoutResponse {

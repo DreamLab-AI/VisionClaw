@@ -8,12 +8,13 @@ use actix_web::{web, HttpResponse, Result as ActixResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+
+use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
+use actix::Addr;
 
 use crate::application::semantic_service::{
     CentralityRequest, CommunityDetectionRequest, SemanticService, ShortestPathRequest,
 };
-use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::ports::gpu_semantic_analyzer::{
     ClusteringAlgorithm, ImportanceAlgorithm, SemanticConstraintConfig,
 };
@@ -73,11 +74,14 @@ pub struct GenerateConstraintsRequest {
 
 pub async fn detect_communities(
     semantic_service: web::Data<Arc<SemanticService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<DetectCommunitiesRequest>,
 ) -> ActixResult<HttpResponse> {
-    let graph = graph_data.read().await.clone();
-    if let Err(e) = semantic_service.initialize(Arc::new(graph)).await {
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
+    if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
 
@@ -109,11 +113,14 @@ pub async fn detect_communities(
 
 pub async fn compute_centrality(
     semantic_service: web::Data<Arc<SemanticService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<CentralityAnalysisRequest>,
 ) -> ActixResult<HttpResponse> {
-    let graph = graph_data.read().await.clone();
-    if let Err(e) = semantic_service.initialize(Arc::new(graph)).await {
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
+    if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
 
@@ -159,11 +166,14 @@ pub async fn compute_centrality(
 
 pub async fn compute_shortest_path(
     semantic_service: web::Data<Arc<SemanticService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<ShortestPathAnalysisRequest>,
 ) -> ActixResult<HttpResponse> {
-    let graph = graph_data.read().await.clone();
-    if let Err(e) = semantic_service.initialize(Arc::new(graph)).await {
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
+    if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
 
@@ -186,11 +196,14 @@ pub async fn compute_shortest_path(
 
 pub async fn generate_constraints(
     semantic_service: web::Data<Arc<SemanticService>>,
-    graph_data: web::Data<Arc<RwLock<GraphData>>>,
+    graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<GenerateConstraintsRequest>,
 ) -> ActixResult<HttpResponse> {
-    let graph = graph_data.read().await.clone();
-    if let Err(e) = semantic_service.initialize(Arc::new(graph)).await {
+    let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
+        Ok(g) => g,
+        Err(e) => return error_json!("Failed to read the graph: {}", e),
+    };
+    if let Err(e) = semantic_service.initialize(graph).await {
         return error_json!("Failed to initialize: {}", e);
     }
 

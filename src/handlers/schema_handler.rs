@@ -9,7 +9,7 @@ use log::{debug, info};
 use serde::Serialize;
 use std::sync::Arc;
 
-use crate::actors::graph_state_actor::GraphStateActor;
+use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
 use crate::services::schema_service::{GraphSchema, SchemaService};
 use actix::Addr;
 
@@ -70,7 +70,7 @@ pub struct EdgeTypeResponse {
 pub async fn get_schema(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
     schema_service: web::Data<Arc<SchemaService>>,
-    graph_state_actor: web::Data<Addr<GraphStateActor>>,
+    graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
 ) -> impl Responder {
     debug!("Retrieving graph schema");
 

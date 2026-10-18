@@ -5,7 +5,7 @@ use log::{debug, info};
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::actors::graph_state_actor::GraphStateActor;
+use crate::actors::graph_service_supervisor::GraphServiceSupervisor;
 use crate::services::semantic_pathfinding_service::SemanticPathfindingService;
 use crate::{error_json, ok_json};
 use actix::Addr;
@@ -28,7 +28,7 @@ pub struct TraversalRequest {
 
 pub async fn find_semantic_path(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
-    graph_state_actor: web::Data<Addr<GraphStateActor>>,
+    graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<FindPathRequest>,
 ) -> impl Responder {
     info!(
@@ -59,7 +59,7 @@ pub async fn find_semantic_path(
 
 pub async fn query_traversal(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
-    graph_state_actor: web::Data<Addr<GraphStateActor>>,
+    graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<TraversalRequest>,
 ) -> impl Responder {
     info!("Query traversal from {}", request.start_id);
@@ -89,7 +89,7 @@ pub async fn query_traversal(
 
 pub async fn chunk_traversal(
     pathfinding_service: web::Data<Arc<SemanticPathfindingService>>,
-    graph_state_actor: web::Data<Addr<GraphStateActor>>,
+    graph_state_actor: web::Data<Addr<GraphServiceSupervisor>>,
     request: web::Json<TraversalRequest>,
 ) -> impl Responder {
     debug!("Chunk traversal from {}", request.start_id);
