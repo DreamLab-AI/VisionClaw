@@ -589,6 +589,9 @@ pub struct RouteGate {
     last: Option<(f64, u64)>,
     /// frame waiting for a snapshot reload, and the snapshot it named
     pending: Option<RouteFrame>,
+    /// Snapshot a reload was already requested for. A second mismatch for
+    /// the same id while this is set drops the frame instead of reloading
+    /// again; it is cleared on Apply and on Clear.
     reloaded_for: Option<String>,
 }
 
@@ -612,6 +615,9 @@ impl RouteGate {
         if f.path.is_empty() && f.hit_points.is_empty() {
             self.last = Some((f.sent_at, f.seq));
             self.pending = None;
+            // A clear ends the episode the guard was protecting; the next
+            // mismatch for any snapshot may reload again (estate ER-26).
+            self.reloaded_for = None;
             return RouteDecision::Clear;
         }
         if loaded != Some(f.snapshot_id.as_str()) {
@@ -629,6 +635,9 @@ impl RouteGate {
         }
         self.last = Some((f.sent_at, f.seq));
         self.pending = None;
+        // The loaded snapshot matched, so any earlier reload has done its
+        // job; a later mismatch is a new episode, not a reload loop.
+        self.reloaded_for = None;
         RouteDecision::Apply(f)
     }
 

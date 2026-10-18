@@ -288,6 +288,11 @@ pub fn parse_pong(json: &str) -> Option<(f64, f64)> {
 #[derive(Debug, Clone, Default)]
 pub struct ClockOffset {
     samples: Vec<(f64, f64)>, // (rtt_ms, offset_ms)
+    /// One-way estimate from a relayed frame's `serverTime`, used only until
+    /// the first real round trip lands. It has no round trip, so it is kept
+    /// out of `samples`: stored there with `rtt 0` it would win the minimum-
+    /// delay filter over every real ping for a whole window (estate ER-26).
+    provisional: Option<f64>,
 }
 
 impl ClockOffset {
@@ -306,6 +311,7 @@ impl ClockOffset {
             return false;
         }
         let offset = server_ms - (sent_local_ms + rtt / 2.0);
+        self.provisional = None;
         self.samples.push((rtt, offset));
         if self.samples.len() > Self::WINDOW {
             self.samples.remove(0);
@@ -320,18 +326,38 @@ impl ClockOffset {
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
     }
 
-    /// `server_ms ≈ local_ms + offset_ms()`; `None` until a sample lands.
-    pub fn offset_ms(&self) -> Option<f64> {
-        self.best().map(|b| b.1)
+    /// Seed a one-way offset from a server stamp received at `local_ms`,
+    /// biased by the downlink latency. Ignored once any round trip has
+    /// landed, and discarded by the first one that does. Returns whether it
+    /// was taken.
+    pub fn seed_provisional(&mut self, server_ms: f64, local_ms: f64) -> bool {
+        if !self.samples.is_empty() || !server_ms.is_finite() || !local_ms.is_finite() {
+            return false;
+        }
+        self.provisional = Some(server_ms - local_ms);
+        true
     }
 
-    /// Round trip of the sample in use.
+    /// Whether the offset in use is the one-way seed, not a round trip.
+    pub fn is_provisional(&self) -> bool {
+        self.samples.is_empty() && self.provisional.is_some()
+    }
+
+    /// `server_ms ≈ local_ms + offset_ms()`; the best round trip, else the
+    /// provisional seed, else `None`.
+    pub fn offset_ms(&self) -> Option<f64> {
+        self.best().map(|b| b.1).or(self.provisional)
+    }
+
+    /// Round trip of the sample in use; `None` while only the provisional
+    /// seed exists, since it has no round trip.
     pub fn rtt_ms(&self) -> Option<f64> {
         self.best().map(|b| b.0)
     }
 
     pub fn clear(&mut self) {
         self.samples.clear();
+        self.provisional = None;
     }
 }
 
@@ -406,8 +432,7 @@ impl BeatSync {
     /// that stamp (one-way, so biased by the downlink latency) seeds it.
     pub fn on_remote(&mut self, frame: RemoteBeatFrame, local_ms: f64) {
         if self.offset.offset_ms().is_none() && frame.server_time > 0.0 {
-            self.offset
-                .add_sample(local_ms, frame.server_time, local_ms);
+            self.offset.seed_provisional(frame.server_time, local_ms);
         }
         let changed = match self.remote {
             Some(prev) => {
@@ -1263,6 +1288,27 @@ mod tests {
         // be off by tens of ms.
         assert!(!c.add_sample(0.0, 1.0, -1.0), "negative RTT rejected");
         assert!(!c.add_sample(0.0, 1.0, 5000.0), "huge RTT rejected");
+    }
+
+    #[test]
+    fn provisional_seed_answers_until_one_real_ping_replaces_it() {
+        let mut c = ClockOffset::new();
+        assert!(c.seed_provisional(1_000.0 + 40.0, 1_000.0));
+        assert!(c.is_provisional());
+        assert_eq!(c.offset_ms(), Some(40.0));
+        assert_eq!(c.rtt_ms(), None, "a one-way seed has no round trip");
+        // One real ping (rtt 100 ms, true offset 25 ms) replaces it outright,
+        // even though its round trip is far worse than the seed's notional 0.
+        assert!(c.add_sample(2_000.0, 2_000.0 + 50.0 + 25.0, 2_100.0));
+        assert!(!c.is_provisional());
+        assert_eq!(c.offset_ms(), Some(25.0));
+        assert_eq!(c.rtt_ms(), Some(100.0));
+        // Once a round trip exists, a later seed is refused.
+        assert!(!c.seed_provisional(9_999.0, 1.0));
+        assert_eq!(c.offset_ms(), Some(25.0));
+        c.clear();
+        assert_eq!(c.offset_ms(), None);
+        assert!(!c.is_provisional());
     }
 
     #[test]
