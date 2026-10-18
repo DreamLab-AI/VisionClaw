@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use crate::config::feature_access::FeatureAccess;
-use crate::models::protected_settings::{ApiKeys, NostrUser};
+use crate::middleware::{get_authenticated_user, RequireAuth};
+use crate::models::protected_settings::ApiKeys;
 use crate::services::nostr_service::{AuthEvent, NostrError, NostrService};
 use crate::{bad_request, error_json, not_found, ok_json};
 use actix_web::{web, HttpRequest, HttpResponse};
@@ -55,8 +56,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("", web::delete().to(logout))
             .route("/verify", web::post().to(verify))
             .route("/refresh", web::post().to(refresh))
-            .route("/api-keys", web::post().to(update_api_keys))
-            .route("/api-keys", web::get().to(get_api_keys))
+            .service(
+                web::resource("/api-keys")
+                    .wrap(RequireAuth::authenticated())
+                    .route(web::post().to(update_api_keys))
+                    .route(web::get().to(get_api_keys)),
+            )
             .route("/power-user-status", web::get().to(check_power_user_status))
             .route("/features", web::get().to(get_available_features))
             .route("/features/{feature}", web::get().to(check_feature_access)),
@@ -256,31 +261,17 @@ async fn refresh(
     }
 }
 
-/// Resolves the authenticated caller from the `Authorization: Bearer` session
-/// token alone. The pubkey is never taken from the URL or body, so a caller
-/// can only ever act on their own record.
-async fn authenticated_user(
-    req: &HttpRequest,
-    nostr_service: &NostrService,
-) -> Result<NostrUser, HttpResponse> {
-    let token = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .unwrap_or("");
-
-    if token.is_empty() {
-        return Err(HttpResponse::Unauthorized().json(json!({
-            "error": "Missing authorization token"
-        })));
-    }
-
-    nostr_service.get_session(token).await.ok_or_else(|| {
-        HttpResponse::Unauthorized().json(json!({
-            "error": "Invalid or expired session"
-        }))
-    })
+/// The caller's pubkey as established by `RequireAuth` (NIP-98, or a legacy
+/// session when `VISIONCLAW_LEGACY_SESSIONS` is enabled). It is never taken
+/// from the URL or body, so a caller can only act on their own record.
+fn caller_pubkey(req: &HttpRequest) -> Result<String, HttpResponse> {
+    get_authenticated_user(req)
+        .map(|u| u.pubkey)
+        .ok_or_else(|| {
+            HttpResponse::Unauthorized().json(json!({
+                "error": "Authentication required"
+            }))
+        })
 }
 
 async fn update_api_keys(
@@ -288,8 +279,8 @@ async fn update_api_keys(
     req: web::Json<ApiKeysRequest>,
     nostr_service: web::Data<NostrService>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let caller = match authenticated_user(&http_req, &nostr_service).await {
-        Ok(user) => user,
+    let caller = match caller_pubkey(&http_req) {
+        Ok(pubkey) => pubkey,
         Err(resp) => return Ok(resp),
     };
 
@@ -299,10 +290,7 @@ async fn update_api_keys(
         ragflow: req.ragflow.clone(),
     };
 
-    match nostr_service
-        .update_user_api_keys(&caller.pubkey, api_keys)
-        .await
-    {
+    match nostr_service.update_user_api_keys(&caller, api_keys).await {
         Ok(user) => {
             let user_dto = UserResponseDTO {
                 pubkey: user.pubkey.clone(),
@@ -323,18 +311,12 @@ async fn get_api_keys(
     req: HttpRequest,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let Some(nostr_service) = &state.nostr_service else {
-        return Ok(HttpResponse::ServiceUnavailable().json(json!({
-            "error": "Nostr service not available"
-        })));
-    };
-
-    let caller = match authenticated_user(&req, nostr_service).await {
-        Ok(user) => user,
+    let caller = match caller_pubkey(&req) {
+        Ok(pubkey) => pubkey,
         Err(resp) => return Ok(resp),
     };
 
-    let api_keys = state.get_api_keys(&caller.pubkey).await;
+    let api_keys = state.get_api_keys(&caller).await;
     ok_json!(api_keys)
 }
 
@@ -406,7 +388,8 @@ mod api_keys_route_tests {
             &app,
             test::TestRequest::post()
                 .uri("/auth/nostr/api-keys")
-                .insert_header(("Authorization", format!("Bearer {token}")))
+                .insert_header(("X-Nostr-Pubkey", PUBKEY))
+                .insert_header(("X-Nostr-Token", token))
                 .set_json(json!({"openai": "sk-test"}))
                 .to_request(),
         )
@@ -427,12 +410,20 @@ mod api_keys_route_tests {
         )
         .await;
 
-        for header in [None, Some("Bearer not-a-real-token")] {
+        let attempts: [Vec<(&str, &str)>; 3] = [
+            vec![],
+            vec![
+                ("X-Nostr-Pubkey", PUBKEY),
+                ("X-Nostr-Token", "not-a-real-token"),
+            ],
+            vec![("X-Nostr-Pubkey", PUBKEY)],
+        ];
+        for headers in attempts {
             let mut r = test::TestRequest::post()
                 .uri("/auth/nostr/api-keys")
                 .set_json(json!({"openai": "sk-evil"}));
-            if let Some(h) = header {
-                r = r.insert_header(("Authorization", h));
+            for h in headers {
+                r = r.insert_header(h);
             }
             let resp = test::call_service(&app, r.to_request()).await;
             assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
