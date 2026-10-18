@@ -109,7 +109,7 @@ toplevel_paths = PackedStringArray("/user/hand/left", "/user/hand/right")
 resource_name = "default_pose"
 localized_name = "Default pose"
 action_type = 3
-toplevel_paths = PackedStringArray("/user/hand/left", "/user/hand/right", "/user/vive_tracker_htcx/role/left_foot", "/user/vive_tracker_htcx/role/right_foot", "/user/vive_tracker_htcx/role/left_shoulder", "/user/vive_tracker_htcx/role/right_shoulder", "/user/vive_tracker_htcx/role/left_elbow", "/user/vive_tracker_htcx/role/right_elbow", "/user/vive_tracker_htcx/role/left_knee", "/user/vive_tracker_htcx/role/right_knee", "/user/vive_tracker_htcx/role/waist", "/user/vive_tracker_htcx/role/chest", "/user/vive_tracker_htcx/role/camera", "/user/vive_tracker_htcx/role/keyboard", "/user/vive_tracker_htcx/role/left_wrist", "/user/vive_tracker_htcx/role/right_wrist", "/user/vive_tracker_htcx/role/left_ankle", "/user/vive_tracker_htcx/role/right_ankle", "/user/eyes_ext")
+toplevel_paths = PackedStringArray("/user/hand/left", "/user/hand/right", "/user/vive_tracker_htcx/role/left_foot", "/user/vive_tracker_htcx/role/right_foot", "/user/vive_tracker_htcx/role/left_shoulder", "/user/vive_tracker_htcx/role/right_shoulder", "/user/vive_tracker_htcx/role/left_elbow", "/user/vive_tracker_htcx/role/right_elbow", "/user/vive_tracker_htcx/role/left_knee", "/user/vive_tracker_htcx/role/right_knee", "/user/vive_tracker_htcx/role/waist", "/user/vive_tracker_htcx/role/chest", "/user/vive_tracker_htcx/role/camera", "/user/vive_tracker_htcx/role/keyboard", "/user/vive_tracker_htcx/role/left_wrist", "/user/vive_tracker_htcx/role/right_wrist", "/user/vive_tracker_htcx/role/left_ankle", "/user/vive_tracker_htcx/role/right_ankle")
 
 [sub_resource type="OpenXRAction" id="OpenXRAction_m08eo"]
 resource_name = "aim"
@@ -1648,14 +1648,6 @@ binding_path = "/user/vive_tracker_htcx/role/right_ankle/output/haptic"
 interaction_profile_path = "/interaction_profiles/htc/vive_tracker_htcx"
 bindings = [SubResource("OpenXRIPBinding_iakc4"), SubResource("OpenXRIPBinding_jub2m"), SubResource("OpenXRIPBinding_kha6s"), SubResource("OpenXRIPBinding_kh8ww"), SubResource("OpenXRIPBinding_5web1"), SubResource("OpenXRIPBinding_0o426"), SubResource("OpenXRIPBinding_2kr0w"), SubResource("OpenXRIPBinding_gvn1o"), SubResource("OpenXRIPBinding_ubrrl"), SubResource("OpenXRIPBinding_evtui"), SubResource("OpenXRIPBinding_bwbi2"), SubResource("OpenXRIPBinding_p873m"), SubResource("OpenXRIPBinding_2sb1p"), SubResource("OpenXRIPBinding_s5nuk"), SubResource("OpenXRIPBinding_0i62q"), SubResource("OpenXRIPBinding_gp43m"), SubResource("OpenXRIPBinding_sdlm7"), SubResource("OpenXRIPBinding_c6q2j"), SubResource("OpenXRIPBinding_exd3l"), SubResource("OpenXRIPBinding_dkwnm"), SubResource("OpenXRIPBinding_xlbth"), SubResource("OpenXRIPBinding_wgnra"), SubResource("OpenXRIPBinding_833c4"), SubResource("OpenXRIPBinding_8hr1d"), SubResource("OpenXRIPBinding_huhgn"), SubResource("OpenXRIPBinding_g2awd"), SubResource("OpenXRIPBinding_asb4g"), SubResource("OpenXRIPBinding_qqulg"), SubResource("OpenXRIPBinding_o1jns"), SubResource("OpenXRIPBinding_jb8rd"), SubResource("OpenXRIPBinding_mob2x"), SubResource("OpenXRIPBinding_x2m78")]
 
-[sub_resource type="OpenXRIPBinding" id="OpenXRIPBinding_lf38q"]
-action = SubResource("OpenXRAction_oi0ij")
-binding_path = "/user/eyes_ext/input/gaze_ext/pose"
-
-[sub_resource type="OpenXRInteractionProfile" id="OpenXRInteractionProfile_ru5ja"]
-interaction_profile_path = "/interaction_profiles/ext/eye_gaze_interaction"
-bindings = [SubResource("OpenXRIPBinding_lf38q")]
-
 [sub_resource type="OpenXRIPBinding" id="OpenXRIPBinding_rtqrf"]
 action = SubResource("OpenXRAction_oi0ij")
 binding_path = "/user/hand/left/input/aim/pose"
@@ -1742,4 +1734,4 @@ bindings = [SubResource("OpenXRIPBinding_rtqrf"), SubResource("OpenXRIPBinding_n
 
 [resource]
 action_sets = [SubResource("OpenXRActionSet_ngwcy")]
-interaction_profiles = [SubResource("OpenXRInteractionProfile_ckeh6"), SubResource("OpenXRInteractionProfile_jx7ge"), SubResource("OpenXRInteractionProfile_dad45"), SubResource("OpenXRInteractionProfile_hsh5n"), SubResource("OpenXRInteractionProfile_lvl5r"), SubResource("OpenXRInteractionProfile_jhul1"), SubResource("OpenXRInteractionProfile_dnwvb"), SubResource("OpenXRInteractionProfile_umnyo"), SubResource("OpenXRInteractionProfile_oqlrv"), SubResource("OpenXRInteractionProfile_okaja"), SubResource("OpenXRInteractionProfile_gqjp6"), SubResource("OpenXRInteractionProfile_4yx5x"), SubResource("OpenXRInteractionProfile_ru5ja"), SubResource("OpenXRInteractionProfile_vwcd0")]
+interaction_profiles = [SubResource("OpenXRInteractionProfile_ckeh6"), SubResource("OpenXRInteractionProfile_jx7ge"), SubResource("OpenXRInteractionProfile_dad45"), SubResource("OpenXRInteractionProfile_hsh5n"), SubResource("OpenXRInteractionProfile_lvl5r"), SubResource("OpenXRInteractionProfile_jhul1"), SubResource("OpenXRInteractionProfile_dnwvb"), SubResource("OpenXRInteractionProfile_umnyo"), SubResource("OpenXRInteractionProfile_oqlrv"), SubResource("OpenXRInteractionProfile_okaja"), SubResource("OpenXRInteractionProfile_gqjp6"), SubResource("OpenXRInteractionProfile_4yx5x"), SubResource("OpenXRInteractionProfile_vwcd0")]

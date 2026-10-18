@@ -1,5 +1,7 @@
 extends Node3D
 
+const EyeGazeBinding := preload("res://scripts/eye_gaze_binding.gd")
+
 @onready var error_overlay: Node3D = $ErrorOverlay
 @onready var error_label: Label3D = $ErrorOverlay/ErrorLabel
 
@@ -48,6 +50,22 @@ func _probe_capabilities(xr_interface: XRInterface) -> void:
 		eye_gaze_supported = xr_interface.is_eye_gaze_interaction_supported()
 	if not eye_gaze_supported:
 		_warnings.append("Eye-gaze interaction unsupported -- head-gaze primary (extension left disabled).")
+	else:
+		_bind_eye_gaze_at_runtime(xr_interface)
+
+
+# ADR-2036: the eye-gaze binding is not in openxr_action_map.tres. It is built at
+# runtime, and only once the capability query above has succeeded. Unverified on
+# device (no headset available; row L-5).
+func _bind_eye_gaze_at_runtime(xr_interface: XRInterface) -> void:
+	var action_map: OpenXRActionMap = load("res://openxr_action_map.tres")
+	if not EyeGazeBinding.apply(action_map, EyeGazeBinding.is_supported(xr_interface)):
+		_warnings.append("Eye-gaze binding not applied -- head-gaze primary.")
+		return
+	if xr_interface.has_method("set_action_map"):
+		xr_interface.set_action_map(action_map)
+	else:
+		_warnings.append("OpenXR interface cannot take a runtime action map -- eye-gaze binding built but not handed over.")
 
 
 func _transition_to_graph_scene() -> void:

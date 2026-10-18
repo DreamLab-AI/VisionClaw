@@ -47,3 +47,28 @@ func test_graph_scene_probes_eye_gaze_and_feeds_resolver():
 		"GraphScene queries support behind a has_method guard"
 	)
 	assert_true(src.contains("set_eye_gaze_supported"), "the probe feeds the Rust gaze resolver")
+
+
+func test_action_map_has_no_static_eye_gaze_binding():
+	# ADR-2036: the .tres must never carry the eye-gaze profile, binding path or
+	# top-level path; the binding is built at runtime behind the capability query.
+	var src := _read("res://openxr_action_map.tres")
+	assert_false(src.contains("eyes_ext"), "no static /user/eyes_ext path in the action map")
+	assert_false(src.contains("eye_gaze_interaction"), "no static eye-gaze interaction profile")
+
+
+func test_eye_gaze_binding_is_only_added_when_supported():
+	var EyeGazeBinding := load("res://scripts/eye_gaze_binding.gd")
+	var action_map: OpenXRActionMap = load("res://openxr_action_map.tres")
+	assert_null(action_map.find_interaction_profile(EyeGazeBinding.PROFILE_PATH))
+	assert_false(EyeGazeBinding.apply(action_map, false), "unsupported: nothing bound")
+	assert_null(action_map.find_interaction_profile(EyeGazeBinding.PROFILE_PATH))
+	assert_true(EyeGazeBinding.apply(action_map, true), "supported: binding added")
+	assert_not_null(action_map.find_interaction_profile(EyeGazeBinding.PROFILE_PATH))
+	assert_true(EyeGazeBinding.apply(action_map, true), "idempotent")
+
+
+func test_boot_binds_eye_gaze_only_inside_the_supported_branch():
+	var src := _read("res://scripts/xr_boot.gd")
+	assert_true(src.contains("_bind_eye_gaze_at_runtime"), "boot binds via the runtime helper")
+	assert_true(src.contains("EyeGazeBinding.is_supported"), "binding is gated on the capability query")
