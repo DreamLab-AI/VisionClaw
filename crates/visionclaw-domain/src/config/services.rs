@@ -123,8 +123,6 @@ pub struct WhisperSettings {
 pub struct VoiceRoutingSettings {
     #[serde(skip_serializing_if = "Option::is_none", alias = "livekit")]
     pub livekit: Option<LiveKitSettings>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "turbo_whisper")]
-    pub turbo_whisper: Option<TurboWhisperSettings>,
     /// Per-agent voice presets mapping agent_type -> PocketTts voice ID
     #[serde(
         default,
@@ -184,33 +182,6 @@ pub struct LiveKitSettings {
 
 fn default_spatial_max_distance() -> f32 {
     50.0
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default, Type, Validate)]
-#[serde(rename_all = "camelCase")]
-pub struct TurboWhisperSettings {
-    /// Turbo Whisper streaming endpoint (default: ws://turbo-whisper:8000/v1/audio/transcriptions)
-    #[serde(skip_serializing_if = "Option::is_none", alias = "ws_url")]
-    pub ws_url: Option<String>,
-    /// REST fallback URL (default: http://turbo-whisper:8000/v1/audio/transcriptions)
-    #[serde(skip_serializing_if = "Option::is_none", alias = "api_url")]
-    pub api_url: Option<String>,
-    /// Model to use (default: Systran/faster-whisper-large-v3)
-    #[serde(skip_serializing_if = "Option::is_none", alias = "model")]
-    pub model: Option<String>,
-    /// Language hint (default: en)
-    #[serde(skip_serializing_if = "Option::is_none", alias = "language")]
-    pub language: Option<String>,
-    /// Enable VAD (voice activity detection) to skip silence
-    #[serde(default = "default_true", alias = "vad_filter")]
-    pub vad_filter: bool,
-    /// Beam size (1 = greedy/fastest, 5 = more accurate)
-    #[serde(default = "default_beam_size", alias = "beam_size")]
-    pub beam_size: u32,
-}
-
-fn default_beam_size() -> u32 {
-    1
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, Type, Validate)]

@@ -1,6 +1,6 @@
 use crate::app_state::AppState;
 use crate::config::feature_access::FeatureAccess;
-use crate::models::protected_settings::ApiKeys;
+use crate::models::protected_settings::{ApiKeys, NostrUser};
 use crate::services::nostr_service::{AuthEvent, NostrError, NostrService};
 use crate::{bad_request, error_json, not_found, ok_json};
 use actix_web::{web, HttpRequest, HttpResponse};
@@ -256,18 +256,53 @@ async fn refresh(
     }
 }
 
+/// Resolves the authenticated caller from the `Authorization: Bearer` session
+/// token alone. The pubkey is never taken from the URL or body, so a caller
+/// can only ever act on their own record.
+async fn authenticated_user(
+    req: &HttpRequest,
+    nostr_service: &NostrService,
+) -> Result<NostrUser, HttpResponse> {
+    let token = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    if token.is_empty() {
+        return Err(HttpResponse::Unauthorized().json(json!({
+            "error": "Missing authorization token"
+        })));
+    }
+
+    nostr_service.get_session(token).await.ok_or_else(|| {
+        HttpResponse::Unauthorized().json(json!({
+            "error": "Invalid or expired session"
+        }))
+    })
+}
+
 async fn update_api_keys(
+    http_req: HttpRequest,
     req: web::Json<ApiKeysRequest>,
     nostr_service: web::Data<NostrService>,
-    pubkey: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let caller = match authenticated_user(&http_req, &nostr_service).await {
+        Ok(user) => user,
+        Err(resp) => return Ok(resp),
+    };
+
     let api_keys = ApiKeys {
         perplexity: req.perplexity.clone(),
         openai: req.openai.clone(),
         ragflow: req.ragflow.clone(),
     };
 
-    match nostr_service.update_user_api_keys(&pubkey, api_keys).await {
+    match nostr_service
+        .update_user_api_keys(&caller.pubkey, api_keys)
+        .await
+    {
         Ok(user) => {
             let user_dto = UserResponseDTO {
                 pubkey: user.pubkey.clone(),
@@ -287,36 +322,19 @@ async fn update_api_keys(
 async fn get_api_keys(
     req: HttpRequest,
     state: web::Data<AppState>,
-    pubkey: web::Path<String>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    // Validate session before exposing API keys
-    let token = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .unwrap_or("");
-
-    if token.is_empty() {
-        return Ok(HttpResponse::Unauthorized().json(json!({
-            "error": "Missing authorization token"
-        })));
-    }
-
-    // Validate the session token
-    if let Some(nostr_service) = &state.nostr_service {
-        if !nostr_service.validate_session(&pubkey, token).await {
-            return Ok(HttpResponse::Unauthorized().json(json!({
-                "error": "Invalid or expired session"
-            })));
-        }
-    } else {
+    let Some(nostr_service) = &state.nostr_service else {
         return Ok(HttpResponse::ServiceUnavailable().json(json!({
             "error": "Nostr service not available"
         })));
-    }
+    };
 
-    let api_keys = state.get_api_keys(&pubkey).await;
+    let caller = match authenticated_user(&req, nostr_service).await {
+        Ok(user) => user,
+        Err(resp) => return Ok(resp),
+    };
+
+    let api_keys = state.get_api_keys(&caller.pubkey).await;
     ok_json!(api_keys)
 }
 
@@ -355,4 +373,71 @@ pub async fn init_nostr_service(app_state: &mut AppState) {
     });
 
     app_state.nostr_service = Some(web::Data::new(nostr_service));
+}
+
+#[cfg(test)]
+mod api_keys_route_tests {
+    use super::*;
+    use actix_web::{http::StatusCode, test, App};
+
+    const PUBKEY: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+    async fn service_with_session() -> (NostrService, String) {
+        let service = NostrService::new().with_legacy_sessions(true);
+        let user = service
+            .create_user_for_test(PUBKEY)
+            .await
+            .expect("user creation");
+        let token = user.session_token.expect("legacy session token");
+        (service, token)
+    }
+
+    #[actix_web::test]
+    async fn post_without_pubkey_segment_with_valid_session_succeeds() {
+        let (service, token) = service_with_session().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(service.clone()))
+                .configure(config),
+        )
+        .await;
+
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/auth/nostr/api-keys")
+                .insert_header(("Authorization", format!("Bearer {token}")))
+                .set_json(json!({"openai": "sk-test"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stored = service.get_user(PUBKEY).await.expect("user");
+        assert_eq!(stored.api_keys.openai.as_deref(), Some("sk-test"));
+    }
+
+    #[actix_web::test]
+    async fn post_without_session_is_rejected() {
+        let (service, _) = service_with_session().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(service.clone()))
+                .configure(config),
+        )
+        .await;
+
+        for header in [None, Some("Bearer not-a-real-token")] {
+            let mut r = test::TestRequest::post()
+                .uri("/auth/nostr/api-keys")
+                .set_json(json!({"openai": "sk-evil"}));
+            if let Some(h) = header {
+                r = r.insert_header(("Authorization", h));
+            }
+            let resp = test::call_service(&app, r.to_request()).await;
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+        let stored = service.get_user(PUBKEY).await.expect("user");
+        assert!(stored.api_keys.openai.is_none());
+    }
 }

@@ -456,6 +456,19 @@ impl NostrService {
         Ok(user)
     }
 
+    /// Test hook: create a user with a fresh session without a signed event.
+    #[cfg(test)]
+    pub(crate) async fn create_user_for_test(&self, pubkey: &str) -> Result<NostrUser, NostrError> {
+        self.get_or_create_user_from_pubkey(pubkey).await
+    }
+
+    /// Test hook: force legacy opaque sessions on or off regardless of env.
+    #[cfg(test)]
+    pub(crate) fn with_legacy_sessions(mut self, enabled: bool) -> Self {
+        self.legacy_sessions_enabled = enabled;
+        self
+    }
+
     pub async fn get_user(&self, pubkey: &str) -> Option<NostrUser> {
         let users = self.users.read().await;
         users.get(pubkey).cloned()
