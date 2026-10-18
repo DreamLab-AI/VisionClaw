@@ -475,7 +475,7 @@ An independent reviewer read the full diffs and their surrounding code for seven
 | Low, pre-existing | `POST /api/physics/optimize` takes an uncapped `max_iterations`; the route is power-user gated. | Open, small. |
 | Nit | The client applied `whoami` when the answer named no key. | Fixed, `c52602d9e`. |
 
-The reviewer found nothing exploitable in the `whoami` exemption itself (an encoded or altered path only becomes stricter) or in the `/wss` URL change (net-neutral against the previous behaviour). Its verdicts on the `effective_tier` change and the `vaultSrc` repin were cut off in transit and are not recorded here.
+The reviewer found nothing exploitable in the `whoami` exemption itself (an encoded or altered path only becomes stricter) or in the `/wss` URL change (net-neutral against the previous behaviour). Its verdicts on the `effective_tier` change and the `vaultSrc` repin were cut off in transit, so both were checked directly instead. `effective_tier` cannot loosen the gate: `RiskTier::parse` maps a declared high or critical tier to at least that level, and an exhaustive test over declared and effective tiers pins it (`3bb19d89c`). The repin points at a commit on VisionClaw's upstream `main`, Nix verifies the recorded `narHash` at fetch, and the one git dependency's `outputHashes` entry is unchanged.
 
 **Pushing.** Nothing from this sprint is pushed. Every commit named above is local in its repository; pushing, publishing prose-sanitiser 0.1.4, and the host image rebuild are owner actions.
 
