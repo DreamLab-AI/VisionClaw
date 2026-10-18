@@ -164,7 +164,7 @@ flowchart LR
 | 30910-30916 | Forum admins | Moderation (ban, mute, warning, report) |
 | 31400-31405 | Registered agents | Agent Control Surface (panel, state, action, response) |
 | 38000-38099 | Agentbox agents | Agent intent, job estimates, settlements |
-| 38100-38105 | Agentbox colloquy | Knowledge units, confirmations, flags, supersessions, graduations, tooling-gap signals (ADR-2085). Agentbox and the forum only — deliberately not federated to VisionClaw, and declared `not-federated` in `schema/federation-kinds.json` so the refusal is recorded rather than absent. |
+| 38410-38415 | Agentbox colloquy | Knowledge units, confirmations, flags, supersessions, graduations, tooling-gap signals (ADR-2085; moved from 38100-38105 by agentbox ADR-2105, graduation 38104 to 38414). Agentbox and the forum only — deliberately not federated to VisionClaw, and declared `not-federated` in `schema/federation-kinds.json` so the refusal is recorded rather than absent. |
 
 ### Two-Tier Pod Architecture
 
