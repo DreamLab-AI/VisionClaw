@@ -59,7 +59,7 @@ pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
     "supply-chains-and-logistics",
 ];
 
-/// The 67 intermediate taxonomy categories (34 legacy, 19 for the two space domains, 14 for supply chains).
+/// The 68 intermediate taxonomy categories (34 legacy, 19 for the two space domains, 15 for supply chains).
 pub const CATEGORY_SLUGS: &[&str] = &[
     "ai-technique",
     "ai-model-architecture",
@@ -128,6 +128,7 @@ pub const CATEGORY_SLUGS: &[&str] = &[
     "supply-chain-performance-and-finance",
     "supply-chain-information-systems",
     "supply-chain-organisations",
+    "supply-chain-management",
 ];
 
 /// The comparable tail of a class reference: the segment after the last `/`,
@@ -292,7 +293,7 @@ mod tests {
             }
         }
         assert_eq!(DOMAIN_ROOT_SLUGS.len(), 9);
-        assert_eq!(CATEGORY_SLUGS.len(), 67);
+        assert_eq!(CATEGORY_SLUGS.len(), 68);
     }
 
     #[test]

@@ -509,7 +509,7 @@ fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
     }
     actual["domains"] = serde_json::json!(6);
     normalise_attribution(&mut actual);
-    assert_eq!(actual["categories"], 67, "33 appended categories");
+    assert_eq!(actual["categories"], 68, "34 appended categories");
     actual["categories"] = serde_json::json!(34);
     assert_eq!(
         actual, expected,
@@ -545,7 +545,7 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
     for i in [6, 7, 8] {
         assert_eq!(actual["domains"][i]["memberCount"], 0);
     }
-    // The 2026-10-11 taxonomy appends 33 categories (ids 34..67) after
+    // The 2026-10-11 taxonomy appends 34 categories (ids 34..68) after
     // the legacy 34 and their category nodes after the legacy ones; strip them
     // the same way the three appended domain roots are stripped above.
     const LEGACY_CATEGORIES: usize = 34;
@@ -685,5 +685,5 @@ fn the_graph_tiers_agree_with_the_class_count() {
         "stats.json and scaffold-index.json must report the same class count"
     );
     assert_eq!(stats["domains"], 9);
-    assert_eq!(stats["categories"], 67);
+    assert_eq!(stats["categories"], 68);
 }

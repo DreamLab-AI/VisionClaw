@@ -6,7 +6,7 @@
 //!
 //! | file | tier | contents |
 //! |---|---|---|
-//! | `overview.json` | T0 | 9 domain roots + 67 categories, member counts, baked force-layout positions |
+//! | `overview.json` | T0 | 9 domain roots + 68 categories, member counts, baked force-layout positions |
 //! | `domain-<slug>.bin` ×6 | T1 | every class of one domain; full backbone; relations capped per node at top-8 by target degree |
 //! | `full.bin` | — | the uncapped whole graph, CSR |
 //! | `stats.json` | — | pipeline-derived truth (DDD INV-5) |
@@ -183,6 +183,7 @@ pub const CATEGORY_ORDER: &[(&str, &str, u16)] = &[
     ),
     ("supply-chain-information-systems", "Information Systems", 8),
     ("supply-chain-organisations", "Organisations", 8),
+    ("supply-chain-management", "Management", 8),
 ];
 
 /// Maximum ancestry depth the category resolver walks.
@@ -1028,9 +1029,10 @@ mod tests {
         assert_eq!(resolve_domain("supply-chains-and-logistics"), 8);
         assert_eq!(resolve_domain("supply-chain"), 8);
         assert_eq!(DOMAIN_SLUGS.len(), 9);
-        assert_eq!(CATEGORY_ORDER.len(), 67);
+        assert_eq!(CATEGORY_ORDER.len(), 68);
         assert_eq!(CATEGORY_ORDER[53].0, "supply-chain-strategy");
         assert_eq!(CATEGORY_ORDER[66].0, "supply-chain-organisations");
+        assert_eq!(CATEGORY_ORDER[67].0, "supply-chain-management");
         assert!(CATEGORY_ORDER[53..].iter().all(|(_, _, d)| *d == 8));
         // Category ids are contiguous per domain, in DOMAIN_SLUGS order.
         let mut last = 0u16;
@@ -1232,9 +1234,9 @@ mod tests {
         assert_eq!(nodes[0]["label"], "Artificial Intelligence");
         assert_eq!(nodes[DOMAIN_SLUGS.len()]["id"], DOMAIN_SLUGS.len());
         assert_eq!(nodes[DOMAIN_SLUGS.len()]["label"], "AI Technique");
-        assert_eq!(ov["taxonomy"].as_array().unwrap().len(), 67);
-        // 67 backbone edges, category -> domain.
-        assert_eq!(ov["edges"].as_array().unwrap().len(), 67);
+        assert_eq!(ov["taxonomy"].as_array().unwrap().len(), 68);
+        // 68 backbone edges, category -> domain.
+        assert_eq!(ov["edges"].as_array().unwrap().len(), 68);
         assert_eq!(ov["attributedTo"], ATTRIBUTED_TO);
     }
 
