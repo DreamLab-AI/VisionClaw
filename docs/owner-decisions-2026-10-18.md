@@ -1,47 +1,38 @@
 # Owner decisions open at the end of the 2026-10-18 sprint
 
-Each section is one decision the estate register (`docs/TODO-unified.md`) cannot close without the owner. Each gives the choice, the evidence, a recommendation and what follows. Nothing here is implemented; pick an option and the work is a normal change.
+Each section is one decision the estate register (`docs/TODO-unified.md`) could not close without the owner.
 
-## ER-6: which key signs dream-engine's governance events
+**Correction, same day.** The first version of this brief described four of its six decisions from register rows written before other sessions had changed the code. Re-checked against `main` after the owner answered: S-4 (1) and S-7 (c), (d) were already closed, and ER-28's premise (push off) was false. The sections below now carry the current facts and the outcome of each decision.
 
-**Choice.** The identity port refuses to grant kinds 31400–31405 and 38414 to any key (`services/nostr-pod-bridge/src/identity_port/acl.rs`, `NEVER_GRANTABLE_KINDS`). dream-engine publishes 31400 (panel) and 31402 (case) as JunkieJarvis, so it cannot move onto the port as the W3b cutover planned.
+## ER-6: which key signs dream-engine's governance events — decided, source done
 
-1. **An agent signer for agent-authored kinds.** A separate `junkiejarvis-agent` key may be granted 31400 and 31402 only; the human-decision kinds stay never-grantable. The forum can then tell agent from human authorship by key.
-2. **dream-engine keeps its own key file.** No port change; W3b is restated to exclude it, and the same-UID boundary (X-1) stays open for that key.
+**Decided: an agent-governance signer.** dream-engine signs 31400 (panel) and 31402 (case) in production; its 31403 appears only in tests. agentbox `e07b1a366` makes exactly those two kinds grantable, only on `forum_event`, and only to keys declared `agent_governance`, which sign nothing else; the human-decision kinds stay refused for every key. ADR-2122 records the boundary.
 
-**Recommendation: option 1.** It is the one that serves the identity port's purpose, and the rationale gate (ER-7) already wants agent and human authorship distinguishable. Cost: a new key in the custody split, a forum allowlist entry, a per-key exception list in the ACL schema. Recorded in agentbox ADR-2122.
+**Your steps:** generate the key independently (never derived from `k_id`), declare it in `config/custody/identity-port-acl.json` with that grant for dream-engine's uid, add its pubkey to the forum's governance allowlist, rebuild the image, and move dream-engine onto the port.
 
-## ER-28: solid-pod-rs git push
+## ER-28: solid-pod-rs git push — needs a fresh decision
 
-**Choice.** Push is off: `handle_git` builds `GitHttpService` with no auth provider, so every push is refused. If it were enabled, authorisation is Write on the pod root only, so a pusher could overwrite files under stricter sub-container ACLs (for example `/private/privkey.jsonld`); clone and fetch check Read on the root only, so history is readable; the git panel handlers sit outside the push guard; and the repository root is one directory too deep.
+The first version said push was off. It is not. agentbox builds the pod server with the `git` feature in its baseline set, and `handle_git` serves push: it resolves the caller from a `Basic nostr:` or NIP-98 credential and requires Write on the pod root (Read for clone and fetch). The pre-receive guard refuses any push touching `.acl` sidecars or server-managed paths, and the repository root is correct. So deleting the path would break a working agentbox feature; the "delete" answer was given on false facts and is not acted on.
 
-1. **Keep push off and delete the push path** until a consumer needs it.
-2. **Enable it properly:** per-path WAC on every pushed file, Read checks on clone and fetch per path, the panel handlers inside the guard, and the root fixed.
+**What is still weak:** a pushed file is not checked against its own ACL, so a holder of Write on the pod root can write under a sub-container with a stricter ACL; and clone needs only Read on the root, so the whole history is readable to anyone who can read the root.
 
-**Recommendation: option 1 now.** Pod git push already exists in the estate, but through a different implementation: agentbox's management API serves `/pods/:npub/.git/*` itself (`management-api/routes/pod-git`, owner-only push, gated by `[sovereign_mesh.git].enabled`), not through solid-pod-rs-server's `handle_git`. So nothing depends on the solid-pod-rs path, and option 2 is a security design in its own right. Deleting the latent path removes the trap of someone switching it on.
+1. **Per-path checks** in the existing push guard (it already lists every changed path) and in clone, so each path is judged by its own ACL.
+2. **Accept as is**: pod-root Write is normally the owner alone, which makes the gap narrow.
 
-## ER-35: exact or range pins between in-family crates
+**Recommendation: option 1**, scoped to the guard you already have.
 
-**Choice.** Published crates pin each other exactly (`=0.5.0-alpha.13`). A security release of one crate then forces a republish of every crate that pins it: `nostr-bbs-core` had to ship `beta.16` only to move its pin. It is happening again today: solid-pod-rs `0.5.0-alpha.14` is published, but the forum workspace and VisionClaw both pin `=0.5.0-alpha.13`, so neither picks it up until their pins move.
+## ER-35: exact or range pins between in-family crates — decided, partly done
 
-1. **Caret ranges** (`^0.5.0-alpha.14`). For a pre-release, Cargo's caret accepts later pre-releases of the same `0.5.0` and nothing past it, so a consumer resolves the next alpha without a republish.
-2. **Keep exact pins** and accept the republish chain.
+**Decided: caret ranges.** VisionClaw `250d8d590` and the forum `9341826` replace their `=` pins with caret ranges; the forum now resolves solid-pod-rs 0.5.0-alpha.14 (2889 tests and the wasm check pass). VisionClaw still resolves alpha.13, because the published nostr-bbs-core 1.0.0-beta.16 pins `solid-pod-rs =0.5.0-alpha.13`. That clears with one more nostr-bbs-core release carrying the caret range, which needs your go-ahead to publish.
 
-**Recommendation: option 1 for published crates, keeping exact pins only in binaries' lockfiles.** Alphas may change API, so a caret is a mild risk; the lockfile still fixes what a build uses, and the gain is that a security release propagates on `cargo update`.
+## S-4 (1): the `/multi-mcp/ws` endpoint — already closed, no decision needed
 
-## S-4 (1): the `/multi-mcp/ws` endpoint
+Another session wired real discovery behind the route on 2026-10-18 (VisionClaw `6a1a74b8b`, with follow-ups `4f4345503` and `9f98e3787`): `MultiMcpAgentDiscovery` is constructed in `app_state.rs`, and the handler no longer simulates failures or delays. The "retire" answer was given on stale facts and is not acted on.
 
-**Choice.** `send_discovery_data` in `multi_mcp_websocket_handler.rs` simulates discovery (a 20% synthetic failure and a 100 ms sleep); `MultiMcpAgentDiscovery` is never constructed. The route is registered and authenticated. No client in VisionClaw, agentbox skills or MCP servers calls it; the only mention is a test fixture.
+## S-7 (c) and (d): already closed, no decision needed
 
-1. **Retire the route**, its module and the demo test.
-2. **Wire `MultiMcpAgentDiscovery`** so the endpoint reports real agents.
-
-**Recommendation: option 1.** It has no caller, and the estate rule is that dead code is deleted, not kept on the chance of use. Re-adding a real endpoint later costs no more than wiring this one now.
-
-## S-7 (c) and (d): two hygiene items
-
-- **(c) The SONA feeder's headline count.** `scripts/ruvector-sona-feeder.mjs` reports `fed` (items marked learned) as its headline although the engine stores nothing at 384 dimensions; it already reports `engine_stored` beside it. **Recommendation:** make `engine_stored` the headline and keep `fed` as a secondary figure. It is a metrics contract, so it is yours to change.
-- **(d) Exit codes of the dream check scripts.** `dream-build-check.sh` and `dream-link-check.sh` always exit 0; `deploy.yml` greps their output for the OK marker, which works. Making them exit non-zero changes the contract of both `deploy.yml` and the dream-cycle annexe dispatch. **Recommendation:** leave them, since the grep contract is enforced today; change both consumers together only if a third consumer appears.
+- **(c)** agentbox `1f7728897` reports whether the engine is accumulating next to the learned count.
+- **(d)** VisionFlow `2309f21` makes `dream-build-check.sh` and `dream-link-check.sh` exit with their verdict.
 
 ## ADR-VG-004: activate the space and Earth domains
 
