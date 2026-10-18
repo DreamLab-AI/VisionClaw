@@ -19,6 +19,18 @@ function baseSize(tier: number, importance: number, sizeNorm: number): number {
   return 1.1 + 2.6 * importance;
 }
 
+/** Emissive strength from `?emissive=` (0..1), default 0.7. */
+function readEmissive(): number {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('emissive');
+    if (raw === null) return 0.7;
+    const v = Number(raw);
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.7;
+  } catch {
+    return 0.7;
+  }
+}
+
 export function Nodes() {
   const { session, frame } = useScene();
   const model = useCs((s) => s.model);
@@ -34,6 +46,8 @@ export function Nodes() {
       uProjScale: { value: 1000 },
       uBg: { value: new THREE.Vector3(BG.r, BG.g, BG.b) },
       uTime: { value: 0 },
+      // Self-lit community colour (operator request 2026-10-18); override with ?emissive=0..1.
+      uEmissive: { value: readEmissive() },
     }),
     [],
   );

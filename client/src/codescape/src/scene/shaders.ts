@@ -35,6 +35,7 @@ void main() {
 export const NODE_FRAGMENT = /* glsl */ `
 uniform vec3 uBg;
 uniform float uTime;
+uniform float uEmissive; // 0 = lit only, 1 = fully self-lit community colour
 varying vec2 vUv;
 varying vec3 vColor;
 varying vec4 vParams;
@@ -68,6 +69,12 @@ void main() {
     base = mix(base, vec3(lum), 0.85);
   }
   vec3 col = base * (0.28 + 0.78 * diff) + vec3(spec) * 0.35 + base * rim * 0.35;
+  // Emissive: the node radiates its own community colour regardless of the
+  // light direction, brighter at the centre and on the rim so it reads as a
+  // glowing bead rather than a flat disc. Mixed with the lit result so the
+  // sphere shading still gives depth cues.
+  vec3 glow = base * (0.85 + 0.55 * (1.0 - r2) + 0.6 * rim);
+  col = mix(col, max(col, glow), uEmissive);
   // Heat: emissive glow pulsing toward warm white.
   float pulse = 0.75 + 0.25 * sin(uTime * 5.0);
   col += heat * pulse * vec3(1.0, 0.62, 0.25) * (0.6 + 0.8 * rim + 0.4 * (1.0 - r2));
