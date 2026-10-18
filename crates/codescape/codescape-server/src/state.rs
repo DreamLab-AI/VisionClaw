@@ -12,8 +12,10 @@ use codescape_server::config::Config;
 use codescape_server::egress::EgressAllowlist;
 use codescape_server::origin::OriginPolicy;
 use codescape_server::persist::{atomic_write, is_ephemeral_label, ActorIds};
+use codescape_server::proxy::{ProxyTrust, PublicOrigin};
 use codescape_server::voice::loom::LoomClient;
 use codescape_server::voice::tts::TtsClient;
+use codescape_server::xr_presence::PresenceHub;
 use parking_lot::Mutex;
 
 use crate::engine::RepoEngine;
@@ -297,6 +299,10 @@ pub struct AppState {
     pub alloc_limiter: AllocLimiter,
     /// WebSocket handshake origin policy.
     pub origins: OriginPolicy,
+    /// Public origin per request, and the reverse-proxy trust it carries.
+    pub public: PublicOrigin,
+    /// XR avatar rooms behind `/ws/presence`.
+    pub presence: PresenceHub,
     next_conn: AtomicU64,
     open_connections: Arc<std::sync::atomic::AtomicUsize>,
     /// TTS client.
@@ -320,12 +326,12 @@ impl AppState {
         path_map: PathMap,
         actor_ids: ActorIds,
         origins: OriginPolicy,
+        public: PublicOrigin,
         shutdown: Arc<AtomicBool>,
     ) -> Self {
         let tts = TtsClient::new(&egress, &cfg.tts_url, &cfg.tts_voice);
         let loom = cfg
-            .loom_url
-            .as_deref()
+            .loom_url()
             .map(|u| LoomClient::new(&egress, u, &cfg.loom_model));
         Self {
             cfg,
@@ -338,6 +344,8 @@ impl AppState {
             ephemeral_ids: Mutex::new(ActorIds::ephemeral()),
             alloc_limiter: AllocLimiter::hourly(),
             origins,
+            public,
+            presence: PresenceHub::new(),
             next_conn: AtomicU64::new(1),
             open_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             tts,
@@ -379,6 +387,11 @@ impl AppState {
     /// Open WebSocket connections.
     pub fn connections(&self) -> usize {
         self.open_connections.load(Ordering::Acquire)
+    }
+
+    /// The proxy-trust policy.
+    pub fn proxy(&self) -> &ProxyTrust {
+        self.public.proxy()
     }
 
     /// A process-unique connection id.

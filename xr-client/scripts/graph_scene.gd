@@ -71,6 +71,10 @@ const LOCOMOTION_DEADZONE: float = 0.15
 const DEFAULT_BACKEND_WS := "ws://localhost:4000"
 const GRAPH_STREAM_PATH := "/wss"
 const PRESENCE_PATH := "/ws/presence"
+# ADR-2143: Codescape is served under this prefix on the same port as VisionClaw.
+const CODESCAPE_PATH := "/codescape"
+const BACKEND_MODES := ["visionclaw", "codescape"]
+const BACKEND_NAMES := {"visionclaw": "VisionClaw", "codescape": "Codescape"}
 const DEFAULT_ROOM_URN := "urn:visionclaw:room:sha256-12-deadbeefcafe"
 const DEFAULT_DISPLAY_NAME := "XR User"
 
@@ -80,6 +84,8 @@ const DEFAULT_DISPLAY_NAME := "XR User"
 const CANARY_M4_RAY := "CANARY-VC-M4-RAY"
 
 var _binary_client: RefCounted = null
+# Active backend ("visionclaw" | "codescape"); seeded from XR_BACKEND_MODE in _ready.
+var _backend_mode: String = "visionclaw"
 var _presence_client: RefCounted = null
 var _interaction: RefCounted = null
 var _lod_policy: RefCounted = null
@@ -611,6 +617,11 @@ func _ready() -> void:
 
 	_init_label_pool()
 	_probe_eye_gaze()
+	var env_mode: String = _env_or("XR_BACKEND_MODE", "visionclaw").to_lower()
+	if BACKEND_MODES.has(env_mode):
+		_backend_mode = env_mode
+	else:
+		push_warning("GraphScene: XR_BACKEND_MODE '%s' unknown; using visionclaw" % env_mode)
 	_wire_hud()
 	_parity = GraphParityScript.new()
 	_parity.name = "GraphParity"
@@ -809,7 +820,34 @@ func _wire_hud() -> void:
 		hud.control_pressed.connect(_on_hud_control)
 	if hud.has_signal("reconnect_pressed"):
 		hud.reconnect_pressed.connect(_on_hud_reconnect)
+	_sync_hud_backend()
 	_refresh_controls_status()
+
+
+# Push the active backend to the HUD: toggle face, status line and the
+# intervention POST origin (which follows the backend prefix).
+func _sync_hud_backend() -> void:
+	if hud == null:
+		return
+	if hud.has_method("set_backend_mode"):
+		hud.set_backend_mode(_backend_mode, _backend_base(_backend_mode))
+	if hud.has_method("configure_intervention"):
+		hud.configure_intervention(_http_base(), _nostr_auth)
+
+
+# HUD "backend:<mode>": switch server and force-reconnect, as Reconnect does.
+func _switch_backend(mode: String) -> void:
+	if not BACKEND_MODES.has(mode):
+		push_warning("GraphScene: unknown backend mode '%s' ignored" % mode)
+		return
+	_backend_mode = mode
+	_graph_ws_url = _backend_base(mode) + GRAPH_STREAM_PATH
+	_presence_ws_url = _backend_base(mode) + PRESENCE_PATH
+	_reset_reconnect_state()
+	_attempt_connect()
+	_sync_hud_backend()
+	if hud != null and hud.has_method("flash_notice"):
+		hud.flash_notice("Backend: %s  %s" % [BACKEND_NAMES[mode], _backend_base(mode)])
 
 
 # Operator pressed Reconnect on the Session tab: force-reconnect both sockets now.
@@ -826,6 +864,9 @@ func _on_hud_control(action: String) -> void:
 	# Feature 3 — type show/hide filter. "type_toggle:<class>:<1|0>" (1 = visible).
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
+		return
+	if action.begins_with("backend:"):
+		_switch_backend(action.substr(8))
 		return
 	if _parity != null and _parity.handle_control(action):
 		return
@@ -1383,7 +1424,7 @@ func _on_hud_join_requested(room_urn: String) -> void:
 # paths are appended. Empty secret => anonymous graph stream / ephemeral Nostr
 # identity.
 func _connect_from_env() -> void:
-	var base: String = _env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS).rstrip("/")
+	var base: String = _backend_base(_backend_mode)
 	connect_to_server(
 		base + GRAPH_STREAM_PATH,
 		base + PRESENCE_PATH,
@@ -1398,13 +1439,27 @@ func _env_or(name: String, fallback: String) -> String:
 	return value if value != "" else fallback
 
 
+# Pure: the ws base for `mode`. VisionClaw = the env base; Codescape = the env
+# base + CODESCAPE_PATH (never doubled). Any other mode falls back to the env base.
+func _backend_base(mode: String) -> String:
+	return _with_backend_prefix(_env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS), mode)
+
+
+# Pure: strip a trailing "/" and, for "codescape", append CODESCAPE_PATH once.
+static func _with_backend_prefix(base: String, mode: String) -> String:
+	var b: String = base.rstrip("/")
+	if mode == "codescape" and not b.ends_with(CODESCAPE_PATH):
+		b += CODESCAPE_PATH
+	return b
+
+
 # HTTP origin for the intervention decide POST. Prefer an explicit override,
 # else swap the ws:// backend scheme to http:// (wss → https).
 func _http_base() -> String:
 	var override: String = OS.get_environment("XR_BACKEND_HTTP")
 	if override != "":
-		return override.rstrip("/")
-	var ws: String = _env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS).rstrip("/")
+		return _with_backend_prefix(override, _backend_mode)
+	var ws: String = _backend_base(_backend_mode)
 	if ws.begins_with("wss://"):
 		return "https://" + ws.substr(6)
 	if ws.begins_with("ws://"):

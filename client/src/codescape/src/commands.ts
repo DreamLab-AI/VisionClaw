@@ -100,3 +100,14 @@ export const HELP_TEXT = [
   'rewind 30 seconds · replay · pause · live',
   'what is claude doing · follow <actor> · stop following · ask <actor> to <task>',
 ].join('\n');
+
+/**
+ * Split a server-formatted candidate label (`name — path:line`) at the first
+ * ` — ` so the name can stay prominent and the location be dimmed.
+ * Labels without the separator come back whole with an empty `detail`.
+ */
+export function splitCandidate(label: string): { name: string; detail: string } {
+  const sep = ' \u2014 ';
+  const i = label.indexOf(sep);
+  return i < 0 ? { name: label, detail: '' } : { name: label.slice(0, i), detail: label.slice(i) };
+}

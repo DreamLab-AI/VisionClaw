@@ -88,9 +88,11 @@ pub fn check_origin(st: &AppState, req: &HttpRequest) -> Result<(), actix_web::E
             .and_then(|h: &actix_web::http::header::HeaderValue| h.to_str().ok())
     };
     let origin = header(actix_web::http::header::ORIGIN);
+    // `Host`, or the trusted `X-Forwarded-Host` under --trust-proxy.
+    let peer = req.peer_addr().map(|a| a.ip());
     if st
         .origins
-        .allows(origin, header(actix_web::http::header::HOST))
+        .allows(origin, st.proxy().host(req.headers(), peer))
     {
         return Ok(());
     }
@@ -102,9 +104,11 @@ pub fn check_origin(st: &AppState, req: &HttpRequest) -> Result<(), actix_web::E
     .into())
 }
 
-/// Peer address of a request (the TCP peer, never a forwarded header).
-pub fn source_ip(req: &HttpRequest) -> Option<std::net::IpAddr> {
-    req.peer_addr().map(|a| a.ip())
+/// The address per-client limits charge: the TCP peer, or the last
+/// `X-Forwarded-For` hop under `--trust-proxy` (never a forwarded header otherwise).
+pub fn source_ip(st: &AppState, req: &HttpRequest) -> Option<std::net::IpAddr> {
+    st.proxy()
+        .client_ip(req.headers(), req.peer_addr().map(|a| a.ip()))
 }
 
 /// Most `hello` renames one `/ws/events` connection may make.
@@ -185,7 +189,7 @@ pub fn take_slot(st: &AppState) -> Result<ConnGuard, actix_web::Error> {
     })
 }
 
-fn open(
+pub(crate) fn open(
     req: &HttpRequest,
     body: web::Payload,
     st: &AppState,
@@ -256,8 +260,10 @@ pub async fn wss(
     let view = Arc::new(SharedView::new(tier));
     let hz = st.cfg.frame_hz;
     let shutdown = st.shutdown.clone();
-    // NIP-98 (P6) compares the signed URL with --public-origin, never with Host.
-    let url = codescape_server::http::public_url(&st.cfg.public_origin(), req.uri());
+    // NIP-98 (P6) compares the signed URL with the public origin, never with Host.
+    let url = st
+        .public
+        .url_for(req.headers(), req.peer_addr().map(|a| a.ip()), req.uri());
     let st2 = st.clone();
     actix_web::rt::spawn(async move {
         let _slot = slot;
@@ -453,7 +459,7 @@ pub async fn events(
         .filter(|n| !n.trim().is_empty() && n.len() <= 128)
         .unwrap_or_else(|| st.anon_label("guest"));
     let st2 = st.clone();
-    let source = source_ip(&req);
+    let source = source_ip(&st, &req);
     let session_key = q.session.clone();
     actix_web::rt::spawn(async move {
         let _slot = slot;

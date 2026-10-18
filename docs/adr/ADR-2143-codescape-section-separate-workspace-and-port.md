@@ -177,6 +177,45 @@ secret is a bind mount keeping the host's uid 1000 / 0600, and the server runs a
 of the dev profile and publish `:4100` on all interfaces was prepared and then reverted at the
 operator's request; the opt-in `CODESCAPE=1` path and the loopback default (A2 gap 4) stand.
 
+## Amendment A4 (2026-10-18): shared-port access through the dev nginx
+
+The operator asked for Codescape to be reachable from a laptop as `http://<host>:3001/codescape/`
+and for a mode switch in both clients, keeping the earlier ports (A3's default-on change stays
+reverted). Decisions, taken with the advisor:
+
+1. **Network peer, never a co-tenant.** The dev nginx inside `visionclaw_container` reaches
+   Codescape only as the compose service `codescape:4100`, resolved lazily through Docker DNS
+   (`nginx.dev.conf`, `resolver 127.0.0.11`), so nginx starts and answers 502 when the service is
+   down. No Codescape process, binary or build target exists in `visionclaw_container`; running it
+   there under supervisord was rejected because that container mounts `/vault` and carries the
+   RuVector connection string, which would make §8's isolation a convention rather than a property.
+   The release binary runs inside `visionclaw_container` only for the P1 evidence sessions.
+2. **Owner decision: dev-LAN publication.** `:3001` is already published on every interface in dev,
+   so `/codescape/` on it is a deliberate LAN exposure of an open-auth service, requested by the
+   owner on 2026-10-18 and recorded here as the A2 gap-4 waiver for dev only. Prod nginx is
+   untouched; note that prod's SPA fallback answers `200` with the VisionClaw page at `/codescape/`,
+   not `404`. P6 (NIP-98) remains the gate for prod.
+3. **Proxy mechanics.** One `^~ /codescape/` location with a `rewrite ... break` strips the prefix
+   (a variable upstream with a trailing-slash `proxy_pass` would replace the whole URI), forwards
+   `Host`, `X-Forwarded-Host/Proto/For/Prefix`, keeps WebSockets open (3600 s), and hides the
+   upstream's COOP/COEP/CORP so the browser sees exactly one copy of each (a duplicate parses as
+   `unsafe-none` and defeats cross-origin isolation). `/codescape` without a trailing slash
+   redirects, because the bundle's relative asset paths otherwise resolve outside the prefix.
+4. **Server trust.** `--trust-proxy` makes the server read the forwarded host for the same-origin
+   check, the forwarded proto/host/prefix for its public URL, and the last forwarded-for hop (the one nginx appends; the first is client-supplied and
+   rotatable) for rate limiting; off by default. `--trust-proxy-from` (env `CODESCAPE_TRUST_PROXY_FROM`; IPs, CIDRs or
+   hostnames re-resolved every 60 s) narrows trust to the nginx peer, so a sibling container on the
+   compose network sending the same headers is treated exactly as trust off (tests in
+   `codescape-server/src/proxy.rs`). Listing peers never switches trust on by itself; the list
+   without `--trust-proxy` is a boot error. The compose service sets both, naming the VisionClaw
+   container. `X-Forwarded-Prefix` from a trusted peer takes precedence over
+   `--public-path-prefix`; a malformed value falls back to the flag.
+5. **Mode switches.** The desktop client derives its base from a `/codescape` first path segment
+   and shows a VisionClaw link only when served under the prefix; the VisionClaw control bar gains
+   a Codescape button (`codescape/`). The XR HUD gains a Backend toggle that appends `/codescape`
+   to the configured `ws` base, and the server adds a `/ws/presence` shim speaking the XR
+   handshake so the headset stops retrying.
+
 ## Verification
 - **Revision.** Verified at `458b0ded5da35b968ebd7ad056eba8bc06da38a5` against the uncommitted working tree of branch `feat/codescape`. `crates/codescape/` is untracked at that commit.
 - **Results.** Commands and outputs are in `docs/evidence/codescape/P0/README.md`:

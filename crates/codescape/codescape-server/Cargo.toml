@@ -45,6 +45,8 @@ bytes = { workspace = true }
 subtle = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+getrandom = { workspace = true }
+ipnet = { workspace = true }
 base64 = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }

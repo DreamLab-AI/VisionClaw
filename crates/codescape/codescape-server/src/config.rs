@@ -181,9 +181,32 @@ pub struct Config {
 
     /// The origin clients reach this server at (`https://codescape.lan`), used to rebuild
     /// absolute URLs for NIP-98 instead of trusting `Host`. Default: `http://<bind>:<port>`
-    /// (`localhost` for a wildcard bind).
+    /// (`localhost` for a wildcard bind), or, with `--trust-proxy`, the forwarded origin
+    /// plus `--public-path-prefix`. When set, it is used verbatim and wins over both.
     #[arg(long, env = "CODESCAPE_PUBLIC_ORIGIN")]
     pub public_origin: Option<String>,
+
+    /// Honour `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For` from a
+    /// reverse proxy (same-origin check, public origin, per-address limits). Only
+    /// enable it when every client reaches this port through that proxy.
+    #[arg(long, env = "CODESCAPE_TRUST_PROXY", default_value_t = false, action = ArgAction::Set, value_parser = BoolishValueParser::new())]
+    pub trust_proxy: bool,
+
+    /// Path prefix the reverse proxy strips (`/codescape`), prepended to the
+    /// forwarded origin under `--trust-proxy`.
+    #[arg(long, env = "CODESCAPE_PUBLIC_PATH_PREFIX", default_value = "")]
+    pub public_path_prefix: String,
+
+    /// Narrow `--trust-proxy` to these peers: addresses, CIDRs or hostnames (e.g.
+    /// the nginx container's service name, re-resolved every 60 s; an unresolvable
+    /// name is a warning and trusts no peer until it resolves). Repeatable; in the
+    /// environment, comma-separated. Unset = any peer.
+    #[arg(
+        long = "trust-proxy-from",
+        env = "CODESCAPE_TRUST_PROXY_FROM",
+        value_delimiter = ','
+    )]
+    pub trust_proxy_from: Vec<String>,
 
     /// Share agents' prompt and answer text with every viewer (default: tool names only, until NIP-98).
     #[arg(long, env = "CODESCAPE_SHARE_AGENT_TEXT", default_value_t = false, action = ArgAction::Set, value_parser = BoolishValueParser::new())]
@@ -207,6 +230,16 @@ impl Config {
         if self.port == self.ingest_port && self.port != 0 {
             return Err("port and ingest port must differ".into());
         }
+        crate::proxy::normalise_prefix(&self.public_path_prefix)?;
+        for p in &self.trust_proxy_from {
+            crate::proxy::parse_peer(p)?;
+        }
+        if !self.trust_proxy_from.is_empty() && !self.trust_proxy {
+            return Err(
+                "--trust-proxy-from needs --trust-proxy (it narrows trust, it does not enable it)"
+                    .into(),
+            );
+        }
         Ok(())
     }
 
@@ -226,11 +259,42 @@ impl Config {
     }
 
     /// Outbound URLs the egress allowlist is built from.
+    ///
+    /// Optional URLs set to an empty or whitespace-only string (compose passes
+    /// `${VAR:-}` as `""`) count as unset rather than as malformed URLs.
     pub fn egress_urls(&self) -> Vec<String> {
         let mut v = vec![self.asr_url.clone(), self.tts_url.clone()];
-        v.extend(self.loom_url.clone());
-        v.extend(self.voice_intent_url.clone());
+        v.extend(
+            self.loom_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+        );
+        v.extend(
+            self.voice_intent_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from),
+        );
         v
+    }
+
+    /// The Loom URL when configured and non-empty.
+    pub fn loom_url(&self) -> Option<&str> {
+        self.loom_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
+    /// The voice-intent URL when configured and non-empty.
+    pub fn voice_intent_url(&self) -> Option<&str> {
+        self.voice_intent_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
 
     /// Data layout for one repository.
@@ -314,6 +378,9 @@ mod tests {
         assert!(!c.require_auth);
         assert!(!c.share_agent_text);
         assert!(c.allowed_origins.is_empty());
+        assert!(!c.trust_proxy, "proxy headers are ignored by default");
+        assert_eq!(c.public_path_prefix, "");
+        assert!(c.trust_proxy_from.is_empty());
         assert_eq!(c.repos.len(), 2);
         assert_eq!(
             c.repos[1],
@@ -377,12 +444,90 @@ mod tests {
     }
 
     #[test]
+    fn proxy_flags_parse_and_validate() {
+        let c = parse(&[
+            "--repo",
+            "a=/r",
+            "--trust-proxy",
+            "1",
+            "--public-path-prefix",
+            "/codescape/",
+        ])
+        .unwrap();
+        assert!(c.trust_proxy);
+        c.validate().unwrap();
+        let bad = parse(&["--repo", "a=/r", "--public-path-prefix", "/a?b"]).unwrap();
+        assert!(bad.validate().is_err());
+        let narrow = parse(&[
+            "--repo",
+            "a=/r",
+            "--trust-proxy",
+            "1",
+            "--trust-proxy-from",
+            "172.18.0.5,10.0.0.0/8",
+            "--trust-proxy-from",
+            "::1",
+        ])
+        .unwrap();
+        assert_eq!(narrow.trust_proxy_from.len(), 3);
+        narrow.validate().unwrap();
+        let typo = parse(&[
+            "--repo",
+            "a=/r",
+            "--trust-proxy",
+            "1",
+            "--trust-proxy-from",
+            "10.0.0.1/x",
+        ])
+        .unwrap();
+        assert!(typo.validate().is_err(), "malformed CIDR");
+        let host = parse(&[
+            "--repo",
+            "a=/r",
+            "--trust-proxy",
+            "1",
+            "--trust-proxy-from",
+            "visionclaw_container",
+        ])
+        .unwrap();
+        host.validate()
+            .expect("a hostname is valid config, resolved at boot");
+        let orphan = parse(&["--repo", "a=/r", "--trust-proxy-from", "172.18.0.5"]).unwrap();
+        assert!(
+            orphan.validate().is_err(),
+            "narrowing without trust is a config error"
+        );
+    }
+
+    #[test]
     fn ephemeral_ports_parse() {
         let c = parse(&["--repo", "a=/r", "--port", "0", "--ingest-port", "0"]).unwrap();
         assert_eq!((c.port, c.ingest_port), (0, 0));
         c.validate().unwrap();
         let clash = parse(&["--repo", "a=/r", "--port", "5000", "--ingest-port", "5000"]).unwrap();
         assert!(clash.validate().is_err());
+    }
+
+    #[test]
+    fn empty_optional_urls_mean_unset() {
+        // Compose passes `${CODESCAPE_LOOM_URL:-}` as an empty string; that must
+        // not reach the egress allowlist as a malformed URL (first compose boot
+        // crashed on exactly this, 2026-10-18).
+        let c = parse(&[
+            "--repo",
+            "a=/r",
+            "--loom-url",
+            "",
+            "--voice-intent-url",
+            "  ",
+        ])
+        .unwrap();
+        assert_eq!(c.loom_url(), None);
+        assert_eq!(c.voice_intent_url(), None);
+        assert_eq!(c.egress_urls().len(), 2, "only asr and tts remain");
+        let c = parse(&["--repo", "a=/r", "--loom-url", " http://loom:8084/v1 "]).unwrap();
+        assert_eq!(c.loom_url(), Some("http://loom:8084/v1"));
+        assert_eq!(c.egress_urls().len(), 3);
     }
 
     #[test]

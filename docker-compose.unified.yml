@@ -456,7 +456,17 @@ services:
       CODESCAPE_INGEST_TOKEN_FILE: /run/secrets/codescape-ingest-token
       CODESCAPE_ASR_URL: ${CODESCAPE_ASR_URL:-ws://nemotron-asr:8000/api/asr-streaming}
       CODESCAPE_TTS_URL: ${CODESCAPE_TTS_URL:-http://pocket-tts:8000}
+      # Optional; set CODESCAPE_LOOM_URL in .env to enable the LLM fallback.
+      # (An empty value is treated as unset by the server since A4.)
       CODESCAPE_LOOM_URL: ${CODESCAPE_LOOM_URL:-}
+      # Behind the dev nginx on :3001 under /codescape/ (ADR-2143 A4): read the
+      # forwarded host/proto/for headers and advertise the prefixed public URL.
+      CODESCAPE_TRUST_PROXY: ${CODESCAPE_TRUST_PROXY:-1}
+      # Only the dev nginx (inside the VisionClaw container) may set them.
+      # The dev nginx's network alias (service `visionclaw`); container_name is
+      # not a DNS name on the compose network.
+      CODESCAPE_TRUST_PROXY_FROM: ${CODESCAPE_TRUST_PROXY_FROM:-${NETWORK_ALIAS:-visionclaw-server}}
+      CODESCAPE_PUBLIC_PATH_PREFIX: ${CODESCAPE_PUBLIC_PATH_PREFIX:-/codescape}
       # info by default: debug logs hook-reported paths (security finding, low).
       RUST_LOG: ${CODESCAPE_RUST_LOG:-info}
       NVIDIA_VISIBLE_DEVICES: ${CODESCAPE_GPU:-all}

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Decimator2, f32ToLeBytes, Framer, leBytesToF32, LinearResampler, lowpassTaps } from '../audio/pcm';
-import { normalise, parseLocalCommand } from '../commands';
+import { normalise, parseLocalCommand, splitCandidate } from '../commands';
 import { buildDemoWorld, demoQuery } from '../demo/demoGraph';
 import { buildModel } from '../graph';
 import { FramePipeline } from '../net/FramePipeline';
-import { backoffDelay, isDemo, resolveEndpoints } from '../net/config';
+import { backoffDelay, detectPrefix, isDemo, resolveEndpoints } from '../net/config';
 import { applyPositionFrame, createNodeBuffers, encodeV5Frame, type PresenceEvent } from '../protocol';
 import { actorFocusAt, heatAt, trailOf } from '../timeline';
 import { smallSnapshot } from './fixtures';
@@ -41,6 +41,45 @@ describe('endpoints and backoff', () => {
     expect(isDemo('?demo=1')).toBe(true);
     expect(isDemo('?demo=0')).toBe(false);
     expect(isDemo('')).toBe(false);
+  });
+  it('detects the shared-port path prefix on segment boundaries', () => {
+    expect(detectPrefix('/')).toBe('');
+    expect(detectPrefix('')).toBe('');
+    expect(detectPrefix('/codescape')).toBe('/codescape');
+    expect(detectPrefix('/codescape/')).toBe('/codescape');
+    expect(detectPrefix('/codescape/anything/deeper')).toBe('/codescape');
+    expect(detectPrefix('/codescape/index.html')).toBe('/codescape');
+    expect(detectPrefix('/other')).toBe('');
+    expect(detectPrefix('/codescapex')).toBe('');
+    expect(detectPrefix('/index.html')).toBe('');
+    expect(detectPrefix('/viz/x', ['codescape', 'viz'])).toBe('/viz');
+  });
+  it('routes http and sockets through the prefix unless ?server= overrides', () => {
+    const root = resolveEndpoints({ protocol: 'http:', host: 'h:4100', search: '', pathname: '/' });
+    expect(root).toMatchObject({ http: '', events: 'ws://h:4100/ws/events', label: 'http://h:4100', pagePrefix: '' });
+    for (const pathname of ['/codescape', '/codescape/', '/codescape/anything']) {
+      const p = resolveEndpoints({ protocol: 'https:', host: 'h:3001', search: '', pathname });
+      expect(p).toMatchObject({
+        http: '/codescape',
+        positions: 'wss://h:3001/codescape/ws/positions',
+        events: 'wss://h:3001/codescape/ws/events',
+        voice: 'wss://h:3001/codescape/ws/voice',
+        label: 'https://h:3001/codescape',
+        pagePrefix: '/codescape',
+      });
+    }
+    const other = resolveEndpoints({ protocol: 'http:', host: 'h:3001', search: '', pathname: '/other' });
+    expect(other).toMatchObject({ http: '', events: 'ws://h:3001/ws/events', pagePrefix: '' });
+    const o = resolveEndpoints({ protocol: 'http:', host: 'h:3001', search: '?server=box:4100', pathname: '/codescape/' });
+    expect(o).toMatchObject({ http: 'http://box:4100', events: 'ws://box:4100/ws/events', voice: 'ws://box:4100/ws/voice', label: 'http://box:4100' });
+    // The page is still under the shared port, so the VisionClaw link stays.
+    expect(o.pagePrefix).toBe('/codescape');
+  });
+  it('splits candidate labels at the first em-dash separator', () => {
+    expect(splitCandidate('apply_delta \u2014 src/graph.rs:42')).toEqual({ name: 'apply_delta', detail: ' \u2014 src/graph.rs:42' });
+    expect(splitCandidate('plain')).toEqual({ name: 'plain', detail: '' });
+    expect(splitCandidate('a \u2014 b \u2014 c:1')).toEqual({ name: 'a', detail: ' \u2014 b \u2014 c:1' });
+    expect(splitCandidate('en \u2013 dash')).toEqual({ name: 'en \u2013 dash', detail: '' });
   });
   it('backs off exponentially with jitter and a cap', () => {
     expect(backoffDelay(0, 0.5)).toBe(500);

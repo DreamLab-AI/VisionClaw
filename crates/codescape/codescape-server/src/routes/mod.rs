@@ -10,9 +10,11 @@
 //! | `GET /api/settings/physics` | layout parameters (XR `PhysicsView` keys) |
 //! | `GET /api/graph/settlement` | XR settlement body |
 //! | `WS /ws/positions`, `/ws/events`, `/wss`, `/ws/voice` | see [`ws`] and [`voice`] |
+//! | `WS /ws/presence` | XR avatar rooms, see [`presence`] |
 //!
 //! Every route takes an optional `?repo=<label>` (default: the first repo).
 
+pub mod presence;
 pub mod voice;
 pub mod ws;
 
@@ -409,7 +411,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .route("/ws/positions", web::get().to(ws::positions))
         .route("/ws/events", web::get().to(ws::events))
         .route("/wss", web::get().to(ws::wss))
-        .route("/ws/voice", web::get().to(voice::voice));
+        .route("/ws/voice", web::get().to(voice::voice))
+        .route("/ws/presence", web::get().to(presence::presence));
 }
 
 /// Verify a request with the configured verifier (open access until P6).
@@ -418,8 +421,10 @@ pub fn verify(st: &AppState, req: &HttpRequest) -> Result<(), Box<HttpResponse>>
         .headers()
         .get(actix_web::http::header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
-    // Rebuilt from --public-origin, never from the client-controlled Host header.
-    let url = codescape_server::http::public_url(&st.cfg.public_origin(), req.uri());
+    // Rebuilt from the public origin, never from the client-controlled Host header.
+    let url = st
+        .public
+        .url_for(req.headers(), req.peer_addr().map(|a| a.ip()), req.uri());
     st.verifier
         .verify_http(req.method().as_str(), &url, auth)
         .map(|_| ())

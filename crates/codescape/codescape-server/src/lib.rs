@@ -16,6 +16,8 @@
 //! * [`http`]: isolation headers, static bundle with SPA fallback, 404 list.
 //! * [`ingest_api`]: the `:4101` presence-ingest app and the presence-text policy.
 //! * [`origin`]: the WebSocket `Origin` allowlist.
+//! * [`proxy`]: opt-in reverse-proxy trust (forwarded host, origin, client address).
+//! * [`xr_presence`]: the `/ws/presence` room hub and `0x43` pose codec for XR avatars.
 //! * [`voice`]: nemotron ASR, pocket-tts and Loom adapters.
 //!
 //! # Example
@@ -48,9 +50,11 @@ pub mod http;
 pub mod ingest_api;
 pub mod origin;
 pub mod persist;
+pub mod proxy;
 pub mod voice;
 pub mod wire;
 pub mod xr;
+pub mod xr_presence;
 
 /// Server version reported on `/api/health` and in `Hello`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -12,7 +12,7 @@ use std::collections::{HashSet, VecDeque};
 use codescape_collab::{fuzzy_rank, Command, Entry, Target};
 use codescape_ingest::Ingestor;
 use codescape_model::events::{PresenceKind, QueryResult};
-use codescape_model::{GraphSnapshot, NodeKind, Relation};
+use codescape_model::{CodeNode, GraphSnapshot, NodeKind, Relation};
 
 use crate::engine::RepoEngine;
 
@@ -53,6 +53,17 @@ fn describe(s: &GraphSnapshot, idx: &std::collections::HashMap<u32, usize>, id: 
         }
         (Some(p), _, NodeKind::File) => format!("file {p}"),
         _ => format!("{} {}", n.kind.as_str(), n.label),
+    }
+}
+
+/// A candidate's on-screen label: `name — path:line`, `name — path` without a
+/// span, or the bare name when the path is unknown, so same-named hits differ.
+fn candidate_label(n: &CodeNode) -> String {
+    match (&n.path, n.span) {
+        (Some(p), _) if **p == *n.label => p.to_string(),
+        (Some(p), Some(sp)) => format!("{} — {}:{}", n.label, p, sp.start_line),
+        (Some(p), None) => format!("{} — {}", n.label, p),
+        (None, _) => n.label.to_string(),
     }
 }
 
@@ -132,7 +143,7 @@ fn resolve_pref(
                 .map(|&(id, _)| {
                     (
                         idx.get(&id)
-                            .map(|&i| s.nodes[i].label.to_string())
+                            .map(|&i| candidate_label(&s.nodes[i]))
                             .unwrap_or_default(),
                         id,
                     )
@@ -478,6 +489,67 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn node(label: &str, kind: NodeKind, path: Option<&str>, line: Option<u32>) -> CodeNode {
+        CodeNode {
+            id: 1,
+            key: std::sync::Arc::from(label),
+            kind,
+            lang: codescape_model::Lang::Rust,
+            label: std::sync::Arc::from(label),
+            path: path.map(std::sync::Arc::from),
+            span: line.map(|l| codescape_model::Span {
+                start_line: l,
+                end_line: l + 3,
+            }),
+            parent: 0,
+            community: 0,
+            cluster: 0,
+            importance: 0.0,
+            tier: codescape_model::Tier::L2,
+            size: 0,
+        }
+    }
+
+    /// Three `to_bytes` hits must read differently in the candidate list.
+    #[test]
+    fn candidate_labels_carry_path_and_line() {
+        let labels: Vec<String> = [
+            node("to_bytes", NodeKind::Method, Some("src/ids.rs"), Some(56)),
+            node(
+                "to_bytes",
+                NodeKind::Method,
+                Some("src/persist.rs"),
+                Some(120),
+            ),
+            node("to_bytes", NodeKind::Function, Some("src/wire.rs"), Some(9)),
+        ]
+        .iter()
+        .map(candidate_label)
+        .collect();
+        assert_eq!(
+            labels,
+            [
+                "to_bytes — src/ids.rs:56",
+                "to_bytes — src/persist.rs:120",
+                "to_bytes — src/wire.rs:9"
+            ]
+        );
+        assert_eq!(
+            candidate_label(&node("ids.rs", NodeKind::File, Some("src/ids.rs"), None)),
+            "ids.rs — src/ids.rs"
+        );
+        assert_eq!(
+            candidate_label(&node("README.md", NodeKind::File, Some("README.md"), None)),
+            "README.md",
+            "a root file is not repeated"
+        );
+        assert_eq!(
+            candidate_label(&node("Ext", NodeKind::Struct, None, None)),
+            "Ext",
+            "no path: bare name"
+        );
+    }
 
     /// The live visionclaw ranking for "stable match": the function is fourth,
     /// behind a struct and two import stubs with tied scores.

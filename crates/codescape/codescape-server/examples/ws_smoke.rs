@@ -2,11 +2,17 @@
 //! `0x34` ack pacing, `0x23` agent actions and `/ws/events`.
 //!
 //! ```text
-//! cargo run --example ws_smoke -- 127.0.0.1:4100 127.0.0.1:4101 <token-file> <abs-path-of-a-repo-file> [voice]
+//! cargo run --example ws_smoke -- 127.0.0.1:4100 127.0.0.1:4101 <token-file> <abs-path-of-a-repo-file> [voice] [proxy=off|on|narrow]
 //! ```
 //!
+//! Every run includes the `/ws/presence` leg (two XR clients speaking the exact
+//! client handshake, pose relay, the 20/s cap, `avatar_left`, desktop presence).
 //! With `voice`, a push-to-talk leg speaks a pocket-tts phrase into `/ws/voice`
-//! (needs pocket-tts and nemotron-asr on the network).
+//! (needs pocket-tts and nemotron-asr on the network). With `proxy=off|on`, a
+//! handshake-origin leg checks that the server was started with
+//! `--trust-proxy` off (forged `X-Forwarded-Host` ignored) or on (forwarded host
+//! honoured, foreign origins still refused); `proxy=narrow` expects
+//! `--trust-proxy-from` to exclude this client, whose headers are then ignored.
 //!
 //! Exits non-zero on the first violated expectation.
 
@@ -294,10 +300,315 @@ async fn main() {
     }
     check(answered, "typed command answered with highlighted nodes");
 
-    if args.get(5).map(String::as_str) == Some("voice") {
+    presence_leg(main).await;
+    let flags = &args[5..];
+    for f in flags {
+        match f.as_str() {
+            "proxy=off" => proxy_leg(main, false).await,
+            "proxy=on" => proxy_leg(main, true).await,
+            "proxy=narrow" => narrow_leg(main).await,
+            _ => {}
+        }
+    }
+    if flags.iter().any(|f| f == "voice") {
         voice_leg(main).await;
     }
     finish();
+}
+
+/// HTTP status of a WebSocket handshake with extra headers (101 = upgraded).
+async fn upgrade_status(url: &str, headers: &[(&'static str, &str)]) -> u16 {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
+    let mut req = url.into_client_request().unwrap();
+    for (k, v) in headers {
+        req.headers_mut().insert(
+            HeaderName::from_static(k),
+            HeaderValue::from_str(v).unwrap(),
+        );
+    }
+    match tokio_tungstenite::connect_async(req).await {
+        Ok((mut ws, _)) => {
+            let _ = ws.close(None).await;
+            101
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(r)) => r.status().as_u16(),
+        Err(_) => 0,
+    }
+}
+
+/// Origin checks against the dev nginx's header set (`Host` without port,
+/// `X-Forwarded-Host` with it).
+async fn proxy_leg(main: &str, trusted: bool) {
+    let url = format!("ws://{main}/ws/positions");
+    let own = format!("http://{main}");
+    if trusted {
+        check(
+            upgrade_status(
+                &url,
+                &[
+                    ("origin", "http://box:3001"),
+                    ("host", "box"),
+                    ("x-forwarded-host", "box:3001"),
+                ],
+            )
+            .await
+                == 101,
+            "trust on: Origin http://box:3001 matches X-Forwarded-Host box:3001",
+        );
+        check(
+            upgrade_status(
+                &url,
+                &[
+                    ("origin", "http://evil:9"),
+                    ("x-forwarded-host", "box:3001"),
+                ],
+            )
+            .await
+                == 403,
+            "trust on: a foreign Origin is still refused",
+        );
+        check(
+            upgrade_status(&url, &[("origin", "http://box:3001"), ("host", "box")]).await == 403,
+            "trust on: without X-Forwarded-Host, Host (no port) does not match :3001",
+        );
+    } else {
+        check(
+            upgrade_status(
+                &url,
+                &[("origin", own.as_str()), ("x-forwarded-host", "evil:9")],
+            )
+            .await
+                == 101,
+            "trust off: normal Origin with a forged X-Forwarded-Host evil:9 still upgrades",
+        );
+        check(
+            upgrade_status(
+                &url,
+                &[("origin", "http://evil:9"), ("x-forwarded-host", "evil:9")],
+            )
+            .await
+                == 403,
+            "trust off: Origin http://evil:9 is refused although X-Forwarded-Host claims evil:9",
+        );
+        check(
+            upgrade_status(
+                &url,
+                &[
+                    ("origin", "http://box:3001"),
+                    ("host", "box"),
+                    ("x-forwarded-host", "box:3001"),
+                ],
+            )
+            .await
+                == 403,
+            "trust off: the proxied Origin is not same-origin (headers ignored)",
+        );
+    }
+}
+
+/// Server started with `--trust-proxy 1 --trust-proxy-from <an address that is
+/// not this client>`: the smoke client is an unlisted peer, so its forwarded
+/// headers are ignored exactly as with trust off.
+async fn narrow_leg(main: &str) {
+    let url = format!("ws://{main}/ws/positions");
+    check(
+        upgrade_status(
+            &url,
+            &[
+                ("origin", "http://box:3001"),
+                ("host", "box"),
+                ("x-forwarded-host", "box:3001"),
+            ],
+        )
+        .await
+            == 403,
+        "trust narrowed to another peer: this peer's X-Forwarded-Host is ignored",
+    );
+    check(
+        upgrade_status(
+            &url,
+            &[("origin", "http://evil:9"), ("x-forwarded-host", "evil:9")],
+        )
+        .await
+            == 403,
+        "trust narrowed to another peer: forged evil:9 pair refused",
+    );
+    let own = format!("http://{main}");
+    check(
+        upgrade_status(
+            &url,
+            &[("origin", own.as_str()), ("x-forwarded-host", "evil:9")],
+        )
+        .await
+            == 101,
+        "trust narrowed to another peer: same-origin by Host still upgrades",
+    );
+}
+
+/// One XR client: challenge, the client's exact `auth`, `joined`. Returns the socket,
+/// the `joined` JSON and the pubkey hex it claimed.
+async fn xr_join(main: &str, room: &str, name: &str, key: char) -> (Ws, serde_json::Value, String) {
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{main}/ws/presence"))
+        .await
+        .expect("connect /ws/presence");
+    let ch = match next_msg(&mut ws, Duration::from_secs(5)).await {
+        Some(Message::Text(t)) => serde_json::from_str::<serde_json::Value>(&t).unwrap_or_default(),
+        _ => serde_json::Value::Null,
+    };
+    check(
+        ch["type"] == "challenge"
+            && ch["nonce"].as_str().is_some_and(|n| n.len() == 64)
+            && ch["ts"].as_u64().is_some(),
+        &format!("{name}: challenge with a 32-byte nonce and ts"),
+    );
+    let hex = key.to_string().repeat(64);
+    // Byte for byte what PresenceClient::handshake sends.
+    let auth = format!(
+        r#"{{"type":"auth","did":"did:nostr:{hex}","signature":"{}","room_id":"{room}","metadata":{{"display_name":"{name}","model_uri":null}}}}"#,
+        "c".repeat(128)
+    );
+    ws.send(Message::Text(auth)).await.unwrap();
+    let joined = match next_msg(&mut ws, Duration::from_secs(5)).await {
+        Some(Message::Text(t)) => serde_json::from_str(&t).unwrap_or_default(),
+        _ => serde_json::Value::Null,
+    };
+    check(
+        joined["type"] == "joined"
+            && joined["room_id"] == room
+            && joined["avatar_id"] == format!("urn:visionclaw:avatar:{hex}"),
+        &format!("{name}: joined with avatar urn:visionclaw:avatar:<pubkey>"),
+    );
+    (ws, joined, hex)
+}
+
+/// Next text frame parsed as JSON, skipping binary, within `wait`.
+async fn next_json(ws: &mut Ws, wait: Duration) -> Option<serde_json::Value> {
+    let end = Instant::now() + wait;
+    while let Some(left) = end.checked_duration_since(Instant::now()) {
+        if let Message::Text(t) = next_msg(ws, left).await? {
+            return serde_json::from_str(&t).ok();
+        }
+    }
+    None
+}
+
+async fn presence_leg(main: &str) {
+    use codescape_server::xr_presence::{decode_sibling, encode_pose, room_u32};
+    let room = "urn:visionclaw:room:sha256-12-5c0de5e55e55";
+    let (mut events, _) = tokio_tungstenite::connect_async(format!("ws://{main}/ws/events"))
+        .await
+        .unwrap();
+    let (mut a, _, a_hex) = xr_join(main, room, "alice-xr", 'a').await;
+    // The desktop hears the XR member as a human actor labelled with its pubkey.
+    let end = Instant::now() + Duration::from_secs(3);
+    let mut halo = false;
+    while let Some(left) = end.checked_duration_since(Instant::now()) {
+        let Some(v) = next_json(&mut events, left).await else {
+            break;
+        };
+        if v["type"] == "presence" && v["actor_label"] == a_hex.as_str() {
+            halo = v["actor_kind"] == "human" && v["kind"] == "focus";
+            break;
+        }
+    }
+    check(
+        halo,
+        "desktop /ws/events sees the XR member as a human presence",
+    );
+
+    let (mut b, b_joined, b_hex) = xr_join(main, room, "bob-xr", 'b').await;
+    let roster: Vec<&str> = b_joined["members"]
+        .as_array()
+        .map(|m| {
+            m.iter()
+                .filter_map(|x| x["display_name"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    check(
+        roster == ["alice-xr", "bob-xr"],
+        "bob's roster lists alice and bob",
+    );
+    let a_local = b_joined["members"][0]["local_id"].as_u64().unwrap_or(0) as u32;
+    let aj = next_json(&mut a, Duration::from_secs(3))
+        .await
+        .unwrap_or_default();
+    check(
+        aj["type"] == "avatar_joined"
+            && aj["did"] == format!("did:nostr:{b_hex}")
+            && aj["local_id"].as_u64().is_some(),
+        "alice receives avatar_joined for bob with a local_id",
+    );
+
+    // Alice's pose reaches bob as a sibling frame tagged with her local_id.
+    let mut tf = Vec::new();
+    for f in [0.5f32, 1.6, -2.0, 0.0, 0.0, 0.0, 1.0] {
+        tf.extend_from_slice(&f.to_le_bytes());
+    }
+    let avatar = format!("urn:visionclaw:avatar:{a_hex}");
+    a.send(Message::Binary(encode_pose(room, &avatar, 1, 0b001, &tf)))
+        .await
+        .unwrap();
+    let mut relayed = None;
+    let end = Instant::now() + Duration::from_secs(3);
+    while let Some(left) = end.checked_duration_since(Instant::now()) {
+        if let Some(Message::Binary(f)) = next_msg(&mut b, left).await {
+            relayed = decode_sibling(&f);
+            break;
+        }
+    }
+    check(
+        relayed
+            .as_ref()
+            .is_some_and(|(_, r, e)| *r == room_u32(room) && e == &[(a_local, 1, 0b001)]),
+        "bob receives alice's pose as a 0x43 sibling frame",
+    );
+
+    // 60 poses at once: at most 20 per second are relayed.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    for i in 0..60u64 {
+        a.send(Message::Binary(encode_pose(
+            room,
+            &avatar,
+            100 + i,
+            0b001,
+            &tf,
+        )))
+        .await
+        .unwrap();
+    }
+    let mut got = 0;
+    let end = Instant::now() + Duration::from_millis(700);
+    while let Some(left) = end.checked_duration_since(Instant::now()) {
+        match next_msg(&mut b, left).await {
+            Some(Message::Binary(_)) => got += 1,
+            Some(_) => {}
+            None => break,
+        }
+    }
+    println!("     relayed {got} of 60 burst poses");
+    check(
+        (1..=20).contains(&got),
+        "pose burst capped at 20/s per member",
+    );
+
+    // Bob disconnects: alice gets avatar_left.
+    let _ = b.close(None).await;
+    drop(b);
+    let mut left_ok = false;
+    let end = Instant::now() + Duration::from_secs(3);
+    while let Some(rem) = end.checked_duration_since(Instant::now()) {
+        let Some(v) = next_json(&mut a, rem).await else {
+            break;
+        };
+        if v["type"] == "avatar_left" {
+            left_ok = v["avatar_id"] == format!("urn:visionclaw:avatar:{b_hex}");
+            break;
+        }
+    }
+    check(left_ok, "alice receives avatar_left when bob disconnects");
+    let _ = a.close(None).await;
 }
 
 /// Push-to-talk: `start`, PCM streamed straight away (exercising the pre-roll before the

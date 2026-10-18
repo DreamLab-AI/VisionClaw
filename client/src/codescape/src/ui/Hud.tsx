@@ -27,6 +27,12 @@ export function Hud({ session }: { session: Session }) {
     <div className="cs-panel cs-hud" aria-label="Status">
       <div className="cs-hud-title">
         Codescape <span className="cs-dim">{hello?.repo ?? model?.snapshot.repo ?? ''}</span>
+        {session.endpoints.pagePrefix && (
+          // Served through the shared VisionClaw port: the one intentional root-absolute link.
+          <a className="cs-home" href="/" title="Back to VisionClaw">
+            VisionClaw
+          </a>
+        )}
       </div>
       <dl>
         <dt>nodes</dt>

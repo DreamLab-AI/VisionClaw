@@ -34,6 +34,7 @@ use codescape_server::http::{
 use codescape_server::ingest_api::{self, IngestState};
 use codescape_server::origin::OriginPolicy;
 use codescape_server::persist::ActorIds;
+use codescape_server::proxy::PublicOrigin;
 use codescape_server::{now_ms, VERSION};
 
 use crate::engine::RepoEngine;
@@ -81,6 +82,7 @@ async fn run(cfg: Config) -> anyhow::Result<()> {
     let verifier = build_verifier(cfg.require_auth)?;
     let egress = EgressAllowlist::from_urls(cfg.egress_urls())?;
     let origins = OriginPolicy::new(&cfg.allowed_origins)?;
+    let public = PublicOrigin::from_config(&cfg).map_err(|e| anyhow::anyhow!(e))?;
     let path_map = match cfg.path_map.as_deref() {
         Some(s) => PathMap::parse(s).map_err(|e| anyhow::anyhow!("CODESCAPE_PATH_MAP: {e}"))?,
         None => PathMap::new(),
@@ -105,6 +107,9 @@ async fn run(cfg: Config) -> anyhow::Result<()> {
         repos = cfg.repos.len(),
         egress = egress.len(),
         auth = verifier.name(),
+        trust_proxy = public.proxy().enabled(),
+        path_prefix = public.proxy().prefix(),
+        trusted_peers = %public.proxy().peers().iter().map(ToString::to_string).collect::<Vec<_>>().join(","),
         "codescape-server starting"
     );
 
@@ -127,6 +132,7 @@ async fn run(cfg: Config) -> anyhow::Result<()> {
         path_map,
         load_actor_ids(&cfg),
         origins,
+        public,
         shutdown.clone(),
     ));
 
@@ -134,9 +140,12 @@ async fn run(cfg: Config) -> anyhow::Result<()> {
     let static_dir = cfg.static_dir.clone();
     let verifier_data = web::Data::new(VerifierData {
         verifier: st.verifier.clone(),
-        public_origin: cfg.public_origin(),
+        public: st.public.clone(),
     });
-    let api_rate = web::Data::new(ApiRateData(codescape_server::auth::IpBuckets::api()));
+    let api_rate = web::Data::new(ApiRateData {
+        buckets: codescape_server::auth::IpBuckets::api(),
+        proxy: st.proxy().clone(),
+    });
     let main_server = HttpServer::new(move || {
         // Last wrap is outermost: isolation headers cover even an auth rejection.
         App::new()
@@ -185,6 +194,47 @@ async fn run(cfg: Config) -> anyhow::Result<()> {
         }
     };
     let ingest_handle = ingest_server.as_ref().map(|s| s.handle());
+
+    // Hostname entries of --trust-proxy-from: resolve now, then every 60 s
+    // (Docker DNS changes on recreate). Failure is a warning; that name trusts no peer.
+    let proxy = st.proxy().clone();
+    if proxy.has_hosts() {
+        let warn = |failed: &[(String, std::io::Error)]| {
+            for (h, e) in failed {
+                tracing::warn!(host = %h, error = %e, "trusted proxy name does not resolve; it trusts no peer until it does");
+            }
+        };
+        let proxy0 = proxy.clone();
+        let failed = tokio::task::spawn_blocking(move || proxy0.refresh_hosts()).await?;
+        warn(&failed);
+        tracing::info!(resolved = ?proxy.resolved(), "trusted proxy names resolved");
+        let sd = shutdown.clone();
+        actix_web::rt::spawn(async move {
+            let mut last = (
+                proxy.resolved(),
+                failed.iter().map(|f| f.0.clone()).collect::<Vec<_>>(),
+            );
+            let mut t = tokio::time::interval(codescape_server::proxy::PEER_REFRESH);
+            t.tick().await;
+            while !sd.load(Ordering::Relaxed) {
+                t.tick().await;
+                let p = proxy.clone();
+                let Ok(failed) = tokio::task::spawn_blocking(move || p.refresh_hosts()).await
+                else {
+                    continue;
+                };
+                let now = (
+                    proxy.resolved(),
+                    failed.iter().map(|f| f.0.clone()).collect::<Vec<_>>(),
+                );
+                if now != last {
+                    warn(&failed);
+                    tracing::info!(resolved = ?now.0, "trusted proxy addresses changed");
+                    last = now;
+                }
+            }
+        });
+    }
 
     // Floor hold cap.
     let floor_state = st.clone();

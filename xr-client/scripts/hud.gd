@@ -212,6 +212,10 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
+# Backend toggle (ADR-2143): VisionClaw <-> Codescape on the same port.
+var _backend_button: Button = null
+var _backend_mode: String = "visionclaw"
+var _backend_line: String = ""
 # Beat row (Session page) + header mic badge (WP5/WP8).
 const MIC_BADGE_COLOR: Color = Color(1.0, 0.32, 0.30)
 var _beat_label: Label = null
@@ -1240,12 +1244,24 @@ func _build_session_page() -> VBoxContainer:
 	page.add_child(_mute_toggle)
 	_conn_status_label = _mk_label("Connection: off", "Graph socket state")
 	page.add_child(_conn_status_label)
+	# Reconnect and the backend toggle share one row so the page keeps its height.
+	var conn_row := HBoxContainer.new()
 	var reconnect := _press_fire(Button.new()) as Button
 	reconnect.text = "Reconnect"
 	reconnect.custom_minimum_size = Vector2(0, BTN_H)
+	reconnect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
-	page.add_child(reconnect)
+	conn_row.add_child(reconnect)
+	_backend_button = _press_fire(Button.new()) as Button
+	_backend_button.custom_minimum_size = Vector2(0, BTN_H)
+	_backend_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_backend_button.set_meta(HINT_META, "Switch server: VisionClaw / Codescape (same port)")
+	_backend_button.pressed.connect(func() -> void:
+		emit_signal("control_pressed", "backend:visionclaw" if _backend_mode == "codescape" else "backend:codescape"))
+	conn_row.add_child(_backend_button)
+	page.add_child(conn_row)
+	set_backend_mode(_backend_mode, "")
 	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
@@ -1529,6 +1545,24 @@ func _check_overflow(id: String) -> void:
 
 
 # --- Public API (signatures preserved) --------------------------------------
+
+## Set by GraphScene on wire-up and after every backend switch: the active
+## backend ("visionclaw" | "codescape") and its ws base, shown on the toggle face
+## and appended to the connection status line.
+func set_backend_mode(mode: String, base: String = "") -> void:
+	_backend_mode = mode
+	var backend_name: String = "Codescape" if mode == "codescape" else "VisionClaw"
+	_backend_line = backend_name if base.is_empty() else "%s  %s" % [backend_name, base]
+	if _backend_button != null:
+		_backend_button.text = "Backend: %s" % backend_name
+	_update_conn_status_label()
+
+
+func _update_conn_status_label() -> void:
+	if _conn_status_label == null:
+		return
+	var state: String = "Connection: on" if _connected else "Connection: off"
+	_conn_status_label.text = state if _backend_line.is_empty() else "%s · %s" % [state, _backend_line]
 
 ## Set by GraphScene after each control press: the current physics params, edge
 ## count and node-size factor. Called on press only — no per-frame cost.
@@ -1907,8 +1941,7 @@ func _on_connection_status(connected: bool) -> void:
 		_conn_dot.text = "● OK" if connected else "● OFF"
 		_conn_dot.add_theme_color_override("font_color",
 			Color(0.4, 0.85, 0.45) if connected else Color(0.9, 0.35, 0.3))
-	if _conn_status_label != null:
-		_conn_status_label.text = "Connection: on" if connected else "Connection: off"
+	_update_conn_status_label()
 
 
 func _on_join_pressed() -> void:

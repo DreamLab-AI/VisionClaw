@@ -1,37 +1,59 @@
 /**
- * Server addressing. Same origin by default; `?server=http://host:4100`
- * overrides for development. `?demo=1` runs without a server.
+ * Server addressing. Same origin by default (under `/codescape` when served
+ * through the VisionClaw port); `?server=http://host:4100` overrides for development.
+ * `?demo=1` runs without a server.
  */
 
+/** First path segments that mark Codescape as served under a shared-port prefix (VisionClaw nginx strips it). */
+export const PATH_PREFIXES: readonly string[] = ['codescape'];
+
+/**
+ * The path prefix this page is served under: `'/codescape'` when the first
+ * path segment is one of `segments`, otherwise `''` (served at the root).
+ * Splits on segment boundaries, so `/codescapex` is not a match.
+ */
+export function detectPrefix(pathname: string, segments: readonly string[] = PATH_PREFIXES): string {
+  const first = (pathname.startsWith('/') ? pathname : `/${pathname}`).split('/')[1] ?? '';
+  return first && segments.includes(first) ? `/${first}` : '';
+}
+
 export interface Endpoints {
-  /** HTTP base without trailing slash ('' = same origin). */
+  /** HTTP base without trailing slash ('' = same origin root, '/codescape' under the shared port). */
   http: string;
   positions: string;
   events: string;
   voice: string;
   /** Human-readable target for the "connecting to …" state. */
   label: string;
+  /** Prefix the page itself is served under, independent of `?server=` ('' = served at the root). */
+  pagePrefix: string;
 }
 
-export function resolveEndpoints(loc: { protocol: string; host: string; search: string }): Endpoints {
+export function resolveEndpoints(loc: { protocol: string; host: string; search: string; pathname?: string }): Endpoints {
   const params = new URLSearchParams(loc.search);
   const override = params.get('server');
+  const pagePrefix = detectPrefix(loc.pathname ?? '/');
   let httpBase: string;
   let wsBase: string;
+  let label: string;
   if (override) {
     const u = new URL(override.includes('://') ? override : `http://${override}`);
-    httpBase = `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
-    wsBase = `${u.protocol === 'https:' ? 'wss:' : 'ws:'}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
+    const p = u.pathname.replace(/\/+$/, '');
+    httpBase = `${u.protocol}//${u.host}${p}`;
+    wsBase = `${u.protocol === 'https:' ? 'wss:' : 'ws:'}//${u.host}${p}`;
+    label = httpBase;
   } else {
-    httpBase = '';
-    wsBase = `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}`;
+    httpBase = pagePrefix;
+    wsBase = `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}${pagePrefix}`;
+    label = `${loc.protocol}//${loc.host}${pagePrefix}`;
   }
   return {
     http: httpBase,
     positions: `${wsBase}/ws/positions`,
     events: `${wsBase}/ws/events`,
     voice: `${wsBase}/ws/voice`,
-    label: httpBase || `${loc.protocol}//${loc.host}`,
+    label,
+    pagePrefix,
   };
 }
 

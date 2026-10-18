@@ -8,6 +8,7 @@
  */
 
 import React from 'react';
+import { Braces } from 'lucide-react';
 import type { MacroDef, RegistryField } from '../registry/types';
 import { MACROS } from '../registry/macros';
 import { REGISTRY } from '../registry/settingsRegistry';
@@ -114,6 +115,21 @@ export const MacroBar: React.FC = () => {
           );
         })}
       </div>
+
+      <Divider />
+
+      {/* Codescape (ADR-2143): the code-graph section served under /codescape/ on
+          this same port via nginx. A plain navigation, not a route: Codescape is a
+          separate bundle and process with its own isolation guarantees. */}
+      <a
+        href="codescape/"
+        data-testid="dock-codescape"
+        aria-label="Open Codescape (code graph)"
+        title="Codescape · code graph"
+        className="flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Braces size={15} aria-hidden="true" />
+      </a>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 /** Typed commands in the voice grammar; shows answers and numbered candidates. */
 import { useEffect, useRef, useState } from 'react';
+import { splitCandidate } from '../commands';
 import type { Session } from '../session';
 import { dispatch, useCs } from '../store';
 
@@ -85,18 +86,22 @@ export function CommandPalette({ session }: { session: Session }) {
               {query.answer && <pre className="cs-answer">{query.answer}</pre>}
               {query.candidates.length > 0 && (
                 <ol className="cs-candidates">
-                  {query.candidates.map(([label, id], k) => (
-                    <li key={`${id}-${k}`}>
-                      <button
-                        onClick={() => {
-                          dispatch({ type: 'select', id, fly: true });
-                          dispatch({ type: 'clear_query' });
-                        }}
-                      >
-                        <span className="cs-num">{k + 1}</span> {label}
-                      </button>
-                    </li>
-                  ))}
+                  {query.candidates.map(([label, id], k) => {
+                    const { name, detail } = splitCandidate(label);
+                    return (
+                      <li key={`${id}-${k}`}>
+                        <button
+                          onClick={() => {
+                            dispatch({ type: 'select', id, fly: true });
+                            dispatch({ type: 'clear_query' });
+                          }}
+                        >
+                          <span className="cs-num">{k + 1}</span> {name}
+                          {detail && <span className="cs-dim">{detail}</span>}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
             </>

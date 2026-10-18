@@ -80,7 +80,7 @@ pub async fn voice(
             ));
         }
     }
-    let source = source_ip(&req);
+    let source = source_ip(&st, &req);
     let session_key = q.session.clone();
     let slot = take_slot(&st)?;
     let (res, session, stream) = actix_ws::handle(&req, body)?;

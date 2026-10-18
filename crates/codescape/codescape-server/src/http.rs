@@ -23,25 +23,36 @@ use crate::auth::Verifier;
 pub struct VerifierData {
     /// The verifier.
     pub verifier: Arc<dyn Verifier>,
-    /// `scheme://host[:port]` the server is reached at (`--public-origin`). NIP-98
-    /// signs the absolute URL, so it is rebuilt from this, never from the
-    /// client-controlled `Host` header.
-    pub public_origin: String,
+    /// How the absolute URL NIP-98 signs is rebuilt: `--public-origin`, the
+    /// forwarded origin under `--trust-proxy`, or the bind-derived default; never
+    /// the client-controlled `Host` header.
+    pub public: crate::proxy::PublicOrigin,
 }
 
 /// Per-address rate limit on `/api/*` for [`api_rate_gate`].
-pub struct ApiRateData(pub crate::auth::IpBuckets);
+pub struct ApiRateData {
+    /// The buckets.
+    pub buckets: crate::auth::IpBuckets,
+    /// Which address a request is charged to (TCP peer, or the trusted forwarded hop).
+    pub proxy: crate::proxy::ProxyTrust,
+}
 
 /// Middleware (with `from_fn`): at most 20 requests per second (burst 40) per
-/// TCP peer address on `/api/*`; 429 JSON beyond. Register before
+/// client address on `/api/*` (the TCP peer, or the last `X-Forwarded-For` hop
+/// under `--trust-proxy`); 429 JSON beyond. Register before
 /// [`isolation_headers`] so the 429 carries them.
 pub async fn api_rate_gate(
     req: ServiceRequest,
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<EitherBody<impl MessageBody>>, actix_web::Error> {
     if req.path().starts_with("/api/") {
-        if let (Some(l), Some(peer)) = (req.app_data::<web::Data<ApiRateData>>(), req.peer_addr()) {
-            if !l.0.try_take(peer.ip()) {
+        let limiter = req.app_data::<web::Data<ApiRateData>>();
+        let ip = limiter.and_then(|l| {
+            l.proxy
+                .client_ip(req.headers(), req.peer_addr().map(|a| a.ip()))
+        });
+        if let (Some(l), Some(ip)) = (limiter, ip) {
+            if !l.buckets.try_take(ip) {
                 let resp = HttpResponse::TooManyRequests()
                     .insert_header(("Retry-After", "1"))
                     .json(serde_json::json!({"error": "rate limited"}));
@@ -75,7 +86,8 @@ pub async fn auth_gate(
                 .get(actix_web::http::header::AUTHORIZATION)
                 .and_then(|h| h.to_str().ok())
                 .map(str::to_string);
-            let url = public_url(&v.public_origin, req.uri());
+            let peer = req.peer_addr().map(|a| a.ip());
+            let url = v.public.url_for(req.headers(), peer, req.uri());
             if let Err(e) = v
                 .verifier
                 .verify_http(req.method().as_str(), &url, auth.as_deref())
@@ -251,9 +263,10 @@ mod tests {
     async fn api_rate_limit_is_per_peer_and_keeps_isolation_headers() {
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(ApiRateData(crate::auth::IpBuckets::new(
-                    1, 2,
-                ))))
+                .app_data(web::Data::new(ApiRateData {
+                    buckets: crate::auth::IpBuckets::new(1, 2),
+                    proxy: crate::proxy::ProxyTrust::off(),
+                }))
                 .wrap(actix_web::middleware::from_fn(api_rate_gate))
                 .wrap(isolation_headers())
                 .route(
@@ -289,6 +302,46 @@ mod tests {
         );
     }
 
+    #[actix_web::test]
+    async fn api_rate_limit_keys_on_forwarded_hop_only_when_trusted() {
+        async fn codes(proxy: crate::proxy::ProxyTrust) -> Vec<u16> {
+            let app = test::init_service(
+                App::new()
+                    .app_data(web::Data::new(ApiRateData {
+                        buckets: crate::auth::IpBuckets::new(1, 1),
+                        proxy,
+                    }))
+                    .wrap(actix_web::middleware::from_fn(api_rate_gate))
+                    .route(
+                        "/api/health",
+                        web::get().to(|| async { HttpResponse::Ok().finish() }),
+                    ),
+            )
+            .await;
+            let mut out = vec![];
+            // Two clients behind one proxy peer.
+            for client in ["192.168.2.50", "192.168.2.51"] {
+                let req = test::TestRequest::get()
+                    .uri("/api/health")
+                    .peer_addr("172.18.0.2:5000".parse().unwrap())
+                    .insert_header(("X-Forwarded-For", client))
+                    .to_request();
+                out.push(test::call_service(&app, req).await.status().as_u16());
+            }
+            out
+        }
+        assert_eq!(
+            codes(crate::proxy::ProxyTrust::off()).await,
+            vec![200, 429],
+            "trust off: both are the proxy peer"
+        );
+        assert_eq!(
+            codes(crate::proxy::ProxyTrust::new(true, "").unwrap()).await,
+            vec![200, 200],
+            "trust on: charged to each forwarded client"
+        );
+    }
+
     #[::core::prelude::v1::test]
     fn public_url_ignores_the_host_header() {
         let uri: actix_web::http::Uri = "/api/graph/search?q=x".parse().unwrap();
@@ -304,7 +357,11 @@ mod tests {
             App::new()
                 .app_data(web::Data::new(VerifierData {
                     verifier: Arc::new(DenyAll),
-                    public_origin: "http://localhost:4100".into(),
+                    public: crate::proxy::PublicOrigin::new(
+                        None,
+                        "http://localhost:4100".into(),
+                        crate::proxy::ProxyTrust::off(),
+                    ),
                 }))
                 .wrap(actix_web::middleware::from_fn(auth_gate))
                 .wrap(isolation_headers())
