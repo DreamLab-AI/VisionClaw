@@ -113,6 +113,8 @@ fn lookup_semantics_match_get_domain_color() {
         domain_hex(Some("earth-observation-and-geospatial-sensing")),
         "#438273"
     );
+    assert_eq!(domain_hex(Some("supply-chains-and-logistics")), "#C0793A");
+    assert_eq!(domain_hex(Some("SUPPLY-CHAINS-AND-LOGISTICS")), "#C0793A");
     for (d, c) in [("DT", "#EF5350"), ("SEC", "#FF7043"), ("INFRA", "#78909C")] {
         assert_eq!(domain_hex(Some(d)), c);
     }
@@ -234,7 +236,7 @@ fn hud_const(src: &str, name: &str) -> Vec<(Option<String>, String)> {
 fn hud_key_domain_swatches_match_the_palette() {
     let src = hud_source();
     let rows = hud_const(&src, "KEY_DOMAIN_SWATCHES");
-    assert_eq!(rows.len(), 8, "one swatch per canonical domain");
+    assert_eq!(rows.len(), 9, "one swatch per canonical domain");
     for (key, hex) in rows {
         let key = key.expect("row carries its domain key");
         assert!(

@@ -10,6 +10,7 @@ export const DOMAIN_COLORS: Readonly<Record<string, string>> = Object.freeze({
   'infrastructure': '#FFD54F',
   'space-science-and-systems': '#646b9f',
   'earth-observation-and-geospatial-sensing': '#438273',
+  'supply-chains-and-logistics': '#C0793A',
   AI: '#4FC3F7',
   BC: '#81C784',
   RB: '#FFB74D',

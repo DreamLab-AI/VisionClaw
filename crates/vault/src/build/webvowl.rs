@@ -31,6 +31,7 @@ const DOMAIN_COLOURS: &[(&str, &str)] = &[
     ("robotics", "#F44336"),
     ("space-science-and-systems", "#646b9f"),
     ("earth-observation-and-geospatial-sensing", "#438273"),
+    ("supply-chains-and-logistics", "#C0793A"),
 ];
 const DEFAULT_COLOUR: &str = "#607D8B";
 const INDIVIDUAL_COLOUR: &str = "#FF5722";

@@ -150,8 +150,8 @@ fn the_domain_scalar_is_free_text_with_a_census_not_an_enumeration() {
     );
     assert_eq!(
         domain.roots.len(),
-        8,
-        "the six legacy and two space/EO roots"
+        9,
+        "the six legacy, two space/EO and one supply-chain roots"
     );
     assert!(domain.observed.len() >= 17, "{:?}", domain.observed.len());
 
@@ -164,6 +164,7 @@ fn the_domain_scalar_is_free_text_with_a_census_not_an_enumeration() {
         "supply-chain",
         "space-science-and-systems",
         "earth-observation-and-geospatial-sensing",
+        "supply-chains-and-logistics",
     ] {
         assert!(known.contains(&value), "`{value}` is in the census");
     }

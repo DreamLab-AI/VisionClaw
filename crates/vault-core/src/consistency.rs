@@ -56,9 +56,10 @@ pub const DOMAIN_ROOT_SLUGS: &[&str] = &[
     "robotics",
     "space-science-and-systems",
     "earth-observation-and-geospatial-sensing",
+    "supply-chains-and-logistics",
 ];
 
-/// The 53 intermediate taxonomy categories (34 legacy + 19 for the two space domains).
+/// The 67 intermediate taxonomy categories (34 legacy, 19 for the two space domains, 14 for supply chains).
 pub const CATEGORY_SLUGS: &[&str] = &[
     "ai-technique",
     "ai-model-architecture",
@@ -113,6 +114,20 @@ pub const CATEGORY_SLUGS: &[&str] = &[
     "earth-observation-data-quality",
     "earth-observation-applications",
     "geodesy",
+    "supply-chain-strategy",
+    "supply-chain-planning",
+    "sourcing-and-procurement",
+    "production-operations",
+    "inventory-management",
+    "warehousing-and-distribution",
+    "freight-transportation",
+    "international-trade-and-customs",
+    "supply-chain-risk-and-resilience",
+    "sustainable-supply-chains",
+    "traceability-and-product-identification",
+    "supply-chain-performance-and-finance",
+    "supply-chain-information-systems",
+    "supply-chain-organisations",
 ];
 
 /// The comparable tail of a class reference: the segment after the last `/`,
@@ -276,8 +291,8 @@ mod tests {
                 );
             }
         }
-        assert_eq!(DOMAIN_ROOT_SLUGS.len(), 8);
-        assert_eq!(CATEGORY_SLUGS.len(), 53);
+        assert_eq!(DOMAIN_ROOT_SLUGS.len(), 9);
+        assert_eq!(CATEGORY_SLUGS.len(), 67);
     }
 
     #[test]
