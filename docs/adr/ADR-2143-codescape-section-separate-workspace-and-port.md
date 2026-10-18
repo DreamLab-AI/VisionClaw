@@ -169,6 +169,14 @@ The audit was run by Codex gpt-6-astra and returned at 2026-10-17T20:30Z, anti-f
    - The isolation negative control now fails when its fixture is missing, where it used to skip (`isolation.rs:122-128`).
    - The offline-to-online `cargo metadata` retry now prints the offline diagnostic (`isolation.rs:53-59`).
 
+## Amendment A3 (2026-10-18): token readability; default-on reverted
+
+The compose-managed service could not read its ingest token on first start: a compose file
+secret is a bind mount keeping the host's uid 1000 / 0600, and the server runs as root with
+`cap_drop: ALL`. The service now adds `DAC_READ_SEARCH` only. A change to make Codescape part
+of the dev profile and publish `:4100` on all interfaces was prepared and then reverted at the
+operator's request; the opt-in `CODESCAPE=1` path and the loopback default (A2 gap 4) stand.
+
 ## Verification
 - **Revision.** Verified at `458b0ded5da35b968ebd7ad056eba8bc06da38a5` against the uncommitted working tree of branch `feat/codescape`. `crates/codescape/` is untracked at that commit.
 - **Results.** Commands and outputs are in `docs/evidence/codescape/P0/README.md`:

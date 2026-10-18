@@ -502,6 +502,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      # Compose file secrets are bind mounts that keep the host's 0600/uid
+      # ownership; the server runs as root with everything dropped, so it
+      # needs the read bypass (and only that) to open its own token. Found on
+      # the first compose start, where the token was unreadable without it.
+      - DAC_READ_SEARCH
     ports:
       # Clients only; 4101 (hook ingest) stays on the compose network.
       # Bound to the host loopback by default because auth is "open" until the
