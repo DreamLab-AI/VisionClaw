@@ -124,22 +124,17 @@ agent-action frame (plain target id, a `file` node, source equal to that actor).
 
 ## Not exercised in P1, and why
 
-- **Compose deployment.** The `codescape` service is defined and the YAML validated, but it was not
-  started: `./scripts/launch.sh up dev` must run from the host shell, and that shell (tmux window 6)
-  is following the live stack's logs, where an interrupt runs `cleanup_dev` (`scripts/launch.sh:479-486`,
-  `docker compose down`) on the whole stack. First start compiles the workspace in a fresh container
-  (`start_period` 900 s). The live P1 evidence comes from the release binary run directly inside the
-  VisionClaw container instead. Operator command, from a second host shell in the checkout:
-
-  ```bash
-  CODESCAPE=1 ./scripts/launch.sh up dev        # mints secrets/codescape-ingest-token on first use
-  docker logs -f codescape                       # until "starting codescape-server on :4100"
-  curl -s http://127.0.0.1:4100/api/health       # engine should read "cuda"
-  ```
-
-  With `NVIDIA_VISIBLE_DEVICES=all` the engine picks the visible card with the most free memory
-  (`codescape-layout/src/cuda.rs` `best_by_free`), so on this host it lands on an idle RTX 6000 Ada
-  rather than the A6000 the VisionClaw server already loads; pin with `CODESCAPE_CUDA_DEVICE=<ordinal>`.
+- **Compose deployment: done 2026-10-18 12:19Z.** `CODESCAPE=1 ./scripts/launch.sh up dev` from the
+  host shell started the `codescape` service (CUDA engine, VisionClaw 32,173 nodes and agentbox
+  19,117 nodes, both from cache) alongside the stack. Two faults surfaced on the first start and
+  were fixed: the container could not read its 0600 token (now `cap_add: DAC_READ_SEARCH`), and an
+  empty `CODESCAPE_LOOM_URL` from compose reached the egress allowlist as a malformed URL (now
+  treated as unset). Through the dev nginx at `http://<host>:3001/codescape/` (ADR-2143 A4): health
+  answers, one COOP/COEP/CORP header each, `crossOriginIsolated` is true so the client runs the
+  shared-memory decode path, proxy trust resolved to the nginx alias, and the VisionClaw UI still
+  serves at `/`. Screenshot `07-shared-port-3001-codescape-cuda-shared-mem.png`. The headset,
+  restarted in Codescape mode against `ws://10.10.10.2:3001`, joined the presence shim and rendered
+  1,699 file nodes at 90 FPS with no `/ws/presence` retries.
 - **Activity-sink hook enablement.** The hook ships on the agentbox branch
   `feat/codescape-activity-sink` and its registration is projected at image boot, so enabling
   `[integrations.activity_sink]` needs a host rebuild from that branch. The hook itself was exercised
