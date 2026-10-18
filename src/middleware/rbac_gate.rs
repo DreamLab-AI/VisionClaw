@@ -61,6 +61,15 @@ const PUBLIC_SEGMENT_PREFIXES: &[&[&str]] = &[
 ];
 
 /// Split a path into non-empty `/`-delimited segments.
+/// The path the router matches. Actix decodes percent-escapes (all but the
+/// protected `/`, `%` and `+`) before matching routes, while `req.path()` is
+/// the raw URI, so classifying the raw path let `/api/%73ettings/...` route
+/// to the settings handlers under the graph-write level, and `/api/%61dmin`
+/// skip the Admin rule (estate register, 2026-10-18 security review).
+fn routed_path(req: &ServiceRequest) -> &str {
+    req.match_info().as_str()
+}
+
 fn segments(path: &str) -> Vec<&str> {
     path.split('/').filter(|s| !s.is_empty()).collect()
 }
@@ -250,7 +259,7 @@ where
         let svc = self.service.clone();
         let mode = self.mode;
 
-        let required = required_level(req.method(), req.path(), self.public_reads);
+        let required = required_level(req.method(), routed_path(&req), self.public_reads);
 
         let Some(level) = required else {
             // Public route — pass straight through.
@@ -319,6 +328,46 @@ mod tests {
         assert_eq!(lvl(Method::DELETE, "/api/auth/nostr"), None);
         assert_eq!(lvl(Method::POST, "/api/client-logs"), None);
         assert_eq!(lvl(Method::GET, "/api/healthz"), None);
+    }
+
+    #[test]
+    fn the_gate_classifies_the_path_the_router_matches() {
+        use actix_web::test::TestRequest;
+        for (raw, routed) in [
+            ("/api/%73ettings/physics", "/api/settings/physics"),
+            ("/api/%61dmin/rbac/users", "/api/admin/rbac/users"),
+            ("/api/admin/rbac/%77hoami", "/api/admin/rbac/whoami"),
+        ] {
+            let req = TestRequest::with_uri(raw).to_srv_request();
+            assert_eq!(routed_path(&req), routed, "router view of {raw}");
+        }
+        let lvl = |m: Method, raw: &str| {
+            let req = TestRequest::with_uri(raw)
+                .method(m.clone())
+                .to_srv_request();
+            required_level(&m, routed_path(&req), true)
+        };
+        assert_eq!(
+            lvl(Method::PUT, "/api/%73ettings/physics"),
+            lvl(Method::PUT, "/api/settings/physics")
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/%61dmin/rbac/users"),
+            Some(AccessLevel::Admin)
+        );
+        // The raw path classified these differently: the bug being fixed.
+        assert_ne!(
+            required_level(&Method::PUT, "/api/%73ettings/physics", true),
+            required_level(&Method::PUT, "/api/settings/physics", true)
+        );
+        assert_ne!(
+            required_level(&Method::GET, "/api/%61dmin/rbac/users", true),
+            Some(AccessLevel::Admin)
+        );
+        // An encoded slash stays encoded for the router too, so it cannot split
+        // a segment to dodge a prefix rule.
+        let req = TestRequest::with_uri("/api/admin%2Frbac/users").to_srv_request();
+        assert!(routed_path(&req).contains("%2F"));
     }
 
     #[test]
