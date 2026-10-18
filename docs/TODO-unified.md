@@ -416,6 +416,52 @@ One session, ordered by value over effort, every repository re-read at its HEAD 
 | AC-FORUM-1 | restated | `nostr-bbs-core` is at 1.0.0-beta.16 (the row said beta.11 unpublished). Still open: three `*.client.evidence.md` with empty `audited_by` (owner attestation), the deepsec gate store reset (owner), nothing deployed. |
 | N-13 | restated | Kit pins aligned at beta.15/16. Still open: the VisionFlow orphan-asset prune (owner) and the first rebuilt-engine night confirming card withdrawal. |
 
+### Disposition of every row still not closed (2026-10-18, end of sprint)
+
+Each row's latest state across this register was recomputed after the sprint (147 ids; rows recur across dated sections, so the latest one counts). Every row below is open for a named reason. "Owner" means a decision or credential only the owner holds; "host" means a step that must run from the host shell; "live" means it needs a deployed service, a device or elapsed time.
+
+| ID | Disposition | What it waits on |
+|---|---|---|
+| EA-04 | blocked, live | A live external mutation journey with authority and recovery acceptance; the code and tests are in place. |
+| EA-05 | blocked, host | A coordinated bundle and server rollout so the live server serves matching generations. |
+| EA-06 | blocked, owner | Per-store subject and authority mappings and real backend adapters; erasure must not be exercised on private data without the owner. |
+| G-4 | blocked, owner | The reviewed explicit public-recipient set. |
+| G-5 | blocked, owner | A replacement publisher identity bound to encrypted recovery custody and the allowlist migration (key ceremony). |
+| G-7 | blocked, owner | A deployment-specific backup policy. |
+| M-3 | blocked, host | Diagnosis on the HP host of the candidate image that failed readiness. |
+| M-4 | blocked, live | Selected deployed peers for multi-peer delivery. |
+| M-5 | blocked, live | A completed live nightly receipt. |
+| L-1, L-2, L-4, L-6 | blocked, live | Signed model and mobile sessions, second-model-family traffic, failure-path telemetry and an Amethyst phone session respectively. |
+| L-3 | blocker gone, needs a signed session | Re-tested today: VisionClaw answers 200 from this container (`visionclaw_container:4000/api/health`). What remains is an authenticated clamp-fire receipt. |
+| L-5, N-4 | blocked, device | A connected headset and release keystore; the voice and XR acceptance receipts. |
+| DR-1 | blocked, live | A complete nightly agent-runtime journey. |
+| D-1 | blocked, live | Seven elapsed UTC observation days. |
+| V-1 | blocked, host | A coordinated semantic bundle and server activation. |
+| X-4 | built, host run pending | `scripts/activation/flake-update-rehearsal.host.sh --journal` from the host shell in the agentbox checkout. |
+| X-5 | deferred | The loom PRD-028 result decides it. |
+| E-5 | blocker gone, waits on N-2 | VisionClaw is reachable now (see L-3); direct axiom writes need the forum `vault propose` apply path. |
+| AC-FORUM-1 | blocked, owner | Three `*.client.evidence.md` attestations and the deepsec gate-store reset. |
+| N-13 | blocked, owner | The VisionFlow orphan-asset prune and the first rebuilt-engine night. |
+| ER-6 | blocked, owner | Option 1 or 2 in agentbox ADR-2122 (agent signer for 31400/31402, or dream-engine keeps its key file). |
+| ER-7 | partly closed | VisionClaw half done (`acb1efad7`): the gate takes the stricter of declared and forum effective tier. Open: the bridge must forward `effective_tier`, and which task properties VisionClaw's own 31402 builders declare is a per-action judgement for the owner. |
+| ER-8, S-5 | open, work | Port the eight-domain list and the vowl-wasm npm package into `knowledgeGraph/explorer`, then re-diff against `visionGraph/publishing-tools/WasmVOWL`. Not started this sprint. |
+| ER-11 | partly closed | Expiry half done (`5ea307093`); tombstones deferred by owner decision R5d. |
+| ER-13 | partly closed, device | Static binding removed; restoring gaze needs a boot-time action-map choice and a headset. |
+| ER-17 | blocked, upstream | A 384-dimension `@ruvector/sona` build; the engine hardcodes 256. |
+| ER-18 | partly closed | The hold-back lists are fixed; the NGG2 relation-code and resolver items live in the ontomark register (OM-00.x). |
+| ER-23 | open, work | Widen `scripts/check-config-mirrors.mjs` in dreamlab-ai-website to the operator-variable, `POKER_CONFIG_JSON` and `federated_kinds` mirrors; the five-site admin-key rotation is an owner action. Not started this sprint. |
+| ER-28 | open, owner decision | Push is off. Before enabling it the owner must choose the authorisation model (per-path WAC on push, Read checks on clone, the panel handlers inside the guard); the root-one-directory-too-deep bug is fixed only together with that. |
+| ER-29 | open, work | Move anchoring locks out of the network calls and across processes; needs a design for cross-process locking on shared storage. Not started this sprint. |
+| ER-32 | in progress | MCP quota and payment test coverage, being added in solid-pod-rs this session; reporting to JavaScriptSolidServer is outward-facing and left to the owner. |
+| ER-35 | blocked, owner | Whether published crates use exact or range pins for in-family dependencies. |
+| ER-36 | partly closed | `solid-pod-embed` is a default feature, so today's VisionClaw builds compiled against `solid-pod-rs-server` 0.5.0-alpha.13 and its lib tests pass in this container. Open: the agentbox image rebuild (host) and trail-key hygiene (owner). |
+| S-3 | open, owner decision | The code half (loopback bind, or NIP-98 on path 2) changes a wire contract. |
+| S-4 | blocker gone, owner decision | `src/main.rs` is clean now, so the stated blocker is gone; what remains is S-4 (1): wire `MultiMcpAgentDiscovery` or retire `/multi-mcp/ws`. |
+| S-7 | open, work | Part (c), the feeder change; (a) and (b) are closed. Not started this sprint. |
+| ER-15 | closed (index row) | Every item it lists is tracked in its own row (X-1, X-3, S-3, S-6, G-5 and others); it carries no work of its own. |
+
+**Pushing.** Nothing from this sprint is pushed. Every commit named above is local in its repository; pushing, publishing prose-sanitiser 0.1.4, and the host image rebuild are owner actions.
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
