@@ -118,6 +118,11 @@ pub struct UpdateParametersRequest {
     pub max_velocity: Option<f32>,
 }
 
+/// Most iterations one caller may request; the routes are power-user gated,
+/// but an unbounded `u32` still let one request hold the GPU (2026-10-18
+/// security review).
+pub const MAX_PHYSICS_ITERATIONS: u32 = 10_000;
+
 pub async fn start_simulation(
     user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
@@ -153,7 +158,7 @@ pub async fn start_simulation(
         params.convergence_threshold = v;
     }
     if let Some(v) = req.max_iterations {
-        params.max_iterations = v;
+        params.max_iterations = v.min(MAX_PHYSICS_ITERATIONS);
     }
 
     let sim_params = SimulationParams {
@@ -227,7 +232,10 @@ pub async fn optimize_layout(
 
     let optimization_req = LayoutOptimizationRequest {
         algorithm: req.algorithm.clone(),
-        max_iterations: req.max_iterations.unwrap_or(1000),
+        max_iterations: req
+            .max_iterations
+            .unwrap_or(1000)
+            .min(MAX_PHYSICS_ITERATIONS),
         target_energy: req.target_energy.unwrap_or(0.01),
     };
 
@@ -426,4 +434,18 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/settle-mode", web::get().to(get_settle_mode))
             .route("/settle-mode", web::post().to(set_settle_mode)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAX_PHYSICS_ITERATIONS;
+
+    #[test]
+    fn iteration_cap_is_bounded_and_above_the_default() {
+        assert!(
+            MAX_PHYSICS_ITERATIONS >= 1000,
+            "the default of 1000 must fit"
+        );
+        assert_eq!(u32::MAX.min(MAX_PHYSICS_ITERATIONS), MAX_PHYSICS_ITERATIONS);
+    }
 }
