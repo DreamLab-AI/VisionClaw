@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { dispatch, useCs } from '../store';
 import { useScene } from './context';
 import { selectTier } from './lod';
+import { useSpacePilotMotion } from '../input/SpacePilotRig';
 
 interface Flight {
   fromPos: THREE.Vector3;
@@ -29,6 +30,7 @@ export function CameraRig() {
   const flight = useRef<Flight | null>(null);
   const tier = useRef(session.store.getState().currentTier);
   const initialised = useRef(false);
+  const puck = useSpacePilotMotion();
 
   useEffect(() => {
     const c = controls.current;
@@ -81,6 +83,11 @@ export function CameraRig() {
       cam.updateProjectionMatrix();
       c.maxDistance = R * 12;
       c.minDistance = R * 0.005;
+    }
+    // The SpacePilot wins over any fly-to in progress: a hand on the puck is
+    // the stronger intent, and letting both write the camera makes it judder.
+    if (puck(cam, c as unknown as { target: THREE.Vector3; minDistance: number; maxDistance: number }, dt)) {
+      flight.current = null;
     }
     const f = flight.current;
     if (f) {

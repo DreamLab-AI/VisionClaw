@@ -4,6 +4,7 @@ members = [
     "crates/visionclaw-contracts",
     "crates/visionclaw-domain",
     "crates/visionclaw-protocol",
+    "crates/visionclaw-wire",
     "crates/visionclaw-adapters",
     "crates/visionclaw-gpu",
     "crates/visionclaw-ontology",

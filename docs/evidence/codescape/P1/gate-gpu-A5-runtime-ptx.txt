@@ -1,0 +1,7 @@
+test cuda::tests::gpu_conforms_to_cpu_oracle ... ok
+test cuda::tests::gpu_focus_mask_freezes_exactly ... ok
+test cuda::tests::gpu_settle_step_parity ... ok
+test cuda::tests::host_grid_matches_device_grid ... ok
+test cuda::tests::select_engine_prefers_verified_cuda ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 218.22s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s

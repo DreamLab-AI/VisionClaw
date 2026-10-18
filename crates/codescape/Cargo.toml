@@ -29,10 +29,13 @@ repository = "https://github.com/DreamLab-AI/AR-AI-Knowledge-Graph"
 publish = false
 
 [workspace.dependencies]
-codescape-model = { path = "codescape-model" }
+codescape-model = { path = "codescape-model", version = "0.1.0" }
 codescape-ingest = { path = "codescape-ingest" }
 codescape-layout = { path = "codescape-layout" }
-codescape-collab = { path = "codescape-collab" }
+codescape-collab = { path = "codescape-collab", version = "0.1.0" }
+# The frozen V3/V5 position wire, shared with the VisionClaw clients (dependency-free,
+# MIT OR Apache-2.0). Path today; version-only once published to crates.io.
+visionclaw-wire = { path = "../visionclaw-wire", version = "0.1.0" }
 
 # The code-graph engine: Graphify 0.9.91 ported to Rust (Apache-2.0). Pinned to a
 # revision; a bump is an explicit change. Default features (chinese, precise-js,

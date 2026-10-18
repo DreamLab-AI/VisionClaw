@@ -1,23 +1,17 @@
 //! ADR-2018 consumer freshness and ADR-2019 per-opcode frame policy, exercised
 //! in the XR decoder against the *shared* wire fixtures.
 //!
-//! The fixture module is the same source file the server encoder tests compile
-//! (`crates/visionclaw-protocol/src/wire_fixtures.rs`), included here by path so
-//! this deliberately isolated workspace gets identical bytes without taking on
-//! the domain crate's dependency tree. The server side proves those fixtures are
-//! byte-identical to the real encoder output; this side proves the consumer
-//! handles them per the documented policy.
+//! The fixtures come from the dependency-free `visionclaw-wire` crate, the same
+//! one the server encoder tests use, so this deliberately isolated workspace
+//! gets identical bytes without taking on the domain crate's dependency tree.
+//! The server side proves those fixtures are byte-identical to the real encoder
+//! output; this side proves the consumer handles them per the documented policy.
 
-#[path = "../../../crates/visionclaw-protocol/src/wire_fixtures.rs"]
-// Shared server-side fixture module; this test uses only part of it.
-#[allow(dead_code)]
-mod wire_fixtures;
-
+use visionclaw_wire as fx;
 use visionclaw_xr_gdext::binary_protocol::{
     decode_agent_action_frame, decode_position_frame, decode_position_frame_with_sequence,
     encode_broadcast_ack, DecodeError, Freshness, FreshnessGate,
 };
-use wire_fixtures as fx;
 
 fn records(n: u32) -> Vec<fx::NodeRecord> {
     (0..n)

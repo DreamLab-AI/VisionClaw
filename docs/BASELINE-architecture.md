@@ -1,7 +1,7 @@
 ---
 title: VisionClaw Current Architecture Baseline
 doc_id: VC-BASELINE
-version: 0.3.0
+version: 0.4.0
 status: draft-for-ratification
 verified_commit: 
 date: 2026-08-31
@@ -21,6 +21,7 @@ sources:
   - crates/visionclaw-protocol/src/protocols/binary_settings_protocol.rs
   - src/utils/binary_protocol.rs
 changelog:
+  - "0.4.0 (2026-10-18): ADR-2143 A4/A5: Codescape served as its own compose service behind the dev nginx at /codescape/ on 3001; the frozen wire record extracted to crates/visionclaw-wire (re-exported by visionclaw-protocol); Codescape's only estate dependency is that crate and its CUDA PTX is a runtime artefact. Minor bump: subsystem paragraph and crate census updated; the one Codescape invariant is unchanged in kind"
   - "0.3.0 (2026-10-17): ADR-2143: Codescape section (separate workspace and lock, ports 4100/4101, tested build-graph isolation) and one invariant; citation refresh in Processes and ports (compose :8/:26,215/:48-49/:70-71/:204/:304, HttpServer::new at main.rs:959). Minor bump: new subsystem and one additive invariant; no existing invariant changed"
   - "0.2.1 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.2.0 — Data pipeline: the authored corpus is an Obsidian vault (docs/VAULT-corpus-format.md); inclusion gate is frontmatter `public: true` or `owl-class` (ADR-2040), superseding the Logseq `public:: true` property line."
@@ -81,14 +82,21 @@ Codescape, a voice-collaborative live code-graph view, is a **separate section**
 knowledge-work system. It is its own Cargo workspace at `crates/codescape/` with its own
 `Cargo.lock` (`crates/codescape/Cargo.toml:1-20`), never a root-workspace member, because the
 graphicle engine it consumes (pinned git rev, `:40`) turns on serde_json `arbitrary_precision`,
-which Cargo would unify into every root build. Ports: `4100` for clients and `4101` for
-token-authenticated hook ingest, never published. It produces the frozen V3/V5 contract unchanged
-(see `PROTOCOL-registry.md`, "Second producer: Codescape"). **Isolation** from the ontology,
-memory-cloud, vault, Oxigraph, RuVector/Postgres and Solid stores is enforced in four layers:
-the build graph (`crates/codescape/codescape-server/tests/isolation.rs`, in force now), an
-egress allowlist and its own compose service without `/vault` (P2), and the client import
-graph (with the client). Until P2 it runs inside `visionclaw_container` on an unpublished port.
-Status: P0 (workspace, model, isolation test) only; nothing is served yet.
+which Cargo would unify into every root build. It runs as its own compose service `codescape`
+(`docker-compose.unified.yml`, profiles `codescape`, enabled by `CODESCAPE=1` in `launch.sh`), on
+port `4100` for clients (loopback by default) and `4101` for token-authenticated hook ingest (never
+published), and is reached through the dev nginx at `/codescape/` on `3001` as a network peer
+(`nginx.dev.conf`, ADR-2143 A4). It produces the frozen V3/V5 contract unchanged (see
+`PROTOCOL-registry.md`, "Second producer: Codescape"). **Isolation** from the ontology,
+memory-cloud, vault, Oxigraph, RuVector/Postgres and Solid stores is enforced in four layers: the
+build graph (`crates/codescape/codescape-server/tests/isolation.rs`, where `visionclaw-wire` is the
+only VisionClaw crate allowed), source-only read-only mounts without `/vault`, `.env` or `data/`,
+the server's refusal to boot with a RuVector connection string, and the client import graph
+(`client/src/codescape/src/__tests__/isolation.test.ts`). Its only estate crate dependency is
+`crates/visionclaw-wire` (the frozen wire record, MIT OR Apache-2.0, re-exported by
+`visionclaw-protocol`); the CUDA PTX reaches it as a runtime artefact staged by the service's
+entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A4 landed on
+2026-10-18; extraction to its own repository is in progress (ADR-2143 A5).
 
 ### Crate layout
 
@@ -101,7 +109,9 @@ with `src/lib.rs` + `src/main.rs`. The workspace declares **twelve** members
 `visionclaw-adapters`, `visionclaw-gpu`, `visionclaw-ontology`,
 `visionclaw-actors`, `visionclaw-xr-presence`, `visionclaw-analytics-oracle`,
 plus `vault-migrate` and `visionclaw-integration-tests`, added since this doc's
-original root-plus-nine census (`ADR-2005` re-verification, 2026-09-05). The empty
+original root-plus-nine census (`ADR-2005` re-verification, 2026-09-05). `visionclaw-wire` joined on 2026-10-18 (ADR-2143 A5); the
+member list now stands at sixteen including the root, so the twelve-member census above
+predates `vault-core`, `vault`, `visionclaw-memory-cloud` and `visionclaw-tri-layout`. The empty
 orphan dir `graph-cognition-extract`, never a member, has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
 are workspace-**excluded** so a server build does not compile them.

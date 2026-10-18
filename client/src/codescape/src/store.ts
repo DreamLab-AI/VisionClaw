@@ -154,6 +154,7 @@ export type Action =
   | { type: 'hover'; id: number | null }
   | { type: 'back' }
   | { type: 'filter'; patch: Partial<Filter> }
+  | { type: 'toggle_hide_tests' }
   | { type: 'tier_mode'; mode: 'auto' | Tier }
   | { type: 'current_tier'; tier: Tier }
   | { type: 'timeline'; patch: Partial<Timeline> }
@@ -269,6 +270,9 @@ export function reduce(s: CsState, a: Action): CsState {
       const history = s.history.slice(0, -1);
       return { ...s, selection: s.history[s.history.length - 1], history, cameraCue: { kind: 'focus', n: s.cameraCue.n + 1 } };
     }
+    case 'toggle_hide_tests':
+      return { ...s, filter: { ...s.filter, hideTests: !s.filter.hideTests } };
+
     case 'filter':
       return { ...s, filter: { ...s.filter, ...a.patch } };
     case 'tier_mode':

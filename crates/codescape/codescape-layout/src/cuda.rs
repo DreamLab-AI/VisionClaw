@@ -41,12 +41,12 @@ use cust::memory::{
 };
 use cust::module::Module;
 use cust::stream::{Stream, StreamFlags};
-use visionclaw_gpu::ptx_loader::{downgrade_ptx_isa_if_needed, load_ptx_module_sync, PTXModule};
 
-use crate::abi::{check_provenance, check_ptx_abi, ManifestEntry, UNIFIED_MODULE};
+use crate::abi::ManifestEntry;
 use crate::cpu::{check_delta, state_after_delta, State, REPULSION_SOFTENING};
 use crate::model::{far_field, FarField};
 use crate::octree::Repulsion;
+use crate::ptx_source::PtxSource;
 use crate::{LayoutEngine, LayoutError, LayoutParams, PositionSet, StepStats};
 
 /// Repulsion cut-off as a fraction of [`LayoutParams::shell_radius`]. The CPU
@@ -407,8 +407,9 @@ impl Buffers {
 
 /// Force layout on a CUDA device, driving VisionClaw's unified kernels.
 ///
-/// Construction fails unless the PTX passes [`crate::abi::check_ptx_abi`] and
-/// its build manifest says `provenance=compiled`. [`crate::select_engine`]
+/// Construction fails unless the PTX in `$CODESCAPE_PTX_DIR` passes
+/// [`crate::ptx_source::PtxSource::from_dir`]: `provenance=compiled`, a content
+/// tag matching its build manifest, and [`crate::abi::check_ptx_abi`]. [`crate::select_engine`]
 /// falls back to the CPU engine in that case.
 ///
 /// Steps are pipelined (see [`StepStats`]): `energy` and [`LayoutEngine::settled`]
@@ -458,39 +459,17 @@ impl Drop for CudaEngine {
     }
 }
 
-/// Load the unified PTX and prove it is the fresh build this crate expects.
-fn verified_ptx() -> Result<(String, ManifestEntry), LayoutError> {
-    let module = PTXModule::VisionflowUnified;
-    let artefact_path = module.compiled_ptx_path().ok_or_else(|| {
-        LayoutError::AbiMismatch(
-            "visionclaw-gpu baked no build-time PTX path: provenance cannot be proven".into(),
-        )
-    })?;
-    let manifest_path =
-        std::path::Path::new(artefact_path).with_file_name("ptx-build-manifest.txt");
-    let manifest = std::fs::read_to_string(&manifest_path).ok();
-    let entry = check_provenance(manifest.as_deref(), UNIFIED_MODULE)?;
-    let on_disk = std::fs::read_to_string(artefact_path)
-        .map_err(|e| LayoutError::PtxUnavailable(format!("{artefact_path}: {e}")))?;
-    if visionclaw_gpu::ptx_policy::content_tag(on_disk.as_bytes()) != entry.rewritten {
-        return Err(LayoutError::AbiMismatch(format!(
-            "{artefact_path} does not match its build manifest tag {:016x}",
-            entry.rewritten
-        )));
-    }
-    let loaded = load_ptx_module_sync(module).map_err(LayoutError::PtxUnavailable)?;
-    if loaded != downgrade_ptx_isa_if_needed(on_disk) {
-        return Err(LayoutError::AbiMismatch("the PTX loader returned something other than the build artefact (a source-tree or runtime-compiled copy)".into()));
-    }
-    check_ptx_abi(&loaded)?;
-    Ok((loaded, entry))
-}
-
 impl CudaEngine {
-    /// Initialise CUDA on device `$CODESCAPE_CUDA_DEVICE` (default 0), verify
-    /// and load the PTX. Nothing is loaded into the layout yet.
+    /// Read and verify the PTX in `$CODESCAPE_PTX_DIR` ([`PtxSource::from_env`]),
+    /// then initialise CUDA on device `$CODESCAPE_CUDA_DEVICE` (default: the
+    /// one with the most free memory) and load it. Nothing is loaded into the
+    /// layout yet.
     pub fn new(params: LayoutParams) -> Result<Self, LayoutError> {
-        let (ptx, artefact) = verified_ptx()?;
+        let PtxSource {
+            ptx,
+            entry: artefact,
+            ..
+        } = PtxSource::from_env()?;
         cust::init(cust::CudaFlags::empty()).map_err(dev("cuInit"))?;
         let count = Device::num_devices().map_err(dev("device count"))?;
         if count == 0 {
@@ -1036,10 +1015,15 @@ mod tests {
         assert!(p.grid_cell_size >= p.repulsion_cutoff);
     }
 
-    /// Device tests run only with `CODESCAPE_GPU_TESTS=1` and `--ignored`.
+    /// Device tests run only with `CODESCAPE_GPU_TESTS=1`, `CODESCAPE_PTX_DIR`
+    /// and `--ignored`.
     fn gpu_or_skip() -> Option<CudaEngine> {
-        if std::env::var("CODESCAPE_GPU_TESTS").as_deref() != Ok("1") {
-            eprintln!("SKIPPED: set CODESCAPE_GPU_TESTS=1 to run CUDA device tests");
+        if std::env::var("CODESCAPE_GPU_TESTS").as_deref() != Ok("1")
+            || std::env::var_os(crate::ptx_source::PTX_DIR_ENV).is_none()
+        {
+            eprintln!(
+                "SKIPPED: set CODESCAPE_GPU_TESTS=1 and CODESCAPE_PTX_DIR=<dir with visionclaw_unified.ptx and ptx-build-manifest.txt> to run CUDA device tests"
+            );
             return None;
         }
         Some(CudaEngine::new(LayoutParams::default()).expect("CUDA engine with verified PTX"))
@@ -1059,8 +1043,24 @@ mod tests {
         })
     }
 
+    /// Without `CODESCAPE_PTX_DIR`, CUDA is refused before any driver call
+    /// and the CPU engine is chosen with the reason, so this needs no GPU.
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --features cuda -- --ignored"]
+    fn select_engine_falls_back_to_cpu_without_a_ptx_dir() {
+        if std::env::var_os(crate::ptx_source::PTX_DIR_ENV).is_some() {
+            eprintln!("SKIPPED: CODESCAPE_PTX_DIR is set");
+            return;
+        }
+        let (engine, reason) = crate::select_engine(LayoutParams::default(), true);
+        assert_eq!(engine.name(), "cpu", "{reason}");
+        assert!(
+            reason.starts_with("cpu: CUDA unavailable (CUDA: CODESCAPE_PTX_DIR is not set"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --features cuda -- --ignored"]
     fn select_engine_prefers_verified_cuda() {
         if gpu_or_skip().is_none() {
             return;
@@ -1079,7 +1079,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --features cuda -- --ignored"]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --features cuda -- --ignored"]
     fn gpu_steps_and_settles() {
         let Some(mut e) = gpu_or_skip() else { return };
         eprintln!("{}", e.describe());
@@ -1098,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --features cuda -- --ignored"]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --features cuda -- --ignored"]
     fn gpu_focus_mask_freezes_exactly() {
         let Some(mut e) = gpu_or_skip() else { return };
         let g = graph(1);
@@ -1128,7 +1128,7 @@ mod tests {
     /// a file, so the symbol threshold is calibrated against the CPU engine run
     /// against itself with a 10% smaller time step. Files must agree at ≥ 0.9.
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --features cuda -- --ignored"]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --features cuda -- --ignored"]
     fn gpu_conforms_to_cpu_oracle() {
         let Some(mut gpu) = gpu_or_skip() else { return };
         let g = graph(4);
@@ -1197,14 +1197,17 @@ mod tests {
         );
     }
 
-    /// The host-built grid is bit-identical to `build_grid_kernel` → thrust
-    /// stable sort → `compute_cell_bounds_kernel` on the same positions.
+    /// The host-built grid is bit-identical to `build_grid_kernel` → stable
+    /// sort → `compute_cell_bounds_kernel` on the same positions. The sort
+    /// between the kernels is VisionClaw's `thrust_sort_key_value` contract
+    /// (stable sort by key, values the identity `0..n`), done on the host from
+    /// the device's keys: the thrust wrapper is a static library this crate no
+    /// longer links.
     /// The cell is a power of two, so the device's fast-math reciprocal is exact.
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --features cuda -- --ignored"]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --features cuda -- --ignored"]
     fn host_grid_matches_device_grid() {
         use rand::{Rng, SeedableRng};
-        use std::ffi::{c_int, c_void};
 
         #[repr(C)]
         #[derive(Debug, Clone, Copy, Default, cust::DeviceCopy)]
@@ -1212,19 +1215,8 @@ mod tests {
             min: [f32; 3],
             max: [f32; 3],
         }
-        extern "C" {
-            fn thrust_sort_key_value(
-                keys_in: *const c_void,
-                keys_out: *mut c_void,
-                values_in: *const c_void,
-                values_out: *mut c_void,
-                num_items: c_int,
-                stream: *mut c_void,
-            );
-        }
-
         let Some(e) = gpu_or_skip() else { return };
-        let ptx = verified_ptx().unwrap().0;
+        let ptx = PtxSource::from_env().unwrap().ptx;
         assert_eq!(crate::abi::entry_arity(&ptx, "build_grid_kernel"), Some(9));
         assert_eq!(
             crate::abi::entry_arity(&ptx, "compute_cell_bounds_kernel"),
@@ -1254,12 +1246,15 @@ mod tests {
         let axis = |k: usize| DeviceBuffer::from_slice(&split(&pos, k)).unwrap();
         let (dx, dy, dz) = (axis(0), axis(1), axis(2));
         let d_keys = DeviceBuffer::<i32>::zeroed(n).unwrap();
-        let d_sorted_keys = DeviceBuffer::<i32>::zeroed(n).unwrap();
-        let d_sorted = DeviceBuffer::<i32>::zeroed(n).unwrap();
         let d_start = DeviceBuffer::<i32>::zeroed(g.cells).unwrap();
         let d_end = DeviceBuffer::<i32>::zeroed(g.cells).unwrap();
         let max = [0, 1, 2].map(|k| g.min[k] + g.cell * g.dims[k] as f32);
         let blocks = (n as u32).div_ceil(BLOCK);
+        let back = |b: &DeviceBuffer<i32>| {
+            let mut v = vec![0; b.len()];
+            b.copy_to(&mut v[..]).unwrap();
+            v
+        };
         // SAFETY: buffers are live and sized as the kernels expect; the arities
         // were checked above; the stream is synchronised before any read.
         unsafe {
@@ -1268,28 +1263,24 @@ mod tests {
                 Aabb { min: g.min, max }, g.dims(), g.cell, n as i32, g.cells as i32
             ))
             .unwrap();
-            thrust_sort_key_value(
-                d_keys.as_device_ptr().as_raw() as *const c_void,
-                d_sorted_keys.as_device_ptr().as_raw() as *mut c_void,
-                std::ptr::null(),
-                d_sorted.as_device_ptr().as_raw() as *mut c_void,
-                n as c_int,
-                s.as_inner() as *mut c_void,
-            );
+        }
+        s.synchronize().unwrap();
+        let device_keys = back(&d_keys);
+        let mut order: Vec<i32> = (0..n as i32).collect();
+        order.sort_by_key(|&i| device_keys[i as usize]); // stable
+        let sorted_keys: Vec<i32> = order.iter().map(|&i| device_keys[i as usize]).collect();
+        let d_sorted_keys = DeviceBuffer::from_slice(&sorted_keys).unwrap();
+        // SAFETY: as above.
+        unsafe {
             launch!(module.compute_cell_bounds_kernel<<<blocks, BLOCK, 0, s>>>(
                 d_sorted_keys.as_device_ptr(), d_start.as_device_ptr(), d_end.as_device_ptr(), n as i32, g.cells as i32
             ))
             .unwrap();
         }
         s.synchronize().unwrap();
-        let back = |b: &DeviceBuffer<i32>| {
-            let mut v = vec![0; b.len()];
-            b.copy_to(&mut v[..]).unwrap();
-            v
-        };
         assert!(g.cells <= 4096 && g.cells > 1, "{g:?}");
-        assert_eq!(back(&d_keys), keys, "cell keys");
-        assert_eq!(back(&d_sorted), sorted, "sorted body order");
+        assert_eq!(device_keys, keys, "cell keys");
+        assert_eq!(order, sorted, "sorted body order");
         assert_eq!(back(&d_start), start, "cell starts");
         assert_eq!(back(&d_end), end, "cell ends");
     }
@@ -1348,7 +1339,7 @@ mod tests {
     /// because full settle is noise-dominated: the CPU engine against itself,
     /// changing only the layout seed, settled up to ×1.49 apart.
     #[test]
-    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 cargo test --release --features cuda -- --ignored --nocapture gpu_settle_step_parity"]
+    #[ignore = "CUDA device: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --release --features cuda -- --ignored --nocapture gpu_settle_step_parity"]
     fn gpu_settle_step_parity() {
         if gpu_or_skip().is_none() {
             return;
@@ -1390,7 +1381,7 @@ mod tests {
     /// Server-shaped cost: one `step(1)` per call on a ~28k-symbol graph,
     /// with a 240 Hz pacing sleep like the server's layout loop.
     #[test]
-    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 cargo test --release --features cuda -- --ignored --nocapture bench_gpu_server_shaped"]
+    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --release --features cuda -- --ignored --nocapture bench_gpu_server_shaped"]
     fn bench_gpu_server_shaped() {
         let Some(mut e) = gpu_or_skip() else { return };
         eprintln!("{}", e.describe());
@@ -1432,7 +1423,7 @@ mod tests {
 
     /// Cold seed → settled, and `apply_delta` latency, at 100k symbols.
     #[test]
-    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 cargo test --release --features cuda -- --ignored --nocapture bench_gpu_settle"]
+    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --release --features cuda -- --ignored --nocapture bench_gpu_settle"]
     fn bench_gpu_settle_and_delta_100k() {
         let Some(mut e) = gpu_or_skip() else { return };
         eprintln!("{}", e.describe());
@@ -1463,7 +1454,7 @@ mod tests {
 
     /// Back-to-back step time at 10k, 50k and 100k symbols.
     #[test]
-    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 cargo test --release --features cuda -- --ignored --nocapture bench_gpu_step"]
+    #[ignore = "CUDA device benchmark: CODESCAPE_GPU_TESTS=1 CODESCAPE_PTX_DIR=<dir> cargo test --release --features cuda -- --ignored --nocapture bench_gpu_step"]
     fn bench_gpu_step() {
         let Some(mut e) = gpu_or_skip() else { return };
         for (dirs, files, syms) in [(10, 20, 50), (25, 40, 50), (50, 40, 50)] {

@@ -1,7 +1,7 @@
 //! The frozen 52-byte V3 position record (ADR-2018) and Codescape's mapping onto it.
 //!
-//! The record layout is included *by source* from `visionclaw-protocol`'s
-//! dependency-free fixtures module, the same way the Godot XR client does, so
+//! The record layout comes from the dependency-free `visionclaw-wire` crate,
+//! the same one the VisionClaw server and the Godot XR client test against, so
 //! Codescape cannot drift from the bytes the clients decode.
 //!
 //! Field mapping for a code graph (ADR-2143):
@@ -14,11 +14,7 @@
 //! | `anomaly` | activity heat 0..1 (recent agent/human touches) |
 //! | `sssp_distance`/`sssp_parent` | hop distance and parent from the current focus |
 
-#[allow(dead_code, missing_docs)]
-#[path = "../../../visionclaw-protocol/src/wire_fixtures.rs"]
-mod fixtures;
-
-pub use fixtures::{
+pub use visionclaw_wire::{
     v3_frame, v5_frame, v5_sequence_of, NodeRecord, BROADCAST_ACK_BYTES, NODE_RECORD_BYTES,
     OPCODE_AGENT_ACTION, OPCODE_BROADCAST_ACK, PROTOCOL_V3, PROTOCOL_V5, V5_SEQ_BYTES,
 };
@@ -212,7 +208,7 @@ mod tests {
         let a = encode_ack(7, 1000, 123_456);
         assert_eq!(decode_ack(&a), Some((7, 1000, 123_456)));
         assert_eq!(decode_ack(&a[..20]), None);
-        let fixture = fixtures::broadcast_ack_frame(7, 1000, 123_456);
+        let fixture = visionclaw_wire::broadcast_ack_frame(7, 1000, 123_456);
         assert_eq!(
             &a[..],
             &fixture[..],

@@ -137,6 +137,22 @@ flowchart LR
 
 A Cargo workspace of extracted crates makes up the backend (`contracts → domain → {gpu, ontology, protocol} → adapters → actors → xr-presence → server`) with hexagonal boundaries and direct dispatch, no CQRS bus. Oxigraph plus SQLite is the single canonical store ([ADR-2004](docs/adr/ADR-2004-oxigraph-sqlite-persistence.md)); the governing documents for stores, identity, data ownership, wire protocol, identifiers, security profiles, GPU ABI, the XR client and the corpus are indexed in [`docs/adr/README.md`](docs/adr/README.md). Longer reads: [System overview](docs/explanation/system-overview.md) · [Bounded contexts](docs/explanation/bounded-contexts.md).
 
+### Codescape
+
+Codescape is a separate section for humans and agents working together by voice over a near-real-time 3D view of a codebase: files and symbols laid out by the same force model, with agents shown at the node they are touching. It is not part of the knowledge-work system. It has its own Cargo workspace and lock at `crates/codescape/`, its own compose service, and a tested isolation boundary (no ontology, vault, RuVector or VisionClaw-server crate in its build graph; the server exits at boot if it is handed `RUVECTOR_PG_CONNINFO`). It speaks the frozen V3/V5 wire, so the desktop and XR clients need no protocol change. Enable it with `CODESCAPE=1 ./scripts/launch.sh up dev`, then open `http://<host>:3001/codescape/` (through the dev nginx) or `http://localhost:4100` directly. The direct port binds to loopback; LAN access through `:3001` is a dev-only waiver with open auth until NIP-98 lands in P6.
+
+| Crate | Role | Licence |
+|---|---|---|
+| `codescape-model` | pure types, interned ids, LOD, wire mapping | AGPL-3.0-only |
+| `codescape-ingest` | code-graph extraction (the only crate that uses graphicle) | AGPL-3.0-only |
+| `codescape-layout` | CPU Barnes-Hut oracle; `cuda` feature for the GPU | AGPL-3.0-only |
+| `codescape-collab` | actors, heat, voice floor, command grammar | AGPL-3.0-only |
+| `codescape-server` | actix: every network adapter | AGPL-3.0-only |
+
+A licence split (`codescape-model` and `codescape-collab` to MIT OR Apache-2.0) and extraction to a standalone `DreamLab-AI/codescape` repository (not yet created) are in progress under ADR-2143 Amendment A5.
+
+**Voice.** Hold backtick (or the talk button) and say "go to graph underscore service dot rs" or "callers of main" (both are goldens in `codescape-collab/tests/grammar_golden.rs`); Ctrl/Cmd-K or `/` takes the same commands typed. The microphone needs a secure context, so voice works at `localhost` or over https, not at plain `http://<lan-host>:3001`. Decision and phase plan: [ADR-2143](docs/adr/ADR-2143-codescape-section-separate-workspace-and-port.md) · evidence: [P1](docs/evidence/codescape/P1/README.md).
+
 ---
 
 ## Quick start
@@ -153,6 +169,9 @@ cd VisionClaw && cp env.example .env     # set GITHUB_REPO, GITHUB_BASE_PATH, PR
 |:--------|:----|
 | Desktop client | http://localhost:3001 |
 | REST + WebSocket API | http://localhost:4000/api |
+| Codescape, through the dev nginx (needs `CODESCAPE=1`) | http://localhost:3001/codescape/ |
+| Codescape, direct (bound to loopback) | http://localhost:4100 |
+| Codescape hook ingest | `codescape:4101` on `visionclaw_network` only, bearer token, never published |
 
 <details>
 <summary>Native build with CUDA, and the XR client</summary>

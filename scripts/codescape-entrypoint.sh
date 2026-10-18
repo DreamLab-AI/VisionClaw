@@ -36,7 +36,66 @@ elif [[ "$CS_FEATURES" == "cuda" ]]; then
   features=(--features cuda)
 fi
 
+# CUDA PTX as a runtime artefact (ADR-2143 A5). The layout engine loads
+# `visionclaw_unified.ptx` + `ptx-build-manifest.txt` from CODESCAPE_PTX_DIR and
+# refuses anything without `provenance=compiled` and a matching content tag.
+# The pair is produced by visionclaw-gpu's OWN build script (never written by
+# hand here), through a throwaway wrapper package on the writable target
+# volume, because the crate sources are mounted read-only and cargo would
+# otherwise try to write a lockfile beside them. The output is copied to one
+# fixed directory: the hashed build `out` dirs are never globbed, since a stale
+# pair is internally consistent and would pass the checks.
+export CODESCAPE_PTX_DIR="${CODESCAPE_PTX_DIR:-$CS_TARGET/ptx}"
+build_ptx() {
+  local gpu=/app/crates/visionclaw-gpu wrap="$CS_TARGET/ptx-wrapper" out="$CODESCAPE_PTX_DIR"
+  if [[ ! -f "$gpu/Cargo.toml" ]]; then
+    log "visionclaw-gpu sources not mounted; CUDA engine will fall back to CPU"
+    return 0
+  fi
+  mkdir -p "$wrap/src"
+  cat > "$wrap/Cargo.toml" <<EOF_WRAP
+[package]
+name = "codescape-ptx-wrapper"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+visionclaw-gpu = { path = "$gpu", default-features = false, features = ["gpu"] }
+
+[workspace]
+EOF_WRAP
+  echo "" > "$wrap/src/lib.rs"
+  local out_dir
+  out_dir=$(cd "$wrap" && CARGO_TARGET_DIR="$CS_TARGET/ptx-build" \
+    cargo build --release --message-format=json 2>/dev/null \
+    | python3 -I -c '
+import json, sys
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") == "build-script-executed" and "visionclaw-gpu" in m.get("package_id", ""):
+        print(m["out_dir"])
+' | tail -1)
+  if [[ -z "$out_dir" || ! -f "$out_dir/visionclaw_unified.ptx" || ! -f "$out_dir/ptx-build-manifest.txt" ]]; then
+    log "visionclaw-gpu build produced no PTX pair; CUDA engine will fall back to CPU"
+    return 0
+  fi
+  local stage="$out.tmp.$$"
+  rm -rf "$stage" && mkdir -p "$stage"
+  cp "$out_dir/visionclaw_unified.ptx" "$out_dir/ptx-build-manifest.txt" "$stage/"
+  chmod 0444 "$stage"/*
+  rm -rf "$out" && mv "$stage" "$out"
+  log "PTX pair staged at $out: $(grep -m1 '^visionclaw_unified ' "$out/ptx-build-manifest.txt")"
+}
+
 if [[ "${CODESCAPE_SKIP_BUILD:-0}" != "1" ]]; then
+  if [[ ${#features[@]} -gt 0 ]]; then
+    log "building the CUDA PTX artefact into $CODESCAPE_PTX_DIR"
+    build_ptx
+  fi
   log "building codescape-server (release) into $CS_TARGET"
   (cd "$CS_ROOT" && CARGO_TARGET_DIR="$CS_TARGET" cargo build --release --locked -p codescape-server "${features[@]}")
   if [[ -f /app/client/src/codescape/vite.config.ts && -d /app/client/node_modules ]]; then

@@ -24,6 +24,8 @@ cd VisionClaw && cp env.example .env
 | 3D graph frontend | <http://localhost:3001> | nginx |
 | REST API | <http://localhost:4000/api> | HTTP + WebSocket |
 | Solid pod | <http://localhost:8484> | per-user pod storage |
+| Codescape (dev nginx) | <http://localhost:3001/codescape/> | opt-in, `CODESCAPE=1 ./scripts/launch.sh up dev`; code-graph section, separate workspace ([ADR-2143](adr/ADR-2143-codescape-section-separate-workspace-and-port.md)) |
+| Codescape (direct) | <http://localhost:4100> | loopback by default; hook ingest `:4101` stays on `visionclaw_network`, never published |
 | MCP TCP (agentbox) | `multi-agent-container:9500` (`MCP_TCP_PORT`) | outbound poll by `bots_client.rs` for agent-state snapshots; WebSocket cutover planned — see [ADR-2084](adr/ADR-2084-9500-load-bearing-doc-correct-plan-ws-cutover.md) |
 
 The graph store is the embedded Oxigraph triple store backed by SQLite ([ADR-2004](adr/ADR-2004-oxigraph-sqlite-persistence.md)). Neo4j is fully removed ([ADR-132](archive/adr/ADR-132-neo4j-removal-oxigraph-adoption.md)) and there is no separate database browser UI.
@@ -58,6 +60,18 @@ Documentation follows the [Diátaxis](https://diataxis.fr/) framework — each q
 - **Developer** — Building against the API: [REST API](reference/rest-api.md), [WebSocket protocol](reference/websocket-protocol.md), [Binary protocol](reference/binary-protocol.md). Understanding the internals: [System overview](explanation/system-overview.md), [Backend architecture](explanation/backend-architecture.md), [Client architecture](explanation/client-architecture.md), and [Physics & GPU engine](explanation/physics-gpu-engine.md). Contributing: [CONTRIBUTING](CONTRIBUTING.md) and the [development guide](how-to/development.md).
 - **Debugging and architecture audits** — [Tracing one agent write across seven layers](developer/tracing-one-write.md) (the command at each hop to find which layer dropped a request) and the [actor bypass inventory](developer/actor-bypass-inventory.md) (per-site recommendations for X-2; recommendations only, nothing deleted).
 - **Operator** — Running it in production: [Deployment](how-to/deployment.md), the [operations runbooks](how-to/operations/README.md), [Configuration reference](reference/configuration.md), [Known issues](KNOWN_ISSUES.md), and the [pre-demo security audit (2026-08-21)](security/PRE-DEMO-SECURITY-AUDIT-2026-08-21.md).
+
+## Codescape section
+
+Codescape is a separate section (live code-graph view with voice), not part of the knowledge-work system.
+
+| Document | What it covers |
+|----------|----------------|
+| [ADR-2143](adr/ADR-2143-codescape-section-separate-workspace-and-port.md) | Decision, invariants, phase plan, Amendments A1-A5 |
+| [BASELINE-architecture](BASELINE-architecture.md) §Codescape (separate section, ADR-2143) | Workspace, ports, isolation layers |
+| [PROTOCOL-registry](PROTOCOL-registry.md) §Second producer: Codescape | V3/V5 field mapping, `0x23`, 404 list |
+| [XR-client](XR-client.md) §Codescape as a second server | Pointing the Godot client at Codescape, known divergences |
+| [Evidence P0](evidence/codescape/P0/README.md) · [Evidence P1](evidence/codescape/P1/README.md) | Gate output, performance, conformance, headset run |
 
 ## Known issues
 

@@ -7,6 +7,7 @@ import { CommandPalette } from './ui/CommandPalette';
 import { Hud, Inspector } from './ui/Hud';
 import { Legend } from './ui/Legend';
 import { PttButton } from './ui/PttButton';
+import { SpacePilotButton } from './ui/SpacePilotButton';
 import { Timeline } from './ui/Timeline';
 
 function Connecting({ session }: { session: Session }) {
@@ -53,6 +54,7 @@ function Shell({ session }: { session: Session }) {
             <Captions />
             <div className="cs-bottom-row">
               <Timeline />
+              <SpacePilotButton />
               <PttButton session={session} />
             </div>
           </div>

@@ -81,6 +81,7 @@ Citations refreshed to the working tree on 2026-10-17 (A2); the audit column is 
 | I8 | `RUVECTOR_PG_CONNINFO` set → the server exits 2 at boot | `codescape-server/src/config.rs:15,212`, `main.rs:47,52`; test spawns the binary `tests/isolation.rs:156-187` | ACCEPT-WITH-GAP |
 | I8a | Egress allowlist; no `/vault` mount | Not enforced (A2.2). Compose non-publication is not an egress boundary | REJECT |
 | I9 | `client/src/codescape/**` reaches no file outside itself except `client/src/types/binaryProtocol.ts`, and only allowlisted packages | `client/src/codescape/src/__tests__/isolation.test.ts:18-21` (roots, allowlists), `:73-112` (graph walk), `:114-117` (the shared file is used only from tests) | enforced since A2 |
+| I10 | No git dependency on the VisionClaw repository from any Codescape crate (its history is 72 GB) | **Not enforced yet (A5).** Holds trivially at `098d3ff98`, where the only links are path dependencies. Planned check: `cargo metadata` in the Codescape workspace lists no `git+` source pointing at the VisionClaw repository | added by A5 |
 
 ## Consequences
 - **Gained.** Both existing clients render Codescape without a protocol change. Codescape can bump graphicle, tree-sitter or tokio without touching the lock VisionClaw ships from. The model tests run with no GPU, no network and no graphicle compile (`cargo tree -p codescape-model` shows no graphicle). Collab and the CPU layout are built to the same rule (`cargo tree -p codescape-collab` also shows none).
@@ -110,7 +111,7 @@ Evidence lives under `docs/evidence/codescape/<phase>/`.
 | P1 Pixels | ingest, CPU layout, `:4100` REST, `/ws/positions`, `/ws/events`, desktop bundle, 404 list, RuVector boot refusal | snapshot counts; a screenshot; p50/p95 frame time; zero interner collisions; id stability across a restart |
 | P2 GPU + live + own service | cust engine, PTX ABI and provenance tests, `codescape` compose service, live patching, partial V5 | the PTX test fails on the stale fallback; GPU-vs-CPU k-NN overlap at the A1 thresholds, shown by the committed output of `CODESCAPE_GPU_TESTS=1 cargo test -p codescape-layout --features cuda -- --ignored gpu_conforms_to_cpu_oracle` (required step, A2.1); an egress test (A2.2); `docker inspect` shows no `/vault`; edit-to-visible ≤ 1 s |
 | P3 Presence + scale | agentbox activity hook (its own agentbox ADR), `:4101` ingest, halos, LOD L0-L2, picking, timeline | a live session lights nodes; `:4101` returns 401 without a token and is unreachable from the LAN; 100k-node frame trace |
-| P4 XR | `/wss` emulation, `initialGraphLoad` at file tier, `0x23`, ack pacing | **Partly landed in P1:** `xr-client/rust/tests/codescape_wire.rs` decodes frames captured from the running server with the Godot client's own parsers (`parse_initial_graph`, `decode_position_frame_with_sequence`, `decode_agent_action_frame`): 3 passed, raw output in `docs/evidence/codescape/P1/gate-xr-wire-raw.txt`. `docs/XR-client.md` documents Codescape as a second server (`XR_BACKEND_WS`). Headset run done 2026-10-17 21:48Z (`docs/evidence/codescape/P1/xr-headset-run.txt`): the Godot client on SteamVR received the file-tier topology, applied positions and rendered at 90 FPS. Still open: `/ws/presence` is unimplemented (client retries every 2 s), and the empty agent hover label. |
+| P4 XR | `/wss` emulation, `initialGraphLoad` at file tier, `0x23`, ack pacing | **Partly landed in P1:** `xr-client/rust/tests/codescape_wire.rs` decodes frames captured from the running server with the Godot client's own parsers (`parse_initial_graph`, `decode_position_frame_with_sequence`, `decode_agent_action_frame`): 3 passed, raw output in `docs/evidence/codescape/P1/gate-xr-wire-raw.txt`. `docs/XR-client.md` documents Codescape as a second server (`XR_BACKEND_WS`). Headset run done 2026-10-17 21:48Z (`docs/evidence/codescape/P1/xr-headset-run.txt`): the Godot client on SteamVR received the file-tier topology, applied positions and rendered at 90 FPS. A4 added the `/ws/presence` shim (`codescape-server/src/routes/presence.rs`, `xr_presence.rs`); the headset in Codescape mode on `:3001` joined it on 2026-10-18 with no retries. Still open: the empty agent hover label. |
 | P5 Voice | `/ws/voice`, floor, grammar, Loom fallback, TTS, captions | ≥ 60 grammar goldens; WAV → Command end to end; floor contention; an invalid LLM output is never executed |
 | P6 Publish + dispatch | TLS and NIP-98 on every route, pubkey allowlist, published `:4100`, 31402 relay | unsigned request → 401; `crossOriginIsolated` over LAN HTTPS; a dispatched aoe session flows back into the graph |
 
@@ -163,7 +164,7 @@ The audit was run by Codex gpt-6-astra and returned at 2026-10-17T20:30Z, anti-f
    - gap 6: `auth.rs:147-161`
 
    **Gap 4 mitigation.** `docker-compose.unified.yml:477-482` binds `:4100` to `127.0.0.1` by default. Setting `CODESCAPE_PUBLISH_ADDR=0.0.0.0` exposes it on the LAN, and that must not be done before P6.
-6. **Fixed in response to the audit.** `crates/codescape/` is untracked, so these fixes have no diff to cite. Each is cited at its working-tree lines:
+6. **Fixed in response to the audit.** At the time of A2 `crates/codescape/` was not yet committed, so these fixes were cited at their working-tree lines (the tree has since been committed in `b63068e3d` and later):
    - `IdInterner::from_bytes` refuses a count larger than the remaining bytes can hold, before it reserves memory (`ids.rs:178-186`). Test: `:273-284`.
    - `Deserialize` rebuilds the index through `#[serde(from = "RawInterner")]` (`ids.rs:38,47-71`). Test: `:286-301`.
    - The isolation negative control now fails when its fixture is missing, where it used to skip (`isolation.rs:122-128`).
@@ -215,6 +216,70 @@ reverted). Decisions, taken with the advisor:
    a Codescape button (`codescape/`). The XR HUD gains a Backend toggle that appends `/codescape`
    to the configured `ws` base, and the server adds a `/ws/presence` shim speaking the XR
    handshake so the headset stops retrying.
+
+## Amendment A5 (2026-10-18): Extraction to a standalone repository (in progress)
+
+Status: **in progress**. Plan approved with the advisor on 2026-10-18. Citations in this amendment
+are at `098d3ff98`; the I1-I9 citations above are as of A2, and the `abi.rs` ones have since shifted
+by one line. They are refreshed with the next `verified_commit` bump.
+
+**Context.** Codescape is reusable outside VisionClaw, but two couplings tie it to this tree:
+- `codescape-layout/Cargo.toml:25` takes `visionclaw-gpu` as an optional path dependency (the
+  `cuda` feature) for its build-compiled PTX.
+- `codescape-model/src/wire.rs:18-19` reads the frozen wire fixtures from
+  `visionclaw-protocol/src/wire_fixtures.rs` through `#[path]`.
+
+A git dependency on VisionClaw instead would pull a 72 GB history into every Codescape build.
+Licences are uniform today (`license.workspace`, `crates/codescape/Cargo.toml:26`, AGPL-3.0-only).
+`codescape-model` depends only on serde, serde_json and thiserror, and `codescape-collab` adds only
+`codescape-model`, so the split below needs no code move.
+
+**Decision.**
+1. **Repository.** Codescape moves to `DreamLab-AI/codescape`, mounted in VisionClaw as a git
+   submodule at `codescape/`. History is a fresh import whose first commit cites the VisionClaw
+   range `b63068e3d^..098d3ff98`.
+2. **Licence split.** `codescape-model` and `codescape-collab` become MIT OR Apache-2.0;
+   `codescape-ingest`, `codescape-layout`, `codescape-server` and the client stay AGPL-3.0-only.
+   No permissive crate depends on an AGPL crate.
+3. **One wire source.** The frozen record and its fixtures move to a new MIT OR Apache-2.0 crate,
+   `visionclaw-wire`. `visionclaw-protocol` re-exports it, so there is still exactly one source,
+   and `codescape-model` depends on it from crates.io in place of the `#[path]` include.
+4. **PTX at runtime.** The CUDA PTX becomes a runtime artefact loaded from `CODESCAPE_PTX_DIR`, and
+   the path dependency on `visionclaw-gpu` goes. The ABI checks carry over unchanged: `c_params`
+   212 B (`abi.rs:32`), the launched-kernel arities (`:37-41`) and `check_ptx_abi` (`:101`). The
+   provenance check changes mechanism: today it proves the PTX is the artefact `visionclaw-gpu`
+   baked in at build time and errors without that path (`cuda.rs:461-483`); after extraction
+   `check_provenance` (`abi.rs:185`) must bind the file in the directory to a manifest written by
+   the `visionclaw-gpu` compile. A directory-loaded manifest widens A2 gap 3 (a hand-authored
+   manifest is accepted), so the directory must be read-only and owned by the build.
+5. **Deployment stays here.** The `codescape` compose service and the nginx `/codescape/` location
+   remain in VisionClaw and repoint their mounts at the submodule. The build currently reads
+   `/app/crates/codescape` (`docker-compose.unified.yml:477`, `scripts/codescape-entrypoint.sh:10,41`).
+   The dogfood view (`docker-compose.unified.yml:489`) then no longer contains the Codescape sources
+   unless `codescape/` is added to it.
+6. **Publish order:** `visionclaw-wire`, then `codescape-model`, then `codescape-collab`.
+   `codescape-ingest` cannot go to crates.io while graphicle is a git dependency
+   (`crates/codescape/Cargo.toml:40`); it waits until graphicle is published.
+
+**Alternatives rejected.** A git dependency on VisionClaw, for its 72 GB history. Copying the
+fixtures into `codescape-model`, because two copies drift, which ADR-2018 exists to prevent.
+
+**Amends on completion.** Decision 1 (path `crates/codescape/` becomes the `codescape/` submodule),
+Decision 7 (build-compiled PTX becomes PTX loaded from `CODESCAPE_PTX_DIR`) and I2 (fixture source
+becomes `visionclaw-wire`). Those texts are not edited until the steps below land.
+
+**Invariant added:** I10, recorded as not yet enforced.
+
+**Steps** (ticked by the queen as they land):
+- [ ] `DreamLab-AI/codescape` created; fresh import citing the VisionClaw range
+- [ ] licence fields split; check that no permissive crate depends on an AGPL crate
+- [x] `visionclaw-wire` extracted and re-exported by `visionclaw-protocol`; fixtures byte-identical (2026-10-18: `-p visionclaw-wire` 8 + 2 doctests, also `--no-default-features`; `visionclaw-protocol` 25; XR wire tests 25; `codescape-model` `#[path]` include replaced by the crate)
+- [x] PTX loaded from `CODESCAPE_PTX_DIR`; I7 tests pass against the loaded artefact (2026-10-18: `codescape-layout/src/ptx_source.rs`; the compose entrypoint stages the pair from visionclaw-gpu's own build script into the fixed `/codescape-target/ptx`, `provenance=compiled`, tag `7b41d3561a264b78`; device run in `docs/evidence/codescape/P1/gate-gpu-A5-runtime-ptx.txt`)
+- [ ] submodule mounted at `codescape/`; `crates/codescape/` removed
+- [ ] compose mounts and nginx location repointed; `:3001/codescape/` and `:4100` re-checked
+- [x] I10 check implemented and run (`codescape-server/tests/isolation.rs` `visionclaw_wire_is_the_only_visionclaw_crate`, both feature sets; the cuda graph test now asserts `visionclaw-gpu` is absent)
+- [ ] `visionclaw-wire`, `codescape-model`, `codescape-collab` published to crates.io
+- [ ] Decision 1, Decision 7 and I2 amended; governing docs updated
 
 ## Verification
 - **Revision.** Verified at `458b0ded5da35b968ebd7ad056eba8bc06da38a5` against the uncommitted working tree of branch `feat/codescape`. `crates/codescape/` is untracked at that commit.

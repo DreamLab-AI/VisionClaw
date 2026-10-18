@@ -7424,6 +7424,7 @@ dependencies = [
  "static_assertions",
  "thiserror 2.0.16",
  "visionclaw-domain",
+ "visionclaw-wire",
 ]
 
 [[package]]
@@ -7550,6 +7551,10 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
 ]
+
+[[package]]
+name = "visionclaw-wire"
+version = "0.1.0"
 
 [[package]]
 name = "visionclaw-xr-presence"

@@ -444,6 +444,9 @@ services:
       CODESCAPE_BIND: "0.0.0.0"
       CODESCAPE_DATA_DIR: /data/codescape
       CODESCAPE_TARGET_DIR: /codescape-target
+      # CUDA PTX pair staged by the entrypoint from visionclaw-gpu's own build
+      # script (ADR-2143 A5); a fixed directory, never a globbed build `out`.
+      CODESCAPE_PTX_DIR: /codescape-target/ptx
       CODESCAPE_PREFER_CUDA: ${CODESCAPE_PREFER_CUDA:-1}
       # label=path, comma separated; paths are the read-only mounts below.
       CODESCAPE_REPO: ${CODESCAPE_REPO:-visionclaw=/repos/visionclaw,agentbox=/repos/agentbox}

@@ -42,6 +42,8 @@ hex = "0.4"
 libc = "0.2"
 
 [dev-dependencies]
+# The frozen position wire fixtures the server encoder is pinned to (ADR-2018/2019).
+visionclaw-wire = { path = "../../crates/visionclaw-wire" }
 # The server's NIP-98 decoder (`src/utils/nip98.rs`) parses and verifies with
 # nostr-sdk 0.43's `nostr`; the signer tests check the headset's events against
 # the same crate rather than a test-only reimplementation.

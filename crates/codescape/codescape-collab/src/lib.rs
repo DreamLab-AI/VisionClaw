@@ -57,3 +57,8 @@ pub use grammar::{normalise_spoken, parse_command, Command, ParseError, Target};
 pub use llm::{command_from_llm, command_schema};
 pub use paths::{resolve_paths, PathMap, PathMapError};
 pub use timeline::{Entry, TimelineEntry, TimelineLog};
+
+// Keep the README examples compiling (they are what crates.io shows).
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

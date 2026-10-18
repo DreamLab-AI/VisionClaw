@@ -1,0 +1,21 @@
+[package]
+name = "visionclaw-wire"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "The frozen VisionClaw position wire: the 52-byte V3 node record, V5 sequence envelope, 0x34 acknowledgement and 0x23 agent-action framing, with byte-exact fixtures."
+authors = ["DreamLab AI <github@thedreamlab.uk>"]
+repository = "https://github.com/DreamLab-AI/VisionClaw"
+readme = "README.md"
+keywords = ["visionclaw", "wire-format", "protocol", "binary", "graph"]
+categories = ["encoding", "network-programming", "no-std"]
+publish = true
+
+# Deliberately dependency-free: the VisionClaw server, the Godot XR client and
+# Codescape all depend on this crate, and none may inherit another's tree.
+[dependencies]
+
+[features]
+default = ["std"]
+# Links `std`. Without it the crate is `no_std` and needs only `alloc`.
+std = []

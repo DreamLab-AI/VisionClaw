@@ -94,3 +94,8 @@ code, .cs-mono { font-family: var(--mono); font-size: 12.5px; }
 .cs-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); border-top-color: var(--accent); animation: cs-spin 0.9s linear infinite; }
 @keyframes cs-spin { to { transform: rotate(360deg); } }
 .cs-demo-badge { position: absolute; top: 14px; left: 50%; transform: translate(-50%, 52px); font: 600 11px var(--mono); letter-spacing: 0.1em; color: var(--accent); opacity: 0.8; pointer-events: none; }
+
+/* SpacePilot (WebHID) connect button, beside push-to-talk. */
+.cs-spacepilot { width: 40px; height: 40px; border-radius: 50%; background: var(--panel); color: var(--dim); display: inline-flex; align-items: center; justify-content: center; }
+.cs-spacepilot.on { color: var(--accent, #9be56b); border-color: var(--accent, #9be56b); box-shadow: 0 0 0 2px rgba(155, 229, 107, 0.25); }
+.cs-spacepilot:disabled { opacity: 0.45; cursor: not-allowed; }

@@ -14,6 +14,9 @@ path = "src/lib.rs"
 # Domain types: Node/Edge/GraphData, BinaryNodeData, Vec3Data, Constraint, AdvancedParams
 visionclaw-domain = { path = "../visionclaw-domain" }
 
+# The frozen position wire (V3 record, V5 envelope, 0x34, 0x23), published separately.
+visionclaw-wire = { path = "../visionclaw-wire", version = "0.1.0" }
+
 # Binary encode/decode
 bytemuck = { version = "1.21", features = ["derive"] }
 byteorder = "1.5"

@@ -8,14 +8,37 @@
 //!   It is always available, and it is the conformance oracle for the GPU
 //!   engine (ADR-2061 analytics-oracle pattern).
 //! * `CudaEngine` (feature `cuda`) is a thin cust 0.3.2 driver over the
-//!   build-compiled `visionclaw_unified` PTX from `visionclaw-gpu`. It refuses
-//!   PTX whose ABI or build provenance does not match what it was written
-//!   against ([`abi`]). `CODESCAPE_CUDA_DEVICE` picks the device ordinal. Set
+//!   build-compiled `visionclaw_unified` PTX from `visionclaw-gpu`, read at run
+//!   time from `$CODESCAPE_PTX_DIR` ([`ptx_source`]; see *Obtaining the PTX*
+//!   below). It refuses PTX whose ABI or build provenance does not match what
+//!   it was written against ([`abi`]). `CODESCAPE_CUDA_DEVICE` picks the device ordinal. Set
 //!   `CUDA_DEVICE_ORDER=PCI_BUS_ID` so the ordinal means what `nvidia-smi` shows.
 //!   Its steps are pipelined with the caller (see [`StepStats`]).
 //!
 //! [`select_engine`] picks one at boot and returns the reason as a string, for
 //! `/api/health`.
+//!
+//! # Obtaining the PTX
+//!
+//! This crate does not build or link `visionclaw-gpu`; the `cuda` feature
+//! needs only `cust`. `CODESCAPE_PTX_DIR` must name a directory holding two
+//! files from one `visionclaw-gpu` build: `visionclaw_unified.ptx` and
+//! `ptx-build-manifest.txt`. That build's script writes both into its Cargo
+//! `OUT_DIR`. In the VisionClaw dev container (`target/` is the
+//! `visionclaw-cargo-target-cache` volume, profile `dev-runtime`) that is
+//!
+//! ```text
+//! /app/target/dev-runtime/build/visionclaw-gpu-<hash>/out/
+//! ```
+//!
+//! The `<hash>` changes with the build, and stale siblings from earlier builds
+//! stay behind, so do not glob for it. Copy the two files to a stable
+//! directory from the same build and point `CODESCAPE_PTX_DIR` at that copy.
+//! The gitignored source-tree copy in `crates/visionclaw-gpu/src/ptx/` has
+//! no manifest, so it is refused. The PTX also targets the `sm_` architecture
+//! it was built for (`CUDA_ARCH`), so a device below that cannot load it.
+//! When the artefacts are missing or fail a check, [`select_engine`] returns
+//! the CPU engine and says why.
 //!
 //! # The physical model
 //!
@@ -111,6 +134,7 @@ mod cuda;
 mod knn;
 mod model;
 mod octree;
+pub mod ptx_source;
 mod seed;
 
 use codescape_model::{GraphDelta, GraphSnapshot};
@@ -280,10 +304,8 @@ pub enum LayoutError {
     /// provenance is not a fresh compile.
     #[error("PTX ABI mismatch: {0}")]
     AbiMismatch(String),
-    /// No PTX could be loaded.
-    #[error("PTX unavailable: {0}")]
-    PtxUnavailable(String),
-    /// A CUDA driver call failed.
+    /// A CUDA driver call failed, or the PTX artefacts in `CODESCAPE_PTX_DIR`
+    /// could not be read.
     #[error("CUDA: {0}")]
     Device(String),
 }

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2026-10-18: Codescape section (ADR-2143)
+
+Codescape, a separate section for human and agent voice collaboration over a live 3D code graph,
+landed in `b63068e3d^..098d3ff98`. That range also carries unrelated commits (`a12ebedee`, `cefd9d1d7`,
+`2bf892c3f`, `392628eef`: TODO rows, ER-13, ER-24).
+`implementation_status: partial`; P0 done, P1 gate green, P2-P6 open.
+
+- **Crates.** Own Cargo workspace and lock at `crates/codescape/`, never a root member:
+  `codescape-model`, `codescape-ingest` (graphicle at a pinned rev), `codescape-layout`,
+  `codescape-collab`, `codescape-server`, all AGPL-3.0-only today. A build-graph isolation test
+  bans ontology, vault, RuVector and VisionClaw-server crates; the server exits 2 when handed
+  `RUVECTOR_PG_CONNINFO` (ADR-2143 I1, I8).
+- **Ports and service.** `:4100` serves clients (loopback by default), `:4101` takes hook ingest
+  with a bearer token on `visionclaw_network` only. Opt-in compose service via
+  `CODESCAPE=1 ./scripts/launch.sh up dev`; the token is readable with `DAC_READ_SEARCH` alone (A3).
+- **Proxy.** The dev nginx serves it at `http://<host>:3001/codescape/` as a network peer
+  (lazy DNS, 502 when down, one copy of COOP/COEP/CORP), with `--trust-proxy` and
+  `--trust-proxy-from` gating forwarded headers. Dev-only LAN waiver; prod untouched (A4).
+- **Wire and XR.** No new wire format: frozen V3 records in V5 envelopes, `0x23` agent actions,
+  `0x34` ack pacing, `/wss` emulation with a file-tier `initialGraphLoad` and a `/ws/presence`
+  shim. `xr-client/rust/tests/codescape_wire.rs` pins captured frames with the Godot client's own
+  decoders; the headset rendered 1,699 file nodes at 90 FPS through `:3001`. Mode switches in the
+  VisionClaw control bar, the Codescape client and the XR HUD (ADR-2018, ADR-2019, ADR-2141).
+- **Voice.** Push-to-talk on `/ws/voice` with a single floor, nemotron-asr, pocket-tts and the Loom
+  door for out-of-grammar parsing; every action is a typed command, and LLM output that fails the
+  schema is spoken, never executed.
+- **GPU.** visionclaw-gpu's build-compiled PTX through a thin cust driver, refused unless
+  `c_params` is 212 B, the launched kernels' arities match and the manifest says
+  `provenance=compiled`; CPU Barnes-Hut is the fallback and conformance oracle (A1, A2). The 100k
+  step (7.8 ms) and cold-settle (13.7 s) targets are still missed.
+- **Next.** Extraction to DreamLab-AI/codescape with a licence split, in progress (A5).
+
 ### 2026-09-14 — augmentation conditions, VisionClaw substrate (ADR-2110)
 
 The judgment surfaces are instrumented against the six augmentation conditions

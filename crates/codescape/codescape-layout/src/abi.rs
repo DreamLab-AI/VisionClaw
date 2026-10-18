@@ -8,7 +8,9 @@
 //!
 //! * the size of the `.const c_params` block (must be [`SIM_PARAMS_BYTES`]);
 //! * the parameter count of every kernel it launches ([`EXPECTED_KERNELS`]);
-//! * the build manifest line for the module, which must say `provenance=compiled`.
+//! * the build manifest line for the module, which must say `provenance=compiled`
+//!   ([`check_provenance`]; [`crate::ptx_source`] also binds the file to the
+//!   line's content tag).
 //!
 //! The gitignored local fallback PTX in `visionclaw-gpu/src/ptx/` predates
 //! the 212-byte layout (`c_params[172]`, `force_pass_kernel` with 28
@@ -182,16 +184,8 @@ pub fn parse_manifest(text: &str) -> Vec<ManifestEntry> {
 }
 
 /// The manifest entry for `module`. Fails unless its provenance is `compiled`.
-pub fn check_provenance(
-    manifest: Option<&str>,
-    module: &str,
-) -> Result<ManifestEntry, LayoutError> {
-    let Some(text) = manifest else {
-        return Err(LayoutError::AbiMismatch(
-            "no PTX build manifest: provenance cannot be proven".into(),
-        ));
-    };
-    let entry = parse_manifest(text)
+pub fn check_provenance(manifest: &str, module: &str) -> Result<ManifestEntry, LayoutError> {
+    let entry = parse_manifest(manifest)
         .into_iter()
         .find(|e| e.module == module)
         .ok_or_else(|| {
@@ -271,15 +265,14 @@ mod tests {
     #[test]
     fn provenance_must_be_compiled() {
         let good = "visionclaw_unified source=src/cuda_sources/visionclaw_unified.cu provenance=compiled isa=8.8 original=30eb7046455fbc10 rewritten=30eb7046455fbc10\n";
-        let entry = check_provenance(Some(good), UNIFIED_MODULE).unwrap();
+        let entry = check_provenance(good, UNIFIED_MODULE).unwrap();
         assert_eq!(entry.rewritten, 0x30eb_7046_455f_bc10);
         let bad = "visionclaw_unified source=src/ptx/visionclaw_unified.ptx provenance=fallback-compiler-failure isa=8.8 original=1 rewritten=1\n";
         assert!(
-            matches!(check_provenance(Some(bad), UNIFIED_MODULE), Err(LayoutError::AbiMismatch(m)) if m.contains("fallback"))
+            matches!(check_provenance(bad, UNIFIED_MODULE), Err(LayoutError::AbiMismatch(m)) if m.contains("fallback"))
         );
-        assert!(check_provenance(None, UNIFIED_MODULE).is_err());
         assert!(check_provenance(
-            Some("pagerank source=x provenance=compiled isa=8.8 original=1 rewritten=1"),
+            "pagerank source=x provenance=compiled isa=8.8 original=1 rewritten=1",
             UNIFIED_MODULE
         )
         .is_err());
