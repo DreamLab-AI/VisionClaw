@@ -772,7 +772,9 @@ impl ClientCoordinatorActor {
                 manager.broadcast_to_all(encoded.clone())
             };
             self.settle_broadcast_result(&broadcast_result, "voice broadcast");
-            self.bytes_sent += encoded.len() as u64;
+            // Bytes actually handed to clients, the same unit the position
+            // pump counts (estate register ER-25d).
+            self.bytes_sent += broadcast_result.bytes as u64;
             total_sent += broadcast_result.sent;
 
             self.voice_data_queued_bytes -= voice_data_len;
@@ -1209,7 +1211,7 @@ impl Handler<BroadcastAgentActionFrame> for ClientCoordinatorActor {
         let client_count = broadcast_result.sent;
         if client_count > 0 {
             self.broadcast_count += 1;
-            self.bytes_sent += frame_len as u64;
+            self.bytes_sent += broadcast_result.bytes as u64;
             debug!(
                 "Broadcasted agent-action frame ({} bytes) to {} clients",
                 frame_len, client_count
