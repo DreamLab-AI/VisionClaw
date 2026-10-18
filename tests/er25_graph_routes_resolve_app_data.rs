@@ -16,8 +16,10 @@ use visionclaw_domain::models::edge::Edge;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::node::Node;
 use visionclaw_server::actors::graph_service_supervisor::GraphServiceSupervisor;
-use visionclaw_server::handlers::configure_pathfinding_routes;
+use visionclaw_server::adapters::actix_semantic_adapter::ActixSemanticAdapter;
+use visionclaw_server::application::semantic_service::SemanticService;
 use visionclaw_server::handlers::graph_access::current_graph;
+use visionclaw_server::handlers::{configure_pathfinding_routes, configure_semantic_routes};
 use visionclaw_server::ports::knowledge_graph_repository::{
     GraphStatistics, KnowledgeGraphRepository, Result as KgResult,
 };
@@ -161,4 +163,32 @@ async fn pathfinding_routes_reach_the_handler_with_mains_app_data() {
         !text.contains(MISSING_APP_DATA),
         "extractor still names unregistered app data: {text}"
     );
+}
+
+#[actix_rt::test]
+async fn semantic_routes_reach_the_handler_with_mains_app_data() {
+    let adapter = Arc::new(tokio::sync::RwLock::new(ActixSemanticAdapter::new()));
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(supervisor()))
+            .app_data(web::Data::new(Arc::new(SemanticService::new(adapter))))
+            .configure(configure_semantic_routes),
+    )
+    .await;
+    for req in [
+        test::TestRequest::get()
+            .uri("/semantic/statistics")
+            .to_request(),
+        test::TestRequest::post()
+            .uri("/semantic/communities")
+            .set_json(serde_json::json!({ "algorithm": "louvain" }))
+            .to_request(),
+    ] {
+        let resp = test::call_service(&app, req).await;
+        let text = String::from_utf8_lossy(&test::read_body(resp).await).into_owned();
+        assert!(
+            !text.contains(MISSING_APP_DATA),
+            "extractor still names unregistered app data: {text}"
+        );
+    }
 }

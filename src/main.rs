@@ -855,6 +855,17 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(Arc::new(PhysicsService::new(adapter, event_bus)))
     };
 
+    // SemanticService for /api/semantic/*. Every handler there extracts
+    // web::Data<Arc<SemanticService>>, which was never registered, so each
+    // route 500'd at the extractor (estate register ER-25). The adapter starts
+    // its SemanticProcessorActor on the first initialize.
+    let semantic_service = {
+        use visionclaw_server::adapters::actix_semantic_adapter::ActixSemanticAdapter;
+        use visionclaw_server::application::semantic_service::SemanticService;
+        let adapter = Arc::new(tokio::sync::RwLock::new(ActixSemanticAdapter::new()));
+        web::Data::new(Arc::new(SemanticService::new(adapter)))
+    };
+
     let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = std::env::var("SYSTEM_NETWORK_PORT")
         .ok()
@@ -1070,6 +1081,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(nostr_publisher.clone())
             .app_data(validation_service.clone())
             .app_data(physics_service.clone())
+            .app_data(semantic_service.clone())
             // PRD-008 — XR presence handler (Quest 3 native APK)
             .app_data(presence_handler_state.clone())
             .app_data(memory_cloud_data.clone());
