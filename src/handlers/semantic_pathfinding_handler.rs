@@ -75,7 +75,7 @@ pub async fn query_traversal(
                     &graph_data,
                     request.start_id,
                     query,
-                    request.max_nodes.unwrap_or(50),
+                    traversal_budget(request.max_nodes),
                 );
                 ok_json!(serde_json::json!({ "results": results }))
             } else {
@@ -103,7 +103,7 @@ pub async fn chunk_traversal(
             let results = pathfinding_service.chunk_traversal(
                 &graph_data,
                 request.start_id,
-                request.max_nodes.unwrap_or(50),
+                traversal_budget(request.max_nodes),
             );
             ok_json!(serde_json::json!({ "results": results }))
         }
@@ -112,11 +112,36 @@ pub async fn chunk_traversal(
     }
 }
 
+/// Most nodes one traversal may visit; whole-graph work for one caller is
+/// capped (2026-10-18 security review).
+pub const MAX_TRAVERSAL_NODES: usize = 1_000;
+/// Requests per minute per client across `/pathfinding`.
+pub const PATHFINDING_REQUESTS_PER_MINUTE: usize = 30;
+
+fn traversal_budget(requested: Option<usize>) -> usize {
+    requested.unwrap_or(50).min(MAX_TRAVERSAL_NODES)
+}
+
 pub fn configure_pathfinding_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/pathfinding")
+            .wrap(crate::middleware::RateLimit::per_minute(
+                PATHFINDING_REQUESTS_PER_MINUTE,
+            ))
             .route("/semantic-path", web::post().to(find_semantic_path))
             .route("/query-traversal", web::post().to(query_traversal))
             .route("/chunk-traversal", web::post().to(chunk_traversal)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traversal_budget_defaults_and_caps() {
+        assert_eq!(traversal_budget(None), 50);
+        assert_eq!(traversal_budget(Some(10)), 10);
+        assert_eq!(traversal_budget(Some(usize::MAX)), MAX_TRAVERSAL_NODES);
+    }
 }

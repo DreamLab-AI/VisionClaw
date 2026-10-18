@@ -192,3 +192,33 @@ async fn semantic_routes_reach_the_handler_with_mains_app_data() {
         );
     }
 }
+
+#[actix_rt::test]
+async fn pathfinding_routes_are_rate_limited() {
+    use visionclaw_server::handlers::semantic_pathfinding_handler::PATHFINDING_REQUESTS_PER_MINUTE;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(supervisor()))
+            .app_data(web::Data::new(Arc::new(
+                SemanticPathfindingService::default(),
+            )))
+            .configure(configure_pathfinding_routes),
+    )
+    .await;
+    let mut limited = false;
+    for _ in 0..=PATHFINDING_REQUESTS_PER_MINUTE {
+        let req = test::TestRequest::post()
+            .uri("/pathfinding/chunk-traversal")
+            .peer_addr("203.0.113.7:1".parse().unwrap())
+            .set_json(serde_json::json!({ "start_id": 1, "max_nodes": 1_000_000 }))
+            .to_request();
+        let status = match test::try_call_service(&app, req).await {
+            Ok(resp) => resp.status(),
+            Err(e) => e.as_response_error().status_code(),
+        };
+        if status == actix_web::http::StatusCode::TOO_MANY_REQUESTS {
+            limited = true;
+        }
+    }
+    assert!(limited, "one client got more than the per-minute budget");
+}

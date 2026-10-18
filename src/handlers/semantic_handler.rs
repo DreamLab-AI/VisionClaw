@@ -126,8 +126,8 @@ pub async fn compute_centrality(
 
     let algorithm = match req.algorithm.as_str() {
         "pagerank" => ImportanceAlgorithm::PageRank {
-            damping: req.damping.unwrap_or(0.85),
-            max_iterations: req.max_iterations.unwrap_or(100),
+            damping: req.damping.unwrap_or(0.85).clamp(0.0, 1.0),
+            max_iterations: bounded(req.max_iterations, 100, MAX_PAGERANK_ITERATIONS),
         },
         "betweenness" => ImportanceAlgorithm::Betweenness,
         "closeness" => ImportanceAlgorithm::Closeness,
@@ -141,7 +141,7 @@ pub async fn compute_centrality(
 
     let request = CentralityRequest {
         algorithm: algorithm.clone(),
-        top_k: req.top_k,
+        top_k: req.top_k.map(|k| k.min(MAX_TOP_K)),
     };
 
     match semantic_service.compute_centrality(request).await {
@@ -212,7 +212,7 @@ pub async fn generate_constraints(
         enable_clustering_constraints: req.enable_clustering.unwrap_or(true),
         enable_importance_constraints: req.enable_importance.unwrap_or(true),
         enable_topic_constraints: req.enable_topic.unwrap_or(false),
-        max_constraints: req.max_constraints.unwrap_or(1000),
+        max_constraints: bounded(req.max_constraints, 1000, MAX_CONSTRAINTS),
     };
 
     match semantic_service.generate_semantic_constraints(config).await {
@@ -250,9 +250,28 @@ pub async fn invalidate_cache(
     }
 }
 
+/// Upper bounds on caller-supplied work. These routes run whole-graph
+/// algorithms under the semantic adapter's write lock, so an unbounded value
+/// lets one request stall every other caller (2026-10-18 security review).
+pub const MAX_PAGERANK_ITERATIONS: usize = 1_000;
+/// Most ranked nodes one centrality response returns.
+pub const MAX_TOP_K: usize = 1_000;
+/// Most constraints one generation request may produce.
+pub const MAX_CONSTRAINTS: usize = 10_000;
+/// Requests per minute per client across `/semantic`.
+pub const SEMANTIC_REQUESTS_PER_MINUTE: usize = 30;
+
+/// `value` or `default`, never above `max`.
+pub fn bounded(value: Option<usize>, default: usize, max: usize) -> usize {
+    value.unwrap_or(default).min(max)
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/semantic")
+            .wrap(crate::middleware::RateLimit::per_minute(
+                SEMANTIC_REQUESTS_PER_MINUTE,
+            ))
             .route("/communities", web::post().to(detect_communities))
             .route("/centrality", web::post().to(compute_centrality))
             .route("/shortest-path", web::post().to(compute_shortest_path))
@@ -263,4 +282,23 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/statistics", web::get().to(get_statistics))
             .route("/cache/invalidate", web::post().to(invalidate_cache)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn caller_supplied_work_is_capped() {
+        assert_eq!(bounded(None, 100, MAX_PAGERANK_ITERATIONS), 100);
+        assert_eq!(bounded(Some(5), 100, MAX_PAGERANK_ITERATIONS), 5);
+        assert_eq!(
+            bounded(Some(usize::MAX), 100, MAX_PAGERANK_ITERATIONS),
+            MAX_PAGERANK_ITERATIONS
+        );
+        assert_eq!(
+            bounded(Some(usize::MAX), 1000, MAX_CONSTRAINTS),
+            MAX_CONSTRAINTS
+        );
+    }
 }
