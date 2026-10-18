@@ -55,34 +55,66 @@ const PROBE_K: usize = 10;
 /// Session options applied to every pooled connection.
 const SESSION_OPTIONS: &str = "-c default_transaction_read_only=on -c statement_timeout=30000";
 
-const COUNTS_SQL: &str = "SELECT namespace, count(*)::bigint, count(embedding)::bigint \
-     FROM memory_entries GROUP BY namespace";
+/// SQL boolean, TRUE while a row has not expired: the memory MCP's
+/// `notExpiredPredicate` (`agentbox/mcp/servers/lib/memory-metadata.js`),
+/// text for text. Expired rows wait for the sweep, and the MCP read path has
+/// hidden them since; without this the cloud kept showing them (estate
+/// register ER-11). The CASE orders the malformed-value guard before the cast.
+macro_rules! not_expired {
+    ($col:literal) => {
+        concat!(
+            "(CASE WHEN (",
+            $col,
+            "->>'expires_at') IS NULL THEN true ",
+            "WHEN (",
+            $col,
+            "->>'expires_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN true ",
+            "ELSE (",
+            $col,
+            "->>'expires_at')::timestamptz > now() END)"
+        )
+    };
+}
+
+const COUNTS_SQL: &str = concat!(
+    "SELECT namespace, count(*)::bigint, count(embedding)::bigint \
+     FROM memory_entries WHERE ",
+    not_expired!("metadata"),
+    " GROUP BY namespace"
+);
 
 /// Random rows per namespace. Each lateral branch walks the namespace's
 /// btree index and sorts only ids; embeddings are detoasted for the chosen
 /// rows alone.
-const SAMPLE_SQL: &str = "SELECT e.id, e.key, e.namespace, coalesce(e.source_type, ''), \
+const SAMPLE_SQL: &str = concat!(
+    "SELECT e.id, e.key, e.namespace, coalesce(e.source_type, ''), \
             coalesce((extract(epoch FROM e.updated_at) * 1000)::bigint, 0), \
             e.embedding::text \
      FROM unnest($1::text[], $2::int4[]) AS q(ns, n) \
      CROSS JOIN LATERAL ( \
          SELECT m.id FROM memory_entries m \
-         WHERE m.namespace = q.ns AND m.embedding IS NOT NULL \
-         ORDER BY random() LIMIT q.n \
+         WHERE m.namespace = q.ns AND m.embedding IS NOT NULL AND ",
+    not_expired!("m.metadata"),
+    " ORDER BY random() LIMIT q.n \
      ) s \
      JOIN memory_entries e ON e.id = s.id \
-     ORDER BY e.namespace, e.id";
+     ORDER BY e.namespace, e.id"
+);
 
 /// Global top-k by cosine distance (`<=>`, served by the `ruvector_cosine_ops`
 /// HNSW index). `$2`/`$3` carry the exclusion policy.
-const SEARCH_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), \
+const SEARCH_SQL: &str = concat!(
+    "SELECT id, key, namespace, coalesce(source_type, ''), \
             (1 - (embedding <=> ($1::text)::ruvector))::float8, value, embedding::text \
      FROM memory_entries \
      WHERE embedding IS NOT NULL \
        AND NOT (namespace = ANY($2::text[])) \
        AND NOT (namespace LIKE ANY($3::text[])) \
-     ORDER BY embedding <=> ($1::text)::ruvector \
-     LIMIT $4";
+       AND ",
+    not_expired!("metadata"),
+    " ORDER BY embedding <=> ($1::text)::ruvector \
+     LIMIT $4"
+);
 
 /// Namespace-restricted top-k, **exact**. The HNSW index filters after it
 /// has gathered its candidates, so a namespace filter on the index path
@@ -90,21 +122,27 @@ const SEARCH_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), 
 /// The `+ 0` makes the sort key unmatchable by the index, so the planner
 /// walks `idx_memory_namespace` and sorts (18 ms for `project-state`,
 /// ~290 ms for the 162k-row `ruvnet-kb`).
-const SEARCH_NAMESPACE_SQL: &str = "SELECT id, key, namespace, coalesce(source_type, ''), \
+const SEARCH_NAMESPACE_SQL: &str = concat!(
+    "SELECT id, key, namespace, coalesce(source_type, ''), \
             (1 - (embedding <=> ($1::text)::ruvector))::float8, value, embedding::text \
      FROM memory_entries \
-     WHERE embedding IS NOT NULL AND namespace = $2::text \
-     ORDER BY (embedding <=> ($1::text)::ruvector) + 0 \
-     LIMIT $3";
+     WHERE embedding IS NOT NULL AND namespace = $2::text AND ",
+    not_expired!("metadata"),
+    " ORDER BY (embedding <=> ($1::text)::ruvector) + 0 \
+     LIMIT $3"
+);
 
 /// Ids-only top-k used by the recall probe (identical predicate and order).
-const PROBE_SQL: &str =
+const PROBE_SQL: &str = concat!(
     "SELECT id, (embedding <=> ($1::text)::ruvector)::float8 FROM memory_entries \
      WHERE embedding IS NOT NULL \
        AND NOT (namespace = ANY($2::text[])) \
        AND NOT (namespace LIKE ANY($3::text[])) \
-     ORDER BY embedding <=> ($1::text)::ruvector \
-     LIMIT $4";
+       AND ",
+    not_expired!("metadata"),
+    " ORDER BY embedding <=> ($1::text)::ruvector \
+     LIMIT $4"
+);
 
 /// Distance tolerance for tie-aware recall (f32 storage, f64 maths).
 const TIE_EPS: f64 = 1e-6;
@@ -1019,6 +1057,25 @@ mod tests {
         );
         let empty = build_snapshot(Vec::new(), &[], &NamespacePatterns::default(), 1).unwrap();
         assert_eq!(query_position(&empty, vector), None, "empty snapshot");
+    }
+
+    #[test]
+    fn every_read_query_hides_expired_rows_like_the_memory_mcp() {
+        let guard = "->>'expires_at')::timestamptz > now() END)";
+        for (name, sql) in [
+            ("COUNTS_SQL", COUNTS_SQL),
+            ("SAMPLE_SQL", SAMPLE_SQL),
+            ("SEARCH_SQL", SEARCH_SQL),
+            ("SEARCH_NAMESPACE_SQL", SEARCH_NAMESPACE_SQL),
+            ("PROBE_SQL", PROBE_SQL),
+        ] {
+            assert!(sql.contains(guard), "{name} lacks the expiry filter: {sql}");
+            assert!(
+                sql.contains("!~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN true"),
+                "{name} lacks the malformed-value guard"
+            );
+        }
+        assert!(SAMPLE_SQL.contains("(m.metadata->>'expires_at')"));
     }
 
     #[test]
