@@ -875,6 +875,31 @@ mod tests {
     }
 
     #[test]
+    fn no_effective_tier_can_loosen_the_gate() {
+        let tiers = [
+            None,
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("critical"),
+            Some("High "),
+            Some("CRITICAL"),
+            Some("severe"),
+            Some(""),
+        ];
+        for declared in tiers {
+            for effective in tiers {
+                let before = tier_requires_rationale(declared);
+                let after = tier_requires_rationale(gate_tier(declared, effective).as_deref());
+                assert!(
+                    after || !before,
+                    "declared {declared:?} with effective {effective:?} loosened the gate"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_forwarded_effective_tier_makes_the_gate_fire_on_an_untiered_case() {
         let tier = gate_tier(None, Some("high"));
         assert!(check_rationale(tier.as_deref(), "approve", Some("ok")).is_err());
