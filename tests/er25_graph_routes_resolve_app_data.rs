@@ -221,4 +221,27 @@ async fn pathfinding_routes_are_rate_limited() {
         }
     }
     assert!(limited, "one client got more than the per-minute budget");
+
+    use actix_web::HttpMessage;
+    // Keyed on the verified pubkey: a different user keeps their own budget,
+    // and changing the forwarding headers does not reset one.
+    let req = test::TestRequest::post()
+        .uri("/pathfinding/chunk-traversal")
+        .peer_addr("203.0.113.7:1".parse().unwrap())
+        .insert_header(("X-Forwarded-For", "198.51.100.9"))
+        .set_json(serde_json::json!({ "start_id": 1 }))
+        .to_request();
+    req.extensions_mut()
+        .insert(visionclaw_server::middleware::AuthenticatedUser {
+            pubkey: "ab".repeat(32),
+        });
+    let status = match test::try_call_service(&app, req).await {
+        Ok(resp) => resp.status(),
+        Err(e) => e.as_response_error().status_code(),
+    };
+    assert_ne!(
+        status,
+        actix_web::http::StatusCode::TOO_MANY_REQUESTS,
+        "a signed-in user shares an anonymous budget"
+    );
 }

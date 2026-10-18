@@ -261,6 +261,26 @@ pub const MAX_CONSTRAINTS: usize = 10_000;
 /// Requests per minute per client across `/semantic`.
 pub const SEMANTIC_REQUESTS_PER_MINUTE: usize = 30;
 
+/// One limiter for every worker: `configure` runs once per worker, and a
+/// fresh limiter there would give each worker its own budget. Keyed on the
+/// verified pubkey `RbacGate` places on the request, since the forwarding
+/// headers the IP fallback reads are client-controlled; an unauthenticated
+/// read falls back to the IP.
+fn semantic_limiter() -> crate::middleware::RateLimit {
+    static LIMITER: std::sync::OnceLock<crate::middleware::RateLimit> = std::sync::OnceLock::new();
+    LIMITER
+        .get_or_init(|| {
+            crate::middleware::RateLimit::new(
+                crate::middleware::RateLimitConfig::new(
+                    SEMANTIC_REQUESTS_PER_MINUTE,
+                    std::time::Duration::from_secs(60),
+                )
+                .with_user_id(),
+            )
+        })
+        .clone()
+}
+
 /// `value` or `default`, never above `max`.
 pub fn bounded(value: Option<usize>, default: usize, max: usize) -> usize {
     value.unwrap_or(default).min(max)
@@ -269,9 +289,7 @@ pub fn bounded(value: Option<usize>, default: usize, max: usize) -> usize {
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/semantic")
-            .wrap(crate::middleware::RateLimit::per_minute(
-                SEMANTIC_REQUESTS_PER_MINUTE,
-            ))
+            .wrap(semantic_limiter())
             .route("/communities", web::post().to(detect_communities))
             .route("/centrality", web::post().to(compute_centrality))
             .route("/shortest-path", web::post().to(compute_shortest_path))

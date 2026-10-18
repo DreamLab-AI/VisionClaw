@@ -118,6 +118,26 @@ pub const MAX_TRAVERSAL_NODES: usize = 1_000;
 /// Requests per minute per client across `/pathfinding`.
 pub const PATHFINDING_REQUESTS_PER_MINUTE: usize = 30;
 
+/// One limiter for every worker: `configure` runs once per worker, and a
+/// fresh limiter there would give each worker its own budget. Keyed on the
+/// verified pubkey `RbacGate` places on the request, since the forwarding
+/// headers the IP fallback reads are client-controlled; an unauthenticated
+/// read falls back to the IP.
+fn pathfinding_limiter() -> crate::middleware::RateLimit {
+    static LIMITER: std::sync::OnceLock<crate::middleware::RateLimit> = std::sync::OnceLock::new();
+    LIMITER
+        .get_or_init(|| {
+            crate::middleware::RateLimit::new(
+                crate::middleware::RateLimitConfig::new(
+                    PATHFINDING_REQUESTS_PER_MINUTE,
+                    std::time::Duration::from_secs(60),
+                )
+                .with_user_id(),
+            )
+        })
+        .clone()
+}
+
 fn traversal_budget(requested: Option<usize>) -> usize {
     requested.unwrap_or(50).min(MAX_TRAVERSAL_NODES)
 }
@@ -125,9 +145,7 @@ fn traversal_budget(requested: Option<usize>) -> usize {
 pub fn configure_pathfinding_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/pathfinding")
-            .wrap(crate::middleware::RateLimit::per_minute(
-                PATHFINDING_REQUESTS_PER_MINUTE,
-            ))
+            .wrap(pathfinding_limiter())
             .route("/semantic-path", web::post().to(find_semantic_path))
             .route("/query-traversal", web::post().to(query_traversal))
             .route("/chunk-traversal", web::post().to(chunk_traversal)),
