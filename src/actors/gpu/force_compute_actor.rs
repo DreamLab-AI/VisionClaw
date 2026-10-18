@@ -1054,7 +1054,7 @@ impl ForceComputeActor {
                             .map(|s| s.as_str())
                             .unwrap_or("");
                         let id = vault_core::domains::domain_class_id(domain);
-                        let charge = if id == 0 { 1.2f32 } else { 0.6f32 };
+                        let charge = super::domain_charge::domain_class_charge(id);
                         class_ids.push(id);
                         class_charges.push(charge);
                     }
