@@ -130,6 +130,9 @@ cust_core = { version = "0.1.1" }
 # HTTP client and API
 reqwest = { version = "0.12.23", features = ["json", "stream", "multipart"] }
 nostr-sdk = "0.43.0"
+# The forum core owns the governance tiers the decide gate orders (ER-7); the
+# same exact pin as crates/vault, so the lock gains no new package.
+nostr-bbs-core = "=1.0.0-beta.16"
 
 # Live memory cloud (ADR in docs/adr): read-only client for the RuVector
 # sidecar. Plain TCP on the internal network; the connection string comes

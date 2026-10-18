@@ -7477,6 +7477,7 @@ dependencies = [
  "lru 0.12.5",
  "mockall",
  "nalgebra",
+ "nostr-bbs-core",
  "nostr-sdk",
  "notify",
  "once_cell",

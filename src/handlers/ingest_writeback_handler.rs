@@ -89,6 +89,7 @@ pub async fn writeback(
         outcome: decision.decision,
         broker_pubkey: attribution_pubkey(decision.approved_by),
         reasoning: decision.reasoning,
+        effective_tier: None,
     };
     apply_decision(
         decision.case_id,
