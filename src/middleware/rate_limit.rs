@@ -240,18 +240,20 @@ where
         Box::pin(async move {
             // Extract identifier (IP or user ID)
             let identifier = {
-                if config.use_user_id {
-                    if let Some(user) = req
-                        .extensions()
+                // Copy the pubkey out first: an `if let` on `req.extensions()`
+                // keeps that borrow alive into its `else`, where
+                // `connection_info()` borrows the extensions again, so every
+                // unauthenticated request panicked with "RefCell already
+                // borrowed" when user keying was on.
+                let pubkey = if config.use_user_id {
+                    req.extensions()
                         .get::<crate::middleware::AuthenticatedUser>()
-                    {
-                        user.pubkey.clone()
-                    } else {
-                        req.connection_info()
-                            .realip_remote_addr()
-                            .unwrap_or("unknown")
-                            .to_string()
-                    }
+                        .map(|user| user.pubkey.clone())
+                } else {
+                    None
+                };
+                if let Some(pubkey) = pubkey {
+                    pubkey
                 } else {
                     req.connection_info()
                         .realip_remote_addr()
@@ -302,6 +304,21 @@ where
 mod tests {
     use super::*;
     use actix_web::{test, web, App, HttpResponse};
+
+    #[actix_web::test]
+    async fn user_keyed_limiter_serves_an_unauthenticated_request() {
+        let limiter =
+            RateLimit::new(RateLimitConfig::new(5, Duration::from_secs(60)).with_user_id());
+        let app = test::init_service(
+            App::new()
+                .wrap(limiter)
+                .route("/", web::get().to(|| async { HttpResponse::Ok().finish() })),
+        )
+        .await;
+        // No AuthenticatedUser on the request: the IP fallback must not panic.
+        let resp = test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
+        assert!(resp.status().is_success());
+    }
 
     #[actix_web::test]
     async fn test_rate_limit_allows_under_limit() {
