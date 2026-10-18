@@ -330,6 +330,43 @@ mod tests {
         assert_eq!(lvl(Method::GET, "/api/healthz"), None);
     }
 
+    /// The gate wraps the `/api` scope in `main.rs`, not the app root. Inside
+    /// a scope middleware `match_info().as_str()` must still be the full,
+    /// decoded path; were it scope-relative, nothing would start with `api`
+    /// and every route would classify as public.
+    #[actix_web::test]
+    async fn routed_path_is_the_full_decoded_path_inside_the_api_scope() {
+        use actix_web::{dev::Service, test, web, App, HttpResponse};
+        let app = test::init_service(
+            App::new().service(
+                web::scope("/api")
+                    .wrap_fn(|req, srv| {
+                        let seen = routed_path(&req).to_string();
+                        let fut = srv.call(req);
+                        async move {
+                            let mut res = fut.await?;
+                            res.headers_mut().insert(
+                                actix_web::http::header::HeaderName::from_static("x-routed"),
+                                actix_web::http::header::HeaderValue::from_str(&seen).unwrap(),
+                            );
+                            Ok(res)
+                        }
+                    })
+                    .route("/settings/physics", web::put().to(HttpResponse::Ok)),
+            ),
+        )
+        .await;
+        let req = test::TestRequest::put()
+            .uri("/api/%73ettings/physics")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "the encoded path must route");
+        assert_eq!(
+            resp.headers().get("x-routed").unwrap(),
+            "/api/settings/physics"
+        );
+    }
+
     #[test]
     fn the_gate_classifies_the_path_the_router_matches() {
         use actix_web::test::TestRequest;
