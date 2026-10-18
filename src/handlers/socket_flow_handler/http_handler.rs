@@ -37,16 +37,12 @@ fn is_insecure_defaults_allowed() -> bool {
     false
 }
 
-/// Use the externally visible HTTP URL, matching REST NIP-98 validation.
-/// The edge must remove client-supplied forwarding headers before setting its own.
+/// The URL a signed `/wss` upgrade must name: the same reconstruction REST
+/// NIP-98 uses, so a proxy that sends both `Forwarded` and `X-Forwarded-*`
+/// cannot make the two paths disagree (estate register ER-25). The edge must
+/// remove client-supplied forwarding headers before setting its own.
 fn signed_upgrade_url(req: &HttpRequest) -> String {
-    let connection = req.connection_info();
-    format!(
-        "{}://{}{}",
-        connection.scheme(),
-        connection.host(),
-        req.uri()
-    )
+    crate::utils::auth::nip98_request_url(req)
 }
 
 /// HTTP upgrade handler for WebSocket connections at `/wss`.
@@ -501,6 +497,25 @@ mod signed_upgrade_tests {
             "visionclaw"
         );
         assert!(!format!("{:?}", response.headers()).contains("secret-event"));
+    }
+
+    #[test]
+    fn upgrade_and_rest_agree_when_a_proxy_sends_both_header_families() {
+        let req = actix_web::test::TestRequest::get()
+            .uri("/wss?x=1")
+            .insert_header(("Host", "internal:3001"))
+            .insert_header(("Forwarded", "proto=http;host=stale.internal"))
+            .insert_header(("X-Forwarded-Proto", "https"))
+            .insert_header(("X-Forwarded-Host", "public.example:3001"))
+            .to_http_request();
+        assert_eq!(
+            signed_upgrade_url(&req),
+            crate::utils::auth::nip98_request_url(&req)
+        );
+        assert_eq!(
+            signed_upgrade_url(&req),
+            "https://public.example:3001/wss?x=1"
+        );
     }
 
     #[test]
