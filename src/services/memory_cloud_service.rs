@@ -59,7 +59,10 @@ const SESSION_OPTIONS: &str = "-c default_transaction_read_only=on -c statement_
 /// `notExpiredPredicate` (`agentbox/mcp/servers/lib/memory-metadata.js`),
 /// text for text. Expired rows wait for the sweep, and the MCP read path has
 /// hidden them since; without this the cloud kept showing them (estate
-/// register ER-11). The CASE orders the malformed-value guard before the cast.
+/// register ER-11). The CASE orders the malformed-value guards before the cast:
+/// a value shaped like a timestamp but invalid (`2026-99-99T00`) would make the
+/// cast throw and fail the whole statement, so `pg_input_is_valid` (PostgreSQL
+/// 16+) keeps such a row, as the format check keeps any other malformed value.
 macro_rules! not_expired {
     ($col:literal) => {
         concat!(
@@ -69,6 +72,9 @@ macro_rules! not_expired {
             "WHEN (",
             $col,
             "->>'expires_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN true ",
+            "WHEN NOT pg_input_is_valid(",
+            $col,
+            "->>'expires_at', 'timestamptz') THEN true ",
             "ELSE (",
             $col,
             "->>'expires_at')::timestamptz > now() END)"
@@ -1073,6 +1079,10 @@ mod tests {
             assert!(
                 sql.contains("!~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN true"),
                 "{name} lacks the malformed-value guard"
+            );
+            assert!(
+                sql.contains("pg_input_is_valid("),
+                "{name} can throw on a timestamp-shaped invalid value"
             );
         }
         assert!(SAMPLE_SQL.contains("(m.metadata->>'expires_at')"));
