@@ -27,6 +27,11 @@ describe('fetchPowerUserStatus', () => {
     expect(result).toBeNull();
   });
 
+  it('ignores an answer that names no key', async () => {
+    get.mockResolvedValueOnce({ data: { role: 'admin', is_power_user: true } });
+    await expect(fetchPowerUserStatus(KEY)).resolves.toBeNull();
+  });
+
   it('ignores an answer about a different key', async () => {
     get.mockResolvedValue({ data: { pubkey: 'cd'.repeat(32), role: 'admin', is_power_user: true } });
     await expect(fetchPowerUserStatus(KEY)).resolves.toBeNull();

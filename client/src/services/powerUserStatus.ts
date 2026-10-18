@@ -27,8 +27,9 @@ export async function fetchPowerUserStatus(pubkey: string): Promise<boolean | nu
   try {
     const { data } = await unifiedApiClient.get<WhoamiResponse>('/api/admin/rbac/whoami');
     if (!data || typeof data.is_power_user !== 'boolean') return null;
-    if (data.pubkey && data.pubkey.toLowerCase() !== pubkey.toLowerCase()) {
-      logger.warn('whoami answered for a different key; ignoring it');
+    // An answer that does not name this key is not about this user.
+    if (typeof data.pubkey !== 'string' || data.pubkey.toLowerCase() !== pubkey.toLowerCase()) {
+      logger.warn('whoami did not answer for this key; ignoring it');
       return null;
     }
     return data.is_power_user;
