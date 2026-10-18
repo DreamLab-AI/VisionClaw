@@ -148,6 +148,13 @@ pub(crate) fn required_level(
     {
         return None;
     }
+    // `whoami` reports the caller's own role and power-user flag, so any
+    // signed-in user may read it; the handler verifies the caller itself.
+    // Without this the Admin rule below refused it to everyone but admins,
+    // and the client could never learn a power user's status (ER-26).
+    if *method == actix_web::http::Method::GET && segs == ["api", "admin", "rbac", "whoami"] {
+        return Some(AccessLevel::Authenticated);
+    }
     // The admin surface is sensitive for reads and writes alike.
     if has_segment_prefix(&segs, &["api", "admin"]) {
         return Some(AccessLevel::Admin);
@@ -312,6 +319,27 @@ mod tests {
         assert_eq!(lvl(Method::DELETE, "/api/auth/nostr"), None);
         assert_eq!(lvl(Method::POST, "/api/client-logs"), None);
         assert_eq!(lvl(Method::GET, "/api/healthz"), None);
+    }
+
+    #[test]
+    fn whoami_is_open_to_any_signed_in_user_and_nothing_else_is() {
+        let lvl = |m: Method, p: &str| required_level(&m, p, true);
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/whoami"),
+            Some(AccessLevel::Authenticated)
+        );
+        assert_eq!(
+            lvl(Method::POST, "/api/admin/rbac/whoami"),
+            Some(AccessLevel::Admin)
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/whoami/x"),
+            Some(AccessLevel::Admin)
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/users"),
+            Some(AccessLevel::Admin)
+        );
     }
 
     #[test]

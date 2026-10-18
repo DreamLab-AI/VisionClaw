@@ -23,6 +23,7 @@ import { OnboardingWizard } from '../components/OnboardingWizard';
 import { LoadingScreen } from '../components/LoadingScreen';
 import { WorkerErrorModal } from '../components/WorkerErrorModal';
 import solidPodService from '../services/SolidPodService';
+import { fetchPowerUserStatus } from '../services/powerUserStatus';
 
 const logger = createLogger('App');
 
@@ -48,6 +49,19 @@ function App() {
         isPowerUser: user.isPowerUser,
         pubkey: user.pubkey
       });
+
+      // The sign-in paths cannot know the power-user flag, so ask the server
+      // (ER-26). Only an answer for this same user is applied.
+      if (!user.isPowerUser) {
+        const pubkey = user.pubkey;
+        fetchPowerUserStatus(pubkey).then((isPowerUser) => {
+          if (isPowerUser === null) return;
+          const store = useSettingsStore.getState();
+          if (store.user?.pubkey === pubkey) {
+            store.setUser({ isPowerUser, pubkey });
+          }
+        });
+      }
 
       // Connect Solid WebSocket for real-time pod notifications
       solidPodService.connectWebSocket();
