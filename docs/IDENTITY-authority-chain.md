@@ -164,13 +164,28 @@ in release unless `RBAC_REPORT_MODE_ACK` equals today's UTC date, and logs at
 
 ### WebSocket / XR client auth
 
-The `/wss` upgrade requires an Origin header (`http_handler.rs:124`) then a
-session token, read from `Authorization: Bearer …` **or** `?token=` query
-param (`:139`–`:150`), validated via `NostrService::get_session`. The XR/Godot
-client holds a per-client secret (`XR_NOSTR_SECRET`, client-side; no server
-reference) and signs NIP-98 to obtain a session, then presents the session token
-on the socket. On validation failure the socket is rejected in release; the
-insecure-allow branch is `#[cfg(debug_assertions/dev-auth)]` only.
+The `/wss` upgrade (`src/handlers/socket_flow_handler/http_handler.rs`) applies
+three gates in order (ADR-2058):
+
+1. **Origin.** A missing or disallowed `Origin` is refused (`:118-141`); a
+   missing one is permitted only in a dev/`dev-auth` build with
+   `ALLOW_INSECURE_DEFAULTS` (`:123-135`).
+2. **Signed subprotocol.** The browser and the XR client carry a NIP-98 event in
+   the `Sec-WebSocket-Protocol` header (`:146-170`). It is verified by
+   `NostrService::verify_nip98_auth` against the upgrade URL with method `GET`
+   and the same single-use replay check as REST; a malformed or replayed one is
+   a 401.
+3. **Legacy session.** An `Authorization: Bearer …` session token is validated
+   via `NostrService::get_session`, and only while legacy sessions are enabled
+   (`VISIONCLAW_LEGACY_SESSIONS`, ADR-2009). The `?token=` query-string
+   fallback exists only in a dev/`dev-auth` build, where it logs a `SECURITY:`
+   warning; a release build rejects it with a `SECURITY:` log naming ADR-2058
+   (`:172-210`).
+
+The XR/Godot client holds a per-client secret (`XR_NOSTR_SECRET`, client-side; no
+server reference) and signs the subprotocol event itself. On validation failure
+the socket is rejected in release; the insecure-allow branch is
+`#[cfg(debug_assertions/dev-auth)]` only.
 
 ### Trust-chain taxonomy (reviewer request)
 
