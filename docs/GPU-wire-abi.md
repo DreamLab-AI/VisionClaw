@@ -42,9 +42,9 @@ The GPU sees one flat `#[repr(C)]` record. It is declared twice and both declara
 are size-locked to **212 bytes**:
 
 - Rust: `src/models/simulation_params.rs:26-115` (`struct SimParams`), asserted at
-  `src/models/simulation_params.rs:228` — `assert!(size_of::<SimParams>() == 212)`.
-- CUDA: `crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu:21` (`struct SimParams`),
-  asserted at `:117` — `static_assert(sizeof(SimParams) == 212, "SimParams size mismatch with Rust")`.
+  `src/models/simulation_params.rs:231` — `assert!(size_of::<SimParams>() == 212)`.
+- CUDA: `crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu:22` (`struct SimParams`),
+  asserted at `:118` — `static_assert(sizeof(SimParams) == 212, "SimParams size mismatch with Rust")`.
 
 The two `assert`s guard total size: ordinary field growth without updating the
 assertion fails to compile. Same-size field reorder/type drift requires separate
@@ -80,7 +80,7 @@ Defined in `crates/visionclaw-domain/src/models/simulation_params.rs:113-119`:
 | `1<<6` | `ENABLE_SSSP_SPRING_ADJUST` | SSSP-weighted rest lengths |
 
 **ENABLE_CONSTRAINTS is the keystone.** Without bit 4 set, the constraint loop at
-`visionclaw_unified.cu:475` never runs and the uploaded ontology `ConstraintData`
+`visionclaw_unified.cu:614` never runs and the uploaded ontology `ConstraintData`
 buffer has zero effect. It is **not** derived from user settings — it is rebuilt from
 constraint *residency* on every physics step: `derive_dispatch_feature_flags`
 (`src/models/force_channels.rs`) sets the bit whenever `num_constraints > 0`, and

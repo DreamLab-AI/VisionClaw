@@ -267,3 +267,12 @@ ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` only through GDScript-f
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `xr-client/rust/src/binary_protocol.rs` changes only two Godot methods (`agent_drift_offset`, `graph_robust_bounds` lose their separation argument). Tag dispatch is untouched. Decision holds. xr-client workspace: 549 passed. Citations at 31bc3d3a1: `xr-client/rust/src/binary_protocol.rs:1486`, `:1908`.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed change since `31bc3d3a1`: `src/utils/binary_protocol.rs` (tests only: `broadcast_ack_wire_tests`) and `xr-client/rust/src/binary_protocol.rs` (ADR-2139/ADR-2141: freshness gate loses full/delta, `0x34` ack encoder added). `binary_settings_protocol.rs` and both `visionclaw-xr-presence` files are unchanged. **Holds**, every clause re-opened:
+
+- Tag byte selects the codec: server `decode_node_data` match `src/utils/binary_protocol.rs:608-622` (`1`/`2` explicit upgrade errors, `PROTOCOL_V3`, `PROTOCOL_V5` `:612`, unknown `v => Err("Unknown protocol version")` `:621`). XR `decode_position_frame_with_sequence` `xr-client/rust/src/binary_protocol.rs:458-500` (`BadVersion` `:486`, `Misaligned` `:494`, truncated V5 sequence `TooShort` `:474-479`).
+- Disjoint per-socket spaces still hold: settings `0x05` `src/protocols/binary_settings_protocol.rs:244,368,443,520`; presence `OPCODE_AVATAR_POSE = 0x43` `crates/visionclaw-xr-presence/src/wire.rs:9`, `OPCODE_AGENT_PRESENCE = 0x44` `.../agent_presence.rs:40`. Server demultiplexer rejects unknown tags (`decode_message` `:1836` `InvalidMessageType`; multiplexed `decode` `:1941`).
+- The per-opcode malformed policy matrix stands: `0x23` server strict (`decode_agent_actions` `:1675-1706`, "Truncated event length/data" errors), XR tolerant prefix parse (`decode_agent_action_frame` `xr-client/rust/src/binary_protocol.rs:861-900`).
+- One registry addition since the last stamp: `0x34` `BROADCAST_ACK` (client to server, `MessageType::BroadcastAck`, server `:1866`), allocated in `PROTOCOL-registry.md` (row at `:58`) as the rule requires. It is a registry transaction done correctly, not an out-of-band tag.
