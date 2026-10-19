@@ -8,8 +8,7 @@ sources:
   - src/middleware/rbac_gate.rs
   - src/services/role_store.rs
   - src/models/rbac.rs
-  - src/handlers/socket_flow_handler/position_updates.rs
-  - crates/visionclaw-domain/src/utils/visibility_filter.rs
+    - crates/visionclaw-domain/src/utils/visibility_filter.rs
   - src/utils/nip98.rs
   - src/handlers/socket_flow_handler/http_handler.rs
   - src/main.rs
@@ -37,15 +36,15 @@ shipped posture — that gap is called out in Known divergences.
 
 | Flag | Purpose | Code default | Source (file:line) |
 |------|---------|--------------|--------------------|
-| `RBAC_PUBLIC_READS` | Allow anonymous safe-method (`GET`/`HEAD`/`OPTIONS`) reads across `/api` | **OFF** (fail-closed: absence requires auth) | `src/middleware/rbac_gate.rs:121-128` |
-| `RBAC_ALLOW_OWNERLESS` | Permit boot with no Owner assigned in the role store | **OFF** (fail-closed: refuses to start, exit on no Owner) | `src/main.rs:717-739`, `src/services/role_store.rs:33` |
-| `PUBKEY_VISIBILITY_FILTER` | ADR-060 drop-set: strip private nodes not owned by the session pubkey from the wire frame | **ON** (secure-by-default; only explicit `0`/`false`/`off`/`no` disables) | `src/handlers/socket_flow_handler/position_updates.rs:34-43` |
-| `RBAC_GATE_MODE` | `report` downgrades `/api` denials to logs instead of 401/403 | **enforce** (`report` refuses to activate in release without dated `RBAC_REPORT_MODE_ACK`) | `src/middleware/rbac_gate.rs:80-113` |
-| `SETTINGS_AUTH_BYPASS` | Legacy dev auth bypass | Codepath `#[cfg]`-stripped in release; **presence hard-fails boot** (exit 2) | `src/main.rs:117-155` |
-| `VISIONCLAW_DEV_MODE` | **ADR-2039** LAN-local full auth bypass: in dev/`dev-auth` builds, `=1`/`true` grants dev-admin (`dev-mode-local-admin`) to **every** request — no NIP-98/token/peer check — across REST (`verify_access`), settings extractor, and WS handshake. Peer-agnostic by design (Docker SNAT hides origin). | **ON for the dev compose service** (ADR-2108: `${VISIONCLAW_DEV_MODE:-1}` in the `dev` profile only; opt out with `VISIONCLAW_DEV_MODE=0`); codepath `#[cfg]`-stripped in release + **presence hard-fails boot** (exit 2). Loud boot banner when armed. | `src/utils/auth.rs` (`dev_full_bypass_active`), `src/main.rs:120-133` |
-| `ALLOW_INSECURE_DEFAULTS` / `--allow-skip-auth` | Dev auth relaxations | Same release refusal as above | `src/main.rs:120-133` |
-| `APP_ENV` | Production signal; drives strict env validation & CORS lockdown | unset ⇒ non-production (permissive) | `src/main.rs:85`, `src/main.rs:887` |
-| `RBAC_OWNER_PUBKEY` | Bootstrap the Owner role at startup | unset ⇒ no owner bootstrapped | `src/main.rs:709`, `src/services/role_store.rs` (`bootstrap_owner_from_env`) |
+| `RBAC_PUBLIC_READS` | Allow anonymous safe-method (`GET`/`HEAD`/`OPTIONS`) reads across `/api` | **OFF** (fail-closed: absence requires auth) | `src/middleware/rbac_gate.rs:135-141` |
+| `RBAC_ALLOW_OWNERLESS` | Permit boot with no Owner assigned in the role store | **OFF** (fail-closed: refuses to start, exit on no Owner) | `src/main.rs:795-818`, `src/services/role_store.rs:33` |
+| `PUBKEY_VISIBILITY_FILTER` | ADR-060 drop-set: strip private nodes not owned by the session pubkey from the wire frame | **ON** (secure-by-default; only explicit `0`/`false`/`off`/`no` disables) | `crates/visionclaw-domain/src/utils/visibility_filter.rs:23-43` (`parse_visibility_flag` `:26`, memoised `filter_enabled` `:38`; moved out of `position_updates.rs` by the visibility-filter extraction) |
+| `RBAC_GATE_MODE` | `report` downgrades `/api` denials to logs instead of 401/403 | **enforce** (`report` refuses to activate in release without dated `RBAC_REPORT_MODE_ACK`) | `src/middleware/rbac_gate.rs:83-125` |
+| `SETTINGS_AUTH_BYPASS` | Legacy dev auth bypass | Codepath `#[cfg]`-stripped in release; **presence hard-fails boot** (exit 2) | `src/main.rs:117-163` |
+| `VISIONCLAW_DEV_MODE` | **ADR-2039** LAN-local full auth bypass: in dev/`dev-auth` builds, `=1`/`true` grants dev-admin (`dev-mode-local-admin`) to **every** request — no NIP-98/token/peer check — across REST (`verify_access`), settings extractor, and WS handshake. Peer-agnostic by design (Docker SNAT hides origin). | **ON for the dev compose service** (ADR-2108: `${VISIONCLAW_DEV_MODE:-1}` in the `dev` profile only; opt out with `VISIONCLAW_DEV_MODE=0`); codepath `#[cfg]`-stripped in release + **presence hard-fails boot** (exit 2). Loud boot banner when armed. | `src/utils/auth.rs` (`dev_full_bypass_active`), `src/main.rs:118-137` |
+| `ALLOW_INSECURE_DEFAULTS` / `--allow-skip-auth` | Dev auth relaxations | Same release refusal as above | `src/main.rs:118-137` |
+| `APP_ENV` | Production signal; drives strict env validation & CORS lockdown | unset ⇒ non-production (permissive) | `src/main.rs:85`, `src/main.rs:1005` |
+| `RBAC_OWNER_PUBKEY` | Bootstrap the Owner role at startup | unset ⇒ no owner bootstrapped | `src/main.rs:787`, `src/services/role_store.rs` (`bootstrap_owner_from_env`) |
 | `POWER_USER_PUBKEYS` | Legacy pubkeys mapped to `Admin` when unassigned | unset ⇒ no power users | `src/services/role_store.rs:194-203` |
 | `VISIONCLAW_DEV_TOKEN` | Dev session token (`.env:197`) | dev builds only | `.env:197` |
 | `RUVECTOR_PG_CONNINFO` | ADR-2133 memory cloud: libpq conninfo for the RuVector sidecar; use the SELECT-only `ruvector_reader` role. Sessions also force `default_transaction_read_only=on` | unset ⇒ `/api/memory-cloud*` answer 503 (disabled) | `src/services/memory_cloud_service.rs:41,56` |
@@ -94,7 +93,7 @@ the same process.
 
 ### Pubkey visibility filter (landing 2026-08-31)
 
-Default flipped **ON** in the handler gate (`position_updates.rs:34-43`). The
+Default **ON**: `parse_visibility_flag` (`crates/visionclaw-domain/src/utils/visibility_filter.rs:23-43`) is the single reader, consulted through `filter_enabled()` by every position path (connect sync, snapshot request and the live stream; `client_coordinator_actor.rs:407,433`). The
 pure drop-set logic (`visibility_filter.rs`) is fail-closed: a missing session
 pubkey drops every private node, yielding a public-only graph. Public nodes are
 unaffected, so default-on is behaviour-neutral for all-public deployments.
@@ -133,25 +132,25 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
 
 | Combination | Why it is illegal | Enforcement |
 |-------------|-------------------|-------------|
-| `SETTINGS_AUTH_BYPASS` / `VISIONCLAW_DEV_MODE` / `ALLOW_INSECURE_DEFAULTS` set in a release build | Promotes dev auth relaxation to production | **Hard-fail at boot**, `src/main.rs:117-155` |
+| `SETTINGS_AUTH_BYPASS` / `VISIONCLAW_DEV_MODE` / `ALLOW_INSECURE_DEFAULTS` set in a release build | Promotes dev auth relaxation to production | **Hard-fail at boot**, `src/main.rs:117-163` |
 | `--allow-skip-auth` argv in release | Same | Hard-fail, `src/main.rs:120-126` |
 | `NODE_ENV=development` + `DOCKER_ENV` both set | Dev config in a container image | Hard-fail, `src/main.rs:141-147` |
 | `RBAC_GATE_MODE=report` in release without `RBAC_REPORT_MODE_ACK=<today UTC>` | Would silently disable `/api` auth | Refuses to activate, falls back to enforce, `rbac_gate.rs:88-102` |
-| `RBAC_ALLOW_OWNERLESS=0` with no `RBAC_OWNER_PUBKEY` and no prior Owner | Permanent lockout / unmanageable RBAC | Refuses to start (`PermissionDenied`), `src/main.rs:729-739` |
+| `RBAC_ALLOW_OWNERLESS=0` with no `RBAC_OWNER_PUBKEY` and no prior Owner | Permanent lockout / unmanageable RBAC | Refuses to start (`PermissionDenied`), `src/main.rs:808-818` |
 | `RBAC_PUBLIC_READS=1` with `PUBKEY_VISIBILITY_FILTER=0` | Anonymous reads *and* private nodes on the wire = full data disclosure | **Machine-enforced — ADR-2043** (2026-09-05): an unconditional rule in `evaluate_effective_profile` (`src/config/security_profile.rs:422`) keyed on the pair itself, so it fires whether or not a profile is declared. Before ADR-2043 this pair was caught only *indirectly* — it matches no named profile, so it raised `ProfileDrift` when a profile was declared but merely classified as `Unnamed` when none was, and `Unnamed` is not itself fatal |
 | `APP_ENV` unset in a public deployment | Skips strict env validation and CORS lockdown (`main.rs:85,887`) | Not enforced; profiles pin `APP_ENV=production` |
 
 ## Known divergences & open items
 
 - **Shipped compose posture is open-by-default, and inverts two code defaults.**
-  `docker-compose.unified.yml:93-94` sets `RBAC_PUBLIC_READS: "${RBAC_PUBLIC_READS:-1}"`
+  `docker-compose.unified.yml:111-112` sets `RBAC_PUBLIC_READS: "${RBAC_PUBLIC_READS:-1}"`
   and `RBAC_ALLOW_OWNERLESS: "${RBAC_ALLOW_OWNERLESS:-1}"` — both are code-default
-  **OFF/fail-closed** (`rbac_gate.rs:122-128`, `public_reads_enabled()` ending
-  `.unwrap_or(false)`; `main.rs:732-752`, which refuses to start without an Owner
+  **OFF/fail-closed** (`rbac_gate.rs:135-141`, `public_reads_enabled()` ending
+  `.unwrap_or(false)`; `main.rs:795-818`, which refuses to start without an Owner
   unless the flag is set). The image therefore boots owner-less with anonymous
   reads unless an operator overrides the `.env`. `PUBKEY_VISIBILITY_FILTER=1`
-  (`docker-compose.unified.yml:107`) matches the code default
-  (`position_updates.rs:34-58`, `parse_visibility_flag` defaults ON). Net shipped
+  (`docker-compose.unified.yml:125`) matches the code default
+  (`visibility_filter.rs:26`, `parse_visibility_flag` defaults ON). Net shipped
   posture ≈ `demo-open`. This is a deliberate compatibility trade-off (matches
   legacy ADR-142 open-by-default) and **stays**: the profile it realises is now
   named and ratified by ADR-2027, so the earlier "needs a named profile"
@@ -166,7 +165,7 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
   `RBAC_DEFAULT_ROLE` (`role_store.rs:41` `RBAC_DEFAULT_ROLE_ENV`, parsed by
   `parse_default_role` at `:195`, failing closed to `viewer` on an unrecognised
   value at `:204`). The `multi-user-locked` profile sets it to `viewer`; the
-  shipped compose sets `editor` (`docker-compose.unified.yml:101`) for
+  shipped compose sets `editor` (`docker-compose.unified.yml:119`) for
   pre-RBAC compatibility. The earlier claim that no flag existed and a code
   change was required is retired.
 - **`?token=` accepted on `/wss`** (`http_handler.rs:139-152`, the query-parameter
@@ -213,8 +212,8 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    deployed profile (full-disclosure combination). Enforced at boot by ADR-2043
    as an unconditional rule, independent of whether a profile is declared.
 6. The security profile is asserted **before the listener binds**
-   (`assert_effective_profile_or_exit`, `src/main.rs:942`, called from the block
-   at `:937-947`, ahead of `HttpServer::new` at `:962` and `.bind()` at `:1250`).
+   (`assert_effective_profile_or_exit`, `src/main.rs:950`, called from the block
+   at `:945-955`, ahead of `HttpServer::new` at `:970` and `.bind()` at `:1259`).
    A production artefact with any finding exits 2 rather than serving a request
    (ADR-2038).
 7. Every `/api/memory-cloud*` endpoint, health included, requires a
@@ -260,8 +259,8 @@ ADR-2012 is partial: report mode is reachable with acknowledgement in a non-debu
   (`RBAC_DEFAULT_ROLE_ENV` is `role_store.rs:41`, parsed at `:195`, fail-closed at
   `:204`); re-cites the `?token=` WS path from `http_handler.rs:342-354` to the
   actual `:139-152` (query lookup at `:148`); re-cites the open-by-default bullet
-  to `docker-compose.unified.yml:93-94` / `rbac_gate.rs:122-128` /
-  `main.rs:732-752`; and records that ADR-2027 satisfies the "needs a named,
+  to `docker-compose.unified.yml:111-112` / `rbac_gate.rs:135-141` /
+  `main.rs:795-818`; and records that ADR-2027 satisfies the "needs a named,
   ratified profile" condition while machine selection remains ADR-2038's open
   item. Compose defaults are unchanged — demo-open is ADR-2027's decision.
 - **ADR-2086** — Assert in CI that release images exclude the `dev-auth` cargo
