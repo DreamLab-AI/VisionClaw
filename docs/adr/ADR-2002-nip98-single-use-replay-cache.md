@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/utils/nip98.rs, docs/SECURITY-profiles.md]
 owner: jjohare
 review_trigger: horizontal scaling of the backend (replicas/load balancer), or any change to TOKEN_MAX_AGE_SECONDS

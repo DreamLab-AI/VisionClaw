@@ -7,8 +7,8 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
-verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_demo_director.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
 repo: visionclaw
@@ -142,3 +142,17 @@ ADR-2135 changes `binary_protocol.rs` and `render_store.rs` to fold the graph bo
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `graph_scene.gd` drops the separation pump and the separation-0 rim-slot path: the layout is always separated, so work agents always rest at the centroid plus drift (`_apply_drift_rest_slots`, `_drift_rest_slot`). `AgentChoreography` still writes every work-layer pose; the scene only chooses the rest slot. `render_store.rs` and `binary_protocol.rs` read the drift from the fixed frame. Demo mode still enters only through `ingest`. Decision holds. GUT `test_tri_layout_rest.gd` passed on HP. Citations at 31bc3d3a1: `xr-client/scripts/graph_scene.gd:2488` (`_apply_drift_rest_slots`), `:2496` (`set_rim_slot` with the drift slot), `:2501` (`_drift_rest_slot`); `xr-client/rust/src/render_store.rs:1005` (`agent_drift_offset`, fixed frame).
+
+## Amendment — 2026-10-19 (D5: the demo producer moved to the server, ADR-2142)
+
+Checked at b4a175412 against `git diff 31bc3d3a1..HEAD` over the governed paths. **D5 as written no longer matches the code; D1-D4 and D6 still hold.**
+
+**What changed, and why.** `agent_demo_director.gd` and `tests/unit/test_agent_demo_director.gd` are deleted (b112b0fc8, ADR-2142). The demo existed once per client and each copy fed only its own screen, so it became one server-side producer, `AgentDemoDirector` (`src/actors/agent_demo_director.rs`), whose `0x23` frames reach every connected client through the client coordinator. The decision's intent is unchanged and now enforced harder: the demo is a producer, not a branch. Read D5 with these substitutions:
+- The only demo code on the headset side is no longer a GDScript director. The headset has none: it holds the HUD button (`_post_demo`, `graph_scene.gd:4032`, `POST /api/agents/demo`, which follows the server's state, polled) and the display-name table for the six role ids (`graph_scene.gd:2586-2595`).
+- The reserved ids are unchanged, `0x80000000 | 0xD001..0xD006` in the reserved range `0xD001-0xD0FF` (`src/actors/agent_demo_director.rs:49`, `:207`). Frames still enter through `ingest()` as ordinary `0x23` frames. There are still no position frames and no demo marker in names, frames or roster rows.
+- Stop no longer originates in the scene. When the polled server state flips to stopped, `graph_parity.gd:388-392` calls `retire_agents(ids)` for exactly the six reserved ids and then `_reconcile_embodiment()`; the 30 s evidence TTL (`render_store.rs:489`) remains the backstop.
+- Timestamps come from the server, so `server_clock_ms` (`binary_protocol.rs:1596`) is no longer a producer dependency on the headset; it is still exposed.
+
+**Still true, with fresh anchors at b4a175412.** D1: `AgentsRoot` and `AgentEffectsRoot` are siblings of `GraphRoot` (`GraphScene.tscn:145,149`; `graph_scene.gd:443-445`). D2: only `_choreo.pose` writes a work-layer `global_position` (`graph_scene.gd:2794`); the proxemics solve at `:2507` places conversation-layer avatars only; `_spawn_work_agent` sets the initial position at `:2713`. D3: `_reconcile_embodiment` at `:2627`, called from the ~4 Hz label tick (`:1602`), key `agent_%d` (`:2613`). D4: `set_agent_anchors` called at `:2842-2843`; Rust `binary_protocol.rs:1570`, `render_store.rs:1051`; `build_beam_buffer` prefers the anchor (`render_store.rs:2002`); tests `beam_starts_at_the_embodiment_anchor_when_one_is_published` (`:2557`) and `retire_agents_removes_records_and_anchors_outright` (`:2598`). D6: the Agents toggle hides both roots (`graph_scene.gd:985-987`). The later ADR-2135 rest-slot logic is `_apply_drift_rest_slots` (`:2665`), `_drift_rest_slot` (`:2678`) and `set_rim_slot` (`:2673`); it chooses the slot only.
+
+Stale in this record's older sections, left as history: the Verification bullet naming `test_agent_demo_director.gd`, and the earlier re-verification notes that cite `agent_demo_director.gd` and `_scene_id_for`. Two code comments are also stale: the doc comments on `retire_agents` and `server_clock_ms` (`binary_protocol.rs:1580-1596`) still name "the demo director" as their caller, and no script calls `server_clock_ms` any more. Both are comment-only fixes outside this record. Governing document `docs/XR-client.md` already states the server-producer model (Agent embodiment section; invariant 9); it was re-checked and only its `graph_scene.gd` size and anchor citation were refreshed in the same change.

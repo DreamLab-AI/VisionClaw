@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 43838bf00867123d76cc50241ed87628ae6cab6a
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)
@@ -244,3 +244,14 @@ Citations: `client/src/features/graph/utils/sceneFitBounds.ts:127` (`unoccludedR
 ## Re-verification — 2026-10-08 at 43838bf00
 
 The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a separate headset scale for the animated walk (XR_WALK_THICKNESS_SCALE 1.0, XR_WALK_GLOW_SCALE 0.5, a comet minimum of 0.5° at 15 m) while settled route lines keep XR_ROUTE_THICKNESS_SCALE and XR_ROUTE_GLOW_SCALE at 0.1, and makes the walk replay for every route source (relay, preset, typed). The geometry, the query point and the rank-order route are unchanged, so this decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** Governed changes since 43838bf00: `src/actors/gpu/display_projection.rs` gains `unproject_point` (`:239`), the exact inverse of the display projection for one node, used by `force_compute_actor.rs:608` so that a pin taken from a client (which sees and drags in display space) lands at the commanded position instead of at `projection(command)`. That is consistent with "display-only stays the rule": the physics buffer is still restored before every step, and the triangle placement, the Z-scale and identity all invert exactly (the dual-disc rim clamp does not, and only matters beyond `DISC_RIM_RADIUS`). `xr-client/rust/src/memory_route.rs` changes are a reload-loop guard on `RouteGate` (`reloaded_for`, `:595`, cleared on Apply and Clear, estate ER-26); the memory cloud's sRGB colour conversion in `cloudData.ts:101-113` is a colour fix. None moves the geometry. Opened at HEAD:
+- **Geometry:** `SEPARATION` is `separation_for_radii(152, 152)` = 190 (`crates/visionclaw-tri-layout/src/lib.rs:84-106`); `MEMORY_BODY_SCALE` 10 (`:110`); `MEMORY_DISTANCE_FACTOR` 0.5 (`:115`); `VERTEX_ANGLES_DEG` [-60, 60, 180] (`:128`); `TriangleFrame::separated` (`:226`), `memory_centre` (`:234`), `memory_clear_distance` (`:244`), `at_live_scale_the_closer_memory_body_encloses_both_graphs` (`:542`).
+- **Drift:** `HALF_LIFE_S` 6, `REACH` 0.6, `FOLLOW_S` 1.5 (`drift.rs:47-58`).
+- **Server:** `display_mode` is `Triangle` whenever the population table is present, else Z-scale or identity (`display_projection.rs:110-118`); `agentId` is accepted and relayed by `POST /api/memory-flash` (`memory_flash_handler.rs:27-46`).
+- **Retired setting:** `graphSeparationX` is gone from the settings structs; the retired-key test is at `crates/visionclaw-domain/src/models/simulation_params.rs:741`, and `data/settings.yaml` mentions it only in a comment.
+- **XR:** the scene still chooses only the rest slot (`graph_scene.gd:2665-2690`, `_choreo.set_rim_slot`); the desktop fit is `unoccludedRect` (`sceneFitBounds.ts:127`) and `fitPose` (`:190`); `namespaceOptions` is `cloudData.ts:214`; the line factors are `memory_route.rs:74-86`.
+
+**Defect noted, outside the ADR's claims.** `src/actors/gpu/display_projection.rs:349-350` carries a doubled `#[test]` on `the_triangle_is_always_on_once_populations_are_known` (introduced together with `unproject_point`'s tests); one of the two attributes should go. Not re-run: no build was permitted, so whether this compiles was not tested.

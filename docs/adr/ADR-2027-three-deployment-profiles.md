@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -352,3 +352,11 @@ None of these changes touches the decision this record makes. Every deletion had
 `docker-compose.unified.yml` changed only in the memory-cloud sample default
 (`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `docker-compose.unified.yml:136`, `:275`). Nothing
 this decision governs moved, so it holds as written.
+
+## Amendment — 2026-10-19: `PUBKEY_VISIBILITY_FILTER` is read in the domain crate, not `position_updates.rs`
+
+**What changed.** The decision (three profiles, six flags, compose booting demo-open) holds. One flag's home moved: `parse_visibility_flag`, `PUBKEY_VISIBILITY_FILTER_ENV` and the memoised reader `filter_enabled()` now live in `crates/visionclaw-domain/src/utils/visibility_filter.rs:23-43` (default ON; only `0`/`false`/`off`/`no` disable; unset or unrecognised stays ON). The per-client position streaming rewrite (ADR-2141) removed the old broadcast machinery from `src/handlers/socket_flow_handler/position_updates.rs`, and every position path (connect sync, snapshot request and the live stream) now consults the one function (`src/actors/client_coordinator_actor.rs:407,433`). Read the flag-to-file mapping above as `PUBKEY_VISIBILITY_FILTER` (`visibility_filter.rs`). `src/config/security_profile.rs:445,547` was updated to name the new location in its mirror comments; its behaviour is unchanged.
+
+**Evidence at b4a175412.** `PROFILE_FLAGS: [&str; 6]` `src/config/security_profile.rs:72`; `public_reads_enabled` `src/middleware/rbac_gate.rs:135-141`; owner-less refusal `src/main.rs:795-818`; `RBAC_DEFAULT_ROLE_ENV` `src/services/role_store.rs:41`, `parse_default_role` `:195`; `assert_effective_profile_or_exit` call `src/main.rs:950` before `HttpServer::new` `:970` and `.bind()` `:1259`. `docker-compose.unified.yml` still realises demo-open: `RBAC_PUBLIC_READS:-1` `:111`, `RBAC_ALLOW_OWNERLESS:-1` `:112`, `RBAC_OWNER_PUBKEY` `:113`, `RBAC_DEFAULT_ROLE:-editor` `:119`, `PUBKEY_VISIBILITY_FILTER:-1` `:125`; no `VISIONCLAW_SECURITY_PROFILE` is declared (so `implementation_status: partial` stands). The other governed change in range (the `rbac_gate.rs` routed-path hardening) only tightens classification.
+
+**Governing doc:** `docs/SECURITY-profiles.md`, flag-matrix and divergences anchors refreshed (`rbac_gate.rs:135-141`, `main.rs:795-818`, compose `:111-125`, profile assertion `:950/:970/:1259`), the `PUBKEY_VISIBILITY_FILTER` source repointed to `visibility_filter.rs`, and the stale `position_updates.rs` entry removed from its `sources`.

@@ -1,13 +1,13 @@
 ---
 title: VAULT — authored corpus format (Obsidian vault)
-version: 2.2.0
+version: 2.3.0
 status: living
 verified_commit:
 owner: jjohare
 domain: VAULT-corpus-format
-ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118]
+ledger: [ADR-2112, ADR-2113, ADR-2114, ADR-2115, ADR-2116, ADR-2117, ADR-2118, ADR-2124, ADR-2125, ADR-2128]
 agentbox_ledger: [ADR-2107, ADR-2108, ADR-2109, ADR-2129]
-proposed: [ADR-2124, ADR-2125, ADR-2126, ADR-2127, ADR-2128]
+proposed: [ADR-2126, ADR-2127]
 ---
 
 # VAULT — authored corpus format
@@ -371,14 +371,22 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 5. **Path authority is `vault.toml`.** No consumer hard-codes a corpus path.
 6. **The emitted OWL surface is fixed.** Every `emitted: true` relation keeps the
    `vc:` property the Python emitter wrote. Changing one, or flipping a
-   provisional relation to `emitted: true`, is a signed Schema change.
+   provisional relation to `emitted: true`, is a signed Schema change. The
+   provisional keys `defines-as` (`owl:equivalentClass`, EL only, ADR-2124) and
+   `disjoint-with` (`owl:disjointWith`, siblings only, ADR-2125) are part of that
+   surface, as is the per-generation `owl:versionIRI` header (ADR-2128); a
+   property emits `rdfs:domain`/`rdfs:range` only when its vocabulary entry
+   declares one.
 7. **Fail-closed publish.** `public` absent or false means the page does not
    reach narrativegoldmine.com.
 8. **Derived data is never stored in a page.** Inferred closure, backlinks,
    outbound wikilinks, link resolutions and the OKF index are build outputs.
 9. **Blockers are never approvable.** Whelk inconsistency, subclass cycles,
    relation contradictions, vocabulary violations and resource collisions block a
-   proposal; no signature overrides them.
+   proposal; no signature overrides them. The Whelk blocker is proven armed
+   (ADR-2125): a standing probe (`P ⊑ A`, `P ⊑ B`, `A disjoint-with B`) must yield
+   `WHELK_INCONSISTENT` on `vault propose` and on the elevation actor, and
+   `vault build` fails on any unsatisfiable class.
 10. **Agents never push.** `vault` writes working trees; the owner commits and
     publishes.
 11. **No credential reaches either vault.** Keys, tokens and bearer strings are
@@ -404,30 +412,37 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
 | EXP-V12 | medium | Quartz builds narrativegoldmine.com from `knowledge/` locally, `static/api/search-index.json` and `static/data/ontology.ttl` are present, and only `public: true` pages are rendered. | PRD acceptance 6 |
 | EXP-V13 | medium | `grep -ri logseq` across loom, VisionClaw, agentbox, VisionFlow and visionGraph returns only ADR and history references. | PRD acceptance 7 |
 
-## Proposed amendments — reasoning and integrity (2026-10-05, NOT ratified)
+## Reasoning and integrity amendments (PRD-029; re-checked 2026-10-19)
 
-These records are `decision_status: proposed`. They change nothing above; the
-Invariants are the compliance surface until each one is accepted and folded in.
 Scope and sequencing: [PRD-029](proposals/visiongraph-executable-reasoning.md);
 domain model: [DDD-023](proposals/visiongraph-executable-reasoning-domain.md).
+ADR-2124, ADR-2125 and ADR-2128 are **accepted and implemented** in `vault` /
+`vault-core` and are folded into Invariants 6 and 9 above; each was re-checked against
+the code at b4a175412. All three are `activation_status: staged`. At that date the
+working visionGraph registers both keys, but no page uses `defines-as` (the real build
+runs the `Skip` reasoner mode) and exactly one page uses `disjoint-with`.
 
-- **PROPOSED — ADR-2126: integrity is closed-world validation, never OWL.**
+- **ADR-2126: integrity is closed-world validation, never OWL.**
   "Must have" rules live in `vault validate`; the emitted OWL stays inside EL, and a
   vocabulary key mapping to `allValuesFrom`, a cardinality or `hasValue` is refused at load.
-- **PROPOSED — ADR-2128: the ontology names its generation.** `owl:versionIRI` from a
-  digest of the emitted ontology (the page-only `content_digest` misses vocabulary changes); property `rdfs:domain`/`rdfs:range` become opt-in per
-  property instead of blanket `owl:Thing` (each a signed Schema change).
-- **PROPOSED — ADR-2125: the Whelk gate is provably armed.** Register and wire the
-  elevation actor's existing `disjoint-with` key, sibling-only, on both write paths (never domain roots — see the `turtle.rs` note on the 98.8% failure),
-  standing probe cases on `vault propose` and the elevation actor, and a
-  zero-unsatisfiable `vault build` gate. Would extend Invariant 9 with "and a probe
-  proves the blocker can fire".
-- **PROPOSED — ADR-2124: curated EL defined classes.** An opt-in `defines-as` key
-  emitted as `owl:equivalentClass`; `whelk::reason` saturates restrictions whenever one
-  is present (relevance-filtered: full saturation does not finish on this corpus). Would amend Invariant 6 (a new emitted construct).
-- **PROPOSED — ADR-2127 / agentbox ADR-2129: answers distinguish silence from "no".**
+  (Accepted per its own record; not re-checked in this pass.)
+- **ADR-2128 (accepted, partial): the ontology names its generation.** The header carries
+  `owl:versionIRI` from `ontology_digest`, a sha256-12 over the emitted graph excluding the
+  header (`turtle.rs:615`); `.generation.json` records it beside `content_digest`. Property
+  `rdfs:domain`/`rdfs:range` are opt-in per property instead of blanket `owl:Thing`. Open: the
+  Loom report and the "newly entailed classes" build report.
+- **ADR-2125 (accepted): the Whelk gate is provably armed.** `disjoint-with` is
+  emitted as `owl:disjointWith`, sibling-only, on both write paths (never domain roots:
+  see the `turtle.rs` note on the 98.8% failure), with `DISJOINT_NOT_SIBLINGS` in `vault
+  validate`, standing probe cases on `vault propose` and the elevation actor, and a
+  zero-unsatisfiable `vault build` gate.
+- **ADR-2124 (accepted): curated EL defined classes.** An opt-in `defines-as` key
+  emitted as `owl:equivalentClass`; `whelk::reason` uses the `Relevant` restriction mode
+  when a definition exists and `Skip` otherwise, refuses a definition over a transitive
+  property (`DEFINITION_OVER_TRANSITIVE`, backed by the `WHELK_RELEVANT_CAP` of 2,000).
+- **ADR-2127 / agentbox ADR-2129: answers distinguish silence from "no".**
   Agent-facing answers carry `basis`, a tri-valued truth and the generation; an empty
-  result is "not asserted", never "false".
+  result is "not asserted", never "false". (Accepted, partial, per its own record.)
 
 ## Change process
 
@@ -446,6 +461,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 2.3.0 | 2026-10-19 | ADR-2124, ADR-2125 and ADR-2128 re-verified at b4a175412 and moved from "proposed, not ratified" to accepted: Invariant 6 names the `defines-as` / `disjoint-with` keys and the version IRI; Invariant 9 records the armed-gate probe. No rule was loosened. |
 | 2.2.0 | 2026-10-05 | Proposed-amendments section for ADR-2124–2128 and agentbox ADR-2129 (PRD-029 / DDD-023, reasoning and integrity). Not ratified; Invariants unchanged. |
 | 2.0.1 | 2026-09-22 | Invariant 11 (no credentials in either vault) and the V4 note that the publish gate is a visibility control, not a safety one, after 14 live credentials were found in `working/`, one on a `public: true` page. |
 | 2.0.0 | 2026-09-22 | **Format break.** Frontmatter-only; the two json-ld fences fold into typed Obsidian Properties; `ontology/vocabulary.yaml` becomes the normative key set and `vault.toml` the manifest; two vault roles with distinct type sets and unknown-key policies (PRD Q9); the `owl-class` gate bypass removed; all legacy tolerance removed — `key::`, `{{embed}}`, `((block-ref))`, `a___b.md` and journals are now validation failures; `vault` (Rust) replaces `vault-migrate`, the Python pipeline and the ontology MCP servers. ADR-2112, supersedes ADR-2040. |

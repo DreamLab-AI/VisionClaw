@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.11
+version: 0.1.12
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.12 (2026-10-19): ADR-2133 re-verified at b4a175412 — the /api/memory-cloud rows now state that every endpoint, health included, is PowerUser in the handler (the health row wrongly said the central read policy), that VISIONCLAW_DEV_MODE admits every caller as a power user in debug/dev-auth builds only, and that rows past metadata.expires_at are hidden from counts, samples, searches and the recall probe (estate ER-11); citation refresh to memory_cloud_handler.rs:65"
   - "0.1.11 (2026-10-17): ADR-2143: Codescape recorded as a second producer of V3/V5 on :4100 (no new tags or flag bits, field mapping, 0x23 mapping, 404 list); citation refresh: routes main.rs:1093-1123, 0x23 :1792/:1561/:1571/:1534-1541, batch framing stated"
   - "0.1.10 (2026-10-13): ADR-2138 — /api/analytics/cycles row (GET, optional edgeType, default subsumption edges); layout-mode whitelist gains spectral and clustered; REST only, no frame change"
   - "0.1.9 (2026-10-08): ADR-2136 amendment — each MemoryCloudHit in the /api/memory-cloud/query response gains optional position [x,y,z] | null, the hit's own embedding projected with the snapshot's PCA basis (on its row when sampled); additive"
@@ -52,9 +53,9 @@ is safe. The registry below is the source of truth for tag allocation.
 
 | Tag | Name | Socket / path | Direction | Owning module (file:line) |
 |-----|------|---------------|-----------|---------------------------|
-| `0x03` | Graph position frame **V3** | `/wss` | server→client | `src/utils/binary_protocol.rs:12,54` |
+| `0x03` | Graph position frame **V3** | `/wss` | server→client | `src/utils/binary_protocol.rs:11,43` |
 | `0x04` | **RETIRED — V4 delta position frame** (reserved, never reuse) | `/wss` | none | no encoder exists; decoders refuse it (ADR-2139): web `types/binaryProtocol.ts` `PROTOCOL_V4` branch, XR `DecodeError::BadVersion` |
-| `0x05` | Graph position frame **V5 envelope** (wraps V3) | `/wss` | server→client | `src/utils/binary_protocol.rs:592` (`PROTOCOL_V5` branch); `xr-client/rust/src/binary_protocol.rs:25` |
+| `0x05` | Graph position frame **V5 envelope** (wraps V3) | `/wss` | server→client | `src/utils/binary_protocol.rs:612` (`PROTOCOL_V5` branch); `xr-client/rust/src/binary_protocol.rs:29` |
 | `0x34` | `BROADCAST_ACK` position acknowledgement (ADR-2141) | `/wss` | client→server | `src/utils/binary_protocol.rs` `decode_broadcast_ack`; fixture `wire_fixtures::broadcast_ack_frame` | `[0x34][u64 sequence][u32 nodes][u64 timestamp_ms]` LE, 21 bytes, **no generic header**; sent after a chunk is applied; asserted against one golden frame by the server, web and XR tests |
 | `0x23` | `AGENT_ACTION` beam event | `/wss` (fanned by ClientCoordinator) | server→client | `src/utils/binary_protocol.rs:1721` (`MessageType::AgentAction`) |
 | `0x43` | Avatar pose (`OPCODE_AVATAR_POSE`) | `/ws/presence` | bidirectional | `crates/visionclaw-xr-presence/src/wire.rs:9` |
@@ -67,7 +68,7 @@ own socket.
 
 ### `0x03` — Graph position frame V3 (52 bytes/node)
 
-Canonical struct `WireNodeDataItemV3` (`src/utils/binary_protocol.rs:44`). One header byte
+Canonical struct `WireNodeDataItemV3` (`src/utils/binary_protocol.rs:43`). One header byte
 `0x03` then N fixed **52-byte** records, little-endian throughout. Field-by-field
 (the layout comment block immediately below the `WIRE_*_SIZE` constants, cross-checked
 against `encode_node_data_with_types` and the client decoder at
@@ -90,11 +91,11 @@ against `encode_node_data_with_types` and the client decoder at
 | `@48` | 4  | f32 | `centrality` | PageRank score |
 
 Total **52 bytes**. `WIRE_V3_ITEM_SIZE == 52` is locked at **compile time** by
-`const _: () = assert!(...)` (`binary_protocol.rs:93`), so changing any `WIRE_*_SIZE`
+`const _: () = assert!(...)` (`binary_protocol.rs:90`), so changing any `WIRE_*_SIZE`
 constant fails the build rather than a test run (ADR-2057). The original unit-test
-`assert_eq!`s remain as a redundant second check (`binary_protocol.rs:1077,1174`); they are
+`assert_eq!`s remain as a redundant second check (`binary_protocol.rs:1095,1191`); they are
 no longer the primary guard. The V5 sequence-prefix width is locked the same way
-(`WIRE_V5_SEQ_SIZE == 8`, `binary_protocol.rs:102`).
+(`WIRE_V5_SEQ_SIZE == 8`, `binary_protocol.rs:99`).
 
 **Type flag bits** in the `@0` id (`binary_protocol.rs:15-26`, mirrored client-side at
 `xr-client/rust/src/binary_protocol.rs:37-43`): `NODE_ID_MASK = 0x03FF_FFFF` (26-bit id, max
@@ -107,9 +108,9 @@ skipped, since the maps are keyed by compact id.
 ### `0x05` — V5 broadcast envelope
 
 Layout: `[0x05][u64 broadcast_seq LE][ V3 body ]` where the V3 body is the exact 52-byte-per-node
-stream above (no inner `0x03` header byte). Server decode at `binary_protocol.rs:592` (the `PROTOCOL_V5` match arm) skips
+stream above (no inner `0x03` header byte). Server decode at `binary_protocol.rs:612` (the `PROTOCOL_V5` match arm) skips
 the 8-byte sequence then delegates to `decode_node_data_v3`. Client constants at
-`xr-client/rust/src/binary_protocol.rs:25-28` (`PROTOCOL_V5 = 0x05`, `V5_SEQ_BYTES = 8`,
+`xr-client/rust/src/binary_protocol.rs:29-32` (`PROTOCOL_V5 = 0x05`, `V5_SEQ_BYTES = 8`,
 `NODE_RECORD_BYTES = 52`). The envelope is **optional** and additive: a receiver distinguishes
 `0x03` from `0x05` by the leading byte and unwraps accordingly. `broadcast_seq` gives clients a
 monotonic ordering/drop-detection handle. **This document is the owner of the V5 envelope** — no
@@ -118,7 +119,7 @@ legacy ADR defines it.
 **Client parity (ADR-2078, 2026-09-05).** All three decoders are at parity. The web client's live
 path is `client/src/types/binaryProtocol.ts:198-201,410-424` — it reads the u64 LE sequence,
 rejects a frame shorter than 9 bytes (the client-side equivalent of the server's
-`payload.len() < WIRE_V5_SEQ_SIZE` reject at `binary_protocol.rs:594`), decodes the body from
+`payload.len() < WIRE_V5_SEQ_SIZE` reject at `binary_protocol.rs:614`), decodes the body from
 offset 9, and surfaces the sequence as the broadcast-ack sequence at
 `client/src/store/websocket/binaryProtocol.ts:416`. The web decoder now also **declines** V2 and
 any unrecognised version instead of decoding them: it previously parsed 36-byte V2 records and,
@@ -233,10 +234,10 @@ Routes registered in `src/main.rs:1093-1123`:
 | `/ws/speech`, `/ws/mcp-relay`, `/ws/client-messages` | WS | per-handler | `main.rs:1098-1101` |
 | `/healthz`, `/readyz` | GET | none (probes) | `main.rs:1093-1094` |
 | `/client-logs` | POST | none | `main.rs:1123` |
-| `/api/memory-cloud` | GET | `PowerUser` in handler (`memory_cloud_handler.rs:44`), regardless of `RBAC_PUBLIC_READS` | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO` |
+| `/api/memory-cloud` | GET | `PowerUser` in handler (`require_power_user`, `memory_cloud_handler.rs:65`), regardless of `RBAC_PUBLIC_READS`; `VISIONCLAW_DEV_MODE=1` admits every caller as a power user in debug and `dev-auth` builds only (a release build refuses to boot with it set) | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO`; rows past `metadata.expires_at` are never counted, sampled or searched |
 | `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
 | `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); `query.position` = the query's point and each hit's `position` = the hit's own point in the snapshot's PCA cloud, or `null` (ADR-2136); validation 400 |
-| `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
+| `/api/memory-cloud/health` | GET | `PowerUser` in handler (as above), not the central read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
 | `/api/memory-flash`, `/api/memory-flash/batch` | POST | central `/api` policy | `{key, namespace?, action?, agentId?}` (batch: `{events: [...]}`) → `memory_flash` text frame `{type, data: {key, namespace, action, timestamp, agentId?}}` to every client; `agentId` (an agent wire id, flag bits allowed) is relayed only when given and names the agent the clients drift towards the memory cloud (ADR-2135) |
 | `/api/analytics/cycles[?edgeType=<type>\|all]` | GET | public read inside the `/analytics` scope (`mutations_only`) | `{nodeCount, edgeCount, edgeFilter, cyclicNodeIds, components}`; default = edges asserting subClassOf (`Edge::asserts_subsumption`, the DAG ranker's predicate); `layout::scc` shared with the CPU layout engine (ADR-2138) |
 
@@ -264,23 +265,23 @@ everyone. Enabling requires only absence of a falsy token. Legacy ADR-050/060.
 
 Legacy ADR-061 mandated "one binary protocol, no versioning". That doctrine is retired: the wire
 already versions itself via the leading tag byte, and the decoder branches on it
-(`binary_protocol.rs:506-522`). The live, enforced policy is:
+(`binary_protocol.rs:608-622`). The live, enforced policy is:
 
 1. **Tag byte is the version.** Every graph frame's first byte selects the codec: `0x03` (bare
    V3) or `0x05` (V5 envelope + V3 body). Receivers MUST branch on byte 0 and MUST reject unknown
-   tags with an explicit error, never a silent reinterpret (`:521`, client `BadVersion` at
-   `xr-client/rust/src/binary_protocol.rs:49`).
+   tags with an explicit error, never a silent reinterpret (`:621`, client `BadVersion` at
+   `xr-client/rust/src/binary_protocol.rs:54`).
 2. **Additive envelopes only.** A new envelope (like V5) wraps an existing body rather than
    re-laying fields. The inner body layout is frozen once shipped; new per-node analytics extend
    the record only by a new tag with a new documented length.
 3. **Fixed record length is a hard invariant.** Payload length not divisible by the record size
-   is a decode error (`:532`, client `Misaligned` at `xr-client/.../binary_protocol.rs:51`), so a
+   is a decode error (`:631`, client `Misaligned` at `xr-client/.../binary_protocol.rs:56`), so a
    length change cannot be silently absorbed.
 4. **Removed versions fail loud.** V1 and V2 return explicit "upgrade client" errors
-   (`:510-511`); they are not silently accepted.
+   (`:610-611`); they are not silently accepted.
 5. **Registry-gated allocation.** New tag bytes are allocated only in this document, per socket,
    to prevent cross-feature collision.
-6. **Every entitled node is eventually delivered and acknowledged; frames carry absolute positions; there are no deltas (ADR-2139, ADR-2141).** A `0x03`/`0x05` position frame is one *chunk* of a client's stream: the nodes that client is entitled to see and has not acknowledged (or that have since moved past `streamMoveThreshold`, or whose analytics changed), most-displaced first, at most `streamChunkNodes`. Each chunk is absolute and freshly built under a new, increasing sequence; one is in flight per client; the next is built when the client acknowledges the sequence (`0x34`) or after `streamAckTimeoutMs`. Entitlement (the visibility drop-set) is applied identically to every chunk and nothing is sent until the policy has loaded. Tag `0x04` (the retired V4 delta frame) stays reserved: no encoder exists and every decoder refuses it.
+6. **Every entitled node is eventually delivered and acknowledged; frames carry absolute positions; there are no deltas (ADR-2139, ADR-2141).** A `0x03`/`0x05` position frame is one *chunk* of a client's stream: the nodes that client is entitled to see and has not acknowledged (or that have since moved past `streamMoveThreshold`, or whose analytics changed), most-displaced first (a quarter of a full chunk is reserved for the longest-waiting candidates so small movers are not starved), at most `streamChunkNodes`. Each chunk is absolute and freshly built under a new, increasing sequence; one is in flight per client; the next is built when the client acknowledges the sequence (`0x34`) or after `streamAckTimeoutMs` (doubled for each consecutive timeout, up to 8x, and reset by any acknowledgement; a late acknowledgement for one of the last eight chunks is still honoured, `src/actors/position_stream.rs`). Entitlement (the visibility drop-set) is applied identically to every chunk and nothing is sent until the policy has loaded. Tag `0x04` (the retired V4 delta frame) stays reserved: no encoder exists and every decoder refuses it.
 
 ### Deprecation process
 
@@ -323,9 +324,9 @@ already versions itself via the leading tag byte, and the decoder branches on it
 
 - Byte 0 of every binary frame is the tag/version; unknown tags are rejected, not reinterpreted.
 - V3 record is exactly 52 bytes with the field offsets above; `WIRE_V3_ITEM_SIZE == 52` is
-  enforced by a compile-time `const _: () = assert!(...)` (`binary_protocol.rs:93`), so a width
+  enforced by a compile-time `const _: () = assert!(...)` (`binary_protocol.rs:90`), so a width
   change fails the build (ADR-2057). The V5 envelope's 8-byte `broadcast_seq` prefix is locked
-  the same way (`binary_protocol.rs:102`).
+  the same way (`binary_protocol.rs:99`).
 - `NODE_ID_MASK = 0x03FF_FFFF`; flag bits 26-31 are stripped before analytics/SSSP map lookups.
 - All multi-byte fields are little-endian.
 - Tag allocation happens only in this registry, scoped per socket.

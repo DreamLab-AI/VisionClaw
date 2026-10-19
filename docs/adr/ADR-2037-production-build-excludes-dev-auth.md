@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -176,3 +176,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. `Dockerfile.production` and `.github/workflows/ci.yml` are untouched. Decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed diff `bb76e75bd..b4a175412`: `src/main.rs` (telemetry-logger log guard, new `semantic_service` app data) and `src/config/security_profile.rs` (two doc-comment renames of `parse_visibility_flag`); `Dockerfile.production` and `.github/workflows/ci.yml` unchanged. None touches a dev-auth gate. **Holds.** Fresh anchors, all read in source (no build or test run): release hygiene `src/main.rs:117`, no-op stub `:167`/`:169`, called first at `:209`; dev-auth CORS gate `:293` and `:981`; profile assertion block `:937-955` (call `:950`) before `HttpServer::new` `:970` and `.bind()` `:1259`. `security_profile.rs`: `FORBIDDEN_DEV_VARS` `:59`, `DevAuthFeatureInArtefact` `:275`/`:520`, `assert_effective_profile_or_exit` `:624` (`exit(2)` `:654`). `Dockerfile.production` release builds `:101`, `:164` name no features; `Cargo.toml:274` default features are `gpu, ontology, persistence-oxigraph, solid-pod-embed`; CI job `dev-auth-release-gate` `ci.yml:143` (checks `:185-212`); `scripts/launch.sh:195-198` refuses all four forbidden variables in `.env.prod`. The open clause is unchanged: no receipt binds an image digest to its feature closure.

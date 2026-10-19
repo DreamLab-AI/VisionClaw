@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).
@@ -198,3 +198,11 @@ None of these changes touches the decision this record makes. Every deletion had
 `env.example` changed only in the memory-cloud sample default
 (`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `env.example:133`). Nothing
 this decision governs moved, so it holds as written.
+
+## Amendment — 2026-10-19
+
+Re-verified at b4a175412. The delivery direction (publish to the rolling `ontology-latest` release, pull into the embedded pod) holds, but the Decision's write-path prose describes code that no longer exists. Governing doc `docs/BASELINE-architecture.md` is amended in the same change (new bullet under Remediation).
+
+- **Drifted: sequential writes and the ACL probe.** The Decision says the pull writes "through the `Storage` trait" in sequence and that an existence-probe error "is currently treated as absence". At HEAD `ontology_pull.rs` is generic over `OntologyPublication` (`:30`, `:302`): container and ACL probes use `storage.exists(..).await?` so an indeterminate probe aborts the pull (`:354-363`, no `unwrap_or(false)` remains), and the five resources plus manifest go through one `storage.publish_ontology(files)` call (`:380`). `PublishedStorage` (`src/services/ontology_generation.rs:33`; trait `:26`) stages an immutable generation, fsyncs, and atomically replaces an active pointer (`:127-206`); the pod handler uses it as its filesystem backend (`src/handlers/solid_proxy_handler.rs:48`). The up-to-date short-circuit also requires `has_atomic_generation()` (`ontology_pull.rs:313`), so a pod that predates generations is re-pulled once. The client pins JSON-LD and Turtle reads to one generation (`client/src/features/ontology/services/jss/schemaParser.ts:47-79`, `pinnedUrl` `:73`), replacing the `getOntologyJsonLdUrl`/`getOntologyTurtleUrl` pair cited above. This matches the 2026-09-07 closeout; the caveats there (post-rename root-fsync durability, no garbage collection of old generations) still stand, so `implementation_status` stays `partial`.
+- **Holds, anchors refreshed.** `spawn_boot_pull` is `ontology_pull.rs:389`, called at `src/main.rs:915` straight after `init_solid_state()` `:908`; `ONTOLOGY_PULL_URL/ENABLED/TIMEOUT_SECS/INTERVAL_SECS` are read at `ontology_pull.rs:81-93` and documented at `env.example:209-212`; `ontology-publish.yml` keeps `publish-release` `:233` (tag `ontology-latest` `:242`), `deploy-jss` gated on `vars.SOLID_POD_URL != ''` `:307`, `deploy-target-missing` `:546`; the converter is `vault build` (`:170`), with all `uses:` pinned to SHAs.
+- Governed diff `67086c29e..b4a175412` is only `env.example` (comment-level) and `src/main.rs` (unrelated). Source reading; the `ontology_pull` and `ontology_generation` tests were not re-run.

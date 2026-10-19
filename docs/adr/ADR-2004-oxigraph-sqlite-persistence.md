@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -237,3 +237,10 @@ ADR-2135 adds the path dependency `visionclaw-tri-layout` to the root `Cargo.tom
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/app_state.rs` changes one log line: the ACSP client now says its relay is set rather than claiming a connection (`:1343`). Persistence is unchanged. Decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+HOLDS. The governed diff since `bb76e75bd` (`git diff bb76e75bd..HEAD -- Cargo.toml src/app_state.rs`) touches no storage dependency, feature or open call: the `Cargo.toml` hunks are the Codescape/wire/workspace additions and `src/app_state.rs` drops only comments about the post-sync reload. Fresh anchors:
+- `Cargo.toml:91` `oxigraph = { version = "0.4" }`; `:92-93` `rusqlite 0.31` (bundled) and `tokio-rusqlite 0.5`; default features `:274` still include `persistence-oxigraph`, which is still an empty marker (`:290`). The optional `redis` dependency is `:96`, feature `:277`.
+- No `neo4rs`/`neo4j` dependency anywhere; the only live hit is the negative comment at `crates/visionclaw-contracts/Cargo.toml:19`.
+- `src/app_state.rs:431-439`: `DATA_DIR` (default `./data`), `data/oxigraph` opened once by `OxigraphOntologyRepository::open` (`:434`), and the graph repository derived `from_store` off the same handle (`:439`). Per-writer files: `settings.sqlite3` `:442-444`, `enrichment.sqlite3` `:455-457`, `liveness.sqlite3` `:470-472`, `kpi.sqlite3` `:500-502`; the combined log line is `:536`.
