@@ -65,4 +65,4 @@ First verification, at `b4a175412`. Every removal, wire byte, setting and test n
 
 **Two residues, recorded rather than hidden.**
 - Decision 6 says clients "drop none". The web dispatcher keeps arrival order but bounds its queue at 256 frames and drops the oldest on overflow (`client/src/store/websocket/binaryFrameDispatcher.ts:28`, `:72-76`); a dropped chunk is unacknowledged, so the server rebuilds it after the timeout. That is consistent with decision 5 but is not "none".
-- The `enableRandomization` JSON message listed under "Removed" survives as an unused variant of the client-facing `Message` enum (`crates/visionclaw-protocol/src/socket_flow_messages.rs:165`). No handler or sender references it. Delete the variant.
+- The `enableRandomization` JSON message listed under "Removed" survived as an unused variant of the client-facing `Message` enum (`crates/visionclaw-protocol/src/socket_flow_messages.rs`). No handler or sender referenced it, and the variant was deleted on 2026-10-19.

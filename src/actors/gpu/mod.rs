@@ -30,7 +30,8 @@
 //! - Isolates failures from other subsystems
 //! - Implements exponential backoff restart policies
 //! - Reports health status independently
-//! - Receives SharedGPUContext via GPUContextBus broadcast
+//! - Receives SharedGPUContext by direct message from the owning actor, with
+//!   GPUContextBus as a supplementary broadcast
 
 // Analytics GPU-path-execution telemetry (task #74: zero-fallback gate).
 pub mod analytics_telemetry;
