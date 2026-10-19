@@ -274,3 +274,67 @@ pub fn configure_schema_routes(cfg: &mut web::ServiceConfig) {
             .route("/edge-types/{type}", web::get().to(get_edge_type_info)),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use actix_web::{dev::Service, http::StatusCode, test, web, App, HttpMessage};
+    use std::sync::Arc;
+
+    const USER: &str = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef";
+    const MISSING_APP_DATA: &str = "Requested application data is not configured correctly";
+
+    /// ER-25: the schema routes resolve every extractor from exactly the
+    /// state `main.rs` registers for them (`Arc<SchemaService>` and the
+    /// signed-in user), behind a stand-in for `RbacGate`.
+    #[actix_web::test]
+    async fn schema_routes_reach_their_handlers_with_mains_app_data() {
+        for identity in [Some(USER), None] {
+            let nostr = crate::services::nostr_service::NostrService::new();
+            nostr.create_user_for_test(USER).await.expect("test user");
+            let app = test::init_service(
+                App::new()
+                    .app_data(web::Data::new(nostr))
+                    .app_data(web::Data::new(Arc::new(
+                        crate::services::schema_service::SchemaService::new(),
+                    )))
+                    .wrap_fn(move |req, srv| {
+                        if let Some(pk) = identity {
+                            req.extensions_mut().insert(
+                                crate::middleware::auth::AuthenticatedUser {
+                                    pubkey: pk.to_string(),
+                                },
+                            );
+                        }
+                        srv.call(req)
+                    })
+                    .configure(super::configure_schema_routes),
+            )
+            .await;
+            for uri in ["/schema/node-types", "/schema/edge-types"] {
+                let req = test::TestRequest::get().uri(uri).to_request();
+                let (status, text) = match test::try_call_service(&app, req).await {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text =
+                            String::from_utf8_lossy(&test::read_body(resp).await).into_owned();
+                        (status, text)
+                    }
+                    Err(e) => (e.as_response_error().status_code(), e.to_string()),
+                };
+                assert!(
+                    !text.contains(MISSING_APP_DATA),
+                    "{uri} names unregistered app data: {text}"
+                );
+                if identity.is_some() {
+                    assert_eq!(status, StatusCode::OK, "{uri} as a signed-in user: {text}");
+                } else {
+                    assert_eq!(
+                        status,
+                        StatusCode::UNAUTHORIZED,
+                        "{uri} without an identity"
+                    );
+                }
+            }
+        }
+    }
+}
