@@ -53,3 +53,9 @@ pub mod ptx_loader;
 /// boundary: they are FNV-1a content tags for matching a built artefact to the
 /// source it came from in a build manifest.
 pub mod ptx_policy;
+
+/// nvcc host-toolchain selection (host compiler and `cuda_runtime.h` directory),
+/// compiled into `build.rs` by `include!` from this one source so the rules the
+/// build applies are the rules the tests check. See the module's header comment
+/// for why the previous hard-coded search failed outside the Debian images.
+pub mod nvcc_toolchain;

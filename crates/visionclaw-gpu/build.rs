@@ -16,6 +16,8 @@ use std::process::Command;
 // `std`-only, so this costs nothing. See `src/ptx_policy.rs` for the policy and
 // the tests that pin it.
 include!("src/ptx_policy.rs");
+// Host compiler and include-directory selection, shared the same way.
+include!("src/nvcc_toolchain.rs");
 
 fn main() {
     // Check if GPU feature is enabled
@@ -47,6 +49,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CUDA_ARCH");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    println!("cargo:rerun-if-env-changed=NVCC_CCBIN");
+    println!("cargo:rerun-if-env-changed=CUDAHOSTCXX");
     println!("cargo:rerun-if-env-changed=DOCKER_ENV");
 
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -84,22 +88,31 @@ fn main() {
         cuda_arch
     );
 
-    // Find a CUDA-compatible host compiler (nvcc supports up to GCC 14).
-    // CachyOS ships GCC 16 which is too new.
-    let cuda_host_compiler = [
-        "/usr/bin/g++-13",
-        "/usr/bin/g++-14",
-        "/opt/cuda/bin/gcc",
-        "/usr/local/bin/g++-13",
-    ]
-    .iter()
-    .find(|p| Path::new(p).exists())
-    .map(|s| s.to_string());
-
-    if let Some(ref cc) = cuda_host_compiler {
+    // Host toolchain for nvcc. NVCC_CCBIN, then CUDAHOSTCXX, then the fixed
+    // distribution paths; and the include directory that holds cuda_runtime.h
+    // (split CUDA packages keep it apart from nvcc). The rules live in
+    // src/nvcc_toolchain.rs and are unit-tested there.
+    let path_exists = |p: &str| Path::new(p).exists();
+    let cuda_host_compiler = select_host_compiler(
+        env::var("NVCC_CCBIN").ok().as_deref(),
+        env::var("CUDAHOSTCXX").ok().as_deref(),
+        &path_exists,
+    );
+    let cuda_include = cuda_include_dir(&cuda_path, &path_exists);
+    match &cuda_host_compiler {
+        Some((cc, source)) => println!(
+            "cargo:warning=visionclaw-gpu: Using CUDA host compiler: {} ({:?})",
+            cc, source
+        ),
+        None => println!(
+            "cargo:warning=visionclaw-gpu: no CUDA host compiler found; nvcc will use its own default \
+             (CUDA 12.9 needs gcc 14 or older: set NVCC_CCBIN)"
+        ),
+    }
+    if let Some(dir) = &cuda_include {
         println!(
-            "cargo:warning=visionclaw-gpu: Using CUDA host compiler: {}",
-            cc
+            "cargo:warning=visionclaw-gpu: Adding CUDA include dir: {}",
+            dir
         );
     }
 
@@ -135,10 +148,10 @@ fn main() {
             "--expt-relaxed-constexpr".into(),
         ];
 
-        if let Some(ref cc) = cuda_host_compiler {
-            nvcc_args.push("--compiler-bindir".into());
-            nvcc_args.push(cc.clone());
-        }
+        nvcc_args.extend(host_toolchain_args(
+            cuda_host_compiler.as_ref().map(|(cc, _)| cc.as_str()),
+            cuda_include.as_deref(),
+        ));
 
         // ADR-2030: classify launch failure separately from compiler failure.
         // Previously `.expect(...)` panicked when nvcc was ABSENT — before the
@@ -318,10 +331,10 @@ fn main() {
             "--expt-relaxed-constexpr".into(),
         ];
 
-        if let Some(ref cc) = cuda_host_compiler {
-            obj_args.push("--compiler-bindir".into());
-            obj_args.push(cc.clone());
-        }
+        obj_args.extend(host_toolchain_args(
+            cuda_host_compiler.as_ref().map(|(cc, _)| cc.as_str()),
+            cuda_include.as_deref(),
+        ));
 
         let result = Command::new("nvcc")
             .args(&obj_args)
@@ -406,7 +419,10 @@ fn main() {
 
         let stub_obj = PathBuf::from(&out_dir).join("cuda_ffi_stubs.o");
         let stub_lib = PathBuf::from(&out_dir).join("libthrust_wrapper.a");
-        let cc = cuda_host_compiler.as_deref().unwrap_or("gcc");
+        let cc = cuda_host_compiler
+            .as_ref()
+            .map(|(cc, _)| cc.as_str())
+            .unwrap_or("gcc");
 
         let cc_status = Command::new(cc)
             .args(["-c", "-fPIC", "-o"])
