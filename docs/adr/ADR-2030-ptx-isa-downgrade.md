@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 779f67397640e4f65a093778b18c299de9b6339d
 verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
@@ -198,3 +198,21 @@ translation unit removes a module that could never have been a tested kernel.
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/visionclaw-gpu/build.rs`: `expect(&format!(..))` becomes `unwrap_or_else(|_| panic!(..))` (same message). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Amendment — 2026-10-19 (host toolchain selection)
+
+`build.rs` no longer looks for the nvcc host compiler only at four fixed `/usr` paths. `NVCC_CCBIN`, then
+`CUDAHOSTCXX`, then those paths choose it (`select_host_compiler`, `build.rs:96`), and the directory holding
+`cuda_runtime.h` under `CUDA_PATH` is added as `-I` when it exists; both are passed through
+`host_toolchain_args` to the PTX step (`:151`) and the object step (`:334`). The rules sit in
+`src/nvcc_toolchain.rs`, which `build.rs` includes and the library unit-tests (7 tests). The cause was that the
+Nix agentbox image has neither a supported host compiler on the old paths nor the CUDA headers beside `nvcc`,
+so every kernel failed and the fallback below hid it.
+
+Nothing else in this decision moved. Re-checked at the stamp: both nvcc failure modes still reach the fallback
+(`NvccOutcome::classify` at `:162-163`, `needs_fallback` at `:174`, fixed `fallback_paths` at `:182`), a missing
+fallback still panics (`:200`), the `.version` rewrite is `rewrite_ptx_version` (`:221`), and the output is
+rejected by `validate_ptx` (`:252`). Measured: with plain `nvcc`, only `NVCC_CCBIN` and `CUDA_PATH` set, and no
+wrapper on `PATH`, all eight modules report `provenance=compiled` and none a fallback, in the agentbox container
+that previously compiled none.
+
