@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy

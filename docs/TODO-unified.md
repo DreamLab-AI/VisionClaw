@@ -511,12 +511,22 @@ Closed in source (local commits unless stated; the agentbox ones take effect at 
 | In-tree `crates/codescape` after the submodule move | Removed (ADR-2143 A5) | `22b471282`, `79abb6b60`, `cff5cb8f2` |
 | VisionFlow divergence, ledger-row commits | Reconciled and pushed | VisionFlow `a9f6ed6`; fast-forwards in four repos |
 
+Added 2026-10-19 (second pass):
+
+| Item | Result | Evidence |
+|---|---|---|
+| Podcast linker snapped companies to product pages | Fixed: exact title or frontmatter alias only, ambiguous aliases left unlinked | agentbox `a861ebe25` |
+| Podcast ingest wiped its own state, wrote stubs on a YouTube 429 | Fixed: one nested state shape (legacy accepted), unreadable state aborts, 429 stops the batch and writes nothing, `run-catchup.sh` with a lock shared with the cron | agentbox `769d52bd1`, `e624ffff7` |
+| `visionclaw-gpu` would not build in agentbox | `nvcc` wrapper with the gcc 14 host compiler in the image; unverified until a rebuild | agentbox `efec6ebf9`, `5fe7d1f8d` |
+| 37 stale ADRs | Every one re-verified against the code; none violated; nine amended with their governing docs | this PR |
+| ontomark golden fails only on the dream annexe host | Cause found: layout trigonometry uses the host libm; recorded in `conformance/golden/README.md` | ontomark `00aa143` |
+
 Still open, owner or design needed:
 
 | Item | Why |
 |---|---|
 | Image rebuild, then bump the `agentbox` gitlink again | Podcast and dream-engine fixes are unbaked; the gitlink trails agentbox `main` |
-| `feat/codescape` PR | Needs a merge with 2 new `main` commits, re-verification of ADR-2011, 2012 and 2093 (and 34 already-stale ADRs on `main`), a full test run and a diff review |
+| ~~`feat/codescape` PR~~ | Merged 2026-10-19 as PR #29 (merge commit `b4a175412`). The 37 stale ADRs were re-verified and stamped in the follow-up; `docs/adr` now reports 128 valid |
 | agentbox `f5304bc78` (ADR-2144 activity sink) | On `origin/feat/codescape-activity-sink`; touches entrypoint, egress policy and manifest gate, so review before merging |
 | Podcast backlog policy | 52 new episodes, then 1,071 back-catalogue at 15 a week unless bounded |
 | Podcast linker snaps companies to product pages | Tuning decision |

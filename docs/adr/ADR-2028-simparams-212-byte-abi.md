@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size

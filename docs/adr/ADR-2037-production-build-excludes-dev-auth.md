@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene

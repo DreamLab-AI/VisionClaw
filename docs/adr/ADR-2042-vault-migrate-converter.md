@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 96d9c426d4b94b42840b95d6644df97ee9afd617
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker

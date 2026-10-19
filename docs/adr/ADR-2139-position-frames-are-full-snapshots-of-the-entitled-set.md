@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2141]
-verified_commit:
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: []
 owner: jjohare
 review_trigger: any change to a position encoder, the broadcast path, a client frame decoder, or the visibility filter

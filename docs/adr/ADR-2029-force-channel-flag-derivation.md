@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path

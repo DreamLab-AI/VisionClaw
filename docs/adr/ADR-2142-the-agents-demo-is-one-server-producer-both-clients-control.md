@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: []
 owner: jjohare
 review_trigger: any change to the demo's events or ids, to who can start it, or to what reads the agent-action rail

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"

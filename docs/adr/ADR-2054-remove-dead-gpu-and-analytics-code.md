@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/services/ontology_generation.rs, .github/workflows/ontology-publish.yml, src/services/ontology_pull.rs, src/main.rs, scripts/ontology/pack-pod-resources.py, client/src/features/ontology/services/jss/contextLoader.ts, client/src/features/ontology/services/jss/schemaParser.ts, env.example]
 owner: jjohare
 review_trigger: A pod that becomes reachable from CI (self-hosted runner or public endpoint); a change to the /public/ontology/ resource set; the release channel moving off GitHub (e.g. to the Loom or narrativegoldmine.com).

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/utils/auth.rs, src/services/nostr_service.rs, src/middleware/rbac_gate.rs, client/src/services/api/authInterceptor.ts]
 owner: jjohare
 review_trigger: React client migrating to per-request NIP-98 signing, or any multi-tenant deployment where session-bearer mutations are unacceptable

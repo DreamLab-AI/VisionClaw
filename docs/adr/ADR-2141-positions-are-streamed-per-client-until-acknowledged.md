@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2139]
 superseded_by: []
-verified_commit:
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: []
 owner: jjohare
 review_trigger: any change to how positions are encoded, chunked, acknowledged or entitled; any client frame decoder; any setting under physics.stream*

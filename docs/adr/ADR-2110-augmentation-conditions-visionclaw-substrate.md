@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases

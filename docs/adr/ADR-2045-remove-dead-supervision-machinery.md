@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: d38d430e6f086d7d08a8379b18f34b43e4d78f31
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/actors/mod.rs, src/actors/graph_service_supervisor.rs, crates/visionclaw-actors/src/supervisor.rs, tests/orchestration_improvements_test.rs]
 owner: jjohare
 review_trigger: a new supervision requirement that GraphServiceSupervisor cannot express

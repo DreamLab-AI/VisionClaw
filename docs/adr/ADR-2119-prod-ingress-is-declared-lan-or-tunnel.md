@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"

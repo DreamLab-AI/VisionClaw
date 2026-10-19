@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [crates/vault/src/build/turtle.rs, crates/vault/src/build/generation.rs, crates/vault/src/build/mod.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs, crates/vault/tests/golden/README.md]
 owner: jjohare
 review_trigger: the first consumer pinning a versionIRI (agentbox ADR-2129); the first property given a non-Thing domain or range; any change to the ontology IRI itself

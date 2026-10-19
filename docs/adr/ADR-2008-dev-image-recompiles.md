@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 67086c29ebce293d78f77d7bb668ae9ec0dac765
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [scripts/dev-entrypoint.sh, docker-compose.unified.yml, scripts/rust-backend-wrapper.sh, scripts/lib/dev-inputs.sh, scripts/launch.sh]
 owner: jjohare
 review_trigger: a dev-loop turnaround that makes on-start compilation intolerable, or a move to pre-baked dev binaries by default

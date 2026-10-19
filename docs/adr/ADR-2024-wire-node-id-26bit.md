@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/utils/binary_protocol.rs]
 owner: jjohare
 review_trigger: node count approaching 2^26, or promotion of the debug_assert ceiling to a runtime guard

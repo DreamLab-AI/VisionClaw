@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout

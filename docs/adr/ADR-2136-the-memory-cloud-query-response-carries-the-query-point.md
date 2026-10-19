@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 43838bf00867123d76cc50241ed87628ae6cab6a
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob

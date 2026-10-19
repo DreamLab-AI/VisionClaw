@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: []
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
