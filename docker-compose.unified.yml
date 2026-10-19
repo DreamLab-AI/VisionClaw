@@ -425,7 +425,7 @@ services:
 
   # Codescape (ADR-2143): human/agent voice collaboration over a near-real-time
   # code graph. A SEPARATE section of the estate: its own Cargo workspace
-  # (crates/codescape), its own port, its own target and data volumes, and no
+  # (the codescape/ submodule), its own port, its own target and data volumes, and no
   # path to the knowledge-work system. Deliberately NOT given: env_file .env
   # (which carries RUVECTOR_PG_CONNINFO), the /vault corpus, data/markdown or
   # data/metadata, the Neo4j/Oxigraph hosts. Opt in with CODESCAPE=1 in .env;

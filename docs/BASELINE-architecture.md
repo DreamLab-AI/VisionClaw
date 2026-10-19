@@ -79,8 +79,8 @@ server behind nginx:
 ### Codescape (separate section, ADR-2143)
 
 Codescape, a voice-collaborative live code-graph view, is a **separate section**, not part of the
-knowledge-work system. It is its own Cargo workspace at `crates/codescape/` with its own
-`Cargo.lock` (`crates/codescape/Cargo.toml:1-20`), never a root-workspace member, because the
+knowledge-work system. It is its own Cargo workspace in the `codescape/` git submodule
+(DreamLab-AI/codescape, ADR-2143 A5) with its own `Cargo.lock` (`codescape/Cargo.toml`), never a root-workspace member, because the
 graphicle engine it consumes (pinned git rev, `:40`) turns on serde_json `arbitrary_precision`,
 which Cargo would unify into every root build. It runs as its own compose service `codescape`
 (`docker-compose.unified.yml`, profiles `codescape`, enabled by `CODESCAPE=1` in `launch.sh`), on
@@ -89,7 +89,7 @@ published), and is reached through the dev nginx at `/codescape/` on `3001` as a
 (`nginx.dev.conf`, ADR-2143 A4). It produces the frozen V3/V5 contract unchanged (see
 `PROTOCOL-registry.md`, "Second producer: Codescape"). **Isolation** from the ontology,
 memory-cloud, vault, Oxigraph, RuVector/Postgres and Solid stores is enforced in four layers: the
-build graph (`crates/codescape/codescape-server/tests/isolation.rs`, where `visionclaw-wire` is the
+build graph (`codescape/crates/codescape-server/tests/isolation.rs`, where `visionclaw-wire` is the
 only VisionClaw crate allowed), source-only read-only mounts without `/vault`, `.env` or `data/`,
 the server's refusal to boot with a RuVector connection string, and the client import graph
 (`client/src/codescape/src/__tests__/isolation.test.ts`). Its only estate crate dependency is
@@ -307,10 +307,10 @@ read-only guard defaults off (`public_demo.rs:29-33`, `unwrap_or(false)`).
   → `ClientCoordinatorActor` → WebSocket. The live `ClientCoordinatorActor` must
   be the one clients register with (registry not empty).
 - Backend on `4000`, nginx `3001`, Vite `5173`, all inside `visionclaw_container`.
-- Codescape (ADR-2143) is a separate Cargo workspace and lock at `crates/codescape/`, on ports
+- Codescape (ADR-2143) is a separate Cargo workspace and lock in the `codescape/` submodule, on ports
   `4100`/`4101`, and its build graph contains no knowledge-work crate (ontology, memory-cloud,
   vault, Oxigraph, Postgres/RuVector, Solid, `visionclaw-server`), enforced by
-  `crates/codescape/codescape-server/tests/isolation.rs`.
+  `codescape/crates/codescape-server/tests/isolation.rs`.
 - RBAC open-by-default is a compose-env choice, not a structural code default;
   changing the compose defaults changes the security posture and requires a named
   security profile.

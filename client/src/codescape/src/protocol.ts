@@ -1,5 +1,5 @@
 /**
- * Wire mirror of `crates/codescape/codescape-model/src/{graph,delta,events,wire}.rs`.
+ * Wire mirror of `codescape/crates/codescape-model/src/{graph,delta,events,wire}.rs`.
  *
  * JSON enums are serde `tag = "type"`, snake_case. Newtype variants
  * (`Delta(GraphDelta)`, `Presence(PresenceEvent)`, …) flatten their payload's

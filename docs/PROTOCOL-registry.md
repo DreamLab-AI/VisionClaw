@@ -189,9 +189,9 @@ A session authenticated at the upgrade now reports its pubkey to the coordinator
 ### Second producer: Codescape (`:4100`, ADR-2143)
 
 Codescape is a second, independent producer of the frozen contract above, in its own Cargo
-workspace (`crates/codescape/`). It allocates **no** tag byte and **no** flag bit. Encoders and
-their fixture-pinned tests exist now (`crates/codescape/codescape-model/src/wire.rs`; the record
-layout is included by `#[path]` from `wire_fixtures.rs` at `wire.rs:18-19`). Serving is phased:
+workspace (the `codescape/` submodule). It allocates **no** tag byte and **no** flag bit. Encoders and
+their fixture-pinned tests exist now (`codescape/crates/codescape-model/src/wire.rs`; the record
+layout comes from the `visionclaw-wire` crate, which `visionclaw-protocol` re-exports). Serving is phased:
 `/ws/positions`, ack pacing and the 404 list land in P1, `/wss` emulation in P4.
 
 - **Frames.** V3 records inside V5 envelopes (`[0x05][u64 seq][52 B × n]`) on `/ws/positions`,

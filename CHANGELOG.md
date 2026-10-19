@@ -14,7 +14,7 @@ landed in `b63068e3d^..098d3ff98`. That range also carries unrelated commits (`a
 `2bf892c3f`, `392628eef`: TODO rows, ER-13, ER-24).
 `implementation_status: partial`; P0 done, P1 gate green, P2-P6 open.
 
-- **Crates.** Own Cargo workspace and lock at `crates/codescape/`, never a root member:
+- **Crates.** Own Cargo workspace and lock (first at `crates/codescape/`, since ADR-2143 A5 the `codescape/` submodule), never a root member:
   `codescape-model`, `codescape-ingest` (graphicle at a pinned rev), `codescape-layout`,
   `codescape-collab`, `codescape-server`, all AGPL-3.0-only today. A build-graph isolation test
   bans ontology, vault, RuVector and VisionClaw-server crates; the server exits 2 when handed

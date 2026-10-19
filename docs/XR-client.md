@@ -936,7 +936,7 @@ The HUD has a tenth tab, **Forces**, for the physics `semantic` group. It lists 
 
 ## Codescape as a second server (ADR-2143)
 
-Codescape (`crates/codescape`, port 4100) is a separate section of the estate that visualises a
+Codescape (the `codescape/` submodule, port 4100) is a separate section of the estate that visualises a
 code graph rather than the knowledge graph. It emulates this client's `/wss` contract so the Godot
 client needs no change: point `XR_BACKEND_WS` at `ws://<codescape-host>:4100` and the client receives
 an `initialGraphLoad` text frame (file-tier projection: directories and files, `node_type` is `file`
