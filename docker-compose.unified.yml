@@ -168,9 +168,6 @@ services:
         bind:
           create_host_path: false
       - ${HOST_PROJECT_ROOT:-.}/src:/app/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/codescape:/app/codescape:ro
-      # visionclaw-gpu (PTX build) path-depends on visionclaw-domain, so the
-      # whole crates tree stays mounted read-only for the artefact build.
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
       - ${HOST_PROJECT_ROOT:-.}/docs:/app/docs:ro
       # src/uri/mod.rs include_str!s agentbox/schema/federation-kinds.json at COMPILE
@@ -486,6 +483,10 @@ services:
     secrets:
       - codescape-ingest-token
     volumes:
+      # The standalone checkout (submodule) the entrypoint and build run from.
+      - ${HOST_PROJECT_ROOT:-.}/codescape:/app/codescape:ro
+      # visionclaw-gpu (PTX build) path-depends on visionclaw-domain, so the
+      # whole crates tree stays mounted read-only for the artefact build.
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
       - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
       - ${HOST_PROJECT_ROOT:-.}/scripts:/app/scripts:ro
