@@ -67,7 +67,7 @@ optionality are governed structurally, not by these named vars (see divergences)
   closed to `viewer` — the env var can narrow access, never widen it.
 - Any error in role lookup **fails closed to `Viewer`**, never up
   (`src/services/role_store.rs:204-208`).
-- `/api` gate policy (`rbac_gate.rs:133-169`): public allowlist
+- `/api` gate policy (`rbac_gate.rs:144-190`): public allowlist
   (`/api/auth/*`, `/api/client-logs`, health probes); `/api/admin/*` needs `Admin`
   for every method; safe reads public iff `RBAC_PUBLIC_READS`; mutations need
   `WriteSettings` under `/api/settings`, else `WriteGraph` (denies Viewer writes).
@@ -135,10 +135,10 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
 | `SETTINGS_AUTH_BYPASS` / `VISIONCLAW_DEV_MODE` / `ALLOW_INSECURE_DEFAULTS` set in a release build | Promotes dev auth relaxation to production | **Hard-fail at boot**, `src/main.rs:117-163` |
 | `--allow-skip-auth` argv in release | Same | Hard-fail, `src/main.rs:120-126` |
 | `NODE_ENV=development` + `DOCKER_ENV` both set | Dev config in a container image | Hard-fail, `src/main.rs:141-147` |
-| `RBAC_GATE_MODE=report` in release without `RBAC_REPORT_MODE_ACK=<today UTC>` | Would silently disable `/api` auth | Refuses to activate, falls back to enforce, `rbac_gate.rs:88-102` |
-| `RBAC_ALLOW_OWNERLESS=0` with no `RBAC_OWNER_PUBKEY` and no prior Owner | Permanent lockout / unmanageable RBAC | Refuses to start (`PermissionDenied`), `src/main.rs:808-818` |
+| `RBAC_GATE_MODE=report` in release without `RBAC_REPORT_MODE_ACK=<today UTC>` | Would silently disable `/api` auth | Refuses to activate, falls back to enforce, `rbac_gate.rs:96-111` |
+| `RBAC_ALLOW_OWNERLESS=0` with no `RBAC_OWNER_PUBKEY` and no prior Owner | Permanent lockout / unmanageable RBAC | Refuses to start (`PermissionDenied`), `src/main.rs:794-820` |
 | `RBAC_PUBLIC_READS=1` with `PUBKEY_VISIBILITY_FILTER=0` | Anonymous reads *and* private nodes on the wire = full data disclosure | **Machine-enforced — ADR-2043** (2026-09-05): an unconditional rule in `evaluate_effective_profile` (`src/config/security_profile.rs:422`) keyed on the pair itself, so it fires whether or not a profile is declared. Before ADR-2043 this pair was caught only *indirectly* — it matches no named profile, so it raised `ProfileDrift` when a profile was declared but merely classified as `Unnamed` when none was, and `Unnamed` is not itself fatal |
-| `APP_ENV` unset in a public deployment | Skips strict env validation and CORS lockdown (`main.rs:85,887`) | Not enforced; profiles pin `APP_ENV=production` |
+| `APP_ENV` unset in a public deployment | Skips strict env validation and CORS lockdown (`main.rs:85,1005`) | Not enforced; profiles pin `APP_ENV=production` |
 
 ## Known divergences & open items
 
@@ -146,7 +146,7 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
   `docker-compose.unified.yml:111-112` sets `RBAC_PUBLIC_READS: "${RBAC_PUBLIC_READS:-1}"`
   and `RBAC_ALLOW_OWNERLESS: "${RBAC_ALLOW_OWNERLESS:-1}"` — both are code-default
   **OFF/fail-closed** (`rbac_gate.rs:135-141`, `public_reads_enabled()` ending
-  `.unwrap_or(false)`; `main.rs:795-818`, which refuses to start without an Owner
+  `.unwrap_or(false)`; `main.rs:794-820`, which refuses to start without an Owner
   unless the flag is set). The image therefore boots owner-less with anonymous
   reads unless an operator overrides the `.env`. `PUBKEY_VISIBILITY_FILTER=1`
   (`docker-compose.unified.yml:125`) matches the code default
@@ -213,7 +213,7 @@ Each profile is an **exact** flag set. Anything not listed takes its code defaul
    as an unconditional rule, independent of whether a profile is declared.
 6. The security profile is asserted **before the listener binds**
    (`assert_effective_profile_or_exit`, `src/main.rs:950`, called from the block
-   at `:945-955`, ahead of `HttpServer::new` at `:970` and `.bind()` at `:1259`).
+   at `:937-955`, ahead of `HttpServer::new` at `:970` and `.bind()` at `:1259`).
    A production artefact with any finding exits 2 rather than serving a request
    (ADR-2038).
 7. Every `/api/memory-cloud*` endpoint, health included, requires a
@@ -260,7 +260,7 @@ ADR-2012 is partial: report mode is reachable with acknowledgement in a non-debu
   `:204`); re-cites the `?token=` WS path from `http_handler.rs:342-354` to the
   actual `:139-152` (query lookup at `:148`); re-cites the open-by-default bullet
   to `docker-compose.unified.yml:111-112` / `rbac_gate.rs:135-141` /
-  `main.rs:795-818`; and records that ADR-2027 satisfies the "needs a named,
+  `main.rs:794-820`; and records that ADR-2027 satisfies the "needs a named,
   ratified profile" condition while machine selection remains ADR-2038's open
   item. Compose defaults are unchanged — demo-open is ADR-2027's decision.
 - **ADR-2086** — Assert in CI that release images exclude the `dev-auth` cargo

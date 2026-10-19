@@ -170,3 +170,12 @@ The XR separation slider writes `graphSeparationX` through the existing physics 
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 The XR separation slider is gone (ADR-2135 amendment). `graph_scene.gd` no longer holds `_graph_separation` or writes `graphSeparationX`, and `graph_parity.gd` no longer reads it back. `data/settings.yaml` and `client/src/features/settings/config/settings.ts` drop the key. The physics PUT still targets `?graph=knowledge`, and a stray `graphSeparationX` in a body or a stored blob is accepted and ignored (`test_retired_graph_separation_x_loads_and_is_ignored`). Decision holds. Citations at 31bc3d3a1: `xr-client/scripts/graph_scene.gd:1237` (physics PUT, `?graph=knowledge`), `xr-client/scripts/graph_parity.gd:32` (read-back map, no separation), `crates/visionclaw-domain/src/models/simulation_params.rs:732` (retired-key test).
+
+## Amendment — 2026-10-19
+
+Re-verified at b4a175412. The record is superseded by ADR-2115, which removed the transitional half; the rename half holds. Governing doc `docs/VAULT-corpus-format.md` already lists the alias as deleted (line 109) and its changelog row 1.1.0 records the rename; no further doc edit was needed.
+
+- **Holds (the rename).** `GraphsSettings.knowledge` (`crates/visionclaw-domain/src/config/visualisation.rs:512-517`); client `GraphType = 'knowledge' | 'visionclaw'` (`client/src/features/graph/types/graphTypes.ts:3`); `data/settings.yaml:66-67` persists `graphs.knowledge`; every XR physics write targets `?graph=knowledge` (`xr-client/scripts/graph_scene.gd:1406`).
+- **Drifted (Decisions 1 and 4, the alias).** `#[serde(alias = "logseq")]` is gone (comment at `visualisation.rs:513-515`). `normalise_graph_type` (`crates/visionclaw-domain/src/config/graph_type.rs:13`) maps only `knowledge` and the `visionclaw` spellings; `logseq` passes through as unknown and is rejected, and `graphs_map_has_knowledge` / `path_targets_knowledge_graph` (`:25`, `:30`) test only `knowledge`. `AppSettings::get_physics` routes through it (`app_settings.rs:159-171`, moved from the cited `:159-171` body to use the helper).
+- **Residual (Decision 3, client shim).** `migrateGraphSettingsKey` still maps a persisted browser `graphs.logseq` object onto `knowledge` (`client/src/store/settings/settingsHelpers.ts:362-375`), the only surviving receive-side mapping; `graphTypes.ts:7-8` states the server rejects `logseq`.
+- Test counts above are historical and were not re-run.
