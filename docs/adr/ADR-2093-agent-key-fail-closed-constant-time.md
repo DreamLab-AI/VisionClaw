@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 4024ac777e2381cc1b667970ce7696e9808f1f42
 verified_paths: [src/utils/agent_key.rs, src/handlers/image_gen_handler.rs, src/handlers/liveness_harness_handler.rs, src/handlers/enrichment_proposals_handler.rs]
 owner: jjohare
 review_trigger: any new route that authenticates with VISIONCLAW_AGENT_KEY, or a change to the dev-auth build profile
@@ -118,3 +118,12 @@ $ cargo test -p visionclaw-server --lib liveness_harness_handler::auth_tests
 ```
 
 The decision (fail closed, constant-time) holds; only the implementation of the comparison moved.
+
+## Re-verification — 2026-10-19
+
+Governed path `src/handlers/enrichment_proposals_handler.rs` changed since the stamp: the ER-7 commits added
+`effective_tier` to `BrokerDecisionRequest` and `gate_tier` (the stricter of the declared and the forum's
+effective tier) in front of the rationale gate. Neither touches the agent-key check: `require_agent_key`
+(`:141`) still authorises only a non-empty configured key matched exactly, with no default and no bypass on
+the decision route, and `agent_key_tests` still run in the root `cargo test` of this branch. Stamp moved to
+`4024ac777`.
