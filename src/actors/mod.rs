@@ -11,10 +11,10 @@ pub mod decision_elevation_actor;
 // ADR-110 — voice → settings-assistant bridge (Control Center configuration agent)
 pub mod agent_monitor_actor;
 pub mod client_coordinator_actor;
-pub mod position_stream;
 pub mod client_filter;
 pub mod gpu;
 pub mod graph_state_actor;
+pub mod position_stream;
 pub mod voice_interface_actor;
 pub mod graph_actor {
     // Re-export graph_state_actor types for backward compatibility
@@ -71,9 +71,7 @@ pub use ontology_actor::{
     OntologyActorConfig, ValidationJob,
 };
 pub use optimized_settings_actor::OptimizedSettingsActor;
-pub use physics_orchestrator_actor::{
-    PhysicsOrchestratorActor,
-};
+pub use physics_orchestrator_actor::PhysicsOrchestratorActor;
 pub use protected_settings_actor::ProtectedSettingsActor;
 pub use semantic_processor_actor::{
     AISemanticFeatures, SemanticProcessorActor, SemanticProcessorConfig, SemanticStats,

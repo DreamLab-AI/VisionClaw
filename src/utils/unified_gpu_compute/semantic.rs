@@ -26,7 +26,6 @@
 //!    failure, not silently wrong forces.
 
 use crate::gpu::semantic_forces::SemanticForcesEngine;
-use visionclaw_domain::types::SemanticForces;
 use crate::services::semantic_type_registry::RelationshipForceConfig;
 use anyhow::{anyhow, Result};
 use cust::launch;
@@ -36,6 +35,7 @@ use cust::stream::Stream;
 use cust_core::DeviceCopy;
 use std::collections::HashMap;
 use visionclaw_domain::models::graph::GraphData;
+use visionclaw_domain::types::SemanticForces;
 
 const BLOCK: u32 = 256;
 /// Slots for the per-family centroid tables. `node_type_to_int` yields 0..=8; physicality
@@ -163,11 +163,20 @@ impl SemanticInputs {
             if v.len() == n {
                 Ok(v.to_vec())
             } else {
-                Err(anyhow!("semantic engine produced {} {} entries for {} nodes", v.len(), name, n))
+                Err(anyhow!(
+                    "semantic engine produced {} {} entries for {} nodes",
+                    v.len(),
+                    name,
+                    n
+                ))
             }
         };
-        let index: HashMap<u32, i32> =
-            graph.nodes.iter().enumerate().map(|(i, node)| (node.id, i as i32)).collect();
+        let index: HashMap<u32, i32> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (node.id, i as i32))
+            .collect();
         let types = engine.edge_types();
         let (mut src, mut dst, mut ty, mut wt) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for (i, e) in graph.edges.iter().enumerate() {
@@ -262,7 +271,11 @@ impl SemanticGpu {
             return Err(anyhow!("semantic forces need at least one node"));
         }
         let module = Module::from_ptx(ptx, &[])?;
-        let weights = if inputs.edge_weight.is_empty() { vec![0f32] } else { inputs.edge_weight.clone() };
+        let weights = if inputs.edge_weight.is_empty() {
+            vec![0f32]
+        } else {
+            inputs.edge_weight.clone()
+        };
         let mut me = Self {
             module,
             n,
@@ -294,7 +307,9 @@ impl SemanticGpu {
 
     /// Write the semantic configuration into this module's constant memory.
     pub fn set_config(&mut self, config: &SemanticForces) -> Result<()> {
-        let mut g = self.module.get_global::<ConfigImage>(c"c_semantic_config")?;
+        let mut g = self
+            .module
+            .get_global::<ConfigImage>(c"c_semantic_config")?;
         g.copy_from(&pack_config(config))?;
         Ok(())
     }
@@ -306,7 +321,9 @@ impl SemanticGpu {
         enabled: bool,
         version: i32,
     ) -> Result<()> {
-        let mut g = self.module.get_global::<DynamicImage>(c"c_dynamic_relationships")?;
+        let mut g = self
+            .module
+            .get_global::<DynamicImage>(c"c_dynamic_relationships")?;
         g.copy_from(&pack_dynamic(configs, enabled, version))?;
         self.dynamic_enabled = enabled;
         Ok(())
@@ -333,9 +350,22 @@ impl SemanticGpu {
     }
 
     /// Per-family centroid pass: zero the table, accumulate, finalise.
-    fn centroids(&self, stream: &Stream, family: &DeviceBuffer<i32>, table: &CentroidTable) -> Result<()> {
-        self.zero_words(stream, table.centroids.as_device_ptr().cast::<u32>(), TYPE_SLOTS * 3)?;
-        self.zero_words(stream, table.counts.as_device_ptr().cast::<u32>(), TYPE_SLOTS)?;
+    fn centroids(
+        &self,
+        stream: &Stream,
+        family: &DeviceBuffer<i32>,
+        table: &CentroidTable,
+    ) -> Result<()> {
+        self.zero_words(
+            stream,
+            table.centroids.as_device_ptr().cast::<u32>(),
+            TYPE_SLOTS * 3,
+        )?;
+        self.zero_words(
+            stream,
+            table.counts.as_device_ptr().cast::<u32>(),
+            TYPE_SLOTS,
+        )?;
         let calc = self.module.get_function("calculate_type_centroids")?;
         let fin = self.module.get_function("finalize_type_centroids")?;
         // SAFETY: family has n entries; positions has 3n floats; tables hold TYPE_SLOTS entries.
@@ -372,7 +402,10 @@ impl SemanticGpu {
     ) -> Result<()> {
         let n = self.n as i32;
         let m = &self.module;
-        let (gather, scatter) = (m.get_function("sf_gather_positions")?, m.get_function("sf_scatter_add_forces")?);
+        let (gather, scatter) = (
+            m.get_function("sf_gather_positions")?,
+            m.get_function("sf_scatter_add_forces")?,
+        );
         let zero_f = m.get_function("sf_zero_forces")?;
         // SAFETY (whole block): every pointer addresses a live device buffer sized for the
         // launch's node/edge count; kernels only read `pos` and only add into `forces`.
@@ -453,9 +486,21 @@ mod tests {
         assert_eq!(w[4], 1, "dag.enabled");
         assert_eq!(f32::from_bits(w[6]), 22.0, "type_cluster.cluster_radius");
         assert_eq!(f32::from_bits(w[11]), 33.0, "collision.node_radius");
-        assert_eq!(f32::from_bits(w[16]), 44.0, "attribute_spring.rest_length_max");
-        assert_eq!(f32::from_bits(w[20]), 55.0, "physicality_cluster.inter_physicality_repulsion");
-        assert_eq!(f32::from_bits(w[28]), 66.0, "maturity_layout.stage_separation");
+        assert_eq!(
+            f32::from_bits(w[16]),
+            44.0,
+            "attribute_spring.rest_length_max"
+        );
+        assert_eq!(
+            f32::from_bits(w[20]),
+            55.0,
+            "physicality_cluster.inter_physicality_repulsion"
+        );
+        assert_eq!(
+            f32::from_bits(w[28]),
+            66.0,
+            "maturity_layout.stage_separation"
+        );
         assert_eq!(f32::from_bits(w[33]), 77.0, "cross_domain.rest_length");
         assert_eq!(w[34], 0, "cross_domain.enabled");
     }
@@ -463,12 +508,25 @@ mod tests {
     #[test]
     fn dynamic_image_widens_bools_and_ignores_struct_padding() {
         let cfgs = [
-            RelationshipForceConfig { strength: 0.5, rest_length: 10.0, is_directional: false, force_type: 0 },
-            RelationshipForceConfig { strength: -1.0, rest_length: 99.0, is_directional: true, force_type: 3 },
+            RelationshipForceConfig {
+                strength: 0.5,
+                rest_length: 10.0,
+                is_directional: false,
+                force_type: 0,
+            },
+            RelationshipForceConfig {
+                strength: -1.0,
+                rest_length: 99.0,
+                is_directional: true,
+                force_type: 3,
+            },
         ];
         let w = pack_dynamic(&cfgs, true, 7).0;
         assert_eq!(w[2], 0);
-        assert_eq!(w[6], 1, "is_directional is a full int on the device, not a byte");
+        assert_eq!(
+            w[6], 1,
+            "is_directional is a full int on the device, not a byte"
+        );
         assert_eq!(f32::from_bits(w[5]), 99.0);
         assert_eq!(w[7], 3);
         assert_eq!(w[1024], 2, "num_types");
@@ -479,10 +537,18 @@ mod tests {
     #[test]
     fn more_than_the_device_capacity_is_truncated_not_overrun() {
         let cfgs = vec![
-            RelationshipForceConfig { strength: 1.0, rest_length: 1.0, is_directional: false, force_type: 0 };
+            RelationshipForceConfig {
+                strength: 1.0,
+                rest_length: 1.0,
+                is_directional: false,
+                force_type: 0
+            };
             MAX_RELATIONSHIP_TYPES + 40
         ];
-        assert_eq!(pack_dynamic(&cfgs, true, 1).0[1024] as usize, MAX_RELATIONSHIP_TYPES);
+        assert_eq!(
+            pack_dynamic(&cfgs, true, 1).0[1024] as usize,
+            MAX_RELATIONSHIP_TYPES
+        );
     }
 
     // ---- real-device tests (skip, loudly, where there is no CUDA device or PTX) ----
@@ -497,7 +563,9 @@ mod tests {
                 return None;
             }
         };
-        let ptx = match visionclaw_gpu::ptx_loader::load_ptx_module_sync(visionclaw_gpu::ptx_loader::PTXModule::SemanticForces) {
+        let ptx = match visionclaw_gpu::ptx_loader::load_ptx_module_sync(
+            visionclaw_gpu::ptx_loader::PTXModule::SemanticForces,
+        ) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("[semantic gpu tests] SKIPPED, no semantic PTX: {e}");
@@ -541,7 +609,9 @@ mod tests {
 
     #[test]
     fn the_device_reads_back_exactly_what_the_host_wrote() {
-        let Some((_ctx, stream, ptx)) = device() else { return };
+        let Some((_ctx, stream, ptx)) = device() else {
+            return;
+        };
         let mut c = SemanticForces::default();
         c.dag.vertical_spacing = 11.0;
         c.dag.enabled = true;
@@ -554,20 +624,44 @@ mod tests {
         c.cross_domain.enabled = true;
         let mut g = SemanticGpu::new(&ptx, &four_nodes(), &c).expect("gpu init");
         let rel = [
-            RelationshipForceConfig { strength: 0.1, rest_length: 1.0, is_directional: false, force_type: 0 },
-            RelationshipForceConfig { strength: 0.2, rest_length: 123.0, is_directional: true, force_type: 2 },
+            RelationshipForceConfig {
+                strength: 0.1,
+                rest_length: 1.0,
+                is_directional: false,
+                force_type: 0,
+            },
+            RelationshipForceConfig {
+                strength: 0.2,
+                rest_length: 123.0,
+                is_directional: true,
+                force_type: 2,
+            },
         ];
         g.set_relationships(&rel, true, 3).expect("relationships");
         let p = g.probe(&stream).expect("probe");
-        assert_eq!(p[0], (CONFIG_WORDS * 4) as f32, "device sizeof(SemanticConfig) must equal the host image");
-        assert_eq!(&p[1..10], &[11.0, 1.0, 22.0, 33.0, 44.0, 55.0, 66.0, 77.0, 1.0], "config fields at device offsets");
+        assert_eq!(
+            p[0],
+            (CONFIG_WORDS * 4) as f32,
+            "device sizeof(SemanticConfig) must equal the host image"
+        );
+        assert_eq!(
+            &p[1..10],
+            &[11.0, 1.0, 22.0, 33.0, 44.0, 55.0, 66.0, 77.0, 1.0],
+            "config fields at device offsets"
+        );
         assert_eq!(p[10], 4108.0, "device sizeof(DynamicRelationshipBuffer)");
-        assert_eq!(&p[11..15], &[2.0, 123.0, 2.0, 1.0], "dynamic table: num_types, configs[1].rest_length/force_type, enabled");
+        assert_eq!(
+            &p[11..15],
+            &[2.0, 123.0, 2.0, 1.0],
+            "dynamic table: num_types, configs[1].rest_length/force_type, enabled"
+        );
     }
 
     #[test]
     fn type_clustering_pulls_nodes_toward_their_type_centroid_and_adds_to_existing_forces() {
-        let Some((_ctx, stream, ptx)) = device() else { return };
+        let Some((_ctx, stream, ptx)) = device() else {
+            return;
+        };
         let g = SemanticGpu::new(&ptx, &four_nodes(), &only_type_cluster()).expect("gpu init");
         // Type 1 at x=-500/-1500 (centroid -1000), type 2 at x=+500/+1500 (centroid +1000).
         let x = DeviceBuffer::from_slice(&[-500f32, -1500.0, 500.0, 1500.0]).unwrap();
@@ -577,8 +671,16 @@ mod tests {
             let fx = DeviceBuffer::from_slice(&[5f32; 4]).unwrap(); // pre-existing live force
             let fy = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
             let fz = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
-            g.apply(&stream, x.as_device_ptr(), y.as_device_ptr(), z.as_device_ptr(),
-                fx.as_device_ptr(), fy.as_device_ptr(), fz.as_device_ptr()).expect("apply");
+            g.apply(
+                &stream,
+                x.as_device_ptr(),
+                y.as_device_ptr(),
+                z.as_device_ptr(),
+                fx.as_device_ptr(),
+                fy.as_device_ptr(),
+                fz.as_device_ptr(),
+            )
+            .expect("apply");
             stream.synchronize().unwrap();
             let mut out = [0f32; 4];
             fx.copy_to(&mut out[..]).unwrap();
@@ -589,22 +691,38 @@ mod tests {
         // added to the 5.0 already in the live buffer and applied exactly as stored (no scale).
         let expect = [5.0 - 140.0, 5.0 + 140.0, 5.0 + 140.0, 5.0 - 140.0];
         for i in 0..4 {
-            assert!((out[i] - expect[i]).abs() < 0.5, "node {i}: got {} want {}", out[i], expect[i]);
+            assert!(
+                (out[i] - expect[i]).abs() < 0.5,
+                "node {i}: got {} want {}",
+                out[i],
+                expect[i]
+            );
         }
         // Applying twice adds the semantic force twice (the buffer is not reset by apply).
         let again = {
             let fx = DeviceBuffer::from_slice(&out).unwrap();
             let fy = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
             let fz = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
-            g.apply(&stream, x.as_device_ptr(), y.as_device_ptr(), z.as_device_ptr(),
-                fx.as_device_ptr(), fy.as_device_ptr(), fz.as_device_ptr()).expect("apply");
+            g.apply(
+                &stream,
+                x.as_device_ptr(),
+                y.as_device_ptr(),
+                z.as_device_ptr(),
+                fx.as_device_ptr(),
+                fy.as_device_ptr(),
+                fz.as_device_ptr(),
+            )
+            .expect("apply");
             stream.synchronize().unwrap();
             let mut r = [0f32; 4];
             fx.copy_to(&mut r[..]).unwrap();
             r
         };
         for i in 0..4 {
-            assert!((again[i] - (out[i] + (out[i] - 5.0))).abs() < 0.5, "node {i}: forces must accumulate additively");
+            assert!(
+                (again[i] - (out[i] + (out[i] - 5.0))).abs() < 0.5,
+                "node {i}: forces must accumulate additively"
+            );
         }
     }
 
@@ -616,7 +734,9 @@ mod tests {
     fn the_stored_settings_document_is_what_the_device_holds() {
         use visionclaw_domain::models::simulation_params::SimulationParams;
         use visionclaw_domain::types::PhysicsSettings;
-        let Some((_ctx, stream, ptx)) = device() else { return };
+        let Some((_ctx, stream, ptx)) = device() else {
+            return;
+        };
 
         let mut doc = serde_json::to_value(PhysicsSettings::default()).unwrap();
         doc["semantic"]["dag"]["verticalSpacing"] = serde_json::json!(321.0);
@@ -629,18 +749,25 @@ mod tests {
         doc["semantic"]["crossDomain"]["restLength"] = serde_json::json!(77.0);
         doc["semantic"]["crossDomain"]["enabled"] = serde_json::json!(true);
 
-        let stored: PhysicsSettings = serde_json::from_value(doc).expect("the stored document parses");
+        let stored: PhysicsSettings =
+            serde_json::from_value(doc).expect("the stored document parses");
         let sim: SimulationParams = (&stored).into();
         sim.validate().expect("the actor's validation accepts it");
 
         let g = SemanticGpu::new(&ptx, &four_nodes(), &sim.semantic).expect("upload");
         let p = g.probe(&stream).expect("probe");
-        assert_eq!(&p[1..10], &[321.0, 0.0, 222.5, 33.25, 444.0, 5.5, 66.0, 77.0, 1.0], "device == stored document");
+        assert_eq!(
+            &p[1..10],
+            &[321.0, 0.0, 222.5, 33.25, 444.0, 5.5, 66.0, 77.0, 1.0],
+            "device == stored document"
+        );
     }
 
     #[test]
     fn a_settings_update_that_changes_one_force_changes_only_that_force_on_the_device() {
-        let Some((_ctx, stream, ptx)) = device() else { return };
+        let Some((_ctx, stream, ptx)) = device() else {
+            return;
+        };
         let mut cfg = SemanticForces::default();
         let mut g = SemanticGpu::new(&ptx, &four_nodes(), &cfg).expect("upload");
         let before = g.probe(&stream).expect("probe");
@@ -655,7 +782,9 @@ mod tests {
 
     #[test]
     fn a_disabled_force_adds_nothing() {
-        let Some((_ctx, stream, ptx)) = device() else { return };
+        let Some((_ctx, stream, ptx)) = device() else {
+            return;
+        };
         let mut c = only_type_cluster();
         c.type_cluster.enabled = false;
         let g = SemanticGpu::new(&ptx, &four_nodes(), &c).expect("gpu init");
@@ -664,8 +793,16 @@ mod tests {
         let fx = DeviceBuffer::from_slice(&[7f32; 4]).unwrap();
         let fy = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
         let fz = DeviceBuffer::from_slice(&[0f32; 4]).unwrap();
-        g.apply(&stream, x.as_device_ptr(), zero.as_device_ptr(), zero.as_device_ptr(),
-            fx.as_device_ptr(), fy.as_device_ptr(), fz.as_device_ptr()).expect("apply");
+        g.apply(
+            &stream,
+            x.as_device_ptr(),
+            zero.as_device_ptr(),
+            zero.as_device_ptr(),
+            fx.as_device_ptr(),
+            fy.as_device_ptr(),
+            fz.as_device_ptr(),
+        )
+        .expect("apply");
         stream.synchronize().unwrap();
         let mut out = [0f32; 4];
         fx.copy_to(&mut out[..]).unwrap();

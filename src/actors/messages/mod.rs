@@ -58,7 +58,7 @@ pub use physics_messages::{
     GetForceComputeActor,
     GetGPUMetrics,
     GetGPUStatus,
-    GetHierarchyLevels, HierarchyLevels, SetRelationshipTable,
+    GetHierarchyLevels,
     GetKernelMode,
     GetNodeData,
     GetPhysicsOrchestratorActor,
@@ -67,6 +67,7 @@ pub use physics_messages::{
     GetSettlementState,
     GetStressMajorizationConfig,
     GetStressMajorizationStats,
+    HierarchyLevels,
     InitializeGPU,
     InitializeGPUConnection,
     InitializeVisualAnalytics,
@@ -94,9 +95,9 @@ pub use physics_messages::{
     SetLayoutMode,
     SetPhysicsOrchestratorAddr,
     SetPhysicsSettingsSource,
-    SubscribeForceComputeReplaced,
     SetPhysicsSettled,
     SetRadialLayout,
+    SetRelationshipTable,
     SetSharedGPUContext,
     SettlementSnapshot,
     SimulationStep,
@@ -105,6 +106,7 @@ pub use physics_messages::{
     StoreAdvancedGPUContext,
     StoreGPUComputeAddress,
     StressMajorizationConfig,
+    SubscribeForceComputeReplaced,
     TriggerStressMajorization,
     UpdateClusteringParams,
     UpdateConstraintData,
@@ -141,8 +143,9 @@ pub use ontology_messages::{
 pub use client_messages::{
     AuthenticateClient, BroadcastAgentActionFrame, BroadcastMessage, ClientBroadcastAck,
     ClientRecipients, CloseClientSession, ConfigureStream, GetClientCount, PublishPositions,
-    RegisterClient, RelayToUserSessions, SendInitialGraphLoad, SendToClientBinary, SendToClientText, SetGraphServiceAddress, TransportCloser,
-    UnregisterClient, UpdateClientFilter,
+    RegisterClient, RelayToUserSessions, SendInitialGraphLoad, SendToClientBinary,
+    SendToClientText, SetGraphServiceAddress, TransportCloser, UnregisterClient,
+    UpdateClientFilter,
 };
 
 // --- analytics_messages ---

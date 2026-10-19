@@ -23,10 +23,10 @@ use visionclaw_server::actors::messages::{
     PublishPositions, RegisterClient, SendInitialGraphLoad, SendToClientBinary, SendToClientText,
     UpdateClientFilter, UpdateNodeTypeArrays,
 };
-use visionclaw_server::utils::socket_flow_messages::BinaryNodeDataClient;
 use visionclaw_server::handlers::socket_flow_handler::transport::{
     capture_transport, ConnTransport,
 };
+use visionclaw_server::utils::socket_flow_messages::BinaryNodeDataClient;
 
 const STALL_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -167,11 +167,18 @@ async fn a_client_that_never_reads_is_closed_after_the_stall_timeout() {
         .unwrap();
     // The classification (visibility policy) must have arrived before anything is streamed.
     coordinator.do_send(UpdateNodeTypeArrays {
-        arrays: NodeTypeArrays { loaded: true, ..Default::default() },
+        arrays: NodeTypeArrays {
+            loaded: true,
+            ..Default::default()
+        },
     });
     // Fast chunk timeout: this peer never acknowledges, so each timeout rebuilds and resends a
     // chunk, which is what fills its socket buffer (and then its mailbox) in test time.
-    coordinator.do_send(ConfigureStream { chunk_nodes: 2500, move_threshold: 0.0, ack_timeout_ms: 20 });
+    coordinator.do_send(ConfigureStream {
+        chunk_nodes: 2500,
+        move_threshold: 0.0,
+        ack_timeout_ms: 20,
+    });
 
     // A moving ~9.5k-node layout: every tick every node is somewhere new, so there is always a
     // chunk to send to a client that has acknowledged nothing.

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::actors::messages::{
-    BroadcastMessage, ConfigureStream, ForceResumePhysics, GetSettings,
-    ResetPositions, SetComputeMode, UpdateClusteringParams, UpdateConstraints, UpdateSettings,
+    BroadcastMessage, ConfigureStream, ForceResumePhysics, GetSettings, ResetPositions,
+    SetComputeMode, UpdateClusteringParams, UpdateConstraints, UpdateSettings,
     UpdateSimulationParams,
 };
 use crate::adapters::SqliteSettingsRepository;
@@ -127,7 +127,8 @@ pub fn validate_for_gpu(
     physics: &PhysicsSettings,
 ) -> Result<crate::models::simulation_params::SimulationParams, String> {
     let sim: crate::models::simulation_params::SimulationParams = physics.into();
-    sim.validate().map_err(|e| format!("GPU rejected these values: {e}"))?;
+    sim.validate()
+        .map_err(|e| format!("GPU rejected these values: {e}"))?;
     Ok(sim)
 }
 
@@ -634,7 +635,9 @@ pub async fn update_physics_settings(
             }
             // The stream settings are not SimParams fields either: they go straight to the
             // client coordinator that builds each client's chunks (already validated).
-            state.client_manager_addr.do_send(stream_settings_message(&new_physics));
+            state
+                .client_manager_addr
+                .do_send(stream_settings_message(&new_physics));
 
             info!("Sending UpdateSimulationParams to GraphServiceSupervisor");
             if let Err(e) = state.graph_service_addr.send(update_msg).await {
@@ -1133,9 +1136,14 @@ pub async fn update_quality_gate_settings(
         });
     }
 
-    info!("User {} updated quality gate settings: gpu={}, ontology={}, layout={}, maxNodeCount={}",
-          auth.pubkey, settings.gpu_acceleration, settings.ontology_physics,
-          settings.layout_mode, settings.max_node_count);
+    info!(
+        "User {} updated quality gate settings: gpu={}, ontology={}, layout={}, maxNodeCount={}",
+        auth.pubkey,
+        settings.gpu_acceleration,
+        settings.ontology_physics,
+        settings.layout_mode,
+        settings.max_node_count
+    );
 
     // Propagate GPU-affecting quality gate changes to the physics engine.
     // Fetch current physics from the settings actor so SimulationParams is built
@@ -1276,16 +1284,20 @@ pub(crate) fn merge_physics_patch(
     current: serde_json::Value,
     patch: serde_json::Value,
 ) -> Result<Option<PhysicsSettings>, serde_json::Error> {
-    let (serde_json::Value::Object(_), serde_json::Value::Object(patch)) = (&current, patch.clone()) else {
+    let (serde_json::Value::Object(_), serde_json::Value::Object(patch)) =
+        (&current, patch.clone())
+    else {
         return Ok(None);
     };
     let mut base = current;
     // Normalize incoming keys: map common aliases (snake_case, legacy names) to the canonical
     // camelCase field names used by PhysicsSettings.
-    deep_merge_json(&mut base, serde_json::Value::Object(normalize_physics_keys(patch)));
+    deep_merge_json(
+        &mut base,
+        serde_json::Value::Object(normalize_physics_keys(patch)),
+    );
     serde_json::from_value::<PhysicsSettings>(base).map(Some)
 }
-
 
 /// GET /api/settings/visual
 /// Returns the stored visual settings blob (glow, hologram, graphTypeVisuals,
@@ -1782,32 +1794,51 @@ mod tests {
         let patch = serde_json::json!({"semantic": {"typeCluster": {"clusterAttraction": 1.5}}});
         let merged = merge_physics_patch(current, patch).unwrap().unwrap();
 
-        assert_eq!(merged.semantic.type_cluster.cluster_attraction, 1.5, "the patched field");
-        assert_eq!(merged.semantic.type_cluster.cluster_radius, 321.0, "sibling in the same group survives");
-        assert_eq!(merged.semantic.dag.level_attraction, 0.9, "other groups survive");
-        assert_eq!(merged.semantic.collision.collision_strength, 0.7, "other groups survive");
+        assert_eq!(
+            merged.semantic.type_cluster.cluster_attraction, 1.5,
+            "the patched field"
+        );
+        assert_eq!(
+            merged.semantic.type_cluster.cluster_radius, 321.0,
+            "sibling in the same group survives"
+        );
+        assert_eq!(
+            merged.semantic.dag.level_attraction, 0.9,
+            "other groups survive"
+        );
+        assert_eq!(
+            merged.semantic.collision.collision_strength, 0.7,
+            "other groups survive"
+        );
         assert_eq!(merged.repel_k, stored.repel_k, "top-level fields survive");
     }
 
     #[test]
     fn a_top_level_patch_still_works_and_aliases_are_normalised() {
         let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
-        let merged = merge_physics_patch(current, serde_json::json!({"repelK": 77.0})).unwrap().unwrap();
+        let merged = merge_physics_patch(current, serde_json::json!({"repelK": 77.0}))
+            .unwrap()
+            .unwrap();
         assert_eq!(merged.repel_k, 77.0);
     }
 
     #[test]
     fn a_nested_typo_in_a_patch_is_an_error_not_a_silent_no_op() {
         let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
-        let err = merge_physics_patch(current, serde_json::json!({"semantic": {"dag": {"level_attraction": 0.9}}}))
-            .expect_err("the control would otherwise do nothing and still answer 200");
+        let err = merge_physics_patch(
+            current,
+            serde_json::json!({"semantic": {"dag": {"level_attraction": 0.9}}}),
+        )
+        .expect_err("the control would otherwise do nothing and still answer 200");
         assert!(err.to_string().contains("unknown field"), "{err}");
     }
 
     #[test]
     fn a_non_object_patch_merges_nothing() {
         let current = serde_json::to_value(PhysicsSettings::default()).unwrap();
-        assert!(merge_physics_patch(current, serde_json::json!(5)).unwrap().is_none());
+        assert!(merge_physics_patch(current, serde_json::json!(5))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1826,7 +1857,10 @@ mod tests {
 
         let mut order = PhysicsSettings::default();
         order.semantic.attribute_spring.rest_length_min = 400.0;
-        assert!(validate_for_gpu(&order).is_err(), "inverted rest-length range");
+        assert!(
+            validate_for_gpu(&order).is_err(),
+            "inverted rest-length range"
+        );
     }
 
     #[test]
@@ -1834,14 +1868,42 @@ mod tests {
         // Found by sweeping extreme values through every numeric field: the route-level
         // check passes all of these, `SimulationParams::validate` (the actor) refuses them.
         let cases: [(&str, PhysicsSettings); 4] = [
-            ("rest_length", PhysicsSettings { rest_length: 0.0, ..PhysicsSettings::default() }),
-            ("rest_length", PhysicsSettings { rest_length: -1.0, ..PhysicsSettings::default() }),
-            ("separation_radius", PhysicsSettings { separation_radius: -1.0, ..PhysicsSettings::default() }),
-            ("center_gravity_k", PhysicsSettings { center_gravity_k: -1.0, ..PhysicsSettings::default() }),
+            (
+                "rest_length",
+                PhysicsSettings {
+                    rest_length: 0.0,
+                    ..PhysicsSettings::default()
+                },
+            ),
+            (
+                "rest_length",
+                PhysicsSettings {
+                    rest_length: -1.0,
+                    ..PhysicsSettings::default()
+                },
+            ),
+            (
+                "separation_radius",
+                PhysicsSettings {
+                    separation_radius: -1.0,
+                    ..PhysicsSettings::default()
+                },
+            ),
+            (
+                "center_gravity_k",
+                PhysicsSettings {
+                    center_gravity_k: -1.0,
+                    ..PhysicsSettings::default()
+                },
+            ),
         ];
         for (field, bad) in cases {
-            assert!(validate_physics_settings(&bad).is_ok(), "{field}: the route-level check lets this through");
-            let err = validate_for_gpu(&bad).expect_err("the actor's validation must be applied up front");
+            assert!(
+                validate_physics_settings(&bad).is_ok(),
+                "{field}: the route-level check lets this through"
+            );
+            let err = validate_for_gpu(&bad)
+                .expect_err("the actor's validation must be applied up front");
             assert!(err.contains(field), "{field}: {err}");
         }
     }
@@ -1896,6 +1958,9 @@ mod tests {
     #[test]
     fn physics_settings_map_to_the_stream_message() {
         let msg = stream_settings_message(&with_stream(800, 0.5, 250));
-        assert_eq!((msg.chunk_nodes, msg.move_threshold, msg.ack_timeout_ms), (800, 0.5, 250));
+        assert_eq!(
+            (msg.chunk_nodes, msg.move_threshold, msg.ack_timeout_ms),
+            (800, 0.5, 250)
+        );
     }
 }

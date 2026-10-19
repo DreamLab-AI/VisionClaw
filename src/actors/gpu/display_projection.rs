@@ -248,7 +248,9 @@ pub(crate) fn unproject_point(
         DisplayMode::ZScale => Vec3::new(display.x, display.y, display.z / params.face_scale),
         DisplayMode::Triangle => {
             let mut local = match pop.vertex() {
-                Some(v) => Vec3::from_array(TriangleFrame::separated().unplace(v, display.to_array())),
+                Some(v) => {
+                    Vec3::from_array(TriangleFrame::separated().unplace(v, display.to_array()))
+                }
                 None => display,
             };
             local.z /= params.face_scale;
@@ -300,14 +302,23 @@ mod tests {
             for i in 0..pos.len() {
                 let back = unproject_point(shown[i], pops[i], &centroids, &params, mode);
                 let local = pos[i] - centroids[pops[i].index()];
-                let beyond_rim = dual && (local.x * local.x + local.y * local.y).sqrt() > DISC_RIM_RADIUS;
+                let beyond_rim =
+                    dual && (local.x * local.x + local.y * local.y).sqrt() > DISC_RIM_RADIUS;
                 if beyond_rim {
                     // The rim clamp is not invertible: such a point comes back ON the rim.
                     let back_local = back - centroids[pops[i].index()];
                     let r = (back_local.x * back_local.x + back_local.y * back_local.y).sqrt();
-                    assert!((r - DISC_RIM_RADIUS).abs() < 1.0, "node {i} should land on the rim, r={r}");
+                    assert!(
+                        (r - DISC_RIM_RADIUS).abs() < 1.0,
+                        "node {i} should land on the rim, r={r}"
+                    );
                 } else {
-                    assert!((back - pos[i]).length() < 1e-2, "dual={dual} z={z} node {i}: {:?} vs {:?}", back, pos[i]);
+                    assert!(
+                        (back - pos[i]).length() < 1e-2,
+                        "dual={dual} z={z} node {i}: {:?} vs {:?}",
+                        back,
+                        pos[i]
+                    );
                 }
             }
         }
@@ -317,9 +328,21 @@ mod tests {
     fn the_z_scale_fallback_and_identity_invert_too() {
         let params = LayoutParams::new(0.5, false);
         let c = [Vec3::ZERO; 3];
-        let back = unproject_point(Vec3::new(1.0, 2.0, 3.0), GraphPopulation::Knowledge, &c, &params, DisplayMode::ZScale);
+        let back = unproject_point(
+            Vec3::new(1.0, 2.0, 3.0),
+            GraphPopulation::Knowledge,
+            &c,
+            &params,
+            DisplayMode::ZScale,
+        );
         assert_eq!(back, Vec3::new(1.0, 2.0, 6.0));
-        let id = unproject_point(Vec3::new(1.0, 2.0, 3.0), GraphPopulation::Agent, &c, &params, DisplayMode::Identity);
+        let id = unproject_point(
+            Vec3::new(1.0, 2.0, 3.0),
+            GraphPopulation::Agent,
+            &c,
+            &params,
+            DisplayMode::Identity,
+        );
         assert_eq!(id, Vec3::new(1.0, 2.0, 3.0));
     }
 

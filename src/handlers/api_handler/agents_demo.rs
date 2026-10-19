@@ -20,7 +20,9 @@ pub struct SetDemo {
 pub async fn get_demo(state: web::Data<AppState>) -> impl Responder {
     match state.agent_demo_addr.send(GetAgentDemoStatus).await {
         Ok(status) => HttpResponse::Ok().json(status),
-        Err(e) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": e.to_string() })),
+        Err(e) => {
+            HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": e.to_string() }))
+        }
     }
 }
 
@@ -34,12 +36,14 @@ pub async fn set_demo(
         match state.agent_demo_addr.send(StartAgentDemo).await {
             Ok(Ok(status)) => HttpResponse::Ok().json(status),
             Ok(Err(e)) => HttpResponse::Conflict().json(serde_json::json!({ "error": e })),
-            Err(e) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": e.to_string() })),
+            Err(e) => HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({ "error": e.to_string() })),
         }
     } else {
         match state.agent_demo_addr.send(StopAgentDemo).await {
             Ok(status) => HttpResponse::Ok().json(status),
-            Err(e) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": e.to_string() })),
+            Err(e) => HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({ "error": e.to_string() })),
         }
     }
 }

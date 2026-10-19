@@ -271,4 +271,3 @@ pub fn create_test_enrichment_service(
         reasoner, classifier,
     )
 }
-

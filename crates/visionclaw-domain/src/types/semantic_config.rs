@@ -47,7 +47,13 @@ pub struct DagForce {
 
 impl Default for DagForce {
     fn default() -> Self {
-        Self { vertical_spacing: 100.0, horizontal_spacing: 50.0, level_attraction: 0.03, sibling_repulsion: 0.05, enabled: false }
+        Self {
+            vertical_spacing: 100.0,
+            horizontal_spacing: 50.0,
+            level_attraction: 0.03,
+            sibling_repulsion: 0.05,
+            enabled: false,
+        }
     }
 }
 
@@ -68,7 +74,12 @@ pub struct TypeClusterForce {
 
 impl Default for TypeClusterForce {
     fn default() -> Self {
-        Self { cluster_attraction: 0.4, cluster_radius: 150.0, inter_cluster_repulsion: 0.2, enabled: true }
+        Self {
+            cluster_attraction: 0.4,
+            cluster_radius: 150.0,
+            inter_cluster_repulsion: 0.2,
+            enabled: true,
+        }
     }
 }
 
@@ -87,7 +98,12 @@ pub struct CollisionForce {
 
 impl Default for CollisionForce {
     fn default() -> Self {
-        Self { min_distance: 5.0, collision_strength: 0.2, node_radius: 10.0, enabled: true }
+        Self {
+            min_distance: 5.0,
+            collision_strength: 0.2,
+            node_radius: 10.0,
+            enabled: true,
+        }
     }
 }
 
@@ -109,7 +125,13 @@ pub struct AttributeSpringForce {
 
 impl Default for AttributeSpringForce {
     fn default() -> Self {
-        Self { base_spring_k: 0.01, weight_multiplier: 0.5, rest_length_min: 30.0, rest_length_max: 200.0, enabled: true }
+        Self {
+            base_spring_k: 0.01,
+            weight_multiplier: 0.5,
+            rest_length_min: 30.0,
+            rest_length_max: 200.0,
+            enabled: true,
+        }
     }
 }
 
@@ -128,7 +150,12 @@ pub struct PhysicalityClusterForce {
 
 impl Default for PhysicalityClusterForce {
     fn default() -> Self {
-        Self { cluster_attraction: 0.5, cluster_radius: 180.0, inter_physicality_repulsion: 0.25, enabled: true }
+        Self {
+            cluster_attraction: 0.5,
+            cluster_radius: 180.0,
+            inter_physicality_repulsion: 0.25,
+            enabled: true,
+        }
     }
 }
 
@@ -147,7 +174,12 @@ pub struct RoleClusterForce {
 
 impl Default for RoleClusterForce {
     fn default() -> Self {
-        Self { cluster_attraction: 0.45, cluster_radius: 160.0, inter_role_repulsion: 0.2, enabled: true }
+        Self {
+            cluster_attraction: 0.45,
+            cluster_radius: 160.0,
+            inter_role_repulsion: 0.2,
+            enabled: true,
+        }
     }
 }
 
@@ -167,7 +199,12 @@ pub struct MaturityLayoutForce {
 
 impl Default for MaturityLayoutForce {
     fn default() -> Self {
-        Self { vertical_spacing: 150.0, level_attraction: 0.08, stage_separation: 100.0, enabled: false }
+        Self {
+            vertical_spacing: 150.0,
+            level_attraction: 0.08,
+            stage_separation: 100.0,
+            enabled: false,
+        }
     }
 }
 
@@ -190,7 +227,13 @@ pub struct CrossDomainForce {
 
 impl Default for CrossDomainForce {
     fn default() -> Self {
-        Self { base_strength: 0.3, link_count_multiplier: 0.1, max_strength_boost: 2.0, rest_length: 200.0, enabled: true }
+        Self {
+            base_strength: 0.3,
+            link_count_multiplier: 0.1,
+            max_strength_boost: 2.0,
+            rest_length: 200.0,
+            enabled: true,
+        }
     }
 }
 
@@ -237,28 +280,85 @@ impl SemanticForces {
             ("dag.horizontalSpacing", self.dag.horizontal_spacing),
             ("dag.levelAttraction", self.dag.level_attraction),
             ("dag.siblingRepulsion", self.dag.sibling_repulsion),
-            ("typeCluster.clusterAttraction", self.type_cluster.cluster_attraction),
-            ("typeCluster.clusterRadius", self.type_cluster.cluster_radius),
-            ("typeCluster.interClusterRepulsion", self.type_cluster.inter_cluster_repulsion),
+            (
+                "typeCluster.clusterAttraction",
+                self.type_cluster.cluster_attraction,
+            ),
+            (
+                "typeCluster.clusterRadius",
+                self.type_cluster.cluster_radius,
+            ),
+            (
+                "typeCluster.interClusterRepulsion",
+                self.type_cluster.inter_cluster_repulsion,
+            ),
             ("collision.minDistance", self.collision.min_distance),
-            ("collision.collisionStrength", self.collision.collision_strength),
+            (
+                "collision.collisionStrength",
+                self.collision.collision_strength,
+            ),
             ("collision.nodeRadius", self.collision.node_radius),
-            ("attributeSpring.baseSpringK", self.attribute_spring.base_spring_k),
-            ("attributeSpring.weightMultiplier", self.attribute_spring.weight_multiplier),
-            ("attributeSpring.restLengthMin", self.attribute_spring.rest_length_min),
-            ("attributeSpring.restLengthMax", self.attribute_spring.rest_length_max),
-            ("physicalityCluster.clusterAttraction", self.physicality_cluster.cluster_attraction),
-            ("physicalityCluster.clusterRadius", self.physicality_cluster.cluster_radius),
-            ("physicalityCluster.interPhysicalityRepulsion", self.physicality_cluster.inter_physicality_repulsion),
-            ("roleCluster.clusterAttraction", self.role_cluster.cluster_attraction),
-            ("roleCluster.clusterRadius", self.role_cluster.cluster_radius),
-            ("roleCluster.interRoleRepulsion", self.role_cluster.inter_role_repulsion),
-            ("maturityLayout.verticalSpacing", self.maturity_layout.vertical_spacing),
-            ("maturityLayout.levelAttraction", self.maturity_layout.level_attraction),
-            ("maturityLayout.stageSeparation", self.maturity_layout.stage_separation),
+            (
+                "attributeSpring.baseSpringK",
+                self.attribute_spring.base_spring_k,
+            ),
+            (
+                "attributeSpring.weightMultiplier",
+                self.attribute_spring.weight_multiplier,
+            ),
+            (
+                "attributeSpring.restLengthMin",
+                self.attribute_spring.rest_length_min,
+            ),
+            (
+                "attributeSpring.restLengthMax",
+                self.attribute_spring.rest_length_max,
+            ),
+            (
+                "physicalityCluster.clusterAttraction",
+                self.physicality_cluster.cluster_attraction,
+            ),
+            (
+                "physicalityCluster.clusterRadius",
+                self.physicality_cluster.cluster_radius,
+            ),
+            (
+                "physicalityCluster.interPhysicalityRepulsion",
+                self.physicality_cluster.inter_physicality_repulsion,
+            ),
+            (
+                "roleCluster.clusterAttraction",
+                self.role_cluster.cluster_attraction,
+            ),
+            (
+                "roleCluster.clusterRadius",
+                self.role_cluster.cluster_radius,
+            ),
+            (
+                "roleCluster.interRoleRepulsion",
+                self.role_cluster.inter_role_repulsion,
+            ),
+            (
+                "maturityLayout.verticalSpacing",
+                self.maturity_layout.vertical_spacing,
+            ),
+            (
+                "maturityLayout.levelAttraction",
+                self.maturity_layout.level_attraction,
+            ),
+            (
+                "maturityLayout.stageSeparation",
+                self.maturity_layout.stage_separation,
+            ),
             ("crossDomain.baseStrength", self.cross_domain.base_strength),
-            ("crossDomain.linkCountMultiplier", self.cross_domain.link_count_multiplier),
-            ("crossDomain.maxStrengthBoost", self.cross_domain.max_strength_boost),
+            (
+                "crossDomain.linkCountMultiplier",
+                self.cross_domain.link_count_multiplier,
+            ),
+            (
+                "crossDomain.maxStrengthBoost",
+                self.cross_domain.max_strength_boost,
+            ),
             ("crossDomain.restLength", self.cross_domain.rest_length),
         ]
     }
@@ -276,9 +376,16 @@ impl SemanticForces {
             problems.push(format!("semantic forces: {e}"));
         }
         if self.attribute_spring.rest_length_min > self.attribute_spring.rest_length_max {
-            problems.push("semantic forces: attributeSpring.restLengthMin must not exceed restLengthMax".to_string());
+            problems.push(
+                "semantic forces: attributeSpring.restLengthMin must not exceed restLengthMax"
+                    .to_string(),
+            );
         }
-        if problems.is_empty() { Ok(()) } else { Err(problems) }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems)
+        }
     }
 }
 
@@ -300,11 +407,42 @@ pub struct FieldSpec {
     pub step: f32,
 }
 
-const fn slider(path: &'static str, group: &'static str, label: &'static str, description: &'static str, min: f32, max: f32, step: f32) -> FieldSpec {
-    FieldSpec { path, group, label, description, kind: "slider", min, max, step }
+const fn slider(
+    path: &'static str,
+    group: &'static str,
+    label: &'static str,
+    description: &'static str,
+    min: f32,
+    max: f32,
+    step: f32,
+) -> FieldSpec {
+    FieldSpec {
+        path,
+        group,
+        label,
+        description,
+        kind: "slider",
+        min,
+        max,
+        step,
+    }
 }
-const fn toggle(path: &'static str, group: &'static str, label: &'static str, description: &'static str) -> FieldSpec {
-    FieldSpec { path, group, label, description, kind: "toggle", min: 0.0, max: 0.0, step: 0.0 }
+const fn toggle(
+    path: &'static str,
+    group: &'static str,
+    label: &'static str,
+    description: &'static str,
+) -> FieldSpec {
+    FieldSpec {
+        path,
+        group,
+        label,
+        description,
+        kind: "toggle",
+        min: 0.0,
+        max: 0.0,
+        step: 0.0,
+    }
 }
 
 pub const FIELDS: &[FieldSpec] = &[
@@ -350,7 +488,11 @@ pub const FIELDS: &[FieldSpec] = &[
 pub fn fields_json() -> serde_json::Value {
     // f32 -> the shortest decimal that round-trips as an f32 (0.03, not 0.029999999329447746).
     let clean = |v: f32| -> serde_json::Value {
-        serde_json::Value::from(format!("{v}").parse::<f64>().expect("a finite f32 prints as a number"))
+        serde_json::Value::from(
+            format!("{v}")
+                .parse::<f64>()
+                .expect("a finite f32 prints as a number"),
+        )
     };
     let defaults = serde_json::to_value(SemanticForces::default()).expect("defaults serialise");
     let rows: Vec<serde_json::Value> = FIELDS
@@ -384,7 +526,8 @@ mod tests {
     /// Set one field of the default document by wire path and return the resulting group.
     fn with_field(path: &str, v: serde_json::Value) -> SemanticForces {
         let mut doc = serde_json::to_value(SemanticForces::default()).unwrap();
-        *doc.pointer_mut(&format!("/{}", path.replace('.', "/"))).expect("path exists") = v;
+        *doc.pointer_mut(&format!("/{}", path.replace('.', "/")))
+            .expect("path exists") = v;
         serde_json::from_value(doc).expect("still a valid document")
     }
 
@@ -396,8 +539,21 @@ mod tests {
         paths.dedup();
         assert_eq!(paths.len(), n, "no duplicate path");
         // every float and every enable flag has a row
-        let mut expected: Vec<String> = SemanticForces::default().floats().into_iter().map(|(p, _)| p.to_string()).collect();
-        for g in ["dag", "typeCluster", "collision", "attributeSpring", "physicalityCluster", "roleCluster", "maturityLayout", "crossDomain"] {
+        let mut expected: Vec<String> = SemanticForces::default()
+            .floats()
+            .into_iter()
+            .map(|(p, _)| p.to_string())
+            .collect();
+        for g in [
+            "dag",
+            "typeCluster",
+            "collision",
+            "attributeSpring",
+            "physicalityCluster",
+            "roleCluster",
+            "maturityLayout",
+            "crossDomain",
+        ] {
             expected.push(format!("{g}.enabled"));
         }
         expected.sort();
@@ -415,21 +571,54 @@ mod tests {
                 let mut c = c;
                 // keep the cross-field rule satisfied while probing a rest-length end
                 if f.path.starts_with("attributeSpring.restLength") {
-                    c.attribute_spring.rest_length_min = c.attribute_spring.rest_length_min.min(c.attribute_spring.rest_length_max);
+                    c.attribute_spring.rest_length_min = c
+                        .attribute_spring
+                        .rest_length_min
+                        .min(c.attribute_spring.rest_length_max);
                 }
-                assert!(c.validate().is_ok(), "{} = {edge} must be accepted: {:?}", f.path, c.validate());
+                assert!(
+                    c.validate().is_ok(),
+                    "{} = {edge} must be accepted: {:?}",
+                    f.path,
+                    c.validate()
+                );
             }
             // ... and just outside either end is rejected
             let below = f.min - f.step.max(1e-3);
             let above = f.max + f.step.max(1e-3);
-            assert!(with_field(f.path, serde_json::json!(below)).validate().is_err(), "{} = {below} must be rejected", f.path);
-            assert!(with_field(f.path, serde_json::json!(above)).validate().is_err(), "{} = {above} must be rejected", f.path);
+            assert!(
+                with_field(f.path, serde_json::json!(below))
+                    .validate()
+                    .is_err(),
+                "{} = {below} must be rejected",
+                f.path
+            );
+            assert!(
+                with_field(f.path, serde_json::json!(above))
+                    .validate()
+                    .is_err(),
+                "{} = {above} must be rejected",
+                f.path
+            );
             // and the default lies inside
             let d = SemanticForces::default();
             let doc = serde_json::to_value(&d).unwrap();
-            let dv = doc.pointer(&format!("/{}", f.path.replace('.', "/"))).and_then(|v| v.as_f64()).unwrap() as f32;
-            assert!(dv >= f.min && dv <= f.max, "{} default {dv} outside {}..{}", f.path, f.min, f.max);
-            assert!(f.step > 0.0 && f.step <= f.max - f.min, "{} has a usable step", f.path);
+            let dv = doc
+                .pointer(&format!("/{}", f.path.replace('.', "/")))
+                .and_then(|v| v.as_f64())
+                .unwrap() as f32;
+            assert!(
+                dv >= f.min && dv <= f.max,
+                "{} default {dv} outside {}..{}",
+                f.path,
+                f.min,
+                f.max
+            );
+            assert!(
+                f.step > 0.0 && f.step <= f.max - f.min,
+                "{} has a usable step",
+                f.path
+            );
         }
     }
 
@@ -440,9 +629,15 @@ mod tests {
     fn the_committed_json_copies_are_current() {
         let want = serde_json::to_string_pretty(&fields_json()).unwrap() + "\n";
         for rel in COPIES {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
-            let have = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-            assert_eq!(have, want, "{rel} is stale: regenerate the semantic field copies");
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(rel);
+            let have = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert_eq!(
+                have, want,
+                "{rel} is stale: regenerate the semantic field copies"
+            );
         }
     }
 
@@ -451,7 +646,9 @@ mod tests {
     fn regenerate_semantic_field_copies() {
         let want = serde_json::to_string_pretty(&fields_json()).unwrap() + "\n";
         for rel in COPIES {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &want).unwrap();
         }
@@ -467,14 +664,24 @@ mod tests {
     fn defaults_pass_validation_and_round_trip() {
         let d = SemanticForces::default();
         assert!(d.check().is_ok());
-        let back: SemanticForces = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+        let back: SemanticForces =
+            serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(back, d);
     }
 
     #[test]
     fn wire_names_are_camel_case_and_stable() {
         let j = serde_json::to_value(SemanticForces::default()).unwrap();
-        for k in ["dag", "typeCluster", "collision", "attributeSpring", "physicalityCluster", "roleCluster", "maturityLayout", "crossDomain"] {
+        for k in [
+            "dag",
+            "typeCluster",
+            "collision",
+            "attributeSpring",
+            "physicalityCluster",
+            "roleCluster",
+            "maturityLayout",
+            "crossDomain",
+        ] {
             assert!(j.get(k).is_some(), "missing group {k}");
         }
         assert!(j["dag"].get("levelAttraction").is_some() && j["dag"].get("enabled").is_some());
@@ -521,7 +728,10 @@ mod tests {
         assert!(c.check().is_err(), "min above max");
         let mut c = SemanticForces::default();
         c.dag.vertical_spacing = 0.0;
-        assert!(c.check().is_err(), "a zero spacing would collapse every level onto one plane");
+        assert!(
+            c.check().is_err(),
+            "a zero spacing would collapse every level onto one plane"
+        );
     }
 
     #[test]
@@ -530,14 +740,32 @@ mod tests {
         // group cannot silently escape the finiteness check.
         fn numbers(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
             match v {
-                serde_json::Value::Object(m) => m.iter().for_each(|(k, x)| numbers(x, &if path.is_empty() { k.clone() } else { format!("{path}.{k}") }, out)),
+                serde_json::Value::Object(m) => m.iter().for_each(|(k, x)| {
+                    numbers(
+                        x,
+                        &if path.is_empty() {
+                            k.clone()
+                        } else {
+                            format!("{path}.{k}")
+                        },
+                        out,
+                    )
+                }),
                 serde_json::Value::Number(_) => out.push(path.to_string()),
                 _ => {}
             }
         }
         let mut wire = Vec::new();
-        numbers(&serde_json::to_value(SemanticForces::default()).unwrap(), "", &mut wire);
-        let mut listed: Vec<String> = SemanticForces::default().floats().into_iter().map(|(n, _)| n.to_string()).collect();
+        numbers(
+            &serde_json::to_value(SemanticForces::default()).unwrap(),
+            "",
+            &mut wire,
+        );
+        let mut listed: Vec<String> = SemanticForces::default()
+            .floats()
+            .into_iter()
+            .map(|(n, _)| n.to_string())
+            .collect();
         wire.sort();
         listed.sort();
         assert_eq!(listed, wire);

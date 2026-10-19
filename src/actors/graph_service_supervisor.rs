@@ -549,7 +549,10 @@ impl GraphServiceSupervisor {
         self.graph_revision += 1;
         // The visibility policy goes out NOW, not after the debounce below: a node that turned
         // private must stop being broadcast to other sessions as soon as the change is known.
-        actix::spawn(push_node_type_arrays(self.graph_state.clone(), self.client.clone()));
+        actix::spawn(push_node_type_arrays(
+            self.graph_state.clone(),
+            self.client.clone(),
+        ));
         if self.graph_update_notify_pending {
             return;
         }
@@ -628,9 +631,11 @@ impl GraphServiceSupervisor {
     /// Deliver the graph's node classification to the client coordinator (class-flag bits and the
     /// visibility policy that gates every position chunk).
     fn wire_physics_and_client(&mut self) {
-        actix::spawn(push_node_type_arrays(self.graph_state.clone(), self.client.clone()));
+        actix::spawn(push_node_type_arrays(
+            self.graph_state.clone(),
+            self.client.clone(),
+        ));
     }
-
 
     fn initialize_actors(&mut self, ctx: &mut Context<Self>) {
         info!("Initializing supervised actors");
@@ -1538,7 +1543,10 @@ async fn push_node_type_arrays(
     };
     match graph_state.send(msgs::GetNodeTypeArrays).await {
         Ok(arrays) => client.do_send(msgs::UpdateNodeTypeArrays { arrays }),
-        Err(e) => warn!("GraphServiceSupervisor: could not read node type arrays: {}", e),
+        Err(e) => warn!(
+            "GraphServiceSupervisor: could not read node type arrays: {}",
+            e
+        ),
     }
 }
 

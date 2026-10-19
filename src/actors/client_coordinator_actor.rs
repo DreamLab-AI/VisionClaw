@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 // Import required types and messages
 use crate::actors::messages::*;
-use crate::telemetry::agent_telemetry::{get_telemetry_logger, CorrelationId, Position3D};
 use crate::actors::position_stream::{AnalyticsKey, ClientStream, StreamSettings};
+use crate::telemetry::agent_telemetry::{get_telemetry_logger, CorrelationId, Position3D};
 use crate::utils::socket_flow_messages::BinaryNodeDataClient;
 
 #[derive(Debug, Clone)]
@@ -406,7 +406,9 @@ impl ClientManager {
         // read as "no node is private". Until a real snapshot is in hand nothing is sent.
         let policy_on = visionclaw_domain::utils::visibility_filter::filter_enabled();
         if policy_on && !cx.nta.loaded {
-            log::warn!("positions withheld: node classification (visibility policy) has not arrived yet");
+            log::warn!(
+                "positions withheld: node classification (visibility policy) has not arrived yet"
+            );
             return result;
         }
         let mut drop_sets: HashMap<Option<String>, std::collections::HashSet<u32>> = HashMap::new();
@@ -418,7 +420,12 @@ impl ClientManager {
     }
 
     /// Send the next chunk to one client if it is due one (after its acknowledgement).
-    pub fn pump_client(&mut self, client_id: usize, cx: &PumpContext<'_>, seq: &mut u64) -> BroadcastResult {
+    pub fn pump_client(
+        &mut self,
+        client_id: usize,
+        cx: &PumpContext<'_>,
+        seq: &mut u64,
+    ) -> BroadcastResult {
         let mut result = BroadcastResult::default();
         if cx.cache.is_empty() {
             return result;
@@ -464,32 +471,48 @@ impl ClientManager {
         };
         let filter_on = client.filter.enabled;
         let allowed = &client.filter.filtered_node_ids;
-        let visible = |id: u32| (!filter_on || allowed.contains(&id)) && hidden.is_none_or(|h| !h.contains(&id));
+        let visible = |id: u32| {
+            (!filter_on || allowed.contains(&id)) && hidden.is_none_or(|h| !h.contains(&id))
+        };
 
         // The analytics a record carries are part of what a client holds: a re-clustered node is
         // news even if it did not move.
         let analytics_key = |id: u32| -> AnalyticsKey {
             cx.analytics.and_then(|m| m.get(&id)).map_or([0; 4], |a| {
-                [a.cluster_id, a.community_id, a.anomaly.to_bits(), a.centrality.to_bits()]
+                [
+                    a.cluster_id,
+                    a.community_id,
+                    a.anomaly.to_bits(),
+                    a.centrality.to_bits(),
+                ]
             })
         };
 
         // What this client is no longer entitled to (a node turned private, the session changed
         // identity) or that left the graph is forgotten, so the acknowledged state cannot grow
         // without bound or keep believing it holds a node it should no longer be sent.
-        client.stream.retain_nodes(&|id| cx.cache.contains_key(&id) && visible(id));
+        client
+            .stream
+            .retain_nodes(&|id| cx.cache.contains_key(&id) && visible(id));
 
-        let ids = client.stream.plan(cx.cache, &visible, &analytics_key, cx.settings);
+        let ids = client
+            .stream
+            .plan(cx.cache, &visible, &analytics_key, cx.settings);
         if ids.is_empty() {
             return;
         }
-        let chunk: Vec<BinaryNodeDataClient> = ids.iter().filter_map(|i| cx.cache.get(i).copied()).collect();
+        let chunk: Vec<BinaryNodeDataClient> = ids
+            .iter()
+            .filter_map(|i| cx.cache.get(i).copied())
+            .collect();
         *seq += 1;
         let frame = Self::serialize_positions(&chunk, cx.nta, *seq, cx.analytics);
         let before = result.sent;
         result.deliver_binary(client_id, client, frame);
         if result.sent > before {
-            client.stream.record_sent(*seq, cx.now, &chunk, &analytics_key);
+            client
+                .stream
+                .record_sent(*seq, cx.now, &chunk, &analytics_key);
         } else {
             // Not delivered (mailbox full or closed): the sequence number is simply skipped.
             // Nothing is in flight, so the same nodes are planned again next time.
@@ -516,7 +539,8 @@ impl ClientManager {
     ) -> Vec<u8> {
         use crate::utils::binary_protocol::{encode_node_data_extended_with_sssp, NodeClassIds};
         use crate::utils::socket_flow_messages::BinaryNodeData;
-        let nodes: Vec<(u32, BinaryNodeData)> = positions.iter().map(|pos| (pos.node_id, *pos)).collect();
+        let nodes: Vec<(u32, BinaryNodeData)> =
+            positions.iter().map(|pos| (pos.node_id, *pos)).collect();
         let encoded = encode_node_data_extended_with_sssp(
             &nodes,
             NodeClassIds {
@@ -668,7 +692,8 @@ impl ClientCoordinatorActor {
 
     pub fn new() -> Self {
         use visionclaw_domain::types::physics_config::{
-            DEFAULT_STREAM_ACK_TIMEOUT_MS, DEFAULT_STREAM_CHUNK_NODES, DEFAULT_STREAM_MOVE_THRESHOLD,
+            DEFAULT_STREAM_ACK_TIMEOUT_MS, DEFAULT_STREAM_CHUNK_NODES,
+            DEFAULT_STREAM_MOVE_THRESHOLD,
         };
         Self {
             client_manager: Arc::new(RwLock::new(ClientManager::new())),
@@ -780,7 +805,11 @@ impl ClientCoordinatorActor {
             self.voice_data_queued_bytes -= voice_data_len;
             self.pending_voice_data.remove(0);
 
-            debug!("Sent voice data: {} bytes to {} clients", encoded.len(), broadcast_result.sent);
+            debug!(
+                "Sent voice data: {} bytes to {} clients",
+                encoded.len(),
+                broadcast_result.sent
+            );
         }
         Ok(total_sent)
     }
@@ -891,13 +920,20 @@ impl ClientCoordinatorActor {
     }
 
     pub fn get_stats(&self) -> ClientCoordinatorStats {
-        let (active_clients, clients_in_flight) = match handle_rwlock_error(self.client_manager.read()) {
-            Ok(m) => (m.get_client_count(), m.clients.values().filter(|c| c.stream.has_in_flight()).count()),
-            Err(e) => {
-                error!("RwLock error: {}", e);
-                (0, 0)
-            }
-        };
+        let (active_clients, clients_in_flight) =
+            match handle_rwlock_error(self.client_manager.read()) {
+                Ok(m) => (
+                    m.get_client_count(),
+                    m.clients
+                        .values()
+                        .filter(|c| c.stream.has_in_flight())
+                        .count(),
+                ),
+                Err(e) => {
+                    error!("RwLock error: {}", e);
+                    (0, 0)
+                }
+            };
         ClientCoordinatorStats {
             active_clients,
             chunks_sent: self.broadcast_count,
@@ -950,7 +986,9 @@ impl Actor for ClientCoordinatorActor {
         if let Some(repo) = self.settings_repository.clone() {
             let me = ctx.address();
             actix::spawn(async move {
-                if let Some(p) = crate::actors::gpu::physics_restore::load_saved_physics(repo.as_ref()).await {
+                if let Some(p) =
+                    crate::actors::gpu::physics_restore::load_saved_physics(repo.as_ref()).await
+                {
                     me.do_send(ConfigureStream {
                         chunk_nodes: p.stream_chunk_nodes,
                         move_threshold: p.stream_move_threshold,
@@ -1296,7 +1334,9 @@ impl Handler<ConfigureStream> for ClientCoordinatorActor {
         };
         info!(
             "ClientCoordinator: stream settings chunk={} nodes, threshold={}, ack timeout={} ms",
-            self.stream_settings.chunk_nodes, self.stream_settings.move_threshold, msg.ack_timeout_ms
+            self.stream_settings.chunk_nodes,
+            self.stream_settings.move_threshold,
+            msg.ack_timeout_ms
         );
         self.pump(None);
     }
@@ -1327,7 +1367,10 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
 
     fn handle(&mut self, msg: ClientBroadcastAck, _ctx: &mut Self::Context) -> Self::Result {
         let Some(client_id) = msg.client_id else {
-            debug!("ClientBroadcastAck without a client id (seq {}): ignored", msg.sequence_id);
+            debug!(
+                "ClientBroadcastAck without a client id (seq {}): ignored",
+                msg.sequence_id
+            );
             return;
         };
         let acknowledged = match handle_rwlock_error(self.client_manager.write()) {
@@ -1340,7 +1383,10 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
         match acknowledged {
             Some(n) => {
                 if msg.sequence_id.is_multiple_of(200) {
-                    debug!("ack seq={} client={} nodes={} (client says {})", msg.sequence_id, client_id, n, msg.nodes_received);
+                    debug!(
+                        "ack seq={} client={} nodes={} (client says {})",
+                        msg.sequence_id, client_id, n, msg.nodes_received
+                    );
                 }
                 self.pump(Some(client_id));
             }
@@ -1350,7 +1396,11 @@ impl Handler<ClientBroadcastAck> for ClientCoordinatorActor {
 }
 
 fn trace_stale_ack(client_id: usize, seq: u64) {
-    log::trace!("ack seq={} from client {} matches no chunk in flight (late or duplicate)", seq, client_id);
+    log::trace!(
+        "ack seq={} from client {} matches no chunk in flight (late or duplicate)",
+        seq,
+        client_id
+    );
 }
 
 #[derive(Message)]
@@ -1713,10 +1763,18 @@ mod tests {
     }
     impl Handler<crate::actors::messages::SendInitialGraphLoad> for BinaryCapture {
         type Result = ();
-        fn handle(&mut self, _: crate::actors::messages::SendInitialGraphLoad, _: &mut Self::Context) {}
+        fn handle(
+            &mut self,
+            _: crate::actors::messages::SendInitialGraphLoad,
+            _: &mut Self::Context,
+        ) {
+        }
     }
 
-    fn capture_client() -> (ClientRecipients, std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
+    fn capture_client() -> (
+        ClientRecipients,
+        std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+    ) {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let addr = BinaryCapture(frames.clone()).start();
         let r = ClientRecipients::new(
@@ -1731,11 +1789,22 @@ mod tests {
     /// Node ids carried by a V5 frame: `[0x05][seq:8]` then 52-byte records, id in the low 26 bits.
     fn frame_ids(frame: &[u8]) -> Vec<u32> {
         assert_eq!(frame[0], 5, "live broadcasts are V5");
-        frame[9..].chunks_exact(52).map(|r| u32::from_le_bytes([r[0], r[1], r[2], r[3]]) & 0x03FF_FFFF).collect()
+        frame[9..]
+            .chunks_exact(52)
+            .map(|r| u32::from_le_bytes([r[0], r[1], r[2], r[3]]) & 0x03FF_FFFF)
+            .collect()
     }
 
     fn node(id: u32) -> BinaryNodeDataClient {
-        BinaryNodeDataClient { node_id: id, x: id as f32, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0 }
+        BinaryNodeDataClient {
+            node_id: id,
+            x: id as f32,
+            y: 0.0,
+            z: 0.0,
+            vx: 0.0,
+            vy: 0.0,
+            vz: 0.0,
+        }
     }
 
     /// A cache of `n` nodes (ids 1..=n) and a pump context over it.
@@ -1744,11 +1813,18 @@ mod tests {
     }
 
     fn stream(chunk: usize, thr: f32, timeout_ms: u64) -> StreamSettings {
-        StreamSettings { chunk_nodes: chunk, move_threshold: thr, ack_timeout: Duration::from_millis(timeout_ms) }
+        StreamSettings {
+            chunk_nodes: chunk,
+            move_threshold: thr,
+            ack_timeout: Duration::from_millis(timeout_ms),
+        }
     }
 
     fn loaded() -> crate::actors::messages::NodeTypeArrays {
-        crate::actors::messages::NodeTypeArrays { loaded: true, ..Default::default() }
+        crate::actors::messages::NodeTypeArrays {
+            loaded: true,
+            ..Default::default()
+        }
     }
 
     fn pump_all_now(
@@ -1758,7 +1834,16 @@ mod tests {
         set: &StreamSettings,
         seq: &mut u64,
     ) -> BroadcastResult {
-        m.pump_all(&PumpContext { cache, nta, settings: set, analytics: None, now: Instant::now() }, seq)
+        m.pump_all(
+            &PumpContext {
+                cache,
+                nta,
+                settings: set,
+                analytics: None,
+                now: Instant::now(),
+            },
+            seq,
+        )
     }
 
     fn ids_of(f: &std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>, frame: usize) -> Vec<u32> {
@@ -1781,7 +1866,11 @@ mod tests {
         let (anon_r, anon_frames) = capture_client();
         let (owner_r, owner_frames) = capture_client();
         let (other_r, other_frames) = capture_client();
-        let (anon, owner, other) = (m.register_client(anon_r), m.register_client(owner_r), m.register_client(other_r));
+        let (anon, owner, other) = (
+            m.register_client(anon_r),
+            m.register_client(owner_r),
+            m.register_client(other_r),
+        );
         for id in [anon, owner, other] {
             m.get_client_mut(id).unwrap().filter.enabled = false;
         }
@@ -1790,7 +1879,10 @@ mod tests {
 
         let nta = crate::actors::messages::NodeTypeArrays {
             loaded: true,
-            private_nodes: vec![NodeVisibility::private_owned_by(5, "owner-key"), NodeVisibility::private_unowned(6)],
+            private_nodes: vec![
+                NodeVisibility::private_owned_by(5, "owner-key"),
+                NodeVisibility::private_unowned(6),
+            ],
             ..Default::default()
         };
         let cache = cache_of(8);
@@ -1803,9 +1895,21 @@ mod tests {
             assert_eq!(frames.len(), 1, "exactly one chunk per session");
             frame_ids(&frames[0])
         };
-        assert_eq!(ids(&anon_frames), vec![1, 2, 3, 4, 7, 8], "anonymous: public only (fail closed)");
-        assert_eq!(ids(&owner_frames), vec![1, 2, 3, 4, 5, 7, 8], "the owner also sees their own private node 5, never the unowned 6");
-        assert_eq!(ids(&other_frames), vec![1, 2, 3, 4, 7, 8], "a different authenticated user sees public only");
+        assert_eq!(
+            ids(&anon_frames),
+            vec![1, 2, 3, 4, 7, 8],
+            "anonymous: public only (fail closed)"
+        );
+        assert_eq!(
+            ids(&owner_frames),
+            vec![1, 2, 3, 4, 5, 7, 8],
+            "the owner also sees their own private node 5, never the unowned 6"
+        );
+        assert_eq!(
+            ids(&other_frames),
+            vec![1, 2, 3, 4, 7, 8],
+            "a different authenticated user sees public only"
+        );
     }
 
     /// Fail closed: before any classification snapshot has arrived, the stream must not read
@@ -1820,14 +1924,27 @@ mod tests {
         let set = stream(100, 0.25, 500);
         let mut seq = 0;
 
-        let before = pump_all_now(&mut m, &cache, &crate::actors::messages::NodeTypeArrays::default(), &set, &mut seq);
+        let before = pump_all_now(
+            &mut m,
+            &cache,
+            &crate::actors::messages::NodeTypeArrays::default(),
+            &set,
+            &mut seq,
+        );
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
         assert_eq!(before.sent, 0);
-        assert!(frames.lock().unwrap().is_empty(), "no chunk before the policy is known");
+        assert!(
+            frames.lock().unwrap().is_empty(),
+            "no chunk before the policy is known"
+        );
 
         pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq);
         actix::clock::sleep(std::time::Duration::from_millis(20)).await;
-        assert_eq!(frame_ids(&frames.lock().unwrap()[0]), vec![1, 2, 3, 4], "a loaded, empty policy means nothing is private");
+        assert_eq!(
+            frame_ids(&frames.lock().unwrap()[0]),
+            vec![1, 2, 3, 4],
+            "a loaded, empty policy means nothing is private"
+        );
     }
 
     /// Nothing private in the graph: every session gets every node (when the chunk is large enough).
@@ -1941,7 +2058,13 @@ mod tests {
         let before = frames.load(std::sync::atomic::Ordering::SeqCst);
         let later = Instant::now() + Duration::from_secs(1);
         let res = m.pump_all(
-            &PumpContext { cache: &cache, nta: &nta, settings: &set, analytics: None, now: later },
+            &PumpContext {
+                cache: &cache,
+                nta: &nta,
+                settings: &set,
+                analytics: None,
+                now: later,
+            },
             &mut seq,
         );
         assert_eq!(res.sent, 1, "the recovered client receives its chunk");
@@ -2123,7 +2246,8 @@ mod tests {
     /// is forgotten, so the server no longer believes that session holds it; if it later becomes
     /// public again it is delivered afresh.
     #[actix::test]
-    async fn a_node_that_turns_private_is_forgotten_for_that_session_and_resent_when_public_again() {
+    async fn a_node_that_turns_private_is_forgotten_for_that_session_and_resent_when_public_again()
+    {
         use visionclaw_domain::utils::visibility_filter::NodeVisibility;
         let mut m = ClientManager::new();
         let (r, frames) = capture_client();
@@ -2154,7 +2278,10 @@ mod tests {
         );
 
         // and public again: delivered afresh
-        assert_eq!(pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq).sent, 1);
+        assert_eq!(
+            pump_all_now(&mut m, &cache, &loaded(), &set, &mut seq).sent,
+            1
+        );
         actix::clock::sleep(Duration::from_millis(10)).await;
         let n = frames.lock().unwrap().len();
         assert_eq!(ids_of(&frames, n - 1), vec![4]);
@@ -2177,7 +2304,10 @@ mod tests {
             pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
             // Nothing more is sent while the chunk is unacknowledged.
             let again = pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
-            assert_eq!(again.sent, 0, "round {round}: one chunk in flight at a time");
+            assert_eq!(
+                again.sent, 0,
+                "round {round}: one chunk in flight at a time"
+            );
             actix::clock::sleep(Duration::from_millis(10)).await;
             let f = frames.lock().unwrap().last().unwrap().clone();
             assert!(frame_ids(&f).len() <= 3);
@@ -2185,13 +2315,27 @@ mod tests {
             assert!(m.acknowledge(id, frame_seq(&f)).is_some());
         }
         delivered.sort_unstable();
-        assert_eq!(delivered, (1..=8).collect::<Vec<_>>(), "all eight, once each, in chunks of at most three");
+        assert_eq!(
+            delivered,
+            (1..=8).collect::<Vec<_>>(),
+            "all eight, once each, in chunks of at most three"
+        );
 
         let quiet = pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
         assert_eq!(quiet.sent, 0, "current client: nothing to send");
 
-        cache.insert(5, BinaryNodeDataClient { x: 5.0 + 3.0, ..node(5) });
-        assert_eq!(pump_all_now(&mut m, &cache, &nta, &set, &mut seq).sent, 1, "a real move is sent");
+        cache.insert(
+            5,
+            BinaryNodeDataClient {
+                x: 5.0 + 3.0,
+                ..node(5)
+            },
+        );
+        assert_eq!(
+            pump_all_now(&mut m, &cache, &nta, &set, &mut seq).sent,
+            1,
+            "a real move is sent"
+        );
         actix::clock::sleep(Duration::from_millis(10)).await;
         let n = frames.lock().unwrap().len();
         assert_eq!(ids_of(&frames, n - 1), vec![5], "only the node that moved");
@@ -2209,18 +2353,45 @@ mod tests {
         let (nta, set, mut seq) = (loaded(), stream(100, 0.25, 500), 0u64);
         let t0 = Instant::now();
 
-        let cx = |now| PumpContext { cache: &cache, nta: &nta, settings: &set, analytics: None, now };
+        let cx = |now| PumpContext {
+            cache: &cache,
+            nta: &nta,
+            settings: &set,
+            analytics: None,
+            now,
+        };
         assert_eq!(m.pump_all(&cx(t0), &mut seq).sent, 1);
-        assert_eq!(m.pump_all(&cx(t0 + Duration::from_millis(100)), &mut seq).sent, 0, "still waiting");
-        assert_eq!(m.pump_all(&cx(t0 + Duration::from_millis(501)), &mut seq).sent, 1, "timed out: resent");
+        assert_eq!(
+            m.pump_all(&cx(t0 + Duration::from_millis(100)), &mut seq)
+                .sent,
+            0,
+            "still waiting"
+        );
+        assert_eq!(
+            m.pump_all(&cx(t0 + Duration::from_millis(501)), &mut seq)
+                .sent,
+            1,
+            "timed out: resent"
+        );
         actix::clock::sleep(Duration::from_millis(10)).await;
         let f = frames.lock().unwrap();
         assert_eq!(f.len(), 2);
         assert_eq!(frame_ids(&f[1]), frame_ids(&f[0]), "the same nodes");
-        assert!(frame_seq(&f[1]) > frame_seq(&f[0]), "a fresh, larger sequence number");
+        assert!(
+            frame_seq(&f[1]) > frame_seq(&f[0]),
+            "a fresh, larger sequence number"
+        );
         drop(f);
-        assert_eq!(m.acknowledge(id, 1), Some(4), "the late ack for the replaced chunk is honoured");
-        assert_eq!(m.acknowledge(id, 2), Some(4), "and the newer chunk is still acknowledgeable");
+        assert_eq!(
+            m.acknowledge(id, 1),
+            Some(4),
+            "the late ack for the replaced chunk is honoured"
+        );
+        assert_eq!(
+            m.acknowledge(id, 2),
+            Some(4),
+            "and the newer chunk is still acknowledgeable"
+        );
     }
 
     /// One client's acknowledgement never settles another client's chunk.
@@ -2236,9 +2407,15 @@ mod tests {
         let (nta, set, mut seq) = (loaded(), stream(100, 0.25, 5000), 0u64);
         pump_all_now(&mut m, &cache, &nta, &set, &mut seq);
         actix::clock::sleep(Duration::from_millis(10)).await;
-        let (sa, sb) = (frame_seq(&f1.lock().unwrap()[0]), frame_seq(&f2.lock().unwrap()[0]));
+        let (sa, sb) = (
+            frame_seq(&f1.lock().unwrap()[0]),
+            frame_seq(&f2.lock().unwrap()[0]),
+        );
         assert_ne!(sa, sb, "each chunk has its own sequence");
-        assert!(m.acknowledge(a, sb).is_none(), "client a cannot acknowledge client b's chunk");
+        assert!(
+            m.acknowledge(a, sb).is_none(),
+            "client a cannot acknowledge client b's chunk"
+        );
         assert_eq!(m.acknowledge(a, sa), Some(3));
         assert_eq!(m.acknowledge(b, sb), Some(3));
     }

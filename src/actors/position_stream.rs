@@ -158,7 +158,8 @@ impl ClientStream {
             return Vec::new();
         }
         // Largest displacement first; ties (all the never-sent nodes) by id for determinism.
-        let by_move = |a: &(f32, u64, u32), b: &(f32, u64, u32)| b.0.total_cmp(&a.0).then(a.2.cmp(&b.2));
+        let by_move =
+            |a: &(f32, u64, u32), b: &(f32, u64, u32)| b.0.total_cmp(&a.0).then(a.2.cmp(&b.2));
         // Longest-waiting first.
         let by_age = |a: &(f32, u64, u32), b: &(f32, u64, u32)| a.1.cmp(&b.1).then(a.2.cmp(&b.2));
         let k = settings.chunk_nodes.max(1);
@@ -199,7 +200,16 @@ impl ClientStream {
             sent_at: now,
             nodes: positions
                 .iter()
-                .map(|p| (p.node_id, Held { pos: [p.x, p.y, p.z], key: analytics(p.node_id), seq }))
+                .map(|p| {
+                    (
+                        p.node_id,
+                        Held {
+                            pos: [p.x, p.y, p.z],
+                            key: analytics(p.node_id),
+                            seq,
+                        },
+                    )
+                })
                 .collect(),
         });
     }
@@ -241,7 +251,15 @@ mod tests {
     use super::*;
 
     fn node(id: u32, x: f32) -> BinaryNodeDataClient {
-        BinaryNodeDataClient { node_id: id, x, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0 }
+        BinaryNodeDataClient {
+            node_id: id,
+            x,
+            y: 0.0,
+            z: 0.0,
+            vx: 0.0,
+            vy: 0.0,
+            vz: 0.0,
+        }
     }
 
     fn cache(n: u32) -> HashMap<u32, BinaryNodeDataClient> {
@@ -249,7 +267,11 @@ mod tests {
     }
 
     fn settings(chunk: usize, thr: f32) -> StreamSettings {
-        StreamSettings { chunk_nodes: chunk, move_threshold: thr, ack_timeout: Duration::from_millis(500) }
+        StreamSettings {
+            chunk_nodes: chunk,
+            move_threshold: thr,
+            ack_timeout: Duration::from_millis(500),
+        }
     }
 
     fn all(_: u32) -> bool {
@@ -261,7 +283,12 @@ mod tests {
     }
 
     /// Send one chunk and acknowledge it, as a healthy client does.
-    fn cycle(s: &mut ClientStream, c: &HashMap<u32, BinaryNodeDataClient>, set: &StreamSettings, seq: &mut u64) -> Vec<u32> {
+    fn cycle(
+        s: &mut ClientStream,
+        c: &HashMap<u32, BinaryNodeDataClient>,
+        set: &StreamSettings,
+        seq: &mut u64,
+    ) -> Vec<u32> {
         let ids = s.plan(c, &all, &no_analytics, set);
         if ids.is_empty() {
             return ids;
@@ -288,8 +315,15 @@ mod tests {
             seen.extend(ids);
         }
         seen.sort_unstable();
-        assert_eq!(seen, (1..=25).collect::<Vec<_>>(), "all 25 delivered, none twice");
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "everything acknowledged: nothing to send");
+        assert_eq!(
+            seen,
+            (1..=25).collect::<Vec<_>>(),
+            "all 25 delivered, none twice"
+        );
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "everything acknowledged: nothing to send"
+        );
         assert_eq!(s.acknowledged_nodes(), 25);
     }
 
@@ -301,11 +335,21 @@ mod tests {
         cycle(&mut s, &c, &set, &mut seq);
 
         c.insert(2, node(2, 2.0 + 0.1));
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "0.1 < 0.25: not worth sending");
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "0.1 < 0.25: not worth sending"
+        );
         c.insert(2, node(2, 2.0 + 0.2));
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "drift accumulates against the ACKNOWLEDGED position, still 0.2");
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "drift accumulates against the ACKNOWLEDGED position, still 0.2"
+        );
         c.insert(2, node(2, 2.0 + 0.3));
-        assert_eq!(s.plan(&c, &all, &no_analytics, &set), vec![2], "0.3 from what the client holds: sent");
+        assert_eq!(
+            s.plan(&c, &all, &no_analytics, &set),
+            vec![2],
+            "0.3 from what the client holds: sent"
+        );
     }
 
     #[test]
@@ -317,7 +361,11 @@ mod tests {
         c.insert(1, node(1, 1.0 + 1.0));
         c.insert(4, node(4, 4.0 + 50.0));
         c.insert(6, node(6, 6.0 + 5.0));
-        assert_eq!(s.plan(&c, &all, &no_analytics, &set), vec![4, 6], "largest first, capped at the chunk size");
+        assert_eq!(
+            s.plan(&c, &all, &no_analytics, &set),
+            vec![4, 6],
+            "largest first, capped at the chunk size"
+        );
     }
 
     #[test]
@@ -327,10 +375,20 @@ mod tests {
         let mut s = ClientStream::new();
         let t0 = Instant::now();
         assert!(!s.is_waiting(t0, set.ack_timeout));
-        let chunk: Vec<_> = s.plan(&c, &all, &no_analytics, &set).iter().map(|i| c[i]).collect();
+        let chunk: Vec<_> = s
+            .plan(&c, &all, &no_analytics, &set)
+            .iter()
+            .map(|i| c[i])
+            .collect();
         s.record_sent(1, t0, &chunk, &no_analytics);
-        assert!(s.is_waiting(t0 + Duration::from_millis(100), set.ack_timeout), "waiting for the ack");
-        assert!(!s.is_waiting(t0 + Duration::from_millis(501), set.ack_timeout), "timed out: send again");
+        assert!(
+            s.is_waiting(t0 + Duration::from_millis(100), set.ack_timeout),
+            "waiting for the ack"
+        );
+        assert!(
+            !s.is_waiting(t0 + Duration::from_millis(501), set.ack_timeout),
+            "timed out: send again"
+        );
         // Nothing was acknowledged, so the same nodes are still candidates and are rebuilt.
         assert_eq!(s.plan(&c, &all, &no_analytics, &set).len(), 5);
     }
@@ -343,15 +401,30 @@ mod tests {
         let set = settings(10, 0.25);
         let mut s = ClientStream::new();
         let t0 = Instant::now();
-        let chunk: Vec<_> = s.plan(&c, &all, &no_analytics, &set).iter().map(|i| c[i]).collect();
+        let chunk: Vec<_> = s
+            .plan(&c, &all, &no_analytics, &set)
+            .iter()
+            .map(|i| c[i])
+            .collect();
         s.record_sent(1, t0, &chunk, &no_analytics);
         s.record_sent(2, t0 + Duration::from_secs(1), &chunk, &no_analytics);
-        assert_eq!(s.acknowledge(1), Some(4), "the late ack for chunk 1 is honoured");
+        assert_eq!(
+            s.acknowledge(1),
+            Some(4),
+            "the late ack for chunk 1 is honoured"
+        );
         assert_eq!(s.acknowledged_nodes(), 4);
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "the client is current");
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "the client is current"
+        );
         assert_eq!(s.acknowledge(1), None, "an ack is consumed once");
         assert_eq!(s.acknowledge(2), Some(4), "chunk 2 is still on the list");
-        assert_eq!(s.acknowledge(99), None, "an unknown sequence changes nothing");
+        assert_eq!(
+            s.acknowledge(99),
+            None,
+            "an unknown sequence changes nothing"
+        );
     }
 
     #[test]
@@ -364,9 +437,20 @@ mod tests {
         s.record_sent(1, t0, &[c[&1]], &no_analytics);
         c.insert(1, node(1, 50.0));
         s.record_sent(2, t0 + Duration::from_secs(1), &[c[&1]], &no_analytics);
-        assert_eq!(s.acknowledge(2), Some(1), "the newer chunk is acknowledged first");
-        assert_eq!(s.acknowledge(1), None, "chunks sent before an acknowledged one are dropped from the list");
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "still believed to hold x=50, not x=1");
+        assert_eq!(
+            s.acknowledge(2),
+            Some(1),
+            "the newer chunk is acknowledged first"
+        );
+        assert_eq!(
+            s.acknowledge(1),
+            None,
+            "chunks sent before an acknowledged one are dropped from the list"
+        );
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "still believed to hold x=50, not x=1"
+        );
     }
 
     #[test]
@@ -383,10 +467,21 @@ mod tests {
         s.record_sent(3, t0, &[c[&1]], &no_analytics);
         s.record_sent(4, t0, &[c[&1]], &no_analytics);
         s.record_sent(5, t0, &[c[&1]], &no_analytics);
-        assert_eq!(s.effective_timeout(set.ack_timeout), ms(4000), "capped at 8x");
-        assert!(s.is_waiting(t0 + ms(3999), set.ack_timeout) && !s.is_waiting(t0 + ms(4001), set.ack_timeout));
+        assert_eq!(
+            s.effective_timeout(set.ack_timeout),
+            ms(4000),
+            "capped at 8x"
+        );
+        assert!(
+            s.is_waiting(t0 + ms(3999), set.ack_timeout)
+                && !s.is_waiting(t0 + ms(4001), set.ack_timeout)
+        );
         s.acknowledge(5);
-        assert_eq!(s.effective_timeout(set.ack_timeout), ms(500), "an acknowledgement resets the backoff");
+        assert_eq!(
+            s.effective_timeout(set.ack_timeout),
+            ms(500),
+            "an acknowledgement resets the backoff"
+        );
     }
 
     #[test]
@@ -416,7 +511,8 @@ mod tests {
         let mut delivered = std::collections::HashSet::new();
         for round in 0..40u32 {
             for id in 1..=40u32 {
-                c.insert(id, node(id, id as f32 + 100.0 * (round as f32 + 1.0))); // large, forever
+                c.insert(id, node(id, id as f32 + 100.0 * (round as f32 + 1.0)));
+                // large, forever
             }
             for id in cycle(&mut s, &c, &set, &mut seq) {
                 if id > 40 {
@@ -424,7 +520,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(delivered.len(), 10, "every small mover was delivered, got {delivered:?}");
+        assert_eq!(
+            delivered.len(),
+            10,
+            "every small mover was delivered, got {delivered:?}"
+        );
     }
 
     #[test]
@@ -440,7 +540,10 @@ mod tests {
         s.record_sent(seq, Instant::now(), &chunk, &no_analytics);
         s.acknowledge(seq);
         assert!(s.plan(&c, &hidden, &no_analytics, &set).is_empty());
-        assert!(!s.acked.contains_key(&3) && !s.acked.contains_key(&5), "a hidden node is never recorded");
+        assert!(
+            !s.acked.contains_key(&3) && !s.acked.contains_key(&5),
+            "a hidden node is never recorded"
+        );
     }
 
     #[test]
@@ -449,7 +552,10 @@ mod tests {
         let set = settings(10, 0.0);
         let (mut s, mut seq) = (ClientStream::new(), 0u64);
         cycle(&mut s, &c, &set, &mut seq);
-        assert!(s.plan(&c, &all, &no_analytics, &set).is_empty(), "identical positions are not a change");
+        assert!(
+            s.plan(&c, &all, &no_analytics, &set).is_empty(),
+            "identical positions are not a change"
+        );
         c.insert(1, node(1, 1.0 + 1e-4));
         assert_eq!(s.plan(&c, &all, &no_analytics, &set), vec![1]);
     }
@@ -462,12 +568,19 @@ mod tests {
         cycle(&mut s, &c, &set, &mut seq);
         // Node 3 is re-clustered; nothing moved.
         let recluster = |id: u32| if id == 3 { [7, 7, 0, 0] } else { [0; 4] };
-        assert_eq!(s.plan(&c, &all, &recluster, &set), vec![3], "the new cluster id must reach the client");
+        assert_eq!(
+            s.plan(&c, &all, &recluster, &set),
+            vec![3],
+            "the new cluster id must reach the client"
+        );
         let chunk: Vec<_> = vec![c[&3]];
         seq += 1;
         s.record_sent(seq, Instant::now(), &chunk, &recluster);
         s.acknowledge(seq);
-        assert!(s.plan(&c, &all, &recluster, &set).is_empty(), "once acknowledged, it is current again");
+        assert!(
+            s.plan(&c, &all, &recluster, &set).is_empty(),
+            "once acknowledged, it is current again"
+        );
     }
 
     #[test]
@@ -478,7 +591,11 @@ mod tests {
         while !cycle(&mut s, &c, &set, &mut seq).is_empty() {}
         c.insert(4, node(4, 4.0 + 9.0));
         let changed = |id: u32| if id == 1 { [1, 0, 0, 0] } else { [0; 4] };
-        assert_eq!(s.plan(&c, &all, &changed, &set), vec![4, 1], "the mover first, then the analytics change");
+        assert_eq!(
+            s.plan(&c, &all, &changed, &set),
+            vec![4, 1],
+            "the mover first, then the analytics change"
+        );
     }
 
     #[test]
@@ -499,7 +616,11 @@ mod tests {
         cycle(&mut old, &c, &set, &mut seq);
         assert!(old.plan(&c, &all, &no_analytics, &set).is_empty());
         let fresh = ClientStream::new();
-        assert_eq!(fresh.plan(&c, &all, &no_analytics, &set).len(), 8, "no memory of the old connection");
+        assert_eq!(
+            fresh.plan(&c, &all, &no_analytics, &set).len(),
+            8,
+            "no memory of the old connection"
+        );
     }
 
     #[test]

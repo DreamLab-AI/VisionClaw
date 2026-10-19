@@ -329,7 +329,10 @@ pub async fn get_graph_data(
                 // falls back to run-state truth only when no telemetry exists.
                 settlement_state: build_settlement_state(
                     settlement.as_ref(),
-                    settlement.as_ref().map(|snap| snap.physics_running).unwrap_or(false),
+                    settlement
+                        .as_ref()
+                        .map(|snap| snap.physics_running)
+                        .unwrap_or(false),
                 ),
             };
 
@@ -2174,7 +2177,12 @@ mod physics_state_summary_tests {
 
     #[test]
     fn live_telemetry_is_reported_as_measured() {
-        let snap = SettlementSnapshot { is_settled: false, stable_frame_count: 3, kinetic_energy: 0.207, physics_running: true };
+        let snap = SettlementSnapshot {
+            is_settled: false,
+            stable_frame_count: 3,
+            kinetic_energy: 0.207,
+            physics_running: true,
+        };
         let s = physics_state_summary(Some(&snap));
         assert!(s.telemetry_live && s.physics_running);
         assert!(!s.settlement_state.is_settled);
@@ -2185,17 +2193,35 @@ mod physics_state_summary_tests {
     #[test]
     fn without_telemetry_the_numbers_are_flagged_as_fallbacks() {
         let none = physics_state_summary(None);
-        assert!(!none.telemetry_live, "no GPU answer must not look like a measurement");
-        assert!(!none.physics_running, "without the GPU actor nothing can claim to be running");
-        let paused_snap = SettlementSnapshot { is_settled: true, stable_frame_count: 90, kinetic_energy: 0.0, physics_running: false };
+        assert!(
+            !none.telemetry_live,
+            "no GPU answer must not look like a measurement"
+        );
+        assert!(
+            !none.physics_running,
+            "without the GPU actor nothing can claim to be running"
+        );
+        let paused_snap = SettlementSnapshot {
+            is_settled: true,
+            stable_frame_count: 90,
+            kinetic_energy: 0.0,
+            physics_running: false,
+        };
         let paused = physics_state_summary(Some(&paused_snap));
-        assert!(paused.telemetry_live && !paused.physics_running && paused.settlement_state.is_settled);
+        assert!(
+            paused.telemetry_live && !paused.physics_running && paused.settlement_state.is_settled
+        );
     }
 
     #[test]
     fn wire_names_are_camel_case() {
         let j = serde_json::to_value(physics_state_summary(None)).unwrap();
-        assert!(j.get("settlementState").is_some() && j.get("telemetryLive").is_some() && j.get("physicsRunning").is_some(), "{j}");
+        assert!(
+            j.get("settlementState").is_some()
+                && j.get("telemetryLive").is_some()
+                && j.get("physicsRunning").is_some(),
+            "{j}"
+        );
         assert!(j["settlementState"].get("kineticEnergy").is_some());
     }
 }

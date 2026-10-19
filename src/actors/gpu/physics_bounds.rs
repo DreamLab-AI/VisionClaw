@@ -148,9 +148,21 @@ mod tests {
         );
         assert!(within(d.dt, DT), "dt {} outside {:?}", d.dt, DT);
         for (name, v, b) in [
-            ("stream_chunk_nodes", d.stream_chunk_nodes as f32, STREAM_CHUNK_NODES),
-            ("stream_move_threshold", d.stream_move_threshold, STREAM_MOVE_THRESHOLD),
-            ("stream_ack_timeout_ms", d.stream_ack_timeout_ms as f32, STREAM_ACK_TIMEOUT_MS),
+            (
+                "stream_chunk_nodes",
+                d.stream_chunk_nodes as f32,
+                STREAM_CHUNK_NODES,
+            ),
+            (
+                "stream_move_threshold",
+                d.stream_move_threshold,
+                STREAM_MOVE_THRESHOLD,
+            ),
+            (
+                "stream_ack_timeout_ms",
+                d.stream_ack_timeout_ms as f32,
+                STREAM_ACK_TIMEOUT_MS,
+            ),
         ] {
             assert!(within(v, b), "{name} default {v} outside {b:?}");
         }

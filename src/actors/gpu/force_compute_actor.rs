@@ -20,7 +20,8 @@ use glam::Vec3;
 use cudarc::driver::CudaDevice;
 
 use super::display_projection::{
-    display_mode, population_centroids, project_display, unproject_point, DisplayMode, GraphPopulation, LayoutParams,
+    display_mode, population_centroids, project_display, unproject_point, DisplayMode,
+    GraphPopulation, LayoutParams,
 };
 
 // ---------------------------------------------------------------------------
@@ -553,7 +554,11 @@ impl ForceComputeActor {
         if self.pinned_nodes.is_empty() {
             return;
         }
-        for idx in 0..self.node_id_buffer.len().min(self.position_velocity_buffer.len()) {
+        for idx in 0..self
+            .node_id_buffer
+            .len()
+            .min(self.position_velocity_buffer.len())
+        {
             if let Some(shown) = self.pinned_nodes.get(&self.node_id_buffer[idx]).copied() {
                 self.position_velocity_buffer[idx].0 = shown;
             }
@@ -573,14 +578,19 @@ impl ForceComputeActor {
             self.simulation_params.axis_compression_z,
             self.simulation_params.enable_dual_disc_layout,
         );
-        let populations: &[GraphPopulation] = if self.node_population.len() == self.position_velocity_buffer.len() {
-            &self.node_population
-        } else {
-            &[]
-        };
+        let populations: &[GraphPopulation] =
+            if self.node_population.len() == self.position_velocity_buffer.len() {
+                &self.node_population
+            } else {
+                &[]
+            };
         let mode = display_mode(&layout, populations.len());
         let centroids = if mode == DisplayMode::Triangle {
-            let physics: Vec<Vec3> = self.position_velocity_buffer.iter().map(|(p, _)| *p).collect();
+            let physics: Vec<Vec3> = self
+                .position_velocity_buffer
+                .iter()
+                .map(|(p, _)| *p)
+                .collect();
             population_centroids(&physics, populations)
         } else {
             [Vec3::ZERO; 3]
@@ -591,7 +601,10 @@ impl ForceComputeActor {
             let id = self.node_id_buffer[idx];
             if let Some(shown) = self.pinned_nodes.get(&id).copied() {
                 if idx < self.position_velocity_buffer.len() {
-                    let pop = populations.get(idx).copied().unwrap_or(GraphPopulation::Knowledge);
+                    let pop = populations
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(GraphPopulation::Knowledge);
                     let physics = unproject_point(shown, pop, &centroids, &layout, mode);
                     self.position_velocity_buffer[idx] = (physics, Vec3::ZERO);
                     any = true;
@@ -2722,7 +2735,9 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
                                 "ForceComputeActor: semantic config applied (active={})",
                                 compute.semantic_active
                             ),
-                            Err(e) => error!("ForceComputeActor: semantic config NOT applied: {e:#}"),
+                            Err(e) => {
+                                error!("ForceComputeActor: semantic config NOT applied: {e:#}")
+                            }
                         }
                     }
                 }
@@ -2848,7 +2863,6 @@ impl Handler<GetPhysicsStats> for ForceComputeActor {
     }
 }
 
-
 /// Hierarchy levels derived for the current graph (backs GET /api/semantic-forces/hierarchy-levels).
 impl Handler<GetHierarchyLevels> for ForceComputeActor {
     type Result = Result<HierarchyLevels, String>;
@@ -2865,7 +2879,11 @@ impl Handler<GetHierarchyLevels> for ForceComputeActor {
                 level_counts[l as usize] += 1;
             }
         }
-        Ok(HierarchyLevels { node_levels, max_level, level_counts })
+        Ok(HierarchyLevels {
+            node_levels,
+            max_level,
+            level_counts,
+        })
     }
 }
 
@@ -2874,10 +2892,24 @@ impl Handler<RecalculateHierarchy> for ForceComputeActor {
     type Result = Result<(), String>;
 
     fn handle(&mut self, _msg: RecalculateHierarchy, _ctx: &mut Self::Context) -> Self::Result {
-        let graph = self.semantic_graph.clone().ok_or_else(|| "no graph has been uploaded yet".to_string())?;
-        let ctx = self.shared_context.clone().ok_or_else(|| "GPU context not ready".to_string())?;
-        let mut compute = ctx.unified_compute.lock().map_err(|e| format!("GPU lock poisoned: {e}"))?;
-        refresh_semantic(&mut compute, &mut self.semantic_engine, &graph, &self.simulation_params.semantic);
+        let graph = self
+            .semantic_graph
+            .clone()
+            .ok_or_else(|| "no graph has been uploaded yet".to_string())?;
+        let ctx = self
+            .shared_context
+            .clone()
+            .ok_or_else(|| "GPU context not ready".to_string())?;
+        let mut compute = ctx
+            .unified_compute
+            .lock()
+            .map_err(|e| format!("GPU lock poisoned: {e}"))?;
+        refresh_semantic(
+            &mut compute,
+            &mut self.semantic_engine,
+            &graph,
+            &self.simulation_params.semantic,
+        );
         if compute.semantic.is_some() {
             Ok(())
         } else {
@@ -2891,10 +2923,20 @@ impl Handler<SetRelationshipTable> for ForceComputeActor {
     type Result = Result<(), String>;
 
     fn handle(&mut self, msg: SetRelationshipTable, _ctx: &mut Self::Context) -> Self::Result {
-        let ctx = self.shared_context.clone().ok_or_else(|| "GPU context not ready".to_string())?;
-        let mut compute = ctx.unified_compute.lock().map_err(|e| format!("GPU lock poisoned: {e}"))?;
-        let sem = compute.semantic.as_mut().ok_or_else(|| "semantic forces are not initialised for this graph".to_string())?;
-        sem.set_relationships(&msg.configs, !msg.configs.is_empty(), msg.version).map_err(|e| format!("{e:#}"))
+        let ctx = self
+            .shared_context
+            .clone()
+            .ok_or_else(|| "GPU context not ready".to_string())?;
+        let mut compute = ctx
+            .unified_compute
+            .lock()
+            .map_err(|e| format!("GPU lock poisoned: {e}"))?;
+        let sem = compute
+            .semantic
+            .as_mut()
+            .ok_or_else(|| "semantic forces are not initialised for this graph".to_string())?;
+        sem.set_relationships(&msg.configs, !msg.configs.is_empty(), msg.version)
+            .map_err(|e| format!("{e:#}"))
     }
 }
 
@@ -3960,14 +4002,26 @@ mod gpu_image_gate_tests {
     fn every_field_the_old_gate_dropped_is_now_seen() {
         assert!(changed(|p| p.rest_length += 10.0), "rest_length");
         assert!(changed(|p| p.global_speed += 0.1), "global_speed");
-        assert!(changed(|p| p.lin_log_mode = !p.lin_log_mode), "lin_log_mode");
+        assert!(
+            changed(|p| p.lin_log_mode = !p.lin_log_mode),
+            "lin_log_mode"
+        );
         assert!(changed(|p| p.grid_cell_size += 5.0), "grid_cell_size");
-        assert!(changed(|p| p.sssp_alpha = Some(p.sssp_alpha.unwrap_or(0.0) + 0.2)), "sssp_alpha");
-        assert!(changed(|p| p.enable_bounds = !p.enable_bounds), "enable_bounds");
+        assert!(
+            changed(|p| p.sssp_alpha = Some(p.sssp_alpha.unwrap_or(0.0) + 0.2)),
+            "sssp_alpha"
+        );
+        assert!(
+            changed(|p| p.enable_bounds = !p.enable_bounds),
+            "enable_bounds"
+        );
         // min_distance is deliberately absent: it never reaches a kernel (the semantic-forces
         // actor keeps its own collision.min_distance), so it is a dead setting, not a dropped one.
         assert!(changed(|p| p.scaling_ratio += 1.0), "scaling_ratio");
-        assert!(changed(|p| p.max_repulsion_dist += 10.0), "max_repulsion_dist");
+        assert!(
+            changed(|p| p.max_repulsion_dist += 10.0),
+            "max_repulsion_dist"
+        );
     }
 
     #[test]
@@ -4006,7 +4060,11 @@ fn refresh_semantic(
         compute.enable_semantic(&ptx, &inputs, cfg)?;
         let table = SEMANTIC_TYPE_REGISTRY.build_gpu_buffer();
         if let Some(sem) = compute.semantic.as_mut() {
-            sem.set_relationships(&table, !table.is_empty(), SEMANTIC_TYPE_REGISTRY.version() as i32)?;
+            sem.set_relationships(
+                &table,
+                !table.is_empty(),
+                SEMANTIC_TYPE_REGISTRY.version() as i32,
+            )?;
         }
         Ok(())
     })();
@@ -4047,7 +4105,11 @@ fn complete_snapshot(
         }
         out.push((
             node_id,
-            BinaryNodeDataClient::new(node_id, glam_to_vec3data(position), glam_to_vec3data(velocity)),
+            BinaryNodeDataClient::new(
+                node_id,
+                glam_to_vec3data(position),
+                glam_to_vec3data(velocity),
+            ),
         ));
     }
     (out, omitted)
@@ -4060,10 +4122,17 @@ mod complete_snapshot_tests {
     #[test]
     fn a_healthy_readback_yields_every_node_in_order() {
         let ids = [10u32, 11, 12];
-        let pv = [(Vec3::new(1.0, 2.0, 3.0), Vec3::ZERO), (Vec3::new(4.0, 5.0, 6.0), Vec3::ZERO), (Vec3::new(7.0, 8.0, 9.0), Vec3::ZERO)];
+        let pv = [
+            (Vec3::new(1.0, 2.0, 3.0), Vec3::ZERO),
+            (Vec3::new(4.0, 5.0, 6.0), Vec3::ZERO),
+            (Vec3::new(7.0, 8.0, 9.0), Vec3::ZERO),
+        ];
         let (out, omitted) = complete_snapshot(&ids, &pv);
         assert_eq!(omitted, 0);
-        assert_eq!(out.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![10, 11, 12]);
+        assert_eq!(
+            out.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![10, 11, 12]
+        );
     }
 
     #[test]
@@ -4076,7 +4145,10 @@ mod complete_snapshot_tests {
             (Vec3::ZERO, Vec3::ZERO),
         ];
         let (out, omitted) = complete_snapshot(&ids, &pv);
-        assert_eq!(omitted, 2, "the shortfall is reported so the caller can raise an error");
+        assert_eq!(
+            omitted, 2,
+            "the shortfall is reported so the caller can raise an error"
+        );
         assert_eq!(out.len(), 2);
     }
 
@@ -4101,7 +4173,10 @@ static PHASE_US: [std::sync::atomic::AtomicU64; 4] = [
 ];
 
 fn add_phase(slot: usize, since: Instant) {
-    PHASE_US[slot].fetch_add(since.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+    PHASE_US[slot].fetch_add(
+        since.elapsed().as_micros() as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 /// Rolling timing of the compute step, so "why is the physics tick slow" is a log line and not a
@@ -4134,7 +4209,10 @@ impl StepTiming {
             return None;
         }
         let n = f64::from(self.n);
-        let ph: Vec<f64> = PHASE_US.iter().map(|a| a.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0 / n).collect();
+        let ph: Vec<f64> = PHASE_US
+            .iter()
+            .map(|a| a.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0 / n)
+            .collect();
         let line = format!(
             "ForceComputeActor: step timing (last {} steps, iter {}): period {:.1} ms ({:.1} Hz), kernels+readback {:.1} ms [gate wait {:.1}, mutex wait {:.1}, execute {:.1}, readback {:.1}], total in actor {:.1} ms, outside actor {:.1} ms",
             self.n, iteration, self.period_ms / n, 1000.0 * n / self.period_ms.max(1e-9), self.gpu_ms / n, ph[0], ph[1], ph[2], ph[3], self.total_ms / n, (self.period_ms - self.total_ms) / n
@@ -4236,14 +4314,21 @@ mod mode_default_tests {
         p.layout_mode = LayoutMode::Radial;
         p.dag_bias_k = 3.5;
         fill_mode_defaults(&mut p);
-        assert_eq!(p.dag_bias_k, 3.5, "an explicit user value is never replaced");
+        assert_eq!(
+            p.dag_bias_k, 3.5,
+            "an explicit user value is never replaced"
+        );
 
         let mut q = SimulationParams::default();
         q.layout_mode = LayoutMode::ForceDirected;
         q.dag_bias_k = 0.0;
         q.layer_bias_k = 0.0;
         fill_mode_defaults(&mut q);
-        assert_eq!((q.dag_bias_k, q.layer_bias_k), (0.0, 0.0), "force-directed has no bias to fill");
+        assert_eq!(
+            (q.dag_bias_k, q.layer_bias_k),
+            (0.0, 0.0),
+            "force-directed has no bias to fill"
+        );
     }
 }
 

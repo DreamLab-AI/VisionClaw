@@ -463,12 +463,18 @@ pub struct PhysicsSettings {
     pub stream_chunk_nodes: u32,
     /// A node is sent again once it is this far (display units) from what the client last
     /// acknowledged, 0-100 (default [`DEFAULT_STREAM_MOVE_THRESHOLD`]); 0 sends any change.
-    #[serde(default = "default_stream_move_threshold", alias = "stream_move_threshold")]
+    #[serde(
+        default = "default_stream_move_threshold",
+        alias = "stream_move_threshold"
+    )]
     #[validate(range(min = 0.0, max = 100.0))]
     pub stream_move_threshold: f32,
     /// Milliseconds before an unacknowledged chunk is rebuilt and sent again, 20-10000
     /// (default [`DEFAULT_STREAM_ACK_TIMEOUT_MS`]).
-    #[serde(default = "default_stream_ack_timeout_ms", alias = "stream_ack_timeout_ms")]
+    #[serde(
+        default = "default_stream_ack_timeout_ms",
+        alias = "stream_ack_timeout_ms"
+    )]
     #[validate(range(min = 20, max = 10000))]
     pub stream_ack_timeout_ms: u32,
     /// Every semantic force (DAG, type / physicality / role clustering, collision, attribute
@@ -684,19 +690,34 @@ mod tests {
     fn stream_settings_have_defaults_round_trip_and_ignore_the_retired_broadcast_rate() {
         let d = PhysicsSettings::default();
         assert_eq!(
-            (d.stream_chunk_nodes, d.stream_move_threshold, d.stream_ack_timeout_ms),
-            (DEFAULT_STREAM_CHUNK_NODES, DEFAULT_STREAM_MOVE_THRESHOLD, DEFAULT_STREAM_ACK_TIMEOUT_MS)
+            (
+                d.stream_chunk_nodes,
+                d.stream_move_threshold,
+                d.stream_ack_timeout_ms
+            ),
+            (
+                DEFAULT_STREAM_CHUNK_NODES,
+                DEFAULT_STREAM_MOVE_THRESHOLD,
+                DEFAULT_STREAM_ACK_TIMEOUT_MS
+            )
         );
 
         let mut legacy = serde_json::to_value(&d).unwrap();
         let obj = legacy.as_object_mut().unwrap();
-        for k in ["streamChunkNodes", "streamMoveThreshold", "streamAckTimeoutMs"] {
+        for k in [
+            "streamChunkNodes",
+            "streamMoveThreshold",
+            "streamAckTimeoutMs",
+        ] {
             obj.remove(k);
         }
         obj.insert("broadcastFps".into(), serde_json::json!(25));
         obj.insert("interactionBroadcastFps".into(), serde_json::json!(40));
         let ps: PhysicsSettings = serde_json::from_value(legacy).unwrap();
-        assert_eq!(ps.stream_chunk_nodes, DEFAULT_STREAM_CHUNK_NODES, "old blobs take the defaults");
+        assert_eq!(
+            ps.stream_chunk_nodes, DEFAULT_STREAM_CHUNK_NODES,
+            "old blobs take the defaults"
+        );
 
         let custom = PhysicsSettings {
             stream_chunk_nodes: 4000,
@@ -714,7 +735,12 @@ mod tests {
         let obj = snake.as_object_mut().unwrap();
         obj.remove("streamChunkNodes");
         obj.insert("stream_chunk_nodes".into(), serde_json::json!(800));
-        assert_eq!(serde_json::from_value::<PhysicsSettings>(snake).unwrap().stream_chunk_nodes, 800);
+        assert_eq!(
+            serde_json::from_value::<PhysicsSettings>(snake)
+                .unwrap()
+                .stream_chunk_nodes,
+            800
+        );
     }
 
     #[test]
@@ -737,7 +763,11 @@ mod tests {
                 stream_ack_timeout_ms: timeout,
                 ..PhysicsSettings::default()
             };
-            assert_eq!(ps.validate().is_ok(), ok, "chunk {chunk} thr {thr} timeout {timeout}");
+            assert_eq!(
+                ps.validate().is_ok(),
+                ok,
+                "chunk {chunk} thr {thr} timeout {timeout}"
+            );
         }
     }
 

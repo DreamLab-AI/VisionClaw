@@ -30,8 +30,7 @@ use visionclaw_domain::models::node::Node;
 // Message types
 use crate::actors::messages::{
     ComputeAllPairsShortestPaths, ComputeShortestPaths, GetConstraints,
-    RegenerateSemanticConstraints, TriggerStressMajorization,
-    UpdateConstraints,
+    RegenerateSemanticConstraints, TriggerStressMajorization, UpdateConstraints,
 };
 
 // GPU semantic analyzer (conditionally compiled)

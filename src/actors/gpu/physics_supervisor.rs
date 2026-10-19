@@ -16,9 +16,7 @@ use std::time::{Duration, Instant};
 
 use super::shared::SharedGPUContext;
 use super::supervisor_messages::*;
-use super::{
-    ConstraintActor, ForceComputeActor, OntologyConstraintActor, StressMajorizationActor,
-};
+use super::{ConstraintActor, ForceComputeActor, OntologyConstraintActor, StressMajorizationActor};
 use crate::actors::messages::*;
 
 /// Tracks state of a supervised actor
@@ -404,7 +402,7 @@ impl PhysicsSupervisor {
                 "StressMajorizationActor" => &mut self.stress_majorization_state,
                 "ConstraintActor" => &mut self.constraint_state,
                 "OntologyConstraintActor" => &mut self.ontology_constraint_state,
-                    _ => continue,
+                _ => continue,
             };
             state.is_running = false;
             state.has_context = false;
@@ -967,10 +965,7 @@ impl Handler<GetOntologyConstraintStats> for PhysicsSupervisor {
 // ============================================================================
 
 impl Handler<GetHierarchyLevels> for PhysicsSupervisor {
-    type Result = ResponseActFuture<
-        Self,
-        Result<crate::actors::messages::HierarchyLevels, String>,
-    >;
+    type Result = ResponseActFuture<Self, Result<crate::actors::messages::HierarchyLevels, String>>;
 
     fn handle(&mut self, msg: GetHierarchyLevels, _ctx: &mut Self::Context) -> Self::Result {
         let addr = match &self.force_compute_actor {
@@ -1055,8 +1050,12 @@ impl Handler<SetRelationshipTable> for PhysicsSupervisor {
             }
         };
         Box::pin(
-            async move { addr.send(msg).await.map_err(|e| format!("Communication failed: {}", e))? }
-                .into_actor(self),
+            async move {
+                addr.send(msg)
+                    .await
+                    .map_err(|e| format!("Communication failed: {}", e))?
+            }
+            .into_actor(self),
         )
     }
 }
@@ -1121,9 +1120,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .current_params;
-            if (params.spring_k - 33.0).abs() < 1e-4
-                && (params.repel_k - 77.0).abs() < 1e-4
-            {
+            if (params.spring_k - 33.0).abs() < 1e-4 && (params.repel_k - 77.0).abs() < 1e-4 {
                 break;
             }
             assert!(
@@ -1159,7 +1156,9 @@ mod tests {
         )
         .start();
         sup.send(SubscribeForceComputeReplaced {
-            recipient: orchestrator.clone().recipient::<ForceComputeActorReplaced>(),
+            recipient: orchestrator
+                .clone()
+                .recipient::<ForceComputeActorReplaced>(),
         })
         .await
         .unwrap();

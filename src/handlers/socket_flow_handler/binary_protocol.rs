@@ -33,7 +33,10 @@ impl SocketFlowServer {
         ctx: &mut <Self as Actor>::Context,
     ) {
         if rate_limit_applies(data) && !WEBSOCKET_RATE_LIMITER.is_allowed(&self.client_ip) {
-            warn!("Binary message rate limit exceeded for client: {}", self.client_ip);
+            warn!(
+                "Binary message rate limit exceeded for client: {}",
+                self.client_ip
+            );
             let error_msg = serde_json::json!({
                 "type": "rate_limit_warning",
                 "message": "Message rate too high, some messages may be dropped",
@@ -104,9 +107,16 @@ mod tests {
 
     #[test]
     fn position_acknowledgements_are_exempt_from_the_message_rate_limit() {
-        let ack = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(48_113, 2500, 1_700_000_000_000);
+        let ack = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(
+            48_113,
+            2500,
+            1_700_000_000_000,
+        );
         assert!(is_stream_ack(&ack));
-        assert!(!rate_limit_applies(&ack), "an ack must never be rate limited: it IS the flow control");
+        assert!(
+            !rate_limit_applies(&ack),
+            "an ack must never be rate limited: it IS the flow control"
+        );
     }
 
     #[test]
@@ -125,8 +135,19 @@ mod tests {
         let limiter = RateLimiter::new(EndpointRateLimits::socket_flow_updates());
         let ack = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(1, 1, 0);
         let voice = [0x02u8, 1];
-        let admitted = |frame: &[u8], ip: &str| (0..2000).filter(|_| !rate_limit_applies(frame) || limiter.is_allowed(ip)).count();
-        assert_eq!(admitted(&ack, "10.0.0.1"), 2000, "2000 acks in a burst: all admitted");
-        assert!(admitted(&voice, "10.0.0.2") < 400, "the same volume of other frames is limited");
+        let admitted = |frame: &[u8], ip: &str| {
+            (0..2000)
+                .filter(|_| !rate_limit_applies(frame) || limiter.is_allowed(ip))
+                .count()
+        };
+        assert_eq!(
+            admitted(&ack, "10.0.0.1"),
+            2000,
+            "2000 acks in a burst: all admitted"
+        );
+        assert!(
+            admitted(&voice, "10.0.0.2") < 400,
+            "the same volume of other frames is limited"
+        );
     }
 }

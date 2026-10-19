@@ -388,18 +388,17 @@ impl MultiMcpAgentDiscovery {
                                         // subscribers could not tell "not polled yet" from
                                         // "polled and unreachable".
                                         let mut guard = statuses.write().await;
-                                        let server_info =
-                                            guard.entry(server_id.clone()).or_insert_with(|| {
-                                                McpServerInfo {
-                                                    server_id: server_id.clone(),
-                                                    server_type: config.server_type.clone(),
-                                                    host: config.host.clone(),
-                                                    port: config.port,
-                                                    is_connected: false,
-                                                    last_heartbeat: 0,
-                                                    supported_tools: vec![],
-                                                    agent_count: 0,
-                                                }
+                                        let server_info = guard
+                                            .entry(server_id.clone())
+                                            .or_insert_with(|| McpServerInfo {
+                                                server_id: server_id.clone(),
+                                                server_type: config.server_type.clone(),
+                                                host: config.host.clone(),
+                                                port: config.port,
+                                                is_connected: false,
+                                                last_heartbeat: 0,
+                                                supported_tools: vec![],
+                                                agent_count: 0,
                                             });
                                         server_info.is_connected = false;
                                         server_info.last_heartbeat = time::timestamp_seconds();
@@ -1089,6 +1088,9 @@ mod subscriber_tests {
         assert!(env_configured(&["VC_TEST_MCP_SET"]));
         assert!(!env_configured(&["VC_TEST_MCP_EMPTY"]));
         assert!(!env_configured(&["VC_TEST_MCP_UNSET_XYZ"]));
-        assert!(env_configured(&["VC_TEST_MCP_UNSET_XYZ", "VC_TEST_MCP_SET"]));
+        assert!(env_configured(&[
+            "VC_TEST_MCP_UNSET_XYZ",
+            "VC_TEST_MCP_SET"
+        ]));
     }
 }
