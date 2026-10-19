@@ -2,7 +2,7 @@
 
 Each section is one decision the estate register (`docs/TODO-unified.md`) could not close without the owner.
 
-**Correction, same day.** The first version of this brief described four of its six decisions from register rows written before other sessions had changed the code. Re-checked against `main` after the owner answered: S-4 (1) and S-7 (c), (d) were already closed, and ER-28's premise (push off) was false. The sections below now carry the current facts and the outcome of each decision.
+**Correction, same day.** The first version of this brief described four of its six decisions from register rows written before other sessions had changed the code. Re-checked against `main` after the owner answered: S-4 (1) and S-7 (c), (d) were already closed, and ER-28's premise was re-checked twice; the second check confirmed it (push was off). The sections below now carry the current facts and the outcome of each decision.
 
 ## ER-6: which key signs dream-engine's governance events — decided, source done
 
@@ -10,16 +10,13 @@ Each section is one decision the estate register (`docs/TODO-unified.md`) could 
 
 **Your steps:** generate the key independently (never derived from `k_id`), declare it in `config/custody/identity-port-acl.json` with that grant for dream-engine's uid, add its pubkey to the forum's governance allowlist, rebuild the image, and move dream-engine onto the port.
 
-## ER-28: solid-pod-rs git push — needs a fresh decision
+## ER-28: solid-pod-rs git push — decided: deleted
 
-The first version said push was off. It is not. agentbox builds the pod server with the `git` feature in its baseline set, and `handle_git` serves push: it resolves the caller from a `Basic nostr:` or NIP-98 credential and requires Write on the pod root (Read for clone and fetch). The pre-receive guard refuses any push touching `.acl` sidecars or server-managed paths, and the repository root is correct. So deleting the path would break a working agentbox feature; the "delete" answer was given on false facts and is not acted on.
+**The first correction to this section was itself wrong.** It said push was live because `handle_git` checks Write on the pod root. It missed that the git service underneath was built with no auth provider, so every push was refused with "no auth provider configured"; clone also returned 404 because the repository root doubled the pod name. The register's original premise, push off, was right.
 
-**What is still weak:** a pushed file is not checked against its own ACL, so a holder of Write on the pod root can write under a sub-container with a stricter ACL; and clone needs only Read on the root, so the whole history is readable to anyone who can read the root.
+An engineer working the "per-path checks" answer made push and clone work for the first time to test them. Shown the verified facts, the owner chose the original answer: delete the push path. The engineer's two commits were not shipped; they are kept on the local branch `er28-live-git-archive` in solid-pod-rs. agentbox serves pod git push through its own owner-only route, so nothing is lost.
 
-1. **Per-path checks** in the existing push guard (it already lists every changed path) and in clone, so each path is judged by its own ACL.
-2. **Accept as is**: pod-root Write is normally the owner alone, which makes the gap narrow.
-
-**Recommendation: option 1**, scoped to the guard you already have.
+**Done in solid-pod-rs (unreleased):** `handle_git` refuses `git-receive-pack` and its `info/refs` discovery with 403 for every caller before reading any credential, the route stays registered so the request cannot fall through to LDP, and the server's push-guard module is deleted. A test shows a pod whose ACL lets anyone write still refuses push and creates nothing on disk. Clone remains non-functional, as before; that is recorded, not changed.
 
 ## ER-35: exact or range pins between in-family crates — decided, partly done
 
