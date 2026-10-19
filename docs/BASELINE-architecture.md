@@ -81,7 +81,7 @@ server behind nginx:
 Codescape, a voice-collaborative live code-graph view, is a **separate section**, not part of the
 knowledge-work system. It is its own Cargo workspace in the `codescape/` git submodule
 (DreamLab-AI/codescape, ADR-2143 A5) with its own `Cargo.lock` (`codescape/Cargo.toml`), never a root-workspace member, because the
-graphicle engine it consumes (pinned git rev, `:40`) turns on serde_json `arbitrary_precision`,
+graphicle engine it consumes (pinned git rev, `codescape/Cargo.toml:53`) turns on serde_json `arbitrary_precision`,
 which Cargo would unify into every root build. It runs as its own compose service `codescape`
 (`docker-compose.unified.yml`, profiles `codescape`, enabled by `CODESCAPE=1` in `launch.sh`), on
 port `4100` for clients (loopback by default) and `4101` for token-authenticated hook ingest (never
@@ -92,9 +92,10 @@ memory-cloud, vault, Oxigraph, RuVector/Postgres and Solid stores is enforced in
 build graph (`codescape/crates/codescape-server/tests/isolation.rs`, where `visionclaw-wire` is the
 only VisionClaw crate allowed), source-only read-only mounts without `/vault`, `.env` or `data/`,
 the server's refusal to boot with a RuVector connection string, and the client import graph
-(`client/src/codescape/src/__tests__/isolation.test.ts`). Its only estate crate dependency is
-`crates/visionclaw-wire` (the frozen wire record, MIT OR Apache-2.0, re-exported by
-`visionclaw-protocol`); the CUDA PTX reaches it as a runtime artefact staged by the service's
+(`codescape/client/src/__tests__/isolation.test.ts`). Its only estate crate dependency is
+`visionclaw-wire` (the frozen wire record, MIT OR Apache-2.0), taken from crates.io and never as a path
+or git dependency on VisionClaw (I10); VisionClaw's `crates/visionclaw-wire` is the same crate, re-exported by
+`visionclaw-protocol`; the CUDA PTX reaches it as a runtime artefact staged by the service's
 entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A4 landed on
 2026-10-18; extraction to its own repository is in progress (ADR-2143 A5).
 

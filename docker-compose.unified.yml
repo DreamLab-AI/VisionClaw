@@ -488,8 +488,6 @@ services:
       # visionclaw-gpu (PTX build) path-depends on visionclaw-domain, so the
       # whole crates tree stays mounted read-only for the artefact build.
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/scripts:/app/scripts:ro
       # Dogfood repositories as SOURCE-ONLY views (ADR-2143 §8, security
       # review finding 3). The whole checkout is never mounted: it carries the
       # knowledge corpus (data/), the root .env and local secrets. Only source

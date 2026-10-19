@@ -272,7 +272,7 @@ becomes `visionclaw-wire`). Those texts are not edited until the steps below lan
 
 **Steps** (ticked by the queen as they land):
 - [x] `DreamLab-AI/codescape` created; fresh import citing the VisionClaw range (2026-10-19: submodule `codescape/` at `9b8d5de`, first commit `235d9a5` "import Codescape from VisionClaw cac36a028")
-- [ ] licence fields split; check that no permissive crate depends on an AGPL crate
+- [x] licence fields split; check that no permissive crate depends on an AGPL crate (2026-10-19: `codescape-model` depends only on crates.io `visionclaw-wire`, `codescape-collab` only on `codescape-model`; both ship `LICENSE-MIT` and `LICENSE-APACHE`; no permissive crate depends on an AGPL one; reviewer pass over the branch)
 - [x] `visionclaw-wire` extracted and re-exported by `visionclaw-protocol`; fixtures byte-identical (2026-10-18: `-p visionclaw-wire` 8 + 2 doctests, also `--no-default-features`; `visionclaw-protocol` 25; XR wire tests 25; `codescape-model` `#[path]` include replaced by the crate)
 - [x] PTX loaded from `CODESCAPE_PTX_DIR`; I7 tests pass against the loaded artefact (2026-10-18: `codescape-layout/src/ptx_source.rs`; the compose entrypoint stages the pair from visionclaw-gpu's own build script into the fixed `/codescape-target/ptx`, `provenance=compiled`, tag `7b41d3561a264b78`; device run in `docs/evidence/codescape/P1/gate-gpu-A5-runtime-ptx.txt`)
 - [x] submodule mounted at `codescape/`; `crates/codescape/` removed (2026-10-19, `22b471282`: the five files that differed were all older in-tree; the rest byte-identical at the `crates/` layout; `scripts/codescape-entrypoint.sh` dead copy removed with it)

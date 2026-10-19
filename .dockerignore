@@ -54,3 +54,5 @@ JavaScriptSolidServer/
 !CLAUDE.md
 !multi-agent-docker/CLAUDE.md
 !client/**/*.md
+# Codescape is a submodule with its own build tree; never send it with an image build.
+codescape/
