@@ -499,6 +499,31 @@ The reviewer found nothing exploitable in the `whoami` exemption itself (an enco
 
 **Pushing.** On the owner's instruction (2026-10-18) every repository is pushed: VisionClaw `feat/codescape` (new remote branch, 31 commits over `main`), agentbox, VisionFlow, solid-pod-rs, nostr-rust-forum, ontomark, sidestr-rs, visionGraph, vowl-wasm, prose-sanitiser and dreamlab-ai-website. solid-pod-rs and vowl-wasm were rebased onto newer remote commits first and re-tested (2130 and 128 tests). VisionFlow was pushed from a clean worktree; the main checkout keeps two local commits now superseded on origin, beside another session's uncommitted files. Released the same day on the owner's instruction: prose-sanitiser 0.1.4 (six crates, tag `v0.1.4`) and solid-pod-rs 0.5.0-alpha.14 (eight crates, tag `v0.5.0-alpha.14`), each after its full test suite, clippy and a warning-free docs build. Consumers still pin the previous versions exactly (VisionClaw and the forum `=0.5.0-alpha.13`; agentbox now pins prose-sanitiser 0.1.4, `d435ca0e5`), so the releases reach them only when those pins move (see ER-35). Still an owner action: the agentbox image rebuild.
 
+## Sweep 2026-10-19: loose ends from the estate commit review
+
+Closed in source (local commits unless stated; the agentbox ones take effect at the next image rebuild):
+
+| Item | Result | Evidence |
+|---|---|---|
+| Podcast pipeline dead since late Aug | Fixed: handle `@AIDailyBrief`, yt-dlp failure now an error, `--ledger-dir` added to promote, ledgers written to the working root, `submit-proposals.mjs` uses `ontomark find`, scrubbed loom fallback and HP quotes restored | agentbox `3858102ba`; 138 cargo tests and 6 node tests |
+| Dream evaluator SSH quoting on the connected node | Fixed at the transport: script goes over stdin, fish parses only a fixed command | agentbox `ef6737c44`; stopgap (quote-free evaluators) merged via dream-engine PR #7 |
+| `/api/semantic/statistics` 500 before first analysis | Fixed in the adapter | `b48d92c57`; needs `launch.sh redeploy dev` |
+| In-tree `crates/codescape` after the submodule move | Removed (ADR-2143 A5) | `22b471282`, `79abb6b60`, `cff5cb8f2` |
+| VisionFlow divergence, ledger-row commits | Reconciled and pushed | VisionFlow `a9f6ed6`; fast-forwards in four repos |
+
+Still open, owner or design needed:
+
+| Item | Why |
+|---|---|
+| Image rebuild, then bump the `agentbox` gitlink again | Podcast and dream-engine fixes are unbaked; the gitlink trails agentbox `main` |
+| `feat/codescape` PR | Needs a merge with 2 new `main` commits, re-verification of ADR-2011, 2012 and 2093 (and 34 already-stale ADRs on `main`), a full test run and a diff review |
+| agentbox `f5304bc78` (ADR-2144 activity sink) | On `origin/feat/codescape-activity-sink`; touches entrypoint, egress policy and manifest gate, so review before merging |
+| Podcast backlog policy | 52 new episodes, then 1,071 back-catalogue at 15 a week unless bounded |
+| Podcast linker snaps companies to product pages | Tuning decision |
+| ontomark conformance golden fails only on HP | Host/tree difference, not investigated |
+| dream-gate protected set blocks `gate-aggregation.test.mjs` | A safety gate; loosening is an owner decision |
+| `visionclaw-gpu` does not build inside agentbox | gcc 15 is newer than CUDA 12.9 supports and the merged include path is missing; add a gcc 14 host compiler to the image |
+
 ## Removed as resolved in this execution
 
 | ID | State | Evidence and remaining boundary |
