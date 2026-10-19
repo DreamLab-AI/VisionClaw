@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 67ba41c9884260d19d57938ecc24608de8577606
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
 review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
@@ -97,3 +97,11 @@ ADR-2135 makes two changes here. `MemoryFlashCodec.parse` (`pulse.rs`) adds `age
 
 ## Re-verification — 2026-10-07 at 67ba41c98
 Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main's restart re-wiring (d38d430e6). Both sides' notes above apply unchanged; the merge combines independent hunks. Decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** `decision_status` still reads `proposed` although the relay is implemented and has been re-verified a dozen times; that is a ledger housekeeping item for the owner, not drift. Governed changes since 67ba41c98:
+- `client_coordinator_actor.rs` was rewritten by ADR-2141 (per-client acknowledged position streaming). `message_routing.rs` dropped the legacy position-request text messages (`update_physics_params`, `request_full_snapshot`, `subscribe_position_updates`, ...). Neither touches the relay: `beatClock` and `memoryRoute` are still dispatched to `session_relay::handle_relay` (`message_routing.rs:64-68`), `relay_text_to_pubkey` is unchanged in behaviour (`client_coordinator_actor.rs:584-606`: empty pubkey delivers to nobody, the sender and other pubkeys are skipped), `AuthenticateClient` is still forwarded from `SetClientId` (`actor_messages.rs:23-24`), and `relay_reaches_only_the_same_pubkeys_other_sessions` is at `:1711`.
+- `xr-client/rust/src/beat.rs` adds a provisional one-way offset (`ClockOffset::seed_provisional`, `:326`) that answers only until the first real ping lands and is then discarded (estate ER-26). The decision's rule is intact: the offset in use is still `serverTime − (sent + rtt/2)` from the minimum-RTT sample of the last eight (`WINDOW` 8, `:299`); the seed only stops a relayed frame with `rtt 0` from outranking every real ping.
+- Constants at HEAD match the text: `RELAY_MIN_INTERVAL_MS` 250, `MAX_RELAY_FRAME_BYTES` 16 KiB, path/sidecar 64, query 120 chars, id 128, bpm 40..220, sources off/file/tap/spotify (`session_relay.rs:30-45`); the pong and relayed frames carry `serverTime` (`:144`, `:223`); an unauthenticated sender gets one `error` frame (`handle_relay`, `:331-350`); the headset drops a relayed clock after 6.5 s (`beat.rs:368`).
+Not re-run: no build was permitted.

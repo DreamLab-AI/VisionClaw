@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/utils/binary_protocol.rs]
 owner: jjohare
 review_trigger: node count approaching 2^26, or promotion of the debug_assert ceiling to a runtime guard
@@ -198,3 +198,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/utils/binary_protocol.rs`: deletes the unused V2 item-size and alias constants; the V3 52-byte `const` assertion and all encoders/decoders are untouched.
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed change since `3b3ee7779`: `src/utils/binary_protocol.rs` gains test code only (`broadcast_ack_wire_tests`); no production line of the ID path changed. **Holds.** Fresh anchors in `src/utils/binary_protocol.rs`: `AGENT_NODE_FLAG` `:17`, `KNOWLEDGE_NODE_FLAG` `:18`, ontology flags `:21-24`, `NODE_ID_MASK = 0x03FFFFFF` `:28`; `WireIdClass` `:138`; `enforce_wire_id_bounds` `:184-208` (`debug_assert!` then unconditional `error!` then mask via `remap_wire_id` `:217-219`); typed setters `set_agent_flag` `:221`, `set_knowledge_flag` `:225`, `set_ontology_class/individual/property_flag` `:275-285`; `clear_all_flags` `:233`, `get_actual_node_id` `:245`; encoder stamped-id arm `:470-479` and untyped branch `:486-491`; `to_wire_id_v2` `:310` (identity). The remap-not-reject behaviour and the six guarded branches are as recorded. No hard-reject has landed; that hardening stays open.

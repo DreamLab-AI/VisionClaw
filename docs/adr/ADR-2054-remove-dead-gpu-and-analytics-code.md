@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 6e89f6adba47227828baa9e53955d4874780f2ec
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/gpu/mod.rs, src/actors/gpu/connected_components_actor.rs, src/handlers/socket_flow_handler/mod.rs, src/handlers/socket_flow_handler/actor_messages.rs, src/handlers/socket_flow_handler/types.rs, tests/gpu_safety_tests.rs]
 owner: jjohare
 review_trigger: Any reintroduction of a message type, module or kernel with no caller at merge time
@@ -183,3 +183,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-07 at 6e89f6adb (fix/broadcast-timer merge)
 
 `socket_flow_handler/actor_messages.rs` gains `Handler<CloseClientSession>` (`:101`), the coordinator's stall-eviction close. `mod.rs` registers `heartbeat` and `transport` and records inbound liveness (`:35`). `types.rs` adds the `heartbeat` and `transport` fields and replaces the fixed 5 s ping (which counted its own ping as liveness) with a configured `Heartbeat` that closes after `heartbeatTimeout` of inbound silence. All of this is new live code, not resurrected dead code. Every `REMOVED (ADR-2054)` marker is still in place (`mod.rs:17`, `actor_messages.rs:262`, `types.rs:184`, `:482`). The per-socket `run_later` re-subscribe loop removed from `position_updates.rs` is deleted outright, not stubbed, as this record requires. **Still holds.** Checked by reading `git diff <previous verified_commit> 6e89f6adb` over this record's governed paths; the test suites were not re-run for this stamp.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed diff `6e89f6adb..b4a175412` touches `src/gpu/mod.rs`, `socket_flow_handler/{mod,actor_messages,types}.rs`; none re-adds a removed item. **Holds.** Source-read at HEAD: `src/gpu/streaming_pipeline.rs` absent; no `StreamingPipeline`, `UpdateComponentEdges` (outside comments), `VisualAnalyticsGPU`, `VisualAnalyticsEngine`, `TSNode`, `TSEdge`, `PushDirective`, `queue_directive`, `pending_directives` or `apsp_module` in `src/`, `crates/` or `tests/`; `send_pong` is never called (only the trait default and comments), the live path answers pings with `ctx.pong` (`socket_flow_handler/mod.rs:37-40`). `REMOVED (ADR-2054)` markers now at `connected_components_actor.rs:276`, `socket_flow_handler/mod.rs:16`, `actor_messages.rs:174`, `types.rs:139` and `:373`, `gpu/mod.rs:33`, `utils/unified_gpu_compute/construction.rs:321`, `tests/gpu_safety_tests.rs:9`, `:337`, `:410`. Retained by design and still present: `Handler<ComputeAPSP>` NFR-7 refusal (`shortest_path_actor.rs:348`), `ComputeShortestPaths`/`ComputeConnectedComponents` on `GPUManagerActor` (`gpu_manager_actor.rs:804`, `:827`) and `GraphAnalyticsSupervisor` (`:552`, `:611`), now the entry for `handlers/api_handler/analytics/pathfinding.rs:278`. `gpu_landmark_apsp.cu` keeps only the explanatory comment (`#if 0` at `:19` is prose). The `HeartbeatDirective` enum and `WebSocketHeartbeat::get_pending_directives` default remain in `utils/websocket_heartbeat.rs:17,40` as inert trait surface, which this record did not claim to delete. No build or test run for this note.

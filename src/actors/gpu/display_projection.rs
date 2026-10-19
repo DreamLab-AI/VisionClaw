@@ -347,7 +347,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn the_triangle_is_always_on_once_populations_are_known() {
         let m = |axis, dual, n| display_mode(&LayoutParams::new(axis, dual), n);
         for axis in [1.0, 0.4, 0.0] {

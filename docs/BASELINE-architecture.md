@@ -103,27 +103,30 @@ entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A
 
 The monolith split (legacy ADR-090) is **real but incomplete**. The root binary
 is renamed `visionclaw-server` (`Cargo.toml` `[package] name = "visionclaw-server"`)
-with `src/lib.rs` + `src/main.rs`. The workspace declares **twelve** members
-(`Cargo.toml` `[workspace].members`) — the root `"."` plus eleven `crates/`:
+with `src/lib.rs` + `src/main.rs`. The workspace declares **sixteen** members
+(`Cargo.toml:2-19`, `[workspace].members`) — the root `"."` plus fifteen `crates/`:
 
 `visionclaw-contracts`, `visionclaw-domain`, `visionclaw-protocol`,
-`visionclaw-adapters`, `visionclaw-gpu`, `visionclaw-ontology`,
-`visionclaw-actors`, `visionclaw-xr-presence`, `visionclaw-analytics-oracle`,
-plus `vault-migrate` and `visionclaw-integration-tests`, added since this doc's
-original root-plus-nine census (`ADR-2005` re-verification, 2026-09-05). `visionclaw-wire` joined on 2026-10-18 (ADR-2143 A5); the
-member list now stands at sixteen including the root, so the twelve-member census above
-predates `vault-core`, `vault`, `visionclaw-memory-cloud` and `visionclaw-tri-layout`. The empty
-orphan dir `graph-cognition-extract`, never a member, has been removed.
+`visionclaw-wire` (the frozen position wire, ADR-2143 A5), `visionclaw-adapters`,
+`visionclaw-gpu`, `visionclaw-ontology`, `visionclaw-actors`,
+`visionclaw-xr-presence`, `visionclaw-analytics-oracle`, `vault-core`, `vault`,
+`visionclaw-integration-tests`, `visionclaw-memory-cloud` (ADR-2133) and
+`visionclaw-tri-layout` (ADR-2135). The original census (`ADR-2005`) was the root plus
+nine; `vault-migrate`, once the tenth, was replaced by `vault-core` + `vault`. The empty
+orphan dir `graph-cognition-extract` never was a member and has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
 are workspace-**excluded** so a server build does not compile them.
 
-**Actor extraction is unfinished**: `src/actors/*.rs` holds **23** actor
+**Actor extraction is unfinished**: `src/actors/*.rs` holds **25** actor
 source files while `crates/visionclaw-actors/src` holds **11** counted
 recursively (4 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs`,
 `protected_settings_actor.rs` — plus 7 under `messages/`). The live supervisor
-tree still runs from `src/actors/`, not the crate. The `src/` count was 25 until
-`ADR-2045` deleted the two dead supervision files; note the crate still carries
-its own copy of `supervisor.rs`, which the root crate no longer has.
+tree still runs from `src/actors/`, not the crate (63 `.rs` files recursively). The count
+was 25, fell to 23 when `ADR-2045` deleted the two dead supervision files, and is 25 again
+(new files include `position_stream.rs`, ADR-2141, and `agent_demo_director.rs`, ADR-2142, both
+in the root), so the extraction gap has widened, not narrowed. The crate still carries its own copy
+of `supervisor.rs`, which the root crate no longer has, and `protected_settings_actor.rs` and
+`voice_commands.rs` exist in both trees.
 
 ### Actor system topology
 
@@ -166,19 +169,23 @@ states that it is the top of the tree. A second, fully independent mechanism,
 anywhere and was removed entirely.
 
 **GPU tree** — root `GPUManagerActor` (`src/actors/gpu/gpu_manager_actor.rs:57`,
-`impl Actor` at `:140`), started at `src/app_state.rs:965` when GPU is enabled.
+`impl Actor` at `:146`), started at `src/app_state.rs:943` when GPU is enabled.
 Refactored from a "God Actor" into a coordinator that spawns four subsystem
-supervisors (`gpu_manager_actor.rs:88-121`), documented in `gpu/mod.rs:1-33`:
+supervisors (`gpu_manager_actor.rs:88-123`), documented in `gpu/mod.rs:1-33`:
 
 - `ResourceSupervisor` → `GPUResourceActor` (GPU init, timeouts).
 - `PhysicsSupervisor` → `ForceComputeActor`, `StressMajorizationActor`,
-  `ConstraintActor` / `OntologyConstraintActor`, `SemanticForcesActor`.
+  `ConstraintActor` / `OntologyConstraintActor`. (`SemanticForcesActor` was removed under
+  ADR-2140: the semantic forces are the `physics.semantic` settings group, applied by
+  `ForceComputeActor`.)
 - `AnalyticsSupervisor` → `ClusteringActor`, `AnomalyDetectionActor`,
   `PageRankActor`.
 - `GraphAnalyticsSupervisor` → `ShortestPathActor`, `ConnectedComponentsActor`.
 
-Subsystems receive `SharedGPUContext` via a decentralised `GPUContextBus`
-broadcast (`gpu/context_bus.rs`), not a central handle.
+`ResourceSupervisor` distributes `SharedGPUContext` to the registered supervisors by direct
+messages (`resource_supervisor.rs:143-230`, send results checked) and then publishes it on the
+`GPUContextBus` (`gpu/context_bus.rs`, `resource_supervisor.rs:235-240`) as a **supplementary**
+broadcast for observers that are not registered supervisors (ADR-2053, ADR-2007).
 
 ### Data pipeline (GitHub → Oxigraph → client)
 
@@ -359,3 +366,4 @@ ADR-2008 is partial: normal development startup uses a timestamp-gated superviso
 - ADR-2098 — `SOLID_POD_URL` names an endpoint that exists. Both defaults pointed at the JSS sidecar removed by ADR-032 M3 (`.github/workflows/ontology-publish.yml` had `http://jss:3030`, `env.example` had `http://visionclaw-jss:3030`); neither host resolves, so the ontology-publish deploy step could only fail DNS unless a repository variable overrode it. Both now default to `http://localhost:4000/solid` — the `/solid` scope the embedded `solid-pod-rs` actually serves on the server's own listener. The workflow's POST to `/.notifications` is annotated as a best-effort no-op on the embedded pod, where that path is a GET WebSocket upgrade, not a POST broadcast trigger.
 - ADR-2101 — decision-elevation cases have a named durable case-state authority. `DecisionElevationActor` kept every open case in two in-process `HashMap`s with no repository field at all, so a crash between the kind-31404 publish and its bookkeeping silently lost an open governance decision (the ADR-2006 `partial` gap, and the VC-24.6 diagram divergence). Cases and decisions now persist through `DecisionElevationStore` (`src/adapters/decision_elevation_store.rs`) into the same `data/enrichment.sqlite3` the `ElevationActor` uses — case rows tagged `category="decision-elevation"`, decision rows carrying the ADR-2006 signed-event correlation — written durable-first on open and durable-before-in-memory on the PR stamp; at boot a pure `plan_reconciliation` reloads every non-terminal case and re-arms the merge poll, re-opens a PR whose approval crashed before it landed, re-arms a case still awaiting a human, or expires it past a 14-day TTL with a kind-31404 receipt. A case tracking an open PR is never expired. Resuming an approval can open a duplicate PR if the previous process died between creation and the durable stamp — recorded as follow-on 1 in ADR-2101, not closed.
 - ADR-2110 — the VisionClaw judgment surfaces are instrumented against the augmentation conditions (PRD-augmentation-conditions, EXP-AC-002/004/005/006). `ElevationActor` gained the recovery posture ADR-2101 gave its sibling: `OPEN_CASE_TTL` of 14 days, boot reconciliation of durable `pending` rows through a pure `plan_elevation_reconciliation` before the first cycle, and an `elevation_expired` kind-31404 receipt with a terminal durable status that does not depend on the receipt publishing (`src/actors/elevation_actor.rs`). Before this a kind-31403 arriving after a restart hit an empty in-memory `pending` map and returned early — the human's signed decision was dropped and the row sat `pending` for ever. The EL++ consistency gate's synthetic rejection carried the *human responder's* pubkey, so a reasoner outcome counted as a human override; it now carries the reserved non-DID actor `system:whelk-gate`, which `kpi_compute` excludes from the Trust Variance human-outcome series and from both terms of HITL Precision. HITL Precision itself is computed rather than stubbed: warranted ÷ decided over human-decided cases with the denominator always reported and no value at a zero denominator. Declared `intent` is persisted verbatim on `kpi_agent_events` (`migrations/sqlite/0006_kpi_agent_event_intent.sql`) and compared with the act at `/api/trace` (`src/services/intent_match.rs`). `AgentContext.confidence` became `Option<f32>` so the elevation paths' hardcoded `0.5` no longer reaches a reviewer as the agent's own confidence. The 20-character rationale gate is enforced server-side on `apply_decision` (`src/handlers/enrichment_proposals_handler.rs`), the single core both decide routes funnel through: a `high`/`critical` case decided with an absent or too-short rationale is refused with a structured HTTP 422 before anything is minted or persisted, and is never completed for the caller. Follow-ons open, not closed: that gate reads the case's *declared* `risk_tier` rather than the forum's not-yet-landed `effective_tier`, and the approve path still trusts relay-side admission with no in-process admin allowlist (the same deepsec `acl-check` MEDIUM that stands against `DecisionElevationActor`).
+- ADR-2106 amendment (2026-10-19) — the embedded pod's ontology pull no longer writes resources sequentially. `services::ontology_pull` is generic over `OntologyPublication` (`src/services/ontology_pull.rs:30`, `:302`): container and ACL probes propagate errors and abort the pull (`:354-363`), and the resources plus manifest are published in one `publish_ontology` call (`:380`) to `PublishedStorage` (`src/services/ontology_generation.rs:33`), which stages an immutable generation and atomically switches an active pointer; the pod handler uses it as its filesystem backend (`src/handlers/solid_proxy_handler.rs:48`) and the client pins JSON-LD and Turtle reads to one generation (`schemaParser.ts:73`). Boot spawn is `src/main.rs:915`. Post-rename directory-fsync durability and old-generation garbage collection remain open (ADR-2106).

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -204,3 +204,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/main.rs` changes in two hunks only: the RAGFlow start-up match (`:425-446`; an unset `RAGFLOW_API_KEY` is `RAGFlowError::NotConfigured`, logged as one WARN at `:431`, and the service stays `None`) and Step 1 of the data orchestration (`:605-627`; `FileService::initialize_local_storage` takes the corpus source and skips the GitHub markdown mirror for a local corpus, `:606`). Nothing touches release-build dev-auth exclusion (`enforce_release_env_hygiene`, `:117-169`, called at `:209` before any other start-up work; dev-auth cfg gate at `:293`), the boot profile assertion (`assert_effective_profile_or_exit`, `:934-944`, still before the listener binds) or fail-closed behaviour: no line added or removed in `main.rs` reads a security flag, and an absent RAGFlow key leaves chat off, which widens nothing. Decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed changes since `bb76e75bd`: `src/main.rs` (+14: telemetry log guard, `SemanticService` registration) and `src/middleware/rbac_gate.rs` (+116: the gate now classifies the router-decoded path `routed_path(&req)`, closing a percent-encoding bypass such as `/api/%61dmin`; `GET /api/admin/rbac/whoami` is `Authenticated`, every other method and sub-path stays `Admin`). Both move the posture only towards stricter. `role_store.rs` is unchanged. **Holds.** Fresh anchors: `public_reads_enabled` `src/middleware/rbac_gate.rs:135-141` (`.unwrap_or(false)`); `enforce_release_env_hygiene` argv `exit(1)` `src/main.rs:125`, `SUSPECT_ENVS` `:129-133`, `NODE_ENV`+`DOCKER_ENV` and `exit(2)` `:161`, dev stub `:169`, call `:209`; owner-less refusal (`RBAC_ALLOW_OWNERLESS` read `:795`, `PermissionDenied` `:814`); boot profile assertion `:950` before `HttpServer::new` `:970` and `.bind()` `:1259`; role-lookup `Err` to `Viewer` `src/services/role_store.rs:369-371`; `parse_default_role` fails closed `:195-211`.

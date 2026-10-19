@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 31bc3d3a1990703a6ce0a433bdff77d1fe86080e
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -198,3 +198,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 ## Re-verification — 2026-10-08 at 31bc3d3a1 (ADR-2135 amendment, ADR-2136)
 
 `src/models/simulation_params.rs` drops only the retired `graph_separation_x` from the reverse conversion. Flag derivation is untouched. Decision holds. Citations at 31bc3d3a1: `src/models/simulation_params.rs:182`.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+Governed changes since `31bc3d3a1`: `src/utils/unified_gpu_compute/execution.rs` (grid cell floor and cell-bounds launch fixes, plus a new optional semantic-force pass `enable_semantic` / `set_semantic_config`, applied to the force buffers before integration when `semantic_active`) and `src/models/simulation_params.rs` (see ADR-2028). `force_channels.rs` is unchanged. **Holds.** The flag authority is as decided: `execute_physics_step_with_bypass` (`execution.rs:1056`) calls `force_channels::derive_dispatch_feature_flags` (`:1069`, defined `src/models/force_channels.rs:488-508`; `ENABLE_CONSTRAINTS` iff `num_constraints > 0` `:504`), calls `params.to_sim_params()` (`:1082`) and overwrites the word (`:1083`). `ForceChannel::Constraints` is still the only read-only channel (`is_read_only` `force_channels.rs:212`, `apply` early return `:185-190`). Note, not a conflict: the semantic forces are a separate module outside the ten-channel registry and outside `feature_flags`; they derive no flag bit, so there is still no second flag-deriving authority. They do mean "ten force terms" is now the flat-struct count, not the total number of force contributions per step.

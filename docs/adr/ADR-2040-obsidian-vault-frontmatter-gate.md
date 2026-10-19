@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: bb76e75bdf2c2f86cf0ce2c13ea4296f42924582
+verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -178,3 +178,13 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-08 at bb76e75bd (fix/startup-errors)
 
 `src/services/file_service.rs`: `initialize_local_storage` (`:307`) now returns `LocalStorageSync::SkippedLocalCorpus` for `CORPUS_SOURCE=local` (ADR-2114) without mirroring. This cannot route a page past the inclusion gate. Corpus pages reach the KG through `GitHubSyncService` for every `CorpusSource`, gated at `src/services/github_sync_service.rs:1662` (`process_fetched_file`) and `:1839` (`process_plain_vault_file`), both via `vault::parse(..).is_kg_included()` (`:2069`). The skipped mirror was a second, gated copy (`file_service.rs:383`), and the fallback scan still gates at `:684`. Skipping it narrows input and widens nothing; a GitHub corpus takes the unchanged path. Decision holds. Test: `the_markdown_mirror_is_skipped_for_a_local_corpus`.
+
+## Amendment — 2026-10-19
+
+Re-verified at b4a175412. The record is superseded by ADR-2112; this amendment states where its text no longer matches the code, so it is not read as current. Governing doc `docs/VAULT-corpus-format.md` already carries the current state (§V1 layout and identity, §V4 gate, V6) and needed no further edit.
+
+- **Decision 3 (bounded Logseq tolerance) is gone.** `crates/visionclaw-domain/src/vault/mod.rs:22-26` records that the leading `key:: value` block reader reached its `review_trigger` and was deleted; a `key:: value` line anywhere is body text and a page without frontmatter is private. The `Legacy` carrier and the `legacy-*.md` fixtures' behaviour described above no longer apply.
+- **Decision 5 (identity under `pages/`) drifted.** The vaults are flat (owner decision 2026-10-16, `VAULT-corpus-format.md` §V1). `page_name_from_repo_path` (`vault/mod.rs:391`) now returns `Option<String>`: identity is the path relative to the configured base path (`vault_base_of`, `:342`), and `None` for a path under no base or under vault furniture (`VAULT_FURNITURE_DIRS` `:329`, `is_vault_furniture` `:363`: `templates`, `bases`, `assets`, `journals`, any dot-folder). `VaultContext::identity_of` returns the same `Option` (`vault/link.rs:212`). The `___`/`%2F` decoding survives in `page_name_from_path` (`:416`).
+- **Decision 6 (listing skips) holds in `github/content_enhanced.rs:130-131` and `:248-249` (`/.obsidian/`, `/.trash/`, plus `/bak/`, `/.recycle/`, `/journals/`)**, now superseded in effect by the furniture rule above for the sync path.
+- **Still true:** the gate is `public: true` or a valid `owl-class` (`vault/mod.rs:162-164`, `is_kg_included`), fail-closed; every ingest path calls it (`github_sync_service.rs:1682`, `:1864`, helper `:2098`; `file_service.rs:684`, `:776`); `PageMeta` is the single parse entry (`vault/mod.rs:49`, `:278`); writers emit frontmatter through `render_page` (`decision_elevation.rs:361`, `ontology_mutation_service.rs:1216`). `elevatedFrom` survives (`vault/mod.rs:230`, `:475`; `github_sync_service.rs:1748`).
+- Test counts and the shadow-sync figures above are historical and were not re-run.

@@ -1578,8 +1578,9 @@ impl BinaryProtocolClient {
     }
 
     /// Remove agents from the registry outright (record + anchor). The explicit
-    /// lifecycle end for agents that will not return — the demo director retires
-    /// its synthetic ids on Stop so no demo state can outlive the demo. Returns
+    /// lifecycle end for agents that will not return — the headset retires the
+    /// demo's synthetic ids when the server-side demo stops (`graph_parity.gd`)
+    /// so no demo state can outlive the demo. Returns
     /// the number of records removed.
     #[func]
     fn retire_agents(&mut self, ids: PackedInt32Array) -> i64 {
@@ -1589,9 +1590,10 @@ impl BinaryProtocolClient {
 
     /// Estimated current server-clock milliseconds (ADR-2034 anchor + locally
     /// elapsed time), or `-1` before any `0x23` action has anchored the clock.
-    /// A producer of synthetic actions (the demo director) stamps its frames
-    /// from this clock so its evidence orders and expires coherently alongside
-    /// live agents' evidence instead of on an unrelated local clock.
+    /// A client-side producer of synthetic actions would stamp its frames from
+    /// this clock so its evidence orders and expires coherently alongside live
+    /// agents' evidence instead of on an unrelated local clock. (The demo
+    /// director is server-side since ADR-2142 and has no caller here.)
     #[func]
     fn server_clock_ms(&self) -> i64 {
         match self.estimated_server_now_ms() {

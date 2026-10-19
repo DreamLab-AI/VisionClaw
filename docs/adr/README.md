@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_122 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_128 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -166,4 +166,9 @@ _122 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2135](ADR-2135-graph-separation-opens-a-three-body-triangle-with-agents-at-the-centre.md) | Graph Separation opens a ground-plane triangle of knowledge, ontology and memory, with agents drifting at its centre | XR-client | 2026-10-07 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2136](ADR-2136-the-memory-cloud-query-response-carries-the-query-point.md) | The memory-cloud query response carries the query's point in the snapshot's cloud | PROTOCOL-registry | 2026-10-08 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2137](ADR-2137-consume-shared-ontology-workspace.md) | Consume shared ontology semantics through explicit native adapters | — | 2026-10-11 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2138](ADR-2138-directed-cycles-are-a-server-analysis-with-one-adjacency.md) | Directed cycles are one server analysis that every client consumes | — | 2026-10-13 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2139](ADR-2139-position-frames-are-full-snapshots-of-the-entitled-set.md) | Position frames are full snapshots of the entitled set — never deltas, never partial | — | 2026-10-13 | accepted | complete | staged | — | ADR-2141 | jjohare | visionclaw |
+| [ADR-2140](ADR-2140-physics-forces-have-one-stored-definition-and-no-scale-factors.md) | Physics forces have one stored definition, applied as stored — no scale factors, caps or shadow state | — | 2026-10-13 | accepted | partial | staged | — | — | jjohare | visionclaw |
+| [ADR-2141](ADR-2141-positions-are-streamed-per-client-until-acknowledged.md) | Positions are streamed to each client in chunks until it has acknowledged them | — | 2026-10-13 | accepted | complete | staged | ADR-2139 | — | jjohare | visionclaw |
+| [ADR-2142](ADR-2142-the-agents-demo-is-one-server-producer-both-clients-control.md) | The agents demo is one server-side producer that both clients control and both see | — | 2026-10-14 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2143](ADR-2143-codescape-section-separate-workspace-and-port.md) | Codescape is a separate section with its own Cargo workspace, its own port and a tested isolation boundary | BASELINE-architecture | 2026-10-17 | accepted | partial | inactive | — | — | jjohare | visionclaw |
