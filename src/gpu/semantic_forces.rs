@@ -76,12 +76,32 @@ impl SemanticForcesEngine {
             graph.edges.len()
         );
 
-        self.node_types = graph.nodes.iter().map(|node| self.node_type_to_int(&node.node_type)).collect();
-        self.node_physicality = graph.nodes.iter().map(|node| self.extract_physicality(node)).collect();
-        self.node_role = graph.nodes.iter().map(|node| self.extract_role(node)).collect();
-        self.node_maturity = graph.nodes.iter().map(|node| self.extract_maturity(node)).collect();
+        self.node_types = graph
+            .nodes
+            .iter()
+            .map(|node| self.node_type_to_int(&node.node_type))
+            .collect();
+        self.node_physicality = graph
+            .nodes
+            .iter()
+            .map(|node| self.extract_physicality(node))
+            .collect();
+        self.node_role = graph
+            .nodes
+            .iter()
+            .map(|node| self.extract_role(node))
+            .collect();
+        self.node_maturity = graph
+            .nodes
+            .iter()
+            .map(|node| self.extract_maturity(node))
+            .collect();
         self.node_cross_domain_count = self.calculate_cross_domain_counts(graph);
-        self.edge_types = graph.edges.iter().map(|edge| self.edge_type_to_int(&edge.edge_type)).collect();
+        self.edge_types = graph
+            .edges
+            .iter()
+            .map(|edge| self.edge_type_to_int(&edge.edge_type))
+            .collect();
         self.calculate_hierarchy_levels(graph)?;
 
         self.initialized = true;
@@ -257,8 +277,12 @@ impl SemanticForcesEngine {
         }
 
         // id -> index, once (a per-edge scan of every node made this quadratic).
-        let index_of: HashMap<u32, usize> =
-            graph.nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        let index_of: HashMap<u32, usize> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id, i))
+            .collect();
 
         // Find root nodes (nodes without parents)
         let mut roots = Vec::new();
@@ -349,7 +373,10 @@ mod tests {
             ("maturity", engine.node_maturity().len()),
             ("cross-domain", engine.node_cross_domain_count().len()),
         ] {
-            assert_eq!(len, 2, "{name}: one entry per node, whichever forces are enabled");
+            assert_eq!(
+                len, 2,
+                "{name}: one entry per node, whichever forces are enabled"
+            );
         }
         assert_eq!(engine.node_types()[0], 1, "person -> 1");
     }
@@ -396,6 +423,10 @@ mod tests {
         engine.initialize(&graph).unwrap();
         assert_eq!(engine.hierarchy_levels()[0], 0);
         assert!(engine.hierarchy_levels()[1..].iter().all(|&l| l == 1));
-        assert!(started.elapsed() < std::time::Duration::from_secs(2), "took {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 }

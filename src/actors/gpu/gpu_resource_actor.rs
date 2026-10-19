@@ -221,12 +221,8 @@ impl GPUResourceActor {
                             .get("source_domain")
                             .map(|s| s.as_str())
                             .unwrap_or("");
-                        // Charge modulates repulsion: charge[i] * charge[j] multiplies base repelK.
-                        // Same-domain pairs: 0.3 * 0.3 = 0.09 (91% less repulsion — cluster tight)
-                        // Cross-domain pairs: 0.3 * 2.5 = 0.75 (25% less — moderate)
-                        // Unknown pairs: 2.5 * 2.5 = 6.25 (525% more — push to periphery)
                         let id = vault_core::domains::domain_class_id(domain);
-                        let charge = if id == 0 { 2.5f32 } else { 0.3f32 };
+                        let charge = super::domain_charge::domain_class_charge(id);
                         class_ids.push(id);
                         class_charges.push(charge);
                     }

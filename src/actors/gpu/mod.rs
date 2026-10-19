@@ -41,6 +41,7 @@ pub mod clustering_actor;
 pub mod connected_components_actor;
 pub mod constraint_actor;
 pub mod context_bus;
+pub mod domain_charge;
 pub mod cuda_stream_wrapper;
 pub(crate) mod display_projection;
 pub mod force_compute_actor;

@@ -61,6 +61,15 @@ const PUBLIC_SEGMENT_PREFIXES: &[&[&str]] = &[
 ];
 
 /// Split a path into non-empty `/`-delimited segments.
+/// The path the router matches. Actix decodes percent-escapes (all but the
+/// protected `/`, `%` and `+`) before matching routes, while `req.path()` is
+/// the raw URI, so classifying the raw path let `/api/%73ettings/...` route
+/// to the settings handlers under the graph-write level, and `/api/%61dmin`
+/// skip the Admin rule (estate register, 2026-10-18 security review).
+fn routed_path(req: &ServiceRequest) -> &str {
+    req.match_info().as_str()
+}
+
 fn segments(path: &str) -> Vec<&str> {
     path.split('/').filter(|s| !s.is_empty()).collect()
 }
@@ -147,6 +156,13 @@ pub(crate) fn required_level(
         .any(|p| has_segment_prefix(&segs, p))
     {
         return None;
+    }
+    // `whoami` reports the caller's own role and power-user flag, so any
+    // signed-in user may read it; the handler verifies the caller itself.
+    // Without this the Admin rule below refused it to everyone but admins,
+    // and the client could never learn a power user's status (ER-26).
+    if *method == actix_web::http::Method::GET && segs == ["api", "admin", "rbac", "whoami"] {
+        return Some(AccessLevel::Authenticated);
     }
     // The admin surface is sensitive for reads and writes alike.
     if has_segment_prefix(&segs, &["api", "admin"]) {
@@ -243,7 +259,7 @@ where
         let svc = self.service.clone();
         let mode = self.mode;
 
-        let required = required_level(req.method(), req.path(), self.public_reads);
+        let required = required_level(req.method(), routed_path(&req), self.public_reads);
 
         let Some(level) = required else {
             // Public route — pass straight through.
@@ -312,6 +328,104 @@ mod tests {
         assert_eq!(lvl(Method::DELETE, "/api/auth/nostr"), None);
         assert_eq!(lvl(Method::POST, "/api/client-logs"), None);
         assert_eq!(lvl(Method::GET, "/api/healthz"), None);
+    }
+
+    /// The gate wraps the `/api` scope in `main.rs`, not the app root. Inside
+    /// a scope middleware `match_info().as_str()` must still be the full,
+    /// decoded path; were it scope-relative, nothing would start with `api`
+    /// and every route would classify as public.
+    #[actix_web::test]
+    async fn routed_path_is_the_full_decoded_path_inside_the_api_scope() {
+        use actix_web::{dev::Service, test, web, App, HttpResponse};
+        let app = test::init_service(
+            App::new().service(
+                web::scope("/api")
+                    .wrap_fn(|req, srv| {
+                        let seen = routed_path(&req).to_string();
+                        let fut = srv.call(req);
+                        async move {
+                            let mut res = fut.await?;
+                            res.headers_mut().insert(
+                                actix_web::http::header::HeaderName::from_static("x-routed"),
+                                actix_web::http::header::HeaderValue::from_str(&seen).unwrap(),
+                            );
+                            Ok(res)
+                        }
+                    })
+                    .route("/settings/physics", web::put().to(HttpResponse::Ok)),
+            ),
+        )
+        .await;
+        let req = test::TestRequest::put()
+            .uri("/api/%73ettings/physics")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "the encoded path must route");
+        assert_eq!(
+            resp.headers().get("x-routed").unwrap(),
+            "/api/settings/physics"
+        );
+    }
+
+    #[test]
+    fn the_gate_classifies_the_path_the_router_matches() {
+        use actix_web::test::TestRequest;
+        for (raw, routed) in [
+            ("/api/%73ettings/physics", "/api/settings/physics"),
+            ("/api/%61dmin/rbac/users", "/api/admin/rbac/users"),
+            ("/api/admin/rbac/%77hoami", "/api/admin/rbac/whoami"),
+        ] {
+            let req = TestRequest::with_uri(raw).to_srv_request();
+            assert_eq!(routed_path(&req), routed, "router view of {raw}");
+        }
+        let lvl = |m: Method, raw: &str| {
+            let req = TestRequest::with_uri(raw)
+                .method(m.clone())
+                .to_srv_request();
+            required_level(&m, routed_path(&req), true)
+        };
+        assert_eq!(
+            lvl(Method::PUT, "/api/%73ettings/physics"),
+            lvl(Method::PUT, "/api/settings/physics")
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/%61dmin/rbac/users"),
+            Some(AccessLevel::Admin)
+        );
+        // The raw path classified these differently: the bug being fixed.
+        assert_ne!(
+            required_level(&Method::PUT, "/api/%73ettings/physics", true),
+            required_level(&Method::PUT, "/api/settings/physics", true)
+        );
+        assert_ne!(
+            required_level(&Method::GET, "/api/%61dmin/rbac/users", true),
+            Some(AccessLevel::Admin)
+        );
+        // An encoded slash stays encoded for the router too, so it cannot split
+        // a segment to dodge a prefix rule.
+        let req = TestRequest::with_uri("/api/admin%2Frbac/users").to_srv_request();
+        assert!(routed_path(&req).contains("%2F"));
+    }
+
+    #[test]
+    fn whoami_is_open_to_any_signed_in_user_and_nothing_else_is() {
+        let lvl = |m: Method, p: &str| required_level(&m, p, true);
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/whoami"),
+            Some(AccessLevel::Authenticated)
+        );
+        assert_eq!(
+            lvl(Method::POST, "/api/admin/rbac/whoami"),
+            Some(AccessLevel::Admin)
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/whoami/x"),
+            Some(AccessLevel::Admin)
+        );
+        assert_eq!(
+            lvl(Method::GET, "/api/admin/rbac/users"),
+            Some(AccessLevel::Admin)
+        );
     }
 
     #[test]

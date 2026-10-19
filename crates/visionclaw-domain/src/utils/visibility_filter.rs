@@ -25,7 +25,10 @@ pub const PUBKEY_VISIBILITY_FILTER_ENV: &str = "PUBKEY_VISIBILITY_FILTER";
 /// Parse the flag. Absent or unrecognised means ON: the filter fails closed.
 pub fn parse_visibility_flag(raw: Option<&str>) -> bool {
     match raw {
-        Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"),
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        ),
         None => true,
     }
 }
@@ -34,7 +37,9 @@ pub fn parse_visibility_flag(raw: Option<&str>) -> bool {
 /// sync, snapshot request AND the live broadcast) must consult this one function.
 pub fn filter_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| parse_visibility_flag(std::env::var(PUBKEY_VISIBILITY_FILTER_ENV).ok().as_deref()))
+    *ENABLED.get_or_init(|| {
+        parse_visibility_flag(std::env::var(PUBKEY_VISIBILITY_FILTER_ENV).ok().as_deref())
+    })
 }
 
 /// Per-node visibility metadata (ADR-050 primitives) projected onto the wire id.
@@ -408,12 +413,21 @@ mod flag_tests {
     /// The secure-by-default truth table. Pure: no process env is touched.
     #[test]
     fn parse_visibility_flag_defaults_on_and_honours_opt_out() {
-        assert!(parse_visibility_flag(None), "absent value must default the filter ON");
+        assert!(
+            parse_visibility_flag(None),
+            "absent value must default the filter ON"
+        );
         for on in ["1", "true", "on", "yes", "TRUE", "  1  ", "banana", ""] {
-            assert!(parse_visibility_flag(Some(on)), "{on:?} must leave the filter ON");
+            assert!(
+                parse_visibility_flag(Some(on)),
+                "{on:?} must leave the filter ON"
+            );
         }
         for off in ["0", "false", "off", "no", "FALSE", "  off  ", "No"] {
-            assert!(!parse_visibility_flag(Some(off)), "{off:?} must turn the filter OFF");
+            assert!(
+                !parse_visibility_flag(Some(off)),
+                "{off:?} must turn the filter OFF"
+            );
         }
     }
 }

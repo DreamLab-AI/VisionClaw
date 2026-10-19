@@ -71,8 +71,7 @@ pub use broadcast_messages::{
 // ---------------------------------------------------------------------------
 
 pub use client_messages::{
-    AuthenticateClient, BroadcastMessage, ClientBroadcastAck,
-    GetClientCount, SendToClientBinary,
+    AuthenticateClient, BroadcastMessage, ClientBroadcastAck, GetClientCount, SendToClientBinary,
     SendToClientText, UnregisterClient, UpdateClientFilter,
 };
 

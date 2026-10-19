@@ -212,6 +212,17 @@ impl GpuSemanticAnalyzer for ActixSemanticAdapter {
 
     async fn get_statistics(&self) -> PortResult<SemanticStatistics> {
         debug!("Getting semantic statistics");
+        // The actor starts on the first `initialize`; until then nothing has
+        // been analysed, which is what the actor itself reports as zeros.
+        if self.actor_addr.is_none() {
+            return Ok(SemanticStatistics {
+                total_analyses: 0,
+                average_clustering_time_ms: 0.0,
+                average_pathfinding_time_ms: 0.0,
+                cache_hit_rate: 0.0,
+                gpu_memory_used_mb: 0.0,
+            });
+        }
         let msg = GetSemanticStatisticsMessage;
         let result = self.send_message(msg).await?;
         result.map_err(|e| {
@@ -221,6 +232,10 @@ impl GpuSemanticAnalyzer for ActixSemanticAdapter {
 
     async fn invalidate_pathfinding_cache(&mut self) -> PortResult<()> {
         info!("Invalidating pathfinding cache");
+        // No actor yet means no cache to invalidate.
+        if self.actor_addr.is_none() {
+            return Ok(());
+        }
         let msg = InvalidatePathfindingCacheMessage;
         let result = self.send_message(msg).await?;
         result.map_err(|e| {
@@ -403,5 +418,50 @@ impl Handler<InvalidatePathfindingCacheMessage> for SemanticProcessorActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ER-25 follow-up: `/api/semantic/statistics` answered 500 "Analyzer not
+    /// initialized" until some analysis route had run, because the actor only
+    /// starts on the first `initialize`. Before that nothing has run, and the
+    /// actor's own answer is all zeros.
+    #[actix_rt::test]
+    async fn statistics_before_any_analysis_are_zero_not_an_error() {
+        let adapter = ActixSemanticAdapter::new();
+        let stats = adapter
+            .get_statistics()
+            .await
+            .expect("no actor yet is not a fault");
+        assert_eq!(stats.total_analyses, 0);
+        assert_eq!(stats.cache_hit_rate, 0.0);
+        assert_eq!(stats.gpu_memory_used_mb, 0.0);
+    }
+
+    #[actix_rt::test]
+    async fn invalidating_the_cache_before_any_analysis_is_a_no_op() {
+        let mut adapter = ActixSemanticAdapter::new();
+        adapter
+            .invalidate_pathfinding_cache()
+            .await
+            .expect("nothing is cached before the first analysis");
+    }
+
+    /// The not-initialised error stays for calls that need a graph.
+    #[actix_rt::test]
+    async fn analysis_before_initialize_still_reports_not_initialized() {
+        use visionclaw_domain::ports::gpu_semantic_analyzer::ClusteringAlgorithm;
+        let mut adapter = ActixSemanticAdapter::new();
+        let err = adapter
+            .detect_communities(ClusteringAlgorithm::Louvain)
+            .await
+            .expect_err("needs a graph");
+        assert!(
+            err.to_string().contains("Analyzer not initialized"),
+            "{err}"
+        );
     }
 }

@@ -130,6 +130,11 @@ cust_core = { version = "0.1.1" }
 # HTTP client and API
 reqwest = { version = "0.12.23", features = ["json", "stream", "multipart"] }
 nostr-sdk = "0.43.0"
+# The forum core owns the governance tiers the decide gate orders (ER-7). In-
+# family crates take caret ranges, not `=` pins (ER-35, owner decision
+# 2026-10-18): Cargo.lock fixes the build, and a security release reaches us on
+# `cargo update` instead of through a republish chain.
+nostr-bbs-core = "1.0.0-beta.16"
 
 # Live memory cloud (ADR in docs/adr): read-only client for the RuVector
 # sidecar. Plain TCP on the internal network; the connection string comes
@@ -230,14 +235,14 @@ clap = { version = "4.5", features = ["derive"] }
 #   - solid-pod-rs-didkey      — not in scope for VisionClaw (Nostr-first)
 #
 # All four deps are `optional = true` and only pulled in when the
-# solid-pod-rs 0.5.0-alpha.12 — embedded Solid Pod (LDP, WAC, NIP-98, fs-backend).
+# solid-pod-rs 0.5.0-alpha — embedded Solid Pod (LDP, WAC, NIP-98, fs-backend).
 # `mrc20` brings the Blocktrails walker (`solid_pod_rs::blocktrail`) that
 # `src/web_contract` verifies trails with (rust-bitcoin's libsecp256k1).
 # JSS sidecar fully removed; all storage is in-process via FsBackend.
-solid-pod-rs = { version = "=0.5.0-alpha.13", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit", "mrc20"] }
-solid-pod-rs-nostr = { version = "=0.5.0-alpha.13", default-features = false, optional = true }
-solid-pod-rs-idp = { version = "=0.5.0-alpha.13", default-features = false, optional = true }
-solid-pod-rs-server = { version = "=0.5.0-alpha.13", default-features = false, optional = true }
+solid-pod-rs = { version = "0.5.0-alpha.13", default-features = false, optional = true, features = ["fs-backend", "memory-backend", "nip98-schnorr", "notifications", "legacy-notifications", "config-loader", "did-nostr", "did-nostr-types", "quota", "security-primitives", "rate-limit", "mrc20"] }
+solid-pod-rs-nostr = { version = "0.5.0-alpha.13", default-features = false, optional = true }
+solid-pod-rs-idp = { version = "0.5.0-alpha.13", default-features = false, optional = true }
+solid-pod-rs-server = { version = "0.5.0-alpha.13", default-features = false, optional = true }
 
 
 [dev-dependencies]

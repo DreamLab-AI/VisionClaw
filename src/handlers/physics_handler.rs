@@ -118,6 +118,11 @@ pub struct UpdateParametersRequest {
     pub max_velocity: Option<f32>,
 }
 
+/// Most iterations one caller may request; the routes are power-user gated,
+/// but an unbounded `u32` still let one request hold the GPU (2026-10-18
+/// security review).
+pub const MAX_PHYSICS_ITERATIONS: u32 = 10_000;
+
 pub async fn start_simulation(
     user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
@@ -153,7 +158,7 @@ pub async fn start_simulation(
         params.convergence_threshold = v;
     }
     if let Some(v) = req.max_iterations {
-        params.max_iterations = v;
+        params.max_iterations = v.min(MAX_PHYSICS_ITERATIONS);
     }
 
     let sim_params = SimulationParams {
@@ -216,10 +221,13 @@ pub async fn get_status(app_state: web::Data<AppState>) -> ActixResult<HttpRespo
 }
 
 pub async fn optimize_layout(
+    user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
     graph_service: web::Data<Addr<GraphServiceSupervisor>>,
     req: web::Json<OptimizeLayoutRequest>,
 ) -> ActixResult<HttpResponse> {
+    // Whole-graph GPU work: power users only, like start and parameters.
+    user.require_power_user()?;
     let graph = match crate::handlers::graph_access::current_graph(&graph_service).await {
         Ok(g) => g,
         Err(e) => return error_json!("Failed to read the graph: {}", e),
@@ -227,7 +235,10 @@ pub async fn optimize_layout(
 
     let optimization_req = LayoutOptimizationRequest {
         algorithm: req.algorithm.clone(),
-        max_iterations: req.max_iterations.unwrap_or(1000),
+        max_iterations: req
+            .max_iterations
+            .unwrap_or(1000)
+            .min(MAX_PHYSICS_ITERATIONS),
         target_energy: req.target_energy.unwrap_or(0.01),
     };
 
@@ -244,8 +255,10 @@ pub async fn optimize_layout(
 }
 
 pub async fn perform_step(
+    user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
 ) -> ActixResult<HttpResponse> {
+    user.require_power_user()?;
     match physics_service.step().await {
         Ok(result) => ok_json!(serde_json::json!({
             "nodes_updated": result.nodes_updated,
@@ -299,9 +312,12 @@ pub async fn pin_nodes(
 }
 
 pub async fn unpin_nodes(
+    user: AuthenticatedUser,
     physics_service: web::Data<Arc<PhysicsService>>,
     req: web::Json<Vec<u32>>,
 ) -> ActixResult<HttpResponse> {
+    // pin_nodes needs a power user; so does undoing it.
+    user.require_power_user()?;
     match physics_service.unpin_nodes(req.into_inner()).await {
         Ok(_) => ok_json!(serde_json::json!({
             "status": "unpinned"
@@ -426,4 +442,105 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/settle-mode", web::get().to(get_settle_mode))
             .route("/settle-mode", web::post().to(set_settle_mode)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAX_PHYSICS_ITERATIONS;
+    use actix_web::test as atest;
+    use actix_web::{dev::Service, http::StatusCode, web, App, HttpMessage};
+    use std::sync::Arc;
+
+    const POWER: &str = "abababababababababababababababababababababababababababababababab";
+    const EDITOR: &str = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+    const MISSING_APP_DATA: &str = "Requested application data is not configured correctly";
+
+    /// The physics routes with exactly the shared state `main.rs` registers
+    /// for them, behind a stand-in for `RbacGate` that places `identity` on
+    /// the request as the gate does after verifying NIP-98.
+    async fn physics_status(
+        identity: Option<&'static str>,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, String) {
+        use crate::adapters::actix_physics_adapter::ActixPhysicsAdapter;
+        use crate::application::PhysicsService;
+        use crate::events::EventBus;
+        let nostr = crate::services::nostr_service::NostrService::new()
+            .with_power_users(vec![POWER.to_string()]);
+        for pk in [POWER, EDITOR] {
+            nostr.create_user_for_test(pk).await.expect("test user");
+        }
+        let adapter = Arc::new(tokio::sync::RwLock::new(ActixPhysicsAdapter::new()));
+        let event_bus = Arc::new(tokio::sync::RwLock::new(EventBus::new()));
+        let app = atest::init_service(
+            App::new()
+                .app_data(web::Data::new(nostr))
+                .app_data(web::Data::new(Arc::new(PhysicsService::new(
+                    adapter, event_bus,
+                ))))
+                .wrap_fn(move |req, srv| {
+                    if let Some(pk) = identity {
+                        req.extensions_mut()
+                            .insert(crate::middleware::auth::AuthenticatedUser {
+                                pubkey: pk.to_string(),
+                            });
+                    }
+                    srv.call(req)
+                })
+                .configure(super::configure_routes),
+        )
+        .await;
+        let req = match method {
+            "POST" => atest::TestRequest::post().uri(uri).set_json(body),
+            _ => atest::TestRequest::get().uri(uri),
+        }
+        .to_request();
+        let resp = match atest::try_call_service(&app, req).await {
+            Ok(r) => r,
+            Err(e) => return (e.as_response_error().status_code(), e.to_string()),
+        };
+        let status = resp.status();
+        let text = String::from_utf8_lossy(&atest::read_body(resp).await).into_owned();
+        (status, text)
+    }
+
+    #[actix_web::test]
+    async fn revived_physics_mutations_need_a_power_user() {
+        for (uri, body) in [
+            ("/physics/step", serde_json::json!({})),
+            ("/physics/nodes/unpin", serde_json::json!([1, 2])),
+        ] {
+            let (anon, _) = physics_status(None, "POST", uri, body.clone()).await;
+            assert_eq!(anon, StatusCode::UNAUTHORIZED, "{uri} without an identity");
+            // `require_power_user` refuses with 401 and its own message, so the
+            // message is what tells this apart from a missing identity.
+            let (editor, text) = physics_status(Some(EDITOR), "POST", uri, body.clone()).await;
+            assert_eq!(
+                editor,
+                StatusCode::UNAUTHORIZED,
+                "{uri} as a non-power user"
+            );
+            assert!(text.contains("Power user access required"), "{uri}: {text}");
+            let (power, text) = physics_status(Some(POWER), "POST", uri, body).await;
+            assert!(
+                power != StatusCode::UNAUTHORIZED && power != StatusCode::FORBIDDEN,
+                "{uri} refused a power user: {power} {text}"
+            );
+            assert!(
+                !text.contains(MISSING_APP_DATA),
+                "{uri} names unregistered app data: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn iteration_cap_is_bounded_and_above_the_default() {
+        assert!(
+            MAX_PHYSICS_ITERATIONS >= 1000,
+            "the default of 1000 must fit"
+        );
+        assert_eq!(u32::MAX.min(MAX_PHYSICS_ITERATIONS), MAX_PHYSICS_ITERATIONS);
+    }
 }

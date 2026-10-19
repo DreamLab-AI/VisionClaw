@@ -49,11 +49,11 @@
 //! graph_state_actor.send(BuildGraphFromMetadata { metadata }).await?;
 //! ```
 
-use visionclaw_domain::utils::visibility_filter::NodeVisibility;
 use actix::prelude::*;
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use visionclaw_domain::utils::visibility_filter::NodeVisibility;
 
 use crate::actors::messages::*;
 use visionclaw_domain::models::edge::Edge;
@@ -181,7 +181,12 @@ impl GraphStateActor {
                 .graph_data
                 .nodes
                 .iter()
-                .filter(|n| !n.metadata.get("public").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false))
+                .filter(|n| {
+                    !n.metadata
+                        .get("public")
+                        .map(|v| v.eq_ignore_ascii_case("true"))
+                        .unwrap_or(false)
+                })
                 .map(|n| match n.metadata.get("owner_pubkey") {
                     Some(owner) => NodeVisibility::private_owned_by(n.id, owner.clone()),
                     None => NodeVisibility::private_unowned(n.id),

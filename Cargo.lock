@@ -3771,9 +3771,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-bbs-core"
-version = "1.0.0-beta.16"
+version = "1.0.0-beta.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d8b1f835945b38962d6b7e7aa35c22ea2da36051029a42ce8f9d656ce53e9cf"
+checksum = "2d4352cca8e6f9d5131d45022001ddda43e4325b6c5feae27df01088b3fa6fd8"
 dependencies = [
  "aes",
  "async-trait",
@@ -5663,6 +5663,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_norway"
+version = "0.9.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e408f29489b5fd500fab51ff1484fc859bb655f32c671f307dcd733b72e8168c"
+dependencies = [
+ "indexmap 2.10.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml-norway",
+]
+
+[[package]]
 name = "serde_path_to_error"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5929,9 +5942,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs"
-version = "0.5.0-alpha.13"
+version = "0.5.0-alpha.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f9bf7552d00addc7085acb23d60811d9349aa17329af7414ada71abbd146da"
+checksum = "589bdd5e4310241f791b238878682d3f6b2515c0bd5a9255c0c75b42bc29bc96"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5954,7 +5967,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_norway",
  "sha2 0.10.9",
  "spargebra",
  "thiserror 1.0.69",
@@ -5968,9 +5981,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-idp"
-version = "0.5.0-alpha.13"
+version = "0.5.0-alpha.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4fa0ad57e24061b922e1a039a14ee3dd39a751861cb1eac40a075c6484f75f"
+checksum = "a8bb7f804c6d50f6959cea970b2720adf7dd352820af25932f1f563667218460"
 dependencies = [
  "argon2",
  "async-trait",
@@ -5997,9 +6010,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-nostr"
-version = "0.5.0-alpha.13"
+version = "0.5.0-alpha.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76e08e79455985ffba9892fb69347982ac56d55c740cd4db9fbc95977f5cae72"
+checksum = "ea2b009f9c1fee4190d63acdc01c74d2ce41510105feaf1cbcab68e38f78297a"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6019,9 +6032,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-server"
-version = "0.5.0-alpha.13"
+version = "0.5.0-alpha.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec4df755c989d4488389e59dcb53e0f07664e3da240ca0db739bd44782fa06d"
+checksum = "201748d86ab40a40efd61ee7677761328c3435b2263f9cb8f315aefd0c3687e8"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -7033,6 +7046,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "unsafe-libyaml-norway"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b39abd59bf32521c7f2301b52d05a6a2c975b6003521cbd0c6dc1582f0a22104"
+
+[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7477,6 +7496,7 @@ dependencies = [
  "lru 0.12.5",
  "mockall",
  "nalgebra",
+ "nostr-bbs-core",
  "nostr-sdk",
  "notify",
  "once_cell",

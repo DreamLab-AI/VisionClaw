@@ -61,6 +61,13 @@ pub struct BrokerDecisionRequest {
     /// Free-text rationale.
     #[serde(default, alias = "note")]
     pub reasoning: Option<String>,
+    /// The forum's effective tier for this case, when the bridge forwards it:
+    /// `nostr_bbs_core::governance::effective_tier`, the operator's task
+    /// properties bounding the agent's declaration from below (forum
+    /// ADR-2011). The gate takes the stricter of this and the declared tier,
+    /// so a forwarded tier can only tighten it (estate register ER-7).
+    #[serde(default)]
+    pub effective_tier: Option<String>,
 }
 
 /// Classify an outcome → `(writeback, status)`. `writeback` is true for
@@ -368,6 +375,20 @@ pub fn declared_tier_of(proposal_json: &serde_json::Value) -> Option<String> {
         .map(|t| t.to_string())
 }
 
+/// The tier the rationale gate consults: the stricter of the tier declared on
+/// the case and the forum's effective tier, using the forum's own ordering
+/// (`RiskTier`: low < medium < high < critical). `None` only when neither is
+/// known, so an unlabelled case is still neither promoted nor demoted.
+pub fn gate_tier(declared: Option<&str>, effective: Option<&str>) -> Option<String> {
+    use nostr_bbs_core::governance::RiskTier;
+    let parse = |t: &str| RiskTier::parse(&t.trim().to_ascii_lowercase());
+    match (declared.map(parse), effective.map(parse)) {
+        (None, None) => None,
+        (Some(t), None) | (None, Some(t)) => Some(t.as_str().to_string()),
+        (Some(d), Some(e)) => Some(d.max(e).as_str().to_string()),
+    }
+}
+
 /// The gate itself: `Ok(())` to proceed, `Err(rejection)` to refuse with 422.
 ///
 /// A predicate, not a transformer — it returns permission and nothing else, so
@@ -484,11 +505,10 @@ pub(crate) async fn apply_decision(
     let declared_tier = existing
         .as_ref()
         .and_then(|p| declared_tier_of(&p.proposal_json));
-    if let Err(rejection) = check_rationale(
-        declared_tier.as_deref(),
-        &body.outcome,
-        body.reasoning.as_deref(),
-    ) {
+    let tier = gate_tier(declared_tier.as_deref(), body.effective_tier.as_deref());
+    if let Err(rejection) =
+        check_rationale(tier.as_deref(), &body.outcome, body.reasoning.as_deref())
+    {
         warn!(
             "[enrichment-decide] refused case={case_id}: {} ({} of {} chars)",
             rejection.code, rejection.received_chars, rejection.min_chars
@@ -839,6 +859,54 @@ pub mod store {
 mod tests {
     use super::*;
 
+    #[test]
+    fn gate_tier_takes_the_stricter_and_never_loosens() {
+        assert_eq!(gate_tier(None, None), None);
+        assert_eq!(
+            gate_tier(Some("low"), Some("high")).as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            gate_tier(Some("critical"), Some("medium")).as_deref(),
+            Some("critical")
+        );
+        assert_eq!(gate_tier(None, Some("High ")).as_deref(), Some("high"));
+        assert_eq!(gate_tier(Some("high"), None).as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn no_effective_tier_can_loosen_the_gate() {
+        let tiers = [
+            None,
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("critical"),
+            Some("High "),
+            Some("CRITICAL"),
+            Some("severe"),
+            Some(""),
+        ];
+        for declared in tiers {
+            for effective in tiers {
+                let before = tier_requires_rationale(declared);
+                let after = tier_requires_rationale(gate_tier(declared, effective).as_deref());
+                assert!(
+                    after || !before,
+                    "declared {declared:?} with effective {effective:?} loosened the gate"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_forwarded_effective_tier_makes_the_gate_fire_on_an_untiered_case() {
+        let tier = gate_tier(None, Some("high"));
+        assert!(check_rationale(tier.as_deref(), "approve", Some("ok")).is_err());
+        let tier = gate_tier(Some("low"), Some("medium"));
+        assert!(check_rationale(tier.as_deref(), "approve", Some("ok")).is_ok());
+    }
+
     const PK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     // -----------------------------------------------------------------
@@ -959,6 +1027,7 @@ mod tests {
             outcome: "approve".into(),
             broker_pubkey: Some(PK.into()),
             reasoning: Some("looks good".into()),
+            effective_tier: None,
         };
         let rec = record_decision("case-7", &req).expect("record");
         assert!(rec.attributed);
@@ -982,6 +1051,7 @@ mod tests {
             outcome: "reject".into(),
             broker_pubkey: None,
             reasoning: None,
+            effective_tier: None,
         };
         let rec = record_decision("case-9", &req).expect("record");
         assert!(!rec.attributed);
@@ -997,6 +1067,7 @@ mod tests {
             outcome: "approve".into(),
             broker_pubkey: Some("not-a-real-pubkey".into()),
             reasoning: None,
+            effective_tier: None,
         };
         let rec = record_decision("case-1", &req).expect("record");
         assert!(
@@ -1012,12 +1083,14 @@ mod tests {
             outcome: "approve".into(),
             broker_pubkey: None,
             reasoning: None,
+            effective_tier: None,
         };
         assert!(record_decision("", &ok).is_err());
         let empty_outcome = BrokerDecisionRequest {
             outcome: "  ".into(),
             broker_pubkey: None,
             reasoning: None,
+            effective_tier: None,
         };
         assert!(record_decision("case-x", &empty_outcome).is_err());
     }
@@ -1047,6 +1120,7 @@ mod tests {
             outcome: "accepted".into(),
             broker_pubkey: Some(PK.into()),
             reasoning: Some("ok".into()),
+            effective_tier: None,
         };
         let rec = record_decision("case-7", &req).unwrap();
         let (action, plan) = derive_kernel_decision(&rec);
@@ -1068,6 +1142,7 @@ mod tests {
             outcome: "reviewed".into(),
             broker_pubkey: None,
             reasoning: None,
+            effective_tier: None,
         };
         let rec = record_decision("case-8", &req).unwrap();
         let (action, plan) = derive_kernel_decision(&rec);

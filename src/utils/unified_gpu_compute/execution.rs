@@ -1033,7 +1033,10 @@ impl UnifiedGPUCompute {
 
     /// Push a new stored configuration to the device. A no-op error if semantic state was
     /// never uploaded (the caller decides whether to build it first).
-    pub fn set_semantic_config(&mut self, config: &visionclaw_domain::types::SemanticForces) -> Result<()> {
+    pub fn set_semantic_config(
+        &mut self,
+        config: &visionclaw_domain::types::SemanticForces,
+    ) -> Result<()> {
         let sem = self
             .semantic
             .as_mut()
@@ -1406,7 +1409,9 @@ mod grid_gpu_tests {
     const N: usize = 3000;
 
     fn lcg(seed: &mut u64) -> f32 {
-        *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((*seed >> 33) as f32) / (u32::MAX >> 1) as f32
     }
 
@@ -1443,7 +1448,8 @@ mod grid_gpu_tests {
         // A ring, so the CSR upload is valid.
         let offsets: Vec<i32> = (0..=N as i32).collect();
         let cols: Vec<i32> = (0..N as i32).map(|i| (i + 1) % N as i32).collect();
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N]).expect("upload edges");
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N])
+            .expect("upload edges");
         Some((ctx, g))
     }
 
@@ -1465,7 +1471,11 @@ mod grid_gpu_tests {
         let mut d = keys.to_vec();
         d.sort_unstable();
         d.dedup();
-        assert!(d.len() > 50, "grid collapsed to {} distinct cells; the test would prove nothing", d.len());
+        assert!(
+            d.len() > 50,
+            "grid collapsed to {} distinct cells; the test would prove nothing",
+            d.len()
+        );
     }
 
     fn read(buf: &DeviceBuffer<i32>, len: usize) -> Vec<i32> {
@@ -1487,11 +1497,16 @@ mod grid_gpu_tests {
 
             let mut seen = vec![false; N];
             for &i in &sorted {
-                assert!((0..N as i32).contains(&i), "frame {frame}: index {i} out of range");
+                assert!(
+                    (0..N as i32).contains(&i),
+                    "frame {frame}: index {i} out of range"
+                );
                 assert!(!seen[i as usize], "frame {frame}: node {i} listed twice");
                 seen[i as usize] = true;
             }
-            let wrong = (0..N).filter(|&j| keys[sorted[j] as usize] != sorted_keys[j]).count();
+            let wrong = (0..N)
+                .filter(|&j| keys[sorted[j] as usize] != sorted_keys[j])
+                .count();
             assert_eq!(wrong, 0, "frame {frame}: {wrong}/{N} sorted slots hold a node whose cell key differs from the slot's key");
         }
     }
@@ -1506,8 +1521,13 @@ mod grid_gpu_tests {
             let cells = g.max_grid_cells;
             let (start, end) = (read(&g.cell_start, cells), read(&g.cell_end, cells));
             let occupied: std::collections::HashSet<i32> = keys.iter().copied().collect();
-            let stale = (0..cells).filter(|&c| !occupied.contains(&(c as i32)) && start[c] != end[c]).count();
-            assert_eq!(stale, 0, "frame {frame}: {stale} empty cells still carry a non-empty range");
+            let stale = (0..cells)
+                .filter(|&c| !occupied.contains(&(c as i32)) && start[c] != end[c])
+                .count();
+            assert_eq!(
+                stale, 0,
+                "frame {frame}: {stale} empty cells still carry a non-empty range"
+            );
         }
     }
 
@@ -1532,7 +1552,8 @@ mod grid_gpu_tests {
             cols.push((i + n - 1) % n);
             cols.push((i + 1) % n);
         }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("symmetric edges");
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2])
+            .expect("symmetric edges");
         let mut p = params();
         p.center_gravity_k = 0.0;
         p.gravity = 0.0;
@@ -1540,13 +1561,33 @@ mod grid_gpu_tests {
         p.viewport_bounds = 1.0e9;
         g.execute(p).expect("execute");
         g.stream.synchronize().expect("sync");
-        let (fx, fy, fz) = (read_f32(&g.force_x, N), read_f32(&g.force_y, N), read_f32(&g.force_z, N));
-        let net = [fx.iter().sum::<f32>(), fy.iter().sum::<f32>(), fz.iter().sum::<f32>()];
-        let total: f32 = (0..N).map(|i| (fx[i] * fx[i] + fy[i] * fy[i] + fz[i] * fz[i]).sqrt()).sum();
+        let (fx, fy, fz) = (
+            read_f32(&g.force_x, N),
+            read_f32(&g.force_y, N),
+            read_f32(&g.force_z, N),
+        );
+        let net = [
+            fx.iter().sum::<f32>(),
+            fy.iter().sum::<f32>(),
+            fz.iter().sum::<f32>(),
+        ];
+        let total: f32 = (0..N)
+            .map(|i| (fx[i] * fx[i] + fy[i] * fy[i] + fz[i] * fz[i]).sqrt())
+            .sum();
         let net_mag = (net[0] * net[0] + net[1] * net[1] + net[2] * net[2]).sqrt();
-        println!("NET_FORCE net={net:?} |net|={net_mag} sum|f|={total} ratio={}", net_mag / total.max(1e-9));
-        assert!(total > 0.0, "forces must actually be computed (got all zeros)");
-        assert!(net_mag / total < 1.0e-3, "net force {net_mag} is {:.4} of the total {total}: forces are not equal and opposite", net_mag / total);
+        println!(
+            "NET_FORCE net={net:?} |net|={net_mag} sum|f|={total} ratio={}",
+            net_mag / total.max(1e-9)
+        );
+        assert!(
+            total > 0.0,
+            "forces must actually be computed (got all zeros)"
+        );
+        assert!(
+            net_mag / total < 1.0e-3,
+            "net force {net_mag} is {:.4} of the total {total}: forces are not equal and opposite",
+            net_mag / total
+        );
     }
 
     /// The neighbour stencil visits only the 3x3x3 cells around a node, so it sees every node
@@ -1577,22 +1618,38 @@ mod grid_gpu_tests {
         p.max_force = 1.0e9;
         p.lin_log_mode = 0;
         p.repulsion_cutoff = 400.0;
-        let (repel_k, eps, cutoff) = (p.repel_k as f64, p.repulsion_softening_epsilon as f64, p.repulsion_cutoff as f64);
+        let (repel_k, eps, cutoff) = (
+            p.repel_k as f64,
+            p.repulsion_softening_epsilon as f64,
+            p.repulsion_cutoff as f64,
+        );
         g.execute(p).expect("execute");
         g.stream.synchronize().expect("sync");
-        let (fx, fy, fz) = (read_f32(&g.force_x, N), read_f32(&g.force_y, N), read_f32(&g.force_z, N));
+        let (fx, fy, fz) = (
+            read_f32(&g.force_x, N),
+            read_f32(&g.force_y, N),
+            read_f32(&g.force_z, N),
+        );
 
         let (mut diff2, mut ref2) = (0f64, 0f64);
         for i in 0..N {
             let mut r = [0f64; 3];
             for j in 0..N {
-                if i == j { continue; }
-                let d = [(x[i] - x[j]) as f64, (y[i] - y[j]) as f64, (z[i] - z[j]) as f64];
+                if i == j {
+                    continue;
+                }
+                let d = [
+                    (x[i] - x[j]) as f64,
+                    (y[i] - y[j]) as f64,
+                    (z[i] - z[j]) as f64,
+                ];
                 let d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
                 if d2 < cutoff * cutoff && d2 > 1e-6 {
                     let dist = d2.sqrt();
                     let k = repel_k / (d2 + eps) / dist;
-                    for a in 0..3 { r[a] += d[a] * k; }
+                    for a in 0..3 {
+                        r[a] += d[a] * k;
+                    }
                 }
             }
             let got = [fx[i] as f64, fy[i] as f64, fz[i] as f64];
@@ -1624,7 +1681,10 @@ mod grid_gpu_tests {
         let ctx = cust::quick_init().expect("cuda");
         let _ctx = ctx;
         let ptx = crate::utils::ptx::load_ptx_sync().expect("ptx");
-        let sem_ptx = visionclaw_gpu::ptx_loader::load_ptx_module_sync(visionclaw_gpu::ptx_loader::PTXModule::SemanticForces).expect("semantic ptx");
+        let sem_ptx = visionclaw_gpu::ptx_loader::load_ptx_module_sync(
+            visionclaw_gpu::ptx_loader::PTXModule::SemanticForces,
+        )
+        .expect("semantic ptx");
         let mut g = UnifiedGPUCompute::new(M, M * 2, &ptx).expect("gpu");
         let mut seed = 99u64;
         let (mut x, mut y, mut z) = (vec![0f32; M], vec![0f32; M], vec![0f32; M]);
@@ -1638,18 +1698,37 @@ mod grid_gpu_tests {
         let n = M as i32;
         let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
         let mut cols = Vec::new();
-        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2]).unwrap();
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2])
+            .unwrap();
 
         // live field
         let mut p = params();
-        p.center_gravity_k = 0.0; p.gravity = 0.0; p.temperature = 0.0; p.viewport_bounds = 1.0e9;
-        p.repulsion_cutoff = 400.0; p.repel_k = 120.0; p.spring_k = 12.0; p.rest_length = 50.0;
-        g.execute(p).unwrap(); g.stream.synchronize().unwrap();
-        let (fx, fy, fz) = (read_f32(&g.force_x, M), read_f32(&g.force_y, M), read_f32(&g.force_z, M));
-        let live: Vec<f32> = (0..M).map(|i| (fx[i]*fx[i]+fy[i]*fy[i]+fz[i]*fz[i]).sqrt()).collect();
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.temperature = 0.0;
+        p.viewport_bounds = 1.0e9;
+        p.repulsion_cutoff = 400.0;
+        p.repel_k = 120.0;
+        p.spring_k = 12.0;
+        p.rest_length = 50.0;
+        g.execute(p).unwrap();
+        g.stream.synchronize().unwrap();
+        let (fx, fy, fz) = (
+            read_f32(&g.force_x, M),
+            read_f32(&g.force_y, M),
+            read_f32(&g.force_z, M),
+        );
+        let live: Vec<f32> = (0..M)
+            .map(|i| (fx[i] * fx[i] + fy[i] * fy[i] + fz[i] * fz[i]).sqrt())
+            .collect();
         let (m, p95, mx) = stats(live);
-        println!("MAGNITUDE live repulsion+spring           median {m:9.3}  p95 {p95:9.3}  max {mx:9.3}");
+        println!(
+            "MAGNITUDE live repulsion+spring           median {m:9.3}  p95 {p95:9.3}  max {mx:9.3}"
+        );
 
         // random metadata
         let mut r = |k: u32| (lcg(&mut seed) * k as f32) as i32 % k as i32;
@@ -1671,24 +1750,48 @@ mod grid_gpu_tests {
         let zs = DeviceBuffer::from_slice(&z).unwrap();
         let only = |name: &str| -> SemanticForces {
             let mut c = SemanticForces::default();
-            c.dag.enabled = name == "dag"; c.type_cluster.enabled = name == "type_cluster";
-            c.collision.enabled = name == "collision"; c.attribute_spring.enabled = name == "attribute_spring";
-            c.physicality_cluster.enabled = name == "physicality"; c.role_cluster.enabled = name == "role";
-            c.maturity_layout.enabled = name == "maturity"; c.cross_domain.enabled = name == "cross_domain";
+            c.dag.enabled = name == "dag";
+            c.type_cluster.enabled = name == "type_cluster";
+            c.collision.enabled = name == "collision";
+            c.attribute_spring.enabled = name == "attribute_spring";
+            c.physicality_cluster.enabled = name == "physicality";
+            c.role_cluster.enabled = name == "role";
+            c.maturity_layout.enabled = name == "maturity";
+            c.cross_domain.enabled = name == "cross_domain";
             c
         };
-        for name in ["dag", "type_cluster", "collision", "attribute_spring", "physicality", "role", "maturity", "cross_domain"] {
+        for name in [
+            "dag",
+            "type_cluster",
+            "collision",
+            "attribute_spring",
+            "physicality",
+            "role",
+            "maturity",
+            "cross_domain",
+        ] {
             // (`only` enables exactly the force under test, whatever its stored default is)
             let sem = SemanticGpu::new(&sem_ptx, &inputs, &only(name)).expect("semantic");
             let fx = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
             let fy = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
             let fz = DeviceBuffer::from_slice(&vec![0f32; M]).unwrap();
             let t0 = std::time::Instant::now();
-            sem.apply(stream, xs.as_device_ptr(), ys.as_device_ptr(), zs.as_device_ptr(), fx.as_device_ptr(), fy.as_device_ptr(), fz.as_device_ptr()).unwrap();
+            sem.apply(
+                stream,
+                xs.as_device_ptr(),
+                ys.as_device_ptr(),
+                zs.as_device_ptr(),
+                fx.as_device_ptr(),
+                fy.as_device_ptr(),
+                fz.as_device_ptr(),
+            )
+            .unwrap();
             stream.synchronize().unwrap();
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
             let (a, b, c) = (read_f32(&fx, M), read_f32(&fy, M), read_f32(&fz, M));
-            let mags: Vec<f32> = (0..M).map(|i| (a[i]*a[i]+b[i]*b[i]+c[i]*c[i]).sqrt()).collect();
+            let mags: Vec<f32> = (0..M)
+                .map(|i| (a[i] * a[i] + b[i] * b[i] + c[i] * c[i]).sqrt())
+                .collect();
             let (m, p95, mx) = stats(mags);
             println!("MAGNITUDE semantic {name:<18} median {m:9.3}  p95 {p95:9.3}  max {mx:9.3}   ({ms:.1} ms incl. launch)");
         }
@@ -1714,21 +1817,41 @@ mod grid_gpu_tests {
         let n = M as i32;
         let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
         let mut cols = Vec::new();
-        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2]).unwrap();
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; M * 2])
+            .unwrap();
         let mut p = SimParams::new();
         p.stability_threshold = 0.0;
         p.repulsion_cutoff = 400.0;
         let time = |label: &str, reps: u32, f: &mut dyn FnMut()| {
             let t0 = std::time::Instant::now();
-            for _ in 0..reps { f(); }
-            println!("STEP_TIMING {label:<28} {:8.2} ms", t0.elapsed().as_secs_f64() * 1000.0 / reps as f64);
+            for _ in 0..reps {
+                f();
+            }
+            println!(
+                "STEP_TIMING {label:<28} {:8.2} ms",
+                t0.elapsed().as_secs_f64() * 1000.0 / reps as f64
+            );
         };
-        for _ in 0..3 { g.execute(p).unwrap(); }
-        time("execute (kernels, no sync)", 20, &mut || { g.execute(p).unwrap(); });
-        time("execute + stream sync", 20, &mut || { g.execute(p).unwrap(); g.stream.synchronize().unwrap(); });
-        time("get_node_positions (D2H)", 20, &mut || { let _ = g.get_node_positions().unwrap(); });
-        time("update_positions_only (H2D)", 20, &mut || { g.update_positions_only(&x, &y, &z).unwrap(); });
+        for _ in 0..3 {
+            g.execute(p).unwrap();
+        }
+        time("execute (kernels, no sync)", 20, &mut || {
+            g.execute(p).unwrap();
+        });
+        time("execute + stream sync", 20, &mut || {
+            g.execute(p).unwrap();
+            g.stream.synchronize().unwrap();
+        });
+        time("get_node_positions (D2H)", 20, &mut || {
+            let _ = g.get_node_positions().unwrap();
+        });
+        time("update_positions_only (H2D)", 20, &mut || {
+            g.update_positions_only(&x, &y, &z).unwrap();
+        });
     }
 
     /// A pinned node must DRAG its graph neighbours: the spring between a held node and its
@@ -1742,8 +1865,12 @@ mod grid_gpu_tests {
         let n = N as i32;
         let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
         let mut cols = Vec::new();
-        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("edges");
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2])
+            .expect("edges");
         let r = 50.0 * N as f32 / (2.0 * std::f32::consts::PI);
         let ring = || -> (Vec<f32>, Vec<f32>, Vec<f32>) {
             let (mut x, mut y, z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
@@ -1755,9 +1882,19 @@ mod grid_gpu_tests {
             (x, y, z)
         };
         let mut p = params();
-        p.spring_k = 12.0; p.repel_k = 120.0; p.rest_length = 50.0; p.damping = 0.9;
-        p.max_force = 150.0; p.max_velocity = 100.0; p.dt = 0.016; p.global_speed = 0.4;
-        p.center_gravity_k = 0.0; p.gravity = 0.0; p.viewport_bounds = 1.0e9; p.temperature = 0.0; p.repulsion_cutoff = 400.0;
+        p.spring_k = 12.0;
+        p.repel_k = 120.0;
+        p.rest_length = 50.0;
+        p.damping = 0.9;
+        p.max_force = 150.0;
+        p.max_velocity = 100.0;
+        p.dt = 0.016;
+        p.global_speed = 0.4;
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.viewport_bounds = 1.0e9;
+        p.temperature = 0.0;
+        p.repulsion_cutoff = 400.0;
 
         let run = |g: &mut UnifiedGPUCompute, hold: bool| -> (f32, f32) {
             let (mut x, mut y, mut z) = ring();
@@ -1766,16 +1903,28 @@ mod grid_gpu_tests {
             let start: Vec<(f32, f32)> = (0..N).map(|i| (x[i], y[i])).collect();
             for _ in 0..120 {
                 if hold {
-                    x[0] = hx0 + 300.0; y[0] = hy0;
+                    x[0] = hx0 + 300.0;
+                    y[0] = hy0;
                     g.update_positions_only(&x, &y, &z).expect("pin");
                 }
                 g.execute(p).expect("step");
                 g.stream.synchronize().expect("sync");
                 let (px, py, pz) = g.get_node_positions().expect("read");
-                for i in 0..N { if !(hold && i == 0) { x[i] = px[i]; y[i] = py[i]; z[i] = pz[i]; } }
+                for i in 0..N {
+                    if !(hold && i == 0) {
+                        x[i] = px[i];
+                        y[i] = py[i];
+                        z[i] = pz[i];
+                    }
+                }
             }
-            let (cx, cy) = ((0..N).map(|i| x[i] - start[i].0).sum::<f32>() / N as f32, (0..N).map(|i| y[i] - start[i].1).sum::<f32>() / N as f32);
-            let rel = |i: usize| ((x[i] - start[i].0 - cx).powi(2) + (y[i] - start[i].1 - cy).powi(2)).sqrt();
+            let (cx, cy) = (
+                (0..N).map(|i| x[i] - start[i].0).sum::<f32>() / N as f32,
+                (0..N).map(|i| y[i] - start[i].1).sum::<f32>() / N as f32,
+            );
+            let rel = |i: usize| {
+                ((x[i] - start[i].0 - cx).powi(2) + (y[i] - start[i].1 - cy).powi(2)).sqrt()
+            };
             (rel(1), rel(N - 1))
         };
         let control = run(&mut g, false);
@@ -1797,38 +1946,76 @@ mod grid_gpu_tests {
         let n = N as i32;
         let offsets: Vec<i32> = (0..=n).map(|i| i * 2).collect();
         let mut cols = Vec::new();
-        for i in 0..n { cols.push((i + n - 1) % n); cols.push((i + 1) % n); }
-        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2]).expect("edges");
+        for i in 0..n {
+            cols.push((i + n - 1) % n);
+            cols.push((i + 1) % n);
+        }
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N * 2])
+            .expect("edges");
         let r = 50.0 * N as f32 / (2.0 * std::f32::consts::PI);
         let mut base = params();
-        base.spring_k = 12.0; base.repel_k = 120.0; base.rest_length = 50.0; base.damping = 0.9;
-        base.max_force = 150.0; base.max_velocity = 100.0; base.dt = 0.016; base.global_speed = 0.4;
-        base.center_gravity_k = 0.0; base.gravity = 0.0; base.temperature = 0.0; base.viewport_bounds = 1.0e9;
+        base.spring_k = 12.0;
+        base.repel_k = 120.0;
+        base.rest_length = 50.0;
+        base.damping = 0.9;
+        base.max_force = 150.0;
+        base.max_velocity = 100.0;
+        base.dt = 0.016;
+        base.global_speed = 0.4;
+        base.center_gravity_k = 0.0;
+        base.gravity = 0.0;
+        base.temperature = 0.0;
+        base.viewport_bounds = 1.0e9;
         let run = |g: &mut UnifiedGPUCompute, p: SimParams| -> f32 {
             let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
-            for i in 0..N { let a = 2.0 * std::f32::consts::PI * i as f32 / N as f32; x[i] = r * a.cos(); y[i] = r * a.sin(); }
+            for i in 0..N {
+                let a = 2.0 * std::f32::consts::PI * i as f32 / N as f32;
+                x[i] = r * a.cos();
+                y[i] = r * a.sin();
+            }
             g.upload_positions(&x, &y, &z).unwrap();
-            let (hx0, hy0) = (x[0], y[0]); let s1 = (x[1], y[1]);
+            let (hx0, hy0) = (x[0], y[0]);
+            let s1 = (x[1], y[1]);
             for _ in 0..120 {
-                x[0] = hx0 + 300.0; y[0] = hy0;
+                x[0] = hx0 + 300.0;
+                y[0] = hy0;
                 g.update_positions_only(&x, &y, &z).unwrap();
-                g.execute(p).unwrap(); g.stream.synchronize().unwrap();
+                g.execute(p).unwrap();
+                g.stream.synchronize().unwrap();
                 let (px, py, pz) = g.get_node_positions().unwrap();
-                for i in 1..N { x[i] = px[i]; y[i] = py[i]; z[i] = pz[i]; }
+                for i in 1..N {
+                    x[i] = px[i];
+                    y[i] = py[i];
+                    z[i] = pz[i];
+                }
             }
             (x[1] - s1.0).hypot(y[1] - s1.1)
         };
-        println!("RESPONSE live stored values                         {:7.1} units", run(&mut g, base));
+        println!(
+            "RESPONSE live stored values                         {:7.1} units",
+            run(&mut g, base)
+        );
         for (name, f) in [
-            ("global_speed 1.0", Box::new(|p: &mut SimParams| p.global_speed = 1.0) as Box<dyn Fn(&mut SimParams)>),
+            (
+                "global_speed 1.0",
+                Box::new(|p: &mut SimParams| p.global_speed = 1.0) as Box<dyn Fn(&mut SimParams)>,
+            ),
             ("global_speed 2.0", Box::new(|p| p.global_speed = 2.0)),
             ("damping 0.7", Box::new(|p| p.damping = 0.7)),
             ("max_force 1500", Box::new(|p| p.max_force = 1500.0)),
             ("max_velocity 1000", Box::new(|p| p.max_velocity = 1000.0)),
             ("dt 0.032", Box::new(|p| p.dt = 0.032)),
-            ("speed 1 + force 1500 + vel 1000", Box::new(|p| { p.global_speed = 1.0; p.max_force = 1500.0; p.max_velocity = 1000.0; })),
+            (
+                "speed 1 + force 1500 + vel 1000",
+                Box::new(|p| {
+                    p.global_speed = 1.0;
+                    p.max_force = 1500.0;
+                    p.max_velocity = 1000.0;
+                }),
+            ),
         ] {
-            let mut p = base; f(&mut p);
+            let mut p = base;
+            f(&mut p);
             println!("RESPONSE {name:<44} {:7.1} units", run(&mut g, p));
         }
     }

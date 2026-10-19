@@ -45,12 +45,42 @@ pub struct Role {
 }
 
 pub const ROLES: [Role; 6] = [
-    Role { suffix: 0xD001, label: "Architect", action: 2, verb: "Mapping" },
-    Role { suffix: 0xD002, label: "Analyst", action: 0, verb: "Analysing" },
-    Role { suffix: 0xD003, label: "Coder", action: 1, verb: "Refactoring" },
-    Role { suffix: 0xD004, label: "Reviewer", action: 3, verb: "Reviewing" },
-    Role { suffix: 0xD005, label: "Tester", action: 0, verb: "Testing" },
-    Role { suffix: 0xD006, label: "Optimizer", action: 5, verb: "Optimising" },
+    Role {
+        suffix: 0xD001,
+        label: "Architect",
+        action: 2,
+        verb: "Mapping",
+    },
+    Role {
+        suffix: 0xD002,
+        label: "Analyst",
+        action: 0,
+        verb: "Analysing",
+    },
+    Role {
+        suffix: 0xD003,
+        label: "Coder",
+        action: 1,
+        verb: "Refactoring",
+    },
+    Role {
+        suffix: 0xD004,
+        label: "Reviewer",
+        action: 3,
+        verb: "Reviewing",
+    },
+    Role {
+        suffix: 0xD005,
+        label: "Tester",
+        action: 0,
+        verb: "Testing",
+    },
+    Role {
+        suffix: 0xD006,
+        label: "Optimizer",
+        action: 5,
+        verb: "Optimising",
+    },
 ];
 
 /// Loop timings in milliseconds.
@@ -127,7 +157,12 @@ impl DemoDirector {
         }
         let mut ranked: Vec<u32> = graph.labels.keys().copied().collect();
         // Highest degree first; ties by id so a seeded run is reproducible.
-        ranked.sort_by_key(|id| (std::cmp::Reverse(adjacency.get(id).map_or(0, Vec::len)), *id));
+        ranked.sort_by_key(|id| {
+            (
+                std::cmp::Reverse(adjacency.get(id).map_or(0, Vec::len)),
+                *id,
+            )
+        });
         ranked.truncate(timing::CANDIDATE_POOL);
         if ranked.is_empty() {
             return None;
@@ -150,7 +185,14 @@ impl DemoDirector {
                 target: order[i % order.len()],
             })
             .collect();
-        Some(Self { agents, adjacency, candidates: ranked, labels: graph.labels.clone(), rng, last_ts: 0 })
+        Some(Self {
+            agents,
+            adjacency,
+            candidates: ranked,
+            labels: graph.labels.clone(),
+            rng,
+            last_ts: 0,
+        })
     }
 
     /// The wire ids of the six synthetic agents.
@@ -174,7 +216,14 @@ impl DemoDirector {
             match self.agents[i].phase {
                 Phase::Wait => {
                     if self.agents[i].elapsed >= self.agents[i].duration {
-                        self.begin_work(i, Phase::Work, timing::WORK_MIN_MS, timing::WORK_MAX_MS, now_ts, &mut out);
+                        self.begin_work(
+                            i,
+                            Phase::Work,
+                            timing::WORK_MIN_MS,
+                            timing::WORK_MAX_MS,
+                            now_ts,
+                            &mut out,
+                        );
                     }
                 }
                 Phase::Work | Phase::Follow => {
@@ -190,18 +239,34 @@ impl DemoDirector {
                             && self.rng.gen::<f64>() < timing::FOLLOW_CHANCE;
                         if follow {
                             self.agents[i].target = neighbour.unwrap_or(self.agents[i].target);
-                            self.begin_work(i, Phase::Follow, timing::FOLLOW_MIN_MS, timing::FOLLOW_MAX_MS, now_ts, &mut out);
+                            self.begin_work(
+                                i,
+                                Phase::Follow,
+                                timing::FOLLOW_MIN_MS,
+                                timing::FOLLOW_MAX_MS,
+                                now_ts,
+                                &mut out,
+                            );
                         } else {
                             self.agents[i].phase = Phase::Rest;
                             self.agents[i].elapsed = 0;
-                            self.agents[i].duration = self.rng.gen_range(timing::REST_MIN_MS..=timing::REST_MAX_MS);
+                            self.agents[i].duration = self
+                                .rng
+                                .gen_range(timing::REST_MIN_MS..=timing::REST_MAX_MS);
                         }
                     }
                 }
                 Phase::Rest => {
                     if self.agents[i].elapsed >= self.agents[i].duration {
                         self.agents[i].target = self.next_target(self.agents[i].target);
-                        self.begin_work(i, Phase::Work, timing::WORK_MIN_MS, timing::WORK_MAX_MS, now_ts, &mut out);
+                        self.begin_work(
+                            i,
+                            Phase::Work,
+                            timing::WORK_MIN_MS,
+                            timing::WORK_MAX_MS,
+                            now_ts,
+                            &mut out,
+                        );
                     }
                 }
             }
@@ -225,7 +290,15 @@ impl DemoDirector {
             .collect()
     }
 
-    fn begin_work(&mut self, i: usize, phase: Phase, min: u64, max: u64, now_ts: u32, out: &mut Vec<AgentActionEvent>) {
+    fn begin_work(
+        &mut self,
+        i: usize,
+        phase: Phase,
+        min: u64,
+        max: u64,
+        now_ts: u32,
+        out: &mut Vec<AgentActionEvent>,
+    ) {
         let duration = self.rng.gen_range(min..=max);
         let a = &mut self.agents[i];
         a.phase = phase;
@@ -237,7 +310,11 @@ impl DemoDirector {
 
     fn action_event(&mut self, i: usize, now_ts: u32) -> AgentActionEvent {
         let a = &self.agents[i];
-        let label = self.labels.get(&a.target).cloned().unwrap_or_else(|| format!("node {}", a.target));
+        let label = self
+            .labels
+            .get(&a.target)
+            .cloned()
+            .unwrap_or_else(|| format!("node {}", a.target));
         let payload = serde_json::json!({ "intent": format!("{}: {}", a.role.verb, label) })
             .to_string()
             .into_bytes();
@@ -317,14 +394,28 @@ pub struct AgentDemoDirector {
 const TICK: Duration = Duration::from_millis(250);
 
 impl AgentDemoDirector {
-    pub fn new(graph_state: Addr<GraphStateActor>, coordinator: Addr<ClientCoordinatorActor>) -> Self {
-        Self { graph_state, coordinator, director: None, started: None }
+    pub fn new(
+        graph_state: Addr<GraphStateActor>,
+        coordinator: Addr<ClientCoordinatorActor>,
+    ) -> Self {
+        Self {
+            graph_state,
+            coordinator,
+            director: None,
+            started: None,
+        }
     }
 
     fn status(&self) -> DemoStatus {
         match self.director {
-            Some(_) => DemoStatus { running: true, agent_ids: DemoDirector::wire_ids().to_vec() },
-            None => DemoStatus { running: false, agent_ids: Vec::new() },
+            Some(_) => DemoStatus {
+                running: true,
+                agent_ids: DemoDirector::wire_ids().to_vec(),
+            },
+            None => DemoStatus {
+                running: false,
+                agent_ids: Vec::new(),
+            },
         }
     }
 }
@@ -334,11 +425,14 @@ impl Actor for AgentDemoDirector {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.run_interval(TICK, |act, _ctx| {
-            let Some(director) = act.director.as_mut() else { return };
+            let Some(director) = act.director.as_mut() else {
+                return;
+            };
             let now_ts = act.started.map_or(0, |t| t.elapsed().as_millis() as u32);
             let events = director.tick(TICK.as_millis() as u64, now_ts);
             if !events.is_empty() {
-                act.coordinator.do_send(BroadcastAgentActionFrame(encode_agent_actions(&events)));
+                act.coordinator
+                    .do_send(BroadcastAgentActionFrame(encode_agent_actions(&events)));
             }
         });
     }
@@ -380,9 +474,13 @@ impl Handler<StartAgentDemo> for AgentDemoDirector {
                     let seed = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(1, |d| d.as_nanos() as u64);
-                    let director = DemoDirector::new(&graph, seed)
-                        .ok_or_else(|| "the graph has no nodes the demo agents can work on".to_string())?;
-                    info!("AgentDemoDirector: started over {} nodes", graph.labels.len());
+                    let director = DemoDirector::new(&graph, seed).ok_or_else(|| {
+                        "the graph has no nodes the demo agents can work on".to_string()
+                    })?;
+                    info!(
+                        "AgentDemoDirector: started over {} nodes",
+                        graph.labels.len()
+                    );
                     act.director = Some(director);
                     act.started = Some(std::time::Instant::now());
                     Ok(act.status())
@@ -397,10 +495,13 @@ impl Handler<StartAgentDemo> for AgentDemoDirector {
 /// node some client is not entitled to see (the position stream withholds those per session).
 fn demo_graph_from(data: &visionclaw_domain::models::graph::GraphData) -> DemoGraph {
     let is_agent = |n: &visionclaw_domain::models::node::Node| {
-        n.metadata.get("nodeType").is_some_and(|t| t == "agent") || n.metadata.get("type").is_some_and(|t| t == "agent")
+        n.metadata.get("nodeType").is_some_and(|t| t == "agent")
+            || n.metadata.get("type").is_some_and(|t| t == "agent")
     };
     let public = |n: &visionclaw_domain::models::node::Node| {
-        n.metadata.get("public").is_some_and(|v| v.eq_ignore_ascii_case("true"))
+        n.metadata
+            .get("public")
+            .is_some_and(|v| v.eq_ignore_ascii_case("true"))
     };
     let labels: HashMap<u32, String> = data
         .nodes
@@ -411,7 +512,10 @@ fn demo_graph_from(data: &visionclaw_domain::models::graph::GraphData) -> DemoGr
     if labels.is_empty() {
         warn!("AgentDemoDirector: no public nodes in the graph");
     }
-    DemoGraph { labels, edges: data.edges.iter().map(|e| (e.source, e.target)).collect() }
+    DemoGraph {
+        labels,
+        edges: data.edges.iter().map(|e| (e.source, e.target)).collect(),
+    }
 }
 
 #[cfg(test)]
@@ -440,9 +544,22 @@ mod tests {
     #[test]
     fn the_six_reserved_ids_carry_the_agent_flag_and_are_recognised() {
         let ids = DemoDirector::wire_ids();
-        assert_eq!(ids, [0x8000_D001, 0x8000_D002, 0x8000_D003, 0x8000_D004, 0x8000_D005, 0x8000_D006]);
+        assert_eq!(
+            ids,
+            [
+                0x8000_D001,
+                0x8000_D002,
+                0x8000_D003,
+                0x8000_D004,
+                0x8000_D005,
+                0x8000_D006
+            ]
+        );
         assert!(ids.iter().all(|&i| DemoDirector::is_demo_id(i)));
-        assert!(DemoDirector::is_demo_id(0xD001), "with the flag bits masked off");
+        assert!(
+            DemoDirector::is_demo_id(0xD001),
+            "with the flag bits masked off"
+        );
         assert!(!DemoDirector::is_demo_id(0x8000_0001) && !DemoDirector::is_demo_id(0xD100));
     }
 
@@ -457,13 +574,20 @@ mod tests {
             }
             t += 250;
         }
-        assert_eq!(first_action_ms.len(), 6, "all six are working within the stagger window");
+        assert_eq!(
+            first_action_ms.len(),
+            6,
+            "all six are working within the stagger window"
+        );
         for (i, id) in DemoDirector::wire_ids().iter().enumerate() {
             let want = timing::STAGGER_MS[i];
             let got = first_action_ms[id];
             // A tick labelled t has already counted its own 250 ms, so the first action lands on the
             // tick whose label is within one tick BEFORE the scheduled time.
-            assert!(got + 250 >= want && got < want + 250, "agent {i} first acts at {got} ms, scheduled {want}");
+            assert!(
+                got + 250 >= want && got < want + 250,
+                "agent {i} first acts at {got} ms, scheduled {want}"
+            );
         }
     }
 
@@ -474,13 +598,20 @@ mod tests {
         let ids = DemoDirector::wire_ids();
         for e in &events {
             assert!(ids.contains(&e.source_agent_id));
-            assert!((1..=30).contains(&e.target_node_id), "target {} is a real node", e.target_node_id);
+            assert!(
+                (1..=30).contains(&e.target_node_id),
+                "target {} is a real node",
+                e.target_node_id
+            );
             assert!(e.action_type <= 5);
             assert_eq!(e.duration_ms, timing::ACTION_DURATION_MS);
             let v: serde_json::Value = serde_json::from_slice(&e.payload).unwrap();
             let intent = v["intent"].as_str().unwrap();
             assert!(intent.contains(": Node "), "{intent}");
-            assert!(!intent.to_lowercase().contains("demo"), "nothing says demo: {intent}");
+            assert!(
+                !intent.to_lowercase().contains("demo"),
+                "nothing says demo: {intent}"
+            );
         }
     }
 
@@ -488,7 +619,11 @@ mod tests {
     fn working_agents_send_a_keepalive_every_five_seconds_under_the_clients_ttl() {
         let (events, _) = run(5, 60_000);
         let id = DemoDirector::wire_ids()[0];
-        let ts: Vec<u32> = events.iter().filter(|e| e.source_agent_id == id).map(|e| e.timestamp).collect();
+        let ts: Vec<u32> = events
+            .iter()
+            .filter(|e| e.source_agent_id == id)
+            .map(|e| e.timestamp)
+            .collect();
         // within any working stretch consecutive actions are <= keepalive apart (plus one tick)
         let mut worst_within_work = 0;
         for w in ts.windows(2) {
@@ -504,7 +639,12 @@ mod tests {
     fn timestamps_are_strictly_increasing_even_within_one_tick() {
         let (events, _) = run(9, 60_000);
         for w in events.windows(2) {
-            assert!(w[1].timestamp > w[0].timestamp, "{} then {}", w[0].timestamp, w[1].timestamp);
+            assert!(
+                w[1].timestamp > w[0].timestamp,
+                "{} then {}",
+                w[0].timestamp,
+                w[1].timestamp
+            );
         }
     }
 
@@ -529,7 +669,10 @@ mod tests {
                 saw_rest |= phase == "rest";
                 if let Some(&(pp, pt)) = prev.get(label) {
                     if pp == "working" && phase == "follow" {
-                        assert!(adj[&pt].contains(&target), "{label} followed {pt} -> {target}, not an edge");
+                        assert!(
+                            adj[&pt].contains(&target),
+                            "{label} followed {pt} -> {target}, not an edge"
+                        );
                         saw_follow_on_neighbour = true;
                     }
                 }
@@ -545,14 +688,20 @@ mod tests {
     fn targets_are_the_high_degree_nodes() {
         let (events, _) = run(13, 300_000);
         let hub = events.iter().filter(|e| e.target_node_id == 1).count();
-        assert!(hub as f64 / events.len() as f64 > 0.05, "the hub (degree 19) is worked often: {hub}/{}", events.len());
+        assert!(
+            hub as f64 / events.len() as f64 > 0.05,
+            "the hub (degree 19) is worked often: {hub}/{}",
+            events.len()
+        );
     }
 
     #[test]
     fn the_same_seed_reproduces_the_same_run_and_different_seeds_differ() {
         let sig = |seed| {
             let (e, _) = run(seed, 90_000);
-            e.iter().map(|x| (x.source_agent_id, x.target_node_id, x.timestamp)).collect::<Vec<_>>()
+            e.iter()
+                .map(|x| (x.source_agent_id, x.target_node_id, x.timestamp))
+                .collect::<Vec<_>>()
         };
         assert_eq!(sig(21), sig(21));
         assert_ne!(sig(21), sig(22));
@@ -561,7 +710,10 @@ mod tests {
     #[test]
     fn an_empty_graph_cannot_start_and_a_single_node_graph_still_runs() {
         assert!(DemoDirector::new(&DemoGraph::default(), 1).is_none());
-        let g = DemoGraph { labels: HashMap::from([(7, "Only".into())]), edges: vec![] };
+        let g = DemoGraph {
+            labels: HashMap::from([(7, "Only".into())]),
+            edges: vec![],
+        };
         let (events, _) = {
             let mut d = DemoDirector::new(&g, 1).unwrap();
             let mut all = Vec::new();
@@ -588,7 +740,9 @@ mod tests {
             }
             (all, ())
         };
-        assert!(events.iter().all(|e| e.target_node_id == 1 || e.target_node_id == 2));
+        assert!(events
+            .iter()
+            .all(|e| e.target_node_id == 1 || e.target_node_id == 2));
     }
 
     #[test]
@@ -596,6 +750,9 @@ mod tests {
         let (events, _) = run(2, 30_000);
         let frame = encode_agent_actions(&events[..events.len().min(6)]);
         assert_eq!(frame[0], 0x23);
-        assert_eq!(u16::from_le_bytes([frame[1], frame[2]]) as usize, events.len().min(6));
+        assert_eq!(
+            u16::from_le_bytes([frame[1], frame[2]]) as usize,
+            events.len().min(6)
+        );
     }
 }

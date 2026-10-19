@@ -16,8 +16,10 @@ use visionclaw_domain::models::edge::Edge;
 use visionclaw_domain::models::graph::GraphData;
 use visionclaw_domain::models::node::Node;
 use visionclaw_server::actors::graph_service_supervisor::GraphServiceSupervisor;
-use visionclaw_server::handlers::configure_pathfinding_routes;
+use visionclaw_server::adapters::actix_semantic_adapter::ActixSemanticAdapter;
+use visionclaw_server::application::semantic_service::SemanticService;
 use visionclaw_server::handlers::graph_access::current_graph;
+use visionclaw_server::handlers::{configure_pathfinding_routes, configure_semantic_routes};
 use visionclaw_server::ports::knowledge_graph_repository::{
     GraphStatistics, KnowledgeGraphRepository, Result as KgResult,
 };
@@ -160,5 +162,86 @@ async fn pathfinding_routes_reach_the_handler_with_mains_app_data() {
     assert!(
         !text.contains(MISSING_APP_DATA),
         "extractor still names unregistered app data: {text}"
+    );
+}
+
+#[actix_rt::test]
+async fn semantic_routes_reach_the_handler_with_mains_app_data() {
+    let adapter = Arc::new(tokio::sync::RwLock::new(ActixSemanticAdapter::new()));
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(supervisor()))
+            .app_data(web::Data::new(Arc::new(SemanticService::new(adapter))))
+            .configure(configure_semantic_routes),
+    )
+    .await;
+    for req in [
+        test::TestRequest::get()
+            .uri("/semantic/statistics")
+            .to_request(),
+        test::TestRequest::post()
+            .uri("/semantic/communities")
+            .set_json(serde_json::json!({ "algorithm": "louvain" }))
+            .to_request(),
+    ] {
+        let resp = test::call_service(&app, req).await;
+        let text = String::from_utf8_lossy(&test::read_body(resp).await).into_owned();
+        assert!(
+            !text.contains(MISSING_APP_DATA),
+            "extractor still names unregistered app data: {text}"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn pathfinding_routes_are_rate_limited() {
+    use visionclaw_server::handlers::semantic_pathfinding_handler::PATHFINDING_REQUESTS_PER_MINUTE;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(supervisor()))
+            .app_data(web::Data::new(Arc::new(
+                SemanticPathfindingService::default(),
+            )))
+            .configure(configure_pathfinding_routes),
+    )
+    .await;
+    let mut limited = false;
+    for _ in 0..=PATHFINDING_REQUESTS_PER_MINUTE {
+        let req = test::TestRequest::post()
+            .uri("/pathfinding/chunk-traversal")
+            .peer_addr("203.0.113.7:1".parse().unwrap())
+            .set_json(serde_json::json!({ "start_id": 1, "max_nodes": 1_000_000 }))
+            .to_request();
+        let status = match test::try_call_service(&app, req).await {
+            Ok(resp) => resp.status(),
+            Err(e) => e.as_response_error().status_code(),
+        };
+        if status == actix_web::http::StatusCode::TOO_MANY_REQUESTS {
+            limited = true;
+        }
+    }
+    assert!(limited, "one client got more than the per-minute budget");
+
+    use actix_web::HttpMessage;
+    // Keyed on the verified pubkey: a different user keeps their own budget,
+    // and changing the forwarding headers does not reset one.
+    let req = test::TestRequest::post()
+        .uri("/pathfinding/chunk-traversal")
+        .peer_addr("203.0.113.7:1".parse().unwrap())
+        .insert_header(("X-Forwarded-For", "198.51.100.9"))
+        .set_json(serde_json::json!({ "start_id": 1 }))
+        .to_request();
+    req.extensions_mut()
+        .insert(visionclaw_server::middleware::AuthenticatedUser {
+            pubkey: "ab".repeat(32),
+        });
+    let status = match test::try_call_service(&app, req).await {
+        Ok(resp) => resp.status(),
+        Err(e) => e.as_response_error().status_code(),
+    };
+    assert_ne!(
+        status,
+        actix_web::http::StatusCode::TOO_MANY_REQUESTS,
+        "a signed-in user shares an anonymous budget"
     );
 }

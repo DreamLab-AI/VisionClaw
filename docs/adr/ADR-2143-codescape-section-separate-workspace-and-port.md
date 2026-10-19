@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: b63068e3dfeecf0622d4b68f8e59a52479c59deb
-verified_paths: [crates/codescape, docs/PROTOCOL-registry.md]
+verified_commit: cd8f34044b32afbd5b714ff7cf635957721930c0
+verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
 repo: visionclaw
@@ -271,14 +271,14 @@ becomes `visionclaw-wire`). Those texts are not edited until the steps below lan
 **Invariant added:** I10, recorded as not yet enforced.
 
 **Steps** (ticked by the queen as they land):
-- [ ] `DreamLab-AI/codescape` created; fresh import citing the VisionClaw range
-- [ ] licence fields split; check that no permissive crate depends on an AGPL crate
+- [x] `DreamLab-AI/codescape` created; fresh import citing the VisionClaw range (2026-10-19: submodule `codescape/` at `9b8d5de`, first commit `235d9a5` "import Codescape from VisionClaw cac36a028")
+- [x] licence fields split; check that no permissive crate depends on an AGPL crate (2026-10-19: `codescape-model` depends only on crates.io `visionclaw-wire`, `codescape-collab` only on `codescape-model`; both ship `LICENSE-MIT` and `LICENSE-APACHE`; no permissive crate depends on an AGPL one; reviewer pass over the branch)
 - [x] `visionclaw-wire` extracted and re-exported by `visionclaw-protocol`; fixtures byte-identical (2026-10-18: `-p visionclaw-wire` 8 + 2 doctests, also `--no-default-features`; `visionclaw-protocol` 25; XR wire tests 25; `codescape-model` `#[path]` include replaced by the crate)
 - [x] PTX loaded from `CODESCAPE_PTX_DIR`; I7 tests pass against the loaded artefact (2026-10-18: `codescape-layout/src/ptx_source.rs`; the compose entrypoint stages the pair from visionclaw-gpu's own build script into the fixed `/codescape-target/ptx`, `provenance=compiled`, tag `7b41d3561a264b78`; device run in `docs/evidence/codescape/P1/gate-gpu-A5-runtime-ptx.txt`)
-- [ ] submodule mounted at `codescape/`; `crates/codescape/` removed
-- [ ] compose mounts and nginx location repointed; `:3001/codescape/` and `:4100` re-checked
+- [x] submodule mounted at `codescape/`; `crates/codescape/` removed (2026-10-19, `22b471282`: the five files that differed were all older in-tree; the rest byte-identical at the `crates/` layout; `scripts/codescape-entrypoint.sh` dead copy removed with it)
+- [x] compose mounts and nginx location repointed; `:3001/codescape/` and `:4100` re-checked (2026-10-19 after the host restart: both answer 200; `visionclaw_container` and `codescape` healthy; the service runs `/app/codescape/deploy/codescape-entrypoint.sh`)
 - [x] I10 check implemented and run (`codescape-server/tests/isolation.rs` `visionclaw_wire_is_the_only_visionclaw_crate`, both feature sets; the cuda graph test now asserts `visionclaw-gpu` is absent)
-- [ ] `visionclaw-wire`, `codescape-model`, `codescape-collab` published to crates.io
+- [x] `visionclaw-wire`, `codescape-model`, `codescape-collab` published to crates.io (2026-10-19: each at 0.1.0, MIT OR Apache-2.0, per the crates.io API)
 - [ ] Decision 1, Decision 7 and I2 amended; governing docs updated
 
 ## Verification
@@ -294,3 +294,11 @@ becomes `visionclaw-wire`). Those texts are not edited until the steps below lan
   - rustdoc `-Dwarnings`: `exit=0`
   - vitest: 60 passed, `exit=0`
 - **Implementation status is `partial`.** P0 is done. The P1 performance and conformance numbers are still reported by workers, not re-run (`docs/evidence/codescape/P1/README.md`). P2-P6 are not done.
+
+## Re-verification — 2026-10-19 (submodule pointer)
+
+The governed path `codescape` is the submodule gitlink. It moved from `9b8d5de` to `cb250b4`, the first commit
+of which is a README, `docs/README.md` and `AGENTS.md` restyle that adds the estate cross-links and changes no
+source. The submodule's CI run on `cb250b4` passed (rust, client, CUDA compile-and-link), and `cargo test
+--workspace` including `tests/isolation.rs` and the client vitest suite pass at the pointer. Nothing in the
+decision or the A5 steps changed.

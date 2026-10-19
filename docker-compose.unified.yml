@@ -425,7 +425,7 @@ services:
 
   # Codescape (ADR-2143): human/agent voice collaboration over a near-real-time
   # code graph. A SEPARATE section of the estate: its own Cargo workspace
-  # (crates/codescape), its own port, its own target and data volumes, and no
+  # (the codescape/ submodule), its own port, its own target and data volumes, and no
   # path to the knowledge-work system. Deliberately NOT given: env_file .env
   # (which carries RUVECTOR_PG_CONNINFO), the /vault corpus, data/markdown or
   # data/metadata, the Neo4j/Oxigraph hosts. Opt in with CODESCAPE=1 in .env;
@@ -437,13 +437,19 @@ services:
       context: .
       dockerfile: ${DOCKERFILE:-Dockerfile.unified}
       target: development
-    entrypoint: ["/app/scripts/codescape-entrypoint.sh"]
+    # The service runs the standalone repository (DreamLab-AI/codescape, git
+    # submodule at ./codescape, ADR-2143 A5); VisionClaw supplies only the
+    # deploy surface, the GPU sources for the PTX artefact and the node_modules.
+    entrypoint: ["/app/codescape/deploy/codescape-entrypoint.sh"]
     environment:
       CODESCAPE_PORT: "4100"
       CODESCAPE_INGEST_PORT: "4101"
       CODESCAPE_BIND: "0.0.0.0"
       CODESCAPE_DATA_DIR: /data/codescape
       CODESCAPE_TARGET_DIR: /codescape-target
+      CODESCAPE_SRC: /app/codescape
+      CODESCAPE_GPU_SRC: /app/crates/visionclaw-gpu
+      CODESCAPE_NODE_MODULES: /app/client/node_modules
       # CUDA PTX pair staged by the entrypoint from visionclaw-gpu's own build
       # script (ADR-2143 A5); a fixed directory, never a globbed build `out`.
       CODESCAPE_PTX_DIR: /codescape-target/ptx
@@ -477,9 +483,11 @@ services:
     secrets:
       - codescape-ingest-token
     volumes:
+      # The standalone checkout (submodule) the entrypoint and build run from.
+      - ${HOST_PROJECT_ROOT:-.}/codescape:/app/codescape:ro
+      # visionclaw-gpu (PTX build) path-depends on visionclaw-domain, so the
+      # whole crates tree stays mounted read-only for the artefact build.
       - ${HOST_PROJECT_ROOT:-.}/crates:/app/crates:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/src:/app/client/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/scripts:/app/scripts:ro
       # Dogfood repositories as SOURCE-ONLY views (ADR-2143 §8, security
       # review finding 3). The whole checkout is never mounted: it carries the
       # knowledge corpus (data/), the root .env and local secrets. Only source

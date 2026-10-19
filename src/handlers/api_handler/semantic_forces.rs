@@ -66,7 +66,10 @@ pub async fn get_hierarchy_levels(state: web::Data<AppState>) -> impl Responder 
 pub async fn get_semantic_config(state: web::Data<AppState>) -> impl Responder {
     use crate::config::PhysicsSettings;
     use crate::ports::settings_repository::{SettingValue, SettingsRepository};
-    let stored = state.sqlite_settings_repository.get_setting("physics").await;
+    let stored = state
+        .sqlite_settings_repository
+        .get_setting("physics")
+        .await;
     let semantic = match stored {
         Ok(Some(SettingValue::Json(json))) => serde_json::from_value::<PhysicsSettings>(json)
             .map(|p| p.semantic)
@@ -351,9 +354,18 @@ pub async fn reload_relationship_buffer(
             "version": version,
         }));
     };
-    match gpu_manager.send(SetRelationshipTable { configs, version: version as i32 }).await {
+    match gpu_manager
+        .send(SetRelationshipTable {
+            configs,
+            version: version as i32,
+        })
+        .await
+    {
         Ok(Ok(())) => {
-            info!("Relationship table reloaded to GPU: {} types, version {}", count, version);
+            info!(
+                "Relationship table reloaded to GPU: {} types, version {}",
+                count, version
+            );
             HttpResponse::Ok().json(serde_json::json!({
                 "status": "success",
                 "message": "GPU relationship table reloaded",

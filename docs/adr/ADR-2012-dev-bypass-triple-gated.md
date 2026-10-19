@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-011 dev-bypass clause distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 4024ac777e2381cc1b667970ce7696e9808f1f42
 verified_paths: [src/utils/auth.rs, src/middleware/rbac_gate.rs]
 owner: jjohare
 review_trigger: any change to the dev-auth feature gate, DEV_AUTH_LOOPBACK handling, or the report-mode ack check
@@ -47,11 +47,12 @@ report mode can be deliberately activated in a non-debug build with its dated ac
 
 ## Verification
 
-Re-checked at `e0f8cd896`: `src/utils/auth.rs:82` `dev_bypass_permitted_for_addr` requires
-`DEV_AUTH_LOOPBACK=1` (`:83`) and a loopback peer; the acceptance site `:130-144` gates on it and
-rejects with a warning otherwise. `src/middleware/rbac_gate.rs:80` `GateMode::from_env` returns
-`Report` only when `report_acknowledged()` (`:105-110`: debug build or `RBAC_REPORT_MODE_ACK` =
-today's UTC date) holds, else logs the refusal and returns `Enforce` (`:96-101`).
+Re-checked at `4024ac777` (2026-10-19): `src/utils/auth.rs:139` `dev_bypass_permitted_for_addr`
+requires `DEV_AUTH_LOOPBACK=1` (`:140`) and a loopback peer; the acceptance site (`:227` onward) gates on
+it and rejects with a warning otherwise. `src/middleware/rbac_gate.rs:92` `GateMode::from_env` returns
+`Report` only when the acknowledgement holds (debug build or `RBAC_REPORT_MODE_ACK` = today's UTC
+date), else logs the refusal (`:106`) and returns `Enforce` (`:95`, `:110`). The 2026-10-18 routed-path
+change in this file (ADR-2011 amendment) does not touch the bypass or the mode gate.
 Governing doc: `docs/IDENTITY-authority-chain.md`.
 
 ## Closeout extension — 2026-09-04

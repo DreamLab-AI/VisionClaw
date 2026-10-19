@@ -361,7 +361,8 @@ pub struct AppState {
     /// Multi-MCP discovery service behind `/multi-mcp/ws` (TODO-unified S-4(1)).
     /// Idle until the first WebSocket client connects, so it adds no poller of
     /// its own beside `bots_client` on a quiet server.
-    pub multi_mcp_discovery: Arc<crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery>,
+    pub multi_mcp_discovery:
+        Arc<crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery>,
     pub task_orchestrator_addr: Addr<TaskOrchestratorActor>,
     pub debug_enabled: bool,
     pub client_message_tx: mpsc::UnboundedSender<ClientMessage>,
@@ -811,8 +812,11 @@ impl AppState {
             .ok_or_else(|| "GraphStateActor not initialized in supervisor".to_string())?;
 
         // The shared agents demo: reads the live graph, writes only 0x23 frames to the clients.
-        let agent_demo_addr =
-            crate::actors::AgentDemoDirector::new(graph_actor_addr.clone(), client_manager_addr.clone()).start();
+        let agent_demo_addr = crate::actors::AgentDemoDirector::new(
+            graph_actor_addr.clone(),
+            client_manager_addr.clone(),
+        )
+        .start();
 
         // Create ActorGraphRepository using the graph actor (Oxigraph-backed, ADR-11)
         let graph_repository = Arc::new(crate::adapters::ActorGraphRepository::new(
@@ -1159,9 +1163,8 @@ impl AppState {
         info!("[AppState::new] Initializing BotsClient with graph service");
         let bots_client = Arc::new(BotsClient::with_graph_service(graph_service_addr.clone()));
 
-        let multi_mcp_discovery = Arc::new(
-            crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery::new(),
-        );
+        let multi_mcp_discovery =
+            Arc::new(crate::services::multi_mcp_agent_discovery::MultiMcpAgentDiscovery::new());
         multi_mcp_discovery.initialize_default_servers().await;
 
         // D1 (PRD-023 WP-2): start the agent-list poll at boot. connect() tests MCP

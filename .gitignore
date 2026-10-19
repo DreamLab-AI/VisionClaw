@@ -296,7 +296,3 @@ archive/attic/
 
 # ADR-2143: Codescape local secrets (ingest bearer token)
 /secrets/
-# ADR-2143: Codescape owns its lock (I6) and ships the PTX header fixtures its
-# ABI guard tests load with include_str! (I7); both must be committed.
-!/crates/codescape/Cargo.lock
-!/crates/codescape/codescape-layout/tests/fixtures/*.ptx

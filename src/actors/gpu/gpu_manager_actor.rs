@@ -897,10 +897,7 @@ impl Handler<GetPhysicsStats> for GPUManagerActor {
 // ============================================================================
 
 impl Handler<GetHierarchyLevels> for GPUManagerActor {
-    type Result = ResponseActFuture<
-        Self,
-        Result<crate::actors::messages::HierarchyLevels, String>,
-    >;
+    type Result = ResponseActFuture<Self, Result<crate::actors::messages::HierarchyLevels, String>>;
 
     fn handle(&mut self, msg: GetHierarchyLevels, ctx: &mut Self::Context) -> Self::Result {
         let supervisors = match self.get_supervisors(ctx) {

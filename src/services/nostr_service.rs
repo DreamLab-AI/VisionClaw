@@ -462,6 +462,13 @@ impl NostrService {
         self.get_or_create_user_from_pubkey(pubkey).await
     }
 
+    /// Test hook: treat exactly `pubkeys` as power users, regardless of env.
+    #[cfg(test)]
+    pub(crate) fn with_power_users(mut self, pubkeys: Vec<String>) -> Self {
+        self.power_user_pubkeys = pubkeys;
+        self
+    }
+
     /// Test hook: force legacy opaque sessions on or off regardless of env.
     #[cfg(test)]
     pub(crate) fn with_legacy_sessions(mut self, enabled: bool) -> Self {

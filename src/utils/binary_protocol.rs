@@ -2157,10 +2157,21 @@ mod broadcast_ack_wire_tests {
     /// was read as garbage.)
     #[test]
     fn the_shared_ack_fixture_decodes_to_the_fields_it_was_built_from() {
-        let frame = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(48_113, 2500, 1_700_000_000_000);
+        let frame = visionclaw_protocol::wire_fixtures::broadcast_ack_frame(
+            48_113,
+            2500,
+            1_700_000_000_000,
+        );
         match BinaryProtocol::decode_message(&frame).expect("a valid ack") {
-            Message::BroadcastAck { sequence_id, nodes_received, timestamp } => {
-                assert_eq!((sequence_id, nodes_received, timestamp), (48_113, 2500, 1_700_000_000_000));
+            Message::BroadcastAck {
+                sequence_id,
+                nodes_received,
+                timestamp,
+            } => {
+                assert_eq!(
+                    (sequence_id, nodes_received, timestamp),
+                    (48_113, 2500, 1_700_000_000_000)
+                );
             }
             other => panic!("decoded as {other:?}"),
         }
@@ -2176,7 +2187,10 @@ mod broadcast_ack_wire_tests {
         old.extend_from_slice(&1_700_000_000_000u64.to_le_bytes());
         match BinaryProtocol::decode_message(&old) {
             Ok(Message::BroadcastAck { sequence_id, .. }) => {
-                assert_ne!(sequence_id, 48_113, "the old layout can never carry the right sequence");
+                assert_ne!(
+                    sequence_id, 48_113,
+                    "the old layout can never carry the right sequence"
+                );
             }
             _ => {}
         }

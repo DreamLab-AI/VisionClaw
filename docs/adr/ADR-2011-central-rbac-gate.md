@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []                   # legacy ADR-011/ADR-142 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: e48099f289ff2d39377eb6740361f27badc047d2
+verified_commit: 4024ac777e2381cc1b667970ce7696e9808f1f42
 verified_paths: [src/middleware/rbac_gate.rs, src/utils/auth.rs]
 owner: jjohare
 review_trigger: addition of an /api sub-scope with a distinct auth requirement, or any change to the public-prefix allowlist
@@ -45,12 +45,26 @@ per-handler auth as the enforcement point and any write path gated only at `Auth
 
 ## Verification
 
-Re-checked at `e0f8cd896`: `src/middleware/rbac_gate.rs:133` `required_level` uses
-`has_segment_prefix` over `segments(path)` (`:60-66`); the public allowlist is whole-segment
-(`:50`); `has_segment_prefix(&segs, &["api","admin"])` → `Admin` at `:146-147`; mutating methods
-→ `Some(AccessLevel::WriteGraph)` at `:159-167`. `src/utils/auth.rs:41` `has_permission`
+Re-checked at `4024ac777` (2026-10-19): `src/middleware/rbac_gate.rs:147` `required_level` uses
+`has_segment_prefix` (`:78`) over `segments(path)` (`:73`); the public allowlist is whole-segment
+(`PUBLIC_SEGMENT_PREFIXES`, `:55`); `has_segment_prefix(&segs, &["api","admin"])` → `Admin` at
+`:168`; mutating methods → `Some(AccessLevel::WriteGraph)` at `:188`. `src/utils/auth.rs:41` `has_permission`
 implements the lattice comparison that refuses WriteGraph to a ReadOnly (Viewer) level.
 Governing doc: `docs/IDENTITY-authority-chain.md`.
+
+## Amendment — 2026-10-19
+
+Two changes since the last stamp, both inside this decision. (1) The gate classifies the path the
+router matches, `routed_path` at `src/middleware/rbac_gate.rs:69` (`req.match_info().as_str()`),
+not the raw URI: Actix decodes percent-escapes before routing, so classifying the raw path let
+`/api/%73ettings/...` reach the settings handlers at the graph-write level and `/api/%61dmin`
+skip the Admin rule (security review of 2026-10-18; tests `routed_path_is_the_full_decoded_path_inside_the_api_scope`
+and `the_gate_classifies_the_path_the_router_matches`). Whole-segment matching is unchanged; an
+encoded `/` stays encoded, so it cannot split a segment. (2) One named exception to "the admin
+surface requires `Admin` for every method": `GET /api/admin/rbac/whoami` requires only
+`Authenticated` (`:160-166`), because it reports the caller's own role and power-user flag and the
+handler checks the caller itself (ER-26; test `whoami_is_open_to_any_signed_in_user_and_nothing_else_is`,
+which also pins every other method and sub-path of `whoami` to `Admin`).
 
 ## Closeout extension — 2026-09-04
 

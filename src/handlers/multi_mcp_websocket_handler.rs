@@ -461,7 +461,6 @@ impl Actor for MultiMcpVisualizationWs {
                 });
             }
         });
-
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
