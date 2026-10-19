@@ -491,10 +491,11 @@ fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
         &out.join("data/graph/stats.json"),
     )))
     .unwrap();
-    assert_eq!(actual["domains"], 8);
+    assert_eq!(actual["domains"], 9);
     for slug in [
         "space-science-and-systems",
         "earth-observation-and-geospatial-sensing",
+        "supply-chains-and-logistics",
     ] {
         let key = format!("domain-{slug}");
         let scope = actual["scopes"]
@@ -508,7 +509,7 @@ fn stats_preserves_legacy_fields_and_appends_empty_space_scopes() {
     }
     actual["domains"] = serde_json::json!(6);
     normalise_attribution(&mut actual);
-    assert_eq!(actual["categories"], 53, "19 space categories appended");
+    assert_eq!(actual["categories"], 68, "34 appended categories");
     actual["categories"] = serde_json::json!(34);
     assert_eq!(
         actual, expected,
@@ -539,12 +540,14 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
         actual["domains"][7]["slug"],
         "earth-observation-and-geospatial-sensing"
     );
-    for i in [6, 7] {
+    assert_eq!(actual["domains"][8]["id"], 8);
+    assert_eq!(actual["domains"][8]["slug"], "supply-chains-and-logistics");
+    for i in [6, 7, 8] {
         assert_eq!(actual["domains"][i]["memberCount"], 0);
     }
-    // The 2026-10-11 taxonomy appends 19 space categories (ids 34..53) after
+    // The 2026-10-11 taxonomy appends 34 categories (ids 34..68) after
     // the legacy 34 and their category nodes after the legacy ones; strip them
-    // the same way the two appended domain roots are stripped above.
+    // the same way the three appended domain roots are stripped above.
     const LEGACY_CATEGORIES: usize = 34;
     actual["domains"].as_array_mut().unwrap().truncate(6);
     actual["categories"]
@@ -557,12 +560,12 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
         .truncate(LEGACY_CATEGORIES);
     {
         let nodes = actual["nodes"].as_array_mut().unwrap();
-        nodes.drain(6..8);
+        nodes.drain(6..9);
         nodes.retain(|n| {
             !n["category"].is_number() || n["category"].as_u64().unwrap() < LEGACY_CATEGORIES as u64
         });
     }
-    let legacy_node_ceiling = 8 + LEGACY_CATEGORIES as u64; // 8 roots + 34 legacy category nodes
+    let legacy_node_ceiling = 9 + LEGACY_CATEGORIES as u64; // 9 roots + 34 legacy category nodes
     actual["edges"].as_array_mut().unwrap().retain(|e| {
         ["source", "target"]
             .iter()
@@ -570,14 +573,14 @@ fn overview_retains_legacy_semantics_with_append_only_domain_ids() {
     });
     for node in actual["nodes"].as_array_mut().unwrap() {
         if node["category"].is_number() {
-            node["id"] = serde_json::json!(node["id"].as_u64().unwrap() - 2);
+            node["id"] = serde_json::json!(node["id"].as_u64().unwrap() - 3);
         }
     }
     for edge in actual["edges"].as_array_mut().unwrap() {
         for key in ["source", "target"] {
             let index = edge[key].as_u64().unwrap();
-            if index >= 8 {
-                edge[key] = serde_json::json!(index - 2);
+            if index >= 9 {
+                edge[key] = serde_json::json!(index - 3);
             }
         }
     }
@@ -681,6 +684,6 @@ fn the_graph_tiers_agree_with_the_class_count() {
         stats["classes"], scaffold["counts"]["classes"],
         "stats.json and scaffold-index.json must report the same class count"
     );
-    assert_eq!(stats["domains"], 8);
-    assert_eq!(stats["categories"], 53);
+    assert_eq!(stats["domains"], 9);
+    assert_eq!(stats["categories"], 68);
 }

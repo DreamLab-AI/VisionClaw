@@ -13,6 +13,7 @@ pub const DOMAIN_ROOTS: &[(&str, &str)] = &[
         "earth-observation-and-geospatial-sensing",
         "Earth Observation and Geospatial Sensing",
     ),
+    ("supply-chains-and-logistics", "Supply Chains and Logistics"),
 ];
 
 /// Ordered slugs derived from the single domain registry.
@@ -25,6 +26,7 @@ pub const DOMAIN_SLUGS: &[&str] = &[
     DOMAIN_ROOTS[5].0,
     DOMAIN_ROOTS[6].0,
     DOMAIN_ROOTS[7].0,
+    DOMAIN_ROOTS[8].0,
 ];
 
 /// GPU clustering class: zero for unknown, publication domain ID plus one otherwise.
@@ -38,6 +40,7 @@ pub fn domain_class_id(domain: &str) -> i32 {
         "rb" => "robotics",
         "ngm" => "distributed-collaboration",
         "tc" => "infrastructure",
+        "supply-chain" => "supply-chains-and-logistics",
         other => other,
     };
     DOMAIN_SLUGS
@@ -61,6 +64,11 @@ mod tests {
             domain_class_id("earth-observation-and-geospatial-sensing"),
             8
         );
+        assert_eq!(domain_class_id("supply-chains-and-logistics"), 9);
+        assert_eq!(domain_class_id("supply-chain"), 9);
+        assert_eq!(DOMAIN_SLUGS.len(), 9);
+        assert_eq!(DOMAIN_SLUGS[8], "supply-chains-and-logistics");
+        assert_eq!(DOMAIN_ROOTS[8].1, "Supply Chains and Logistics");
         assert_eq!(domain_class_id(""), 0);
         assert_eq!(domain_class_id("space-science-typo"), 0);
     }

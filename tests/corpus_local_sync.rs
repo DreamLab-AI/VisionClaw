@@ -176,6 +176,7 @@ async fn header_only_space_domains_survive_fresh_ingest_and_have_navigation_root
             "earth-observation-and-geospatial-sensing",
             "Earth Vocabulary",
         ),
+        ("supply-chains-and-logistics", "Supply Vocabulary"),
     ] {
         std::fs::write(
             h.vault.path().join(format!("knowledge/{title}.md")),
@@ -189,6 +190,7 @@ async fn header_only_space_domains_survive_fresh_ingest_and_have_navigation_root
     for slug in [
         "space-science-and-systems",
         "earth-observation-and-geospatial-sensing",
+        "supply-chains-and-logistics",
     ] {
         let iri = format!("urn:ngm:class:{slug}-fixture");
         let class = classes

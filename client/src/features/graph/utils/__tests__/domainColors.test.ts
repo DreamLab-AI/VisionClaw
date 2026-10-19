@@ -23,9 +23,15 @@ describe('corpus domain colours', () => {
     expect(getDomainColor('earth-observation-and-geospatial-sensing')).toBe('#438273');
     const colours = [...legacyDomains.map(([domain]) => getDomainColor(domain)),
       getDomainColor('space-science-and-systems'),
-      getDomainColor('earth-observation-and-geospatial-sensing')];
-    expect(new Set(colours).size).toBe(8);
+      getDomainColor('earth-observation-and-geospatial-sensing'),
+      getDomainColor('supply-chains-and-logistics')];
+    expect(new Set(colours).size).toBe(9);
     expect(colours).not.toContain(DEFAULT_DOMAIN_COLOR);
+  });
+  it('gives the supply-chains domain its own colour', () => {
+    expect(getDomainColor('supply-chains-and-logistics')).toBe('#C0793A');
+    expect(getDomainColor('SUPPLY-CHAINS-AND-LOGISTICS')).toBe('#C0793A');
+    expect(getComputationDomainColor('supply-chains-and-logistics')).toBe('#C0793A');
   });
   it.each([['DT', '#EF5350'], ['SEC', '#FF7043'], ['INFRA', '#78909C']])(
     'preserves the legacy %s colour', (domain, colour) => {

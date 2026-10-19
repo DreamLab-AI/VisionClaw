@@ -274,6 +274,7 @@ const KEY_DOMAIN_SWATCHES: Array = [
 	["infrastructure", "Infra", Color("#FFD54F")],
 	["space-science-and-systems", "Space", Color("#646b9f")],
 	["earth-observation-and-geospatial-sensing", "Earth obs", Color("#438273")],
+	["supply-chains-and-logistics", "Supply", Color("#C0793A")],
 ]
 const KEY_DOMAIN_FALLBACK: Color = Color("#90A4AE")
 # WP4 hull swatches: the first four of hulls.rs GPU_CLUSTER_COLORS (parity-tested).
