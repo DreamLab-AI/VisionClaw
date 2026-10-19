@@ -57,3 +57,13 @@ Commands (`CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`), 2026
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/mod.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/turtle.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds; `implementation_status: partial` is still accurate.** Governed changes since f6a502e47: the corpus-layout move, `generation.rs` test paths, and the attribution roster, which adds `prov:wasAttributedTo` annotation properties and triples to the graph before the header digest is taken (so the ontology digest now covers them, as D1 requires for any non-header triple). Fresh anchors at HEAD (the Context and Verification line numbers are pre-implementation history):
+- **D1:** `ONTOLOGY_IRI` (`turtle.rs:51`), `VERSION_INFO` `"3.1.0"` (`:55`), header added last with `owl:versionIRI` (`:493-517`), `ontology_digest` (`:615`); `.generation.json` carries `ontology_digest` beside `content_digest` (`generation.rs:63`, `build/mod.rs:525-531`, test `:738-743`).
+- **D3:** `RelationDef.domain`/`range` are optional slugs (`vault-core/src/vocabulary.rs:218`, `:221`); `property_signature` emits a triple only for a declared non-`owl:Thing` value (`turtle.rs:757`); `declare_property` no longer emits `owl:Thing` (`:727`).
+- **D2, VisionClaw half, now partly landed:** `AnswerScope.generation` reports the bundle's `owl:versionIRI` (`crates/visionclaw-ontology/src/types/ontology_tools.rs:75`; `open_world.rs:451` `version_iri_from_turtle`, `:777` `generation_from_location`; wired at `src/services/ontology_query_service.rs:190-206`). That is the ADR-2127 answer surface, not a status endpoint; the Loom side and the EXP-V08 "same version IRI" check remain open, so decision 2 stays not done, as the Implementation evidence says.
+- **Still not done:** D3's "report newly entailed classes before the change is accepted".
+
+Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format.md` listed this ADR as proposed; corrected in the same change (version 2.3.0).

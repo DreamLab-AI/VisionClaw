@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.11
+version: 0.1.12
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.12 (2026-10-19): ADR-2133 re-verified at b4a175412 — the /api/memory-cloud rows now state that every endpoint, health included, is PowerUser in the handler (the health row wrongly said the central read policy), that VISIONCLAW_DEV_MODE admits every caller as a power user in debug/dev-auth builds only, and that rows past metadata.expires_at are hidden from counts, samples, searches and the recall probe (estate ER-11); citation refresh to memory_cloud_handler.rs:65"
   - "0.1.11 (2026-10-17): ADR-2143: Codescape recorded as a second producer of V3/V5 on :4100 (no new tags or flag bits, field mapping, 0x23 mapping, 404 list); citation refresh: routes main.rs:1093-1123, 0x23 :1792/:1561/:1571/:1534-1541, batch framing stated"
   - "0.1.10 (2026-10-13): ADR-2138 — /api/analytics/cycles row (GET, optional edgeType, default subsumption edges); layout-mode whitelist gains spectral and clustered; REST only, no frame change"
   - "0.1.9 (2026-10-08): ADR-2136 amendment — each MemoryCloudHit in the /api/memory-cloud/query response gains optional position [x,y,z] | null, the hit's own embedding projected with the snapshot's PCA basis (on its row when sampled); additive"
@@ -233,10 +234,10 @@ Routes registered in `src/main.rs:1093-1123`:
 | `/ws/speech`, `/ws/mcp-relay`, `/ws/client-messages` | WS | per-handler | `main.rs:1098-1101` |
 | `/healthz`, `/readyz` | GET | none (probes) | `main.rs:1093-1094` |
 | `/client-logs` | POST | none | `main.rs:1123` |
-| `/api/memory-cloud` | GET | `PowerUser` in handler (`memory_cloud_handler.rs:44`), regardless of `RBAC_PUBLIC_READS` | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO` |
+| `/api/memory-cloud` | GET | `PowerUser` in handler (`require_power_user`, `memory_cloud_handler.rs:65`), regardless of `RBAC_PUBLIC_READS`; `VISIONCLAW_DEV_MODE=1` admits every caller as a power user in debug and `dev-auth` builds only (a release build refuses to boot with it set) | live stratified snapshot JSON (ADR-2133); 503 without `RUVECTOR_PG_CONNINFO`; rows past `metadata.expires_at` are never counted, sampled or searched |
 | `/api/memory-cloud/vectors?snapshot=<id>` | GET | as above | `application/octet-stream`, LE f32 `count*dim`, unit rows, snapshot row order; 409 on a stale id |
 | `/api/memory-cloud/query` | POST | `RbacGate` (`WriteGraph`) **and** `PowerUser` in handler | sidecar HNSW top-k (namespace-restricted = exact scan); `query.position` = the query's point and each hit's `position` = the hit's own point in the snapshot's PCA cloud, or `null` (ADR-2136); validation 400 |
-| `/api/memory-cloud/health` | GET | central `/api` read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
+| `/api/memory-cloud/health` | GET | `PowerUser` in handler (as above), not the central read policy | always 200; aggregates only, excluded namespaces omitted, cached recall probe |
 | `/api/memory-flash`, `/api/memory-flash/batch` | POST | central `/api` policy | `{key, namespace?, action?, agentId?}` (batch: `{events: [...]}`) → `memory_flash` text frame `{type, data: {key, namespace, action, timestamp, agentId?}}` to every client; `agentId` (an agent wire id, flag bits allowed) is relayed only when given and names the agent the clients drift towards the memory cloud (ADR-2135) |
 | `/api/analytics/cycles[?edgeType=<type>\|all]` | GET | public read inside the `/analytics` scope (`mutations_only`) | `{nodeCount, edgeCount, edgeFilter, cyclicNodeIds, components}`; default = edges asserting subClassOf (`Edge::asserts_subsumption`, the DAG ranker's predicate); `layout::scc` shared with the CPU layout engine (ADR-2138) |
 

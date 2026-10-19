@@ -343,3 +343,13 @@ raised 2026-10-02 (owner decision Q7).
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/actors/elevation_actor.rs`: a test helper builds `Node` with a struct literal; `src/adapters/sqlite_enrichment_repository.rs`: a `RawProposalRow` alias for the row tuple; `src/adapters/sqlite_kpi_repository.rs`: a doc comment rewrapped so a `+` no longer renders as a bullet. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** The only governed changes since f6a502e47 are two path-layout edits: `src/actors/elevation_actor.rs` drafts frontier-concept pages to `KNOWLEDGE_VAULT_DIR` (`knowledge/<Title>.md`, `decision_elevation.rs:55`) instead of `knowledge/pages/`, and `broker_inbox_handler.rs` test fixtures follow (that is the ADR-2112 corpus layout, not this decision). Every clause was opened in the code at HEAD:
+- **FR5.1-5.2:** `kpi_agent_events.intent` is nullable `TEXT` (`sqlite_kpi_repository.rs:76`, migration `0006` at `:115`); `intent_match` at `src/services/intent_match.rs:221` with whole-segment target matching (`urn_names_segment`, `:163`) and containment for operations (`:186`); `kpi_compute::urn_names_case` delegates to it (`:244`).
+- **FR5.3-5.4:** the `no_decided_cases` status carries no value (`kpi_compute.rs:553-558`); `SYSTEM_WHELK_GATE` (`:140`) is excluded as a system actor (`:145`); the gate's synthetic rejection carries it as its responder (`elevation_actor.rs:1506-1515`).
+- **FR4.5:** `OPEN_CASE_TTL` 14 days (`elevation_actor.rs:68`), `EXPIRED_STATUS` `elevation_expired` (`:70`), `recovered_case` refuses a row with no draft (`:973`), `plan_elevation_reconciliation` with an exclusive boundary (`:1009`).
+- **FR2.2:** `check_rationale` returns `Result<(), RationaleRejection>` (`enrichment_proposals_handler.rs:396`), `MIN_RATIONALE_CHARS` is 20 (`:320`), the code is `rationale_required` (`:324`), and `apply_decision` (`:473`) calls it at `:510`. The client constant is `brokerCaseQueue.ts:186` and the queue sorts oldest first at `:233`.
+- **FR2.3-2.4:** `AgentContext.confidence` is `Option<f32>` (`crates/visionclaw-domain/src/types/ontology_tools.rs:220`, `crates/visionclaw-ontology/src/types/ontology_tools.rs:414`).
+- **Follow-on 5 still stands:** `elevation_actor.rs` writes no `risk-tier` tag or tier on its 31400/31402 or case rows.
