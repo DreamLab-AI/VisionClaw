@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 22b4712823dc05fdadff0208d5763975495dda2f
+verified_commit: cd8f34044b32afbd5b714ff7cf635957721930c0
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -294,3 +294,11 @@ becomes `visionclaw-wire`). Those texts are not edited until the steps below lan
   - rustdoc `-Dwarnings`: `exit=0`
   - vitest: 60 passed, `exit=0`
 - **Implementation status is `partial`.** P0 is done. The P1 performance and conformance numbers are still reported by workers, not re-run (`docs/evidence/codescape/P1/README.md`). P2-P6 are not done.
+
+## Re-verification — 2026-10-19 (submodule pointer)
+
+The governed path `codescape` is the submodule gitlink. It moved from `9b8d5de` to `cb250b4`, the first commit
+of which is a README, `docs/README.md` and `AGENTS.md` restyle that adds the estate cross-links and changes no
+source. The submodule's CI run on `cb250b4` passed (rust, client, CUDA compile-and-link), and `cargo test
+--workspace` including `tests/isolation.rs` and the client vitest suite pass at the pointer. Nothing in the
+decision or the A5 steps changed.
