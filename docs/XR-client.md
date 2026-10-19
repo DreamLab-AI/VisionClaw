@@ -189,7 +189,7 @@ also parse the TS source tables and the beam shader uniforms.
 The HUD is a tabbed panel built **programmatically** under `HudControl` into a
 SubViewport shown on a world-space, wand-grabbable quad — one source of truth so
 every control fits its page (`hud.gd:1-28`). Tab order:
-`graph, layout, shapes, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
+`graph, layout, forces, shapes, query, pins, swarm, key, session, help` (`hud.gd` `TAB_ORDER`;
 `key` is the colour swatch legend, 2026-09-08). Stable node
 paths are documented in-file (`hud.gd:20-28`) for rebases.
 
