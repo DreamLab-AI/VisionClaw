@@ -51,3 +51,20 @@ repo: visionclaw
 - XR: `a_retired_v4_delta_frame_is_refused_not_applied`, `the_first_sequenced_frame_after_a_reconnect_rebaselines_and_nothing_is_awaiting_a_delta`.
 - Fail closed: `nothing_is_broadcast_until_the_visibility_policy_has_arrived`.
 - Live (after redeploy): the per-frame probe must show only `0x05` frames, each with the session's full entitled node count, and non-zero class-flag bits.
+
+## Amendment — 2026-10-19
+
+First verification, at `b4a175412`. The rules this record keeps are true in code; the delivery model it describes was replaced by [ADR-2141](ADR-2141-positions-are-streamed-per-client-until-acknowledged.md), and the superseded-by banner under-reported how much.
+
+**Still holds (opened and checked):**
+- Decision 2, no delta: no V4 encoder exists; the web decoder declines tag `0x04` (`client/src/types/binaryProtocol.ts:190-198`, test `binaryProtocol.framePolicy.test.ts`), and the XR client refuses it (`xr-client/rust/src/binary_protocol.rs:2948`, `:2965`). `docs/PROTOCOL-registry.md:56` keeps the tag reserved.
+- Decision 4, one entitlement function: `compute_private_opaque_ids` (`crates/visionclaw-domain/src/utils/visibility_filter.rs:110`) is called from exactly one runtime site, the stream pump (`src/actors/client_coordinator_actor.rs:464`).
+- Decision 5, removed machinery: `UpdateCameraFrustum`, `ConfigureBroadcastOptimization`, `delta_threshold`, `enable_spatial_culling` and the bandwidth statistics have no remaining reference in `src/`, `crates/` or `client/src`.
+- Decision 6, non-finite is a fault: `complete_snapshot` (`src/actors/gpu/force_compute_actor.rs:4088`) counts omitted nodes and the caller logs an error naming the shortfall (`:2265-2269`).
+- Decision 7, class flags: `push_node_type_arrays` (`src/actors/graph_service_supervisor.rs:1537`) is spawned from the graph-update path before the debounce (`:552`, `:634`) and on GPU initialisation (`:1951`); the coordinator handler is `client_coordinator_actor.rs:1355`.
+- Decision 8, fail closed: `if policy_on && !cx.nta.loaded { return result; }` (`client_coordinator_actor.rs:434-437`), tested by `nothing_is_streamed_until_the_visibility_policy_has_arrived` (`:1918`).
+- Decision 9, interaction only through the GPU: `handle_node_drag_start` pins on the GPU and wakes the loop (`src/handlers/socket_flow_handler/position_updates.rs:188`, `PinNodePositions` at `:272-300`); no CPU `SimulationStep` is issued from the handlers.
+
+**Superseded, now stated in full.** ADR-2141 also overrides decision 3 (there is no connect-time position frame: a new client's sync is the same acknowledged-chunk mechanism) and the Consequences bandwidth formula (`broadcastFps × 52 B × entitled nodes`; `broadcastFps` and `interactionBroadcastFps` no longer exist, so the rate is set by each client's acknowledgement round trip). "Every frame is a complete snapshot" now reads as: every *chunk* is absolute and freshly built, and every entitled node is eventually delivered and acknowledged (`PROTOCOL-registry.md`, invariant 6).
+
+**Verification names.** `complete_snapshot_tests` still exists (`force_compute_actor.rs`). The three coordinator tests named above were replaced by `the_stream_withholds_private_nodes_from_sessions_that_may_not_see_them` (`client_coordinator_actor.rs:1863`), `with_no_private_nodes_every_session_gets_every_node` (`:1952`) and `nothing_is_streamed_until_the_visibility_policy_has_arrived` (`:1918`); `the_optimizer_gates_whole_snapshots_and_never_selects_nodes` went with `BroadcastOptimizer`.

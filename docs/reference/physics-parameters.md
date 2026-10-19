@@ -135,7 +135,7 @@ start), so they apply without a restart. Control Center: System › Network.
 |---|---|---|---|---|---|
 | Stream Chunk Size (nodes) | `streamChunkNodes` | u32 | 100 – 20000 | **2500** | Most nodes in one chunk (~52 bytes each; 2500 ≈ 130 KB). A new client's initial sync is every node, in chunks of this size |
 | Stream Move Threshold | `streamMoveThreshold` | f32 | 0 – 100 | **0.05** | A node is sent again once it is this far (layout units) from what the client last acknowledged. 0 sends any change. Measured per-node update interval p50/p95 and bandwidth per client: 0.25 → 318/1017 ms, 1.1 MB/s (visible stepping); 0.05 → 81/204 ms, 4.7 MB/s; 0.01 → 69/80 ms, 7 MB/s. Slow drift accumulates against the acknowledged position, so nothing is lost |
-| Stream Ack Timeout (ms) | `streamAckTimeoutMs` | u32 | 20 – 10000 | **500** | How long a chunk may go unacknowledged before it is rebuilt and sent again |
+| Stream Ack Timeout (ms) | `streamAckTimeoutMs` | u32 | 20 – 10000 | **500** | How long a chunk may go unacknowledged before it is rebuilt and sent again. Each consecutive timeout doubles the wait, up to 8x; any acknowledgement resets it |
 
 There is no broadcast rate: delivery follows each client's own acknowledgements and stops when every
 client is current. See [websocket-protocol.md](./websocket-protocol.md).
@@ -212,40 +212,44 @@ the layout reveal structure rather than form a uniform ball:
 
 ## Semantic forces
 
-Optional advanced layout forces computed in `semantic_forces.cu`, configured through
-`SemanticForcesActor`. Each block is independently enabled and defaults are conservative.
+Optional advanced layout forces computed in `semantic_forces.cu`. Since ADR-2140 they have **one
+stored definition**: the `semantic` group of the central physics settings
+(`physics.semantic`, defined in `crates/visionclaw-domain/src/types/semantic_config.rs`), validated
+once by the central validator and applied to the GPU exactly as stored. The former
+`SemanticForcesActor` and its `Configure{DAG,TypeClustering,Collision}` messages are gone; there is
+no CPU fallback. Each force has its own `enabled` flag and there is no master multiplier: a force
+that fails to set up (metadata, PTX, upload) is an error in the log and stays off. The group's
+types reject unknown keys, so a misspelt or snake_case key in the PUT is a 400, never a quiet no-op.
+The control list is emitted from the Rust field table to
+[`semantic-forces-fields.json`](semantic-forces-fields.json); the web registry, client defaults
+and XR HUD load that file.
 
-**DAG layout** (`ConfigureDAG`) — arranges hierarchies into levels:
+Defaults were calibrated against the live force field (9.5k nodes, median |f| about 36, p95 about
+50; the ignored test `semantic_force_magnitudes_against_the_live_force_field`): each enabled force
+sits at or below the field's median at its p95. The two forces that pull nodes onto horizontal
+planes (`dag`, `maturityLayout`) ship **off**.
 
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `vertical_spacing` | f32 | 100.0 | Vertical separation between hierarchy levels |
-| `horizontal_spacing` | f32 | 50.0 | Minimum horizontal separation within a level |
-| `level_attraction` | f32 | 0.5 | Strength of attraction to a node's target level |
-| `sibling_repulsion` | f32 | 0.3 | Repulsion between nodes on the same level |
+| Force (`physics.semantic.*`) | Enabled | Defaults |
+|---|---|---|
+| `dag` | **off** | `verticalSpacing` 100, `horizontalSpacing` 50, `levelAttraction` 0.03, `siblingRepulsion` 0.05 |
+| `typeCluster` | on | `clusterAttraction` 0.4, `clusterRadius` 150, `interClusterRepulsion` 0.2 |
+| `collision` | on | `minDistance` 5, `collisionStrength` 0.2, `nodeRadius` 10 |
+| `attributeSpring` | on | `baseSpringK` 0.01, `weightMultiplier` 0.5, `restLengthMin` 30, `restLengthMax` 200 |
+| `physicalityCluster` | on | `clusterAttraction` 0.5, `clusterRadius` 180, `interPhysicalityRepulsion` 0.25 |
+| `roleCluster` | on | `clusterAttraction` 0.45, `clusterRadius` 160, `interRoleRepulsion` 0.2 |
+| `maturityLayout` | **off** | `verticalSpacing` 150, `levelAttraction` 0.08, `stageSeparation` 100 |
+| `crossDomain` | on | `baseStrength` 0.3, `linkCountMultiplier` 0.1, `maxStrengthBoost` 2.0, `restLength` 200 |
 
-**Type clustering** (`ConfigureTypeClustering`) — groups same-type nodes:
+Validated ranges live beside each field in `semantic_config.rs` (`#[validate(range(...))]`); a
+test pins every slider range to the validator's accepted range. The device struct layout is locked
+by `static_assert`s in `semantic_forces.cu` (140-byte `SemanticConfig`, 4108-byte relationship
+table), so a layout the compiler does not give fails the build.
 
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `cluster_attraction` | f32 | 0.4 | Attraction between nodes of the same type |
-| `cluster_radius` | f32 | 80.0 | Target radius of a type cluster |
-| `inter_cluster_repulsion` | f32 | 0.2 | Repulsion between different type clusters |
-
-**Collision** (`ConfigureCollision`) — hard overlap avoidance:
-
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `min_distance` | f32 | 10.0 | Minimum allowed distance between nodes |
-| `collision_strength` | f32 | 0.8 | Force strength when nodes overlap |
-| `node_radius` | f32 | 15.0 | Assumed node radius for collision tests |
-
-**Attribute springs** — weight-scaled edge springs:
-
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `base_spring_k` | f32 | 0.1 | Base spring constant for attribute-derived edges |
-| `weight_multiplier` | f32 | 1.5 | Scales spring stiffness by edge weight |
+Not part of the stored definition (recorded in ADR-2140, "Not yet done"): the layout *mode* and its
+bias priming (`fill_mode_defaults`, `force_compute_actor.rs`) still live in the compute actor, and
+`POST /sssp/toggle` patches the live parameters without writing the toggle back to the store.
+Per-node derived values (degree-weighted gravity, class mass, per-domain repulsion charge in
+`src/actors/gpu/domain_charge.rs`) are computed from the graph on upload, not stored settings.
 
 ---
 

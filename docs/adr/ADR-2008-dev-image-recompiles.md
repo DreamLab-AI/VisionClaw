@@ -208,3 +208,14 @@ fires. `verified_commit` moved to the CI-repair commit.
 `docker-compose.unified.yml` changed only in the memory-cloud sample default
 (`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `docker-compose.unified.yml:136`, `:275`). Nothing
 this decision governs moved, so it holds as written.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+HOLDS. The two Verification-section anchors above (`dev-entrypoint.sh` running `cargo build --release --features gpu,dev-auth`) were superseded by the 2026-09-07 and 2026-09-21 sections and are stale as written; the Decision text is accurate. Current anchors:
+- `scripts/rust-backend-wrapper.sh:42` `BUILD_FEATURES` defaults to `gpu,ontology,dev-auth`; `:66` runs `cargo build --locked --profile dev-runtime --features "$BUILD_FEATURES"`; `:82` gates the whole rebuild on `SKIP_RUST_REBUILD != true`; a missing or unverified published input stamp and a lock mismatch both `exit 1` (`:73`, `:93`); the skip path is logged at `:130`.
+- `scripts/dev-entrypoint.sh:104` backgrounds the same wrapper; it no longer builds inline.
+- `Cargo.toml:321-324` `[profile.dev-runtime]` inherits `release` with `debug-assertions = true` and `overflow-checks = true`.
+- `docker-compose.unified.yml:59` `target: development`, `:62` `BUILD_TARGET: ${BUILD_TARGET:-development}`; production is a distinct `Dockerfile.production` build with `BUILD_TARGET: production` (`:240`); the `.dev-inputs` mount is `:165-166`; the `visionclaw.compose-hash` label is `:54` and `:233`.
+- Deploy path: `scripts/launch.sh` publishes `.dev-inputs` (`:631-640`) and `redeploy dev` restarts only `rust-backend` (`:667-700`); production refuses it (`:683`).
+- `scripts/lib/build-inputs.sh:35` prunes `.dev-inputs`; the supervisord program `dev-inputs-sync` is `supervisord.dev.conf:21`.
+The governed diff since `67086c29e` is the opt-in `codescape` compose service and profile (separate image target, volumes and port, `docker-compose.unified.yml:439-`), the `VAULT_BASE_PATHS` default and the `CODESCAPE=1` branch in `launch.sh:259-275`. None changes how the `visionclaw` dev service builds the backend. Not exercised: no container operation ran (read-only verification).

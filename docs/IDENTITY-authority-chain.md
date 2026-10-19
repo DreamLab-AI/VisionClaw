@@ -58,19 +58,27 @@ two concurrent validations of the same token cannot both win (no TOCTOU). The
 claim happens *after* every other check passes, so a forged token cannot burn a
 legitimate id. Covered by `test_replay_same_token_rejected` (`:797`).
 
-`verify_nip98_auth` (`nostr_service.rs:579`) wraps the verifier, reconstructing
+`verify_nip98_auth` (`nostr_service.rs:648`) wraps the verifier, reconstructing
 the signed URL from `X-Forwarded-Proto`/`X-Forwarded-Host` behind the TLS proxy,
 then materialises/updates the `NostrUser` and its `is_power_user` flag.
 
 ### Session tokens (NostrService)
 
-After a NIP-98 login, `NostrService` issues an opaque random session token
-(`Uuid::new_v4`, `nostr_service.rs:416`) with TTL from `AUTH_TOKEN_EXPIRY`
-(default in `:131`). `get_session` (`:574`) resolves a token back to its
-`NostrUser` and `validate_session` (`:478`) checks a token against a known
+**Legacy opaque sessions are off by default (ADR-2009 amendment, 2026-10-19).** A login mints
+a session token only when `VISIONCLAW_LEGACY_SESSIONS` is `1` or `true`, read once at service
+construction (`legacy_sessions_enabled`, `nostr_service.rs:115`, field `:125`, captured `:174`);
+otherwise the login response carries `session_token: None` (`:439`, `:732`), `validate_session`
+(`:510`), `get_session` (`:611`) and `refresh_session` (`:527`) all refuse, and the REST
+legacy-header branch below answers 401 "Invalid or expired session". The paragraph that follows
+describes the behaviour with the flag on.
+
+With the flag on, after a NIP-98 login `NostrService` issues an opaque random session token
+(`Uuid::new_v4`, `nostr_service.rs:428`) with TTL from `AUTH_TOKEN_EXPIRY`
+(default 3600, `:140`). `get_session` (`:611`) resolves a token back to its
+`NostrUser` and `validate_session` (`:510`) checks a token against a known
 pubkey. Both reject an empty token before any lookup and both enforce expiry
 through one shared rule, `session_is_fresh(last_seen, now, token_expiry)`
-(`:597`), so the WebSocket and REST realms cannot drift apart; a `last_seen` in
+(`:634`), so the WebSocket and REST realms cannot drift apart; a `last_seen` in
 the future (a clock stepped backwards) is treated as stale rather than as an
 unbounded lease. Session tokens are the WebSocket credential (below); the REST
 `/api` scope re-verifies NIP-98 on each call rather than trusting the session
@@ -94,7 +102,7 @@ a Viewer→ReadOnly — this is what actually denies Viewer writes
 `writes_are_gated_at_write_graph_not_mere_authenticated`, `:359`).
 
 `effective_role` (`role_store.rs:194`) resolves precedence: explicit row →
-`Admin` for a legacy power user (`POWER_USER_PUBKEYS`, `nostr_service.rs:125`) →
+`Admin` for a legacy power user (`POWER_USER_PUBKEYS`, `nostr_service.rs:134`) →
 else `UserRole::default_authenticated()` = **Editor**. It **fails closed to
 Viewer** on any lookup/parse error (`:204`). Role writes go through
 `assign_checked`/`revoke_checked` (`:243`, `:310`), which enforce the `can_assign`
@@ -115,8 +123,12 @@ so `/api/administrator` does not inherit `/api/admin`. Policy:
 - Mutations → `WriteSettings` under `/api/settings`, else `WriteGraph` (`:164`).
 
 On a gated route the middleware pulls `NostrService` from app data and calls
-`verify_access` (`rbac_gate.rs:265` → `auth.rs:102`), then injects the
-authenticated pubkey into request extensions for downstream handlers (`:268`).
+`verify_access` (`rbac_gate.rs:286` → `auth.rs:191`), then injects the
+authenticated pubkey into request extensions for downstream handlers. `verify_access` accepts
+two request realms in order: NIP-98 (`Authorization: Nostr …`, primary) and, only while legacy
+sessions are enabled, the `X-Nostr-Pubkey` + `X-Nostr-Token` pair (`auth.rs:329-365`,
+`validate_session`); a request with neither gets 401, an identified caller below the level 403
+(ADR-2009).
 
 ### Shipped posture: open by default
 
@@ -140,8 +152,8 @@ they need a named security profile before multi-tenant use.
 ### Dev-auth triple gate
 
 `Bearer dev-session-token` (arbitrary `X-Nostr-Pubkey`) is accepted **only**
-when all three hold (`auth.rs:123`, `dev_bypass_permitted_for_addr` `:82`,
-thin wrapper `dev_bypass_permitted` `:98`): compile-time
+when all three hold (`auth.rs:221-260`, `dev_bypass_permitted_for_addr` `:139`,
+thin wrapper `dev_bypass_permitted` `:155`): compile-time
 `debug_assertions`/`dev-auth` feature, runtime `DEV_AUTH_LOOPBACK=1`, **and** a
 loopback peer address. A remote attacker on a debug build cannot reach it. It is
 compiled out of release entirely.
@@ -165,7 +177,7 @@ insecure-allow branch is `#[cfg(debug_assertions/dev-auth)]` only.
 | Class | Meaning | Exists today? |
 |-------|---------|---------------|
 | **User-signed** | Request Schnorr-signed by the acting user's own key (NIP-98) | **Yes** — the primary path (`auth.rs`, `nip98.rs`). |
-| **Server-attested** | Server issues a bearer/session token after a prior signed login | **Yes** — `NostrService` session tokens for `/wss` and legacy REST header validation (`auth.rs`, `nostr_service.rs`). |
+| **Server-attested** | Server issues a bearer/session token after a prior signed login | **Conditional** — `NostrService` session tokens for `/wss` and legacy REST header validation exist but are issued and accepted only when `VISIONCLAW_LEGACY_SESSIONS=1/true` (default off; `auth.rs:329-365`, `nostr_service.rs:115`, `:510`). |
 | **Service-signed** | A service/bot signs under its *own* key, not the user's | **Yes** — `nostr_bridge.rs:169` re-signs forum events under the bridge key. |
 | **Delegated-agent-signed** | Agent signs *on behalf of* a user with a verifiable delegation (NIP-26) | **No — NOT IMPLEMENTED.** |
 
@@ -236,13 +248,13 @@ ADR-2010 is partial against broad atomic-authority claims: target checks transac
 
 ## Request-credential review — 2026-09-04
 
-ADR-2009's browser migration trigger is reached in current source: the ordinary API interceptor signs NIP-98. Server legacy header acceptance remains. Eleven mocked interceptor tests cover header construction, not full-route authentication. Session age is relative to mutable last_seen. ADR-2013's enterprise/delegation deferral does not imply a single request-credential realm or govern other repositories' verifiers. See the [estate review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/role-authority.md#request-realms-and-deferred-delegation) for consumer retirement, session recovery and delegated-authority acceptance.
+ADR-2009's browser migration trigger is reached in current source: the ordinary API interceptor signs NIP-98. Server legacy header acceptance remains in code but is conditional on `VISIONCLAW_LEGACY_SESSIONS` and off by default (ADR-2009 amendment, 2026-10-19); no in-tree client sends `X-Nostr-Token`. Eleven mocked interceptor tests cover header construction, not full-route authentication. Session age is relative to mutable last_seen. ADR-2013's enterprise/delegation deferral does not imply a single request-credential realm or govern other repositories' verifiers. See the [estate review](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/role-authority.md#request-realms-and-deferred-delegation) for consumer retirement, session recovery and delegated-authority acceptance.
 
 ## Remediation — 2026-09-05
 
 - **ADR-2044** — session credentials fail closed and expire identically on every
   transport. `get_session` and `validate_session` now share one freshness rule
-  (`session_is_fresh`, `nostr_service.rs:597`) enforcing `AUTH_TOKEN_EXPIRY`;
+  (`session_is_fresh`, `nostr_service.rs:634`) enforcing `AUTH_TOKEN_EXPIRY`;
   `get_session` previously enforced no expiry at all, so a WS token outlived its
   REST equivalent indefinitely. `/ws/client-messages` now resolves its token
   through the session realm instead of checking non-emptiness. The `?token=`

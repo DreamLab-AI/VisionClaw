@@ -40,3 +40,15 @@ repo: visionclaw
 - Web: `virtualAgents` (ids, hover ring, TTL, resolver), `agentTargetStore` presence and `clearVirtual`, `useAgentDemo` (server state, toggle, refusal, clears on stop, real agents untouched), pill control.
 - XR GUT: status parsing, toggle asks for the opposite of the server's state, button follows the server, stop retires exactly the six ids and keeps real agents, role names.
 - Live: start from one client, observe the other (see the change record).
+
+## Re-checked at b4a175412 (2026-10-19)
+
+First verification; every decision holds. Anchors at this commit:
+- Decision 1: `AgentDemoDirector` is the only producer (`src/actors/agent_demo_director.rs`, six `ROLES` `:47-85`, timings `:88-99`: stagger 0-9.1 s, work 9-14 s, follow chance 0.6, follow 7-11 s, rest 18-26 s, keep-alive 5 s). It sends `BroadcastAgentActionFrame(encode_agent_actions(..))` to the coordinator only (`:433-435`).
+- Decision 2: no hub, graph, physics or store access in the director (header `:5-6`; the only addresses it holds are the coordinator and `GraphStateActor` for reads).
+- Decision 3: `GET`/`POST /api/agents/demo` (`src/handlers/api_handler/agents_demo.rs:19`, `:29`; registered `api_handler/mod.rs:132`); POST needs `AuthenticatedUser` and answers 409 on a refusal (`:36-41`). Clients poll every 4 s: the desktop hook is `useAgentDemo(pollMs = 4000)` in `client/src/features/bots/agentDemo.ts:38` (the record's "`useAgentDemo`" lives there, not in its own file); the headset polls `DEMO_POLL_SEC = 4.0` (`xr-client/scripts/graph_parity.gd:64`, `_poll_demo` `:399`).
+- Decision 4: reserved ids `0x8000_0000 | 0xD001..0xD006` (`agent_demo_director.rs:35`, `is_demo_id` `:207`); desktop `clearVirtual` on stop (`agentDemo.ts:47`), headset `retire_agents` (`xr-client/rust/src/render_store.rs`); 30 s expiry `VIRTUAL_AGENT_TTL_MS` (`client/src/features/bots/virtualAgents.ts:14`).
+- Decision 6: targets are only nodes whose metadata says `public == "true"`, non-agent (`demo_graph_from`, `agent_demo_director.rs:492-515`), which is stricter than the visibility filter and so fails closed.
+- Decision 7: `VirtualAgentMarkers` (`client/src/features/visualisation/components/VirtualAgentMarkers.tsx`) and `virtualAgents.ts`.
+- Decision 8: `agentDemoMode.ts` and `agent_demo_director.gd` no longer exist anywhere in the tree.
+- Verification: the director has 11 tests (`agent_demo_director.rs:545-749`); the web tests are `virtualAgents.test.ts`, `agentDemo.test.tsx`, `agentTargetStore.virtual.test.ts`, `agentOpsDemo.test.tsx`.

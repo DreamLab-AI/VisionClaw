@@ -103,27 +103,30 @@ entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A
 
 The monolith split (legacy ADR-090) is **real but incomplete**. The root binary
 is renamed `visionclaw-server` (`Cargo.toml` `[package] name = "visionclaw-server"`)
-with `src/lib.rs` + `src/main.rs`. The workspace declares **twelve** members
-(`Cargo.toml` `[workspace].members`) — the root `"."` plus eleven `crates/`:
+with `src/lib.rs` + `src/main.rs`. The workspace declares **sixteen** members
+(`Cargo.toml:2-19`, `[workspace].members`) — the root `"."` plus fifteen `crates/`:
 
 `visionclaw-contracts`, `visionclaw-domain`, `visionclaw-protocol`,
-`visionclaw-adapters`, `visionclaw-gpu`, `visionclaw-ontology`,
-`visionclaw-actors`, `visionclaw-xr-presence`, `visionclaw-analytics-oracle`,
-plus `vault-migrate` and `visionclaw-integration-tests`, added since this doc's
-original root-plus-nine census (`ADR-2005` re-verification, 2026-09-05). `visionclaw-wire` joined on 2026-10-18 (ADR-2143 A5); the
-member list now stands at sixteen including the root, so the twelve-member census above
-predates `vault-core`, `vault`, `visionclaw-memory-cloud` and `visionclaw-tri-layout`. The empty
-orphan dir `graph-cognition-extract`, never a member, has been removed.
+`visionclaw-wire` (the frozen position wire, ADR-2143 A5), `visionclaw-adapters`,
+`visionclaw-gpu`, `visionclaw-ontology`, `visionclaw-actors`,
+`visionclaw-xr-presence`, `visionclaw-analytics-oracle`, `vault-core`, `vault`,
+`visionclaw-integration-tests`, `visionclaw-memory-cloud` (ADR-2133) and
+`visionclaw-tri-layout` (ADR-2135). The original census (`ADR-2005`) was the root plus
+nine; `vault-migrate`, once the tenth, was replaced by `vault-core` + `vault`. The empty
+orphan dir `graph-cognition-extract` never was a member and has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
 are workspace-**excluded** so a server build does not compile them.
 
-**Actor extraction is unfinished**: `src/actors/*.rs` holds **23** actor
+**Actor extraction is unfinished**: `src/actors/*.rs` holds **25** actor
 source files while `crates/visionclaw-actors/src` holds **11** counted
 recursively (4 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs`,
 `protected_settings_actor.rs` — plus 7 under `messages/`). The live supervisor
-tree still runs from `src/actors/`, not the crate. The `src/` count was 25 until
-`ADR-2045` deleted the two dead supervision files; note the crate still carries
-its own copy of `supervisor.rs`, which the root crate no longer has.
+tree still runs from `src/actors/`, not the crate (63 `.rs` files recursively). The count
+was 25, fell to 23 when `ADR-2045` deleted the two dead supervision files, and is 25 again
+(new files include `position_stream.rs`, ADR-2141, and `agent_demo_director.rs`, ADR-2142, both
+in the root), so the extraction gap has widened, not narrowed. The crate still carries its own copy
+of `supervisor.rs`, which the root crate no longer has, and `protected_settings_actor.rs` and
+`voice_commands.rs` exist in both trees.
 
 ### Actor system topology
 
@@ -166,19 +169,23 @@ states that it is the top of the tree. A second, fully independent mechanism,
 anywhere and was removed entirely.
 
 **GPU tree** — root `GPUManagerActor` (`src/actors/gpu/gpu_manager_actor.rs:57`,
-`impl Actor` at `:140`), started at `src/app_state.rs:965` when GPU is enabled.
+`impl Actor` at `:146`), started at `src/app_state.rs:943` when GPU is enabled.
 Refactored from a "God Actor" into a coordinator that spawns four subsystem
-supervisors (`gpu_manager_actor.rs:88-121`), documented in `gpu/mod.rs:1-33`:
+supervisors (`gpu_manager_actor.rs:88-123`), documented in `gpu/mod.rs:1-33`:
 
 - `ResourceSupervisor` → `GPUResourceActor` (GPU init, timeouts).
 - `PhysicsSupervisor` → `ForceComputeActor`, `StressMajorizationActor`,
-  `ConstraintActor` / `OntologyConstraintActor`, `SemanticForcesActor`.
+  `ConstraintActor` / `OntologyConstraintActor`. (`SemanticForcesActor` was removed under
+  ADR-2140: the semantic forces are the `physics.semantic` settings group, applied by
+  `ForceComputeActor`.)
 - `AnalyticsSupervisor` → `ClusteringActor`, `AnomalyDetectionActor`,
   `PageRankActor`.
 - `GraphAnalyticsSupervisor` → `ShortestPathActor`, `ConnectedComponentsActor`.
 
-Subsystems receive `SharedGPUContext` via a decentralised `GPUContextBus`
-broadcast (`gpu/context_bus.rs`), not a central handle.
+`ResourceSupervisor` distributes `SharedGPUContext` to the registered supervisors by direct
+messages (`resource_supervisor.rs:143-230`, send results checked) and then publishes it on the
+`GPUContextBus` (`gpu/context_bus.rs`, `resource_supervisor.rs:235-240`) as a **supplementary**
+broadcast for observers that are not registered supervisors (ADR-2053, ADR-2007).
 
 ### Data pipeline (GitHub → Oxigraph → client)
 
