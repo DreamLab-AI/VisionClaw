@@ -110,9 +110,9 @@ still adding XR nodes. Capability probing is defensive: eye-gaze is only
 *queried*, never blindly bound, because enabling the
 `XR_EXT_eye_gaze_interaction` action-map binding on a device that lacks it trips
 the action-map error (`xr_boot.gd:40-50`). Quest 3 returns false there;
-head-gaze stays primary. `GraphScene.tscn` → `graph_scene.gd` (3326 lines) is the
+head-gaze stays primary. `GraphScene.tscn` → `graph_scene.gd` (4059 lines) is the
 runtime: it holds the `GraphRoot/NodesMulti`, `GraphRoot/EdgesMulti` and
-`GraphRoot/AgentMulti` MultiMeshInstance3D nodes (`graph_scene.gd:381-385`).
+`GraphRoot/AgentMulti` MultiMeshInstance3D nodes (`graph_scene.gd:428-438`).
 
 ### Agent embodiment (ADR-2109)
 Two layers, deliberately separate (ADR-140 D5). The **work layer** is every id

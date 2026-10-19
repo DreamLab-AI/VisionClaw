@@ -101,3 +101,13 @@ A definition over `requires` or `dependsOn` (which are transitive and share a hi
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault-core/src/vocabulary.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/mod.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/turtle.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/projection.rs`: one test assert becomes `assert_eq!(.., [])`; `crates/vault/src/whelk.rs`: two test asserts become `assert_eq!(.., [])`. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** The governed vault changes since f6a502e47 are the corpus-layout move (pages sit at the vault root, no `pages/` level; ADR-2112), the supply-chains domain slugs, and the `prov:wasAttributedTo` attribution roster (`build_graph_attributed`, `turtle.rs:204`). None touches definitions. The "evidence of the current state at `c4570c081`" line numbers in Context and Verification (`whelk.rs:66-82`, `:184-186`, `:387-441`) describe the pre-implementation code and are history. Fresh anchors at HEAD:
+- **D1-D2:** the key is registered in the corpus's own `ontology/vocabulary.yaml` (outside this repository; the emitter's fixture is `turtle.rs:1366`), and the emitter writes an `owl:equivalentClass` to an `owl:intersectionOf` list (`turtle.rs:428-446`, `definition_members` `:534`); `NON_EL_DEFINITION` is `vault-core/src/definition.rs:74`.
+- **D4:** `enum Restrictions { Skip, Relevant, Include }` (`whelk.rs:139`); `reason()` picks `Relevant` when a definition exists and `Skip` otherwise, never `Include` (`:494-533`); `RELEVANT_TRANSITIVE_CAP` 2,000 and `WHELK_RELEVANT_CAP` (`:432`, `:436`); `DEFINITION_OVER_TRANSITIVE` in `whelk.rs:478` and `vault-core`; the build logs the mode and counts (`build/mod.rs:345-349`) and the report carries `reasoner_mode`, `restrictions_kept`, `defined_classes` (`:559-561`).
+- **D5:** inferred memberships are build output only.
+- **Tests present:** `restrictions_change_no_named_subsumption` (`whelk.rs:796`), `relevant_and_include_give_the_same_closure_and_skip_loses_the_entailment` (`:1046`), `crates/vault/tests/defined_classes.rs:109`, `:142`. Not re-run: no build was permitted.
+
+Governing document `docs/VAULT-corpus-format.md` still listed this ADR as **PROPOSED, not ratified**; it is brought in line in the same change (see its Reasoning and integrity section, version 2.3.0).

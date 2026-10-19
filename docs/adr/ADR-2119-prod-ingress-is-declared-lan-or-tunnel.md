@@ -100,3 +100,12 @@ that records every call, so nothing is launched:
 `docker-compose.unified.yml` changed only in the memory-cloud sample default
 (`MEMORY_CLOUD_SAMPLE` 6000 → 30000, ADR-2133 amendment; `docker-compose.unified.yml:136`, `:275`). Nothing
 this decision governs moved, so it holds as written.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** Since 67086c29e the governed files changed only by the Codescape sidecar (ADR-2143): `scripts/launch.sh` adds a dev-only `CODESCAPE=1` branch inside the dev case of `set_environment_vars` (`COMPOSE_PROFILES="dev,codescape"`), and `docker-compose.unified.yml` adds `codescape*` services, volumes and an ingest-token secret under the `codescape` profile. Neither touches prod ingress. Opened at HEAD:
+- **D1:** `PROD_INGRESS` defaults to `tunnel` (`launch.sh:25`); `resolve_prod_ingress` accepts `lan`/`tunnel` and refuses anything else (`:172-179`).
+- **D2:** `cloudflared` is under `profiles: [tunnel]` only (`docker-compose.unified.yml:337-338`); tunnel ingress sets `COMPOSE_PROFILES="prod,tunnel"` (`launch.sh:287-288`); LAN `up` removes a stray container (`:874-876`); `down` and `clean` include `tunnel` (`:896-898`).
+- **D3:** required secrets `MANAGEMENT_API_KEY VISIONCLAW_AGENT_KEY SOLID_PROXY_SECRET_KEY`, plus the tunnel token for tunnel and `CORS_ALLOWED_ORIGINS` for LAN (`:208-222`).
+- **D4:** the four refused variables (`:198`) equal `FORBIDDEN_DEV_VARS` (`src/config/security_profile.rs:59-64`).
+- **Test wiring:** `prod_ingress.rs` still holds the nine named cases and CI runs it (`.github/workflows/ci.yml:120`). Not re-run here: no build was permitted.

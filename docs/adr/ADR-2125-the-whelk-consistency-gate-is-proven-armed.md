@@ -64,3 +64,14 @@ Implementation (2026-10-05, items 1-5; `CARGO_TARGET_DIR=/home/devuser/workspace
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `crates/vault/src/build/mod.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/build/turtle.rs`: two test asserts become `assert_eq!(.., [])`; `crates/vault/src/propose.rs`: four test asserts become `assert_eq!`/`assert_ne!` against `[]`; `crates/vault/src/whelk.rs`: two test asserts become `assert_eq!(.., [])`; `src/actors/elevation_actor.rs`: a test helper builds `Node` with a struct literal. No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** Governed changes since f6a502e47 are the corpus-layout move (no `pages/` level), 34 new taxonomy category slugs and a ninth domain root in `vault-core/src/consistency.rs` (`DOMAIN_ROOT_SLUGS`, `CATEGORY_SLUGS`, so the sibling-only rule now also refuses the new roots and categories), and the attribution roster. The decision is intact. Fresh anchors at HEAD (the Context line numbers are pre-implementation history):
+- **D1:** the key is registered in the corpus's own `ontology/vocabulary.yaml` (outside this repository; the emitter's vocabulary fixture is `turtle.rs:1293`), and emitted as `owl:disjointWith` at `turtle.rs:397-420`; `DISJOINT_NOT_SIBLINGS` at `vault-core/src/consistency.rs:47`, applied by `check_disjoint_pair` (`:177`) from `validate.rs:686-698` and from the elevation actor's `check_draft_disjointness` (`elevation_actor.rs:791`).
+- **D2:** one blocker shape, `whelk_inconsistent` (`consistency.rs:213`), used by `propose.rs:137` and the elevation gate (`elevation_actor.rs:847`, `run_consistency_gate` `:851`).
+- **D3:** probes are live, not ignored: `crates/vault/tests/probe_consistency.rs:104` and `:130`; `probe_gate_reports_whelk_inconsistent_for_disjoint_parents` (`elevation_actor.rs:2218`).
+- **D4:** the zero-unsatisfiable build gate (`build/mod.rs:351-357`, `unsatisfiable_message` `:576`).
+- **D5:** the elevation gate blocks only on introduced unsatisfiability (`elevation_actor.rs:886-905`, test `:2498`).
+
+Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format.md` listed this ADR as proposed; corrected in the same change (version 2.3.0), including Invariant 9.

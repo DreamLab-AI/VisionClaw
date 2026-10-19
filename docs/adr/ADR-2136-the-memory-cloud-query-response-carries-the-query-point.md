@@ -129,3 +129,12 @@ unchanged, so this decision holds as written.
 ## Re-verification — 2026-10-08 at 43838bf00
 
 The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a separate headset scale for the animated walk (XR_WALK_THICKNESS_SCALE 1.0, XR_WALK_GLOW_SCALE 0.5, a comet minimum of 0.5° at 15 m) while settled route lines keep XR_ROUTE_THICKNESS_SCALE and XR_ROUTE_GLOW_SCALE at 0.1, and makes the walk replay for every route source (relay, preset, typed). The geometry, the query point and the rank-order route are unchanged, so this decision holds.
+
+## Re-checked at b4a175412 (2026-10-19)
+
+**Holds.** Governed changes since 43838bf00: `src/services/memory_cloud_service.rs` gains the expiry predicate on every read query (ADR-2133 amendment 2026-10-19), which only removes expired rows from what the queries return; `memory_route.rs` adds the `RouteGate` reload guard. The projection, `query.position` and `hit.position` are unchanged. Anchors at HEAD (the earlier `:637`, `:806`, `:79` citations have moved with the expiry macro):
+- **Basis kept:** `Projection::projector` (`crates/visionclaw-memory-cloud/src/pca.rs:170`), `Projector` (`:193`) and `Projector::project` (`:212`); `BuiltSnapshot::projector` (`snapshot.rs:41`), `project_literal` (`:201`), `projecting_a_sampled_rows_vector_lands_on_its_position` (`:301`).
+- **Wire:** `MemoryCloudHit.position` (`wire.rs:110`) and `QueryEcho.position` (`:127`), both `Option<[f32; 3]>`.
+- **Server:** the search queries select `embedding::text` (`memory_cloud_service.rs:98`, `:114`, `:133`); each hit is placed via `project_literal` (`:663-665`) and the query via `query_position` (`:685`, `:854`); test `:1032`.
+- **Headset:** `sidecar_route` builds origin and `hit_points` (`xr-client/rust/src/memory_query.rs:261-306`), `RouteFrame.origin` and `hit_points` (`memory_route.rs:355-360`), `ROUTE_GHOST` (`:45`), `MAX_SIDECAR` 64 (`:152`); the keyboard caps a query at 120 characters (`onscreen_keyboard.gd:28`) and sends `memory_typed:<scope>|<text>` (`hud.gd:919`); scope handling at `memory_search.gd:31`, `:35`, `:143`.
+Not re-run: no build was permitted.
