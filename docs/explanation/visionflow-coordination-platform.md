@@ -42,7 +42,7 @@ flowchart TB
     end
 
     subgraph PROTO["Protocol Infrastructure"]
-        SPR["solid-pod-rs\n(JSS Rust port, 97.3% strict parity)"]
+        SPR["solid-pod-rs\n(JSS Rust port, 99.2% strict parity)"]
         NRF["nostr-rust-forum\n(11 nostr-bbs-* crates)"]
         FC["forum-config\n(operator overlay)"]
     end
@@ -107,7 +107,7 @@ The reproducible, hardened runtime for sovereign AI agents. Agentbox provides th
 
 The Nostr+Solid layer provides the binding protocols that make coordination possible across trust boundaries:
 
-- **solid-pod-rs** — the cryptographic foundation. Rust port of JSS (97.3% strict parity, 244-row tracker). Provides LDP containers, WAC access control, DID:Nostr resolution, NIP-98 auth, HTTP 402 Web Ledger micropayments. Compiles to both native (Tokio) and WASM (CF Workers) targets via the `core` feature flag.
+- **solid-pod-rs** — the cryptographic foundation. Rust port of JSS (99.2% strict parity, 264-row tracker). Provides LDP containers, WAC access control, DID:Nostr resolution, NIP-98 auth, HTTP 402 Web Ledger micropayments. Compiles to both native (Tokio) and WASM (CF Workers) targets via the `core` feature flag.
 - **nostr-rust-forum** — the forum kit. 11 `nostr-bbs-*` crates implementing passkey-first auth (WebAuthn PRF → HKDF → secp256k1), zone-based access control, governance event routing, and the Agent Control Surface Protocol (kinds 31400-31405).
 - **forum-config** — the operator overlay. Identity roster, trust thresholds, feature flags, payment configuration. The single source of truth for who can do what in a given deployment.
 

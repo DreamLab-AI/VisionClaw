@@ -67,7 +67,7 @@ The top-left quadrant — visible to users, not yet commoditised — is where Vi
 
 The middle band is where VisionClaw's protocol infrastructure sits — custom-built Rust implementations of open standards:
 
-- **solid-pod-rs** — Rust port of JSS at 97.3% strict parity (244-row tracker, JSS `8d68ceb`). Compiles to both native and WASM. The foundation for self-sovereign data.
+- **solid-pod-rs** — Rust port of JSS at 99.2% strict parity (264-row tracker, JSS `8d68ceb`). Compiles to both native and WASM. The foundation for self-sovereign data.
 - **DID:Nostr** (evolving →) — bridges Nostr identity (secp256k1) to W3C DID and Solid WebID. Unique in combining these three identity systems.
 - **Web Ledger Payments** (evolving →) — HTTP 402 micropayments, DREAM tokens, BIP-341 anchoring. Still genesis-stage; could commoditise agent-to-agent payments.
 - **Nostr Relay Mesh** (evolving →) — moving from standalone deployment toward federated mode. The coordination transport layer.
