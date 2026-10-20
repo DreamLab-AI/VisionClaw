@@ -34,10 +34,10 @@ Upstream attribution
   * JavaScriptSolidServer (port source) —
       https://github.com/JavaScriptSolidServer/JavaScriptSolidServer
 
-Derivation certificates (crates/vault/src/certificate.rs, ADR-2147) are
-adapted from Open Ontologies v2.0.1 by Fabio Rovai, MIT licence. The MIT
-notice is kept verbatim at crates/vault/licenses/open-ontologies.MIT.txt;
-the certificate format `oo-cert/1` and the RDFS rule table are preserved so
-that the upstream Lean 4 checker (`oo-cert`, theorem
-`OOCert.certificate_sound`) re-verifies what the vault writes. The checker
-itself is not vendored: its independence from the engine is the warrant.
+Derivation certificates (crates/vault/src/certificate.rs, ADR-2147) come from
+the `rdfs-certificate` crate (crates.io, MIT OR Apache-2.0, maintained in the
+DreamLab-AI/ontomark workspace), whose certificate format and RDFS rule table
+are adapted from Open Ontologies v2.0.1 by Fabio Rovai, MIT; that notice
+travels inside the crate as LICENSE-UPSTREAM.txt. The upstream Lean 4 checker
+(`oo-cert`, theorem `OOCert.certificate_sound`) is never vendored: its
+independence from the engine is the warrant.

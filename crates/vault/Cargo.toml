@@ -17,6 +17,8 @@ name = "vault"
 path = "src/lib.rs"
 
 [dependencies]
+# RDFS derivation certificates in the oo-cert/1 format (ADR-2147).
+rdfs-certificate = "0.1.0"
 vault-core = { path = "../vault-core" }
 clap = { version = "4.5", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
