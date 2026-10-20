@@ -32,6 +32,11 @@ flowchart LR
         WHELK["Whelk-rs<br/>OWL 2 EL reasoner"]
     end
 
+    subgraph Warrant["Warrant (crates/vault, ADR-2147)"]
+        CERT["certificate::certify<br/>RDFS steps → oo-cert/1"]
+        CHK["oo-cert (Lean 4, external)<br/>re-checks every step"]
+    end
+
     subgraph Store["Embedded Oxigraph (RocksDB)"]
         ASSERT["graph:ontology:assert<br/>asserted axioms"]
         INFER["graph:ontology:inferred<br/>Whelk subsumptions"]
@@ -43,6 +48,9 @@ flowchart LR
     PROJ -->|"classes + SubClassOf"| ASSERT
     ASSERT --> WHELK
     WHELK -->|"inferred"| INFER
+    ASSERT -.->|"same graph"| CERT
+    CERT -->|"asserted.tsv + derivations.tsv"| CHK
+    CHK -.->|"named closure == Whelk's"| INFER
     PP -->|"public: true pages + links"| KNOW
     ASSERT -->|"GPU constraints"| GPU["Force / Ontology<br/>constraint actors"]
 ```
@@ -88,6 +96,12 @@ Each page is parsed once by `page_parser::parse_page`. A page whose frontmatter 
 **Caching.** `compute_ontology_checksum` hashes the sorted axiom set (`DefaultHasher`). If the checksum is unchanged since the last load, `infer()` returns the cached subsumptions without re-running the classifier. **Consistency.** `check_consistency` reports `false` when any class other than `owl:Nothing` is inferred to be `⊑ owl:Nothing`. Results carry `reasoner_version: whelk-rs-<pkg-version>`.
 
 Inferred axioms are materialised into `urn:ngm:graph:ontology:inferred`; the asserted axioms stay in `urn:ngm:graph:ontology:assert`. Asserted-vs-inferred provenance is preserved by graph membership, so a consumer can always tell what was stated from what was derived.
+
+### Derivation certificates (ADR-2147)
+
+Whelk's verdict is a reasoner's word. ADR-2147 gives every inferred subsumption a warrant that nobody has to trust the reasoner for. `vault certify` (`crates/vault/src/certificate.rs`) reasons the published graph to its RDFS fixpoint and records each step as `rule TAB conclusion TAB premise TAB premise` in the `oo-cert/1` format, beside `asserted.tsv` and its sha256. The independent checker `oo-cert` (Open Ontologies, Lean 4, soundness theorem `OOCert.certificate_sound`) re-derives every line from its premises by pattern alone and refuses a forged conclusion with exit 1, naming the rule. On the published corpus (generation `1ec5774ad`, 351k triples) the certificate's named closure equals Whelk's exactly, 81,396 inferred subsumptions both sides, because the emitter puts restrictions only on the superclass side of `rdfs:subClassOf`; the command exits non-zero if that parity ever breaks. Certifying takes about a second; checking, about nine.
+
+The same engine gives `vault propose` a semantic diff. Both the base corpus and the patched corpus are certified, and the proposal carries a `consequences` block: the verdict word (`conservative_under_rule_table` or not), how many conclusions the change adds or removes, by predicate, with examples. One `rdfs:domain` line is one line of text diff and 206,476 new consequences on the published corpus; the signer sees the second number. The delta is informational: Whelk inconsistency remains the only reasoning blocker.
 
 ---
 
