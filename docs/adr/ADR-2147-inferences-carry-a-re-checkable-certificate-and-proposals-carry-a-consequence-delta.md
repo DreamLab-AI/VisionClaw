@@ -32,7 +32,7 @@ The corpus's inferred closure (`ontology-inferred.ttl`, 81,396 subsumptions on g
 - `vault propose` costs two more fixpoints: ~1.2 s each on the full corpus, and ~300 MB per written certificate when `--certificate-dir` is given. Without the flag nothing is written.
 - The rule table is RDFS, so the certificate warrants exactly the named closure Whelk computes here and not EL reasoning in general; `whelk_parity` is the check that this stays true, and `defines-as` definitions (ADR-2124) already classify through Whelk only.
 - Blank-node-bearing consequences are counted, not compared, because labels are minted per build. A proposal that only changes a restriction's filler reads as conservative over the named closure; the count says how much was not compared.
-- Follow-on: a CI job that runs `vault certify` and `oo-cert` per published generation; a `consequences` chip in the forum decision page.
+- Enabled by: the `ontology-publish.yml` build job runs `vault certify` and re-checks the certificate with the pinned `oo-cert` v2.0.1 (by sha256) on every generation it builds, uploading the reports and the certificate as artefacts; the proposal list in the client (`OntologyProposalList.tsx`) renders the `consequences` block as a chip and a details panel beside the gate chips; the agentbox `vaultSrc` pin moves to the merge commit so the baked `vault` carries `certify` and the delta (agentbox ADR-2108 pin log). The publish pipeline of the corpus repository itself builds with the released `ontomark`, which owns build and gate; `propose` stays in `vault` (agentbox ADR-2136), so the delta needs no ontomark change.
 
 ## Verification
 At `9717f9d071c811cbfc78228c05e6d225d5cfd7ff`, `CARGO_TARGET_DIR=/home/devuser/workspace/.cargo-target-prd029`:

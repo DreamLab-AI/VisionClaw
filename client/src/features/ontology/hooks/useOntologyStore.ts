@@ -62,6 +62,28 @@ export interface OntologyProposal {
     whelk: 'consistent' | 'incoherent' | 'pending';
     acsp: 'pass' | 'fail' | 'pending';
   };
+  /**
+   * What the change does to the corpus's consequences under the RDFS rule
+   * table (VisionClaw ADR-2147): the `consequences` block `vault propose`
+   * puts on the kind-31402 proposal. Informational — shown beside the gates,
+   * never a gate. Undefined for a proposal computed before certificates existed.
+   */
+  consequences?: ProposalConsequences;
+}
+
+/** The `consequences` block of a PatchProposal (vault-core `ConsequenceDelta`, snake_case on the wire). */
+export interface ProposalConsequences {
+  rule_table: string;
+  verdict: 'conservative_under_rule_table' | 'not_conservative_under_rule_table';
+  new_consequences: number;
+  lost_consequences: number;
+  new_by_predicate: Record<string, number>;
+  new_examples: string[];
+  lost_examples: string[];
+  not_compared_blank_node_bearing: number;
+  base_derivations: number;
+  proposal_derivations: number;
+  proposal_asserted_sha256: string;
 }
 
 export interface OntologyTreeNode {
@@ -583,6 +605,9 @@ export const useOntologyContributionStore = create<OntologyContributionState>()(
                   }
                   if (update.gates) {
                     draft.proposals[index].gates = update.gates;
+                  }
+                  if (update.consequences) {
+                    draft.proposals[index].consequences = update.consequences;
                   }
                 }
                 draft.lastUpdate = Date.now();
