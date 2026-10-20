@@ -11,12 +11,16 @@ vcsh:OntologyClassShape
     sh:name "OntologyClass shape" ;
     sh:description "Every owl:Class must have rdfs:label and rdfs:subClassOf (except root)." ;
 
+    # Labels are language-tagged (`"1Hive"@en`), which W3C SHACL types as
+    # rdf:langString, not xsd:string: a datatype constraint of xsd:string fails
+    # every class in the published corpus (ADR-2147). A label must be a literal
+    # of either kind, never an IRI or a blank node.
     sh:property [
         sh:path rdfs:label ;
         sh:minCount 1 ;
-        sh:datatype xsd:string ;
+        sh:nodeKind sh:Literal ;
         sh:severity sh:Violation ;
-        sh:message "OntologyClass must have at least one rdfs:label." ;
+        sh:message "OntologyClass must have at least one rdfs:label literal." ;
     ] ;
 
     sh:property [

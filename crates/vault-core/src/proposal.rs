@@ -7,6 +7,8 @@
 //! proposal with its blockers so the refusal is auditable — but it does not
 //! publish it.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -146,6 +148,65 @@ pub struct PatchProposal {
     /// over with no way to accept or reject it as one thing.
     #[serde(default)]
     pub pages: Vec<String>,
+    /// What the change does to the corpus's consequences under the RDFS
+    /// rule table (ADR-2147): how many conclusions it adds or removes, by
+    /// predicate, with examples. Informational — a non-conservative change is
+    /// shown to the human, never refused by it. Absent in a proposal computed
+    /// before certificates existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consequences: Option<ConsequenceDelta>,
+}
+
+/// The rule table a [`ConsequenceDelta`] is computed under.
+pub const CONSEQUENCE_RULE_TABLE: &str = "rdfs";
+
+/// The [`ConsequenceDelta::verdict`] when a proposal changes no consequence.
+pub const CONSERVATIVE: &str = "conservative_under_rule_table";
+
+/// The [`ConsequenceDelta::verdict`] when a proposal adds or removes one.
+pub const NOT_CONSERVATIVE: &str = "not_conservative_under_rule_table";
+
+/// What a proposal does to the corpus's consequences under the RDFS table.
+///
+/// Carried on the proposal so the human who signs the 31403 sees the
+/// *semantic* size of the change, which the text diff cannot show: one
+/// `rdfs:domain` line is one line of diff and, on the published corpus,
+/// 206,476 new consequences (ADR-2147). Computed by `vault::certificate`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsequenceDelta {
+    /// Always [`CONSEQUENCE_RULE_TABLE`].
+    pub rule_table: String,
+    /// [`CONSERVATIVE`] when nothing is added or lost, else [`NOT_CONSERVATIVE`].
+    pub verdict: String,
+    /// Conclusions the proposal entails that the base does not.
+    pub new_consequences: usize,
+    /// Conclusions the base entails that the proposal does not.
+    pub lost_consequences: usize,
+    /// New conclusions by predicate local name.
+    pub new_by_predicate: BTreeMap<String, usize>,
+    /// A bounded sample of new conclusions, N-Triples spelled, sorted.
+    pub new_examples: Vec<String>,
+    /// A bounded sample of lost conclusions, N-Triples spelled, sorted.
+    pub lost_examples: Vec<String>,
+    /// Conclusions mentioning a blank node, counted on the proposal side and
+    /// not compared: a blank-node label is minted per build and is not a
+    /// stable identity across two graphs.
+    pub not_compared_blank_node_bearing: usize,
+    /// Derivations in the base certificate.
+    pub base_derivations: usize,
+    /// Derivations in the proposal certificate.
+    pub proposal_derivations: usize,
+    /// `asserted.sha256` of the proposal certificate, so a written
+    /// certificate directory can be matched to this proposal.
+    pub proposal_asserted_sha256: String,
+}
+
+impl ConsequenceDelta {
+    /// `true` when the proposal changes no consequence.
+    #[must_use]
+    pub fn is_conservative(&self) -> bool {
+        self.verdict == CONSERVATIVE
+    }
 }
 
 /// How long a proposal stays live before it expires (decision Q7).
@@ -187,6 +248,7 @@ impl PatchProposal {
             digest,
             blockers,
             preexisting: Vec::new(),
+            consequences: None,
             proposer: proposer.into(),
             generation: generation.into(),
             stale_after: stale_after.into(),
@@ -226,6 +288,7 @@ impl PatchProposal {
             digest,
             blockers,
             preexisting: Vec::new(),
+            consequences: None,
             proposer: proposer.into(),
             generation: generation.into(),
             stale_after: stale_after.into(),
@@ -238,6 +301,13 @@ impl PatchProposal {
     #[must_use]
     pub fn with_preexisting(mut self, preexisting: Vec<Blocker>) -> Self {
         self.preexisting = preexisting;
+        self
+    }
+
+    /// Attach the consequence delta (ADR-2147).
+    #[must_use]
+    pub fn with_consequences(mut self, consequences: ConsequenceDelta) -> Self {
+        self.consequences = Some(consequences);
         self
     }
 

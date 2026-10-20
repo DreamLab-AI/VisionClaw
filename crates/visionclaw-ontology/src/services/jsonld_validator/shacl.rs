@@ -154,9 +154,9 @@ enum ShapeTarget {
     SubjectsOf(Vec<String>),
 }
 
-/// Node-kind constraint (`sh:nodeKind`). Only `sh:IRI` is used by our shapes,
-/// but the others are represented so a mis-authored shape parses rather than
-/// silently dropping the constraint.
+/// Node-kind constraint (`sh:nodeKind`). `sh:IRI` and `sh:Literal` are used
+/// by our shapes; `sh:BlankNode` is evaluated too, and anything else parses
+/// without enforcing, rather than silently dropping the constraint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeKind {
     Iri,
@@ -300,7 +300,13 @@ impl PropertyShape {
             }
         }
         if let Some(nk) = &self.node_kind {
-            if *nk == NodeKind::Iri && values.iter().any(|v| !is_iri_node(v)) {
+            let violated = match nk {
+                NodeKind::Iri => values.iter().any(|v| !is_iri_node(v)),
+                NodeKind::Literal => values.iter().any(|v| !is_literal_node(v)),
+                NodeKind::BlankNode => values.iter().any(|v| !is_blank_node(v)),
+                NodeKind::Other => false,
+            };
+            if violated {
                 push("sh:nodeKind", out);
             }
         }
@@ -736,16 +742,44 @@ fn datatype_matches(v: &Value, datatype_iri: &str) -> bool {
     }
 }
 
+/// Is the value an `xsd:string` literal? A language-tagged literal
+/// (`{"@value": …, "@language": …}`) is `rdf:langString` under W3C SHACL and
+/// JSON-LD, so it is **not** one; a shape that wants either says
+/// `sh:nodeKind sh:Literal` (ADR-2147).
 fn is_string_value(v: &Value) -> bool {
     match v {
         Value::String(_) => true,
         Value::Object(map) => match map.get("@value") {
+            Some(Value::String(_)) if map.contains_key("@language") => false,
             Some(Value::String(_)) => match map.get("@type").and_then(|t| t.as_str()) {
                 Some(t) => t.ends_with("string"),
                 None => true,
             },
             _ => false,
         },
+        _ => false,
+    }
+}
+
+/// Does the value represent a literal of any datatype or language
+/// (`sh:nodeKind sh:Literal`)? A JSON scalar is one; a JSON-LD value object
+/// (`@value`) is one; a node reference (`@id`) or a nested node is not.
+fn is_literal_node(v: &Value) -> bool {
+    match v {
+        Value::String(_) | Value::Number(_) | Value::Bool(_) => true,
+        Value::Object(map) => map.contains_key("@value"),
+        _ => false,
+    }
+}
+
+/// Does the value represent a blank node (`sh:nodeKind sh:BlankNode`)?
+fn is_blank_node(v: &Value) -> bool {
+    match v {
+        Value::Object(map) => map
+            .get("@id")
+            .and_then(|v| v.as_str())
+            .is_some_and(|id| id.starts_with("_:")),
+        Value::String(s) => s.starts_with("_:"),
         _ => false,
     }
 }
@@ -891,18 +925,51 @@ mod tests {
     }
 
     #[test]
-    fn ontology_class_label_wrong_datatype_is_violation() {
+    fn ontology_class_language_tagged_label_conforms() {
+        // ADR-2147: every published class carries `"…"@en`, which W3C SHACL
+        // types as rdf:langString. The shape must accept it.
         let g = graph();
         let entry = json!({
             "@id": "urn:visionclaw:owl:class:foo",
             "@type": "owl:Class",
-            "rdfs:label": true
+            "rdfs:label": {"@value": "1Hive", "@language": "en"}
         });
         let findings = g.validate_entry(&entry);
         assert!(
-            findings.iter().any(|f| f.constraint == "sh:datatype"),
-            "boolean label must fail xsd:string datatype: {findings:?}"
+            !findings.iter().any(|f| f.path == "rdfs:label"),
+            "a language-tagged label must conform: {findings:?}"
         );
+    }
+
+    #[test]
+    fn ontology_class_label_that_is_a_node_reference_is_nodekind_violation() {
+        let g = graph();
+        let entry = json!({
+            "@id": "urn:visionclaw:owl:class:foo",
+            "@type": "owl:Class",
+            "rdfs:label": {"@id": "urn:visionclaw:owl:class:bar"}
+        });
+        let findings = g.validate_entry(&entry);
+        assert!(
+            findings.iter().any(|f| f.path == "rdfs:label"
+                && f.constraint == "sh:nodeKind"
+                && f.severity == ShaclSeverity::Violation),
+            "an IRI label must fail sh:nodeKind sh:Literal: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_language_tagged_literal_is_not_an_xsd_string() {
+        // W3C SHACL: `"x"@en` has datatype rdf:langString. The in-house
+        // evaluator used to pass it as xsd:string, which hid the shape defect
+        // ADR-2147 records.
+        assert!(!is_string_value(&json!({"@value": "x", "@language": "en"})));
+        assert!(is_string_value(&json!({"@value": "x"})));
+        assert!(is_string_value(&json!("x")));
+        assert!(is_literal_node(&json!({"@value": "x", "@language": "en"})));
+        assert!(is_literal_node(&json!(true)));
+        assert!(!is_literal_node(&json!({"@id": "urn:x"})));
+        assert!(is_blank_node(&json!({"@id": "_:b0"})));
     }
 
     #[test]
