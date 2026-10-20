@@ -153,7 +153,7 @@ pub struct ClassRecord {
     /// `legacy-term-id` — the pre-urn identifier (`AI-0376`, `RB-0162`) the
     /// `WebVOWL` node attributes carry as `term_id`. 2,466 pages have one.
     pub legacy_term_id: String,
-    /// Who generated the page, from the OKF `generated.by` stamp (an [`Actor`]), or
+    /// Who generated the page, from the OKF `generated.by` stamp (an [`Actor`](vault_core::okf::Actor)), or
     /// `None` when the page carries no parseable stamp. Resolved to a `did:nostr`
     /// by the attribution roster at emit time; never guessed.
     pub generated_by: Option<vault_core::okf::Actor>,
