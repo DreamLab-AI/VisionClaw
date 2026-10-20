@@ -5043,6 +5043,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdfs-certificate"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac981884278db0c85a4a65a080bb8b872ebc3c04a9de9d4be011eb6d369c8210"
+dependencies = [
+ "serde",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "redis"
 version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7223,6 +7233,7 @@ dependencies = [
  "oxrdf",
  "oxttl",
  "rayon",
+ "rdfs-certificate",
  "regex",
  "serde",
  "serde_json",
@@ -7245,6 +7256,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "indexmap 2.10.0",
+ "rdfs-certificate",
  "regex",
  "serde",
  "serde_json",

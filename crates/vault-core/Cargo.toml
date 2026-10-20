@@ -16,6 +16,8 @@ categories = ["parser-implementations", "text-processing"]
 publish = false
 
 [dependencies]
+# The consequence delta a proposal carries (ADR-2147); the engine is shared with ontomark.
+rdfs-certificate = "0.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
