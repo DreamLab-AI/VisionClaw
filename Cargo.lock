@@ -5942,9 +5942,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs"
-version = "0.5.0-alpha.14"
+version = "0.5.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589bdd5e4310241f791b238878682d3f6b2515c0bd5a9255c0c75b42bc29bc96"
+checksum = "24b2548d6b16cbcc2cd9e34c4bc16b22185c8b9e8991119676290c40ca84853d"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5963,6 +5963,8 @@ dependencies = [
  "mime_guess",
  "notify",
  "openidconnect",
+ "oxrdf",
+ "oxttl",
  "parking_lot",
  "reqwest",
  "serde",
@@ -5981,9 +5983,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-idp"
-version = "0.5.0-alpha.14"
+version = "0.5.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8bb7f804c6d50f6959cea970b2720adf7dd352820af25932f1f563667218460"
+checksum = "2d5b7210ef663642d7b43cb26ccbc1a51ad46f14218cdf9950856f807c578c9c"
 dependencies = [
  "argon2",
  "async-trait",
@@ -6010,9 +6012,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-nostr"
-version = "0.5.0-alpha.14"
+version = "0.5.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea2b009f9c1fee4190d63acdc01c74d2ce41510105feaf1cbcab68e38f78297a"
+checksum = "8d12f1e97c04fd0b7a91fa0ba02717e72d728ff1bfdef3bde0d0c1ed1a2b7982"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6032,9 +6034,9 @@ dependencies = [
 
 [[package]]
 name = "solid-pod-rs-server"
-version = "0.5.0-alpha.14"
+version = "0.5.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201748d86ab40a40efd61ee7677761328c3435b2263f9cb8f315aefd0c3687e8"
+checksum = "e86ad953e5ce75c6d7a42f891bde357bc6f5a11c420d25ef02793f27110f82b8"
 dependencies = [
  "actix-web",
  "anyhow",
