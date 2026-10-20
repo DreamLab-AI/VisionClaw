@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -75,3 +75,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - **D5:** the elevation gate blocks only on introduced unsatisfiability (`elevation_actor.rs:886-905`, test `:2498`).
 
 Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format.md` listed this ADR as proposed; corrected in the same change (version 2.3.0), including Invariant 9.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed change since 2107637d6: `crates/vault/src/propose.rs` (9717f9d07, ADR-2147) adds an RDFS certificate to `Assessment` and the consequence delta to the proposal; `delta()`, the `WHELK_INCONSISTENT` scoping and the probe are untouched. `cargo test -p vault --test probe_consistency`: 2 passed. **Still holds.**

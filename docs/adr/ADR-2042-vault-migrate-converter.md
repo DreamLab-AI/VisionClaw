@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -171,3 +171,7 @@ ADR-2135 adds the path dependency `visionclaw-tri-layout` to the root `Cargo.tom
 ## Amendment — 2026-10-19
 
 Re-verified at b4a175412. Decision 1 ("one Rust binary, `crates/vault-migrate`") is no longer true and the record is superseded by ADR-2113: `crates/vault-migrate` was deleted in `f9720fbcb`, `crates/` now holds `vault` and `vault-core`, and the root `Cargo.toml` workspace lists `crates/vault-core` and `crates/vault` (`Cargo.toml:14-15`), with no `vault-migrate` member or dependency. The one-shot converter that replaced it (`vault migrate`) was itself retired by ADR-2117 (`docs/VAULT-corpus-format.md` §V6). The in-place conversion this record gated is finished (TODO-unified N-1), so its modes, report schema and idempotence guarantees have no live code to verify. Governing doc `docs/VAULT-corpus-format.md` already records the deletion (line 108) and §V6; no further edit was needed. Only comment-level references to `vault-migrate` remain (`src/services/parsers/knowledge_graph_parser.rs:212`, `:457`; `crates/vault/src/bodies.rs:915`; `crates/vault/src/build/attribution.rs:146`). Test counts above are historical.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed changes since 2107637d6: `Cargo.toml` solid-pod-rs bump (db7ea58de) and `docs/VAULT-corpus-format.md` 2.4.0 (Invariant 12, ADR-2147). Neither touches the converter. Superseded status unchanged.

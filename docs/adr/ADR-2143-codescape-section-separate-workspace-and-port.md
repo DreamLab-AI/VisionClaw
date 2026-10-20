@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -302,3 +302,7 @@ of which is a README, `docs/README.md` and `AGENTS.md` restyle that adds the est
 source. The submodule's CI run on `cb250b4` passed (rust, client, CUDA compile-and-link), and `cargo test
 --workspace` including `tests/isolation.rs` and the client vitest suite pass at the pointer. Nothing in the
 decision or the A5 steps changed.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed change since 2107637d6: `codescape` submodule cb250b4 → e300451 (6b116bc39, README screenshots); the isolation rule and build graph are unchanged. Decision intact.

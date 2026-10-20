@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -244,3 +244,7 @@ HOLDS. The governed diff since `bb76e75bd` (`git diff bb76e75bd..HEAD -- Cargo.t
 - `Cargo.toml:91` `oxigraph = { version = "0.4" }`; `:92-93` `rusqlite 0.31` (bundled) and `tokio-rusqlite 0.5`; default features `:274` still include `persistence-oxigraph`, which is still an empty marker (`:290`). The optional `redis` dependency is `:96`, feature `:277`.
 - No `neo4rs`/`neo4j` dependency anywhere; the only live hit is the negative comment at `crates/visionclaw-contracts/Cargo.toml:19`.
 - `src/app_state.rs:431-439`: `DATA_DIR` (default `./data`), `data/oxigraph` opened once by `OxigraphOntologyRepository::open` (`:434`), and the graph repository derived `from_store` off the same handle (`:439`). Per-writer files: `settings.sqlite3` `:442-444`, `enrichment.sqlite3` `:455-457`, `liveness.sqlite3` `:470-472`, `kpi.sqlite3` `:500-502`; the combined log line is `:536`.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13 → alpha.17 (db7ea58de), a dependency version bump unrelated to persistence. Decision intact.
