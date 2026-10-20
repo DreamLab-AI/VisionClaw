@@ -5,10 +5,11 @@ import { Badge } from '@/features/design-system/components/Badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/features/design-system/components/Select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/features/design-system/components/Collapsible';
 import { useToast } from '@/features/design-system/components/Toast';
-import { FileText, ChevronDown, ChevronRight, Send, Trash2, RotateCcw, CheckCircle, XCircle, Clock, Edit, GitMerge, AlertCircle, FileCode, Plus, Minus, ShieldCheck } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight, Send, Trash2, RotateCcw, CheckCircle, XCircle, Clock, Edit, GitMerge, AlertCircle, FileCode, Plus, Minus, ShieldCheck, Scale } from 'lucide-react';
 import {
   useOntologyContributionStore,
   OntologyProposal,
+  ProposalConsequences,
   ProposalStatus,
   OntologyClass,
   OntologyProperty,
@@ -81,6 +82,44 @@ function GateChip({ tone, label, title }: { tone: GateTone; label: string; title
     <Badge variant="outline" className="flex items-center gap-1 text-xs" title={title}>
       {/* @ts-ignore - Icon is dynamically assigned from lucide-react */}
       <Icon className={`h-3 w-3 ${cfg.iconClass}`} />
+      {label}
+    </Badge>
+  );
+}
+
+/**
+ * One line for the consequence chip (ADR-2147): the semantic size of the
+ * change, which the text diff cannot show. Exported for its test.
+ */
+export function summariseConsequences(c: ProposalConsequences): { label: string; title: string; conservative: boolean } {
+  const conservative = c.verdict === 'conservative_under_rule_table';
+  if (conservative) {
+    return {
+      label: 'No new consequences',
+      title: `Conservative under the ${c.rule_table} rule table: the change adds and removes no conclusion. ${c.not_compared_blank_node_bearing.toLocaleString()} blank-node-bearing triples not compared.`,
+      conservative,
+    };
+  }
+  const parts: string[] = [];
+  if (c.new_consequences > 0) parts.push(`+${c.new_consequences.toLocaleString()}`);
+  if (c.lost_consequences > 0) parts.push(`−${c.lost_consequences.toLocaleString()}`);
+  const byPredicate = Object.entries(c.new_by_predicate)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, n]) => `${k} ${n.toLocaleString()}`)
+    .join(', ');
+  return {
+    label: `${parts.join(' ')} consequences`,
+    title: `Not conservative under the ${c.rule_table} rule table: ${c.new_consequences.toLocaleString()} new, ${c.lost_consequences.toLocaleString()} lost${byPredicate ? ` (new by predicate: ${byPredicate})` : ''}. ${c.not_compared_blank_node_bearing.toLocaleString()} blank-node-bearing triples not compared. Shown to the signer; never a gate.`,
+    conservative,
+  };
+}
+
+function ConsequenceChip({ consequences }: { consequences: ProposalConsequences }) {
+  const { label, title, conservative } = summariseConsequences(consequences);
+  return (
+    <Badge variant="outline" className="flex items-center gap-1 text-xs" title={title}>
+      <Scale className={`h-3 w-3 ${conservative ? 'text-muted-foreground' : 'text-yellow-600 dark:text-yellow-400'}`} />
       {label}
     </Badge>
   );
@@ -299,6 +338,7 @@ function ProposalCard({
                   })}
                 </div>
               )}
+              {proposal.consequences && <ConsequenceChip consequences={proposal.consequences} />}
             </div>
           </div>
         </CollapsibleTrigger>
@@ -322,6 +362,36 @@ function ProposalCard({
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <GitMerge className="h-4 w-4" />
                 Merged: <code className="font-mono text-xs">{proposal.mergeCommit}</code>
+              </div>
+            )}
+
+            {proposal.consequences && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Scale className="h-4 w-4" />
+                  Consequences (RDFS rule table)
+                </div>
+                <p className="text-xs text-muted-foreground mb-2">{summariseConsequences(proposal.consequences).title}</p>
+                {proposal.consequences.new_examples.length > 0 && (
+                  <div className="font-mono text-xs space-y-1">
+                    {proposal.consequences.new_examples.map((line, i) => (
+                      <div key={`new-${i}`} className="flex items-start gap-2 text-green-600 dark:text-green-400">
+                        <Plus className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                        <span className="break-all">{line}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {proposal.consequences.lost_examples.length > 0 && (
+                  <div className="font-mono text-xs space-y-1 mt-1">
+                    {proposal.consequences.lost_examples.map((line, i) => (
+                      <div key={`lost-${i}`} className="flex items-start gap-2 text-red-600 dark:text-red-400">
+                        <Minus className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                        <span className="break-all">{line}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

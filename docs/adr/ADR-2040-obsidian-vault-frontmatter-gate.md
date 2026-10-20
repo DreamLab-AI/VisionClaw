@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -188,3 +188,7 @@ Re-verified at b4a175412. The record is superseded by ADR-2112; this amendment s
 - **Decision 6 (listing skips) holds in `github/content_enhanced.rs:130-131` and `:248-249` (`/.obsidian/`, `/.trash/`, plus `/bak/`, `/.recycle/`, `/journals/`)**, now superseded in effect by the furniture rule above for the sync path.
 - **Still true:** the gate is `public: true` or a valid `owl-class` (`vault/mod.rs:162-164`, `is_kg_included`), fail-closed; every ingest path calls it (`github_sync_service.rs:1682`, `:1864`, helper `:2098`; `file_service.rs:684`, `:776`); `PageMeta` is the single parse entry (`vault/mod.rs:49`, `:278`); writers emit frontmatter through `render_page` (`decision_elevation.rs:361`, `ontology_mutation_service.rs:1216`). `elevatedFrom` survives (`vault/mod.rs:230`, `:475`; `github_sync_service.rs:1748`).
 - Test counts and the shadow-sync figures above are historical and were not re-run.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed change since 2107637d6: `docs/VAULT-corpus-format.md` 2.4.0 adds Invariant 12 (derivation certificates, ADR-2147) and two readers/writers rows; the inclusion gate and frontmatter rules this record governed are untouched. Superseded status unchanged.

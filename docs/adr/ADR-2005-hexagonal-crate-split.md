@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -302,3 +302,7 @@ Re-verified at `b4a175412`. The decision (new code in the crate matching its lay
 **Extraction ratio: widened.** `src/actors/*.rs` is **25** files (was 23 at the last count, 25 at the first), 63 recursively; `crates/visionclaw-actors/src` is 4 top-level files (`lib.rs`, `protected_settings_actor.rs`, `supervisor.rs`, `voice_commands.rs`), 11 recursively. `protected_settings_actor.rs` and `voice_commands.rs` exist in both trees. Recent actor-layer code (`position_stream.rs`, `agent_demo_director.rs`) was added to the root, consistent with the record's own "extraction unfinished" consequence but not with any progress on it.
 
 **Dependency direction holds.** No crate depends on `visionclaw-server`; the inter-crate edges are `actors`, `adapters`, `ontology`, `gpu` and `protocol` on `domain` (plus `gpu` on `analytics-oracle`, `protocol` on `wire`); `contracts` stays a leaf with serde, serde_json, chrono and uuid only (`crates/visionclaw-contracts/Cargo.toml:27-31`). The "intended layer direction" is still enforced only by those Cargo edges, with no machine check of the rule that the root may not be imported by crates beyond what Cargo already forbids.
+
+## Re-checked at 8e380aad3 (2026-10-20)
+
+Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13 → alpha.17 (db7ea58de); no workspace member, feature or crate boundary changed. Decision intact.

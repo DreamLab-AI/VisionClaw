@@ -14,7 +14,10 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
-use vault::{build, conflicts, gate, model::Corpus, nostr, propose, repair, validate};
+use vault::{
+    build, certificate, conflicts, gate, model::Corpus, nostr, projection, propose, repair,
+    validate, whelk,
+};
 use vault_core::page::{load_vault, Vault, VaultKind};
 use vault_core::proposal::Level;
 use vault_core::vocabulary::Vocabulary;
@@ -57,6 +60,15 @@ enum Command {
     Conflicts(ConflictsArgs),
     /// Pages to one generation.
     Build(BuildArgs),
+    /// Write an RDFS derivation certificate of the published graph (ADR-2147).
+    ///
+    /// The certificate is two tab-separated files, `asserted.tsv` and
+    /// `derivations.tsv`, plus `asserted.sha256` and `scope.tsv`, in the
+    /// `oo-cert/1` format. An independent checker (`oo-cert`, Lean 4,
+    /// soundness theorem `OOCert.certificate_sound`) re-derives every line
+    /// from its premises with no engine and no network. The report also
+    /// states whether the certified named closure equals Whelk's.
+    Certify(CertifyArgs),
     /// Fix corpus defects in place.
     #[command(subcommand)]
     Repair(RepairCommand),
@@ -169,6 +181,13 @@ struct ValidateArgs {
     strict: bool,
 }
 
+#[derive(Debug, Args)]
+struct CertifyArgs {
+    /// The directory to write the certificate into (created if absent).
+    #[arg(long)]
+    out: PathBuf,
+}
+
 /// The relay `propose` and `panel publish` post to when neither `--relay` nor
 /// `VAULT_RELAY_URL` names one.
 const DEFAULT_RELAY: &str = "ws://localhost:7777";
@@ -210,6 +229,11 @@ struct ProposeArgs {
     /// Print the signed event instead of publishing it.
     #[arg(long)]
     dry_run: bool,
+    /// Write the two derivation certificates the proposal was assessed from
+    /// (`base/`, `proposed/`) and `consequences.json` into this directory, for
+    /// the reviewer to re-check with `oo-cert` (ADR-2147).
+    #[arg(long)]
+    certificate_dir: Option<PathBuf>,
     /// The relay to publish to.
     #[arg(long, default_value = DEFAULT_RELAY, env = "VAULT_RELAY_URL")]
     relay: String,
@@ -407,7 +431,19 @@ fn run() -> anyhow::Result<ExitCode> {
                 proposer: args.proposer.clone(),
                 now: time::OffsetDateTime::now_utc(),
             };
-            let proposal = propose::build(&vault, &corpus, &vocab, &generation, &options)?;
+            let built = propose::build_with_certificates(&vault, &corpus, &vocab, &generation, &options)?;
+            if let Some(dir) = &args.certificate_dir {
+                let (base, proposed) = built
+                    .write_certificates(dir)
+                    .with_context(|| format!("writing certificates to {}", dir.display()))?;
+                eprintln!(
+                    "certificates: base {} derivations, proposed {} derivations, in {}",
+                    base.derivations,
+                    proposed.derivations,
+                    dir.display()
+                );
+            }
+            let proposal = built.proposal;
 
             // A progress note, not output: stderr, so `--json` stdout stays
             // exactly one JSON document.
@@ -453,6 +489,82 @@ fn run() -> anyhow::Result<ExitCode> {
                 println!("posted 31402 {id} to {}", args.relay);
             })?;
             Ok(ExitCode::SUCCESS)
+        }
+
+        Command::Certify(args) => {
+            // The same graph `vault build` publishes as `data/ontology.ttl`:
+            // the knowledge vault, projected, attributed, public pages only.
+            let vault = load(&root, &[VaultKind::Knowledge])?
+                .into_iter()
+                .next()
+                .context("no knowledge vault")?;
+            let raw = Corpus::build(&vault, &vocab);
+            let pages_dir = root.join(VaultKind::Knowledge.dir_name());
+            let excluded = projection::excluded_identities(&pages_dir)?;
+            let corpus = projection::project(&raw, &excluded)?;
+            let roster = build::attribution::Roster::discover(&root);
+            let graph = build::turtle::build_graph_attributed(&corpus, &vocab, true, &roster);
+            let dirty = build::generation::git_dirty(
+                &root,
+                &[&root.join("knowledge"), &root.join("ontology")],
+            );
+            let generation =
+                build::generation::generation_id(&build::generation::git_sha(&root), dirty);
+
+            let started = std::time::Instant::now();
+            let cert = certificate::certify(&graph);
+            let certify_ms = started.elapsed().as_millis();
+            let summary = cert
+                .write(&args.out, &generation)
+                .with_context(|| format!("writing certificate to {}", args.out.display()))?;
+
+            // The parity the decision rests on: the certified named closure
+            // is Whelk's, on this corpus, today.
+            let reasoning = whelk::reason(&graph)?;
+            let whelk_closure: std::collections::BTreeSet<(String, String)> =
+                reasoning.inferred.iter().cloned().collect();
+            let certified = cert.named_subclass_closure();
+            let parity = certified == whelk_closure;
+            let value = json!({
+                "generation": generation,
+                "dir": args.out,
+                "certificate": summary,
+                "certify_ms": certify_ms,
+                "whelk_inferred": whelk_closure.len(),
+                "certified_named_subsumptions": certified.len(),
+                "whelk_parity": parity,
+                "check_with": format!(
+                    "oo-cert {}/asserted.tsv {}/derivations.tsv",
+                    args.out.display(),
+                    args.out.display()
+                ),
+            });
+            emit(cli.json, &value, || {
+                println!(
+                    "certificate {}: {} asserted, {} derivations ({}), in {} ms",
+                    args.out.display(),
+                    summary.asserted,
+                    summary.derivations,
+                    summary
+                        .by_rule
+                        .iter()
+                        .map(|(r, n)| format!("{r} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    certify_ms
+                );
+                println!(
+                    "named closure: {} certified, {} from Whelk — {}",
+                    certified.len(),
+                    whelk_closure.len(),
+                    if parity { "identical" } else { "DIFFERENT" }
+                );
+            })?;
+            Ok(if parity {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
         }
 
         Command::Panel(_) => unreachable!("handled before the repository is resolved"),

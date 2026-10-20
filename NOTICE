@@ -33,3 +33,11 @@ Upstream attribution
   * solid-pod-rs     — https://github.com/DreamLab-AI/solid-pod-rs
   * JavaScriptSolidServer (port source) —
       https://github.com/JavaScriptSolidServer/JavaScriptSolidServer
+
+Derivation certificates (crates/vault/src/certificate.rs, ADR-2147) are
+adapted from Open Ontologies v2.0.1 by Fabio Rovai, MIT licence. The MIT
+notice is kept verbatim at crates/vault/licenses/open-ontologies.MIT.txt;
+the certificate format `oo-cert/1` and the RDFS rule table are preserved so
+that the upstream Lean 4 checker (`oo-cert`, theorem
+`OOCert.certificate_sound`) re-verifies what the vault writes. The checker
+itself is not vendored: its independence from the engine is the warrant.

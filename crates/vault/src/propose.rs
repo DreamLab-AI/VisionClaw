@@ -86,6 +86,11 @@ pub struct Assessment {
     /// this state (ADR-2124); [`Self::unsatisfiable`] is then empty because
     /// nothing was classified, not because nothing is unsatisfiable.
     pub reasoning: Option<Blocker>,
+    /// The RDFS derivation certificate of this state (ADR-2147): every
+    /// consequence with the rule and premises that produced it, in the format
+    /// `oo-cert` re-checks. Two assessments diffed give the proposal's
+    /// [`vault_core::proposal::ConsequenceDelta`].
+    pub certificate: crate::certificate::Certificate,
 }
 
 impl Assessment {
@@ -110,11 +115,13 @@ impl Assessment {
             .collect();
         let graph = crate::build::turtle::build_graph(corpus, vocab, false);
         let (unsatisfiable, reasoning) = whelk_findings(&graph, whelk::RELEVANT_TRANSITIVE_CAP);
+        let certificate = crate::certificate::certify(&graph);
         Self {
             validation,
             conflicts,
             unsatisfiable,
             reasoning,
+            certificate,
         }
     }
 }
@@ -470,6 +477,57 @@ pub fn build(
     generation: &str,
     options: &Options,
 ) -> anyhow::Result<PatchProposal> {
+    build_with_certificates(vault, corpus, vocab, generation, options).map(|b| b.proposal)
+}
+
+/// A proposal with the two certificates it was assessed from, so a caller
+/// can write them beside the proposal for a reviewer or an auditor.
+#[derive(Debug, Clone)]
+pub struct Built {
+    /// The proposal, carrying the consequence delta.
+    pub proposal: PatchProposal,
+    /// The certificate of the corpus as it stands.
+    pub base: crate::certificate::Certificate,
+    /// The certificate of the corpus with the proposal applied.
+    pub proposed: crate::certificate::Certificate,
+}
+
+impl Built {
+    /// Write `base/` and `proposed/` certificate directories and
+    /// `consequences.json` into `dir`, returning the two summaries.
+    ///
+    /// # Errors
+    ///
+    /// Any I/O or serialisation failure.
+    pub fn write_certificates(
+        &self,
+        dir: &Path,
+    ) -> anyhow::Result<(crate::certificate::Summary, crate::certificate::Summary)> {
+        let generation = self.proposal.generation.as_str();
+        let base = self.base.write(&dir.join("base"), generation)?;
+        let proposed = self.proposed.write(&dir.join("proposed"), generation)?;
+        if let Some(delta) = &self.proposal.consequences {
+            std::fs::write(
+                dir.join("consequences.json"),
+                serde_json::to_string_pretty(delta)?,
+            )?;
+        }
+        Ok((base, proposed))
+    }
+}
+
+/// [`build`], keeping the certificates.
+///
+/// # Errors
+///
+/// As [`build`].
+pub fn build_with_certificates(
+    vault: &Vault,
+    corpus: &Corpus,
+    vocab: &Vocabulary,
+    generation: &str,
+    options: &Options,
+) -> anyhow::Result<Built> {
     // A `--diff` that is a DIRECTORY is a manifest: one proposed page per file,
     // named by page id. That is how a decision spanning 513 pages becomes one
     // proposal instead of 513.
@@ -538,9 +596,48 @@ pub fn build(
     let stale_after = (options.now + time::Duration::days(STALE_AFTER_DAYS))
         .format(&time::format_description::well_known::Rfc3339)?;
 
-    // A grouped proposal is one decision, so one blocked page blocks the whole
-    // thing — signing 512 good changes to get one bad one through is exactly
-    // what the gate exists to prevent. Its subject is the decision itself.
+    let proposal = assemble(
+        &pages,
+        kind,
+        level,
+        blockers,
+        diff,
+        corpus,
+        &patched_corpus,
+        generation,
+        &stale_after,
+        options,
+    )?;
+    let consequences = crate::certificate::consequence_delta(&before.certificate, &after.certificate);
+    let proposal = proposal
+        .with_kind(kind)
+        .with_preexisting(preexisting)
+        .with_consequences(consequences);
+    Ok(Built {
+        proposal,
+        base: before.certificate,
+        proposed: after.certificate,
+    })
+}
+
+/// The proposal record for `pages`: grouped when there is more than one.
+///
+/// A grouped proposal is one decision, so one blocked page blocks the whole
+/// thing — signing 512 good changes to get one bad one through is exactly
+/// what the gate exists to prevent. Its subject is the decision itself.
+#[allow(clippy::too_many_arguments)]
+fn assemble(
+    pages: &[String],
+    kind: ProposalKind,
+    level: Level,
+    blockers: Vec<Blocker>,
+    diff: String,
+    corpus: &Corpus,
+    patched_corpus: &Corpus,
+    generation: &str,
+    stale_after: &str,
+    options: &Options,
+) -> anyhow::Result<PatchProposal> {
     let proposal = if pages.len() > 1 {
         let title = options.title.as_deref().unwrap_or(&options.subject);
         anyhow::ensure!(
@@ -556,14 +653,14 @@ pub fn build(
             options.proposer.clone(),
             generation,
             stale_after,
-            pages,
+            pages.iter().cloned(),
         )
     } else {
         let id = &pages[0];
         // A creation's IRI is the staged page's `resource`, read from the
         // patched corpus; an amendment's is the page's current one.
         let source = if kind == ProposalKind::Create {
-            &patched_corpus
+            patched_corpus
         } else {
             corpus
         };
@@ -590,7 +687,7 @@ pub fn build(
             stale_after,
         )
     };
-    Ok(proposal.with_kind(kind).with_preexisting(preexisting))
+    Ok(proposal)
 }
 
 /// Read a proposal manifest directory: one [`PageChange`] for every `*.md` in

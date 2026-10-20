@@ -173,6 +173,59 @@ jobs:
             --vault knowledge \
             --out "$GITHUB_WORKSPACE/output/vault"
 
+      # ADR-2147. Every inferred subsumption the generation serves gets a
+      # derivation certificate (oo-cert/1): asserted.tsv, derivations.tsv with
+      # the rule and premises of every step, asserted.sha256, scope.tsv. The
+      # command exits 1 if the certified named closure stops matching Whelk's.
+      - name: vault certify (derivation certificate, Whelk parity)
+        run: |
+          mkdir -p output/certificate
+          ./target/release/vault --repo vault-source --json certify \
+            --out "$GITHUB_WORKSPACE/output/certificate" \
+            | tee output/certificate/certify.json
+          python3 -c "import json;d=json.load(open('output/certificate/certify.json'));print(f\"derivations {d['certificate']['derivations']}, whelk_parity {d['whelk_parity']}\")"
+
+      # The checker is independent of the engine on purpose: it is the
+      # upstream Lean 4 binary (theorem OOCert.certificate_sound), fetched by
+      # tag and verified by digest, never built from this repository.
+      - name: Re-check the certificate with oo-cert
+        env:
+          OO_CERT_TAG: v2.0.1
+          OO_CERT_ASSET: oo-cert-x86_64-unknown-linux-gnu
+          OO_CERT_SHA256: 68223b4db193783a52bd2810a66ce2ad3a3780f963a5ef84753564c051e3e532
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/oo"
+          gh release download "$OO_CERT_TAG" --repo fabio-rovai/open-ontologies \
+            --pattern "$OO_CERT_ASSET" --dir "$RUNNER_TEMP/oo"
+          (cd "$RUNNER_TEMP/oo" && echo "$OO_CERT_SHA256  $OO_CERT_ASSET" | sha256sum --check --strict)
+          chmod +x "$RUNNER_TEMP/oo/$OO_CERT_ASSET"
+          "$RUNNER_TEMP/oo/$OO_CERT_ASSET" \
+            output/certificate/asserted.tsv output/certificate/derivations.tsv \
+            | tee output/certificate/oo-cert.json
+          python3 -c "import json,sys;d=json.load(open('output/certificate/oo-cert.json'));sys.exit(0 if d.get('ok') else 1)"
+
+      # The digest and the two reports are small and travel with the release;
+      # the full certificate (~300 MB) is an artefact a reviewer can pull.
+      - name: Upload certificate reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ontology-certificate-reports
+          path: |
+            output/certificate/certify.json
+            output/certificate/oo-cert.json
+            output/certificate/asserted.sha256
+            output/certificate/scope.tsv
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+      - name: Upload derivation certificate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ontology-certificate
+          path: output/certificate/
+          compression-level: 9
+          retention-days: 7
+
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:

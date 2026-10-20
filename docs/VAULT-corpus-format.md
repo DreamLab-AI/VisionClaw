@@ -96,7 +96,8 @@ call it; nothing else parses the corpus.
 | `vault validate` | OKF conformance + `vocabulary.yaml` + `types.json` agreement + link integrity + public gate | C2 |
 | `ontomark find / retrieve / tree` | graph over frontmatter wikilinks, per-edge-type expansion depth, `max_documents` cap (ported from `vault`, ADR-OM-005) | C2 |
 | `ontomark edit --expect docs=N blocks=M` / `create` / `apply` | guarded mutation; refused without a declared blast radius (ported from `vault`, ADR-OM-005) | C2 |
-| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + forum 31402 | C4, C5 |
+| `vault propose` | `PatchProposal` (C4) + Whelk and conflict blockers + the RDFS consequence delta (`consequences`, ADR-2147) + forum 31402; `--certificate-dir` writes the base and proposed derivation certificates for `oo-cert` | C4, C5 |
+| `vault certify` | the `oo-cert/1` derivation certificate of the published graph, with the Whelk-parity check (ADR-2147) | C3 |
 | `vault gate` / `vault conflicts` | the autonomous quality gate and the conflict detector | C2 |
 | `vault build` | the bundle (C3), Quartz `static/`, the Loom bundle | C3 |
 | `CorpusSource::LocalDirectory` | VisionClaw ingest over the mounted named volume, via `vault-core` | ADR-2114 |
@@ -393,6 +394,15 @@ leading paragraph. `resource` was copied from the fence's `@id`, not recomputed.
     never committed to `knowledge/` or `working/`. The `public` gate does not
     catch them and is not a safety control; `working/` is not gated at all, and
     a credential there is one elevation away from the open web.
+12. **Every inferred subsumption carries a re-checkable warrant** (ADR-2147).
+    The RDFS derivation certificate `vault certify` writes reproduces Whelk's
+    named-class closure exactly on the published corpus (`whelk_parity: true`
+    is the command's exit condition), and the independent Lean checker
+    `oo-cert` accepts it. A `vault propose` carries the consequence delta
+    between the base and proposed certificates (`consequences`: verdict,
+    counts by predicate, examples); it is shown to the signer, never used as a
+    blocker. The rule table is RDFS, the format is `oo-cert/1`, and the
+    checker is never vendored: its independence from the engine is the point.
 
 ## Expectations (EDD)
 
@@ -461,6 +471,7 @@ decision (V7).
 
 | Version | Date | Change |
 |---|---|---|
+| 2.4.0 | 2026-10-20 | ADR-2147: Invariant 12 (derivation certificates and the consequence delta); `vault certify` and `vault propose --certificate-dir` added to the readers/writers table. No rule was loosened. |
 | 2.3.0 | 2026-10-19 | ADR-2124, ADR-2125 and ADR-2128 re-verified at b4a175412 and moved from "proposed, not ratified" to accepted: Invariant 6 names the `defines-as` / `disjoint-with` keys and the version IRI; Invariant 9 records the armed-gate probe. No rule was loosened. |
 | 2.2.0 | 2026-10-05 | Proposed-amendments section for ADR-2124–2128 and agentbox ADR-2129 (PRD-029 / DDD-023, reasoning and integrity). Not ratified; Invariants unchanged. |
 | 2.0.1 | 2026-09-22 | Invariant 11 (no credentials in either vault) and the V4 note that the publish gate is a visibility control, not a safety one, after 14 live credentials were found in `working/`, one on a `public: true` page. |
