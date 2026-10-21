@@ -51,14 +51,20 @@ pub enum ColorMode {
     Domain,
     /// The original XR scheme: golden-ratio hue per Louvain community.
     Community,
+    /// Codescape's community palette (`client/src/graph.ts` `communityRgb`):
+    /// hue `(community * 83) % 360`, HSL 68% / 56%. Selected automatically when
+    /// the backend is Codescape (ADR-2143), whose nodes carry no corpus domain.
+    Codescape,
 }
 
 impl ColorMode {
-    /// Wire/GDScript code: 0 = domain, 1 = community. Unknown codes fall back to
-    /// the default so a stale HUD build can never select an undefined mode.
+    /// Wire/GDScript code: 0 = domain, 1 = community, 2 = codescape. Unknown
+    /// codes fall back to the default so a stale HUD build can never select an
+    /// undefined mode.
     pub fn from_code(code: i64) -> Self {
         match code {
             1 => Self::Community,
+            2 => Self::Codescape,
             _ => Self::Domain,
         }
     }
@@ -67,6 +73,17 @@ impl ColorMode {
         match self {
             Self::Domain => 0,
             Self::Community => 1,
+            Self::Codescape => 2,
+        }
+    }
+
+    /// The mode a backend selects by default: Codescape has no corpus domains,
+    /// so its own community palette; VisionClaw keeps the desktop domain palette.
+    pub fn for_backend(backend: &str) -> Self {
+        if backend.trim().eq_ignore_ascii_case("codescape") {
+            Self::Codescape
+        } else {
+            Self::Domain
         }
     }
 }
@@ -256,10 +273,22 @@ mod tests {
     #[test]
     fn color_mode_codes_round_trip_and_default_to_domain() {
         assert_eq!(ColorMode::default(), ColorMode::Domain);
-        for m in [ColorMode::Domain, ColorMode::Community] {
+        for m in [
+            ColorMode::Domain,
+            ColorMode::Community,
+            ColorMode::Codescape,
+        ] {
             assert_eq!(ColorMode::from_code(m.code()), m);
         }
         assert_eq!(ColorMode::from_code(99), ColorMode::Domain);
         assert_eq!(ColorMode::from_code(-1), ColorMode::Domain);
+    }
+
+    #[test]
+    fn backend_picks_its_palette() {
+        assert_eq!(ColorMode::for_backend("codescape"), ColorMode::Codescape);
+        assert_eq!(ColorMode::for_backend(" Codescape "), ColorMode::Codescape);
+        assert_eq!(ColorMode::for_backend("visionclaw"), ColorMode::Domain);
+        assert_eq!(ColorMode::for_backend(""), ColorMode::Domain);
     }
 }

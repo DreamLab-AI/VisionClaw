@@ -1250,7 +1250,8 @@ impl BinaryProtocolClient {
 
     // --- WP1 colour mode -------------------------------------------------------
 
-    /// 0 = domain (desktop default), 1 = community.
+    /// 0 = domain (desktop default), 1 = community (golden walk), 2 = codescape
+    /// (the Codescape web client's community palette).
     #[func]
     fn set_color_mode(&mut self, mode: i64) {
         self.store
@@ -1260,6 +1261,13 @@ impl BinaryProtocolClient {
     #[func]
     fn get_color_mode(&self) -> i64 {
         self.store.color_mode().code()
+    }
+
+    /// The colour mode a backend selects by default ("codescape" → 2, else 0).
+    /// GDScript applies it on boot and on every backend switch (ADR-2143).
+    #[func]
+    fn default_color_mode_for_backend(&self, backend: GString) -> i64 {
+        crate::domain_palette::ColorMode::for_backend(&backend.to_string()).code()
     }
 
     /// Per-viewer switch for the agent hover offset (default on). Off draws agents at

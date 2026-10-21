@@ -1,4 +1,5 @@
 extends Node3D
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 ## In-headset HUD — VR control centre (redesign, task #20).
 ##
@@ -215,6 +216,12 @@ var _conn_status_label: Label = null
 # Backend toggle (ADR-2143): VisionClaw <-> Codescape on the same port.
 var _backend_button: Button = null
 var _backend_mode: String = "visionclaw"
+# ADR-2143 A6: what the active backend serves, and every control that may be
+# greyed by it (action → [Button]); filled by _action_btn as pages are built.
+var _caps: Dictionary = {}
+var _action_buttons: Dictionary = {}
+var _query_exec_button: Button = null
+const HINT_BASE_META: StringName = &"hint_base"
 var _backend_line: String = ""
 # Beat row (Session page) + header mic badge (WP5/WP8).
 const MIC_BADGE_COLOR: Color = Color(1.0, 0.32, 0.30)
@@ -506,7 +513,7 @@ func _build_graph_page() -> VBoxContainer:
 	g1.add_child(_action_btn("Node +", "node_size_plus", "Enlarge node markers"))
 	g1.add_child(_action_btn("Node -", "node_size_minus", "Shrink node markers"))
 	# WP1/WP4: the two free cells of the 3x3 grid, so the page grows by 0px.
-	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default) or by community")
+	_color_mode_button = _action_btn("Colour: Domain", "color_mode_toggle", "Colour nodes by corpus domain (desktop default), by community, or with Codescape's community palette")
 	_hulls_button = _action_btn("Hulls: Off", "hulls_cycle", "Translucent hulls around server clusters: off, clusters, or communities")
 	g1.add_child(_color_mode_button)
 	g1.add_child(_hulls_button)
@@ -763,10 +770,14 @@ func _build_graph_query_box() -> VBoxContainer:
 		exec.text = "Execute"
 		exec.set_meta(HINT_META, "Run the query and jump to the results")
 		exec.pressed.connect(func() -> void: emit_signal("query_execute_pressed"))
+		if not _caps.is_empty() and not BackendCaps.supports(_caps, BackendCaps.PATTERN_QUERY):
+			exec.disabled = true
+			exec.set_meta(HINT_META, BackendCaps.UNSUPPORTED_HINT)
 	else:
 		exec.text = "Execute (soon)"
 		exec.disabled = true
 		exec.set_meta(HINT_META, "Query execution ships in a later phase")
+	_query_exec_button = exec
 	var clr := _press_fire(Button.new()) as Button
 	clr.text = "Clear"
 	clr.custom_minimum_size = Vector2(0, BTN_H)
@@ -1415,8 +1426,55 @@ func _action_btn(text: String, action: String, hint: String) -> Button:
 	b.custom_minimum_size = Vector2(0, BTN_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.set_meta(HINT_META, hint)
+	b.set_meta(HINT_BASE_META, hint)
 	b.pressed.connect(func() -> void: emit_signal("control_pressed", action))
+	if not _action_buttons.has(action):
+		_action_buttons[action] = []
+	(_action_buttons[action] as Array).append(b)
+	_apply_cap_to_button(b, action)
 	return b
+
+
+# Grey a control whose backend lacks the route, swapping its hint for the
+# reason; restore both when the capability returns. Disabled, never hidden, so
+# the 532 px page layout and the operator's muscle memory survive a switch.
+func _apply_cap_to_button(b: Button, action: String) -> void:
+	var allowed: bool = _caps.is_empty() or BackendCaps.action_allowed(_caps, action)
+	b.disabled = not allowed
+	b.set_meta(HINT_META, str(b.get_meta(HINT_BASE_META, "")) if allowed else BackendCaps.UNSUPPORTED_HINT)
+
+
+## ADR-2143 A6: apply the active backend's capability table. Controls whose
+## route the backend lacks are greyed with a hint; tabs with nothing left to
+## press (Forces, Swarm, Pins on Codescape) leave the tab bar, and the view
+## falls back to Graph if it was on one of them. Safe before pages exist: the
+## table is cached and applied as each control is built.
+func set_backend_capabilities(caps: Dictionary) -> void:
+	_caps = caps.duplicate()
+	for action: String in _action_buttons:
+		for b: Button in _action_buttons[action]:
+			_apply_cap_to_button(b, action)
+	var memory_ok: bool = BackendCaps.supports(_caps, BackendCaps.MEMORY_CLOUD)
+	if _memory_type_button != null:
+		_memory_type_button.disabled = not memory_ok
+		_memory_type_button.set_meta(HINT_META, "Type a memory query" if memory_ok else BackendCaps.UNSUPPORTED_HINT)
+	if not memory_ok and _memory_typing:
+		_close_memory_keyboard()
+	if _query_exec_button != null and _execute_enabled():
+		var query_ok: bool = BackendCaps.supports(_caps, BackendCaps.PATTERN_QUERY)
+		_query_exec_button.disabled = not query_ok
+		_query_exec_button.set_meta(HINT_META, "Run the query and jump to the results" if query_ok else BackendCaps.UNSUPPORTED_HINT)
+	var hidden: Array[String] = BackendCaps.hidden_tabs(_caps)
+	for tid: String in _tab_buttons:
+		(_tab_buttons[tid] as Button).visible = not hidden.has(tid)
+	if hidden.has(_active_tab) and _pages.has("graph"):
+		_show_tab("graph")
+	call_deferred("_update_scroll_arrows")
+
+
+## Tab ids currently hidden by the backend's capability table (tests, status).
+func hidden_tabs() -> Array[String]:
+	return BackendCaps.hidden_tabs(_caps)
 
 
 # A stateful type show/hide toggle (Feature 3). Starts visible (accent tint). On
@@ -1621,11 +1679,11 @@ func set_control_states(hierarchy_on: bool, is_flat: bool, pinned_count: int, pl
 		_pins_count_label.text = "%d pinned" % pinned_count
 
 
-## WP1/WP4: reflect the colour mode (0 domain, 1 community) and hull source
-## (0 off, 1 clusters, 2 communities) on the Graph-page button faces.
+## WP1/WP4: reflect the colour mode (0 domain, 1 community, 2 codescape) and hull
+## source (0 off, 1 clusters, 2 communities) on the Graph-page button faces.
 func set_visual_modes(color_mode: int, hull_source: int, hull_count: int = -1) -> void:
 	if _color_mode_button != null:
-		_color_mode_button.text = "Colour: Community" if color_mode == 1 else "Colour: Domain"
+		_color_mode_button.text = ["Colour: Domain", "Colour: Community", "Colour: Codescape"][clampi(color_mode, 0, 2)]
 	if _hulls_button != null:
 		var label: String = ["Hulls: Off", "Hulls: Clusters", "Hulls: Communities"][clampi(hull_source, 0, 2)]
 		if hull_source > 0 and hull_count >= 0:
@@ -2035,6 +2093,9 @@ func _submit_decision(outcome: String) -> void:
 		push_warning("HUD: a decision is already in flight; ignoring new submission")
 		return
 	var case_id := _current_case_id
+	if not _caps.is_empty() and not BackendCaps.supports(_caps, BackendCaps.INTERVENTION):
+		flash_notice(BackendCaps.UNSUPPORTED_HINT, 4.0)
+		return
 	emit_signal("decision_submitted", case_id, outcome)
 	if _nostr_auth == null or _http_base.is_empty() or decide_http == null:
 		push_warning("HUD: intervention not configured; decision not dispatched")

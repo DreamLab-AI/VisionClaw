@@ -1,4 +1,5 @@
 extends Node
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 ## XR ↔ desktop parity wiring (WP1 domain colour, WP2 settings/filter sync,
 ## WP4 cluster hulls). GraphScene owns one of these and forwards three hooks
@@ -118,8 +119,10 @@ func setup(scene: Node, client: RefCounted, graph_root: Node3D, hud: Node) -> vo
 func handle_control(action: String) -> bool:
 	match action:
 		"color_mode_toggle":
+			# Cycle domain -> community -> codescape; the backend's default palette is
+			# re-applied by GraphScene on every backend switch.
 			if _client != null and _client.has_method("set_color_mode"):
-				_client.set_color_mode(1 - int(_client.get_color_mode()))
+				_client.set_color_mode((int(_client.get_color_mode()) + 1) % 3)
 			_refresh_hud()
 			return true
 		"agent_offsets_toggle":
@@ -349,6 +352,8 @@ func _forces_step(index: int, direction: int) -> void:
 func _forces_write(row: Dictionary, value: Variant) -> void:
 	if _scene == null or not _scene.has_method("_put_physics_body"):
 		return
+	if _scene.has_method("backend_supports") and not _scene.backend_supports(BackendCaps.PHYSICS_WRITE):
+		return
 	if _scene._put_physics_body(_fields_ref().patch_for(String(row["path"]), value)):
 		_forces_values[row["path"]] = value
 		_render_forces()
@@ -398,6 +403,8 @@ func apply_demo_body(text: String) -> void:
 
 func _poll_demo(delta: float) -> void:
 	if _demo_get == null or _demo_inflight or _scene == null:
+		return
+	if _scene.has_method("backend_supports") and not _scene.backend_supports(BackendCaps.DEMO):
 		return
 	_demo_timer -= delta
 	if _demo_timer > 0.0:
@@ -480,6 +487,32 @@ func _on_settle_completed(result: int, code: int, _headers: PackedStringArray, b
 
 
 # --- helpers -----------------------------------------------------------------
+
+## GraphScene switched backend: drop every poll addressed to the old server and
+## read the new one's physics afresh (its GET exists on both backends).
+func on_backend_switched() -> void:
+	for req: HTTPRequest in [_physics_get, _settle_get, _demo_get]:
+		if req != null:
+			req.cancel_request()
+	_physics_inflight = false
+	_settle_inflight = false
+	_demo_inflight = false
+	_physics_wanted = true
+	_physics_retry_in = 0.0
+
+
+## Select the colour mode the active backend defaults to (Codescape: its own
+## community palette, since code nodes carry no corpus domain; VisionClaw: the
+## desktop domain palette) and reflect it on the HUD.
+func apply_backend_palette(backend_mode: String) -> void:
+	if _client == null or not _client.has_method("set_color_mode"):
+		return
+	var mode: int = 2 if backend_mode == "codescape" else 0
+	if _client.has_method("default_color_mode_for_backend"):
+		mode = int(_client.default_color_mode_for_backend(backend_mode))
+	_client.set_color_mode(mode)
+	_refresh_hud()
+
 
 func _refresh_hud() -> void:
 	if _hud == null or not _hud.has_method("set_visual_modes"):

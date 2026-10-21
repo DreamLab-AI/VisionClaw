@@ -1,4 +1,5 @@
 extends "res://addons/gut/test.gd"
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 # HUD control-centre redesign (task #20): tab switching, hover-hint resolution,
 # per-tab fit (no below-the-fold overflow), and preserved public API/signals.
@@ -257,3 +258,61 @@ func test_memory_cloud_buttons_fire_on_press_and_fit_the_graph_page() -> void:
 	assert_eq((hud.get_node("HudPanel").material_override as Material).render_priority, 20, "HUD panel above the route")
 	hud.queue_free()
 	await get_tree().process_frame
+
+
+# --- ADR-2143 A6: backend capability gating --------------------------------
+
+func test_codescape_capabilities_grey_server_controls_and_hide_dead_tabs() -> void:
+	var hud: Node3D = await _make_hud()
+	hud.set_backend_capabilities(BackendCaps.for_mode("codescape"))
+	await get_tree().process_frame
+	var tabbar: Control = hud.get_node(TABBAR)
+	var hidden: Array[String] = hud.hidden_tabs()
+	assert_eq(hidden, ["forces", "swarm", "pins"] as Array[String], "dead tabs listed")
+	var visible_tabs := 0
+	for b: Button in tabbar.get_children():
+		if b.visible:
+			visible_tabs += 1
+	assert_eq(visible_tabs, 7, "ten tabs minus forces, swarm and pins")
+	var greyed := 0
+	var live := 0
+	for b: Button in _all_buttons(hud.get_node(TABS)):
+		if not b.has_meta("hint_base"):
+			continue
+		if b.disabled:
+			greyed += 1
+			assert_eq(str(b.get_meta("hint")), BackendCaps.UNSUPPORTED_HINT, "greyed control explains itself")
+		else:
+			live += 1
+	assert_gt(greyed, 10, "physics, fold, cycles, layout, radial, memory and demo controls greyed")
+	assert_gt(live, 5, "edge, node size, colour, hull and beat controls stay live")
+	hud.queue_free()
+	await get_tree().process_frame
+
+
+func test_capabilities_restore_on_switch_back_and_fall_back_to_graph() -> void:
+	var hud: Node3D = await _make_hud()
+	hud._show_tab("swarm")
+	hud.set_backend_capabilities(BackendCaps.for_mode("codescape"))
+	await get_tree().process_frame
+	assert_true((hud.get_node("%s/GraphPage" % TABS) as Control).visible, "hidden active tab falls back to Graph")
+	hud.set_backend_capabilities(BackendCaps.for_mode("visionclaw"))
+	await get_tree().process_frame
+	assert_eq(hud.hidden_tabs(), [] as Array[String], "nothing hidden on VisionClaw")
+	for b: Button in hud.get_node(TABBAR).get_children():
+		assert_true(b.visible, "every tab back")
+	for b: Button in _all_buttons(hud.get_node(TABS)):
+		if b.has_meta("hint_base"):
+			assert_false(b.disabled, "control re-enabled")
+			assert_eq(str(b.get_meta("hint")), str(b.get_meta("hint_base")), "hint restored")
+	hud.queue_free()
+	await get_tree().process_frame
+
+
+func _all_buttons(root: Node) -> Array:
+	var out: Array = []
+	for c: Node in root.get_children():
+		if c is Button:
+			out.append(c)
+		out.append_array(_all_buttons(c))
+	return out

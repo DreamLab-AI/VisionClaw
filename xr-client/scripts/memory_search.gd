@@ -59,6 +59,11 @@ func _init() -> void:
 
 
 ## `auth` is GraphScene._auth_headers: (url, method) -> PackedStringArray.
+## Follow a backend switch (GraphScene._sync_hud_backend) without re-running setup.
+func set_http_base(http_base: String) -> void:
+	_http_base = http_base.rstrip("/")
+
+
 func setup(http_base: String, auth: Callable, layer: Node, hud: Node) -> void:
 	_http_base = http_base.rstrip("/")
 	_auth = auth

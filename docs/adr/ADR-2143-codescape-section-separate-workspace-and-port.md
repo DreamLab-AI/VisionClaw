@@ -306,3 +306,67 @@ decision or the A5 steps changed.
 ## Re-checked at 8e380aad3 (2026-10-20)
 
 Governed change since 2107637d6: `codescape` submodule cb250b4 → e300451 (6b116bc39, README screenshots); the isolation rule and build graph are unchanged. Decision intact.
+
+## Amendment A6 (2026-10-21): the XR client's Codescape mode is a capability table, not a hope
+
+Status: **implemented** in `xr-client/` at this amendment's commit; the server is untouched. Plan reviewed
+with the advisor (three objections, all taken: gates inside the request helpers, the pin frames, and
+abandoning in-flight requests on a switch).
+
+**Context.** A4.5 gave the XR HUD a Backend toggle, and the 17 and 21 October headset runs rendered
+Codescape at 90 FPS. But the client was only adapted at the transport layer: every HUD control still fired
+its VisionClaw request at whichever base was active. Against Codescape that meant a physics `PUT` answered
+405, fold, cycles, canary and memory-cloud `GET`s answered 404 by design (I-forbidden routes), the Swarm tab
+polled `/api/agents/demo` every few seconds for a 404, memory search kept posting to the boot-time origin
+after a switch, pins went out as `nodePin` text frames that Codescape logs and drops so Unpin All could
+never clear them, and a physics write still in flight at the switch could commit its staged values into
+the new session. Nodes were also coloured by the golden-ratio community walk with a per-node fallback, so
+the headset and the desktop client disagreed on every swatch.
+
+**Decision.**
+1. **One capability table.** `xr-client/scripts/backend_caps.gd` names each server surface the HUD
+   depends on (physics write, layout mode, radial, fold, cycles, demo, memory cloud, pattern query,
+   canary, node relations, intervention, pin) and maps every server-bound control action and tab to the
+   surface it needs. `for_mode("codescape")` grants none of them, derived from the server's route table
+   (`codescape-server/src/routes/mod.rs`) and its `/wss` inbound set (authenticate, requestInitialData,
+   ping). An unknown mode is treated as VisionClaw, so a future backend hides nothing by accident.
+2. **Gates at the request, not the button.** `GraphScene._gate(cap, label)` sits inside every request
+   helper (`_put_physics_body`, `_post_physics_reset`, `_post_layout_mode`, `_post_radial`,
+   `_request_fold`, `_fetch_cycles`, `_fire_m4_ray_canary`, `_request_node_relations`, `_expand_node`,
+   `_post_demo`, the pattern-query count and execute, `_unpin_all` and the drag-end pin record), and
+   `graph_parity.gd` consults `backend_supports()` before its forces write and its demo poll. A refused
+   control tells the operator in the HUD strip ("Not on Codescape: ..."); background probes refuse
+   quietly. The UI and the network can therefore never drift apart: hiding a tab is cosmetic, the gate is
+   the property.
+3. **Grey, do not reflow.** `HUD.set_backend_capabilities(caps)` disables each affected button and swaps
+   its hint for the reason, keeping the 532 px page layout and the operator's muscle memory. Only tabs
+   with nothing left to press (Forces, Swarm, Pins on Codescape) leave the tab bar; an active hidden tab
+   falls back to Graph. The Query tab's memory box and pattern Execute, and the intervention decide
+   `POST`, are gated the same way. Switching back restores everything.
+4. **A switch abandons the old server, and what it already put on screen.** `_switch_backend` cancels
+   every `HTTPRequest`, clears the pending and staged physics, fold, cycles, query and demo state, drops
+   the applied fold plan, the cycle overlay and the query-result planes (all bound to the old epoch's
+   ids), sends an unpin for every pinned node while the old socket is still open and then clears the
+   set (VisionClaw pins persistently, so an emptied client set would strand them), and has parity drop
+   its polls and re-read physics from the new server. The once-per-session canary latch is left alone.
+   The memory cloud and memory search follow the live HTTP base on every sync and the cloud is folded
+   away where its route does not exist.
+5. **Codescape's own palette.** `ColorMode::Codescape` (wire code 2) ports the desktop client's
+   `communityRgb` exactly: hue `(community * 83) mod 360`, HSL 0.68 / 0.56, no per-node fallback, so
+   the headset and the browser agree on every swatch; activity heat keeps the warm blend. The HUD
+   Colour button cycles Domain, Community, Codescape, and `apply_backend_palette` selects the backend's
+   default (Codescape: 2; VisionClaw: 0) at boot and on every switch.
+
+**What this does not do.** It does not map Codescape's free-text `POST /api/graph/query` or
+`GET /api/graph/search` onto the XR pattern-query builder (different grammars); it does not add pins,
+drag or physics writes to Codescape (that is a Codescape decision, not an XR one); and it does not
+change the wire. Drag still sends `nodeDrag` frames that Codescape ignores, so a dragged node springs
+back; recording that as a gated capability is left until Codescape decides whether to honour them.
+
+**Verification.** `cargo test` in `xr-client/rust` (domain palette round trip, backend default,
+Codescape swatches against the web client's formula, mode-by-wire-community), GUT `test_backend_caps`,
+`test_hud_tabs` (greying, hidden tabs, fallback, restore), `test_graph_parity` (colour cycle, backend
+palette, switch drops polls) and `test_backend_switch` (fold, pins, latches) run headless on the HP host;
+results in the commit message. The advisor's pre-commit review found the fold plan and the stranded pins;
+both are fixed above. The headset
+run that motivated this is recorded in project-state memory as `codescape-headset-run-2026-10-21`.

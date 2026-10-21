@@ -1,4 +1,5 @@
 extends Node3D
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 const AVATAR_TEMPLATE_PATH := "res://scenes/Avatar.tscn"
 const AGENT_TEMPLATE_PATH := "res://scenes/AgentAvatar.tscn"
@@ -75,6 +76,10 @@ const PRESENCE_PATH := "/ws/presence"
 const CODESCAPE_PATH := "/codescape"
 const BACKEND_MODES := ["visionclaw", "codescape"]
 const BACKEND_NAMES := {"visionclaw": "VisionClaw", "codescape": "Codescape"}
+# What the active backend serves (BackendCaps, ADR-2143 A6). Every request helper
+# below asks _gate() before dispatching, so a server that lacks a route is never
+# asked for it; the HUD greys the matching controls from the same table.
+var _caps: Dictionary = BackendCaps.for_mode("visionclaw")
 const DEFAULT_ROOM_URN := "urn:visionclaw:room:sha256-12-deadbeefcafe"
 const DEFAULT_DISPLAY_NAME := "XR User"
 
@@ -629,6 +634,7 @@ func _ready() -> void:
 	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
 		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
 	_parity.setup(self, _binary_client, graph_root, hud)
+	_parity.apply_backend_palette(_backend_mode)
 	if graph_root != null:
 		_impostors = NodeLod.make_impostor_instance()
 		graph_root.add_child(_impostors)
@@ -827,12 +833,76 @@ func _wire_hud() -> void:
 # Push the active backend to the HUD: toggle face, status line and the
 # intervention POST origin (which follows the backend prefix).
 func _sync_hud_backend() -> void:
-	if hud == null:
-		return
-	if hud.has_method("set_backend_mode"):
-		hud.set_backend_mode(_backend_mode, _backend_base(_backend_mode))
-	if hud.has_method("configure_intervention"):
-		hud.configure_intervention(_http_base(), _nostr_auth)
+	_caps = BackendCaps.for_mode(_backend_mode)
+	if hud != null:
+		if hud.has_method("set_backend_mode"):
+			hud.set_backend_mode(_backend_mode, _backend_base(_backend_mode))
+		if hud.has_method("configure_intervention"):
+			hud.configure_intervention(_http_base(), _nostr_auth)
+		if hud.has_method("set_backend_capabilities"):
+			hud.set_backend_capabilities(_caps)
+	# The memory layers were configured once in _ready; follow the live base so a
+	# switch never leaves them posting to the previous origin, and fold the cloud
+	# away where the route does not exist.
+	if _memory_cloud != null:
+		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
+		if not backend_supports(BackendCaps.MEMORY_CLOUD) and _memory_cloud.is_enabled():
+			_memory_cloud.set_enabled(false)
+			_refresh_memory_cloud_hud()
+	if _memory_search != null and _memory_search.has_method("set_http_base"):
+		_memory_search.set_http_base(_http_base())
+
+
+## Whether the active backend serves `cap` (a BackendCaps key). Read by
+## graph_parity.gd before its own polls and writes.
+func backend_supports(cap: String) -> bool:
+	return BackendCaps.supports(_caps, cap)
+
+
+# One gate for every server-bound request: true when the backend serves `cap`;
+# otherwise tell the operator in the HUD strip (unless `quiet`) and refuse.
+func _gate(cap: String, label: String, quiet: bool = false) -> bool:
+	if backend_supports(cap):
+		return true
+	if not quiet and hud != null and hud.has_method("flash_notice"):
+		hud.flash_notice("Not on %s: %s" % [BACKEND_NAMES.get(_backend_mode, _backend_mode), label], 4.0)
+	return false
+
+
+# A backend switch abandons every request addressed to the previous server, and
+# everything the old server's answers already put on screen: a late reply would
+# otherwise commit staged physics, and an applied fold plan, cycle overlay or
+# query-result planes are bound to the old epoch's ids and would land on the
+# new graph's nodes. The once-per-session canary latch is left alone.
+func _abandon_backend_requests() -> void:
+	for req: HTTPRequest in [_physics_http, _fold_http, _cycles_http, _query_http, _exec_http, _relations_http, _expand_http, _observe_http, _demo_http]:
+		if req != null:
+			req.cancel_request()
+	_physics_pending = false
+	_physics_staged = {}
+	_fold_pending = false
+	_cycles_pending = false
+	_query_pending = false
+	_exec_pending = false
+	_demo_pending = false
+	if _cycles_active():
+		_cycles_count = 0
+		_binary_client.clear_cycle_overlay()
+	if _binary_client != null and _binary_client.has_method("clear_fold_plan"):
+		_binary_client.clear_fold_plan()
+	_fold_level = 0
+	if _planes != null and _planes.has_method("clear"):
+		_planes.clear()
+	# Pins live on the server we are leaving. Release them now, while its socket
+	# is still open, rather than strand them behind an empty client set: a
+	# backend that never acked pins has nothing to release.
+	if backend_supports(BackendCaps.PIN) and _binary_client != null and _binary_client.has_method("send_node_unpin"):
+		for id: int in _pinned_ids.keys():
+			_binary_client.send_node_unpin(id)
+	_pinned_ids.clear()
+	_selection_dirty = true
+	if _parity != null and _parity.has_method("on_backend_switched"):
+		_parity.on_backend_switched()
 
 
 # HUD "backend:<mode>": switch server and force-reconnect, as Reconnect does.
@@ -840,12 +910,18 @@ func _switch_backend(mode: String) -> void:
 	if not BACKEND_MODES.has(mode):
 		push_warning("GraphScene: unknown backend mode '%s' ignored" % mode)
 		return
+	if mode == _backend_mode:
+		return
+	_abandon_backend_requests()
 	_backend_mode = mode
 	_graph_ws_url = _backend_base(mode) + GRAPH_STREAM_PATH
 	_presence_ws_url = _backend_base(mode) + PRESENCE_PATH
 	_reset_reconnect_state()
 	_attempt_connect()
 	_sync_hud_backend()
+	_refresh_controls_status()
+	if _parity != null:
+		_parity.apply_backend_palette(mode)
 	if hud != null and hud.has_method("flash_notice"):
 		hud.flash_notice("Backend: %s  %s" % [BACKEND_NAMES[mode], _backend_base(mode)])
 
@@ -867,6 +943,9 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action.begins_with("backend:"):
 		_switch_backend(action.substr(8))
+		return
+	var needed: String = BackendCaps.cap_for_action(action)
+	if not needed.is_empty() and not _gate(needed, action.get_slice(":", 0).replace("_", " ")):
 		return
 	if _parity != null and _parity.handle_control(action):
 		return
@@ -1029,6 +1108,8 @@ func _refresh_controls_status() -> void:
 # physics one-in-flight discipline. Level 0 short-circuits: clear the plan locally,
 # no HTTP needed.
 func _request_fold(delta: int) -> void:
+	if not _gate(BackendCaps.FOLD, "fold levels"):
+		return
 	if _fold_pending:
 		push_warning("GraphScene: fold change already in flight; ignoring")
 		return
@@ -1133,6 +1214,8 @@ func _cycles_active() -> bool:
 # GET {base}/api/analytics/cycles (subsumption edges by default; the server owns the analysis).
 func _fetch_cycles() -> void:
 	if _cycles_http == null or _cycles_pending:
+		return
+	if not _gate(BackendCaps.CYCLES, "cycle analysis"):
 		return
 	var url := "%s/api/analytics/cycles" % _http_base()
 	var headers := _auth_headers(url, "GET")
@@ -1243,7 +1326,7 @@ func _request_layout_mode_cycle() -> void:
 func _post_layout_mode(mode: String) -> bool:
 	if _physics_http == null:
 		return false
-	if _physics_pending:
+	if _physics_pending or not _gate(BackendCaps.LAYOUT_MODE, "layout modes"):
 		return false
 	var url := "%s/api/layout/mode" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -1266,6 +1349,8 @@ func _post_radial(body: Dictionary) -> bool:
 	if _physics_pending:
 		push_warning("GraphScene: physics change already in flight; ignoring")
 		return false
+	if not _gate(BackendCaps.RADIAL, "radial shells"):
+		return false
 	var url := "%s/api/layout/radial" % _http_base()
 	var headers := _auth_headers(url, "POST")
 	var err := _physics_http.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(body))
@@ -1282,6 +1367,10 @@ func _post_radial(body: Dictionary) -> bool:
 # PINS persistently, so releasing must go through this explicit unpin path.)
 func _unpin_all() -> void:
 	if _binary_client == null or not _binary_client.has_method("send_node_unpin"):
+		return
+	if not _gate(BackendCaps.PIN, "pins"):
+		_pinned_ids.clear()
+		_refresh_controls_status()
 		return
 	# Send an unpin for every tracked id but do NOT clear the set here: an id is
 	# removed only when its nodeUnpinAck arrives (see _on_graph_text). A
@@ -1357,7 +1446,7 @@ func _auth_headers(url: String, method: String) -> PackedStringArray:
 # POST {base}/api/settings/physics/reset-layout. Returns true if the request was
 # dispatched (gate then held until _on_physics_completed).
 func _post_physics_reset() -> bool:
-	if _physics_http == null:
+	if _physics_http == null or not _gate(BackendCaps.PHYSICS_WRITE, "layout reset"):
 		return false
 	var url := "%s/api/settings/physics/reset-layout" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -1401,7 +1490,7 @@ func _describe_write_failure(result: int, response_code: int) -> String:
 func _put_physics_body(body: Dictionary) -> bool:
 	if _physics_http == null:
 		return false
-	if _physics_pending:
+	if _physics_pending or not _gate(BackendCaps.PHYSICS_WRITE, "physics settings"):
 		return false
 	var url := "%s/api/settings/physics?graph=knowledge" % _http_base()
 	var headers := _auth_headers(url, "PUT")
@@ -2260,7 +2349,9 @@ func _update_interaction() -> void:
 			# server pins on drag; drag-end above is our own release of THIS node, but
 			# the operator may re-pin via a fresh drag — recording it keeps the Unpin
 			# All set authoritative for the session.
-			if _grabbed_id >= 0:
+			# Codescape ignores nodePin/nodeUnpin frames, so there is nothing to
+			# release later: record the pin only where the server will ack it.
+			if _grabbed_id >= 0 and backend_supports(BackendCaps.PIN):
 				_pinned_ids[_grabbed_id] = true
 				_refresh_controls_status()
 			_pulse(_grab_controller, 0.3, 0.05)
@@ -2918,6 +3009,8 @@ func _on_selection_made(handle: int, did_nostr: String, _resolver: int) -> void:
 func _fire_m4_ray_canary(agent_id: String, did_nostr: String) -> void:
 	if _m4_ray_observed or _observe_http == null:
 		return
+	if not _gate(BackendCaps.CANARY, "liveness canary", true):
+		return
 	_m4_ray_observed = true
 	var url: String = "%s/api/canary/observe/%s" % [_http_base(), CANARY_M4_RAY]
 	var body: Dictionary = {
@@ -3498,6 +3591,8 @@ func _open_top_labels_radial(controller: XRController3D) -> void:
 func _request_node_relations(node_id: int) -> void:
 	if _relations_http == null:
 		return
+	if not _gate(BackendCaps.NODE_RELATIONS, "node relations", true):
+		return
 	var url := "%s/api/graph/node/%d/relations" % [_http_base(), node_id]
 	var headers := _auth_headers(url, "GET")
 	_relations_http.cancel_request()  # supersede any in-flight fetch for a prior node
@@ -3561,6 +3656,8 @@ func _build_expansion_items(data: Dictionary) -> Array:
 # merged into the topology (no re-fit) on completion.
 func _expand_node(node_id: int, direction: String, edge_type: String) -> void:
 	if _expand_http == null or node_id < 0:
+		return
+	if not _gate(BackendCaps.NODE_RELATIONS, "node expansion"):
 		return
 	var url := "%s/api/graph/node/%d/expand" % [_http_base(), node_id]
 	var headers := _auth_headers(url, "POST")
@@ -3914,6 +4011,11 @@ func _send_query_count() -> void:
 		_query_pending = false
 		_refresh_query_hud()
 		return
+	if not _gate(BackendCaps.PATTERN_QUERY, "pattern queries", true):
+		_query_count = 0
+		_query_pending = false
+		_refresh_query_hud()
+		return
 	var url := "%s/api/graph/query/pattern" % _http_base()
 	var headers := _auth_headers(url, "POST")
 	_query_http.cancel_request()  # supersede any in-flight preview
@@ -3979,6 +4081,8 @@ func _execute_query() -> void:
 	)
 	if (payload["triples"] as Array).is_empty():
 		return
+	if not _gate(BackendCaps.PATTERN_QUERY, "pattern queries"):
+		return
 	var url := "%s/api/graph/query/pattern" % _http_base()
 	var headers := _auth_headers(url, "POST")
 	var err := _exec_http.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
@@ -4031,6 +4135,8 @@ func _plane_binding_label(binding: Dictionary) -> String:
 
 func _post_demo(running: bool) -> bool:
 	if _demo_http == null or _demo_pending:
+		return false
+	if not _gate(BackendCaps.DEMO, "agent demo"):
 		return false
 	var url := "%s/api/agents/demo" % _http_base()
 	var headers := _auth_headers(url, "POST")

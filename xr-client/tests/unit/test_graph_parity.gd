@@ -1,4 +1,5 @@
 extends "res://addons/gut/test.gd"
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 
 # WP1 domain colour toggle, WP2 settings/filter sync, WP4 cluster hulls.
 # The data path goes through the real gdext BinaryProtocolClient (ingest_text /
@@ -212,6 +213,56 @@ func test_colour_toggle_flips_the_mode_and_the_node_colour() -> void:
 	var com: PackedFloat32Array = client.build_node_buffer(PackedInt32Array([1]), 1.0, 0.7, 1.9)
 	assert_ne(Color(dom[12], dom[13], dom[14]), Color(com[12], com[13], com[14]), "colour changed")
 	assert_eq(p[2].modes.back()[0], 1, "HUD face updated")
+
+
+func test_colour_toggle_cycles_through_codescape_and_back() -> void:
+	var client := _client()
+	_seed_graph(client)
+	var p: Array = _parity_with(client)
+	var parity: Node = p[0]
+	assert_true(parity.handle_control("color_mode_toggle"))
+	assert_true(parity.handle_control("color_mode_toggle"))
+	assert_eq(int(client.get_color_mode()), 2, "second press reaches the Codescape palette")
+	assert_eq(p[2].modes.back()[0], 2, "HUD face shows the Codescape mode")
+	assert_true(parity.handle_control("color_mode_toggle"))
+	assert_eq(int(client.get_color_mode()), 0, "third press wraps to domain")
+
+
+func test_backend_palette_defaults_codescape_to_its_community_palette() -> void:
+	var client := _client()
+	_seed_graph(client)
+	var p: Array = _parity_with(client)
+	var parity: Node = p[0]
+	parity.apply_backend_palette("codescape")
+	assert_eq(int(client.get_color_mode()), 2, "Codescape backend selects mode 2")
+	assert_eq(p[2].modes.back()[0], 2, "HUD face follows")
+	# Codescape nodes carry no corpus domain: the swatch must come from the wire
+	# community, so two nodes in the same community share it exactly.
+	client.ingest(_v3([
+		{"id": 1, "pos": Vector3(0, 0, 0), "community": 44},
+		{"id": 2, "pos": Vector3(10, 0, 0), "community": 44},
+	]))
+	var buf: PackedFloat32Array = client.build_node_buffer(PackedInt32Array([1, 2]), 1.0, 0.7, 1.9)
+	assert_almost_eq(buf[12], buf[20 + 12], 0.0001, "same community, same red")
+	assert_almost_eq(buf[13], buf[20 + 13], 0.0001, "same community, same green")
+	parity.apply_backend_palette("visionclaw")
+	assert_eq(int(client.get_color_mode()), 0, "VisionClaw backend restores the domain palette")
+
+
+func test_backend_switch_drops_polls_and_rereads_physics() -> void:
+	var client := _client()
+	_seed_graph(client)
+	var p: Array = _parity_with(client)
+	var parity: Node = p[0]
+	parity._demo_inflight = true
+	parity._physics_inflight = true
+	parity._settle_inflight = true
+	parity._physics_wanted = false
+	parity.on_backend_switched()
+	assert_false(parity._demo_inflight, "demo poll abandoned")
+	assert_false(parity._physics_inflight, "physics read abandoned")
+	assert_false(parity._settle_inflight, "settlement read abandoned")
+	assert_true(parity._physics_wanted, "physics re-read from the new backend")
 
 
 func test_hud_colour_and_hull_buttons_fire_on_press_and_fit() -> void:

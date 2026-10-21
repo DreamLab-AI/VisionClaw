@@ -264,6 +264,30 @@ pub fn community_color(community_id: u32, anomaly: f32, node_id: u32) -> [f32; 4
     anomaly_blend([rgb[0], rgb[1], rgb[2], 1.0], anomaly)
 }
 
+/// Codescape's community palette, a direct port of the desktop client's
+/// `communityRgb` (`client/src/graph.ts`): hue `(community * 83) % 360` degrees,
+/// HSL saturation 0.68 and lightness 0.56 through the CSS `hsl()` formula, fed to
+/// the shader as-is (the web client does not linearise it either). Community 0
+/// is hue 0 like the web client; there is no per-node fallback, so the headset
+/// and the browser agree on every swatch. Activity heat (the record's anomaly
+/// field under ADR-2143) keeps the warm blend as its tell.
+pub fn codescape_community_color(community_id: u32, anomaly: f32) -> [f32; 4] {
+    let hue = ((community_id as u64 * 83) % 360) as f32;
+    let rgb = css_hsl_to_rgb(hue, 0.68, 0.56);
+    anomaly_blend([rgb[0], rgb[1], rgb[2], 1.0], anomaly)
+}
+
+/// CSS Color 4 `hsl()` → sRGB, `h` in degrees, `s`/`l` in `[0, 1]`; the same
+/// arithmetic as the web client's `hslToRgb`.
+fn css_hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
+    let a = s * l.min(1.0 - l);
+    let f = |n: f32| {
+        let k = (n + h / 30.0) % 12.0;
+        l - a * (-1.0f32).max((k - 3.0).min((9.0 - k).min(1.0)))
+    };
+    [f(0.0), f(8.0), f(4.0)]
+}
+
 /// Warm red blend for anomalous nodes (anomaly > 0.5), shared by the community
 /// and domain colour modes so the anomaly tell survives a palette switch.
 pub fn anomaly_blend(mut rgba: [f32; 4], anomaly: f32) -> [f32; 4] {
@@ -2242,6 +2266,9 @@ impl RenderStore {
         use crate::domain_palette::ColorMode;
         match self.color_mode {
             ColorMode::Community => self.color[slot],
+            ColorMode::Codescape => {
+                codescape_community_color(self.community[slot], self.anomaly[slot])
+            }
             ColorMode::Domain => {
                 let rgba = match self.domain_rgb_cache.get(&id) {
                     Some(&c) => c,
@@ -3333,6 +3360,63 @@ mod tests {
         // Anomaly pushes toward warning red.
         let warn = community_color(5, 1.0, 1);
         assert!(warn[0] > a[0], "anomalous node reddens");
+    }
+
+    #[test]
+    fn codescape_palette_matches_the_web_client() {
+        // Expected triples are client/src/graph.ts communityRgb(c) =
+        // hslToRgb((c * 83) % 360, 0.68, 0.56), evaluated in double precision.
+        let cases: [(u32, [f32; 3]); 4] = [
+            (0, [0.8592, 0.2608, 0.2608]),  // hue 0
+            (1, [0.6298, 0.8592, 0.2608]),  // hue 83
+            (44, [0.8592, 0.7794, 0.2608]), // hue 52
+            (93, [0.2608, 0.8592, 0.6498]), // hue 159
+        ];
+        for (c, want) in cases {
+            let got = codescape_community_color(c, 0.0);
+            for ch in 0..3 {
+                assert!(
+                    (got[ch] - want[ch]).abs() < 1e-3,
+                    "community {c} ch{ch}: {got:?}"
+                );
+            }
+            assert_eq!(got[3], 1.0, "opaque");
+        }
+        // The hue walk wraps modulo 360 exactly as the web client's does.
+        assert_eq!(
+            codescape_community_color(360, 0.0),
+            codescape_community_color(0, 0.0)
+        );
+        // Activity heat keeps the warm tell.
+        let cool = codescape_community_color(93, 0.0);
+        let hot = codescape_community_color(93, 1.0);
+        assert!(hot[0] > cool[0] && hot[1] < cool[1], "heat reddens {hot:?}");
+    }
+
+    #[test]
+    fn codescape_mode_colours_by_wire_community_not_the_golden_walk() {
+        let mut s = RenderStore::new();
+        s.set_color_mode(crate::domain_palette::ColorMode::Codescape);
+        s.upsert(1, [0.0, 0.0, 0.0], 44, 0.0, 1.0);
+        s.upsert(2, [1.0, 0.0, 0.0], 44, 0.0, 1.0);
+        s.upsert(3, [2.0, 0.0, 0.0], 93, 0.0, 1.0);
+        let buf = s.build_node_buffer(&[1, 2, 3], 1.0, 0.7, 1.9);
+        let want44 = codescape_community_color(44, 0.0);
+        let want93 = codescape_community_color(93, 0.0);
+        // Same community, same swatch regardless of node id (no per-node fallback).
+        let col = |i: usize| &buf[i * NODE_STRIDE + 12..i * NODE_STRIDE + 15];
+        assert!(
+            approx(col(0)[0], want44[0])
+                && approx(col(0)[1], want44[1])
+                && approx(col(0)[2], want44[2])
+        );
+        assert!(approx(col(1)[0], want44[0]) && approx(col(1)[1], want44[1]));
+        assert!(approx(col(2)[0], want93[0]) && approx(col(2)[1], want93[1]));
+        // Switching back to the golden walk changes the swatch for the same node.
+        s.set_color_mode(crate::domain_palette::ColorMode::Community);
+        let golden = s.build_node_buffer(&[1], 1.0, 0.7, 1.9);
+        let g = community_color(44, 0.0, 1);
+        assert!(approx(golden[12], g[0]) && approx(golden[13], g[1]));
     }
 
     #[test]

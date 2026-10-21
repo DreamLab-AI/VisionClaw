@@ -934,26 +934,60 @@ The HUD has a tenth tab, **Forces**, for the physics `semantic` group. It lists 
 - Verify by eye on a headset: the tab bar now has ten expand-fill buttons; the GUT fit guard proves the page fits the 532 px host, not the bar's horizontal fit.
 
 
-## Codescape as a second server (ADR-2143)
+## Codescape as a second server (ADR-2143, A6)
 
-Codescape (the `codescape/` submodule, port 4100) is a separate section of the estate that visualises a
-code graph rather than the knowledge graph. It emulates this client's `/wss` contract so the Godot
-client needs no change: point `XR_BACKEND_WS` at `ws://<codescape-host>:4100` and the client receives
-an `initialGraphLoad` text frame (file-tier projection: directories and files, `node_type` is `file`
-or `directory`, `metadata.source_file`, `metadata.community`, `metadata.tier`), then V5 position
-frames in the frozen 52-byte record and `0x23` agent-action frames for agent activity delivered by
-the activity-sink hook. Field mapping on the record: `community_id` is the Leiden community,
-`cluster_id` the crate or top-level directory, `centrality` the importance in 0..1, `anomaly` the
-recent activity heat in 0..1, and the SSSP fields the hop distance from the current focus. Code
-nodes carry no flag bits; actors (agents and humans) carry `0x8000_0000` and render as agents.
-`0x34` acknowledgements pace the stream exactly as for the VisionClaw server.
+Codescape (the `codescape/` submodule, port 4100, or `/codescape/` on the dev nginx port 3001) is a
+separate section of the estate that visualises a code graph rather than the knowledge graph. It emulates
+this client's `/wss` contract, so the wire needs no change: point `XR_BACKEND_WS` at it, or press the
+Session tab's Backend toggle, and the client receives an `initialGraphLoad` text frame (file-tier
+projection: directories and files, `node_type` is `file` or `directory`, `metadata.source_file`,
+`metadata.community`, `metadata.tier`), then V5 position frames in the frozen 52-byte record and `0x23`
+agent-action frames for agent activity delivered by the activity-sink hook. Field mapping on the record:
+`community_id` is the Leiden community, `cluster_id` the crate or top-level directory, `centrality` the
+importance in 0..1, `anomaly` the recent activity heat in 0..1, and the SSSP fields the hop distance from
+the current focus. Code nodes carry no flag bits; actors (agents and humans) carry `0x8000_0000` and render
+as agents. `0x34` acknowledgements pace the stream exactly as for the VisionClaw server.
 
-Known divergences from the VisionClaw server: actors are not listed in `initialGraphLoad`, so an
-agent's hover label is empty (`render_store` `label_of` reads topology metadata); knowledge-graph
-routes (`/api/memory-cloud/*`, `/api/analytics/*`, `/api/graph/fold`, `/api/canary/*`) return 404
-and the HUD panels that depend on them stay empty; the `authenticate` envelope is accepted but not
-yet verified (NIP-98 arrives with Codescape P6). The wire is pinned by `tests/codescape_wire.rs`,
-which decodes frames captured from a running Codescape server with this crate's own parsers.
+Launch from a shell on the HP host (SteamVR restart included; add `XR_SKIP_STEAMVR=1` to relaunch only the
+client): `XR_NEW_IDENTITY=1 XR_BACKEND_WS=ws://<host>:3001 XR_BACKEND_MODE=codescape ~/restart-xr.sh`.
+
+**Capability table (`scripts/backend_caps.gd`).** The two servers share a wire but not a route table.
+Codescape serves the graph stream, presence, voice, a read-only `GET /api/settings/physics` and
+`GET /api/graph/settlement`, and answers 404 (405 for the physics `PUT`) to everything else by design; its
+`/wss` honours only `authenticate`, `requestInitialData` and `ping`, so `nodePin`, `nodeUnpin` and
+`nodeDrag` frames are logged and dropped. `BackendCaps.for_mode(mode)` therefore grants Codescape none
+of: physics write, layout mode, radial shells, fold, cycles, the agent demo, the memory cloud and memory
+search, pattern queries, the liveness canary, node relations and expansion, intervention decisions, pins.
+An unknown mode is treated as VisionClaw. `GraphScene._gate(cap, label)` sits inside every request helper,
+`graph_parity.gd` checks `backend_supports()` before its forces write and demo poll, and the drag-end pin
+record and `_unpin_all` are gated the same way, so a server is never asked for a route it lacks. A refused
+press reports "Not on Codescape: ..." in the HUD strip; background probes refuse quietly.
+
+**HUD (`set_backend_capabilities`).** Affected buttons are greyed with the reason as their hint, never
+hidden, so the 532 px layout holds; tabs with nothing left to press (Forces, Swarm, Pins on Codescape)
+leave the tab bar and an active one falls back to Graph. Edge slice, node size, colour mode, hulls, type
+filters, agent offsets, the beat and comfort controls stay live. Switching back restores every control.
+
+**Switch hygiene.** `_switch_backend` cancels every in-flight `HTTPRequest`, clears pending and staged
+physics, fold, cycles, query and demo state, drops the applied fold plan, the cycle overlay and the
+query-result planes (bound to the old epoch's ids), sends an unpin for every pinned node while the old
+socket is still open and then clears the set, has parity drop its polls and re-read physics, and re-points
+the memory cloud and memory search at the live base (they were previously configured once at boot). The
+cloud is folded away where its route is absent; the once-per-session canary latch is kept.
+
+**Palette.** `ColorMode::Codescape` (wire code 2, `rust/src/domain_palette.rs`) ports the desktop
+client's `communityRgb`: hue `(community * 83) mod 360`, HSL 0.68 / 0.56, no per-node fallback, so the
+headset and the browser agree on every swatch; activity heat keeps the warm blend
+(`render_store::codescape_community_color`). The Graph tab's Colour button cycles Domain, Community,
+Codescape; `apply_backend_palette` selects the backend's default (Codescape 2, VisionClaw 0) at boot and
+on every switch.
+
+Known divergences from the VisionClaw server: actors are not listed in `initialGraphLoad`, so an agent's
+hover label is empty (`render_store` `label_of` reads topology metadata); a dragged node springs back
+because Codescape ignores `nodeDrag`; the `authenticate` envelope is accepted but not yet verified
+(NIP-98 arrives with Codescape P6); Codescape's free-text query and search routes are not mapped onto the
+pattern builder. The wire is pinned by `tests/codescape_wire.rs`, which decodes frames captured from a
+running Codescape server with this crate's own parsers.
 
 ## Position stream and acknowledgement (ADR-2141)
 
