@@ -296,3 +296,7 @@ archive/attic/
 
 # ADR-2143: Codescape local secrets (ingest bearer token)
 /secrets/
+
+# Remembered optional-sidecar choice (scripts/launch.sh)
+.launch-sidecars
+.launch-sidecars.tmp.*

@@ -113,8 +113,12 @@ Its tested build boundary excludes knowledge stores; its shared estate dependenc
 ```sh
 # From this VisionClaw checkout, on the deployment host:
 git submodule update --init codescape
-CODESCAPE=1 ./scripts/launch.sh up dev
+./scripts/launch.sh up dev    # asks which optional sidecars to start; tick Codescape
 ```
+
+The launcher remembers the choice (`.launch-sidecars`, gitignored) and offers it as the default next time. For a
+non-interactive start use `./scripts/launch.sh up dev --sidecars=codescape` (or `--no-prompt` to reuse last time's
+choice). The old `CODESCAPE=1` environment switch is gone; the menu and `--sidecars` are the only inputs.
 
 The direct client port is loopback-only in the recorded deployment; hook ingest stays on the private container network. Codescape's main-port authentication remains open in its current implementation and `--require-auth` refuses startup. The development proxy is not production authentication. Microphone capture needs a secure browser context. Read [the extraction decision](docs/adr/ADR-2143-codescape-section-separate-workspace-and-port.md) and Codescape's own README before enabling it.
 

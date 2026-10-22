@@ -83,7 +83,7 @@ knowledge-work system. It is its own Cargo workspace in the `codescape/` git sub
 (DreamLab-AI/codescape, ADR-2143 A5) with its own `Cargo.lock` (`codescape/Cargo.toml`), never a root-workspace member, because the
 graphicle engine it consumes (pinned git rev, `codescape/Cargo.toml:53`) turns on serde_json `arbitrary_precision`,
 which Cargo would unify into every root build. It runs as its own compose service `codescape`
-(`docker-compose.unified.yml`, profiles `codescape`, enabled by `CODESCAPE=1` in `launch.sh`), on
+(`docker-compose.unified.yml`, profiles `codescape`, chosen in the `launch.sh` sidecar menu or with `--sidecars=codescape`), on
 port `4100` for clients (loopback by default) and `4101` for token-authenticated hook ingest (never
 published), and is reached through the dev nginx at `/codescape/` on `3001` as a network peer
 (`nginx.dev.conf`, ADR-2143 A4). It produces the frozen V3/V5 contract unchanged (see

@@ -24,15 +24,20 @@ ENVIRONMENT="${2:-dev}"
 WITH_AGENT=false
 PROD_INGRESS="tunnel"   # resolved from .env.prod by resolve_prod_ingress (ADR-2119)
 
-# Check for --with-agent flag in any position
+SIDECARS_FLAG=""        # --sidecars=a,b|none: choose without the menu and remember it
+SIDECAR_PROMPT=true     # --no-prompt: reuse last time's choice without asking
+
+# Check for flags in any position
 for arg in "$@"; do
-    if [[ "$arg" == "--with-agent" ]]; then
-        WITH_AGENT=true
-    fi
+    case "$arg" in
+        --with-agent) WITH_AGENT=true ;;
+        --sidecars=*) SIDECARS_FLAG="${arg#--sidecars=}" ;;
+        --no-prompt)  SIDECAR_PROMPT=false ;;
+    esac
 done
 
-# Adjust ENVIRONMENT if it was set to --with-agent
-if [[ "$ENVIRONMENT" == "--with-agent" ]]; then
+# A flag in the ENVIRONMENT position means the environment was omitted
+if [[ "$ENVIRONMENT" == --* ]]; then
     ENVIRONMENT="dev"
 fi
 
@@ -99,6 +104,8 @@ ${YELLOW}Environments:${NC}
 
 ${YELLOW}Flags:${NC}
     ${GREEN}--with-agent${NC}   Also restart the agentic-workstation container
+    ${GREEN}--sidecars=LIST${NC} Optional sidecars (codescape,blender,isaac-sim or none); remembered
+    ${GREEN}--no-prompt${NC}    Do not ask which sidecars; reuse last time's choice
 
 ${YELLOW}Examples:${NC}
     ./launch.sh                    ${CYAN}# Start dev environment${NC}
@@ -256,10 +263,12 @@ set_environment_vars() {
             export CONTAINER_NAME="visionclaw_container"
             export BUILD_TARGET="development"
             export COMPOSE_PROFILES="dev"
-            # Codescape (ADR-2143) is an opt-in sidecar on its own port; it
-            # never starts unless CODESCAPE=1 is in the environment or .env.
+            # Codescape (ADR-2143) is an opt-in sidecar on its own port. It starts
+            # only when chosen: select_sidecars (launch menu, --sidecars=, or last
+            # time's saved choice) sets CODESCAPE for this process. The variable is
+            # internal now; setting it in the environment or .env has no effect.
             if [[ "${CODESCAPE:-0}" == "1" && ! -f "$PROJECT_ROOT/codescape/Cargo.toml" ]]; then
-                warning "  - CODESCAPE=1 but the codescape submodule is not initialised; run: git submodule update --init codescape"
+                warning "  - Codescape is selected but the submodule is not initialised; run: git submodule update --init codescape"
                 warning "  - Codescape is NOT started this time"
             elif [[ "${CODESCAPE:-0}" == "1" ]]; then
                 export COMPOSE_PROFILES="dev,codescape"
@@ -1361,6 +1370,178 @@ clean_all() {
 }
 
 # Show banner
+# ---------------------------------------------------------------------------
+# Optional sidecars: chosen at launch, default = what was chosen last time.
+# codescape is a compose profile of this stack; blender (gui-tools) and
+# isaac-sim are agentbox sidecars started through agentbox.sh afterwards.
+# ---------------------------------------------------------------------------
+SIDECAR_IDS=(codescape blender isaac-sim)
+sidecar_label() {
+    case "$1" in
+        codescape) echo "Codescape     code-graph viewer, :${CODESCAPE_PORT:-4100}" ;;
+        blender)   echo "Blender+QGIS  GPU gui-tools sidecar" ;;
+        isaac-sim) echo "Isaac Sim     headless physics (needs GPU UUID)" ;;
+    esac
+}
+declare -A SIDECAR_ON=()
+SIDECAR_STATE_FILE="${LAUNCH_SIDECAR_STATE:-$PROJECT_ROOT/.launch-sidecars}"
+
+sidecar_known() {
+    local id
+    for id in "${SIDECAR_IDS[@]}"; do [[ "$id" == "$1" ]] && return 0; done
+    return 1
+}
+
+# Defaults: the saved choice, else everything off.
+sidecar_state_load() {
+    local id line key val
+    for id in "${SIDECAR_IDS[@]}"; do SIDECAR_ON[$id]=0; done
+    [[ -f "$SIDECAR_STATE_FILE" ]] || return 0
+    # Parsed, never sourced: the file is data.
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        key="${line%%=*}"; val="${line#*=}"
+        if sidecar_known "$key" && [[ "$val" == "0" || "$val" == "1" ]]; then
+            SIDECAR_ON[$key]="$val"
+        fi
+    done < "$SIDECAR_STATE_FILE"
+}
+
+sidecar_state_save() {
+    local id tmp="$SIDECAR_STATE_FILE.tmp.$$"
+    { for id in "${SIDECAR_IDS[@]}"; do echo "$id=${SIDECAR_ON[$id]}"; done; } > "$tmp" \
+        && mv "$tmp" "$SIDECAR_STATE_FILE"
+}
+
+# "a,b" or "none" -> state. Unknown names are an error, not silently ignored.
+sidecar_apply_list() {
+    local list="$1" id item
+    for id in "${SIDECAR_IDS[@]}"; do SIDECAR_ON[$id]=0; done
+    [[ "$list" == "none" || -z "$list" ]] && return 0
+    local IFS=','
+    for item in $list; do
+        if ! sidecar_known "$item"; then
+            error "Unknown sidecar '$item' (known: ${SIDECAR_IDS[*]})"
+            return 1
+        fi
+        SIDECAR_ON[$item]=1
+    done
+}
+
+# Pure key handler so it can be tested: sets SIDECAR_CURSOR and toggles state.
+# Keys: up/k, down/j, space/x toggle, a all, n none, enter/q done (returns 1).
+SIDECAR_CURSOR=0
+sidecar_menu_key() {
+    local key="$1" count=${#SIDECAR_IDS[@]} id i
+    case "$key" in
+        UP|k)   SIDECAR_CURSOR=$(( (SIDECAR_CURSOR + count - 1) % count )) ;;
+        DOWN|j) SIDECAR_CURSOR=$(( (SIDECAR_CURSOR + 1) % count )) ;;
+        " "|x)  id="${SIDECAR_IDS[$SIDECAR_CURSOR]}"; SIDECAR_ON[$id]=$(( 1 - SIDECAR_ON[$id] )) ;;
+        a)      for i in "${SIDECAR_IDS[@]}"; do SIDECAR_ON[$i]=1; done ;;
+        n)      for i in "${SIDECAR_IDS[@]}"; do SIDECAR_ON[$i]=0; done ;;
+        ENTER|q) return 1 ;;
+    esac
+    return 0
+}
+
+sidecar_menu_render() {
+    local i id mark
+    for i in "${!SIDECAR_IDS[@]}"; do
+        id="${SIDECAR_IDS[$i]}"
+        [[ "${SIDECAR_ON[$id]}" == "1" ]] && mark="(*)" || mark="( )"
+        if [[ "$i" == "$SIDECAR_CURSOR" ]]; then
+            printf '\r\033[K  %b>%b %s %s\n' "$GREEN" "$NC" "$mark" "$(sidecar_label "$id")"
+        else
+            printf '\r\033[K    %s %s\n' "$mark" "$(sidecar_label "$id")"
+        fi
+    done
+}
+
+# LAUNCH_SIDECAR_TIMEOUT seconds (default 15; 0 = wait forever) before the saved
+# choice is applied. A tmux pane is a real pty, so without this an agent that
+# sends './scripts/launch.sh up dev' would wait on the menu indefinitely. The
+# first keypress cancels the countdown.
+sidecar_menu() {
+    local key rest rc lines=${#SIDECAR_IDS[@]} timeout="${LAUNCH_SIDECAR_TIMEOUT:-15}"
+    local -a tflag=()
+    [[ "$timeout" =~ ^[0-9]+$ ]] || timeout=15
+    (( timeout > 0 )) && tflag=(-t "$timeout")
+    echo -e "${CYAN}Optional sidecars${NC}  (default = last time)"
+    if (( timeout > 0 )); then
+        echo -e "  ${BLUE}continuing with these in ${timeout}s; press any key to choose${NC}"
+    fi
+    echo -e "  ${BLUE}up/down or j/k move, space toggles, a all, n none, enter confirms${NC}"
+    sidecar_menu_render
+    while true; do
+        if IFS= read -rsn1 "${tflag[@]}" key < /dev/tty; then rc=0; else rc=$?; fi
+        if (( rc > 128 )); then
+            echo -e "  ${BLUE}no input: using the saved choice${NC}"
+            break
+        elif (( rc != 0 )); then
+            break    # EOF on the terminal
+        fi
+        tflag=()     # someone is here: wait as long as they need
+        if [[ "$key" == $'\e' ]]; then
+            IFS= read -rsn2 -t 0.1 rest < /dev/tty || true
+            case "$rest" in '[A') key=UP ;; '[B') key=DOWN ;; *) key="" ;; esac
+        elif [[ -z "$key" ]]; then
+            key=ENTER
+        fi
+        if sidecar_menu_key "$key"; then :; else break; fi
+        printf '\033[%dA' "$lines"
+        sidecar_menu_render
+    done
+}
+
+# Decide the sidecar set for this launch, then project it into the environment.
+select_sidecars() {
+    sidecar_state_load
+    if [[ -n "$SIDECARS_FLAG" ]]; then
+        sidecar_apply_list "$SIDECARS_FLAG" || exit 1
+        sidecar_state_save
+    elif [[ "$SIDECAR_PROMPT" == "true" && -t 0 && -t 1 && -r /dev/tty ]]; then
+        sidecar_menu
+        sidecar_state_save
+    else
+        info "Sidecars (last time's choice): $(sidecar_summary)"
+    fi
+    # Internal hand-off to set_environment_vars; always overwritten, never an input.
+    export CODESCAPE="${SIDECAR_ON[codescape]}"
+}
+
+sidecar_summary() {
+    local id out=()
+    for id in "${SIDECAR_IDS[@]}"; do [[ "${SIDECAR_ON[$id]}" == "1" ]] && out+=("$id"); done
+    (( ${#out[@]} )) && echo "${out[*]}" || echo "none"
+}
+
+# Blender and Isaac Sim live in the agentbox checkout. A failure here warns; it
+# never takes the main stack down. Already-running sidecars are left alone.
+start_agentbox_sidecars() {
+    local ab="$PROJECT_ROOT/agentbox/agentbox.sh" id name sub
+    for id in blender isaac-sim; do
+        if [[ "$id" == "blender" ]]; then name="gui-tools-service"; sub="gui-tools"; else name="isaac-sim"; sub="isaac-sim"; fi
+        if [[ "${SIDECAR_ON[$id]:-0}" != "1" ]]; then
+            # Deselecting never stops anything (a sidecar may hold a GPU job); say so.
+            if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; then
+                info "  - $id not selected but $name is still running; stop it with: $ab $sub down"
+            fi
+            continue
+        fi
+        if [[ ! -x "$ab" ]]; then
+            warning "  - $id selected but $ab is missing; skipped"
+            continue
+        fi
+        if docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true; then
+            info "  - $id already running ($name)"
+            continue
+        fi
+        log "Starting $id sidecar..."
+        # --no-prompt must reach the GPU picker too, or an agent's launch would wait on it.
+        local np=0; [[ "$SIDECAR_PROMPT" == "false" ]] && np=1
+        ISAAC_SIM_NO_PROMPT="$np" "$ab" "$sub" up || warning "  - $id sidecar failed to start (main stack unaffected); see: $ab $sub logs"
+    done
+}
+
 show_banner() {
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║         VisionClaw Unified Launcher                        ║${NC}"
@@ -1381,6 +1562,10 @@ main() {
 
     # Load configuration
     load_env_config
+    # Sidecars are a dev-stack choice; codescape's compose profile is dev-only.
+    if [[ "$ENVIRONMENT" == "dev" && "$COMMAND" =~ ^(up|restart)$ ]]; then
+        select_sidecars
+    fi
     set_environment_vars
 
     # Execute command
@@ -1395,6 +1580,7 @@ main() {
                 echo ""
             fi
             start_environment
+            start_agentbox_sidecars
             ;;
         down)
             stop_environment
@@ -1429,6 +1615,7 @@ main() {
                 echo ""
             fi
             restart_environment
+            start_agentbox_sidecars
             ;;
         restart-agent)
             check_prerequisites
