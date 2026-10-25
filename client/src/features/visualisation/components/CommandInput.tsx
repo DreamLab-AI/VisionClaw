@@ -3,6 +3,9 @@ import { useSettingsStore } from '../../../store/settingsStore';
 import { UNIFIED_SETTINGS_CONFIG } from '../../control-center/registry/commandInputCompat';
 import { ALL_PATHS } from '../../control-center/registry/settingsRegistry';
 import { unifiedApiClient } from '../../../services/api/UnifiedApiClient';
+import { ALL_FIELDS } from '../../control-center/registry/settingsRegistry';
+import { commandRegistry } from '../../command-palette/CommandRegistry';
+import { planJevCommand, type JevReview } from '../../../services/jev/commandFlow';
 
 interface CommandInputProps {
   isCollapsed: boolean;
@@ -639,11 +642,24 @@ const StatusText: React.FC<{ text: string; timestamp: number }> = ({ text, times
 // CommandInput — main exported component
 // ---------------------------------------------------------------------------
 
+// Registry fields with their current values, for the Jev option's shortlist and
+// patch assembly. Protected settings are filtered again in shortlistSettings.
+function jevFields() {
+  const ss = useSettingsStore.getState();
+  return ALL_FIELDS.filter((f) => f.path).map((f) => {
+    let current: unknown;
+    try { current = ss.get(f.path as never); } catch { current = undefined; }
+    return { ...f, current };
+  });
+}
+
 export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
   const [command, setCommand] = useState('');
   const [queue, setQueue] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusLines, setStatusLines] = useState<StatusLine[]>([]);
+  // Jev option (off by default): a suggestion awaiting the user's decision.
+  const [jevReview, setJevReview] = useState<{ review: JevReview; command: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const statusIdRef = useRef(0);
   // One-time hydration guard: the LLM context (buildSettingsContext) reads
@@ -677,17 +693,27 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
 
       const actions = parseCommandToActions(cmd);
 
+      let heldForReview = false;
       for (const action of actions) {
         addStatus(action.description);
         if (action.isLlmFallback) {
-          await dispatchToSettingsLLM(cmd, addStatus);
+          // Jev option: only here, where the pre-change path would hand the raw
+          // text to the settings assistant. null (flag off, no endpoint, error,
+          // timeout, malformed, low confidence) ⇒ exactly the pre-change call.
+          const review = await planJevCommand(cmd, jevFields());
+          if (review) {
+            setJevReview({ review, command: cmd });
+            heldForReview = true;
+          } else {
+            await dispatchToSettingsLLM(cmd, addStatus);
+          }
         } else {
           await executeAction(action);
         }
         await new Promise(r => setTimeout(r, 300));
       }
 
-      addStatus('Configuration applied');
+      addStatus(heldForReview ? 'Review the suggestion below' : 'Configuration applied');
     } catch (error) {
       addStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -718,6 +744,37 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
     }
   }, [command, isProcessing, addStatus, processCommand]);
 
+  // Jev review actions. Applying a patch uses the existing settings store, which
+  // syncs through the authenticated settings path; Jev itself writes nothing.
+  const applyJevPatch = useCallback(() => {
+    if (!jevReview || jevReview.review.kind !== 'patch') return;
+    const { patch } = jevReview.review;
+    try {
+      useSettingsStore.getState().set(patch.path as never, patch.proposed as never);
+      addStatus(`Applied ${patch.label} = ${String(patch.proposed)}`);
+    } catch (e) {
+      addStatus(`Could not apply: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+    setJevReview(null);
+    setCommand('');
+  }, [jevReview, addStatus]);
+
+  const sendToAssistant = useCallback(async () => {
+    if (!jevReview) return;
+    const cmd = jevReview.command;
+    setJevReview(null);
+    await dispatchToSettingsLLM(cmd, addStatus);
+    setCommand('');
+  }, [jevReview, addStatus]);
+
+  const runJevCommand = useCallback(async () => {
+    if (!jevReview || jevReview.review.kind !== 'intent' || !jevReview.review.commandId) return;
+    const cmd = commandRegistry.getCommand(jevReview.review.commandId);
+    setJevReview(null);
+    if (cmd && cmd.enabled !== false) await cmd.handler();
+    setCommand('');
+  }, [jevReview]);
+
   if (!isCollapsed) return null;
 
   return (
@@ -746,6 +803,35 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isCollapsed }) => {
           className="w-full rounded-md border border-border/60 bg-input/40 px-3 py-1.5 font-mono text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring"
         />
       </form>
+
+      {jevReview && (
+        <div role="group" aria-label="Jev suggestion" className="mt-2 rounded-md border border-border/60 bg-input/30 p-2 text-[12px] font-mono">
+          {jevReview.review.kind === 'patch' ? (
+            <>
+              <div>
+                Proposed change: <strong>{jevReview.review.patch.label}</strong>{' '}
+                <span className="text-muted-foreground">({jevReview.review.patch.path})</span>
+              </div>
+              <div>
+                {JSON.stringify(jevReview.review.patch.current)} &rarr; {JSON.stringify(jevReview.review.patch.proposed)}
+                {jevReview.review.patch.clamped ? ' (clamped to the allowed range)' : ''}
+              </div>
+            </>
+          ) : (
+            <div>{jevReview.review.note}</div>
+          )}
+          <div className="mt-1 flex gap-2">
+            {jevReview.review.kind === 'patch' && (
+              <button type="button" className="underline" onClick={applyJevPatch}>Apply</button>
+            )}
+            {jevReview.review.kind === 'intent' && jevReview.review.commandId && (
+              <button type="button" className="underline" onClick={runJevCommand}>Run</button>
+            )}
+            <button type="button" className="underline" onClick={sendToAssistant}>Ask the settings assistant instead</button>
+            <button type="button" className="underline" onClick={() => setJevReview(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {statusLines.length > 0 && (
         <div className="mt-2 min-h-[20px] space-y-0.5">

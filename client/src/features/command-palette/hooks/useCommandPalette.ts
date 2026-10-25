@@ -1,12 +1,19 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CommandPaletteState, Command } from '../types';
 import { commandRegistry } from '../CommandRegistry';
 import { useKeyboardShortcuts } from '../../../hooks/useKeyboardShortcuts';
 import { createLogger } from '../../../utils/loggerConfig';
+import { jevRankPalette, semanticSuggestions } from '../../../services/jev/jevClient';
 
 const logger = createLogger('useCommandPalette');
 
 export function useCommandPalette() {
+  // Jev option (off by default): extra suggestions appended after the lexical
+  // results. Always [] unless the server reports palette-search enabled AND a
+  // confident ranking arrives; the lexical list is never reordered or removed.
+  const [suggestedCommands, setSuggestedCommands] = useState<Command[]>([]);
+  const jevSeq = useRef(0);
+
   const [state, setState] = useState<CommandPaletteState>({
     isOpen: false,
     searchQuery: '',
@@ -31,6 +38,29 @@ export function useCommandPalette() {
       }));
     }
   }, [state.searchQuery, state.isOpen]);
+
+  useEffect(() => {
+    const seq = ++jevSeq.current;
+    setSuggestedCommands([]);
+    const query = state.searchQuery.trim();
+    if (!state.isOpen || !query) return;
+    const timer = setTimeout(async () => {
+      const allEnabled = commandRegistry.getAllCommands().filter(cmd => cmd.enabled !== false);
+      let ranking = null;
+      try {
+        ranking = await jevRankPalette(
+          query,
+          allEnabled.map(c => ({ id: c.id, title: c.title, description: c.description, category: c.category })),
+        );
+      } catch {
+        ranking = null; // fail-open: lexical results only
+      }
+      if (seq !== jevSeq.current) return; // a newer query superseded this one
+      setSuggestedCommands(semanticSuggestions(state.filteredCommands, ranking, allEnabled));
+    }, 350);
+    return () => clearTimeout(timer);
+    // filteredCommands is recomputed from searchQuery in the effect above.
+  }, [state.searchQuery, state.isOpen, state.filteredCommands]);
 
   
   useEffect(() => {
@@ -80,6 +110,9 @@ export function useCommandPalette() {
   }, []);
 
   
+  const suggestedRef = useRef<Command[]>([]);
+  suggestedRef.current = suggestedCommands;
+
   const navigateUp = useCallback(() => {
     setState(prev => ({
       ...prev,
@@ -90,7 +123,7 @@ export function useCommandPalette() {
   const navigateDown = useCallback(() => {
     setState(prev => ({
       ...prev,
-      selectedIndex: Math.min(prev.filteredCommands.length - 1, prev.selectedIndex + 1)
+      selectedIndex: Math.min(prev.filteredCommands.length + suggestedRef.current.length - 1, prev.selectedIndex + 1)
     }));
   }, []);
 
@@ -106,11 +139,11 @@ export function useCommandPalette() {
   }, [close]);
 
   const executeSelectedCommand = useCallback(async () => {
-    const selectedCommand = state.filteredCommands[state.selectedIndex];
+    const selectedCommand = [...state.filteredCommands, ...suggestedCommands][state.selectedIndex];
     if (selectedCommand) {
       await executeCommand(selectedCommand);
     }
-  }, [state.filteredCommands, state.selectedIndex, executeCommand]);
+  }, [state.filteredCommands, suggestedCommands, state.selectedIndex, executeCommand]);
 
   
   useKeyboardShortcuts({
@@ -125,6 +158,7 @@ export function useCommandPalette() {
 
   return {
     ...state,
+    suggestedCommands,
     open,
     close,
     toggle,

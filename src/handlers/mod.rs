@@ -9,6 +9,7 @@ pub mod consolidated_health_handler;
 pub mod constraints_handler;
 pub mod graph_access;
 pub mod graph_export_handler;
+pub mod jev_handler;
 pub mod mcp_relay_handler;
 pub mod metrics_handler;
 pub mod multi_mcp_websocket_handler;
@@ -36,6 +37,7 @@ pub mod physics_handler;
 pub mod schema_handler;
 pub mod semantic_handler;
 
+pub use jev_handler::configure_jev_routes;
 pub use natural_language_query_handler::configure_nl_query_routes;
 pub use physics_handler::configure_routes as configure_physics_routes;
 pub use schema_handler::configure_schema_routes;

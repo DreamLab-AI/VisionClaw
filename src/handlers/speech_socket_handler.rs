@@ -385,10 +385,23 @@ impl SpeechSocket {
             .await
             .and_then(|tok| PendingClarification::from_token(&tok));
 
+        // VC-35-S1-01 (Jev option, off by default): on a repair turn Jev may
+        // judge that the reply abandons the pending request, in which case it is
+        // evaluated fresh instead of merged; after the gate it may only HOLD a
+        // dispatch it judges unclear. Every fallback leaves the gate's own
+        // outcome untouched, and Jev can never release a held utterance.
+        let jev = crate::services::system_one::global();
         let outcome = match &pending {
-            Some(p) => gate.merge(p, &transcript, confidence),
+            Some(p) => {
+                if crate::services::jev_voice::reply_abandons_pending(jev, p, &transcript).await {
+                    gate.evaluate(&transcript, confidence)
+                } else {
+                    gate.merge(p, &transcript, confidence)
+                }
+            }
             None => gate.evaluate(&transcript, confidence),
         };
+        let outcome = crate::services::jev_voice::tighten(jev, outcome).await;
 
         match outcome {
             GateOutcome::Clarify { prompt, pending } => {
