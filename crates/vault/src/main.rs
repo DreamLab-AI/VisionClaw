@@ -51,6 +51,11 @@ enum Command {
     Validate(ValidateArgs),
     /// Build a `PatchProposal` and post it as a forum 31402.
     Propose(ProposeArgs),
+    /// Order `PatchProposal` JSON files by evidence sufficiency with the opt-in
+    /// Jev option (`VISIONCLAW_JEV_PATCH_RANK=1`). Advisory: no write, no post,
+    /// no approval. Without Jev the input order is kept.
+    #[cfg(feature = "jev")]
+    Rank(RankArgs),
     /// The forum governance panel the proposals are filed against.
     #[command(subcommand)]
     Panel(PanelCommand),
@@ -72,6 +77,15 @@ enum Command {
     /// Fix corpus defects in place.
     #[command(subcommand)]
     Repair(RepairCommand),
+}
+
+/// `vault rank` arguments.
+#[cfg(feature = "jev")]
+#[derive(Debug, clap::Args)]
+struct RankArgs {
+    /// `PatchProposal` JSON files (the `--json` output of `vault propose`).
+    #[arg(required = true)]
+    proposals: Vec<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -359,9 +373,16 @@ fn run() -> anyhow::Result<ExitCode> {
     if let Command::Panel(PanelCommand::Publish(args)) = &cli.command {
         return panel_publish(args, cli.json);
     }
+    // Like `panel publish`, ranking reads only the files it is given.
+    #[cfg(feature = "jev")]
+    if let Command::Rank(args) = &cli.command {
+        return vault::jev_rank::run(&args.proposals, cli.json);
+    }
     let (root, vocab) = resolve_repo(cli.repo.as_deref())?;
 
     match &cli.command {
+        #[cfg(feature = "jev")]
+        Command::Rank(_) => unreachable!("handled before the repository is resolved"),
         Command::Validate(args) => {
             let mut failed = false;
             let mut reports = serde_json::Map::new();

@@ -36,6 +36,8 @@ use visionclaw_memory_cloud::wire::{
     MemoryCloudRecallProbe, NamespaceHealth, QueryEcho, SearchMethod, SidecarHealth, SidecarIssue,
     SidecarResults,
 };
+use visionclaw_memory_cloud::wire::JevRerankNote;
+use visionclaw_jev::{rerank as jev_rerank, Item as JevItem, Jev};
 
 /// Environment variable holding the sidecar's libpq connection string.
 pub const CONNINFO_ENV: &str = "RUVECTOR_PG_CONNINFO";
@@ -288,14 +290,20 @@ pub struct MemoryCloudService {
     refresher_started: AtomicBool,
     /// Embedder reachability from the latest refresh cycle or query.
     embedder_ok: AtomicBool,
+    /// The opt-in Jev rerank (VC-38-S1-01). `None` unless
+    /// `VISIONCLAW_JEV_MEMORY_RERANK=1` and an endpoint resolves; `None` means
+    /// the query path is byte-for-byte the pre-change one.
+    jev: Option<Jev>,
+    jev_params: jev_rerank::Params,
 }
 
 impl MemoryCloudService {
     /// Build from the process environment.
     pub fn from_env() -> Arc<Self> {
-        Self::new(
+        Self::construct(
             MemoryCloudConfig::from_lookup(|k| std::env::var(k).ok()),
             std::env::var(CONNINFO_ENV).ok(),
+            Jev::from_env_logged(JevItem::MemoryRerank, jev_rerank::QSET_VERSION),
         )
     }
 
@@ -303,6 +311,16 @@ impl MemoryCloudService {
     /// never blocks and never fails; a missing or unparsable connection
     /// string turns every data endpoint into a 503.
     pub fn new(config: MemoryCloudConfig, conninfo: Option<String>) -> Arc<Self> {
+        Self::construct(config, conninfo, None)
+    }
+
+    /// [`MemoryCloudService::new`] with an explicit Jev rerank client (tests,
+    /// or a host that owns the transport).
+    pub fn new_with_jev(config: MemoryCloudConfig, conninfo: Option<String>, jev: Jev) -> Arc<Self> {
+        Self::construct(config, conninfo, Some(jev))
+    }
+
+    fn construct(config: MemoryCloudConfig, conninfo: Option<String>, jev: Option<Jev>) -> Arc<Self> {
         let pool = match conninfo.filter(|c| !c.trim().is_empty()) {
             None => Err(format!(
                 "{CONNINFO_ENV} is not set; the live memory cloud is disabled"
@@ -325,6 +343,8 @@ impl MemoryCloudService {
             probe: RwLock::new(None),
             refresher_started: AtomicBool::new(false),
             embedder_ok: AtomicBool::new(false),
+            jev,
+            jev_params: jev_rerank::Params::from_lookup(&|k| std::env::var(k).ok()),
         })
     }
 
@@ -676,6 +696,7 @@ impl MemoryCloudService {
                 }
             })
             .collect();
+        let (results, jev_note) = self.apply_jev(&q.text, results).await;
 
         Ok(MemoryCloudQueryResponse {
             snapshot_id: snap.id().to_string(),
@@ -689,8 +710,45 @@ impl MemoryCloudService {
                 results,
                 took_ms,
                 method,
+                jev: jev_note,
             },
         })
+    }
+
+    /// The opt-in Jev rerank (VC-38-S1-01): reorder the leading hits by judged
+    /// relevance and direct answer support.
+    ///
+    /// Only already-returned hits are considered, and any hit in an excluded
+    /// namespace is never sent (defence in depth: the SQL already omits them).
+    /// With no client, or on any fallback (timeout, error, malformed body, low
+    /// confidence), the hits come back **unchanged** and the note is `None`.
+    /// Retrieval, the exclusion list, sampling indices and positions are not
+    /// touched; hits keep their own `sample_index` and `position` when moved.
+    pub(crate) async fn apply_jev(
+        &self,
+        text: &str,
+        results: Vec<MemoryCloudHit>,
+    ) -> (Vec<MemoryCloudHit>, Option<JevRerankNote>) {
+        let excluded = &self.config.excluded;
+        let (results, note) = jev_rerank::rerank_or_original(
+            self.jev.as_ref(),
+            text,
+            results,
+            |h| {
+                (!excluded.matches(&h.namespace) && !h.snippet.trim().is_empty()).then(|| jev_rerank::Candidate {
+                    namespace: h.namespace.clone(),
+                    snippet: h.snippet.clone(),
+                })
+            },
+            &self.jev_params,
+        )
+        .await;
+        let note = note.map(|n| JevRerankNote {
+            no_candidate_suffices: n.no_candidate_suffices,
+            judged: n.judged,
+            question_set: n.question_set.to_string(),
+        });
+        (results, note)
     }
 
     /// Compare the sidecar's HNSW top-k with an exact sequential scan for up
@@ -931,6 +989,111 @@ mod tests {
 
     fn cfg() -> MemoryCloudConfig {
         MemoryCloudConfig::from_lookup(|_| None)
+    }
+
+    // ---- VC-38-S1-01: the opt-in Jev rerank -------------------------------
+    use visionclaw_jev::client::testing::{jev as test_jev, MockTransport, Script};
+    use visionclaw_jev::client::TransportError;
+
+    fn hit(id: &str, ns: &str, snippet: &str, row: usize) -> MemoryCloudHit {
+        MemoryCloudHit {
+            id: id.into(),
+            key: format!("key-{id}"),
+            namespace: ns.into(),
+            source_type: String::new(),
+            score: 0.5,
+            snippet: snippet.into(),
+            sample_index: Some(row),
+            position: Some([row as f32, 0.0, 0.0]),
+        }
+    }
+
+    fn hits() -> Vec<MemoryCloudHit> {
+        vec![
+            hit("a", "project-state", "alpha", 10),
+            hit("b", "project-state", "beta", 11),
+            hit("c", "project-state", "gamma", 12),
+        ]
+    }
+
+    fn rerank_body(per: &[(f64, f64, f64)], none: f64) -> String {
+        let mut answers = serde_json::Map::new();
+        for (i, (s, c, p)) in per.iter().enumerate() {
+            answers.insert(format!("rel_{i}"), serde_json::json!({"type":"score","score":s,"confidence":c}));
+            answers.insert(format!("sup_{i}"), serde_json::json!({"type":"noul","noul":p}));
+        }
+        answers.insert("none".into(), serde_json::json!({"type":"noul","noul":none}));
+        serde_json::json!({"model":"jev-test","answers":answers,"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
+    }
+
+    fn svc_with(script: Script) -> (Arc<MemoryCloudService>, Arc<MockTransport>) {
+        let t = MockTransport::new(script);
+        let svc = MemoryCloudService::new_with_jev(cfg(), None, test_jev(JevItem::MemoryRerank, t.clone()));
+        (svc, t)
+    }
+
+    #[tokio::test]
+    async fn jev_off_leaves_hits_untouched() {
+        let svc = MemoryCloudService::new(cfg(), None);
+        let (out, note) = svc.apply_jev("q", hits()).await;
+        assert_eq!(out, hits());
+        assert_eq!(note, None);
+    }
+
+    #[tokio::test]
+    async fn jev_accept_path_reorders_keeping_each_hits_own_placement() {
+        let (svc, t) = svc_with(Script::Reply(200, rerank_body(&[(0.0, 0.9, 0.0), (1.0, 0.9, 0.2), (2.0, 0.9, 1.0)], 0.05)));
+        let (out, note) = svc.apply_jev("what is gamma?", hits()).await;
+        assert_eq!(out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["c", "b", "a"]);
+        // each hit still carries its own row and position
+        assert_eq!(out[0].sample_index, Some(12));
+        assert_eq!(out[0].position, Some([12.0, 0.0, 0.0]));
+        let note = note.unwrap();
+        assert_eq!(note.judged, 3);
+        assert_eq!(note.question_set, jev_rerank::QSET_VERSION);
+        // wire shape: score questions are ordered lists, ids are m0..
+        let sent = t.seen.lock().unwrap()[0].clone();
+        assert!(sent["questions"]["rel_0"]["criteria"].is_array());
+        assert_eq!(sent["state"]["candidates"][2]["id"], "m2");
+    }
+
+    #[tokio::test]
+    async fn jev_never_sends_excluded_namespaces() {
+        let (svc, t) = svc_with(Script::Reply(200, rerank_body(&[(0.0, 0.9, 0.0), (2.0, 0.9, 1.0)], 0.0)));
+        let mixed = vec![
+            hit("p", "personal-context", "private diary", 1),
+            hit("a", "project-state", "alpha", 2),
+            hit("b", "project-state", "beta", 3),
+        ];
+        let (out, _) = svc.apply_jev("q", mixed).await;
+        assert_eq!(out.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(), ["p", "b", "a"]);
+        let sent = serde_json::to_string(&t.seen.lock().unwrap()[0]).unwrap();
+        assert!(!sent.contains("private diary") && !sent.contains("personal-context"));
+    }
+
+    #[tokio::test]
+    async fn jev_every_fallback_returns_the_pre_change_hits() {
+        let low = rerank_body(&[(2.0, 0.0, 1.0), (2.0, 0.0, 1.0), (2.0, 0.0, 1.0)], 0.0);
+        let missing_none = {
+            let mut v: serde_json::Value = serde_json::from_str(&rerank_body(&[(1.0, 0.9, 0.5); 3], 0.0)).unwrap();
+            v["answers"].as_object_mut().unwrap().remove("none");
+            v.to_string()
+        };
+        for script in [
+            Script::Reply(500, "boom".into()),
+            Script::Reply(429, "slow".into()),
+            Script::Reply(200, "not json".into()),
+            Script::Reply(200, missing_none),
+            Script::Reply(200, low),
+            Script::Fail(TransportError::Other),
+            Script::Fail(TransportError::Timeout),
+            Script::Hang,
+        ] {
+            let (svc, _) = svc_with(script);
+            let (out, note) = svc.apply_jev("q", hits()).await;
+            assert_eq!(out, hits());
+            assert_eq!(note, None);
+        }
     }
 
     #[tokio::test]

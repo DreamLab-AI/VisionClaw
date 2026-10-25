@@ -131,12 +131,30 @@ pub struct QueryEcho {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SidecarResults {
-    /// Hits, nearest first.
+    /// Hits, nearest first. With the opt-in Jev rerank on and accepted
+    /// (`jev` present) the leading hits are reordered by judged relevance.
     pub results: Vec<MemoryCloudHit>,
     /// Wall-clock milliseconds of the sidecar query.
     pub took_ms: f64,
     /// How the sidecar produced `results`.
     pub method: SearchMethod,
+    /// Present only when the opt-in Jev rerank (VC-38-S1-01) was accepted.
+    /// Absent from the JSON otherwise, so the default wire shape is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jev: Option<JevRerankNote>,
+}
+
+/// Annotation from the opt-in Jev rerank. Advisory: never changes which hits
+/// are returned, only their order and this note.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevRerankNote {
+    /// Probability that no returned hit suffices to answer the query.
+    pub no_candidate_suffices: f64,
+    /// How many hits were judged confidently.
+    pub judged: usize,
+    /// Question-set version.
+    pub question_set: String,
 }
 
 /// How the sidecar produced a result list.
@@ -382,6 +400,7 @@ mod tests {
                 results: vec![hit],
                 took_ms: 1.5,
                 method: SearchMethod::Exact,
+                jev: None,
             },
         };
         let v = serde_json::to_value(&resp).unwrap();
@@ -392,6 +411,22 @@ mod tests {
         let old: QueryEcho = serde_json::from_value(json!({"text": "q", "vector": []})).unwrap();
         assert_eq!(old.position, None);
         assert_eq!(keys(&v["sidecar"]), ["method", "results", "tookMs"]);
+        // the Jev rerank note is absent by default (VC-38-S1-01) and, when present,
+        // serialises under `jev` without disturbing the other keys
+        assert!(v["sidecar"].get("jev").is_none());
+        let mut with_note = resp.clone();
+        with_note.sidecar.jev = Some(JevRerankNote {
+            no_candidate_suffices: 0.25,
+            judged: 3,
+            question_set: "vc-38-s1-01/1".into(),
+        });
+        let w = serde_json::to_value(&with_note).unwrap();
+        assert_eq!(keys(&w["sidecar"]), ["jev", "method", "results", "tookMs"]);
+        assert_eq!(keys(&w["sidecar"]["jev"]), ["judged", "noCandidateSuffices", "questionSet"]);
+        // an older server's response (no `jev`) still reads
+        let old: SidecarResults =
+            serde_json::from_value(json!({"results": [], "tookMs": 1.0, "method": "hnsw"})).unwrap();
+        assert_eq!(old.jev, None);
         assert_eq!(v["sidecar"]["method"], "exact");
         assert_eq!(serde_json::to_value(SearchMethod::Hnsw).unwrap(), "hnsw");
         assert_eq!(

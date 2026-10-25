@@ -36,8 +36,11 @@ use actix_web::{web, HttpResponse};
 use log::debug;
 use serde::Serialize;
 
-use crate::handlers::enrichment_proposals_handler::store::{self, EnrichmentProposal};
+use crate::handlers::enrichment_proposals_handler::store::{self, EnrichmentProposal, ProposalStatus};
 use crate::middleware::RequireAuth;
+use std::sync::OnceLock;
+use visionclaw_jev::proposal_triage::{self, ProposalFacts, Triage, TriageCache};
+use visionclaw_jev::{Item as JevItem, Jev};
 
 /// Top-level inbox envelope — the exact shape broker-bridge.js:233 destructures
 /// (`inbox.cases || inbox.items`, `inbox.total`). We emit `cases` + `total`.
@@ -67,6 +70,12 @@ struct BrokerCase {
     /// Echoed for the single-case view; harmless extra field on the list view.
     created_at_ms: u64,
     decided_at_ms: Option<u64>,
+    /// Advisory triage from the opt-in Jev option (VC-24-S1-01). Absent from
+    /// the JSON unless `VISIONCLAW_JEV_PROPOSAL_TRIAGE=1` produced one, so the
+    /// default wire shape is unchanged. It never carries authority: decide
+    /// routes, signed decisions and receipts do not read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jev: Option<Triage>,
 }
 
 /// Metadata bag — keys mirror the lookups in `_enrichCase` (broker-bridge.js:146
@@ -132,8 +141,73 @@ impl From<&EnrichmentProposal> for BrokerCase {
             },
             created_at_ms: p.created_at_ms,
             decided_at_ms: p.decided_at_ms,
+            jev: None,
         }
     }
+}
+
+/// The opt-in Jev triage (VC-24-S1-01), resolved once from the environment.
+struct JevTriage {
+    jev: Jev,
+    params: proposal_triage::Params,
+    cache: TriageCache,
+}
+
+static JEV_TRIAGE: OnceLock<Option<JevTriage>> = OnceLock::new();
+
+fn jev_triage() -> Option<&'static JevTriage> {
+    JEV_TRIAGE
+        .get_or_init(|| {
+            Jev::from_env_logged(JevItem::ProposalTriage, proposal_triage::QSET_VERSION).map(|jev| JevTriage {
+                jev,
+                params: proposal_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
+                cache: TriageCache::new(),
+            })
+        })
+        .as_ref()
+}
+
+/// The facts Jev may see for a proposal; `None` for a decided case (only the
+/// exact `pending`/`claimed` states are triaged).
+fn triage_facts(p: &EnrichmentProposal) -> Option<ProposalFacts> {
+    matches!(p.status, ProposalStatus::Pending | ProposalStatus::Claimed).then(|| ProposalFacts {
+        id: p.id.clone(),
+        status: p.status.as_str().to_string(),
+        target_path: p.target_path.clone(),
+        enrichment_type: p.enrichment_type.clone(),
+        content: p.content.clone(),
+        rationale: p.reasoning_summary.clone(),
+        source_excerpt: p
+            .provenance
+            .as_ref()
+            .and_then(|v| v.get("source_excerpt"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    })
+}
+
+/// Project proposals into the inbox. With no triage state, or when every Jev
+/// call falls back, the result is exactly the pre-change projection (same
+/// cases, same order, no `jev` key). Otherwise annotated cases are ordered by
+/// triage priority within the slots annotated cases already occupy.
+async fn assemble_inbox(proposals: Vec<EnrichmentProposal>, triage: Option<&JevTriage>) -> InboxResponse {
+    let total = proposals.len();
+    let Some(t) = triage else {
+        let cases = proposals.iter().map(BrokerCase::from).collect();
+        return InboxResponse { cases, total };
+    };
+    let (ordered, ann) =
+        proposal_triage::triage_queue(Some(&t.jev), &t.cache, proposals, triage_facts, &t.params).await;
+    let cases = ordered
+        .iter()
+        .zip(ann)
+        .map(|(p, a)| {
+            let mut c = BrokerCase::from(p);
+            c.jev = a;
+            c
+        })
+        .collect();
+    InboxResponse { cases, total }
 }
 
 /// `GET /api/broker/inbox` → `{ cases: [..], total: N }`.
@@ -145,10 +219,9 @@ impl From<&EnrichmentProposal> for BrokerCase {
 /// (broker-bridge.js:236,264).
 pub async fn inbox() -> HttpResponse {
     let proposals = store::all().await;
-    let cases: Vec<BrokerCase> = proposals.iter().map(BrokerCase::from).collect();
-    let total = cases.len();
-    debug!("[broker-inbox] serving {total} proposal(s) to bridge");
-    HttpResponse::Ok().json(InboxResponse { cases, total })
+    let body = assemble_inbox(proposals, jev_triage()).await;
+    debug!("[broker-inbox] serving {} proposal(s) to bridge", body.total);
+    HttpResponse::Ok().json(body)
 }
 
 /// `GET /api/broker/cases/{id}` → one enriched case (broker-bridge.js:293).
@@ -269,5 +342,98 @@ mod tests {
         let v = serde_json::to_value(&resp).unwrap();
         assert!(v.get("cases").and_then(|c| c.as_array()).is_some());
         assert_eq!(v.get("total").and_then(|t| t.as_u64()), Some(1));
+    }
+    // ---- VC-24-S1-01: the opt-in Jev triage -------------------------------
+    use visionclaw_jev::client::testing::{jev as test_jev, FnTransport, MockTransport, Script};
+    use visionclaw_jev::client::{RawResponse, TransportError};
+
+    fn case(id: &str, status: ProposalStatus, change: &str) -> EnrichmentProposal {
+        let mut p = sample();
+        p.id = id.into();
+        p.status = status;
+        p.content = Some(change.into());
+        p
+    }
+
+    fn queue() -> Vec<EnrichmentProposal> {
+        vec![
+            case("low", ProposalStatus::Pending, "change low"),
+            case("done", ProposalStatus::Decided, "change done"),
+            case("high", ProposalStatus::Claimed, "change high"),
+        ]
+    }
+
+    fn answers(c: f64, r: f64, u: f64, conf: f64) -> String {
+        serde_json::json!({"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":{
+            "completeness":{"type":"score","score":c,"confidence":conf},
+            "relevance":{"type":"score","score":r,"confidence":conf},
+            "unsupported":{"type":"noul","noul":u}}})
+        .to_string()
+    }
+
+    fn state_with(t: std::sync::Arc<dyn visionclaw_jev::Transport>) -> JevTriage {
+        JevTriage {
+            jev: test_jev(JevItem::ProposalTriage, t),
+            params: proposal_triage::Params::default(),
+            cache: TriageCache::new(),
+        }
+    }
+
+    fn ids(r: &InboxResponse) -> Vec<String> {
+        r.cases.iter().map(|c| c.id.clone()).collect()
+    }
+
+    #[tokio::test]
+    async fn jev_off_is_the_pre_change_projection_exactly() {
+        let baseline = InboxResponse { cases: queue().iter().map(BrokerCase::from).collect(), total: 3 };
+        let out = assemble_inbox(queue(), None).await;
+        assert_eq!(serde_json::to_value(&out).unwrap(), serde_json::to_value(&baseline).unwrap());
+        assert!(serde_json::to_string(&out).unwrap().find("\"jev\"").is_none(), "no jev key when off");
+    }
+
+    #[tokio::test]
+    async fn jev_every_fallback_is_the_pre_change_projection_exactly() {
+        let baseline = serde_json::to_value(InboxResponse { cases: queue().iter().map(BrokerCase::from).collect(), total: 3 }).unwrap();
+        for script in [
+            Script::Reply(500, "x".into()),
+            Script::Reply(429, "x".into()),
+            Script::Reply(200, "garbage".into()),
+            Script::Reply(200, "{\"answers\":{\"completeness\":{\"type\":\"score\",\"score\":1,\"confidence\":0.9}}}".into()),
+            Script::Reply(200, answers(3.0, 2.0, 0.9, 0.0)),
+            Script::Fail(TransportError::Other),
+            Script::Fail(TransportError::Timeout),
+            Script::Hang,
+        ] {
+            let st = state_with(MockTransport::new(script));
+            let out = assemble_inbox(queue(), Some(&st)).await;
+            assert_eq!(serde_json::to_value(&out).unwrap(), baseline);
+        }
+    }
+
+    #[tokio::test]
+    async fn jev_accept_path_annotates_orders_and_leaves_decided_cases_alone() {
+        let t = FnTransport::new(|body| {
+            let change = body["state"]["requested_change"].as_str().unwrap_or("");
+            let b = if change.contains("low") { answers(0.0, 0.0, 0.1, 0.9) } else { answers(3.0, 2.0, 0.95, 0.9) };
+            Ok(RawResponse { status: 200, body: b })
+        });
+        let st = state_with(t.clone());
+        let out = assemble_inbox(queue(), Some(&st)).await;
+        assert_eq!(ids(&out), ["high", "done", "low"]);
+        assert_eq!(out.total, 3);
+        assert_eq!(t.calls(), 2, "the decided case is never sent");
+        let v = serde_json::to_value(&out).unwrap();
+        assert_eq!(v["cases"][0]["jev"]["unsupportedFlag"], true);
+        assert!(v["cases"][1].get("jev").is_none());
+        // status and decide-relevant fields are untouched by triage
+        assert_eq!(out.cases[0].status, "claimed");
+        assert_eq!(out.cases[1].status, "decided");
+    }
+
+    #[test]
+    fn only_pending_and_claimed_cases_expose_facts() {
+        assert!(triage_facts(&case("a", ProposalStatus::Pending, "x")).is_some());
+        assert!(triage_facts(&case("a", ProposalStatus::Claimed, "x")).is_some());
+        assert!(triage_facts(&case("a", ProposalStatus::Decided, "x")).is_none());
     }
 }

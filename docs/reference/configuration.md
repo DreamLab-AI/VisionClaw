@@ -408,6 +408,33 @@ Named volumes persist data and build caches:
 
 ---
 
+## Jev option
+
+An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over `POST /v1/systemone`) beside five server and pipeline paths. **Everything is off by default.** With a flag off, no request is built and nothing leaves the process; with a flag on but no usable endpoint, or on any error, the path behaves exactly as it did before the option existed. Jev ranks, scores or annotates; every existing validation, approval, reasoner and write path stays authoritative. These are proposed research candidates: the wiring is tested, uplift is not yet measured.
+
+The adapter is the self-contained crate `crates/visionclaw-jev` (reqwest, no cross-repo dependency).
+
+| Flag (default off) | Item | What leaves the process (only when on) | Effect |
+|---|---|---|---|
+| `VISIONCLAW_JEV_MEMORY_RERANK=1` | VC-38-S1-01 | the query and up to `VISIONCLAW_JEV_RERANK_MAX` (10) already-returned hit snippets; excluded namespaces are never sent | reorders `POST /api/memory-cloud/query` hits; adds `sidecar.jev` note |
+| `VISIONCLAW_JEV_PROPOSAL_TRIAGE=1` | VC-24-S1-01 | rationale, requested change and source excerpt of up to `VISIONCLAW_JEV_TRIAGE_MAX` (20) pending/claimed proposals | adds `jev` annotation to, and orders, `GET /api/broker/inbox` cases; decide routes untouched |
+| `VISIONCLAW_JEV_HEALTH_TRIAGE=1` | VC-08-S1-01 | sanitised canary results, `kg_backend_up`, build SHA; only when the state is degraded | adds a `jev_triage` hypothesis to `GET /api/canary/status`; probe fields unchanged |
+| `VISIONCLAW_JEV_INGEST_SUGGEST=1` | VC-21-S1-01 | a bounded excerpt, frontmatter and vocabulary types of an admitted page with no `type`, up to `VISIONCLAW_JEV_INGEST_MAX_PAGES` (25) per sync | draft suggestions to `VISIONCLAW_JEV_INGEST_DRAFTS` (JSON lines) or the log; the graph is unchanged |
+| `VISIONCLAW_JEV_PATCH_RANK=1` | VC-20-S1-01 and VG-01-S1-01 (one implementation; adds unsupported-claim flag, novelty and review-urgency scores) | hypothesis, diff and consequence summary of the proposals passed to `vault rank` | prints a reading order; needs `cargo build -p vault --features jev` |
+
+**Endpoint resolution** (first match wins):
+
+1. `VISIONCLAW_JEV_ENDPOINT` (base URL or full `/v1/systemone` URL), `VISIONCLAW_JEV_MODEL` (default `jev-latest`), and the key read from the environment variable *named* by `VISIONCLAW_JEV_KEY_ENV` (none sent if unset);
+2. `AGENTBOX_SYSTEM_ONE_ENDPOINT` + `AGENTBOX_SYSTEM_ONE_MODEL` when `AGENTBOX_SYSTEM_ONE_PROXY=1` (the agentbox loopback proxy holds the key; no `Authorization` header is sent);
+3. `https://api.typesafe.ai/v1/systemone`, model `jev-latest`, `Authorization: Bearer $TYPESAFE_API_KEY`, only if that key is set;
+4. otherwise Jev is unavailable and the path falls back.
+
+Memory, proposal, ingest and patch content is private, so those four items are **local-only**: they refuse steps 2 and 3 unless the endpoint is declared local with `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=1` `VISIONCLAW_JEV_LOCAL=1`, or the explicit override `VISIONCLAW_JEV_ALLOW_CLOUD=1`. Health triage sends sanitised results only and may use any step.
+
+**Fallback.** Flag off, no endpoint, transport error, timeout (`VISIONCLAW_JEV_TIMEOUT_MS`, default 3000, clamped to 100-4000, no retries), any non-2xx status (including 429/529), an unparsable body, a missing or mistyped answer, a Choice key outside the offered set, or confidence below the threshold all leave the caller with its pre-change result. One log line records the reason (`no-endpoint`, `timeout`, `http-<code>`, `malformed`, `low-confidence`) and never request content. Thresholds default conservatively and are overridable: `VISIONCLAW_JEV_RERANK_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_UNSUPPORTED_AT`, `VISIONCLAW_JEV_PATCH_MIN_CONFIDENCE`, `VISIONCLAW_JEV_PATCH_CONTRADICTION_AT`, `VISIONCLAW_JEV_INGEST_MIN_CONFIDENCE`, `VISIONCLAW_JEV_HEALTH_MIN_CONFIDENCE`. Fit them on labelled data before relying on them.
+
+**Egress record.** Each flag opens one route to the endpoint resolved above and nothing else; the destination is whatever step 1-3 selects, so a deployment that sets none has no egress.
+
 ## See also
 
 - [Deployment](../how-to/deployment.md) — build, rebuild, and run the stack.

@@ -7243,9 +7243,11 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.16",
  "time",
+ "tokio",
  "tungstenite 0.21.0",
  "ureq",
  "vault-core",
+ "visionclaw-jev",
  "walkdir",
  "whelk",
 ]
@@ -7399,6 +7401,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.21.0",
+]
+
+[[package]]
+name = "visionclaw-jev"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -7567,6 +7582,7 @@ dependencies = [
  "visionclaw-analytics-oracle",
  "visionclaw-domain",
  "visionclaw-gpu",
+ "visionclaw-jev",
  "visionclaw-memory-cloud",
  "visionclaw-ontology",
  "visionclaw-protocol",

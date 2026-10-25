@@ -15,7 +15,10 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde::Deserialize;
 
-use crate::adapters::sqlite_canary_repository::{CanaryRegistration, CanaryStoreError};
+use crate::adapters::sqlite_canary_repository::{CanaryRegistration, CanaryStatus, CanaryStoreError};
+use std::sync::OnceLock;
+use visionclaw_jev::health_triage::{self, CanaryFact, HealthFacts};
+use visionclaw_jev::{Item as JevItem, Jev};
 use crate::ok_json;
 use crate::services::liveness_harness::{current_sha, LivenessHarness};
 
@@ -159,14 +162,79 @@ pub async fn observe(
     }
 }
 
+/// The opt-in Jev triage (VC-08-S1-01), resolved once from the environment.
+struct JevHealth {
+    jev: Jev,
+    params: health_triage::Params,
+}
+
+static JEV_HEALTH: OnceLock<Option<JevHealth>> = OnceLock::new();
+
+fn jev_health() -> Option<&'static JevHealth> {
+    JEV_HEALTH
+        .get_or_init(|| {
+            Jev::from_env_logged(JevItem::HealthTriage, health_triage::QSET_VERSION).map(|jev| JevHealth {
+                jev,
+                params: health_triage::Params::from_lookup(&|k| std::env::var(k).ok()),
+            })
+        })
+        .as_ref()
+}
+
+fn health_facts(kg_backend_up: Option<bool>, sha: &str, canaries: &[CanaryStatus]) -> HealthFacts {
+    HealthFacts {
+        sha: sha.to_string(),
+        kg_backend_up,
+        canaries: canaries
+            .iter()
+            .map(|c| CanaryFact {
+                id: c.canary_id.clone(),
+                description: c.description.clone(),
+                kind: c.kind.clone(),
+                armed: c.armed,
+                fired: c.fired,
+                observation_count: c.observation_count,
+                sha_at_registration: c.sha_at_registration.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// The `GET /api/canary/status` body. The probe fields are exactly the
+/// pre-change ones; `jev_triage` is added only when the opt-in Jev option
+/// (`VISIONCLAW_JEV_HEALTH_TRIAGE=1`) is on, the state is degraded and Jev
+/// answered confidently. It is a hypothesis for an operator, never a verdict:
+/// the `armed`/`fired`/`kg_backend_up` values it sits beside are not derived
+/// from it.
+async fn status_body(
+    kg_backend_up: Option<bool>,
+    sha: String,
+    canaries: Vec<CanaryStatus>,
+    triage: Option<&JevHealth>,
+) -> serde_json::Value {
+    let hypothesis = match triage {
+        Some(t) => health_triage::triage(Some(&t.jev), &health_facts(kg_backend_up, &sha, &canaries), &t.params).await,
+        None => None,
+    };
+    let mut body = serde_json::json!({
+        "kg_backend_up": kg_backend_up,
+        "sha": sha,
+        "canaries": canaries,
+    });
+    if let (Some(h), Some(obj)) = (hypothesis, body.as_object_mut()) {
+        if let Ok(v) = serde_json::to_value(h) {
+            obj.insert("jev_triage".to_string(), v);
+        }
+    }
+    body
+}
+
 /// `GET /api/canary/status`
 pub async fn status(harness: web::Data<LivenessHarness>) -> Result<HttpResponse> {
     match harness.status().await {
-        Ok(canaries) => ok_json!(serde_json::json!({
-            "kg_backend_up": harness.kg_backend_up(),
-            "sha": current_sha(),
-            "canaries": canaries,
-        })),
+        Ok(canaries) => {
+            ok_json!(status_body(harness.kg_backend_up(), current_sha(), canaries, jev_health()).await)
+        }
         Err(e) => Ok(HttpResponse::InternalServerError().json(store_error_body(&e))),
     }
 }
@@ -230,5 +298,90 @@ mod auth_tests {
     fn mismatched_or_missing_header_rejected() {
         assert!(!check_agent_key(Some("s3cret"), Some("wrong")));
         assert!(!check_agent_key(Some("s3cret"), None));
+    }
+}
+
+#[cfg(test)]
+mod jev_tests {
+    //! VC-08-S1-01: the opt-in Jev triage on `GET /api/canary/status`.
+    use super::*;
+    use visionclaw_jev::client::testing::{jev as test_jev, MockTransport, Script};
+    use visionclaw_jev::client::TransportError;
+
+    fn canary(id: &str, armed: bool, fired: bool) -> CanaryStatus {
+        CanaryStatus {
+            canary_id: id.into(),
+            description: "journey".into(),
+            kind: "http".into(),
+            owner_repo: "VisionClaw".into(),
+            wave: None,
+            armed,
+            fired,
+            last_fired_at: None,
+            observation_count: 0,
+            sha_at_registration: "old".into(),
+        }
+    }
+
+    fn health(script: Script) -> JevHealth {
+        JevHealth { jev: test_jev(JevItem::HealthTriage, MockTransport::new(script)), params: health_triage::Params::default() }
+    }
+
+    fn degraded() -> Vec<CanaryStatus> {
+        vec![canary("c1", true, false), canary("c2", true, true)]
+    }
+
+    fn baseline(kg: Option<bool>, canaries: &[CanaryStatus]) -> serde_json::Value {
+        serde_json::json!({"kg_backend_up": kg, "sha": "sha1", "canaries": canaries})
+    }
+
+    fn triage_body(class: &str, conf: f64) -> String {
+        let mut answers = serde_json::Map::new();
+        answers.insert("class".into(), serde_json::json!({"type":"choice","choice":class,"confidence":conf}));
+        for s in health_triage::RUNBOOK {
+            let score = if s.id == "replay-journey" { 2.0 } else { 0.0 };
+            answers.insert(format!("step_{}", s.id), serde_json::json!({"type":"score","score":score,"confidence":0.9}));
+        }
+        serde_json::json!({"model":"m","usage":{"input_tokens":1,"output_tokens":1},"answers":answers}).to_string()
+    }
+
+    #[tokio::test]
+    async fn off_or_healthy_is_the_pre_change_body() {
+        let c = degraded();
+        assert_eq!(status_body(Some(false), "sha1".into(), c.clone(), None).await, baseline(Some(false), &c));
+        let healthy = vec![canary("c", true, true)];
+        let t = health(Script::Reply(200, triage_body("no-fault-evident", 0.9)));
+        assert_eq!(status_body(Some(true), "sha1".into(), healthy.clone(), Some(&t)).await, baseline(Some(true), &healthy));
+    }
+
+    #[tokio::test]
+    async fn every_fallback_is_the_pre_change_body() {
+        let c = degraded();
+        for script in [
+            Script::Reply(500, "x".into()),
+            Script::Reply(429, "x".into()),
+            Script::Reply(200, "garbage".into()),
+            Script::Reply(200, triage_body("not-in-catalogue", 0.9)),
+            Script::Reply(200, triage_body("kg-backend-down", 0.0)),
+            Script::Fail(TransportError::Other),
+            Script::Fail(TransportError::Timeout),
+            Script::Hang,
+        ] {
+            let t = health(script);
+            assert_eq!(status_body(Some(false), "sha1".into(), c.clone(), Some(&t)).await, baseline(Some(false), &c));
+        }
+    }
+
+    #[tokio::test]
+    async fn accept_path_adds_a_hypothesis_beside_unchanged_probe_fields() {
+        let c = degraded();
+        let t = health(Script::Reply(200, triage_body("canary-never-fired", 0.9)));
+        let body = status_body(Some(false), "sha1".into(), c.clone(), Some(&t)).await;
+        let mut without = body.clone();
+        let tri = without.as_object_mut().unwrap().remove("jev_triage").expect("triage present");
+        assert_eq!(without, baseline(Some(false), &c), "probe fields exactly as before");
+        assert_eq!(tri["class"], "canary-never-fired");
+        assert_eq!(tri["kind"], "hypothesis");
+        assert_eq!(tri["steps"][0]["id"], "replay-journey");
     }
 }

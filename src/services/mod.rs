@@ -116,4 +116,5 @@ pub use semantic_type_registry::{
 pub mod data_reconciliation;
 
 // Live memory cloud over the RuVector sidecar (`/api/memory-cloud*`).
+pub mod jev_ingest;
 pub mod memory_cloud_service;

@@ -16,6 +16,7 @@ members = [
     "crates/visionclaw-integration-tests",
     "crates/visionclaw-memory-cloud",
     "crates/visionclaw-tri-layout",
+    "crates/visionclaw-jev",
 ]
 # PRD-008: the Godot gdext client (xr-client/rust) is its own workspace context
 # (cdylib for the Quest APK, separate target). Exclude it from the server
@@ -142,6 +143,8 @@ nostr-bbs-core = "1.0.0-beta.16"
 tokio-postgres = { version = "0.7.18", features = ["with-serde_json-1"] }
 deadpool-postgres = { version = "0.14.2", features = ["rt_tokio_1"] }
 visionclaw-memory-cloud = { path = "crates/visionclaw-memory-cloud" }
+# The opt-in Jev option (TypeSafe System One typed decisions); every integration is off by default.
+visionclaw-jev = { path = "crates/visionclaw-jev" }
 
 # OpenAPI/Swagger documentation
 utoipa = { version = "5", features = ["actix_extras", "chrono", "uuid"] }
@@ -246,6 +249,7 @@ solid-pod-rs-server = { version = "0.5.0-alpha.17", default-features = false, op
 
 
 [dev-dependencies]
+visionclaw-jev = { path = "crates/visionclaw-jev", features = ["test-util"] }
 tokio-test = "0.4"
 mockall = "0.13"
 pretty_assertions = "1.4"

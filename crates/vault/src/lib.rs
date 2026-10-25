@@ -67,6 +67,8 @@ pub mod closure;
 pub mod conflicts;
 mod diff;
 pub mod gate;
+#[cfg(feature = "jev")]
+pub mod jev_rank;
 pub mod model;
 pub mod nostr;
 pub mod projection;

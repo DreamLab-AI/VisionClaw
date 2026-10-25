@@ -1,0 +1,26 @@
+[package]
+name = "visionclaw-jev"
+version = "0.1.0"
+edition = "2021"
+description = "VisionClaw's opt-in Jev option: a self-contained TypeSafe System One adapter (Choice/Score/Noul over POST /v1/systemone) with exact fallback to pre-change behaviour. Off by default."
+authors = ["jjohare <github@thedreamlab.uk>"]
+license = "AGPL-3.0-only"
+repository = "https://github.com/DreamLab-AI/VisionClaw"
+# Project-specific adapter; not for crates.io.
+publish = false
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+log = "0.4"
+futures-util = "0.3"
+tokio = { version = "1.47.1", features = ["time", "rt", "sync"] }
+reqwest = { version = "0.12.23", features = ["json"] }
+
+[features]
+# Exposes `client::testing` (scripted mock transport) to host crates' tests.
+test-util = []
+
+[dev-dependencies]
+tokio = { version = "1.47.1", features = ["full"] }

@@ -359,10 +359,12 @@ impl GitHubSyncService {
             .filter_map(|f| vault_ctx.identity_of(&f.path))
             .map(|identity| self.kg_parser.page_name_to_id(&identity))
             .collect();
+        let jev_suggester = visionclaw_jev::ingest::Suggester::from_env();
         let scope = SyncScope {
             vault: vault_ctx,
             knowledge_ids: &knowledge_ids,
             vocabulary: vocabulary.as_ref(),
+            jev: jev_suggester.as_ref(),
         };
 
         let force_full_sync = force_full_override
@@ -1666,6 +1668,20 @@ impl GitHubSyncService {
             Ok(Some(parsed)) => parsed,
             Ok(None) => {
                 self.process_plain_vault_file(file, content, nodes, edges, stub_ids, scope);
+                // VC-21-S1-01: an opt-in draft suggestion for a page the §V4
+                // gate admitted and that declares no `type`. After the node is
+                // built and independent of it: the result is never read back.
+                if let Some(jev) = scope.jev {
+                    if page_is_kg_included(content) {
+                        if let Some(facts) = crate::services::jev_ingest::page_facts(
+                            content,
+                            &file.path,
+                            scope.vocabulary,
+                        ) {
+                            let _ = jev.suggest(&facts).await;
+                        }
+                    }
+                }
                 return Ok(());
             }
             Err(e) => {
@@ -2127,6 +2143,10 @@ struct SyncScope<'a> {
     knowledge_ids: &'a std::collections::HashSet<u32>,
     /// The corpus vocabulary, when the source supplies one.
     vocabulary: Option<&'a Vocabulary>,
+    /// The opt-in Jev metadata suggester (VC-21-S1-01); `None` unless
+    /// `VISIONCLAW_JEV_INGEST_SUGGEST=1` resolves an endpoint. Draft output
+    /// only: it never alters what the ingest path produces.
+    jev: Option<&'a visionclaw_jev::ingest::Suggester>,
 }
 
 impl SyncScope<'_> {
@@ -3150,6 +3170,7 @@ mod sovereign_corpus_scope_tests {
             vault: visionclaw_domain::vault::VaultContext::new(&index, &bases),
             knowledge_ids: &knowledge_ids,
             vocabulary: None,
+            jev: None,
         };
         assert!(scope.yields_to_knowledge("working/Camera.md", camera));
         assert!(

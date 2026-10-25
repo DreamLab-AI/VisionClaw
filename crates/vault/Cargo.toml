@@ -16,7 +16,14 @@ path = "src/main.rs"
 name = "vault"
 path = "src/lib.rs"
 
+[features]
+# VC-20-S1-01: the opt-in Jev option (`vault rank`). Off by default, so the
+# default build carries no HTTP client and no network code path.
+jev = ["dep:visionclaw-jev", "dep:tokio"]
+
 [dependencies]
+visionclaw-jev = { path = "../visionclaw-jev", optional = true }
+tokio = { version = "1.47.1", features = ["rt", "time"], optional = true }
 # RDFS derivation certificates in the oo-cert/1 format (ADR-2147).
 rdfs-certificate = "0.1.0"
 vault-core = { path = "../vault-core" }
@@ -49,3 +56,5 @@ tungstenite = { version = "0.21", features = ["native-tls"] }
 
 [dev-dependencies]
 tempfile = "3"
+visionclaw-jev = { path = "../visionclaw-jev", features = ["test-util"] }
+tokio = { version = "1.47.1", features = ["full"] }
