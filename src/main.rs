@@ -515,7 +515,7 @@ async fn main() -> std::io::Result<()> {
     let perplexity_service =
         Arc::new(visionclaw_server::services::perplexity_service::PerplexityService::new());
     // Jev option (opt-in, off unless VISIONCLAW_JEV=1): shared typed-decision client.
-    let jev_client = visionclaw_server::services::system_one::global().clone();
+    let jev_client = visionclaw_jev::hub::global().clone();
     let nl_query_service = Arc::new(visionclaw_server::services::natural_language_query_service::NaturalLanguageQueryService::new(
         schema_service.clone(),
         perplexity_service.clone(),

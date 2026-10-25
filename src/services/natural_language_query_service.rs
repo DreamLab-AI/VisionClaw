@@ -37,7 +37,7 @@ pub struct NaturalLanguageQueryService {
     schema_service: Arc<SchemaService>,
     perplexity_service: Arc<PerplexityService>,
     /// Jev option (VC-25-S1-02). `None` ⇒ pre-change behaviour exactly.
-    jev: Option<crate::services::system_one::JevClient>,
+    jev: Option<visionclaw_jev::JevHub>,
 }
 
 impl NaturalLanguageQueryService {
@@ -55,7 +55,7 @@ impl NaturalLanguageQueryService {
 
     /// Attach the Jev option: bounded template planning is tried before the
     /// generative route. Every fallback returns to the generative route.
-    pub fn with_jev(mut self, jev: crate::services::system_one::JevClient) -> Self {
+    pub fn with_jev(mut self, jev: visionclaw_jev::JevHub) -> Self {
         self.jev = Some(jev);
         self
     }
@@ -474,13 +474,14 @@ Explanation: This finds all instances.
 
     #[tokio::test]
     async fn jev_plan_none_for_every_fallback() {
-        use crate::services::system_one::testing::*;
-        use crate::services::system_one::JevClient;
+        use visionclaw_jev::client::testing::{MockTransport, Script};
+        use visionclaw_jev::hub::testing::enabled_hub;
+        use visionclaw_jev::JevHub;
         let q = "describe urn:ngm:class:Physics";
         // No Jev attached.
         assert!(create_test_service().try_jev_plan(q).await.is_none());
         // Flag off.
-        let off = create_test_service().with_jev(JevClient::disabled());
+        let off = create_test_service().with_jev(JevHub::disabled());
         assert!(off.try_jev_plan(q).await.is_none());
         // Error / malformed / unthresholded.
         for (script, auto) in [
@@ -489,17 +490,18 @@ Explanation: This finds all instances.
             (Script::Reply(200, jev_body(true)), None),
         ] {
             let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
-            let svc = create_test_service().with_jev(JevClient::with_transport(enabled_settings(&extra), MockTransport::new(script)));
+            let svc = create_test_service().with_jev(enabled_hub(&extra, MockTransport::new(script)));
             assert!(svc.try_jev_plan(q).await.is_none());
         }
     }
 
     #[tokio::test]
     async fn jev_plan_accept_path_validates_read_only() {
-        use crate::services::system_one::testing::*;
-        use crate::services::system_one::JevClient;
-        let svc = create_test_service().with_jev(JevClient::with_transport(
-            enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]),
+        use visionclaw_jev::client::testing::{MockTransport, Script};
+        use visionclaw_jev::hub::testing::enabled_hub;
+        use visionclaw_jev::JevHub;
+        let svc = create_test_service().with_jev(enabled_hub(
+            &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
             MockTransport::new(Script::Reply(200, jev_body(true))),
         ));
         let t = svc.try_jev_plan("describe urn:ngm:class:Physics").await.unwrap();

@@ -82,11 +82,8 @@ pub mod liveness_harness;
 
 // FR5.2 (EXP-AC-005): declared-intent ↔ recorded-act matching for the trace.
 pub mod intent_match;
-pub mod jev_edge;
 pub mod jev_nlq;
-pub mod jev_ui;
 pub mod jev_voice;
-pub mod system_one;
 // REC-4: four-KPI compute engine (Augmentation Ratio, Trust Variance) with
 // SQLite snapshots + lineage; ADR-043 resurrected per ADR-130 Decision 5.
 pub mod kpi_compute;

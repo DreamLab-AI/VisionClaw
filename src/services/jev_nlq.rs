@@ -16,7 +16,10 @@
 use serde_json::json;
 
 use crate::services::natural_language_query_service::QueryTranslation;
-use crate::services::system_one::{FallbackReason, JevClient, JevItem, Question};
+use visionclaw_jev::config::Item;
+use visionclaw_jev::hub::JevHub;
+use visionclaw_jev::wire::Question;
+use visionclaw_jev::Fallback;
 
 /// Question-set version (logged on fallback).
 pub const NLQ_QUESTION_SET: &str = "vc-nlq-plan-v1";
@@ -114,9 +117,9 @@ pub fn extract_entities(question: &str) -> Vec<EntityCandidate> {
 }
 
 fn template_question() -> Question {
-    let mut criteria: Vec<(String, String)> =
+    let mut criteria: std::collections::BTreeMap<String, String> =
         TEMPLATES.iter().map(|t| (t.id.to_string(), t.description.to_string())).collect();
-    criteria.push((GENERATE.into(), "No listed template answers the question exactly: it asks for something else, combines several things, or needs filtering the templates cannot express.".into()));
+    criteria.insert(GENERATE.into(), "No listed template answers the question exactly: it asks for something else, combines several things, or needs filtering the templates cannot express.".into());
     Question::Choice {
         instructions: "Which read-only graph query template answers `question` exactly? Choose a template only if running it returns what the question asks for. Choose `generate` otherwise.".into(),
         criteria,
@@ -124,11 +127,11 @@ fn template_question() -> Question {
 }
 
 fn entity_question(cands: &[EntityCandidate]) -> Question {
-    let mut criteria: Vec<(String, String)> = cands
+    let mut criteria: std::collections::BTreeMap<String, String> = cands
         .iter()
         .map(|c| (c.id.clone(), format!("The {} `{}` named in the question.", c.kind.replace('_', " "), c.value)))
         .collect();
-    criteria.push((NO_ENTITY.into(), "None of the listed entities is the one the question is about.".into()));
+    criteria.insert(NO_ENTITY.into(), "None of the listed entities is the one the question is about.".into());
     Question::Choice {
         instructions: "Which entity listed in `entities` is the subject the question in `question` asks about? Choose `none` if the question is not about exactly one of them.".into(),
         criteria,
@@ -142,13 +145,13 @@ fn answerable_question() -> Question {
 }
 
 /// Plan a template query. `Err` ⇒ run the existing generative route.
-pub async fn plan_query(client: &JevClient, question: &str) -> Result<QueryTranslation, FallbackReason> {
-    if !client.enabled(JevItem::NlqPlan) {
-        return Err(FallbackReason::FlagOff);
+pub async fn plan_query(client: &JevHub, question: &str) -> Result<QueryTranslation, Fallback> {
+    if !client.enabled(Item::NlqPlan) {
+        return Err(Fallback::FlagOff);
     }
     let q: String = question.trim().chars().take(MAX_QUESTION_CHARS).collect();
     if q.is_empty() {
-        return Err(FallbackReason::Malformed);
+        return Err(Fallback::Malformed);
     }
     let entities = extract_entities(&q);
     let state = json!({
@@ -162,41 +165,41 @@ pub async fn plan_query(client: &JevClient, question: &str) -> Result<QueryTrans
     if !entities.is_empty() {
         qs.push(("entity".to_string(), entity_question(&entities)));
     }
-    let answers = client.ask(JevItem::NlqPlan, NLQ_QUESTION_SET, false, state, &qs).await?;
+    let answers = client.ask(Item::NlqPlan, NLQ_QUESTION_SET, state, qs).await?;
     let mut offered: Vec<&str> = TEMPLATES.iter().map(|t| t.id).collect();
     offered.push(GENERATE);
     let pick = answers.choice("template", &offered)?;
     let answerable = answers.noul("answerable")?;
-    let fail = |r: FallbackReason| {
-        r.log(JevItem::NlqPlan, NLQ_QUESTION_SET);
+    let fail = |r: Fallback| {
+        r.log(Item::NlqPlan, NLQ_QUESTION_SET);
         Err(r)
     };
     if pick.choice == GENERATE {
-        return fail(FallbackReason::LowConfidence);
+        return fail(Fallback::LowConfidence);
     }
     if let Err(r) = client.accept_outcome(pick.confidence) {
         return fail(r);
     }
     if client.accept_outcome(answerable).is_err() {
-        return fail(FallbackReason::LowConfidence);
+        return fail(Fallback::LowConfidence);
     }
-    let tpl = TEMPLATES.iter().find(|t| t.id == pick.choice).ok_or(FallbackReason::Malformed)?;
+    let tpl = TEMPLATES.iter().find(|t| t.id == pick.choice).ok_or(Fallback::Malformed)?;
     let slot_value = match tpl.slot {
         Slot::None => String::new(),
         slot => {
             if entities.is_empty() {
-                return fail(FallbackReason::LowConfidence);
+                return fail(Fallback::LowConfidence);
             }
             let mut ids: Vec<&str> = entities.iter().map(|e| e.id.as_str()).collect();
             ids.push(NO_ENTITY);
             let e = answers.choice("entity", &ids)?;
             if e.choice == NO_ENTITY || client.accept_outcome(e.confidence).is_err() {
-                return fail(FallbackReason::LowConfidence);
+                return fail(Fallback::LowConfidence);
             }
-            let ent = entities.iter().find(|c| c.id == e.choice).ok_or(FallbackReason::Malformed)?;
+            let ent = entities.iter().find(|c| c.id == e.choice).ok_or(Fallback::Malformed)?;
             let want = if slot == Slot::ClassIri { "class_iri" } else { "domain" };
             if ent.kind != want {
-                return fail(FallbackReason::LowConfidence);
+                return fail(Fallback::LowConfidence);
             }
             ent.value.clone()
         }
@@ -204,7 +207,7 @@ pub async fn plan_query(client: &JevClient, question: &str) -> Result<QueryTrans
     let sparql = (tpl.build)(&slot_value);
     // Same read-only validator the NLQ service enforces.
     if crate::handlers::ontology_handler::validate_read_only_sparql(&sparql).is_err() {
-        return fail(FallbackReason::Malformed);
+        return fail(Fallback::Malformed);
     }
     Ok(QueryTranslation {
         original_query: question.to_string(),
@@ -218,8 +221,9 @@ pub async fn plan_query(client: &JevClient, question: &str) -> Result<QueryTrans
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::system_one::testing::*;
-    use crate::services::system_one::{JevSettings, TransportError};
+    use visionclaw_jev::client::testing::{MockTransport, Script};
+    use visionclaw_jev::client::TransportError;
+    use visionclaw_jev::hub::testing::enabled_hub;
 
     fn body(tpl: &str, tc: f64, ans: f64, ent: Option<(&str, f64)>) -> String {
         let mut a = json!({
@@ -231,10 +235,10 @@ mod tests {
         }
         json!({"model":"m","answers":a,"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
     }
-    fn client(script: Script, auto: Option<&str>) -> (JevClient, std::sync::Arc<MockTransport>) {
+    fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
         let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
-        (JevClient::with_transport(enabled_settings(&extra), t.clone()), t)
+        (enabled_hub(&extra, t.clone()), t)
     }
 
     #[test]
@@ -275,21 +279,21 @@ mod tests {
     async fn fallbacks_return_err_so_generative_route_runs() {
         let q = "What are the subclasses of urn:ngm:class:Physics?";
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
-        let off = JevClient::with_transport(JevSettings::disabled(), t.clone());
-        assert_eq!(plan_query(&off, q).await.unwrap_err(), FallbackReason::FlagOff);
+        let off = JevHub::with_transport(|_| None, t.clone());
+        assert_eq!(plan_query(&off, q).await.unwrap_err(), Fallback::FlagOff);
         assert_eq!(t.calls(), 0);
         let (c, _) = client(Script::Reply(200, body("describe_class", 1.0, 1.0, Some(("e0", 1.0)))), None);
-        assert_eq!(plan_query(&c, q).await.unwrap_err(), FallbackReason::LowConfidence, "default accepts nothing");
-        let cases: Vec<(Script, FallbackReason)> = vec![
-            (Script::Fail(TransportError::Timeout), FallbackReason::Timeout),
-            (Script::Reply(503, "".into()), FallbackReason::Http(503)),
-            (Script::Reply(200, "junk".into()), FallbackReason::Malformed),
-            (Script::Reply(200, body("drop_everything", 0.99, 0.99, None)), FallbackReason::Malformed),
-            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e9", 0.99)))), FallbackReason::Malformed),
-            (Script::Reply(200, body(GENERATE, 0.99, 0.99, None)), FallbackReason::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.5, 0.99, Some(("e0", 0.99)))), FallbackReason::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.99, 0.4, Some(("e0", 0.99)))), FallbackReason::LowConfidence),
-            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("none", 0.99)))), FallbackReason::LowConfidence),
+        assert_eq!(plan_query(&c, q).await.unwrap_err(), Fallback::LowConfidence, "default accepts nothing");
+        let cases: Vec<(Script, Fallback)> = vec![
+            (Script::Fail(TransportError::Timeout), Fallback::Timeout),
+            (Script::Reply(503, "".into()), Fallback::Http(503)),
+            (Script::Reply(200, "junk".into()), Fallback::Malformed),
+            (Script::Reply(200, body("drop_everything", 0.99, 0.99, None)), Fallback::Malformed),
+            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e9", 0.99)))), Fallback::Malformed),
+            (Script::Reply(200, body(GENERATE, 0.99, 0.99, None)), Fallback::LowConfidence),
+            (Script::Reply(200, body("describe_class", 0.5, 0.99, Some(("e0", 0.99)))), Fallback::LowConfidence),
+            (Script::Reply(200, body("describe_class", 0.99, 0.4, Some(("e0", 0.99)))), Fallback::LowConfidence),
+            (Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("none", 0.99)))), Fallback::LowConfidence),
         ];
         for (s, want) in cases {
             let (c, _) = client(s, Some("0.9"));
@@ -297,9 +301,9 @@ mod tests {
         }
         // Slot template with no grounded entity falls back.
         let (c, _) = client(Script::Reply(200, body("describe_class", 0.99, 0.99, None)), Some("0.9"));
-        assert_eq!(plan_query(&c, "describe the thing").await.unwrap_err(), FallbackReason::LowConfidence);
+        assert_eq!(plan_query(&c, "describe the thing").await.unwrap_err(), Fallback::LowConfidence);
         // A domain entity cannot fill a class-IRI slot.
         let (c, _) = client(Script::Reply(200, body("describe_class", 0.99, 0.99, Some(("e0", 0.99)))), Some("0.9"));
-        assert_eq!(plan_query(&c, "describe \"physics\"").await.unwrap_err(), FallbackReason::LowConfidence);
+        assert_eq!(plan_query(&c, "describe \"physics\"").await.unwrap_err(), Fallback::LowConfidence);
     }
 }

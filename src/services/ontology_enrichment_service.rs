@@ -16,7 +16,7 @@ pub struct OntologyEnrichmentService {
     reasoner: Arc<OntologyReasoner>,
     classifier: Arc<EdgeClassifier>,
     /// Jev option (VC-25-S1-01). `None` ⇒ pre-change behaviour exactly.
-    jev: Option<crate::services::system_one::JevClient>,
+    jev: Option<visionclaw_jev::JevHub>,
 }
 
 impl OntologyEnrichmentService {
@@ -31,9 +31,9 @@ impl OntologyEnrichmentService {
     }
 
     /// Attach the Jev option: unclassified edges get a proposal-only second
-    /// opinion (see [`crate::services::jev_edge`]). Off unless the client's
+    /// opinion (see [`visionclaw_jev::edge`]). Off unless the client's
     /// flag and threshold allow it.
-    pub fn with_jev(mut self, jev: crate::services::system_one::JevClient) -> Self {
+    pub fn with_jev(mut self, jev: visionclaw_jev::JevHub) -> Self {
         self.jev = Some(jev);
         self
     }
@@ -148,9 +148,9 @@ impl OntologyEnrichmentService {
                 let property_iri = match property_iri {
                     Some(p) => Some(p),
                     None => {
-                        crate::services::jev_edge::jev_gap_fill(
+                        visionclaw_jev::edge::jev_gap_fill(
                             self.jev.as_ref(),
-                            &crate::services::jev_edge::EdgeEvidence {
+                            &visionclaw_jev::edge::EdgeEvidence {
                                 source_label: &src.label,
                                 target_label: &tgt.label,
                                 source_class: src.owl_class_iri.as_deref(),
@@ -344,18 +344,19 @@ category: engineer
 
     #[tokio::test]
     async fn jev_gap_fill_is_off_equals_pre_change() {
-        use crate::services::system_one::testing::*;
-        use crate::services::system_one::JevClient;
+        use visionclaw_jev::client::testing::{MockTransport, Script};
+        use visionclaw_jev::hub::testing::enabled_hub;
+        use visionclaw_jev::JevHub;
         // Baseline: no Jev attached.
         let base = crate::test_helpers::create_test_enrichment_service();
         let mut g0 = two_node_graph();
         base.enrich_edges(&mut g0, GAP_CONTENT).await.unwrap();
         // Attached but flag off / erroring / unthresholded: identical edges.
         let variants = vec![
-            JevClient::disabled(),
-            JevClient::with_transport(enabled_settings(&[]), MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt")))),
-            JevClient::with_transport(enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]), MockTransport::new(Script::Reply(500, "".into()))),
-            JevClient::with_transport(enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]), MockTransport::new(Script::Reply(200, "junk".into()))),
+            JevHub::disabled(),
+            enabled_hub(&[], MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt")))),
+            enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(500, "".into()))),
+            enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, "junk".into()))),
         ];
         for v in variants {
             let svc = crate::test_helpers::create_test_enrichment_service().with_jev(v);
@@ -367,10 +368,11 @@ category: engineer
 
     #[tokio::test]
     async fn jev_gap_fill_accepts_confident_proposal_but_never_overrides() {
-        use crate::services::system_one::testing::*;
-        use crate::services::system_one::JevClient;
-        let jev = JevClient::with_transport(
-            enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]),
+        use visionclaw_jev::client::testing::{MockTransport, Script};
+        use visionclaw_jev::hub::testing::enabled_hub;
+        use visionclaw_jev::JevHub;
+        let jev = enabled_hub(
+            &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
             MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))),
         );
         let svc = crate::test_helpers::create_test_enrichment_service().with_jev(jev);
@@ -390,5 +392,43 @@ category: engineer
         assert_eq!(g2.edges[0].owl_property_iri, None);
         // The deterministic result for the Person→Company pair is untouched.
         assert_eq!(g.edges[0].owl_property_iri.as_deref(), Some("mv:worksAt"));
+    }
+
+    #[test]
+    fn jev_edge_vocabulary_is_in_lockstep_with_the_keyword_classifier() {
+        let src = include_str!("edge_classifier.rs");
+        let vocab = visionclaw_jev::edge::vocabulary_iris();
+        for iri in &vocab {
+            assert!(src.contains(&format!("\"{iri}\"")), "{iri} not emitted by classifier");
+        }
+        for iri in ["mv:worksAt", "mv:hasCEO", "mv:hasCTO", "mv:hasFounder", "mv:contributesTo", "mv:sponsors", "mv:usesProject", "mv:usesTechnology", "mv:subConceptOf", "mv:relatedTo"] {
+            assert!(vocab.contains(&iri), "{iri} missing from the Jev vocabulary");
+        }
+    }
+
+    /// Whatever Jev does, the deterministic classifier's answer is untouched and
+    /// the gap-fill helper returns `None` on every failure.
+    #[tokio::test]
+    async fn jev_gap_fill_helper_never_overrides_and_is_none_on_failure() {
+        use visionclaw_jev::client::testing::{MockTransport, Script};
+        use visionclaw_jev::edge::{jev_gap_fill, EdgeEvidence};
+        use visionclaw_jev::hub::testing::enabled_hub;
+        let ev = EdgeEvidence {
+            source_label: "Ada",
+            target_label: "Acme",
+            source_class: Some("mv:Person"),
+            target_class: Some("mv:Company"),
+            evidence: "Ada is employed by Acme.",
+        };
+        let classifier = crate::services::edge_classifier::EdgeClassifier::new();
+        let before = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
+        let _ = jev_gap_fill(Some(&visionclaw_jev::JevHub::disabled()), &ev).await;
+        let after = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
+        assert_eq!(before, after);
+        let junk = enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, "junk".into())));
+        assert!(jev_gap_fill(Some(&junk), &ev).await.is_none());
+        assert!(jev_gap_fill(None, &ev).await.is_none());
+        let ok = enabled_hub(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")], MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))));
+        assert_eq!(jev_gap_fill(Some(&ok), &ev).await.as_deref(), Some("mv:worksAt"));
     }
 }

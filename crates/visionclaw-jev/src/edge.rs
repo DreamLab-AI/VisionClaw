@@ -1,6 +1,6 @@
 //! Jev option for edge meaning (VC-25-S1-01).
 //!
-//! [`crate::services::edge_classifier::EdgeClassifier`] guesses a predicate
+//! `EdgeClassifier` (the server's keyword classifier) guesses a predicate
 //! from keywords and class pairs. This module adds an opt-in second opinion
 //! that fills only the *gaps* (edges the deterministic classifier leaves
 //! unclassified): a Choice over the admissible vocabulary predicates (with an
@@ -14,9 +14,14 @@
 //! acceptance as a keyword-classified edge. A deterministic classification is
 //! never overridden.
 
+use std::collections::BTreeMap;
+
 use serde_json::json;
 
-use crate::services::system_one::{FallbackReason, JevClient, JevItem, Question};
+use crate::config::Item;
+use crate::hub::JevHub;
+use crate::wire::Question;
+use crate::Fallback;
 
 /// Question-set version (logged on fallback).
 pub const EDGE_QUESTION_SET: &str = "vc-edge-meaning-v1";
@@ -87,12 +92,12 @@ pub fn domain_range_ok(iri: &str, source_class: Option<&str>, target_class: Opti
 }
 
 fn questions(ev: &EdgeEvidence<'_>) -> Vec<(String, Question)> {
-    let mut criteria: Vec<(String, String)> =
+    let mut criteria: BTreeMap<String, String> =
         VOCAB.iter().map(|p| (p.iri.to_string(), p.definition.to_string())).collect();
-    criteria.push((
+    criteria.insert(
         UNSUPPORTED.into(),
         "None of the listed predicates is stated by `evidence`: the relation is negated, only historical, hypothetical, or absent, or the span names a different relation.".into(),
-    ));
+    );
     let _ = ev;
     vec![
         (
@@ -113,46 +118,52 @@ fn questions(ev: &EdgeEvidence<'_>) -> Vec<(String, Question)> {
 
 /// Ask Jev for a predicate proposal. `Err` ⇒ leave the edge unclassified,
 /// exactly as the deterministic classifier did.
-pub async fn propose_edge(client: &JevClient, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, FallbackReason> {
-    if !client.enabled(JevItem::EdgeMeaning) {
-        return Err(FallbackReason::FlagOff);
+pub async fn propose_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
+    if !client.enabled(Item::EdgeMeaning) {
+        return Err(Fallback::FlagOff);
     }
     let evidence: String = ev.evidence.chars().take(MAX_EVIDENCE_CHARS).collect();
     if evidence.trim().is_empty() {
-        return Err(FallbackReason::Malformed);
+        return Err(Fallback::Malformed);
     }
     let state = json!({
         "source": {"label": ev.source_label, "class": ev.source_class},
         "target": {"label": ev.target_label, "class": ev.target_class},
         "evidence": evidence,
     });
-    let answers = client.ask(JevItem::EdgeMeaning, EDGE_QUESTION_SET, false, state, &questions(ev)).await?;
+    let answers = client.ask(Item::EdgeMeaning, EDGE_QUESTION_SET, state, questions(ev)).await?;
     let mut offered: Vec<&str> = VOCAB.iter().map(|p| p.iri).collect();
     offered.push(UNSUPPORTED);
     let c = answers.choice("predicate", &offered)?;
     let asserted = answers.noul("asserted")?;
-    let reject = |r: FallbackReason| {
-        r.log(JevItem::EdgeMeaning, EDGE_QUESTION_SET);
+    let reject = |r: Fallback| {
+        r.log(Item::EdgeMeaning, EDGE_QUESTION_SET);
         Err(r)
     };
     if c.choice == UNSUPPORTED {
-        return reject(FallbackReason::LowConfidence);
+        return reject(Fallback::LowConfidence);
     }
     if let Err(r) = client.accept_outcome(c.confidence) {
         return reject(r);
     }
     if client.accept_outcome(asserted).is_err() {
-        return reject(FallbackReason::LowConfidence);
+        return reject(Fallback::LowConfidence);
     }
     if !domain_range_ok(&c.choice, ev.source_class, ev.target_class) {
-        return reject(FallbackReason::LowConfidence);
+        return reject(Fallback::LowConfidence);
     }
     Ok(EdgeProposal { predicate: c.choice, confidence: c.confidence, asserted })
 }
 
+/// The predicate IRIs the Jev edge vocabulary offers, so the host can check
+/// they stay in lockstep with its deterministic classifier.
+pub fn vocabulary_iris() -> Vec<&'static str> {
+    VOCAB.iter().map(|p| p.iri).collect()
+}
+
 /// Gap-fill helper used by the enrichment service: the proposed predicate IRI,
 /// or `None` for every fallback (flag off, no client, any failure).
-pub async fn jev_gap_fill(client: Option<&JevClient>, ev: &EdgeEvidence<'_>) -> Option<String> {
+pub async fn jev_gap_fill(client: Option<&JevHub>, ev: &EdgeEvidence<'_>) -> Option<String> {
     let client = client?;
     propose_edge(client, ev).await.ok().map(|p| p.predicate)
 }
@@ -160,10 +171,9 @@ pub async fn jev_gap_fill(client: Option<&JevClient>, ev: &EdgeEvidence<'_>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::edge_classifier::EdgeClassifier;
-    use crate::services::system_one::testing::*;
-    use crate::services::system_one::{JevSettings, TransportError};
-    use serde_json::Value;
+    use crate::client::testing::{MockTransport, Script};
+    use crate::client::TransportError;
+    use crate::hub::testing::enabled_hub;
 
     fn ev() -> EdgeEvidence<'static> {
         EdgeEvidence {
@@ -179,23 +189,10 @@ mod tests {
             "predicate":{"type":"choice","choice":pred,"confidence":conf,"probabilities":{}},
             "asserted":{"type":"noul","noul":noul}},"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
     }
-    fn client(script: Script, auto: Option<&str>) -> (JevClient, std::sync::Arc<MockTransport>) {
+    fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
         let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
-        (JevClient::with_transport(enabled_settings(&extra), t.clone()), t)
-    }
-
-    #[test]
-    fn vocab_covers_every_classifier_predicate() {
-        // Keep the admissible vocabulary in lockstep with what the keyword
-        // classifier can emit.
-        let src = include_str!("edge_classifier.rs");
-        for p in VOCAB {
-            assert!(src.contains(&format!("\"{}\"", p.iri)), "{} not emitted by classifier", p.iri);
-        }
-        for iri in ["mv:worksAt", "mv:hasCEO", "mv:hasCTO", "mv:hasFounder", "mv:contributesTo", "mv:sponsors", "mv:usesProject", "mv:usesTechnology", "mv:subConceptOf", "mv:relatedTo"] {
-            assert!(VOCAB.iter().any(|p| p.iri == iri), "{iri} missing from vocab");
-        }
+        (enabled_hub(&extra, t.clone()), t)
     }
 
     #[test]
@@ -219,49 +216,31 @@ mod tests {
         // Existing validation still runs: domain/range rejects a swapped pair.
         let swapped = EdgeEvidence { source_class: Some("mv:Company"), target_class: Some("mv:Person"), ..ev() };
         let (c, _) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), Some("0.9"));
-        assert_eq!(propose_edge(&c, &swapped).await.unwrap_err(), FallbackReason::LowConfidence);
+        assert_eq!(propose_edge(&c, &swapped).await.unwrap_err(), Fallback::LowConfidence);
     }
 
     #[tokio::test]
     async fn fallbacks_leave_edge_unclassified() {
         // flag off
         let t = MockTransport::new(Script::Reply(200, body("mv:worksAt", 1.0, 1.0)));
-        let off = JevClient::with_transport(JevSettings::disabled(), t.clone());
-        assert_eq!(propose_edge(&off, &ev()).await.unwrap_err(), FallbackReason::FlagOff);
+        let off = JevHub::with_transport(|_| None, t.clone());
+        assert_eq!(propose_edge(&off, &ev()).await.unwrap_err(), Fallback::FlagOff);
         assert_eq!(t.calls(), 0);
         // default threshold: accept nothing automatically
         let (c, _) = client(Script::Reply(200, body("mv:worksAt", 1.0, 1.0)), None);
-        assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), FallbackReason::LowConfidence);
-        let cases: Vec<(Script, FallbackReason)> = vec![
-            (Script::Fail(TransportError::Timeout), FallbackReason::Timeout),
-            (Script::Reply(500, "".into()), FallbackReason::Http(500)),
-            (Script::Reply(200, "junk".into()), FallbackReason::Malformed),
-            (Script::Reply(200, body("mv:invented", 0.99, 0.99)), FallbackReason::Malformed),
-            (Script::Reply(200, body("mv:worksAt", 0.3, 0.99)), FallbackReason::LowConfidence),
-            (Script::Reply(200, body("mv:worksAt", 0.99, 0.3)), FallbackReason::LowConfidence),
-            (Script::Reply(200, body(UNSUPPORTED, 0.99, 0.99)), FallbackReason::LowConfidence),
+        assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), Fallback::LowConfidence);
+        let cases: Vec<(Script, Fallback)> = vec![
+            (Script::Fail(TransportError::Timeout), Fallback::Timeout),
+            (Script::Reply(500, "".into()), Fallback::Http(500)),
+            (Script::Reply(200, "junk".into()), Fallback::Malformed),
+            (Script::Reply(200, body("mv:invented", 0.99, 0.99)), Fallback::Malformed),
+            (Script::Reply(200, body("mv:worksAt", 0.3, 0.99)), Fallback::LowConfidence),
+            (Script::Reply(200, body("mv:worksAt", 0.99, 0.3)), Fallback::LowConfidence),
+            (Script::Reply(200, body(UNSUPPORTED, 0.99, 0.99)), Fallback::LowConfidence),
         ];
         for (s, want) in cases {
             let (c, _) = client(s, Some("0.9"));
             assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), want);
         }
-    }
-
-    /// Fallback equivalence: whatever Jev does, the deterministic classifier's
-    /// answer is untouched (the proposal API cannot alter it) and the gap-fill
-    /// helper returns `None` on every failure.
-    #[tokio::test]
-    async fn gap_fill_never_overrides_and_is_none_on_failure() {
-        let classifier = EdgeClassifier::new();
-        let before = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
-        let _ = propose_edge(&JevClient::disabled(), &ev()).await;
-        let after = classifier.classify_edge("Ada", "Acme", Some("mv:Person"), Some("mv:Company"), "Ada works at Acme");
-        assert_eq!(before, after);
-        let (c, _) = client(Script::Reply(200, "junk".into()), Some("0.9"));
-        assert!(jev_gap_fill(Some(&c), &ev()).await.is_none());
-        assert!(jev_gap_fill(None, &ev()).await.is_none());
-        let (c, _) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), Some("0.9"));
-        assert_eq!(jev_gap_fill(Some(&c), &ev()).await.as_deref(), Some("mv:worksAt"));
-        let _: Value = json!(null);
     }
 }

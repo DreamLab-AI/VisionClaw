@@ -21,7 +21,10 @@
 
 use serde_json::json;
 
-use crate::services::system_one::{FallbackReason, JevClient, JevItem, Question};
+use visionclaw_jev::config::Item;
+use visionclaw_jev::hub::JevHub;
+use visionclaw_jev::wire::Question;
+use visionclaw_jev::Fallback;
 use crate::services::voice_clarification::{hold_unclear, GateOutcome, PendingClarification};
 
 /// Question-set version (logged on fallback).
@@ -42,7 +45,7 @@ fn clip(s: &str) -> String {
 fn intent_question() -> Question {
     Question::Choice {
         instructions: "Which known voice command does the speech-recognised `transcript` clearly state? Choose `unclear` when no listed command is clearly stated, when the sentence negates a command ('don't stop the agent'), or when it is a question or comment rather than an instruction. Recognition errors are common: judge what a speaker most plausibly meant only when one listed command is clearly the best reading.".into(),
-        criteria: vec![
+        criteria: std::collections::BTreeMap::from([
             ("spawn_agent".into(), "Create or add a new agent (it may or may not name the type).".into()),
             ("agent_status".into(), "Ask for the status of the system or an agent.".into()),
             ("list_agents".into(), "List or show the agents.".into()),
@@ -50,7 +53,7 @@ fn intent_question() -> Question {
             ("add_node".into(), "Add a node to the graph.".into()),
             ("help".into(), "Ask for help.".into()),
             (UNCLEAR.into(), "No listed command is clearly stated, or the text is negated, a comment, or noise.".into()),
-        ],
+        ]),
     }
 }
 
@@ -62,8 +65,8 @@ fn contradiction_question() -> Question {
 
 /// Repair turn: does the operator's reply abandon the pending request?
 /// `false` for every fallback, which keeps the existing merge.
-pub async fn reply_abandons_pending(client: &JevClient, pending: &PendingClarification, reply: &str) -> bool {
-    if !client.enabled(JevItem::VoiceIntent) {
+pub async fn reply_abandons_pending(client: &JevHub, pending: &PendingClarification, reply: &str) -> bool {
+    if !client.enabled(Item::VoiceIntent) {
         return false;
     }
     let state = json!({
@@ -72,19 +75,19 @@ pub async fn reply_abandons_pending(client: &JevClient, pending: &PendingClarifi
         "reply": clip(reply),
     });
     let qs = vec![("abandons".to_string(), contradiction_question())];
-    let Ok(answers) = client.ask(JevItem::VoiceIntent, VOICE_QUESTION_SET, false, state, &qs).await else {
+    let Ok(answers) = client.ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs).await else {
         return false;
     };
     match answers.noul("abandons") {
         Ok(p) => match client.accept_outcome(p) {
             Ok(()) => true,
             Err(r) => {
-                r.log(JevItem::VoiceIntent, VOICE_QUESTION_SET);
+                r.log(Item::VoiceIntent, VOICE_QUESTION_SET);
                 false
             }
         },
         Err(r) => {
-            r.log(JevItem::VoiceIntent, VOICE_QUESTION_SET);
+            r.log(Item::VoiceIntent, VOICE_QUESTION_SET);
             false
         }
     }
@@ -93,11 +96,11 @@ pub async fn reply_abandons_pending(client: &JevClient, pending: &PendingClarifi
 /// Possibly hold a dispatch. Any outcome other than `Dispatch` is returned
 /// unchanged (Jev never releases a held utterance); every fallback returns the
 /// gate's outcome unchanged.
-pub async fn tighten(client: &JevClient, outcome: GateOutcome) -> GateOutcome {
+pub async fn tighten(client: &JevHub, outcome: GateOutcome) -> GateOutcome {
     let GateOutcome::Dispatch { transcript } = &outcome else {
         return outcome;
     };
-    if !client.enabled(JevItem::VoiceIntent) {
+    if !client.enabled(Item::VoiceIntent) {
         return outcome;
     }
     match classify(client, transcript).await {
@@ -107,10 +110,10 @@ pub async fn tighten(client: &JevClient, outcome: GateOutcome) -> GateOutcome {
 }
 
 /// `Ok(true)` when Jev confidently judges the transcript `unclear`.
-async fn classify(client: &JevClient, transcript: &str) -> Result<bool, FallbackReason> {
+async fn classify(client: &JevHub, transcript: &str) -> Result<bool, Fallback> {
     let state = json!({ "transcript": clip(transcript) });
     let qs = vec![("intent".to_string(), intent_question())];
-    let answers = client.ask(JevItem::VoiceIntent, VOICE_QUESTION_SET, false, state, &qs).await?;
+    let answers = client.ask(Item::VoiceIntent, VOICE_QUESTION_SET, state, qs).await?;
     let c = answers.choice("intent", &INTENTS)?;
     if c.choice != UNCLEAR {
         return Ok(false);
@@ -122,8 +125,9 @@ async fn classify(client: &JevClient, transcript: &str) -> Result<bool, Fallback
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::system_one::testing::*;
-    use crate::services::system_one::{JevSettings, TransportError};
+    use visionclaw_jev::client::testing::{MockTransport, Script};
+    use visionclaw_jev::client::TransportError;
+    use visionclaw_jev::hub::testing::enabled_hub;
     use crate::services::voice_clarification::{AmbiguousSlot, ClarificationGate, DEFAULT_CONFIDENCE_THRESHOLD};
 
     fn intent_body(c: &str, conf: f64) -> String {
@@ -132,10 +136,10 @@ mod tests {
     fn noul_body(p: f64) -> String {
         json!({"model":"m","answers":{"abandons":{"type":"noul","noul":p}},"usage":{"input_tokens":1,"output_tokens":1}}).to_string()
     }
-    fn client(script: Script, auto: Option<&str>) -> (JevClient, std::sync::Arc<MockTransport>) {
+    fn client(script: Script, auto: Option<&str>) -> (JevHub, std::sync::Arc<MockTransport>) {
         let t = MockTransport::new(script);
         let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
-        (JevClient::with_transport(enabled_settings(&extra), t.clone()), t)
+        (enabled_hub(&extra, t.clone()), t)
     }
     fn gate() -> ClarificationGate {
         ClarificationGate::new(DEFAULT_CONFIDENCE_THRESHOLD)
@@ -179,7 +183,7 @@ mod tests {
         let before = dispatch();
         let held = gate().evaluate("spawn a", Some(0.9)); // missing slot: gate already holds
         let t = MockTransport::new(Script::Reply(200, intent_body(UNCLEAR, 1.0)));
-        let off = JevClient::with_transport(JevSettings::disabled(), t.clone());
+        let off = JevHub::with_transport(|_| None, t.clone());
         assert_eq!(tighten(&off, dispatch()).await, before);
         assert!(!reply_abandons_pending(&off, &pending(), "x").await);
         assert_eq!(t.calls(), 0);

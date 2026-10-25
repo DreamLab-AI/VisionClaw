@@ -390,7 +390,7 @@ impl SpeechSocket {
         // evaluated fresh instead of merged; after the gate it may only HOLD a
         // dispatch it judges unclear. Every fallback leaves the gate's own
         // outcome untouched, and Jev can never release a held utterance.
-        let jev = crate::services::system_one::global();
+        let jev = visionclaw_jev::hub::global();
         let outcome = match &pending {
             Some(p) => {
                 if crate::services::jev_voice::reply_abandons_pending(jev, p, &transcript).await {

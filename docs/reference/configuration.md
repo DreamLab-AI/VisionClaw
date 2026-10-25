@@ -266,37 +266,6 @@ diagram note VC-28.3 (`docs/diagrams/visionclaw/28-external-services.md` in the 
 
 ---
 
-## Jev option (opt-in typed decisions)
-
-The Jev option adds an opt-in step to seven decision points, using TypeSafe System One typed questions (Choice / Score / Noul over `POST /v1/systemone`). It is a proposed research candidate: no uplift is measured. **It is off by default.** With the flag off, with no endpoint, or on any failure, every feature takes its pre-change path and produces its pre-change output.
-
-**What leaves the process, when on:** only the text of the one decision being made, never credentials, never the selected agent's DID.
-
-| Item | Sends | Flag-off behaviour it must equal |
-|---|---|---|
-| `settings-patch` (VC-06-S1-01) | command text, a bounded shortlist of visible, non-secret setting paths/labels/ranges/current values | CommandInput hands the raw text to the settings assistant |
-| `action-class` (VC-06-S1-02) | command text | same |
-| `command-intent` (VC-34-S1-01) | command text | same (keyword commands never consult Jev) |
-| `palette-search` (VC-34-S1-02) | query, titles/descriptions of currently enabled palette commands | lexical palette filter only |
-| `edge-meaning` (VC-25-S1-01) | source/target labels and classes, the evidence span | edge left unclassified by the keyword classifier |
-| `nlq-plan` (VC-25-S1-02) | the question, entity candidates extracted by code | generative NL→SPARQL route |
-| `voice-intent` (VC-35-S1-01) | final transcript, pending request on a repair turn | `ClarificationGate` outcome |
-
-**Destination** (first match wins; `src/services/system_one.rs`): (1) `VISIONCLAW_JEV_ENDPOINT` with `VISIONCLAW_JEV_MODEL` and `VISIONCLAW_JEV_KEY_ENV` (the *name* of the env var holding the key); (2) `AGENTBOX_SYSTEM_ONE_ENDPOINT` + `AGENTBOX_SYSTEM_ONE_MODEL` when `AGENTBOX_SYSTEM_ONE_PROXY=1` (the agentbox loopback proxy holds the vendor key; no `Authorization` header is sent); (3) `https://api.typesafe.ai/v1/systemone`, model `jev-latest`, bearer `TYPESAFE_API_KEY`, only if that key is set; (4) otherwise unavailable and every caller falls back. Browsers never hold a key: the client calls the authenticated `GET /api/jev/status`, `POST /api/jev/command` and `POST /api/jev/palette`, and the server builds fixed, versioned question sets.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `VISIONCLAW_JEV` | unset (off) | Master flag (`1`/`true`/`yes`/`on`). |
-| `VISIONCLAW_JEV_<ITEM>` | on when master is on | `0` opts one item out: `SETTINGS_PATCH`, `ACTION_CLASS`, `COMMAND_INTENT`, `PALETTE_SEARCH`, `EDGE_MEANING`, `NLQ_PLAN`, `VOICE_INTENT`. |
-| `VISIONCLAW_JEV_MIN_CONFIDENCE` | `0.5` | Acceptance threshold for suggestions that a user reviews (command bar, palette). |
-| `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE` | unset | Threshold for decisions that change an outcome without a review (`edge-meaning`, `nlq-plan`, `voice-intent`). **Unset means accept nothing automatically.** Fit on labelled data first. |
-| `VISIONCLAW_JEV_TIMEOUT_MS` | `4000` | Hard deadline, capped at 4000; zero retries. |
-| `VISIONCLAW_JEV_LOCAL` | unset | Declares the explicit endpoint local (no consumer here is local-only). |
-
-**Fallback triggers** (all log one line `jev fallback item=… question_set=… reason=…` with no request content): `flag-off`, `no-endpoint`, `timeout`, `http-<code>`, `malformed` (unparseable body, missing answer, Choice key outside the offered set), `low-confidence`.
-
-**Authority stays in code.** Jev selects; it never writes, signs or approves. A settings patch is assembled by client code (value parsing, range clamp, step snap), shown as a diff, and applied only on the user's click through the existing settings store and authenticated path. Protected paths (secrets, tokens, auth, identity) are never offered. Voice: Jev can only hold a dispatch the gate would have released, or evaluate a repair reply fresh; it never releases a held utterance or fills a missing mandatory slot. Edge and query proposals still pass the domain/range gate and the read-only SPARQL validator.
-
 ## Datastores
 
 | Variable | Type | Default | Description |
@@ -441,30 +410,51 @@ Named volumes persist data and build caches:
 
 ## Jev option
 
-An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over `POST /v1/systemone`) beside five server and pipeline paths. **Everything is off by default.** With a flag off, no request is built and nothing leaves the process; with a flag on but no usable endpoint, or on any error, the path behaves exactly as it did before the option existed. Jev ranks, scores or annotates; every existing validation, approval, reasoner and write path stays authoritative. These are proposed research candidates: the wiring is tested, uplift is not yet measured.
+An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over `POST /v1/systemone`) beside twelve decision points. **Everything is off by default.** With an item off, no request is built and nothing leaves the process; with an item on but no usable endpoint, or on any error, the path behaves exactly as it did before the option existed. Jev ranks, scores, annotates or proposes; every existing validation, approval, reasoner and write path stays authoritative. These are proposed research candidates: the wiring is tested, uplift is not yet measured.
 
-The adapter is the self-contained crate `crates/visionclaw-jev` (reqwest, no cross-repo dependency).
+The adapter is the self-contained crate `crates/visionclaw-jev` (reqwest, no cross-repo dependency); the server builds on it and holds the only copy of any key. Browsers never hold a key: the client calls the authenticated `GET /api/jev/status`, `POST /api/jev/command` and `POST /api/jev/palette`, and the server builds fixed, versioned question sets.
 
-| Flag (default off) | Item | What leaves the process (only when on) | Effect |
+**One flag model.** An item is on when `VISIONCLAW_JEV_<ITEM>=1`, or when the master flag `VISIONCLAW_JEV=1` is set and the item is not set to `VISIONCLAW_JEV_<ITEM>=0`. With nothing set, everything is off. Truthy values are `1`, `true`, `yes`, `on`; falsy are `0`, `false`, `no`, `off`.
+
+| Item flag suffix | Item | What leaves the process (only when on) | Flag-off behaviour it must equal |
 |---|---|---|---|
-| `VISIONCLAW_JEV_MEMORY_RERANK=1` | VC-38-S1-01 | the query and up to `VISIONCLAW_JEV_RERANK_MAX` (10) already-returned hit snippets; excluded namespaces are never sent | reorders `POST /api/memory-cloud/query` hits; adds `sidecar.jev` note |
-| `VISIONCLAW_JEV_PROPOSAL_TRIAGE=1` | VC-24-S1-01 | rationale, requested change and source excerpt of up to `VISIONCLAW_JEV_TRIAGE_MAX` (20) pending/claimed proposals | adds `jev` annotation to, and orders, `GET /api/broker/inbox` cases; decide routes untouched |
-| `VISIONCLAW_JEV_HEALTH_TRIAGE=1` | VC-08-S1-01 | sanitised canary results, `kg_backend_up`, build SHA; only when the state is degraded | adds a `jev_triage` hypothesis to `GET /api/canary/status`; probe fields unchanged |
-| `VISIONCLAW_JEV_INGEST_SUGGEST=1` | VC-21-S1-01 | a bounded excerpt, frontmatter and vocabulary types of an admitted page with no `type`, up to `VISIONCLAW_JEV_INGEST_MAX_PAGES` (25) per sync | draft suggestions to `VISIONCLAW_JEV_INGEST_DRAFTS` (JSON lines) or the log; the graph is unchanged |
-| `VISIONCLAW_JEV_PATCH_RANK=1` | VC-20-S1-01 and VG-01-S1-01 (one implementation; adds unsupported-claim flag, novelty and review-urgency scores) | hypothesis, diff and consequence summary of the proposals passed to `vault rank` | prints a reading order; needs `cargo build -p vault --features jev` |
+| `MEMORY_RERANK` | VC-38-S1-01 | the query and up to `VISIONCLAW_JEV_RERANK_MAX` (10) already-returned hit snippets; excluded namespaces are never sent | `POST /api/memory-cloud/query` hit order; Jev adds a `sidecar.jev` note |
+| `PROPOSAL_TRIAGE` | VC-24-S1-01 | rationale, requested change and source excerpt of up to `VISIONCLAW_JEV_TRIAGE_MAX` (20) pending/claimed proposals | `GET /api/broker/inbox` unannotated, original order; decide routes untouched |
+| `HEALTH_TRIAGE` | VC-08-S1-01 | sanitised canary results, `kg_backend_up`, build SHA; only when the state is degraded | `GET /api/canary/status` without `jev_triage`; probe fields unchanged |
+| `INGEST_SUGGEST` | VC-21-S1-01 | a bounded excerpt, frontmatter and vocabulary types of an admitted page with no `type`, up to `VISIONCLAW_JEV_INGEST_MAX_PAGES` (25) per sync | no drafts; the graph is unchanged either way (drafts go to `VISIONCLAW_JEV_INGEST_DRAFTS` JSON lines or the log) |
+| `PATCH_RANK` | VC-20-S1-01, VG-01-S1-01 | hypothesis, diff and consequence summary of the proposals passed to `vault rank` (needs `cargo build -p vault --features jev`) | the proposals' original reading order |
+| `SETTINGS_PATCH` | VC-06-S1-01 | command text, a bounded shortlist of visible, non-secret setting paths, labels, ranges and current values | the command bar hands the raw text to the settings assistant |
+| `ACTION_CLASS` | VC-06-S1-02 | command text | same |
+| `COMMAND_INTENT` | VC-34-S1-01 | command text, only when no keyword command matched | same (keyword commands never consult Jev) |
+| `PALETTE_SEARCH` | VC-34-S1-02 | the query and titles/descriptions of currently enabled palette commands | lexical palette filter only; Jev suggestions append after lexical results |
+| `EDGE_MEANING` | VC-25-S1-01 | source and target labels and classes, and the evidence span, only for edges the keyword classifier left unclassified | edge left unclassified |
+| `NLQ_PLAN` | VC-25-S1-02 | the question and entity candidates extracted by code | the generative natural-language to SPARQL route |
+| `VOICE_INTENT` | VC-35-S1-01 | the final transcript; the pending request on a repair turn; never the agent DID | the `ClarificationGate` outcome |
 
 **Endpoint resolution** (first match wins):
 
-1. `VISIONCLAW_JEV_ENDPOINT` (base URL or full `/v1/systemone` URL), `VISIONCLAW_JEV_MODEL` (default `jev-latest`), and the key read from the environment variable *named* by `VISIONCLAW_JEV_KEY_ENV` (none sent if unset);
-2. `AGENTBOX_SYSTEM_ONE_ENDPOINT` + `AGENTBOX_SYSTEM_ONE_MODEL` when `AGENTBOX_SYSTEM_ONE_PROXY=1` (the agentbox loopback proxy holds the key; no `Authorization` header is sent);
+1. `VISIONCLAW_JEV_ENDPOINT` (base URL or full `/v1/systemone` URL), `VISIONCLAW_JEV_MODEL` (default `jev-latest`), and the key read from the environment variable *named* by `VISIONCLAW_JEV_KEY_ENV`. If that variable is named but unset, the endpoint is treated as unavailable (no unauthenticated request is sent). With no key variable named, none is sent;
+2. `AGENTBOX_SYSTEM_ONE_ENDPOINT` (or `AGENTBOX_SKILL_ROUTE_API`) + `AGENTBOX_SYSTEM_ONE_MODEL` (or `AGENTBOX_SKILL_ROUTE_MODEL`) when `AGENTBOX_SYSTEM_ONE_PROXY=1` (the agentbox loopback proxy holds the key; no `Authorization` header is sent);
 3. `https://api.typesafe.ai/v1/systemone`, model `jev-latest`, `Authorization: Bearer $TYPESAFE_API_KEY`, only if that key is set;
 4. otherwise Jev is unavailable and the path falls back.
 
-Memory, proposal, ingest and patch content is private, so those four items are **local-only**: they refuse steps 2 and 3 unless the endpoint is declared local with `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=1` `VISIONCLAW_JEV_LOCAL=1`, or the explicit override `VISIONCLAW_JEV_ALLOW_CLOUD=1`. Health triage sends sanitised results only and may use any step.
+Memory, proposal, ingest and patch content is private, so `MEMORY_RERANK`, `PROPOSAL_TRIAGE`, `INGEST_SUGGEST` and `PATCH_RANK` are **local-only**: they refuse steps 2 and 3 unless the endpoint is declared local with `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=1` or `VISIONCLAW_JEV_LOCAL=1`, or the explicit override `VISIONCLAW_JEV_ALLOW_CLOUD=1`. An endpoint named explicitly in step 1 is the operator's own declaration and is accepted. The other eight items send short command text, one evidence sentence or sanitised results and may use any step; turn them on only if that text may reach the resolved destination.
 
-**Fallback.** Flag off, no endpoint, transport error, timeout (`VISIONCLAW_JEV_TIMEOUT_MS`, default 3000, clamped to 100-4000, no retries), any non-2xx status (including 429/529), an unparsable body, a missing or mistyped answer, a Choice key outside the offered set, or confidence below the threshold all leave the caller with its pre-change result. One log line records the reason (`no-endpoint`, `timeout`, `http-<code>`, `malformed`, `low-confidence`) and never request content. Thresholds default conservatively and are overridable: `VISIONCLAW_JEV_RERANK_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_UNSUPPORTED_AT`, `VISIONCLAW_JEV_PATCH_MIN_CONFIDENCE`, `VISIONCLAW_JEV_PATCH_CONTRADICTION_AT`, `VISIONCLAW_JEV_INGEST_MIN_CONFIDENCE`, `VISIONCLAW_JEV_HEALTH_MIN_CONFIDENCE`. Fit them on labelled data before relying on them.
+**Thresholds.**
 
-**Egress record.** Each flag opens one route to the endpoint resolved above and nothing else; the destination is whatever step 1-3 selects, so a deployment that sets none has no egress.
+| Variable | Default | Meaning |
+|---|---|---|
+| `VISIONCLAW_JEV_MIN_CONFIDENCE` | `0.5` | Acceptance threshold for suggestions a user reviews (command bar, palette). |
+| `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE` | unset | Threshold for decisions that change an outcome without a review (`EDGE_MEANING`, `NLQ_PLAN`, `VOICE_INTENT`). **Unset means accept nothing automatically**, so turning those three on does nothing until a threshold is fitted on labelled data. |
+| `VISIONCLAW_JEV_TIMEOUT_MS` | `3000` | Hard deadline, clamped to 100-4000; zero retries. |
+
+The five server and pipeline items only rank, annotate or draft for a human, so none acts without review; they use their own annotate-level thresholds, overridable: `VISIONCLAW_JEV_RERANK_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_MIN_CONFIDENCE`, `VISIONCLAW_JEV_TRIAGE_UNSUPPORTED_AT`, `VISIONCLAW_JEV_PATCH_MIN_CONFIDENCE`, `VISIONCLAW_JEV_PATCH_CONTRADICTION_AT`, `VISIONCLAW_JEV_INGEST_MIN_CONFIDENCE`, `VISIONCLAW_JEV_HEALTH_MIN_CONFIDENCE`. Fit them on labelled data before relying on them.
+
+**Fallback.** Flag off, no endpoint, transport error, timeout, any non-2xx status (including 429/529), an unparsable body, a missing or mistyped answer, a Choice key outside the offered set, or confidence below the threshold all leave the caller with its pre-change result. One log line records the reason (`no-endpoint`, `timeout`, `http-<code>`, `malformed`, `low-confidence`) and never request content.
+
+**Authority stays in code.** A settings patch is assembled by client code (value parsing, range clamp, step snap), shown as a diff, and applied only on the user's click through the existing settings store and authenticated path. Protected paths (secrets, tokens, auth, identity) are never offered. Voice: Jev can only hold a dispatch the gate would have released, or evaluate a repair reply fresh; it never releases a held utterance or fills a missing mandatory slot. Edge and query proposals still pass the domain/range gate and the read-only SPARQL validator.
+
+**Egress record.** Each item opens one route to the endpoint resolved above and nothing else; the destination is whatever step 1-3 selects, so a deployment that sets none has no egress.
 
 ## See also
 

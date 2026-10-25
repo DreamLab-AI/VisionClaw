@@ -7,7 +7,7 @@
 //! ones.
 //!
 //! * Off by default: each item has its own `VISIONCLAW_JEV_<ITEM>=1` flag
-//!   ([`config::Item`]). With the flag off no request is built and nothing
+//!   ([`config::Item`]); `VISIONCLAW_JEV=1` turns on every item not set to `0`. With the flag off no request is built and nothing
 //!   leaves the process.
 //! * Endpoint resolution follows the estate contract ([`config::resolve`]).
 //! * Every failure maps to a [`Fallback`] reason; callers receive `Err` and
@@ -28,21 +28,31 @@
 //! | VC-21-S1-01 ingest metadata suggestions | [`ingest`] |
 //! | VC-24-S1-01 proposal queue triage | [`proposal_triage`] |
 //! | VC-08-S1-01 degraded-state triage | [`health_triage`] |
+//! | VC-06-S1-01/02, VC-34-S1-01/02 command bar, settings patch, palette | [`ui`] |
+//! | VC-25-S1-01 edge meaning from evidence | [`edge`] |
+//!
+//! The server drives the command-surface, graph and voice items through one
+//! shared [`JevHub`] ([`hub`]); the NLQ and voice question sets stay in the
+//! server beside the types they produce.
 //!
 //! These are proposed research candidates: wiring and fallback tests show
 //! correctness of the seam, not measured uplift.
 
 pub mod client;
 pub mod config;
+pub mod edge;
 pub mod health_triage;
+pub mod hub;
 pub mod ingest;
 pub mod patch_rank;
 pub mod proposal_triage;
 pub mod rerank;
+pub mod ui;
 pub mod wire;
 
 pub use client::{HttpTransport, Jev, Transport, TransportError};
 pub use config::{Item, Resolved};
+pub use hub::JevHub;
 
 /// Why a Jev call fell back to the pre-change behaviour.
 ///
@@ -67,6 +77,12 @@ pub enum Fallback {
 }
 
 impl Fallback {
+    /// Log this reason once for `item` (see [`log_fallback`]); for hosts that
+    /// apply an acceptance threshold themselves after a successful ask.
+    pub fn log(&self, item: Item, version: &str) {
+        log_fallback(item, version, self);
+    }
+
     /// The log token: `flag-off`, `no-endpoint`, `timeout`, `http-<code>`,
     /// `transport`, `malformed` or `low-confidence`.
     pub fn tag(&self) -> String {

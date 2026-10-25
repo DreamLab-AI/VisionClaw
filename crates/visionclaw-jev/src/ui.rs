@@ -3,18 +3,23 @@
 //!
 //! Pure question builders and answer interpreters plus two async entry points
 //! ([`understand_command`], [`rank_palette`]) that wrap
-//! [`crate::services::system_one::JevClient`]. Both entry points return
-//! `Err(FallbackReason)` on every failure; the HTTP handler turns that into
+//! [`crate::hub::JevHub`]. Both entry points return
+//! `Err(Fallback)` on every failure; the HTTP handler turns that into
 //! `{"used": false, "reason": …}` and the browser keeps its pre-change
 //! behaviour. Jev only *suggests*: the client assembles any settings patch
 //! deterministically, the user reviews and applies it through the existing
 //! authenticated `/api/settings/*` path, and palette suggestions run the
 //! normal registry handler.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::services::system_one::{FallbackReason, JevClient, JevItem, Question};
+use crate::config::Item;
+use crate::hub::JevHub;
+use crate::wire::Question;
+use crate::Fallback;
 
 /// Question-set version for the command bar fan-out (logged on fallback).
 pub const COMMAND_QUESTION_SET: &str = "vc-command-v1";
@@ -194,31 +199,31 @@ pub fn sanitise_candidates(input: &[SettingCandidate]) -> Vec<SettingCandidate> 
 fn intent_question() -> Question {
     Question::Choice {
         instructions: "Which kind of request is `command`, a short instruction typed into the command bar of a graph-visualisation app? Choose the single best fit. Choose `none` when the text is not a request this app can serve, is a negation of an action (for example 'do not hide the labels'), or is too vague to pick.".into(),
-        criteria: vec![
+        criteria: BTreeMap::from([
             ("settings_change".into(), "The user wants to change how the view, graph or physics looks or behaves: a setting value, a toggle, a colour, a size or a force. Not for searching or for saving a view.".into()),
             ("graph_search".into(), "The user wants to find or focus on particular nodes, edges or entities in the graph by name or property.".into()),
             ("view_save_load".into(), "The user wants to save the current camera/layout view or restore a previously saved one.".into()),
             ("analytics".into(), "The user wants analytics about the graph such as clusters, centrality, counts or statistics.".into()),
             ("help".into(), "The user is asking how to do something, what a control does, or for the list of commands.".into()),
             ("none".into(), "None of the other options applies: unsupported, negated, off-topic or too vague.".into()),
-        ],
+        ]),
     }
 }
 
 fn action_class_question() -> Question {
     Question::Choice {
         instructions: "What kind of effect does `command` ask for? `persistent_setting` changes a saved user preference that stays after reload. `temporary_physics_action` is a one-off action on the running simulation (pause, resume, reheat, re-run layout, reset the layout) that is not saved as a preference. `saved_view_action` saves or restores a named view. Choose `clarify` when the text could mean more than one of these (for example 'reset' alone, or 'slow it down' which could be a saved physics preference or a pause) or when it fits none.".into(),
-        criteria: vec![
+        criteria: BTreeMap::from([
             ("persistent_setting".into(), "Change a saved preference or default value, e.g. 'set repulsion to 200', 'always show labels'.".into()),
             ("temporary_physics_action".into(), "A one-off simulation action that is not saved: pause, resume, restart or reset the layout positions only.".into()),
             ("saved_view_action".into(), "Save, name, load or restore a saved view.".into()),
             ("clarify".into(), "Ambiguous between the other options, or none of them applies.".into()),
-        ],
+        ]),
     }
 }
 
 fn setting_question(cands: &[SettingCandidate]) -> Question {
-    let mut criteria: Vec<(String, String)> = cands
+    let mut criteria: BTreeMap<String, String> = cands
         .iter()
         .map(|c| {
             let range = match (c.min, c.max) {
@@ -229,7 +234,7 @@ fn setting_question(cands: &[SettingCandidate]) -> Question {
             (c.path.clone(), format!("{} ({}).{}{}", c.label, c.kind, range, desc))
         })
         .collect();
-    criteria.push((NO_SETTING.into(), "None of the listed settings is what the user wants to change.".into()));
+    criteria.insert(NO_SETTING.into(), "None of the listed settings is what the user wants to change.".into());
     Question::Choice {
         instructions: "Which listed setting does `command` ask to change? Choose the one setting the text names or clearly implies. Choose `none` when no listed setting fits, when the text only asks a question, or when it does not ask for a change.".into(),
         criteria,
@@ -245,24 +250,24 @@ fn value_missing_question() -> Question {
 /// Ask the command-bar questions enabled by flag. `Err` ⇒ no usable
 /// understanding; keep the pre-change path.
 pub async fn understand_command(
-    client: &JevClient,
+    client: &JevHub,
     req: &CommandRequest,
-) -> Result<CommandUnderstanding, FallbackReason> {
-    let want_intent = client.enabled(JevItem::CommandIntent);
-    let want_class = client.enabled(JevItem::ActionClass);
-    let want_setting = client.enabled(JevItem::SettingsPatch);
+) -> Result<CommandUnderstanding, Fallback> {
+    let want_intent = client.enabled(Item::CommandIntent);
+    let want_class = client.enabled(Item::ActionClass);
+    let want_setting = client.enabled(Item::SettingsPatch);
     let lead = if want_intent {
-        JevItem::CommandIntent
+        Item::CommandIntent
     } else if want_class {
-        JevItem::ActionClass
+        Item::ActionClass
     } else if want_setting {
-        JevItem::SettingsPatch
+        Item::SettingsPatch
     } else {
-        return Err(FallbackReason::FlagOff);
+        return Err(Fallback::FlagOff);
     };
     let command = clip(req.command.trim(), MAX_TEXT_CHARS);
     if command.is_empty() {
-        return Err(FallbackReason::Malformed);
+        return Err(Fallback::Malformed);
     }
     let cands = if want_setting { sanitise_candidates(&req.candidates) } else { Vec::new() };
     let want_setting = want_setting && !cands.is_empty();
@@ -279,15 +284,15 @@ pub async fn understand_command(
         qs.push(("value_missing".into(), value_missing_question()));
     }
     if qs.is_empty() {
-        return Err(FallbackReason::FlagOff);
+        return Err(Fallback::FlagOff);
     }
     let answers = client
-        .ask(lead, COMMAND_QUESTION_SET, false, json!({ "command": command }), &qs)
+        .ask(lead, COMMAND_QUESTION_SET, json!({ "command": command }), qs)
         .await?;
 
     let mut out = CommandUnderstanding::default();
     let mut any = false;
-    let suggest = |c: &crate::services::system_one::ChoiceAnswer| client.accept_suggestion(c.confidence).is_ok();
+    let suggest = |c: &crate::wire::ChoiceAnswer| client.accept_suggestion(c.confidence).is_ok();
     if want_intent {
         if let Ok(c) = answers.choice("intent", &INTENTS) {
             if c.choice != "none" && suggest(&c) {
@@ -319,17 +324,17 @@ pub async fn understand_command(
         Ok(out)
     } else {
         // Nothing parsed or nothing cleared the threshold.
-        Err(FallbackReason::LowConfidence)
+        Err(Fallback::LowConfidence)
     }
 }
 
 /// Ask Jev to rank the currently enabled palette commands for `req.query`.
 pub async fn rank_palette(
-    client: &JevClient,
+    client: &JevHub,
     req: &PaletteRequest,
-) -> Result<PaletteRanking, FallbackReason> {
-    if !client.enabled(JevItem::PaletteSearch) {
-        return Err(FallbackReason::FlagOff);
+) -> Result<PaletteRanking, Fallback> {
+    if !client.enabled(Item::PaletteSearch) {
+        return Err(Fallback::FlagOff);
     }
     let query = clip(req.query.trim(), MAX_TEXT_CHARS);
     let entries: Vec<&PaletteEntry> = req
@@ -339,7 +344,7 @@ pub async fn rank_palette(
         .take(MAX_PALETTE_CANDIDATES)
         .collect();
     if query.is_empty() || entries.is_empty() {
-        return Err(FallbackReason::Malformed);
+        return Err(Fallback::Malformed);
     }
     let state = json!({
         "query": query,
@@ -370,7 +375,7 @@ pub async fn rank_palette(
             instructions: "At least one command listed in `commands` accomplishes what `query` asks for.".into(),
         },
     ));
-    let answers = client.ask(JevItem::PaletteSearch, PALETTE_QUESTION_SET, false, state, &qs).await?;
+    let answers = client.ask(Item::PaletteSearch, PALETTE_QUESTION_SET, state, qs).await?;
     let any = answers.noul("any")?;
     let mut ranked = Vec::new();
     for (i, e) in entries.iter().enumerate() {
@@ -389,8 +394,9 @@ pub async fn rank_palette(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::system_one::testing::*;
-    use crate::services::system_one::{JevSettings, TransportError};
+    use crate::client::testing::{MockTransport, Script};
+    use crate::client::TransportError;
+    use crate::hub::testing::enabled_hub;
     use std::sync::Arc;
 
     fn cands() -> Vec<SettingCandidate> {
@@ -408,9 +414,9 @@ mod tests {
         json!({"type":"choice","choice":c,"confidence":conf,"probabilities":{c:1.0}})
     }
 
-    fn client(script: Script, extra: &[(&str, &str)]) -> (JevClient, Arc<MockTransport>) {
+    fn client(script: Script, extra: &[(&str, &str)]) -> (JevHub, Arc<MockTransport>) {
         let t = MockTransport::new(script);
-        (JevClient::with_transport(enabled_settings(extra), t.clone()), t)
+        (enabled_hub(extra, t.clone()), t)
     }
 
     fn req() -> CommandRequest {
@@ -472,23 +478,22 @@ mod tests {
         let ok = resp(json!({"intent": ch("help", 0.9), "action_class": ch("clarify", 0.9), "setting": ch("none", 0.9), "value_missing": {"type":"noul","noul":0.5}}));
         // flag off: nothing sent
         let t = MockTransport::new(Script::Reply(200, ok.clone()));
-        let off = JevClient::with_transport(JevSettings::disabled(), t.clone());
-        assert_eq!(understand_command(&off, &req()).await.unwrap_err(), FallbackReason::FlagOff);
+        let off = JevHub::with_transport(|_| None, t.clone());
+        assert_eq!(understand_command(&off, &req()).await.unwrap_err(), Fallback::FlagOff);
         assert_eq!(t.calls(), 0);
         // no endpoint
         let t = MockTransport::new(Script::Reply(200, ok.clone()));
-        let s = JevSettings::from_lookup(&|k| (k == "VISIONCLAW_JEV").then(|| "1".to_string()));
-        let c = JevClient::with_transport(s, t.clone());
-        assert_eq!(understand_command(&c, &req()).await.unwrap_err(), FallbackReason::NoEndpoint);
+        let c = JevHub::with_transport(|k| (k == "VISIONCLAW_JEV").then(|| "1".to_string()), t.clone());
+        assert_eq!(understand_command(&c, &req()).await.unwrap_err(), Fallback::NoEndpoint);
         assert_eq!(t.calls(), 0);
         for (script, want) in [
-            (Script::Fail(TransportError::Timeout), FallbackReason::Timeout),
-            (Script::Reply(503, "{}".into()), FallbackReason::Http(503)),
-            (Script::Reply(200, "nope".into()), FallbackReason::Malformed),
+            (Script::Fail(TransportError::Timeout), Fallback::Timeout),
+            (Script::Reply(503, "{}".into()), Fallback::Http(503)),
+            (Script::Reply(200, "nope".into()), Fallback::Malformed),
             // foreign choice keys parse as malformed per question → nothing usable
-            (Script::Reply(200, resp(json!({"intent": ch("rm_rf", 0.99)}))), FallbackReason::LowConfidence),
+            (Script::Reply(200, resp(json!({"intent": ch("rm_rf", 0.99)}))), Fallback::LowConfidence),
             // low confidence everywhere
-            (Script::Reply(200, resp(json!({"intent": ch("help", 0.1), "action_class": ch("persistent_setting", 0.2), "setting": ch("visualisation.nodes.size", 0.3), "value_missing": {"type":"noul","noul":0.5}}))), FallbackReason::LowConfidence),
+            (Script::Reply(200, resp(json!({"intent": ch("help", 0.1), "action_class": ch("persistent_setting", 0.2), "setting": ch("visualisation.nodes.size", 0.3), "value_missing": {"type":"noul","noul":0.5}}))), Fallback::LowConfidence),
         ] {
             let (c, _) = client(script, &[]);
             assert_eq!(understand_command(&c, &req()).await.unwrap_err(), want);
@@ -535,18 +540,18 @@ mod tests {
         let r = rank_palette(&c, &pal()).await.unwrap();
         assert!(r.no_match && r.ranked.is_empty());
         for (script, want) in [
-            (Script::Fail(TransportError::Timeout), FallbackReason::Timeout),
-            (Script::Reply(429, "{}".into()), FallbackReason::Http(429)),
-            (Script::Reply(200, "x".into()), FallbackReason::Malformed),
+            (Script::Fail(TransportError::Timeout), Fallback::Timeout),
+            (Script::Reply(429, "{}".into()), Fallback::Http(429)),
+            (Script::Reply(200, "x".into()), Fallback::Malformed),
             // out-of-range score is malformed
-            (Script::Reply(200, resp(json!({"c0": sc(5.0, 0.9), "c1": sc(0.0, 0.9), "any": {"type":"noul","noul":0.9}}))), FallbackReason::Malformed),
+            (Script::Reply(200, resp(json!({"c0": sc(5.0, 0.9), "c1": sc(0.0, 0.9), "any": {"type":"noul","noul":0.9}}))), Fallback::Malformed),
         ] {
             let (c, _) = client(script, &[]);
             assert_eq!(rank_palette(&c, &pal()).await.unwrap_err(), want);
         }
         let t = MockTransport::new(Script::Reply(200, "{}".into()));
-        let off = JevClient::with_transport(JevSettings::disabled(), t.clone());
-        assert_eq!(rank_palette(&off, &pal()).await.unwrap_err(), FallbackReason::FlagOff);
+        let off = JevHub::with_transport(|_| None, t.clone());
+        assert_eq!(rank_palette(&off, &pal()).await.unwrap_err(), Fallback::FlagOff);
         assert_eq!(t.calls(), 0);
     }
 

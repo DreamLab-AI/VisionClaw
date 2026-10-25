@@ -128,7 +128,7 @@ mod tests {
             "contradiction":{"type":"noul","noul":0.1},
             "unsupported":{"type":"noul","noul":0.1},
             "novelty":{"type":"score","score":1.0,"confidence":conf},
-            "urgency":{"type":"score","score":support,"confidence":conf}}})
+            "urgency":{"type":"score","score":support.min(2.0),"confidence":conf}}})
         .to_string()
     }
 

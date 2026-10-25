@@ -235,6 +235,10 @@ pub mod testing {
         pub fn calls(&self) -> usize {
             self.seen.lock().unwrap().len()
         }
+        /// The last request body sent.
+        pub fn last_body(&self) -> Option<Value> {
+            self.seen.lock().unwrap().last().cloned()
+        }
     }
 
     #[async_trait]
