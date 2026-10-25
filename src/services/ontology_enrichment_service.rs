@@ -370,7 +370,6 @@ category: engineer
     async fn jev_gap_fill_accepts_confident_proposal_but_never_overrides() {
         use visionclaw_jev::client::testing::{MockTransport, Script};
         use visionclaw_jev::hub::testing::enabled_hub;
-        use visionclaw_jev::JevHub;
         let jev = enabled_hub(
             &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
             MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))),

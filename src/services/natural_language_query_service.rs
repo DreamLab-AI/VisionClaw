@@ -499,7 +499,6 @@ Explanation: This finds all instances.
     async fn jev_plan_accept_path_validates_read_only() {
         use visionclaw_jev::client::testing::{MockTransport, Script};
         use visionclaw_jev::hub::testing::enabled_hub;
-        use visionclaw_jev::JevHub;
         let svc = create_test_service().with_jev(enabled_hub(
             &[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")],
             MockTransport::new(Script::Reply(200, jev_body(true))),
