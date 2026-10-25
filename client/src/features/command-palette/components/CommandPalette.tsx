@@ -13,6 +13,7 @@ export function CommandPalette() {
     searchQuery,
     selectedIndex,
     filteredCommands,
+    suggestedCommands,
     setSearchQuery,
     navigateUp,
     navigateDown,
@@ -202,7 +203,7 @@ export function CommandPalette() {
           role="listbox"
           aria-label="Available commands"
         >
-          {filteredCommands.length === 0 ? (
+          {filteredCommands.length === 0 && suggestedCommands.length === 0 ? (
             <div className="px-4 py-8 text-center text-muted-foreground">
               {searchQuery ? 'No commands found' : 'No recent commands'}
             </div>
@@ -214,6 +215,14 @@ export function CommandPalette() {
                 </div>
               )}
               {filteredCommands.map((command, index) => renderCommand(command, index))}
+              {suggestedCommands.length > 0 && (
+                <>
+                  <div className="px-4 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Suggested (semantic)
+                  </div>
+                  {suggestedCommands.map((command, i) => renderCommand(command, filteredCommands.length + i))}
+                </>
+              )}
             </>
           )}
         </div>

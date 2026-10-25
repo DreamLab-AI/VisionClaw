@@ -514,10 +514,12 @@ async fn main() -> std::io::Result<()> {
     info!("[main] Initializing Natural Language Query Service...");
     let perplexity_service =
         Arc::new(visionclaw_server::services::perplexity_service::PerplexityService::new());
+    // Jev option (opt-in, off unless VISIONCLAW_JEV=1): shared typed-decision client.
+    let jev_client = visionclaw_server::services::system_one::global().clone();
     let nl_query_service = Arc::new(visionclaw_server::services::natural_language_query_service::NaturalLanguageQueryService::new(
         schema_service.clone(),
         perplexity_service.clone(),
-    ));
+    ).with_jev(jev_client.clone()));
     info!("[main] Natural Language Query Service initialized");
 
     // Initialize Semantic Pathfinding Service
@@ -1069,6 +1071,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(app_state_data.workspace_addr.clone()))
             .app_data(web::Data::new(schema_service.clone()))
             .app_data(web::Data::new(nl_query_service.clone()))
+            // Jev option (off by default; VISIONCLAW_JEV=1 to enable).
+            .app_data(web::Data::new(jev_client.clone()))
             .app_data(web::Data::new(pathfinding_service.clone()))
             .app_data(app_state_data.nostr_service.clone().unwrap_or_else(|| web::Data::new(NostrService::default())))
             .app_data(app_state_data.feature_access.clone())
@@ -1168,6 +1172,7 @@ async fn main() -> std::io::Result<()> {
                     .configure(visionclaw_server::handlers::configure_physics_routes)
                     .configure(visionclaw_server::handlers::configure_schema_routes)
                     .configure(visionclaw_server::handlers::configure_nl_query_routes)
+                    .configure(visionclaw_server::handlers::configure_jev_routes)
                     .configure(visionclaw_server::handlers::configure_pathfinding_routes)
                     .configure(visionclaw_server::handlers::configure_semantic_routes)
                     // ADR-2066: `/api/inference/*` removed. Every handler in the

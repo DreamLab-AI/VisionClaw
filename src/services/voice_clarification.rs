@@ -222,6 +222,18 @@ impl ClarificationGate {
     }
 }
 
+/// Hold `transcript` for a repair turn because the Jev option judged it
+/// unclear (VC-35-S1-01). This can only make the gate *stricter*: it never
+/// releases a held utterance or fills a missing slot.
+pub fn hold_unclear(transcript: &str) -> GateOutcome {
+    let transcript = transcript.trim().to_string();
+    let slot = AmbiguousSlot::LowConfidence;
+    GateOutcome::Clarify {
+        prompt: prompt_for(slot, &transcript),
+        pending: PendingClarification { slot, original_transcript: transcript },
+    }
+}
+
 /// Merge a repair reply into the held clarification.
 ///
 ///   * `LowConfidence` — the whole utterance was mis-heard, so the repair is a

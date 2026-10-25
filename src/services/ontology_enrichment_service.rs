@@ -15,6 +15,8 @@ use visionclaw_domain::models::graph::GraphData;
 pub struct OntologyEnrichmentService {
     reasoner: Arc<OntologyReasoner>,
     classifier: Arc<EdgeClassifier>,
+    /// Jev option (VC-25-S1-01). `None` ⇒ pre-change behaviour exactly.
+    jev: Option<crate::services::system_one::JevClient>,
 }
 
 impl OntologyEnrichmentService {
@@ -24,7 +26,16 @@ impl OntologyEnrichmentService {
         Self {
             reasoner,
             classifier,
+            jev: None,
         }
+    }
+
+    /// Attach the Jev option: unclassified edges get a proposal-only second
+    /// opinion (see [`crate::services::jev_edge`]). Off unless the client's
+    /// flag and threshold allow it.
+    pub fn with_jev(mut self, jev: crate::services::system_one::JevClient) -> Self {
+        self.jev = Some(jev);
+        self
     }
 
     /// Enrich a graph with ontology information
@@ -131,6 +142,25 @@ impl OntologyEnrichmentService {
                     tgt.owl_class_iri.as_deref(),
                     &context,
                 );
+
+                // VC-25-S1-01: Jev fills only the gaps the deterministic
+                // classifier left; any fallback leaves `property_iri` None.
+                let property_iri = match property_iri {
+                    Some(p) => Some(p),
+                    None => {
+                        crate::services::jev_edge::jev_gap_fill(
+                            self.jev.as_ref(),
+                            &crate::services::jev_edge::EdgeEvidence {
+                                source_label: &src.label,
+                                target_label: &tgt.label,
+                                source_class: src.owl_class_iri.as_deref(),
+                                target_class: tgt.owl_class_iri.as_deref(),
+                                evidence: &context,
+                            },
+                        )
+                        .await
+                    }
+                };
 
                 if let Some(iri) = property_iri {
                     edge.owl_property_iri = Some(iri.clone());
@@ -285,5 +315,80 @@ category: engineer
 
         let context = service.extract_link_context(content, "Apple Inc");
         assert_eq!(context, "Tim Cook is the CEO of [[Apple Inc]].");
+    }
+
+    // ---- VC-25-S1-01: Jev option --------------------------------------
+
+    fn two_node_graph() -> visionclaw_domain::models::graph::GraphData {
+        use visionclaw_domain::models::{edge::Edge, graph::GraphData, node::Node};
+        let mut g = GraphData::new();
+        let mut a = Node::new_with_id("a".into(), Some(1));
+        a.label = "Ada".into();
+        a.owl_class_iri = Some("mv:Person".into());
+        let mut b = Node::new_with_id("b".into(), Some(2));
+        b.label = "Acme".into();
+        b.owl_class_iri = Some("mv:Company".into());
+        g.nodes = vec![a, b];
+        g.edges = vec![Edge::new(1, 2, 1.0)];
+        g
+    }
+
+    const GAP_CONTENT: &str = "Ada has been seen near [[Acme]] recently.";
+
+    fn jev_resp(pred: &str) -> String {
+        serde_json::json!({"model":"m","answers":{
+            "predicate":{"type":"choice","choice":pred,"confidence":0.97,"probabilities":{}},
+            "asserted":{"type":"noul","noul":0.97}},"usage":{"input_tokens":1,"output_tokens":1}})
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn jev_gap_fill_is_off_equals_pre_change() {
+        use crate::services::system_one::testing::*;
+        use crate::services::system_one::JevClient;
+        // Baseline: no Jev attached.
+        let base = crate::test_helpers::create_test_enrichment_service();
+        let mut g0 = two_node_graph();
+        base.enrich_edges(&mut g0, GAP_CONTENT).await.unwrap();
+        // Attached but flag off / erroring / unthresholded: identical edges.
+        let variants = vec![
+            JevClient::disabled(),
+            JevClient::with_transport(enabled_settings(&[]), MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt")))),
+            JevClient::with_transport(enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]), MockTransport::new(Script::Reply(500, "".into()))),
+            JevClient::with_transport(enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]), MockTransport::new(Script::Reply(200, "junk".into()))),
+        ];
+        for v in variants {
+            let svc = crate::test_helpers::create_test_enrichment_service().with_jev(v);
+            let mut g = two_node_graph();
+            svc.enrich_edges(&mut g, GAP_CONTENT).await.unwrap();
+            assert_eq!(g.edges[0].owl_property_iri, g0.edges[0].owl_property_iri);
+        }
+    }
+
+    #[tokio::test]
+    async fn jev_gap_fill_accepts_confident_proposal_but_never_overrides() {
+        use crate::services::system_one::testing::*;
+        use crate::services::system_one::JevClient;
+        let jev = JevClient::with_transport(
+            enabled_settings(&[("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", "0.9")]),
+            MockTransport::new(Script::Reply(200, jev_resp("mv:worksAt"))),
+        );
+        let svc = crate::test_helpers::create_test_enrichment_service().with_jev(jev);
+        let mut g = two_node_graph();
+        svc.enrich_edges(&mut g, GAP_CONTENT).await.unwrap();
+        // Class-pair fallback in the classifier already classifies Person→Company;
+        // use a pair it does not know so the gap is real.
+        let mut g2 = two_node_graph();
+        g2.nodes[0].owl_class_iri = Some("mv:Place".into());
+        g2.nodes[1].owl_class_iri = Some("mv:Place".into());
+        let before = crate::test_helpers::create_test_enrichment_service();
+        let mut g3 = g2.clone();
+        before.enrich_edges(&mut g3, GAP_CONTENT).await.unwrap();
+        assert_eq!(g3.edges[0].owl_property_iri, None, "deterministic leaves the gap");
+        svc.enrich_edges(&mut g2, GAP_CONTENT).await.unwrap();
+        // Domain/range gate: worksAt needs Person→Company, so a Place pair is refused.
+        assert_eq!(g2.edges[0].owl_property_iri, None);
+        // The deterministic result for the Person→Company pair is untouched.
+        assert_eq!(g.edges[0].owl_property_iri.as_deref(), Some("mv:worksAt"));
     }
 }

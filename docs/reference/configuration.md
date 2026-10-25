@@ -266,6 +266,37 @@ diagram note VC-28.3 (`docs/diagrams/visionclaw/28-external-services.md` in the 
 
 ---
 
+## Jev option (opt-in typed decisions)
+
+The Jev option adds an opt-in step to seven decision points, using TypeSafe System One typed questions (Choice / Score / Noul over `POST /v1/systemone`). It is a proposed research candidate: no uplift is measured. **It is off by default.** With the flag off, with no endpoint, or on any failure, every feature takes its pre-change path and produces its pre-change output.
+
+**What leaves the process, when on:** only the text of the one decision being made, never credentials, never the selected agent's DID.
+
+| Item | Sends | Flag-off behaviour it must equal |
+|---|---|---|
+| `settings-patch` (VC-06-S1-01) | command text, a bounded shortlist of visible, non-secret setting paths/labels/ranges/current values | CommandInput hands the raw text to the settings assistant |
+| `action-class` (VC-06-S1-02) | command text | same |
+| `command-intent` (VC-34-S1-01) | command text | same (keyword commands never consult Jev) |
+| `palette-search` (VC-34-S1-02) | query, titles/descriptions of currently enabled palette commands | lexical palette filter only |
+| `edge-meaning` (VC-25-S1-01) | source/target labels and classes, the evidence span | edge left unclassified by the keyword classifier |
+| `nlq-plan` (VC-25-S1-02) | the question, entity candidates extracted by code | generative NL→SPARQL route |
+| `voice-intent` (VC-35-S1-01) | final transcript, pending request on a repair turn | `ClarificationGate` outcome |
+
+**Destination** (first match wins; `src/services/system_one.rs`): (1) `VISIONCLAW_JEV_ENDPOINT` with `VISIONCLAW_JEV_MODEL` and `VISIONCLAW_JEV_KEY_ENV` (the *name* of the env var holding the key); (2) `AGENTBOX_SYSTEM_ONE_ENDPOINT` + `AGENTBOX_SYSTEM_ONE_MODEL` when `AGENTBOX_SYSTEM_ONE_PROXY=1` (the agentbox loopback proxy holds the vendor key; no `Authorization` header is sent); (3) `https://api.typesafe.ai/v1/systemone`, model `jev-latest`, bearer `TYPESAFE_API_KEY`, only if that key is set; (4) otherwise unavailable and every caller falls back. Browsers never hold a key: the client calls the authenticated `GET /api/jev/status`, `POST /api/jev/command` and `POST /api/jev/palette`, and the server builds fixed, versioned question sets.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VISIONCLAW_JEV` | unset (off) | Master flag (`1`/`true`/`yes`/`on`). |
+| `VISIONCLAW_JEV_<ITEM>` | on when master is on | `0` opts one item out: `SETTINGS_PATCH`, `ACTION_CLASS`, `COMMAND_INTENT`, `PALETTE_SEARCH`, `EDGE_MEANING`, `NLQ_PLAN`, `VOICE_INTENT`. |
+| `VISIONCLAW_JEV_MIN_CONFIDENCE` | `0.5` | Acceptance threshold for suggestions that a user reviews (command bar, palette). |
+| `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE` | unset | Threshold for decisions that change an outcome without a review (`edge-meaning`, `nlq-plan`, `voice-intent`). **Unset means accept nothing automatically.** Fit on labelled data first. |
+| `VISIONCLAW_JEV_TIMEOUT_MS` | `4000` | Hard deadline, capped at 4000; zero retries. |
+| `VISIONCLAW_JEV_LOCAL` | unset | Declares the explicit endpoint local (no consumer here is local-only). |
+
+**Fallback triggers** (all log one line `jev fallback item=… question_set=… reason=…` with no request content): `flag-off`, `no-endpoint`, `timeout`, `http-<code>`, `malformed` (unparseable body, missing answer, Choice key outside the offered set), `low-confidence`.
+
+**Authority stays in code.** Jev selects; it never writes, signs or approves. A settings patch is assembled by client code (value parsing, range clamp, step snap), shown as a diff, and applied only on the user's click through the existing settings store and authenticated path. Protected paths (secrets, tokens, auth, identity) are never offered. Voice: Jev can only hold a dispatch the gate would have released, or evaluate a repair reply fresh; it never releases a held utterance or fills a missing mandatory slot. Edge and query proposals still pass the domain/range gate and the read-only SPARQL validator.
+
 ## Datastores
 
 | Variable | Type | Default | Description |
