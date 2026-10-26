@@ -175,7 +175,7 @@ impl MultiMcpAgentDiscovery {
     pub fn detach(&self) {
         let _ = self
             .subscribers
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
     }
 
     /// Make the poll loop match the subscriber count: running iff any are
