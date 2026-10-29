@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_129 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_130 record(s). Regenerate with_ `node scripts/adr-index-gen.js /tmp/visionclaw-adr-index.nsWLQu`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -173,3 +173,4 @@ _129 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2142](ADR-2142-the-agents-demo-is-one-server-producer-both-clients-control.md) | The agents demo is one server-side producer that both clients control and both see | — | 2026-10-14 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2143](ADR-2143-codescape-section-separate-workspace-and-port.md) | Codescape is a separate section with its own Cargo workspace, its own port and a tested isolation boundary | BASELINE-architecture | 2026-10-17 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2147](ADR-2147-inferences-carry-a-re-checkable-certificate-and-proposals-carry-a-consequence-delta.md) | Inferences carry a re-checkable derivation certificate and proposals carry a consequence delta — Whelk stays the blocker | — | 2026-10-20 | accepted | complete | staged | — | — | jjohare | visionclaw |
+| [ADR-2148](ADR-2148-enable-local-typed-decisions.md) | Enable local typed decisions and expose reviewed edge suggestions | — | 2026-10-29 | accepted | complete | staged | — | — | operator | visionclaw |
