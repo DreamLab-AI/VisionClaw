@@ -476,13 +476,17 @@ services:
       CODESCAPE_PTX_DIR: /codescape-target/ptx
       CODESCAPE_PREFER_CUDA: ${CODESCAPE_PREFER_CUDA:-1}
       # label=path, comma separated; paths are the read-only mounts below.
-      CODESCAPE_REPO: ${CODESCAPE_REPO:-visionclaw=/repos/visionclaw,agentbox=/repos/agentbox}
-      # The visionclaw mount contains agentbox as a nested checkout and the
-      # build trees; exclude them from the visionclaw graph (agentbox has its own).
-      CODESCAPE_EXCLUDES: ${CODESCAPE_EXCLUDES:-target/**,node_modules/**,agentbox/**,data/**,logs/**,.dev-inputs/**,archive/**,vircadia-world/**}
+      # The VisionFlow estate as one scene (`estate`, the default: its L0 is the
+      # ten repositories) plus each member repository as its own scene, served
+      # from the same mounts (nested roots; ?repo=<label> selects one).
+      CODESCAPE_REPO: ${CODESCAPE_REPO:-estate=/repos/estate,visionclaw=/repos/estate/visionclaw,agentbox=/repos/estate/agentbox,codescape=/repos/estate/codescape,solid-pod-rs=/repos/estate/solid-pod-rs,nostr-rust-forum=/repos/estate/nostr-rust-forum,dreamlab-ai-website=/repos/estate/dreamlab-ai-website,loom=/repos/estate/loom,knowledgeGraph=/repos/estate/knowledgeGraph,sidestr-rs=/repos/estate/sidestr-rs,visiontouch-rs=/repos/estate/visiontouch-rs}
+      # Build trees and run output, should any reach a mount. Patterns are
+      # gitignore-style relative to each root; never name a member repository.
+      CODESCAPE_EXCLUDES: ${CODESCAPE_EXCLUDES:-target/**,node_modules/**,data/**,logs/**,.dev-inputs/**,archive/**,vircadia-world/**,dist/**,.venv/**}
       # Rewrites the paths agents report (their own view of the checkout) to the
-      # mount paths above: "<agent-side>=<mount>:<agent-side>=<mount>".
-      CODESCAPE_PATH_MAP: ${CODESCAPE_PATH_MAP:-/home/devuser/workspace/project=/repos/visionclaw:/home/devuser/workspace/project/agentbox=/repos/agentbox}
+      # mount paths above: "<agent-side>=<mount>:<agent-side>=<mount>". A path
+      # under nested roots lights up in the estate scene and the member's.
+      CODESCAPE_PATH_MAP: ${CODESCAPE_PATH_MAP:-/home/devuser/workspace/project=/repos/estate/visionclaw:/home/devuser/workspace/project/agentbox=/repos/estate/agentbox:/home/devuser/workspace/agentbox=/repos/estate/agentbox:/home/devuser/workspace/codescape=/repos/estate/codescape:/home/devuser/workspace/project/codescape=/repos/estate/codescape:/home/devuser/workspace/solid-pod-rs=/repos/estate/solid-pod-rs:/home/devuser/workspace/nostr-rust-forum=/repos/estate/nostr-rust-forum:/home/devuser/workspace/dreamlab-ai-website=/repos/estate/dreamlab-ai-website:/home/devuser/workspace/project2=/repos/estate/dreamlab-ai-website:/home/devuser/workspace/loom=/repos/estate/loom:/home/devuser/workspace/project/loom=/repos/estate/loom:/home/devuser/workspace/knowledgeGraph=/repos/estate/knowledgeGraph:/home/devuser/workspace/sidestr-rs=/repos/estate/sidestr-rs:/home/devuser/workspace/visiontouch-rs=/repos/estate/visiontouch-rs}
       CODESCAPE_INGEST_TOKEN_FILE: /run/secrets/codescape-ingest-token
       CODESCAPE_ASR_URL: ${CODESCAPE_ASR_URL:-ws://nemotron-asr:8000/api/asr-streaming}
       CODESCAPE_TTS_URL: ${CODESCAPE_TTS_URL:-http://pocket-tts:8000}
@@ -523,25 +527,88 @@ services:
       # directories are bound, read-only, so no code path in this container
       # can read them, whatever the exclude list says.
       # Root ignore rules stay visible so graphicle applies them to the view.
-      - ${HOST_PROJECT_ROOT:-.}/.gitignore:/repos/visionclaw/.gitignore:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/.gitignore:/repos/agentbox/.gitignore:ro
-      - ${HOST_PROJECT_ROOT:-.}/src:/repos/visionclaw/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/crates:/repos/visionclaw/crates:ro
-      - ${HOST_PROJECT_ROOT:-.}/client/src:/repos/visionclaw/client/src:ro
-      - ${HOST_PROJECT_ROOT:-.}/xr-client:/repos/visionclaw/xr-client:ro
-      - ${HOST_PROJECT_ROOT:-.}/scripts:/repos/visionclaw/scripts:ro
-      - ${HOST_PROJECT_ROOT:-.}/docs:/repos/visionclaw/docs:ro
-      - ${HOST_PROJECT_ROOT:-.}/tests:/repos/visionclaw/tests:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/config:/repos/agentbox/config:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/services:/repos/agentbox/services:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/management-api:/repos/agentbox/management-api:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/crates:/repos/agentbox/crates:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/lib:/repos/agentbox/lib:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/scripts:/repos/agentbox/scripts:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/skills:/repos/agentbox/skills:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/voice:/repos/agentbox/voice:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/tests:/repos/agentbox/tests:ro
-      - ${HOST_PROJECT_ROOT:-.}/agentbox/docs:/repos/agentbox/docs:ro
+      - ${HOST_PROJECT_ROOT:-.}/.gitignore:/repos/estate/visionclaw/.gitignore:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/.gitignore:/repos/estate/agentbox/.gitignore:ro
+      - ${HOST_PROJECT_ROOT:-.}/src:/repos/estate/visionclaw/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/crates:/repos/estate/visionclaw/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/client/src:/repos/estate/visionclaw/client/src:ro
+      - ${HOST_PROJECT_ROOT:-.}/xr-client:/repos/estate/visionclaw/xr-client:ro
+      - ${HOST_PROJECT_ROOT:-.}/scripts:/repos/estate/visionclaw/scripts:ro
+      - ${HOST_PROJECT_ROOT:-.}/docs:/repos/estate/visionclaw/docs:ro
+      - ${HOST_PROJECT_ROOT:-.}/tests:/repos/estate/visionclaw/tests:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/config:/repos/estate/agentbox/config:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/services:/repos/estate/agentbox/services:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/management-api:/repos/estate/agentbox/management-api:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/crates:/repos/estate/agentbox/crates:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/lib:/repos/estate/agentbox/lib:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/scripts:/repos/estate/agentbox/scripts:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/skills:/repos/estate/agentbox/skills:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/voice:/repos/estate/agentbox/voice:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/tests:/repos/estate/agentbox/tests:ro
+      - ${HOST_PROJECT_ROOT:-.}/agentbox/docs:/repos/estate/agentbox/docs:ro
+      # The rest of the VisionFlow estate, same source-only rule. The siblings
+      # are the agentbox workspace checkouts (host path of the
+      # multi-agent-docker_workspace volume; override with CODESCAPE_ESTATE_ROOT).
+      # Deliberately NOT mounted: build output (dist/, target/, public/ bundles),
+      # loom's app/, data/ and uplift-results/, knowledgeGraph's archive/ and
+      # dist/ (the published corpus: Codescape maps its explorer and tooling,
+      # never the corpus), every .agentic-qe/ and .agentbox/ key directory.
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/codescape/.gitignore:/repos/estate/codescape/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/codescape/client:/repos/estate/codescape/client:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/codescape/crates:/repos/estate/codescape/crates:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/codescape/deploy:/repos/estate/codescape/deploy:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/codescape/docs:/repos/estate/codescape/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/solid-pod-rs/.gitignore:/repos/estate/solid-pod-rs/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/solid-pod-rs/crates:/repos/estate/solid-pod-rs/crates:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/solid-pod-rs/docs:/repos/estate/solid-pod-rs/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/solid-pod-rs/scripts:/repos/estate/solid-pod-rs/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/.gitignore:/repos/estate/nostr-rust-forum/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/crates:/repos/estate/nostr-rust-forum/crates:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/docs:/repos/estate/nostr-rust-forum/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/scripts:/repos/estate/nostr-rust-forum/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/tests:/repos/estate/nostr-rust-forum/tests:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/nostr-rust-forum/benchmarks:/repos/estate/nostr-rust-forum/benchmarks:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/.gitignore:/repos/estate/dreamlab-ai-website/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/src:/repos/estate/dreamlab-ai-website/src:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/content:/repos/estate/dreamlab-ai-website/content:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/marketing:/repos/estate/dreamlab-ai-website/marketing:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/forum-config:/repos/estate/dreamlab-ai-website/forum-config:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/scripts:/repos/estate/dreamlab-ai-website/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/tests:/repos/estate/dreamlab-ai-website/tests:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/dreamlab-ai-website/docs:/repos/estate/dreamlab-ai-website/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/.gitignore:/repos/estate/loom/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/crates:/repos/estate/loom/crates:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/deploy:/repos/estate/loom/deploy:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/docs:/repos/estate/loom/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/tools:/repos/estate/loom/tools:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/tests:/repos/estate/loom/tests:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/bench:/repos/estate/loom/bench:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/scripts:/repos/estate/loom/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/loom/model:/repos/estate/loom/model:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/knowledgeGraph/.gitignore:/repos/estate/knowledgeGraph/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/knowledgeGraph/explorer:/repos/estate/knowledgeGraph/explorer:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/knowledgeGraph/docs:/repos/estate/knowledgeGraph/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/knowledgeGraph/scripts:/repos/estate/knowledgeGraph/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/knowledgeGraph/static:/repos/estate/knowledgeGraph/static:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/.gitignore:/repos/estate/sidestr-rs/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/docs:/repos/estate/sidestr-rs/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-agent:/repos/estate/sidestr-rs/sidestr-agent:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-bridge-liquid:/repos/estate/sidestr-rs/sidestr-bridge-liquid:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-core:/repos/estate/sidestr-rs/sidestr-core:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-evm:/repos/estate/sidestr-rs/sidestr-evm:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-header:/repos/estate/sidestr-rs/sidestr-header:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-hitch:/repos/estate/sidestr-rs/sidestr-hitch:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-nostr:/repos/estate/sidestr-rs/sidestr-nostr:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-reserve:/repos/estate/sidestr-rs/sidestr-reserve:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-round:/repos/estate/sidestr-rs/sidestr-round:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/sidestr-wallet:/repos/estate/sidestr-rs/sidestr-wallet:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/sidestr-rs/webledgers-teller:/repos/estate/sidestr-rs/webledgers-teller:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/.gitignore:/repos/estate/visiontouch-rs/.gitignore:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/apps:/repos/estate/visiontouch-rs/apps:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/crates:/repos/estate/visiontouch-rs/crates:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/docs:/repos/estate/visiontouch-rs/docs:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/scripts:/repos/estate/visiontouch-rs/scripts:ro
+      - ${CODESCAPE_ESTATE_ROOT:-/mnt/nvme/docker/volumes/multi-agent-docker_workspace/_data}/visiontouch-rs/tools:/repos/estate/visiontouch-rs/tools:ro
       # Own cargo caches (security review finding 9): sharing VisionClaw's
       # writable registry would let this container poison its crate sources.
       - codescape-cargo-cache:/root/.cargo/registry
