@@ -39,6 +39,17 @@ boundaries. Code wins over legacy ADR prose; every load-bearing claim cites
 
 ## Current State
 
+### Typed decisions (staged rollout)
+
+The Compose deployment opts all twelve System One consumers in against the
+local `systemone:8097` façade ([ADR-2148](adr/ADR-2148-enable-local-typed-decisions.md)). The library still defaults off outside
+that deployment. Existing authentication, validation and governance own actions;
+model errors retain the previous behaviour. `/api/jev/edge` provides bounded,
+authenticated edge suggestions without reviving the unused enrichment writer.
+Automatic outcome thresholds remain unset pending calibration. Activation is
+staged until the host deployment is recreated; see
+[configuration](reference/configuration.md#jev-option).
+
 ### Stores (effective persistence)
 
 Persistence is embedded, not networked. Neo4j is fully removed — no `neo4rs` or

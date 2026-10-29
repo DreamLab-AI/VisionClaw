@@ -410,9 +410,29 @@ Named volumes persist data and build caches:
 
 ## Jev option
 
-An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over `POST /v1/systemone`) beside twelve decision points. **Everything is off by default.** With an item off, no request is built and nothing leaves the process; with an item on but no usable endpoint, or on any error, the path behaves exactly as it did before the option existed. Jev ranks, scores, annotates or proposes; every existing validation, approval, reasoner and write path stays authoritative. These are proposed research candidates: the wiring is tested, uplift is not yet measured.
+An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over `POST /v1/systemone`) beside twelve decision points. **The library defaults off; the supplied Compose deployment opts all twelve items in.** With an item off, no request is built and nothing leaves the process; with an item on but no usable endpoint, or on any error, the path behaves exactly as it did before the option existed. Jev ranks, scores, annotates or proposes; every existing validation, approval, reasoner and write path stays authoritative. These are proposed research candidates: the wiring is tested, uplift is not yet measured.
 
 The adapter is the self-contained crate `crates/visionclaw-jev` (reqwest, no cross-repo dependency); the server builds on it and holds the only copy of any key. Browsers never hold a key: the client calls the authenticated `GET /api/jev/status`, `POST /api/jev/command` and `POST /api/jev/palette`, and the server builds fixed, versioned question sets.
+
+The shared Compose environment enables `VISIONCLAW_JEV=1`, selects the local
+`http://systemone:8097/v1/systemone` façade with model `laya-typed-decisions`,
+and declares `VISIONCLAW_JEV_LOCAL=1` for both dev and production. Supervisord
+passes its inherited environment to the Rust backend. Recreate the application
+through `scripts/launch.sh` after this change; changing a shell does not change
+an existing container. Opt out with `VISIONCLAW_JEV=0`, or disable an individual
+item in the deployment environment. No cloud override or automatic acceptance
+threshold is supplied.
+
+`POST /api/jev/edge` is an authenticated, review-only production consumer of
+edge meaning. Supply `source_label`, `target_label`, `evidence`, and optional
+`source_class`/`target_class`. Labels are limited to 240 characters, class IRIs
+to 512, and evidence to 1200. Candidates are fixed server-side. A successful
+response has `used:true`, `advisory:true`, `authority:"none"`, and a `proposal`
+containing `predicate`, `confidence` and `asserted`. It uses the suggestion
+threshold and checks vocabulary/domain/range; it writes nothing. This avoids
+reviving the legacy `OntologyEnrichmentService` graph/class writes. Automatic
+gap-fill still requires `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE`, and its threshold
+is independent of the review suggestion threshold.
 
 **One flag model.** An item is on when `VISIONCLAW_JEV_<ITEM>=1`, or when the master flag `VISIONCLAW_JEV=1` is set and the item is not set to `VISIONCLAW_JEV_<ITEM>=0`. With nothing set, everything is off. Truthy values are `1`, `true`, `yes`, `on`; falsy are `0`, `false`, `no`, `off`.
 

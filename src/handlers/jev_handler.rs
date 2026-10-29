@@ -60,6 +60,27 @@ pub async fn palette_body(client: &JevHub, req: &PaletteRequest) -> Value {
     }
 }
 
+/// Core of the review-only edge API. Never writes graph data or proposals.
+pub async fn edge_body(client: &JevHub, req: &visionclaw_jev::edge::EdgeReviewRequest) -> Value {
+    let evidence = match req.evidence() {
+        Ok(evidence) => evidence,
+        Err(reason) => return not_used(&reason),
+    };
+    match visionclaw_jev::edge::suggest_edge(client, &evidence).await {
+        Ok(proposal) => json!({"used": true, "advisory": true, "authority": "none", "proposal": proposal}),
+        Err(reason) => not_used(&reason),
+    }
+}
+
+/// `POST /api/jev/edge`: authenticated source-evidence review, no mutation.
+pub async fn edge(
+    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    client: web::Data<JevHub>,
+    req: web::Json<visionclaw_jev::edge::EdgeReviewRequest>,
+) -> impl Responder {
+    HttpResponse::Ok().json(edge_body(&client, &req).await)
+}
+
 /// `GET /api/jev/status`
 pub async fn status(
     _auth: crate::settings::auth_extractor::AuthenticatedUser,
@@ -93,7 +114,8 @@ pub fn configure_jev_routes(cfg: &mut web::ServiceConfig) {
         web::scope("/jev")
             .route("/status", web::get().to(status))
             .route("/command", web::post().to(command))
-            .route("/palette", web::post().to(palette)),
+            .route("/palette", web::post().to(palette))
+            .route("/edge", web::post().to(edge)),
     );
 }
 
@@ -102,6 +124,39 @@ mod tests {
     use super::*;
     use visionclaw_jev::client::testing::{MockTransport, Script};
     use visionclaw_jev::hub::testing::enabled_hub;
+
+    #[actix_web::test]
+    async fn edge_route_requires_authentication() {
+        let app = actix_web::test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(JevHub::disabled()))
+                .configure(configure_jev_routes),
+        ).await;
+        let req = actix_web::test::TestRequest::post().uri("/jev/edge")
+            .set_json(json!({"source_label":"Ada", "target_label":"Acme", "evidence":"Ada works at Acme."}))
+            .to_request();
+        assert_eq!(actix_web::test::call_service(&app, req).await.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn edge_review_is_advisory_and_validates_before_transport() {
+        let t = MockTransport::new(Script::Reply(200, json!({"answers":{
+            "predicate":{"choice":"mv:worksAt","confidence":0.99},
+            "asserted":{"noul":0.99}}}).to_string()));
+        let c = enabled_hub(&[], t.clone());
+        let mut req = visionclaw_jev::edge::EdgeReviewRequest {
+            source_label: "Ada".into(), target_label: "Acme".into(),
+            source_class: Some("mv:Person".into()), target_class: Some("mv:Company".into()),
+            evidence: "Ada works at Acme.".into(),
+        };
+        let result = edge_body(&c, &req).await;
+        assert_eq!(result["used"], true);
+        assert_eq!(result["authority"], "none");
+        assert_eq!(result["proposal"]["predicate"], "mv:worksAt");
+        req.evidence = "x".repeat(1201);
+        assert_eq!(edge_body(&c, &req).await["reason"], "malformed");
+        assert_eq!(t.calls(), 1);
+    }
 
     fn creq() -> CommandRequest {
         CommandRequest { command: "show help".into(), candidates: vec![] }

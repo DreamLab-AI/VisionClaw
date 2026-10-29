@@ -2,6 +2,16 @@
 x-common-environment: &common-environment
   VISIONCLAW_SECURITY_PROFILE: "${VISIONCLAW_SECURITY_PROFILE:-}"
   VISIONCLAW_LEGACY_SESSIONS: "${VISIONCLAW_LEGACY_SESSIONS:-0}"
+  # System One rollout: all twelve items opt in on both deployment profiles.
+  # Supervisord inherits this environment; browsers use the authenticated API.
+  # Keep private evidence on the local façade. Cloud overrides remain explicit.
+  VISIONCLAW_JEV: "${VISIONCLAW_JEV:-1}"
+  VISIONCLAW_JEV_ENDPOINT: "${VISIONCLAW_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
+  VISIONCLAW_JEV_MODEL: "${VISIONCLAW_JEV_MODEL:-laya-typed-decisions}"
+  VISIONCLAW_JEV_LOCAL: "${VISIONCLAW_JEV_LOCAL:-1}"
+  VISIONCLAW_JEV_TIMEOUT_MS: "${VISIONCLAW_JEV_TIMEOUT_MS:-4000}"
+  # An unset automatic threshold deliberately accepts no autonomous change.
+  VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE: "${VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE:-}"
   NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
   NVIDIA_DRIVER_CAPABILITIES: compute,utility
   CUDA_ARCH: ${CUDA_ARCH:-75}
@@ -365,6 +375,17 @@ services:
     environment:
       LOOM_FACADE_PORT: "8080"
       LOOM_DEPLOY_PROFILE: "b"
+      # Enable local typed evidence review; the engagement gate stays shadow.
+      LOOM_JEV: "${LOOM_JEV:-1}"
+      LOOM_JEV_GATE: "${LOOM_JEV_GATE:-1}"
+      LOOM_JEV_RANK: "${LOOM_JEV_RANK:-1}"
+      LOOM_JEV_SUPPORT: "${LOOM_JEV_SUPPORT:-1}"
+      LOOM_JEV_ENDPOINT: "${LOOM_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
+      LOOM_JEV_MODEL: "${LOOM_JEV_MODEL:-laya-typed-decisions}"
+      LOOM_JEV_LOCAL: "${LOOM_JEV_LOCAL:-1}"
+      LOOM_JEV_ALLOW_CLOUD: "${LOOM_JEV_ALLOW_CLOUD:-0}"
+      LOOM_JEV_TIMEOUT_MS: "${LOOM_JEV_TIMEOUT_MS:-4000}"
+      LOOM_JEV_GATE_MIN_CONFIDENCE: "${LOOM_JEV_GATE_MIN_CONFIDENCE:-}"
       # Model-swap seam. Default co-located options (pick one at deploy):
       #   http://loom-model:8085/v1             (model container on this network)
       #   http://host.docker.internal:11434/v1  (local Ollama/LM Studio on the host)
@@ -465,6 +486,14 @@ services:
       CODESCAPE_INGEST_TOKEN_FILE: /run/secrets/codescape-ingest-token
       CODESCAPE_ASR_URL: ${CODESCAPE_ASR_URL:-ws://nemotron-asr:8000/api/asr-streaming}
       CODESCAPE_TTS_URL: ${CODESCAPE_TTS_URL:-http://pocket-tts:8000}
+      # Typed command suggestions stay on the local façade; the grammar wins.
+      CODESCAPE_JEV: "${CODESCAPE_JEV:-1}"
+      CODESCAPE_JEV_ENDPOINT: "${CODESCAPE_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
+      CODESCAPE_JEV_MODEL: "${CODESCAPE_JEV_MODEL:-laya-typed-decisions}"
+      CODESCAPE_JEV_LOCAL: "${CODESCAPE_JEV_LOCAL:-1}"
+      CODESCAPE_JEV_TIMEOUT_MS: "${CODESCAPE_JEV_TIMEOUT_MS:-4000}"
+      # Leave acceptance unset until calibrated; the enabled model is advisory.
+      CODESCAPE_JEV_MIN_CONFIDENCE: "${CODESCAPE_JEV_MIN_CONFIDENCE:-}"
       # Optional; set CODESCAPE_LOOM_URL in .env to enable the LLM fallback.
       # (An empty value is treated as unset by the server since A4.)
       CODESCAPE_LOOM_URL: ${CODESCAPE_LOOM_URL:-}

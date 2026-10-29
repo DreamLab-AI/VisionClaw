@@ -69,7 +69,7 @@ pub struct EdgeEvidence<'a> {
 }
 
 /// A proposed predicate. Not an accepted edge.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct EdgeProposal {
     /// Vocabulary predicate IRI.
     pub predicate: String,
@@ -77,6 +77,45 @@ pub struct EdgeProposal {
     pub confidence: f64,
     /// Probability that the span asserts the relation.
     pub asserted: f64,
+}
+
+/// Input for the authenticated, review-only edge suggestion API.
+/// A client supplies evidence, never a candidate vocabulary or model endpoint.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeReviewRequest {
+    /// Source label (1–240 characters).
+    pub source_label: String,
+    /// Target label (1–240 characters).
+    pub target_label: String,
+    /// Existing source class, if known (at most 512 characters).
+    pub source_class: Option<String>,
+    /// Existing target class, if known (at most 512 characters).
+    pub target_class: Option<String>,
+    /// Source evidence (1–1200 characters).
+    pub evidence: String,
+}
+
+impl EdgeReviewRequest {
+    /// Validate the bounded request before building a model request.
+    pub fn evidence(&self) -> Result<EdgeEvidence<'_>, Fallback> {
+        let bounded = |s: &str, max| !s.trim().is_empty() && s.chars().count() <= max;
+        if !bounded(&self.source_label, 240)
+            || !bounded(&self.target_label, 240)
+            || !bounded(&self.evidence, MAX_EVIDENCE_CHARS)
+            || self.source_class.as_deref().is_some_and(|s| !bounded(s, 512))
+            || self.target_class.as_deref().is_some_and(|s| !bounded(s, 512))
+        {
+            return Err(Fallback::Malformed);
+        }
+        Ok(EdgeEvidence {
+            source_label: &self.source_label,
+            target_label: &self.target_label,
+            source_class: self.source_class.as_deref(),
+            target_class: self.target_class.as_deref(),
+            evidence: &self.evidence,
+        })
+    }
 }
 
 /// Deterministic domain/range gate. A known class that contradicts the
@@ -119,6 +158,24 @@ fn questions(ev: &EdgeEvidence<'_>) -> Vec<(String, Question)> {
 /// Ask Jev for a predicate proposal. `Err` ⇒ leave the edge unclassified,
 /// exactly as the deterministic classifier did.
 pub async fn propose_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
+    let proposal = judge_edge(client, ev).await?;
+    client.accept_outcome(proposal.confidence)?;
+    client.accept_outcome(proposal.asserted)?;
+    Ok(proposal)
+}
+
+/// Return a review-only suggestion, never a mutation. Unlike [`propose_edge`],
+/// this uses the suggestion threshold, so a human can review it before the
+/// automatic threshold has been calibrated. Vocabulary and domain/range checks
+/// apply equally to both paths.
+pub async fn suggest_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
+    let proposal = judge_edge(client, ev).await?;
+    client.accept_suggestion(proposal.confidence)?;
+    client.accept_suggestion(proposal.asserted)?;
+    Ok(proposal)
+}
+
+async fn judge_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<EdgeProposal, Fallback> {
     if !client.enabled(Item::EdgeMeaning) {
         return Err(Fallback::FlagOff);
     }
@@ -141,12 +198,6 @@ pub async fn propose_edge(client: &JevHub, ev: &EdgeEvidence<'_>) -> Result<Edge
         Err(r)
     };
     if c.choice == UNSUPPORTED {
-        return reject(Fallback::LowConfidence);
-    }
-    if let Err(r) = client.accept_outcome(c.confidence) {
-        return reject(r);
-    }
-    if client.accept_outcome(asserted).is_err() {
         return reject(Fallback::LowConfidence);
     }
     if !domain_range_ok(&c.choice, ev.source_class, ev.target_class) {
@@ -193,6 +244,28 @@ mod tests {
         let t = MockTransport::new(script);
         let extra: Vec<(&str, &str)> = auto.map(|a| vec![("VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE", a)]).unwrap_or_default();
         (enabled_hub(&extra, t.clone()), t)
+    }
+
+    #[tokio::test]
+    async fn review_suggestion_does_not_enable_automatic_gap_fill() {
+        let (c, _) = client(Script::Reply(200, body("mv:worksAt", 0.95, 0.97)), None);
+        assert_eq!(suggest_edge(&c, &ev()).await.unwrap().predicate, "mv:worksAt");
+        assert_eq!(propose_edge(&c, &ev()).await.unwrap_err(), Fallback::LowConfidence);
+        let swapped = EdgeEvidence { source_class: Some("mv:Company"), target_class: Some("mv:Person"), ..ev() };
+        assert_eq!(suggest_edge(&c, &swapped).await.unwrap_err(), Fallback::LowConfidence);
+        let (c, _) = client(Script::Reply(200, body("mv:invented", 1.0, 1.0)), None);
+        assert_eq!(suggest_edge(&c, &ev()).await.unwrap_err(), Fallback::Malformed);
+    }
+
+    #[test]
+    fn review_request_is_bounded_and_cannot_supply_candidates() {
+        let mut value = json!({"source_label":"Ada", "target_label":"Acme", "evidence":"Ada works at Acme."});
+        let request: EdgeReviewRequest = serde_json::from_value(value.clone()).unwrap();
+        assert!(request.evidence().is_ok());
+        value["evidence"] = json!("x".repeat(1201));
+        assert!(serde_json::from_value::<EdgeReviewRequest>(value.clone()).unwrap().evidence().is_err());
+        value["candidates"] = json!(["mv:invented"]);
+        assert!(serde_json::from_value::<EdgeReviewRequest>(value).is_err());
     }
 
     #[test]
