@@ -135,8 +135,13 @@ impl Answers {
 
     fn typed(&self, id: &str, ty: &str) -> Result<&Value, Fallback> {
         let a = self.0.get(id).ok_or(Fallback::Malformed)?;
-        if a.get("type").and_then(Value::as_str) != Some(ty) {
-            return Err(Fallback::Malformed);
+        // System One answers (including the local façade) need not repeat
+        // the question's type. Validate the requested fields below; an
+        // explicit conflicting or malformed type is still rejected.
+        if let Some(kind) = a.get("type") {
+            if kind.as_str() != Some(ty) {
+                return Err(Fallback::Malformed);
+            }
         }
         Ok(a)
     }
@@ -254,6 +259,20 @@ mod tests {
         assert_eq!(a.choice("c", &["a", "none"]).unwrap().choice, "a");
         assert_eq!(a.score("s", 3).unwrap().score, 1.5);
         assert_eq!(a.noul("n").unwrap(), 0.9);
+    }
+
+    #[test]
+    fn real_system_one_answers_need_not_repeat_question_types() {
+        let a = Answers::parse(r#"{"answers":{
+            "choice":{"choice":"on","confidence":0.8919,"probabilities":{"on":0.8919,"off":0.1081}},
+            "score":{"score":1.5844,"distribution":[],"confidence":0.251},
+            "noul":{"noul":0.5248}}}"#).unwrap();
+        assert_eq!(a.choice("choice", &["on", "off"]).unwrap().choice, "on");
+        assert_eq!(a.score("score", 3).unwrap().score, 1.5844);
+        assert_eq!(a.noul("noul").unwrap(), 0.5248);
+        assert!(a.choice("noul", &["on"]).is_err());
+        let wrong = Answers::parse(r#"{"answers":{"n":{"type":"choice","noul":0.9}}}"#).unwrap();
+        assert_eq!(wrong.noul("n").unwrap_err(), Fallback::Malformed);
     }
 
     #[test]
