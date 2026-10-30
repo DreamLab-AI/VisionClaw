@@ -45,6 +45,43 @@ class FakeClassClient:
 	func node_position(id: int) -> Vector3:
 		return nodes[id][1] if nodes.has(id) else Vector3.ZERO
 
+	# Pack surface: records the slot each build ran under and returns fixed
+	# buffers (2 gems, 3 impostors, 1 faded; 4 cylinders, 5 ribbons).
+	var slot_now: int = 0
+	var builds: Array = []
+	var dropped: Array = []
+
+	func set_pack_slot(s: int) -> void:
+		slot_now = s
+
+	func drop_pack_slot(s: int) -> void:
+		dropped.append(s)
+
+	func edges_for_mask(mask: int, _max: int) -> PackedInt32Array:
+		return PackedInt32Array([1, 2]) if mask & 1 else PackedInt32Array()
+
+	func _buf(n: int, stride: int) -> PackedFloat32Array:
+		var b := PackedFloat32Array()
+		b.resize(n * stride)
+		return b
+
+	func build_node_buffer_lod(ids: PackedInt32Array, comp: float, _lo: float, _hi: float, cam: Vector3, cap: int, near: float) -> PackedFloat32Array:
+		builds.append(["nodes", slot_now, ids, comp, cam, cap, near])
+		return _buf(2, 20)
+
+	func impostor_node_buffer() -> PackedFloat32Array:
+		return _buf(3, 20)
+
+	func faded_node_buffer() -> PackedFloat32Array:
+		return _buf(1, 20)
+
+	func build_edge_buffer_lod(pairs: PackedInt32Array, comp: float, _cam: Vector3, cap: int, _near: float) -> PackedFloat32Array:
+		builds.append(["edges", slot_now, pairs, comp, cap])
+		return _buf(4, 16)
+
+	func ribbon_edge_buffer() -> PackedFloat32Array:
+		return _buf(5, 16)
+
 
 var _fake: FakeClassClient
 var _conn: Node
@@ -138,3 +175,42 @@ func test_mount_and_unmount_leave_no_orphans() -> void:
 	assert_eq(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT), before, "no orphan nodes left")
 	know.unmount()
 	tpl.free()
+
+
+func test_pack_uses_its_own_slot_and_fills_every_layer() -> void:
+	var parent := Node3D.new()
+	add_child_autofree(parent)
+	parent.scale = Vector3.ONE * 0.5          # 0.5 world metres per graph unit
+	var know := ConnectionVolumeSource.new(_conn, 0b0001)
+	var onto := ConnectionVolumeSource.new(_conn, 0b0010)
+	assert_ne(know.slot, onto.slot, "two volumes on one connection never share a pack slot")
+	assert_ne(know.slot, 0, "slot 0 stays the default for other callers")
+	know.mount(parent)
+	know.pack(Vector3(0, 0, 2), 0.06, 0.05, 40, 48, 1.0, 1.0)
+	var nb: Array = _fake.builds[0]
+	assert_eq(nb[0], "nodes")
+	assert_eq(nb[1], know.slot, "built under the volume's slot")
+	assert_eq(nb[2], PackedInt32Array([1, 2, 6]), "only the masked ids")
+	assert_almost_eq(float(nb[3]), 0.12, 1e-5, "node ratio / world-per-graph-unit")
+	assert_eq(nb[4], Vector3(0, 0, 4), "camera in graph units")
+	assert_eq(nb[5], 40, "the volume's gem share")
+	assert_almost_eq(float(nb[6]), 2.0, 1e-5, "near radius in graph units")
+	var eb: Array = _fake.builds[1]
+	assert_eq(eb[1], know.slot)
+	assert_eq(eb[2], PackedInt32Array([1, 2]), "only this volume's edges")
+	assert_eq(eb[4], 48)
+	assert_eq(know.counts, {"nodes": 2, "impostors": 3, "faded": 1, "halos": 3, "edges": 4, "ribbons": 5})
+	assert_eq(know.instance("halos").multimesh.instance_count, 3, "halo per gem + faded node")
+	assert_eq(know.demand(), {"nodes": 6, "edges": 9})
+	know.clear_instances()
+	for role: String in ConnectionVolumeSource.ROLES:
+		assert_eq(know.instance(role).multimesh.instance_count, 0, "%s cleared" % role)
+	assert_eq(know.demand(), {"nodes": 0, "edges": 0})
+	know.unmount()
+	assert_true(_fake.dropped.has(know.slot), "unmount frees the pack slot")
+
+
+func test_pack_does_nothing_unmounted() -> void:
+	var know := ConnectionVolumeSource.new(_conn, 0b0001)
+	know.pack(Vector3.ZERO, 0.06, 0.05, 40, 48, 1.0, 1.0)
+	assert_eq(_fake.builds.size(), 0)
