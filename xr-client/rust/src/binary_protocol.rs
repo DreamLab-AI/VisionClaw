@@ -435,6 +435,58 @@ pub fn build_drag_msg(msg_type: &str, node_id: u32, position: Option<[f32; 3]>) 
     serde_json::json!({ "type": msg_type, "data": data }).to_string()
 }
 
+/// Ids from `ids` whose class code bit is set in `mask` (bit `1 << class_code`, XR phase-1
+/// contract §1: knowledge `0b0001`, ontology `0b0010`, agent `0b0100`, plain/Codescape `0b1000`).
+/// An id with no recorded class is skipped. Order follows `ids`. Pure, so the `cfg(test)` module
+/// covers what `BinaryProtocolClient::node_ids_for_mask` exposes to Godot.
+pub fn ids_for_class_mask(ids: &[u32], mask: i64, class_of: impl Fn(u32) -> Option<u8>) -> Vec<i32> {
+    if mask <= 0 {
+        return Vec::new();
+    }
+    ids.iter()
+        .copied()
+        .filter(|&id| {
+            class_of(id)
+                .map(|c| c < 63 && mask & (1i64 << c) != 0)
+                .unwrap_or(false)
+        })
+        .map(|id| id as i32)
+        .collect()
+}
+
+/// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
+/// positions of `ids`, skipping `exclude` (the grabbed node), ids `position_of` does not know,
+/// and non-finite positions. `None` when nothing qualifies. Unlike `render_aabb`, nothing is
+/// trimmed: a volume's fit must contain every node it draws (ADR-2158 E7).
+pub fn full_aabb_of(
+    ids: &[i32],
+    exclude: Option<u32>,
+    position_of: impl Fn(u32) -> Option<[f32; 3]>,
+) -> Option<[f32; 6]> {
+    let mut lo = [f32::INFINITY; 3];
+    let mut hi = [f32::NEG_INFINITY; 3];
+    let mut any = false;
+    for &raw in ids {
+        if raw < 0 {
+            continue;
+        }
+        let id = raw as u32;
+        if Some(id) == exclude {
+            continue;
+        }
+        let Some(p) = position_of(id) else { continue };
+        if !p.iter().all(|c| c.is_finite()) {
+            continue;
+        }
+        for a in 0..3 {
+            lo[a] = lo[a].min(p[a]);
+            hi[a] = hi[a].max(p[a]);
+        }
+        any = true;
+    }
+    any.then_some([lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]])
+}
+
 /// Read a u32 from a JSON value that may be a number or a numeric string.
 fn json_u32(v: &serde_json::Value) -> Option<u32> {
     if let Some(n) = v.as_u64() {
@@ -957,6 +1009,11 @@ pub struct BinaryProtocolClient {
     /// Hot-path render store: owns node targets/positions and packs the MultiMesh
     /// instance buffers so GDScript never loops per-instance (PRD-008 perf).
     store: crate::render_store::RenderStore,
+    /// Class code (0 knowledge, 1 ontology, 2 agent, 3 plain) of every node applied from a
+    /// position frame since connect, for the per-volume class masks (XR phase-1 §2.4). The
+    /// render store keeps the same map privately for its type filter; this copy keeps
+    /// `render_store.rs` untouched. Cleared on connect, pruned when agents are retired.
+    node_class: std::collections::HashMap<u32, u8>,
     /// Wall-clock instant of the most recent `0x23` agent action, for the P1
     /// data-plane liveness diagnostic (`last_agent_action_age_ms`). `None` until
     /// the first action arrives.
@@ -1028,6 +1085,7 @@ impl BinaryProtocolClient {
             edge_weights: Vec::new(),
             edge_types: Vec::new(),
             store: crate::render_store::RenderStore::new(),
+            node_class: std::collections::HashMap::new(),
             last_agent_action: None,
             freshness: FreshnessGate::new(),
             clock_anchor: None,
@@ -1055,6 +1113,15 @@ impl BinaryProtocolClient {
     fn connect_to_url(&mut self, url: GString, nostr_secret_hex: GString) {
         self.visuals.clear();
         self.store.clear();
+        self.node_class.clear();
+        // A fresh inbox per connection: the previous pump may still push (an aborted task can
+        // finish its current send) and anything it queued belongs to the old generation's id
+        // space. Swapping, rather than clearing, makes "wire ids are valid only within one
+        // generation" (XR phase-1 §1) hold for every event poll() drains from here on.
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
+        self.inbox = Arc::new(Mutex::new(VecDeque::new()));
         let (handle, outbound) = crate::transport::spawn_graph_stream(
             url.to_string(),
             nostr_secret_hex.to_string(),
@@ -1070,6 +1137,8 @@ impl BinaryProtocolClient {
             h.abort();
         }
         self.outbound = None;
+        // Drop whatever the closed socket queued: nothing from it may surface after close.
+        self.inbox = Arc::new(Mutex::new(VecDeque::new()));
     }
 
     /// Drain queued network events on the scene-tree thread, decoding frames and
@@ -1593,6 +1662,11 @@ impl BinaryProtocolClient {
     #[func]
     fn retire_agents(&mut self, ids: PackedInt32Array) -> i64 {
         let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
+        for id in &ids {
+            if self.node_class.get(id) == Some(&2) {
+                self.node_class.remove(id);
+            }
+        }
         self.store.retire_agents(&ids) as i64
     }
 
@@ -1957,6 +2031,32 @@ impl BinaryProtocolClient {
         }
     }
 
+    /// Ids in the render store whose class code bit is set in `mask` (`1 << class_code`; XR
+    /// phase-1 §1). A volume's content source calls this once per topology or fit recompute.
+    #[func]
+    fn node_ids_for_mask(&self, mask: i64) -> PackedInt32Array {
+        let ids = ids_for_class_mask(self.store.all_ids(), mask, |id| {
+            self.node_class.get(&id).copied()
+        });
+        PackedInt32Array::from(ids.as_slice())
+    }
+
+    /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
+    /// `exclude_id` (< 0 = none) and ids not in the store. Empty array when none qualify.
+    #[func]
+    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude_id: i64) -> PackedFloat32Array {
+        let excl = (exclude_id >= 0).then_some(exclude_id as u32);
+        let known = |id: u32| {
+            self.node_class
+                .contains_key(&id)
+                .then(|| self.store.position_of(id))
+        };
+        match full_aabb_of(ids.as_slice(), excl, known) {
+            Some(bb) => PackedFloat32Array::from(bb.as_slice()),
+            None => PackedFloat32Array::new(),
+        }
+    }
+
     /// Ids of nodes within `radius` (server space) of `center`, nearest first,
     /// capped at `max` — drives the proximity label overlay.
     #[func]
@@ -2269,7 +2369,9 @@ impl BinaryProtocolClient {
             self.store.set_cluster(u.node_id, u.cluster_id);
             // Record the node class for the type show/hide filter (Wave 2, Feature
             // 3). Cheap idempotent insert; the kind rides the wire-id flag bits.
-            self.store.set_node_kind(u.node_id, node_class_code(u.kind));
+            let class = node_class_code(u.kind);
+            self.store.set_node_kind(u.node_id, class);
+            self.node_class.insert(u.node_id, class);
             // Visuals still surface to GDScript (throttled to quantised-key changes)
             // so the scene keeps its centrality mirror for the LOD/edge selection.
             let key = VisualsKey::of(&u);
@@ -2692,6 +2794,67 @@ mod tests {
         let k4 = VisualsKey::of(&u4);
         assert_eq!(k4.centrality_bucket, 0);
         assert_eq!(k4.anomaly_bucket, 15);
+    }
+
+    /// Fixture frames: two knowledge nodes, one ontology class, one agent, one plain node, all
+    /// decoded through the real V3 decoder so the class codes come from the wire flags.
+    fn fixture_class_store() -> (Vec<u32>, std::collections::HashMap<u32, (u8, [f32; 3])>) {
+        let frame = build_frame(&[
+            (1 | KNOWLEDGE_NODE_FLAG, [0.0, 0.0, 0.0], [0.0; 3]),
+            (2 | KNOWLEDGE_NODE_FLAG, [4.0, -2.0, 1.0], [0.0; 3]),
+            (3 | ONTOLOGY_CLASS_FLAG, [10.0, 10.0, 10.0], [0.0; 3]),
+            (4 | AGENT_NODE_FLAG, [-50.0, 0.0, 0.0], [0.0; 3]),
+            (5, [7.0, 8.0, 9.0], [0.0; 3]),
+        ]);
+        let updates = decode_position_frame(&frame).unwrap();
+        let ids = updates.iter().map(|u| u.node_id).collect();
+        let map = updates
+            .iter()
+            .map(|u| (u.node_id, (node_class_code(u.kind), u.position)))
+            .collect();
+        (ids, map)
+    }
+
+    #[test]
+    fn node_ids_for_mask_selects_only_the_masked_classes() {
+        let (ids, map) = fixture_class_store();
+        let class_of = |id: u32| map.get(&id).map(|e| e.0);
+        assert_eq!(ids_for_class_mask(&ids, 0b0001, class_of), vec![1, 2]);
+        assert_eq!(ids_for_class_mask(&ids, 0b0010, class_of), vec![3]);
+        assert_eq!(ids_for_class_mask(&ids, 0b1000, class_of), vec![5]);
+        assert_eq!(ids_for_class_mask(&ids, 0b0011, class_of), vec![1, 2, 3]);
+        assert!(ids_for_class_mask(&ids, 0, class_of).is_empty());
+        assert!(ids_for_class_mask(&ids, -1, class_of).is_empty());
+        // An id with no recorded class is never selected.
+        assert_eq!(ids_for_class_mask(&[1, 99], 0b1111, class_of), vec![1]);
+    }
+
+    #[test]
+    fn render_aabb_ids_is_full_extent_and_honours_exclusion() {
+        let (_, map) = fixture_class_store();
+        let pos = |id: u32| map.get(&id).map(|e| e.1);
+        assert_eq!(
+            full_aabb_of(&[1, 2], None, pos),
+            Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
+        );
+        // Full extent: the far outlier is inside, not trimmed as a percentile box would.
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], None, pos),
+            Some([0.0, -2.0, 0.0, 10.0, 10.0, 10.0])
+        );
+        // The grabbed node is excluded.
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], Some(3), pos),
+            Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
+        );
+        // Unknown and negative ids are skipped; nothing left ⇒ None.
+        assert_eq!(full_aabb_of(&[2, 77, -4], None, pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
+        assert_eq!(full_aabb_of(&[77], None, pos), None);
+        assert_eq!(full_aabb_of(&[], None, pos), None);
+        assert_eq!(full_aabb_of(&[3], Some(3), pos), None);
+        // A non-finite position never poisons the box.
+        let nan = |id: u32| (id == 9).then_some([f32::NAN, 0.0, 0.0]).or_else(|| pos(id));
+        assert_eq!(full_aabb_of(&[9, 1], None, nan), Some([0.0; 6]));
     }
 
     #[test]
