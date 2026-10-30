@@ -1215,6 +1215,11 @@ impl BinaryProtocolClient {
             h.abort();
         }
         self.inbox = Arc::new(Mutex::new(VecDeque::new()));
+        // An aborted pump never emits Disconnected, so apply its resets here: the new
+        // socket may meet a producer that restarted its sequence space (ADR-2018) and
+        // owes a fresh initialGraphLoad cooldown.
+        self.freshness.reconnect();
+        self.refetch.reset_connection();
         let (handle, outbound) = crate::transport::spawn_graph_stream(
             url.to_string(),
             nostr_secret_hex.to_string(),
