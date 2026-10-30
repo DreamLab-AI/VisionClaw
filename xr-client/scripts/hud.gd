@@ -218,6 +218,10 @@ var _conn_status_label: Label = null
 const VOLUME_IDS: Array[StringName] = [&"knowledge", &"ontology", &"codescape"]
 var _volume_buttons: Dictionary = {}     # volume_id → Button
 var _focus_button: Button = null
+var _front_button: Button = null
+# The selected node, as one line ("" = nothing selected), appended to the
+# connection status line by set_selection_info.
+var _selection_line: String = ""
 var _focused_volume: StringName = &"knowledge"
 var _volume_states: Dictionary = {}
 # Cross-volume link layer (ADR-2164): toggle face and the debug-strip counts.
@@ -514,7 +518,7 @@ func _build_graph_page() -> VBoxContainer:
 	page.add_theme_constant_override("separation", 8)
 	page.add_child(_group_header("Layout"))
 	var g1 := _grid(3)
-	g1.add_child(_action_btn("Reset Layout", "reset_layout", "Re-randomise positions & reset physics to safe defaults"))
+	g1.add_child(_action_btn("Reset Layout", "reset_layout", "Volumes back to the ring and default size; re-randomise positions & reset physics"))
 	g1.add_child(_action_btn("Spread +", "spread_plus", "Push nodes apart (increase repulsion)"))
 	g1.add_child(_action_btn("Spread -", "spread_minus", "Pull nodes together (decrease repulsion)"))
 	g1.add_child(_action_btn("Edges +", "edges_plus", "Show more edges"))
@@ -1287,6 +1291,17 @@ func _build_session_page() -> VBoxContainer:
 		var i: int = VOLUME_IDS.find(_focused_volume)
 		emit_signal("control_pressed", "volume_focus:%s" % VOLUME_IDS[(i + 1) % VOLUME_IDS.size()]))
 	conn_row.add_child(_focus_button)
+	# "Front" (UX feature 5): ease the focused volume to the 0° slot; the box
+	# there takes the focused one's slot.
+	_front_button = _press_fire(Button.new()) as Button
+	_front_button.name = "FrontButton"
+	_front_button.text = "Front"
+	_front_button.custom_minimum_size = Vector2(0, BTN_H)
+	_front_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_front_button.set_meta(HINT_META, "Bring the focused volume to the front; the box there takes its place")
+	_front_button.pressed.connect(func() -> void:
+		emit_signal("control_pressed", "volume_front:%s" % _focused_volume))
+	conn_row.add_child(_front_button)
 	page.add_child(conn_row)
 	# The volume toggles share the row so the Session page keeps its height.
 	var vol_row := conn_row
@@ -1674,7 +1689,23 @@ func _update_conn_status_label() -> void:
 	if _conn_status_label == null:
 		return
 	var state: String = "Connection: on" if _connected else "Connection: off"
-	_conn_status_label.text = state if _backend_line.is_empty() else "%s · %s" % [state, _backend_line]
+	var text: String = state if _backend_line.is_empty() else "%s · %s" % [state, _backend_line]
+	if not _selection_line.is_empty():
+		text += " · %s" % _selection_line
+	_conn_status_label.text = text
+
+
+## The info line for the selected node (UX feature 2): `volume_name` is the
+## volume's display name, `label` the node's label from that volume's own
+## connection. An empty `label` clears it. Called on selection changes only.
+func set_selection_info(volume_name: String, label: String) -> void:
+	_selection_line = "" if label.is_empty() else "sel %s: %s" % [volume_name, label]
+	_update_conn_status_label()
+
+
+## The current selection line ("" when nothing is selected). For tests.
+func selection_line() -> String:
+	return _selection_line
 
 ## Set by GraphScene after each control press: the current physics params, edge
 ## count and node-size factor. Called on press only — no per-frame cost.

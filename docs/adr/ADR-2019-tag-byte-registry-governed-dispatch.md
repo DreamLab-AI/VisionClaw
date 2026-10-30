@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b1835a4d06a6e810a4787e3e65f933dd4b729457
+verified_commit: 2a763c423cff1fc63e0db2813a64a8a29562e118
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -282,3 +282,5 @@ Re-verified 2026-10-30 at c75004696: `xr-client/rust/src/binary_protocol.rs` onl
 Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR; ADR-2158/2159/2164). Source reading, no cargo run. Of the governed paths only `xr-client/rust/src/binary_protocol.rs` changed (+448/-1). No `PROTOCOL_*`, `OPCODE_*` or tag literal was added, removed or edited, and no hunk touches the dispatch and decoder range (old lines 441-956). The new mask, AABB and link helpers read decoded state only, and the new node-metadata fields come from the JSON `initialGraphLoad` text message, not a tagged binary frame. Each `BackendConnection` (VisionClaw, Codescape) owns its own `BinaryProtocolClient` and socket (`xr-client/scripts/backend_connection.gd:86`), so every socket is still demultiplexed on its own and no demultiplexer is shared. Tag anchors at HEAD (moved): `PROTOCOL_V3 = 0x03` `:25`, `PROTOCOL_V5 = 0x05` `:29`, `decode_position_frame_with_sequence` `:595`, `OPCODE_BROADCAST_ACK = 0x34` `:647`, `FreshnessGate` `:741`, XR tolerant `0x23` parse `decode_agent_action_frame` `:999-1036`. The server and presence paths are unchanged since c750046962. The decision holds.
 
 Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is two reset calls in `connect_to_url` (`binary_protocol.rs`); no tag byte, dispatch arm or registry entry changed. xr-client lib tests 460/0 on the HP.
+
+Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` plus `xr/ux-wire`, spatial-volume UX). `binary_protocol.rs` gains only the two per-slot render readers (`:2082-2105`). No tag byte, dispatch arm or registry entry changed. xr-client lib tests 461/0 on the HP.

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b1835a4d06a6e810a4787e3e65f933dd4b729457
+verified_commit: 2a763c423cff1fc63e0db2813a64a8a29562e118
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -162,6 +162,8 @@ Re-verified 2026-10-30 at c75004696: `xr-client/scripts/graph_scene.gd`, `render
 Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR: two backend connections, three volumes, pack slots; ADR-2158/2159/2164). Source reading, no cargo or Godot run.
 
 Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is two reset calls in `connect_to_url` (`binary_protocol.rs`), which touch no agent pose path; agent bodies are still driven only by the VisionClaw connection. xr-client lib tests 460/0 on the HP.
+
+Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` 3b8babe89 plus `xr/ux-wire`, spatial-volume UX). `render_store.rs` and `binary_protocol.rs` gain read-only per-slot render readers (`render_ids_for_slot` / `render_positions_for_slot`, plus their gdext wrappers). These read the parked or active pack output, never switch slots, and do not touch anchors or the agent registry. `graph_scene.gd` adds volume trigger and grip interaction and selection markers. None of it writes an agent pose, and agent selection (`_update_selection`) is unchanged. xr-client lib tests 461/0, GUT 414/411 on the HP.
 
 **Single pose owner survives two connections.** `_build_connections` (`graph_scene.gd:810-820`) makes one `BackendConnection` each for VisionClaw and Codescape. Each owns its client, assigned once at `backend_connection.gd:86`. `_binary_client` is `_vc_conn.client` (`:820`). Every embodiment input reads `_binary_client` only: `_reconcile_embodiment` `:2915` (`agent_ids` `:2919`, called from the ~4 Hz label tick `:2033` and at `:4375`), `set_agent_anchors` `:3130-3131`, `build_beam_buffer` `:2512`, and `_apply_drift_rest_slots` `:2953`. The Codescape client's agent registry is never read. Its only scene uses are `hunt` (`:2001-2002`; Rust `binary_protocol.rs:1801` eases that client's own `RenderStore`, with no agent registry or anchor) and as the argument to `join_code_links` (`:221`). The work-layer writers are unchanged: the initial rim position in `_spawn_work_agent` (`:2974`, `:3001`), then `_choreo.pose` (`:3080-3082`). The proxemics arc (`:2794`) iterates `_agent_order`, which only `spawn_agent` appends to (`:2710`, conversation layer). No new script (`connection_volume_source.gd`, `backend_connection.gd`, `emulated_volume.gd`, `link_layer.gd`, `native_container_shim.gd`) writes an agent position, and no volume mask includes the agent class (`VOLUME_BINDINGS` `:88-92`: `0b0001`, `0b0010`, `0b1000`).
 

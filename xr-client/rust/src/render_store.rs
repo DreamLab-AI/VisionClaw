@@ -2187,6 +2187,31 @@ impl RenderStore {
         &self.render_positions
     }
 
+    /// Ids drawn by the last node pack into pack slot `slot`, read without selecting it (the
+    /// per-volume interaction ray, ADR-2159 D4). The active slot reads the live fields; a
+    /// parked slot reads its parked copy; a slot never packed, or dropped, reads empty.
+    pub fn render_ids_for_slot(&self, slot: i64) -> &[u32] {
+        if slot == self.active_slot {
+            return &self.render_ids;
+        }
+        self.parked_slots
+            .get(&slot)
+            .map(|s| s.render_ids.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Render (server-space) positions parallel to
+    /// [`render_ids_for_slot`](Self::render_ids_for_slot), read without selecting the slot.
+    pub fn render_positions_for_slot(&self, slot: i64) -> &[[f32; 3]] {
+        if slot == self.active_slot {
+            return &self.render_positions;
+        }
+        self.parked_slots
+            .get(&slot)
+            .map(|s| s.render_positions.as_slice())
+            .unwrap_or(&[])
+    }
+
     /// Robust bounds of every node position (the desktop's `robustBounds`
     /// of the live buffer) with the separated layout folded out (ADR-2135,
     /// `cloud_frame::graph_bounds_for`): one graph's extent.
@@ -2486,6 +2511,55 @@ mod tests {
         shared.store.clear();
         shared.store.select_pack_slot(1);
         assert!(shared.store.render_ids().is_empty(), "clear() dropped the parked slot");
+    }
+
+    /// The per-slot readers return each slot's own last pack without selecting it, so the ray
+    /// can read every volume after all of them packed (ADR-2159 D4).
+    #[test]
+    fn render_ids_for_slot_reads_parked_and_active_slots_without_switching() {
+        use crate::perf_fixture::production_store;
+        let mut shared = production_store(2_000, 3_000, 7);
+        let mut only_a = production_store(2_000, 3_000, 7);
+        let mut only_b = production_store(2_000, 3_000, 7);
+        let half = shared.ids.len() / 2;
+        let a: Vec<i32> = shared.ids[..half].to_vec();
+        let b: Vec<i32> = shared.ids[half..].to_vec();
+        let cam = [0.0f32; 3];
+        for frame in 0..4 {
+            shared.advance(frame);
+            only_a.advance(frame);
+            only_b.advance(frame);
+            shared.store.select_pack_slot(1);
+            shared.store.build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            shared.store.select_pack_slot(2);
+            shared.store.build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            only_a.store.build_node_buffer_lod(&a, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            only_b.store.build_node_buffer_lod(&b, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY);
+            // Slot 2 is active, slot 1 parked: both read as their solo stores.
+            assert_eq!(shared.store.active_pack_slot(), 2);
+            assert_eq!(shared.store.render_ids_for_slot(1), only_a.store.render_ids(), "frame {frame}: parked ids");
+            assert_eq!(shared.store.render_positions_for_slot(1), only_a.store.render_positions(), "frame {frame}: parked positions");
+            assert_eq!(shared.store.render_ids_for_slot(2), only_b.store.render_ids(), "frame {frame}: active ids");
+            assert_eq!(shared.store.render_positions_for_slot(2), only_b.store.render_positions(), "frame {frame}: active positions");
+            for slot in [1i64, 2] {
+                assert_eq!(
+                    shared.store.render_ids_for_slot(slot).len(),
+                    shared.store.render_positions_for_slot(slot).len(),
+                    "frame {frame} slot {slot}: ids and positions stay parallel on the plan path"
+                );
+                assert!(!shared.store.render_ids_for_slot(slot).is_empty());
+            }
+            // Reading never switches the slot.
+            assert_eq!(shared.store.active_pack_slot(), 2);
+        }
+        assert!(shared.store.render_ids_for_slot(9).is_empty(), "unknown slot reads empty");
+        assert!(shared.store.render_positions_for_slot(9).is_empty());
+        shared.store.drop_pack_slot(1);
+        assert!(shared.store.render_ids_for_slot(1).is_empty(), "dropped slot reads empty");
+        assert!(shared.store.render_positions_for_slot(1).is_empty());
+        shared.store.drop_pack_slot(2);
+        assert!(shared.store.render_ids_for_slot(2).is_empty(), "dropped active slot reads empty");
+        assert_eq!(shared.store.active_pack_slot(), 2);
     }
 
     fn approx(a: f32, b: f32) -> bool {

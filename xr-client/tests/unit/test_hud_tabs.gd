@@ -316,3 +316,28 @@ func _all_buttons(root: Node) -> Array:
 			out.append(c)
 		out.append_array(_all_buttons(c))
 	return out
+
+
+# Spatial-volume UX, feature 5: the Session row's "Front" button sends the
+# focused volume; the row still fits the panel's width.
+func test_front_button_and_selection_line() -> void:
+	var hud: Node3D = await _make_hud()
+	watch_signals(hud)
+	var session: Control = hud.get_node("%s/SessionPage" % TABS)
+	var front := _find_button(session, "Front")
+	assert_not_null(front, "Front button on the Session page")
+	if front != null:
+		hud.set_volume_state(&"ontology", {})
+		front.pressed.emit()
+		assert_signal_emitted_with_parameters(hud, "control_pressed", ["volume_front:ontology"])
+		var row: Control = front.get_parent()
+		var host: Control = hud.get_node(TABS)
+		assert_lte(row.get_combined_minimum_size().x, host.size.x + 1.0, "the Session row fits the panel width")
+	hud.set_selection_info("Ontology", "Agent")
+	assert_eq(hud.selection_line(), "sel Ontology: Agent")
+	assert_string_contains(hud._conn_status_label.text, "sel Ontology: Agent")
+	hud.set_selection_info("", "")
+	assert_eq(hud.selection_line(), "")
+	assert_false(hud._conn_status_label.text.contains("sel "))
+	hud.queue_free()
+	await get_tree().process_frame

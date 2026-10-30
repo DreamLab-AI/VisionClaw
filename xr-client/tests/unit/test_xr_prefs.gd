@@ -63,6 +63,46 @@ func test_non_boolean_value_falls_back_to_the_default() -> void:
 func test_public_helpers_follow_the_running_build_type() -> void:
 	# Read-only check against the real path: the public getter is the
 	# explicit helper at OS.is_debug_build().
-	assert_eq(XrPrefs.cross_volume_links(), XrPrefs._read(OS.is_debug_build(), XrPrefs.PATH))
+	assert_eq(XrPrefs.cross_volume_links(), XrPrefs._read(OS.is_debug_build(), XrPrefs.path()))
 	assert_eq(XrPrefs.PATH, "user://xr_prefs.cfg")
 	assert_eq(XrPrefs.SECTION, "xr")
+
+
+# The live client shares user:// with every test copy. A GUT run must never
+# change user://xr_prefs.cfg, whether a test writes the preference directly or
+# toggles links through GraphScene's HUD action.
+func _real_snapshot() -> String:
+	if not FileAccess.file_exists(XrPrefs.PATH):
+		return "<absent>"
+	return FileAccess.get_file_as_string(XrPrefs.PATH)
+
+
+func test_gut_run_is_redirected_away_from_the_real_file() -> void:
+	assert_true(XrPrefs._under_gut(), "this process is a GUT run")
+	assert_eq(XrPrefs.path_override, "")
+	assert_eq(XrPrefs.path(), XrPrefs.TEST_PATH)
+	assert_ne(XrPrefs.path(), XrPrefs.PATH)
+
+
+func test_override_wins() -> void:
+	XrPrefs.path_override = _path
+	assert_eq(XrPrefs.path(), _path)
+	XrPrefs.set_cross_volume_links(false)
+	assert_false(XrPrefs._read(OS.is_debug_build(), _path), "write landed in the override")
+	XrPrefs.path_override = ""
+
+
+func test_toggling_links_never_touches_the_real_file() -> void:
+	var before := _real_snapshot()
+	XrPrefs.set_cross_volume_links(false)
+	XrPrefs.set_cross_volume_links(true)
+	var scene: Node3D = load("res://scenes/GraphScene.tscn").instantiate()
+	add_child(scene)
+	await get_tree().process_frame
+	scene._on_hud_control("cross_links_toggle")
+	scene._on_hud_control("cross_links_toggle")
+	scene.queue_free()
+	await get_tree().process_frame
+	assert_eq(_real_snapshot(), before, "user://xr_prefs.cfg unchanged")
+	if FileAccess.file_exists(XrPrefs.TEST_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(XrPrefs.TEST_PATH))
