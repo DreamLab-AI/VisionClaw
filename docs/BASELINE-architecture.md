@@ -48,7 +48,8 @@ that deployment. Existing authentication, validation and governance own actions;
 model errors retain the previous behaviour. `/api/jev/edge` provides bounded,
 authenticated edge suggestions without reviving the unused enrichment writer.
 Automatic outcome thresholds remain unset pending calibration. Activation is
-staged until the host deployment is recreated; see
+live since the 2026-10-30 host recreate (ADR-2148 close-out; dev profile, with the
+cloud path enabled by `VISIONCLAW_JEV_ALLOW_CLOUD=1`); see
 [configuration](reference/configuration.md#jev-option).
 
 ### Stores (effective persistence)
