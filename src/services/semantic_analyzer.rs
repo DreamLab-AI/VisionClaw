@@ -583,6 +583,7 @@ impl SemanticAnalyzer {
         similarity.min(1.0)
     }
 
+    /// @ontology urn:ngm:class:cosine-similarity
     fn cosine_similarity(
         &self,
         topics1: &HashMap<String, f32>,

@@ -31,6 +31,7 @@ pub mod frame_budget;
 pub mod gaze;
 pub mod hulls;
 pub mod interaction;
+pub mod link_index;
 pub mod lod;
 pub mod memory_cloud;
 pub mod memory_query;

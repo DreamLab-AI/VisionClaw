@@ -1018,6 +1018,7 @@ pub async fn query_ontology(
 ///
 /// GPU-only constraint (PRD-018): this executes server-side over Oxigraph and
 /// returns rows only; it never solves or returns layout.
+/// @ontology urn:ngm:class:sparql
 pub async fn sparql_query(
     state: web::Data<AppState>,
     request: web::Json<QueryRequest>,

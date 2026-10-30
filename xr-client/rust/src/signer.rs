@@ -22,6 +22,7 @@ use crate::ports::{Signer, SignerError};
 #[cfg(not(test))]
 use godot::prelude::*;
 
+/// @ontology urn:ngm:class:bip-340
 pub struct NostrSigner {
     secp: Secp256k1<secp256k1::All>,
     keypair: Keypair,
