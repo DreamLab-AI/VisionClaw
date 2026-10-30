@@ -15,19 +15,52 @@ extends RefCounted
 ## the tests can cover both build types headless.
 
 const PATH := "user://xr_prefs.cfg"
+## Where a test run's writes go instead of PATH (see `path()`).
+const TEST_PATH := "user://xr_prefs.test.cfg"
 const SECTION := "xr"
 const KEY_DEBUG := "cross_volume_links_debug"
 const KEY_RELEASE := "cross_volume_links_release"
 
 
+# Every test copy on a machine shares `user://` (app_userdata/"VisionClaw XR")
+# with the live client, so a GUT run that toggles links through GraphScene
+# used to rewrite the operator's real preference. `path_override` redirects
+# the public helpers; left empty, `path()` redirects on its own whenever the
+# process is a GUT run, so no test can reach PATH even if it forgets to set it.
+static var path_override: String = ""
+
+
+## The file the public helpers read and write: `path_override` if set, else
+## TEST_PATH under GUT, else PATH.
+static func path() -> String:
+	if not path_override.is_empty():
+		return path_override
+	return TEST_PATH if _under_gut() else PATH
+
+
+## True when GUT drives this process: the command-line runner is the main
+## loop's script, or the editor panel's runner scene is the current scene.
+static func _under_gut() -> bool:
+	var loop := Engine.get_main_loop()
+	if loop == null:
+		return false
+	var script: Script = loop.get_script() as Script
+	if script != null and script.resource_path.begins_with("res://addons/gut/"):
+		return true
+	var tree := loop as SceneTree
+	if tree != null and tree.current_scene != null:
+		return tree.current_scene.scene_file_path.begins_with("res://addons/gut/")
+	return false
+
+
 ## The switch for the running build type.
 static func cross_volume_links() -> bool:
-	return _read(OS.is_debug_build(), PATH)
+	return _read(OS.is_debug_build(), path())
 
 
 ## Store the switch for the running build type only.
 static func set_cross_volume_links(on: bool) -> void:
-	_write(OS.is_debug_build(), on, PATH)
+	_write(OS.is_debug_build(), on, path())
 
 
 static func _key_for(debug: bool) -> String:
