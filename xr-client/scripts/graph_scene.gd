@@ -128,6 +128,36 @@ func _log_volumes(delta: float) -> void:
 	print("GraphScene volumes: %s" % " ".join(parts))
 
 
+# True while the overlay volume is drawn: shown and its connection up. The ray,
+# labels, drag, beams and hulls all live in its frame and read its pack slot.
+func _overlay_live() -> bool:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	var conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+	return v != null and bool(v.visible_state) and conn != null and conn.is_connected_now()
+
+
+# A hidden or offline overlay volume must leave nothing pickable: select its
+# slot and empty it, so the ray, beams and hulls (which read the active slot's
+# render ids) find no node the user cannot see.
+func _empty_overlay_slot(src) -> void:
+	if _binary_client == null or not _binary_client.has_method("drop_pack_slot"):
+		return
+	_binary_client.set_pack_slot(src.slot)
+	_binary_client.drop_pack_slot(src.slot)
+
+
+# Release a node grab in flight (its volume went away mid-drag).
+func _release_grab() -> void:
+	if _grabbed_id == -1:
+		return
+	var conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+	if conn != null and _grabbed_id >= 0:
+		conn.send_drag_end(_grabbed_id)
+	_grabbed_id = -1
+	_grab_controller = null
+	_grab_target_server = Vector3.ZERO
+
+
 # The memory cloud stays world furniture (ADR-2158 D4): it hangs off its own
 # root, placed once per VisionClaw topology, not off a volume.
 var _cloud_root: Node3D = null
@@ -790,8 +820,9 @@ func _start_native_shim() -> void:
 	if _shim.has_signal("fallback"):
 		_shim.fallback.connect(_on_shim_fallback)
 	_shim_pending_start = str(d.get("mode", "")) == "native"
-	# A closed native container ends the XR session (C's finding 2): leave the
-	# backend connections clean rather than let them chase a dead session.
+	# A closed native container ends the XR session (C's finding 2). The backend
+	# connections are left alone (§4): a session may stop and begin again (headset
+	# off/on, runtime dashboard) and the volumes must still be live when it does.
 	var xr: XRInterface = XRServer.find_interface("OpenXR")
 	if xr != null and xr.has_signal("session_stopping"):
 		xr.session_stopping.connect(_on_xr_session_stopping)
@@ -809,9 +840,7 @@ func _on_shim_fallback(reason: String) -> void:
 
 
 func _on_xr_session_stopping() -> void:
-	print("GraphScene: XR session stopping; closing backend connections")
-	for conn: Node in _conns.values():
-		conn.close()
+	print("GraphScene: XR session stopping; backend connections kept")
 
 
 # §7.4: each visible volume ticks (its fit re-reads the source extent every
@@ -872,6 +901,8 @@ func _pack_volumes() -> void:
 		var conn: Node = _conn_for_volume(vid)
 		if not v.visible_state or conn == null or not conn.is_connected_now():
 			src.clear_instances()
+			if vid == OVERLAY_VOLUME:
+				_empty_overlay_slot(src)
 			continue
 		var share: Dictionary = _budget.volume_caps.get(vid, {})
 		var gem_cap: int = int(share.get("gem_nodes", _budget.caps["gem_nodes"]))
@@ -913,7 +944,7 @@ func _init_label_pool() -> void:
 func _update_proximity_labels() -> void:
 	if _label_pool.is_empty():
 		return
-	if _binary_client == null or graph_root == null or not _binary_client.has_method("nodes_near"):
+	if _binary_client == null or graph_root == null or not _binary_client.has_method("nodes_near") or not _overlay_live():
 		_hide_all_labels()
 		return
 	var cam: XRCamera3D = _find_xr_camera()
@@ -1152,6 +1183,10 @@ func _on_volume_action(action: String) -> void:
 			v.request_visible(not v.visible_state)
 			if not v.visible_state and _sources.has(vid):
 				_sources[vid].clear_instances()
+				if vid == OVERLAY_VOLUME:
+					_release_grab()
+					_empty_overlay_slot(_sources[vid])
+					_hide_all_labels()
 	elif action.begins_with("volume_focus:"):
 		var fid := StringName(action.substr(13))
 		if _volumes.has(fid):
@@ -3197,6 +3232,7 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 	if conn_id == &"visionclaw":
 		emit_signal("connection_status_changed", connected)
 		if not connected:
+			_release_grab()
 			_clear_graph_mirror()
 	for vid: StringName in _sources:
 		if VOLUME_BINDINGS[vid]["conn"] == conn_id:

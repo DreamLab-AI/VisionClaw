@@ -68,3 +68,37 @@ func test_hidden_volume_stops_packing() -> void:
 	assert_true(scene._volumes[&"ontology"].visible_state)
 	scene.queue_free()
 	await get_tree().process_frame
+
+
+func test_hidden_overlay_volume_leaves_nothing_pickable() -> void:
+	var scene: Node3D = await _make_scene()
+	var client: RefCounted = scene._binary_client
+	var src = scene._sources[&"knowledge"]
+	# Seed the knowledge slot as if it had packed nodes on an earlier frame.
+	client.set_pack_slot(src.slot)
+	client.ingest(_frame([1 | 0x40000000, 2 | 0x40000000]))
+	client.build_node_buffer_lod(PackedInt32Array([1, 2]), 1.0, 0.7, 1.9, Vector3.ZERO, 8, 100.0)
+	assert_eq(client.get_render_ids().size(), 2, "precondition: the slot has pickable ids")
+	scene._grabbed_id = 1
+	scene._on_hud_control("volume_toggle:knowledge")
+	assert_eq(scene._grabbed_id, -1, "a grab in flight is released")
+	assert_eq(client.pack_slot(), src.slot)
+	assert_eq(client.get_render_ids().size(), 0, "no invisible node left for the ray")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	assert_eq(client.get_render_ids().size(), 0, "still empty after a frame of packing")
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+# Minimal V3 frame: [0x03] then 52-byte records (id, pos, zeros).
+func _frame(ids: Array) -> PackedByteArray:
+	var b := PackedByteArray()
+	b.append(0x03)
+	for id: int in ids:
+		var rec := PackedByteArray()
+		rec.resize(52)
+		rec.encode_u32(0, id)
+		rec.encode_float(4, float(id & 0xff))
+		b.append_array(rec)
+	return b
