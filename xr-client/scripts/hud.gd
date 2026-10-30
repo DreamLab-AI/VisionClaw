@@ -220,6 +220,10 @@ var _volume_buttons: Dictionary = {}     # volume_id → Button
 var _focus_button: Button = null
 var _focused_volume: StringName = &"knowledge"
 var _volume_states: Dictionary = {}
+# Cross-volume link layer (ADR-2164): toggle face and the debug-strip counts.
+var _links_button: Button = null
+var _links_on: bool = false
+var _link_counts: Vector3i = Vector3i.ZERO   # drawn, unresolved, overflow
 const VOLUME_SHORT := {&"knowledge": "KG", &"ontology": "Onto", &"codescape": "Code"}
 # ADR-2143 A6: what the active backend serves, and every control that may be
 # greyed by it (action → [Button]); filled by _action_btn as pages are built.
@@ -711,10 +715,15 @@ func _build_shapes_page() -> VBoxContainer:
 	# Directed-cycle overlay. The server finds the cycles (GET /api/analytics/cycles,
 	# hierarchy edges); the toggle dims everything else and lights the cycle members.
 	page.add_child(_group_header("Cycles"))
-	var g_cycles := _grid(2)
+	var g_cycles := _grid(3)
 	_cycles_button = _action_btn("Cycles: Off", "cycles_toggle", "Light nodes on a directed cycle (e.g. a subclass loop) and dim the rest")
 	g_cycles.add_child(_cycles_button)
 	g_cycles.add_child(_action_btn("Cycles: Refresh", "cycles_refresh", "Re-fetch the cycle report from the server after the graph changes"))
+	# ADR-2164: cross-volume links (code → concept annotations, knowledge ↔ ontology
+	# bridges). Shares the Cycles row so the page keeps its height.
+	_links_button = _action_btn("Links: On" if _links_on else "Links: Off", "cross_links_toggle",
+		"Cross-volume links: code annotations to concepts, and knowledge-ontology bridges")
+	g_cycles.add_child(_links_button)
 	page.add_child(g_cycles)
 	return page
 
@@ -1649,6 +1658,18 @@ func set_volume_state(focused: StringName, states: Dictionary) -> void:
 	_update_conn_status_label()
 
 
+## Cross-volume links on/off, shown on the Shapes page toggle.
+func set_cross_links(on: bool) -> void:
+	_links_on = on
+	if _links_button != null:
+		_links_button.text = "Links: On" if on else "Links: Off"
+
+
+## Link layer counts for the debug strip: drawn / unresolved / over the cap.
+func set_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
+	_link_counts = Vector3i(drawn, unresolved, overflow)
+
+
 func _update_conn_status_label() -> void:
 	if _conn_status_label == null:
 		return
@@ -1979,8 +2000,9 @@ func _process(delta: float) -> void:
 			_fps_header.text = "FPS %d" % fps
 		_fps_shown = fps
 	if _debug_stats != null:
-		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s" % [
+		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s  Links: %d/%d/%d" % [
 			maxi(_fps_shown, 0), _mtp_ms, _avatar_count, "OK" if _connected else "OFF",
+			_link_counts.x, _link_counts.y, _link_counts.z,
 		]
 	# Hover-hint bar: resolve the control under the (synthetic) wand pointer via
 	# gui_get_hovered_control — which the pushed InputEventMouseMotion updates, so

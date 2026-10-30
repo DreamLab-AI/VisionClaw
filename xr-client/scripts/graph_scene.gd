@@ -6,6 +6,9 @@ const ConnectionVolumeSource := preload("res://scripts/connection_volume_source.
 const VolumeArrangementScript := preload("res://scripts/volume_arrangement.gd")
 const EmulatedVolumeScene := preload("res://scenes/EmulatedVolume.tscn")
 const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
+const LinkLayerScript := preload("res://scripts/link_layer.gd")
+const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
+const XrPrefs := preload("res://scripts/xr_prefs.gd")
 
 const AVATAR_TEMPLATE_PATH := "res://scenes/Avatar.tscn"
 const AGENT_TEMPLATE_PATH := "res://scenes/AgentAvatar.tscn"
@@ -125,6 +128,10 @@ func _log_volumes(delta: float) -> void:
 			"" if conn != null and conn.is_connected_now() else " offline",
 			int(conn.generation) if conn != null else -1,
 			src.content_ids().size(), int(d["nodes"]), int(d["edges"]), float(v.current_scale())])
+	if _link_layer != null:
+		parts.append("links[%s drawn=%d unresolved=%d overflow=%d records=%d]" % [
+			"on" if _link_layer.is_enabled() else "off", _link_layer.drawn_count(),
+			_link_layer.unresolved_count(), _link_layer.overflow_count(), _link_layer.record_count()])
 	print("GraphScene volumes: %s" % " ".join(parts))
 
 
@@ -158,10 +165,78 @@ func _release_grab() -> void:
 	_grab_target_server = Vector3.ZERO
 
 
+# The cross-volume link layer (ADR-2164): one MultiMesh in world space whose
+# endpoints the volumes map from graph units. On/off is the per-build-type
+# preference (xr_prefs.gd); the HUD shows its counts.
+func _build_link_layer() -> void:
+	_link_layer = LinkLayerScript.new()
+	_link_layer.name = "LinkLayer"
+	add_child(_link_layer)
+	_link_layer.counts_changed.connect(_on_link_counts)
+	_set_cross_links(XrPrefs.cross_volume_links(), false)
+
+
+func _set_cross_links(on: bool, persist: bool = true) -> void:
+	if persist:
+		XrPrefs.set_cross_volume_links(on)
+	if _link_layer != null:
+		_link_layer.set_enabled(on)
+	if hud != null and hud.has_method("set_cross_links"):
+		hud.set_cross_links(on)
+
+
+func _on_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
+	if hud != null and hud.has_method("set_link_counts"):
+		hud.set_link_counts(drawn, unresolved, overflow)
+
+
+# §7.4/§7.5: refresh endpoints every frame (the layer throttles itself to
+# REFRESH_HZ) and rebuild the records when their inputs moved.
+func _tick_links(delta: float) -> void:
+	if _link_layer == null:
+		return
+	_link_join_accum += delta
+	if _link_join_accum >= LINK_JOIN_SEC:
+		_link_join_accum = 0.0
+		_rebuild_links()
+	_link_layer.tick(delta, _volumes, _conns)
+
+
+func _rebuild_links() -> void:
+	if _vc_conn == null or not _vc_conn.is_connected_now():
+		return
+	var ids_by_volume := {}
+	for vid: StringName in [&"knowledge", &"ontology"]:
+		var src = _sources.get(vid, null)
+		ids_by_volume[vid] = src.content_ids() if src != null else PackedInt32Array()
+	var cs_up: bool = _cs_conn != null and _cs_conn.is_connected_now()
+	var sig: Array = [_vc_conn.generation, _cs_conn.generation if cs_up else -1,
+		(ids_by_volume[&"knowledge"] as PackedInt32Array).size(), (ids_by_volume[&"ontology"] as PackedInt32Array).size()]
+	if sig == _link_sig:
+		return
+	_link_sig = sig
+	_link_layer.set_records("bridge", BridgeLinkSource.records(_vc_conn, ids_by_volume))
+	# Annotations need both connections up and in their current generations (ADR-2159).
+	if cs_up and _binary_client != null and _binary_client.has_method("join_code_links"):
+		var res: Dictionary = _binary_client.join_code_links(_cs_conn.client, _cs_conn.generation, _vc_conn.generation)
+		_link_layer.set_records("annotates", res.get("records", []))
+		_link_layer.set_unresolved("annotates", int(res.get("unresolved", 0)))
+	else:
+		_link_layer.set_records("annotates", [])
+		_link_layer.set_unresolved("annotates", 0)
+
+
 # The memory cloud stays world furniture (ADR-2158 D4): it hangs off its own
 # root, placed once per VisionClaw topology, not off a volume.
 var _cloud_root: Node3D = null
 var _cloud_placed: bool = false
+# Cross-volume links (ADR-2164; §7.4-§7.8). Records are rebuilt at LINK_JOIN_SEC
+# while their inputs (generations, drawn ids) change: class codes ride position
+# frames, so a join at topology time alone would find nothing resolved.
+const LINK_JOIN_SEC: float = 1.0
+var _link_layer: Node3D = null
+var _link_join_accum: float = 0.0
+var _link_sig: Array = []
 const DEFAULT_ROOM_URN := "urn:visionclaw:room:sha256-12-deadbeefcafe"
 const DEFAULT_DISPLAY_NAME := "XR User"
 
@@ -723,6 +798,7 @@ func _ready() -> void:
 		_ribbons = NodeLod.make_ribbon_instance()
 		graph_root.add_child(_ribbons)
 	_build_volumes()
+	_build_link_layer()
 	_start_native_shim()
 	_ensure_beat()
 	_connect_from_env()
@@ -1208,6 +1284,9 @@ func _on_hud_control(action: String) -> void:
 		return
 	if action.begins_with("volume_"):
 		_on_volume_action(action)
+		return
+	if action == "cross_links_toggle":
+		_set_cross_links(not (_link_layer != null and _link_layer.is_enabled()))
 		return
 	var needed: String = BackendCaps.cap_for_action(action)
 	if not needed.is_empty() and not _gate_for_volume(_focused_volume, needed, action.get_slice(":", 0).replace("_", " ")):
@@ -1944,6 +2023,7 @@ func _physics_process(delta: float) -> void:
 	_tick_reconnect(delta)
 	if _shim != null:
 		_shim.tick(delta)
+	_tick_links(delta)
 	# Proximity labels refresh at ~4 Hz (not per frame) — the query + text/fade
 	# assignment is the only work and it reuses the pool, so zero per-frame cost.
 	_label_accum += delta
@@ -2403,6 +2483,10 @@ func _tick_frame_budget(delta: float) -> void:
 	layers["hull_tris"] = _parity.hull_triangles if _parity != null else 0
 	if agent_multi != null and agent_multi.multimesh != null and agent_multi.visible and agent_multi.multimesh.instance_count > 0:
 		calls += 1
+	# §7.7: the link layer's call is charged here; its triangles are inside the
+	# renderer's measured total, which the pass charges as outside-layer triangles.
+	if _link_layer != null:
+		calls += int(_link_layer.draw_calls())
 	if int(layers["hulls"]) > 0:
 		calls += 1
 	layers["draw_calls"] = calls
@@ -3239,7 +3323,10 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 			_sources[vid].invalidate()
 			if not connected:
 				_sources[vid].clear_instances()
-	# §7.6: a dropped connection's links go (link layer lands with ADR-2164).
+	# §7.6: a dropped connection's links go with it.
+	if not connected and _link_layer != null:
+		_link_layer.drop_connection(conn_id)
+		_link_sig = []
 	_update_offline_labels()
 	_sync_hud_backend()
 
@@ -3250,7 +3337,12 @@ func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:
 			_sources[vid].invalidate()
 	if conn_id == &"visionclaw":
 		_cloud_placed = false
-	# §7.5: link records (ADR-2164) are joined here once the link layer lands.
+	# §7.5: the old generation's links are void; the join reruns on the next
+	# link tick against the new tables.
+	if _link_layer != null:
+		_link_layer.drop_connection(conn_id)
+	_link_sig = []
+	_link_join_accum = LINK_JOIN_SEC
 
 
 # Presence (/ws/presence) socket state, on its own independent backoff.

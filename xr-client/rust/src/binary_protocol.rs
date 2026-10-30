@@ -192,6 +192,48 @@ pub struct NodeMetaWire {
     /// Population origin for the `linked_page` gate: `metadata.type || node_type`
     /// (server `Node::population_type`, desktop filter).
     pub population_type: String,
+    /// Ontology IRIs this node carries (`metadata.class_iri`, `metadata.page_iri`,
+    /// top-level `owl_class_iri`; `link_index::extract_iris`). VisionClaw nodes only.
+    pub iris: Vec<String>,
+    /// `metadata.ontology_refs` (`<iri>#L<n> …`, ADR-2164 D2). Codescape nodes only.
+    pub ontology_refs: String,
+    /// `metadata.source_file`: the path a code link's provenance names.
+    pub source_file: String,
+}
+
+/// `iri → [wire ids]` over a topology's node metadata (one IRI may sit on several nodes).
+/// Ids are sorted and unique. Feeds the code-link join (ADR-2164 D4).
+pub fn iri_table_from_metas(metas: &[NodeMetaWire]) -> std::collections::HashMap<String, Vec<u32>> {
+    let mut t: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+    for m in metas {
+        for iri in &m.iris {
+            t.entry(iri.clone()).or_default().push(m.id);
+        }
+    }
+    for ids in t.values_mut() {
+        ids.sort_unstable();
+        ids.dedup();
+    }
+    t
+}
+
+/// The annotated code nodes of a topology (those whose `ontology_refs` parse to at least one
+/// well-formed ref), as `link_index::CodeRef`s. `is_file` is `node_type == "file"`.
+pub fn code_refs_from_metas(metas: &[NodeMetaWire]) -> Vec<crate::link_index::CodeRef> {
+    metas
+        .iter()
+        .filter(|m| !m.ontology_refs.is_empty())
+        .filter_map(|m| {
+            let refs = crate::link_index::parse_ontology_refs(&m.ontology_refs);
+            (!refs.is_empty()).then(|| crate::link_index::CodeRef {
+                key: m.metadata_id.clone(),
+                id: m.id,
+                path: m.source_file.clone(),
+                is_file: m.node_type == "file",
+                refs,
+            })
+        })
+        .collect()
 }
 
 /// First numeric value among `keys` in a node's metadata map. Values arrive as
@@ -328,6 +370,9 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
             let population_type = meta_str(meta, "type")
                 .unwrap_or(node_type.as_str())
                 .to_string();
+            let iris = crate::link_index::extract_iris(node);
+            let ontology_refs = meta_str(meta, "ontology_refs").unwrap_or("").to_string();
+            let source_file = meta_str(meta, "source_file").unwrap_or("").to_string();
             if metadata_id.is_empty()
                 && label.is_empty()
                 && node_type.is_empty()
@@ -336,6 +381,8 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 && domain.is_empty()
                 && quality.is_none()
                 && authority.is_none()
+                && iris.is_empty()
+                && ontology_refs.is_empty()
             {
                 continue;
             }
@@ -350,6 +397,9 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 quality,
                 authority,
                 population_type,
+                iris,
+                ontology_refs,
+                source_file,
             });
         }
     }
@@ -1049,6 +1099,10 @@ pub struct BinaryProtocolClient {
     /// render store keeps the same map privately for its type filter; this copy keeps
     /// `render_store.rs` untouched. Cleared on connect, pruned when agents are retired.
     node_class: std::collections::HashMap<u32, u8>,
+    /// Code-link tables for the current topology (ADR-2164 D4): this connection's IRI → ids
+    /// (VisionClaw) and annotated code nodes (Codescape). Rebuilt on every initialGraphLoad.
+    iri_ids: std::collections::HashMap<String, Vec<u32>>,
+    code_refs: Vec<crate::link_index::CodeRef>,
     /// Wall-clock instant of the most recent `0x23` agent action, for the P1
     /// data-plane liveness diagnostic (`last_agent_action_age_ms`). `None` until
     /// the first action arrives.
@@ -1121,6 +1175,8 @@ impl BinaryProtocolClient {
             edge_types: Vec::new(),
             store: crate::render_store::RenderStore::new(),
             node_class: std::collections::HashMap::new(),
+            iri_ids: std::collections::HashMap::new(),
+            code_refs: Vec::new(),
             last_agent_action: None,
             freshness: FreshnessGate::new(),
             clock_anchor: None,
@@ -1149,6 +1205,8 @@ impl BinaryProtocolClient {
         self.visuals.clear();
         self.store.clear();
         self.node_class.clear();
+        self.iri_ids.clear();
+        self.code_refs.clear();
         // A fresh inbox per connection: the previous pump may still push (an aborted task can
         // finish its current send) and anything it queued belongs to the old generation's id
         // space. Swapping, rather than clearing, makes "wire ids are valid only within one
@@ -1231,6 +1289,9 @@ impl BinaryProtocolClient {
                     // Per-node degree = incident edge count (desktop parity) — one
                     // O(E) pass over the full edge list, drives the size formula.
                     self.store.compute_degrees(&self.edges_flat);
+                    // Code-link tables, cached per topology (contract §2.4).
+                    self.iri_ids = iri_table_from_metas(&metas);
+                    self.code_refs = code_refs_from_metas(&metas);
                     // Feed node label metadata + file_size into the render store for
                     // the proximity-label overlay and the metadata size formula.
                     for m in metas {
@@ -2095,6 +2156,60 @@ impl BinaryProtocolClient {
         PackedInt32Array::from(ids.as_slice())
     }
 
+    /// `{iri: PackedInt32Array of wire ids}` for the current topology (ADR-2164 D4).
+    #[func]
+    fn iri_table(&self) -> Dictionary {
+        let mut d = Dictionary::new();
+        for (iri, ids) in &self.iri_ids {
+            let v: Vec<i32> = ids.iter().map(|&i| i as i32).collect();
+            d.set(GString::from(iri.as_str()), PackedInt32Array::from(v.as_slice()));
+        }
+        d
+    }
+
+    /// `[{key, id, path, is_file, refs: [[iri, line], …]}]` for the current topology.
+    #[func]
+    fn code_refs(&self) -> VariantArray {
+        let mut out = VariantArray::new();
+        for c in &self.code_refs {
+            let mut refs = VariantArray::new();
+            for (iri, line) in &c.refs {
+                let mut pair = VariantArray::new();
+                pair.push(&GString::from(iri.as_str()).to_variant());
+                pair.push(&(*line as i64).to_variant());
+                refs.push(&pair.to_variant());
+            }
+            let mut d = Dictionary::new();
+            d.set("key", GString::from(c.key.as_str()));
+            d.set("id", c.id as i64);
+            d.set("path", GString::from(c.path.as_str()));
+            d.set("is_file", c.is_file);
+            d.set("refs", refs);
+            out.push(&d.to_variant());
+        }
+        out
+    }
+
+    /// Join `code`'s annotated nodes (the Codescape connection's client) against this
+    /// client's IRI table (`link_index::join`). Returns `{records: [ADR-2164 D5 Dictionary],
+    /// unresolved: int}`; class codes come from this client's applied frames, so an IRI on a
+    /// node whose position has not arrived yet counts as unresolved until it does.
+    #[func]
+    fn join_code_links(&self, code: Gd<BinaryProtocolClient>, code_gen: i64, vc_gen: i64) -> Dictionary {
+        let code = code.bind();
+        let res = crate::link_index::join(&code.code_refs, code_gen, &self.iri_ids, vc_gen, |id| {
+            self.node_class.get(&id).copied().unwrap_or(u8::MAX)
+        });
+        let mut records = VariantArray::new();
+        for r in &res.records {
+            records.push(&link_record_dict(r).to_variant());
+        }
+        let mut d = Dictionary::new();
+        d.set("records", records);
+        d.set("unresolved", res.unresolved as i64);
+        d
+    }
+
     /// Edge pairs inside one class mask, heaviest first, at most `max` pairs (see
     /// [`edges_for_class_mask`]).
     #[func]
@@ -2469,6 +2584,38 @@ impl BinaryProtocolClient {
             let _ = tx.send(crate::transport::Outbound::Binary(ack));
         }
     }
+}
+
+/// One `link_index::LinkRecord` as the link layer's Dictionary (ADR-2164 D5 shape).
+#[cfg(not(test))]
+fn link_record_dict(r: &crate::link_index::LinkRecord) -> Dictionary {
+    let end = |e: &crate::link_index::Endpoint| {
+        let mut d = Dictionary::new();
+        d.set("volume", GString::from(e.volume.as_str()));
+        d.set("conn", GString::from(e.conn.as_str()));
+        d.set("key", GString::from(e.key.as_str()));
+        d.set("id", e.id as i64);
+        d
+    };
+    let mut prov = Dictionary::new();
+    prov.set("via", GString::from(r.provenance.via.as_str()));
+    prov.set("repo", GString::from(r.provenance.repo.as_str()));
+    prov.set("path", GString::from(r.provenance.path.as_str()));
+    prov.set("line", r.provenance.line as i64);
+    match r.provenance.revision {
+        Some(v) => prov.set("revision", v as i64),
+        None => prov.set("revision", Variant::nil()),
+    }
+    let mut gens = VariantArray::new();
+    gens.push(&r.provenance.generations[0].to_variant());
+    gens.push(&r.provenance.generations[1].to_variant());
+    prov.set("generations", gens);
+    let mut d = Dictionary::new();
+    d.set("source", end(&r.source));
+    d.set("target", end(&r.target));
+    d.set("kind", GString::from(r.kind.as_str()));
+    d.set("provenance", prov);
+    d
 }
 
 #[cfg(not(test))]
@@ -2921,6 +3068,49 @@ mod tests {
         assert!(edges_for_class_mask(&flat, &w, 0, 10, class_of).is_empty());
         // Missing weights default to 1.0, ties keep wire order.
         assert_eq!(edges_for_class_mask(&flat, &[], 0b0011, 10, class_of), vec![1, 2, 1, 3, 3, 3, 2, 1]);
+    }
+
+    #[test]
+    fn topology_fills_iris_ontology_refs_and_both_link_tables() {
+        let text = r#"{"type":"initialGraphLoad","edges":[],"nodes":[
+            {"id":1,"label":"BM25","node_type":"ontology_node","metadata":{"class_iri":"urn:ngm:class:bm25"}},
+            {"id":2,"label":"BM25 page","metadata":{"page_iri":"urn:visionflow:page:bm25","class_iri":"urn:ngm:class:bm25"}},
+            {"id":3,"label":"other","owl_class_iri":"urn:ngm:class:rank"},
+            {"id":10,"metadata_id":"src_rank","label":"rank.rs","node_type":"file",
+             "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30"}},
+            {"id":11,"metadata_id":"src_rank::score","label":"score","node_type":"function",
+             "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12"}},
+            {"id":12,"metadata_id":"plain","label":"plain","node_type":"file","metadata":{"source_file":"src/x.rs"}}
+        ]}"#;
+        let (_, metas) = parse_initial_graph(text).unwrap();
+        let by_id = |id: u32| metas.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(by_id(1).iris, vec!["urn:ngm:class:bm25".to_string()]);
+        assert_eq!(by_id(3).iris, vec!["urn:ngm:class:rank".to_string()]);
+        assert_eq!(by_id(10).ontology_refs, "urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30");
+        assert_eq!(by_id(10).source_file, "src/rank.rs");
+        let t = iri_table_from_metas(&metas);
+        assert_eq!(t["urn:ngm:class:bm25"], vec![1, 2], "one IRI on two nodes");
+        assert_eq!(t["urn:ngm:class:rank"], vec![3]);
+        assert!(t.contains_key("urn:visionflow:page:bm25"));
+        let code = code_refs_from_metas(&metas);
+        assert_eq!(code.len(), 2, "only annotated code nodes; the plain file has none");
+        let file = code.iter().find(|c| c.id == 10).unwrap();
+        assert!(file.is_file);
+        assert_eq!(file.key, "src_rank");
+        assert_eq!(file.path, "src/rank.rs");
+        assert_eq!(
+            file.refs,
+            vec![("urn:ngm:class:bm25".to_string(), 12), ("urn:ngm:class:rank".to_string(), 30)],
+            "malformed token skipped"
+        );
+        assert!(!code.iter().find(|c| c.id == 11).unwrap().is_file);
+        // End to end through D's join: the symbol beats the file's roll-up on (iri, path, line).
+        let res = crate::link_index::join(&code, 4, &t, 9, |id| if id == 1 { 1 } else { 0 });
+        let bm25: Vec<_> = res.records.iter().filter(|r| r.target.key == "urn:ngm:class:bm25").collect();
+        assert_eq!(bm25.len(), 2, "one record per target node");
+        assert!(bm25.iter().all(|r| r.source.id == 11), "symbol wins over file");
+        assert_eq!(bm25.iter().find(|r| r.target.id == 1).unwrap().target.volume, "ontology");
+        assert_eq!(bm25[0].provenance.generations, [4, 9]);
     }
 
     #[test]
