@@ -24,7 +24,7 @@ cd VisionClaw && cp env.example .env
 | 3D graph frontend | <http://localhost:3001> | nginx |
 | REST API | <http://localhost:4000/api> | HTTP + WebSocket |
 | Solid pod | <http://localhost:8484> | per-user pod storage |
-| Codescape (dev nginx) | <http://localhost:3001/codescape/> | opt-in, `CODESCAPE=1 ./scripts/launch.sh up dev`; code-graph section, separate workspace ([ADR-2143](adr/ADR-2143-codescape-section-separate-workspace-and-port.md)) |
+| Codescape (dev nginx) | <http://localhost:3001/codescape/> | opt-in, `./scripts/launch.sh up dev --sidecars=codescape` (or the launch menu); code-graph section, separate workspace ([ADR-2143](adr/ADR-2143-codescape-section-separate-workspace-and-port.md)) |
 | Codescape (direct) | <http://localhost:4100> | loopback by default; hook ingest `:4101` stays on `visionclaw_network`, never published |
 | MCP TCP (agentbox) | `multi-agent-container:9500` (`MCP_TCP_PORT`) | outbound poll by `bots_client.rs` for agent-state snapshots; WebSocket cutover planned — see [ADR-2084](adr/ADR-2084-9500-load-bearing-doc-correct-plan-ws-cutover.md) |
 
