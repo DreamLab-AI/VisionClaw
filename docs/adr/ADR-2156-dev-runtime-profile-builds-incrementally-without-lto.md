@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 52beafa2d7de43efb56e9d581c96ac0dc76adba0
+verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -36,3 +36,5 @@ ADR-2008 recompiles the backend on container start. Its diff detection is correc
 - `bash scripts/tests/test-dev-inputs.sh` passes: 86 checks.
 - `cargo metadata --no-deps` accepts the manifest.
 - Activation is staged until a `./scripts/launch.sh redeploy dev` has timed a single-file rebuild.
+
+Re-verified 2026-10-30 at 17e3cdda0: code committed at dd5be4d9e; `Cargo.toml:332-334` (`lto = "off"`, `codegen-units = 256`, `incremental = true`), `build.rs:38` and `scripts/rust-backend-wrapper.sh:124` match the decision.

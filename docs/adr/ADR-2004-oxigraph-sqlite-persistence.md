@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -250,3 +250,5 @@ HOLDS. The governed diff since `bb76e75bd` (`git diff bb76e75bd..HEAD -- Cargo.t
 Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13 → alpha.17 (db7ea58de), a dependency version bump unrelated to persistence. Decision intact.
 
 Re-verified 2026-10-30 at c75004696: the root `Cargo.toml` gains the workspace member and path dependency `visionclaw-jev` and its dev-dependency (the opt-in Jev option, ADR-2148). No oxigraph, rusqlite, redis or persistence feature changed. Anchors at HEAD: `oxigraph` `Cargo.toml:92`, `rusqlite` `:93`, `redis` `:97`, `default` features `:278`, `persistence-oxigraph` `:294`; no `neo4rs`. The decision holds.
+
+Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-runtime]` (ADR-2156); persistence dependencies unchanged, claim holds.
