@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.21
+version: 0.1.22
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.22 (2026-10-30): ADR-2158 and ADR-2159 accepted by the operator for implementation (not built); ADR-2164 added (code-to-concept links from explicit `@ontology` annotations, joined in the client). The Proposed section becomes Being implemented: native container arm (one main container wraps the emulated arrangement, off by default, Android only, falls back, unverified), `xr.cross_volume_links` on in debug builds and off in release, E3 open items settled as defaults, link-layer budget. Current State, Invariants, Godot version facts and verified_commit untouched. Drafted against 00669b7a2."
   - "0.1.21 (2026-10-30): PROPOSED only, nothing implemented. ADR-2158 and ADR-2159 add a Proposed section (spatial volumes, one backend connection per content source); the LiveKit gap now points at ADR-2160. Audit round 2: fit rule is min bounds/content ratio, frames belong to the home, connections are per (node, dataspace); `BackendCaps` is UX only (read-only is enforced by the server, ADR-2161). Current State, Invariants and verified_commit untouched. Drafted against e74bcddc7."
   - "0.1.20 (2026-10-08): the animated walk has its own scale in the headset (operator: at the 0.1 line factor the walk vanished in the VIVE). Comet head, glow and tail, the segment drawing in behind the trace head and a bead popping in draw at XR_WALK_THICKNESS_SCALE 1.0 / XR_WALK_GLOW_SCALE 0.5 (comet head at least COMET_MIN_DEG 0.5° at COMET_VIEW_M 15 m) and settle to the 0.1 line factor over WALK_SETTLE_S 0.8 s after convergence. A headset query (preset or typed) always replays the walk, even on the same hits; only the desktop's 10 s repeat keeps the trace. Reduced motion: a static thin route. Triangle budget and draw calls unchanged. No invariant changed."
   - "0.1.19 (2026-10-08): server sample 30 000 (ADR-2133 amendment). The frame budget still caps the cloud at 8 000 sprites; a 30 000 snapshot draws 8 000 (namespace-stratified, route and hit rows pinned) and the HUD Memory button reads 'Memory: <drawn> of <sampled>' whenever it draws fewer. Triangle budget unchanged. No invariant changed."
@@ -869,18 +870,57 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
 
-## Proposed (ADR-2158, ADR-2159; proposed, not implemented): volumes and concurrent backends
+## Being implemented (ADR-2158, ADR-2159, ADR-2164; accepted 2026-10-30, not built): volumes, concurrent backends and code links
 
-Nothing below exists in `xr-client/` at `e74bcddc7`. Transport, Codescape and Invariants above describe the current single-scene, single-backend client and stay correct until the code lands.
+The operator accepted these on 2026-10-30 for implementation. Nothing below exists in `xr-client/` at `00669b7a2`. The Transport and Codescape sections and the Invariants above describe the current client, with one scene and one backend, and they stay correct until the code lands. Phase-1 file ownership and APIs are in `docs/proposals/spatial-rooms/XR-PHASE1-CONTRACT.md`.
 
-- **Spatial volumes (ADR-2158).** A GDScript `SpatialVolume` contract modelled on `XR_EXT_spatial_container` (bounds, `bounded` or `immersive` mode, visible, interactable, closed; changes are requests answered by granted or denied signals; the runtime may change bounds at any time). `EmulatedVolume` works on every runtime and is the only arm built for trial E3. `NativeMainVolume` adapts Godot's `OpenXRSpatialContainerExtension` only on Godot 4.8 or later with a runtime that advertises the extension (Android XR only today; one main container per application; GDScript adapter because gdext has no 4.8 binding). Our SteamVR/HP runtime has no `XR_EXT_spatial_*` support.
-- **Trial E3.** Three emulated volumes: knowledge and ontology (split by node kind from the one VisionClaw stream) and the Codescape estate graph (a second connection). The memory cloud stays world furniture. Fit rules: scale by `min_i(bounds_i / content_i)`, ignoring any axis whose content extent is below 1e-6; centre at the volume origin, 1:1 in immersive mode, ease on `bounds_changed`. Acceptance: plan E7 (no node centre outside its box), E8 (90 Hz on the VIVE), E9 (Codescape `nodeDrag` refused locally).
-- **Cross-volume edges.** Optional: drawn as world-space inter-volume links only when `xr.cross_volume_links` is on (default off, runtime toggle). Covers knowledge↔ontology bridges and federated data-space links (ADR-2158 D6).
-- **ADR-2135.** For the XR client only, the tri-layout triangle becomes the default arrangement of volumes; open items (units, which body takes the 180 degree vertex, the server's per-population yaw) are listed in ADR-2158. The `visionclaw-tri-layout` crate and its fixture do not change.
-- **Frames.** A space descriptor's frame is the home's own; each consuming node applies its own placement transform, and no cross-node frame is shared in v1 (ADR-2158).
-- **Concurrent backends (ADR-2159).** One `BackendConnection` per content source, identified by (source node, dataspace) for a federated source, so two spaces of one node are two connections (own `BinaryProtocolClient`, acknowledgement sequence, render store, `BackendCaps`, palette), replacing the exclusive `_switch_backend`. Capability gating per volume; one presence socket per joined room; the 100 000-triangle, 50-draw-call budget split per visible volume. Precondition: two `BinaryProtocolClient` instances share the gdext tokio runtime, unverified.
-- **Later (P6).** Native container arm, per-device arrangement persistence keyed by room, marker-based colocation. No vendor anchor sharing.
-- **Citation drift noted at `e74bcddc7`, not corrected here:** the Transport section cites `_connect_from_env` at `graph_scene.gd:1123`; it is at `:1515`.
+- **Spatial volumes (ADR-2158).**
+  - **The contract.** `SpatialVolume` is a GDScript contract modelled on `XR_EXT_spatial_container`. A volume has bounds, a `bounded` or `immersive` mode, and visible, interactable and closed states. Every change is a request, answered by a granted or denied signal, and the runtime may change bounds at any time.
+  - **Emulated volumes.** `EmulatedVolume` works on every runtime, and every graph volume is emulated.
+  - **Native container arm.**
+    - Godot 4.8 exposes one main spatial container. When the arm is active, the whole arrangement of emulated volumes sits inside that container, and the container's bounds drive the arrangement's fit.
+    - The arm is switched by `visionclaw/xr/native_spatial_container`: off by default, honoured only on Android exports, and never on desktop exports. Godot reads its own container setting when OpenXR initialises, so the arm is a build-time choice.
+    - It falls back to plain emulated volumes immediately in any of these cases, and never leaves the session idle:
+      - the setting is off;
+      - the engine is older than 4.8;
+      - the extension is missing or disabled;
+      - the runtime lacks `XR_EXT_spatial_container`;
+      - the container is not active within 3 s;
+      - the container is closed.
+    - No runtime we own supports the extension (SteamVR on the HP has no `XR_EXT_spatial_*`; Android XR only), so the arm ships unverified.
+- **Trial E3.**
+  - **Volumes.** There are three emulated volumes:
+    - knowledge at −60°, split by node kind from the one VisionClaw stream;
+    - ontology at +60°, from the same stream;
+    - the Codescape estate graph at 0°, front centre, from a second connection.
+
+    The memory cloud stays world furniture at 180°.
+  - **Fit rules.** Scale by `min_i(bounds_i / content_i)`, ignoring any axis whose content extent is below 1e-6, over the content's full extent. Centre at the volume origin, keep 1:1 in immersive mode, and ease on `bounds_changed`.
+  - **Acceptance.** These come from the plan:
+    - **E7:** no node centre lies outside its box;
+    - **E8:** 90 Hz on the VIVE;
+    - **E9:** a Codescape `nodeDrag` is refused locally.
+- **Cross-volume links (ADR-2158 D6, ADR-2164).**
+  - **What is drawn.** One link layer draws knowledge↔ontology bridges and code→concept links, and later federated data-space links.
+  - **The switch.** Links are drawn only while `xr.cross_volume_links` is on. It is **on in debug builds (`OS.is_debug_build()`) and off in release**, toggled at runtime from the XR menu, and stored per device in `user://xr_prefs.cfg` under a key per build type (`cross_volume_links_debug` or `cross_volume_links_release`), so a dev-build choice never carries into release. Turning it off removes the geometry at once, and the switch never changes what any server sends.
+  - **Budget.** One draw call, at most 512 links and at most 6 144 triangles.
+- **Code links (ADR-2164).**
+  - **The source.** An explicit `@ontology <iri>` comment in estate code. Today's KG, ontology and docs data hold no usable link.
+  - **Delivery.** Codescape binds each annotation to its symbol, rolls it up to the file, and sends it on its file-tier `initialGraphLoad` as `metadata.ontology_refs` (`<iri>#L<line>`).
+  - **Resolution.** The client joins those refs, per connection and per stream generation, against VisionClaw's `class_iri`, `page_iri` and `owl_class_iri`. Nothing is resolved server to server.
+  - **Failure handling.** An unresolved IRI draws nothing and is counted. If either connection is down, the links involving it are dropped.
+- **ADR-2135.** For the XR client only, the tri-layout triangle becomes the default arrangement of volumes. Units are settled by the per-volume fit. If the stream carries the server's per-population yaw, each volume cancels it, and whether it does is checked first. The `visionclaw-tri-layout` crate and its fixture do not change.
+- **Frames.** A space descriptor's frame is the home's own. Each consuming node applies its own placement transform, and no cross-node frame is shared in v1 (ADR-2158).
+- **Concurrent backends (ADR-2159).**
+  - **One connection per source.** Each content source gets its own `BackendConnection`, which replaces the exclusive `_switch_backend`. It owns its `BinaryProtocolClient`, acknowledgement sequence, render store, `BackendCaps`, palette and stream generation.
+  - **Federated sources.** A federated source is identified by (source node, dataspace), so two spaces of one node are two connections.
+  - **Shared resources.**
+    - Capability gating is per volume.
+    - There is one presence socket per joined room.
+    - The 100 000-triangle, 50-draw-call budget is split per visible volume.
+  - **Precondition.** Two `BinaryProtocolClient` instances must share the gdext tokio runtime. This preflight is unverified, and it gates any wiring into `graph_scene.gd`.
+- **Later (P6).** The native arm's first verified run on an Android XR device; per-device arrangement persistence keyed by room; marker-based colocation. No vendor anchor sharing.
+- **Citation drift noted at `e74bcddc7`, not corrected here:** the Transport section cites `_connect_from_env` at `graph_scene.gd:1123`; it is at `:1515` (unchanged at `00669b7a2`).
 
 ## Invariants (must not silently change)
 1. `gl_compatibility` / Compatibility (OpenGL 3) renderer — re-testing on Vulkan
