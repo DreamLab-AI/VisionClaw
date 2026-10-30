@@ -41,8 +41,9 @@ boundaries. Code wins over legacy ADR prose; every load-bearing claim cites
 
 ### Typed decisions (staged rollout)
 
-The Compose deployment opts all twelve System One consumers in against the
-local `systemone:8097` façade ([ADR-2148](adr/ADR-2148-enable-local-typed-decisions.md)). The library still defaults off outside
+The Compose deployment opts all twelve System One consumers in through the
+shared agentbox proxy (`agentbox:8094`, the selected backend; amended 2026-10-30 from the
+local `systemone:8097` façade, [ADR-2148](adr/ADR-2148-enable-local-typed-decisions.md)). The library still defaults off outside
 that deployment. Existing authentication, validation and governance own actions;
 model errors retain the previous behaviour. `/api/jev/edge` provides bounded,
 authenticated edge suggestions without reviving the unused enrichment writer.

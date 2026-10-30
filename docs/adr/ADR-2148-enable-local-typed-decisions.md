@@ -59,3 +59,19 @@ Runtime synthetic Choice/Score/Noul passed through the real Rust HTTP adapter
 (`cargo test -p visionclaw-jev --test live_systemone -- --ignored`) in 0.16 seconds
 on 2026-10-29. The reader accepts the façade’s untagged answers, while rejecting
 explicit wrong types. Deployment has not been recreated.
+
+## Amendment (2026-10-30): the shared proxy replaces the local façade as the default route
+
+Operator decision: every System One consumer takes the TypeSafe Jev backend by default;
+local routing stays an explicit opt-in for private data. Compose now merges one
+`x-system-one-environment` block (the estate-wide common settings:
+`AGENTBOX_SYSTEM_ONE_PROXY=1`, endpoint `http://agentbox:8094/v1/systemone`, model
+`jev-latest`, `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=0`) into the VisionClaw, loom and
+codescape services, and drops their `systemone:8097` / `laya-typed-decisions` /
+`*_LOCAL=1` defaults. `VISIONCLAW_JEV_ALLOW_CLOUD`, `LOOM_JEV_ALLOW_CLOUD` and
+`CODESCAPE_JEV_ALLOW_CLOUD` default to 1. The proxy is agentbox's (agentbox ADR-2139
+amendment of the same date): it listens on the private docker network, never a
+published port, holds the vendor key and rewrites `model` to the selected backend, so
+one agentbox switch moves every consumer. Thresholds are unchanged; the outcome-changing
+ones remain unset. Activation still needs the agentbox rebuild (the network listener)
+and then a host `scripts/launch.sh` recreate.

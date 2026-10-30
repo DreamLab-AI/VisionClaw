@@ -1,14 +1,25 @@
 # Extension fields for DRY configuration
+# System One (Jev): one route for every consumer (agentbox ADR-2139, 2026-10-30).
+# The agentbox proxy holds the vendor key and forwards to the selected backend
+# (`./agentbox.sh systemone backend <name>` switches every consumer at once). It
+# listens on the private docker network only, never a published port. A
+# per-service <PREFIX>_JEV_ENDPOINT set in .env still overrides it.
+x-system-one-environment: &system-one-environment
+  AGENTBOX_SYSTEM_ONE_PROXY: "${AGENTBOX_SYSTEM_ONE_PROXY:-1}"
+  AGENTBOX_SYSTEM_ONE_ENDPOINT: "${AGENTBOX_SYSTEM_ONE_ENDPOINT:-http://agentbox:8094/v1/systemone}"
+  AGENTBOX_SYSTEM_ONE_MODEL: "${AGENTBOX_SYSTEM_ONE_MODEL:-jev-latest}"
+  AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL: "${AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL:-0}"
+
 x-common-environment: &common-environment
+  <<: *system-one-environment
   VISIONCLAW_SECURITY_PROFILE: "${VISIONCLAW_SECURITY_PROFILE:-}"
   VISIONCLAW_LEGACY_SESSIONS: "${VISIONCLAW_LEGACY_SESSIONS:-0}"
   # System One rollout: all twelve items opt in on both deployment profiles.
   # Supervisord inherits this environment; browsers use the authenticated API.
-  # Keep private evidence on the local façade. Cloud overrides remain explicit.
+  # Every item takes the shared proxy; set VISIONCLAW_JEV_ALLOW_CLOUD=0 (and
+  # VISIONCLAW_JEV_LOCAL=1 with a local endpoint) to keep private items local.
   VISIONCLAW_JEV: "${VISIONCLAW_JEV:-1}"
-  VISIONCLAW_JEV_ENDPOINT: "${VISIONCLAW_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
-  VISIONCLAW_JEV_MODEL: "${VISIONCLAW_JEV_MODEL:-laya-typed-decisions}"
-  VISIONCLAW_JEV_LOCAL: "${VISIONCLAW_JEV_LOCAL:-1}"
+  VISIONCLAW_JEV_ALLOW_CLOUD: "${VISIONCLAW_JEV_ALLOW_CLOUD:-1}"
   VISIONCLAW_JEV_TIMEOUT_MS: "${VISIONCLAW_JEV_TIMEOUT_MS:-4000}"
   # An unset automatic threshold deliberately accepts no autonomous change.
   VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE: "${VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE:-}"
@@ -373,17 +384,15 @@ services:
     image: ${LOOM_IMAGE:-loom:rust}
     hostname: loom
     environment:
+      <<: *system-one-environment
       LOOM_FACADE_PORT: "8080"
       LOOM_DEPLOY_PROFILE: "b"
-      # Enable local typed evidence review; the engagement gate stays shadow.
+      # Typed evidence review through the shared proxy; the engagement gate stays shadow.
       LOOM_JEV: "${LOOM_JEV:-1}"
       LOOM_JEV_GATE: "${LOOM_JEV_GATE:-1}"
       LOOM_JEV_RANK: "${LOOM_JEV_RANK:-1}"
       LOOM_JEV_SUPPORT: "${LOOM_JEV_SUPPORT:-1}"
-      LOOM_JEV_ENDPOINT: "${LOOM_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
-      LOOM_JEV_MODEL: "${LOOM_JEV_MODEL:-laya-typed-decisions}"
-      LOOM_JEV_LOCAL: "${LOOM_JEV_LOCAL:-1}"
-      LOOM_JEV_ALLOW_CLOUD: "${LOOM_JEV_ALLOW_CLOUD:-0}"
+      LOOM_JEV_ALLOW_CLOUD: "${LOOM_JEV_ALLOW_CLOUD:-1}"
       LOOM_JEV_TIMEOUT_MS: "${LOOM_JEV_TIMEOUT_MS:-4000}"
       LOOM_JEV_GATE_MIN_CONFIDENCE: "${LOOM_JEV_GATE_MIN_CONFIDENCE:-}"
       # Model-swap seam. Default co-located options (pick one at deploy):
@@ -463,6 +472,7 @@ services:
     # deploy surface, the GPU sources for the PTX artefact and the node_modules.
     entrypoint: ["/app/codescape/deploy/codescape-entrypoint.sh"]
     environment:
+      <<: *system-one-environment
       CODESCAPE_PORT: "4100"
       CODESCAPE_INGEST_PORT: "4101"
       CODESCAPE_BIND: "0.0.0.0"
@@ -490,11 +500,9 @@ services:
       CODESCAPE_INGEST_TOKEN_FILE: /run/secrets/codescape-ingest-token
       CODESCAPE_ASR_URL: ${CODESCAPE_ASR_URL:-ws://nemotron-asr:8000/api/asr-streaming}
       CODESCAPE_TTS_URL: ${CODESCAPE_TTS_URL:-http://pocket-tts:8000}
-      # Typed command suggestions stay on the local façade; the grammar wins.
+      # Typed command suggestions through the shared proxy; the grammar wins.
       CODESCAPE_JEV: "${CODESCAPE_JEV:-1}"
-      CODESCAPE_JEV_ENDPOINT: "${CODESCAPE_JEV_ENDPOINT:-http://systemone:8097/v1/systemone}"
-      CODESCAPE_JEV_MODEL: "${CODESCAPE_JEV_MODEL:-laya-typed-decisions}"
-      CODESCAPE_JEV_LOCAL: "${CODESCAPE_JEV_LOCAL:-1}"
+      CODESCAPE_JEV_ALLOW_CLOUD: "${CODESCAPE_JEV_ALLOW_CLOUD:-1}"
       CODESCAPE_JEV_TIMEOUT_MS: "${CODESCAPE_JEV_TIMEOUT_MS:-4000}"
       # Leave acceptance unset until calibrated; the enabled model is advisory.
       CODESCAPE_JEV_MIN_CONFIDENCE: "${CODESCAPE_JEV_MIN_CONFIDENCE:-}"

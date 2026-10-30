@@ -414,14 +414,21 @@ An opt-in, typed-decision step (TypeSafe System One: Choice, Score and Noul over
 
 The adapter is the self-contained crate `crates/visionclaw-jev` (reqwest, no cross-repo dependency); the server builds on it and holds the only copy of any key. Browsers never hold a key: the client calls the authenticated `GET /api/jev/status`, `POST /api/jev/command` and `POST /api/jev/palette`, and the server builds fixed, versioned question sets.
 
-The shared Compose environment enables `VISIONCLAW_JEV=1`, selects the local
-`http://systemone:8097/v1/systemone` façade with model `laya-typed-decisions`,
-and declares `VISIONCLAW_JEV_LOCAL=1` for both dev and production. Supervisord
-passes its inherited environment to the Rust backend. Recreate the application
-through `scripts/launch.sh` after this change; changing a shell does not change
-an existing container. Opt out with `VISIONCLAW_JEV=0`, or disable an individual
-item in the deployment environment. No cloud override or automatic acceptance
-threshold is supplied.
+The shared Compose environment enables `VISIONCLAW_JEV=1` and merges the estate's
+common System One block (`x-system-one-environment`, the same settings every estate
+repo's dotenv carries): `AGENTBOX_SYSTEM_ONE_PROXY=1`, endpoint
+`http://agentbox:8094/v1/systemone` (the agentbox proxy on `visionclaw_network`, never a
+published port), model `jev-latest`, `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=0`. The proxy
+holds the vendor key and forwards to the backend agentbox selects, so
+`./agentbox.sh systemone backend <name>` moves every item at once. `VISIONCLAW_JEV_ALLOW_CLOUD=1`
+lets the four items that are local-only by default (memory rerank, patch rank, ingest
+suggest, proposal triage) take that route; set it to 0, with `VISIONCLAW_JEV_LOCAL=1`
+and a local `VISIONCLAW_JEV_ENDPOINT`, to keep them on a LAN model. loom and codescape
+merge the same block (`LOOM_JEV_ALLOW_CLOUD=1`, `CODESCAPE_JEV_ALLOW_CLOUD=1`).
+Supervisord passes its inherited environment to the Rust backend. Recreate the
+application through `scripts/launch.sh` after this change; changing a shell does not
+change an existing container. Opt out with `VISIONCLAW_JEV=0`, or disable an individual
+item in the deployment environment. No automatic acceptance threshold is supplied.
 
 `POST /api/jev/edge` is an authenticated, review-only production consumer of
 edge meaning. Supply `source_label`, `target_label`, `evidence`, and optional
