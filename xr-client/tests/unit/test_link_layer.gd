@@ -68,6 +68,24 @@ func _assert_colour(got: Color, want: Color, text := "") -> void:
 		assert_almost_eq(got[i], want[i], 0.005, text)
 
 
+# Instance `i` decoded from the packed buffer the layer hands the MultiMesh
+# (rows of the basis, origin in the 4th column, then the colour). Read from
+# `buffer` rather than the per-instance getters: the headless dummy renderer
+# keeps the buffer but not per-instance state.
+func _xf(i: int) -> Transform3D:
+	var b: PackedFloat32Array = _mm().buffer
+	var k := i * LinkLayer.STRIDE
+	var basis := Basis(Vector3(b[k], b[k + 4], b[k + 8]), Vector3(b[k + 1], b[k + 5], b[k + 9]),
+		Vector3(b[k + 2], b[k + 6], b[k + 10]))
+	return Transform3D(basis, Vector3(b[k + 3], b[k + 7], b[k + 11]))
+
+
+func _custom(i: int) -> Color:
+	var b: PackedFloat32Array = _mm().buffer
+	var k := i * LinkLayer.STRIDE + 12
+	return Color(b[k], b[k + 1], b[k + 2], b[k + 3])
+
+
 func _mm() -> MultiMesh:
 	return layer.multimesh_instance.multimesh
 
@@ -108,11 +126,11 @@ func test_enabled_layer_draws_each_record_between_its_endpoints() -> void:
 	# Ordered by target key: t00005 then t00006.
 	var a := Vector3(1, 0, -2)  # node 1 in the codescape volume
 	var b := Vector3(7, 0, 0)   # node 5 in the ontology volume
-	var t: Transform3D = mm.get_instance_transform(0)
+	var t: Transform3D = _xf(0)
 	assert_almost_eq(t.origin.distance_to((a + b) * 0.5), 0.0, 1e-4, "midpoint")
 	assert_almost_eq(t.basis.y.length(), a.distance_to(b), 1e-4, "spans the link")
 	assert_almost_eq(t.basis.x.length(), LinkLayer.RADIUS_M, 1e-6)
-	_assert_colour(mm.get_instance_custom_data(0), LinkLayer.KIND_COLOURS["annotates"])
+	_assert_colour(_custom(0), LinkLayer.KIND_COLOURS["annotates"])
 
 
 func test_switching_off_empties_in_the_same_frame() -> void:
@@ -149,9 +167,9 @@ func test_cap_512_with_overflow_count_in_kind_order() -> void:
 	assert_eq(layer.draw_calls(), 1, "never more than one draw call")
 	assert_signal_emitted_with_parameters(layer, "counts_changed", [512, 0, 88])
 	# All 500 annotations come first; 12 bridges fill the rest.
-	var last: Transform3D = _mm().get_instance_transform(511)
-	_assert_colour(_mm().get_instance_custom_data(511), LinkLayer.KIND_COLOURS["bridge"], "last is a bridge")
-	_assert_colour(_mm().get_instance_custom_data(499), LinkLayer.KIND_COLOURS["annotates"], "500th is an annotation")
+	var last: Transform3D = _xf(511)
+	_assert_colour(_custom(511), LinkLayer.KIND_COLOURS["bridge"], "last is a bridge")
+	_assert_colour(_custom(499), LinkLayer.KIND_COLOURS["annotates"], "500th is an annotation")
 	assert_true(last.basis.y.length() > 0.0)
 
 
@@ -220,12 +238,12 @@ func test_endpoints_refresh_at_10_hz() -> void:
 	layer.set_enabled(true)
 	layer.set_records("annotates", [_rec(1, 5)])
 	layer.tick(0.0, volumes, conns)
-	var before: Vector3 = _mm().get_instance_transform(0).origin
+	var before: Vector3 = _xf(0).origin
 	conns[&"visionclaw"].positions[5] = Vector3(50, 0, 0)
 	layer.tick(0.03, volumes, conns)
-	assert_eq(_mm().get_instance_transform(0).origin, before, "not yet")
+	assert_eq(_xf(0).origin, before, "not yet")
 	layer.tick(0.08, volumes, conns)
-	assert_ne(_mm().get_instance_transform(0).origin, before, "after 1/10 s")
+	assert_ne(_xf(0).origin, before, "after 1/10 s")
 
 
 func test_external_unresolved_is_reported() -> void:
