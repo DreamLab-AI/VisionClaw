@@ -57,9 +57,10 @@ func test_handle_radius_is_in_metres_under_a_scaled_parent() -> void:
 	v.position = Vector3(0, 0, -6)  # world centre (0, 0, -3), world half 0.25
 	v.set_runtime_bounds(Vector3.ONE, SpatialVolume.BoundsMode.BOUNDED)
 	var corner := Vector3(0.25, 0.25, -2.75)
-	var off := (corner + Vector3(0, 0.03, 0)).normalized()
-	assert_eq(FramePicker.pick(Vector3.ZERO, off, {&"s": v}).get("part"), "handle", "3 cm < 4 cm")
-	assert_eq(FramePicker.pick(Vector3.ZERO, off, {&"s": v}, 0.02).get("part"), "frame", "3 cm > 2 cm")
+	# ~2.7 cm inside the corner on the front face: a handle at 4 cm, the face at 2 cm.
+	var off := (corner - Vector3(0.01, 0.025, 0)).normalized()
+	assert_eq(FramePicker.pick(Vector3.ZERO, off, {&"s": v}).get("part"), "handle", "2.7 cm < 4 cm")
+	assert_eq(FramePicker.pick(Vector3.ZERO, off, {&"s": v}, 0.02).get("part"), "frame", "2.7 cm > 2 cm")
 
 
 func test_miss_inside_and_behind() -> void:
