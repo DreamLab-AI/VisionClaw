@@ -20,6 +20,15 @@ extends Node3D
 ##
 ## Off (the `xr.cross_volume_links` switch, XrPrefs) means zero instances and
 ## an invisible node in the same frame, so it costs nothing.
+##
+## Highlight (spatial-volume UX, features 2 and 3): `set_highlight(keys)` draws
+## every link touching a key brighter (HIGHLIGHT_LIFT toward white) and thicker
+## (HIGHLIGHT_RADIUS_SCALE), and puts a ring marker (the same open prism, short
+## and wide) on each end of each highlighted link. Markers are extra instances
+## of the same MultiMesh, so the layer stays one draw call; `triangle_count()`
+## charges links and markers, while `drawn_count()` and `counts_changed` stay
+## links only. `drawn_segments()` exposes the last refresh's segments in world
+## space for the link picker.
 
 const MAX_LINKS := 512
 const REFRESH_HZ := 10.0
@@ -28,6 +37,13 @@ const STRIDE := 16
 const SIDES := 6  # open hexagonal prism: 6 quads = 12 triangles
 const RADIUS_M := 0.004
 const MIN_LENGTH_M := 1.0e-4
+## Highlighted links: radius factor and colour lift toward white.
+const HIGHLIGHT_RADIUS_SCALE := 2.5
+const HIGHLIGHT_LIFT := 0.55
+## Ring marker on each end of a highlighted link: radius and height in metres.
+const MARKER_RADIUS_M := 0.018
+const MARKER_HEIGHT_M := 0.006
+const MARKER_COLOUR := Color(1.0, 1.0, 1.0)
 ## Draw order of kinds (ADR-2164 D8: ordered by kind, target key, source key).
 const KIND_ORDER := ["annotates", "bridge", "dataspace"]
 const KIND_COLOURS := {
@@ -58,6 +74,9 @@ var _dirty := true
 var _last_volumes := {}
 var _last_conns := {}
 var _emitted := Vector3i(-1, -1, -1)
+var _highlight := {}        # "conn|node_id" → true
+var _markers := 0
+var _segments: Array = []   # last refresh, world space (see drawn_segments)
 
 
 func _init() -> void:
@@ -92,6 +111,8 @@ func set_enabled(on: bool) -> void:
 		return
 	multimesh_instance.multimesh.instance_count = 0
 	visible = false
+	_markers = 0
+	_segments = []
 	_set_counts(0, _unresolved, _overflow)
 
 
@@ -142,12 +163,76 @@ func tick(delta: float, volumes: Dictionary, conns: Dictionary) -> void:
 	_refresh(volumes, conns)
 
 
+## Links plus highlight markers: every instance is one TRIS_PER_LINK prism.
 func triangle_count() -> int:
-	return _drawn * TRIS_PER_LINK if _enabled else 0
+	return (_drawn + _markers) * TRIS_PER_LINK if _enabled else 0
 
 
 func draw_calls() -> int:
-	return 1 if _enabled and _drawn > 0 else 0
+	return 1 if _enabled and _drawn + _markers > 0 else 0
+
+
+func marker_count() -> int:
+	return _markers if _enabled else 0
+
+
+## The segments drawn by the last refresh, in world space, in draw order:
+## `[{a, b, record, from: {volume, conn, node_id}, to: {…}, highlighted}]`,
+## `from` being the record's source end. Empty while the layer is off.
+## Endpoints are as of the last refresh (REFRESH_HZ), not this frame.
+func drawn_segments() -> Array:
+	return _segments if _enabled else []
+
+
+## Highlight every link touching any of `keys` (`[{conn, node_id}]`); `[]`
+## clears. Redraws at once.
+func set_highlight(keys: Array) -> void:
+	var next := {}
+	for k: Variant in keys:
+		if k is Dictionary:
+			next[_key_of(String((k as Dictionary).get("conn", "")), int((k as Dictionary).get("node_id", -1)))] = true
+	if next == _highlight:
+		return
+	_highlight = next
+	_dirty = true
+	if _enabled:
+		_refresh(_last_volumes, _last_conns)
+
+
+func highlight_keys() -> Array:
+	var out: Array = []
+	for k: String in _highlight:
+		var cut := k.rfind("|")
+		out.append({"conn": StringName(k.substr(0, cut)), "node_id": int(k.substr(cut + 1))})
+	return out
+
+
+## The ends opposite `key` (`{conn, node_id}`) of every current-generation
+## record touching it, de-duplicated, in draw order: `[{volume, conn,
+## node_id}]`. Read from the records, not the drawn set, so a counterpart whose
+## volume is hidden or whose link is past the cap is still listed; the caller
+## decides what to do with it.
+func highlighted_counterparts(key: Dictionary) -> Array:
+	var want := _key_of(String(key.get("conn", "")), int(key.get("node_id", -1)))
+	var seen := {}
+	var out: Array = []
+	var all: Array = []
+	for kind: String in _records:
+		all.append_array(_records[kind])
+	all.sort_custom(_before)
+	for r: Dictionary in all:
+		if not _last_conns.is_empty() and not _current(r, _last_conns):
+			continue
+		for pair: Array in [["source", "target"], ["target", "source"]]:
+			if _end_key(r, pair[0]) != want:
+				continue
+			var other := _end_ref(r, pair[1])
+			var ok := _key_of(String(other["conn"]), int(other["node_id"]))
+			if ok == want or seen.has(ok):
+				continue
+			seen[ok] = true
+			out.append(other)
+	return out
 
 
 func drawn_count() -> int:
@@ -170,6 +255,31 @@ func record_count() -> int:
 
 
 # ---------------------------------------------------------------- internals
+
+static func _key_of(conn: String, node_id: int) -> String:
+	return "%s|%d" % [conn, node_id]
+
+
+static func _end_key(r: Dictionary, end: String) -> String:
+	var e: Variant = r.get(end)
+	if not (e is Dictionary):
+		return ""
+	return _key_of(String((e as Dictionary).get("conn", "")), int((e as Dictionary).get("id", -1)))
+
+
+## `{volume, conn, node_id}` for one end of a record.
+static func _end_ref(r: Dictionary, end: String) -> Dictionary:
+	var e: Dictionary = r.get(end, {}) if r.get(end) is Dictionary else {}
+	return {
+		"volume": StringName(String(e.get("volume", ""))),
+		"conn": StringName(String(e.get("conn", ""))),
+		"node_id": int(e.get("id", -1)),
+	}
+
+
+func _is_highlighted(r: Dictionary) -> bool:
+	return not _highlight.is_empty() \
+		and (_highlight.has(_end_key(r, "source")) or _highlight.has(_end_key(r, "target")))
 
 static func _conn_of(r: Dictionary, end: String) -> String:
 	var e: Variant = r.get(end)
@@ -290,12 +400,16 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 		unresolved += int(_external_unresolved[kind])
 	if not _enabled:
 		mm.instance_count = 0
+		_markers = 0
+		_segments = []
 		_set_counts(0, unresolved, _overflow)
 		return
 	var inv: Transform3D = global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
 	var buf := PackedFloat32Array()
 	buf.resize(_ordered.size() * STRIDE)
 	var n := 0
+	var segments: Array = []
+	var marks := {}  # "conn|id" → local position, one ring per highlighted end
 	for r: Dictionary in _ordered:
 		if _hidden(r, volumes):
 			continue
@@ -309,23 +423,45 @@ func _refresh(volumes: Dictionary, conns: Dictionary) -> void:
 		var d := pb - pa
 		if d.length() < MIN_LENGTH_M:
 			continue
-		_pack(buf, n, pa, pb, KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE))
+		var colour: Color = KIND_COLOURS.get(String(r.get("kind", "")), Color.WHITE)
+		var lit := _is_highlighted(r)
+		if lit:
+			colour = colour.lerp(Color.WHITE, HIGHLIGHT_LIFT)
+			marks[_end_key(r, "source")] = pa
+			marks[_end_key(r, "target")] = pb
+		_pack(buf, n, pa, pb, colour, RADIUS_M * (HIGHLIGHT_RADIUS_SCALE if lit else 1.0))
+		segments.append({
+			"a": a, "b": b, "record": r,
+			"from": _end_ref(r, "source"), "to": _end_ref(r, "target"),
+			"highlighted": lit,
+		})
+		n += 1
+	var links := n
+	buf.resize((n + marks.size()) * STRIDE)
+	var up := (inv.basis * Vector3.UP).normalized() if is_inside_tree() else Vector3.UP
+	for k: String in marks:
+		var c: Vector3 = marks[k]
+		var h := up * (MARKER_HEIGHT_M * 0.5)
+		_pack(buf, n, c - h, c + h, MARKER_COLOUR, MARKER_RADIUS_M)
 		n += 1
 	buf.resize(n * STRIDE)
 	mm.instance_count = n
 	if n > 0:
 		mm.buffer = buf
-	_set_counts(n, unresolved, _overflow)
+	_markers = n - links
+	_segments = segments
+	_set_counts(links, unresolved, _overflow)
 
 
 ## Write instance `i`: a unit segment along local Y (-0.5..0.5, radius 1)
-## stretched from `a` to `b` with radius RADIUS_M, plus the kind colour.
-static func _pack(buf: PackedFloat32Array, i: int, a: Vector3, b: Vector3, colour: Color) -> void:
+## stretched from `a` to `b` with radius `radius` (RADIUS_M for a plain link),
+## plus the colour.
+static func _pack(buf: PackedFloat32Array, i: int, a: Vector3, b: Vector3, colour: Color, radius: float = RADIUS_M) -> void:
 	var y := b - a
 	var dir := y.normalized()
 	var ref := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
-	var x := dir.cross(ref).normalized() * RADIUS_M
-	var z := x.cross(dir).normalized() * RADIUS_M
+	var x := dir.cross(ref).normalized() * radius
+	var z := x.cross(dir).normalized() * radius
 	var o := (a + b) * 0.5
 	var k := i * STRIDE
 	# MultiMesh 3D layout: rows of the basis with the origin in the 4th column.

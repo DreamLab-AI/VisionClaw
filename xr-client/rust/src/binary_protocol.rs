@@ -2082,6 +2082,30 @@ impl BinaryProtocolClient {
         out
     }
 
+    /// Drawn node ids from the last node pack into pack slot `slot` (one per volume, see
+    /// `set_pack_slot`), read without selecting the slot: the per-volume interaction ray
+    /// reads every volume's own drawn set after all of them packed. Empty for an unknown slot.
+    #[func]
+    fn get_render_ids_for_slot(&self, slot: i64) -> PackedInt32Array {
+        let ids: Vec<i32> = self
+            .store
+            .render_ids_for_slot(slot)
+            .iter()
+            .map(|&id| id as i32)
+            .collect();
+        PackedInt32Array::from(ids.as_slice())
+    }
+
+    /// Render positions (graph units) parallel to `get_render_ids_for_slot(slot)`.
+    #[func]
+    fn get_render_positions_for_slot(&self, slot: i64) -> PackedVector3Array {
+        let mut out = PackedVector3Array::new();
+        for p in self.store.render_positions_for_slot(slot) {
+            out.push(Vector3::new(p[0], p[1], p[2]));
+        }
+        out
+    }
+
     /// All node ids currently in the store (for the LOD/topology selection).
     #[func]
     fn get_node_ids(&self) -> PackedInt32Array {
