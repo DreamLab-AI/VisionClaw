@@ -332,6 +332,31 @@ func test_default_fit_resolves_spatial_volume() -> void:
 		assert_signal_emitted_with_parameters(shim, "fallback", ["fit_unavailable"])
 
 
+## With B's SpatialVolume present, the applied scale is exactly what B's own
+## static returns for (container bounds, unscaled arrangement size): the shim
+## delegates and holds no copy of the maths. Repeated bounds events give the
+## same scale (no compounding). Self-skips before B merges.
+func test_real_fit_scale_from_spatial_volume() -> void:
+	if not ResourceLoader.exists(Shim.SPATIAL_VOLUME_PATH):
+		pass_test("spatial_volume.gd not merged yet: covered by FitScaleStub")
+		return
+	var sv: Script = load(Shim.SPATIAL_VOLUME_PATH)
+	shim.fit_script = null
+	var fake := FakeExt.new()
+	fake.active = true
+	fake.bounds = Vector3(0.96, 0.6, 0.8)
+	_start_native(fake)
+	var want := float(sv.call("fit_scale", Vector3(0.96, 0.6, 0.8), arr.base_aabb.size))
+	assert_almost_eq(arr.arr_scale, want, 1.0e-6, "scale is B's fit_scale result")
+	assert_ne(want, 1.0, "fixture arrangement is larger than the container")
+	assert_ne(want, FakeExt.FitScaleStub.result, "distinct from the stub's canned value")
+	fake.emit_bounds_changed(Vector3(0.96, 0.6, 0.8), FakeExt.BOUNDS_MODE_BOUNDED)
+	fake.emit_bounds_changed(Vector3(0.96, 0.6, 0.8), FakeExt.BOUNDS_MODE_BOUNDED)
+	assert_almost_eq(arr.arr_scale, want, 1.0e-6, "same bounds, same scale: no compounding")
+	fake.emit_bounds_changed(Vector3(0.96, 0.6, 0.8), FakeExt.BOUNDS_MODE_IMMERSIVE)
+	assert_eq(arr.arr_scale, 1.0, "immersive restores 1:1")
+
+
 # --- tables and notice --------------------------------------------------------
 
 func test_enum_tables() -> void:
