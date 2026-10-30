@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.22
+version: 0.1.23
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.23 (2026-10-30): Godot 4.8-beta2 target (ADR-2165). The unchanged gdext library (godot 0.2.4, API 4.3) loads under 4.8.beta2.official.cafc17a19; headless load and GUT match 4.6.1 exactly (33/33 scripts, 257/257 tests); desktop GL (XR off) fixture is pixel-identical and the benchmark about 2.6 % slower; no API break in our code (PR #116424 only breaks XRInterfaceExtension implementations, which we have none of). Invariant 1 gains an explicit clause that an engine minor-version bump re-opens it (renderer rule itself unchanged); its 4.8 on-headset re-test is recorded under Engine and renderer and has NOT run yet (headset in use). 4.6.1 stays the rollback and the live-session engine until that re-test passes."
   - "0.1.22 (2026-10-30): ADR-2158 and ADR-2159 accepted by the operator for implementation (not built); ADR-2164 added (code-to-concept links from explicit `@ontology` annotations, joined in the client). The Proposed section becomes Being implemented: native container arm (one main container wraps the emulated arrangement, off by default, Android only, falls back, unverified), `xr.cross_volume_links` on in debug builds and off in release, E3 open items settled as defaults, link-layer budget. Current State, Invariants, Godot version facts and verified_commit untouched. Drafted against 00669b7a2."
   - "0.1.21 (2026-10-30): PROPOSED only, nothing implemented. ADR-2158 and ADR-2159 add a Proposed section (spatial volumes, one backend connection per content source); the LiveKit gap now points at ADR-2160. Audit round 2: fit rule is min bounds/content ratio, frames belong to the home, connections are per (node, dataspace); `BackendCaps` is UX only (read-only is enforced by the server, ADR-2161). Current State, Invariants and verified_commit untouched. Drafted against e74bcddc7."
   - "0.1.20 (2026-10-08): the animated walk has its own scale in the headset (operator: at the 0.1 line factor the walk vanished in the VIVE). Comet head, glow and tail, the segment drawing in behind the trace head and a bead popping in draw at XR_WALK_THICKNESS_SCALE 1.0 / XR_WALK_GLOW_SCALE 0.5 (comet head at least COMET_MIN_DEG 0.5° at COMET_VIEW_M 15 m) and settle to the 0.1 line factor over WALK_SETTLE_S 0.8 s after convergence. A headset query (preset or typed) always replays the walk, even on the same hits; only the desktop's 10 s repeat keeps the trace. Reduced motion: a static thin route. Triangle budget and draw calls unchanged. No invariant changed."
@@ -87,6 +88,39 @@ The project is authored against Godot 4.3 (`xr-client/project.godot:12`,
 build that has ever rendered on a headset is **Godot 4.6.1-stable running the
 Compatibility (OpenGL 3) renderer** (README "Version note" and VIVE bring-up
 2026-08-22). Do not read the 4.3 string as the runtime.
+
+**Godot 4.8-beta2 target (ADR-2165, 2026-10-30).** The client targets
+`4.8.beta2.official.cafc17a19` (HP `~/godot48b2/`); 4.6.1-stable is the
+rollback. Evidence on HP, in `~/mce-xr/godot48/xr-client/tests/report/{base461,b48}`:
+the unchanged gdext crate (`godot` 0.2.4) initialises with `API
+v4.3.stable.official, runtime v4.8.beta2.official`; `--headless --quit` logs the
+same errors as 4.6.1 plus a benign GameMode-daemon warning; GUT is 33/33
+scripts, 257/257 tests, 1936 asserts on both engines, with an identical
+warning/error histogram. No gdext crate bump: crates.io `godot` 0.5.5 (latest)
+tops out at `api-4-7`. PR #116424 (multi-layer projection camera) deprecates
+`XRInterface.get_transform_for_view`/`get_projection_for_view`, which only
+breaks `XRInterfaceExtension` implementations; the client uses the built-in
+`OpenXRInterface` and `XRCamera3D` and overrides neither (static check). The PR
+also samples the XR camera pose earlier in the frame and moves per-view
+projections out of the renderer into `camera_set_projections`, so it touches the
+Compatibility multiview path: **Invariant 1 re-opens for 4.8**. Its on-headset
+re-test is the gate below; until it is recorded as passed, live headset sessions
+stay on 4.6.1.
+
+Desktop GL, XR off, same host (`tests/report/ab/`): `tests/spatial_visual_fixture.tscn`
+renders identically on both engines (about 3 of 1.08 M pixels differ, 0 at 3 % fuzz,
+PSNR 77 dB). `perf/run_benchmark.gd` at 13 164 nodes, alternating engines,
+gives mean 424 FPS on 4.8 against 436 FPS on 4.6.1 (p50 2.35 against 2.28 ms,
+about 2.6 % slower). Draw calls (34) and triangles (94 574) are identical, and
+every budget passes. This is not stereo evidence.
+
+**Invariant 1 re-test on 4.8-beta2: NOT RUN (2026-10-30).** The headset was in
+use by a live 4.6.1 session (HP pid 7926, `~/mce-xr/live/xr-client`), which the
+gate does not stop. Required receipt: `tools/live.sh` with
+`GODOT=~/godot48b2/Godot_v4.8-beta2_linux.x86_64` against the dev backend,
+both eyes rendering with the graph visible, and `--print-fps` frame time
+comparable to the 4.6.1 baseline (the live 4.6.1 session logs 90 FPS /
+11.11 mspf steady state on the VIVE).
 
 `renderer/rendering_method="gl_compatibility"` is set for desktop
 (`project.godot:48`) and this is **load-bearing, not a preference**: the
@@ -924,7 +958,10 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
 
 ## Invariants (must not silently change)
 1. `gl_compatibility` / Compatibility (OpenGL 3) renderer — re-testing on Vulkan
-   multiview (SteamVR/Linux/NVIDIA) is required before any change.
+   multiview (SteamVR/Linux/NVIDIA) is required before any change. An engine
+   minor-version bump re-opens it: the Compatibility multiview stereo render must
+   be re-observed on the VIVE before live sessions move (4.8-beta2 status under
+   "Engine, renderer, and the multiview constraint").
 2. Glow/bloom stay OFF; NVIDIA 580 open pinned; native X11.
 3. Edge and beam MultiMesh stride = 16 floats/instance (matches
    `EDGE_STRIDE_TYPED`); never divide packed buffers by 12.
