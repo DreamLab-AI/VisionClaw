@@ -3,14 +3,14 @@ id: ADR-2112
 title: "The corpus is frontmatter-only OKF governed by a versioned `ontology/vocabulary.yaml`; the json-ld fences and every Logseq construct are deleted, not tolerated"
 date: 2026-09-22
 decision_status: accepted
-implementation_status: partial
+implementation_status: complete
 activation_status: staged
 supersedes: [ADR-2040]
 superseded_by: []
-verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
-verified_paths: []                # the evidence is the corpus census + vocabulary self-consistency, not a governed code path; the staleness gate stays inert by design
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [crates/vault/src/validate.rs, crates/vault-core/src/vocabulary.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
-review_trigger: "`vault migrate --fences-to-properties` completing its real run on visionGraph, at which point implementation_status moves to complete and the intentional_deltas are measured against the golden build; or the first Schema-level proposal against ontology/vocabulary.yaml, whichever is earlier"
+review_trigger: "Activation (staged → live): PRD acceptance 2, one class count across Loom, VisionClaw and `vault build --stats` for the same generation; or the first Schema-level proposal against ontology/vocabulary.yaml, whichever is earlier"
 repo: visionclaw
 domain: VAULT-corpus-format
 lineage: "ADR-2040 (Obsidian vault, `public`/`owl-class` gate, bounded Logseq tolerance), ADR-2041 (settings rename), ADR-2042 (`vault-migrate` converter), ADR-2014 (the original `public:: true` gate)"
@@ -213,3 +213,25 @@ Outstanding before `implementation_status: complete`: `vault validate` and
 green on both vaults, and the golden-parity test passing with the five deltas
 accounted for. Outstanding before `activation_status: live`: PRD acceptance 2
 (one class count across Loom, VisionClaw and `vault build --stats`).
+
+## Close-out 2026-10-30
+
+`implementation_status: partial → complete`; activation stays `staged`. Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+The Verification section's outstanding list, item by item:
+- **`vault validate` implemented, and run on both vaults.** The validator built from this commit
+  (`cargo test -p vault -p vault-core --no-default-features`: 544 passed, 0 failed, 5 ignored) was run
+  over visionGraph `7b0875f2c26b9e69dc5c97e9c88166acc14c47dc`. `vault validate --repo . --vault all`
+  exited 0 and reported `[knowledge] 9609 pages, 9609 with ontology, 9595 public — 0 errors` and
+  `[working] 766 pages, 764 with ontology, 171 public — 0 errors`. The warnings are content findings, not
+  format failures (`--json` tally): `DANGLING_LINK` 20,441, `UNVERIFIED_STABLE` 9,085,
+  `MISSING_DOMAIN` 752, `JOURNAL_NOT_DATED` 125, `INVALID_ENUM` 38, `UNTERMINATED_FENCE` 2,
+  `PUBLIC_LINKS_PRIVATE` 2, plus 2,379 `MULTI_PARENT` at info level.
+- **The corpus is frontmatter-only.** `grep -rlE '^[a-z][a-z-]*:: '` over `knowledge/` and `working/`
+  finds 0 files, and `grep -rl '```json-ld'` finds 0 files, in 9,610 `knowledge/` pages.
+- **`vault migrate` and the dry-run diff.** The migration ran, and ADR-2117 then retired the converter
+  (`crates/vault/src/main.rs:895` asserts that `migrate --fences-to-properties` is rejected). That
+  discharges this item. The committed dry-run diff was not re-checked.
+- **Golden parity.** `cargo test -p vault --test golden_parity`: 15 passed.
+
+Still open, for `live`: PRD acceptance 2 (see `review_trigger`).

@@ -3,14 +3,14 @@ id: ADR-2116
 title: Ontology proposals are forum ActionRequests, not pull requests — /api/ontology-agent/propose is retired
 date: 2026-09-22
 decision_status: accepted
-implementation_status: partial
-activation_status: staged
+implementation_status: complete
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
-verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs]
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [src/handlers/ontology_agent_handler.rs, tests/rec1_route_guard.rs, crates/vault/src/main.rs, crates/vault/src/propose.rs]
 owner: jjohare
-review_trigger: the `vault` binary landing (WS-C), or the first caller reported still POSTing to /api/ontology-agent/propose after the agentbox MCP servers are deleted (WS-G)
+review_trigger: "the first caller reported still POSTing to /api/ontology-agent/propose; any change to the 410 body, or any new HTTP ontology write route"
 repo: visionclaw
 ---
 
@@ -59,3 +59,19 @@ At `verified_commit`:
 ## Re-verification — 2026-10-07 (clippy sweep)
 
 At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the governed paths for lint only: `src/handlers/ontology_agent_handler.rs`: `split(..).last()` becomes `next_back()` (same element). No decision-relevant behaviour changed. `cargo test --workspace --tests`: 3239 passed, 0 failed, 83 ignored (3260 at 194ea20f0; the 21 removed tests covered deleted dead modules outside this record). **Still holds.**
+
+## Close-out 2026-10-30
+
+`partial / staged → complete / live`. Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+**Implementation.** The replacement the 410 names now exists.
+- `vault propose` is a subcommand (`crates/vault/src/main.rs:53`, `:210`, `:417`). `cargo test -p vault --test propose_cli`
+  passes 1.
+- The installed binary answers `vault propose --help` with "Build a `PatchProposal` and post it as a forum 31402".
+
+**Activation.** Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionclaw-server` (build stamp `features=gpu,ontology,dev-auth`, i.e. the dev profile with the dev-auth bypass compiled in); its wrapper log (`/app/logs/rust.log`) reads `[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, so the responses below come from this commit.
+- `POST /api/ontology-agent/propose`, sent with no credentials, answered `{"success":false,"error":"route_retired", …,
+  "replacement":{"command":"vault propose <iri> --level content|schema …"}}`. The body comes from
+  `ontology_agent_handler.rs:242`.
+- `GET /api/ontology-agent/status` lists `ontology_discover, ontology_read, ontology_query, ontology_traverse,
+  ontology_validate, ontology_check, ontology_check_relation` and no `ontology_propose` (decision 5).

@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
 verified_paths: []
 owner: jjohare
-review_trigger: any change to how positions are encoded, chunked, acknowledged or entitled; any client frame decoder; any setting under physics.stream*
+review_trigger: "Activation (staged → live): a live /wss probe on a backend built from main showing chunked position frames paced by 0x34 acknowledgements for both a web and an XR client. Review: any change to how positions are encoded, chunked, acknowledged or entitled; any client frame decoder; any setting under physics.stream*"
 repo: visionclaw
 ---
 

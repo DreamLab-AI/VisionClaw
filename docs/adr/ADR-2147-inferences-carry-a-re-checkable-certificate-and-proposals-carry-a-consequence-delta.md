@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
-review_trigger: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation
+review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
 repo: visionclaw
 ---
 

@@ -4,10 +4,10 @@ title: The dev-runtime profile builds incrementally without cross-crate LTO
 date: 2026-10-29
 decision_status: accepted
 implementation_status: complete
-activation_status: staged
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
 verified_paths: [Cargo.toml, scripts/rust-backend-wrapper.sh, build.rs]
 owner: jjohare
 review_trigger: a runtime-performance regression traced to the dev-runtime profile, or a move to pre-baked dev binaries (ADR-2008)
@@ -38,3 +38,18 @@ ADR-2008 recompiles the backend on container start. Its diff detection is correc
 - Activation is staged until a `./scripts/launch.sh redeploy dev` has timed a single-file rebuild.
 
 Re-verified 2026-10-30 at 17e3cdda0: code committed at dd5be4d9e; `Cargo.toml:332-334` (`lto = "off"`, `codegen-units = 256`, `incremental = true`), `build.rs:38` and `scripts/rust-backend-wrapper.sh:124` match the decision.
+
+## Close-out 2026-10-30
+
+`staged → live`. `verified_commit` moves to `772039bd172027af034d64befacca1ebcf0bbc04`; the governed paths are unchanged.
+
+**Profile at this commit.** `Cargo.toml:332-334` holds `lto = "off"`, `codegen-units = 256` and
+`incremental = true`. `[profile.release]` keeps `lto = true` and `codegen-units = 1` (`:318-319`).
+
+**The timed rebuild.** The running backend is `/app/target/dev-runtime/visionclaw-server`, with build stamp
+`/app/target/.visionclaw-dev-runtime-build-stamp` dated 19:02. Its wrapper log reads:
+`[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, then
+`Rebuilding: build input newer than binary`, `Compiling visionclaw-xr-presence`, `visionclaw-adapters`,
+`visionclaw-server`, and finally `` Finished `dev-runtime` profile [optimized] target(s) in 1m 00s ``. That was a three-crate
+incremental rebuild after a merge, not the single-file edit the Verification section names. It still ends the
+condition the record was written against: a fat-LTO single-core pass of more than 10 minutes.
