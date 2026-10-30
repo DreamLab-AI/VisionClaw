@@ -1,0 +1,26 @@
+Decision-text audit only; **C1–C10 refer to AUDIT-DECISIONS.md’s round-2 rulings.**
+
+| Finding | Status | Exact closing text / remaining gap |
+|---|---|---|
+| **C1 — clock and ordering** | **PARTIAL** | ADR-2031 D2: “`created_at` is wall-clock time at signing and is never bumped.” D4: “snapshot lease L = 60 s; relative clock-error budget S = 10 s; live-session re-check interval C = 10 s.” However, D4 renews “at the current `rev`”, while D7 says “an equal `rev` with a different id is rejected”. Heartbeats cannot renew the lease. D2 also contradicts its “backdating checks use `rev`, never `created_at`” rule by requiring a timestamp backdating check. |
+| **C2 — coherence** | **CLOSED** | ADR-2031 D10: “The home signs a 39002, including the 30 s re-sign, only when the group's projection is coherent with the cohort authority's current revision.” “If the projection lags or fails, the home stops signing 39002 altogether.” |
+| **C3 — watermarks** | **CLOSED** | ADR-2157 D5: “persisted watermark per room and per kind, holding (`rev`, event id).” “After a restart it may rehydrate the exact accepted event (same id) from the subscription, but never treats it as newer.” Heartbeat incompatibility remains under C1. |
+| **C4 — voice** | **CLOSED against the binding residual-risk ruling** | ADR-2160 D6: “every C = 10 s it lists the participants”; “It retries until the participant is gone”; “Token minting and revocation take the same per-room lock”. Partition risk “needs operator sign-off at activation”. D3 requires TTL “at most L = 60 s”; D4 requires endpoint equality and “signature, pinned home key, group, and latest `rev`”. The universal guarantee still contradicts this accepted exception below. |
+| **C5 — canonical key** | **CLOSED** | ADR-2162 D4: “Exactly one node federation key per node”; “The VisionClaw node holds no federation key of its own”; “Before retirement the old key signs a retraction for every URN it named”. Roles and signing custody are explicitly assigned. |
+| **C6 — control authority and erasure** | **PARTIAL** | ADR-2161 D6: retraction accepted “only from an envelope authenticated by `K`”; “a replayed or lower sequence is rejected”. D7 specifies “T = 7 days”, tombstones “T + 1 day”, and purge “within min(receipt + 24 h, lease expiry)”. But link ownership and receiver validation contradict each other below. |
+| **C7 — stream isolation** | **CLOSED** | ADR-2161 D4: “Every output and lookup” is filtered by “selector ∩ object visibility ∩ `acl`”; “The server refuses mutations”; changes are re-evaluated “at least every C = 10 s”. D5 requires authorisation for “both ends” and otherwise “nothing is drawn”. ADR-2159’s Decision keys tables by “(node key, dataspace, stream generation)”. |
+| **C8 — catalogue** | **PARTIAL** | ADR-2161 D2: “The latest `rev` wins and an older one is ignored”; endpoint mismatch “is rejected”; protected descriptions are “never in the public catalogue”. D4: “Origin is browser policy only.” Missing: durable catalogue watermark and an enforceable withdrawal representation for the **per-space event**. Removing an entry does not replace the signed event retained by relays; replay after restart remains unspecified. |
+| **C9 — activation DAG** | **CLOSED** | ADR-2030 D8: “Restoring the advertisement needs the whole applicable gate”; “It is restored only when all pass.” ADR-2158 activation: “ADR-2159 does not depend on this ADR”. ADR-2161 activation: public/dids need “Neither the forum chain nor ADR-2157”; `space:` “additionally needs ADR-2157 live … and the forum chain”. These are testable activation rules. |
+| **C10 — presentation** | **CLOSED** | ADR-2032 D6: “Claims are namespaced by full space identity”; D3: “Each consuming node applies its own placement transform”. ADR-2158 D5: “`min_i(bounds_i / content_i)` … ignoring any axis whose content extent is below 1e-6”. ADR-2032 D1 assigns layout to 39000; ADR-2031 D10 assigns membership to 39002. The erroneous combined-event statement is corrected. |
+
+**New blocking contradictions**
+
+- **Heartbeat deadlock:** ADR-2031 D4 requires freshly signed, unchanged-`rev` heartbeats; ADR-2031 D3/D7 and ADR-2157 D5 forbid accepting them. Healthy, unchanged rooms inevitably become stale. Specify compatible state-revision and lease-renewal ordering.
+- **Unconditional versus conditional D:** ADR-2031 D4 guarantees closure of “every … voice participant everywhere” within 90 seconds. ADR-2160 D6 explicitly permits participants to “stay unenforced until the API returns”. The accepted risk must qualify every universal guarantee and its activation assertions.
+- **Link endpoint ownership:** ADR-2161 D5 stores `(local subject URN, … remote object URN, asserting node key)` in the asserting node’s store. ADR-2161 D6 and ADR-2162 D7 require the notice’s “local end” to belong to the **receiving** node. Ordinary cross-node notices cannot satisfy both interpretations. Name the subject/object ownership checks explicitly.
+
+No numeric L/S/C/D disagreement or canonical-key custody disagreement found. Catalogue durability remains an unresolved earlier blocker, rather than a new contradiction.
+
+Memory search and storage were denied by the tool approval policy; this audit was not persisted.
+
+VERDICT: needs-round-4 — heartbeat renewal, voice-guarantee scope, link authority and durable catalogue withdrawal remain unresolved.

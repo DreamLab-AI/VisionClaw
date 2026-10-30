@@ -1,10 +1,11 @@
 ---
 title: Identifier Taxonomy
 doc_id: VC-IDENTIFIERS
-version: 0.1.2
+version: 0.1.3
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.3 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: the urn:visionclaw:room:nip29-<32 hex> form, its single mint room_from_group() and room binding registry, and the urn:visionclaw:dataspace:<node-key-hex>:<space-id> grammar (the node key held by agentbox only; audit round 2 recorded). Current state, Invariants and verified_commit are untouched. Drafted against e74bcddc7."
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1 — corrected presence_actor room-URN citation (test, not live emission), Invariant 6 debug_assert/release-truncation caveat, qualityScore CURIE-in-comment framing"
 sources:
@@ -198,6 +199,31 @@ surface must call `parse` (legacy ADR-105).
   a persisted URN.
 - Identifier-grammar reconciliation across legacy ADR-100/105/050/053/063 is recorded
   as an open governance item; this document supersedes their prose where code diverges.
+
+## Proposed (ADR-2157, ADR-2161; proposed, not implemented): space-bound room and data-space URNs
+
+Nothing below exists in code at `e74bcddc7`. The `room` row in §1 is still the only live room grammar.
+
+| Form | Grammar | Mint | Parsers to extend |
+|------|---------|------|-------------------|
+| `room` (space-bound) | `urn:visionclaw:room:nip29-<32 lowercase hex>` | `room_from_group()` in `src/uri/mod.rs`, the only constructor | `Kind::Room` arm at `src/uri/mod.rs:598-604`; `RoomId::parse`, `crates/visionclaw-xr-presence/src/types.rs:42` |
+
+- The 32 hex are the first 16 bytes of SHA-256 over: the 24 ASCII bytes `visionclaw/room/nip29/v1`, the 32 raw bytes of the pinned home key, a `u16` big-endian group-id length, then the group id's UTF-8 bytes (`[a-z0-9_-]{1,255}`). Golden vector (required): key `00 01 … 1f`, group id `general` gives `urn:visionclaw:room:nip29-e5488c85b92647026b5d54e422122a6f`. The home key is in the input, so a host rename keeps the URN and a fork (new home key) is a different room.
+- **Registry.** `room_from_group()` is also the only writer of a server-side registry `nip29-` URN to (pinned home key, group id). A well-formed URN absent from it is rejected, and an unbound `sha256-12` room is still allowed as presence only: never voice, an authenticated DID, the member cap (`presence.bound_only` defaults to false and becomes true when P2 activates).
+- There is no move and no alias. A change of home key (or group id) is a fork: a new room, fresh admission, nothing carried over. A hostname or endpoint change under the same pinned key is not a fork (ADR-2157).
+- The `sha256-12` room form stays valid and unchanged for rooms not bound to a space, so Invariant 3 still holds: `nip29-` is a separate form, not a longer `sha256-12`. Invariant 2 applies: no ad-hoc `format!()` for the new form.
+- Why not `sha256-12`: 48 bits and no relay identity in the input (two relays' `h=general` collide). Why not `urn:visionclaw:group:<team>#members`: it is team-scoped and names a membership, not a place.
+- The 16-byte `wire_hash` in the 0x43 header stays an FNV routing key (`types.rs:62-78`); it is not a security boundary and does not change.
+
+### Data-space URN (ADR-2161, proposed)
+
+| Form | Grammar | Mint | Notes |
+|------|---------|------|-------|
+| `dataspace` | `urn:visionclaw:dataspace:<node-key-hex>:<space-id>`; `<node-key-hex>` is 64 lowercase hex (the home's node federation key, agentbox ADR-2162), `<space-id>` is `[a-z0-9-]{1,48}` | one typed mint and parse in `src/uri/mod.rs` (ADR-2021) | a federation `dataspace` kind in `federation-kinds.json`, added by agentbox first (amends the ADR-2061 closed map). A remote URN is an opaque reference and is never dereferenced into local storage |
+
+The URN embeds the one node federation key, which is held by agentbox (VisionClaw holds none and signs through its socket), so the URN names its own authority: a retraction of it is accepted only from an envelope authenticated by that key. Rotating the key is a new node identity and new URNs; the old key retracts its URNs first and links are not migrated.
+
+The URN is a closed `<content-ref>` form for the forum's `volume` refs (forum ADR-2032 D2, the closed reference set): this, `urn:visionclaw:codescape:<scene>`, or a path on the home's own node. Invariants 2 and 3 apply: no ad-hoc `format!()`; hex is canonical.
 
 ## Invariants (must not silently change)
 

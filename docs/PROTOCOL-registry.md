@@ -1,10 +1,11 @@
 ---
 title: Protocol Registry — Wire Frames, Endpoints & Version Policy
 doc_id: VC-PROTOCOL
-version: 0.1.12
+version: 0.1.13
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.13 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: presence text-frame table (room_meta, room_kicked) a pointer for Nostr kinds, and the initial-load `urn` field with the server-side federated-read connection mode (audit round 2: `rev`/`proj` tag conventions, D = 90 s kick bound, selector ∩ visibility ∩ acl). No binary opcode is allocated. Current-state tables and Invariants untouched. Drafted against e74bcddc7."
   - "0.1.12 (2026-10-19): ADR-2133 re-verified at b4a175412 — the /api/memory-cloud rows now state that every endpoint, health included, is PowerUser in the handler (the health row wrongly said the central read policy), that VISIONCLAW_DEV_MODE admits every caller as a power user in debug/dev-auth builds only, and that rows past metadata.expires_at are hidden from counts, samples, searches and the recall probe (estate ER-11); citation refresh to memory_cloud_handler.rs:65"
   - "0.1.11 (2026-10-17): ADR-2143: Codescape recorded as a second producer of V3/V5 on :4100 (no new tags or flag bits, field mapping, 0x23 mapping, 404 list); citation refresh: routes main.rs:1093-1123, 0x23 :1792/:1561/:1571/:1534-1541, batch framing stated"
   - "0.1.10 (2026-10-13): ADR-2138 — /api/analytics/cycles row (GET, optional edgeType, default subsumption edges); layout-mode whitelist gains spectral and clustered; REST only, no frame change"
@@ -319,6 +320,40 @@ already versions itself via the leading tag byte, and the decoder branches on it
   lead under ADR-2057; **open** until that lands. Root cause: the TS decoder is the only one of the
   three with no fixture-backed cross-check against
   `crates/visionclaw-protocol/src/wire_fixtures.rs`.
+
+## Proposed (ADR-2157, ADR-2160; proposed, not implemented): presence text frames and Nostr kinds
+
+Nothing below is emitted or parsed at `e74bcddc7`. **No binary opcode is allocated**: the tag table above is unchanged, and the frozen `visionclaw-wire` crate does not change.
+
+### `/ws/presence` JSON text frames
+
+This registry did not previously tabulate the presence socket's text frames. Today they are the handshake pair `challenge` and `joined` (`src/handlers/presence_handler.rs:78-88`) and the live room events, the `RoomEventEnvelope` enum (`src/actors/presence_actor.rs:216-238`), which `presence_handler.rs:491-498` forwards as JSON text. The first five rows are current; the last two are proposed.
+
+| `type` | Direction | Status | Fields | Notes |
+|--------|-----------|--------|--------|-------|
+| `challenge` | server→client | current | `nonce`, `ts` | handshake |
+| `joined` | server→client | current | `room_id`, `avatar_id`, `members[]` | handshake reply |
+| `avatar_joined` | server→client | current | `avatar_id`, `did`, `display_name`, `local_id` | live |
+| `avatar_left` | server→client | current | `avatar_id`, `did` | live |
+| `agent_presence_expired` | server→client | current | `local_id` | ADR-2020: an agent's `0x44` co-presence went stale (`presence_actor.rs:541`) |
+| `room_meta` | server→client | **proposed** | name, about, picture from the home relay's 39000 | sent after `joined` for a space-bound room and on change |
+| `room_kicked` | server→client | **proposed** | reason | sent on 9001 removal, ban or a stale snapshot; the server then closes the socket within D = 90 s of removal at the home (voice is bounded separately, D_voice = 150 s, ADR-2160) |
+
+Both new frames are low-rate control traffic, which is why they are text. The client's live room-event handler decodes into a closed `ServerMessage` enum (`xr-client/rust/src/presence.rs:75`) and, on a decode failure, logs a warning and carries on (`xr-client/rust/src/transport.rs:296-322`), so an unknown `type` does not end a session. That is also today's behaviour for `agent_presence_expired`, which the client enum lacks, so those frames are dropped with a warning (a current divergence, not introduced here). The client must learn `room_meta` and `room_kicked` before they have any effect. Fixtures and parity tests follow the `memory_route_cases.json` pattern when the code lands.
+
+### Nostr kinds
+
+This registry tabulates binary tags, not Nostr kinds. Kinds used by the estate are registered in the forum repository's `docs/BASELINE-architecture.md` "Nostr kinds in use" table (the table is a forum-side deliverable and was not present when this was drafted). The spatial-rooms work allocates no new kind: it uses NIP-29 39000/39002 and 9001 (read by the bridge adapter), NIP-53 30312 (discovery of the call endpoint, ADR-2160), NIP-42 22242 (bridge AUTH) and, for ADR-2161, NIP-78 30078 (the signed data-space catalogue). No kind is newly defined. Round 2 adds tag conventions only. Every 3900x the home emits carries `["rev", <u64>]` (consumers order state changes by it; `created_at` orders only identical-content equal-`rev` heartbeats, which replace a snapshot to renew freshness, and never events of different `rev`), and a 39002 for a zone-backed group also carries `["proj", <cohort-rev>]`. A 30312 `service` tag is used by a client only if it equals the configured SFU URL and passes signature, pinned-home, group and latest-`rev` validation. The 30078 catalogue is replaceable and carries `rev`; the forum relay's revision-aware storage covers 3900x, 30312 and kind 30078 only in the `visionclaw:dataspace:*` d-tag namespace, and other kinds keep NIP-01 ordering. The catalogue's own watermark is (`rev`, event id), separate from the group-state watermark (`rev`, `created_at`, event id, content digest).
+
+### Initial graph load: `urn` field and data-space read gate (ADR-2161, proposed)
+
+- For **linkable** nodes only, the initial graph load (REST, not a binary frame) carries each node's `urn`. Nodes without one carry no field. The client builds a per-source `id`-to-`urn` table and resolves cross-space link endpoints against it. Wire node ids stay ephemeral and per-source (ADR-2024); no binary tag or flag bit changes.
+- **Federated-read connection mode (server-side).** The existing `/wss` upgrade auth and per-node visibility filter run first. The server then binds the connection to (authenticated viewer DID, one dataspace). Every output and lookup (nodes, edges, counts, positions, search) is filtered by **selector ∩ object visibility ∩ `acl`**, where `acl` is `public`, `dids`, or `space:<nip29-room-urn>` via `RoomAdmission` and ADR-2157's registry. A viewer outside the `acl` receives no node of the space and no count. Mutations are refused by the server in this mode; `BackendCaps` is UX only. ACL, selector and visibility changes are re-evaluated on change and at least every 10 s, and a connection that loses access is closed. The viewer authenticates with their own NIP-98 key, never a node key or a node-issued token.
+- **Origin** (`/wss` requires one) is browser policy only. The home derives its allowed Origins from the pinned peer set and the native XR client sends one, but an Origin is never node provenance.
+- A read is possible only against a pinned peer (catalogue signed by a pinned key, endpoint exactly equal to the configured one). That is necessary, not sufficient: the viewer's own NIP-98 identity and the `acl` decide it.
+- The client keeps one connection per (source node, dataspace), and `id`-to-`urn` tables keyed by (node key, dataspace, stream generation). A link is drawn only if the viewer is authorised for both ends; otherwise nothing is drawn.
+- The data-space catalogue (NIP-78 30078) is replaceable and carries `["rev"]`; beyond the contract fields (`d`, `rev`, `endpoint` or withdrawal `status`, id, pubkey, signature), a public entry's descriptive metadata is only the space id and `acl` kind. `space:` takes the exact registered room-URN form, `space:<nip29-room-urn>`, resolved through ADR-2157's registry. The node-to-node control envelopes are exactly `dataspace_announce`, `link_notice` and `retraction`; the catalogue is the separately signed 30078 event that `dataspace_announce` references.
+- `/v1/uri` 410 emission for erased subjects is a prerequisite and is not wired today.
 
 ## Invariants (must not silently change)
 

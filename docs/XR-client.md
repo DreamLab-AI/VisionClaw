@@ -1,10 +1,11 @@
 ---
 title: XR Client Architecture
 doc_id: VC-XR
-version: 0.1.20
+version: 0.1.21
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.21 (2026-10-30): PROPOSED only, nothing implemented. ADR-2158 and ADR-2159 add a Proposed section (spatial volumes, one backend connection per content source); the LiveKit gap now points at ADR-2160. Audit round 2: fit rule is min bounds/content ratio, frames belong to the home, connections are per (node, dataspace); `BackendCaps` is UX only (read-only is enforced by the server, ADR-2161). Current State, Invariants and verified_commit untouched. Drafted against e74bcddc7."
   - "0.1.20 (2026-10-08): the animated walk has its own scale in the headset (operator: at the 0.1 line factor the walk vanished in the VIVE). Comet head, glow and tail, the segment drawing in behind the trace head and a bead popping in draw at XR_WALK_THICKNESS_SCALE 1.0 / XR_WALK_GLOW_SCALE 0.5 (comet head at least COMET_MIN_DEG 0.5° at COMET_VIEW_M 15 m) and settle to the 0.1 line factor over WALK_SETTLE_S 0.8 s after convergence. A headset query (preset or typed) always replays the walk, even on the same hits; only the desktop's 10 s repeat keeps the trace. Reduced motion: a static thin route. Triangle budget and draw calls unchanged. No invariant changed."
   - "0.1.19 (2026-10-08): server sample 30 000 (ADR-2133 amendment). The frame budget still caps the cloud at 8 000 sprites; a 30 000 snapshot draws 8 000 (namespace-stratified, route and hit rows pinned) and the HUD Memory button reads 'Memory: <drawn> of <sampled>' whenever it draws fewer. Triangle budget unchanged. No invariant changed."
   - "0.1.18 (2026-10-08): memory body at half its clear distance (ADR-2135 amendment, MEMORY_DISTANCE_FACTOR 0.5; the ×10 cloud now encloses both graphs) and the headset route lines at a tenth of the desktop thickness and brightness (XR_ROUTE_THICKNESS_SCALE, XR_ROUTE_GLOW_SCALE 0.1; rings and hit marks keep the desktop size). Operator decision. Triangle budget unchanged. No invariant changed."
@@ -825,7 +826,10 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
   (`webrtc_audio.rs`) owns only the routing maths and per-avatar position map;
   the livekit-android AAR media transport (PRD-008 §5.5) that would consume it is
   not wired on any built target (`webrtc_audio.rs:1-5`). Voice is design-complete,
-  transport-absent.
+  transport-absent. Proposed, not
+  implemented: ADR-2160 (a space's call is a LiveKit room admitted by the presence
+  handshake, spatialised on the client from `0x43` poses). **Deferred by the operator
+  (2026-10-30): voice is not allowed for now; nothing of ADR-2160 is built.**
 - **Query Execute is implemented; runtime acceptance remains open.**
   `query_builder.gd:EXECUTE_ENABLED` is true; `graph_scene.gd` posts to
   `/api/graph/query/pattern` and builds result planes. Server correctness and
@@ -864,6 +868,19 @@ owner and GraphScene forwards it two hooks (`handle_control`, `route_text`).
 - **Legacy ADR status.** ADR-071 (Godot-rust replacement), ADR-136 (VIVE
   validation target), ADR-140 (swarm pillars), ADR-141 (constrained layout) are
   cited as evidence; treat this document as authority where they conflict.
+
+## Proposed (ADR-2158, ADR-2159; proposed, not implemented): volumes and concurrent backends
+
+Nothing below exists in `xr-client/` at `e74bcddc7`. Transport, Codescape and Invariants above describe the current single-scene, single-backend client and stay correct until the code lands.
+
+- **Spatial volumes (ADR-2158).** A GDScript `SpatialVolume` contract modelled on `XR_EXT_spatial_container` (bounds, `bounded` or `immersive` mode, visible, interactable, closed; changes are requests answered by granted or denied signals; the runtime may change bounds at any time). `EmulatedVolume` works on every runtime and is the only arm built for trial E3. `NativeMainVolume` adapts Godot's `OpenXRSpatialContainerExtension` only on Godot 4.8 or later with a runtime that advertises the extension (Android XR only today; one main container per application; GDScript adapter because gdext has no 4.8 binding). Our SteamVR/HP runtime has no `XR_EXT_spatial_*` support.
+- **Trial E3.** Three emulated volumes: knowledge and ontology (split by node kind from the one VisionClaw stream) and the Codescape estate graph (a second connection). The memory cloud stays world furniture. Fit rules: scale by `min_i(bounds_i / content_i)`, ignoring any axis whose content extent is below 1e-6; centre at the volume origin, 1:1 in immersive mode, ease on `bounds_changed`. Acceptance: plan E7 (no node centre outside its box), E8 (90 Hz on the VIVE), E9 (Codescape `nodeDrag` refused locally).
+- **Cross-volume edges.** Optional: drawn as world-space inter-volume links only when `xr.cross_volume_links` is on (default off, runtime toggle). Covers knowledge↔ontology bridges and federated data-space links (ADR-2158 D6).
+- **ADR-2135.** For the XR client only, the tri-layout triangle becomes the default arrangement of volumes; open items (units, which body takes the 180 degree vertex, the server's per-population yaw) are listed in ADR-2158. The `visionclaw-tri-layout` crate and its fixture do not change.
+- **Frames.** A space descriptor's frame is the home's own; each consuming node applies its own placement transform, and no cross-node frame is shared in v1 (ADR-2158).
+- **Concurrent backends (ADR-2159).** One `BackendConnection` per content source, identified by (source node, dataspace) for a federated source, so two spaces of one node are two connections (own `BinaryProtocolClient`, acknowledgement sequence, render store, `BackendCaps`, palette), replacing the exclusive `_switch_backend`. Capability gating per volume; one presence socket per joined room; the 100 000-triangle, 50-draw-call budget split per visible volume. Precondition: two `BinaryProtocolClient` instances share the gdext tokio runtime, unverified.
+- **Later (P6).** Native container arm, per-device arrangement persistence keyed by room, marker-based colocation. No vendor anchor sharing.
+- **Citation drift noted at `e74bcddc7`, not corrected here:** the Transport section cites `_connect_from_env` at `graph_scene.gd:1123`; it is at `:1515`.
 
 ## Invariants (must not silently change)
 1. `gl_compatibility` / Compatibility (OpenGL 3) renderer — re-testing on Vulkan

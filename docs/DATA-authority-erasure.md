@@ -1,10 +1,11 @@
 ---
 title: Data Authority & Erasure
 doc_id: VC-DATA
-version: 0.2.1
+version: 0.2.2
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.2.2 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157 and ADR-2161 add a Proposed section: the NIP-29 membership cache and its persisted per-kind (rev, created_at, event id, content digest) group-state watermark (distinct from the catalogue watermark (rev, event id)), remote data spaces as render-only, and cross-space link records as 7-day leases with tombstones (audit round 2). The ownership matrix and Invariants are untouched. Drafted against e74bcddc7."
   - "0.2.1 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.2.0 — Authored-content owner restated as the Obsidian vault gate (frontmatter `public: true` / `owl-class`, ADR-2040); citations marked `:~` pending re-verification against the vault reader."
   - "0.1.1 — fix GRAPH_PROVENANCE citation 53→55; widen named-graph range 50-55→46-55; add RBAC_ALLOW_OWNERLESS file:line citations"
@@ -134,6 +135,32 @@ distributed transaction and no compensating-action framework in code.
   hex-canonical/npub-display (053) and minted-URNs-may-return-null (063) coexist.
   Code mints `urn:ngm:*` IRIs (`oxigraph_ontology_repository.rs:20-24`). A single
   identifier grammar is not yet agreed — cross-class joins rely on convention.
+
+## Proposed (ADR-2157, ADR-2161; proposed, not implemented): membership cache, remote spaces, links
+
+Nothing below exists at `e74bcddc7`, and the ownership matrix above is deliberately unchanged because it records what the code reads back as truth today.
+
+| Data class | Authoritative owner | Store / mechanism | Linearisation point |
+|---|---|---|---|
+| Space membership (NIP-29 39002) | The space's **home relay**, which signs it (authored by the zone cohort for a zone-backed group, by the home's own event stream for a standalone one) | Not held by VisionClaw as a record. VisionClaw keeps an in-memory cache rebuilt from the persistent subscription | The home relay's signed 39002 (replace-by-`d`; a snapshot replaces another on a greater `["rev"]`, or on an equal `rev` with identical content and later `created_at` (heartbeat); equal `rev` with different content is rejected) |
+
+- **Membership authority has two layers.** Zone cohorts author membership for zone-backed groups; a standalone group takes its membership from the home's own admitted NIP-29 event stream (forum ADR-2030 D3). Either way the home signs the authoritative 39002 projection, and that signed projection is all VisionClaw consumes.
+- **Class: disposable derived projection** (Invariant 1 holds: one write-master, the relay). The cache has no write path, is never the source for another store, is excluded from SQLite and Oxigraph backups, and is lost on restart by design; the subscription rebuilds it. The one persisted item is a **watermark per room and per kind** holding (`rev`, `created_at`, event id, content digest), so a replay or late-older snapshot cannot replace a newer one after restart. After a restart the exact accepted event (same id) may be rehydrated from the subscription but is never treated as newer. It holds no member data and no signed payload.
+- **Fail closed.** An empty cache, or a 39002 with `now - created_at > L + S` (lease L = 60 s, skew S = 10 s), or one dated beyond `now + S`, refuses admission and closes joined sessions, which are re-checked every C = 10 s; the end-to-end bound is D = 90 s. The home stops re-signing when its cohort projection lags, so the cache goes stale and denies. It never admits (see IDENTITY-authority-chain, Proposed section).
+- **Erasure.** The cache holds only the DIDs on the relay's own member list for the groups served, and is never exposed to clients beyond the roster they already receive. Erasing a member is the relay's 9001; the cache follows on the next event. VisionClaw has no copy to purge beyond process memory.
+- **Open:** if the member list (not only the watermark) is ever persisted, it becomes a secondary store under Invariant 6 and needs an observable drop path.
+
+### Remote data spaces and link records (ADR-2161, proposed)
+
+| Data class | Authoritative owner | Store / mechanism | Class |
+|---|---|---|---|
+| A remote node's data-space content | The **home node** | **Never persisted** by any consumer. Render-only in the viewer's session | none held |
+| Cross-space link, asserting node's own record `(local subject URN, predicate, remote object URN, asserting node key)` | The **asserting node** (sole write-master) | The asserting node's own store | **Primary local data**: authored there, erasable by its author, **not disposable**. Lease T = 7 days means re-announce to peers, not drop |
+| Cross-space link, received copy (from `link_notice`) at the object's owner, and any viewer render state | The **asserting node** (the copy is authoritative for nothing) | Memory or lease-bounded store at the receiver; the viewer's session memory | **Foreign reference**: a disposable projection, purged on retraction or lease expiry, reconstructible by the asserter's re-announcement |
+
+- A remote node is render-only: no consumer copies its nodes, edges, owners or positions into any durable store, server-side import, cache or backup. A **disposable session-memory render store** in the viewer (one per connection, ADR-2159, discarded on disconnect) is permitted, and is how the content is viewed. Home erasure is complete when its `/v1/uri` 410 is live; nothing else holds the content. Remote content already on screen leaves the display on receipt of a retraction or on the next (re)connect, whichever is first.
+- A received link copy is derived, droppable without loss and authoritative for nothing about the remote node (the asserting node's own record is not: it is primary data, and its lease means re-announce). The copy is a **lease**: it expires after T = 7 days, renewed by the home's catalogue refresh and the asserter's re-announcement, so an offline consumer drops it at expiry whether or not it received the retraction. On a `retraction` or a 410 for its remote URN it is tombstoned and the reference purged within min(receipt + 24 h, lease expiry). Tombstones persist for T + 1 day as anti-resurrection state. A retraction is accepted only from the key `K` named in the URN, and each sender carries a persisted sequence so replays are rejected. A link that embeds a remote owner's pubkey is a foreign reference in the same class and follows the same rule.
+- Persisted state added by these proposals: the per-kind watermarks, per-sender sequences, received-link leases and tombstones (disposable or non-personal), and the asserting node's own link records (primary local data, erasable by their author). None holds a remote node's content.
 
 ## Invariants
 

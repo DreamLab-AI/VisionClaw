@@ -1,10 +1,11 @@
 ---
 title: Identity & Authority Chain
 doc_id: VC-IDENTITY
-version: 0.1.2
+version: 0.1.3
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.3 (2026-10-30): PROPOSED only, nothing implemented. ADR-2157, ADR-2160 and ADR-2161 add a Proposed section: the RoomAdmission port, key pinning, the single credential path and revocation of a LiveKit token (per-SFU key custody, a reconciler), and the single node federation key held by agentbox (audit round 2). Current State and Invariants untouched; ADR-2013 reading recorded. Drafted against e74bcddc7."
   - "0.1.2 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.1 — corrected three off-by-a-few-lines citations (auth.rs dev-bypass, rbac_gate.rs Viewer-write test, http_handler.rs token block/query-param)"
 sources:
@@ -231,6 +232,25 @@ the socket is rejected in release; the insecure-allow branch is
   2026-08-31, not yet in the running image).
 - **PUBKEY_VISIBILITY_FILTER** default flipped ON this rebuild (privacy encoder
   existed but was inert). Landing 2026-08-31.
+
+## Proposed (ADR-2157, ADR-2160, ADR-2161; proposed, not implemented): room admission
+
+Nothing below exists in code at `e74bcddc7`. Today any DID that passes the presence Schnorr handshake joins any room (`src/handlers/presence_handler.rs:273-305`).
+
+- **`RoomAdmission` port.** A second check after the existing identity check, not a replacement. The handshake proves the DID (unchanged, bespoke nonce-and-timestamp Schnorr, `IdentityVerifier`, `crates/visionclaw-xr-presence/src/ports/mod.rs:19`); `RoomAdmission` then decides whether that DID may enter a space-bound room, from the home relay's signed NIP-29 39002 member list. It **fails closed**: unknown group, unreachable relay, an unregistered `nip29-` URN, or a 39002 stale beyond L + S (lease L = 60 s, skew S = 10 s) or future-dated beyond S all deny, and a stale snapshot also closes already-joined sessions. Live sessions are re-checked every C = 10 s, and admission is re-checked after registration to close the join-versus-removal race. The end-to-end revocation guarantee for presence and dataspace streams is D = 90 s from removal at the home (voice excepted, below). Snapshots are ordered by the home's `["rev"]` for state changes; `created_at` orders only identical-content equal-`rev` heartbeats (snapshot replacement), never different revisions. The home stops re-signing when a cohort projection lags. Membership authority has two layers: zone cohorts author membership for zone-backed groups, and a standalone group uses the home's own admitted NIP-29 event stream; the home signs the projection VisionClaw consumes. It is an authorisation input, not a new principal.
+- **Credentials and pinning.** Membership authority is the home relay's signed 39002. The operator pins the home key out of band; NIP-11 `self` is discovery only. The bridge's NIP-42 AUTH proves only the bridge key and carries no user authority. Its read access to `private` or `hidden` groups is a scoped read grant, separate from membership: never write, never in 39002, issued and revoked by the forum.
+- **A single route to voice.** A LiveKit token is minted only after the handshake and `RoomAdmission` pass; there is no second credential path (ADR-2160). Tokens are never minted for unbound or unregistered rooms, carry room-scoped grants only and live at most L. LiveKit does not enforce `aud`, so the SFU binding is custody of the per-SFU API key (the token's `iss`) and its secret. A removal calls LiveKit `RemoveParticipant`; a reconciler lists each bound room every C and removes anyone not admitted, because LiveKit does not eject on token expiry; mint and revoke share a per-room lock; a removed member gets no refresh; the 25 s grace is for voluntary leaves only. Because an issued token cannot be revoked, the voice bound is the weaker D_voice = 2L + 2S + C = 150 s (rejoins removed within C until then); presence and dataspace streams keep D = 90 s. If the LiveKit API is unreachable beyond D, minting stops and an alarm fires; the unenforced window is an accepted residual risk needing operator sign-off.
+- **ADR-2013.** ADR-2013 defers enterprise identity federation and NIP-26 delegation; it does not address relay federation. This proposal stays inside it because the principal remains the user's own key, 39002 is an authorisation input, and the bridge proves only itself. If a room ever accepts a delegated key or the bridge signs as a user, ADR-2013's review trigger fires.
+- **Unbound rooms** (`sha256-12`, including the XR default room) are still allowed (ADR-2157 decision 7, operator-confirmed 2026-10-30): presence only, never voice, an authenticated DID, and the member cap. `presence.bound_only` defaults to false and becomes true when P2 activates.
+- **Invariant 3 applies**: no error path in admission may widen access.
+
+### Peer node key (ADR-2161, proposed)
+
+- Each node has **exactly one** node federation key (agentbox ADR-2162 D4), held by the agentbox mesh service. **VisionClaw holds no federation key**; it signs the three envelope types `dataspace_announce`, `link_notice` and `retraction` (and the kind-30078 catalogue) through the mesh service's local, uid-gated signing socket, which signs only those payload types. The key names data spaces, signs catalogues, authenticates envelopes and is the `pubkey` in peer entries. It is **not** `VISIONCLAW_NOSTR_PRIVKEY` and shares no material with it. Neither key may stand in for the other, and no user authority derives from either.
+- **Rotation is a new node identity.** The old key signs a retraction for every URN it named before retirement; links are not migrated in v1.
+- **Retraction authority.** A retraction of `urn:visionclaw:dataspace:<K>:…` is accepted only from an envelope authenticated by `K`. The envelope types are exactly `dataspace_announce`, `link_notice` and `retraction`; the catalogue is a separately signed kind-30078 event. A link notice's asserting node must equal the authenticated sender, the link's subject must be under the sender's key, and its object under the receiver's key. Each sender carries a persisted sequence; replays are rejected.
+- Peers are pinned by the operator out of band, never learned on first use. A peer read is admitted by pinned peer key in this sense: it is possible only against a pinned peer (catalogue signed by a pinned key; its endpoint exactly equal to the configured one). An Origin is browser policy only, never node provenance. That is necessary, not sufficient. The read itself is decided by the viewer's own NIP-98 identity and the space's `acl`; a pinned peer key, or a node-issued token, never reads on a viewer's behalf.
+- Cross-operator federation is out of scope; it un-parks agentbox ADR-2025 and ADR-2101. ADR-2013's reading is unchanged: no delegation, no identity federation.
 
 ## Invariants (must not silently change)
 

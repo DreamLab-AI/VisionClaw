@@ -1,0 +1,10 @@
+| Item | Status | Closing text / remaining contradiction |
+|---|---|---|
+| **Heartbeat renewal** | **OPEN** | ADR-2031 D2 permits “an equal `rev` … with a strictly greater `created_at` and identical tag content”. But D3 still replaces “only on a strictly greater `rev`” and rejects “any event with a `rev` at or below the watermark”. Heartbeats remain forbidden at mirrors. ADR-2157 D5 also says ordering uses “`rev`, never `created_at`” while explicitly ordering heartbeats by `created_at`. Its “refusal of backdated moderation” conflicts with ADR-2031 D2’s removal of that check beyond the general admission window. |
+| **D = 90 s / partition exception** | **OPEN** | ADR-2031 D4 adds: “tests assert D for voice only with the API reachable”. But ADR-2157 D4 still guarantees closure of “every voice participant”, and ADR-2160’s activation blockers still include “a removed member still in the call after D” without exempting the expressly accepted partition. The qualification has not propagated. |
+| **Link endpoint ownership** | **CLOSED** | ADR-2161 D5: “the subject is under the asserting node's key; the object is under the receiving node's key”. D6 checks those same owners. ADR-2162 D7 agrees: “the link's subject URN is under the sender's key, and its object URN is under this node's key”. |
+| **Durable catalogue withdrawal / restart replay** | **OPEN** | ADR-2161 D2 adds “the same `d` at a greater `rev` carrying `["status", "withdrawn"]` and no endpoint” and a “persisted watermark per (K, space id)”. However, that same decision accepts an entry **only** if “its `endpoint` exactly equals the endpoint configured for that key”. The endpoint-less withdrawal cannot pass; an explicit withdrawal validation branch is missing. |
+
+Memory search and storage were blocked by the tool approval policy; this audit was not persisted.
+
+VERDICT: needs-round-5
