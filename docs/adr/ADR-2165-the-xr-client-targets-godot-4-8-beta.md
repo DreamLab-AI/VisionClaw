@@ -28,7 +28,7 @@ relates: [ADR-2158, ADR-2159]
 
 ## Decision
 1. **Target.** The XR client's target engine is **Godot 4.8-beta2** (Linux x86_64 editor build, HP `~/godot48b2/Godot_v4.8-beta2_linux.x86_64`). Later 4.8 betas, RCs and the stable release replace it after the same gates.
-2. **Rollback.** 4.6.1-stable stays installed and is the rollback (`~/.local/bin/godot` is not repointed). **Live headset sessions stay on 4.6.1 until the Invariant 1 re-test on 4.8 passes.** Activation is then `live`.
+2. **Hard cutover, with a rollback.** By the operator's decision (2026-10-30), the live headset client runs 4.8-beta2 from `~/mce-xr/godot48`. 4.6.1-stable stays installed and untouched as the rollback: `~/.local/bin/godot` is not repointed, and `~/mce-xr/live` is unchanged. If the Invariant 1 re-test fails (a blank or broken second eye), the 4.6.1 client is restored. To restore it, run `Godot_v4.6.1-stable_linux.x86_64 --path . --rendering-driver opengl3 --display-driver x11 --xr-mode on --verbose --print-fps` from `~/mce-xr/live/xr-client`, with `XR_BACKEND_WS`, `XR_BACKEND_MODE` and `XR_NOSTR_SECRET` set as for the live session. `activation_status` becomes `live` once both eyes are confirmed.
 3. **gdext unchanged.** Keep `godot = "0.2"` and `compatibility_minimum = "4.3"`. GDExtension is forward compatible and the library loads under 4.8. Bump only when an API we need is missing or loading fails. No current release binds the 4.8 API, so 4.8-only classes (spatial containers) are reached from GDScript, as ADR-2158 already states.
 4. **Engine churn is committed separately** from code fixes. `project.godot` `config/features` is not re-pinned by this ADR. The headless import leaves it byte-identical, and an editor re-save would also flip the renderer tag, which is the WP0 decision.
 5. **No OpenXR Vendors plugin** is added for desktop OpenXR. The Quest/Android XR export, still frozen, will need it. Version 5.2 is the line that adds 4.8 spatial-container export.
@@ -36,7 +36,7 @@ relates: [ADR-2158, ADR-2159]
 ## Consequences
 - **Spatial containers become reachable from the code.** ADR-2158's `NativeMainVolume` can be written against real 4.8 API. Settings: `xr/openxr/extensions/spatial_container/enabled` (bool, default false), `…/bounds_mode` (int enum Bounded=0 / Immersive=1, default `"0"`), `…/bounds` (Vector3 metres, default 0.5³). API: the singleton `OpenXRSpatialContainerExtension` and `OpenXRSpatialContainerState.BoundsMode`.
 - **Fallback is silent.** Without both `XR_EXT_spatial_container` and `XR_EXT_spatial_container_self_rendering`, `is_enabled()` is false and the session runs normally on the ordinary play space. A verbose-only log line is the only sign. No runtime on our hardware has the extension: not SteamVR build 25998080, and not Monado `main` at `aadd2a52` (headers only).
-- **Beta risk.** Engine regressions may appear between betas. Each beta bump repeats the gates in Verification. Rollback is a `GODOT=` change, not a code revert.
+- **Beta risk.** The live client now runs a beta. Engine regressions may appear between betas, and each beta bump repeats the gates in Verification. Rollback is a binary change, not a code revert.
 - **Upgrades still owed:** GUT stays on its 4.6 line (9.6.1), which parses and runs cleanly on 4.8-beta2. The Quest renderer decision and `config/features` remain open (WP0).
 - **Cost.** A second engine on HP, and a headset session to close the gate.
 
@@ -55,4 +55,8 @@ Established at `verified_commit` (main, the tree synced to HP `~/mce-xr/godot48/
   
   Evidence is in HP `~/mce-xr/godot48/xr-client/tests/report/ab/`.
 - **API break check (static).** No `XRInterfaceExtension` subclass exists, and no `*_for_view` calls, in `xr-client/` GDScript or Rust. No code fix was needed.
-- **Headset (Invariant 1): NOT RUN.** The VIVE was in use by a live 4.6.1 session (HP pid 7926), which the gate does not stop. This is the sole reason `implementation_status` is `partial` and `activation_status` is `staged`. The 4.6.1 headset baseline from that session is 90 FPS / 11.11 mspf (`--print-fps`). Nothing headless exercises the OpenXR path or PR #116424's camera-pose timing; GUT and the desktop runs are `--xr-mode off`.
+- **Headset (Invariant 1): PARTIAL, second eye awaiting the operator.** On 2026-10-30, with the operator's approval, the live 4.6.1 client (pid 7926) was stopped at 14:47:48Z. The 4.8-beta2 client was then started at 14:47:53Z from `~/mce-xr/godot48` with the same environment (pid 793085, `live-144753.log`).
+  - **Observed:** the OpenXR session goes IDLE→READY→SYNCHRONIZED→VISIBLE→FOCUSED and holds a steady 90 FPS / 11.11 mspf, the same as the 4.6.1 session's `--print-fps`. The graph streams in (4574 nodes, 7885 edges). The Godot window, which mirrors the left eye, shows the graph, labels and HUD under Compatibility.
+  - **Not observed:** the right eye, Invariant 1's known failure. Nobody was wearing the HMD; SteamVR reported "Standing by" and throttled the app to about 5 FPS with no session-state change, as the 4.6.1 log also shows.
+  - **New in 4.8:** one `Viewport marked with use_xr but current camera is not an XRCamera3D` warning, followed by a GLES3 `rb->get_view_count() != p_camera_data->view_count` error (`rasterizer_scene_gles3.cpp:2444`). It fires once, at the XRBoot→GraphScene switch before SYNCHRONIZED, and drops that one frame. The 4.6.1 log has neither.
+  - `implementation_status` stays `partial` and `activation_status` stays `staged` until both eyes are confirmed in the headset.

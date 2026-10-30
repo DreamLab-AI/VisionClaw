@@ -5,7 +5,7 @@ version: 0.1.22
 status: draft-for-ratification
 verified_commit: 
 changelog:
-  - "0.1.22 (2026-10-30): Godot 4.8-beta2 target (ADR-2165). The unchanged gdext library (godot 0.2.4, API 4.3) loads under 4.8.beta2.official.cafc17a19; headless load and GUT match 4.6.1 exactly (33/33 scripts, 257/257 tests); desktop GL (XR off) fixture is pixel-identical and the benchmark about 2.6 % slower; no API break in our code (PR #116424 only breaks XRInterfaceExtension implementations, which we have none of). Invariant 1 gains an explicit clause that an engine minor-version bump re-opens it (renderer rule itself unchanged); its 4.8 on-headset re-test is recorded under Engine and renderer and has NOT run yet (headset in use). 4.6.1 stays the rollback and the live-session engine until that re-test passes."
+  - "0.1.22 (2026-10-30): Godot 4.8-beta2 target (ADR-2165). The unchanged gdext library (godot 0.2.4, API 4.3) loads under 4.8.beta2.official.cafc17a19; headless load and GUT match 4.6.1 exactly (33/33 scripts, 257/257 tests); desktop GL (XR off) fixture is pixel-identical and the benchmark about 2.6 % slower; no API break in our code (PR #116424 only breaks XRInterfaceExtension implementations, which we have none of). Invariant 1 gains an explicit clause that an engine minor-version bump re-opens it (renderer rule itself unchanged); its 4.8 on-headset re-test is recorded under Engine and renderer and is partial (FOCUSED at 90 FPS with the graph visible in the left eye; the second eye awaits the operator). Hard cutover by operator decision: the live headset client runs 4.8-beta2, and 4.6.1 stays installed as the rollback."
   - "0.1.21 (2026-10-30): PROPOSED only, nothing implemented. ADR-2158 and ADR-2159 add a Proposed section (spatial volumes, one backend connection per content source); the LiveKit gap now points at ADR-2160. Audit round 2: fit rule is min bounds/content ratio, frames belong to the home, connections are per (node, dataspace); `BackendCaps` is UX only (read-only is enforced by the server, ADR-2161). Current State, Invariants and verified_commit untouched. Drafted against e74bcddc7."
   - "0.1.20 (2026-10-08): the animated walk has its own scale in the headset (operator: at the 0.1 line factor the walk vanished in the VIVE). Comet head, glow and tail, the segment drawing in behind the trace head and a bead popping in draw at XR_WALK_THICKNESS_SCALE 1.0 / XR_WALK_GLOW_SCALE 0.5 (comet head at least COMET_MIN_DEG 0.5° at COMET_VIEW_M 15 m) and settle to the 0.1 line factor over WALK_SETTLE_S 0.8 s after convergence. A headset query (preset or typed) always replays the walk, even on the same hits; only the desktop's 10 s repeat keeps the trace. Reduced motion: a static thin route. Triangle budget and draw calls unchanged. No invariant changed."
   - "0.1.19 (2026-10-08): server sample 30 000 (ADR-2133 amendment). The frame budget still caps the cloud at 8 000 sprites; a 30 000 snapshot draws 8 000 (namespace-stratified, route and hit rows pinned) and the HUD Memory button reads 'Memory: <drawn> of <sampled>' whenever it draws fewer. Triangle budget unchanged. No invariant changed."
@@ -103,8 +103,8 @@ breaks `XRInterfaceExtension` implementations; the client uses the built-in
 also samples the XR camera pose earlier in the frame and moves per-view
 projections out of the renderer into `camera_set_projections`, so it touches the
 Compatibility multiview path: **Invariant 1 re-opens for 4.8**. Its on-headset
-re-test is the gate below; until it is recorded as passed, live headset sessions
-stay on 4.6.1.
+re-test is the gate below. By the operator's decision this is a hard cutover: the
+live headset client runs 4.8-beta2, and 4.6.1 is restored if the re-test fails.
 
 Desktop GL, XR off, same host (`tests/report/ab/`): `tests/spatial_visual_fixture.tscn`
 renders identically on both engines (about 3 of 1.08 M pixels differ, 0 at 3 % fuzz,
@@ -113,13 +113,16 @@ gives mean 424 FPS on 4.8 against 436 FPS on 4.6.1 (p50 2.35 against 2.28 ms,
 about 2.6 % slower). Draw calls (34) and triangles (94 574) are identical, and
 every budget passes. This is not stereo evidence.
 
-**Invariant 1 re-test on 4.8-beta2: NOT RUN (2026-10-30).** The headset was in
-use by a live 4.6.1 session (HP pid 7926, `~/mce-xr/live/xr-client`), which the
-gate does not stop. Required receipt: `tools/live.sh` with
-`GODOT=~/godot48b2/Godot_v4.8-beta2_linux.x86_64` against the dev backend,
-both eyes rendering with the graph visible, and `--print-fps` frame time
-comparable to the 4.6.1 baseline (the live 4.6.1 session logs 90 FPS /
-11.11 mspf steady state on the VIVE).
+**Invariant 1 re-test on 4.8-beta2: PARTIAL (2026-10-30); the second eye awaits the operator.**
+4.8-beta2 is now the live headset client (HP pid 793085, `~/mce-xr/godot48`, same
+environment as the 4.6.1 session it replaced). The session reaches FOCUSED at a
+steady 90 FPS / 11.11 mspf, the same as 4.6.1. The graph streams in (4574 nodes,
+7885 edges), and the left-eye desktop mirror shows it, with the HUD, under
+Compatibility. The right eye (the known failure: a blank second eye) still needs
+someone in the HMD. SteamVR was in standby, which throttles any app to about 5 FPS,
+on both engines. New in 4.8: one `use_xr`/non-XRCamera3D warning and one GLES3
+`view_count` mismatch error at the XRBoot→GraphScene switch, which drops one
+frame. Rollback: the exact 4.6.1 command in `~/mce-xr/live/xr-client` (ADR-2165).
 
 `renderer/rendering_method="gl_compatibility"` is set for desktop
 (`project.godot:48`) and this is **load-bearing, not a preference**: the
