@@ -472,11 +472,13 @@ impl BidirectionalDijkstra {
 // ---------------------------------------------------------------------------
 
 /// Trait for embedding providers (pluggable for future vector embedding models).
+/// @ontology urn:ngm:class:embedding
 pub trait EmbeddingProvider: Send + Sync {
     /// Produce an embedding vector for a text string.
     fn embed_text(&self, text: &str) -> Result<Vec<f32>, String>;
 
     /// Cosine similarity between two vectors. Returns value in [-1, 1].
+    /// @ontology urn:ngm:class:cosine-similarity
     fn cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
         if a.len() != b.len() || a.is_empty() {
             return 0.0;

@@ -216,6 +216,7 @@ layout comes from the `visionclaw-wire` crate, which `visionclaw-protocol` re-ex
 - **`0x23`.** Same batch framing and existing `AgentActionType` values, no new ones
   (`wire.rs:100-126`): Read/Grep/Glob → `Query 0`; Edit (existing file) → `Update 1`; Write of a
   new file → `Create 2`; file removed in a delta → `Delete 3`.
+- **`ontology_refs`** (ADR-2164 D3): an optional string key in the `initialGraphLoad` node `metadata`, present only on nodes that carry an `@ontology` annotation, as `<iri>#L<line>` tokens space-separated, sorted by IRI then line, at most 32; a file node carries the roll-up of its symbols. It is a new key in an existing object, not a new wire format (no tag, no flag bit); the same data is on `GET /api/graph/ontology-refs?repo=` (`codescape/crates/codescape-server/src/xr.rs`, `codescape/crates/codescape-ingest/src/annotations.rs`; both resolve once the submodule pin includes codescape `e3b76f6`).
 - **Knowledge routes are never served.** `/api/memory-cloud/*`, `/api/analytics/*`,
   `/api/graph/fold` and `/api/canary/*` return 404 on `:4100`. `:4101` (hook ingest, bearer
   token) is never published.

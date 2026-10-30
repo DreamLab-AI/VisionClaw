@@ -454,6 +454,7 @@ impl SemanticConstraintGenerator {
         }
     }
 
+    /// @ontology urn:ngm:class:cosine-similarity
     fn cosine_similarity(&self, vec_a: &[f32], vec_b: &[f32]) -> f32 {
         if vec_a.len() != vec_b.len() || vec_a.is_empty() {
             return 0.0;

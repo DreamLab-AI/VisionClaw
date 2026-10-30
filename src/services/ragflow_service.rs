@@ -98,6 +98,7 @@ struct CompletionRequest {
     sync_dsl: Option<bool>,
 }
 
+/// @ontology urn:ngm:class:retrieval-augmented-generation
 pub struct RAGFlowService {
     client: Client,
     api_key: String,

@@ -154,6 +154,7 @@ fn is_excluded(graph: &GraphName) -> bool {
 ///
 /// Standards-grade: bytes are produced by oxigraph's `oxrdfio` serialiser, so
 /// the output validates against the relevant W3C grammar.
+/// @ontology urn:ngm:class:rdf
 pub fn export_dataset(store: &Store, format: DatasetFormat) -> Result<Vec<u8>, SerdeError> {
     let rdf_format = format.rdf_format();
     debug_assert!(

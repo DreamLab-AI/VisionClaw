@@ -4,6 +4,7 @@ use crate::error::RoomError;
 
 /// Nostr DID, format `did:nostr:<64-hex>`. Hex pubkey is canonical scope form
 /// per CLAUDE.md; bech32 npub is only used at the Nostr relay wire boundary.
+/// @ontology urn:ngm:class:did-nostr
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Did(String);
 
