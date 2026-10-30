@@ -2,7 +2,7 @@
 id: ADR-2134
 title: The graph socket relays the memory explorer's beat clock and route to the same user's other sessions
 date: 2026-10-07
-decision_status: accepted
+decision_status: proposed
 implementation_status: complete
 activation_status: staged
 supersedes: []
@@ -108,7 +108,7 @@ Not re-run: no build was permitted.
 
 ## Close-out 2026-10-30
 
-`decision_status: proposed → accepted` under close-out rule 3a: the code has landed on main and has been
+Proposed for `accepted` under close-out rule 3a: the code has landed on main and has been
 re-verified repeatedly. The 2026-10-19 re-check already called `proposed` a housekeeping item.
 `verified_commit` moves to `772039bd172027af034d64befacca1ebcf0bbc04`.
 
@@ -119,3 +119,8 @@ re-verified repeatedly. The 2026-10-19 re-check already called `proposed` a hous
   and `:164`.
 
 Activation stays `staged`. The side-by-side phase-error filming named in Verification has not been done.
+
+**Lead review (2026-10-30).** `decision_status` is returned to `proposed`. This record reserves acceptance to the
+owner, and the close-out does not take owner decisions on the owner's behalf. The implementation and verification
+evidence above stands; ratification is a one-line owner action, listed in VisionFlow
+`docs/registers/park-2026-10-30.md`.

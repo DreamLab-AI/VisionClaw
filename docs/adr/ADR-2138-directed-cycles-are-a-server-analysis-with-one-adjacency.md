@@ -2,7 +2,7 @@
 id: ADR-2138
 title: Directed cycles are one server analysis that every client consumes
 date: 2026-10-13
-decision_status: accepted
+decision_status: proposed
 implementation_status: complete
 activation_status: staged
 supersedes: []
@@ -42,7 +42,7 @@ Not yet pinned to a commit, so the ledger reads `proposed` / `none` until the ow
 
 ## Close-out 2026-10-30
 
-`proposed / none / inactive → accepted / complete / staged` under close-out rule 3a. The change landed on main in
+`proposed / none / inactive → proposed / complete / staged`; acceptance proposed under close-out rule 3a. The change landed on main in
 `4306c65e9` ("feat(layout): directed-cycle analysis on the server, SCC-ranked hierarchy, cycles colour scheme").
 Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
 
@@ -64,3 +64,8 @@ Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionc
 
 Activation is `staged`, not `live`. The server half answers, but the Shapes tab has not been run on a headset, and
 this record's own trigger names that run.
+
+**Lead review (2026-10-30).** `decision_status` is returned to `proposed`. This record reserves acceptance to the
+owner, and the close-out does not take owner decisions on the owner's behalf. The implementation and verification
+evidence above stands; ratification is a one-line owner action, listed in VisionFlow
+`docs/registers/park-2026-10-30.md`.
