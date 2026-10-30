@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_135 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_136 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -174,6 +174,7 @@ _135 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2143](ADR-2143-codescape-section-separate-workspace-and-port.md) | Codescape is a separate section with its own Cargo workspace, its own port and a tested isolation boundary | BASELINE-architecture | 2026-10-17 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2147](ADR-2147-inferences-carry-a-re-checkable-certificate-and-proposals-carry-a-consequence-delta.md) | Inferences carry a re-checkable derivation certificate and proposals carry a consequence delta — Whelk stays the blocker | — | 2026-10-20 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2148](ADR-2148-enable-local-typed-decisions.md) | Enable local typed decisions and expose reviewed edge suggestions | — | 2026-10-29 | accepted | complete | staged | — | — | operator | visionclaw |
+| [ADR-2156](ADR-2156-dev-runtime-profile-builds-incrementally-without-lto.md) | The dev-runtime profile builds incrementally without cross-crate LTO | BASELINE-architecture | 2026-10-29 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2157](ADR-2157-presence-rooms-are-bound-to-nip29-spaces-and-admitted-by-membership.md) | Presence rooms are bound to NIP-29 spaces and admitted by membership | IDENTIFIER-taxonomy | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2158](ADR-2158-xr-content-is-presented-in-spatial-volumes-emulated-until-the-runtime-provides-them.md) | XR content is presented in spatial volumes, emulated until the runtime provides them | XR-client | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2159](ADR-2159-the-xr-client-holds-one-backend-connection-per-content-source.md) | The XR client holds one backend connection per content source | XR-client | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |

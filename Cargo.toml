@@ -322,10 +322,16 @@ strip = true
 
 # Optimised local runtime with an explicit development security identity.
 # Release artefacts with dev-auth are rejected by ADR-2038.
+# ADR-2156: the dev loop rebuilds only the root crate, so release's fat LTO and
+# single codegen unit turned every edit into a 10+ minute single-core link.
+# Keep opt-level 3, drop cross-crate LTO, split codegen and build incrementally.
 [profile.dev-runtime]
 inherits = "release"
 debug-assertions = true
 overflow-checks = true
+lto = "off"
+codegen-units = 256
+incremental = true
 
 [profile.dev]
 opt-level = 1

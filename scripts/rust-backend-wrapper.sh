@@ -112,11 +112,16 @@ if [ "${SKIP_RUST_REBUILD:-false}" != "true" ]; then
             log "✓ Build succeeded"
             write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"
         else
-            log "ERROR: Build failed. Attempting clean rebuild..."
+            log "ERROR: Build failed. Retrying after cleaning the root package only..."
             # A failed build leaves the stamp describing an environment no
             # binary was produced for; drop it so the next start rebuilds.
             rm -f "$BUILD_STAMP"
-            cargo clean 2>/dev/null || true
+            # ADR-2156: never a full `cargo clean`. A plain source error would
+            # otherwise wipe every compiled dependency, and supervisor's
+            # autorestart would repeat that cold build on each retry. Cleaning
+            # the root package clears stale incremental state, the one failure
+            # a retry can actually fix.
+            cargo clean --profile dev-runtime -p visionclaw-server 2>/dev/null || true
             if cargo_build; then
                 log "✓ Clean rebuild succeeded"
                 write_build_stamp "$BUILD_STAMP" "$BUILD_FEATURES"

@@ -33,7 +33,11 @@ fn main() {
             }
         }
     }
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // A missing rerun-if-changed path counts as always changed, and the dev
+    // container does not mount .git, so declare it only where it exists.
+    if std::path::Path::new(".git/HEAD").exists() {
+        println!("cargo:rerun-if-changed=.git/HEAD");
+    }
 
     // Notify Cargo to re-run if the GPU feature flag or CUDA env vars change.
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_GPU");
