@@ -576,9 +576,13 @@ func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 		_box_grab_resize = true
 	else:
 		_box_grab_resize = false
+		# Distance from the press-time hit; the grabbed point from the pose at
+		# engage, so the wand's travel during the grace (and the squeeze jolt)
+		# never jumps the box on the first drive.
+		var hit_p: Vector3 = hit.get("world_pos", v.global_position)
+		_box_grab_dist = float(hit.get("distance", ctrl.global_position.distance_to(hit_p)))
 		_box_grab_g0 = v.global_transform
-		_box_grab_p0 = hit.get("world_pos", v.global_position)
-		_box_grab_dist = float(hit.get("distance", ctrl.global_position.distance_to(_box_grab_p0)))
+		_box_grab_p0 = ctrl.global_position - ctrl.global_transform.basis.z * _box_grab_dist
 		_arrangement.mark_moved(vid)
 	_box_grab_ctrl = ctrl
 	_box_grab_vid = vid
@@ -2801,15 +2805,21 @@ var _manip_init_mid: Vector3 = Vector3.ZERO
 var _manip_session_base_scale: float = -1.0
 
 
+## The two-hand gesture may run only with both wands tracking and no node,
+## HUD or box grab holding a hand.
+static func two_hand_eligible(left_active: bool, right_active: bool, grabbed_id: int, hud_grab: bool, box_grab: bool) -> bool:
+	return left_active and right_active and grabbed_id == -1 and not hud_grab and not box_grab
+
+
 func _update_two_hand_manip(_delta: float) -> void:
 	var lc := left_controller
 	var rc := right_controller
 	# Eligible only when both wands are tracking and no competing grab owns a hand.
 	# A node grab uses the trigger and the HUD grab uses a single grip; either one
 	# taking a hand blocks the two-hand gesture (and vice versa).
-	var eligible: bool = lc != null and rc != null \
-		and lc.get_is_active() and rc.get_is_active() \
-		and _grabbed_id == -1 and _hud_grab_controller == null and _box_grab_ctrl == null
+	var eligible: bool = lc != null and rc != null and two_hand_eligible(
+		lc.get_is_active(), rc.get_is_active(), _grabbed_id,
+		_hud_grab_controller != null, _box_grab_ctrl != null)
 	if _two_hand_active:
 		# End when either grip relaxes below the release threshold, a wand drops
 		# out, or a grab claims a hand. Hysteresis: release < engage so a grip held
@@ -4105,6 +4115,9 @@ func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
 	_dc_last_time = now
 	_grabbed_id = node_id
 	print("GraphScene DEBUG: node_grabbed id=%d" % node_id)
+	# The held node is the selection (UX feature 2): the Rust tube may catch a
+	# node the volume picker's cone missed, or a different one.
+	select_volume_node(OVERLAY_VOLUME, StringName(VOLUME_BINDINGS[OVERLAY_VOLUME]["conn"]), node_id)
 	# Node render position now lives in the Rust store.
 	var pos: Vector3 = _binary_client.node_position(node_id) if _binary_client != null else Vector3.ZERO
 	_grab_target_server = pos

@@ -263,11 +263,36 @@ func test_hidden_box_ends_its_grip() -> void:
 	await _free(scene)
 
 
-func test_box_grip_blocks_two_hand_gesture() -> void:
+func test_two_hand_eligibility() -> void:
+	assert_true(GraphScene.two_hand_eligible(true, true, -1, false, false))
+	assert_false(GraphScene.two_hand_eligible(true, true, -1, false, true), "a held box owns a hand")
+	assert_false(GraphScene.two_hand_eligible(true, true, -1, true, false), "a HUD grab owns a hand")
+	assert_false(GraphScene.two_hand_eligible(true, true, 4, false, false), "a node drag owns a hand")
+	assert_false(GraphScene.two_hand_eligible(true, false, -1, false, false), "both wands must track")
+
+
+func test_box_grip_engages_without_a_jump() -> void:
 	var scene: Node3D = await _make_scene()
 	var c: Node3D = scene._volumes[&"codescape"]
-	var hand := _hand(scene, Vector3(0.0, 1.0, 0.0), c.global_position)
-	scene.begin_box_grip(hand, _frame_hit(&"codescape", "frame", -1, 1.6, c.global_position))
-	scene._update_two_hand_manip(0.011)
-	assert_false(scene._two_hand_active, "a held box owns a hand")
+	var eye := Vector3(0.0, 1.0, 0.0)
+	var to_c: Vector3 = c.global_position - eye
+	var hand := _hand(scene, eye, to_c)
+	var hit := _frame_hit(&"codescape", "frame", -1, to_c.length(), c.global_position)
+	# The wand jolts during the grace: the grip engages from pose B.
+	hand.global_transform = Transform3D(Basis.looking_at(to_c + Vector3(0.2, 0.1, 0.0)), eye + Vector3(0.05, -0.03, 0.0))
+	var g0: Transform3D = c.global_transform
+	scene.begin_box_grip(hand, hit)
+	scene.drive_box_grip()
+	assert_true(c.global_transform.is_equal_approx(g0), "no jump on the first drive: %s vs %s" % [c.global_position, g0.origin])
+	await _free(scene)
+
+
+func test_held_knowledge_node_is_the_selection() -> void:
+	var scene: Node3D = await _make_scene()
+	scene.select_volume_node(&"ontology", &"visionclaw", 3)
+	scene._on_node_grabbed(42, Vector3.ZERO)
+	assert_eq(scene._volumes[&"knowledge"].selected_node, 42, "the node the Rust drag holds is selected")
+	assert_eq(scene._volumes[&"ontology"].selected_node, -1)
+	assert_eq(scene._focused_volume, &"knowledge")
+	scene._grabbed_id = -1
 	await _free(scene)

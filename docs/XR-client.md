@@ -942,16 +942,16 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
   | Input | Target | Effect | Code |
   |---|---|---|---|
   | Trigger (≥ 0.7, once per press) | HUD or radial menu | button press; never reaches the boxes | `graph_scene.gd:228` `resolve_trigger` |
-  | Trigger | drawn link, nearer than any node | follow it: the far end's box (the end farther from the hit, `link_picker.gd` `far_end`) is focused, its node selected, the box brought to the front, the link and both ends highlighted | `graph_scene.gd:340` `apply_trigger` |
-  | Trigger | node in any visible, online box | select it, focus its box, highlight it, its links and their counterparts; label from that box's own connection on the HUD status line and above the node | `graph_scene.gd:360` `select_volume_node` |
-  | Trigger | node in the knowledge box | as above, and the existing Rust drag also runs; drag stays knowledge-only (E9) | `graph_scene.gd:256` `claim_blocks_drag` |
-  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in the knowledge box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd:322` `trigger_pick` |
+  | Trigger | drawn link, nearer than any node | follow it: the far end's box (the end farther from the hit, `link_picker.gd` `far_end`) is focused, its node selected, the box brought to the front, the link and both ends highlighted | `graph_scene.gd:348` `apply_trigger` |
+  | Trigger | node in any visible, online box | select it (in the knowledge box the node the Rust drag holds is the selection), focus its box, highlight it, its links and their counterparts; label from that box's own connection on the HUD status line and above the node | `graph_scene.gd:368` `select_volume_node` |
+  | Trigger | node in the knowledge box | as above, and the existing Rust drag also runs; drag stays knowledge-only (E9) | `graph_scene.gd:259` `claim_blocks_drag` |
+  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in the knowledge box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd:325` `trigger_pick` |
   | Grip, near the HUD panel | HUD | carry the HUD (unchanged, wins first) | `_update_hud_grab` |
-  | Grip, one hand, held 0.15 s | corner handle (ray within 4 cm) | resize the box, symmetric about its origin | `graph_scene.gd:556` `begin_box_grip` |
-  | Grip, one hand, held 0.15 s | box frame | move that one box with the grabbed ray point; it keeps its rotation and leaves its ring slot | `graph_scene.gd:584` `drive_box_grip` |
+  | Grip, one hand, held 0.15 s | corner handle (ray within 4 cm) | resize the box, symmetric about its origin | `graph_scene.gd:564` `begin_box_grip` |
+  | Grip, one hand, held 0.15 s | box frame | move that one box with the grabbed ray point; it keeps its rotation and leaves its ring slot | `graph_scene.gd:596` `drive_box_grip` |
   | Both grips | anywhere | move, turn and scale the whole arrangement (unchanged); a held box blocks it, and a second grip inside the 0.15 s grace gives the press to it | `_update_two_hand_manip` |
   | HUD Session **Front** | focused box | eases to the 0° slot over 0.35 s; the box there takes the vacated slot; unit scale always | `volume_arrangement.gd:205` `bring_to_front` |
-  | HUD Graph **Reset Layout** | all boxes | ring slots and default bounds restored (local, for any focused volume), then the gated physics reset | `graph_scene.gd:611` `reset_volume_layout` |
+  | HUD Graph **Reset Layout** | all boxes | ring slots and default bounds restored (local, for any focused volume), then the gated physics reset | `graph_scene.gd:623` `reset_volume_layout` |
 
   A selection is one node in one box. It clears when its connection starts a new generation or drops, or when its box is hidden. There is no non-XR mouse pick path: the flat camera is a diagnostic view, and its only mouse events are those synthesised for the HUD. Desktop mouse picking is therefore not built.
 - **Cross-volume links (ADR-2158 D6, ADR-2164).**
