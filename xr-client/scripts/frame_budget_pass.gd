@@ -16,6 +16,13 @@ extends RefCounted
 ## re-renders about once a second (~8k triangles on that frame); the budget
 ## reserves that dirty-frame cost rather than the idle one, and the peak-hold
 ## keeps the caps from oscillating between samples.
+##
+## Per volume (ADR-2159 D4): the budget stays one budget. The scene passes the
+## layer counts summed over every visible volume, `allocate` runs once on that
+## sum, and the resulting near caps are shared out by `FrameBudget.split_near_caps`
+## in proportion to each visible volume's drawn nodes / edges, with a GEM_MIN
+## floor so no visible volume loses its near field. A hidden volume demands 0,
+## gets 0 and does not pack. Read the shares from `volume_caps[volume_id]`.
 
 const NodeLod := preload("res://scripts/node_lod.gd")
 ## Low rate: demand changes with the drawn set, not per frame (caps only move
@@ -35,6 +42,8 @@ var caps: Dictionary = {
 	"over_budget": false,
 }
 var last_report: Dictionary = {}
+## volume_id → {"gem_nodes": int, "cylinder_edges": int}, from the last pass.
+var volume_caps: Dictionary = {}
 
 var _accum: float = BUDGET_SEC
 var _fb: Object = null
@@ -46,8 +55,10 @@ var _peaks: Array[int] = []              # per-pass peaks over OTHER_PEAK_SEC
 ## halos, impostors, cylinders, ribbons, hulls, hull_tris, draw_calls. `memory`:
 ## the memory-cloud layer (frame_demand/budget/apply_frame_caps) or null.
 ## `measured_tris`: the renderer's total primitives last frame (0 = unknown).
-## `bursts_on`: memory_flash burst rings enabled. Returns true when a pass ran.
-func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, measured_tris: int, bursts_on: bool = false) -> bool:
+## `bursts_on`: memory_flash burst rings enabled. `volumes`: volume_id →
+## {"nodes", "edges"} drawn by that volume last frame (0/0 or absent when
+## hidden); empty = the single-graph scene. Returns true when a pass ran.
+func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, measured_tris: int, bursts_on: bool = false, volumes: Dictionary = {}) -> bool:
 	if client == null or not client.has_method("graph_layer_triangles"):
 		return false
 	var gems: int = int(layers.get("gems", 0))
@@ -89,8 +100,37 @@ func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, 
 		int(demand.get("route_rows", 0)), int(demand.get("route_sidecar", 0)), burst_demand)
 	var changed: bool = result != caps
 	caps = result
+	volume_caps = split_for_volumes(volumes)
 	# apply_frame_caps already no-ops on identical caps; skip the call too.
 	if changed and memory != null and memory.has_method("apply_frame_caps"):
 		memory.apply_frame_caps(result)
 	last_report = {"graph_tris": graph_tris, "memory_tris": memory_tris, "other_tris": other_tris, "measured_tris": measured_tris}
 	return true
+
+
+## Share the current near caps between `volumes` (volume_id → {"nodes",
+## "edges"}), in the dictionary's order. Needs the gdext FrameBudget; without it
+## every volume keeps the whole cap (the allocator never ran either).
+func split_for_volumes(volumes: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	if volumes.is_empty():
+		return out
+	var ids: Array = volumes.keys()
+	if _fb == null and ClassDB.class_exists("FrameBudget"):
+		_fb = ClassDB.instantiate("FrameBudget")
+	if _fb == null:
+		for id: Variant in ids:
+			out[id] = {"gem_nodes": int(caps["gem_nodes"]), "cylinder_edges": int(caps["cylinder_edges"])}
+		return out
+	var node_d := PackedInt64Array()
+	var edge_d := PackedInt64Array()
+	for id: Variant in ids:
+		var d: Dictionary = volumes[id]
+		node_d.append(maxi(0, int(d.get("nodes", 0))))
+		edge_d.append(maxi(0, int(d.get("edges", 0))))
+	var floor_n: int = int(_fb.gem_min())
+	var gems: PackedInt64Array = _fb.split_near_caps(int(caps["gem_nodes"]), node_d, floor_n)
+	var cyls: PackedInt64Array = _fb.split_near_caps(int(caps["cylinder_edges"]), edge_d, floor_n)
+	for i: int in ids.size():
+		out[ids[i]] = {"gem_nodes": int(gems[i]), "cylinder_edges": int(cyls[i])}
+	return out

@@ -240,6 +240,92 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     }
 }
 
+/// Split one near-tier cap (gem nodes or cylinder edges) between the visible volumes
+/// (ADR-2159 D4). The budget stays one budget: [`allocate`] runs once on the summed demand of
+/// every visible volume, and this divides the resulting cap.
+///
+/// `demands[i]` is volume *i*'s candidate count (its drawn non-faded nodes, or its drawn
+/// edges); a hidden volume passes 0 and gets 0. Rule:
+/// 1. **Floor.** Each volume first gets `min(demand, floor)`, so no visible volume loses its
+///    near field entirely. If the floors alone exceed `total`, the cap is dealt one at a time
+///    in volume order instead.
+/// 2. **Proportional.** The rest is shared in proportion to each volume's unmet demand
+///    (largest-remainder rounding, ties to the lower index), never past a volume's demand.
+///    Whatever a capped volume cannot use is offered to the others until nothing is left
+///    or every demand is met.
+///
+/// Invariants (tested): `sum(out) <= total`, `out[i] <= demands[i]`, and
+/// `sum(out) == min(total, sum(demands))`.
+pub fn split_near_caps(total: usize, demands: &[usize], floor: usize) -> Vec<usize> {
+    let mut out = vec![0usize; demands.len()];
+    let want: usize = demands.iter().sum();
+    let mut left = total.min(want);
+    let floors: Vec<usize> = demands.iter().map(|&d| d.min(floor)).collect();
+    if floors.iter().sum::<usize>() > left {
+        // Deal round-robin up to each floor.
+        while left > 0 {
+            let mut gave = false;
+            for i in 0..out.len() {
+                if left == 0 {
+                    break;
+                }
+                if out[i] < floors[i] {
+                    out[i] += 1;
+                    left -= 1;
+                    gave = true;
+                }
+            }
+            if !gave {
+                break;
+            }
+        }
+        return out;
+    }
+    for i in 0..out.len() {
+        out[i] = floors[i];
+        left -= floors[i];
+    }
+    while left > 0 {
+        let unmet: Vec<usize> = demands.iter().zip(&out).map(|(&d, &o)| d - o).collect();
+        let unmet_sum: usize = unmet.iter().sum();
+        if unmet_sum == 0 {
+            break;
+        }
+        let pool = left.min(unmet_sum);
+        let mut shares: Vec<usize> = Vec::with_capacity(out.len());
+        let mut rems: Vec<(usize, usize)> = Vec::with_capacity(out.len());
+        let mut given = 0usize;
+        for (i, &u) in unmet.iter().enumerate() {
+            let num = pool * u;
+            let share = (num / unmet_sum).min(u);
+            shares.push(share);
+            rems.push((num % unmet_sum, i));
+            given += share;
+        }
+        // Largest remainder first; ties to the lower index.
+        rems.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let mut extra = pool - given;
+        for &(_, i) in &rems {
+            if extra == 0 {
+                break;
+            }
+            if shares[i] < unmet[i] {
+                shares[i] += 1;
+                extra -= 1;
+            }
+        }
+        let round: usize = shares.iter().sum();
+        for i in 0..out.len() {
+            out[i] += shares[i];
+        }
+        left -= round;
+        if round == 0 {
+            break;
+        }
+    }
+    out
+}
+
 // ── Godot adapter ──
 
 #[cfg(not(test))]
@@ -328,12 +414,85 @@ impl FrameBudget {
     fn burst_pool_spec(&self) -> PackedInt32Array {
         PackedInt32Array::from(&[BURST_POOL_SLOTS as i32, BURST_TRIS_PER_SLOT as i32][..])
     }
+
+    /// [`split_near_caps`]: share `total` between volumes by `demands` (0 = hidden) with a
+    /// per-volume `floor`. Returns one cap per demand, in order.
+    #[func]
+    fn split_near_caps(&self, total: i64, demands: PackedInt64Array, floor: i64) -> PackedInt64Array {
+        let d: Vec<usize> = demands.as_slice().iter().map(|&v| v.max(0) as usize).collect();
+        let out: Vec<i64> = split_near_caps(total.max(0) as usize, &d, floor.max(0) as usize)
+            .into_iter()
+            .map(|v| v as i64)
+            .collect();
+        PackedInt64Array::from(out.as_slice())
+    }
+
+    /// The gem floor the per-volume split uses ([`GEM_MIN`]).
+    #[func]
+    fn gem_min(&self) -> i64 {
+        GEM_MIN as i64
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::memory_route::{route_triangles_for, MAX_PATH, MAX_SIDECAR};
+
+    fn check_split(total: usize, demands: &[usize], floor: usize) -> Vec<usize> {
+        let out = split_near_caps(total, demands, floor);
+        assert_eq!(out.len(), demands.len());
+        let sum: usize = out.iter().sum();
+        assert!(sum <= total, "{out:?} exceeds {total}");
+        for (o, d) in out.iter().zip(demands) {
+            assert!(o <= d, "{out:?} exceeds demand {demands:?}");
+        }
+        assert_eq!(sum, total.min(demands.iter().sum()), "{out:?} leaves cap unused");
+        out
+    }
+
+    #[test]
+    fn split_near_caps_is_proportional_above_the_floor() {
+        // 80 gems over knowledge 6 000, ontology 2 000, codescape 0 (hidden).
+        let out = check_split(80, &[6_000, 2_000, 0], GEM_MIN);
+        assert_eq!(out[2], 0, "a hidden volume gets nothing");
+        // Floors 16 + 16, the remaining 48 split 3:1 on unmet demand.
+        assert_eq!(out, vec![52, 28, 0]);
+    }
+
+    #[test]
+    fn split_near_caps_redistributes_what_a_small_volume_cannot_use() {
+        let out = check_split(80, &[5, 10_000, 10_000], GEM_MIN);
+        assert_eq!(out[0], 5, "a volume never gets past its demand");
+        assert_eq!(out[1] + out[2], 75);
+        assert!(out[1].abs_diff(out[2]) <= 1);
+    }
+
+    #[test]
+    fn split_near_caps_deals_floors_when_the_cap_is_short() {
+        let out = check_split(20, &[100, 100, 100], GEM_MIN);
+        assert_eq!(out, vec![7, 7, 6], "dealt round-robin up to the floor");
+        assert_eq!(check_split(0, &[100, 100], GEM_MIN), vec![0, 0]);
+    }
+
+    #[test]
+    fn split_near_caps_single_volume_gets_the_whole_cap() {
+        assert_eq!(check_split(96, &[20_000], GEM_MIN), vec![96]);
+        assert_eq!(check_split(96, &[40], GEM_MIN), vec![40]);
+        assert!(check_split(96, &[], GEM_MIN).is_empty());
+    }
+
+    #[test]
+    fn split_near_caps_holds_its_invariants_over_a_sweep() {
+        let shapes: [&[usize]; 6] = [&[1, 1, 1], &[0, 0, 0], &[3, 50, 7], &[13_164, 0, 900], &[17, 17], &[1, 2, 3, 4]];
+        for total in [0usize, 1, 2, 15, 16, 47, 80, 96, 500] {
+            for d in shapes {
+                for floor in [0usize, 1, GEM_MIN] {
+                    check_split(total, d, floor);
+                }
+            }
+        }
+    }
 
     /// Production graph as xr-graph measures it: 13 164 nodes, 20 000 edges,
     /// 32 hulls (2 938 triangles), 6 draw calls.
