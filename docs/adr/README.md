@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_136 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_138 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -176,7 +176,9 @@ _136 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2148](ADR-2148-enable-local-typed-decisions.md) | Enable local typed decisions and expose reviewed edge suggestions | — | 2026-10-29 | accepted | complete | staged | — | — | operator | visionclaw |
 | [ADR-2156](ADR-2156-dev-runtime-profile-builds-incrementally-without-lto.md) | The dev-runtime profile builds incrementally without cross-crate LTO | BASELINE-architecture | 2026-10-29 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2157](ADR-2157-presence-rooms-are-bound-to-nip29-spaces-and-admitted-by-membership.md) | Presence rooms are bound to NIP-29 spaces and admitted by membership | IDENTIFIER-taxonomy | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
-| [ADR-2158](ADR-2158-xr-content-is-presented-in-spatial-volumes-emulated-until-the-runtime-provides-them.md) | XR content is presented in spatial volumes, emulated until the runtime provides them | XR-client | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
-| [ADR-2159](ADR-2159-the-xr-client-holds-one-backend-connection-per-content-source.md) | The XR client holds one backend connection per content source | XR-client | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2158](ADR-2158-xr-content-is-presented-in-spatial-volumes-emulated-until-the-runtime-provides-them.md) | XR content is presented in spatial volumes, emulated until the runtime provides them | XR-client | 2026-10-30 | accepted | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2159](ADR-2159-the-xr-client-holds-one-backend-connection-per-content-source.md) | The XR client holds one backend connection per content source | XR-client | 2026-10-30 | accepted | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2160](ADR-2160-a-space-call-is-a-livekit-room-admitted-by-the-presence-handshake.md) | A space call is a LiveKit room admitted by the presence handshake | IDENTITY-authority-chain | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2161](ADR-2161-a-node-publishes-data-spaces-that-peer-nodes-render-as-linked-volumes.md) | A node publishes data spaces that peer nodes render as linked volumes | IDENTITY-authority-chain | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2164](ADR-2164-code-graph-entities-link-to-knowledge-and-ontology-nodes-resolved-at-runtime.md) | Code-graph entities link to knowledge-graph and ontology nodes, resolved at runtime | XR-client | 2026-10-30 | accepted | none | inactive | — | — | jjohare | visionclaw |
+| [ADR-2165](ADR-2165-the-xr-client-targets-godot-4-8-beta.md) | The XR client targets Godot 4.8 (beta), with 4.6.1-stable as rollback until the headset re-test passes | XR-client | 2026-10-30 | accepted | partial | staged | — | — | jjohare | visionclaw |
