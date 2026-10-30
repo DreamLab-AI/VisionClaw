@@ -2,12 +2,12 @@
 id: ADR-2159
 title: The XR client holds one backend connection per content source
 date: 2026-10-30
-decision_status: proposed
+decision_status: accepted
 implementation_status: none
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: e74bcddc772d47a45b1971156a2bab540eaa027c
+verified_commit: 00669b7a2b8bca15702b8173df1dab268144c3ec
 verified_paths: []
 owner: jjohare
 review_trigger: the tokio/gdext two-client check failing or passing; a third content source; Codescape gaining NIP-98 (its P6) and presence; any change to the position acknowledgement (ADR-2141); the frame-budget allocator changing its inputs
@@ -15,7 +15,7 @@ repo: visionclaw
 domain: XR-client
 depends_on: [ADR-2141, ADR-2143]
 amends: []
-relates: [ADR-2135, ADR-2157, ADR-2158, ADR-2161]
+relates: [ADR-2135, ADR-2157, ADR-2158, ADR-2161, ADR-2164]
 ---
 
 # ADR-2159 — The XR client holds one backend connection per content source
@@ -29,6 +29,7 @@ Plan: `docs/proposals/spatial-rooms/PLAN.md` §4 (VisionClaw), §5 (P3b). Trial 
 - Three volumes (ADR-2158) draw from two sources at once: the VisionClaw stream (knowledge and ontology, split by node kind) and Codescape.
 - The headset frame budget is 100 000 triangles and 50 draw calls, held by one allocator with a 5 % reserve (`xr-client/rust/src/frame_budget.rs:1-23`). Its inputs today are layers, not volumes.
 - The gdext network layer runs on one process-wide tokio runtime of two worker threads (`xr-client/rust/src/runtime.rs:12-20`). Whether two clients behave on it has not been tested.
+- **Accepted by the operator on 2026-10-30** for implementation, together with ADR-2158 ("bring in the new spatial containers and linked knowledge and code graphs").
 
 ## Decision
 The XR client holds **one `BackendConnection` per content source**, replacing the exclusive `_switch_backend`. A source is identified by (source node, dataspace) for a federated source (ADR-2161), and by the server for the local VisionClaw stream and for Codescape. Two spaces of the same remote node are two connections, because their ACLs differ; a connection's `id↔urn` tables are keyed by (node key, dataspace, stream generation) and a reconnect starts a new generation.
@@ -52,14 +53,24 @@ Rejected alternatives:
 - **Foreclosed:** a single global capability table; sharing node ids across sources.
 - **Revisit** if the two-client check fails (then the runtime moves to a per-client or larger pool, or the second source is read through a single multiplexed connection), if a third source appears, or if Codescape gains presence worth joining.
 - **Counter-example that blocks activation:** a Codescape volume that sends `nodeDrag`.
-- **Follow-on:** `docs/XR-client.md` carries a proposed-section entry. The Transport section's single-backend description remains current until the code lands.
+- **Follow-on:** `docs/XR-client.md` lists this record as being implemented. The Transport section's single-backend description stays current until the code lands. Phase-1 file ownership and the `BackendConnection` API are in `docs/proposals/spatial-rooms/XR-PHASE1-CONTRACT.md`.
+- **Link resolution needs both connections.** The code-to-concept links of ADR-2164 are joined in the client across two connections' tables. A link is drawn only while both connections are up and in their current stream generation.
 
 ## Activation prerequisites
-`depends_on` lists code dependencies only. This ADR does not depend on ADR-2158; ADR-2158 depends on this one (`AUDIT-DECISIONS.md` C9). The two-client tokio test (decision 5) is the **first** build step in the estate, ahead of any volume or backend work; ADR-2158's volume work is sequenced after it passes (build order is distinct from activation). Activation needs that test to have passed and the E8 frame-budget measurement. It is step 2 of the cross-repo order, ahead of ADR-2161. Read-only enforcement for federated sources is a server duty (ADR-2161 decision 4); `BackendCaps` here is UX only.
+`depends_on` lists code dependencies only. This ADR does not depend on ADR-2158; ADR-2158 depends on this one (`AUDIT-DECISIONS.md` C9).
+
+The two-client tokio test (decision 5) is the **first** build step, ahead of any backend or volume *integration*. Build order is distinct from activation.
+
+**Refined at acceptance (2026-10-30).** New, self-contained files may be written and tested headless in parallel with the preflight, against fixture content sources: `SpatialVolume`, the native shim and the link layer. Until it passes, nothing is wired into `graph_scene.gd`, and no second `BinaryProtocolClient` is constructed outside the preflight test itself. Activation needs that test to have passed and the E8 frame-budget measurement. It is step 2 of the cross-repo order, ahead of ADR-2161. Read-only enforcement for federated sources is a server duty (ADR-2161 decision 4); `BackendCaps` here is UX only.
 
 ## Verification
-`implementation_status: none`. At `e74bcddc772d47a45b1971156a2bab540eaa027c`:
-- The single-backend shape: `xr-client/scripts/graph_scene.gd:166`, `:625-629`, `:909-926`, `:1515`; single clients `:479-480`.
-- Frame budget constants and ownership: `xr-client/rust/src/frame_budget.rs:1-23` (the 13k and 20k figures that appear near "pack plans" in `docs/XR-client.md` are benchmark node and edge counts, not a budget).
-- Shared runtime: `xr-client/rust/src/runtime.rs:12-20`. It is consistent with the precondition and does not discharge it.
-- No `BackendConnection` exists in `xr-client/`.
+`implementation_status: none`, `activation_status: inactive`. Accepted on 2026-10-30. Nothing is built, and the decision 5 preflight has **not** been run.
+
+**Re-read at `00669b7a2b8bca15702b8173df1dab268144c3ec`.** The citations are unchanged:
+- `xr-client/scripts/graph_scene.gd:82` (global `_caps`), `:91-94` (`_binary_client`, `_backend_mode`, `_presence_client`), `:166-167` (`_graph_ws_url`, `_presence_ws_url`), `:479-480`, `:858-875` (`backend_supports`, `_gate`), `:877-906` (`_abandon_backend_requests`), `:909-926` (`_switch_backend`) and `:1515` (`_connect_from_env`);
+- `xr-client/rust/src/frame_budget.rs:1-23`;
+- `xr-client/rust/src/runtime.rs:12-20`.
+
+No `BackendConnection` exists in `xr-client/`. The topology frame is parsed in Rust (`binary_protocol.rs:933-937`, `classify_graph_text`), so a per-connection metadata table belongs on the Rust side of each client.
+
+**First read at `e74bcddc772d47a45b1971156a2bab540eaa027c`** (proposal), with the same citations.
