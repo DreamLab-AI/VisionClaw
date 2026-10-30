@@ -1,9 +1,10 @@
 extends "res://addons/gut/test.gd"
 const BackendCaps := preload("res://scripts/backend_caps.gd")
 
-# ADR-2143 A6: a backend switch abandons what the previous server already put
-# on screen, not just the requests still in flight. Instantiates the real
-# GraphScene (as test_graph_agents.gd does); needs the gdext library.
+# ADR-2159: the exclusive backend switch is gone. GraphScene holds one
+# BackendConnection per content source and three volumes bound to them; the
+# HUD's global controls gate against the focused volume's connection.
+# Instantiates the real GraphScene (as test_graph_agents.gd does).
 
 
 func _make_scene() -> Node3D:
@@ -14,37 +15,56 @@ func _make_scene() -> Node3D:
 	return scene
 
 
-func test_switch_clears_applied_fold_pins_and_pending_state() -> void:
+func test_two_connections_three_volumes() -> void:
 	var scene: Node3D = await _make_scene()
-	scene._fold_level = 2
-	scene._fold_pending = true
-	scene._physics_pending = true
-	scene._physics_staged = {"_repel_k": 1.0}
-	scene._pinned_ids = {5: true, 9: true}
-	scene._abandon_backend_requests()
-	assert_eq(scene._fold_level, 0, "applied fold plan dropped with the old epoch's ids")
-	assert_false(scene._fold_pending, "fold request abandoned")
-	assert_false(scene._physics_pending, "physics latch reopened")
-	assert_eq(scene._physics_staged.size(), 0, "staged physics discarded")
-	assert_eq(scene._pinned_ids.size(), 0, "pin set cleared after the unpins were sent")
-	assert_true(scene._selection_dirty, "a rebuild is forced")
+	assert_eq(scene._conns.size(), 2)
+	var vc: Node = scene._conns[&"visionclaw"]
+	var cs: Node = scene._conns[&"codescape"]
+	assert_ne(vc.client, cs.client, "each connection has its own client")
+	assert_eq(scene._binary_client, vc.client, "VisionClaw features read the VisionClaw client")
+	assert_eq(scene._volumes.size(), 3)
+	assert_eq(scene._conn_for_volume(&"knowledge"), vc)
+	assert_eq(scene._conn_for_volume(&"ontology"), vc)
+	assert_eq(scene._conn_for_volume(&"codescape"), cs)
+	assert_true(cs.graph_ws_url().ends_with("/codescape/wss"))
+	for vid: StringName in scene._volumes:
+		assert_not_null(scene._volumes[vid].source(), "%s has its source attached" % vid)
+	assert_false(scene.has_method("_switch_backend"), "the exclusive switch is deleted")
 	scene.queue_free()
 	await get_tree().process_frame
 
 
-func test_switch_keeps_the_once_per_session_canary_latched() -> void:
+func test_focused_codescape_volume_refuses_visionclaw_routes() -> void:
 	var scene: Node3D = await _make_scene()
-	scene._m4_ray_observed = true
-	scene._abandon_backend_requests()
-	assert_true(scene._m4_ray_observed, "canary stays latched across a switch")
+	var cs: Node = scene._conns[&"codescape"]
+	watch_signals(cs)
+	scene._on_hud_control("volume_focus:codescape")
+	assert_eq(scene._focused_volume, &"codescape")
+	assert_false(scene.backend_supports(BackendCaps.FOLD))
+	scene._on_hud_control("fold_plus")
+	assert_false(scene._fold_pending, "no fold request sent to Codescape")
+	assert_signal_emitted(cs, "refused", "refusal announced for the HUD notice")
+	scene._on_hud_control("volume_focus:knowledge")
+	assert_true(scene.backend_supports(BackendCaps.FOLD), "VisionClaw serves folds")
 	scene.queue_free()
 	await get_tree().process_frame
 
 
-func test_same_mode_switch_is_a_no_op() -> void:
+func test_codescape_drag_is_refused_and_never_sent() -> void:
 	var scene: Node3D = await _make_scene()
-	scene._fold_level = 1
-	scene._switch_backend(scene._backend_mode)
-	assert_eq(scene._fold_level, 1, "switching to the active backend touches nothing")
+	var cs: Node = scene._conns[&"codescape"]
+	assert_false(cs.send_drag_start(3, Vector3.ONE), "E9: no nodeDrag on Codescape")
+	assert_eq(cs.pinned_ids(), [])
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_hidden_volume_stops_packing() -> void:
+	var scene: Node3D = await _make_scene()
+	scene._on_hud_control("volume_toggle:ontology")
+	assert_false(scene._volumes[&"ontology"].visible_state)
+	assert_eq(scene._sources[&"ontology"].demand(), {"nodes": 0, "edges": 0})
+	scene._on_hud_control("volume_toggle:ontology")
+	assert_true(scene._volumes[&"ontology"].visible_state)
 	scene.queue_free()
 	await get_tree().process_frame

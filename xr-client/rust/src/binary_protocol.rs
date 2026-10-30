@@ -454,6 +454,41 @@ pub fn ids_for_class_mask(ids: &[u32], mask: i64, class_of: impl Fn(u32) -> Opti
         .collect()
 }
 
+/// Edge pairs (flattened `[s0, t0, s1, t1, …]`) whose two endpoints both have a class in
+/// `mask`, heaviest first (stable on ties), at most `max` pairs. A volume draws only its own
+/// edges; a cross-volume edge belongs to the link layer (ADR-2164), not to either volume.
+pub fn edges_for_class_mask(
+    flat: &[i32],
+    weights: &[f32],
+    mask: i64,
+    max: usize,
+    class_of: impl Fn(u32) -> Option<u8>,
+) -> Vec<i32> {
+    if mask <= 0 || max == 0 {
+        return Vec::new();
+    }
+    let inside = |id: i32| {
+        id >= 0
+            && class_of(id as u32)
+                .map(|c| c < 63 && mask & (1i64 << c) != 0)
+                .unwrap_or(false)
+    };
+    let mut keep: Vec<(usize, f32)> = flat
+        .chunks_exact(2)
+        .enumerate()
+        .filter(|(_, p)| inside(p[0]) && inside(p[1]))
+        .map(|(i, _)| (i, weights.get(i).copied().filter(|w| w.is_finite()).unwrap_or(1.0)))
+        .collect();
+    keep.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    keep.truncate(max);
+    let mut out = Vec::with_capacity(keep.len() * 2);
+    for (i, _) in keep {
+        out.push(flat[2 * i]);
+        out.push(flat[2 * i + 1]);
+    }
+    out
+}
+
 /// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
 /// positions of `ids`, skipping `exclude` (the grabbed node), ids `position_of` does not know,
 /// and non-finite positions. `None` when nothing qualifies. Unlike `render_aabb`, nothing is
@@ -2060,6 +2095,29 @@ impl BinaryProtocolClient {
         PackedInt32Array::from(ids.as_slice())
     }
 
+    /// Edge pairs inside one class mask, heaviest first, at most `max` pairs (see
+    /// [`edges_for_class_mask`]).
+    #[func]
+    fn edges_for_mask(&self, mask: i64, max: i64) -> PackedInt32Array {
+        let pairs = edges_for_class_mask(
+            &self.edges_flat,
+            &self.edge_weights,
+            mask,
+            max.max(0) as usize,
+            |id| self.node_class.get(&id).copied(),
+        );
+        PackedInt32Array::from(pairs.as_slice())
+    }
+
+    /// Class code of a node (0 knowledge, 1 ontology, 2 agent, 3 plain), -1 when unknown.
+    #[func]
+    fn class_of(&self, node_id: i64) -> i64 {
+        if node_id < 0 {
+            return -1;
+        }
+        self.node_class.get(&(node_id as u32)).map(|&c| c as i64).unwrap_or(-1)
+    }
+
     /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
     /// `exclude_id` (< 0 = none) and ids not in the store. Empty array when none qualify.
     #[func]
@@ -2846,6 +2904,23 @@ mod tests {
         assert!(ids_for_class_mask(&ids, -1, class_of).is_empty());
         // An id with no recorded class is never selected.
         assert_eq!(ids_for_class_mask(&[1, 99], 0b1111, class_of), vec![1]);
+    }
+
+    #[test]
+    fn edges_for_mask_keeps_only_intra_volume_edges_heaviest_first() {
+        let (_, map) = fixture_class_store();
+        let class_of = |id: u32| map.get(&id).map(|e| e.0);
+        // 1,2 knowledge; 3 ontology; 4 agent; 5 plain.
+        let flat = [1, 2, 1, 3, 3, 3, 2, 1, 5, 5, 9, 1];
+        let w = [0.5, 9.0, 1.0, 2.0, 1.0, 1.0];
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 10, class_of), vec![2, 1, 1, 2]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 1, class_of), vec![2, 1], "capped, heaviest kept");
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0010, 10, class_of), vec![3, 3]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0011, 10, class_of), vec![1, 3, 2, 1, 3, 3, 1, 2]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b1000, 10, class_of), vec![5, 5]);
+        assert!(edges_for_class_mask(&flat, &w, 0, 10, class_of).is_empty());
+        // Missing weights default to 1.0, ties keep wire order.
+        assert_eq!(edges_for_class_mask(&flat, &[], 0b0011, 10, class_of), vec![1, 2, 1, 3, 3, 3, 2, 1]);
     }
 
     #[test]

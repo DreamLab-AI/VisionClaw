@@ -204,6 +204,20 @@ func node_ids_for_mask(mask: int) -> PackedInt32Array:
 	return PackedInt32Array()
 
 
+## Edge pairs inside `mask`, heaviest first, at most `max_pairs` (flattened).
+func edges_for_mask(mask: int, max_pairs: int) -> PackedInt32Array:
+	if client != null and client.has_method("edges_for_mask"):
+		return client.edges_for_mask(mask, max_pairs)
+	return PackedInt32Array()
+
+
+## Class code of a node (0 knowledge, 1 ontology, 2 agent, 3 plain), -1 unknown.
+func class_of(id: int) -> int:
+	if client != null and client.has_method("class_of"):
+		return int(client.class_of(id))
+	return -1
+
+
 ## Full-extent AABB of `ids` in graph units, excluding `exclude_id` (< 0 = none).
 ## An empty AABB when none of the ids is known.
 func render_aabb_for_ids(ids: PackedInt32Array, exclude_id: int) -> AABB:

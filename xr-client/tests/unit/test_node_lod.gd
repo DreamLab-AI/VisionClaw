@@ -74,7 +74,8 @@ func test_lod_build_caps_the_gem_tier_and_impostors_take_the_rest() -> void:
 func test_graph_scene_creates_the_impostor_tier_under_graph_root() -> void:
 	var src: String = FileAccess.get_file_as_string("res://scripts/graph_scene.gd")
 	assert_true(src.contains("NodeLod.make_impostor_instance()"), "GraphScene builds the impostor tier")
-	assert_true(src.contains("build_node_buffer_lod("), "GraphScene packs nodes through the LOD split")
+	var vsrc: String = FileAccess.get_file_as_string("res://scripts/connection_volume_source.gd")
+	assert_true(vsrc.contains("build_node_buffer_lod("), "each volume packs nodes through the LOD split")
 
 
 # --- edge LOD ------------------------------------------------------------------

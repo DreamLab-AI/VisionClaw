@@ -68,5 +68,8 @@ func test_halo_buffer_covers_gem_tier_and_faded_nodes() -> void:
 
 
 func test_graph_scene_feeds_the_halo_layer() -> void:
-	var src: String = FileAccess.get_file_as_string("res://scripts/graph_scene.gd")
-	assert_true(src.contains("NodeLod.assign_halo("), "GraphScene fills NodesHaloMulti each frame")
+	# Each volume's source packs its own halo layer, from NodesHaloMulti's template.
+	var src: String = FileAccess.get_file_as_string("res://scripts/connection_volume_source.gd")
+	assert_true(src.contains("NodeLod.assign_halo("), "the volume source fills its halo layer each frame")
+	var scene_src: String = FileAccess.get_file_as_string("res://scripts/graph_scene.gd")
+	assert_true(scene_src.contains("\"halos\": nodes_halo_multi"), "GraphScene passes NodesHaloMulti as the halo template")

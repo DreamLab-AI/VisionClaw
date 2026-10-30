@@ -213,9 +213,14 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
-# Backend toggle (ADR-2143): VisionClaw <-> Codescape on the same port.
-var _backend_button: Button = null
-var _backend_mode: String = "visionclaw"
+# Volume row (ADR-2159): one show/hide button per volume and a focus button.
+# The focused volume's connection decides which global controls are live.
+const VOLUME_IDS: Array[StringName] = [&"knowledge", &"ontology", &"codescape"]
+var _volume_buttons: Dictionary = {}     # volume_id → Button
+var _focus_button: Button = null
+var _focused_volume: StringName = &"knowledge"
+var _volume_states: Dictionary = {}
+const VOLUME_SHORT := {&"knowledge": "KG", &"ontology": "Onto", &"codescape": "Code"}
 # ADR-2143 A6: what the active backend serves, and every control that may be
 # greyed by it (action → [Button]); filled by _action_btn as pages are built.
 var _caps: Dictionary = {}
@@ -1265,15 +1270,26 @@ func _build_session_page() -> VBoxContainer:
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
 	conn_row.add_child(reconnect)
-	_backend_button = _press_fire(Button.new()) as Button
-	_backend_button.custom_minimum_size = Vector2(0, BTN_H)
-	_backend_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_backend_button.set_meta(HINT_META, "Switch server: VisionClaw / Codescape (same port)")
-	_backend_button.pressed.connect(func() -> void:
-		emit_signal("control_pressed", "backend:visionclaw" if _backend_mode == "codescape" else "backend:codescape"))
-	conn_row.add_child(_backend_button)
+	_focus_button = _press_fire(Button.new()) as Button
+	_focus_button.custom_minimum_size = Vector2(0, BTN_H)
+	_focus_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_focus_button.set_meta(HINT_META, "Focus the next volume: its server answers the global controls")
+	_focus_button.pressed.connect(func() -> void:
+		var i: int = VOLUME_IDS.find(_focused_volume)
+		emit_signal("control_pressed", "volume_focus:%s" % VOLUME_IDS[(i + 1) % VOLUME_IDS.size()]))
+	conn_row.add_child(_focus_button)
 	page.add_child(conn_row)
-	set_backend_mode(_backend_mode, "")
+	# The volume toggles share the row so the Session page keeps its height.
+	var vol_row := conn_row
+	for vid: StringName in VOLUME_IDS:
+		var b := _press_fire(Button.new()) as Button
+		b.custom_minimum_size = Vector2(0, BTN_H)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.set_meta(HINT_META, "Show or hide the %s volume (a hidden volume stops drawing)" % vid)
+		b.pressed.connect(func() -> void: emit_signal("control_pressed", "volume_toggle:%s" % vid))
+		vol_row.add_child(b)
+		_volume_buttons[vid] = b
+	set_volume_state(_focused_volume, {})
 	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
@@ -1452,8 +1468,13 @@ func _apply_cap_to_button(b: Button, action: String) -> void:
 func set_backend_capabilities(caps: Dictionary) -> void:
 	_caps = caps.duplicate()
 	for action: String in _action_buttons:
-		for b: Button in _action_buttons[action]:
-			_apply_cap_to_button(b, action)
+		# Pages are rebuilt (tab hide/show); drop buttons that went with them.
+		var live: Array = []
+		for b: Variant in _action_buttons[action]:
+			if is_instance_valid(b):
+				live.append(b)
+				_apply_cap_to_button(b as Button, action)
+		_action_buttons[action] = live
 	var memory_ok: bool = BackendCaps.supports(_caps, BackendCaps.MEMORY_CLOUD)
 	if _memory_type_button != null:
 		_memory_type_button.disabled = not memory_ok
@@ -1605,15 +1626,26 @@ func _check_overflow(id: String) -> void:
 
 # --- Public API (signatures preserved) --------------------------------------
 
-## Set by GraphScene on wire-up and after every backend switch: the active
-## backend ("visionclaw" | "codescape") and its ws base, shown on the toggle face
-## and appended to the connection status line.
-func set_backend_mode(mode: String, base: String = "") -> void:
-	_backend_mode = mode
-	var backend_name: String = "Codescape" if mode == "codescape" else "VisionClaw"
-	_backend_line = backend_name if base.is_empty() else "%s  %s" % [backend_name, base]
-	if _backend_button != null:
-		_backend_button.text = "Backend: %s" % backend_name
+## Set by GraphScene on wire-up and on every volume or connection change:
+## the focused volume and, per volume, {shown, online, name}. Drives the volume
+## row's faces and the connection status line.
+func set_volume_state(focused: StringName, states: Dictionary) -> void:
+	_focused_volume = focused
+	_volume_states = states
+	for vid: StringName in _volume_buttons:
+		var st: Dictionary = states.get(vid, {})
+		# Short faces: five buttons share one row.
+		var face: String = str(VOLUME_SHORT.get(vid, String(vid)))
+		if not bool(st.get("shown", true)):
+			face += " off"
+		if st.has("online") and not bool(st["online"]):
+			face += " ×"
+		(_volume_buttons[vid] as Button).text = face
+	var fst: Dictionary = states.get(focused, {})
+	var fname: String = str(fst.get("name", String(focused).capitalize()))
+	if _focus_button != null:
+		_focus_button.text = "Focus: %s" % fname
+	_backend_line = "focus %s" % fname
 	_update_conn_status_label()
 
 
