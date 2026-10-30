@@ -9,6 +9,9 @@ const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
 const LinkLayerScript := preload("res://scripts/link_layer.gd")
 const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
 const XrPrefs := preload("res://scripts/xr_prefs.gd")
+const VolumePicker := preload("res://scripts/volume_picker.gd")
+const FramePicker := preload("res://scripts/frame_picker.gd")
+const LinkPicker := preload("res://scripts/link_picker.gd")
 
 const AVATAR_TEMPLATE_PATH := "res://scenes/Avatar.tscn"
 const AGENT_TEMPLATE_PATH := "res://scenes/AgentAvatar.tscn"
@@ -163,6 +166,461 @@ func _release_grab() -> void:
 	_grabbed_id = -1
 	_grab_controller = null
 	_grab_target_server = Vector3.ZERO
+
+# --- Spatial-volume UX (UX contract features 1-5) ------------------------------
+#
+# Trigger, resolved once per press at TRIGGER_PICK (the Rust policy's own grab
+# threshold) and held as that hand's claim until the trigger falls below
+# GRAB_RELEASE: HUD/menu > link (when nearer than the node) > node > frame >
+# nothing. A node selects and focuses its box; a link follows to its far end
+# (focus, select, bring to front); a frame focuses its box. While a hand's claim
+# is a link, or a frame or node outside the overlay volume, the Rust node drag
+# does not run for that hand, so a press never both selects one thing and drags
+# another. Drag stays knowledge-only (E9).
+#
+# Grip: HUD grab (proximity, _update_hud_grab) > corner handle (resize) > frame
+# (move) > two-hand arrangement gesture. A one-hand box grip waits
+# BOX_GRIP_GRACE_SEC before it claims the hand: the ring fills most of the view,
+# so without the grace a two-hand squeeze that lands one grip a frame early would
+# always grab a box instead.
+
+const TRIGGER_PICK: float = 0.7          # == interaction.rs ACTIVATION_THRESHOLD
+const GRIP_BOX_ENGAGE: float = 0.7
+const GRIP_BOX_RELEASE: float = 0.5
+const BOX_GRIP_GRACE_SEC: float = 0.15
+## Ray-to-corner reach for a handle pick, metres (frame_picker's default).
+const BOX_HANDLE_RADIUS_M: float = 0.04
+## Markers drawn on the selection and its linked counterparts.
+const HIGHLIGHT_MAX: int = 16
+const HIGHLIGHT_RADIUS_M: float = 0.022
+const HIGHLIGHT_COLOUR := Color(1.0, 0.85, 0.35)
+const SELECTION_LABEL_LIFT_M: float = 0.06
+
+# Per hand (0 left, 1 right): the press's claim kind ("" = no press held) and,
+# for a node claim, its volume.
+var _trigger_claim: Array[String] = ["", ""]
+var _trigger_claim_vol: Array[StringName] = [&"", &""]
+var _grip_down: Array[bool] = [false, false]
+var _box_grab_ctrl: Node3D = null
+var _box_grab_vid: StringName = &""
+var _box_grab_resize: bool = false
+var _box_grab_g0: Transform3D = Transform3D.IDENTITY   # volume global at grab start
+var _box_grab_p0: Vector3 = Vector3.ZERO               # world hit point at grab start
+var _box_grab_dist: float = 0.0                        # hit distance along the ray
+var _box_pending_ctrl: XRController3D = null
+var _box_pending_t: float = 0.0
+var _box_pending_hit: Dictionary = {}
+# The selection: one node in one volume, plus the highlight list (selection
+# first, then link ends and counterparts), preallocated to HIGHLIGHT_MAX.
+var _sel_volume: StringName = &""
+var _sel_conn: StringName = &""
+var _sel_node: int = -1
+var _hl_count: int = 0
+var _hl_vol: Array[StringName] = []
+var _hl_conn: Array[StringName] = []
+var _hl_node := PackedInt32Array()
+var _highlight_marks: MultiMeshInstance3D = null
+var _selection_label: Label3D = null
+
+
+## Trigger precedence (contract): "hud" > "link" when its distance is below the
+## node's > "node" > "frame" > "none". Hits use the pickers' shapes ({} = miss).
+static func resolve_trigger(hud_hit: bool, link: Dictionary, node: Dictionary, frame: Dictionary) -> String:
+	if hud_hit:
+		return "hud"
+	var node_d: float = float(node.get("distance", INF)) if not node.is_empty() else INF
+	if not link.is_empty() and float(link.get("distance", INF)) < node_d:
+		return "link"
+	if not node.is_empty():
+		return "node"
+	if not frame.is_empty():
+		return "frame"
+	return "none"
+
+
+## Grip precedence (contract): "hud" > "handle" > "frame" > "two_hand" > "none".
+## `frame` is a frame_picker hit ({} = miss).
+static func resolve_grip(hud_grab: bool, frame: Dictionary, two_hand: bool) -> String:
+	if hud_grab:
+		return "hud"
+	if not frame.is_empty():
+		if str(frame.get("part", "")) == "handle" and int(frame.get("handle", -1)) >= 0:
+			return "handle"
+		return "frame"
+	if two_hand:
+		return "two_hand"
+	return "none"
+
+
+## True when a hand's trigger claim keeps the Rust node drag off that hand: a
+## link, or a node or frame in a box other than the overlay. A frame claim on
+## the overlay box leaves the drag alone, because the Rust policy's 5 cm tube
+## may catch a node the picker's cone missed, and that drag is the overlay's.
+static func claim_blocks_drag(kind: String, volume_id: StringName, overlay: StringName) -> bool:
+	return kind == "link" or ((kind == "node" or kind == "frame") and volume_id != overlay)
+
+
+## World transform of a box moved by a ray grab: the box translates with the
+## point the ray grabbed (`p0` at the start, `p` now) and keeps its rotation.
+static func box_drag_global(g0: Transform3D, p0: Vector3, p: Vector3) -> Transform3D:
+	return Transform3D(g0.basis, g0.origin + (p - p0))
+
+
+func _hand_of(controller: Node3D) -> int:
+	return 0 if controller == left_controller else 1
+
+
+func _ctrl_at(hand: int) -> XRController3D:
+	return left_controller if hand == 0 else right_controller
+
+
+func _ctrl_float(controller: Node3D, action: StringName) -> float:
+	var xc := controller as XRController3D
+	if xc == null or not xc.get_is_active():
+		return 0.0
+	return xc.get_float(action)
+
+
+func _focus_volume(vid: StringName) -> void:
+	if vid != _focused_volume and _volumes.has(vid):
+		_on_volume_action("volume_focus:%s" % vid)
+
+
+# Ray against every visible volume's box. Handles win over faces.
+func _pick_frame(origin: Vector3, dir: Vector3) -> Dictionary:
+	return FramePicker.pick(origin, dir, _volumes, BOX_HANDLE_RADIUS_M)
+
+
+# Nearest node under the ray in any visible, online volume.
+func _pick_volume_node(origin: Vector3, dir: Vector3) -> Dictionary:
+	return VolumePicker.pick(origin, dir, _volumes, _sources)
+
+
+# A drawn cross-volume link under the ray ({} when links are off).
+func _pick_link(origin: Vector3, dir: Vector3) -> Dictionary:
+	if _link_layer == null or not _link_layer.is_enabled():
+		return {}
+	return LinkPicker.pick(origin, dir, _link_layer)
+
+
+func _update_volume_trigger() -> void:
+	for hand: int in 2:
+		var controller: XRController3D = _ctrl_at(hand)
+		if controller == null:
+			continue
+		var trig: float = _controller_trigger(controller)
+		if _trigger_claim[hand] != "":
+			if trig < GRAB_RELEASE:
+				_trigger_claim[hand] = ""
+				_trigger_claim_vol[hand] = &""
+			continue
+		if trig < TRIGGER_PICK or _two_hand_active or _grabbed_id != -1:
+			continue
+		var hud_hit: bool = controller == _hud_pointer_controller or controller == _radial_pointer_controller
+		trigger_pick(controller.global_position, -controller.global_transform.basis.z, hud_hit, hand)
+
+
+## Resolves and applies one trigger press along a world ray (UX features 1-3),
+## and records it as `hand`'s claim. Returns the claim kind.
+func trigger_pick(origin: Vector3, dir: Vector3, hud_hit: bool, hand: int) -> String:
+	var node: Dictionary = {}
+	var link: Dictionary = {}
+	var frame: Dictionary = {}
+	if not hud_hit:
+		node = _pick_volume_node(origin, dir)
+		link = _pick_link(origin, dir)
+		if node.is_empty():
+			frame = _pick_frame(origin, dir)
+	var kind: String = resolve_trigger(hud_hit, link, node, frame)
+	_trigger_claim[hand] = kind
+	if kind == "node":
+		_trigger_claim_vol[hand] = node.get("volume", &"")
+	elif kind == "frame":
+		_trigger_claim_vol[hand] = frame.get("volume", &"")
+	else:
+		_trigger_claim_vol[hand] = &""
+	apply_trigger(kind, node, link, frame)
+	return kind
+
+
+## Applies a resolved trigger press. Split from `trigger_pick` so tests can
+## drive it with picker-shaped results.
+func apply_trigger(kind: String, node: Dictionary, link: Dictionary, frame: Dictionary) -> void:
+	match kind:
+		"node":
+			select_volume_node(StringName(node["volume"]), StringName(node["conn"]), int(node["node_id"]))
+		"link":
+			var far: Dictionary = LinkPicker.far_end(link)
+			if far.is_empty():
+				return
+			var ends: Array = [link.get("from", {}), link.get("to", {})]
+			select_volume_node(StringName(far["volume"]), StringName(far["conn"]), int(far["node_id"]), ends)
+			if _arrangement != null:
+				_arrangement.bring_to_front(StringName(far["volume"]))
+		"frame":
+			_focus_volume(StringName(frame["volume"]))
+
+
+## Selects wire id `node_id` of connection `conn_id` in volume `vid`: focuses
+## the box, clears every other box's selection, highlights the node, its links
+## and their far ends (plus `extra` {volume, conn, node_id} ends), and shows its
+## label from that volume's own connection.
+func select_volume_node(vid: StringName, conn_id: StringName, node_id: int, extra: Array = []) -> void:
+	var v: Node3D = _volumes.get(vid, null)
+	if v == null or node_id < 0:
+		return
+	_focus_volume(vid)
+	for id: StringName in _volumes:
+		if id != vid and int(_volumes[id].selected_node) >= 0:
+			_volumes[id].select(&"", -1)
+	v.select(conn_id, node_id)
+	_sel_volume = vid
+	_sel_conn = conn_id
+	_sel_node = node_id
+	_ensure_highlight_nodes()
+	_hl_count = 0
+	_add_highlight(vid, conn_id, node_id)
+	var keys: Array = [{"conn": conn_id, "node_id": node_id}]
+	for e: Variant in extra:
+		var d: Dictionary = e
+		if d.is_empty():
+			continue
+		_add_highlight(StringName(d["volume"]), StringName(d["conn"]), int(d["node_id"]))
+		keys.append({"conn": StringName(d["conn"]), "node_id": int(d["node_id"])})
+	if _link_layer != null:
+		_link_layer.set_highlight(keys)
+		for c: Variant in _link_layer.highlighted_counterparts(keys[0]):
+			var cd: Dictionary = c
+			_add_highlight(StringName(cd["volume"]), StringName(cd["conn"]), int(cd["node_id"]))
+	var conn: Node = _conns.get(conn_id, null)
+	var label: String = ""
+	if conn != null and conn.client != null and conn.client.has_method("label_of"):
+		label = str(conn.client.label_of(node_id))
+	if label.is_empty():
+		label = "#%d" % node_id
+	var vname: String = str(VOLUME_BINDINGS.get(vid, {}).get("name", String(vid)))
+	if _selection_label != null:
+		_selection_label.text = "%s · %s" % [vname, label]
+	if hud != null and hud.has_method("set_selection_info"):
+		hud.set_selection_info(vname, label)
+	_update_highlight_marks()
+
+
+## Drops the selection, the link highlight and the markers.
+func clear_volume_selection() -> void:
+	for id: StringName in _volumes:
+		if int(_volumes[id].selected_node) >= 0:
+			_volumes[id].select(&"", -1)
+	_sel_volume = &""
+	_sel_conn = &""
+	_sel_node = -1
+	_hl_count = 0
+	if _link_layer != null:
+		_link_layer.set_highlight([])
+	if _highlight_marks != null:
+		_highlight_marks.multimesh.visible_instance_count = 0
+	if _selection_label != null:
+		_selection_label.visible = false
+	if hud != null and hud.has_method("set_selection_info"):
+		hud.set_selection_info("", "")
+
+
+func _add_highlight(vid: StringName, conn_id: StringName, node_id: int) -> void:
+	if _hl_count >= HIGHLIGHT_MAX:
+		return
+	for i: int in _hl_count:
+		if _hl_conn[i] == conn_id and _hl_node[i] == node_id and _hl_vol[i] == vid:
+			return
+	_hl_vol[_hl_count] = vid
+	_hl_conn[_hl_count] = conn_id
+	_hl_node[_hl_count] = node_id
+	_hl_count += 1
+
+
+func _ensure_highlight_nodes() -> void:
+	if _highlight_marks != null:
+		return
+	_hl_vol.resize(HIGHLIGHT_MAX)
+	_hl_conn.resize(HIGHLIGHT_MAX)
+	_hl_node.resize(HIGHLIGHT_MAX)
+	var mesh := SphereMesh.new()
+	mesh.radius = HIGHLIGHT_RADIUS_M
+	mesh.height = HIGHLIGHT_RADIUS_M * 2.0
+	mesh.radial_segments = 12
+	mesh.rings = 6
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(HIGHLIGHT_COLOUR, 0.55)
+	mat.render_priority = HELD_RENDER_PRIORITY
+	mesh.material = mat
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = HIGHLIGHT_MAX
+	mm.visible_instance_count = 0
+	_highlight_marks = MultiMeshInstance3D.new()
+	_highlight_marks.name = "SelectionMarks"
+	_highlight_marks.multimesh = mm
+	_highlight_marks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_highlight_marks)
+	_selection_label = Label3D.new()
+	_selection_label.name = "SelectionLabel"
+	_selection_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_selection_label.pixel_size = 0.0015
+	_selection_label.font_size = 40
+	_selection_label.outline_size = 8
+	_selection_label.modulate = HIGHLIGHT_COLOUR
+	_selection_label.no_depth_test = true
+	_selection_label.visible = false
+	add_child(_selection_label)
+
+
+# Every frame while something is selected: markers follow their nodes through
+# each volume's drawn Content transform. A marker whose volume is hidden is
+# collapsed. Writes HIGHLIGHT_MAX transforms at most; allocates nothing.
+func _update_highlight_marks() -> void:
+	if _highlight_marks == null:
+		return
+	var mm: MultiMesh = _highlight_marks.multimesh
+	mm.visible_instance_count = _hl_count
+	if _hl_count == 0:
+		_selection_label.visible = false
+		return
+	for i: int in _hl_count:
+		var v: Node3D = _volumes.get(_hl_vol[i], null)
+		var conn: Node = _conns.get(_hl_conn[i], null)
+		if v == null or conn == null or not v.visible_state:
+			mm.set_instance_transform(i, Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * 1.0e-4), Vector3.ZERO))
+			if i == 0:
+				_selection_label.visible = false
+			continue
+		var p: Vector3 = v.world_from_content(conn.node_position(_hl_node[i]))
+		mm.set_instance_transform(i, Transform3D(Basis.IDENTITY, p))
+		if i == 0:
+			_selection_label.position = p + Vector3.UP * SELECTION_LABEL_LIFT_M
+			_selection_label.visible = true
+
+
+# A connection's wire ids are only valid within one generation: a new topology
+# or a disconnect on the selection's connection clears it.
+func _clear_selection_for_conn(conn_id: StringName) -> void:
+	if _sel_node >= 0 and _sel_conn == conn_id:
+		clear_volume_selection()
+		return
+	for i: int in _hl_count:
+		if _hl_conn[i] == conn_id:
+			clear_volume_selection()
+			return
+
+
+# --- box grip: move and resize (feature 4) --------------------------------------
+
+func _update_box_grip(delta: float) -> void:
+	# Grip edges for both hands, every frame, so an early return never misses one.
+	var rise_mask: int = 0
+	for hand: int in 2:
+		var down: bool = _ctrl_float(_ctrl_at(hand), &"grip") >= GRIP_BOX_ENGAGE
+		if down and not _grip_down[hand]:
+			rise_mask |= 1 << hand
+		_grip_down[hand] = down
+	if _box_grab_ctrl != null:
+		if _ctrl_float(_box_grab_ctrl, &"grip") < GRIP_BOX_RELEASE:
+			_end_box_grip()
+		else:
+			drive_box_grip()
+		return
+	if _two_hand_active or _hud_grab_controller != null:
+		_box_pending_ctrl = null
+		return
+	if _box_pending_ctrl != null:
+		var other: XRController3D = right_controller if _box_pending_ctrl == left_controller else left_controller
+		if other != null and _ctrl_float(other, &"grip") >= GRIP_MANIP_ENGAGE:
+			_box_pending_ctrl = null  # both grips: the two-hand gesture's
+		elif _ctrl_float(_box_pending_ctrl, &"grip") < GRIP_BOX_RELEASE:
+			_box_pending_ctrl = null
+		else:
+			_box_pending_t += delta
+			if _box_pending_t >= BOX_GRIP_GRACE_SEC:
+				var ctrl: XRController3D = _box_pending_ctrl
+				_box_pending_ctrl = null
+				begin_box_grip(ctrl, _box_pending_hit)
+		return
+	for hand: int in 2:
+		var controller: XRController3D = _ctrl_at(hand)
+		if controller == null or not (rise_mask & (1 << hand)):
+			continue
+		var hit: Dictionary = _pick_frame(controller.global_position, -controller.global_transform.basis.z)
+		var kind: String = resolve_grip(false, hit, false)
+		if kind == "handle" or kind == "frame":
+			_box_pending_ctrl = controller
+			_box_pending_t = 0.0
+			_box_pending_hit = hit
+			return
+
+
+## Starts a box grip from a frame_picker hit: a handle begins a resize, a frame
+## a move. Focuses the box either way (the handles draw on the focused box).
+func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
+	if ctrl == null or hit.is_empty() or _arrangement == null:
+		return
+	var vid := StringName(hit["volume"])
+	var v: Node3D = _volumes.get(vid, null)
+	if v == null or not v.visible_state:
+		return
+	_focus_volume(vid)
+	if resolve_grip(false, hit, false) == "handle":
+		v.begin_resize(int(hit["handle"]), ctrl)
+		if not v.is_resizing():
+			return
+		_box_grab_resize = true
+	else:
+		_box_grab_resize = false
+		_box_grab_g0 = v.global_transform
+		_box_grab_p0 = hit.get("world_pos", v.global_position)
+		_box_grab_dist = float(hit.get("distance", ctrl.global_position.distance_to(_box_grab_p0)))
+		_arrangement.mark_moved(vid)
+	_box_grab_ctrl = ctrl
+	_box_grab_vid = vid
+	if ctrl is XRController3D:
+		_pulse(ctrl, 0.4, 0.05)
+
+
+## One frame of a held box grip: a resize follows the hand, a move carries the
+## box with the grabbed point on the ray. The move is applied in the
+## arrangement's frame, so the arrangement scale never leaks into the box.
+func drive_box_grip() -> void:
+	var v: Node3D = _volumes.get(_box_grab_vid, null)
+	if v == null or not v.visible_state or _box_grab_ctrl == null:
+		_end_box_grip()
+		return
+	if _box_grab_resize:
+		v.update_resize(_box_grab_ctrl)
+		return
+	var origin: Vector3 = _box_grab_ctrl.global_position
+	var dir: Vector3 = -_box_grab_ctrl.global_transform.basis.z
+	var g: Transform3D = box_drag_global(_box_grab_g0, _box_grab_p0, origin + dir * _box_grab_dist)
+	_arrangement.move_volume(_box_grab_vid, _arrangement.global_transform.affine_inverse() * g)
+
+
+func _end_box_grip() -> void:
+	if _box_grab_resize:
+		var v: Node3D = _volumes.get(_box_grab_vid, null)
+		if v != null:
+			v.end_resize()
+	_box_grab_ctrl = null
+	_box_grab_vid = &""
+	_box_grab_resize = false
+	_box_pending_ctrl = null
+
+
+## "Reset layout" (and the arrangement half of it): every box back on its ring
+## slot at its default size.
+func reset_volume_layout() -> void:
+	_end_box_grip()
+	if _arrangement != null:
+		_arrangement.reset_default(true)
+
 
 
 # The cross-volume link layer (ADR-2164): one MultiMesh in world space whose
@@ -1257,6 +1715,10 @@ func _on_volume_action(action: String) -> void:
 		var v: Node3D = _volumes.get(vid, null)
 		if v != null:
 			v.request_visible(not v.visible_state)
+			if not v.visible_state and _box_grab_vid == vid:
+				_end_box_grip()
+			if not v.visible_state and _sel_volume == vid:
+				clear_volume_selection()
 			if not v.visible_state and _sources.has(vid):
 				_sources[vid].clear_instances()
 				if vid == OVERLAY_VOLUME:
@@ -1269,6 +1731,13 @@ func _on_volume_action(action: String) -> void:
 			_focused_volume = fid
 			for id: StringName in _volumes:
 				_volumes[id].set_focused(id == fid)
+	elif action.begins_with("volume_front:"):
+		# Feature 5: the box eases to the 0° slot; the one there takes its slot.
+		var front := StringName(action.substr(13))
+		if _arrangement != null and _volumes.has(front):
+			if _box_grab_vid == front:
+				_end_box_grip()
+			_arrangement.bring_to_front(front)
 	_sync_hud_backend()
 	_refresh_controls_status()
 
@@ -1288,6 +1757,10 @@ func _on_hud_control(action: String) -> void:
 	if action == "cross_links_toggle":
 		_set_cross_links(not (_link_layer != null and _link_layer.is_enabled()))
 		return
+	# The arrangement half of Reset Layout is local and runs for every focused
+	# volume; the physics half below is gated on the focused connection.
+	if action == "reset_layout":
+		reset_volume_layout()
 	var needed: String = BackendCaps.cap_for_action(action)
 	if not needed.is_empty() and not _gate_for_volume(_focused_volume, needed, action.get_slice(":", 0).replace("_", " ")):
 		return
@@ -1985,6 +2458,9 @@ func _physics_process(delta: float) -> void:
 	_update_lod()
 	_update_locomotion(delta)
 	_update_hud_grab()
+	# A one-hand grip on a box frame moves it, on a corner handle resizes it;
+	# before the two-hand gesture (which it blocks) and before the volumes tick.
+	_update_box_grip(delta)
 	_arbitrate_pointers()
 	_update_hud_pointer()
 	_update_radial_menu()
@@ -1993,6 +2469,9 @@ func _physics_process(delta: float) -> void:
 	# Two-hand pinch moves/turns/scales the volume arrangement; it runs before the
 	# volumes tick so GraphRoot follows the overlay volume in the same frame.
 	_update_two_hand_manip(delta)
+	# Bring-to-front eases (feature 5) land before the volumes tick.
+	if _arrangement != null:
+		_arrangement.tick(delta)
 	# Rust owns the hunt now: one call eases all render positions toward their
 	# targets and pins the grabbed node to the wand — replaces the old GDScript
 	# per-node lerp over a 13k Dictionary.
@@ -2017,7 +2496,12 @@ func _physics_process(delta: float) -> void:
 	# buffer is built, so a beam always starts at the body the user sees.
 	_update_agents(delta)
 	_update_beam_multimesh()
+	# Trigger picks across every box (features 1-3) claim the hand before the
+	# Rust node drag looks at it.
+	_update_volume_trigger()
 	_update_interaction()
+	if _hl_count > 0:
+		_update_highlight_marks()
 	_update_selection(delta)
 	_update_voice_listener()
 	_tick_reconnect(delta)
@@ -2325,7 +2809,7 @@ func _update_two_hand_manip(_delta: float) -> void:
 	# taking a hand blocks the two-hand gesture (and vice versa).
 	var eligible: bool = lc != null and rc != null \
 		and lc.get_is_active() and rc.get_is_active() \
-		and _grabbed_id == -1 and _hud_grab_controller == null
+		and _grabbed_id == -1 and _hud_grab_controller == null and _box_grab_ctrl == null
 	if _two_hand_active:
 		# End when either grip relaxes below the release threshold, a wand drops
 		# out, or a grab claims a hand. Hysteresis: release < engage so a grip held
@@ -2579,6 +3063,10 @@ func _update_interaction() -> void:
 		# Likewise a trigger pull aimed at the open radial menu is a menu click,
 		# not a node grab.
 		if controller == _radial_pointer_controller:
+			continue
+		# This press picked a link, a frame or a node in another box: no drag.
+		var hand: int = _hand_of(controller)
+		if claim_blocks_drag(_trigger_claim[hand], _trigger_claim_vol[hand], OVERLAY_VOLUME):
 			continue
 		var pinch: float = _controller_trigger(controller)
 		if pinch < 0.05:
@@ -3323,6 +3811,8 @@ func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
 			_sources[vid].invalidate()
 			if not connected:
 				_sources[vid].clear_instances()
+	if not connected:
+		_clear_selection_for_conn(conn_id)
 	# §7.6: a dropped connection's links go with it.
 	if not connected and _link_layer != null:
 		_link_layer.drop_connection(conn_id)
@@ -3337,6 +3827,8 @@ func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:
 			_sources[vid].invalidate()
 	if conn_id == &"visionclaw":
 		_cloud_placed = false
+	# Wire ids are per generation: a selection on this connection is void.
+	_clear_selection_for_conn(conn_id)
 	# §7.5: the old generation's links are void; the join reruns on the next
 	# link tick against the new tables.
 	if _link_layer != null:

@@ -97,6 +97,13 @@ Rejected alternatives:
 ## Verification
 `implementation_status: none`, `activation_status: inactive`. Accepted on 2026-10-30. Nothing is built.
 
+**Implementation note, 2026-10-30 (spatial-volume UX, branch `xr/ux-wire` on `xr/spatial` `246008ff8`).** This adds interaction to the volumes, built on decision 1's contract. It does not change any decision.
+- Trigger on a box frame focuses it. Trigger on a node in any visible box selects it through `SpatialVolume.select` and focuses the box. Trigger on a drawn link follows it to the far end and brings that box to the front.
+- One-hand grip moves a box (decision 7: "a user's move of a volume overrides" the default arrangement), or resizes it from a corner handle through `handle_at` / `begin_resize` (decision 5's un-latch and ease apply). The two-hand gesture still moves the whole arrangement.
+- `VolumeArrangement.bring_to_front` swaps ring slots, which are always a permutation of the default yaws, and eases over 0.35 s at unit scale. Reset Layout restores `reset_default(true)`. The native shim's fallback still calls `reset_default()` and keeps bounds.
+- Drag stays knowledge-only, so E9 is unchanged: a press that picks a link, a frame or a node in another box keeps the Rust drag off that hand.
+- The interactions table is in `docs/XR-client.md` (volumes section). The tests are `tests/unit/test_volume_ux.gd`, `test_volume_arrangement.gd` and `test_hud_tabs.gd`, green headless on the HP on 4.6.1 and 4.8-dev5. Not yet run in the headset, and the lead deploys. `implementation_status` and `activation_status` are left for the E3 session to set.
+
 **Re-read at `00669b7a2b8bca15702b8173df1dab268144c3ec` for acceptance.** The single-scene, single-backend preconditions still hold:
 - `xr-client/scripts/graph_scene.gd:45-46` (fit constants), `:166` (`_graph_ws_url`), `:479-480` (one `BinaryProtocolClient`, one `PresenceClientNode`), `:909-926` (`_switch_backend`), `:1515` (`_connect_from_env`) and `:1920-1951` (`_fit_graph_to_view`, which fits the 5th to 95th percentile box from `render_aabb(0.05, 0.95, …)`).
 - `xr-client/project.godot:56` (`gl_compatibility`) and `:64` (OpenXR on).
