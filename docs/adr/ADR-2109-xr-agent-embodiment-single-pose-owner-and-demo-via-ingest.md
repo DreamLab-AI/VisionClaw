@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: feb3c81a3e3e8f622e118b5b465e86ceacaa8595
+verified_commit: b1835a4d06a6e810a4787e3e65f933dd4b729457
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -160,6 +160,8 @@ Stale in this record's older sections, left as history: the Verification bullet 
 Re-verified 2026-10-30 at c75004696: `xr-client/scripts/graph_scene.gd`, `render_store.rs` and `binary_protocol.rs` gain the backend capability gate and the Codescape colour mode (ADR-2143 A6). Single pose owner is unchanged: `_choreo.pose` is the work-layer writer (`graph_scene.gd:2883`), `_reconcile_embodiment` `:2718` (called at `:1691` and `:4165`), `_spawn_work_agent` `:2777`, `_apply_drift_rest_slots` `:2756`, `_drift_rest_slot` `:2769`, `agents_root`/`agent_effects_root` `:448-450`, Agents toggle `:1064`, `set_agent_anchors` call `:2933-2934`, `_post_demo` `:4136` (now behind `_gate(DEMO)`); Rust `set_agent_anchors` `render_store.rs:1075` and `binary_protocol.rs:1578`, `retire_agents` `render_store.rs:1099` and `binary_protocol.rs:1594`, `server_clock_ms` `binary_protocol.rs:1606`, `build_beam_buffer` `render_store.rs:2007`, `AGENT_EVIDENCE_TTL_MS` `:513`; stop retires via `graph_parity.gd:397`. The decision holds.
 
 Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR: two backend connections, three volumes, pack slots; ADR-2158/2159/2164). Source reading, no cargo or Godot run.
+
+Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is two reset calls in `connect_to_url` (`binary_protocol.rs`), which touch no agent pose path; agent bodies are still driven only by the VisionClaw connection. xr-client lib tests 460/0 on the HP.
 
 **Single pose owner survives two connections.** `_build_connections` (`graph_scene.gd:810-820`) makes one `BackendConnection` each for VisionClaw and Codescape. Each owns its client, assigned once at `backend_connection.gd:86`. `_binary_client` is `_vc_conn.client` (`:820`). Every embodiment input reads `_binary_client` only: `_reconcile_embodiment` `:2915` (`agent_ids` `:2919`, called from the ~4 Hz label tick `:2033` and at `:4375`), `set_agent_anchors` `:3130-3131`, `build_beam_buffer` `:2512`, and `_apply_drift_rest_slots` `:2953`. The Codescape client's agent registry is never read. Its only scene uses are `hunt` (`:2001-2002`; Rust `binary_protocol.rs:1801` eases that client's own `RenderStore`, with no agent registry or anchor) and as the argument to `join_code_links` (`:221`). The work-layer writers are unchanged: the initial rim position in `_spawn_work_agent` (`:2974`, `:3001`), then `_choreo.pose` (`:3080-3082`). The proxemics arc (`:2794`) iterates `_agent_order`, which only `spawn_agent` appends to (`:2710`, conversation layer). No new script (`connection_volume_source.gd`, `backend_connection.gd`, `emulated_volume.gd`, `link_layer.gd`, `native_container_shim.gd`) writes an agent position, and no volume mask includes the agent class (`VOLUME_BINDINGS` `:88-92`: `0b0001`, `0b0010`, `0b1000`).
 
