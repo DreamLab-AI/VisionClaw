@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 0d01be4a67da89fbc978648e58934106a633b167
+verified_commit: 9373a61fb0c973d816fd66953ad6eeb34bbd4268
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
 review_trigger: First host rebuild and labelled confidence calibration
@@ -75,3 +75,5 @@ published port, holds the vendor key and rewrites `model` to the selected backen
 one agentbox switch moves every consumer. Thresholds are unchanged; the outcome-changing
 ones remain unset. Activation still needs the agentbox rebuild (the network listener)
 and then a host `scripts/launch.sh` recreate.
+
+Re-verified at 9373a61fb: the compose hunk is this amendment (common block merged into three services, laya defaults removed), checked with yq explode. Other governed paths unchanged.
