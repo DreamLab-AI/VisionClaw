@@ -2031,6 +2031,25 @@ impl BinaryProtocolClient {
         }
     }
 
+    /// Select the pack slot (one per volume fed by this connection) that the following
+    /// `build_*_buffer*` calls and last-pack reads (`get_render_ids`, `impostor_node_buffer`,
+    /// `faded_node_buffer`, `ribbon_edge_buffer`) use. Slot 0 is the default.
+    #[func]
+    fn set_pack_slot(&mut self, slot: i64) {
+        self.store.select_pack_slot(slot);
+    }
+
+    #[func]
+    fn pack_slot(&self) -> i64 {
+        self.store.active_pack_slot()
+    }
+
+    /// Forget a slot's plans and outputs (its volume closed).
+    #[func]
+    fn drop_pack_slot(&mut self, slot: i64) {
+        self.store.drop_pack_slot(slot);
+    }
+
     /// Ids in the render store whose class code bit is set in `mask` (`1 << class_code`; XR
     /// phase-1 §1). A volume's content source calls this once per topology or fit recompute.
     #[func]

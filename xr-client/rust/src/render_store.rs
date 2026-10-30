@@ -650,6 +650,31 @@ pub struct RenderStore {
     scratch: pack::PackScratch,
     // Edge LOD frame counter: the far ribbon tier is repacked on even frames.
     edge_frame: u64,
+    // Pack slots (ADR-2159 D4, XR phase-1 §7.7): two volumes fed by one connection pack
+    // different id lists every frame. Each slot keeps its own plans and last-pack outputs so
+    // they never invalidate each other; the fields above always hold the active slot's state
+    // and every other slot is parked here. Slot 0 is the default, so callers that never pick
+    // a slot behave exactly as before.
+    active_slot: i64,
+    parked_slots: HashMap<i64, PackSlot>,
+}
+
+/// Everything one pack owns: the drawn set the edge and beam filters read, the render ids and
+/// positions the interaction ray reads, the tier buffers, the node and edge plans and their
+/// scratch. Swapped in and out of [`RenderStore`] by [`RenderStore::select_pack_slot`] with
+/// `mem::swap`, so a switch moves Vec headers and never copies or reallocates.
+#[derive(Default)]
+struct PackSlot {
+    drawn: HashSet<u32>,
+    render_ids: Vec<u32>,
+    render_positions: Vec<[f32; 3]>,
+    faded_buf: Vec<f32>,
+    impostor_buf: Vec<f32>,
+    ribbon_buf: Vec<f32>,
+    node_plan: pack::NodePlan,
+    edge_plan: pack::EdgePlan,
+    scratch: pack::PackScratch,
+    edge_frame: u64,
 }
 
 /// Distinct query-variable palette colours before they cycle — matches the client
@@ -735,7 +760,54 @@ impl RenderStore {
         self.filter_dirty = self.node_filter.is_some();
         self.impostor_buf.clear();
         self.ribbon_buf.clear();
+        // Parked slots hold the old id space's drawn sets and buffers: drop them.
+        self.parked_slots.clear();
         self.touch();
+    }
+
+    /// Make `slot` the pack slot every following pack and last-pack read uses (see
+    /// [`PackSlot`]). Selecting the active slot is free; a new slot starts empty and builds
+    /// its plans on its first pack.
+    pub fn select_pack_slot(&mut self, slot: i64) {
+        if slot == self.active_slot {
+            return;
+        }
+        let mut current = PackSlot::default();
+        self.swap_pack_slot(&mut current);
+        self.parked_slots.insert(self.active_slot, current);
+        let mut next = self.parked_slots.remove(&slot).unwrap_or_default();
+        self.swap_pack_slot(&mut next);
+        self.active_slot = slot;
+    }
+
+    /// The slot packs currently go to.
+    pub fn active_pack_slot(&self) -> i64 {
+        self.active_slot
+    }
+
+    /// Forget a parked slot (its volume closed). Dropping the active slot only empties its
+    /// outputs; it stays selected.
+    pub fn drop_pack_slot(&mut self, slot: i64) {
+        if slot == self.active_slot {
+            let mut empty = PackSlot::default();
+            self.swap_pack_slot(&mut empty);
+        } else {
+            self.parked_slots.remove(&slot);
+        }
+    }
+
+    fn swap_pack_slot(&mut self, other: &mut PackSlot) {
+        use std::mem::swap;
+        swap(&mut self.drawn, &mut other.drawn);
+        swap(&mut self.render_ids, &mut other.render_ids);
+        swap(&mut self.render_positions, &mut other.render_positions);
+        swap(&mut self.faded_buf, &mut other.faded_buf);
+        swap(&mut self.impostor_buf, &mut other.impostor_buf);
+        swap(&mut self.ribbon_buf, &mut other.ribbon_buf);
+        swap(&mut self.node_plan, &mut other.node_plan);
+        swap(&mut self.edge_plan, &mut other.edge_plan);
+        swap(&mut self.scratch, &mut other.scratch);
+        swap(&mut self.edge_frame, &mut other.edge_frame);
     }
 
     /// Record a node's `file_size` (bytes) for the metadata size formula. Merges
@@ -2376,6 +2448,45 @@ impl RenderStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two volumes on one connection: alternating slots must produce exactly what two stores,
+    /// each packing only its own volume, produce (ADR-2159 D4).
+    #[test]
+    fn pack_slots_alternate_without_disturbing_each_other() {
+        use crate::perf_fixture::production_store;
+        let mut shared = production_store(2_000, 3_000, 11);
+        let mut only_a = production_store(2_000, 3_000, 11);
+        let mut only_b = production_store(2_000, 3_000, 11);
+        let half = shared.ids.len() / 2;
+        let a: Vec<i32> = shared.ids[..half].to_vec();
+        let b: Vec<i32> = shared.ids[half..].to_vec();
+        let pairs = shared.pairs.clone();
+        let cam = [0.0f32; 3];
+        for frame in 0..6 {
+            shared.advance(frame);
+            only_a.advance(frame);
+            only_b.advance(frame);
+            for (slot, ids, solo) in [(1i64, &a, &mut only_a), (2i64, &b, &mut only_b)] {
+                shared.store.select_pack_slot(slot);
+                assert_eq!(shared.store.active_pack_slot(), slot);
+                let n = shared.store.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY).to_vec();
+                let e = shared.store.build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY).to_vec();
+                let n_solo = solo.store.build_node_buffer_lod(ids, 1.0, 0.7, 1.9, cam, 40, f32::INFINITY).to_vec();
+                let e_solo = solo.store.build_edge_buffer_lod(&pairs, 1.0, cam, 48, f32::INFINITY).to_vec();
+                assert_eq!(n, n_solo, "slot {slot} frame {frame}: gem tier");
+                assert_eq!(e, e_solo, "slot {slot} frame {frame}: cylinder tier");
+                assert_eq!(shared.store.impostor_node_buffer(), solo.store.impostor_node_buffer());
+                assert_eq!(shared.store.ribbon_edge_buffer(), solo.store.ribbon_edge_buffer());
+                assert_eq!(shared.store.render_ids(), solo.store.render_ids(), "ray ids per slot");
+            }
+        }
+        // Slot 0 (existing callers) is untouched by the others and clear() drops parked slots.
+        shared.store.select_pack_slot(0);
+        assert!(shared.store.render_ids().is_empty(), "slot 0 never packed");
+        shared.store.clear();
+        shared.store.select_pack_slot(1);
+        assert!(shared.store.render_ids().is_empty(), "clear() dropped the parked slot");
+    }
 
     fn approx(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-4
