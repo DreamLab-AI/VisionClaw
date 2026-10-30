@@ -27,7 +27,7 @@ Godot + godot-rust (gdext) + OpenXR client per
 > exactly (33/33 scripts, 257/257 tests, 1936 asserts). The on-headset
 > Invariant 1 re-test status is recorded in `docs/XR-client.md` and ADR-2165;
 > until it passes, live headset sessions stay on 4.6.1. Run a 4.8 session with
-> `GODOT=~/godot48b2/Godot_v4.8-beta2_linux.x86_64 tools/live.sh`.
+> `GODOT=~/godot48b2/Godot_v4.8-beta2_linux.x86_64 XR_BACKEND_WS=ws://<backend-host>:4000 tools/live.sh`.
 
 ## Visual experience and comfort
 

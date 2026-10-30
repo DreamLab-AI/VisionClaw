@@ -8,7 +8,7 @@ activation_status: staged
 supersedes: []
 superseded_by: []
 verified_commit: 00669b7a2b8bca15702b8173df1dab268144c3ec
-verified_paths: [xr-client/visionclaw_xr_gdext.gdextension, xr-client/rust/Cargo.toml, xr-client/project.godot]
+verified_paths: [xr-client/visionclaw_xr_gdext.gdextension, xr-client/rust/Cargo.toml]
 owner: jjohare
 review_trigger: the Invariant 1 headset re-test on 4.8 (pass or fail); Godot 4.8-beta3, RC or stable; a godot-rust release with an api-4-8 feature; the Quest/Android XR export being unfrozen
 repo: visionclaw
@@ -46,5 +46,13 @@ Established at `verified_commit` (main, the tree synced to HP `~/mce-xr/godot48/
 - **Headless load: PASS.** `--headless --editor --import --quit` exits 0, and `--headless --xr-mode off --quit` exits 0. Its error lines are the same as 4.6.1's (the expected `XRBoot: OpenXR initialise() returned false` under `--xr-mode off`), plus a GameMode-daemon warning. gdext logs `Initialize godot-rust (API v4.3.stable.official, runtime v4.8.beta2.official)`.
 - **GUT: PASS.** On both 4.6.1 and 4.8-beta2: 33/33 scripts (`tests/gut_guard.sh` clean), 257/257 tests, 1936 asserts. The warning/error histogram is identical. Reports are in HP `~/mce-xr/godot48/xr-client/tests/report/{base461,b48}/`.
 - **Rust: PASS.** `cargo test -p visionclaw-xr-gdext`: 544 passed, 0 failed. This is a control only, because the crate is unchanged.
+- **Desktop GL render, XR off: PASS** (not proof of stereo). `tests/spatial_visual_fixture.tscn` under `--rendering-driver opengl3`, 1200×900. The 4.8 capture shows the production graph (nodes, edges, halos, grid). Against 4.6.1: about 3 of 1.08 M pixels differ, 0 at 3 % fuzz, PSNR 77 dB.
+- **Desktop frame time: PASS.** `perf/run_benchmark.gd -- duration=20` via `tools/capture.sh`, 13 164 nodes, alternating 4.6.1/4.8/4.6.1/4.8:
+  - mean FPS 433.7/424.8/438.3/423.7, about 2.6 % slower on 4.8;
+  - p50 frame 2.29/2.35/2.27/2.35 ms;
+  - p99 2.469 ms on all four runs (quantised to 1/405 fps);
+  - 34 draw calls and 94 574 triangles max, identical, and all budgets pass.
+  
+  Evidence is in HP `~/mce-xr/godot48/xr-client/tests/report/ab/`.
 - **API break check (static).** No `XRInterfaceExtension` subclass exists, and no `*_for_view` calls, in `xr-client/` GDScript or Rust. No code fix was needed.
-- **Headset (Invariant 1): NOT RUN.** The VIVE was in use by a live 4.6.1 session (HP pid 7926), which the gate does not stop. This is the sole reason `implementation_status` is `partial` and `activation_status` is `staged`. The 4.6.1 baseline frame time from that session is 90 FPS / 11.11 mspf.
+- **Headset (Invariant 1): NOT RUN.** The VIVE was in use by a live 4.6.1 session (HP pid 7926), which the gate does not stop. This is the sole reason `implementation_status` is `partial` and `activation_status` is `staged`. The 4.6.1 headset baseline from that session is 90 FPS / 11.11 mspf (`--print-fps`). Nothing headless exercises the OpenXR path or PR #116424's camera-pose timing; GUT and the desktop runs are `--xr-mode off`.
