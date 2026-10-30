@@ -17,6 +17,17 @@ Godot + godot-rust (gdext) + OpenXR client per
 > using the **Compatibility (OpenGL 3) renderer**. Where this README still says
 > "4.3", read it as "the pinned editor of the day"; the *runtime* facts that
 > matter for a headset session are in the VIVE bring-up section.
+>
+> **Godot 4.8 (beta) target, 2026-10-30 ([ADR-2165](../docs/adr/ADR-2165-the-xr-client-targets-godot-4-8-beta.md)).**
+> The client targets **Godot 4.8-beta2** (`4.8.beta2.official.cafc17a19`, installed
+> on HP at `~/godot48b2/`). 4.6.1-stable (`~/.local/bin/godot`,
+> `~/godot_new/`) stays the rollback. The existing gdext crate (`godot` 0.2.4,
+> API 4.3) loads unchanged under 4.8-beta2 (`Initialize godot-rust (API
+> v4.3.stable.official, runtime v4.8.beta2.official)`), and GUT matches 4.6.1
+> exactly (33/33 scripts, 257/257 tests, 1936 asserts). The on-headset
+> Invariant 1 re-test status is recorded in `docs/XR-client.md` and ADR-2165;
+> until it passes, live headset sessions stay on 4.6.1. Run a 4.8 session with
+> `GODOT=~/godot48b2/Godot_v4.8-beta2_linux.x86_64 tools/live.sh`.
 
 ## Visual experience and comfort
 
@@ -49,7 +60,7 @@ xr-client/
 │   └── Avatar.tscn                     Per-remote-presence template
 ├── scripts/                            GDScript wiring (no business logic)
 ├── materials/                          gem / crystal_orb / agent_capsule
-├── addons/                             Godot OpenXR Vendors (CI-installed)
+├── addons/                             GUT 9.6.1 (vendored test runner); no OpenXR Vendors plugin
 └── rust/                               gdext crate (see ./rust/Cargo.toml)
 ```
 
@@ -57,8 +68,8 @@ xr-client/
 
 | Tool | Version | Notes |
 |---|---|---|
-| Godot 4.3 stable | 4.3 | Both editor and Android export templates |
-| Godot OpenXR Vendors plugin | 3.0.x | Install via AssetLib at first project open |
+| Godot | 4.8-beta2 (target, ADR-2165); 4.6.1-stable (rollback) | Editor build for desktop OpenXR; Android export templates only when the Quest build is unfrozen |
+| Godot OpenXR Vendors plugin | not installed | Desktop OpenXR on SteamVR needs none. The frozen Quest/Android XR export would need it; 5.2 adds 4.8 spatial-container export (minimum for 4.8 unverified) |
 | Rust toolchain | stable 1.82+ | `rust-toolchain.toml` not pinned in this dir; uses workspace default |
 | Android target | `aarch64-linux-android` | `rustup target add aarch64-linux-android` |
 | Android NDK | r26d | Pinned in `xr-client/android/local.properties.template` (created in W2) |
@@ -78,7 +89,9 @@ cd xr-client/rust
 cargo ndk -t aarch64-linux-android -o ../addons/visionclaw_xr_gdext build --release
 cd ../..
 
-# 3. Open Godot, import project, install OpenXR Vendors via AssetLib
+# 3. Open Godot and import the project (Quest export also needs the OpenXR
+#    Vendors plugin, which is not vendored in addons/; 5.2 is the line that adds
+#    Godot 4.8 spatial-container export, and its 4.8 requirement is unverified)
 
 # 4. Export the APK
 godot --headless --export-release "Quest 3 arm64" xr-client/export/visionclaw-xr.apk
@@ -102,7 +115,7 @@ SteamVR:
 
 ```bash
 # Prereqs on the render host (HP-Desktop, CachyOS):
-#   - Godot 4.6.1-stable (Compatibility build)
+#   - Godot 4.8-beta2 (target) or 4.6.1-stable (rollback), Compatibility renderer
 #   - SteamVR running, VIVE Pro tracked (lighthouses up)
 #   - NVIDIA 580 open driver (nvidia-580xx-open-dkms, PINNED — see constraints)
 #   - ~/.config/openxr/1/active_runtime.json → SteamVR
