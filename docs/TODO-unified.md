@@ -2,6 +2,8 @@
 
 **Reconciled:** 2026-09-07. Execution recorded. **Re-verified:** wider estate 2026-09-30; sidestr rows 2026-10-01 (see [2026-09-30 reconciliation](#reconciliation-2026-09-30) and N-9/N-10 below). The counts below remain those of the 2026-09-07 disposition receipt.
 
+**Latest pass:** [Landing 2026-10-30](#landing-2026-10-30): ranked remaining work, row updates and the estate park register.
+
 The execution-start register contained **61 distinct open IDs**. Current dispositions: **38 closed, 21 blocked, 0 in progress, 2 excluded**. Paired rows are counted individually. These figures are generated from the [disposition receipt](../../VisionFlow/docs/estate-review/closeout/execution-2026-09-07/master-dispositions.json).
 
 **Governed by:** [PRD-024](archive/prd/PRD-024-final-mile-closeout.md), [ADR-133](archive/adr/ADR-133-final-mile-sprint.md), and the [estate sprint](../../VisionFlow/docs/estate-review/closeout/2026-09-07-sprint.md). The [execution report](../../VisionFlow/docs/estate-review/2026-09-07-estate-closeout-execution.md) connects repository changes, tests, browser receipts and remaining system boundaries.
@@ -576,6 +578,92 @@ Still open, owner or design needed:
 | V-3 | closed | Extractor reuses verified middleware identity within request; cross-request replay rejection remains enforced. [Evidence](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). |
 | V-4 | closed | GitHub path prefix now respects directory boundaries; hierarchy relation contract verified. [Evidence](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md). |
 | V-5 | closed | Four stale PNGs regenerated from current Mermaid sources and malformed title corrected; relevant renders pass. [Evidence](../../VisionFlow/docs/estate-review/closeout/2026-09-07-execution-federation.md). |
+
+## Landing 2026-10-30
+
+The estate landing of 2026-10-30 closed or parked every open ADR in the 11 estate ledgers, and a four-reader drift pass then re-checked every open row on this board against the ~660 commits between 2026-10-19 and the heads below. Rows not named here are unchanged since their last dated disposition. ADR IDs are **repo-qualified** throughout: ADR-2010 is a different record in VisionFlow, dreamlab-ai-website, solid-pod-rs and nostr-rust-forum, and ADR-2148 is one record each in VisionClaw and agentbox.
+
+**Heads:** VisionClaw `7c953a40b` · agentbox `6500582df` (running image built from `e786197cc`, clean) · nostr-rust-forum `1b27f79` (CI green) · VisionFlow `4d361b5` · solid-pod-rs `09ec90f` · dreamlab-ai-website `a67cb2a8` · codescape `13e056d` · ontomark `560e50c` · visionGraph `7b0875f` (landing `87751f5ef` held for the owner's push, because a push deploys the site).
+
+**Meaning of "live" today:** VisionClaw promotions rest on the host **dev** container (dev-auth build, no security profile set, "demo-open"). The production profile is first exercised at the Trust residential, 3–5 Nov.
+
+**Parked work:** [VisionFlow `docs/registers/park-2026-10-30.md`](../../VisionFlow/docs/registers/park-2026-10-30.md), 174 rows, each with its file-level gap and reopen trigger. Open ADRs across the estate went from 210 to 187: 23 closed fully and 8 moved on at least one axis.
+
+### Ranked remaining work
+
+Order: residency risk (3–5 Nov) first, then security and legal exposure, then cost. **Owner** means only the owner can act.
+
+| # | Item | Why it ranks here | Who | Done when |
+|---|---|---|---|---|
+| 1 | **Forum production still runs the RUSTSEC-2026-0387 dependency.** The edge serves forum kit `9c36b60`, whose lockfile pins `crypto-bigint 0.5.5` / `k256 0.13.4`. Main was fixed today (PR #77, `1b27f79`). | A known advisory in production. The repin crosses the breaking `nostr-bbs-core` beta.19, and the deploy is blocked by #2. | lead + owner | the website overlay pins a kit at or after `1b27f79` and the "Deploy Cloudflare Workers" run is green |
+| 2 | **Website `PRF_SERVER_SECRET`: store the existing value; do not create a new one.** "Set CF Worker secrets" has failed on every run since 2026-07-08. | It blocks #1, the `ADMIN_PUBKEYS` push and the ER-23 key rotation. A *new* value is the passkey PRF salt and would change every user's derived key. | **owner** | the GitHub secret holds the value the worker already has; the workflow is green |
+| 3 | **visiontouch-rs is public, but its legal position assumes it is private.** `docs/legal/POSITION.md:12` grounds the CDPA analysis in "private project, no software release … no distribution"; the repo has been public since 2026-09-06. | Live legal exposure to an active rights holder. | **owner** | the repo is made private, or the position is re-argued for distribution |
+| 4 | **visionGraph attribution on the live site.** 182 pages use SLSO (CC BY 3.0) and SWEET (CC0) labels; the SAC-CG import `53ad3c327` (CC BY 4.0, 76 pages) is credited only in per-page footnotes. `licensing/NOTICE` credits no third-party source, and `/third-party-notices/` returns 404. | Breaches the CC BY attribution terms on a public site. | **owner** (a push deploys the site) | NOTICE and `/third-party-notices/` carry all three; then VG-005/006 can close |
+| 5 | **agentbox ADR-2109: signed governance writes cannot apply.** `management-api/lib/ontology-apply.js:221,420,478,668` call `vault find/edit/create/apply`, which baked vault 0.1.0 removed (they moved to ontomark 0.6.0). The signer list is set, so a signed Promote/Demote passes the gate and then fails. | The only live code defect found today; it sits on the N-2/E-5 apply path. | lead (code + test) | the four call sites use the ontomark verbs, a test proves a signed apply, and `flake.nix:950-953` is corrected |
+| 6 | **Audit journal integrity.** `~/workspace/events/2026-10-12.jsonl` has a torn record at **line 35** (invalid JSON at column 145; the chain verifies through seq 1982). Separately, today's refused revoke never reached the journal (agentbox ADR-2087 receipt B4). | Tamper-evidence is the claim the residential demonstrates. | **owner** (no self-repair of an audit log) | a documented repair or segment boundary, and a deny journalled exactly once |
+| 7 | **One production-image receipt at the residential**: image digest, feature set, and the two refused-startup checks. | Closes VisionClaw ADR-2037, 2038, 2012 and 2119 in one sitting. | lead, on site | receipt committed; the four records flip |
+| 8 | **`feat/upgrade-phase-0-1` (nostr-rust-forum).** 11 commits, about 15.6k lines (forum ADR-2027 phases 0–4, ADR-2028 key plane, deepsec HIGH fixes `2047c1b`). No PR, 21 behind main, 4 conflicting files. | Security fixes the live forum does not have. | **owner** decides; lead rebases | merged via a PR, or the HIGH fixes are cherry-picked and the branch retired |
+| 9 | **VisionClaw `VISIONCLAW_JEV_ALLOW_CLOUD=1` is live.** Non-excluded memory snippets now reach the System One proxy (VisionClaw ADR-2148), and that proxy is now on the docker network (agentbox `947cc61e8`). | Data egress the owner should consciously accept. | **owner** | the exclusion list is confirmed, or the setting is pinned local-only |
+| 10 | **`nostr-bbs-core` beta.18/19 are unpublished.** crates.io stops at beta.17, so VisionClaw (`7c953a40b`) still resolves `crypto-bigint 0.5.5` / `k256 0.13.4` via core beta.17 and solid-pod-rs alpha.17. | Second consumer of the #1 advisory. | lead (`cargo publish`) | beta.19 is on crates.io and VisionClaw's lock moves |
+
+**Owner ratification batch** (minutes each, many records): VisionClaw ADR-2134 and ADR-2138 (code landed; both reserve acceptance), ADR-2037, ADR-2039, ADR-2108; VisionFlow ADR-2015, and an ADR-2018 ruling (agentbox pins solid-pod-rs to a git tag, but the ADR requires a release); the agentbox ADR-2080 item-3 wording against `router.sh:79`; agentbox ADR-2162 (mesh reader); dreamlab-ai-website draft PR #83 (13/13 checks green, safe to merge); dream-engine PR #7 (close as superseded by agentbox `ef6737c44`, or merge); the agentbox ComfyUI sidecar rebuild with SpEdE (orphaned by a session that has since exited; may re-stamp agentbox ADR-2148).
+
+**Cheap mechanical items:**
+- the forum e2e shim lacks `d_tag` (`scripts/e2e-ontology-promotion.sh`, stub mode 9/19);
+- delete merged `fix/forum-tweaks-2026-10-22`;
+- an owner-chosen `FORGE_MIRROR_FOLLOW` list unlocks VisionFlow ADR-2019 and solid-pod-rs ADR-2009/2010;
+- the agentbox `nix-flake-update` workflow has not run since 2026-10-05 (missed 10-12, 10-19, 10-26) although it shows active;
+- the dream night of 2026-10-27 has no events file;
+- the Gemini audit key returns 401, so agentbox ADR-2131's audit leg has never run;
+- restate CY-A3's exit condition (see below).
+
+### Row updates
+
+| ID | Now | Evidence |
+|---|---|---|
+| N-1 | **closed, live** | VisionClaw boots from the local corpus: `rust.log` 14:09:43Z "Corpus source is local (ADR-2114)"; VisionClaw ADR-2114 accepted/complete/live |
+| ER-8 / S-5 | **closed, live** | narrativegoldmine.com chunks `scope-BrWUFph9.js` and `pageMeta-C-3-W-e_.js` carry both new domain slugs; visionGraph ADR-VG-004/008 flip to live on `87751f5ef` once the owner pushes |
+| ER-28 | **closed, released** | solid-pod-rs `crates/solid-pod-rs-server/src/lib.rs:4749,5342` refusal kept at alpha.18 |
+| ER-32 | **closed (source)** | solid-pod-rs `mcp/tools.rs:575,603`; the JavaScriptSolidServer report is still the owner's |
+| ER-35 | **closed** | the website overlay's `=1.0.0-beta.16` is a consumer pin its own ADR-2004 requires; its lag is tracked under #1 and #10 |
+| N-9 | **closed (source)** | sidestr crates on crates.io unchanged since 10-02; the three later dream commits add tests only |
+| S-6 | **closed 2026-10-12; date-triggered** | `browsercontainer/podkey.pin` was re-pinned (agentbox `8fad68285`) and expires **2027-01-11**, not 2026-12-24 as the 10-18 row says. Re-pin in early January. `k_browser`/`k_broker` are still null |
+| AC-VC-2 | **closed** | its `effective_tier` boundary was closed by ER-7's code half |
+| N-11 | **closed, live at 0.1.5** | agentbox `88707ea6a` (PR #35, five RUSTSECs); the running image carries it |
+| 10-19 sweep: image rebuild + gitlink bump | **closed, live** | running image `sha256:9776d2fc` from agentbox `e786197cc`; the VisionClaw gitlink is `e786197cc`; `6500582df` differs only in `docs/` |
+| 10-19 sweep: `f5304bc78` activity sink | **closed** | merged as `653b8b638`; recorded as **agentbox ADR-2146** (accepted/complete/inactive). The row's "ADR-2144" label is wrong: agentbox ADR-2144 is the floor |
+| 10-19 sweep: `/api/semantic/statistics` 500 | **closed, live** | answers 200 on the running backend |
+| 10-19 sweep: visionclaw-gpu build / podcast linker | **duplicate rows** | listed as both fixed and open. The nvcc wrapper is baked (`/opt/agentbox/bin/nvcc`), but a real visionclaw-gpu build inside the container is unverified. The linker fix `a861ebe25` is in the image. Drop the "still open" copies |
+| 10-19 sweep: dream evaluator SSH quoting | **board error** | dream-engine PR #7 is **open**, not merged; the transport fix (agentbox `ef6737c44`) stands alone. Moved to the ratification batch |
+| ER-36 | **partly closed** | the agentbox image pins solid-pod-rs alpha.18. VisionClaw is still on alpha.17 / core beta.17 (see #10). Trail-key hygiene is still the owner's |
+| ER-6 | **image half closed** | no `agent_governance` key is declared in the live ACL; ceremony, grant and allowlist are still owner work. `config/custody/identity-port-acl.json` notes line 13 contradicts the `e07b1a366` carve-out |
+| ER-23 | **code half closed** | `[nip05]` is now under test (website `f69bc6db`). Key rotation is blocked by #2 |
+| ER-29 | **open, wider** | the forge trail (`67abe7a`, `solid-pod-rs-forge/src/trail.rs`) adds a second in-process lock map that the cross-process design must cover |
+| N-2 | **open, design** | VisionClaw half done (VisionClaw ADR-2116 complete/live). Forum e2e is red in both modes: stub fails on `d_tag`; real vault 45 pass / 33 fail. Apply path unbuilt; see also #5 |
+| N-4 | **split** | XR embodiment live since 09-09 (VisionClaw ADR-2109); voice deferred by the operator (VisionClaw ADR-2160 proposed) |
+| L-5 | **blocked, device (narrowed)** | an HTC VIVE runs the client at 90 FPS under Godot 4.8-beta2 (VisionClaw `ed196eae7`). Remaining: the right-eye Invariant 1 check, Quest/adb install, release keystore. The client now runs on a **beta** engine |
+| ER-13 | **premise to re-test** | the "Godot 4.3 cannot add a profile to a live action map" limit predates the 4.8-beta2 target (VisionClaw ADR-2165) |
+| AC-VC-1 | **closed (source); text stale** | VisionClaw ADR-2110 is now accepted/complete/staged |
+| AC-FORUM-1 | **blocked, owner** | three `audited_by` fields still blank (`.claude/evidence/EXP-AC-00{2,4,6}`); the deepsec HIGH fixes sit on #8 |
+| X-1 | **open, design** | AoE retired (agentbox ADR-2153); `role_isolation` is still false and agentbox ADR-2122 still partial/inactive. The rehearsal script was red on main until `68c48d1c3` |
+| X-4 | **premise drifted** | the rehearsed branch was superseded by the manual lock refresh `161392193`, delivered live through the agentbox ADR-2132 cycle. Run it against a fresh weekly branch, or close it as superseded (owner) |
+| M-3 | **propose close (superseded)** | real host prepare/activate cycles now build, smoke-test and activate (agentbox ADR-2132 live, 14:13–14:22Z today) |
+| CY-A3 | **exit unreachable as written** | best night since 10-19 was 12/18 green; visionGraph reads "unknown" every night until G-23 is resolved; `nix-flake-update` has stalled (see the cheap list). Restate the exit, e.g. three nights with no red among readable, non-exempt repos |
+| CY-B7 | **changed** | agentbox ADR-2087 complete/staged; today's receipt fails B4 and B5 (see #6) |
+| G-23 | **park premise wrong** | visionGraph has published from GitHub Actions since 2026-09-06 (33 runs before 10-06). Owner: grant `ESTATE_READ_TOKEN` read on `jjohare/visionGraph`, or mark it exempt in the collector |
+| N-13 | **mostly closed** | the prune half was decided on 10-02 (keep, VisionFlow `649b921`), and the withdrawal engine is baked. Missing: one night receipt. No dream ledger rows after 10-24, coinciding with `.dream-standby` markers (cause unverified) |
+| DR-1 | **evidence exists** | every night 10-19 to 10-30 journals 6/6 turns with 5 outcomes, except 10-27, which has no events file |
+
+### Documents this pass found stale (not edited here)
+
+- agentbox `docs/developer/backlog.md`: G-6/G-17 closed, ComfyUI blocker gone, AoE retired, G-4 ID collision, G-5 line reference.
+- nostr-rust-forum `docs/diagrams/00-anomaly-register.md`: O7 is fixed (`c585d14`), and R1 claims AGPL for core.
+- dreamlab-ai-website `docs/architecture/00-forum-overlay-anomaly-register.md`: untouched since 06-11.
+- `owner-decisions-2026-10-18.md`: the VG-004 section is now decided.
+- VisionClaw ADR-2159: "No BackendConnection exists".
+- visionGraph `collision-decisions.yaml:33` and `:130` contradict each other.
+
+The board's header counts stay those of the 2026-09-07 receipt. **Do not re-run** VisionFlow `render-master.py` against this file: it rewrites the whole board and would delete every section added after 09-07.
 
 ## Explicit scope exclusions
 
