@@ -29,16 +29,18 @@ const CANARY := "canary"                 # POST /api/canary/observe/*
 const NODE_RELATIONS := "node_relations" # GET /api/graph/node/{id}/relations, POST .../expand
 const INTERVENTION := "intervention"     # POST /api/broker/cases/{id}/decide
 const PIN := "pin"                       # nodePin / nodeUnpin text frames on /wss (acked by VisionClaw only)
+const DRAG := "drag"                     # nodeDragStart/Update/End text frames on /wss (ADR-2158 E9: VisionClaw only)
 
 const ALL_KEYS: Array[String] = [
 	PHYSICS_WRITE, LAYOUT_MODE, RADIAL, FOLD, CYCLES, DEMO, MEMORY_CLOUD,
-	PATTERN_QUERY, CANARY, NODE_RELATIONS, INTERVENTION, PIN,
+	PATTERN_QUERY, CANARY, NODE_RELATIONS, INTERVENTION, PIN, DRAG,
 ]
 
 ## Codescape's route table (codescape-server/src/routes/mod.rs:404-415) serves
 ## none of the surfaces above, and its /wss ignores every text frame except
 ## authenticate, requestInitialData and ping (routes/ws.rs), so pins are never
-## acknowledged there. Everything else the HUD does (edge slice, node size,
+## acknowledged there and a node drag is never applied (E9: the client refuses
+## it locally rather than send a frame the server drops). Everything else the HUD does (edge slice, node size,
 ## colour mode, hulls, agent offsets, beat, comfort) is client-side and stays on.
 const CODESCAPE_SUPPORTED: Array[String] = []
 

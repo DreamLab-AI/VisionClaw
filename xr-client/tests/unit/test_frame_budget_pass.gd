@@ -145,3 +145,33 @@ func test_graph_scene_runs_the_pass_and_uses_its_caps() -> void:
 	assert_true(src.contains("_budget.tick("), "GraphScene runs the budget pass")
 	assert_true(src.contains("_budget.caps[\"gem_nodes\"]"), "gem tier capped by the budget")
 	assert_true(src.contains("_budget.caps[\"cylinder_edges\"]"), "cylinder tier capped by the budget")
+
+
+# ADR-2159 D4: one budget, split per visible volume; a hidden volume gets 0.
+func test_near_caps_are_split_between_visible_volumes() -> void:
+	var client := _client()
+	var p = FrameBudgetPass.new()
+	var layers := _production_layers()
+	var volumes := {
+		&"knowledge": {"nodes": 9000, "edges": 15000},
+		&"ontology": {"nodes": 3000, "edges": 5000},
+		&"codescape": {"nodes": 0, "edges": 0},
+	}
+	assert_true(p.tick(1.0, client, layers, null, _measured(client, layers, 0, 0), false, volumes))
+	var k: Dictionary = p.volume_caps[&"knowledge"]
+	var o: Dictionary = p.volume_caps[&"ontology"]
+	var c: Dictionary = p.volume_caps[&"codescape"]
+	assert_eq(int(c["gem_nodes"]), 0, "hidden volume: no gems")
+	assert_eq(int(c["cylinder_edges"]), 0, "hidden volume: no cylinders")
+	assert_eq(int(k["gem_nodes"]) + int(o["gem_nodes"]), int(p.caps["gem_nodes"]), "the one gem cap is shared out whole")
+	assert_eq(int(k["cylinder_edges"]) + int(o["cylinder_edges"]), int(p.caps["cylinder_edges"]))
+	assert_gt(int(k["gem_nodes"]), int(o["gem_nodes"]), "proportional to demand")
+	assert_gte(int(o["gem_nodes"]), 16, "the smaller visible volume keeps its floor")
+
+
+func test_no_volumes_means_no_split() -> void:
+	var client := _client()
+	var p = FrameBudgetPass.new()
+	var layers := _production_layers()
+	assert_true(p.tick(1.0, client, layers, null, _measured(client, layers, 0, 0)))
+	assert_eq(p.volume_caps, {}, "the single-graph scene uses caps directly")

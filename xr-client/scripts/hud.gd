@@ -213,9 +213,18 @@ var _room_entry: LineEdit = null
 var _mute_toggle: CheckButton = null
 var _debug_stats: Label = null
 var _conn_status_label: Label = null
-# Backend toggle (ADR-2143): VisionClaw <-> Codescape on the same port.
-var _backend_button: Button = null
-var _backend_mode: String = "visionclaw"
+# Volume row (ADR-2159): one show/hide button per volume and a focus button.
+# The focused volume's connection decides which global controls are live.
+const VOLUME_IDS: Array[StringName] = [&"knowledge", &"ontology", &"codescape"]
+var _volume_buttons: Dictionary = {}     # volume_id → Button
+var _focus_button: Button = null
+var _focused_volume: StringName = &"knowledge"
+var _volume_states: Dictionary = {}
+# Cross-volume link layer (ADR-2164): toggle face and the debug-strip counts.
+var _links_button: Button = null
+var _links_on: bool = false
+var _link_counts: Vector3i = Vector3i.ZERO   # drawn, unresolved, overflow
+const VOLUME_SHORT := {&"knowledge": "KG", &"ontology": "Onto", &"codescape": "Code"}
 # ADR-2143 A6: what the active backend serves, and every control that may be
 # greyed by it (action → [Button]); filled by _action_btn as pages are built.
 var _caps: Dictionary = {}
@@ -706,10 +715,15 @@ func _build_shapes_page() -> VBoxContainer:
 	# Directed-cycle overlay. The server finds the cycles (GET /api/analytics/cycles,
 	# hierarchy edges); the toggle dims everything else and lights the cycle members.
 	page.add_child(_group_header("Cycles"))
-	var g_cycles := _grid(2)
+	var g_cycles := _grid(3)
 	_cycles_button = _action_btn("Cycles: Off", "cycles_toggle", "Light nodes on a directed cycle (e.g. a subclass loop) and dim the rest")
 	g_cycles.add_child(_cycles_button)
 	g_cycles.add_child(_action_btn("Cycles: Refresh", "cycles_refresh", "Re-fetch the cycle report from the server after the graph changes"))
+	# ADR-2164: cross-volume links (code → concept annotations, knowledge ↔ ontology
+	# bridges). Shares the Cycles row so the page keeps its height.
+	_links_button = _action_btn("Links: On" if _links_on else "Links: Off", "cross_links_toggle",
+		"Cross-volume links: code annotations to concepts, and knowledge-ontology bridges")
+	g_cycles.add_child(_links_button)
 	page.add_child(g_cycles)
 	return page
 
@@ -1265,15 +1279,26 @@ func _build_session_page() -> VBoxContainer:
 	reconnect.set_meta(HINT_META, "Force-reconnect the graph & presence sockets")
 	reconnect.pressed.connect(func() -> void: emit_signal("reconnect_pressed"))
 	conn_row.add_child(reconnect)
-	_backend_button = _press_fire(Button.new()) as Button
-	_backend_button.custom_minimum_size = Vector2(0, BTN_H)
-	_backend_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_backend_button.set_meta(HINT_META, "Switch server: VisionClaw / Codescape (same port)")
-	_backend_button.pressed.connect(func() -> void:
-		emit_signal("control_pressed", "backend:visionclaw" if _backend_mode == "codescape" else "backend:codescape"))
-	conn_row.add_child(_backend_button)
+	_focus_button = _press_fire(Button.new()) as Button
+	_focus_button.custom_minimum_size = Vector2(0, BTN_H)
+	_focus_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_focus_button.set_meta(HINT_META, "Focus the next volume: its server answers the global controls")
+	_focus_button.pressed.connect(func() -> void:
+		var i: int = VOLUME_IDS.find(_focused_volume)
+		emit_signal("control_pressed", "volume_focus:%s" % VOLUME_IDS[(i + 1) % VOLUME_IDS.size()]))
+	conn_row.add_child(_focus_button)
 	page.add_child(conn_row)
-	set_backend_mode(_backend_mode, "")
+	# The volume toggles share the row so the Session page keeps its height.
+	var vol_row := conn_row
+	for vid: StringName in VOLUME_IDS:
+		var b := _press_fire(Button.new()) as Button
+		b.custom_minimum_size = Vector2(0, BTN_H)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.set_meta(HINT_META, "Show or hide the %s volume (a hidden volume stops drawing)" % vid)
+		b.pressed.connect(func() -> void: emit_signal("control_pressed", "volume_toggle:%s" % vid))
+		vol_row.add_child(b)
+		_volume_buttons[vid] = b
+	set_volume_state(_focused_volume, {})
 	page.add_child(_build_beat_row())
 	_debug_stats = _mk_label("FPS: --  MTP: --ms  Avatars: 0  Net: OFF", "Render & network diagnostics")
 	_debug_stats.name = "DebugStats"
@@ -1452,8 +1477,13 @@ func _apply_cap_to_button(b: Button, action: String) -> void:
 func set_backend_capabilities(caps: Dictionary) -> void:
 	_caps = caps.duplicate()
 	for action: String in _action_buttons:
-		for b: Button in _action_buttons[action]:
-			_apply_cap_to_button(b, action)
+		# Pages are rebuilt (tab hide/show); drop buttons that went with them.
+		var live: Array = []
+		for b: Variant in _action_buttons[action]:
+			if is_instance_valid(b):
+				live.append(b)
+				_apply_cap_to_button(b as Button, action)
+		_action_buttons[action] = live
 	var memory_ok: bool = BackendCaps.supports(_caps, BackendCaps.MEMORY_CLOUD)
 	if _memory_type_button != null:
 		_memory_type_button.disabled = not memory_ok
@@ -1605,16 +1635,39 @@ func _check_overflow(id: String) -> void:
 
 # --- Public API (signatures preserved) --------------------------------------
 
-## Set by GraphScene on wire-up and after every backend switch: the active
-## backend ("visionclaw" | "codescape") and its ws base, shown on the toggle face
-## and appended to the connection status line.
-func set_backend_mode(mode: String, base: String = "") -> void:
-	_backend_mode = mode
-	var backend_name: String = "Codescape" if mode == "codescape" else "VisionClaw"
-	_backend_line = backend_name if base.is_empty() else "%s  %s" % [backend_name, base]
-	if _backend_button != null:
-		_backend_button.text = "Backend: %s" % backend_name
+## Set by GraphScene on wire-up and on every volume or connection change:
+## the focused volume and, per volume, {shown, online, name}. Drives the volume
+## row's faces and the connection status line.
+func set_volume_state(focused: StringName, states: Dictionary) -> void:
+	_focused_volume = focused
+	_volume_states = states
+	for vid: StringName in _volume_buttons:
+		var st: Dictionary = states.get(vid, {})
+		# Short faces: five buttons share one row.
+		var face: String = str(VOLUME_SHORT.get(vid, String(vid)))
+		if not bool(st.get("shown", true)):
+			face += " off"
+		if st.has("online") and not bool(st["online"]):
+			face += " ×"
+		(_volume_buttons[vid] as Button).text = face
+	var fst: Dictionary = states.get(focused, {})
+	var fname: String = str(fst.get("name", String(focused).capitalize()))
+	if _focus_button != null:
+		_focus_button.text = "Focus: %s" % fname
+	_backend_line = "focus %s" % fname
 	_update_conn_status_label()
+
+
+## Cross-volume links on/off, shown on the Shapes page toggle.
+func set_cross_links(on: bool) -> void:
+	_links_on = on
+	if _links_button != null:
+		_links_button.text = "Links: On" if on else "Links: Off"
+
+
+## Link layer counts for the debug strip: drawn / unresolved / over the cap.
+func set_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
+	_link_counts = Vector3i(drawn, unresolved, overflow)
 
 
 func _update_conn_status_label() -> void:
@@ -1947,8 +2000,9 @@ func _process(delta: float) -> void:
 			_fps_header.text = "FPS %d" % fps
 		_fps_shown = fps
 	if _debug_stats != null:
-		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s" % [
+		_debug_stats.text = "FPS: %d  MTP: %.1fms  Avatars: %d  Net: %s  Links: %d/%d/%d" % [
 			maxi(_fps_shown, 0), _mtp_ms, _avatar_count, "OK" if _connected else "OFF",
+			_link_counts.x, _link_counts.y, _link_counts.z,
 		]
 	# Hover-hint bar: resolve the control under the (synthetic) wand pointer via
 	# gui_get_hovered_control — which the pushed InputEventMouseMotion updates, so

@@ -1,5 +1,14 @@
 extends Node3D
 const BackendCaps := preload("res://scripts/backend_caps.gd")
+# XR phase 1 (ADR-2158/2159): one connection per content source, three volumes.
+const BackendConnection := preload("res://scripts/backend_connection.gd")
+const ConnectionVolumeSource := preload("res://scripts/connection_volume_source.gd")
+const VolumeArrangementScript := preload("res://scripts/volume_arrangement.gd")
+const EmulatedVolumeScene := preload("res://scenes/EmulatedVolume.tscn")
+const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
+const LinkLayerScript := preload("res://scripts/link_layer.gd")
+const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
+const XrPrefs := preload("res://scripts/xr_prefs.gd")
 
 const AVATAR_TEMPLATE_PATH := "res://scenes/Avatar.tscn"
 const AGENT_TEMPLATE_PATH := "res://scenes/AgentAvatar.tscn"
@@ -72,14 +81,162 @@ const LOCOMOTION_DEADZONE: float = 0.15
 const DEFAULT_BACKEND_WS := "ws://localhost:4000"
 const GRAPH_STREAM_PATH := "/wss"
 const PRESENCE_PATH := "/ws/presence"
-# ADR-2143: Codescape is served under this prefix on the same port as VisionClaw.
-const CODESCAPE_PATH := "/codescape"
-const BACKEND_MODES := ["visionclaw", "codescape"]
-const BACKEND_NAMES := {"visionclaw": "VisionClaw", "codescape": "Codescape"}
-# What the active backend serves (BackendCaps, ADR-2143 A6). Every request helper
-# below asks _gate() before dispatching, so a server that lacks a route is never
-# asked for it; the HUD greys the matching controls from the same table.
-var _caps: Dictionary = BackendCaps.for_mode("visionclaw")
+# What each connection serves (BackendCaps, ADR-2143 A6) is held by the
+# connection; every request helper asks _gate_for_volume() before dispatching.
+#
+# E3 bindings (phase-1 contract §1): volume → (connection, class mask, ring yaw).
+const VOLUME_BINDINGS := {
+	&"knowledge": {"conn": &"visionclaw", "mask": 0b0001, "yaw": -60.0, "name": "Knowledge"},
+	&"ontology": {"conn": &"visionclaw", "mask": 0b0010, "yaw": 60.0, "name": "Ontology"},
+	&"codescape": {"conn": &"codescape", "mask": 0b1000, "yaw": 0.0, "name": "Codescape"},
+}
+const VOLUME_ORDER: Array[StringName] = [&"knowledge", &"ontology", &"codescape"]
+# The VisionClaw overlays (agents, beams, hulls, labels, ray picking, drag, query
+# planes) live under GraphRoot, which follows this volume's Content transform.
+const OVERLAY_VOLUME := &"knowledge"
+var _conns: Dictionary = {}            # conn_id → BackendConnection
+var _vc_conn: Node = null
+var _cs_conn: Node = null
+var _arrangement: Node3D = null
+var _volumes: Dictionary = {}          # volume_id → EmulatedVolume
+var _sources: Dictionary = {}          # volume_id → ConnectionVolumeSource
+var _offline_labels: Dictionary = {}   # volume_id → Label3D
+var _focused_volume: StringName = &"knowledge"
+var _shim: Node = null
+var _shim_pending_start: bool = false
+# One status line every VOLUME_LOG_SEC: per volume shown/online, drawn nodes
+# and edges, and the fit scale, so a live run's log shows what each volume does.
+const VOLUME_LOG_SEC: float = 5.0
+var _volume_log_accum: float = 0.0
+
+
+func _log_volumes(delta: float) -> void:
+	_volume_log_accum += delta
+	if _volume_log_accum < VOLUME_LOG_SEC:
+		return
+	_volume_log_accum = 0.0
+	var parts: PackedStringArray = []
+	for vid: StringName in VOLUME_ORDER:
+		var v: Node3D = _volumes.get(vid, null)
+		var src = _sources.get(vid, null)
+		var conn: Node = _conn_for_volume(vid)
+		if v == null or src == null:
+			continue
+		var d: Dictionary = src.demand()
+		parts.append("%s[%s%s gen=%d ids=%d n=%d e=%d s=%.5f]" % [vid,
+			"shown" if v.visible_state else "hidden",
+			"" if conn != null and conn.is_connected_now() else " offline",
+			int(conn.generation) if conn != null else -1,
+			src.content_ids().size(), int(d["nodes"]), int(d["edges"]), float(v.current_scale())])
+	if _link_layer != null:
+		parts.append("links[%s drawn=%d unresolved=%d overflow=%d records=%d]" % [
+			"on" if _link_layer.is_enabled() else "off", _link_layer.drawn_count(),
+			_link_layer.unresolved_count(), _link_layer.overflow_count(), _link_layer.record_count()])
+	print("GraphScene volumes: %s" % " ".join(parts))
+
+
+# True while the overlay volume is drawn: shown and its connection up. The ray,
+# labels, drag, beams and hulls all live in its frame and read its pack slot.
+func _overlay_live() -> bool:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	var conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+	return v != null and bool(v.visible_state) and conn != null and conn.is_connected_now()
+
+
+# A hidden or offline overlay volume must leave nothing pickable: select its
+# slot and empty it, so the ray, beams and hulls (which read the active slot's
+# render ids) find no node the user cannot see.
+func _empty_overlay_slot(src) -> void:
+	if _binary_client == null or not _binary_client.has_method("drop_pack_slot"):
+		return
+	_binary_client.set_pack_slot(src.slot)
+	_binary_client.drop_pack_slot(src.slot)
+
+
+# Release a node grab in flight (its volume went away mid-drag).
+func _release_grab() -> void:
+	if _grabbed_id == -1:
+		return
+	var conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+	if conn != null and _grabbed_id >= 0:
+		conn.send_drag_end(_grabbed_id)
+	_grabbed_id = -1
+	_grab_controller = null
+	_grab_target_server = Vector3.ZERO
+
+
+# The cross-volume link layer (ADR-2164): one MultiMesh in world space whose
+# endpoints the volumes map from graph units. On/off is the per-build-type
+# preference (xr_prefs.gd); the HUD shows its counts.
+func _build_link_layer() -> void:
+	_link_layer = LinkLayerScript.new()
+	_link_layer.name = "LinkLayer"
+	add_child(_link_layer)
+	_link_layer.counts_changed.connect(_on_link_counts)
+	_set_cross_links(XrPrefs.cross_volume_links(), false)
+
+
+func _set_cross_links(on: bool, persist: bool = true) -> void:
+	if persist:
+		XrPrefs.set_cross_volume_links(on)
+	if _link_layer != null:
+		_link_layer.set_enabled(on)
+	if hud != null and hud.has_method("set_cross_links"):
+		hud.set_cross_links(on)
+
+
+func _on_link_counts(drawn: int, unresolved: int, overflow: int) -> void:
+	if hud != null and hud.has_method("set_link_counts"):
+		hud.set_link_counts(drawn, unresolved, overflow)
+
+
+# §7.4/§7.5: refresh endpoints every frame (the layer throttles itself to
+# REFRESH_HZ) and rebuild the records when their inputs moved.
+func _tick_links(delta: float) -> void:
+	if _link_layer == null:
+		return
+	_link_join_accum += delta
+	if _link_join_accum >= LINK_JOIN_SEC:
+		_link_join_accum = 0.0
+		_rebuild_links()
+	_link_layer.tick(delta, _volumes, _conns)
+
+
+func _rebuild_links() -> void:
+	if _vc_conn == null or not _vc_conn.is_connected_now():
+		return
+	var ids_by_volume := {}
+	for vid: StringName in [&"knowledge", &"ontology"]:
+		var src = _sources.get(vid, null)
+		ids_by_volume[vid] = src.content_ids() if src != null else PackedInt32Array()
+	var cs_up: bool = _cs_conn != null and _cs_conn.is_connected_now()
+	var sig: Array = [_vc_conn.generation, _cs_conn.generation if cs_up else -1,
+		(ids_by_volume[&"knowledge"] as PackedInt32Array).size(), (ids_by_volume[&"ontology"] as PackedInt32Array).size()]
+	if sig == _link_sig:
+		return
+	_link_sig = sig
+	_link_layer.set_records("bridge", BridgeLinkSource.records(_vc_conn, ids_by_volume))
+	# Annotations need both connections up and in their current generations (ADR-2159).
+	if cs_up and _binary_client != null and _binary_client.has_method("join_code_links"):
+		var res: Dictionary = _binary_client.join_code_links(_cs_conn.client, _cs_conn.generation, _vc_conn.generation)
+		_link_layer.set_records("annotates", res.get("records", []))
+		_link_layer.set_unresolved("annotates", int(res.get("unresolved", 0)))
+	else:
+		_link_layer.set_records("annotates", [])
+		_link_layer.set_unresolved("annotates", 0)
+
+
+# The memory cloud stays world furniture (ADR-2158 D4): it hangs off its own
+# root, placed once per VisionClaw topology, not off a volume.
+var _cloud_root: Node3D = null
+var _cloud_placed: bool = false
+# Cross-volume links (ADR-2164; §7.4-§7.8). Records are rebuilt at LINK_JOIN_SEC
+# while their inputs (generations, drawn ids) change: class codes ride position
+# frames, so a join at topology time alone would find nothing resolved.
+const LINK_JOIN_SEC: float = 1.0
+var _link_layer: Node3D = null
+var _link_join_accum: float = 0.0
+var _link_sig: Array = []
 const DEFAULT_ROOM_URN := "urn:visionclaw:room:sha256-12-deadbeefcafe"
 const DEFAULT_DISPLAY_NAME := "XR User"
 
@@ -88,9 +245,10 @@ const DEFAULT_DISPLAY_NAME := "XR User"
 # selection. Recorded via POST /api/canary/observe/{id} (unauthenticated JSON).
 const CANARY_M4_RAY := "CANARY-VC-M4-RAY"
 
+# The VisionClaw connection's client: every VisionClaw-only feature (fold, query,
+# hulls, agents, labels, memory cloud framing) reads it. Codescape has its own
+# client inside _cs_conn and never shares this one.
 var _binary_client: RefCounted = null
-# Active backend ("visionclaw" | "codescape"); seeded from XR_BACKEND_MODE in _ready.
-var _backend_mode: String = "visionclaw"
 var _presence_client: RefCounted = null
 var _interaction: RefCounted = null
 var _lod_policy: RefCounted = null
@@ -138,7 +296,6 @@ var _edge_pairs: PackedInt32Array = PackedInt32Array()
 # LOD-selected drawn node ids (topology-biased, budget-capped). Cached and only
 # recomputed when the selection domain changes (visuals/topology/budget) — the
 # per-frame buffer build reuses it. Passed straight to build_node_buffer.
-var _drawn_ids: PackedInt32Array = PackedInt32Array()
 var _selection_dirty: bool = true
 # Server-space target for the grabbed node, handed to the Rust hunt each frame so
 # the dragged node tracks the wand. Updated by _update_interaction.
@@ -163,17 +320,12 @@ const LABEL_VISIBLE_MIN_A: float = 0.05
 var _label_pool: Array = []                   # Array[Node3D] anchors, each Title+Detail
 var _label_accum: float = 0.0
 
-var _graph_ws_url: String = ""
 var _presence_ws_url: String = ""
 var _room_urn: String = ""
 var _display_name: String = ""
 var _nostr_secret_hex: String = ""
-# Per-socket reconnect state. The graph (/wss) and presence (/ws/presence)
-# sockets fail and recover independently, so each owns its own backoff counter
-# and pending timer. Sharing one counter+timer (the old design) let a pending
-# graph reconnect tear down a live presence socket and vice versa.
-var _graph_reconnect_attempts: int = 0
-var _graph_reconnect_timer: float = -1.0
+# Presence (/ws/presence) reconnect state. Each graph connection owns its own
+# backoff inside BackendConnection, so no socket's retry can disturb another's.
 var _presence_reconnect_attempts: int = 0
 var _presence_reconnect_timer: float = -1.0
 
@@ -469,6 +621,13 @@ func _ready() -> void:
 		# falls back to its home environment). Only make it current for a non-XR
 		# desktop/diagnostic run.
 		flat_cam.current = not get_viewport().use_xr
+	# Godot 4.8: a use_xr viewport whose current camera is not an XRCamera3D logs
+	# "current camera is not an XRCamera3D" and a GLES3 view-count mismatch at the
+	# XRBoot→GraphScene switch. The scene file makes XRCamera3D current from the
+	# moment it enters the tree; this keeps it so if anything above changed it.
+	var xr_cam: XRCamera3D = get_node_or_null("XROrigin3D/XRCamera3D") as XRCamera3D
+	if xr_cam != null and get_viewport().use_xr:
+		xr_cam.current = true
 	# Detach the HUD from the camera so it stops following the gaze; re-anchor it
 	# in the play space as a world-fixed panel the user can grab and reposition
 	# with a wand (see _update_hud_grab). Deferred so we don't reparent while the
@@ -476,7 +635,7 @@ func _ready() -> void:
 	if hud != null:
 		_reparent_hud_to_world.call_deferred()
 	# gdext classes are #[class(no_init)] in Rust — construct via their static create() factory, not ClassDB.instantiate() (which cannot build a no_init class).
-	_binary_client = BinaryProtocolClient.create()
+	_build_connections()
 	_presence_client = PresenceClientNode.create()
 	_interaction = XrInteraction.create()
 	_lod_policy = LodPolicy.create()
@@ -499,7 +658,6 @@ func _ready() -> void:
 		# position_updated is intentionally NOT connected: positions live in the Rust
 		# render store now (no per-node signal storm). Only the throttled
 		# node_visuals_updated crosses the boundary, for the centrality mirror.
-		_binary_client.connect("connection_changed", Callable(self, "_on_connection_changed"))
 		_binary_client.connect("node_visuals_updated", Callable(self, "_on_node_visuals_updated"))
 		_binary_client.connect("topology_updated", Callable(self, "_on_topology_updated"))
 		if _binary_client.has_signal("text_message"):
@@ -563,8 +721,11 @@ func _ready() -> void:
 		_planes.configure(_binary_client, node_mesh, edge_mesh, node_mat, edge_mat)
 	_memory_cloud = MemoryCloudLayerScript.new()
 	_memory_cloud.name = "MemoryCloud"
+	_cloud_root = Node3D.new()
+	_cloud_root.name = "MemoryCloudRoot"
+	add_child(_cloud_root)
 	if graph_root != null:
-		graph_root.add_child(_memory_cloud)
+		_cloud_root.add_child(_memory_cloud)
 		_memory_cloud.configure(_http_base(), Callable(self, "_auth_headers"))
 		_memory_cloud.pointer = right_controller
 		# frame the cloud on the graph (desktop cloudFrame.ts): robust bounds of every
@@ -622,11 +783,6 @@ func _ready() -> void:
 
 	_init_label_pool()
 	_probe_eye_gaze()
-	var env_mode: String = _env_or("XR_BACKEND_MODE", "visionclaw").to_lower()
-	if BACKEND_MODES.has(env_mode):
-		_backend_mode = env_mode
-	else:
-		push_warning("GraphScene: XR_BACKEND_MODE '%s' unknown; using visionclaw" % env_mode)
 	_wire_hud()
 	_parity = GraphParityScript.new()
 	_parity.name = "GraphParity"
@@ -634,14 +790,200 @@ func _ready() -> void:
 	if _binary_client != null and _nostr_auth != null and _binary_client.has_method("set_own_pubkey") and _nostr_auth.has_method("pubkey_hex"):
 		_binary_client.set_own_pubkey(str(_nostr_auth.pubkey_hex()))
 	_parity.setup(self, _binary_client, graph_root, hud)
-	_parity.apply_backend_palette(_backend_mode)
+	_parity.apply_backend_palette("visionclaw")
 	if graph_root != null:
+		# Template only now: the volumes' sources copy its mesh and material.
 		_impostors = NodeLod.make_impostor_instance()
 		graph_root.add_child(_impostors)
 		_ribbons = NodeLod.make_ribbon_instance()
 		graph_root.add_child(_ribbons)
+	_build_volumes()
+	_build_link_layer()
+	_start_native_shim()
 	_ensure_beat()
 	_connect_from_env()
+
+
+# One BackendConnection per content source (ADR-2159): each owns its client,
+# caps, reconnect backoff, pins and generation. `_binary_client` is the
+# VisionClaw connection's client for the VisionClaw-only features.
+func _build_connections() -> void:
+	var secret: String = OS.get_environment("XR_NOSTR_SECRET")
+	_vc_conn = BackendConnection.make(&"visionclaw", "visionclaw", _vc_base(), secret)
+	_cs_conn = BackendConnection.make(&"codescape", "codescape", _cs_base(), "")
+	for conn: Node in [_vc_conn, _cs_conn]:
+		add_child(conn)
+		_conns[conn.conn_id] = conn
+		conn.connected_changed.connect(_on_conn_connected_changed)
+		conn.topology_changed.connect(_on_conn_topology_changed)
+		conn.refused.connect(_on_conn_refused)
+	_binary_client = _vc_conn.client
+
+
+# The E3 arrangement (§7.2): three emulated volumes on the §1 ring, each fed by
+# a ConnectionVolumeSource for its (connection, class mask) binding. The source
+# copies the scene's own MultiMesh meshes and materials, so nodes and edges look
+# as they always have.
+func _build_volumes() -> void:
+	_arrangement = VolumeArrangementScript.new()
+	_arrangement.name = "VolumeArrangement"
+	add_child(_arrangement)
+	var templates := {
+		"nodes": nodes_multi, "faded": nodes_faded_multi, "halos": nodes_halo_multi,
+		"impostors": _impostors, "edges": edges_multi, "ribbons": _ribbons,
+	}
+	for vid: StringName in VOLUME_ORDER:
+		var b: Dictionary = VOLUME_BINDINGS[vid]
+		var v: Node3D = EmulatedVolumeScene.instantiate()
+		v.name = "Volume_%s" % vid
+		v.volume_id = vid
+		_arrangement.add_volume(v, float(b["yaw"]))
+		var conn: Node = _conns.get(b["conn"], null)
+		var src = ConnectionVolumeSource.new(conn, int(b["mask"]))
+		src.set_templates(templates)
+		v.attach(src)
+		_volumes[vid] = v
+		_sources[vid] = src
+		var label := Label3D.new()
+		label.name = "OfflineLabel"
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.pixel_size = 0.002
+		label.font_size = 48
+		label.outline_size = 8
+		label.modulate = Color(1.0, 0.75, 0.45)
+		label.text = "%s offline" % str(b["name"])
+		v.add_child(label)
+		_offline_labels[vid] = label
+		v.set_focused(vid == _focused_volume)
+	# The old single-graph MultiMeshes under GraphRoot are templates now; keep them
+	# empty so nothing is drawn twice.
+	for mmi: MultiMeshInstance3D in [nodes_multi, nodes_faded_multi, nodes_halo_multi, edges_multi, _impostors, _ribbons]:
+		if mmi != null and mmi.multimesh != null:
+			mmi.multimesh.instance_count = 0
+			mmi.visible = false
+	_update_offline_labels()
+
+
+func _update_offline_labels() -> void:
+	for vid: StringName in _offline_labels:
+		var conn: Node = _conn_for_volume(vid)
+		var up: bool = conn != null and conn.is_connected_now()
+		_offline_labels[vid].visible = not up
+
+
+# {volume_id: {shown, online, name}} for the HUD's volume row.
+func _volume_states() -> Dictionary:
+	var out: Dictionary = {}
+	for vid: StringName in VOLUME_ORDER:
+		var v: Node3D = _volumes.get(vid, null)
+		var conn: Node = _conn_for_volume(vid)
+		out[vid] = {
+			"shown": v != null and bool(v.visible_state),
+			"online": conn != null and conn.is_connected_now(),
+			"name": str(VOLUME_BINDINGS[vid]["name"]),
+		}
+	return out
+
+
+# §7.3: decide native vs emulated once at boot and log it. A native decision
+# starts only once OpenXR is up (C's note: never from XRBoot); see _physics_process.
+func _start_native_shim() -> void:
+	_shim = NativeContainerShim.new()
+	_shim.name = "NativeContainerShim"
+	add_child(_shim)
+	var d: Dictionary = _shim.evaluate()
+	print("GraphScene: spatial container mode=%s reason=%s" % [d.get("mode", ""), d.get("reason", "")])
+	if _shim.has_signal("fallback"):
+		_shim.fallback.connect(_on_shim_fallback)
+	_shim_pending_start = str(d.get("mode", "")) == "native"
+	# A closed native container ends the XR session (C's finding 2). The backend
+	# connections are left alone (§4): a session may stop and begin again (headset
+	# off/on, runtime dashboard) and the volumes must still be live when it does.
+	var xr: XRInterface = XRServer.find_interface("OpenXR")
+	if xr != null and xr.has_signal("session_stopping"):
+		xr.session_stopping.connect(_on_xr_session_stopping)
+
+
+func _openxr_ready() -> bool:
+	var xr: XRInterface = XRServer.find_interface("OpenXR")
+	return xr != null and xr.is_initialized()
+
+
+func _on_shim_fallback(reason: String) -> void:
+	print("GraphScene: spatial container fell back to emulated (%s)" % reason)
+	if OS.is_debug_build() and hud != null and hud.has_method("flash_notice"):
+		hud.flash_notice("Spatial container: emulated (%s)" % reason, 4.0)
+
+
+func _on_xr_session_stopping() -> void:
+	print("GraphScene: XR session stopping; backend connections kept")
+
+
+# §7.4: each visible volume ticks (its fit re-reads the source extent every
+# FIT_RECOMPUTE ticks, B's note); GraphRoot follows the overlay volume's Content
+# so the VisionClaw overlays share its frame.
+func _tick_volumes(delta: float) -> void:
+	if _shim_pending_start and _openxr_ready():
+		_shim_pending_start = false
+		_shim.start(_arrangement)
+	for vid: StringName in _volumes:
+		var v: Node3D = _volumes[vid]
+		if v.visible_state:
+			v.tick(delta)
+	var ov: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	if ov != null and graph_root != null and ov.content != null and ov.content.is_inside_tree():
+		graph_root.global_transform = ov.content.global_transform
+		_graph_scale = maxf(_uniform_scale(graph_root.global_transform), 1.0e-6)
+	_place_cloud_root()
+
+
+# The memory cloud stays world furniture (ADR-2158 D4): once per VisionClaw
+# topology it is framed the way the single graph used to be, in front of the
+# user at GRAPH_TARGET_SPAN, and then left alone.
+func _place_cloud_root() -> void:
+	if _cloud_placed or _cloud_root == null or _binary_client == null:
+		return
+	if not _binary_client.has_method("graph_robust_bounds"):
+		return
+	var b: PackedFloat32Array = _binary_client.graph_robust_bounds()
+	if b.size() < 4 or b[3] <= 0.001:
+		return
+	var s: float = GRAPH_TARGET_SPAN / (2.0 * b[3])
+	var c := Vector3(b[0], b[1], b[2])
+	_cloud_root.transform = Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)), GRAPH_ANCHOR - c * s)
+	_cloud_placed = true
+
+
+# §7.4/§7.7: pack each visible, connected volume with its share of the frame
+# budget's near caps; a hidden or offline volume draws nothing. The overlay
+# volume packs last so its pack slot stays active for the ray, beams and hulls.
+func _pack_volumes() -> void:
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var cam_world: Vector3 = cam.global_position
+	var node_ratio: float = NODE_WORLD_RADIUS * _node_size_factor / NODE_MESH_RADIUS
+	var edge_ratio: float = EDGE_WORLD_RADIUS / EDGE_MESH_RADIUS
+	var order: Array[StringName] = []
+	for vid: StringName in VOLUME_ORDER:
+		if vid != OVERLAY_VOLUME:
+			order.append(vid)
+	order.append(OVERLAY_VOLUME)
+	for vid: StringName in order:
+		var v: Node3D = _volumes.get(vid, null)
+		var src = _sources.get(vid, null)
+		if v == null or src == null:
+			continue
+		var conn: Node = _conn_for_volume(vid)
+		if not v.visible_state or conn == null or not conn.is_connected_now():
+			src.clear_instances()
+			if vid == OVERLAY_VOLUME:
+				_empty_overlay_slot(src)
+			continue
+		var share: Dictionary = _budget.volume_caps.get(vid, {})
+		var gem_cap: int = int(share.get("gem_nodes", _budget.caps["gem_nodes"]))
+		var cyl_cap: int = int(share.get("cylinder_edges", _budget.caps["cylinder_edges"]))
+		src.pack(cam_world, node_ratio, edge_ratio, gem_cap, cyl_cap, NodeLod.NEAR_RADIUS_M, NodeLod.NEAR_EDGE_RADIUS_M)
 
 
 # Build the reusable Label3D pool once. Anchors live in world space (siblings of
@@ -678,7 +1020,7 @@ func _init_label_pool() -> void:
 func _update_proximity_labels() -> void:
 	if _label_pool.is_empty():
 		return
-	if _binary_client == null or graph_root == null or not _binary_client.has_method("nodes_near"):
+	if _binary_client == null or graph_root == null or not _binary_client.has_method("nodes_near") or not _overlay_live():
 		_hide_all_labels()
 		return
 	var cam: XRCamera3D = _find_xr_camera()
@@ -705,10 +1047,16 @@ func _update_proximity_labels() -> void:
 			break
 		if not shown.has(mid):
 			shown.append(mid)
+	var overlay_mask: int = int(VOLUME_BINDINGS[OVERLAY_VOLUME]["mask"])
 	for id: int in near:
 		if shown.size() >= LABEL_POOL_SIZE:
 			break
 		if shown.has(id):
+			continue
+		# Labels sit in GraphRoot's frame, which is the overlay volume's: a node
+		# drawn in another volume would be labelled in the wrong place.
+		var cls: int = _vc_conn.class_of(id) if _vc_conn != null else -1
+		if cls >= 0 and not (overlay_mask & (1 << cls)):
 			continue
 		if _binary_client.label_of(id) != "":
 			shown.append(id)
@@ -830,17 +1178,18 @@ func _wire_hud() -> void:
 	_refresh_controls_status()
 
 
-# Push the active backend to the HUD: toggle face, status line and the
-# intervention POST origin (which follows the backend prefix).
+# Push the focused volume's connection to the HUD: volume row, status line and
+# the capability table its controls grey against. VisionClaw-bound requests
+# (intervention, memory) always go to the VisionClaw connection.
 func _sync_hud_backend() -> void:
-	_caps = BackendCaps.for_mode(_backend_mode)
+	var conn: Node = _conn_for_volume(_focused_volume)
 	if hud != null:
-		if hud.has_method("set_backend_mode"):
-			hud.set_backend_mode(_backend_mode, _backend_base(_backend_mode))
+		if hud.has_method("set_volume_state"):
+			hud.set_volume_state(_focused_volume, _volume_states())
 		if hud.has_method("configure_intervention"):
 			hud.configure_intervention(_http_base(), _nostr_auth)
-		if hud.has_method("set_backend_capabilities"):
-			hud.set_backend_capabilities(_caps)
+		if hud.has_method("set_backend_capabilities") and conn != null:
+			hud.set_backend_capabilities(conn.caps)
 	# The memory layers were configured once in _ready; follow the live base so a
 	# switch never leaves them posting to the previous origin, and fold the cloud
 	# away where the route does not exist.
@@ -853,83 +1202,75 @@ func _sync_hud_backend() -> void:
 		_memory_search.set_http_base(_http_base())
 
 
-## Whether the active backend serves `cap` (a BackendCaps key). Read by
-## graph_parity.gd before its own polls and writes.
+## Whether the focused volume's connection serves `cap` (a BackendCaps key).
+## Read by graph_parity.gd before its own polls and writes, and by the HUD.
 func backend_supports(cap: String) -> bool:
-	return BackendCaps.supports(_caps, cap)
+	var conn: Node = _conn_for_volume(_focused_volume)
+	if conn == null:
+		return BackendCaps.supports(BackendCaps.for_mode(_volume_mode(_focused_volume)), cap)
+	return conn.supports(cap)
 
 
-# One gate for every server-bound request: true when the backend serves `cap`;
-# otherwise tell the operator in the HUD strip (unless `quiet`) and refuse.
-func _gate(cap: String, label: String, quiet: bool = false) -> bool:
-	if backend_supports(cap):
-		return true
-	if not quiet and hud != null and hud.has_method("flash_notice"):
-		hud.flash_notice("Not on %s: %s" % [BACKEND_NAMES.get(_backend_mode, _backend_mode), label], 4.0)
-	return false
+# One gate for every server-bound request, per volume (ADR-2159 D2): true when
+# the volume's connection serves `cap`; otherwise the connection emits
+# `refused` (unless `quiet`), which the HUD shows, and nothing is sent.
+func _gate_for_volume(volume_id: StringName, cap: String, label: String, quiet: bool = false) -> bool:
+	var conn: Node = _conn_for_volume(volume_id)
+	if conn == null:
+		# Before _ready builds the connections (a scene driven without the tree),
+		# answer from the binding's capability table; nothing can be refused aloud.
+		return BackendCaps.supports(BackendCaps.for_mode(_volume_mode(volume_id)), cap)
+	return conn.gate(cap, label, quiet)
 
 
-# A backend switch abandons every request addressed to the previous server, and
-# everything the old server's answers already put on screen: a late reply would
-# otherwise commit staged physics, and an applied fold plan, cycle overlay or
-# query-result planes are bound to the old epoch's ids and would land on the
-# new graph's nodes. The once-per-session canary latch is left alone.
-func _abandon_backend_requests() -> void:
-	for req: HTTPRequest in [_physics_http, _fold_http, _cycles_http, _query_http, _exec_http, _relations_http, _expand_http, _observe_http, _demo_http]:
-		if req != null:
-			req.cancel_request()
-	_physics_pending = false
-	_physics_staged = {}
-	_fold_pending = false
-	_cycles_pending = false
-	_query_pending = false
-	_exec_pending = false
-	_demo_pending = false
-	if _cycles_active():
-		_cycles_count = 0
-		_binary_client.clear_cycle_overlay()
-	if _binary_client != null and _binary_client.has_method("clear_fold_plan"):
-		_binary_client.clear_fold_plan()
-	_fold_level = 0
-	if _planes != null and _planes.has_method("clear"):
-		_planes.clear()
-	# Pins live on the server we are leaving. Release them now, while its socket
-	# is still open, rather than strand them behind an empty client set: a
-	# backend that never acked pins has nothing to release.
-	if backend_supports(BackendCaps.PIN) and _binary_client != null and _binary_client.has_method("send_node_unpin"):
-		for id: int in _pinned_ids.keys():
-			_binary_client.send_node_unpin(id)
-	_pinned_ids.clear()
-	_selection_dirty = true
-	if _parity != null and _parity.has_method("on_backend_switched"):
-		_parity.on_backend_switched()
+# Backend mode of a volume's connection; connection ids are the mode names.
+func _volume_mode(volume_id: StringName) -> String:
+	return String(VOLUME_BINDINGS.get(volume_id, {}).get("conn", &"visionclaw"))
 
 
-# HUD "backend:<mode>": switch server and force-reconnect, as Reconnect does.
-func _switch_backend(mode: String) -> void:
-	if not BACKEND_MODES.has(mode):
-		push_warning("GraphScene: unknown backend mode '%s' ignored" % mode)
-		return
-	if mode == _backend_mode:
-		return
-	_abandon_backend_requests()
-	_backend_mode = mode
-	_graph_ws_url = _backend_base(mode) + GRAPH_STREAM_PATH
-	_presence_ws_url = _backend_base(mode) + PRESENCE_PATH
-	_reset_reconnect_state()
-	_attempt_connect()
-	_sync_hud_backend()
-	_refresh_controls_status()
-	if _parity != null:
-		_parity.apply_backend_palette(mode)
+func _conn_for_volume(volume_id: StringName) -> Node:
+	var b: Dictionary = VOLUME_BINDINGS.get(volume_id, {})
+	if b.is_empty():
+		return null
+	return _conns.get(b["conn"], null)
+
+
+func _on_conn_refused(conn_id: StringName, _cap: String, label: String) -> void:
+	var conn: Node = _conns.get(conn_id, null)
+	var who: String = conn.display_name() if conn != null else String(conn_id)
 	if hud != null and hud.has_method("flash_notice"):
-		hud.flash_notice("Backend: %s  %s" % [BACKEND_NAMES[mode], _backend_base(mode)])
+		hud.flash_notice("Not on %s: %s" % [who, label], 4.0)
 
 
 # Operator pressed Reconnect on the Session tab: force-reconnect both sockets now.
 func _on_hud_reconnect() -> void:
 	_reset_reconnect_state()
 	_attempt_connect()
+
+
+# HUD volume row: "volume_toggle:<id>" shows/hides a volume (a hidden volume
+# stops packing, ADR-2159 D4); "volume_focus:<id>" focuses it, which picks the
+# connection the HUD's global controls gate against.
+func _on_volume_action(action: String) -> void:
+	if action.begins_with("volume_toggle:"):
+		var vid := StringName(action.substr(14))
+		var v: Node3D = _volumes.get(vid, null)
+		if v != null:
+			v.request_visible(not v.visible_state)
+			if not v.visible_state and _sources.has(vid):
+				_sources[vid].clear_instances()
+				if vid == OVERLAY_VOLUME:
+					_release_grab()
+					_empty_overlay_slot(_sources[vid])
+					_hide_all_labels()
+	elif action.begins_with("volume_focus:"):
+		var fid := StringName(action.substr(13))
+		if _volumes.has(fid):
+			_focused_volume = fid
+			for id: StringName in _volumes:
+				_volumes[id].set_focused(id == fid)
+	_sync_hud_backend()
+	_refresh_controls_status()
 
 
 # HUD control-panel actions. Physics actions POST/PUT to the backend on the
@@ -941,11 +1282,14 @@ func _on_hud_control(action: String) -> void:
 	if action.begins_with("type_toggle:"):
 		_apply_type_toggle(action.substr(12))
 		return
-	if action.begins_with("backend:"):
-		_switch_backend(action.substr(8))
+	if action.begins_with("volume_"):
+		_on_volume_action(action)
+		return
+	if action == "cross_links_toggle":
+		_set_cross_links(not (_link_layer != null and _link_layer.is_enabled()))
 		return
 	var needed: String = BackendCaps.cap_for_action(action)
-	if not needed.is_empty() and not _gate(needed, action.get_slice(":", 0).replace("_", " ")):
+	if not needed.is_empty() and not _gate_for_volume(_focused_volume, needed, action.get_slice(":", 0).replace("_", " ")):
 		return
 	if _parity != null and _parity.handle_control(action):
 		return
@@ -1044,7 +1388,7 @@ func _refresh_memory_cloud_hud() -> void:
 
 # Apply a type show/hide toggle "<class>:<1|0>" to the render store. Class codes
 # mirror render_store::KIND_* (0 knowledge / 1 ontology / 2 agent). A rebuild of
-# the draw list happens on the next frame via _recompute_drawn_ids.
+# the draw list happens on the next frame (the volume sources re-read their ids).
 func _apply_type_toggle(spec: String) -> void:
 	if _binary_client == null or not _binary_client.has_method("set_type_visible"):
 		return
@@ -1108,7 +1452,7 @@ func _refresh_controls_status() -> void:
 # physics one-in-flight discipline. Level 0 short-circuits: clear the plan locally,
 # no HTTP needed.
 func _request_fold(delta: int) -> void:
-	if not _gate(BackendCaps.FOLD, "fold levels"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.FOLD, "fold levels"):
 		return
 	if _fold_pending:
 		push_warning("GraphScene: fold change already in flight; ignoring")
@@ -1215,7 +1559,7 @@ func _cycles_active() -> bool:
 func _fetch_cycles() -> void:
 	if _cycles_http == null or _cycles_pending:
 		return
-	if not _gate(BackendCaps.CYCLES, "cycle analysis"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.CYCLES, "cycle analysis"):
 		return
 	var url := "%s/api/analytics/cycles" % _http_base()
 	var headers := _auth_headers(url, "GET")
@@ -1326,7 +1670,7 @@ func _request_layout_mode_cycle() -> void:
 func _post_layout_mode(mode: String) -> bool:
 	if _physics_http == null:
 		return false
-	if _physics_pending or not _gate(BackendCaps.LAYOUT_MODE, "layout modes"):
+	if _physics_pending or not _gate_for_volume(_focused_volume, BackendCaps.LAYOUT_MODE, "layout modes"):
 		return false
 	var url := "%s/api/layout/mode" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -1349,7 +1693,7 @@ func _post_radial(body: Dictionary) -> bool:
 	if _physics_pending:
 		push_warning("GraphScene: physics change already in flight; ignoring")
 		return false
-	if not _gate(BackendCaps.RADIAL, "radial shells"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.RADIAL, "radial shells"):
 		return false
 	var url := "%s/api/layout/radial" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -1368,7 +1712,7 @@ func _post_radial(body: Dictionary) -> bool:
 func _unpin_all() -> void:
 	if _binary_client == null or not _binary_client.has_method("send_node_unpin"):
 		return
-	if not _gate(BackendCaps.PIN, "pins"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.PIN, "pins"):
 		_pinned_ids.clear()
 		_refresh_controls_status()
 		return
@@ -1446,7 +1790,7 @@ func _auth_headers(url: String, method: String) -> PackedStringArray:
 # POST {base}/api/settings/physics/reset-layout. Returns true if the request was
 # dispatched (gate then held until _on_physics_completed).
 func _post_physics_reset() -> bool:
-	if _physics_http == null or not _gate(BackendCaps.PHYSICS_WRITE, "layout reset"):
+	if _physics_http == null or not _gate_for_volume(_focused_volume, BackendCaps.PHYSICS_WRITE, "layout reset"):
 		return false
 	var url := "%s/api/settings/physics/reset-layout" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -1490,7 +1834,7 @@ func _describe_write_failure(result: int, response_code: int) -> String:
 func _put_physics_body(body: Dictionary) -> bool:
 	if _physics_http == null:
 		return false
-	if _physics_pending or not _gate(BackendCaps.PHYSICS_WRITE, "physics settings"):
+	if _physics_pending or not _gate_for_volume(_focused_volume, BackendCaps.PHYSICS_WRITE, "physics settings"):
 		return false
 	var url := "%s/api/settings/physics?graph=knowledge" % _http_base()
 	var headers := _auth_headers(url, "PUT")
@@ -1513,7 +1857,7 @@ func _on_hud_join_requested(room_urn: String) -> void:
 # paths are appended. Empty secret => anonymous graph stream / ephemeral Nostr
 # identity.
 func _connect_from_env() -> void:
-	var base: String = _backend_base(_backend_mode)
+	var base: String = _vc_base()
 	connect_to_server(
 		base + GRAPH_STREAM_PATH,
 		base + PRESENCE_PATH,
@@ -1528,32 +1872,25 @@ func _env_or(name: String, fallback: String) -> String:
 	return value if value != "" else fallback
 
 
-# Pure: the ws base for `mode`. VisionClaw = the env base; Codescape = the env
-# base + CODESCAPE_PATH (never doubled). Any other mode falls back to the env base.
-func _backend_base(mode: String) -> String:
-	return _with_backend_prefix(_env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS), mode)
+# VisionClaw ws base: XR_BACKEND_WS (scheme+host+port).
+func _vc_base() -> String:
+	return BackendConnection.with_backend_prefix(_env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS), "visionclaw")
 
 
-# Pure: strip a trailing "/" and, for "codescape", append CODESCAPE_PATH once.
-static func _with_backend_prefix(base: String, mode: String) -> String:
-	var b: String = base.rstrip("/")
-	if mode == "codescape" and not b.ends_with(CODESCAPE_PATH):
-		b += CODESCAPE_PATH
-	return b
+# Codescape ws base: XR_CODESCAPE_WS, else XR_BACKEND_WS + CODESCAPE_PATH (once).
+func _cs_base() -> String:
+	var explicit: String = OS.get_environment("XR_CODESCAPE_WS")
+	if explicit != "":
+		return BackendConnection.with_backend_prefix(explicit, "codescape")
+	return BackendConnection.with_backend_prefix(_env_or("XR_BACKEND_WS", DEFAULT_BACKEND_WS), "codescape")
 
 
-# HTTP origin for the intervention decide POST. Prefer an explicit override,
-# else swap the ws:// backend scheme to http:// (wss → https).
+# HTTP origin for every VisionClaw request (intervention, memory, physics, fold,
+# query, …): the VisionClaw connection's base. Codescape serves none of them.
 func _http_base() -> String:
-	var override: String = OS.get_environment("XR_BACKEND_HTTP")
-	if override != "":
-		return _with_backend_prefix(override, _backend_mode)
-	var ws: String = _backend_base(_backend_mode)
-	if ws.begins_with("wss://"):
-		return "https://" + ws.substr(6)
-	if ws.begins_with("ws://"):
-		return "http://" + ws.substr(5)
-	return ws
+	if _vc_conn != null:
+		return _vc_conn.http_base()
+	return BackendConnection.ws_to_http(_vc_base())
 
 
 func connect_to_server(
@@ -1563,7 +1900,9 @@ func connect_to_server(
 	display_name: String,
 	nostr_secret_hex: String = ""
 ) -> void:
-	_graph_ws_url = graph_ws_url
+	# The graph URLs belong to the connections (BackendConnection.graph_ws_url);
+	# `graph_ws_url` is kept in the signature for callers and logged once.
+	print("GraphScene: graph %s, codescape %s" % [graph_ws_url, _cs_conn.graph_ws_url() if _cs_conn != null else "-"])
 	_presence_ws_url = presence_ws_url
 	_room_urn = room_urn
 	_display_name = display_name
@@ -1573,8 +1912,6 @@ func connect_to_server(
 
 
 func _reset_reconnect_state() -> void:
-	_graph_reconnect_attempts = 0
-	_graph_reconnect_timer = -1.0
 	_presence_reconnect_attempts = 0
 	_presence_reconnect_timer = -1.0
 
@@ -1588,13 +1925,16 @@ func _attempt_connect() -> void:
 
 
 func _connect_graph() -> void:
-	# Tear down any prior graph socket so a reconnect never leaks a detached
-	# tokio task, then re-open. The Nostr secret also NIP-98-authenticates the
-	# graph socket so server-authoritative drag/pin messages are accepted.
-	if _binary_client == null:
-		return
-	if _binary_client.has_method("close"):
-		_binary_client.close()
+	# (Re)open both graph connections. Each tears down its own prior socket and
+	# owns its own backoff from here on (BackendConnection).
+	_clear_graph_mirror()
+	for conn: Node in _conns.values():
+		conn.open()
+
+
+# Drop the scene's VisionClaw graph mirror (centrality, drawn ids, edge ranking,
+# selection) so a reconnect never mixes stale ids with a fresh snapshot.
+func _clear_graph_mirror() -> void:
 	# A reconnect may land on a restarted server with a different id space:
 	# stale positions/topology would mix with the fresh snapshot as orphan
 	# gems and phantom edges, so drop all graph state before re-dialling. The
@@ -1602,7 +1942,6 @@ func _connect_graph() -> void:
 	# mirror + selection here.
 	_node_centrality.clear()
 	_centrality_max = 0.0001
-	_drawn_ids = PackedInt32Array()
 	_selection_dirty = true
 	_edge_pairs = PackedInt32Array()
 	_edge_pairs_ranked = PackedInt32Array()
@@ -1620,8 +1959,6 @@ func _connect_graph() -> void:
 	_manual_transform = false
 	_two_hand_active = false
 	_manip_session_base_scale = -1.0
-	if _binary_client.has_method("connect_to_url"):
-		_binary_client.connect_to_url(_graph_ws_url, _nostr_secret_hex)
 
 
 func _connect_presence() -> void:
@@ -1641,8 +1978,8 @@ func _physics_process(delta: float) -> void:
 		_refresh_controls_status()
 	# Drain network inboxes on the scene-tree thread; both clients emit their
 	# signals from inside poll().
-	if _binary_client != null and _binary_client.has_method("poll"):
-		_binary_client.poll()
+	for conn: Node in _conns.values():
+		conn.poll(delta)
 	if _presence_client != null and _presence_client.has_method("poll"):
 		_presence_client.poll()
 	_update_lod()
@@ -1653,24 +1990,26 @@ func _physics_process(delta: float) -> void:
 	_update_radial_menu()
 	_update_query_count(delta)
 	_update_teleport(delta)
-	# Two-hand pinch scale/rotate/move must run BEFORE _fit_graph_to_view: on its
-	# first engage it latches _manual_transform, which makes the adaptive fit
-	# early-return this same frame so the gesture — not the auto-fit — owns
-	# graph_root's transform.
+	# Two-hand pinch moves/turns/scales the volume arrangement; it runs before the
+	# volumes tick so GraphRoot follows the overlay volume in the same frame.
 	_update_two_hand_manip(delta)
 	# Rust owns the hunt now: one call eases all render positions toward their
 	# targets and pins the grabbed node to the wand — replaces the old GDScript
 	# per-node lerp over a 13k Dictionary.
 	if _binary_client != null and _binary_client.has_method("hunt"):
 		_binary_client.hunt(chase_ease(delta), _grabbed_id, _grab_target_server)
-	_fit_graph_to_view(delta)
+	if _cs_conn != null and _cs_conn.client != null and _cs_conn.client.has_method("hunt"):
+		_cs_conn.client.hunt(chase_ease(delta), -1, Vector3.ZERO)
+	# Each visible volume refits from its source's full extent (E7); this
+	# replaces the old whole-graph fit. GraphRoot then follows the overlay volume.
+	_tick_volumes(delta)
 	# Both packs run every frame: the Rust pack plans (render_store_pack.rs) cost
 	# ~1 ms for 13k nodes + 20k edges together, so the old 45 Hz alternation (from
 	# when GDScript looped over the instances) is gone — it also left edge ends a
 	# frame behind their nodes. The far ribbon tier refreshes half per frame.
-	_update_multimesh()
-	_update_edge_multimesh()
+	_pack_volumes()
 	_tick_frame_budget(delta)
+	_log_volumes(delta)
 	# Work beams (ADR-140, Pillar 2 / P3) refresh every frame: the buffer is a short
 	# walk of the agent registry (tens of instances), not the node/edge domain, so
 	# the flowing stream stays crisp at 90 Hz.
@@ -1682,6 +2021,9 @@ func _physics_process(delta: float) -> void:
 	_update_selection(delta)
 	_update_voice_listener()
 	_tick_reconnect(delta)
+	if _shim != null:
+		_shim.tick(delta)
+	_tick_links(delta)
 	# Proximity labels refresh at ~4 Hz (not per frame) — the query + text/fade
 	# assignment is the only work and it reuses the pool, so zero per-frame cost.
 	_label_accum += delta
@@ -1900,56 +2242,9 @@ func _update_lod() -> void:
 			av.set_lod_level(level)
 
 
+# World metres per graph unit in GraphRoot (the overlay volume's Content scale);
+# label reach, beam radius and query planes compensate for it.
 var _graph_scale: float = 1.0
-var _fit_frame: int = 0
-var _fit_target_scale: float = 0.0
-var _fit_target_centre: Vector3 = Vector3.ZERO
-# Frames between AABB recomputes (a full pass over _node_positions is O(N)).
-const FIT_RECOMPUTE_FRAMES: int = 15
-# Per-frame easing toward the fit target — small enough that a moving/re-settling
-# graph rescales smoothly rather than snapping.
-const FIT_EASE: float = 0.06
-
-
-# Scale + recentre GraphRoot so the streamed node cloud always fills a room-sized
-# volume in front of the user. Adaptive (not latched): the AABB is re-measured
-# periodically and the transform eased toward the new target, so the graph stays
-# room-sized as the force layout spreads, re-settles, or reheats after a physics
-# change. Node/edge geometry compensates for `_graph_scale` so it never shrinks
-# to specks.
-func _fit_graph_to_view(_delta: float) -> void:
-	# A two-hand manual gesture takes permanent authority over graph_root until a
-	# new topology (or graph-state clear) re-enables the fit. While latched, the
-	# adaptive easing must not fight the user's transform.
-	if _manual_transform:
-		return
-	if graph_root == null or _binary_client == null or _binary_client.node_count() == 0:
-		return
-	_fit_frame += 1
-	if _fit_frame % FIT_RECOMPUTE_FRAMES == 0 or _fit_target_scale == 0.0:
-		# Robust 5th–95th percentile AABB, computed in Rust over the render store
-		# (excluding the grabbed node so a dragged outlier can't inflate the fit —
-		# "edges scaling off when moved"). Returns [minx,miny,minz,maxx,maxy,maxz]
-		# or empty.
-		var bb: PackedFloat32Array = _binary_client.render_aabb(0.05, 0.95, _grabbed_id)
-		if bb.size() == 6:
-			var mn := Vector3(bb[0], bb[1], bb[2])
-			var mx := Vector3(bb[3], bb[4], bb[5])
-			var span: Vector3 = mx - mn
-			var longest: float = maxf(span.x, maxf(span.y, span.z))
-			if longest >= 0.001:
-				_fit_target_scale = GRAPH_TARGET_SPAN / longest
-				_fit_target_centre = (mn + mx) * 0.5
-	if _fit_target_scale <= 0.0:
-		return
-	# Ease current scale/centre toward the target, then rebuild the transform:
-	# world = anchor + scale * (server_pos - centre) → graph centre sits at anchor.
-	var ease: float = FIT_EASE if _graph_scale > 0.0 else 1.0
-	_graph_scale = lerpf(_graph_scale, _fit_target_scale, ease)
-	graph_root.transform = Transform3D(
-		Basis.IDENTITY.scaled(Vector3(_graph_scale, _graph_scale, _graph_scale)),
-		GRAPH_ANCHOR - _fit_target_centre * _graph_scale
-	)
 
 
 # Linear-interpolated percentile (q in [0,1]) of an unsorted float array. Used to
@@ -2051,14 +2346,14 @@ func _update_two_hand_manip(_delta: float) -> void:
 
 # Lock the reference frame for a new manipulation session and take fit authority.
 func _begin_two_hand_manip() -> void:
-	if graph_root == null:
+	if _arrangement == null:
 		return
 	var lp: Vector3 = left_controller.global_position
 	var rp: Vector3 = right_controller.global_position
 	var vec: Vector3 = rp - lp
 	if vec.length() < MANIP_MIN_SPAN:
 		return  # hands coincident: no stable axis yet, wait a frame to engage
-	var start_xform: Transform3D = graph_root.global_transform
+	var start_xform: Transform3D = _arrangement.global_transform
 	# Pivot = render AABB centre in server space → world through the live graph
 	# transform. -1 includes every node (nothing is grabbed during a manip).
 	var pivot: Vector3 = _manip_aabb_centre_world(start_xform)
@@ -2081,7 +2376,7 @@ func _begin_two_hand_manip() -> void:
 
 # Recompute + apply the graph transform for the current controller poses.
 func _apply_two_hand_manip() -> void:
-	if graph_root == null:
+	if _arrangement == null:
 		return
 	var lp: Vector3 = left_controller.global_position
 	var rp: Vector3 = right_controller.global_position
@@ -2112,31 +2407,30 @@ func _apply_two_hand_manip() -> void:
 		Vector3(scale_factor, scale_factor, scale_factor))
 	var anchored := Transform3D(rs, p - rs * p)                 # T(p)·R·S·T(-p)
 	var manip := Transform3D(Basis.IDENTITY, translate) * anchored
-	# Apply THIS frame's full delta first (no dropped frame), then keep the
-	# node/edge apparent-size compensation in step with the new scale.
-	graph_root.global_transform = manip * _manip_start_xform
-	_graph_scale = _uniform_scale(graph_root.global_transform)
+	# Apply THIS frame's full delta first (no dropped frame). The gesture moves,
+	# turns and scales the whole volume arrangement (ADR-2158); each volume's
+	# own fit and the node size compensation follow from its world transform.
+	_arrangement.global_transform = manip * _manip_start_xform
 	# Drift guard: once the accumulated twist passes ~90°, re-baseline from the
 	# JUST-APPLIED transform (not the previous frame's) so no delta is lost — the
 	# graph doesn't pop. init_vec := current vector, so next frame's rotation
 	# starts from identity again. Graph2VR resets its frame the same way.
 	if rot.get_angle() > MANIP_DRIFT_RESET_RAD:
-		_manip_start_xform = graph_root.global_transform
+		_manip_start_xform = _arrangement.global_transform
 		_manip_init_vec = vec
 		_manip_init_dist = dist
 		_manip_init_mid = mid
-		_manip_pivot_world = _manip_aabb_centre_world(graph_root.global_transform)
+		_manip_pivot_world = _manip_aabb_centre_world(_arrangement.global_transform)
 
 
-# Render AABB centre (5th–95th pct, all nodes) mapped to world through `xform`.
-# Falls back to the transform origin if the store can't supply a box yet.
+# Centre of the volume arrangement's boxes mapped to world through `xform`
+# (arrangement_aabb is in the arrangement's own unscaled frame).
 func _manip_aabb_centre_world(xform: Transform3D) -> Vector3:
-	if _binary_client != null and _binary_client.has_method("render_aabb"):
-		var bb: PackedFloat32Array = _binary_client.render_aabb(0.05, 0.95, -1)
-		if bb.size() == 6:
-			var centre_server := Vector3(
-				(bb[0] + bb[3]) * 0.5, (bb[1] + bb[4]) * 0.5, (bb[2] + bb[5]) * 0.5)
-			return xform * centre_server
+	if _arrangement != null and _arrangement.has_method("arrangement_aabb"):
+		var box: AABB = _arrangement.arrangement_aabb()
+		if box.has_volume():
+			var unscaled := Transform3D(xform.basis.orthonormalized(), xform.origin)
+			return unscaled * box.get_center()
 	return xform.origin
 
 
@@ -2165,141 +2459,41 @@ static func chase_ease(delta: float) -> float:
 	return 1.0 - exp(-(delta * 1000.0) / CHASE_MS)
 
 
-# Recompute the drawn-node selection (LOD budget + topology bias). Cached in
-# _drawn_ids and only rebuilt when the domain changes (visuals/topology/budget),
-# so the per-frame buffer build reuses it. Topology-coherence + budget logic is
-# unchanged; only the id SOURCE moved from _node_positions.keys() to the Rust store.
-func _recompute_drawn_ids() -> void:
-	if _binary_client == null:
-		_drawn_ids = PackedInt32Array()
-		return
-	var all_ids: PackedInt32Array = _binary_client.get_node_ids()
-	var n: int = all_ids.size()
-	if n <= _node_budget or _lod_policy == null or not _lod_policy.has_method("visible_subset"):
-		_drawn_ids = all_ids
-		return
-	# Over budget: bias edge-endpoint (topo) nodes so they win cap slots first
-	# (keeps drawn nodes coherent with drawable edges), spare slots to the highest
-	# centrality non-topo nodes.
-	var have_topo: bool = not _topo_ids.is_empty()
-	var centrality := PackedFloat32Array()
-	centrality.resize(n)
-	for i: int in range(n):
-		var c: float = _node_centrality.get(all_ids[i], 0.0)
-		if have_topo and _topo_ids.has(all_ids[i]):
-			c += TOPO_SELECT_BIAS
-		centrality[i] = c
-	var subset: PackedInt32Array = _lod_policy.visible_subset(centrality, _node_budget)
-	var out := PackedInt32Array()
-	out.resize(subset.size())
-	for j: int in range(subset.size()):
-		out[j] = all_ids[subset[j]]
-	_drawn_ids = out
-
-
-# Node MultiMesh: Rust packs the whole instance buffer (transform + colour +
-# custom) from the drawn ids; GDScript does a single buffer assignment. scale_comp
-# folds the GraphRoot fit-scale and the HUD node-size factor; the centrality size
-# tell + halo custom channel are computed in Rust.
-func _update_multimesh() -> void:
-	if nodes_multi == null or nodes_multi.multimesh == null or _binary_client == null:
-		return
-	if _selection_dirty:
-		_recompute_drawn_ids()
-		_selection_dirty = false
-	var comp: float = NODE_WORLD_RADIUS * _node_size_factor / (NODE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array
-	var cam: Camera3D = get_viewport().get_camera_3d()
-	if _impostors != null and cam != null and _binary_client.has_method("build_node_buffer_lod"):
-		# Gem mesh for the nearest NEAR_CAP nodes within NEAR_RADIUS_M of the eye;
-		# every other drawn node is a 2-triangle impostor (one extra draw call).
-		var inv: Transform3D = graph_root.global_transform.affine_inverse()
-		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
-		buf = _binary_client.build_node_buffer_lod(_drawn_ids, comp, 0.7, 1.9,
-			inv * cam.global_position, int(_budget.caps["gem_nodes"]), NodeLod.NEAR_RADIUS_M / world_per_server)
-		NodeLod.assign(_impostors, _binary_client.impostor_node_buffer())
-	else:
-		buf = _binary_client.build_node_buffer(_drawn_ids, comp, 0.7, 1.9)
-	var mm: MultiMesh = nodes_multi.multimesh
-	var count: int = buf.size() / 20
-	if mm.instance_count != count:
-		mm.instance_count = count
-	if count > 0:
-		mm.buffer = buf
-	# Transparent pass: the labelled / fading nodes the same build routed away from
-	# the opaque buffer (COLOR.a = fade alpha). Usually 0-13 instances.
-	if nodes_faded_multi == null or nodes_faded_multi.multimesh == null:
-		return
-	if not _binary_client.has_method("faded_node_buffer"):
-		return
-	var fbuf: PackedFloat32Array = _binary_client.faded_node_buffer()
-	var fmm: MultiMesh = nodes_faded_multi.multimesh
-	var fcount: int = fbuf.size() / 20
-	if fmm.instance_count != fcount:
-		fmm.instance_count = fcount
-	if fcount > 0:
-		fmm.buffer = fbuf
-	# Halo quads (NodesHaloMulti) for every full-mesh node: the gem tier + faded.
-	if nodes_halo_multi != null:
-		NodeLod.assign_halo(nodes_halo_multi, buf, fbuf)
-
-
 # FrameBudget pass (frame_budget_pass.gd) from what was actually drawn this frame:
 # instance counts per layer, the hull mesh, the memory layer's demand, and the
 # renderer's frame total for everything outside the budgeted layers.
 func _tick_frame_budget(delta: float) -> void:
 	if _binary_client == null:
 		return
-	var n := func(mmi: MultiMeshInstance3D) -> int:
-		return mmi.multimesh.instance_count if mmi != null and mmi.multimesh != null and mmi.visible else 0
-	var layers := {
-		"gems": n.call(nodes_multi), "faded": n.call(nodes_faded_multi), "halos": n.call(nodes_halo_multi),
-		"impostors": n.call(_impostors), "cylinders": n.call(edges_multi), "ribbons": n.call(_ribbons),
-		"hulls": _parity.hull_count if _parity != null else 0,
-		"hull_tris": _parity.hull_triangles if _parity != null else 0,
-	}
+	var sum := {"gems": 0, "faded": 0, "halos": 0, "impostors": 0, "cylinders": 0, "ribbons": 0}
+	var role_key := {"nodes": "gems", "faded": "faded", "halos": "halos", "impostors": "impostors", "edges": "cylinders", "ribbons": "ribbons"}
 	var calls: int = 0
-	for mmi in [nodes_multi, nodes_faded_multi, nodes_halo_multi, _impostors, edges_multi, _ribbons, agent_multi]:
-		if n.call(mmi) > 0:
-			calls += 1
+	var volumes := {}
+	for vid: StringName in _sources:
+		var src = _sources[vid]
+		for role: String in role_key:
+			var c: int = int(src.counts.get(role, 0))
+			sum[role_key[role]] += c
+			if c > 0:
+				calls += 1
+		var v: Node3D = _volumes.get(vid, null)
+		volumes[vid] = src.demand() if v != null and v.visible_state else {"nodes": 0, "edges": 0}
+	var layers := sum.duplicate()
+	layers["hulls"] = _parity.hull_count if _parity != null else 0
+	layers["hull_tris"] = _parity.hull_triangles if _parity != null else 0
+	if agent_multi != null and agent_multi.multimesh != null and agent_multi.visible and agent_multi.multimesh.instance_count > 0:
+		calls += 1
+	# §7.7: the link layer's call is charged here; its triangles are inside the
+	# renderer's measured total, which the pass charges as outside-layer triangles.
+	if _link_layer != null:
+		calls += int(_link_layer.draw_calls())
 	if int(layers["hulls"]) > 0:
 		calls += 1
 	layers["draw_calls"] = calls
 	var measured: int = int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME))
 	var bursts_on: bool = _beat != null and bool(_beat.get("bursts_enabled"))
-	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured, bursts_on) and _parity != null:
+	if _budget.tick(delta, _binary_client, layers, _memory_cloud, measured, bursts_on, volumes) and _parity != null:
 		_parity.max_hulls = int(_budget.caps["max_hulls"])
-
-
-# Edge MultiMesh: Rust filters the ranked pairs to both-endpoints-drawn and packs
-# the rotated+scaled cylinder transforms; GDScript does a single buffer assignment.
-func _update_edge_multimesh() -> void:
-	if edges_multi == null or edges_multi.multimesh == null or _binary_client == null:
-		return
-	var er: float = EDGE_WORLD_RADIUS / (EDGE_MESH_RADIUS * _graph_scale)
-	var buf: PackedFloat32Array
-	var cam: Camera3D = get_viewport().get_camera_3d()
-	if _ribbons != null and cam != null and _binary_client.has_method("build_edge_buffer_lod"):
-		# Cylinders for the NEAR_EDGE_CAP edges whose midpoint is nearest the eye;
-		# every other drawn edge is a 2-triangle ribbon (one extra draw call).
-		var inv: Transform3D = graph_root.global_transform.affine_inverse()
-		var world_per_server: float = maxf(_uniform_scale(graph_root.global_transform), 1e-6)
-		buf = _binary_client.build_edge_buffer_lod(_edge_pairs, er, inv * cam.global_position,
-			int(_budget.caps["cylinder_edges"]), NodeLod.NEAR_EDGE_RADIUS_M / world_per_server)
-		NodeLod.sync_edge_params(edges_multi.material_override, _ribbons.material_override)
-		NodeLod.assign_stride(_ribbons, _binary_client.ribbon_edge_buffer(), 16)
-	else:
-		buf = _binary_client.build_edge_buffer(_edge_pairs, er)
-	var mm: MultiMesh = edges_multi.multimesh
-	# 16 floats/instance: 12 transform + 4 INSTANCE_CUSTOM (style code in .a).
-	# MultiMesh_edges has use_custom_data=true, so the resource stride is 16 — the
-	# builder packs 16 (see render_store::build_edge_buffer). A /12 divisor here
-	# mis-sizes instance_count, so set_buffer rejects every frame and edges vanish.
-	var count: int = buf.size() / 16
-	if mm.instance_count != count:
-		mm.instance_count = count
-	if count > 0:
-		mm.buffer = buf
 
 
 # Work-beam MultiMesh (ADR-140, Pillar 2 / P3): Rust packs one cylinder per active
@@ -2343,8 +2537,9 @@ func _update_interaction() -> void:
 	if _grabbed_id != -1:
 		var trigger_now: float = _controller_trigger(_grab_controller)
 		if trigger_now < GRAB_RELEASE or _grab_controller == null:
-			if _binary_client.has_method("send_drag_end"):
-				_binary_client.send_drag_end(_grabbed_id)
+			var drag_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+			if drag_conn != null:
+				drag_conn.send_drag_end(_grabbed_id)
 			# Track the node this drag pinned so Unpin All can release it later. The
 			# server pins on drag; drag-end above is our own release of THIS node, but
 			# the operator may re-pin via a fresh drag — recording it keeps the Unpin
@@ -2368,8 +2563,9 @@ func _update_interaction() -> void:
 			var hand_world: Vector3 = ray_origin + ray_dir * _grab_distance
 			var hand_server: Vector3 = graph_root.global_transform.affine_inverse() * hand_world
 			_grab_target_server = hand_server
-			if _binary_client.has_method("send_drag_update"):
-				_binary_client.send_drag_update(_grabbed_id, hand_server)
+			var upd_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+			if upd_conn != null:
+				upd_conn.send_drag_update(_grabbed_id, hand_server)
 		return
 
 	for controller: XRController3D in [left_controller, right_controller]:
@@ -2709,7 +2905,8 @@ func _server_to_world(p: Vector3) -> Vector3:
 
 
 func _graph_centre_world() -> Vector3:
-	return _server_to_world(_fit_target_centre) if graph_root != null else GRAPH_ANCHOR
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	return v.global_position if v != null and v.is_inside_tree() else GRAPH_ANCHOR
 
 
 # ~4 Hz: mirror the registry into embodiments. New ids materialise at a rim
@@ -3009,7 +3206,7 @@ func _on_selection_made(handle: int, did_nostr: String, _resolver: int) -> void:
 func _fire_m4_ray_canary(agent_id: String, did_nostr: String) -> void:
 	if _m4_ray_observed or _observe_http == null:
 		return
-	if not _gate(BackendCaps.CANARY, "liveness canary", true):
+	if not _gate_for_volume(_focused_volume, BackendCaps.CANARY, "liveness canary", true):
 		return
 	_m4_ray_observed = true
 	var url: String = "%s/api/canary/observe/%s" % [_http_base(), CANARY_M4_RAY]
@@ -3074,11 +3271,6 @@ func _handle_broker_new_case(payload: Dictionary) -> void:
 func _tick_reconnect(delta: float) -> void:
 	# Each socket owns its own countdown; firing one reconnects only that socket
 	# so a pending graph reconnect can't tear down a live presence socket.
-	if _graph_reconnect_timer >= 0.0:
-		_graph_reconnect_timer -= delta
-		if _graph_reconnect_timer <= 0.0:
-			_graph_reconnect_timer = -1.0
-			_connect_graph()
 	if _presence_reconnect_timer >= 0.0:
 		_presence_reconnect_timer -= delta
 		if _presence_reconnect_timer <= 0.0:
@@ -3091,13 +3283,6 @@ func _backoff_delay(attempts: int) -> float:
 		RECONNECT_BASE_DELAY_SEC * pow(2.0, float(attempts - 1)),
 		RECONNECT_MAX_DELAY_SEC
 	)
-
-
-func _schedule_graph_reconnect() -> void:
-	_graph_reconnect_attempts += 1
-	_graph_reconnect_timer = _backoff_delay(_graph_reconnect_attempts)
-	push_warning("GraphScene: graph reconnect attempt %d in %.1fs" % [
-		_graph_reconnect_attempts, _graph_reconnect_timer])
 
 
 func _schedule_presence_reconnect() -> void:
@@ -3127,13 +3312,37 @@ func _find_xr_camera() -> XRCamera3D:
 # the wire (transport.rs), so a live signal always means a usable stream; positions then
 # arrive in chunks the client acknowledges (ADR-2141). Clear any pending graph reconnect timer on connect, else a queued
 # _tick_reconnect would tear the fresh socket back down.
-func _on_connection_changed(connected: bool) -> void:
-	emit_signal("connection_status_changed", connected)
-	if connected:
-		_graph_reconnect_attempts = 0
-		_graph_reconnect_timer = -1.0
-	else:
-		_schedule_graph_reconnect()
+func _on_conn_connected_changed(conn_id: StringName, connected: bool) -> void:
+	if conn_id == &"visionclaw":
+		emit_signal("connection_status_changed", connected)
+		if not connected:
+			_release_grab()
+			_clear_graph_mirror()
+	for vid: StringName in _sources:
+		if VOLUME_BINDINGS[vid]["conn"] == conn_id:
+			_sources[vid].invalidate()
+			if not connected:
+				_sources[vid].clear_instances()
+	# §7.6: a dropped connection's links go with it.
+	if not connected and _link_layer != null:
+		_link_layer.drop_connection(conn_id)
+		_link_sig = []
+	_update_offline_labels()
+	_sync_hud_backend()
+
+
+func _on_conn_topology_changed(conn_id: StringName, _generation: int) -> void:
+	for vid: StringName in _sources:
+		if VOLUME_BINDINGS[vid]["conn"] == conn_id:
+			_sources[vid].invalidate()
+	if conn_id == &"visionclaw":
+		_cloud_placed = false
+	# §7.5: the old generation's links are void; the join reruns on the next
+	# link tick against the new tables.
+	if _link_layer != null:
+		_link_layer.drop_connection(conn_id)
+	_link_sig = []
+	_link_join_accum = LINK_JOIN_SEC
 
 
 # Presence (/ws/presence) socket state, on its own independent backoff.
@@ -3411,8 +3620,9 @@ func _on_node_grabbed(node_id: int, _position: Vector3) -> void:
 	if _grab_controller != null:
 		var node_world: Vector3 = graph_root.global_transform * pos
 		_grab_distance = clampf(_grab_controller.global_position.distance_to(node_world), 0.2, 6.0)
-	if _binary_client != null and _binary_client.has_method("send_drag_start"):
-		_binary_client.send_drag_start(node_id, pos)
+	var start_conn: Node = _conn_for_volume(OVERLAY_VOLUME)
+	if start_conn != null:
+		start_conn.send_drag_start(node_id, pos)
 	_pulse(_grab_controller, 0.6, 0.08)
 
 
@@ -3591,7 +3801,7 @@ func _open_top_labels_radial(controller: XRController3D) -> void:
 func _request_node_relations(node_id: int) -> void:
 	if _relations_http == null:
 		return
-	if not _gate(BackendCaps.NODE_RELATIONS, "node relations", true):
+	if not _gate_for_volume(_focused_volume, BackendCaps.NODE_RELATIONS, "node relations", true):
 		return
 	var url := "%s/api/graph/node/%d/relations" % [_http_base(), node_id]
 	var headers := _auth_headers(url, "GET")
@@ -3657,7 +3867,7 @@ func _build_expansion_items(data: Dictionary) -> Array:
 func _expand_node(node_id: int, direction: String, edge_type: String) -> void:
 	if _expand_http == null or node_id < 0:
 		return
-	if not _gate(BackendCaps.NODE_RELATIONS, "node expansion"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.NODE_RELATIONS, "node expansion"):
 		return
 	var url := "%s/api/graph/node/%d/expand" % [_http_base(), node_id]
 	var headers := _auth_headers(url, "POST")
@@ -4011,7 +4221,7 @@ func _send_query_count() -> void:
 		_query_pending = false
 		_refresh_query_hud()
 		return
-	if not _gate(BackendCaps.PATTERN_QUERY, "pattern queries", true):
+	if not _gate_for_volume(_focused_volume, BackendCaps.PATTERN_QUERY, "pattern queries", true):
 		_query_count = 0
 		_query_pending = false
 		_refresh_query_hud()
@@ -4081,7 +4291,7 @@ func _execute_query() -> void:
 	)
 	if (payload["triples"] as Array).is_empty():
 		return
-	if not _gate(BackendCaps.PATTERN_QUERY, "pattern queries"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.PATTERN_QUERY, "pattern queries"):
 		return
 	var url := "%s/api/graph/query/pattern" % _http_base()
 	var headers := _auth_headers(url, "POST")
@@ -4136,7 +4346,7 @@ func _plane_binding_label(binding: Dictionary) -> String:
 func _post_demo(running: bool) -> bool:
 	if _demo_http == null or _demo_pending:
 		return false
-	if not _gate(BackendCaps.DEMO, "agent demo"):
+	if not _gate_for_volume(_focused_volume, BackendCaps.DEMO, "agent demo"):
 		return false
 	var url := "%s/api/agents/demo" % _http_base()
 	var headers := _auth_headers(url, "POST")

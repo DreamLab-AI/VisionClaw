@@ -1,7 +1,8 @@
 //! tokio-tungstenite transport: the only place real sockets are opened.
 //!
 //! Two pumps run on the shared [`crate::runtime`]: [`spawn_graph_stream`] for the
-//! `/wss` V3 graph position stream and [`spawn_presence`] for the `/ws/presence`
+//! `/wss` V3 graph position stream (large topology frames parse on the blocking
+//! pool, [`classify_text_off_runtime`]) and [`spawn_presence`] for the `/ws/presence`
 //! avatar pose channel. Both push `Send`-safe events into a main-thread inbox
 //! (`Arc<Mutex<VecDeque<_>>>`) because Godot objects are not `Send`; the gdext
 //! classes drain that inbox in their per-frame `poll()`.
@@ -146,7 +147,7 @@ async fn pump_graph_messages(
                         // initialGraphLoad → Topology; every other JSON envelope
                         // (broker:new_case, broker:case_decided, …) is forwarded
                         // verbatim as Text for the scene layer to route by `type`.
-                        push_graph(inbox, crate::binary_protocol::classify_graph_text(&t));
+                        push_graph(inbox, classify_text_off_runtime(t).await);
                     }
                     Some(Ok(Message::Ping(p))) => {
                         let _ = sink.send(Message::Pong(p)).await;
@@ -174,6 +175,34 @@ async fn pump_graph_messages(
                     None => break,
                 }
             }
+        }
+    }
+}
+
+/// Text frames at least this large are classified on the blocking pool (see
+/// [`classify_text_off_runtime`]). Envelopes below it (acks, broker events) parse in
+/// microseconds and stay inline.
+pub const PARSE_OFFLOAD_BYTES: usize = 64 * 1024;
+
+/// Classify one `/wss` text frame without holding an async worker for long.
+///
+/// A full `initialGraphLoad` (14.6 MB at 13k nodes / 145k edges) takes ~0.4 s to parse. The
+/// shared runtime has two async workers (`runtime.rs`), so two connections reloading at once
+/// used to occupy both and stall every other socket on the runtime for the whole parse (measured
+/// 378 ms on a third stream, `tests/two_clients.rs` scenario 2). Large frames now parse on
+/// tokio's blocking pool. The pump awaits the result before reading its next message, so the
+/// topology still lands in the inbox ahead of the position frames sent after it.
+pub async fn classify_text_off_runtime(text: String) -> GraphInbound {
+    if text.len() < PARSE_OFFLOAD_BYTES {
+        return crate::binary_protocol::classify_graph_text(&text);
+    }
+    match tokio::task::spawn_blocking(move || crate::binary_protocol::classify_graph_text(&text)).await {
+        Ok(ev) => ev,
+        Err(e) => {
+            // Only a panic inside the parser (or runtime shutdown) lands here. The frame is
+            // lost either way; say so rather than forward a half-state.
+            warn!(err = %e, "graph stream: text frame classification failed");
+            GraphInbound::Text(String::new())
         }
     }
 }
@@ -400,6 +429,30 @@ impl WsTransport for TungsteniteWsTransport {
 mod tests {
     use super::*;
     use crate::ports::Signer;
+
+    #[tokio::test]
+    async fn small_and_large_text_frames_classify_the_same_way() {
+        let small = r#"{"type":"broker:new_case","caseId":"c1"}"#.to_owned();
+        match classify_text_off_runtime(small.clone()).await {
+            GraphInbound::Text(t) => assert_eq!(t, small),
+            _ => panic!("a broker envelope is forwarded as text"),
+        }
+        let nodes: Vec<String> = (0..4000)
+            .map(|i| format!(r#"{{"id":{i},"label":"node {i}","node_type":"page"}}"#))
+            .collect();
+        let big = format!(
+            r#"{{"type":"initialGraphLoad","nodes":[{}],"edges":[{{"source_id":1,"target_id":2}}]}}"#,
+            nodes.join(",")
+        );
+        assert!(big.len() >= PARSE_OFFLOAD_BYTES, "exercises the blocking-pool path");
+        match classify_text_off_runtime(big).await {
+            GraphInbound::Topology { edges, metas } => {
+                assert_eq!(edges.len(), 1);
+                assert_eq!(metas.len(), 4000);
+            }
+            _ => panic!("a large initialGraphLoad is still a topology"),
+        }
+    }
 
     #[test]
     fn build_signer_empty_is_ephemeral() {

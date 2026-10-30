@@ -192,6 +192,48 @@ pub struct NodeMetaWire {
     /// Population origin for the `linked_page` gate: `metadata.type || node_type`
     /// (server `Node::population_type`, desktop filter).
     pub population_type: String,
+    /// Ontology IRIs this node carries (`metadata.class_iri`, `metadata.page_iri`,
+    /// top-level `owl_class_iri`; `link_index::extract_iris`). VisionClaw nodes only.
+    pub iris: Vec<String>,
+    /// `metadata.ontology_refs` (`<iri>#L<n> …`, ADR-2164 D2). Codescape nodes only.
+    pub ontology_refs: String,
+    /// `metadata.source_file`: the path a code link's provenance names.
+    pub source_file: String,
+}
+
+/// `iri → [wire ids]` over a topology's node metadata (one IRI may sit on several nodes).
+/// Ids are sorted and unique. Feeds the code-link join (ADR-2164 D4).
+pub fn iri_table_from_metas(metas: &[NodeMetaWire]) -> std::collections::HashMap<String, Vec<u32>> {
+    let mut t: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+    for m in metas {
+        for iri in &m.iris {
+            t.entry(iri.clone()).or_default().push(m.id);
+        }
+    }
+    for ids in t.values_mut() {
+        ids.sort_unstable();
+        ids.dedup();
+    }
+    t
+}
+
+/// The annotated code nodes of a topology (those whose `ontology_refs` parse to at least one
+/// well-formed ref), as `link_index::CodeRef`s. `is_file` is `node_type == "file"`.
+pub fn code_refs_from_metas(metas: &[NodeMetaWire]) -> Vec<crate::link_index::CodeRef> {
+    metas
+        .iter()
+        .filter(|m| !m.ontology_refs.is_empty())
+        .filter_map(|m| {
+            let refs = crate::link_index::parse_ontology_refs(&m.ontology_refs);
+            (!refs.is_empty()).then(|| crate::link_index::CodeRef {
+                key: m.metadata_id.clone(),
+                id: m.id,
+                path: m.source_file.clone(),
+                is_file: m.node_type == "file",
+                refs,
+            })
+        })
+        .collect()
 }
 
 /// First numeric value among `keys` in a node's metadata map. Values arrive as
@@ -328,6 +370,9 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
             let population_type = meta_str(meta, "type")
                 .unwrap_or(node_type.as_str())
                 .to_string();
+            let iris = crate::link_index::extract_iris(node);
+            let ontology_refs = meta_str(meta, "ontology_refs").unwrap_or("").to_string();
+            let source_file = meta_str(meta, "source_file").unwrap_or("").to_string();
             if metadata_id.is_empty()
                 && label.is_empty()
                 && node_type.is_empty()
@@ -336,6 +381,8 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 && domain.is_empty()
                 && quality.is_none()
                 && authority.is_none()
+                && iris.is_empty()
+                && ontology_refs.is_empty()
             {
                 continue;
             }
@@ -350,6 +397,9 @@ pub fn parse_initial_graph(text: &str) -> Option<(Vec<EdgeSpec>, Vec<NodeMetaWir
                 quality,
                 authority,
                 population_type,
+                iris,
+                ontology_refs,
+                source_file,
             });
         }
     }
@@ -433,6 +483,93 @@ pub fn build_drag_msg(msg_type: &str, node_id: u32, position: Option<[f32; 3]>) 
         None => serde_json::json!({ "nodeId": node_id }),
     };
     serde_json::json!({ "type": msg_type, "data": data }).to_string()
+}
+
+/// Ids from `ids` whose class code bit is set in `mask` (bit `1 << class_code`, XR phase-1
+/// contract §1: knowledge `0b0001`, ontology `0b0010`, agent `0b0100`, plain/Codescape `0b1000`).
+/// An id with no recorded class is skipped. Order follows `ids`. Pure, so the `cfg(test)` module
+/// covers what `BinaryProtocolClient::node_ids_for_mask` exposes to Godot.
+pub fn ids_for_class_mask(ids: &[u32], mask: i64, class_of: impl Fn(u32) -> Option<u8>) -> Vec<i32> {
+    if mask <= 0 {
+        return Vec::new();
+    }
+    ids.iter()
+        .copied()
+        .filter(|&id| {
+            class_of(id)
+                .map(|c| c < 63 && mask & (1i64 << c) != 0)
+                .unwrap_or(false)
+        })
+        .map(|id| id as i32)
+        .collect()
+}
+
+/// Edge pairs (flattened `[s0, t0, s1, t1, …]`) whose two endpoints both have a class in
+/// `mask`, heaviest first (stable on ties), at most `max` pairs. A volume draws only its own
+/// edges; a cross-volume edge belongs to the link layer (ADR-2164), not to either volume.
+pub fn edges_for_class_mask(
+    flat: &[i32],
+    weights: &[f32],
+    mask: i64,
+    max: usize,
+    class_of: impl Fn(u32) -> Option<u8>,
+) -> Vec<i32> {
+    if mask <= 0 || max == 0 {
+        return Vec::new();
+    }
+    let inside = |id: i32| {
+        id >= 0
+            && class_of(id as u32)
+                .map(|c| c < 63 && mask & (1i64 << c) != 0)
+                .unwrap_or(false)
+    };
+    let mut keep: Vec<(usize, f32)> = flat
+        .chunks_exact(2)
+        .enumerate()
+        .filter(|(_, p)| inside(p[0]) && inside(p[1]))
+        .map(|(i, _)| (i, weights.get(i).copied().filter(|w| w.is_finite()).unwrap_or(1.0)))
+        .collect();
+    keep.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    keep.truncate(max);
+    let mut out = Vec::with_capacity(keep.len() * 2);
+    for (i, _) in keep {
+        out.push(flat[2 * i]);
+        out.push(flat[2 * i + 1]);
+    }
+    out
+}
+
+/// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
+/// positions of `ids`, skipping `exclude` (the grabbed node), ids `position_of` does not know,
+/// and non-finite positions. `None` when nothing qualifies. Unlike `render_aabb`, nothing is
+/// trimmed: a volume's fit must contain every node it draws (ADR-2158 E7).
+pub fn full_aabb_of(
+    ids: &[i32],
+    exclude: Option<u32>,
+    position_of: impl Fn(u32) -> Option<[f32; 3]>,
+) -> Option<[f32; 6]> {
+    let mut lo = [f32::INFINITY; 3];
+    let mut hi = [f32::NEG_INFINITY; 3];
+    let mut any = false;
+    for &raw in ids {
+        if raw < 0 {
+            continue;
+        }
+        let id = raw as u32;
+        if Some(id) == exclude {
+            continue;
+        }
+        let Some(p) = position_of(id) else { continue };
+        if !p.iter().all(|c| c.is_finite()) {
+            continue;
+        }
+        for a in 0..3 {
+            lo[a] = lo[a].min(p[a]);
+            hi[a] = hi[a].max(p[a]);
+        }
+        any = true;
+    }
+    any.then_some([lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]])
 }
 
 /// Read a u32 from a JSON value that may be a number or a numeric string.
@@ -957,6 +1094,15 @@ pub struct BinaryProtocolClient {
     /// Hot-path render store: owns node targets/positions and packs the MultiMesh
     /// instance buffers so GDScript never loops per-instance (PRD-008 perf).
     store: crate::render_store::RenderStore,
+    /// Class code (0 knowledge, 1 ontology, 2 agent, 3 plain) of every node applied from a
+    /// position frame since connect, for the per-volume class masks (XR phase-1 §2.4). The
+    /// render store keeps the same map privately for its type filter; this copy keeps
+    /// `render_store.rs` untouched. Cleared on connect, pruned when agents are retired.
+    node_class: std::collections::HashMap<u32, u8>,
+    /// Code-link tables for the current topology (ADR-2164 D4): this connection's IRI → ids
+    /// (VisionClaw) and annotated code nodes (Codescape). Rebuilt on every initialGraphLoad.
+    iri_ids: std::collections::HashMap<String, Vec<u32>>,
+    code_refs: Vec<crate::link_index::CodeRef>,
     /// Wall-clock instant of the most recent `0x23` agent action, for the P1
     /// data-plane liveness diagnostic (`last_agent_action_age_ms`). `None` until
     /// the first action arrives.
@@ -1028,6 +1174,9 @@ impl BinaryProtocolClient {
             edge_weights: Vec::new(),
             edge_types: Vec::new(),
             store: crate::render_store::RenderStore::new(),
+            node_class: std::collections::HashMap::new(),
+            iri_ids: std::collections::HashMap::new(),
+            code_refs: Vec::new(),
             last_agent_action: None,
             freshness: FreshnessGate::new(),
             clock_anchor: None,
@@ -1055,6 +1204,17 @@ impl BinaryProtocolClient {
     fn connect_to_url(&mut self, url: GString, nostr_secret_hex: GString) {
         self.visuals.clear();
         self.store.clear();
+        self.node_class.clear();
+        self.iri_ids.clear();
+        self.code_refs.clear();
+        // A fresh inbox per connection: the previous pump may still push (an aborted task can
+        // finish its current send) and anything it queued belongs to the old generation's id
+        // space. Swapping, rather than clearing, makes "wire ids are valid only within one
+        // generation" (XR phase-1 §1) hold for every event poll() drains from here on.
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
+        self.inbox = Arc::new(Mutex::new(VecDeque::new()));
         let (handle, outbound) = crate::transport::spawn_graph_stream(
             url.to_string(),
             nostr_secret_hex.to_string(),
@@ -1070,6 +1230,8 @@ impl BinaryProtocolClient {
             h.abort();
         }
         self.outbound = None;
+        // Drop whatever the closed socket queued: nothing from it may surface after close.
+        self.inbox = Arc::new(Mutex::new(VecDeque::new()));
     }
 
     /// Drain queued network events on the scene-tree thread, decoding frames and
@@ -1127,6 +1289,9 @@ impl BinaryProtocolClient {
                     // Per-node degree = incident edge count (desktop parity) — one
                     // O(E) pass over the full edge list, drives the size formula.
                     self.store.compute_degrees(&self.edges_flat);
+                    // Code-link tables, cached per topology (contract §2.4).
+                    self.iri_ids = iri_table_from_metas(&metas);
+                    self.code_refs = code_refs_from_metas(&metas);
                     // Feed node label metadata + file_size into the render store for
                     // the proximity-label overlay and the metadata size formula.
                     for m in metas {
@@ -1593,6 +1758,11 @@ impl BinaryProtocolClient {
     #[func]
     fn retire_agents(&mut self, ids: PackedInt32Array) -> i64 {
         let ids: Vec<u32> = ids.as_slice().iter().map(|&x| x as u32).collect();
+        for id in &ids {
+            if self.node_class.get(id) == Some(&2) {
+                self.node_class.remove(id);
+            }
+        }
         self.store.retire_agents(&ids) as i64
     }
 
@@ -1957,6 +2127,128 @@ impl BinaryProtocolClient {
         }
     }
 
+    /// Select the pack slot (one per volume fed by this connection) that the following
+    /// `build_*_buffer*` calls and last-pack reads (`get_render_ids`, `impostor_node_buffer`,
+    /// `faded_node_buffer`, `ribbon_edge_buffer`) use. Slot 0 is the default.
+    #[func]
+    fn set_pack_slot(&mut self, slot: i64) {
+        self.store.select_pack_slot(slot);
+    }
+
+    #[func]
+    fn pack_slot(&self) -> i64 {
+        self.store.active_pack_slot()
+    }
+
+    /// Forget a slot's plans and outputs (its volume closed).
+    #[func]
+    fn drop_pack_slot(&mut self, slot: i64) {
+        self.store.drop_pack_slot(slot);
+    }
+
+    /// Ids in the render store whose class code bit is set in `mask` (`1 << class_code`; XR
+    /// phase-1 §1). A volume's content source calls this once per topology or fit recompute.
+    #[func]
+    fn node_ids_for_mask(&self, mask: i64) -> PackedInt32Array {
+        let ids = ids_for_class_mask(self.store.all_ids(), mask, |id| {
+            self.node_class.get(&id).copied()
+        });
+        PackedInt32Array::from(ids.as_slice())
+    }
+
+    /// `{iri: PackedInt32Array of wire ids}` for the current topology (ADR-2164 D4).
+    #[func]
+    fn iri_table(&self) -> Dictionary {
+        let mut d = Dictionary::new();
+        for (iri, ids) in &self.iri_ids {
+            let v: Vec<i32> = ids.iter().map(|&i| i as i32).collect();
+            d.set(GString::from(iri.as_str()), PackedInt32Array::from(v.as_slice()));
+        }
+        d
+    }
+
+    /// `[{key, id, path, is_file, refs: [[iri, line], …]}]` for the current topology.
+    #[func]
+    fn code_refs(&self) -> VariantArray {
+        let mut out = VariantArray::new();
+        for c in &self.code_refs {
+            let mut refs = VariantArray::new();
+            for (iri, line) in &c.refs {
+                let mut pair = VariantArray::new();
+                pair.push(&GString::from(iri.as_str()).to_variant());
+                pair.push(&(*line as i64).to_variant());
+                refs.push(&pair.to_variant());
+            }
+            let mut d = Dictionary::new();
+            d.set("key", GString::from(c.key.as_str()));
+            d.set("id", c.id as i64);
+            d.set("path", GString::from(c.path.as_str()));
+            d.set("is_file", c.is_file);
+            d.set("refs", refs);
+            out.push(&d.to_variant());
+        }
+        out
+    }
+
+    /// Join `code`'s annotated nodes (the Codescape connection's client) against this
+    /// client's IRI table (`link_index::join`). Returns `{records: [ADR-2164 D5 Dictionary],
+    /// unresolved: int}`; class codes come from this client's applied frames, so an IRI on a
+    /// node whose position has not arrived yet counts as unresolved until it does.
+    #[func]
+    fn join_code_links(&self, code: Gd<BinaryProtocolClient>, code_gen: i64, vc_gen: i64) -> Dictionary {
+        let code = code.bind();
+        let res = crate::link_index::join(&code.code_refs, code_gen, &self.iri_ids, vc_gen, |id| {
+            self.node_class.get(&id).copied().unwrap_or(u8::MAX)
+        });
+        let mut records = VariantArray::new();
+        for r in &res.records {
+            records.push(&link_record_dict(r).to_variant());
+        }
+        let mut d = Dictionary::new();
+        d.set("records", records);
+        d.set("unresolved", res.unresolved as i64);
+        d
+    }
+
+    /// Edge pairs inside one class mask, heaviest first, at most `max` pairs (see
+    /// [`edges_for_class_mask`]).
+    #[func]
+    fn edges_for_mask(&self, mask: i64, max: i64) -> PackedInt32Array {
+        let pairs = edges_for_class_mask(
+            &self.edges_flat,
+            &self.edge_weights,
+            mask,
+            max.max(0) as usize,
+            |id| self.node_class.get(&id).copied(),
+        );
+        PackedInt32Array::from(pairs.as_slice())
+    }
+
+    /// Class code of a node (0 knowledge, 1 ontology, 2 agent, 3 plain), -1 when unknown.
+    #[func]
+    fn class_of(&self, node_id: i64) -> i64 {
+        if node_id < 0 {
+            return -1;
+        }
+        self.node_class.get(&(node_id as u32)).map(|&c| c as i64).unwrap_or(-1)
+    }
+
+    /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
+    /// `exclude_id` (< 0 = none) and ids not in the store. Empty array when none qualify.
+    #[func]
+    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude_id: i64) -> PackedFloat32Array {
+        let excl = (exclude_id >= 0).then_some(exclude_id as u32);
+        let known = |id: u32| {
+            self.node_class
+                .contains_key(&id)
+                .then(|| self.store.position_of(id))
+        };
+        match full_aabb_of(ids.as_slice(), excl, known) {
+            Some(bb) => PackedFloat32Array::from(bb.as_slice()),
+            None => PackedFloat32Array::new(),
+        }
+    }
+
     /// Ids of nodes within `radius` (server space) of `center`, nearest first,
     /// capped at `max` — drives the proximity label overlay.
     #[func]
@@ -2269,7 +2561,9 @@ impl BinaryProtocolClient {
             self.store.set_cluster(u.node_id, u.cluster_id);
             // Record the node class for the type show/hide filter (Wave 2, Feature
             // 3). Cheap idempotent insert; the kind rides the wire-id flag bits.
-            self.store.set_node_kind(u.node_id, node_class_code(u.kind));
+            let class = node_class_code(u.kind);
+            self.store.set_node_kind(u.node_id, class);
+            self.node_class.insert(u.node_id, class);
             // Visuals still surface to GDScript (throttled to quantised-key changes)
             // so the scene keeps its centrality mirror for the LOD/edge selection.
             let key = VisualsKey::of(&u);
@@ -2290,6 +2584,38 @@ impl BinaryProtocolClient {
             let _ = tx.send(crate::transport::Outbound::Binary(ack));
         }
     }
+}
+
+/// One `link_index::LinkRecord` as the link layer's Dictionary (ADR-2164 D5 shape).
+#[cfg(not(test))]
+fn link_record_dict(r: &crate::link_index::LinkRecord) -> Dictionary {
+    let end = |e: &crate::link_index::Endpoint| {
+        let mut d = Dictionary::new();
+        d.set("volume", GString::from(e.volume.as_str()));
+        d.set("conn", GString::from(e.conn.as_str()));
+        d.set("key", GString::from(e.key.as_str()));
+        d.set("id", e.id as i64);
+        d
+    };
+    let mut prov = Dictionary::new();
+    prov.set("via", GString::from(r.provenance.via.as_str()));
+    prov.set("repo", GString::from(r.provenance.repo.as_str()));
+    prov.set("path", GString::from(r.provenance.path.as_str()));
+    prov.set("line", r.provenance.line as i64);
+    match r.provenance.revision {
+        Some(v) => prov.set("revision", v as i64),
+        None => prov.set("revision", Variant::nil()),
+    }
+    let mut gens = VariantArray::new();
+    gens.push(&r.provenance.generations[0].to_variant());
+    gens.push(&r.provenance.generations[1].to_variant());
+    prov.set("generations", gens);
+    let mut d = Dictionary::new();
+    d.set("source", end(&r.source));
+    d.set("target", end(&r.target));
+    d.set("kind", GString::from(r.kind.as_str()));
+    d.set("provenance", prov);
+    d
 }
 
 #[cfg(not(test))]
@@ -2692,6 +3018,127 @@ mod tests {
         let k4 = VisualsKey::of(&u4);
         assert_eq!(k4.centrality_bucket, 0);
         assert_eq!(k4.anomaly_bucket, 15);
+    }
+
+    /// Fixture frames: two knowledge nodes, one ontology class, one agent, one plain node, all
+    /// decoded through the real V3 decoder so the class codes come from the wire flags.
+    fn fixture_class_store() -> (Vec<u32>, std::collections::HashMap<u32, (u8, [f32; 3])>) {
+        let frame = build_frame(&[
+            (1 | KNOWLEDGE_NODE_FLAG, [0.0, 0.0, 0.0], [0.0; 3]),
+            (2 | KNOWLEDGE_NODE_FLAG, [4.0, -2.0, 1.0], [0.0; 3]),
+            (3 | ONTOLOGY_CLASS_FLAG, [10.0, 10.0, 10.0], [0.0; 3]),
+            (4 | AGENT_NODE_FLAG, [-50.0, 0.0, 0.0], [0.0; 3]),
+            (5, [7.0, 8.0, 9.0], [0.0; 3]),
+        ]);
+        let updates = decode_position_frame(&frame).unwrap();
+        let ids = updates.iter().map(|u| u.node_id).collect();
+        let map = updates
+            .iter()
+            .map(|u| (u.node_id, (node_class_code(u.kind), u.position)))
+            .collect();
+        (ids, map)
+    }
+
+    #[test]
+    fn node_ids_for_mask_selects_only_the_masked_classes() {
+        let (ids, map) = fixture_class_store();
+        let class_of = |id: u32| map.get(&id).map(|e| e.0);
+        assert_eq!(ids_for_class_mask(&ids, 0b0001, class_of), vec![1, 2]);
+        assert_eq!(ids_for_class_mask(&ids, 0b0010, class_of), vec![3]);
+        assert_eq!(ids_for_class_mask(&ids, 0b1000, class_of), vec![5]);
+        assert_eq!(ids_for_class_mask(&ids, 0b0011, class_of), vec![1, 2, 3]);
+        assert!(ids_for_class_mask(&ids, 0, class_of).is_empty());
+        assert!(ids_for_class_mask(&ids, -1, class_of).is_empty());
+        // An id with no recorded class is never selected.
+        assert_eq!(ids_for_class_mask(&[1, 99], 0b1111, class_of), vec![1]);
+    }
+
+    #[test]
+    fn edges_for_mask_keeps_only_intra_volume_edges_heaviest_first() {
+        let (_, map) = fixture_class_store();
+        let class_of = |id: u32| map.get(&id).map(|e| e.0);
+        // 1,2 knowledge; 3 ontology; 4 agent; 5 plain.
+        let flat = [1, 2, 1, 3, 3, 3, 2, 1, 5, 5, 9, 1];
+        let w = [0.5, 9.0, 1.0, 2.0, 1.0, 1.0];
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 10, class_of), vec![2, 1, 1, 2]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0001, 1, class_of), vec![2, 1], "capped, heaviest kept");
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0010, 10, class_of), vec![3, 3]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b0011, 10, class_of), vec![1, 3, 2, 1, 3, 3, 1, 2]);
+        assert_eq!(edges_for_class_mask(&flat, &w, 0b1000, 10, class_of), vec![5, 5]);
+        assert!(edges_for_class_mask(&flat, &w, 0, 10, class_of).is_empty());
+        // Missing weights default to 1.0, ties keep wire order.
+        assert_eq!(edges_for_class_mask(&flat, &[], 0b0011, 10, class_of), vec![1, 2, 1, 3, 3, 3, 2, 1]);
+    }
+
+    #[test]
+    fn topology_fills_iris_ontology_refs_and_both_link_tables() {
+        let text = r#"{"type":"initialGraphLoad","edges":[],"nodes":[
+            {"id":1,"label":"BM25","node_type":"ontology_node","metadata":{"class_iri":"urn:ngm:class:bm25"}},
+            {"id":2,"label":"BM25 page","metadata":{"page_iri":"urn:visionflow:page:bm25","class_iri":"urn:ngm:class:bm25"}},
+            {"id":3,"label":"other","owl_class_iri":"urn:ngm:class:rank"},
+            {"id":10,"metadata_id":"src_rank","label":"rank.rs","node_type":"file",
+             "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30"}},
+            {"id":11,"metadata_id":"src_rank::score","label":"score","node_type":"function",
+             "metadata":{"source_file":"src/rank.rs","ontology_refs":"urn:ngm:class:bm25#L12"}},
+            {"id":12,"metadata_id":"plain","label":"plain","node_type":"file","metadata":{"source_file":"src/x.rs"}}
+        ]}"#;
+        let (_, metas) = parse_initial_graph(text).unwrap();
+        let by_id = |id: u32| metas.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(by_id(1).iris, vec!["urn:ngm:class:bm25".to_string()]);
+        assert_eq!(by_id(3).iris, vec!["urn:ngm:class:rank".to_string()]);
+        assert_eq!(by_id(10).ontology_refs, "urn:ngm:class:bm25#L12 junk urn:ngm:class:rank#L30");
+        assert_eq!(by_id(10).source_file, "src/rank.rs");
+        let t = iri_table_from_metas(&metas);
+        assert_eq!(t["urn:ngm:class:bm25"], vec![1, 2], "one IRI on two nodes");
+        assert_eq!(t["urn:ngm:class:rank"], vec![3]);
+        assert!(t.contains_key("urn:visionflow:page:bm25"));
+        let code = code_refs_from_metas(&metas);
+        assert_eq!(code.len(), 2, "only annotated code nodes; the plain file has none");
+        let file = code.iter().find(|c| c.id == 10).unwrap();
+        assert!(file.is_file);
+        assert_eq!(file.key, "src_rank");
+        assert_eq!(file.path, "src/rank.rs");
+        assert_eq!(
+            file.refs,
+            vec![("urn:ngm:class:bm25".to_string(), 12), ("urn:ngm:class:rank".to_string(), 30)],
+            "malformed token skipped"
+        );
+        assert!(!code.iter().find(|c| c.id == 11).unwrap().is_file);
+        // End to end through D's join: the symbol beats the file's roll-up on (iri, path, line).
+        let res = crate::link_index::join(&code, 4, &t, 9, |id| if id == 1 { 1 } else { 0 });
+        let bm25: Vec<_> = res.records.iter().filter(|r| r.target.key == "urn:ngm:class:bm25").collect();
+        assert_eq!(bm25.len(), 2, "one record per target node");
+        assert!(bm25.iter().all(|r| r.source.id == 11), "symbol wins over file");
+        assert_eq!(bm25.iter().find(|r| r.target.id == 1).unwrap().target.volume, "ontology");
+        assert_eq!(bm25[0].provenance.generations, [4, 9]);
+    }
+
+    #[test]
+    fn render_aabb_ids_is_full_extent_and_honours_exclusion() {
+        let (_, map) = fixture_class_store();
+        let pos = |id: u32| map.get(&id).map(|e| e.1);
+        assert_eq!(
+            full_aabb_of(&[1, 2], None, pos),
+            Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
+        );
+        // Full extent: the far outlier is inside, not trimmed as a percentile box would.
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], None, pos),
+            Some([0.0, -2.0, 0.0, 10.0, 10.0, 10.0])
+        );
+        // The grabbed node is excluded.
+        assert_eq!(
+            full_aabb_of(&[1, 2, 3], Some(3), pos),
+            Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
+        );
+        // Unknown and negative ids are skipped; nothing left ⇒ None.
+        assert_eq!(full_aabb_of(&[2, 77, -4], None, pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
+        assert_eq!(full_aabb_of(&[77], None, pos), None);
+        assert_eq!(full_aabb_of(&[], None, pos), None);
+        assert_eq!(full_aabb_of(&[3], Some(3), pos), None);
+        // A non-finite position never poisons the box.
+        let nan = |id: u32| (id == 9).then_some([f32::NAN, 0.0, 0.0]).or_else(|| pos(id));
+        assert_eq!(full_aabb_of(&[9, 1], None, nan), Some([0.0; 6]));
     }
 
     #[test]
