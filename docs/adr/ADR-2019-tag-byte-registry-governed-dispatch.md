@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: feb3c81a3e3e8f622e118b5b465e86ceacaa8595
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -278,3 +278,5 @@ Governed change since `31bc3d3a1`: `src/utils/binary_protocol.rs` (tests only: `
 - One registry addition since the last stamp: `0x34` `BROADCAST_ACK` (client to server, `MessageType::BroadcastAck`, server `:1866`), allocated in `PROTOCOL-registry.md` (row at `:58`) as the rule requires. It is a registry transaction done correctly, not an out-of-band tag.
 
 Re-verified 2026-10-30 at c75004696: `xr-client/rust/src/binary_protocol.rs` only gains the `#[func]` `default_color_mode_for_backend` and a doc line on `set_color_mode` (ADR-2143 A6); no wire constant, decoder, tag or envelope is touched. Tag dispatch anchors at HEAD: `decode_position_frame_with_sequence` `:458`, `OPCODE_BROADCAST_ACK` `:510`, `FreshnessGate` `:604`. The decision holds.
+
+Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR; ADR-2158/2159/2164). Source reading, no cargo run. Of the governed paths only `xr-client/rust/src/binary_protocol.rs` changed (+448/-1). No `PROTOCOL_*`, `OPCODE_*` or tag literal was added, removed or edited, and no hunk touches the dispatch and decoder range (old lines 441-956). The new mask, AABB and link helpers read decoded state only, and the new node-metadata fields come from the JSON `initialGraphLoad` text message, not a tagged binary frame. Each `BackendConnection` (VisionClaw, Codescape) owns its own `BinaryProtocolClient` and socket (`xr-client/scripts/backend_connection.gd:86`), so every socket is still demultiplexed on its own and no demultiplexer is shared. Tag anchors at HEAD (moved): `PROTOCOL_V3 = 0x03` `:25`, `PROTOCOL_V5 = 0x05` `:29`, `decode_position_frame_with_sequence` `:595`, `OPCODE_BROADCAST_ACK = 0x34` `:647`, `FreshnessGate` `:741`, XR tolerant `0x23` parse `decode_agent_action_frame` `:999-1036`. The server and presence paths are unchanged since c750046962. The decision holds.

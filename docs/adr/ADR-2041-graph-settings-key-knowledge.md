@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
+verified_commit: feb3c81a3e3e8f622e118b5b465e86ceacaa8595
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -181,3 +181,5 @@ Re-verified at b4a175412. The record is superseded by ADR-2115, which removed th
 - Test counts above are historical and were not re-run.
 
 Re-verified 2026-10-30 at c75004696: `xr-client/scripts/graph_scene.gd` gains the backend capability gate (`BackendCaps`, `_gate`, ADR-2143 A6). Every XR physics write still targets `?graph=knowledge`: `_put_physics_body` builds `/api/settings/physics?graph=knowledge` at `graph_scene.gd:1495` (now behind `_gate(PHYSICS_WRITE)` and only reachable when the backend serves it). The older `:1237` and `:1406` citations are superseded by `:1461` and `:1495`. The decision holds.
+
+Re-verified 2026-10-30 at feb3c81a3 (merge of `xr/p1-a`, phase-1 XR; ADR-2158/2159). Source reading, no Godot run. `xr-client/scripts/graph_scene.gd` (+587/-377) replaces the single backend toggle with three volumes on two connections. Physics writes are now gated on the focused volume's connection, `_gate_for_volume(_focused_volume, BackendCaps.PHYSICS_WRITE, …)` (`graph_scene.gd:1217`, used at `:1837`), but they always go to the VisionClaw origin (`_http_base` returns `_vc_conn.http_base()`, `:1890-1893`) with the key `knowledge`: `_put_physics_body` `:1834` builds `/api/settings/physics?graph=knowledge` at `:1839`, and the doc comments are at `:1805` and `:1830`. The volume id `&"knowledge"` (`:89`) is a scene-local volume name, not a settings key. The file has no `logseq`. The older `:1461` and `:1495` citations are superseded by `:1805` and `:1839`. The recorded drift (2026-10-19 amendment) and the superseded status are unchanged. The decision holds as recorded.
