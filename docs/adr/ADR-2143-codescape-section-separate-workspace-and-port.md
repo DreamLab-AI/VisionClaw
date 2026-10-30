@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 91fd83ceda470894367e31e45aa92743acba69b4
+verified_commit: 2c8e39d837b79b9c52b033f12da664fa6157c812
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -376,3 +376,5 @@ Re-verified 2026-10-30 at c75004696: the `codescape` submodule pin moved from `e
 Re-verified 2026-10-30 at 17e3cdda0: `docs/PROTOCOL-registry.md` gained the proposed spatial-rooms/federation section (ADR-2157, ADR-2161); the Codescape section is untouched, claim holds.
 
 Re-verified 2026-10-30 at 91fd83ced: `docs/PROTOCOL-registry.md` gained the `ontology_refs` bullet under the Codescape producer (ADR-2164 D3): an optional string key in the existing `initialGraphLoad` node `metadata` object, so no tag byte, no flag bit and no new wire format (Decision item 4 holds). The Codescape side is codescape `e3b76f6` (`codescape-ingest/src/annotations.rs`, a side table inside `Published`, `GET /api/graph/ontology-refs`), which adds no dependency: `Cargo.lock` and `crates/codescape-server/tests/isolation.rs` are unchanged, and the isolation suite passes (8 tests). Codescape still checks an IRI's shape only and never reads the KG, and the join happens in the XR client, so I1 and I10 hold with no new egress. The `codescape` submodule pin is still `c742770ce` at this commit; the pin bump to `e3b76f6` touches a governed path and needs its own re-verify. The claim holds.
+
+Re-verified 2026-10-30 at 2c8e39d83: the `codescape` submodule pin moves c742770 → e3b76f63e (ADR-2164: `codescape-ingest` reads `@ontology <iri>` annotations and `codescape-server` carries them in XR node metadata). The isolation rule holds: no root↔codescape crate or path dependency, `codescape-server/tests/isolation.rs` passes 8/8, Codescape `Cargo.lock` unchanged.
