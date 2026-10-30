@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 verified_commit: e0f8cd896
 owner: jjohare
-review_trigger: a new social/co-presence field, or pressure to pack social state into the 0x43 pose transform_mask
+review_trigger: a new social/co-presence field, or pressure to pack social state into the 0x43 pose transform_mask; activates when a running server and XR client exchange 0x44 social frames end to end (node correlation, stale removal, permission denial, pose independent of 0x43)
 repo: visionclaw
 domain: PROTOCOL-registry
 lineage: "Distils ADR-102 (server-initiated presence handshake) + ADR-130 D4 (copresence AgentAvatar/Gaze/Proxemics layer)."

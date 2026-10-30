@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: b00c28a0d766c8cf46cd00b100dab60ef2dd74a4
 verified_paths: []
 owner: jjohare
-review_trigger: a change to the Dockerfile.production stage layout, or adoption of cargo-chef for dependency caching
+review_trigger: a change to the Dockerfile.production stage layout, or adoption of cargo-chef for dependency caching; activates on the first successful host docker build of Dockerfile.production at a commit carrying this change
 repo: visionclaw
 domain: BASELINE-architecture
 lineage: ADR-2008 governs the dev rebuild decision; this is its production-image counterpart.

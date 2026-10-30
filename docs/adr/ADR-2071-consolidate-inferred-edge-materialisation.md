@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
 verified_paths: []
 owner: jjohare
-review_trigger: the next change to Whelk post-sync reasoning in src/services/github_sync_service.rs, or any report of long-range hierarchical edges in the client graph
+review_trigger: the next change to Whelk post-sync reasoning in src/services/github_sync_service.rs, or any report of long-range hierarchical edges in the client graph; activates on a GitHub sync of the live corpus in a running backend that records before/after inferred-edge counts (acceptance criterion 2)
 repo: visionclaw
 ---
 

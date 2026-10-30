@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: b0bc275f6501aae7751b85a72ce15fe1e730e7e8
 verified_paths: []
 owner: jjohare
-review_trigger: a second consumer of decision-elevation case state, a change to the enrichment store schema or its category tagging, or evidence of duplicate PRs from resumed approvals
+review_trigger: a second consumer of decision-elevation case state, a change to the enrichment store schema or its category tagging, or evidence of duplicate PRs from resumed approvals; activates on the first live decision-elevation case decided over the relay that survives a real backend restart
 repo: visionclaw
 domain: BASELINE-architecture
 ---

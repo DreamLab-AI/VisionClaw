@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: b00c28a0d766c8cf46cd00b100dab60ef2dd74a4
 verified_paths: []
 owner: jjohare
-review_trigger: a new security flag whose combination with another flag can widen disclosure, or the removal of PUBKEY_VISIBILITY_FILTER
+review_trigger: a new security flag whose combination with another flag can widen disclosure, or the removal of PUBKEY_VISIBILITY_FILTER; activates on the first production-artefact boot (CY-C prod-profile bring-up on the Trust host) whose boot receipt shows the assertion ran
 repo: visionclaw
 domain: SECURITY-profiles
 lineage: ADR-2003 (visibility filter default on) named the combination; ADR-2027 named the profiles; ADR-2038 built the boot-time assertion this rule lives in.
