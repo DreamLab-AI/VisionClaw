@@ -188,3 +188,11 @@ func test_candidates_prefer_slot_accessors_and_fall_back_to_content_ids() -> voi
 	var hit := VolumePicker.pick(Vector3.ZERO, Vector3(0, 0.5, -1).normalized(), {&"codescape": cs}, {&"codescape": legacy})
 	assert_eq(hit.get("conn"), &"codescape")
 	assert_eq(hit.get("node_id"), 7)
+
+
+# The real gdext client exposes the per-slot readers, so the content_ids
+# fallback in candidates() never hides a missing binding in a live build.
+func test_gdext_client_binds_the_per_slot_readers() -> void:
+	assert_true(ClassDB.class_exists("BinaryProtocolClient"), "gdext library loaded")
+	assert_true(ClassDB.class_has_method("BinaryProtocolClient", "get_render_ids_for_slot"))
+	assert_true(ClassDB.class_has_method("BinaryProtocolClient", "get_render_positions_for_slot"))
