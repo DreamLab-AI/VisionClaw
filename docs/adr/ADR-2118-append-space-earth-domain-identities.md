@@ -4,11 +4,11 @@ title: Append space science and Earth observation domain identities
 date: 2026-10-01
 decision_status: accepted
 implementation_status: complete
-activation_status: staged
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: uncommitted-working-tree
-verified_paths: []
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [crates/vault-core/src/domains.rs]
 owner: visionGraph corpus maintainer
 review_trigger: domain identity, vocabulary or graph-tier format change
 repo: visionclaw
@@ -56,3 +56,19 @@ On 2026-10-01 the owner explicitly authorised merging and deploying the draft vo
 ## Fresh-store ingestion correction
 
 A full real-corpus sync exposed an absent assert graph on first ingest: the rebuild used `CLEAR GRAPH` and never reached its INSERT. Assert/inferred rebuilds now use idempotent `CLEAR SILENT GRAPH`. The integration fixture no longer bootstraps the graph to hide this case. Assert rebuilds also retain source domain and draft maturity, and a fresh-ingest regression verifies both new domains and navigation roots. `sync_corpus` now fails on recorded stage errors and can write an actual-graph verification receipt.
+
+## Close-out 2026-10-30
+
+`staged → live`. `verified_commit` moves from the placeholder `uncommitted-working-tree` to `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+**Code at this commit.** `DOMAIN_ROOTS` (`crates/vault-core/src/domains.rs:4-17`) appends
+`space-science-and-systems` (publication ID 6) and `earth-observation-and-geospatial-sensing` (ID 7) after IDs 0–5.
+`domain_class_id` adds one for the GPU class, which gives 7 and 8 (test at `:62-65`). A ninth root,
+`supply-chains-and-logistics`, has since been appended in the same append-only order; that belongs to its own
+record, not to this one.
+
+**Activation.** Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionclaw-server` (build stamp `features=gpu,ontology,dev-auth`, i.e. the dev profile with the dev-auth bypass compiled in); its wrapper log (`/app/logs/rust.log`) reads `[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, so the responses below come from this commit.
+- The 19:03 boot logged `Materialised 9 domain root nodes with edges`.
+- `GET /api/graph/data` (9,688 nodes) contains `domain-root-space-science-and-systems` ("Space Science and Systems")
+  and `domain-root-earth-observation-and-geospatial-sensing` ("Earth Observation and Geospatial Sensing").
+- The two slugs occur 1,639 and 1,171 times in that response.

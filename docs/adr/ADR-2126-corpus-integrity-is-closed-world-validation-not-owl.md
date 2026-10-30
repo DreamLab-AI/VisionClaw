@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: f6a502e47a7b7f651c7376cb62559b75aa50b46b
 verified_paths: [crates/vault-core/src/vocabulary.rs, crates/vault/tests/el_profile.rs]
 owner: jjohare
-review_trigger: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner
+review_trigger: "Activation (staged → live): a green ontology-publish.yml run whose vault build gates the published generation through the closed-world validator. Review: any proposal to emit owl:allValuesFrom, a cardinality restriction or owl:hasValue; a request to validate the Oxigraph store (not the vault) against shapes; the reasoner changing from Whelk to a DL reasoner"
 repo: visionclaw
 domain: VAULT-corpus-format
 ---

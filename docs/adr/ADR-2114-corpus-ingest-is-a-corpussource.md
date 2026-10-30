@@ -3,14 +3,14 @@ id: ADR-2114
 title: "Corpus ingest is a `CorpusSource`; the local vault directory is the default source"
 date: 2026-09-22
 decision_status: accepted
-implementation_status: partial
-activation_status: staged
+implementation_status: complete
+activation_status: live
 supersedes: [ADR-2096]
 superseded_by: []
-verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
-verified_paths: []                # the change is uncommitted in the working tree; the staleness gate stays inert until the owner commits it
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [src/services/page_parser.rs, src/services/corpus_source/mod.rs, src/services/corpus_source/local.rs, crates/visionclaw-domain/src/vault/mod.rs]
 owner: jjohare
-review_trigger: "WS-C's `vault_core::parse_page` landing, at which point `services::page_parser::parse_page` delegates to it and implementation_status moves to complete; or the first VisionClaw boot that ingests the migrated frontmatter-only corpus"
+review_trigger: "a second CorpusSource becoming the default; any change to services::page_parser::parse_page delegating to vault_core::page::parse_page; a request to read `key:: value` metadata again"
 repo: visionclaw
 domain: VAULT-corpus-format
 lineage: "ADR-2040 (vault layout and the inclusion gate), ADR-2112 (frontmatter-only OKF corpus), PRD-sovereign-corpus Q2"
@@ -93,3 +93,22 @@ change marker's stability, the descriptor identity and source selection.
 `cargo test --lib page_parser` (3 tests) pins the parse seam: a fenced page yields
 a canonical entity, and a `key:: value` line is body text that yields none and
 never overrides a fence.
+
+## Close-out 2026-10-30
+
+`partial / staged → complete / live`. Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+**Implementation: both named gaps are closed in code.**
+- `services::page_parser::parse_page` now delegates to `vault_core::page::parse_page`
+  (`src/services/page_parser.rs:73`, `:87`).
+- The remaining `key:: value` readers are gone. `services::parsers::ontology_parser` no longer exists.
+- `visionclaw_domain::vault` treats a `key:: value` line as body text, `public:: true` included
+  (`crates/visionclaw-domain/src/vault/mod.rs:20-27`; test at `:723-725`).
+- A `json-ld` fence is body text too (`page_parser.rs:372-376`).
+
+**Activation.** The record's own trigger was the first boot ingesting the frontmatter-only corpus. Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionclaw-server` (build stamp `features=gpu,ontology,dev-auth`, i.e. the dev profile with the dev-auth bypass compiled in); its wrapper log (`/app/logs/rust.log`) reads `[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, so the responses below come from this commit.
+- The container's environment has `CORPUS_SOURCE=local` and `VAULT_ROOT=/vault/visionGraph`.
+- The 19:03 boot logged `Corpus source: local corpus at /vault/visionGraph (sources: knowledge, working)`
+  and `Processing 0 changed files (10375 unchanged)`.
+- That boot loaded 9,244 classes into Whelk. `GET /api/graph/data` serves 9,688 nodes.
+- The corpus carries no `key::` lines (ADR-2112 close-out).

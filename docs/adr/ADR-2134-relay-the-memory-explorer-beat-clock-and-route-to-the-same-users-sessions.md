@@ -2,15 +2,15 @@
 id: ADR-2134
 title: The graph socket relays the memory explorer's beat clock and route to the same user's other sessions
 date: 2026-10-07
-decision_status: proposed
+decision_status: accepted
 implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
 verified_paths: [src/handlers/socket_flow_handler/session_relay.rs, src/handlers/socket_flow_handler/message_routing.rs, src/actors/client_coordinator_actor.rs, crates/visionclaw-protocol/src/socket_flow_messages.rs, client/src/features/visualisation/memoryCloud/xrRelay.ts, xr-client/rust/src/beat.rs, xr-client/rust/src/pulse.rs, xr-client/scripts/beat_pulse.gd]
 owner: jjohare
-review_trigger: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy
+review_trigger: "Activation (staged → live): a desktop and headset filmed side by side with phase error below 30 ms. Review: a second consumer of beatClock or memoryRoute; any request to relay across users or rooms; a headset receipt showing desktop/headset phase error above 30 ms; a change to RECORD_AUDIO policy"
 repo: visionclaw
 domain: PROTOCOL-registry
 ---
@@ -105,3 +105,17 @@ Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main'
 - `xr-client/rust/src/beat.rs` adds a provisional one-way offset (`ClockOffset::seed_provisional`, `:326`) that answers only until the first real ping lands and is then discarded (estate ER-26). The decision's rule is intact: the offset in use is still `serverTime − (sent + rtt/2)` from the minimum-RTT sample of the last eight (`WINDOW` 8, `:299`); the seed only stops a relayed frame with `rtt 0` from outranking every real ping.
 - Constants at HEAD match the text: `RELAY_MIN_INTERVAL_MS` 250, `MAX_RELAY_FRAME_BYTES` 16 KiB, path/sidecar 64, query 120 chars, id 128, bpm 40..220, sources off/file/tap/spotify (`session_relay.rs:30-45`); the pong and relayed frames carry `serverTime` (`:144`, `:223`); an unauthenticated sender gets one `error` frame (`handle_relay`, `:331-350`); the headset drops a relayed clock after 6.5 s (`beat.rs:368`).
 Not re-run: no build was permitted.
+
+## Close-out 2026-10-30
+
+`decision_status: proposed → accepted` under close-out rule 3a: the code has landed on main and has been
+re-verified repeatedly. The 2026-10-19 re-check already called `proposed` a housekeeping item.
+`verified_commit` moves to `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+**Evidence at this commit.**
+- `git diff --stat 2107637d662ac70f38418c08e3892b77d5358c4e 772039bd172027af034d64befacca1ebcf0bbc04` over all eight `verified_paths` is empty.
+- `relay_text_to_pubkey` is at `src/actors/client_coordinator_actor.rs:584`.
+- `validate_beat_clock` and `validate_memory_route` are at `src/handlers/socket_flow_handler/session_relay.rs:106`
+  and `:164`.
+
+Activation stays `staged`. The side-by-side phase-error filming named in Verification has not been done.

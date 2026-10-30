@@ -4,13 +4,13 @@ title: Enable local typed decisions and expose reviewed edge suggestions
 date: 2026-10-29
 decision_status: accepted
 implementation_status: complete
-activation_status: staged
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 9373a61fb0c973d816fd66953ad6eeb34bbd4268
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
 verified_paths: [docker-compose.unified.yml, crates/visionclaw-jev/src/edge.rs, src/handlers/jev_handler.rs, crates/visionclaw-jev/src/wire.rs]
 owner: operator
-review_trigger: First host rebuild and labelled confidence calibration
+review_trigger: "labelled confidence calibration setting the automatic thresholds (VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE); the System One route moving off the shared agentbox proxy; any graph write or proposal approval driven by /api/jev/edge"
 repo: visionclaw
 ---
 
@@ -77,3 +77,26 @@ ones remain unset. Activation still needs the agentbox rebuild (the network list
 and then a host `scripts/launch.sh` recreate.
 
 Re-verified at 9373a61fb: the compose hunk is this amendment (common block merged into three services, laya defaults removed), checked with yq explode. Other governed paths unchanged.
+
+## Close-out 2026-10-30
+
+`staged → live`. Both activation conditions named in the 2026-10-30 amendment have happened: the agentbox rebuild
+(the network listener) and the host recreate. `verified_commit` moves to `772039bd172027af034d64befacca1ebcf0bbc04`; the governed paths are unchanged.
+
+Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionclaw-server` (build stamp `features=gpu,ontology,dev-auth`, i.e. the dev profile with the dev-auth bypass compiled in); its wrapper log (`/app/logs/rust.log`) reads `[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, so the responses below come from this commit.
+
+**The flags reach the process.** The container's environment holds the amendment's common block:
+`AGENTBOX_SYSTEM_ONE_PROXY=1`, `AGENTBOX_SYSTEM_ONE_ENDPOINT=http://agentbox:8094/v1/systemone`,
+`AGENTBOX_SYSTEM_ONE_MODEL=jev-latest`, `AGENTBOX_SYSTEM_ONE_BACKEND_LOCAL=0`, `VISIONCLAW_JEV=1`,
+`VISIONCLAW_JEV_ALLOW_CLOUD=1`. `VISIONCLAW_JEV_AUTO_MIN_CONFIDENCE` is empty, so the automatic threshold stays unset
+as decided.
+
+**The proxy listens.** From inside the container, `GET http://agentbox:8094/v1/models` lists `jev-latest`
+(`owned_by: typesafe`). `GET …/v1/systemone/health` is 404, so that path is not a health route.
+
+**The route answers.** `POST /api/jev/edge` with `source_label`, `target_label`, `source_class`, `target_class` and
+`evidence` returned `{"used":false,"reason":"low-confidence"}`, HTTP 200, in 0.24 s. `low-confidence` is produced only
+after `client.ask(...)` has returned a model answer, either an `unsupported` choice or a domain/range rejection
+(`crates/visionclaw-jev/src/edge.rs:191-204`). Transport and timeout failures carry their own tags
+(`crates/visionclaw-jev/src/lib.rs:89-97`). The model was therefore reached and its advice withheld, which is the
+advisory behaviour this record decides. Usefulness still awaits calibration (`review_trigger`).

@@ -10,7 +10,7 @@ superseded_by: []
 verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
-review_trigger: "a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
+review_trigger: "Activation (staged → live): the first prod-profile start on the Trust DGX Spark (NHS residential 2026-11-03..05), LAN-only with the tunnel down. Review: a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
 repo: visionclaw
 domain: BASELINE-architecture
 lineage: "owner decision 2026-10-02 Q1 (Trust runs the prod profile) and R2 (the tunnel may stay down; the Trust box is LAN-only); TODO-unified CY-C-D1; ADR-2037 and ADR-2039/2108 (dev bypass stays out of prod)"

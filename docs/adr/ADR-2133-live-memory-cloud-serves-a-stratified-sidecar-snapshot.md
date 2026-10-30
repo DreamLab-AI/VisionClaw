@@ -3,14 +3,14 @@ id: ADR-2133
 title: The memory cloud serves a live stratified snapshot of the RuVector sidecar, and query results come from the sidecar's own index
 date: 2026-10-07
 decision_status: accepted
-implementation_status: partial
-activation_status: staged
+implementation_status: complete
+activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c750046962749715a4efb1b6056c7f40d9865110
-verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
-review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
+review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
 repo: visionclaw
 domain: PROTOCOL-registry
 ---
@@ -219,3 +219,21 @@ Checked at b4a175412 against `git diff 6ba4b07ee..HEAD` over the governed paths.
 Governing document `docs/PROTOCOL-registry.md` is amended in the same change (0.1.12): its `/api/memory-cloud/health` row wrongly named the central read policy rather than the handler's `PowerUser` gate, and the rows now state the dev-mode admission and the expiry rule. Not re-run: no build was permitted.
 
 Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs`, `memory_cloud_service.rs` and `docker-compose.unified.yml` gain the opt-in System One typed-decision client `crates/visionclaw-jev` (a457c0d52, 2c2236725; enabled by the Compose master flag under ADR-2148 and its 2026-10-30 amendment): with the flag on, `apply_jev` reorders the leading hits by judged relevance and `sidecar.jev` carries an advisory note; hits keep their own `sample_index` and `position`, and with the flag off or on any fallback the response is the pre-change one. Decision 4 (privacy) holds: the exclusion list is applied before ranking and `apply_jev` re-filters excluded namespaces defensively (test `jev_never_sends_excluded_namespaces`). Drift note: the Compose default now enables the rerank with `VISIONCLAW_JEV_ALLOW_CLOUD=1`, so snippets from non-excluded namespaces can reach the System One backend; this record never contemplated that egress and is covered only by ADR-2148's operator decision. Anchors at HEAD: `MEMORY_CLOUD_SAMPLE` `docker-compose.unified.yml:157` and `:296`; `TIE_EPS` `memory_cloud_service.rs:156`, `PROBE_QUERIES` `:54`, `SESSION_OPTIONS` read-only `:58`, `not_expired!` `:68`, pool `max_size(4)` `:955`. The decision holds.
+
+## Close-out 2026-10-30
+
+`partial / staged → complete / live`. Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
+
+**Implementation.** The client side, the only gap named in the Verification section, has landed.
+- `client/src/features/visualisation/memoryCloud/api.ts` calls `GET /api/memory-cloud` (`:218`),
+  `POST /api/memory-cloud/query` (`:307`) and `GET /api/memory-cloud/health` (`:340`).
+- `MemoryExplorerPanel` is mounted by the graph canvas (`client/src/features/graph/components/GraphCanvas.tsx:34`,
+  `:526`).
+
+**Activation.** Runtime provenance: `visionclaw_container` runs `/app/target/dev-runtime/visionclaw-server` (build stamp `features=gpu,ontology,dev-auth`, i.e. the dev profile with the dev-auth bypass compiled in); its wrapper log (`/app/logs/rust.log`) reads `[RUST-WRAPPER][2026-10-30 19:01:06] Building from published inputs: source_sha=772039bd172027af034d64befacca1ebcf0bbc04 source_dirty=0`, so the responses below come from this commit.
+- `GET /api/memory-cloud/health` returned snapshot `33aff23bb078`, `sidecar.reachable: true`,
+  `extensionVersion 0.3.0`, and `embedder bge-small-en-v1.5 reachable`.
+- The same response carried per-namespace stratified counts, e.g. `ruvnet-kb` 171,722 total, 11,448 sampled;
+  `ontology-corpus` 8,146 total, 2,525 sampled.
+- That call was anonymous, and it was admitted only because of the dev-mode admission (Amendment 2026-10-07).
+  It is not evidence for decision 5's power-user gate, which stays covered by `tests/memory_cloud_auth_test.rs`.

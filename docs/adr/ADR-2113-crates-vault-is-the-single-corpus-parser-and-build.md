@@ -7,10 +7,10 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2042]
 superseded_by: []
-verified_commit: 06dfe97a55e6a7a42bfc74a26a513108c60d5735
-verified_paths: []
+verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_paths: [crates/vault/src/build/mod.rs, crates/vault/src/build/rvdb.rs, crates/vault/src/nostr.rs, crates/vault/tests/golden_parity.rs]
 owner: jjohare
-review_trigger: the crates are committed — bump verified_commit and arm verified_paths
+review_trigger: "`vault build --with-rvdb` run against the live Xinference endpoint, and `vault propose` posting a signed 31402 to the local forum relay (the WS-F end-to-end test); at that point implementation_status moves to complete"
 repo: visionclaw
 ---
 
@@ -440,3 +440,16 @@ exercised against a stub embedder in unit tests but not against the live
 Xinference endpoint, and the 31402 publish path has been exercised through
 `--dry-run` (signed-event construction and verification) but not against the
 local relay — that is WS-F's end-to-end test.
+
+## Close-out 2026-10-30
+
+There is no status change. The crates are committed, so the old trigger ("the crates are committed — bump
+verified_commit and arm verified_paths") is discharged: `verified_commit` moves to `772039bd172027af034d64befacca1ebcf0bbc04` and `verified_paths`
+is armed.
+
+At this commit, `cargo test -p vault -p vault-core --no-default-features` gives 544 passed, 0 failed and 5 ignored,
+with `golden_parity` 15 passed.
+
+The `partial` gap is unchanged. `--with-rvdb` (`crates/vault/src/build/mod.rs:498-502`, endpoint
+`build/rvdb.rs:29`) has not been run against the live Xinference endpoint. The 31402 path (`crates/vault/src/nostr.rs`)
+has not been posted to the local relay.
