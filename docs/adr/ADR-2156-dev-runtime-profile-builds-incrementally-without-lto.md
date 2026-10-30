@@ -53,3 +53,6 @@ Re-verified 2026-10-30 at 17e3cdda0: code committed at dd5be4d9e; `Cargo.toml:33
 `visionclaw-server`, and finally `` Finished `dev-runtime` profile [optimized] target(s) in 1m 00s ``. That was a three-crate
 incremental rebuild after a merge, not the single-file edit the Verification section names. It still ends the
 condition the record was written against: a fat-LTO single-core pass of more than 10 minutes.
+No command was typed: the container's wrapper started this rebuild on boot, so the log above is the whole invocation
+record. The single-file timing in Verification has not been run; `live` here means the profile is the one serving, not
+that the measurement passed (qualified after the 2026-10-30 cross-vendor audit).
