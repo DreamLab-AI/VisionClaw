@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -370,3 +370,5 @@ palette, switch drops polls) and `test_backend_switch` (fold, pins, latches) run
 results in the commit message. The advisor's pre-commit review found the fold plan and the stranded pins;
 both are fixed above. The headset
 run that motivated this is recorded in project-state memory as `codescape-headset-run-2026-10-21`.
+
+Re-verified 2026-10-30 at c75004696: the `codescape` submodule pin moved from `e300451cf` to `c742770ce` (repository panel and estate scenes, XR mode record A6, and an opt-in Jev command Choice in `crates/codescape-server/src/voice/jev.rs`). Isolation holds: `crates/codescape-server/Cargo.toml` and `tests/isolation.rs` are unchanged, so no path dependency was added and the build graph is as before. The new Jev client is a Codescape-owned module, not the root `visionclaw-jev` crate. Egress review trigger ('a new egress target') is met and found compliant: the Jev endpoint is added to the runtime allowlist only when enabled and resolving (`config.rs` extends `egress_urls` with `voice::jev::egress_url`), so Decision item 6's allowlist still governs it. Drift notes: (1) Compose now enables `CODESCAPE_JEV` with cloud allowed by default and the shared proxy as endpoint (ADR-2148 amendment); (2) the Amendment text that the opt-in `CODESCAPE=1` path stands is out of date: `scripts/launch.sh` now treats `CODESCAPE` as an internal hand-off set by `select_sidecars` (`--sidecars=`, the menu or the saved choice, `launch.sh:1508`) and ignores an operator-set value, and `docs/README.md:27` still shows the old invocation; (3) the Compose `codescape` service now mounts the wider VisionFlow estate read-only under `/repos/estate`. The decision holds.

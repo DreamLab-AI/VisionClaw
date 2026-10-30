@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: [ADR-2115]
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/visionclaw-domain/src/config/visualisation.rs, crates/visionclaw-domain/src/config/app_settings.rs, src/config/mod.rs, src/config/path_accessible_impls.rs, src/protocols/binary_settings_protocol.rs, xr-client/scripts/graph_scene.gd, client/src/features/graph/types/graphTypes.ts, client/src/features/settings/config/settings.ts, data/settings.yaml]
 owner: jjohare
 review_trigger: the release after ADR-2040's tolerance ends — remove the `logseq` alias and the client migration shim
@@ -179,3 +179,5 @@ Re-verified at b4a175412. The record is superseded by ADR-2115, which removed th
 - **Drifted (Decisions 1 and 4, the alias).** `#[serde(alias = "logseq")]` is gone (comment at `visualisation.rs:513-515`). `normalise_graph_type` (`crates/visionclaw-domain/src/config/graph_type.rs:13`) maps only `knowledge` and the `visionclaw` spellings; `logseq` passes through as unknown and is rejected, and `graphs_map_has_knowledge` / `path_targets_knowledge_graph` (`:25`, `:30`) test only `knowledge`. `AppSettings::get_physics` routes through it (`app_settings.rs:159-171`, moved from the cited `:159-171` body to use the helper).
 - **Residual (Decision 3, client shim).** `migrateGraphSettingsKey` still maps a persisted browser `graphs.logseq` object onto `knowledge` (`client/src/store/settings/settingsHelpers.ts:362-375`), the only surviving receive-side mapping; `graphTypes.ts:7-8` states the server rejects `logseq`.
 - Test counts above are historical and were not re-run.
+
+Re-verified 2026-10-30 at c75004696: `xr-client/scripts/graph_scene.gd` gains the backend capability gate (`BackendCaps`, `_gate`, ADR-2143 A6). Every XR physics write still targets `?graph=knowledge`: `_put_physics_body` builds `/api/settings/physics?graph=knowledge` at `graph_scene.gd:1495` (now behind `_gate(PHYSICS_WRITE)` and only reachable when the backend serves it). The older `:1237` and `:1406` citations are superseded by `:1461` and `:1495`. The decision holds.

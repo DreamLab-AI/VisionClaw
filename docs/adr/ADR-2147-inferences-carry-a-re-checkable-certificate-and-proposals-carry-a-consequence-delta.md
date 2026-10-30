@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 9717f9d071c811cbfc78228c05e6d225d5cfd7ff
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation
@@ -44,3 +44,5 @@ At `9717f9d071c811cbfc78228c05e6d225d5cfd7ff`, `CARGO_TARGET_DIR=/home/devuser/w
 - Real corpus, `vault propose "AI Operator" --diff <page with is-a Robotics> --dry-run --certificate-dir <dir>`: 11.8 s end to end, `blockers: []`, `consequences.new_consequences: 6` (the six ancestors of Robotics the class gains), `lost: 0`, `not_compared_blank_node_bearing: 607510`; `base/`, `proposed/`, `consequences.json` written.
 - Spike measurements that the decision rests on (upstream engine on the same corpus, pre-implementation): RDFS certificate 16.5 s, 731,141 derivations; named closure 81,396 = Whelk's 81,396, zero either-only; `plan` with conservativity killed at 16 min / 12.5 GB; `shacl` with our shape 9,534 violations in 1.6 s; `defects` 0.
 - Cross-vendor audit (Codex, gpt-6-astra, `urn:agentbox:activity:11ed6422…:sha256-12-4ec387f45562`): join completeness, ordering soundness, rule positions and step uniqueness — no defects; the delta's derived-only comparison — two defects, both fixed in this commit and pinned by `asserting_what_was_already_entailed_is_conservative_and_dropping_an_assertion_is_not`.
+
+Re-verified 2026-10-30 at c75004696: the `rdfs-certificate` crate extraction (b7d2a23da) is already recorded in Decision 1's 2026-10-20 amendment and the code matches it: `crates/vault/src/certificate.rs` is the adapter over `rdfs_certificate` (`pub use rdfs_certificate::{consequence_delta, Certificate, ConsequenceDelta, ..}`), `crates/vault-core/src/proposal.rs` re-exports `ConsequenceDelta`, and `crates/vault/licenses/open-ontologies.MIT.txt` moved into the crate with `NOTICE` pointing there. `ontology-publish.yml` still runs `vault certify` and the pinned `oo-cert` v2.0.1 checker. `crates/vault` also gains the feature-gated, off-by-default `vault rank` subcommand (`jev` feature, `main.rs`, `jev_rank.rs`), advisory only with no write path. The decision holds.

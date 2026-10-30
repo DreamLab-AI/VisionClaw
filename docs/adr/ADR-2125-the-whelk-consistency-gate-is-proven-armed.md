@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/vault-core/src/consistency.rs, crates/vault-core/src/lib.rs, crates/vault/src/model.rs, crates/vault/src/build/turtle.rs, crates/vault/src/whelk.rs, crates/vault/src/validate.rs, crates/vault/src/build/mod.rs, crates/vault/src/propose.rs, crates/vault/tests/probe_consistency.rs, src/actors/elevation_actor.rs]
 owner: jjohare
 review_trigger: the `disjoint-with` key entering ontology/vocabulary.yaml; any proposal to re-enable domain-root disjointness; a WHELK_INCONSISTENT blocker firing on a real proposal
@@ -79,3 +79,5 @@ Not re-run: no build was permitted. Governing document `docs/VAULT-corpus-format
 ## Re-checked at 8e380aad3 (2026-10-20)
 
 Governed change since 2107637d6: `crates/vault/src/propose.rs` (9717f9d07, ADR-2147) adds an RDFS certificate to `Assessment` and the consequence delta to the proposal; `delta()`, the `WHELK_INCONSISTENT` scoping and the probe are untouched. `cargo test -p vault --test probe_consistency`: 2 passed. **Still holds.**
+
+Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rustdoc link only (the ADR-2147 rustdoc fix). The Whelk gate is untouched. The decision holds.

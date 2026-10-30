@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs, src/protocols/binary_settings_protocol.rs, crates/visionclaw-xr-presence/src/wire.rs, crates/visionclaw-xr-presence/src/agent_presence.rs]
 owner: jjohare
 review_trigger: allocation of a new opcode/version tag on any binary socket, or a proposal to share one demultiplexer across sockets
@@ -276,3 +276,5 @@ Governed change since `31bc3d3a1`: `src/utils/binary_protocol.rs` (tests only: `
 - Disjoint per-socket spaces still hold: settings `0x05` `src/protocols/binary_settings_protocol.rs:244,368,443,520`; presence `OPCODE_AVATAR_POSE = 0x43` `crates/visionclaw-xr-presence/src/wire.rs:9`, `OPCODE_AGENT_PRESENCE = 0x44` `.../agent_presence.rs:40`. Server demultiplexer rejects unknown tags (`decode_message` `:1836` `InvalidMessageType`; multiplexed `decode` `:1941`).
 - The per-opcode malformed policy matrix stands: `0x23` server strict (`decode_agent_actions` `:1675-1706`, "Truncated event length/data" errors), XR tolerant prefix parse (`decode_agent_action_frame` `xr-client/rust/src/binary_protocol.rs:861-900`).
 - One registry addition since the last stamp: `0x34` `BROADCAST_ACK` (client to server, `MessageType::BroadcastAck`, server `:1866`), allocated in `PROTOCOL-registry.md` (row at `:58`) as the rule requires. It is a registry transaction done correctly, not an out-of-band tag.
+
+Re-verified 2026-10-30 at c75004696: `xr-client/rust/src/binary_protocol.rs` only gains the `#[func]` `default_color_mode_for_backend` and a doc line on `set_color_mode` (ADR-2143 A6); no wire constant, decoder, tag or envelope is touched. Tag dispatch anchors at HEAD: `decode_position_frame_with_sequence` `:458`, `OPCODE_BROADCAST_ACK` `:510`, `FreshnessGate` `:604`. The decision holds.

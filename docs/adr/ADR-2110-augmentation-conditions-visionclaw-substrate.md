@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/services/intent_match.rs, src/services/kpi_compute.rs, src/actors/elevation_actor.rs, src/adapters/sqlite_kpi_repository.rs, src/adapters/sqlite_enrichment_repository.rs, src/handlers/broker_inbox_handler.rs, client/src/features/control-center/governance/brokerCaseQueue.ts, client/src/features/control-center/governance/AcspCaseQueue.tsx]
 owner: jjohare
 review_trigger: The forum half of EXP-AC-002/004/006 landing, or the first live case queue with real decided cases
@@ -353,3 +353,5 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - **FR2.2:** `check_rationale` returns `Result<(), RationaleRejection>` (`enrichment_proposals_handler.rs:396`), `MIN_RATIONALE_CHARS` is 20 (`:320`), the code is `rationale_required` (`:324`), and `apply_decision` (`:473`) calls it at `:510`. The client constant is `brokerCaseQueue.ts:186` and the queue sorts oldest first at `:233`.
 - **FR2.3-2.4:** `AgentContext.confidence` is `Option<f32>` (`crates/visionclaw-domain/src/types/ontology_tools.rs:220`, `crates/visionclaw-ontology/src/types/ontology_tools.rs:414`).
 - **Follow-on 5 still stands:** `elevation_actor.rs` writes no `risk-tier` tag or tier on its 31400/31402 or case rows.
+
+Re-verified 2026-10-30 at c75004696: `src/handlers/broker_inbox_handler.rs` gains the opt-in System One typed-decision client `crates/visionclaw-jev` (a457c0d52, 2c2236725; enabled by the Compose master flag under ADR-2148 and its 2026-10-30 amendment): `BrokerCase` has an optional `jev` triage key (`skip_serializing_if`), and `assemble_inbox` orders annotated pending/claimed cases by triage priority within the slots they already occupy. With the flag off or any fallback the projection is the pre-change one. The record's commitments (intent persisted verbatim, optional confidence never synthesised, boot reconciliation, expiry receipt) are untouched: the Jev annotation is a separate advisory key and the signed-decision and receipt paths do not read it. Drift note: the Compose default now enables this triage with cloud routing allowed (ADR-2148 amendment), so proposal content (target path, change text, rationale, source excerpt) reaches the System One backend, and the inbox order of pending cases is machine-influenced. The decision holds.

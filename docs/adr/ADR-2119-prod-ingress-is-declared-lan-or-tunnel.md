@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [scripts/launch.sh, docker-compose.unified.yml, crates/visionclaw-integration-tests/tests/prod_ingress.rs]
 owner: jjohare
 review_trigger: "a third ingress (reverse proxy, VPN, public port), any change to the prod pre-flight in scripts/launch.sh, or the cloudflared service's profiles"
@@ -109,3 +109,5 @@ this decision governs moved, so it holds as written.
 - **D3:** required secrets `MANAGEMENT_API_KEY VISIONCLAW_AGENT_KEY SOLID_PROXY_SECRET_KEY`, plus the tunnel token for tunnel and `CORS_ALLOWED_ORIGINS` for LAN (`:208-222`).
 - **D4:** the four refused variables (`:198`) equal `FORBIDDEN_DEV_VARS` (`src/config/security_profile.rs:59-64`).
 - **Test wiring:** `prod_ingress.rs` still holds the nine named cases and CI runs it (`.github/workflows/ci.yml:120`). Not re-run here: no build was permitted.
+
+Re-verified 2026-10-30 at c75004696: `docker-compose.unified.yml` gains the shared System One block and Codescape estate mounts; `scripts/launch.sh` gains sidecar selection (dev `up`/`restart` only). The ingress decision is untouched. Anchors at HEAD: `PROD_INGRESS` default `launch.sh:25`, `resolve_prod_ingress` `:177`, required secrets `:215`, tunnel `COMPOSE_PROFILES="prod,tunnel"` `:297`, LAN stray-cloudflared removal `:885`, `down` `:907`; `cloudflared` service `docker-compose.unified.yml:339` with its profile at `:358`. Sidecar selection is dev-only (`main`: `ENVIRONMENT == dev`), so no prod path changed. The decision holds.

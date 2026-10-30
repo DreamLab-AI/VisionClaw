@@ -115,15 +115,15 @@ entrypoint (`CODESCAPE_PTX_DIR`). Status: P0, P1 and the shared-port access of A
 
 The monolith split (legacy ADR-090) is **real but incomplete**. The root binary
 is renamed `visionclaw-server` (`Cargo.toml` `[package] name = "visionclaw-server"`)
-with `src/lib.rs` + `src/main.rs`. The workspace declares **sixteen** members
-(`Cargo.toml:2-19`, `[workspace].members`) — the root `"."` plus fifteen `crates/`:
+with `src/lib.rs` + `src/main.rs`. The workspace declares **seventeen** members
+(`Cargo.toml:2-20`, `[workspace].members`) — the root `"."` plus sixteen `crates/`:
 
 `visionclaw-contracts`, `visionclaw-domain`, `visionclaw-protocol`,
 `visionclaw-wire` (the frozen position wire, ADR-2143 A5), `visionclaw-adapters`,
 `visionclaw-gpu`, `visionclaw-ontology`, `visionclaw-actors`,
 `visionclaw-xr-presence`, `visionclaw-analytics-oracle`, `vault-core`, `vault`,
 `visionclaw-integration-tests`, `visionclaw-memory-cloud` (ADR-2133) and
-`visionclaw-tri-layout` (ADR-2135). The original census (`ADR-2005`) was the root plus
+`visionclaw-tri-layout` (ADR-2135) and `visionclaw-jev` (the opt-in System One typed-decision client, ADR-2148). The original census (`ADR-2005`) was the root plus
 nine; `vault-migrate`, once the tenth, was replaced by `vault-core` + `vault`. The empty
 orphan dir `graph-cognition-extract` never was a member and has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs]
 owner: jjohare
 review_trigger: any new security-relevant env flag, or a request to soften the release boot-abort to a warning
@@ -208,3 +208,5 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed changes since `bb76e75bd`: `src/main.rs` (+14: telemetry log guard, `SemanticService` registration) and `src/middleware/rbac_gate.rs` (+116: the gate now classifies the router-decoded path `routed_path(&req)`, closing a percent-encoding bypass such as `/api/%61dmin`; `GET /api/admin/rbac/whoami` is `Authenticated`, every other method and sub-path stays `Admin`). Both move the posture only towards stricter. `role_store.rs` is unchanged. **Holds.** Fresh anchors: `public_reads_enabled` `src/middleware/rbac_gate.rs:135-141` (`.unwrap_or(false)`); `enforce_release_env_hygiene` argv `exit(1)` `src/main.rs:125`, `SUSPECT_ENVS` `:129-133`, `NODE_ENV`+`DOCKER_ENV` and `exit(2)` `:161`, dev stub `:169`, call `:209`; owner-less refusal (`RBAC_ALLOW_OWNERLESS` read `:795`, `PermissionDenied` `:814`); boot profile assertion `:950` before `HttpServer::new` `:970` and `.bind()` `:1259`; role-lookup `Err` to `Viewer` `src/services/role_store.rs:369-371`; `parse_default_role` fails closed `:195-211`.
+
+Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`visionclaw_jev::hub::global()`, `.with_jev`, `configure_jev_routes` under the same authenticated `/api` scope; `src/handlers/jev_handler.rs` takes `AuthenticatedUser`). The fail-closed posture is untouched. Anchors at HEAD: `enforce_release_env_hygiene` real body `src/main.rs:118`, dev stub `:169`, call `:209`; `assert_effective_profile_or_exit` call `:952` (import `:949`), `HttpServer::new` `:972`, `.bind` `:1264`, so the assertion still runs before the listener binds. These supersede the older `main.rs` line numbers in this record. The decision holds.

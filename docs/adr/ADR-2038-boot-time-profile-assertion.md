@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/config/security_profile.rs, src/main.rs]
 owner: jjohare
 review_trigger: adoption of a production deployment, or any change to the profile env vars (RBAC_PUBLIC_READS, PUBKEY_VISIBILITY_FILTER, RBAC_DEFAULT_ROLE)
@@ -317,3 +317,5 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed diff `bb76e75bd..b4a175412` touches `security_profile.rs` (doc-comment renames only) and `main.rs` (telemetry log guard, `semantic_service` app data); no boot-assertion line changed. **Holds, status stays `partial`.** Fresh anchors (source reading; tests not re-run): `SECURITY_PROFILE_ENV` `security_profile.rs:54`, `FORBIDDEN_DEV_VARS` `:59`, `DeploymentProfile` `:83`, `expected_flags` `:124`, findings `MissingDeclaredProfile` `:295`, `UnnamedEffectiveProfile` `:297`, `FullDisclosureFlagPair` `:304`, `may_bind_listener` `:388`, `evaluate_effective_profile` `:485` (full-disclosure rule `:545-556`, drift `:559-579`, missing-declaration and unnamed findings `:596-600`), `assert_effective_profile_or_exit` `:624` with `process::exit(2)` `:654`. `main.rs`: block `:937-955`, call `:950`, receipt logged `:956-960`, `HttpServer::new` `:970`, `.bind()` `:1259`. The Decision's implicit `multi-user-locked` default is still not implemented and none is added: an undeclared production deployment is instead refused (`MissingDeclaredProfile`, `:596`), which is stricter than the Decision and is the divergence already awaiting owner ratification. `docs/SECURITY-profiles.md` anchors (`main.rs`, `rbac_gate.rs`, `docker-compose.unified.yml`, `security_profile.rs`) were stale and have been refreshed in the same change.
+
+Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`visionclaw_jev::hub::global()`, `.with_jev`, `configure_jev_routes` under the same authenticated `/api` scope; `src/handlers/jev_handler.rs` takes `AuthenticatedUser`). The boot-time profile assertion is untouched. Anchors at HEAD: `enforce_release_env_hygiene` real body `src/main.rs:118`, dev stub `:169`, call `:209`; `assert_effective_profile_or_exit` call `:952` (import `:949`), `HttpServer::new` `:972`, `.bind` `:1264`, so the assertion still runs before the listener binds. These supersede the older `main.rs` line numbers in this record. The decision holds.

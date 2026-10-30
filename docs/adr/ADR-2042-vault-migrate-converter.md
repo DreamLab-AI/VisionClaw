@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: [ADR-2113]
-verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/vault-migrate, Cargo.toml, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: the in-place conversion of the corpus repo is committed, after which the crate is kept only as the round-trip/no-op checker
@@ -175,3 +175,5 @@ Re-verified at b4a175412. Decision 1 ("one Rust binary, `crates/vault-migrate`")
 ## Re-checked at 8e380aad3 (2026-10-20)
 
 Governed changes since 2107637d6: `Cargo.toml` solid-pod-rs bump (db7ea58de) and `docs/VAULT-corpus-format.md` 2.4.0 (Invariant 12, ADR-2147). Neither touches the converter. Superseded status unchanged.
+
+Re-verified 2026-10-30 at c75004696: `Cargo.toml` adds the member and dependency `visionclaw-jev`. This record stays superseded by ADR-2113; `crates/vault-migrate` is still absent and `docs/VAULT-corpus-format.md` is untouched. Nothing to re-decide.

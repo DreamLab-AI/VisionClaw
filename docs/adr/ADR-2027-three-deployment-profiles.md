@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/config/security_profile.rs, src/middleware/rbac_gate.rs, src/main.rs, src/services/role_store.rs, src/handlers/socket_flow_handler/position_updates.rs, docker-compose.unified.yml]
 owner: jjohare
 review_trigger: adding a fourth profile, machine-selecting a profile at boot, or changing a compose security default
@@ -360,3 +360,5 @@ this decision governs moved, so it holds as written.
 **Evidence at b4a175412.** `PROFILE_FLAGS: [&str; 6]` `src/config/security_profile.rs:72`; `public_reads_enabled` `src/middleware/rbac_gate.rs:135-141`; owner-less refusal `src/main.rs:795-818`; `RBAC_DEFAULT_ROLE_ENV` `src/services/role_store.rs:41`, `parse_default_role` `:195`; `assert_effective_profile_or_exit` call `src/main.rs:950` before `HttpServer::new` `:970` and `.bind()` `:1259`. `docker-compose.unified.yml` still realises demo-open: `RBAC_PUBLIC_READS:-1` `:111`, `RBAC_ALLOW_OWNERLESS:-1` `:112`, `RBAC_OWNER_PUBKEY` `:113`, `RBAC_DEFAULT_ROLE:-editor` `:119`, `PUBKEY_VISIBILITY_FILTER:-1` `:125`; no `VISIONCLAW_SECURITY_PROFILE` is declared (so `implementation_status: partial` stands). The other governed change in range (the `rbac_gate.rs` routed-path hardening) only tightens classification.
 
 **Governing doc:** `docs/SECURITY-profiles.md`, flag-matrix and divergences anchors refreshed (`rbac_gate.rs:135-141`, `main.rs:795-818`, compose `:111-125`, profile assertion `:950/:970/:1259`), the `PUBKEY_VISIBILITY_FILTER` source repointed to `visibility_filter.rs`, and the stale `position_updates.rs` entry removed from its `sources`.
+
+Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client wiring (`jev_client`, `configure_jev_routes` inside the existing authenticated `/api` scope) and `docker-compose.unified.yml` gains the System One block; neither alters a profile flag. Anchors at HEAD: the demo-open inversions are `RBAC_PUBLIC_READS` `docker-compose.unified.yml:132`, `RBAC_ALLOW_OWNERLESS` `:133`, `RBAC_OWNER_PUBKEY` `:134`, `RBAC_DEFAULT_ROLE:-editor` `:140`, `PUBKEY_VISIBILITY_FILTER:-1` `:146`; `src/main.rs` reads `RBAC_ALLOW_OWNERLESS_ENV` at `:797` with the FATAL refusals at `:811`, `:821`, and calls `assert_effective_profile_or_exit` at `:952` before `HttpServer::new` (`:972`). The decision holds.

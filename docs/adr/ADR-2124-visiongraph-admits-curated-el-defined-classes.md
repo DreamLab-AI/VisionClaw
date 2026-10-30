@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/vault-core/src/definition.rs, crates/vault-core/src/lib.rs, crates/vault-core/src/vocabulary.rs, crates/vault/src/whelk.rs, crates/vault/src/build/turtle.rs, crates/vault/src/build/mod.rs, crates/vault/src/validate.rs, crates/vault/src/model.rs, crates/vault/src/projection.rs, crates/vault/tests/defined_classes.rs]
 owner: jjohare
 review_trigger: the first `defines-as` key accepted into ontology/vocabulary.yaml; a corpus build whose wall time with Restrictions::Relevant exceeds the CI budget; any proposal to emit a non-EL class expression
@@ -111,3 +111,5 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - **Tests present:** `restrictions_change_no_named_subsumption` (`whelk.rs:796`), `relevant_and_include_give_the_same_closure_and_skip_loses_the_entailment` (`:1046`), `crates/vault/tests/defined_classes.rs:109`, `:142`. Not re-run: no build was permitted.
 
 Governing document `docs/VAULT-corpus-format.md` still listed this ADR as **PROPOSED, not ratified**; it is brought in line in the same change (see its Reasoning and integrity section, version 2.3.0).
+
+Re-verified 2026-10-30 at c75004696: `crates/vault/src/model.rs` changes one rustdoc link (`[`Actor`](vault_core::okf::Actor)`, the ADR-2147 rustdoc fix). No admission code changed. The decision holds.

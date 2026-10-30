@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/utils/binary_protocol.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a new GPU analytics field that cannot fit an existing slot, or any need to change the 52-byte node-record layout
@@ -270,3 +270,5 @@ ADR-2135 changes `xr-client/rust/src/binary_protocol.rs` in three ways. `graph_r
 **Evidence at b4a175412.** `xr-client/rust/src/binary_protocol.rs`: `PROTOCOL_V5 = 0x05` `:29`, `V5_SEQ_BYTES = 8` `:30`, `NODE_RECORD_BYTES = 52` `:32`, `decode_position_frame_with_sequence` `:458`, `OPCODE_BROADCAST_ACK` and `encode_broadcast_ack` `:510-528`, `FreshnessGate` `:604`, `record_is_52_bytes` `:2422`. Server `src/utils/binary_protocol.rs`: `WIRE_V3_ITEM_SIZE` `:72` with the compile-time `== 52` assert `:90` and `test_wire_format_size` `:1092`; `WIRE_V5_SEQ_SIZE == 8` `:98-102`; `PROTOCOL_V5` decode arm `:612` skips the sequence and calls `decode_node_data_v3`; V5 encoder prefix `src/actors/client_coordinator_actor.rs:558`. The 52-byte layout, tag byte and 8-byte sequence are untouched, so the frozen-record decision stands.
 
 **Governing doc:** `docs/PROTOCOL-registry.md` already states the no-delta rule (policy 6) and the `0x34` ack row; its stale `binary_protocol.rs` anchors (V5 branch `:592`, seq reject `:594`, 52-byte assert `:93`, seq lock `:102`, V3 `:12`, struct `:44`, version policy `:506-522`) and the xr-client anchors `:25-28` were refreshed to `:612`, `:614`, `:90`, `:99`, `:11`, `:43`, `:608-622` and `:29-32`.
+
+Re-verified 2026-10-30 at c75004696: `xr-client/rust/src/binary_protocol.rs` only gains the `#[func]` `default_color_mode_for_backend` and a doc line on `set_color_mode` (ADR-2143 A6); no wire constant, decoder, tag or envelope is touched. Anchors at HEAD: `PROTOCOL_V5` `binary_protocol.rs:29`, `V5_SEQ_BYTES` `:30`, `NODE_RECORD_BYTES` `:32`, `decode_position_frame_with_sequence` `:458`, `OPCODE_BROADCAST_ACK` `:510`, `FreshnessGate` `:604`. Anchors cited below line 1250 in older sections have shifted (`record_memory_flash` `:1494`, `agent_drift_offset` `:1512`, `graph_robust_bounds` `:1936`). The decision holds.

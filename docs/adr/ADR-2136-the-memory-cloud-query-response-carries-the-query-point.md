@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/visionclaw-memory-cloud/src/pca.rs, crates/visionclaw-memory-cloud/src/snapshot.rs, crates/visionclaw-memory-cloud/src/wire.rs, src/services/memory_cloud_service.rs, xr-client/rust/src/memory_query.rs, xr-client/rust/src/memory_route.rs, xr-client/scripts/onscreen_keyboard.gd, xr-client/scripts/memory_search.gd]
 owner: jjohare
 review_trigger: the snapshot projection changing from PCA; a second consumer drawing from query.position; the headset gaining its own HNSW or the vectors blob
@@ -138,3 +138,5 @@ The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a
 - **Server:** the search queries select `embedding::text` (`memory_cloud_service.rs:98`, `:114`, `:133`); each hit is placed via `project_literal` (`:663-665`) and the query via `query_position` (`:685`, `:854`); test `:1032`.
 - **Headset:** `sidecar_route` builds origin and `hit_points` (`xr-client/rust/src/memory_query.rs:261-306`), `RouteFrame.origin` and `hit_points` (`memory_route.rs:355-360`), `ROUTE_GHOST` (`:45`), `MAX_SIDECAR` 64 (`:152`); the keyboard caps a query at 120 characters (`onscreen_keyboard.gd:28`) and sends `memory_typed:<scope>|<text>` (`hud.gd:919`); scope handling at `memory_search.gd:31`, `:35`, `:143`.
 Not re-run: no build was permitted.
+
+Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs` gains the optional `SidecarResults.jev` note (`JevRerankNote`, absent from the JSON unless a rerank was accepted) and `memory_cloud_service.rs` gains `apply_jev`; `QueryEcho.position` and `MemoryCloudHit.position` are unchanged (`wire.rs:110`, `:127`). `xr-client/scripts/memory_search.gd` gains `set_http_base` for backend switches. The query point still travels with the response. Anchors at HEAD: `project_literal` use `memory_cloud_service.rs:685`, `query_position` `:912`; `memory_search.gd` `DEFAULT_SCOPE` `:31`, `scopes` `:152`; `hud.gd` `_build_memory_keyboard` `:836`, `set_memory_scopes` `:901`, `memory_typed:` `:930`. The statement 'the wire is unchanged' in the scope amendment is now true of the position fields only: `sidecar` may also carry `jev`. The decision holds.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs]
 owner: jjohare
 review_trigger: the client explorer landing (memoryCloud panels); a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context
@@ -217,3 +217,5 @@ Checked at b4a175412 against `git diff 6ba4b07ee..HEAD` over the governed paths.
 - `src/middleware/rate_limit.rs` changed only to stop a panic when a user-keyed limiter sees an unauthenticated request (the pubkey is now copied out of the extensions before the IP fallback); the limiter still keys on the admitted pubkey for this surface.
 
 Governing document `docs/PROTOCOL-registry.md` is amended in the same change (0.1.12): its `/api/memory-cloud/health` row wrongly named the central read policy rather than the handler's `PowerUser` gate, and the rows now state the dev-mode admission and the expiry rule. Not re-run: no build was permitted.
+
+Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs`, `memory_cloud_service.rs` and `docker-compose.unified.yml` gain the opt-in System One typed-decision client `crates/visionclaw-jev` (a457c0d52, 2c2236725; enabled by the Compose master flag under ADR-2148 and its 2026-10-30 amendment): with the flag on, `apply_jev` reorders the leading hits by judged relevance and `sidecar.jev` carries an advisory note; hits keep their own `sample_index` and `position`, and with the flag off or on any fallback the response is the pre-change one. Decision 4 (privacy) holds: the exclusion list is applied before ranking and `apply_jev` re-filters excluded namespaces defensively (test `jev_never_sends_excluded_namespaces`). Drift note: the Compose default now enables the rerank with `VISIONCLAW_JEV_ALLOW_CLOUD=1`, so snippets from non-excluded namespaces can reach the System One backend; this record never contemplated that egress and is covered only by ADR-2148's operator decision. Anchors at HEAD: `MEMORY_CLOUD_SAMPLE` `docker-compose.unified.yml:157` and `:296`; `TIE_EPS` `memory_cloud_service.rs:156`, `PROBE_QUERIES` `:54`, `SESSION_OPTIONS` read-only `:58`, `not_expired!` `:68`, pool `max_size(4)` `:955`. The decision holds.

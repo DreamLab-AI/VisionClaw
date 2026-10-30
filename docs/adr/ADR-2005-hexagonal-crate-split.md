@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -306,3 +306,5 @@ Re-verified at `b4a175412`. The decision (new code in the crate matching its lay
 ## Re-checked at 8e380aad3 (2026-10-20)
 
 Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13 → alpha.17 (db7ea58de); no workspace member, feature or crate boundary changed. Decision intact.
+
+Re-verified 2026-10-30 at c75004696: `Cargo.toml` adds the member `crates/visionclaw-jev`, so the workspace is now **seventeen** members (`Cargo.toml:2-20`); `exclude` moved to `Cargo.toml:24` and is unchanged in content. The new crate depends on external crates only (serde, serde_json, async-trait, log, futures-util, tokio, reqwest; `crates/visionclaw-jev/Cargo.toml:12-19`), so no layer edge is added and nothing depends on `visionclaw-server` from it. The earlier note that no workspace member changed is superseded by this count; `docs/BASELINE-architecture.md` census updated in the same change. The decision and `partial` status hold.

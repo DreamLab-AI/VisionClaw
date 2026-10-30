@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/actors/gpu/force_compute_actor.rs, crates/visionclaw-domain/src/models/edge.rs, src/services/github_sync_service.rs, src/services/inferred_edge_materialiser.rs, src/services/semantic_type_registry.rs]
 owner: jjohare
 review_trigger: a producer that writes a 'hierarchical' subclass edge without rdfs:subClassOf in owl_property_iri (it would silently stop ranking), a store path that drops vc:owlProperty, or a new producer of explicit subclass_of labels
@@ -377,3 +377,5 @@ Merge of feat/tri-separation (ground-plane triangle layout, ADR-2135) with main'
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed changes since `bb76e75bd`: `src/actors/gpu/force_compute_actor.rs` (broadcast optimiser and backpressure removed per ADR-2139/ADR-2141; pin handling now round-trips through the display projection; semantic-forces engine added) and `src/services/github_sync_service.rs` (listing filtered to vault pages; `parse_page` takes base paths). The amended decision of 2026-10-02 is intact; **holds.** Fresh anchors: ranker input `hierarchy_pairs` filters on `edge.asserts_subsumption()` `src/actors/gpu/force_compute_actor.rs:419-433`, `compute_dag_ranks` `:438`; `Edge::asserts_subsumption` `crates/visionclaw-domain/src/models/edge.rs:239-247` (explicit subclass labels, or `hierarchical` only with `owl_property_iri == rdfs:subClassOf`); `DOMAIN_MEMBER_EDGE_TYPE = "domain_member"` `edge.rs:12`; `domain_membership_edge` `src/services/github_sync_service.rs:2376-2386` (label `domain_member`, no provenance); `materialise_domain_roots` `:872`. Regression tests present in `dag_rank_tests` (`force_compute_actor.rs:4438`): `a_domain_root_never_ranks_below_its_own_members` `:4473`, `folded_non_subsumption_predicates_do_not_rank` `:4502`, `only_subsumption_provenance_ranks` `:4581`, `membership_edges_neither_rank_nor_shortcut_a_subclass_chain` `:4661`. `inferred_edge_materialiser.rs` and `semantic_type_registry.rs` are unchanged.
+
+Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` only gains the opt-in Jev ingest suggestion; `materialise_domain_roots` (now `:874`) and the `domain_member` spoke (`domain_membership_edge` `:2396`) are unchanged. The decision holds.

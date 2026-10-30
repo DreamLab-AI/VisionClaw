@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/services/data_reconciliation.rs, src/services/github_sync_service.rs, scripts/backup-sqlite.sh, scripts/backup-secrets.sh]
 owner: jjohare
 review_trigger: an Oxigraph/RocksDB PITR or backup requirement, a cross-store consistency incident, or wiring RuVector delete-propagation
@@ -253,3 +253,5 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed change since `3b3ee7779`: `src/services/github_sync_service.rs` only. The listing is now filtered to pages that resolve to a vault identity under the configured base paths (path-layout change `knowledge/pages` to `knowledge`, `parse_page` takes the base paths); `scripts/backup-sqlite.sh`, `scripts/backup-secrets.sh` and `data_reconciliation.rs` are unchanged. **Holds.** Fresh anchors: `force_full_sync` `src/services/github_sync_service.rs:368`; `clear_graph()` on full sync `:405`; assert rebuild gated on `force_full_sync` `:623`, `rebuild_assert_graph` doc `:938-966`, `save_ontology_graph` call `:1024`. `scripts/backup-sqlite.sh` anchors are unchanged (`REQUIRED_DBS`/`OPTIONAL_DBS` `:75-76`, `VERIFY_RESTORE` `:81`, `.backup` `:182`/`:201`). `ls scripts | grep -i backup` still returns only the two scripts. The Verification grep for `tombstone|2pc|two-phase` now also hits `crates/vault-core/src/page.rs`, `crates/vault/src/projection.rs` and `crates/visionclaw-domain/tests/flat_vault_parity.rs` beside `provenance_emitter.rs`; none is a cross-store 2PC or tombstone store path.
+
+Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` gains an opt-in post-node Jev ingest suggestion (`scope.jev`, VC-21-S1-01; `jev_ingest::page_facts`) whose result is discarded. It writes nothing, does not touch `clear_graph` or the backup scripts. Anchors at HEAD: `force_full_sync` `:370`, `clear_graph` `:407`. Note the suggester sends a page excerpt and frontmatter to the System One endpoint, which the Compose default now routes to the shared proxy with cloud allowed (ADR-2148 amendment); this is egress of corpus content, not a backup or write-master change. The decision holds.

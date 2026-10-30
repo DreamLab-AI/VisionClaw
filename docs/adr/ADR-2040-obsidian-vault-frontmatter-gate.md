@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: [ADR-2014]
 superseded_by: [ADR-2112]
-verified_commit: 8e380aad3a0b0561af751901f3a3273714528038
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [crates/visionclaw-domain/src/vault/mod.rs, crates/visionclaw-domain/src/vault/link.rs, src/services/file_service.rs, src/services/github_sync_service.rs, src/services/parsers/knowledge_graph_parser.rs, src/services/github/content_enhanced.rs, src/services/ontology_mutation_service.rs, src/services/decision_elevation.rs, docs/VAULT-corpus-format.md]
 owner: jjohare
 review_trigger: "the first GitHub sync run after the corpus repo is converted in place, or 2026-12-01, whichever is earlier — at which point the Logseq `key:: value` tolerance is removed"
@@ -192,3 +192,5 @@ Re-verified at b4a175412. The record is superseded by ADR-2112; this amendment s
 ## Re-checked at 8e380aad3 (2026-10-20)
 
 Governed change since 2107637d6: `docs/VAULT-corpus-format.md` 2.4.0 adds Invariant 12 (derivation certificates, ADR-2147) and two readers/writers rows; the inclusion gate and frontmatter rules this record governed are untouched. Superseded status unchanged.
+
+Re-verified 2026-10-30 at c75004696: `src/services/github_sync_service.rs` gains the opt-in Jev ingest suggestion, which runs only after the inclusion gate: it is called inside `if page_is_kg_included(content)` (`:1675`) and `jev_ingest::page_facts` states the caller must already have applied the gate. The gate call sites are now `:1698`, `:1880` with the helper at `:2114`. No page is admitted by it. The record remains superseded by ADR-2112.

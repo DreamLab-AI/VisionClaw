@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: c750046962749715a4efb1b6056c7f40d9865110
 verified_paths: [src/config/security_profile.rs, src/main.rs, .github/workflows/ci.yml, Dockerfile.production]
 owner: jjohare
 review_trigger: any change to the production Dockerfile build line, the dev-auth feature gates, or enforce_release_env_hygiene
@@ -180,3 +180,5 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed diff `bb76e75bd..b4a175412`: `src/main.rs` (telemetry-logger log guard, new `semantic_service` app data) and `src/config/security_profile.rs` (two doc-comment renames of `parse_visibility_flag`); `Dockerfile.production` and `.github/workflows/ci.yml` unchanged. None touches a dev-auth gate. **Holds.** Fresh anchors, all read in source (no build or test run): release hygiene `src/main.rs:117`, no-op stub `:167`/`:169`, called first at `:209`; dev-auth CORS gate `:293` and `:981`; profile assertion block `:937-955` (call `:950`) before `HttpServer::new` `:970` and `.bind()` `:1259`. `security_profile.rs`: `FORBIDDEN_DEV_VARS` `:59`, `DevAuthFeatureInArtefact` `:275`/`:520`, `assert_effective_profile_or_exit` `:624` (`exit(2)` `:654`). `Dockerfile.production` release builds `:101`, `:164` name no features; `Cargo.toml:274` default features are `gpu, ontology, persistence-oxigraph, solid-pod-embed`; CI job `dev-auth-release-gate` `ci.yml:143` (checks `:185-212`); `scripts/launch.sh:195-198` refuses all four forbidden variables in `.env.prod`. The open clause is unchanged: no receipt binds an image digest to its feature closure.
+
+Re-verified 2026-10-30 at c75004696: `src/main.rs` only gains the Jev client (`visionclaw_jev::hub::global()`, `.with_jev`, `configure_jev_routes` under the same authenticated `/api` scope; `src/handlers/jev_handler.rs` takes `AuthenticatedUser`). The production build exclusion of dev auth is untouched. Anchors at HEAD: `enforce_release_env_hygiene` real body `src/main.rs:118`, dev stub `:169`, call `:209`; `assert_effective_profile_or_exit` call `:952` (import `:949`), `HttpServer::new` `:972`, `.bind` `:1264`, so the assertion still runs before the listener binds. These supersede the older `main.rs` line numbers in this record. The decision holds.
