@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3 uid="uid://b3xrvolume01vc"]
+
+; One emulated spatial volume (ADR-2158 D2, phase-1 contract §3.1). The
+; script builds the shared wire-box mesh, the 8 corner handles and their marker
+; MultiMesh on first use; Content carries the fit transform and the attached
+; source mounts its MultiMeshInstance3D nodes under it.
+
+[ext_resource type="Script" path="res://scripts/emulated_volume.gd" id="1_volume"]
+
+[node name="EmulatedVolume" type="Node3D"]
+script = ExtResource("1_volume")
+
+[node name="Frame" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+
+[node name="Handles" type="Node3D" parent="."]
+
+[node name="Content" type="Node3D" parent="."]
