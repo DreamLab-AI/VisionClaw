@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e37d6f96b275483be36f0b2e285f71d4b34e836a
+verified_commit: c28b3c2eed98a4df1c429d146b41e7bdf7e7f986
 verified_paths: [src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -76,7 +76,7 @@ The rule therefore reads: *stored force parameters are applied as stored; derive
 - The body of `PUT /api/settings/physics` is now `apply_physics_patch` (deep merge, both central validators, store, GPU actors, SQLite, broadcast); the PUT and `toggle_sssp` both call it. `sssp_patched` and `live_params` (a SQLite-only second read path) are deleted. `GET /sssp/status` reads the stored value.
 - Behaviour changes: alpha is bounded by the central validator (0..=5) instead of the route's own 0..=1; the toggle persists whether or not a GPU actor exists; the response echoes the stored alpha.
 - Compat: a document without `ssspEnabled` loads as enabled (test `a_document_stored_before_sssp_enabled_existed_loads_enabled`).
-- Tests: `sssp_patch_tests` (5, in `sssp_handlers.rs`) cover patch shape, only-SSSP-fields-change, omitted alpha, stored toggle reaching both GPU conversions, out-of-range alpha refused.
+- Tests: `sssp_patch_tests` (6, in `sssp_handlers.rs`) cover patch shape, only-SSSP-fields-change, omitted alpha, stored toggle reaching both GPU conversions, out-of-range alpha refused.
 
 **Gap 1 — layout mode into `physics.*`: not done.** Read at this head, it is a design, not a move:
 - `fill_mode_defaults` primes `dagBiasK`/`dagLevelDistance`/`layerBiasK`/`layerSpacing` from code constants (`RADIAL_DEFAULT_*`, `HIERARCHICAL_DEFAULT_*`) when the stored value is `<= 0`. Under decisions 1 and 2 each is a stored per-mode value, which needs a ruling on what the stored `0` ("off") means per mode.
@@ -88,7 +88,7 @@ Needed: the per-mode stored-value ruling, a `physics.layoutMode: LayoutMode` fie
 
 **Commands (worktree `adr-sprint/w3`, `CARGO_TARGET_DIR=/home/devuser/workspace/project/target`):**
 - `cargo test --lib` (full) → 1695 passed, 0 failed, 9 ignored; `cargo test --lib adr_20` → 43 passed.
-- `cargo test --lib sssp` → 6 passed, 0 failed. The idempotency gate compares the whole GPU image, so a stored toggle is not swallowed (`a_stored_sssp_toggle_is_not_swallowed_as_no_change`).
+- `cargo test --lib sssp` → 7 passed, 0 failed. The idempotency gate compares the whole GPU image, so a stored toggle is not swallowed (`a_stored_toggle_changes_the_gpu_image_the_actor_gate_compares`, in `sssp_handlers.rs`).
 - `cargo test -p visionclaw-domain` → 302 passed, 0 failed, 1 ignored (plus 5 passed in a second binary).
 - `cargo test --lib -- settings_routes simulation_params settings_handler physics` → 110 passed, 0 failed.
 - `cargo clippy --lib -p visionclaw-server`: no warning in the touched code after the fix (baseline warnings elsewhere are unchanged).
