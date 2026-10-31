@@ -198,3 +198,22 @@ Per-metric regression budgets live inside the baseline file (`regression_budget_
   — committed baseline + per-metric regression budgets.
 - [`../rust/benches/decode_throughput.rs`](../rust/benches/decode_throughput.rs)
   — gdext crate's 0x42 decode benches incl. 100 → 5000 node scaling.
+
+## Visual extras and renderer GPU time
+
+`perf/gpu_time_probe.gd` asks whether the renderer reports GPU time at all
+(`RenderingServer.viewport_get_measured_render_time_gpu`, switched on with
+`viewport_set_measure_render_time`). Run it windowed, XR off, never against the
+live client: `--headless` uses the dummy rasteriser and reports 0 whatever the
+driver supports. It prints one `[GPU_TIME_PROBE]={...}` line with the idle and
+loaded GPU/CPU ms.
+
+`benchmark.gd` takes `XR_BENCH_CANDY=<0..4>` (extras requested at that tier; 0 is
+the same scene with every extra off) and `XR_BENCH_CANDY_FRAMES=<n>` volume
+frames (default 2). The allocator grants the tier (`allocate_with_extras`), the
+controller draws it, and the result gains `eye_candy` and `render_gpu_ms` /
+`render_cpu_ms` (measured renderer time, not the frame-time aliases in
+`gpu_ms_p*`). With the layer on, the pass also asserts the allocator's own
+48 draw calls. `XR_BENCH_GPU_TIMER=1` reads renderer time without the extras.
+Results are mono desktop evidence, never stereo.
+

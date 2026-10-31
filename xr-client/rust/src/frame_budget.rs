@@ -22,6 +22,13 @@
 //! Both passes work inside [`TRI_LIMIT`] / [`DRAW_CALL_LIMIT`]: 5 % of each
 //! budget is held back for frame-to-frame variance.
 //!
+//! The visual extras (`eye_candy.gd`: sky, ribbon volume frames, ambient motes)
+//! are a third, last claim ([`allocate_with_extras`]). They are priced after the
+//! graph's near detail, so they can never move the graph, cloud, route or burst
+//! caps, only buy what is left, and they drop first when the minimums overrun.
+//! Their triangles are not free: what the graph left over is what they spend,
+//! and their draw calls are checked against every other layer's final count.
+//!
 //! Near-tier costs are charged as the increment over the far tier that the
 //! node or edge would otherwise use. If the minimums alone exceed the budget
 //! the minimums are still returned, with `over_budget` set, so the benchmark
