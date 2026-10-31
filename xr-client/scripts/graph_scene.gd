@@ -1346,7 +1346,14 @@ func _build_portals() -> void:
 	_portals.reduced_motion = _reduced_motion
 	_portals.walkthrough_enabled = XrPrefs.portal_walkthrough()
 	_portals.entered_changed.connect(_on_portal_entered_changed)
-	_portals.attach_fade(_find_xr_camera())
+	_portals.attach_fade(_portal_camera())
+
+
+# The scene's own XRCamera3D (the dim quad rides on it); the viewport lookup
+# is the fallback when the node path is not there.
+func _portal_camera() -> XRCamera3D:
+	var cam := get_node_or_null("XROrigin3D/XRCamera3D") as XRCamera3D
+	return cam if cam != null else _find_xr_camera()
 
 
 # True while the native container owns the arrangement fit, or it has been
@@ -1374,7 +1381,8 @@ func enter_volume_space(vid: StringName) -> bool:
 		return false
 	_end_box_grip()
 	_portals.walkthrough_enabled = XrPrefs.portal_walkthrough()
-	var cam: XRCamera3D = _find_xr_camera()
+	var cam: XRCamera3D = _portal_camera()
+	_portals.attach_fade(cam)  # no-op once attached
 	var pos := Vector3.ZERO if cam == null else cam.global_position
 	var heading := Vector3(0.0, 0.0, -1.0) if cam == null else -cam.global_transform.basis.z
 	# The floor is the XR origin's height (locomotion can fly it off zero).
