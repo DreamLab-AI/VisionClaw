@@ -2051,3 +2051,170 @@ mod grid_gpu_tests {
         }
     }
 }
+
+/// ADR-2029: the effect of `ENABLE_CONSTRAINTS` on positions, observed on the device.
+///
+/// The flag is residency-owned, so "constraints on" means constraints are resident
+/// (`num_constraints > 0`) and "off" means none are; no setting can flip it. Every other
+/// force is switched off so the only thing that can move a node is the constraint loop.
+/// Skips, loudly, when no CUDA device or PTX is available.
+#[cfg(test)]
+mod adr_2029_constraint_gpu_tests {
+    use super::*;
+    use crate::models::constraints::ConstraintData;
+    use crate::models::simulation_params::SimulationParams;
+
+    const N: usize = 64;
+    /// Distance constraint between nodes 0 and 1: they start 400 apart, target 10.
+    const START_GAP: f32 = 400.0;
+    const TARGET_GAP: f32 = 10.0;
+
+    fn engine() -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[adr_2029_constraint_gpu_tests] SKIPPED, CUDA init failed: {e}");
+                return None;
+            }
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[adr_2029_constraint_gpu_tests] SKIPPED, no PTX: {e}");
+                return None;
+            }
+        };
+        let mut g = match UnifiedGPUCompute::new(N, N * 2, &ptx) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[adr_2029_constraint_gpu_tests] SKIPPED, no CUDA device: {e}");
+                return None;
+            }
+        };
+        // Deterministic layout on a grid; nodes 0 and 1 are the constrained pair.
+        let (mut x, mut y, mut z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (i % 8) as f32 * 300.0 - 1000.0;
+            y[i] = ((i / 8) % 8) as f32 * 300.0 - 1000.0;
+            z[i] = 0.0;
+        }
+        x[0] = -START_GAP / 2.0;
+        y[0] = 0.0;
+        x[1] = START_GAP / 2.0;
+        y[1] = 0.0;
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        let offsets: Vec<i32> = (0..=N as i32).collect();
+        let cols: Vec<i32> = (0..N as i32).map(|i| (i + 1) % N as i32).collect();
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N])
+            .expect("upload edges");
+        Some((ctx, g))
+    }
+
+    /// Only the constraint loop may act: repulsion, springs, centring, gravity and
+    /// jitter are all zero, and the stability gate is bypassed by the caller.
+    fn constraint_only_params() -> SimulationParams {
+        let mut p = SimulationParams::default();
+        p.repel_k = 0.0;
+        p.spring_k = 0.0;
+        p.center_gravity_k = 0.0;
+        p.gravity = 0.0;
+        p.temperature = 0.0;
+        p.constraint_ramp_frames = 0;
+        p
+    }
+
+    fn distance_pair() -> ConstraintData {
+        let mut c = ConstraintData::default();
+        c.kind = 0; // DISTANCE in the live kernel
+        c.count = 2;
+        c.node_idx = [0, 1, -1, -1];
+        c.params[0] = TARGET_GAP;
+        c.weight = 0.5;
+        c
+    }
+
+    fn run(g: &mut UnifiedGPUCompute, frames: usize, p: &SimulationParams) -> Vec<[f32; 3]> {
+        for _ in 0..frames {
+            g.execute_physics_step_with_bypass(p, true).expect("step");
+        }
+        g.stream.synchronize().expect("sync");
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        (0..x.len()).map(|i| [x[i], y[i], z[i]]).collect()
+    }
+
+    fn gap(pos: &[[f32; 3]]) -> f32 {
+        let (a, b) = (pos[0], pos[1]);
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    }
+
+    #[test]
+    fn resident_constraints_move_positions_and_no_constraints_do_not() {
+        let p = constraint_only_params();
+        let Some((_c1, mut off)) = engine() else {
+            return;
+        };
+        let Some((_c2, mut on)) = engine() else {
+            return;
+        };
+
+        let baseline = run(&mut off, 30, &p);
+        assert!(
+            (gap(&baseline) - START_GAP).abs() < 1e-3,
+            "with no constraint resident and every other force off, nothing may move \
+             (gap {} vs start {START_GAP})",
+            gap(&baseline)
+        );
+
+        on.upload_constraints(&[distance_pair()])
+            .expect("constraints");
+        assert_eq!(on.num_constraints, 1);
+        let constrained = run(&mut on, 30, &p);
+
+        // The constraint dictates the direction: the pair closes towards TARGET_GAP.
+        assert!(
+            gap(&constrained) < START_GAP - 1.0,
+            "ENABLE_CONSTRAINTS (derived from residency) must pull the pair together; \
+             gap {} vs start {START_GAP}",
+            gap(&constrained)
+        );
+        assert!(gap(&constrained) >= 0.0 && constrained.iter().flatten().all(|v| v.is_finite()));
+        // Only the constrained nodes are involved; every other node stays put.
+        for i in 2..N {
+            assert_eq!(constrained[i], baseline[i], "node {i} is in no constraint");
+        }
+        assert_ne!(constrained[0], baseline[0]);
+        assert_ne!(constrained[1], baseline[1]);
+    }
+
+    #[test]
+    fn removing_the_constraints_turns_the_effect_off_again() {
+        let p = constraint_only_params();
+        let Some((_c1, mut off)) = engine() else {
+            return;
+        };
+        let Some((_c2, mut cleared)) = engine() else {
+            return;
+        };
+        let baseline = run(&mut off, 20, &p);
+
+        // Resident then removed before any step: the bit tracks residency both ways.
+        cleared
+            .upload_constraints(&[distance_pair()])
+            .expect("constraints");
+        cleared.upload_constraints(&[]).expect("clear");
+        assert_eq!(cleared.num_constraints, 0);
+        let after = run(&mut cleared, 20, &p);
+        assert_eq!(after, baseline, "no residency, no constraint effect");
+    }
+
+    #[test]
+    fn a_settings_change_cannot_switch_the_constraint_effect_on() {
+        // Constraints stay read-only in the registry: with nothing resident, no
+        // constraint-related scalar in the settings document produces motion.
+        let mut p = constraint_only_params();
+        p.constraint_max_force_per_node = 1.0e6;
+        let Some((_c1, mut a)) = engine() else { return };
+        let moved = run(&mut a, 20, &p);
+        assert!((gap(&moved) - START_GAP).abs() < 1e-3);
+    }
+}
