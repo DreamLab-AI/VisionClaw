@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: mono desktop and headless on HP (Godot 4.6.1 and 4.8-beta2); not stereo, headset or both-eye fill rate
 supersedes: []
 superseded_by: []
-verified_commit: 6f5e7ad481fef9e7b4e527bf8d1e7107d866d9ec
+verified_commit: ca35fd9dbd6c0b5a2ea532c185a24274ca52d09d
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -51,3 +51,7 @@ Re-stamped to `a4c07caed`. Re-run: `git diff --stat 3fffb8a20bd767e0ca033dfb5843
 The owner approved reserving up to tier 4 (ribbons plus 512 motes) ahead of the graph's near detail, so the extras show at production density, and left the portal weighting alone (R11 F5). Decision 1 is rewritten above; the rest of the record stands. `FrameCaps` gains `extras_allowance` (also in the GDScript caps dictionary and the pass's defaults), the triangles held back; it is 0 under pressure. The benchmark calls `allocate_with_extras` itself and calibrates `other_tris` before any extra is applied (2 182 at tier 0 and at tier 4 in the XE run), so the allowance is not charged twice and its allocator-against-measured parity needs no change; the renderer columns of `docs/XR-client.md` are not re-measured and say so.
 
 Re-stamped to `6f5e7ad48` (2026-10-31, this amendment; previous stamp `a4c07caed`). Re-run: `git diff --stat a4c07caed3f05bc170a0096fdde878ceebbd19c1 6f5e7ad481fef9e7b4e527bf8d1e7107d866d9ec -- xr-client/rust/src/frame_budget.rs xr-client/scripts/frame_budget_pass.gd xr-client/scripts/eye_candy.gd xr-client/scripts/emulated_volume.gd xr-client/scripts/spatial_environment.gd xr-client/perf/benchmark.gd xr-client/perf/gpu_time_probe.gd` gives `eye_candy.gd | 11`, `frame_budget.rs | 271`, `frame_budget_pass.gd | 10` (242 insertions, 50 deletions) and nothing else. `evidence_class` and `acceptance_boundary` are unchanged: mono desktop and headless only.
+
+## Re-verification — 2026-10-31 (`ca35fd9db`)
+
+The only governed-path change since 6f5e7ad48 is the test module of `xr-client/rust/src/frame_budget.rs` (R12 F3: two pressure sweep tests). Allocator code is unchanged. `cargo test --lib frame_budget` in `xr-client/rust`: 30 passed; removing the route or burst pressure term fails exactly the matching new test. Evidence: `git diff 6f5e7ad48..ca35fd9db -- xr-client/rust/src/frame_budget.rs`.
