@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: f68ad414faab7a7274c01c364c9015b1ada45f42
+verified_commit: 2f8a74118cee7a2b3ab7f600f850bc1fe8b10722
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -172,3 +172,7 @@ Re-verified at `b4a175412`. The topology holds: `GPUManagerActor::spawn_supervis
 runtime PTX identity check. Nothing this decision rests on changed: the diff of that document was read and touches
 only the PTX-loading paragraph, invariant 5 and the changelog. `verified_commit` bumped to the commit carrying that
 edit. **Still holds.**
+
+## Re-verification — 2026-10-31 (`2f8a74118`)
+
+Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
