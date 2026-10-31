@@ -89,3 +89,8 @@ leads; those were fixed by their owners and the check was re-run clean.)
 
 Verification ran on the uncommitted working tree above the recorded SHA; `verified_paths` is
 empty for that reason.
+
+## Amendment — 2026-10-31 (ADR-2140 item 1)
+
+`SetLayoutMode` and `ForceComputeActor`'s mode handling no longer exist: the layout mode is the stored `physics.layoutMode`, and `set_layout_mode` writes it through `apply_physics_patch` (the review trigger "add a `LayoutMode` variant" fired: `DagLeftRight` and `TypeClustering` were added). What this record decided still holds: an unparseable mode is a `400`, never substituted, and the advertised list matches what the handler honours. The advertised list is now seven (`forceDirected`, `hierarchical`, `radial`, `dagLeftRight`, `typeClustering`, `spectral`, `temporal`); `clustered` is still accepted and stored but not advertised, because it is the force-directed baseline plus the independent `clusterStrength` knob. Re-run: `git diff --stat 75b72416b 412849582 -- src/handlers/layout_handler.rs src/actors/gpu/force_compute_actor.rs crates/visionclaw-domain/src/types/layout.rs`. Details: ADR-2140, second Close-out.
+
