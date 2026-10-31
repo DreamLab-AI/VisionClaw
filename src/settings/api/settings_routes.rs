@@ -2138,10 +2138,12 @@ mod layout_mode_patch_tests {
 
     #[test]
     fn a_mode_patch_changes_only_the_mode() {
-        let mut stored = PhysicsSettings::default();
-        stored.repel_k = 321.0;
-        stored.sssp_enabled = false;
-        stored.dag_bias_k = 0.0;
+        let stored = PhysicsSettings {
+            repel_k: 321.0,
+            sssp_enabled: false,
+            dag_bias_k: 0.0,
+            ..Default::default()
+        };
         let merged = merge_physics_patch(
             serde_json::to_value(&stored).unwrap(),
             serde_json::json!({ "layoutMode": "radial" }),
@@ -2175,8 +2177,10 @@ mod layout_mode_patch_tests {
 
     #[test]
     fn gpu_validation_sees_the_resolved_values_of_the_stored_mode() {
-        let mut stored = PhysicsSettings::default();
-        stored.layout_mode = LayoutMode::Hierarchical;
+        let stored = PhysicsSettings {
+            layout_mode: LayoutMode::Hierarchical,
+            ..Default::default()
+        };
         let sim = validate_for_gpu(&stored).expect("a DAG mode with stored zeros is valid");
         assert_eq!(sim.layout_mode, LayoutMode::Hierarchical);
         assert_eq!(sim.layer_bias_k, 1.0);
