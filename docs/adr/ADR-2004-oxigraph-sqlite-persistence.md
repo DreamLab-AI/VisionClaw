@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
+verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -252,3 +252,7 @@ Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13
 Re-verified 2026-10-30 at c75004696: the root `Cargo.toml` gains the workspace member and path dependency `visionclaw-jev` and its dev-dependency (the opt-in Jev option, ADR-2148). No oxigraph, rusqlite, redis or persistence feature changed. Anchors at HEAD: `oxigraph` `Cargo.toml:92`, `rusqlite` `:93`, `redis` `:97`, `default` features `:278`, `persistence-oxigraph` `:294`; no `neo4rs`. The decision holds.
 
 Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-runtime]` (ADR-2156); persistence dependencies unchanged, claim holds.
+
+## Re-stamp — 2026-10-31 (ADR-2140 item 1)
+
+**Governed change:** `src/app_state.rs` gains the layout-mode migration at the physics load (it reads the stored `quality_gates` row and writes the migrated `physics` row back once, ADR-2140 item 1). No Oxigraph handle, repository constructor, `DATA_DIR` or `.sqlite3` path changed, so the substrate this record decides is untouched. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- src/app_state.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.

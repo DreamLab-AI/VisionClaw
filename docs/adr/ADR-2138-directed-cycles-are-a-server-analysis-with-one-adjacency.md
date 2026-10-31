@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: e49db18363bd3822016e9dde1e9eafe73322a5b8
+verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -77,3 +77,7 @@ evidence above stands; ratification is a one-line owner action, listed in Vision
 Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git diff --stat 772039bd172027af034d64befacca1ebcf0bbc04 b06d44613 -- src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs src/settings/api/settings_routes.rs client/src/api/layoutApi.ts client/src/features/graph/hooks/useCyclicNodeIds.ts xr-client/rust/src/render_store.rs xr-client/scripts/hud.gd` → only `src/settings/api/settings_routes.rs | 123 +++++++++++++++++++++++++++---------` (93 insertions, 30 deletions), in `normalize_physics_keys`, `PhysicsPatchError`, the PUT body and `apply_physics_patch` (GPU `Err` now a 500). The cycle routes and the quality-gate handling are untouched.
 
 Re-stamped to `e49db1836` (2026-10-31, ADR-2166, spatial volumes can be entered). Re-run: `git diff --stat b06d44613dfdaab26faf4877d5599ecae980253d e49db18363bd3822016e9dde1e9eafe73322a5b8 -- src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs src/settings/api/settings_routes.rs client/src/api/layoutApi.ts client/src/features/graph/hooks/useCyclicNodeIds.ts xr-client/rust/src/render_store.rs xr-client/scripts/hud.gd` gives only `xr-client/scripts/hud.gd | 15 +++`, the Session-row Enter/Leave button. No Cycles button, request or label changed, and the cycle routes and the Rust renderer are untouched. **Decision unaffected.**
+
+## Re-stamp — 2026-10-31 (ADR-2140 item 1)
+
+**Governed change:** ADR-2140 item 1 changes the layout-mode handling this record's decision 4 describes. The whitelist is now the shared `QUALITY_GATE_LAYOUT_MODES` (seven strings) for the legacy quality-gate field, `physics.layoutMode` accepts either vocabulary and refuses an unknown value, and `layoutApi.ts` posts the engine names verbatim (the quality-gate remap is deleted). Decision 4 still holds: `spectral` and `clustered` are accepted, plus the two new modes `dagLeftRight` and `typeClustering`; `LIVE_LAYOUT_MODES` still withholds `clustered`. The cycle routes and the SCC ranking are untouched. **Decision holds**; the `settings_routes.rs:413-414` and `layoutApi.ts:58/:76` citations have moved. Re-run: `git diff --stat 75b72416b 93302275e -- client/src/api/layoutApi.ts src/settings/api/settings_routes.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
