@@ -381,13 +381,13 @@ Re-verified 2026-10-30 at 2c8e39d83: the `codescape` submodule pin moves c742770
 
 ## Close-out 2026-10-31
 
-The park trigger "P2 gate output committed" is met in the Codescape repository (ADR-0001 follow-on), on branch `adr-sprint/w5`, commit `0438f96e3` (source `0256a85`, formatting fix `865bb26`). The raw output, each with a header (date, host, rustc, source sha, lock sha256) and an `exit=` per command, is under `docs/evidence/{P0,P1,P2}/` there, indexed in `docs/evidence/README.md`:
+The park trigger "P2 gate output committed" is met in the Codescape repository (ADR-0001 follow-on), on branch `adr-sprint/w5`, commit `0438f96e3` (source `0256a85`, formatting fix `865bb26`). The gates ran at Codescape `0256a85`/`865bb26`, two doc/ignore-only commits after the `e3b76f6` pinned by the gitlink at `verified_commit`; the P1 client gate and the P2 runs were at `865bb26`. The raw output, each with a header (date, host, rustc, source sha, lock sha256) and an `exit=` per command, is under `docs/evidence/{P0,P1,P2}/` there, indexed in `docs/evidence/README.md`:
 
 | Gate | Command | Result |
 |---|---|---|
 | P0 | `cargo test --locked -p codescape-model`; `-p codescape-server --test isolation` | 22 + 2 passed; isolation 8 passed (negative control, I1a, I10, I11); no graphicle in model or collab tree |
 | P1 Rust | `cargo fmt --all --check` | **exit=1** at `0256a85` (`voice/jev.rs`), kept as evidence; fixed in `865bb26`, re-run exit=0 |
-| P1 Rust | `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`; `cargo doc` with `-Dwarnings` | exit=0; 0 failed, 6 ignored (CUDA device tests) |
+| P1 Rust | `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`; `RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --no-deps --locked` (command line recorded in the evidence, re-run at `0438f96`) | exit=0; 0 failed, 6 ignored (CUDA device tests) |
 | P1 client | `vitest run`; `vite build` | 86 passed (8 files, including the I9 isolation test); build exit=0 |
 | P2 | `CODESCAPE_GPU_TESTS=1 cargo test -p codescape-layout --features cuda -- --ignored gpu_conforms_to_cpu_oracle` (A2.1) | passed on an RTX 6000 Ada: GPU vs CPU k-NN overlap symbols 0.868 (floor 0.734 − 0.1), files 1.000 (floor 0.9) |
 | P2 | PTX refusal tests, egress unit tests | 15 and 4 passed (stale 172 B layout, fallback provenance, tag mismatch, arity drift refused) |
