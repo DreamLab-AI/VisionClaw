@@ -248,8 +248,9 @@ table), so a layout the compiler does not give fails the build.
 
 Not part of the stored definition (recorded in ADR-2140, "Not yet done"): the layout *mode* and its
 bias priming (`fill_mode_defaults`, `force_compute_actor.rs`) still live in the compute actor, and
-the quality-gate and DAG-mode overrides (`settings_routes.rs` quality-gate propagation,
-`settings_handler/physics.rs`) still force `useSsspDistances` and floor `ssspAlpha` at 0.5 in DAG modes.
+the quality-gate propagation (`settings_routes.rs:1224-1226`) still forces `useSsspDistances` and floors
+`ssspAlpha` at 0.5 on the *device* copy in DAG modes without writing the store, so there the device can run
+SSSP on while the store and `/sssp/status` say off. `settings_handler/physics.rs:102` is unreachable dead code.
 `POST /sssp/toggle` now writes the store (closed 2026-10-31).
 Per-node derived values (degree-weighted gravity, class mass, per-domain repulsion charge in
 `src/actors/gpu/domain_charge.rs`) are computed from the graph on upload, not stored settings.

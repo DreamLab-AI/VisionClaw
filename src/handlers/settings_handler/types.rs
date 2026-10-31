@@ -3,6 +3,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// `ssspEnabled` defaults on (ADR-2140), so a body that predates the field still deserialises.
+fn default_sssp_enabled() -> bool {
+    true
+}
+
 pub fn value_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
@@ -354,6 +359,7 @@ pub struct PhysicsSettingsDTO {
     pub cooling_rate: f32,
     pub max_repulsion_dist: f32,
     pub sssp_alpha: f32,
+    #[serde(default = "default_sssp_enabled")]
     pub sssp_enabled: bool,
     pub clustering_algorithm: String,
     pub cluster_count: u32,
@@ -683,4 +689,20 @@ pub struct WhisperSettingsDTO {
     pub word_timestamps: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_prompt: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_physics_body_without_sssp_enabled_deserialises_as_enabled() {
+        let mut body = serde_json::to_value(PhysicsSettingsDTO::from(
+            &crate::config::PhysicsSettings::default(),
+        ))
+        .unwrap();
+        body.as_object_mut().unwrap().remove("ssspEnabled");
+        let dto: PhysicsSettingsDTO = serde_json::from_value(body).unwrap();
+        assert!(dto.sssp_enabled);
+    }
 }

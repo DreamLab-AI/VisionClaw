@@ -1,7 +1,7 @@
 use actix_web::web;
 use log::debug;
 
-use crate::middleware::RequireAuth;
+use crate::middleware::{RateLimit, RequireAuth};
 use crate::ok_json;
 
 // Existing submodules
@@ -185,7 +185,13 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/anomaly/toggle", web::post().to(toggle_anomaly_detection))
             .route("/sssp/params", web::post().to(update_sssp_params))
             .route("/sssp/compute", web::post().to(compute_sssp))
-            .route("/sssp/toggle", web::post().to(toggle_sssp))
+            // Each toggle is a full physics write (store, GPU, SQLite, broadcast), so it carries
+            // the same limit as `/api/settings/*`.
+            .service(
+                web::resource("/sssp/toggle")
+                    .wrap(RateLimit::per_minute(60))
+                    .route(web::post().to(toggle_sssp)),
+            )
             .route(
                 "/stress-majorization/trigger",
                 web::post().to(trigger_stress_majorization),

@@ -4,7 +4,6 @@ use log::{debug, error, info, warn};
 use crate::AppState;
 use crate::{error_json, ok_json};
 
-use super::state::FEATURE_FLAGS;
 use super::types::{SSSPToggleRequest, SSSPToggleResponse};
 
 use std::sync::Arc;
@@ -126,7 +125,6 @@ pub async fn toggle_sssp(
     let patch = sssp_toggle_patch(request.enabled, request.alpha);
     match apply_physics_patch(&app_state, settings_repo.get_ref(), patch, &auth.pubkey).await {
         Ok(stored) => {
-            FEATURE_FLAGS.lock().await.sssp_integration = stored.sssp_enabled;
             let message = if stored.sssp_enabled {
                 format!(
                     "SSSP spring adjustment enabled with alpha={:.2}",
@@ -169,16 +167,21 @@ pub async fn toggle_sssp(
     }
 }
 
-pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpResponse> {
-    // Read the store, not the display flag: the stored physics document is the one definition.
-    let enabled = match app_state
+/// The stored `physics.ssspEnabled`; the default (on) when the settings actor cannot answer.
+pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
+    match app_state
         .settings_addr
         .send(crate::actors::messages::GetSettings)
         .await
     {
         Ok(Ok(settings)) => settings.visualisation.graphs.knowledge.physics.sssp_enabled,
-        _ => FEATURE_FLAGS.lock().await.sssp_integration,
-    };
+        _ => true,
+    }
+}
+
+pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+    // Read the store, not the display flag: the stored physics document is the one definition.
+    let enabled = stored_sssp_enabled(&app_state).await;
 
     ok_json!(serde_json::json!({
         "success": true,

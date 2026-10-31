@@ -645,10 +645,22 @@ pub(crate) async fn apply_physics_patch(
 
             if let Some(gpu_addr) = state.get_gpu_compute_addr().await {
                 info!("Sending UpdateSimulationParams to GPUComputeActor (direct)");
-                if let Err(e) = gpu_addr.send(update_msg.clone()).await {
-                    error!("Failed to propagate physics to GPUComputeActor: {}", e);
-                } else {
-                    info!("UpdateSimulationParams sent to GPUComputeActor successfully");
+                match gpu_addr.send(update_msg.clone()).await {
+                    Ok(Ok(())) => {
+                        info!("UpdateSimulationParams sent to GPUComputeActor successfully");
+                    }
+                    // The actor refused the update: report it, as the SSSP toggle did before it
+                    // became a physics patch. The store already holds the value.
+                    Ok(Err(e)) => {
+                        error!("GPUComputeActor rejected the physics update: {}", e);
+                        return Err(PhysicsPatchError::Internal(format!(
+                            "GPU update failed: {}",
+                            e
+                        )));
+                    }
+                    Err(e) => {
+                        error!("Failed to propagate physics to GPUComputeActor: {}", e);
+                    }
                 }
             } else {
                 // Fallback: route through GPUManagerActor when direct address isn't cached yet

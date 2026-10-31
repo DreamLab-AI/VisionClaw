@@ -311,13 +311,19 @@ pub struct AnomalyState {
 // `sssp_handlers.rs` (`sssp_integration`) and `ontology/mod.rs`
 // (`ontology_validation`) — every other field gated nothing anywhere in the
 // codebase. `ontology_validation` remains a real gate on the reasoning
-// endpoints; `sssp_integration` remains a display/contract field, echoed by
-// `/sssp/status` and toggled by `/sssp/toggle`, though it gates no behaviour
-// either.
+// endpoints. `sssp_integration` stays on the wire but gates nothing and is no
+// longer held here: the feature-flag handlers derive it from the stored
+// `physics.ssspEnabled` (ADR-2140), and a body that sets it is ignored. Its
+// `FEATURE_FLAGS` value is a placeholder.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FeatureFlags {
     pub ontology_validation: bool,
+    #[serde(default = "default_sssp_integration")]
     pub sssp_integration: bool,
+}
+
+fn default_sssp_integration() -> bool {
+    true
 }
 
 impl Default for FeatureFlags {
@@ -331,5 +337,18 @@ impl Default for FeatureFlags {
             // "live reasoned graph") reflect it persistently, not just until restart.
             ontology_validation: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod feature_flags_tests {
+    use super::*;
+
+    #[test]
+    fn a_flags_body_without_sssp_integration_still_parses() {
+        let flags: FeatureFlags =
+            serde_json::from_value(serde_json::json!({ "ontology_validation": false })).unwrap();
+        assert!(!flags.ontology_validation);
+        assert!(flags.sssp_integration);
     }
 }
