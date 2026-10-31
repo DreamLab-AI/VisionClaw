@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 779f67397640e4f65a093778b18c299de9b6339d
-verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs]
+verified_commit: ae0aed893f34e17b89db0562f0770f4ad677bf25
+verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs, crates/visionclaw-gpu/src/ptx_loader.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
 repo: visionclaw
@@ -216,3 +216,44 @@ rejected by `validate_ptx` (`:252`). Measured: with plain `nvcc`, only `NVCC_CCB
 wrapper on `PATH`, all eight modules report `provenance=compiled` and none a fallback, in the agentbox container
 that previously compiled none.
 
+## Close-out 2026-10-31
+
+**Gap closed:** a runtime PTX identity check. `build.rs` now also emits `<MODULE>_PTX_TAG`
+(`cargo:rustc-env`), the `ptx_policy::content_tag` of the exact bytes it left on disk after the ISA rewrite (the
+same value the build manifest records as `rewritten=`). `ptx_loader` exposes `PTXModule::expected_content_tag()`,
+`verify_build_identity(module, path, content, expected)` and `PtxIdentityMismatch`, and
+`load_ptx_module_sync_raw` runs `check_baked_artefact` first: if the build's baked artefact file is present and
+its bytes hash differently, the load returns an `Err` naming module, path, expected and actual tags, and does
+**not** fall through to another source. A missing baked file is not an error (images ship without the build
+tree), and a module with no baked tag (`dynamic_grid`, no longer compiled) is not checked.
+
+Honest limits: the tag is the existing FNV-1a `content_tag`, chosen so the runtime value equals the manifest
+value. It detects a stale or altered artefact; it is not a defence against deliberate forgery. The check covers
+the baked build output only. These loads **bypass** it: PTX read from the source-tree copies
+(`src/ptx`, `/app/...`) or produced by the runtime nvcc fallback (different artefacts by definition, validated only
+structurally), and `src/adapters/gpu_semantic_analyzer.rs`, which `include_str!`s the gitignored
+`src/utils/ptx/*.ptx` copies at compile time and never touches `ptx_loader`. `gpu_diagnostics.rs` loads via
+`load_ptx_sync`, so it is checked. `crate::utils::ptx` is a re-export of `visionclaw_gpu::ptx_loader`, not a
+second loader.
+
+**Inert in the runtime images.** Neither runtime image ships the build tree (`Dockerfile.production:230-232`,
+`Dockerfile.unified:406`), so in the production and unified images the baked file is absent, the check is
+skipped, and the PTX actually loaded (`/app/src/utils/ptx`, from the separate `cuda-ptx` nvcc stage) is
+unverified. The check is effective only where the binary runs beside its own `target/` (the dev container,
+`cargo test`). It therefore cannot trip a production deploy, and it gives production no identity protection;
+that gap is part of why this record stays `partial`.
+
+**Failure behaviour (new hard-fail on the GPU-init path).** A mismatch makes `load_ptx_module_sync` return `Err`.
+`ForceComputeActor` turns an `Err` for the main module into `GPUInitFailed` (logged, reported; no panic or process
+exit) and treats the clustering and APSP modules as optional (`warn!`, `None`); `GpuResourceActor` propagates the
+main-module error as its init error. The backend therefore starts without GPU physics rather than crashing; the
+risk is a graph that runs without GPU physics, reported at `error!`, if the baked artefact is altered after
+the build (in practice: a same-profile rebuild in the dev container overwriting `OUT_DIR` under a running binary).
+
+**Commands run.** `cargo test -p visionclaw-gpu --lib` → 70 passed, 0 failed (also run before the commit, after rustfmt) (includes five new tests:
+match passes; altered bytes fail naming both tags; a post-build ISA edit fails; no tag means no check; and
+`build_tag_matches_the_baked_file_for_every_module`, an end-to-end check of this build's own eight artefacts).
+`cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean (no diagnostics); `rustfmt --check` clean on `ptx_loader.rs` and `build.rs` (`cargo fmt --all --check` reports 280 pre-existing diffs elsewhere, none in these files). `verified_commit` is the last code commit; a docs-only commit follows it.
+
+**Status stays `partial`.** Still outstanding from the acceptance condition: exercising representative kernels
+on the intended (older-ISA) driver with rollback, and the loader's modification-time scan for non-baked paths.

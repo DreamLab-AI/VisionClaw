@@ -269,6 +269,13 @@ fn main() {
 
         let env_var = format!("{}_PTX_PATH", file_name.to_uppercase());
         println!("cargo:rustc-env={}={}", env_var, ptx_output.display());
+        // ADR-2030 runtime identity: the tag of the bytes just written, which
+        // `ptx_loader` compares against what it reads back at load time.
+        println!(
+            "cargo:rustc-env={}_PTX_TAG={:016x}",
+            file_name.to_uppercase(),
+            content_tag(final_text.as_bytes())
+        );
     }
 
     // Emit the build manifest so the selected modules and their content identity

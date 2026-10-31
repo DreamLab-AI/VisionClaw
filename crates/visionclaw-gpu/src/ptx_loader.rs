@@ -271,6 +271,23 @@ impl PTXModule {
         }
     }
 
+    /// Content tag (16 lower-case hex digits) of the PTX this build produced for
+    /// the module, baked by `build.rs` from the bytes it wrote after the ISA
+    /// rewrite (ADR-2030). `None` when the build baked no PTX for the module.
+    pub fn expected_content_tag(&self) -> Option<&'static str> {
+        match self {
+            PTXModule::VisionflowUnified => option_env!("VISIONCLAW_UNIFIED_PTX_TAG"),
+            PTXModule::GpuClusteringKernels => option_env!("GPU_CLUSTERING_KERNELS_PTX_TAG"),
+            PTXModule::DynamicGrid => option_env!("DYNAMIC_GRID_PTX_TAG"),
+            PTXModule::GpuAabbReduction => option_env!("GPU_AABB_REDUCTION_PTX_TAG"),
+            PTXModule::GpuLandmarkApsp => option_env!("GPU_LANDMARK_APSP_PTX_TAG"),
+            PTXModule::SsspCompact => option_env!("SSSP_COMPACT_PTX_TAG"),
+            PTXModule::Pagerank => option_env!("PAGERANK_PTX_TAG"),
+            PTXModule::GpuConnectedComponents => option_env!("GPU_CONNECTED_COMPONENTS_PTX_TAG"),
+            PTXModule::SemanticForces => option_env!("SEMANTIC_FORCES_PTX_TAG"),
+        }
+    }
+
     pub fn all_modules() -> Vec<PTXModule> {
         vec![
             PTXModule::VisionflowUnified,
@@ -369,6 +386,81 @@ pub fn validate_ptx(ptx: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Why a baked build artefact failed the runtime identity check (ADR-2030).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtxIdentityMismatch {
+    /// Module whose PTX was checked.
+    pub module: PTXModule,
+    /// Path the PTX was read from.
+    pub path: PathBuf,
+    /// Tag the build recorded for the module.
+    pub expected: String,
+    /// Tag of the bytes actually read.
+    pub actual: String,
+}
+
+impl std::fmt::Display for PtxIdentityMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PTX identity check failed for {:?} at {}: the build produced content tag {} but the file \
+             holds {}. The artefact was modified or replaced after the build; rebuild rather than load it.",
+            self.module,
+            self.path.display(),
+            self.expected,
+            self.actual
+        )
+    }
+}
+
+/// Checks that `content` is the PTX the build produced for `module` (ADR-2030).
+///
+/// `expected` is the build-recorded tag ([`PTXModule::expected_content_tag`]);
+/// with `None` there is nothing to compare and the check passes. The tag is
+/// the FNV-1a hash from [`crate::ptx_policy::content_tag`], the same one the
+/// build manifest records: it detects a stale or altered artefact, it is not a
+/// defence against a deliberate forgery.
+pub fn verify_build_identity(
+    module: PTXModule,
+    path: &Path,
+    content: &str,
+    expected: Option<&str>,
+) -> Result<(), PtxIdentityMismatch> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let actual = format!(
+        "{:016x}",
+        crate::ptx_policy::content_tag(content.as_bytes())
+    );
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(PtxIdentityMismatch {
+            module,
+            path: path.to_path_buf(),
+            expected: expected.to_string(),
+            actual,
+        })
+    }
+}
+
+/// Runtime gate: if this binary baked a build artefact for `module` and that
+/// file still exists, its bytes must match the build's recorded tag. A missing
+/// file is not an error here (images ship without the build tree); a present
+/// file that differs is, and is never silently replaced by another source.
+fn check_baked_artefact(module: PTXModule) -> Result<(), String> {
+    let (Some(baked), Some(tag)) = (module.compiled_ptx_path(), module.expected_content_tag())
+    else {
+        return Ok(());
+    };
+    let path = Path::new(baked);
+    let Ok(content) = fs::read_to_string(path) else {
+        return Ok(());
+    };
+    verify_build_identity(module, path, &content, Some(tag)).map_err(|e| e.to_string())
+}
+
 pub fn load_ptx_module_sync(module: PTXModule) -> Result<String, String> {
     info!("load_ptx_module_sync: Loading PTX for {:?}", module);
 
@@ -377,6 +469,8 @@ pub fn load_ptx_module_sync(module: PTXModule) -> Result<String, String> {
 }
 
 fn load_ptx_module_sync_raw(module: PTXModule) -> Result<String, String> {
+    check_baked_artefact(module)?;
+
     if std::env::var(DOCKER_ENV_VAR).is_ok() {
         info!("Docker environment detected, checking for pre-compiled PTX first");
 
@@ -887,5 +981,81 @@ mod tests {
             Some(baked) => assert_eq!(path.unwrap().to_str().unwrap(), baked),
             None => assert_eq!(path.unwrap().to_str().unwrap(), "/tmp/pagerank.ptx"),
         }
+    }
+
+    // ── ADR-2030 runtime PTX identity ───────────────────────────────────────
+
+    fn tag_of(s: &str) -> String {
+        format!("{:016x}", crate::ptx_policy::content_tag(s.as_bytes()))
+    }
+
+    #[test]
+    fn identity_passes_when_bytes_match_the_build_tag() {
+        let ptx = ".version 9.0\n.target sm_75\n.entry k()\n";
+        let tag = tag_of(ptx);
+        assert!(verify_build_identity(
+            PTXModule::Pagerank,
+            Path::new("/x/pagerank.ptx"),
+            ptx,
+            Some(&tag)
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn identity_fails_loud_on_altered_bytes_naming_both_tags() {
+        let built = ".version 9.0\n.target sm_75\n.entry k()\n";
+        let altered = ".version 9.0\n.target sm_75\n.entry other()\n";
+        let tag = tag_of(built);
+        let err = verify_build_identity(
+            PTXModule::Pagerank,
+            Path::new("/x/pagerank.ptx"),
+            altered,
+            Some(&tag),
+        )
+        .unwrap_err();
+        assert_eq!(err.expected, tag);
+        assert_eq!(err.actual, tag_of(altered));
+        let msg = err.to_string();
+        assert!(msg.contains("Pagerank") && msg.contains("/x/pagerank.ptx"));
+        assert!(msg.contains(&tag) && msg.contains(&err.actual));
+    }
+
+    #[test]
+    fn identity_detects_an_isa_rewrite_made_after_the_build() {
+        // The tag covers the post-rewrite bytes, so a later edit of the
+        // declared ISA is a different artefact.
+        let built = ".version 9.0\n.target sm_75\n.entry k()\n";
+        let edited = built.replace("9.0", "8.0");
+        assert!(verify_build_identity(
+            PTXModule::SsspCompact,
+            Path::new("p"),
+            &edited,
+            Some(&tag_of(built))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn identity_is_not_checked_without_a_recorded_tag() {
+        assert!(verify_build_identity(PTXModule::DynamicGrid, Path::new("p"), "x", None).is_ok());
+    }
+
+    #[test]
+    fn build_tag_matches_the_baked_file_for_every_module() {
+        // End to end against this build's own artefacts: every baked module's
+        // file must hash to the tag build.rs recorded for it.
+        let mut checked = 0;
+        for m in PTXModule::all_modules() {
+            let (Some(path), Some(tag)) = (m.compiled_ptx_path(), m.expected_content_tag()) else {
+                continue;
+            };
+            let content = fs::read_to_string(path).expect("baked PTX readable");
+            verify_build_identity(m, Path::new(path), &content, Some(tag))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert!(check_baked_artefact(m).is_ok());
+            checked += 1;
+        }
+        assert!(checked > 0, "build baked no PTX tags");
     }
 }
