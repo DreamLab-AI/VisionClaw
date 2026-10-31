@@ -156,6 +156,7 @@ export interface PhysicsSettings {
   cooling_rate: number;
   max_repulsion_dist: number;
   sssp_alpha: number;
+  sssp_enabled: boolean;
   clustering_algorithm: string;
   cluster_count: number;
   clustering_resolution: number;

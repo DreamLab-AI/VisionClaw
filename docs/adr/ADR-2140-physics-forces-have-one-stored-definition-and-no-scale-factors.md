@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
-verified_paths: []
+verified_commit: b06d44613dfdaab26faf4877d5599ecae980253d
+verified_paths: [src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
 repo: visionclaw
@@ -39,7 +39,8 @@ The host writes the device config as flat 32-bit word images. `semantic_forces.c
 
 ## Not yet done (recorded, not hidden)
 - The layout MODE and its bias priming (`fill_mode_defaults`) still live in the compute actor; the store holds a different vocabulary (`qualityGates.layoutMode`). Moving the mode into `physics.*` is a schema change of its own.
-- `POST /sssp/toggle` patches the persisted parameters but does not write the toggle back to the store.
+- ~~`POST /sssp/toggle` patches the persisted parameters but does not write the toggle back to the store.~~ Closed 2026-10-31 (see Close-out).
+- `GET /analytics/sssp/params` (`sssp_handlers.rs`) still hard-codes `useSsspDistances:false, ssspAlpha:0.5`, and `POST /analytics/sssp/params` is a no-op answering `success:true`. Both contradict `/sssp/status` and the store (default `true` / `1.5`). They predate this change and the client calls none of the `/sssp/*` endpoints; the fix is to read the store in the GET and route the POST through `apply_physics_patch`, or delete both.
 
 ## Verification
 - `the_stored_settings_document_is_what_the_device_holds` (GPU): JSON as stored → actor parameters → device constant memory, read back through the device's own struct view.
@@ -64,3 +65,36 @@ First verification, at `b4a175412`. The structural decisions hold in code; the "
 2. Per-node derived inertia and repulsion: class mass `min(0.5 + 2w, 5.0)` from normalised degree weight (`force_compute_actor.rs:1231`) and the per-domain repulsion charge 1.2 / 0.6 (`src/actors/gpu/domain_charge.rs:25-27`), both computed on upload.
 3. The display Z compression clamp (`display_projection.rs:78`).
 The rule therefore reads: *stored force parameters are applied as stored; derived per-node weights and divergence backstops are code constants, documented where they are defined* (`physics-parameters.md`, "Degree-weighted gravity" and "Semantic forces"). These are not a violation of the single-definition rule, but they are a second place a repulsion value lives (`domain_charge.rs`); moving it into `physics.*` is the follow-up if the charge ever needs tuning.
+
+## Close-out 2026-10-31
+
+`implementation_status` stays **partial**: two of three recorded gaps are closed, the layout-mode move is not.
+
+**Gap 3 — dead legacy test: already closed at HEAD.** `tests/stress_majorization_integration.rs` no longer exists; `ec65631d6` ("clear the residues the verification found") deleted it (686 lines). `grep -rn UpdateAdvancedParams` over `*.rs`/`*.ts` returns nothing.
+
+**Gap 2 — `POST /sssp/toggle` writes the store: closed.**
+- `PhysicsSettings.sssp_enabled` (`ssspEnabled`, alias `sssp_enabled`, serde default **true**) holds the toggle. Both conversions read it: `From<&PhysicsSettings> for SimulationParams` (`use_sssp_distances`) and `for SimParams` (`ENABLE_SSSP_SPRING_ADJUST` set only when on). They used to hard-code on.
+- The body of `PUT /api/settings/physics` is now `apply_physics_patch` (deep merge, both central validators, store, GPU actors, SQLite, broadcast); the PUT and `toggle_sssp` both call it. `sssp_patched` and `live_params` (a SQLite-only second read path) are deleted. `GET /sssp/status` reads the stored value.
+- Behaviour changes: alpha is bounded by the central validator (0..=5) instead of the route's own 0..=1; the toggle persists whether or not a GPU actor exists; the response echoes the stored alpha.
+- Review follow-ups, same change: `apply_physics_patch` now returns 500 "GPU update failed: …" when the GPU actor answers `Err` (as the pre-refactor toggle did); this also makes `PUT /api/settings/physics` stricter than before (it used to log and answer 200). `/analytics/sssp/toggle` is wrapped in `RateLimit::per_minute(60)`, like `/api/settings/*`, because one toggle is now a full physics write. `GET /analytics/feature-flags` reports `sssp_integration` read-only from the stored `physics.ssspEnabled`; the `FEATURE_FLAGS` write in `toggle_sssp` and the fallback in `/sssp/status` are gone, and a body that sets `sssp_integration` is ignored. `PhysicsSettingsDTO.sssp_enabled` defaults to true.
+- Known limitation (closed by Gap 1): in DAG modes the device can run SSSP on while the store, and so `/sssp/status`, says off (see Gap 1, quality-gate propagation).
+- Compat: a document without `ssspEnabled` loads as enabled (test `a_document_stored_before_sssp_enabled_existed_loads_enabled`).
+- Tests: `sssp_patch_tests` (6, in `sssp_handlers.rs`) cover patch shape, only-SSSP-fields-change, omitted alpha, stored toggle reaching both GPU conversions, out-of-range alpha refused.
+
+**Gap 1 — layout mode into `physics.*`: not done.** Read at this head, it is a design, not a move:
+- `fill_mode_defaults` primes `dagBiasK`/`dagLevelDistance`/`layerBiasK`/`layerSpacing` from code constants (`RADIAL_DEFAULT_*`, `HIERARCHICAL_DEFAULT_*`) when the stored value is `<= 0`. Under decisions 1 and 2 each is a stored per-mode value, which needs a ruling on what the stored `0` ("off") means per mode.
+- Three vocabularies must be mapped: `qualityGates.layoutMode` (`force-directed`, `dag-topdown`, `dag-radial`, `dag-leftright`, `type-clustering`, `spectral`, `clustered`, hand-listed in `settings_routes.rs`), the `LayoutMode` enum (6 variants, `visionclaw-domain/src/types/layout.rs`) and `POST /api/layout/mode`; `dag-leftright` and `type-clustering` have no enum variant.
+- The quality-gate propagation (`settings_routes.rs:1224-1226`) overrides the *device* value in DAG modes (including a `max(0.5)` floor on `ssspAlpha` and `max(0.1)` on centre gravity); it does not write the store. With `ssspEnabled=false` stored, a DAG layout runs SSSP on while `/sssp/status` reports off, until the next physics write drops the overlay. `settings_handler/physics.rs:102` is unreachable (only called with `None`; routes unmounted) and is dead code to delete.
+- The CPU one-shot modes (Spectral/Temporal) are placed by the layout handler, not the GPU; the stored field must say what they do.
+- The client writes `qualityGates.layoutMode` (`GraphManager.tsx`) and calls `layoutApi.setMode`.
+Needed: the per-mode stored-value ruling, a `physics.layoutMode: LayoutMode` field with an explicit migration from the quality-gate strings, `POST /api/layout/mode` through `apply_physics_patch`, the actor's preserve-override and `fill_mode_defaults` removed, the two override blocks removed, and the client control re-pointed, with a GPU receipt.
+
+**Commands (worktree `adr-sprint/w3`, `CARGO_TARGET_DIR=/home/devuser/workspace/project/target`):**
+- `cargo test --lib` (full) → 1695 passed, 0 failed, 9 ignored; `cargo test --lib adr_20` → 43 passed.
+- `cargo test --lib sssp` → 7 passed, 0 failed. The idempotency gate compares the whole GPU image, so a stored toggle is not swallowed (`a_stored_toggle_changes_the_gpu_image_the_actor_gate_compares`, in `sssp_handlers.rs`).
+- `cargo test -p visionclaw-domain` → 301 passed, 0 failed, 1 ignored (lib; plus 5 passed in `vault_fixtures`).
+- `cargo test --lib -- settings_routes simulation_params settings_handler physics` → 110 passed, 0 failed.
+- `cargo clippy --lib -p visionclaw-server`: no warning in the touched code after the fix (baseline warnings elsewhere are unchanged).
+- `cargo run --bin generate_types` → completes; no tracked client file changed. Generated types are gitignored (`client/src/types/generated/settings.ts`, which does carry `ssspEnabled: boolean`) and regenerate at build; the hand-written client types (`client/src/api/settings/types.ts`) and the control-centre manifest do not carry `ssspEnabled`. The client neither sends nor reads it, and the deep merge preserves the stored value on client physics PUTs. No client test consumes the generated physics keys.
+
+Re-stamped to `b06d44613` (2026-10-31) after the review follow-ups. Re-run: `git diff --stat 5a2723831 b06d44613 -- docs/reference/physics-parameters.md src/handlers/api_handler/analytics/sssp_handlers.rs src/settings/api/settings_routes.rs` → `physics-parameters.md | 5 +++--`, `sssp_handlers.rs | 17 ++++++++++-------`, and the `apply_physics_patch` GPU-`Err` hunk in `settings_routes.rs`. Claims re-checked: the toggle still writes through `apply_physics_patch`; `/sssp/status` and `/analytics/feature-flags` both read the store. Verified binaries: `cargo test --lib sssp` → 9 passed; `cargo test --lib adr_20` → 46 passed; `cargo test --lib -- settings_routes simulation_params settings_handler physics feature_flags` → 113 passed; `cargo test -p visionclaw-domain` → 301 passed, 1 ignored.

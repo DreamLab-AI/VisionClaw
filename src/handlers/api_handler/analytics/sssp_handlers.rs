@@ -4,57 +4,115 @@ use log::{debug, error, info, warn};
 use crate::AppState;
 use crate::{error_json, ok_json};
 
-use super::state::FEATURE_FLAGS;
 use super::types::{SSSPToggleRequest, SSSPToggleResponse};
 
-use crate::models::simulation_params::SimulationParams;
+use std::sync::Arc;
 
-/// The params to send for an SSSP toggle: the current ones with ONLY the SSSP fields
-/// changed. This used to start from `SimulationParams::new()`, so toggling SSSP silently
-/// reset every other physics setting to its default on the GPU (and clients were never told).
-pub(crate) fn sssp_patched(
-    mut base: SimulationParams,
-    enabled: bool,
-    alpha: Option<f32>,
-) -> SimulationParams {
-    base.use_sssp_distances = enabled;
-    if alpha.is_some() {
-        base.sssp_alpha = alpha;
+use crate::adapters::SqliteSettingsRepository;
+use crate::settings::api::settings_routes::{apply_physics_patch, PhysicsPatchError};
+
+/// The physics patch an SSSP toggle writes: only the two SSSP fields, so the deep merge leaves
+/// every other stored value alone. `alpha` is omitted when the request did not name one.
+pub(crate) fn sssp_toggle_patch(enabled: bool, alpha: Option<f32>) -> serde_json::Value {
+    let mut patch = serde_json::json!({ "ssspEnabled": enabled });
+    if let Some(alpha) = alpha {
+        patch["ssspAlpha"] = serde_json::json!(alpha);
     }
-    base
+    patch
 }
 
 #[cfg(test)]
 mod sssp_patch_tests {
     use super::*;
+    use crate::config::PhysicsSettings;
+    use crate::models::simulation_params::SimulationParams;
+    use crate::settings::api::settings_routes::merge_physics_patch;
+
+    fn stored() -> PhysicsSettings {
+        let mut p = PhysicsSettings::default();
+        p.repel_k = 321.0;
+        p.rest_length = 77.0;
+        p.damping = 0.42;
+        p.sssp_alpha = 0.3;
+        p
+    }
+
+    fn apply(enabled: bool, alpha: Option<f32>) -> PhysicsSettings {
+        let current = serde_json::to_value(stored()).unwrap();
+        merge_physics_patch(current, sssp_toggle_patch(enabled, alpha))
+            .unwrap()
+            .unwrap()
+    }
 
     #[test]
-    fn toggling_sssp_changes_only_the_sssp_fields() {
-        let mut live = SimulationParams::default();
-        live.repel_k = 321.0;
-        live.rest_length = 77.0;
-        live.damping = 0.42;
-        let out = sssp_patched(live.clone(), true, Some(0.4));
-        assert!(out.use_sssp_distances);
-        assert_eq!(out.sssp_alpha, Some(0.4));
+    fn the_toggle_patch_names_only_the_sssp_fields() {
+        assert_eq!(
+            sssp_toggle_patch(false, None),
+            serde_json::json!({"ssspEnabled": false})
+        );
+        let with_alpha = sssp_toggle_patch(true, Some(0.4));
+        assert_eq!(with_alpha["ssspEnabled"], true);
+        assert!((with_alpha["ssspAlpha"].as_f64().unwrap() - 0.4).abs() < 1e-6);
+        assert_eq!(with_alpha.as_object().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn toggling_through_the_store_changes_only_the_sssp_fields() {
+        let out = apply(false, Some(0.4));
+        assert!(!out.sssp_enabled);
+        assert!((out.sssp_alpha - 0.4).abs() < 1e-6);
         assert_eq!(
             (out.repel_k, out.rest_length, out.damping),
             (321.0, 77.0, 0.42),
-            "other physics must survive the toggle"
+            "other stored physics must survive the toggle"
         );
     }
 
     #[test]
-    fn omitted_alpha_keeps_the_current_alpha() {
-        let mut live = SimulationParams::default();
-        live.sssp_alpha = Some(0.3);
-        assert_eq!(sssp_patched(live, false, None).sssp_alpha, Some(0.3));
+    fn omitted_alpha_keeps_the_stored_alpha() {
+        let out = apply(true, None);
+        assert!(out.sssp_enabled);
+        assert!((out.sssp_alpha - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_stored_toggle_is_what_the_gpu_receives() {
+        use crate::models::simulation_params::{FeatureFlags, SimParams};
+        for enabled in [true, false] {
+            let stored = apply(enabled, None);
+            let live: SimulationParams = (&stored).into();
+            assert_eq!(live.use_sssp_distances, enabled);
+            let gpu: SimParams = (&stored).into();
+            assert_eq!(
+                gpu.feature_flags & FeatureFlags::ENABLE_SSSP_SPRING_ADJUST != 0,
+                enabled
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_toggle_changes_the_gpu_image_the_actor_gate_compares() {
+        // `ForceComputeActor::UpdateSimulationParams` skips an update whose GPU image
+        // (`SimParams` bytes) equals the current one, so a toggle must change those bytes.
+        use crate::models::simulation_params::SimParams;
+        let image = |enabled: bool| {
+            let live: SimulationParams = (&apply(enabled, None)).into();
+            bytemuck::bytes_of(&SimParams::from(&live)).to_vec()
+        };
+        assert_ne!(image(true), image(false));
+    }
+
+    #[test]
+    fn an_out_of_range_alpha_is_refused_by_the_central_validator() {
+        let bad = apply(true, Some(9.0));
+        assert!(crate::settings::api::settings_routes::validate_physics_settings(&bad).is_err());
     }
 }
 
 pub async fn toggle_sssp(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
+    auth: crate::settings::auth_extractor::AuthenticatedUser,
     app_state: web::Data<AppState>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     request: web::Json<SSSPToggleRequest>,
 ) -> Result<HttpResponse> {
     info!(
@@ -62,99 +120,72 @@ pub async fn toggle_sssp(
         request.enabled, request.alpha
     );
 
-    if let Some(alpha) = request.alpha {
-        if alpha < 0.0 || alpha > 1.0 {
-            return Ok(HttpResponse::BadRequest().json(SSSPToggleResponse {
+    // The one write path (ADR-2140 decision 3): the toggle is a physics patch, validated by the
+    // central validator and applied to the store, the GPU actors and SQLite together.
+    let patch = sssp_toggle_patch(request.enabled, request.alpha);
+    match apply_physics_patch(&app_state, settings_repo.get_ref(), patch, &auth.pubkey).await {
+        Ok(stored) => {
+            let message = if stored.sssp_enabled {
+                format!(
+                    "SSSP spring adjustment enabled with alpha={:.2}",
+                    stored.sssp_alpha
+                )
+            } else {
+                "SSSP spring adjustment disabled".to_string()
+            };
+            info!("Successfully toggled SSSP: {}", message);
+            ok_json!(SSSPToggleResponse {
+                success: true,
+                enabled: stored.sssp_enabled,
+                alpha: Some(stored.sssp_alpha),
+                message,
+                error: None,
+            })
+        }
+        Err(PhysicsPatchError::BadRequest(e)) => {
+            warn!("SSSP toggle refused: {}", e);
+            Ok(HttpResponse::BadRequest().json(SSSPToggleResponse {
                 success: false,
                 enabled: false,
                 alpha: None,
-                message: "Alpha must be between 0.0 and 1.0".to_string(),
-                error: Some("Invalid alpha parameter".to_string()),
-            }));
+                message: "Invalid SSSP parameters".to_string(),
+                error: Some(e),
+            }))
         }
-    }
-
-    if let Some(gpu_addr) = app_state.get_gpu_compute_addr().await {
-        let message = crate::actors::messages::UpdateSimulationParams {
-            params: sssp_patched(
-                live_params(&app_state).await,
-                request.enabled,
-                request.alpha,
-            ),
-        };
-
-        match gpu_addr.send(message).await {
-            Ok(Ok(_)) => {
-                // Update feature flag only after GPU succeeds
-                let mut flags = FEATURE_FLAGS.lock().await;
-                flags.sssp_integration = request.enabled;
-                drop(flags);
-
-                let message = if request.enabled {
-                    format!(
-                        "SSSP spring adjustment enabled with alpha={:.2}",
-                        request.alpha.unwrap_or(0.5)
-                    )
-                } else {
-                    "SSSP spring adjustment disabled".to_string()
-                };
-
-                info!("Successfully toggled SSSP: {}", message);
-
-                ok_json!(SSSPToggleResponse {
-                    success: true,
-                    enabled: request.enabled,
-                    alpha: request.alpha,
-                    message,
-                    error: None,
-                })
-            }
-            Ok(Err(e)) => {
-                error!("Failed to update SSSP settings on GPU: {}", e);
-                Ok(
-                    HttpResponse::InternalServerError().json(SSSPToggleResponse {
-                        success: false,
-                        enabled: false,
-                        alpha: None,
-                        message: "Failed to update GPU settings".to_string(),
-                        error: Some(format!("GPU update failed: {}", e)),
-                    }),
-                )
-            }
-            Err(e) => {
-                error!("GPU compute actor mailbox error: {}", e);
-                Ok(HttpResponse::ServiceUnavailable().json(SSSPToggleResponse {
+        Err(PhysicsPatchError::Internal(e)) => {
+            error!("Failed to store SSSP toggle: {}", e);
+            Ok(
+                HttpResponse::InternalServerError().json(SSSPToggleResponse {
                     success: false,
                     enabled: false,
                     alpha: None,
-                    message: "GPU service unavailable".to_string(),
-                    error: Some("GPU compute actor unavailable".to_string()),
-                }))
-            }
+                    message: "Failed to update physics settings".to_string(),
+                    error: Some(e),
+                }),
+            )
         }
-    } else {
-        // No GPU available — safe to update flag directly
-        let mut flags = FEATURE_FLAGS.lock().await;
-        flags.sssp_integration = request.enabled;
-        drop(flags);
-
-        warn!("GPU compute actor not available - SSSP toggle only updated feature flags");
-        ok_json!(SSSPToggleResponse {
-            success: true,
-            enabled: request.enabled,
-            alpha: request.alpha,
-            message: "SSSP feature flag updated (GPU not available)".to_string(),
-            error: None,
-        })
     }
 }
 
-pub async fn get_sssp_status() -> Result<HttpResponse> {
-    let flags = FEATURE_FLAGS.lock().await;
+/// The stored `physics.ssspEnabled`; the default (on) when the settings actor cannot answer.
+pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
+    match app_state
+        .settings_addr
+        .send(crate::actors::messages::GetSettings)
+        .await
+    {
+        Ok(Ok(settings)) => settings.visualisation.graphs.knowledge.physics.sssp_enabled,
+        _ => true,
+    }
+}
+
+pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpResponse> {
+    // Read the store, not the display flag: the stored physics document is the one definition.
+    let enabled = stored_sssp_enabled(&app_state).await;
 
     ok_json!(serde_json::json!({
         "success": true,
-        "enabled": flags.sssp_integration,
+        "enabled": enabled,
         "description": "Single-Source Shortest Path spring adjustment for improved edge length uniformity",
         "feature_flag": "FeatureFlags::ENABLE_SSSP_SPRING_ADJUST"
     }))
@@ -247,21 +278,4 @@ pub async fn compute_sssp(
             error_json!("Failed to communicate with graph service")
         }
     }
-}
-
-/// Current physics as the GPU should hold them: the persisted settings (what the control
-/// panel shows), falling back to defaults only when nothing is stored.
-async fn live_params(app_state: &web::Data<AppState>) -> SimulationParams {
-    use crate::config::PhysicsSettings;
-    use crate::ports::settings_repository::{SettingValue, SettingsRepository};
-    if let Ok(Some(SettingValue::Json(json))) = app_state
-        .sqlite_settings_repository
-        .get_setting("physics")
-        .await
-    {
-        if let Ok(ps) = serde_json::from_value::<PhysicsSettings>(json) {
-            return (&ps).into();
-        }
-    }
-    SimulationParams::default()
 }
