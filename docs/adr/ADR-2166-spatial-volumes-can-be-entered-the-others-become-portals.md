@@ -8,8 +8,8 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit:
-verified_paths: []
+verified_commit: e49db18363bd3822016e9dde1e9eafe73322a5b8
+verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
 repo: visionclaw
@@ -47,6 +47,6 @@ acceptance_boundary: the layout, state, refusal, comfort and wiring logic is cov
 - `spatial_volume.gd` gains `portal_room`, `set_portal_room` and `snap_fit`; `volume_arrangement.gd` gains `snapshot`, `restore`, `ease_volume_to` and `layout_locked`; `xr_prefs.gd` gains `portal_walkthrough`.
 
 ## Verification
-- Evidence class: headless GUT only. `tests/unit/test_space_portals.gd` (34 tests) covers enter, leave and swap state; exact restore of slots, moved flags, bounds, modes and the arrangement transform; the ring invariant against an independent oblique-box separating-axis test; E7 for the room on every frame; each refusal (native, closed, hidden, offline, unknown, already entered, mid-transition) asserting nothing changed; walk-through dwell and hysteresis; no visible motion in reduced motion and an eased ≤ 0.5 s move otherwise; one MultiMesh and one draw call; the shader free of screen and depth sampling; the budget hook; Codescape drag refused while Codescape is entered.
+- Evidence class: headless GUT only. `tests/unit/test_space_portals.gd` (36 tests) covers enter, leave and swap state; exact restore of slots, moved flags, bounds, modes and the arrangement transform; the ring invariant against an independent oblique-box separating-axis test; E7 for the room on every frame; each refusal (native, closed, hidden, offline, unknown, already entered, mid-transition) asserting nothing changed; walk-through dwell and hysteresis; no visible motion in reduced motion and an eased ≤ 0.5 s move otherwise; one MultiMesh and one draw call; the shader free of screen and depth sampling; the budget hook; Codescape drag refused while Codescape is entered.
 - Not verified: stereo rendering, the headset, fill rate, shader compilation on a real renderer, and the comfort of the dim. `implementation_status` stays `partial` and `activation_status` `inactive` until a headset session.
-- `verified_commit` is left empty: set it to the merge commit after review.
+- `verified_commit` is the last code commit on the branch `xr/portals` (`e49db1836`); after the merge, re-stamp it to the merge commit if the governed paths moved.

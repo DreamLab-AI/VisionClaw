@@ -942,18 +942,18 @@ The operator accepted these on 2026-10-30 for implementation. Nothing below exis
 
   | Input | Target | Effect | Code |
   |---|---|---|---|
-  | Trigger (≥ 0.7, once per press) | HUD or radial menu | button press; never reaches the boxes | `graph_scene.gd:228` `resolve_trigger` |
-  | Trigger | drawn link, nearer than any node | follow it: the far end's box (the end farther from the hit, `link_picker.gd` `far_end`) is focused, its node selected, the box brought to the front, the link and both ends highlighted | `graph_scene.gd:348` `apply_trigger` |
-  | Trigger | node in any visible, online box | select it (in the knowledge box the node the Rust drag holds is the selection), focus its box, highlight it, its links and their counterparts; label from that box's own connection on the HUD status line and above the node | `graph_scene.gd:368` `select_volume_node` |
-  | Trigger | node in the knowledge box | as above, and the existing Rust drag also runs; drag stays knowledge-only (E9) | `graph_scene.gd:259` `claim_blocks_drag` |
-  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in the knowledge box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd:325` `trigger_pick` |
+  | Trigger (≥ 0.7, once per press) | HUD or radial menu | button press; never reaches the boxes | `graph_scene.gd:230` `resolve_trigger` |
+  | Trigger | drawn link, nearer than any node | follow it: the far end's box (the end farther from the hit, `link_picker.gd` `far_end`) is focused, its node selected, the box brought to the front, the link and both ends highlighted | `graph_scene.gd:350` `apply_trigger` |
+  | Trigger | node in any visible, online box | select it (in the knowledge box the node the Rust drag holds is the selection), focus its box, highlight it, its links and their counterparts; label from that box's own connection on the HUD status line and above the node | `graph_scene.gd:370` `select_volume_node` |
+  | Trigger | node in the knowledge box | as above, and the existing Rust drag also runs; drag stays knowledge-only (E9) | `graph_scene.gd:261` `claim_blocks_drag` |
+  | Trigger | box frame, no node under the ray | focus the box (same as HUD `volume_focus:<id>`); in the knowledge box the Rust drag may still catch a node within its 5 cm tube | `graph_scene.gd:327` `trigger_pick` |
   | Grip, near the HUD panel | HUD | carry the HUD (unchanged, wins first) | `_update_hud_grab` |
-  | Grip, one hand, held 0.15 s | corner handle (ray within 4 cm) | resize the box, symmetric about its origin | `graph_scene.gd:564` `begin_box_grip` |
-  | Grip, one hand, held 0.15 s | box frame | move that one box with the grabbed ray point; it keeps its rotation and leaves its ring slot | `graph_scene.gd:596` `drive_box_grip` |
+  | Grip, one hand, held 0.15 s | corner handle (ray within 4 cm) | resize the box, symmetric about its origin | `graph_scene.gd:566` `begin_box_grip` |
+  | Grip, one hand, held 0.15 s | box frame | move that one box with the grabbed ray point; it keeps its rotation and leaves its ring slot | `graph_scene.gd:602` `drive_box_grip` |
   | Both grips | anywhere | move, turn and scale the whole arrangement (unchanged); a held box blocks it, and a second grip inside the 0.15 s grace gives the press to it | `_update_two_hand_manip` |
-  | HUD Session **Front** | focused box | eases to the 0° slot over 0.35 s; the box there takes the vacated slot; unit scale always | `volume_arrangement.gd:205` `bring_to_front` |
-  | HUD Graph **Reset Layout** | all boxes | ring slots and default bounds restored (local, for any focused volume), then the gated physics reset | `graph_scene.gd:623` `reset_volume_layout` |
-  | HUD Session **Enter** / **Leave** (ADR-2166) | focused box | **Enter**: that box becomes a 6 × 3 × 6 m room centred on the user and the other boxes become portals on a ring outside it (swap if already inside another); **Leave** restores the ring exactly. Refused (nothing changes) when the native arm is active or the box is closed, hidden or offline | `graph_scene.gd` `enter_volume_space`, `space_portals.gd` `enter` |
+  | HUD Session **Front** | focused box | eases to the 0° slot over 0.35 s; the box there takes the vacated slot; unit scale always | `volume_arrangement.gd:208` `bring_to_front` |
+  | HUD Graph **Reset Layout** | all boxes | ring slots and default bounds restored (local, for any focused volume), then the gated physics reset | `graph_scene.gd:629` `reset_volume_layout` |
+  | HUD Session **Enter** / **Leave** (ADR-2166) | focused box | **Enter**: that box becomes a 6 × 3 × 6 m room centred on the user and the other boxes become portals on a ring outside it (swap if already inside another); **Leave** restores the ring exactly. Refused (nothing changes) when the native arm is active or the box is closed, hidden or offline | `graph_scene.gd:1379` `enter_volume_space`, `space_portals.gd:292` `enter` |
 
 - **Entered space and portals (ADR-2166; headless GUT only, no headset run).**
   - **State.** "Entered" is not `IMMERSIVE`. The entered box stays `BOUNDED` with `ROOM_BOUNDS` (6 × 3 × 6 m) through `set_runtime_bounds`, centred on the user's floor position, frame and handles hidden, not movable or resizable. E7 holds for it. The other open, visible boxes sit on a ring outside it, facing the user at eye height; the ring radius guarantees no portal box meets the room box. The ring stays the default layout, and E3's E7–E9 and the 90 Hz baseline are defined on it.

@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_138 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_139 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -182,3 +182,4 @@ _138 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2161](ADR-2161-a-node-publishes-data-spaces-that-peer-nodes-render-as-linked-volumes.md) | A node publishes data spaces that peer nodes render as linked volumes | IDENTITY-authority-chain | 2026-10-30 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2164](ADR-2164-code-graph-entities-link-to-knowledge-and-ontology-nodes-resolved-at-runtime.md) | Code-graph entities link to knowledge-graph and ontology nodes, resolved at runtime | XR-client | 2026-10-30 | accepted | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2165](ADR-2165-the-xr-client-targets-godot-4-8-beta.md) | The XR client targets Godot 4.8 (beta), with 4.6.1-stable as rollback until the headset re-test passes | XR-client | 2026-10-30 | accepted | partial | staged | — | — | jjohare | visionclaw |
+| [ADR-2166](ADR-2166-spatial-volumes-can-be-entered-the-others-become-portals.md) | Spatial volumes can be entered; the others become portals | XR-client | 2026-10-31 | accepted | partial | inactive | — | — | jjohare | visionclaw |
