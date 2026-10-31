@@ -913,7 +913,7 @@ The endpoints below are the full, grep-verified `/api/analytics/*` surface. Seve
 | POST | `/api/analytics/community/detect` | Yes | Run Louvain community detection |
 | POST | `/api/analytics/anomaly/detect` | Yes | Run GPU LOF/Z-score structural anomaly detection |
 | POST | `/api/analytics/anomaly/toggle` | Yes | Toggle agent-health anomaly heuristic |
-| POST | `/api/analytics/sssp/params` \| `/compute` \| `/toggle` | Yes | SSSP parameter/compute/toggle |
+| POST | `/api/analytics/sssp/compute` \| `/toggle` | Yes | SSSP compute / toggle (the toggle writes the stored physics document; read it back with `GET /api/analytics/sssp/status`) |
 | POST | `/api/analytics/stress-majorization/trigger` \| `/reset-safety` \| `/params` \| `/configure` | Yes | Stress-majorization layout control |
 | POST | `/api/analytics/feature-flags` | Yes | Update feature flags |
 | POST | `/api/analytics/pagerank/compute` | Yes | Run PageRank |

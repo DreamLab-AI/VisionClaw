@@ -289,9 +289,8 @@ stored-0 defaults, so a stored positive value below the old floor (for example `
 `GET /analytics/sssp/status` reports `enabled` and `alpha` from the same conversion, so it reports what the
 device holds. The actor neither preserves a mode of its own nor fills defaults; `SetLayoutMode` is removed.
 
-Not part of the stored definition: `GET/POST /analytics/sssp/params` (`sssp_handlers.rs`) still hard-codes
-`useSsspDistances:false, ssspAlpha:0.5` and the POST is a no-op (recorded in ADR-2140, "Not yet done").
-`POST /sssp/toggle` writes the store (closed 2026-10-31).
+`POST /sssp/toggle` writes the store (closed 2026-10-31), and `/analytics/sssp/status` reads it. The
+`GET/POST /analytics/sssp/params` pair, which answered from hard-coded values, was deleted (nothing called it).
 Per-node derived values (degree-weighted gravity, class mass, per-domain repulsion charge in
 `src/actors/gpu/domain_charge.rs`) are computed from the graph on upload, not stored settings.
 

@@ -58,9 +58,7 @@ pub use params_handlers::{
 pub use performance_handlers::{
     get_gpu_features, get_gpu_metrics, get_gpu_status, get_performance_stats,
 };
-pub use sssp_handlers::{
-    compute_sssp, get_sssp_params, get_sssp_status, toggle_sssp, update_sssp_params,
-};
+pub use sssp_handlers::{compute_sssp, get_sssp_status, toggle_sssp};
 pub use stress_handlers::{
     configure_stress_majorization, get_stress_majorization_config, get_stress_majorization_stats,
     reset_stress_majorization_safety, trigger_stress_majorization,
@@ -183,7 +181,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/anomaly/detect", web::post().to(run_anomaly_detection))
             // Agent-health heuristic (MCP telemetry) -> ANOMALY_STATE, NOT node_analytics
             .route("/anomaly/toggle", web::post().to(toggle_anomaly_detection))
-            .route("/sssp/params", web::post().to(update_sssp_params))
             .route("/sssp/compute", web::post().to(compute_sssp))
             // Each toggle is a full physics write (store, GPU, SQLite, broadcast), so it carries
             // the same limit as `/api/settings/*`.
@@ -280,4 +277,65 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route(web::get().to(websocket_integration::gpu_analytics_websocket)),
             ),
     );
+}
+
+#[cfg(test)]
+mod sssp_params_removed_tests {
+    use actix_web::{http::StatusCode, test, web, App, HttpMessage};
+
+    use crate::middleware::auth::AuthenticatedUser;
+    use crate::services::nostr_service::NostrService;
+
+    /// ADR-2140: `/analytics/sssp/params` answered from hard-coded values (GET, never routed) and
+    /// ignored its body (POST). Nothing called it, so both are gone; the stored physics document
+    /// is read through `/sssp/status` and written through `/sssp/toggle`.
+    ///
+    /// The status is the discriminator: 404 for a path with no route, anything else for a path
+    /// that resolves (including the auth wrap's or the handler's own refusal).
+    async fn status_of(method: actix_web::http::Method, uri: &str) -> StatusCode {
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(NostrService::new()))
+                .wrap_fn(|req, srv| {
+                    req.extensions_mut().insert(AuthenticatedUser {
+                        pubkey: "a".repeat(64),
+                    });
+                    actix_web::dev::Service::call(srv, req)
+                })
+                .configure(super::config),
+        )
+        .await;
+        let req = test::TestRequest::default()
+            .method(method)
+            .uri(uri)
+            .insert_header(("Authorization", "Nostr x"))
+            .set_json(serde_json::json!({"useSsspDistances": true, "ssspAlpha": 0.9}))
+            .to_request();
+        test::call_service(&app, req).await.status()
+    }
+
+    #[actix_web::test]
+    async fn the_sssp_params_path_is_not_routed() {
+        use actix_web::http::Method;
+        assert_eq!(
+            status_of(Method::POST, "/analytics/sssp/params").await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            status_of(Method::GET, "/analytics/sssp/params").await,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[actix_web::test]
+    async fn the_probe_reaches_a_route_that_exists() {
+        // Guards the test above: the same probe must find a live path, so a 404 means "no
+        // route", not "the probe is broken". Any other status (the handler's own refusal, here)
+        // proves the path resolved.
+        use actix_web::http::Method;
+        assert_ne!(
+            status_of(Method::POST, "/analytics/sssp/compute").await,
+            StatusCode::NOT_FOUND
+        );
+    }
 }
