@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: c28b3c2eed98a4df1c429d146b41e7bdf7e7f986
+verified_commit: b06d44613dfdaab26faf4877d5599ecae980253d
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -191,3 +191,5 @@ Governed change since `31bc3d3a1`: `src/models/simulation_params.rs` (+4, revers
 ## Re-verification — 2026-10-31
 
 `PhysicsSettings` gained `sssp_enabled`, read by the `SimParams` and `SimulationParams` conversions (ADR-2140, `25cac8851`). `SimParams` (the 212-byte image) gained no field; the SSSP bit was already part of `feature_flags`, and only whether it is set now follows the stored toggle. The size and offsets are unchanged.
+
+Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git diff --stat 2107637d662ac70f38418c08e3892b77d5358c4e b06d44613 -- src/models/simulation_params.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `src/models/simulation_params.rs | 8 +++++---` (1 file changed, 5 insertions, 3 deletions); the `.cu` file is untouched and no `SimParams` field changed, so the 212-byte size holds.

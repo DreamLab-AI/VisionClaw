@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c28b3c2eed98a4df1c429d146b41e7bdf7e7f986
+verified_commit: b06d44613dfdaab26faf4877d5599ecae980253d
 verified_paths: [src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -96,3 +96,5 @@ Needed: the per-mode stored-value ruling, a `physics.layoutMode: LayoutMode` fie
 - `cargo test --lib -- settings_routes simulation_params settings_handler physics` → 110 passed, 0 failed.
 - `cargo clippy --lib -p visionclaw-server`: no warning in the touched code after the fix (baseline warnings elsewhere are unchanged).
 - `cargo run --bin generate_types` → completes; no tracked client file changed. Generated types are gitignored (`client/src/types/generated/settings.ts`, which does carry `ssspEnabled: boolean`) and regenerate at build; the hand-written client types (`client/src/api/settings/types.ts`) and the control-centre manifest do not carry `ssspEnabled`. The client neither sends nor reads it, and the deep merge preserves the stored value on client physics PUTs. No client test consumes the generated physics keys.
+
+Re-stamped to `b06d44613` (2026-10-31) after the review follow-ups. Re-run: `git diff --stat 5a2723831 b06d44613 -- docs/reference/physics-parameters.md src/handlers/api_handler/analytics/sssp_handlers.rs src/settings/api/settings_routes.rs` → `physics-parameters.md | 5 +++--`, `sssp_handlers.rs | 17 ++++++++++-------`, and the `apply_physics_patch` GPU-`Err` hunk in `settings_routes.rs`. Claims re-checked: the toggle still writes through `apply_physics_patch`; `/sssp/status` and `/analytics/feature-flags` both read the store. Verified binaries: `cargo test --lib sssp` → 9 passed; `cargo test --lib adr_20` → 46 passed; `cargo test --lib -- settings_routes simulation_params settings_handler physics feature_flags` → 113 passed; `cargo test -p visionclaw-domain` → 301 passed, 1 ignored.

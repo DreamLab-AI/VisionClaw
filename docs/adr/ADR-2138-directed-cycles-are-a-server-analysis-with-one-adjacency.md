@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: c28b3c2eed98a4df1c429d146b41e7bdf7e7f986
+verified_commit: b06d44613dfdaab26faf4877d5599ecae980253d
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -73,3 +73,5 @@ evidence above stands; ratification is a one-line owner action, listed in Vision
 ## Re-verification — 2026-10-31
 
 `src/settings/api/settings_routes.rs` changed for ADR-2140 (`25cac8851`): the body of the physics PUT became `apply_physics_patch`. Nothing in the cycle routes or the layout-mode quality-gate handling this record governs was touched.
+
+Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git diff --stat 772039bd172027af034d64befacca1ebcf0bbc04 b06d44613 -- src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs src/settings/api/settings_routes.rs client/src/api/layoutApi.ts client/src/features/graph/hooks/useCyclicNodeIds.ts xr-client/rust/src/render_store.rs xr-client/scripts/hud.gd` → only `src/settings/api/settings_routes.rs | 123 +++++++++++++++++++++++++++---------` (93 insertions, 30 deletions), in `normalize_physics_keys`, `PhysicsPatchError`, the PUT body and `apply_physics_patch` (GPU `Err` now a 500). The cycle routes and the quality-gate handling are untouched.
