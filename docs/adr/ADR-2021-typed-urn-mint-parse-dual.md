@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_commit: db37a331370b967dba0b8ce3ed6bedeb92e576c2
 verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs, src/adapters/oxigraph_graph_repository.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
@@ -109,6 +109,8 @@ were inventoried but not migrated (`decision_service`, `github_sync_service`,
 `nostr_identity_verifier` each mint directly). Challenge freshness/reuse/audience
 policy, old/new lookup and duplicate joins, and rollback before retiring legacy
 data are untouched. No live proof or persistence test ran.
+
+Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is the graph adapter's private `node_iri`/`edge_iri` delegating to `uri::ngm` (same format strings; pinned by `node_and_edge_iris_are_byte_identical_to_the_legacy_literals`), plus `is_domain_iri` in `crates/visionclaw-domain/src/uri.rs` re-exported at `src/uri/mod.rs`. Persisted bytes unchanged; status stays `partial`. Re-run: `git diff 8775359e37a394d1558bb8b5317d37a92973288e..db37a331370b967dba0b8ce3ed6bedeb92e576c2 -- src/uri/mod.rs crates/visionclaw-domain/src/uri.rs src/adapters/oxigraph_graph_repository.rs`.
 
 ## Close-out 2026-10-31
 

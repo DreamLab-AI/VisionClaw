@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_commit: db37a331370b967dba0b8ce3ed6bedeb92e576c2
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -310,6 +310,8 @@ Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13
 Re-verified 2026-10-30 at c75004696: `Cargo.toml` adds the member `crates/visionclaw-jev`, so the workspace is now **seventeen** members (`Cargo.toml:2-20`); `exclude` moved to `Cargo.toml:24` and is unchanged in content. The new crate depends on external crates only (serde, serde_json, async-trait, log, futures-util, tokio, reqwest; `crates/visionclaw-jev/Cargo.toml:12-19`), so no layer edge is added and nothing depends on `visionclaw-server` from it. The earlier note that no workspace member changed is superseded by this count; `docs/BASELINE-architecture.md` census updated in the same change. The decision and `partial` status hold.
 
 Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-runtime]` (ADR-2156); workspace members and crate split unchanged, claim holds.
+
+Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is `layer_direction.rs` only (the `rooted` case now asserts exactly one violation; a stale-row case removes `visionclaw-xr-presence` and asserts one). Checker logic and the `ALLOWED` table are unchanged, and the close-out's allow-list wording is corrected in the same change. Re-run: `git diff 8775359e37a394d1558bb8b5317d37a92973288e..db37a331370b967dba0b8ce3ed6bedeb92e576c2 -- crates/visionclaw-integration-tests/tests/layer_direction.rs`. Decision and `partial` status hold.
 
 ## Close-out 2026-10-31
 
