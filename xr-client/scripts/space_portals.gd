@@ -96,6 +96,8 @@ var _signature: Array = []
 var _armed := true
 var _dwell := 0.0
 var _dwell_id: StringName = &""
+var _inst_xf: Array[Transform3D] = []   # what _update_membranes wrote, readable in headless
+var _inst_col := PackedColorArray()
 var _fade_material: StandardMaterial3D
 var _membrane_material: ShaderMaterial
 
@@ -512,14 +514,27 @@ func _update_membranes() -> void:
 	var n := mini(ids.size(), MAX_PORTALS)
 	mm.visible_instance_count = n
 	membranes.visible = n > 0
+	_inst_xf.resize(n)
+	_inst_col.resize(n)
 	for i: int in n:
 		var v: Node3D = arrangement.volume(ids[i])
 		var b: Vector3 = v.bounds
 		var face := Transform3D(Basis.from_scale(Vector3(b.x, b.y, 1.0)), Vector3(0.0, 0.0, b.z * 0.5 + MEMBRANE_LIFT))
-		mm.set_instance_transform(i, v.transform * face)
 		var tint: Color = TINTS.get(ids[i], DEFAULT_TINT)
 		tint.a = 1.0 if v.focused else UNFOCUSED
+		_inst_xf[i] = v.transform * face
+		_inst_col[i] = tint
+		mm.set_instance_transform(i, _inst_xf[i])
 		mm.set_instance_color(i, tint)
+
+
+## The transform and colour (tint rgb, focus in alpha) written for membrane `i`.
+func membrane_transform(i: int) -> Transform3D:
+	return _inst_xf[i]
+
+
+func membrane_color(i: int) -> Color:
+	return _inst_col[i]
 
 
 # --- walk-through -------------------------------------------------------------

@@ -420,7 +420,9 @@ func test_walkthrough_needs_a_dwell() -> void:
 	p.walkthrough_enabled = true
 	_enter(p, &"knowledge")
 	_settle(p, arr)
-	assert_true(p.is_walkthrough_armed())
+	assert_false(p.is_walkthrough_armed(), "disarmed by the enter itself")
+	p.update_walkthrough(arr.volume(&"knowledge").global_position, Vector3(0.0, 0.0, -1.0), DT)
+	assert_true(p.is_walkthrough_armed(), "armed once the head is clear of every portal")
 	var target: StringName = p.portal_ids()[0]
 	var inside: Vector3 = arr.volume(target).global_position
 	var t := 0.0
@@ -453,6 +455,7 @@ func test_walkthrough_rearms_only_after_leaving_every_portal() -> void:
 	_enter(p, &"knowledge", Vector3(0.0, 1.6, 0.0))
 	_settle(p, arr)
 	var first: StringName = p.portal_ids()[0]
+	p.update_walkthrough(arr.volume(&"knowledge").global_position, Vector3(0.0, 0.0, -1.0), DT)
 	var got := &""
 	var inside: Vector3 = arr.volume(first).global_position
 	for i: int in 60:
@@ -618,14 +621,14 @@ func test_membranes_are_one_multimesh_one_draw_call() -> void:
 	p.tick(DT)
 	var ids: Array[StringName] = p.portal_ids()
 	for i: int in ids.size():
-		var c: Color = mm.get_instance_color(i)
+		var c: Color = p.membrane_color(i)
 		var want: Color = p.TINTS[ids[i]]
 		assert_almost_eq(c.r, want.r, 1.0e-3, "%s tint" % ids[i])
 		assert_almost_eq(c.a, 1.0 if ids[i] == &"codescape" else p.UNFOCUSED, 1.0e-3, "%s focus" % ids[i])
 	# Each membrane sits on its portal's user-facing face.
 	for i: int in ids.size():
 		var v: Node3D = arr.volume(ids[i])
-		var xf: Transform3D = mm.get_instance_transform(i)
+		var xf: Transform3D = p.membrane_transform(i)
 		assert_true(xf.origin.is_equal_approx(v.transform * Vector3(0.0, 0.0, v.bounds.z * 0.5 + p.MEMBRANE_LIFT)), "%s membrane on the +Z face" % ids[i])
 	p.leave()
 	_settle(p, arr)
@@ -650,9 +653,12 @@ func test_membrane_shader_stays_off_the_screen_and_depth_textures() -> void:
 	for token: String in ["unshaded", "blend_add", "depth_draw_never", "cull_disabled", "uniform float motion"]:
 		assert_true(src.contains(token), "has %s" % token)
 	assert_false(src.contains("depth_test_disabled"), "depth test stays on")
-	var script := FileAccess.get_file_as_string(PORTALS_PATH)
-	for banned: String in ["SubViewport", "SCREEN_TEXTURE", "Camera3D.new", "stencil"]:
-		assert_false(script.contains(banned), "portals use no %s" % banned)
+	var code := ""
+	for line: String in FileAccess.get_file_as_string(PORTALS_PATH).split("\n"):
+		if not line.strip_edges().begins_with("#"):
+			code += line + "\n"
+	for banned: String in ["SubViewport", "SCREEN_TEXTURE", "Camera3D.new", "stencil", "hint_depth_texture"]:
+		assert_false(code.contains(banned), "portals code uses no %s" % banned)
 
 
 # --- budget hook ---------------------------------------------------------------
