@@ -349,8 +349,8 @@ pub mod ngm {
     /// is exactly the drift ADR-2095 closes. Re-exporting here keeps
     /// `uri::ngm::*` the single lookup point for the legacy scheme.
     pub use visionclaw_domain::uri::ngm::{
-        class_iri, domain_iri, is_class_iri, parse_class_iri, parse_domain_iri, CLASS_PREFIX,
-        DOMAIN_PREFIX,
+        class_iri, domain_iri, is_class_iri, is_domain_iri, parse_class_iri, parse_domain_iri,
+        CLASS_PREFIX, DOMAIN_PREFIX,
     };
 
     /// Mint the canonical legacy node IRI. The full 32-bit id (class bits

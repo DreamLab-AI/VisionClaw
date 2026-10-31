@@ -294,5 +294,7 @@ ADR-2024's release overflow warning belongs to the typed flag setters. **Resolve
   `uri::ngm::domain_iri` (`crates/visionclaw-domain/src/uri.rs`, re-exported at `src/uri/mod.rs`),
   and `github_sync_service` no longer formats `urn:ngm:*` by hand: the domain-root
   `owl_class_iri` uses `domain_iri` and its edge fixtures use `uri::ngm::edge_iri`. Emitted strings
-  are byte-identical (pinned by tests in both files). `decision_service` and
-  `nostr_identity_verifier` still mint directly.
+  are byte-identical (pinned by tests in both files). The graph adapter's private
+  `node_iri`/`edge_iri` (`src/adapters/oxigraph_graph_repository.rs:87,96`) now delegate to
+  `uri::ngm`, also byte-identical and pinned. `decision_service` and `nostr_identity_verifier`
+  still mint directly.

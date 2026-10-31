@@ -144,7 +144,7 @@ fn workspace_dependency_direction_is_clean() {
 }
 
 #[test]
-fn checker_flags_an_upward_edge_a_new_member_and_a_root_import() {
+fn checker_flags_an_upward_edge_a_stale_row_a_new_member_and_a_root_import() {
     let mut edges: BTreeMap<String, BTreeSet<String>> = ALLOWED
         .iter()
         .map(|(n, d)| (n.to_string(), d.iter().map(|s| s.to_string()).collect()))
@@ -164,7 +164,12 @@ fn checker_flags_an_upward_edge_a_new_member_and_a_root_import() {
         .get_mut("visionclaw-domain")
         .unwrap()
         .insert(ROOT.to_string());
-    assert!(!violations(&rooted).is_empty());
+    assert_eq!(violations(&rooted).len(), 1);
+
+    // A deleted or renamed crate whose ALLOWED row was left behind.
+    let mut stale = edges.clone();
+    stale.remove("visionclaw-xr-presence");
+    assert_eq!(violations(&stale).len(), 1);
 
     let mut unclassified = edges;
     unclassified.insert("visionclaw-new".to_string(), BTreeSet::new());

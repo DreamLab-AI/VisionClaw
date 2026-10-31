@@ -72,6 +72,11 @@ pub mod ngm {
             _ => None,
         }
     }
+
+    /// Is `s` a legacy domain IRI?
+    pub fn is_domain_iri(s: &str) -> bool {
+        parse_domain_iri(s).is_some()
+    }
 }
 
 #[cfg(test)]
@@ -153,5 +158,8 @@ mod tests {
         assert_eq!(ngm::parse_domain_iri("urn:ngm:domain:"), None);
         assert_eq!(ngm::parse_domain_iri("urn:ngm:class:camera"), None);
         assert_eq!(ngm::parse_domain_iri(""), None);
+        assert!(ngm::is_domain_iri("urn:ngm:domain:infrastructure"));
+        assert!(!ngm::is_domain_iri("urn:ngm:domain:"));
+        assert!(!ngm::is_domain_iri("urn:ngm:class:camera"));
     }
 }
