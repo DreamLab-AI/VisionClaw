@@ -735,7 +735,7 @@ pub(crate) async fn apply_physics_patch(
             // ADR-2047: tell the other sessions. Physics is the category most
             // visible to a second viewer — the layout visibly moves — and was
             // the one that never announced itself.
-            broadcast_settings_change(state, "physics", &updated_by);
+            broadcast_settings_change(state, "physics", updated_by);
 
             Ok(new_physics)
         }

@@ -3999,6 +3999,11 @@ mod gpu_image_gate_tests {
     }
 
     #[test]
+    fn a_stored_sssp_toggle_is_not_swallowed_as_no_change() {
+        assert!(changed(|p| p.use_sssp_distances = !p.use_sssp_distances));
+    }
+
+    #[test]
     fn every_field_the_old_gate_dropped_is_now_seen() {
         assert!(changed(|p| p.rest_length += 10.0), "rest_length");
         assert!(changed(|p| p.global_speed += 0.1), "global_speed");
