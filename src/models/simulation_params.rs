@@ -859,95 +859,12 @@ impl From<&SimulationParams> for SimParams {
     }
 }
 
+/// Stored physics to the GPU image through the one resolver (ADR-2140): the conversion to
+/// [`SimulationParams`] applies the layout mode and its defaults, and the feature flags are
+/// derived from those resolved values.
 impl From<&PhysicsSettings> for SimParams {
     fn from(physics: &PhysicsSettings) -> Self {
-        let mut feature_flags = 0;
-        if physics.repel_k > 0.0 {
-            feature_flags |= FeatureFlags::ENABLE_REPULSION;
-        }
-        if physics.spring_k > 0.0 {
-            feature_flags |= FeatureFlags::ENABLE_SPRINGS;
-        }
-        if physics.center_gravity_k > 0.0 {
-            feature_flags |= FeatureFlags::ENABLE_CENTERING;
-        }
-        // SSSP spring adjustment for ontology-aware edge rest lengths: as stored.
-        if physics.sssp_enabled {
-            feature_flags |= FeatureFlags::ENABLE_SSSP_SPRING_ADJUST;
-        }
-
-        SimParams {
-            dt: physics.dt,
-            damping: physics.damping,
-            warmup_iterations: physics.warmup_iterations,
-            cooling_rate: physics.cooling_rate,
-            spring_k: physics.spring_k,
-            rest_length: physics.rest_length,
-            repel_k: physics.repel_k,
-            repulsion_cutoff: physics.max_repulsion_dist,
-            repulsion_softening_epsilon: physics.repulsion_softening_epsilon,
-            center_gravity_k: physics.center_gravity_k,
-            max_force: physics.max_force,
-            max_velocity: physics.max_velocity,
-            grid_cell_size: physics.grid_cell_size,
-            feature_flags,
-            seed: 1337,
-            iteration: 0,
-            separation_radius: physics.separation_radius,
-            cluster_strength: physics.cluster_strength,
-            // alignment_strength (ADR-141 P4b) is a live scalar again: the kernel
-            // ALIGNMENT constraint branch scales its per-axis pull by it.
-            alignment_strength: physics.alignment_strength,
-            temperature: physics.temperature,
-            viewport_bounds: if physics.enable_bounds {
-                physics.bounds_size
-            } else {
-                0.0
-            },
-            sssp_alpha: physics.sssp_alpha,
-            boundary_damping: physics.boundary_damping,
-            constraint_ramp_frames: physics.constraint_ramp_frames,
-            constraint_max_force_per_node: physics.constraint_max_force_per_node,
-
-            stability_threshold: crate::config::dev_config::physics().stability_threshold,
-            min_velocity_threshold: crate::config::dev_config::physics().min_velocity_threshold,
-
-            world_bounds_min: crate::config::dev_config::physics().world_bounds_min,
-            world_bounds_max: crate::config::dev_config::physics().world_bounds_max,
-            cell_size_lod: crate::config::dev_config::physics().cell_size_lod,
-            k_neighbors_max: crate::config::dev_config::physics().k_neighbors_max,
-            anomaly_detection_radius: crate::config::dev_config::physics().anomaly_detection_radius,
-            learning_rate_default: crate::config::dev_config::physics().learning_rate_default,
-
-            norm_delta_cap: crate::config::dev_config::physics().norm_delta_cap,
-            position_constraint_attraction: crate::config::dev_config::physics()
-                .position_constraint_attraction,
-            lof_score_min: crate::config::dev_config::physics().lof_score_min,
-            lof_score_max: crate::config::dev_config::physics().lof_score_max,
-            weight_precision_multiplier: crate::config::dev_config::physics()
-                .weight_precision_multiplier,
-            gravity: physics.gravity,
-            lin_log_mode: if physics.lin_log_mode { 1 } else { 0 },
-            scaling_ratio: physics.scaling_ratio,
-            adaptive_speed: if physics.adaptive_speed { 1 } else { 0 },
-            global_speed: physics.global_speed,
-            dag_bias_k: physics.dag_bias_k,
-            dag_level_distance: physics.dag_level_distance,
-            // PhysicsSettings carries no layout mode — the authoritative mode rides
-            // SimulationParams.layout_mode (set via POST /api/layout/mode). Default
-            // to ForceDirected here so this wire path never silently forces a mode.
-            layout_mode: LayoutMode::ForceDirected.as_gpu_u32(),
-            plane_bias_k: physics.plane_bias_k,
-            plane_spacing: physics.plane_spacing,
-            // PhysicsSettings carries no radial centre — it is actor-authoritative
-            // (owned by SetRadialLayout). Default to the origin so this wire path
-            // never resets an active radial centre back to nothing.
-            radial_center_x: 0.0,
-            radial_center_y: 0.0,
-            radial_center_z: 0.0,
-            layer_bias_k: physics.layer_bias_k,
-            layer_spacing: physics.layer_spacing,
-        }
+        SimParams::from(&SimulationParams::from(physics))
     }
 }
 
@@ -1160,5 +1077,98 @@ mod adr_2028_abi_manifest {
                 "{required} missing from the manifest"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod adr_2140_layout_mode_wire {
+    //! ADR-2140 item 1: what the stored layout mode puts in the GPU image.
+    use super::*;
+    use visionclaw_domain::types::layout::LayoutMode;
+
+    fn gpu(mode: LayoutMode, edit: impl FnOnce(&mut PhysicsSettings)) -> SimParams {
+        let mut ps = PhysicsSettings {
+            layout_mode: mode,
+            ..Default::default()
+        };
+        edit(&mut ps);
+        SimParams::from(&ps)
+    }
+
+    #[test]
+    fn the_stored_mode_is_the_discriminant_the_device_gets() {
+        for mode in [
+            LayoutMode::ForceDirected,
+            LayoutMode::Hierarchical,
+            LayoutMode::Radial,
+            LayoutMode::Spectral,
+            LayoutMode::Temporal,
+            LayoutMode::Clustered,
+            LayoutMode::DagLeftRight,
+            LayoutMode::TypeClustering,
+        ] {
+            assert_eq!(gpu(mode, |_| {}).layout_mode, mode.as_gpu_u32());
+        }
+    }
+
+    #[test]
+    fn a_stored_ssspenabled_false_clears_the_device_bit_in_every_dag_mode() {
+        for mode in [
+            LayoutMode::Hierarchical,
+            LayoutMode::Radial,
+            LayoutMode::DagLeftRight,
+        ] {
+            let off = gpu(mode, |p| p.sssp_enabled = false);
+            assert_eq!(
+                off.feature_flags & FeatureFlags::ENABLE_SSSP_SPRING_ADJUST,
+                0,
+                "{mode:?}"
+            );
+            let on = gpu(mode, |p| p.sssp_enabled = true);
+            assert_ne!(
+                on.feature_flags & FeatureFlags::ENABLE_SSSP_SPRING_ADJUST,
+                0,
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn feature_flags_come_from_resolved_values() {
+        // Stored centre gravity 0 disables the centring bit in force-directed, but a DAG mode
+        // resolves it to 0.1 first, so the bit is set and the value is on the device.
+        let fd = gpu(LayoutMode::ForceDirected, |p| p.center_gravity_k = 0.0);
+        assert_eq!(fd.feature_flags & FeatureFlags::ENABLE_CENTERING, 0);
+        let dag = gpu(LayoutMode::DagLeftRight, |p| p.center_gravity_k = 0.0);
+        assert_ne!(dag.feature_flags & FeatureFlags::ENABLE_CENTERING, 0);
+        assert_eq!(dag.center_gravity_k, 0.1);
+    }
+
+    #[test]
+    fn the_resolved_bias_terms_reach_the_device() {
+        let r = gpu(LayoutMode::Radial, |_| {});
+        assert_eq!((r.dag_bias_k, r.dag_level_distance), (1.0, 60.0));
+        let h = gpu(LayoutMode::Hierarchical, |_| {});
+        assert_eq!((h.layer_bias_k, h.layer_spacing), (1.0, 60.0));
+        let l = gpu(LayoutMode::DagLeftRight, |_| {});
+        assert_eq!((l.layer_bias_k, l.layer_spacing), (1.0, 60.0));
+        let t = gpu(LayoutMode::TypeClustering, |_| {});
+        assert_eq!(t.cluster_strength, 0.01);
+        let fd = gpu(LayoutMode::ForceDirected, |_| {});
+        assert_eq!(
+            (fd.dag_bias_k, fd.layer_bias_k, fd.cluster_strength),
+            (0.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn one_conversion_serves_both_paths() {
+        let ps = PhysicsSettings {
+            layout_mode: LayoutMode::Radial,
+            ..Default::default()
+        };
+        let direct = SimParams::from(&ps);
+        let via = SimParams::from(&SimulationParams::from(&ps));
+        assert_eq!(bytemuck::bytes_of(&direct), bytemuck::bytes_of(&via));
     }
 }

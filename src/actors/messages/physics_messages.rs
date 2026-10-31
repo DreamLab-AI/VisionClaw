@@ -697,23 +697,12 @@ pub struct EmitPhysicsEvent {
     pub event: PhysicsEvent,
 }
 
-/// Switch the active layout engine on the physics actor. Resets velocities to
-/// zero, replaces `self.engine`, resets the convergence-hysteresis window,
-/// and emits `LayoutDestabilised` so clients enter ACTIVE mode. The handler
-/// does not touch positions (per WORKTREE-PLAN §3 — no teardown, no ghost
-/// positions).
-#[derive(Message, Debug, Clone)]
-#[rtype(result = "Result<(), String>")]
-pub struct SetLayoutMode {
-    pub mode: crate::layout::types::LayoutMode,
-}
-
 /// Re-key the `dag_radial_bias` radial shells (ADR-141 P3). Selects the per-node
 /// shell KEY source (DAG rank / node-type tier / BFS ego-distance) and, for the
 /// Ego mode, centres the shells on `focus_node`'s live position. The key vec is
 /// uploaded via the existing `node_rank` buffer and the shell centre is set on the
 /// actor-authoritative `SimulationParams.radial_center`; the change is committed
-/// through the same `UpdateSimulationParams` path as `SetLayoutMode` so validation,
+/// through the same `UpdateSimulationParams` path as a settings write so validation,
 /// resync and reheat behave identically. `focus_node` is required for `Ego`.
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "Result<(), String>")]

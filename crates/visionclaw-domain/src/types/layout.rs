@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, specta::Type,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum LayoutMode {
     /// ForceAtlas2 with LinLog (default)
@@ -20,7 +22,28 @@ pub enum LayoutMode {
     Temporal,
     /// ForceAtlas2 + Louvain metanodes
     Clustered,
+    /// The quality-gate `dag-leftright` mode (ADR-2140). It does exactly what
+    /// `dag-leftright` did before it was a variant: the Sugiyama layer spring
+    /// of [`LayoutMode::Hierarchical`] plus the DAG mode defaults. There is no
+    /// separate orientation code, so it is not a left-to-right layout in fact.
+    DagLeftRight,
+    /// The quality-gate `type-clustering` mode (ADR-2140). It does exactly what
+    /// `type-clustering` did: the force-directed baseline with a cluster
+    /// strength (default 0.01 when none is stored).
+    TypeClustering,
 }
+
+/// The seven `qualityGates.layoutMode` strings, in the order the settings
+/// validator lists them. [`LayoutMode::from_quality_gate_str`] maps each one.
+pub const QUALITY_GATE_LAYOUT_MODES: [&str; 7] = [
+    "force-directed",
+    "dag-topdown",
+    "dag-radial",
+    "dag-leftright",
+    "type-clustering",
+    "spectral",
+    "clustered",
+];
 
 /// Source keying the radial shells of the `dag_radial_bias` term (ADR-141 P3).
 /// The shell radius per node is `key * dag_level_distance`; only the CPU-side key
@@ -51,6 +74,8 @@ impl LayoutMode {
             LayoutMode::Spectral => 3,
             LayoutMode::Temporal => 4,
             LayoutMode::Clustered => 5,
+            LayoutMode::DagLeftRight => 6,
+            LayoutMode::TypeClustering => 7,
         }
     }
 
@@ -63,6 +88,8 @@ impl LayoutMode {
             3 => LayoutMode::Spectral,
             4 => LayoutMode::Temporal,
             5 => LayoutMode::Clustered,
+            6 => LayoutMode::DagLeftRight,
+            7 => LayoutMode::TypeClustering,
             _ => LayoutMode::ForceDirected,
         }
     }
@@ -80,6 +107,55 @@ impl LayoutMode {
                 | LayoutMode::Radial
                 | LayoutMode::Clustered
                 | LayoutMode::Hierarchical
+                | LayoutMode::DagLeftRight
+                | LayoutMode::TypeClustering
+        )
+    }
+
+    /// Migrate a `qualityGates.layoutMode` string (ADR-2140). Every one of the seven
+    /// strings in [`QUALITY_GATE_LAYOUT_MODES`] maps to its own variant; anything else
+    /// is `None`, which the caller turns into a 400 on write and a logged default on load.
+    pub fn from_quality_gate_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "force-directed" => LayoutMode::ForceDirected,
+            "dag-topdown" => LayoutMode::Hierarchical,
+            "dag-radial" => LayoutMode::Radial,
+            "dag-leftright" => LayoutMode::DagLeftRight,
+            "type-clustering" => LayoutMode::TypeClustering,
+            "spectral" => LayoutMode::Spectral,
+            "clustered" => LayoutMode::Clustered,
+            _ => return None,
+        })
+    }
+
+    /// The `qualityGates.layoutMode` string for this mode, or `None` for
+    /// [`LayoutMode::Temporal`], which that vocabulary never had.
+    pub fn quality_gate_str(self) -> Option<&'static str> {
+        Some(match self {
+            LayoutMode::ForceDirected => "force-directed",
+            LayoutMode::Hierarchical => "dag-topdown",
+            LayoutMode::Radial => "dag-radial",
+            LayoutMode::DagLeftRight => "dag-leftright",
+            LayoutMode::TypeClustering => "type-clustering",
+            LayoutMode::Spectral => "spectral",
+            LayoutMode::Clustered => "clustered",
+            LayoutMode::Temporal => return None,
+        })
+    }
+
+    /// Parse either vocabulary: the serde name (`forceDirected`, `dagLeftRight`, ...) that
+    /// is stored and sent by `POST /api/layout/mode`, or a quality-gate string.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::from_quality_gate_str(s)
+            .or_else(|| serde_json::from_value(serde_json::Value::String(s.to_owned())).ok())
+    }
+
+    /// True for the three modes that were `dag-*` quality-gate strings: they carry the
+    /// DAG defaults for centre gravity and SSSP strength.
+    pub fn is_dag(self) -> bool {
+        matches!(
+            self,
+            LayoutMode::Hierarchical | LayoutMode::Radial | LayoutMode::DagLeftRight
         )
     }
 }
@@ -93,6 +169,8 @@ impl std::fmt::Display for LayoutMode {
             LayoutMode::Spectral => write!(f, "spectral"),
             LayoutMode::Temporal => write!(f, "temporal"),
             LayoutMode::Clustered => write!(f, "clustered"),
+            LayoutMode::DagLeftRight => write!(f, "dagLeftRight"),
+            LayoutMode::TypeClustering => write!(f, "typeClustering"),
         }
     }
 }
@@ -198,12 +276,17 @@ mod tests {
             LayoutMode::Spectral,
             LayoutMode::Temporal,
             LayoutMode::Clustered,
+            LayoutMode::DagLeftRight,
+            LayoutMode::TypeClustering,
         ] {
             assert_eq!(LayoutMode::from_gpu_u32(mode.as_gpu_u32()), mode);
         }
         // Frozen discriminants.
         assert_eq!(LayoutMode::ForceDirected.as_gpu_u32(), 0);
         assert_eq!(LayoutMode::Clustered.as_gpu_u32(), 5);
+        // Appended after the first six; never renumbered.
+        assert_eq!(LayoutMode::DagLeftRight.as_gpu_u32(), 6);
+        assert_eq!(LayoutMode::TypeClustering.as_gpu_u32(), 7);
         // Unknown discriminants fall back to ForceDirected, never panic.
         assert_eq!(LayoutMode::from_gpu_u32(999), LayoutMode::ForceDirected);
     }
@@ -216,8 +299,54 @@ mod tests {
         assert!(LayoutMode::Clustered.is_gpu_resident());
         // ADR-141 P4: Hierarchical is now GPU-resident (Sugiyama layer spring).
         assert!(LayoutMode::Hierarchical.is_gpu_resident());
+        assert!(LayoutMode::DagLeftRight.is_gpu_resident());
+        assert!(LayoutMode::TypeClustering.is_gpu_resident());
         assert!(!LayoutMode::Spectral.is_gpu_resident());
         assert!(!LayoutMode::Temporal.is_gpu_resident());
+    }
+
+    #[test]
+    fn all_seven_quality_gate_strings_map_to_their_own_variant() {
+        let expect = [
+            ("force-directed", LayoutMode::ForceDirected),
+            ("dag-topdown", LayoutMode::Hierarchical),
+            ("dag-radial", LayoutMode::Radial),
+            ("dag-leftright", LayoutMode::DagLeftRight),
+            ("type-clustering", LayoutMode::TypeClustering),
+            ("spectral", LayoutMode::Spectral),
+            ("clustered", LayoutMode::Clustered),
+        ];
+        assert_eq!(expect.len(), QUALITY_GATE_LAYOUT_MODES.len());
+        for (s, mode) in expect {
+            assert!(QUALITY_GATE_LAYOUT_MODES.contains(&s));
+            assert_eq!(LayoutMode::from_quality_gate_str(s), Some(mode), "{s}");
+            assert_eq!(mode.quality_gate_str(), Some(s), "{s} round-trips");
+            assert_eq!(LayoutMode::parse(s), Some(mode));
+        }
+        // Nothing is merged: seven strings, seven distinct modes.
+        let distinct: std::collections::HashSet<_> = expect.iter().map(|(_, m)| *m).collect();
+        assert_eq!(distinct.len(), 7);
+    }
+
+    #[test]
+    fn an_unknown_string_is_none_in_both_vocabularies() {
+        assert_eq!(LayoutMode::from_quality_gate_str("forceDirected"), None);
+        assert_eq!(LayoutMode::parse("spiral"), None);
+        assert_eq!(LayoutMode::parse(""), None);
+    }
+
+    #[test]
+    fn the_serde_names_parse_too_including_the_two_new_variants() {
+        assert_eq!(
+            LayoutMode::parse("dagLeftRight"),
+            Some(LayoutMode::DagLeftRight)
+        );
+        assert_eq!(
+            LayoutMode::parse("typeClustering"),
+            Some(LayoutMode::TypeClustering)
+        );
+        assert_eq!(LayoutMode::parse("temporal"), Some(LayoutMode::Temporal));
+        assert_eq!(LayoutMode::Temporal.quality_gate_str(), None);
     }
 
     #[test]

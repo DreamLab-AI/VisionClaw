@@ -92,6 +92,8 @@ const LAYOUT_MODE_LABELS: Record<string, string> = {
   'dag-leftright':   'DAG Left-Right',
   'type-clustering': 'Type Clustering',
   'forceDirected':   'Force Directed',
+  'dagLeftRight':    'DAG Left-Right',
+  'typeClustering':  'Type Clustering',
   'hierarchical':    'Hierarchical',
   'radial':          'Radial',
   'spectral':        'Spectral',
@@ -101,7 +103,7 @@ const LAYOUT_MODE_LABELS: Record<string, string> = {
 
 const LayoutModeIndicator: React.FC = () => {
   const layoutMode = useSettingsStore(s =>
-    (s.settings as unknown as Record<string, Record<string, unknown>>)?.qualityGates?.layoutMode as string | undefined
+    s.settings?.visualisation?.graphs?.knowledge?.physics?.layoutMode as string | undefined
   );
   const [transitioning, setTransitioning] = useState(false);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

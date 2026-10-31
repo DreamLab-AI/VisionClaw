@@ -15,11 +15,13 @@ pub fn compute_layout(
         return vec![];
     }
     match mode {
-        LayoutMode::ForceDirected => {
+        LayoutMode::ForceDirected | LayoutMode::TypeClustering => {
             // Handled by GPU physics engine; return identity positions.
             vec![(0.0, 0.0, 0.0); nodes.len()]
         }
-        LayoutMode::Hierarchical => hierarchical_layout(nodes, edges, config),
+        LayoutMode::Hierarchical | LayoutMode::DagLeftRight => {
+            hierarchical_layout(nodes, edges, config)
+        }
         LayoutMode::Radial => radial_layout(nodes, edges, config),
         LayoutMode::Spectral => spectral_layout(nodes, edges, config),
         LayoutMode::Temporal => temporal_layout(nodes, edges, config),

@@ -60,6 +60,8 @@ export interface PhysicsSettings {
   enableDualDiscLayout: boolean;
   dagBiasK: number;
   dagLevelDistance: number;
+  /** The stored layout mode (ADR-2140): the one definition, `physics.layoutMode`. */
+  layoutMode: LayoutModeName;
 
   // --- Per-population spring strength (independent KG/ontology/agent layout control) ---
   // Literal kernel coefficient (1.0 == LinLog identity). Drives the GPU spring_scale buffer.
@@ -124,9 +126,21 @@ export interface NodeFilterSettings {
   includeLinkedPages: boolean;
 }
 
+/** The server's `LayoutMode` serde names (crates/visionclaw-domain/src/types/layout.rs). */
+export type LayoutModeName =
+  | 'forceDirected'
+  | 'hierarchical'
+  | 'radial'
+  | 'spectral'
+  | 'temporal'
+  | 'clustered'
+  | 'dagLeftRight'
+  | 'typeClustering';
+
 export interface QualityGateSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
+  /** @deprecated Read-only echo of `physics.layoutMode` in the legacy quality-gate vocabulary. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;

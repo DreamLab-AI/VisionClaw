@@ -162,6 +162,8 @@ export interface PhysicsSettings {
   max_repulsion_dist: number;
   sssp_alpha: number;
   sssp_enabled: boolean;
+  /** Stored layout mode, ADR-2140 (e.g. "forceDirected", "dagLeftRight"). */
+  layout_mode: string;
   clustering_algorithm: string;
   cluster_count: number;
   clustering_resolution: number;

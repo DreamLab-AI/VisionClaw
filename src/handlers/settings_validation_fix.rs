@@ -183,6 +183,7 @@ pub fn get_complete_field_mappings() -> HashMap<String, String> {
     );
     mappings.insert("ssspAlpha".to_string(), "sssp_alpha".to_string());
     mappings.insert("ssspEnabled".to_string(), "sssp_enabled".to_string());
+    mappings.insert("layoutMode".to_string(), "layout_mode".to_string());
     mappings.insert(
         "ssspSourceNodes".to_string(),
         "sssp_source_nodes".to_string(),

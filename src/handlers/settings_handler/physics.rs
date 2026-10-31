@@ -13,22 +13,13 @@ use serde_json::{json, Value};
 use super::helpers::create_physics_settings_update;
 use super::validation::validate_constraints;
 
+/// Propagate a graph's stored physics to the GPU actors. The device values are the stored
+/// document resolved by `From<&PhysicsSettings> for SimulationParams` (ADR-2140); this function
+/// applies no layout-mode override of its own.
 pub async fn propagate_physics_to_gpu(
     state: &web::Data<AppState>,
     settings: &AppFullSettings,
     graph: &str,
-) {
-    propagate_physics_to_gpu_with_layout(state, settings, graph, None).await;
-}
-
-/// Propagate physics settings to GPU actors, optionally applying layout-mode overrides.
-/// When `layout_mode_override` is provided, it adjusts simulation parameters for
-/// hierarchical (DAG) or type-clustering layouts.
-pub async fn propagate_physics_to_gpu_with_layout(
-    state: &web::Data<AppState>,
-    settings: &AppFullSettings,
-    graph: &str,
-    layout_mode_override: Option<&str>,
 ) {
     let physics = settings.get_physics(graph);
 
@@ -81,40 +72,11 @@ pub async fn propagate_physics_to_gpu_with_layout(
         debug!("[GPU Parameters] All new parameters available for GPU processing");
     }
 
-    let mut sim_params: crate::models::simulation_params::SimulationParams = physics.into();
-
-    // Apply layout-mode-specific physics overrides from quality gate settings.
-    // The quality gate `layoutMode` drives different force configurations:
-    //   - force-directed: default (no overrides)
-    //   - dag-topdown: enable center gravity + SSSP for hierarchical layout
-    //   - dag-radial: same as dag-topdown (orientation is a TODO)
-    //   - dag-leftright: same as dag-topdown (orientation is a TODO)
-    //   - type-clustering: enable cluster/alignment forces for type-based grouping
-    let layout_mode = layout_mode_override.unwrap_or("force-directed");
-
-    match layout_mode {
-        "dag-topdown" | "dag-radial" | "dag-leftright" => {
-            info!(
-                "[PHYSICS UPDATE] Applying DAG layout overrides for mode: {}",
-                layout_mode
-            );
-            sim_params.center_gravity_k = sim_params.center_gravity_k.max(0.1);
-            sim_params.use_sssp_distances = true;
-            sim_params.sssp_alpha = Some(sim_params.sssp_alpha.unwrap_or(0.0).max(0.5));
-        }
-        "type-clustering" => {
-            info!("[PHYSICS UPDATE] Applying type-clustering layout overrides");
-            // cluster_strength is the raw kernel coefficient (range [0, 0.02]).
-            sim_params.cluster_strength = sim_params.cluster_strength.max(0.01);
-        }
-        _ => {
-            // force-directed: use physics settings as-is
-        }
-    }
+    let sim_params: crate::models::simulation_params::SimulationParams = physics.into();
 
     info!(
         "[PHYSICS UPDATE] Converted to SimulationParams - repulsion: {}, damping: {:.3}, time_step: {:.3}, layout: {}",
-        sim_params.repel_k, sim_params.damping, sim_params.dt, layout_mode
+        sim_params.repel_k, sim_params.damping, sim_params.dt, sim_params.layout_mode
     );
 
     let update_msg = UpdateSimulationParams { params: sim_params };

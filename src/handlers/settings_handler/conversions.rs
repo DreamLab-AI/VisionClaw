@@ -225,6 +225,7 @@ impl From<&crate::config::PhysicsSettings> for PhysicsSettingsDTO {
             max_repulsion_dist: settings.max_repulsion_dist,
             sssp_alpha: settings.sssp_alpha,
             sssp_enabled: settings.sssp_enabled,
+            layout_mode: settings.layout_mode,
             clustering_algorithm: settings.clustering_algorithm.clone(),
             cluster_count: settings.cluster_count,
             clustering_resolution: settings.clustering_resolution,

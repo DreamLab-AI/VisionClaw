@@ -66,6 +66,7 @@ export const DEFAULT_PHYSICS_SETTINGS: Partial<PhysicsSettings> = {
   enableDualDiscLayout: false,
   dagBiasK: 0.0,
   dagLevelDistance: 60.0,
+  layoutMode: 'forceDirected',
 
   // --- Per-population spring strength (independent KG/ontology/agent layout control) ---
   springKKnowledge: 1.0,

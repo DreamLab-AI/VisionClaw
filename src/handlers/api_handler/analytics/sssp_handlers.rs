@@ -180,12 +180,23 @@ pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
 }
 
 pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpResponse> {
-    // Read the store, not the display flag: the stored physics document is the one definition.
-    let enabled = stored_sssp_enabled(&app_state).await;
+    // The stored physics document is the one definition, and the device holds that document
+    // resolved by `From<&PhysicsSettings> for SimulationParams` (ADR-2140): report that, so a
+    // stored `ssspAlpha` of 0 in a DAG mode reads as the 0.5 the device runs, not as 0.
+    let stored = crate::settings::api::settings_routes::stored_physics(&app_state).await;
+    let (enabled, alpha, layout_mode) = match &stored {
+        Some(p) => {
+            let device = crate::models::simulation_params::SimulationParams::from(p);
+            (device.use_sssp_distances, device.sssp_alpha, p.layout_mode)
+        }
+        None => (true, None, Default::default()),
+    };
 
     ok_json!(serde_json::json!({
         "success": true,
         "enabled": enabled,
+        "alpha": alpha,
+        "layoutMode": layout_mode,
         "description": "Single-Source Shortest Path spring adjustment for improved edge length uniformity",
         "feature_flag": "FeatureFlags::ENABLE_SSSP_SPRING_ADJUST"
     }))

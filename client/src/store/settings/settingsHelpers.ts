@@ -39,7 +39,7 @@ export const ESSENTIAL_PATHS = [
   'qualityGates.showClusters',
   'qualityGates.showAnomalies',
   'qualityGates.showCommunities',
-  'qualityGates.layoutMode',
+  'visualisation.graphs.knowledge.physics.layoutMode',
 
   // Animation settings - needed for pulse/wave effects
   'visualisation.animations.enableNodeAnimations',

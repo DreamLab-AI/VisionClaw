@@ -33,7 +33,6 @@ pub use write_handlers::{batch_get_settings, batch_update_settings};
 
 // Re-export physics propagation (used by other handlers)
 pub use physics::propagate_physics_to_gpu;
-pub use physics::propagate_physics_to_gpu_with_layout;
 
 // Re-export helpers (used externally)
 pub use helpers::{

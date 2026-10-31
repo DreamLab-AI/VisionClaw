@@ -2392,61 +2392,6 @@ impl Handler<ComputeForces> for ForceComputeActor {
     }
 }
 
-/// ADR-141 P1: switch the active layout mode on the physics actor. The mode is
-/// carried GPU-side via `SimParams.layout_mode`; for GPU-resident modes it also
-/// primes the associated force-term scalars (Radial ⇒ raise the `dag_radial_bias`
-/// shell strength; ForceDirected ⇒ disable it) so the single "set the mode" call
-/// produces a visible relayout. CPU one-shot modes (Hierarchical/Spectral/Temporal)
-/// still route through the layout handler's `compute_layout`; here they only record
-/// the GPU-visible discriminant. The change is applied through the same
-/// `UpdateSimulationParams` path so validation, idempotency, resync and reheat all
-/// behave identically.
-impl Handler<SetLayoutMode> for ForceComputeActor {
-    type Result = Result<(), String>;
-
-    fn handle(&mut self, msg: SetLayoutMode, ctx: &mut Self::Context) -> Self::Result {
-        use crate::layout::types::LayoutMode;
-
-        // Layout mode is authoritative on the actor and only SetLayoutMode may change
-        // it. Commit the new mode to self FIRST so the UpdateSimulationParams handler
-        // (which preserves self.simulation_params.layout_mode — see below) carries it
-        // through even if a settings-driven update races in with a default mode.
-        self.simulation_params.layout_mode = msg.mode;
-
-        let mut params = self.simulation_params.clone();
-        params.layout_mode = msg.mode;
-
-        // The mode owns its bias term: fill what it needs, clear the opposing one so a
-        // switch (Radial/Hierarchical -> Clustered/ForceDirected, or between the two) does
-        // not leave a stale term firing. dagBiasK/layerBiasK can still be raised explicitly
-        // via /api/settings/physics. Clustered rides cluster_strength; Spectral/Temporal
-        // are placed once by the layout handler.
-        match msg.mode {
-            LayoutMode::Radial => params.layer_bias_k = 0.0,
-            LayoutMode::Hierarchical => params.dag_bias_k = 0.0,
-            _ => {
-                params.dag_bias_k = 0.0;
-                params.layer_bias_k = 0.0;
-            }
-        }
-        fill_mode_defaults(&mut params);
-
-        info!(
-            "ForceComputeActor: SetLayoutMode -> {:?} (gpu_resident={}, dag_bias_k={:.3}, layer_bias_k={:.3})",
-            msg.mode,
-            msg.mode.is_gpu_resident(),
-            params.dag_bias_k,
-            params.layer_bias_k
-        );
-
-        <Self as Handler<UpdateSimulationParams>>::handle(
-            self,
-            UpdateSimulationParams { params },
-            ctx,
-        )
-    }
-}
-
 /// ADR-141 P3: re-key the `dag_radial_bias` radial shells. Reuses the existing
 /// shell term — only the per-node KEY (uploaded via the `node_rank` buffer) and
 /// the shell CENTRE (`SimulationParams.radial_center`) change per RadialMode:
@@ -2458,7 +2403,7 @@ impl Handler<SetLayoutMode> for ForceComputeActor {
 ///
 /// The centre is actor-authoritative (preserved through settings PUTs by the
 /// UpdateSimulationParams handler). Applied through the same UpdateSimulationParams
-/// path as SetLayoutMode so validation, resync and reheat behave identically.
+/// path as a settings write so validation, resync and reheat behave identically.
 impl Handler<SetRadialLayout> for ForceComputeActor {
     type Result = Result<(), String>;
 
@@ -2466,10 +2411,13 @@ impl Handler<SetRadialLayout> for ForceComputeActor {
         use crate::layout::types::RadialMode;
 
         // Prime the shell strength/spacing when Radial re-keying is requested with
-        // the DAG bias still at its off-default, so the shells actually engage
-        // (mirrors the Radial arm of SetLayoutMode).
-        const RADIAL_DEFAULT_DAG_BIAS_K: f32 = 1.0;
-        const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
+        // the DAG bias still at its off-default, so the shells actually engage. The
+        // defaults are the stored-0 defaults of the radial layout mode (ADR-2140), kept
+        // in one place in the domain crate. This acts on the device only, as an action on
+        // the active shells, whichever layout mode is stored.
+        use visionclaw_domain::models::simulation_params::{
+            RADIAL_DEFAULT_DAG_BIAS_K, RADIAL_DEFAULT_DAG_LEVEL_DISTANCE,
+        };
 
         let num_nodes = self.node_population.len();
         if num_nodes == 0 {
@@ -2594,16 +2542,9 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
         mut msg: UpdateSimulationParams,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        // Layout mode is owned exclusively by SetLayoutMode. A settings-driven update
-        // is built via `PhysicsSettings -> SimulationParams`, which cannot recover the
-        // mode (PhysicsSettings has no mode field) and so defaults it to ForceDirected.
-        // Preserve the actor's current mode here so changing any physics slider never
-        // silently resets an active Radial/Clustered/CPU mode. SetLayoutMode commits
-        // the new mode to `self` before delegating here, so this preserves the *new*
-        // mode on that path (no clobber, no lost switch).
-        msg.params.layout_mode = self.simulation_params.layout_mode;
-        // ...and keep that mode's bias terms (a settings update carries 0 for them).
-        fill_mode_defaults(&mut msg.params);
+        // The layout mode is the stored `physics.layoutMode` (ADR-2140) and arrives with the
+        // parameters, already resolved by `From<&PhysicsSettings>`; the actor neither
+        // preserves nor fills it.
 
         // ADR-141 P3: the radial shell centre is owned by SetRadialLayout (Ego mode
         // centres it on the focus node). A settings-driven update is built from
@@ -3968,6 +3909,105 @@ impl Handler<ProbeReceived> for ForceComputeActor {
     }
 }
 
+/// Test probe: the simulation parameters the actor holds.
+#[cfg(test)]
+#[derive(actix::Message)]
+#[rtype(result = "Result<SimulationParams, ()>")]
+pub(crate) struct ProbeSimulationParams;
+
+#[cfg(test)]
+impl Handler<ProbeSimulationParams> for ForceComputeActor {
+    type Result = Result<SimulationParams, ()>;
+
+    fn handle(&mut self, _: ProbeSimulationParams, _: &mut Self::Context) -> Self::Result {
+        Ok(self.simulation_params.clone())
+    }
+}
+
+#[cfg(test)]
+mod stored_layout_mode_tests {
+    //! ADR-2140: the actor holds the layout mode and bias terms it is given. It neither
+    //! preserves a mode of its own nor fills defaults.
+    use super::*;
+    use visionclaw_domain::types::layout::LayoutMode;
+    use visionclaw_domain::types::PhysicsSettings;
+
+    async fn held_after(update: SimulationParams) -> SimulationParams {
+        let actor = ForceComputeActor::headless().start();
+        actor
+            .send(UpdateSimulationParams { params: update })
+            .await
+            .unwrap()
+            .expect("the headless actor accepts a valid update");
+        actor.send(ProbeSimulationParams).await.unwrap().unwrap()
+    }
+
+    fn stored(mode: LayoutMode) -> SimulationParams {
+        let ps = PhysicsSettings {
+            layout_mode: mode,
+            sssp_enabled: false,
+            ..Default::default()
+        };
+        SimulationParams::from(&ps)
+    }
+
+    #[actix::test]
+    async fn the_actor_holds_the_stored_mode_with_its_resolved_numbers_and_stored_toggle() {
+        let held = held_after(stored(LayoutMode::DagLeftRight)).await;
+        assert_eq!(held.layout_mode, LayoutMode::DagLeftRight);
+        assert_eq!(held.layer_bias_k, 1.0);
+        assert_eq!(held.layer_spacing, 60.0);
+        assert_eq!(
+            held.center_gravity_k, 0.2,
+            "the stored 0.2 is above the old floor"
+        );
+        assert!(
+            !held.use_sssp_distances,
+            "a stored false is obeyed in a DAG mode"
+        );
+    }
+
+    #[actix::test]
+    async fn an_update_that_names_another_mode_is_not_overridden_by_the_actor() {
+        // The actor used to keep its own mode and ignore the one it was given.
+        let actor = ForceComputeActor::headless().start();
+        for mode in [
+            LayoutMode::Radial,
+            LayoutMode::ForceDirected,
+            LayoutMode::TypeClustering,
+        ] {
+            actor
+                .send(UpdateSimulationParams {
+                    params: stored(mode),
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            let held = actor.send(ProbeSimulationParams).await.unwrap().unwrap();
+            assert_eq!(held.layout_mode, mode);
+        }
+    }
+
+    #[actix::test]
+    async fn the_actor_fills_no_default_of_its_own() {
+        // A bare update in Radial mode with zero biases stays zero: resolution is the
+        // conversion's job, and this update did not come from it.
+        let mut raw = SimulationParams::default();
+        raw.layout_mode = LayoutMode::Radial;
+        raw.dag_bias_k = 0.0;
+        raw.dag_level_distance = 0.0;
+        let held = held_after(raw).await;
+        assert_eq!((held.dag_bias_k, held.dag_level_distance), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_mode_only_switch_changes_the_gpu_image_the_gate_compares() {
+        let a = stored(LayoutMode::ForceDirected);
+        let b = stored(LayoutMode::TypeClustering);
+        assert!(gpu_image_changed(&a, &b));
+    }
+}
+
 /// True when the two parameter sets would put different bytes on the GPU.
 ///
 /// The settings gate used to compare a hand-maintained field list, so every GPU field
@@ -4030,14 +4070,6 @@ mod gpu_image_gate_tests {
         assert!(changed(|p| p.damping -= 0.05), "damping");
     }
 }
-
-/// Default radial shell strength / spacing when Radial is active but the DAG bias is still
-/// at its off-default (0.0). Modest so the shell guides rather than dominates springs.
-const RADIAL_DEFAULT_DAG_BIAS_K: f32 = 1.0;
-const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
-/// Default Sugiyama layer-spring strength / spacing for Hierarchical (ADR-141 P4).
-const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
-const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
 
 /// Derive the semantic metadata for `graph` and put it on the GPU with `cfg` (the stored
 /// `physics.semantic` group). On any failure the semantic state is cleared and the error is
@@ -4247,88 +4279,6 @@ mod step_timing_tests {
         assert!(line.contains("total in actor 25.0 ms"), "{line}");
         assert!(line.contains("period 69."), "{line}");
         assert!(t.n == 0 && t.gpu_ms == 0.0, "the window resets");
-    }
-}
-
-/// Give the active layout mode the bias terms it needs, where they are still off (<= 0).
-///
-/// Used by BOTH `SetLayoutMode` and `UpdateSimulationParams`. A settings-driven update is
-/// built from `PhysicsSettings`, whose `dagBiasK`/`layerBiasK` default to 0, so without this
-/// any physics slider change after switching to Radial or Hierarchical overwrote the bias the
-/// mode had primed: the mode still read "Radial" while its shell had silently switched off.
-/// Only fills missing values; an explicit positive setting is never replaced, and the
-/// opposing term is not touched here (SetLayoutMode clears that on a real mode switch).
-fn fill_mode_defaults(p: &mut SimulationParams) {
-    use crate::layout::types::LayoutMode;
-    match p.layout_mode {
-        LayoutMode::Radial => {
-            if p.dag_bias_k <= 0.0 {
-                p.dag_bias_k = RADIAL_DEFAULT_DAG_BIAS_K;
-            }
-            if p.dag_level_distance <= 0.0 {
-                p.dag_level_distance = RADIAL_DEFAULT_DAG_LEVEL_DISTANCE;
-            }
-        }
-        LayoutMode::Hierarchical => {
-            if p.layer_bias_k <= 0.0 {
-                p.layer_bias_k = HIERARCHICAL_DEFAULT_LAYER_BIAS_K;
-            }
-            if p.layer_spacing <= 0.0 {
-                p.layer_spacing = HIERARCHICAL_DEFAULT_LAYER_SPACING;
-            }
-        }
-        _ => {}
-    }
-}
-
-#[cfg(test)]
-mod mode_default_tests {
-    use super::*;
-    use crate::layout::types::LayoutMode;
-
-    #[test]
-    fn a_settings_update_keeps_the_radial_shell_the_mode_primed() {
-        let mut p = SimulationParams::default();
-        p.layout_mode = LayoutMode::Radial;
-        p.dag_bias_k = 0.0; // what a PhysicsSettings-built update carries
-        p.dag_level_distance = 0.0;
-        fill_mode_defaults(&mut p);
-        assert_eq!(p.dag_bias_k, RADIAL_DEFAULT_DAG_BIAS_K);
-        assert_eq!(p.dag_level_distance, RADIAL_DEFAULT_DAG_LEVEL_DISTANCE);
-    }
-
-    #[test]
-    fn hierarchical_keeps_its_layer_spring() {
-        let mut p = SimulationParams::default();
-        p.layout_mode = LayoutMode::Hierarchical;
-        p.layer_bias_k = 0.0;
-        p.layer_spacing = 0.0;
-        fill_mode_defaults(&mut p);
-        assert_eq!(p.layer_bias_k, HIERARCHICAL_DEFAULT_LAYER_BIAS_K);
-        assert_eq!(p.layer_spacing, HIERARCHICAL_DEFAULT_LAYER_SPACING);
-    }
-
-    #[test]
-    fn explicit_values_and_other_modes_are_left_alone() {
-        let mut p = SimulationParams::default();
-        p.layout_mode = LayoutMode::Radial;
-        p.dag_bias_k = 3.5;
-        fill_mode_defaults(&mut p);
-        assert_eq!(
-            p.dag_bias_k, 3.5,
-            "an explicit user value is never replaced"
-        );
-
-        let mut q = SimulationParams::default();
-        q.layout_mode = LayoutMode::ForceDirected;
-        q.dag_bias_k = 0.0;
-        q.layer_bias_k = 0.0;
-        fill_mode_defaults(&mut q);
-        assert_eq!(
-            (q.dag_bias_k, q.layer_bias_k),
-            (0.0, 0.0),
-            "force-directed has no bias to fill"
-        );
     }
 }
 

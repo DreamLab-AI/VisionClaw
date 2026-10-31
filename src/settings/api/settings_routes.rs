@@ -95,6 +95,7 @@ fn normalize_physics_keys(
             "cluster_strength" => "clusterStrength",
             "sssp_alpha" => "ssspAlpha",
             "sssp_enabled" => "ssspEnabled",
+            "layout_mode" => "layoutMode",
             "stream_chunk_nodes" => "streamChunkNodes",
             "stream_move_threshold" => "streamMoveThreshold",
             "stream_ack_timeout_ms" => "streamAckTimeoutMs",
@@ -405,15 +406,7 @@ pub fn validate_quality_gate_settings(settings: &QualityGateSettings) -> Result<
             settings.ontology_strength
         ));
     }
-    let valid_modes = [
-        "force-directed",
-        "dag-topdown",
-        "dag-radial",
-        "dag-leftright",
-        "type-clustering",
-        "spectral",
-        "clustered",
-    ];
+    let valid_modes = visionclaw_domain::types::layout::QUALITY_GATE_LAYOUT_MODES;
     if !valid_modes.contains(&settings.layout_mode.as_str()) {
         errors.push(format!(
             "layout_mode must be one of {:?} (got '{}')",
@@ -510,6 +503,31 @@ pub async fn get_physics_settings(
     }
 }
 
+/// The stored physics document, as the settings actor holds it, or `None` when the actor cannot
+/// answer.
+pub(crate) async fn stored_physics(state: &AppState) -> Option<PhysicsSettings> {
+    match state.settings_addr.send(GetSettings).await {
+        Ok(Ok(settings)) => Some(settings.visualisation.graphs.knowledge.physics),
+        _ => None,
+    }
+}
+
+/// The layout mode is stored once, in `physics.layoutMode` (ADR-2140). The legacy
+/// `qualityGates.layoutMode` string is reported from it, so the two never disagree on the wire.
+/// `temporal` has no quality-gate name, so the persisted string stands for that one mode.
+async fn with_stored_layout_mode(
+    state: &AppState,
+    mut gates: QualityGateSettings,
+) -> QualityGateSettings {
+    if let Some(name) = stored_physics(state)
+        .await
+        .and_then(|p| p.layout_mode.quality_gate_str())
+    {
+        gates.layout_mode = name.to_string();
+    }
+    gates
+}
+
 /// Why [`apply_physics_patch`] refused or failed.
 #[derive(Debug)]
 pub(crate) enum PhysicsPatchError {
@@ -520,7 +538,8 @@ pub(crate) enum PhysicsPatchError {
 }
 
 impl PhysicsPatchError {
-    fn into_response(self) -> HttpResponse {
+    /// The HTTP answer for this error: 400 for a refused patch, 500 for a failed write.
+    pub(crate) fn into_response(self) -> HttpResponse {
         match self {
             Self::BadRequest(error) => HttpResponse::BadRequest().json(ErrorResponse { error }),
             Self::Internal(error) => {
@@ -1098,32 +1117,30 @@ pub async fn update_node_filter_settings(
 /// GET /api/settings/quality-gates
 /// Loads quality gate settings from SQLite repository, falling back to defaults.
 pub async fn get_quality_gate_settings(
-    _state: web::Data<AppState>,
+    state: web::Data<AppState>,
     settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     _auth: OptionalAuth,
 ) -> impl Responder {
-    match settings_repo.get_setting("quality_gates").await {
+    let gates = match settings_repo.get_setting("quality_gates").await {
         Ok(Some(crate::ports::settings_repository::SettingValue::Json(json))) => {
-            match serde_json::from_value::<QualityGateSettings>(json) {
-                Ok(settings) => HttpResponse::Ok().json(settings),
-                Err(e) => {
-                    warn!(
-                        "Failed to parse stored quality gate settings, returning defaults: {}",
-                        e
-                    );
-                    HttpResponse::Ok().json(QualityGateSettings::default())
-                }
-            }
+            serde_json::from_value::<QualityGateSettings>(json).unwrap_or_else(|e| {
+                warn!(
+                    "Failed to parse stored quality gate settings, returning defaults: {}",
+                    e
+                );
+                QualityGateSettings::default()
+            })
         }
-        Ok(_) => HttpResponse::Ok().json(QualityGateSettings::default()),
+        Ok(_) => QualityGateSettings::default(),
         Err(e) => {
             warn!(
                 "Failed to load quality gate settings from repository: {}",
                 e
             );
-            HttpResponse::Ok().json(QualityGateSettings::default())
+            QualityGateSettings::default()
         }
-    }
+    };
+    HttpResponse::Ok().json(with_stored_layout_mode(&state, gates).await)
 }
 
 /// PUT /api/settings/quality-gates
@@ -1145,6 +1162,7 @@ pub async fn update_quality_gate_settings(
 
     let mut settings = current_settings;
     let current_json = serde_json::to_value(&settings).unwrap_or_default();
+    let names_layout = body.get("layoutMode").is_some();
 
     if let (serde_json::Value::Object(mut base), serde_json::Value::Object(patch)) =
         (current_json, body.into_inner())
@@ -1208,6 +1226,30 @@ pub async fn update_quality_gate_settings(
         settings.max_node_count
     );
 
+    // ADR-2140: the layout mode is `physics.layoutMode`. A client that still names it here (the
+    // field is kept on the wire for compatibility) makes this a physics write, through the one
+    // write path, before the propagation below reads the stored physics back.
+    if names_layout {
+        match visionclaw_domain::types::layout::LayoutMode::from_quality_gate_str(
+            &settings.layout_mode,
+        ) {
+            Some(mode) => {
+                let patch = serde_json::json!({ "layoutMode": mode });
+                if let Err(e) =
+                    apply_physics_patch(&state, settings_repo.get_ref(), patch, &auth.pubkey).await
+                {
+                    return e.into_response();
+                }
+            }
+            // validate_quality_gate_settings has already refused this; defend anyway.
+            None => {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    error: format!("unknown layout mode '{}'", settings.layout_mode),
+                });
+            }
+        }
+    }
+
     // Propagate GPU-affecting quality gate changes to the physics engine.
     // Fetch current physics from the settings actor so SimulationParams is built
     // from the authoritative snapshot, then overlay quality-gate fields.
@@ -1224,29 +1266,11 @@ pub async fn update_quality_gate_settings(
             }
             sim_params.enabled = settings.gpu_acceleration;
 
-            // Apply layout-mode-specific physics overrides.
-            // DAG modes enable center gravity + SSSP for hierarchical layout.
-            // Type-clustering enables cluster/alignment forces for grouping.
-            match settings.layout_mode.as_str() {
-                "dag-topdown" | "dag-radial" | "dag-leftright" => {
-                    info!(
-                        "Quality gates: applying DAG layout overrides for mode: {}",
-                        settings.layout_mode
-                    );
-                    sim_params.center_gravity_k = sim_params.center_gravity_k.max(0.1);
-                    sim_params.use_sssp_distances = true;
-                    sim_params.sssp_alpha = Some(sim_params.sssp_alpha.unwrap_or(0.0).max(0.5));
-                }
-                "type-clustering" => {
-                    info!("Quality gates: applying type-clustering layout overrides");
-                    // cluster_strength is now the raw kernel coefficient (range
-                    // [0, 0.02]); floor at the upper end to strengthen grouping.
-                    sim_params.cluster_strength = sim_params.cluster_strength.max(0.01);
-                }
-                _ => {
-                    // force-directed: use physics settings as-is
-                }
-            }
+            // The layout mode is not applied here: it is the stored `physics.layoutMode`
+            // (ADR-2140), already part of `sim_params`, and a quality-gate PUT that names a
+            // layout mode writes it through `apply_physics_patch` above. This overlay no
+            // longer forces SSSP on or floors centre gravity, SSSP strength or cluster
+            // strength: the device holds what is stored.
 
             let update_msg = UpdateSimulationParams { params: sim_params };
 
@@ -1313,7 +1337,7 @@ pub async fn update_quality_gate_settings(
         }
     }
 
-    HttpResponse::Ok().json(settings)
+    HttpResponse::Ok().json(with_stored_layout_mode(&state, settings).await)
 }
 
 // ============================================================================
@@ -1355,10 +1379,25 @@ pub(crate) fn merge_physics_patch(
     let mut base = current;
     // Normalize incoming keys: map common aliases (snake_case, legacy names) to the canonical
     // camelCase field names used by PhysicsSettings.
-    deep_merge_json(
-        &mut base,
-        serde_json::Value::Object(normalize_physics_keys(patch)),
-    );
+    let mut patch = normalize_physics_keys(patch);
+    // ADR-2140: a layout mode is strict on write. The stored field reads leniently (a bad value
+    // on load is logged and defaulted), so an unknown mode must be refused here, before the
+    // merge, or it would be accepted and silently stored as the default. Either vocabulary is
+    // accepted and the stored form is always the serde name.
+    if let Some(raw) = patch.get("layoutMode") {
+        let mode = raw
+            .as_str()
+            .and_then(visionclaw_domain::types::layout::LayoutMode::parse)
+            .ok_or_else(|| {
+                <serde_json::Error as serde::de::Error>::custom(format!(
+                    "layoutMode {raw} is not a layout mode (expected one of forceDirected, \
+                     hierarchical, radial, spectral, temporal, clustered, dagLeftRight, \
+                     typeClustering, or a quality-gate name such as dag-topdown)"
+                ))
+            })?;
+        patch.insert("layoutMode".to_string(), serde_json::to_value(mode)?);
+    }
+    deep_merge_json(&mut base, serde_json::Value::Object(patch));
     serde_json::from_value::<PhysicsSettings>(base).map(Some)
 }
 
@@ -2025,5 +2064,121 @@ mod tests {
             (msg.chunk_nodes, msg.move_threshold, msg.ack_timeout_ms),
             (800, 0.5, 250)
         );
+    }
+}
+
+#[cfg(test)]
+mod layout_mode_patch_tests {
+    //! ADR-2140 item 1: the layout mode is a stored physics field, strict on write.
+    use super::*;
+    use visionclaw_domain::types::layout::{LayoutMode, QUALITY_GATE_LAYOUT_MODES};
+
+    fn merge(patch: serde_json::Value) -> Result<Option<PhysicsSettings>, serde_json::Error> {
+        merge_physics_patch(
+            serde_json::to_value(PhysicsSettings::default()).unwrap(),
+            patch,
+        )
+    }
+
+    #[test]
+    fn every_quality_gate_string_is_a_valid_patch_and_lands_on_its_own_mode() {
+        let mut seen = std::collections::HashSet::new();
+        for name in QUALITY_GATE_LAYOUT_MODES {
+            let merged = merge(serde_json::json!({ "layoutMode": name }))
+                .unwrap_or_else(|e| panic!("{name}: {e}"))
+                .unwrap();
+            assert_eq!(
+                Some(merged.layout_mode),
+                LayoutMode::from_quality_gate_str(name),
+                "{name}"
+            );
+            seen.insert(merged.layout_mode);
+        }
+        assert_eq!(
+            seen.len(),
+            7,
+            "seven strings, seven modes, nothing dropped or merged"
+        );
+    }
+
+    #[test]
+    fn the_serde_names_and_the_snake_case_key_are_accepted_and_stored_canonically() {
+        let m = merge(serde_json::json!({ "layoutMode": "dagLeftRight" }))
+            .unwrap()
+            .unwrap();
+        assert_eq!(m.layout_mode, LayoutMode::DagLeftRight);
+        let m = merge(serde_json::json!({ "layout_mode": "typeClustering" }))
+            .unwrap()
+            .unwrap();
+        assert_eq!(m.layout_mode, LayoutMode::TypeClustering);
+        let m = merge(serde_json::json!({ "layoutMode": "dag-leftright" }))
+            .unwrap()
+            .unwrap();
+        let stored = serde_json::to_value(&m).unwrap();
+        assert_eq!(
+            stored["layoutMode"], "dagLeftRight",
+            "stored under the serde name"
+        );
+    }
+
+    #[test]
+    fn an_unknown_or_non_string_mode_is_refused_on_write_never_defaulted() {
+        for bad in [
+            serde_json::json!("spiral-galaxy"),
+            serde_json::json!(""),
+            serde_json::json!(3),
+            serde_json::json!(null),
+            serde_json::json!({"a": 1}),
+        ] {
+            let err = merge(serde_json::json!({ "layoutMode": bad.clone() }))
+                .expect_err(&format!("{bad} must be refused"));
+            assert!(err.to_string().contains("layoutMode"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_mode_patch_changes_only_the_mode() {
+        let mut stored = PhysicsSettings::default();
+        stored.repel_k = 321.0;
+        stored.sssp_enabled = false;
+        stored.dag_bias_k = 0.0;
+        let merged = merge_physics_patch(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::json!({ "layoutMode": "radial" }),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(merged.layout_mode, LayoutMode::Radial);
+        assert_eq!(merged.repel_k, 321.0);
+        assert!(!merged.sssp_enabled);
+        assert_eq!(
+            merged.dag_bias_k, 0.0,
+            "the mode default is never written back"
+        );
+    }
+
+    #[test]
+    fn the_quality_gate_validator_accepts_exactly_the_seven_strings() {
+        for name in QUALITY_GATE_LAYOUT_MODES {
+            let gates = QualityGateSettings {
+                layout_mode: name.to_string(),
+                ..Default::default()
+            };
+            assert!(validate_quality_gate_settings(&gates).is_ok(), "{name}");
+        }
+        let gates = QualityGateSettings {
+            layout_mode: "forceDirected".into(),
+            ..Default::default()
+        };
+        assert!(validate_quality_gate_settings(&gates).is_err());
+    }
+
+    #[test]
+    fn gpu_validation_sees_the_resolved_values_of_the_stored_mode() {
+        let mut stored = PhysicsSettings::default();
+        stored.layout_mode = LayoutMode::Hierarchical;
+        let sim = validate_for_gpu(&stored).expect("a DAG mode with stored zeros is valid");
+        assert_eq!(sim.layout_mode, LayoutMode::Hierarchical);
+        assert_eq!(sim.layer_bias_k, 1.0);
     }
 }

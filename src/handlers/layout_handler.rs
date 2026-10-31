@@ -1,42 +1,51 @@
+use crate::adapters::SqliteSettingsRepository;
 use crate::layout::engines::compute_layout;
 use crate::layout::types::*;
 use crate::ok_json;
+use crate::settings::api::settings_routes::{
+    apply_physics_patch, stored_physics, PhysicsPatchError,
+};
+use crate::settings::auth_extractor::AuthenticatedUser;
 use crate::AppState;
 use actix_web::{web, HttpResponse, Result};
+use std::sync::Arc;
 
-// The modes the live `SetLayoutMode` path on `ForceComputeActor`
-// (src/actors/gpu/force_compute_actor.rs) actually differentiates:
-// `ForceDirected` is the GPU-resident default baseline; `Radial` and
-// `Hierarchical` prime a real GPU force term (`dag_bias_k` / `layer_bias_k`
-// respectively — both read by the CUDA kernel); `Spectral` and `Temporal`
-// are CPU one-shot placements computed by `compute_layout` below.
-// `LayoutMode::Clustered` is deliberately excluded: it is classified
-// `is_gpu_resident() == true` so the early return below skips CPU placement,
-// but the actor's `SetLayoutMode` handler has no dedicated match arm for it —
-// it falls into the same catch-all as `ForceDirected` and clears both bias
-// terms. The only related term, `cluster_strength` (driving
-// `cluster_cohesion_kernel`), is an independent `/api/settings/physics` knob
-// applied unconditionally whenever it is > 0, regardless of the selected
-// layout mode. Selecting `Clustered` is therefore currently indistinguishable
-// from `ForceDirected` — it is not advertised until that gap is wired up.
-const LIVE_LAYOUT_MODES: [&str; 5] = [
+// The layout mode is one stored field, `physics.layoutMode` (ADR-2140), and
+// `POST /api/layout/mode` writes it through `apply_physics_patch`, the same path as
+// `PUT /api/settings/physics`. What each mode does on the device is decided by the
+// stored-to-device conversion (`SimulationParams::resolve_mode_defaults`): `radial` primes
+// the `dag_radial_bias` shell, `hierarchical` and `dagLeftRight` the Sugiyama layer spring,
+// `typeClustering` the cluster strength; `spectral` and `temporal` are CPU one-shot
+// placements computed by `compute_layout` below, so the stored value says "place once" and
+// the device keeps its force-directed baseline. `clustered` rides the stored
+// `clusterStrength` knob and is otherwise the force-directed baseline, so it is not
+// advertised, but it is accepted and stored.
+const LIVE_LAYOUT_MODES: [&str; 7] = [
     "forceDirected",
     "hierarchical",
     "radial",
+    "dagLeftRight",
+    "typeClustering",
     "spectral",
     "temporal",
 ];
 
-pub async fn get_layout_modes(_data: web::Data<AppState>) -> Result<HttpResponse> {
+pub async fn get_layout_modes(data: web::Data<AppState>) -> Result<HttpResponse> {
+    let current = stored_physics(&data)
+        .await
+        .map(|p| p.layout_mode)
+        .unwrap_or_default();
     ok_json!(serde_json::json!({
-        "current": "forceDirected",
+        "current": current,
         "available": LIVE_LAYOUT_MODES,
         "transitioning": false
     }))
 }
 
 pub async fn set_layout_mode(
+    auth: AuthenticatedUser,
     data: web::Data<AppState>,
+    settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse> {
     let mode_str = body
@@ -50,41 +59,46 @@ pub async fn set_layout_mode(
 
     // Reject an unrecognised mode instead of silently coercing to
     // ForceDirected — a typo'd or stale client-side mode name must not read
-    // as "applied" when it was actually ignored.
-    let mode: LayoutMode =
-        match serde_json::from_value(serde_json::Value::String(mode_str.to_string())) {
-            Ok(m) => m,
-            Err(_) => {
-                return Err(actix_web::error::ErrorBadRequest(format!(
-                    "unknown layout mode '{}' (expected one of: forceDirected, hierarchical, \
-                     radial, spectral, temporal, clustered)",
-                    mode_str
-                )));
-            }
-        };
+    // as "applied" when it was actually ignored. Either vocabulary is read: the
+    // camelCase name or a quality-gate name such as `dag-topdown`.
+    let mode: LayoutMode = match LayoutMode::parse(mode_str) {
+        Some(m) => m,
+        None => {
+            return Err(actix_web::error::ErrorBadRequest(format!(
+                "unknown layout mode '{}' (expected one of: forceDirected, hierarchical, \
+                 radial, spectral, temporal, clustered, dagLeftRight, typeClustering)",
+                mode_str
+            )));
+        }
+    };
 
-    // ADR-141 P1: persist the active mode into the GPU-visible SimParams.layout_mode
-    // so both clients (XR + desktop) share one authoritative layout mode. For
-    // GPU-resident modes (ForceDirected/Radial/Clustered) the SetLayoutMode handler
-    // also primes the relevant force-term scalars, and the GPU keeps streaming
-    // positions — so we return no one-shot positions and let the settling engine run.
-    let persisted = if let Some(addr) = data.get_gpu_compute_addr().await {
-        use crate::actors::messages::SetLayoutMode;
-        match addr.send(SetLayoutMode { mode }).await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => {
-                log::warn!("set_layout_mode: actor rejected mode {}: {}", mode_str, e);
-                Err(e)
-            }
-            Err(e) => {
-                log::warn!("set_layout_mode: actor mailbox error: {}", e);
-                Err(format!("actor mailbox error: {}", e))
+    // The one write path: merge, validate, store, push to the GPU actors, persist, broadcast.
+    // A request for the mode that is already stored writes nothing: the client repeats this
+    // call on every page load, and a repeat must not rewrite the store, broadcast to other
+    // sessions or resume a settled simulation. CPU one-shot placement below still runs.
+    let mut persisted: std::result::Result<(), String> = Ok(());
+    if stored_physics(&data).await.map(|p| p.layout_mode) == Some(mode) {
+        log::debug!(
+            "set_layout_mode: {} is already stored; nothing to write",
+            mode_str
+        );
+    } else {
+        match apply_physics_patch(
+            &data,
+            settings_repo.get_ref(),
+            serde_json::json!({ "layoutMode": mode }),
+            &auth.pubkey,
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(e @ PhysicsPatchError::BadRequest(_)) => return Ok(e.into_response()),
+            Err(PhysicsPatchError::Internal(e)) => {
+                log::warn!("set_layout_mode: could not apply mode {}: {}", mode_str, e);
+                persisted = Err(e);
             }
         }
-    } else {
-        log::warn!("set_layout_mode: GPU compute actor unavailable — mode not persisted GPU-side");
-        Err("GPU compute actor unavailable".to_string())
-    };
+    }
 
     // GPU-resident modes settle continuously on the GPU; no CPU one-shot positions.
     // Their entire effect IS the persisted mode, so a persistence failure must be
@@ -105,8 +119,15 @@ pub async fn set_layout_mode(
         };
     }
 
-    // CPU one-shot modes (Spectral/Temporal): compute placement below. Hierarchical
-    // is now GPU-resident (ADR-141 P4 Sugiyama layer spring) and returns above.
+    // CPU one-shot modes (Spectral/Temporal): compute placement below. Every other mode is
+    // GPU-resident and returns above. A failed write is reported, not placed.
+    if let Err(e) = persisted {
+        return ok_json!(serde_json::json!({
+            "success": false,
+            "mode": mode_str,
+            "error": format!("Failed to apply layout mode: {}", e)
+        }));
+    }
     // Fetch current graph data
     use crate::actors::messages::GetGraphData;
     let graph_data = match data.graph_service_addr.send(GetGraphData).await {
@@ -236,10 +257,14 @@ pub async fn set_radial_layout(
     }
 }
 
-pub async fn get_layout_status(_data: web::Data<AppState>) -> Result<HttpResponse> {
-    // See `LIVE_LAYOUT_MODES` above for why `Clustered` is excluded.
+pub async fn get_layout_status(data: web::Data<AppState>) -> Result<HttpResponse> {
+    // See `LIVE_LAYOUT_MODES` above for why `Clustered` is not advertised.
+    let current_mode = stored_physics(&data)
+        .await
+        .map(|p| p.layout_mode)
+        .unwrap_or_default();
     ok_json!(LayoutStatus {
-        current_mode: LayoutMode::ForceDirected,
+        current_mode,
         transitioning: false,
         transition_progress: 1.0,
         iterations: 0,
@@ -249,6 +274,8 @@ pub async fn get_layout_status(_data: web::Data<AppState>) -> Result<HttpRespons
             LayoutMode::ForceDirected,
             LayoutMode::Hierarchical,
             LayoutMode::Radial,
+            LayoutMode::DagLeftRight,
+            LayoutMode::TypeClustering,
             LayoutMode::Spectral,
             LayoutMode::Temporal,
         ],
@@ -308,7 +335,13 @@ pub fn configure_layout_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/layout")
             .route("/modes", web::get().to(get_layout_modes))
-            .route("/mode", web::post().to(set_layout_mode))
+            // `POST /layout/mode` is a full physics write (ADR-2140), so it is limited like
+            // `/api/settings/*` and `/analytics/sssp/toggle`.
+            .service(
+                web::resource("/mode")
+                    .wrap(crate::middleware::rate_limit::RateLimit::per_minute(60))
+                    .route(web::post().to(set_layout_mode)),
+            )
             .route("/radial", web::post().to(set_radial_layout))
             .route("/status", web::get().to(get_layout_status))
             .route("/zones", web::post().to(set_zones))

@@ -25,7 +25,7 @@ const logger = createLogger('useSettingField');
 
 // Mirrors UnifiedSettingsTabContent's LAYOUT_SETTING_PATHS exactly.
 const LAYOUT_SETTING_PATHS = new Set([
-  'qualityGates.layoutMode',
+  'visualisation.graphs.knowledge.physics.layoutMode',
   'visualisation.graphs.knowledge.physics.layoutAlgorithm',
 ]);
 
