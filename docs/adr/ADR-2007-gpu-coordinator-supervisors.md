@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: f68ad414faab7a7274c01c364c9015b1ada45f42
 verified_paths: [src/actors/gpu/gpu_manager_actor.rs, src/actors/gpu/mod.rs, src/actors/gpu/context_bus.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: a new GPU subsystem that does not fit the four-supervisor split, or a change to SharedGPUContext distribution
@@ -165,3 +165,10 @@ Doc-comment corrections only in `gpu_manager_actor.rs` and `physics_supervisor.r
 Re-verified at `b4a175412`. The topology holds: `GPUManagerActor::spawn_supervisors` still starts the Physics, Analytics, GraphAnalytics and Resource supervisors (`src/actors/gpu/gpu_manager_actor.rs:88-123`) and registers the three subsystem supervisors with `ResourceSupervisor` through `SetSubsystemSupervisors` (`:105`). `ResourceSupervisor` sends `SetSharedGPUContext` directly and checks the send results (`resource_supervisor.rs:143-230`), then publishes on the bus as a supplementary broadcast (`:235-240`, `context_bus.rs:92-104`); every supervisor carries a restart policy with backoff (`resource_supervisor.rs:265-276`, `physics_supervisor.rs:57`, `:345`). `implementation_status: partial` stands for the reasons the closeout records: nothing has exercised crash or device recovery.
 
 **Drift, now recorded.** Since `ebb9cd174` the physics subsystem lost a child and the doc maps still listed it: `SemanticForcesActor` was removed (ADR-2140), so `PhysicsSupervisor` now supervises `ForceComputeActor`, `StressMajorizationActor`, `ConstraintActor` and `OntologyConstraintActor` only (`physics_supervisor.rs:154-185`; `gpu/mod.rs` no longer registers the module). `GPUManagerActor` consequently dropped the `UpdateAdvancedParams`, `GetSemanticConfig` and `Configure{DAG,TypeClustering,Collision}` forwarders and gained `SetRelationshipTable` (`gpu_manager_actor.rs:995-1013`), and `GetHierarchyLevels` now answers with `actors::messages::HierarchyLevels`. The supervisor count (four) and the split are unchanged. Governing doc updated in the same change: `docs/BASELINE-architecture.md` ("GPU tree": child list, line anchors `:57`/`:146`/`app_state.rs:943`, and the context-delivery sentence, which claimed bus-only delivery and contradicted both this record and the code). Not fixed here: the ASCII diagram in `gpu/mod.rs:6-17` omits the removed actor correctly but its "Receives SharedGPUContext via GPUContextBus broadcast" line (`:32`) still overstates the bus; it should say "by direct message, with supplementary bus publication".
+
+## Re-verification — 2026-10-31
+
+`docs/GPU-wire-abi.md` (a governed path) gained additive text at 0.1.6 for the ADR-2029 GPU test and the ADR-2030
+runtime PTX identity check. Nothing this decision rests on changed: the diff of that document was read and touches
+only the PTX-loading paragraph, invariant 5 and the changelog. `verified_commit` bumped to the commit carrying that
+edit. **Still holds.**
