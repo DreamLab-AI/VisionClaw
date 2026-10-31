@@ -149,13 +149,15 @@ static func room_transform(user: Vector3, heading: Vector3, room: Vector3) -> Tr
 static func boxes_intersect(xa: Transform3D, a: Vector3, xb: Transform3D, b: Vector3) -> bool:
 	var ha := a * 0.5
 	var hb := b * 0.5
+	var ba := xa.basis.orthonormalized()
+	var bb := xb.basis.orthonormalized()
 	var axes: Array[Vector3] = []
 	for i: int in 3:
-		axes.append(xa.basis.orthonormalized().get_column(i))
-		axes.append(xb.basis.orthonormalized().get_column(i))
+		axes.append(ba[i])
+		axes.append(bb[i])
 	for i: int in 3:
 		for j: int in 3:
-			var c := xa.basis.orthonormalized().get_column(i).cross(xb.basis.orthonormalized().get_column(j))
+			var c: Vector3 = ba[i].cross(bb[j])
 			if c.length() > 1.0e-6:
 				axes.append(c.normalized())
 	var d := xb.origin - xa.origin
@@ -163,8 +165,8 @@ static func boxes_intersect(xa: Transform3D, a: Vector3, xb: Transform3D, b: Vec
 		var ra := 0.0
 		var rb := 0.0
 		for k: int in 3:
-			ra += ha[k] * absf(xa.basis.orthonormalized().get_column(k).dot(axis))
-			rb += hb[k] * absf(xb.basis.orthonormalized().get_column(k).dot(axis))
+			ra += ha[k] * absf(ba[k].dot(axis))
+			rb += hb[k] * absf(bb[k].dot(axis))
 		if absf(d.dot(axis)) > ra + rb:
 			return false
 	return true
@@ -526,7 +528,7 @@ func _update_membranes() -> void:
 static func distance_to_box(v: Node3D, p: Vector3) -> float:
 	var xf: Transform3D = v.global_transform if v.is_inside_tree() else v.transform
 	var local := xf.affine_inverse() * p
-	var over := local.abs() - v.bounds * 0.5
+	var over: Vector3 = local.abs() - (v.bounds as Vector3) * 0.5
 	return over.max(Vector3.ZERO).length()
 
 
