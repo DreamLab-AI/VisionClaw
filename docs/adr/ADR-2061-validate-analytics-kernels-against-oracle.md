@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 2f8a74118cee7a2b3ab7f600f850bc1fe8b10722
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -258,3 +258,14 @@ buffer, radius/grid search and extra recomputation cost require separate broader
 coverage/performance qualification; this result is not an unrestricted LOF claim.
 See the [execution report](https://github.com/DreamLab-AI/VisionFlow/blob/main/docs/estate-review/closeout/2026-09-07-execution-visionclaw.md)
 and `vc-analytics-green2.log` in its evidence directory.
+
+## Re-verification — 2026-10-31
+
+`docs/GPU-wire-abi.md` (a governed path) gained additive text at 0.1.6 for the ADR-2029 GPU test and the ADR-2030
+runtime PTX identity check. Nothing this decision rests on changed: the diff of that document was read and touches
+only the PTX-loading paragraph, invariant 5 and the changelog. `verified_commit` bumped to the commit carrying that
+edit. **Still holds.**
+
+## Re-verification — 2026-10-31 (`2f8a74118`)
+
+Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.

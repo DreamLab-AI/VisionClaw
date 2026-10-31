@@ -1,10 +1,11 @@
 ---
 title: GPU & Wire ABI
 doc_id: VC-GPU-ABI
-version: 0.1.5
+version: 0.1.6
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.6 (2026-10-31): ADR-2030 runtime PTX identity (build-baked content tag verified at load, fail loud); ADR-2029 GPU-tick evidence that bit 4 alone gates the constraint loop and the physics-step authority sets it"
   - "0.1.5 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.4: 2026-09-05 ADR-2061 landed — the analytics kernel trust status is now a measured test result (crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs) rather than an assertion: PageRank, DBSCAN and Louvain TRUSTED; LOF recorded BROKEN at max |delta| 0.702 against a 1e-3 bar"
   - "0.1.3: 2026-09-05 remediation — ADR-2053 context delivery, ADR-2054 dead-code removal, ADR-2055 physics-v2 retirement, ADR-2056 single PTX rewrite, ADR-2059 inert flag removal, ADR-2060 citation corrections (ENABLE_CONSTRAINTS repointed to force_channels.rs derive_dispatch_feature_flags; 180-byte comment corrected in code); ADR-2061 proposed for the analytics validation gap"
@@ -155,10 +156,20 @@ is actually uploaded rather than against a converter's output.
 
 CUDA toolkit 13.x emits `.version 9.x` PTX; some host drivers only support 9.0. The
 build post-processes every compiled `.ptx`: it finds `.version 9.` and rewrites it to
-`.version 9.0` in place (`build.rs:162-179`). If `nvcc` runs and fails, it falls back to
-pre-compiled PTX bundled in the crate / `/app` image (`build.rs:137-160`). Failure
-to launch `nvcc` panics before that branch. Empty or
-missing PTX panics the build (`build.rs:181-187`).
+`.version 9.0` in place. Both a failure to launch `nvcc` and a non-zero exit reach the
+fallback to pre-compiled PTX bundled in the crate / `/app` image
+(`ptx_policy::NvccOutcome::needs_fallback`). Empty or missing PTX panics the build.
+
+**Runtime identity (ADR-2030, 2026-10-31).** `build.rs` also emits `<MODULE>_PTX_TAG`, the
+`ptx_policy::content_tag` of the bytes it left on disk after the rewrite. Before loading,
+`ptx_loader::load_ptx_module_sync` reads the build-baked artefact (when the file exists) and
+compares its tag (`verify_build_identity`); a mismatch returns an `Err` naming module, path
+and both tags instead of falling through to another source. The tag detects staleness or
+alteration, not forgery, and does not cover source-tree or runtime-nvcc PTX or the
+`include_str!` copies in `gpu_semantic_analyzer.rs`. Neither runtime image ships the build
+tree (`Dockerfile.production:230-232`, `Dockerfile.unified:406`), so there the baked file is
+absent and the check is skipped: the PTX loaded in production (`/app/src/utils/ptx`, from the
+`cuda-ptx` stage) is unverified. The check is effective only beside its own `target/`.
 
 ### Analytics kernel trust status
 
@@ -255,7 +266,8 @@ race-free single launch. A three-pass implementation remains a performance optio
 4. `Constraints` is the only read-only force channel; `apply()` never mutates its scalar
    or flag.
 5. PTX is downgraded to `.version 9.0` before load; the fallback-PTX path exists for
-   `nvcc`-less builds.
+   `nvcc`-less builds. A build-baked PTX artefact whose bytes no longer match the build's
+   recorded tag must not load (ADR-2030).
 6. Field order and `repr(C)` prefix are the wire contract for existing clients — do not
    reorder.
 
