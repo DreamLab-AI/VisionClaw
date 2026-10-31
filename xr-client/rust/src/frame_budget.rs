@@ -1506,12 +1506,60 @@ mod tests {
         let c = allocate_with_extras(&g, &full_memory(), &x);
         assert!(c.over_budget);
         assert_eq!((c.extras_allowance, c.extras_tris), (0, 0));
-        // pressure from a memory layer that cannot reach its cap
-        let g = GraphDemand { nodes: 24_000, edges: 40_000, ..production() };
-        assert_eq!(allocate_with_extras(&g, &full_memory(), &x).extras_allowance, 0);
         // and a case with none of it holds the full cost
         let (g, m) = benchmark_production();
         assert_eq!(allocate_with_extras(&g, &m, &x).extras_allowance, extras_cost(4, 3).0);
+    }
+
+    /// Every shape in which `short` is the only pressure: no hulls, no cloud,
+    /// so neither can mask the term under test (R12 F3).
+    fn only_pressure_shapes(
+        m: &MemoryDemand,
+        x: &ExtrasDemand,
+        short: impl Fn(&FrameCaps) -> bool,
+    ) -> usize {
+        let mut found = 0;
+        for nodes in (100..40_000).step_by(7) {
+            let g = GraphDemand {
+                nodes,
+                edges: 40_000,
+                hulls: 0,
+                hull_tris: 0,
+                ..production()
+            };
+            let (plain, c) = (allocate(&g, m), allocate_with_extras(&g, m, x));
+            if c.over_budget || !short(&c) {
+                continue;
+            }
+            found += 1;
+            assert_eq!(c.extras_allowance, 0, "{nodes} nodes: a short layer takes no allowance");
+            assert_eq!(c.graph, plain.graph, "{nodes} nodes: the graph is the plain allocator's");
+        }
+        found
+    }
+
+    #[test]
+    fn a_short_route_alone_takes_no_allowance() {
+        let m = MemoryDemand {
+            cloud_rows: 0,
+            route: Some(RouteShape { rows: 13, sidecar: 5 }),
+            burst_slots: 0,
+        };
+        let x = ExtrasDemand { tier: 2, frames: 2 };
+        let n = only_pressure_shapes(&m, &x, |c| c.route_ring_cap < ROUTE_RING_CAP);
+        assert!(n > 0, "the sweep must reach a short-route shape");
+    }
+
+    #[test]
+    fn a_short_burst_pool_alone_takes_no_allowance() {
+        let m = MemoryDemand {
+            cloud_rows: 0,
+            route: None,
+            burst_slots: BURST_POOL_SLOTS,
+        };
+        let x = ExtrasDemand { tier: 2, frames: 2 };
+        let n = only_pressure_shapes(&m, &x, |c| c.burst_slots < BURST_POOL_SLOTS);
+        assert!(n > 0, "the sweep must reach a short-burst shape");
     }
 
     #[test]
