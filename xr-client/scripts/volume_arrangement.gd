@@ -58,6 +58,9 @@ var _ease_dur := PackedFloat32Array()
 var _ease_from: Array[Transform3D] = []
 var _ease_to: Array[Transform3D] = []
 var _easing := 0
+## True while a volume is entered (SpacePortals, ADR-2166): the ring is not the
+## layout, so `bring_to_front` refuses for every caller.
+var layout_locked := false
 
 
 ## The default transform for a volume at `yaw_deg` on the ring.
@@ -204,7 +207,7 @@ func move_volume(id: StringName, local_xf: Transform3D) -> void:
 ## id, or when `id` already sits unmoved and at rest in the front slot.
 func bring_to_front(id: StringName, duration: float = FRONT_EASE_SEC) -> bool:
 	var i := _index_of(id)
-	if i < 0:
+	if i < 0 or layout_locked:
 		return false
 	var mine: float = _slots[id]
 	if is_equal_approx(mine, FRONT_YAW) and not _moved.has(id) and _ease_t[i] < 0.0:
@@ -217,6 +220,52 @@ func bring_to_front(id: StringName, duration: float = FRONT_EASE_SEC) -> bool:
 	_slots[id] = FRONT_YAW
 	_moved.erase(id)
 	_start_ease(i, ring_transform(FRONT_YAW), duration)
+	return true
+
+
+## Everything `restore` needs to put the ring back exactly: the arrangement's
+## own transform and, per volume, the transform it is heading for (a volume
+## mid-ease is recorded at its ease target), bounds, mode, slot and moved flag.
+func snapshot() -> Dictionary:
+	var xf := {}
+	var bounds := {}
+	var modes := {}
+	for i: int in _volumes.size():
+		var v: Node3D = _volumes[i]
+		var id: StringName = v.volume_id
+		xf[id] = _ease_to[i] if _ease_t[i] >= 0.0 else v.transform
+		bounds[id] = v.bounds
+		modes[id] = v.bounds_mode
+	return {"arr_xf": transform, "xf": xf, "bounds": bounds, "modes": modes,
+		"slots": _slots.duplicate(), "moved": _moved.duplicate()}
+
+
+## Puts the arrangement back as `snapshot` recorded it. Slots, moved flags,
+## bounds and the arrangement transform return at once; each volume's transform
+## snaps (`duration` <= 0) or eases over `duration` seconds.
+func restore(snap: Dictionary, duration := 0.0) -> void:
+	transform = snap["arr_xf"]
+	_slots = (snap["slots"] as Dictionary).duplicate()
+	_moved = (snap["moved"] as Dictionary).duplicate()
+	for i: int in _volumes.size():
+		var v: Node3D = _volumes[i]
+		var id: StringName = v.volume_id
+		_cancel_ease(i)
+		if not snap["xf"].has(id):
+			continue
+		if not v.is_closed and (not v.bounds.is_equal_approx(snap["bounds"][id]) \
+				or v.bounds_mode != int(snap["modes"][id])):
+			v.set_runtime_bounds(snap["bounds"][id], int(snap["modes"][id]))
+		_start_ease(i, snap["xf"][id], duration)
+
+
+## Eases volume `id` to `to` over `duration` seconds (0 or less snaps) without
+## touching its slot or moved flag. False for an unknown id.
+func ease_volume_to(id: StringName, to: Transform3D, duration: float) -> bool:
+	var i := _index_of(id)
+	if i < 0:
+		return false
+	_start_ease(i, to, duration)
 	return true
 
 
