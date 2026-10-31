@@ -290,8 +290,9 @@ mod sssp_params_removed_tests {
     /// ignored its body (POST). Nothing called it, so both are gone; the stored physics document
     /// is read through `/sssp/status` and written through `/sssp/toggle`.
     ///
-    /// The status is the discriminator: 404 for a path with no route, anything else for a path
-    /// that resolves (including the auth wrap's or the handler's own refusal).
+    /// The status is the discriminator: 404 for a path with no route. An auth refusal would hide a
+    /// missing route, so the assertions are `== 404` (a refused probe fails), and the control test
+    /// shows the probe is not simply 404-ing everything.
     async fn status_of(method: actix_web::http::Method, uri: &str) -> StatusCode {
         let app = test::init_service(
             App::new()
