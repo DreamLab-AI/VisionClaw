@@ -3,8 +3,10 @@ extends Node3D
 ## spatial_environment.gd, which owns the comfort switches).
 ##
 ## Tiers, cheapest first (costs live in rust/src/frame_budget.rs `extras_cost`,
-## which the FrameBudget pass prices as the LAST layer, after the graph's near
-## detail, so an extra can only use what the graph left over):
+## which the FrameBudget pass pays for as a bounded allowance ahead of the graph's
+## near detail: the requested tier, capped at tier 4, costs the graph at most
+## ceil(allowance / 288) gems; under pressure nothing is held back and an extra
+## can only use what the graph left over. ADR-2167, amended 2026-10-31):
 ##   0  off
 ##   1  static observatory sky (a sky shader on a copy of the Environment):
 ##      0 triangles, 0 draw calls; per-pixel work on background pixels only

@@ -29,9 +29,12 @@ extends RefCounted
 ##
 ## Visual extras (eye_candy.gd): the controller states what it wants with
 ## `set_extras_demand(tier, frames)` and what it actually drew with
-## `set_extras_applied(tris, draw_calls)`. `allocate_with_extras` prices the
-## extras LAST, so they never move the graph, cloud or route caps; the granted
-## tier is `caps["extras_tier"]`. What the extras drew is part of the renderer's
+## `set_extras_applied(tris, draw_calls)`. `allocate_with_extras` holds back
+## the requested tier's cost (an allowance, `caps["extras_allowance"]`) ahead of
+## the graph's gem and cylinder share, so the graph loses at most
+## ceil(allowance / 288) gems and the cloud, route and burst caps do not move; with
+## the minimums overrun or a memory layer short the allowance is 0 and the extras
+## are the last claim. The granted tier is `caps["extras_tier"]`. What the extras drew is part of the renderer's
 ## measured primitives, so it is taken out of `other_tris` here, or the pass
 ## would charge it twice and revoke it two seconds later.
 
@@ -55,6 +58,7 @@ var caps: Dictionary = {
 	"extras_tier": 0,
 	"extras_tris": 0,
 	"extras_draw_calls": 0,
+	"extras_allowance": 0,
 	"over_budget": false,
 }
 var last_report: Dictionary = {}

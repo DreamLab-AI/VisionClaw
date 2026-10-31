@@ -23,11 +23,17 @@
 //! budget is held back for frame-to-frame variance.
 //!
 //! The visual extras (`eye_candy.gd`: sky, ribbon volume frames, ambient motes)
-//! are a third, last claim ([`allocate_with_extras`]). They are priced after the
-//! graph's near detail, so they can never move the graph, cloud, route or burst
-//! caps, only buy what is left, and they drop first when the minimums overrun.
-//! Their triangles are not free: what the graph left over is what they spend,
-//! and their draw calls are checked against every other layer's final count.
+//! hold a bounded **allowance** ([`allocate_with_extras`], ADR-2167 as amended by
+//! the owner's decision of 2026-10-31). After the minimums, the route, cloud,
+//! burst pool and hulls have been served, the cost of the *requested* tier
+//! (capped at tier 4) is held back before the graph's gem and cylinder share, so
+//! the extras show at production density. The graph loses at most
+//! `ceil(allowance / GEM_STEP)` gems; the cloud, route, burst and hull caps are
+//! unchanged. When the minimums overrun, or any memory layer or the hulls fall
+//! short of their demand, the allowance is 0 and the extras fall back to last
+//! claim (only what the graph left). A tier the draw-call guard refuses reserves
+//! nothing, and their draw calls are checked against every other layer's final
+//! count.
 //!
 //! Near-tier costs are charged as the increment over the far tier that the
 //! node or edge would otherwise use. If the minimums alone exceed the budget
@@ -153,6 +159,9 @@ pub struct ExtrasDemand {
 /// | 3 | 128 ambient motes | 128 | 1 |
 /// | 4 | 512 ambient motes | 512 | 1 (the same call) |
 ///
+/// Totals with three frames: tier 2 costs 72, tier 3 costs 200 and tier 4 costs
+/// 584 triangles; tier 4 is the largest allowance the allocator holds back.
+///
 /// The sky has no geometry (it is the scene's background), so it costs
 /// per-pixel work only. Tiers above [`EXTRAS_MAX_TIER`] and frames above
 /// [`EXTRAS_MAX_FRAMES`] clamp.
@@ -208,6 +217,10 @@ pub struct FrameCaps {
     pub extras_tris: usize,
     /// Draw calls the granted extras spend (counted in `draw_calls`).
     pub extras_draw_calls: usize,
+    /// Triangles held back from the graph's near detail for the extras (the
+    /// allowance; counted in `extras_tris`). 0 under pressure, when the extras
+    /// only buy what the graph left.
+    pub extras_allowance: usize,
     /// The minimums alone exceed a budget.
     pub over_budget: bool,
 }
@@ -218,16 +231,25 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     allocate_with_extras(g, m, &ExtrasDemand::default())
 }
 
-/// [`allocate`] plus the visual-extras layer, which is the **last** claim on
-/// the frame: it is priced after the graph's cylinder edges, so the graph,
-/// cloud, route and burst caps are exactly those of [`allocate`] whatever the
-/// extras ask for (tested). The granted tier is the highest at or below
-/// `x.tier` whose triangles fit in what the other layers left and whose draw
-/// calls keep the frame at or under [`DRAW_CALL_LIMIT`]; when the minimums
-/// alone overrun the budget nothing is left and only the zero-cost tiers
-/// remain, so the extras drop before any graph detail does. Draw calls are
-/// checked against every other layer's final count, with the burst pool at its
-/// granted size.
+/// [`allocate`] plus the visual-extras layer, in this order:
+///
+/// 1. the hard minimums (far tiers, route floor, cloud floor, gem floor);
+/// 2. growth of the route, cloud, burst pool and hulls, as in [`allocate`];
+/// 3. the **allowance**: the highest tier at or below `min(x.tier, 4)` whose
+///    triangles fit in what is left and whose draw calls keep the frame at or
+///    under [`DRAW_CALL_LIMIT`] is paid for here, before the near detail;
+/// 4. the graph's gem nodes, then cylinder edges, from the remainder.
+///
+/// The allowance is never above the cost of the requested tier, so a governor
+/// or comfort setting that pins a lower tier reserves less and the difference
+/// stays with the near detail. The cloud, route, burst and hull caps equal
+/// [`allocate`]'s and the graph loses at most `ceil(allowance / GEM_STEP)` gems
+/// (tested). When the minimums overrun, or the route, cloud, burst pool or hulls
+/// get less than they asked for, the allowance is 0 ([`FrameCaps::extras_allowance`])
+/// and the extras are the last claim: the highest tier the graph's leftover
+/// pays for, so only the zero-cost tiers remain when nothing is left. Draw calls
+/// are checked against every other layer's final count, with the burst pool at
+/// its granted size.
 pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand) -> FrameCaps {
     let faded = g.faded.min(g.nodes);
     let far = g.other_tris
@@ -282,13 +304,7 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
     };
     rem -= hull_cost;
 
-    // gem nodes, then cylinder edges
-    let gem_nodes = gem_max.min(gem_min + rem / GEM_STEP);
-    rem -= (gem_nodes - gem_min) * GEM_STEP;
-    let cylinder_edges = g.edges.min(DEFAULT_NEAR_EDGE_CAP).min(rem / CYLINDER_STEP);
-    rem -= cylinder_edges * CYLINDER_STEP;
-
-    // visual extras: whatever is left, highest affordable tier
+    // draw calls every other layer makes at its granted size
     let base_calls = g.draw_calls
         + if cloud_sprites > 0 {
             CLOUD_DRAW_CALLS
@@ -301,17 +317,53 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
             0
         }
         + if burst_slots > 0 { BURST_DRAW_CALLS } else { 0 };
+    let fits_calls = |calls: usize| base_calls + calls <= DRAW_CALL_LIMIT.max(base_calls);
+    let top = x.tier.min(EXTRAS_MAX_TIER);
+
+    // extras allowance (ADR-2167, owner decision 2026-10-31): the cost of the
+    // requested tier, capped at the top tier, is held back from the near-detail
+    // share. It is taken only when every hard minimum and every memory layer and
+    // the hulls got what they asked for, so it can never push anything below
+    // its minimum; under pressure it is 0 and the extras fall back to last claim.
+    let pressure = over_tris
+        || (m.route.is_some() && route_ring_cap < ROUTE_RING_CAP)
+        || cloud_sprites < cloud_want
+        || burst_slots < m.burst_slots.min(BURST_POOL_SLOTS)
+        || max_hulls < hulls_present;
     let mut extras_tier = 0;
     let (mut extras_tris, mut extras_draw_calls) = (0, 0);
-    for t in (1..=x.tier.min(EXTRAS_MAX_TIER)).rev() {
-        let (tris, calls) = extras_cost(t, x.frames);
-        if tris <= rem && base_calls + calls <= DRAW_CALL_LIMIT.max(base_calls) {
-            extras_tier = t;
-            (extras_tris, extras_draw_calls) = (tris, calls);
-            break;
+    if !pressure {
+        // A tier the draw-call guard refuses reserves nothing: its triangles
+        // stay with the near detail below.
+        for t in (1..=top).rev() {
+            let (tris, calls) = extras_cost(t, x.frames);
+            if tris <= rem && fits_calls(calls) {
+                extras_tier = t;
+                (extras_tris, extras_draw_calls) = (tris, calls);
+                break;
+            }
         }
+        rem -= extras_tris;
     }
-    rem -= extras_tris;
+
+    // gem nodes, then cylinder edges
+    let gem_nodes = gem_max.min(gem_min + rem / GEM_STEP);
+    rem -= (gem_nodes - gem_min) * GEM_STEP;
+    let cylinder_edges = g.edges.min(DEFAULT_NEAR_EDGE_CAP).min(rem / CYLINDER_STEP);
+    rem -= cylinder_edges * CYLINDER_STEP;
+
+    // last claim: with no allowance held, the extras buy what the graph left
+    if pressure {
+        for t in (1..=top).rev() {
+            let (tris, calls) = extras_cost(t, x.frames);
+            if tris <= rem && fits_calls(calls) {
+                extras_tier = t;
+                (extras_tris, extras_draw_calls) = (tris, calls);
+                break;
+            }
+        }
+        rem -= extras_tris;
+    }
     let spent = TRI_LIMIT.saturating_sub(rem);
     let tris_total = if over_tris {
         minimums + hull_cost + extras_tris
@@ -335,6 +387,7 @@ pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand)
         extras_tier,
         extras_tris,
         extras_draw_calls,
+        extras_allowance: if pressure { 0 } else { extras_tris },
         over_budget: over_tris || base_calls > DRAW_CALL_LIMIT,
     }
 }
@@ -546,6 +599,7 @@ fn caps_dictionary(c: &FrameCaps) -> Dictionary {
     d.set("extras_tier", c.extras_tier as i64);
     d.set("extras_tris", c.extras_tris as i64);
     d.set("extras_draw_calls", c.extras_draw_calls as i64);
+    d.set("extras_allowance", c.extras_allowance as i64);
     d.set("over_budget", c.over_budget);
     d
 }
@@ -1298,11 +1352,21 @@ mod tests {
         }
     }
 
+    /// Triangles the plain allocator's near detail (gems above the minimum plus
+    /// cylinders) spends: the pool an allowance is carved from.
+    fn near_pool(g: &GraphDemand, c: &FrameCaps) -> usize {
+        let gem_min = (g.nodes - g.faded.min(g.nodes)).min(DEFAULT_NEAR_CAP).min(GEM_MIN);
+        (c.graph.gem_nodes - gem_min) * GEM_STEP + c.graph.cylinder_edges * CYLINDER_STEP
+    }
+
     #[test]
-    fn extras_never_change_the_other_layers() {
-        // The key property: whatever the demand, the graph, cloud, route and
-        // burst caps with extras equal the plain allocator's.
+    fn the_allowance_costs_the_graph_at_most_its_size_in_gems() {
+        // ADR-2167 (amended 2026-10-31): the cloud, route and burst caps and the
+        // hulls are the plain allocator's; the graph loses at most
+        // ceil(allowance / GEM_STEP) gems; the requested tier is granted whenever
+        // the plain near pool could pay for it.
         let m = full_memory();
+        let mut granted_somewhere = false;
         for nodes in (500..40_000).step_by(1_250) {
             for tier in 0..=EXTRAS_MAX_TIER {
                 let g = GraphDemand {
@@ -1318,17 +1382,131 @@ mod tests {
                 for mem in [&m, &MemoryDemand::default()] {
                     let (a, b) = (allocate(&g, mem), allocate_with_extras(&g, mem, &x));
                     assert_eq!(
-                        (a.graph, a.cloud_sprites, a.route_tris, a.route_ring_cap, a.burst_slots),
-                        (b.graph, b.cloud_sprites, b.route_tris, b.route_ring_cap, b.burst_slots),
+                        (a.cloud_sprites, a.route_tris, a.route_ring_cap, a.burst_slots, a.graph.max_hulls),
+                        (b.cloud_sprites, b.route_tris, b.route_ring_cap, b.burst_slots, b.graph.max_hulls),
                         "{nodes} tier {tier}"
                     );
+                    let (allowance, _) = extras_cost(tier, 3);
+                    let bound = allowance.div_ceil(GEM_STEP);
+                    assert!(
+                        b.graph.gem_nodes + bound >= a.graph.gem_nodes && b.graph.gem_nodes <= a.graph.gem_nodes,
+                        "{nodes} tier {tier}: gems {} -> {}, bound {bound}",
+                        a.graph.gem_nodes,
+                        b.graph.gem_nodes
+                    );
                     assert_eq!(a.extras_tier, 0, "plain allocate grants no extras");
-                    assert_eq!(b.tris_total, a.tris_total + b.extras_tris, "{nodes} tier {tier}");
-                    assert_eq!(b.draw_calls, a.draw_calls + b.extras_draw_calls);
-                    assert_eq!(b.over_budget, a.over_budget);
+                    assert!(b.over_budget == a.over_budget);
+                    assert!(b.draw_calls == a.draw_calls + b.extras_draw_calls);
+                    assert!(b.over_budget || b.tris_total <= TRI_LIMIT, "{nodes} tier {tier}");
+                    let pressured = a.graph.max_hulls < g.hulls
+                        || (mem.route.is_some() && a.route_ring_cap < ROUTE_RING_CAP)
+                        || a.cloud_sprites < mem.cloud_rows.min(DEFAULT_SPRITE_CAP);
+                    if pressured {
+                        assert_eq!(b.graph, a.graph, "{nodes} tier {tier}: pressure holds nothing back");
+                    }
+                    if !a.over_budget && !pressured && near_pool(&g, &a) >= allowance {
+                        assert_eq!(b.extras_tier, tier, "{nodes} tier {tier}: the pool pays for the request");
+                        granted_somewhere |= tier == EXTRAS_MAX_TIER;
+                    }
                 }
             }
         }
+        assert!(granted_somewhere, "the sweep must reach a granted tier 4");
+    }
+
+    /// The benchmark's production shape (`m_461_prod_*` JSON, 13 164 nodes): the
+    /// measured `other_tris` 2 182 and 24 other draw calls, 6 000 cloud rows,
+    /// a 13-row route with 5 sidecar marks.
+    fn benchmark_production() -> (GraphDemand, MemoryDemand) {
+        let g = GraphDemand {
+            other_tris: 2_182,
+            draw_calls: 6 + 24,
+            ..production()
+        };
+        let m = MemoryDemand {
+            cloud_rows: 6_000,
+            route: Some(RouteShape { rows: 13, sidecar: 5 }),
+            burst_slots: 0,
+        };
+        (g, m)
+    }
+
+    #[test]
+    fn production_shape_grants_tier_four_for_at_most_two_gems() {
+        // 13 164 nodes, three volume frames, the benchmark JSON caps (gems 35,
+        // cylinders 7): before the allowance only the sky fitted.
+        let (g, m) = benchmark_production();
+        let plain = allocate(&g, &m);
+        assert_eq!((plain.graph.gem_nodes, plain.graph.cylinder_edges), (35, 7), "the JSON caps");
+        for tier in 0..=EXTRAS_MAX_TIER {
+            let c = allocate_with_extras(&g, &m, &ExtrasDemand { tier, frames: 3 });
+            assert_eq!(c.extras_tier, tier, "tier {tier} is granted");
+            assert_eq!(c.extras_allowance, c.extras_tris, "tier {tier}: the grant is a held-back allowance");
+            assert!(!c.over_budget && c.tris_total <= TRI_LIMIT && c.draw_calls <= DRAW_CALL_LIMIT);
+            let lost = plain.graph.gem_nodes - c.graph.gem_nodes;
+            assert!(lost <= 2, "tier {tier} costs {lost} gems");
+            assert_eq!((c.cloud_sprites, c.route_ring_cap), (plain.cloud_sprites, plain.route_ring_cap));
+        }
+        let c = allocate_with_extras(&g, &m, &ExtrasDemand { tier: 4, frames: 3 });
+        assert_eq!(c.extras_tris, 24 * 3 + 512);
+    }
+
+    #[test]
+    fn a_tier_the_call_guard_refuses_returns_its_allowance_to_the_graph() {
+        // 48 of 48 calls: the motes' call is refused, so only tier 2 is held
+        // back (no triangles with 0 frames) and the graph keeps everything.
+        let g = GraphDemand { draw_calls: 44, ..production() };
+        let x = ExtrasDemand { tier: 4, frames: 3 };
+        let (plain, c) = (allocate(&g, &full_memory()), allocate_with_extras(&g, &full_memory(), &x));
+        assert_eq!(c.extras_tier, 2);
+        assert_eq!(c.graph.gem_nodes, plain.graph.gem_nodes, "no motes granted: nothing reserved for them");
+        assert_eq!(c.extras_tris, 72);
+        assert!(plain.graph.gem_nodes - c.graph.gem_nodes <= 72usize.div_ceil(GEM_STEP));
+        // a pinned lower tier reserves only itself
+        let c = allocate_with_extras(&production(), &full_memory(), &ExtrasDemand { tier: 2, frames: 3 });
+        let p = allocate(&production(), &full_memory());
+        assert_eq!(c.extras_tris, 72);
+        assert!(p.graph.gem_nodes - c.graph.gem_nodes <= 72usize.div_ceil(GEM_STEP));
+    }
+
+    #[test]
+    fn the_allowance_is_zero_under_minimum_overrun_or_pressure() {
+        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        // pressure: the memory layers cannot reach their caps, so the graph's
+        // near pool is empty and the extras only have last claim
+        let g = GraphDemand {
+            nodes: 24_000,
+            edges: 40_000,
+            ..production()
+        };
+        let m = full_memory();
+        let plain = allocate(&g, &m);
+        let c = allocate_with_extras(&g, &m, &x);
+        assert!(plain.cloud_sprites < DEFAULT_SPRITE_CAP || plain.route_ring_cap < ROUTE_RING_CAP);
+        assert_eq!(c.graph, plain.graph, "pressure: the graph is the plain allocator's");
+        assert_eq!(
+            (c.cloud_sprites, c.route_ring_cap, c.route_tris),
+            (plain.cloud_sprites, plain.route_ring_cap, plain.route_tris)
+        );
+        assert_eq!(c.extras_tier, 1, "last claim: nothing is left, the free sky shows");
+        assert_eq!((c.extras_tris, c.extras_allowance), (0, 0));
+        // a hull that does not fit in full is pressure too
+        let g = GraphDemand { hull_tris: 40_000, nodes: 44_000, edges: 0, ..production() };
+        let (p, c) = (allocate(&g, &MemoryDemand::default()), allocate_with_extras(&g, &MemoryDemand::default(), &x));
+        assert!(p.graph.max_hulls < g.hulls);
+        assert_eq!(c.graph, p.graph);
+        assert_eq!(c.extras_allowance, 0, "short hulls: no allowance");
+        // a minimum overrun likewise (see also extras_drop_first_...)
+        let g = GraphDemand { nodes: 60_000, edges: 0, ..production() };
+        let c = allocate_with_extras(&g, &full_memory(), &x);
+        assert!(c.over_budget);
+        assert_eq!((c.extras_allowance, c.extras_tris), (0, 0));
+        // pressure from a memory layer that cannot reach its cap
+        let g = GraphDemand { nodes: 24_000, edges: 40_000, ..production() };
+        assert_eq!(allocate_with_extras(&g, &full_memory(), &x).extras_allowance, 0);
+        // and a case with none of it holds the full cost
+        let (g, m) = benchmark_production();
+        assert_eq!(allocate_with_extras(&g, &m, &x).extras_allowance, extras_cost(4, 3).0);
     }
 
     #[test]
@@ -1351,15 +1529,13 @@ mod tests {
         assert_eq!(c.draw_calls, 6 + want.1);
         assert!(!c.over_budget && c.tris_total <= TRI_LIMIT);
 
-        // The production graph spends every triangle on near detail: what is
-        // left cannot buy the motes, and the tier steps down instead.
+        // The production graph used to spend every triangle on near detail and
+        // leave only the sky; the allowance now reserves the request first, and
+        // the whole frame still fits.
         let c = allocate_with_extras(&production(), &full_memory(), &x);
-        let left = TRI_LIMIT - (c.tris_total - c.extras_tris);
-        assert!(c.extras_tris <= left, "{} of {left}", c.extras_tris);
-        let next = extras_cost(c.extras_tier + 1, 3);
-        assert!(next.0 > left || c.draw_calls + (next.1 - c.extras_draw_calls) > DRAW_CALL_LIMIT);
-        assert!(c.extras_tier >= 1, "the sky is free: it always shows");
+        assert_eq!(c.extras_tier, EXTRAS_MAX_TIER);
         assert!(c.tris_total <= TRI_LIMIT && !c.over_budget);
+        assert!(c.extras_tris <= c.tris_total);
     }
 
     #[test]
