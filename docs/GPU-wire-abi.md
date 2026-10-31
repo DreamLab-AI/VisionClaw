@@ -156,10 +156,9 @@ is actually uploaded rather than against a converter's output.
 
 CUDA toolkit 13.x emits `.version 9.x` PTX; some host drivers only support 9.0. The
 build post-processes every compiled `.ptx`: it finds `.version 9.` and rewrites it to
-`.version 9.0` in place (`build.rs:162-179`). If `nvcc` runs and fails, it falls back to
-pre-compiled PTX bundled in the crate / `/app` image (`build.rs:137-160`). Failure
-to launch `nvcc` panics before that branch. Empty or
-missing PTX panics the build (`build.rs:181-187`).
+`.version 9.0` in place. Both a failure to launch `nvcc` and a non-zero exit reach the
+fallback to pre-compiled PTX bundled in the crate / `/app` image
+(`ptx_policy::NvccOutcome::needs_fallback`). Empty or missing PTX panics the build.
 
 **Runtime identity (ADR-2030, 2026-10-31).** `build.rs` also emits `<MODULE>_PTX_TAG`, the
 `ptx_policy::content_tag` of the bytes it left on disk after the rewrite. Before loading,
@@ -167,7 +166,10 @@ missing PTX panics the build (`build.rs:181-187`).
 compares its tag (`verify_build_identity`); a mismatch returns an `Err` naming module, path
 and both tags instead of falling through to another source. The tag detects staleness or
 alteration, not forgery, and does not cover source-tree or runtime-nvcc PTX or the
-`include_str!` copies in `gpu_semantic_analyzer.rs`.
+`include_str!` copies in `gpu_semantic_analyzer.rs`. Neither runtime image ships the build
+tree (`Dockerfile.production:230-232`, `Dockerfile.unified:406`), so there the baked file is
+absent and the check is skipped: the PTX loaded in production (`/app/src/utils/ptx`, from the
+`cuda-ptx` stage) is unverified. The check is effective only beside its own `target/`.
 
 ### Analytics kernel trust status
 

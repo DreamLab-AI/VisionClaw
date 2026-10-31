@@ -231,16 +231,24 @@ Honest limits: the tag is the existing FNV-1a `content_tag`, chosen so the runti
 value. It detects a stale or altered artefact; it is not a defence against deliberate forgery. The check covers
 the baked build output only. These loads **bypass** it: PTX read from the source-tree copies
 (`src/ptx`, `/app/...`) or produced by the runtime nvcc fallback (different artefacts by definition, validated only
-structurally), `Module::from_ptx` in `gpu_diagnostics.rs` (which goes through `load_ptx_sync`, so it is checked),
-and `src/adapters/gpu_semantic_analyzer.rs`, which `include_str!`s the gitignored `src/utils/ptx/*.ptx` copies at
-compile time and never touches `ptx_loader`. `crate::utils::ptx` is a re-export of `visionclaw_gpu::ptx_loader`,
-not a second loader.
+structurally), and `src/adapters/gpu_semantic_analyzer.rs`, which `include_str!`s the gitignored
+`src/utils/ptx/*.ptx` copies at compile time and never touches `ptx_loader`. `gpu_diagnostics.rs` loads via
+`load_ptx_sync`, so it is checked. `crate::utils::ptx` is a re-export of `visionclaw_gpu::ptx_loader`, not a
+second loader.
+
+**Inert in the runtime images.** Neither runtime image ships the build tree (`Dockerfile.production:230-232`,
+`Dockerfile.unified:406`), so in the production and unified images the baked file is absent, the check is
+skipped, and the PTX actually loaded (`/app/src/utils/ptx`, from the separate `cuda-ptx` nvcc stage) is
+unverified. The check is effective only where the binary runs beside its own `target/` (the dev container,
+`cargo test`). It therefore cannot trip a production deploy, and it gives production no identity protection;
+that gap is part of why this record stays `partial`.
 
 **Failure behaviour (new hard-fail on the GPU-init path).** A mismatch makes `load_ptx_module_sync` return `Err`.
 `ForceComputeActor` turns an `Err` for the main module into `GPUInitFailed` (logged, reported; no panic or process
 exit) and treats the clustering and APSP modules as optional (`warn!`, `None`); `GpuResourceActor` propagates the
 main-module error as its init error. The backend therefore starts without GPU physics rather than crashing; the
-risk is a graph that silently runs without GPU physics if the baked artefact is altered after the build.
+risk is a graph that runs without GPU physics, reported at `error!`, if the baked artefact is altered after
+the build (in practice: a same-profile rebuild in the dev container overwriting `OUT_DIR` under a running binary).
 
 **Commands run.** `cargo test -p visionclaw-gpu --lib` → 70 passed, 0 failed (also run before the commit, after rustfmt) (includes five new tests:
 match passes; altered bytes fail naming both tags; a post-build ISA edit fails; no tag means no check; and

@@ -219,7 +219,9 @@ resident constraint** and change only `feature_flags`, which `execute()` uploads
   (asserted); `execute_physics_step_with_bypass` on the same resident constraint produces positions bit-identical to
   the explicit bit-set run, so the authority's overwrite is what turns the effect on.
 - `removing_residency_through_the_authority_restores_the_unconstrained_result` — constraints uploaded then cleared
-  give positions identical to a never-constrained engine (residency → bit, in the clearing direction).
+  give positions identical to a never-constrained engine (residency cleared gives the unconstrained result; with
+  zero constraints the loop is empty regardless of bit 4, so the bit's clearing direction is covered by the
+  host-side `constraint_enablement_follows_residency_through_zero_nonzero_zero`, not by this GPU test).
 
 An earlier draft of these tests compared "constraints resident" against "none resident"; that shows residency,
 not the flag, and a "settings change cannot switch it on" test that could not fail. Both were removed.
