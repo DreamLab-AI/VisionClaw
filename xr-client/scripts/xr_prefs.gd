@@ -20,6 +20,9 @@ const TEST_PATH := "user://xr_prefs.test.cfg"
 const SECTION := "xr"
 const KEY_DEBUG := "cross_volume_links_debug"
 const KEY_RELEASE := "cross_volume_links_release"
+## `xr.portal_walkthrough` (ADR-2166): walking the headset into a portal enters
+## it. One key for both build types, off by default.
+const KEY_WALKTHROUGH := "portal_walkthrough"
 
 
 # Every test copy on a machine shares `user://` (app_userdata/"VisionClaw XR")
@@ -87,3 +90,19 @@ static func _write(debug: bool, on: bool, path: String) -> int:
 	var _ignored := cfg.load(path)  # a missing file starts empty
 	cfg.set_value(SECTION, _key_for(debug), on)
 	return cfg.save(path)
+
+
+## Whether the headset entering a portal's box enters that space. Off by default.
+static func portal_walkthrough() -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(path()) != OK or not cfg.has_section_key(SECTION, KEY_WALKTHROUGH):
+		return false
+	var v: Variant = cfg.get_value(SECTION, KEY_WALKTHROUGH)
+	return typeof(v) == TYPE_BOOL and v
+
+
+static func set_portal_walkthrough(on: bool) -> int:
+	var cfg := ConfigFile.new()
+	var _ignored := cfg.load(path())
+	cfg.set_value(SECTION, KEY_WALKTHROUGH, on)
+	return cfg.save(path())

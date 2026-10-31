@@ -46,9 +46,9 @@ func _on_state_changed() -> void:
 		return
 	frame.scale = bounds
 	var bounded := bounds_mode == BoundsMode.BOUNDED
-	frame.visible = visible_state and bounded
+	frame.visible = visible_state and bounded and not portal_room
 	frame.material_override = _focus_material if focused else _frame_material
-	var live := visible_state and interactable and bounded and not is_closed
+	var live := visible_state and interactable and bounded and not is_closed and not portal_room
 	for i: int in _handle_areas.size():
 		var area: Area3D = _handle_areas[i]
 		var corner := corner_sign(i) * bounds * 0.5

@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2a763c423cff1fc63e0db2813a64a8a29562e118
+verified_commit: b4b39976065fe958a1a33ebda5c090dc2b770a54
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -170,3 +170,5 @@ Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` 3b8babe89 plus `xr/ux
 **D1, D4, D6 anchors at HEAD.** `GraphRoot`, `AgentsRoot` and `AgentEffectsRoot` are siblings (`GraphScene.tscn:117,146,150`; `@onready` `graph_scene.gd:600,602`). `GraphRoot` now follows the knowledge volume's Content transform (`:933-936`), and avatars stay outside it. `_server_to_world` = `graph_root.to_global` `:2903`. Agents toggle `:1406-1410`. Rust: `render_store.rs` `set_agent_anchors` `:1147`, `retire_agents` `:1171`, `build_beam_buffer` `:2079` (anchor preferred), `AGENT_EVIDENCE_TTL_MS` `:513`, tests `:2695`, `:2736`. `binary_protocol.rs` `set_agent_anchors` `:1743`, `retire_agents` `:1759` (now also prunes the class side-map), `server_clock_ms` `:1776`. `_post_demo` `:4346`, gated by `_gate_for_volume(_focused_volume, DEMO)` `:4349`. Stop retires via `graph_parity.gd:397`. Pack slots (`render_store.rs`, +111) swap only per-volume pack outputs. Anchors and the agent registry are not slotted.
 
 **Open items, not breaches.** (1) `build_beam_buffer` requires the target in the active slot's `drawn` set, and `_pack_volumes` packs the knowledge overlay (mask `0b0001`) last (`:960-971`). A beam whose target is an ontology node is therefore not drawn. (2) Travel targets go through `_server_to_world` in the knowledge volume's frame (`:2931`), so an agent working on an ontology node travels to where that node would sit in the knowledge volume, not where the ontology volume draws it. Neither changes who writes the pose. The decision holds.
+
+Re-stamped to `b4b399760` (2026-10-31, ADR-2166 and its review follow-up; first stamped at `e49db1836`). Re-run: `git diff --stat 2a763c423cff1fc63e0db2813a64a8a29562e118 b4b39976065fe958a1a33ebda5c090dc2b770a54 -- xr-client/scripts/agent_choreography.gd xr-client/scripts/agent_effects.gd xr-client/scripts/agent_role.gd xr-client/scripts/graph_scene.gd xr-client/scenes/GraphScene.tscn xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs` gives only `xr-client/scripts/graph_scene.gd | 91 +++`. The additions are the `SpacePortals` wiring and the entered-space actions. None writes an agent pose, touches the agent registry, or changes `_update_selection`, and the Rust files are unchanged. Agent bodies are still driven only by the VisionClaw connection. **Decision unaffected.**
