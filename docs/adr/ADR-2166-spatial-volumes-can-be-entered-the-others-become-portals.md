@@ -16,7 +16,7 @@ repo: visionclaw
 domain: XR-client
 depends_on: [ADR-2158]
 relates: [ADR-2159, ADR-2164]
-evidence_class: headless GUT only (Godot 4.6.1 and 4.8-dev5, dummy renderer); no stereo render, no headset run, no fill-rate measurement, shader not compiled on a real renderer
+evidence_class: source+test
 acceptance_boundary: the layout, state, refusal, comfort and wiring logic is covered by unit tests; whether the membranes read as portals in stereo, whether a 6 m room holds 90 Hz on the VIVE, and whether the dim is comfortable are not established and are the acceptance gates for activation_status staged
 ---
 
@@ -47,6 +47,6 @@ acceptance_boundary: the layout, state, refusal, comfort and wiring logic is cov
 - `spatial_volume.gd` gains `portal_room`, `set_portal_room` and `snap_fit`; `volume_arrangement.gd` gains `snapshot`, `restore`, `ease_volume_to` and `layout_locked`; `xr_prefs.gd` gains `portal_walkthrough`.
 
 ## Verification
-- Evidence class: headless GUT only. `tests/unit/test_space_portals.gd` (36 tests) covers enter, leave and swap state; exact restore of slots, moved flags, bounds, modes and the arrangement transform; the ring invariant against an independent oblique-box separating-axis test; E7 for the room on every frame; each refusal (native, closed, hidden, offline, unknown, already entered, mid-transition) asserting nothing changed; walk-through dwell and hysteresis; no visible motion in reduced motion and an eased ≤ 0.5 s move otherwise; one MultiMesh and one draw call; the shader free of screen and depth sampling; the budget hook; Codescape drag refused while Codescape is entered.
+- Evidence class: `source+test`, and the tests are headless GUT only (Godot 4.6.1 and 4.8-dev5, dummy renderer): no stereo render, no headset run, no fill-rate measurement, and the shader has not been compiled on a real renderer. `tests/unit/test_space_portals.gd` (36 tests) covers enter, leave and swap state; exact restore of slots, moved flags, bounds, modes and the arrangement transform; the ring invariant against an independent oblique-box separating-axis test; E7 for the room on every frame; each refusal (native, closed, hidden, offline, unknown, already entered, mid-transition) asserting nothing changed; walk-through dwell and hysteresis; no visible motion in reduced motion and an eased ≤ 0.5 s move otherwise; one MultiMesh and one draw call; the shader free of screen and depth sampling; the budget hook; Codescape drag refused while Codescape is entered.
 - Not verified: stereo rendering, the headset, fill rate, shader compilation on a real renderer, and the comfort of the dim. `implementation_status` stays `partial` and `activation_status` `inactive` until a headset session.
 - `verified_commit` is the last code commit on the branch `xr/portals` (`e49db1836`); after the merge, re-stamp it to the merge commit if the governed paths moved.
