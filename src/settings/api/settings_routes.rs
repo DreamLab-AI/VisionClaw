@@ -1739,6 +1739,16 @@ pub async fn delete_profile(
 // Physics Reset Layout
 // ============================================================================
 
+/// The canonical physics defaults for a layout reset, keeping the active layout mode.
+pub(crate) fn reset_document(
+    active_mode: visionclaw_domain::types::layout::LayoutMode,
+) -> PhysicsSettings {
+    PhysicsSettings {
+        layout_mode: active_mode,
+        ..PhysicsSettings::default()
+    }
+}
+
 /// POST /api/settings/physics/reset-layout
 /// Re-randomizes all node positions to a uniform sphere, resets physics to safe
 /// defaults, and triggers full reheat. Use when the graph has exploded or converged
@@ -1753,8 +1763,14 @@ pub async fn reset_layout(
     // 1. Re-apply the canonical physics defaults (the single source of truth)
     // before re-randomizing positions. No hand-coded literals: PhysicsSettings::
     // default() carries enable_dual_disc_layout=false
-    // (natural fully-3D layout by default; dual-disc is opt-in).
-    let reset_physics = PhysicsSettings::default();
+    // (natural fully-3D layout by default; dual-disc is opt-in). The layout mode is not a
+    // tuning value: a reset re-settles in the mode that is active, as it did when the
+    // compute actor held the mode itself (ADR-2140).
+    let stored_mode = stored_physics(&state)
+        .await
+        .map(|p| p.layout_mode)
+        .unwrap_or_default();
+    let reset_physics = reset_document(stored_mode);
     let sim_params: crate::models::simulation_params::SimulationParams = (&reset_physics).into();
     info!(
         "Reset physics from canonical default (axis_compression_z={}, enable_dual_disc_layout={}, repel_k={}, center_gravity_k={})",
@@ -2182,6 +2198,25 @@ mod layout_mode_patch_tests {
             ..Default::default()
         };
         let sim = validate_for_gpu(&stored).expect("a DAG mode with stored zeros is valid");
+        assert_eq!(sim.layout_mode, LayoutMode::Hierarchical);
+        assert_eq!(sim.layer_bias_k, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod reset_layout_mode_tests {
+    use super::*;
+    use visionclaw_domain::types::layout::LayoutMode;
+
+    #[test]
+    fn a_layout_reset_keeps_the_active_mode_and_resets_every_other_value() {
+        let doc = reset_document(LayoutMode::Hierarchical);
+        assert_eq!(doc.layout_mode, LayoutMode::Hierarchical);
+        let canonical = PhysicsSettings::default();
+        assert_eq!(doc.repel_k, canonical.repel_k);
+        assert_eq!(doc.axis_compression_z, canonical.axis_compression_z);
+        // And what reaches the device is that mode, resolved.
+        let sim = crate::models::simulation_params::SimulationParams::from(&doc);
         assert_eq!(sim.layout_mode, LayoutMode::Hierarchical);
         assert_eq!(sim.layer_bias_k, 1.0);
     }

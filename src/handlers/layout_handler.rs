@@ -76,6 +76,10 @@ pub async fn set_layout_mode(
     // A request for the mode that is already stored writes nothing: the client repeats this
     // call on every page load, and a repeat must not rewrite the store, broadcast to other
     // sessions or resume a settled simulation. CPU one-shot placement below still runs.
+    // This skip is only safe while nothing changes the device mode without the store: every
+    // sender of `UpdateSimulationParams` now carries the stored mode (`reset_layout` keeps
+    // it; the `ActixPhysicsAdapter` senders that build params from `Default` have no caller
+    // outside tests, since `UpdatePhysicsParamsHandler` is never instantiated).
     let mut persisted: std::result::Result<(), String> = Ok(());
     if stored_physics(&data).await.map(|p| p.layout_mode) == Some(mode) {
         log::debug!(

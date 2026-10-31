@@ -693,7 +693,8 @@ impl SettingsRepository for SqliteSettingsRepository {
             .into_iter()
             .map(|(k, (_is_user, v))| (k, v))
             .collect();
-        let root = unflatten_pairs(pairs);
+        let mut root = unflatten_pairs(pairs);
+        fill_layout_mode(&mut root);
         let settings: AppFullSettings = serde_json::from_value(root).map_err(map_json_err)?;
         Ok(Some(settings))
     }
@@ -1027,6 +1028,35 @@ fn stage_row_entry(entry: &serde_json::Value) -> RepoResult<(String, Option<Stri
     Ok((value_json, None))
 }
 
+/// ADR-2140: give the settings actor's physics snapshot a layout mode when its flattened leaves
+/// predate `layoutMode`. The source is the stored `physics` document (the row the boot migration
+/// writes back, and the one `apply_physics_patch` persists), then the legacy
+/// `quality_gates.layoutMode` string. Without this the actor would say `forceDirected` for a
+/// migrated document, and the first physics write merged onto that snapshot would revert the
+/// mode. A value already present in the leaves wins; an unusable one is left for the lenient
+/// loader to default.
+fn fill_layout_mode(root: &mut serde_json::Value) {
+    use visionclaw_domain::types::layout::LayoutMode;
+    let physics_path = "/visualisation/graphs/knowledge/physics";
+    let has_leaf = root
+        .pointer(physics_path)
+        .is_some_and(|p| p.get("layoutMode").is_some());
+    if has_leaf {
+        return;
+    }
+    let value = root.pointer("/physics/layoutMode").cloned().or_else(|| {
+        root.pointer("/quality_gates/layoutMode")
+            .and_then(|v| v.as_str())
+            .and_then(LayoutMode::from_quality_gate_str)
+            .and_then(|m| serde_json::to_value(m).ok())
+    });
+    if let (Some(value), Some(physics)) = (value, root.pointer_mut(physics_path)) {
+        if let Some(doc) = physics.as_object_mut() {
+            doc.insert("layoutMode".into(), value);
+        }
+    }
+}
+
 #[cfg(test)]
 mod user_filter_persistence_tests {
     //! Round-trip coverage for the per-user filter/settings persistence path
@@ -1111,5 +1141,102 @@ mod user_filter_persistence_tests {
             bob_view.is_none(),
             "Bob must not observe Alice's per-user filter"
         );
+    }
+}
+
+#[cfg(test)]
+mod layout_mode_snapshot_tests {
+    use super::fill_layout_mode;
+    use serde_json::json;
+
+    fn root(leaves: serde_json::Value) -> serde_json::Value {
+        json!({ "visualisation": { "graphs": { "knowledge": { "physics": leaves } } } })
+    }
+
+    #[test]
+    fn the_stored_physics_document_supplies_a_mode_the_leaves_lack() {
+        let mut r = root(json!({ "repelK": 1.0 }));
+        r["physics"] = json!({ "layoutMode": "dagLeftRight" });
+        fill_layout_mode(&mut r);
+        assert_eq!(
+            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
+            "dagLeftRight"
+        );
+    }
+
+    #[test]
+    fn the_legacy_quality_gate_string_is_the_fallback() {
+        let mut r = root(json!({ "repelK": 1.0 }));
+        r["quality_gates"] = json!({ "layoutMode": "dag-topdown" });
+        fill_layout_mode(&mut r);
+        assert_eq!(
+            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
+            "hierarchical"
+        );
+    }
+
+    #[test]
+    fn a_mode_already_in_the_leaves_is_never_replaced_and_an_unknown_string_adds_nothing() {
+        let mut r = root(json!({ "layoutMode": "radial" }));
+        r["physics"] = json!({ "layoutMode": "hierarchical" });
+        fill_layout_mode(&mut r);
+        assert_eq!(
+            r["visualisation"]["graphs"]["knowledge"]["physics"]["layoutMode"],
+            "radial"
+        );
+        let mut r = root(json!({ "repelK": 1.0 }));
+        r["quality_gates"] = json!({ "layoutMode": "spiral" });
+        fill_layout_mode(&mut r);
+        assert!(r["visualisation"]["graphs"]["knowledge"]["physics"]
+            .get("layoutMode")
+            .is_none());
+    }
+
+    /// The whole chain on a real in-memory repository: a store whose flattened leaves predate
+    /// `layoutMode`, a `physics` document that carries it, and the actor's own loader.
+    #[tokio::test]
+    async fn the_actor_load_sees_the_mode_a_migrated_store_holds() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        use crate::config::AppFullSettings;
+        use visionclaw_domain::types::layout::LayoutMode;
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        repo.save_all_settings(&AppFullSettings::new().expect("default settings"))
+            .await
+            .expect("save leaves");
+        repo.conn
+            .call(|c| {
+                c.execute(
+                    "DELETE FROM settings WHERE key LIKE '%physics.layoutMode'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("make every leaf predate layoutMode");
+        let before = repo.load_all_settings().await.unwrap().unwrap();
+        assert_eq!(
+            before.visualisation.graphs.knowledge.physics.layout_mode,
+            LayoutMode::ForceDirected
+        );
+        let mut stored = serde_json::to_value(crate::config::PhysicsSettings::default()).unwrap();
+        stored["layoutMode"] = json!("dagLeftRight");
+        repo.set_setting("physics", SettingValue::Json(stored), Some("test"))
+            .await
+            .unwrap();
+        let after = repo.load_all_settings().await.unwrap().unwrap();
+        assert_eq!(
+            after.visualisation.graphs.knowledge.physics.layout_mode,
+            LayoutMode::DagLeftRight,
+            "the actor's snapshot carries the stored mode, so a later patch merges onto it"
+        );
+    }
+
+    #[test]
+    fn no_physics_leaves_means_nothing_to_fill() {
+        let mut r = json!({ "physics": { "layoutMode": "radial" } });
+        fill_layout_mode(&mut r);
+        assert!(r.pointer("/visualisation").is_none());
     }
 }
