@@ -84,6 +84,25 @@ const MemoryBurstsScript := preload("res://scripts/memory_bursts.gd")
 const BURST_TINT := Color(0.2235, 1.0, 0.0784)  # desktop "store" #39ff14
 var _memory: Node3D = null
 
+# Visual extras (scripts/eye_candy.gd). XR_BENCH_CANDY=<0..4> asks for that tier
+# (0 = the same scene with every extra off, the baseline to compare against);
+# unset leaves the benchmark exactly as it was. The scene gets a WorldEnvironment
+# with the production sky and XR_BENCH_CANDY_FRAMES volume frames (default 2); the
+# allocator grants the tier (allocate_with_extras) and the controller draws the
+# grant. Renderer GPU/CPU time is read with viewport_set_measure_render_time
+# (XR_BENCH_GPU_TIMER=1 reads it without the extras too). Desktop, mono: this is
+# not stereo evidence.
+const EyeCandyScript := preload("res://scripts/eye_candy.gd")
+const EmulatedVolumeScript := preload("res://scripts/emulated_volume.gd")
+const ALLOCATOR_DRAW_CALL_LIMIT := 48   # frame_budget.rs DRAW_CALL_LIMIT (50 less 5 %)
+var candy_tier: int = -1
+var candy_frames: int = 2
+var _candy: Node3D = null
+var _candy_frames_made: int = 0
+var _gpu_timer: bool = false
+var _gpu_ms := PackedFloat32Array()
+var _render_cpu_ms := PackedFloat32Array()
+
 var _frame_times_ms: PackedFloat32Array = PackedFloat32Array()
 var _draw_calls: PackedInt32Array = PackedInt32Array()
 var _tri_counts: PackedInt32Array = PackedInt32Array()
@@ -145,6 +164,11 @@ func _ready() -> void:
 		with_extras = bool(get_meta("extras"))
 	if has_meta("bursts"):
 		bursts_on = bool(get_meta("bursts"))
+	if OS.has_environment("XR_BENCH_CANDY"):
+		candy_tier = clampi(int(OS.get_environment("XR_BENCH_CANDY")), 0, 4)
+	if OS.has_environment("XR_BENCH_CANDY_FRAMES"):
+		candy_frames = clampi(int(OS.get_environment("XR_BENCH_CANDY_FRAMES")), 0, 8)
+	_gpu_timer = candy_tier >= 0 or OS.get_environment("XR_BENCH_GPU_TIMER") == "1"
 	_fixture = _load_fixture(fixture_path)
 	var synth: int = int(OS.get_environment("XR_BENCH_NODES")) if OS.has_environment("XR_BENCH_NODES") else 0
 	if synth > 0:
@@ -172,7 +196,11 @@ func _begin_measurement() -> void:
 	_add_hull_layer(_fixture)
 	_populate_memory_layers(memory_cloud_rows)
 	_add_bursts()
+	if candy_tier >= 0:
+		_add_candy_scene()
 	_apply_frame_budget()
+	if _gpu_timer:
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_phase = 1
 	_started_at_us = Time.get_ticks_usec()
 
@@ -209,6 +237,10 @@ func _process(delta: float) -> void:
 	_frame_times_ms.append(delta * 1000.0)
 	_draw_calls.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)))
 	_tri_counts.append(int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)))
+	if _gpu_timer:
+		var vrid := get_viewport().get_viewport_rid()
+		_gpu_ms.append(RenderingServer.viewport_get_measured_render_time_gpu(vrid))
+		_render_cpu_ms.append(RenderingServer.viewport_get_measured_render_time_cpu(vrid))
 	var sc: Vector2i = _scene_info()
 	_scene_draw_calls.append(sc.x)
 	_scene_tri_counts.append(sc.y)
@@ -252,6 +284,18 @@ func _build_report(elapsed_s: float) -> Dictionary:
 	var pass_p99 := p99 <= FRAME_BUDGET_MS_P99
 	var pass_dc := draw_max <= MAX_DRAW_CALLS
 	var pass_tri := tri_max <= MAX_TRIANGLES
+	# With the extras layer in play the allocator's own limits are asserted too:
+	# 48 draw calls (the 5 % reserve held back) and 100k triangles, measured.
+	if candy_tier >= 0:
+		pass_dc = pass_dc and draw_max <= ALLOCATOR_DRAW_CALL_LIMIT
+	var gpu_sorted := _gpu_ms.duplicate()
+	gpu_sorted.sort()
+	var gpu_nonzero := 0
+	for g in _gpu_ms:
+		if g > 0.0:
+			gpu_nonzero += 1
+	var rcpu_sorted := _render_cpu_ms.duplicate()
+	rcpu_sorted.sort()
 	# Skip the first second of samples: buffers grow and plans are built once.
 	var lod_p99 := _percentile(_sorted(_tail(_lod_build_ms)), 0.99)
 	var pack_p99 := _percentile(_sorted(_tail(_pack_ms)), 0.99)
@@ -310,6 +354,21 @@ func _build_report(elapsed_s: float) -> Dictionary:
 		"memory_route_source": _memory.route_source() if _memory != null else "",
 		"cloud_placement": str(_memory.placement()) if _memory != null else "",
 		"frame_budget": _budget_report,
+		"eye_candy": {
+			"requested_tier": candy_tier,
+			"granted_tier": int(_budget_report.get("extras_tier", 0)),
+			"applied_tier": _candy.applied_tier if _candy != null else 0,
+			"extras_tris": int(_budget_report.get("extras_tris", 0)),
+			"extras_draw_calls": int(_budget_report.get("extras_draw_calls", 0)),
+			"frames": _candy_frames_made,
+			"reduced_motion": true,
+		},
+		# Measured renderer time (viewport_get_measured_render_time_*), distinct
+		# from gpu_ms_p* above, which are frame-time aliases. Mono desktop.
+		"render_gpu_ms": {"measured": gpu_nonzero > 0, "n": gpu_sorted.size(), "nonzero": gpu_nonzero,
+			"p50": _percentile(gpu_sorted, 0.50), "p95": _percentile(gpu_sorted, 0.95),
+			"p99": _percentile(gpu_sorted, 0.99), "max": _percentile(gpu_sorted, 1.0)},
+		"render_cpu_ms": {"p50": _percentile(rcpu_sorted, 0.50), "p95": _percentile(rcpu_sorted, 0.95), "p99": _percentile(rcpu_sorted, 0.99)},
 		"extras": {"enabled": with_extras, "other_tris": _other_tris, "other_draw_calls": _other_dc, "hud_pages": _page_cost},
 		"bursts": {"enabled": bursts_on, "ring_slots": _burst_slots, "emphasised_rows": _emph_rows.size(),
 			"ring_instances": _bursts.slot_count() if _bursts != null else 0},
@@ -453,6 +512,44 @@ func _drive_bursts() -> void:
 		k += 1
 
 
+# The extras' scene: the production sky in a WorldEnvironment, `candy_frames`
+# volume frames in front of the camera, and the controller (reduced motion on,
+# as shipped). Added after calibration so the "other" reserve never contains them.
+func _add_candy_scene() -> void:
+	var we := WorldEnvironment.new()
+	we.name = "WorldEnvironment"
+	var env := Environment.new()
+	env.background_mode = Environment.BG_SKY
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.018, 0.027, 0.055)
+	sky_mat.sky_horizon_color = Color(0.105, 0.15, 0.205)
+	sky_mat.sky_curve = 0.18
+	sky_mat.ground_bottom_color = Color(0.018, 0.027, 0.045)
+	sky_mat.ground_horizon_color = Color(0.105, 0.15, 0.205)
+	sky_mat.ground_curve = 0.22
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	we.environment = env
+	add_child(we)
+	var vscene: PackedScene = load("res://scenes/EmulatedVolume.tscn")
+	for i in candy_frames:
+		var v: Node3D = vscene.instantiate()
+		v.volume_id = StringName("bench%d" % i)
+		v.bounds = Vector3(3.0, 3.0, 3.0)
+		v.position = Vector3(-2.5 + 5.0 * float(i), 1.7, 8.0)
+		add_child(v)
+	_candy_frames_made = candy_frames
+	_candy = EyeCandyScript.new()
+	add_child(_candy)
+	_candy.setup(self)
+	_candy.set_comfort(true, false)
+	# The benchmark grants the tier itself, from allocate_with_extras.
+	_candy.set_process(false)
+	EmulatedVolumeScript.set_ribbon_frames(get_tree(), false)
+
+
 # One FrameBudget pass for the whole scene, as GraphScene runs it: the graph's
 # far tiers, the route, the cloud, then hulls, gems and cylinders.
 func _apply_frame_budget() -> void:
@@ -465,8 +562,16 @@ func _apply_frame_budget() -> void:
 	# faded 0 (no labels); other_tris / other draw calls measured in the calibration phase
 	var cloud_shown: bool = int(demand["cloud_rows"]) > 0
 	var ring_slots: int = MemoryBurstsScript.POOL_SIZE if bursts_on and not cloud_shown else 0
-	var caps: Dictionary = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,
-		GRAPH_DRAW_CALLS + _other_dc, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots)
+	var caps: Dictionary
+	if candy_tier >= 0:
+		caps = FrameBudget.new().allocate_with_extras(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,
+			GRAPH_DRAW_CALLS + _other_dc, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots,
+			candy_tier, _candy_frames_made)
+	else:
+		caps = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,
+			GRAPH_DRAW_CALLS + _other_dc, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots)
+	if _candy != null:
+		_candy.apply_tier(int(caps.get("extras_tier", 0)))
 	_burst_slots = int(caps["burst_slots"])
 	_gem_cap = int(caps["gem_nodes"])
 	_edge_cap = int(caps["cylinder_edges"])
