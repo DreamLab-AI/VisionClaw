@@ -461,6 +461,25 @@ func test_the_extras_request_a_tier_and_are_bounded_by_the_grant() -> void:
 	assert_eq(pass_obj.applied.back(), [0, 0], "what is drawn is reported back so it is not charged twice")
 
 
+func test_low_cost_withdraws_the_request_at_once_so_no_allowance_is_held() -> void:
+	# ADR-2167 amended: the allocator holds back the requested tier's cost, so a
+	# stale request would take graph gems for up to one pass tick after low cost.
+	var scene := _scene_with_env()
+	var pass_obj := FakePass.new()
+	scene._budget = pass_obj
+	var c := _candy(scene)
+	c.set_comfort(true, false)
+	c._forced_tier = 4
+	c._apply_accum = 1.0
+	c._process(0.016)
+	assert_eq(pass_obj.demand.back()[0], 4)
+	c.set_comfort(true, true)
+	assert_eq(pass_obj.demand.back()[0], 0, "withdrawn in set_comfort, not at the next tick")
+	c._apply_accum = 1.0
+	c._process(0.016)
+	assert_eq(pass_obj.demand.back()[0], 0, "and it stays 0 under low cost with a tier pinned")
+
+
 ## Source with its comments removed, so a banned name in prose does not count.
 func _code_only(src: String, marker: String) -> String:
 	var out := PackedStringArray()

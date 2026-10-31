@@ -287,7 +287,9 @@ func test_extras_are_granted_from_what_the_graph_leaves() -> void:
 	assert_false(bool(p.caps["over_budget"]))
 
 
-func test_extras_never_move_the_other_caps() -> void:
+func test_extras_cost_the_graph_only_their_allowance() -> void:
+	# ADR-2167 amended (2026-10-31): the cloud, route, burst and hull caps do not
+	# move; the graph gives up at most the allowance, in gems and cylinders.
 	var client := _client()
 	var layers := _production_layers()
 	var off = FrameBudgetPass.new()
@@ -295,9 +297,19 @@ func test_extras_never_move_the_other_caps() -> void:
 	on.set_extras_demand(4, 3)
 	off.tick(1.0, client, layers, null, _measured(client, layers, 0, 0))
 	on.tick(1.0, client, layers, null, _measured(client, layers, 0, 0))
-	for k: String in ["gem_nodes", "cylinder_edges", "max_hulls", "cloud_sprites", "route_tris", "burst_slots"]:
+	for k: String in ["max_hulls", "cloud_sprites", "route_tris", "burst_slots"]:
 		assert_eq(on.caps[k], off.caps[k], k)
+	var allowance: int = int(on.caps["extras_allowance"])
 	assert_eq(int(off.caps["extras_tier"]), 0, "no demand, no grant")
+	assert_eq(int(off.caps["extras_allowance"]), 0, "and no allowance")
+	assert_eq(int(on.caps["extras_tier"]), 4)
+	assert_eq(allowance, int(on.caps["extras_tris"]), "the grant is the held-back allowance")
+	var gem_step: int = 288
+	assert_lte(int(off.caps["gem_nodes"]) - int(on.caps["gem_nodes"]), ceili(float(allowance) / gem_step), "gems lost")
+	assert_lte(int(on.caps["gem_nodes"]), int(off.caps["gem_nodes"]))
+	var lost_tris: int = (int(off.caps["gem_nodes"]) - int(on.caps["gem_nodes"])) * gem_step \
+		+ (int(off.caps["cylinder_edges"]) - int(on.caps["cylinder_edges"])) * 30
+	assert_lte(lost_tris, allowance + gem_step, "the graph pays no more than the allowance (plus one step of rounding)")
 	assert_lte(int(on.caps["tris_total"]), 95000)
 	assert_lte(int(on.caps["draw_calls"]), 48)
 

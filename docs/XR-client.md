@@ -1153,15 +1153,23 @@ checks the built meshes against them. At tier 4
 with three volumes the extras are 584 triangles and 1 draw call (the motes'); the three frames' calls
 are the scene's, with lines or ribbons.
 
-**The layer.** `allocate_with_extras` prices the extras **last**, after the graph's cylinder edges, so
-graph, cloud, route and burst caps are exactly `allocate`'s whatever the extras ask for (a Rust property
-test). The granted tier is the highest at or below the request whose triangles fit in what the other
-layers left and whose draw calls keep the frame at or under 48; when the minimums alone overrun the budget
-only the zero-cost sky remains, so the extras drop before graph detail does. `FrameBudgetPass` carries the
+**The layer.** `allocate_with_extras` holds back an **allowance** for the extras (owner decision of
+2026-10-31, ADR-2167 amended), in this order: the hard minimums; the route, cloud, burst pool and hulls;
+the allowance; then the graph's gem and cylinder share from what remains. The allowance is the cost of the
+requested tier, capped at tier 4 (never a higher one), so a governor or comfort setting that pins a lower tier
+reserves less and the difference stays with the near detail; a tier the 48-call guard refuses reserves nothing.
+The cloud, route, burst and hull caps equal `allocate`'s, and the graph loses at most
+`ceil(allowance / 288)` gems against the no-allowance caps (a Rust property test swept over 32 node counts).
+When the minimums overrun, or the route, cloud, burst pool or hulls get less than they asked for, the
+allowance is 0 (`caps["extras_allowance"]`) and the extras are the last claim as before: the highest tier the
+graph's leftover pays for, the free sky when nothing is left. `XR_VISUAL_QUALITY=low` and `XR_EYE_CANDY=0`
+request tier 0, so reserve nothing. Reduced motion does not change the tier or the cost: the motes still draw
+(they hold still), so the same allowance applies. `FrameBudgetPass` carries the
 request (`set_extras_demand`) and reads back `caps["extras_tier"]`; the controller draws only the grant and
 reports what it drew (`set_extras_applied`), which the pass subtracts from the measured `other_tris`, or the
 extras would be charged twice and revoked two seconds later. At production density (13 164 nodes) the
-leftover is under one near-detail step, so the grant there is tier 1 (the sky); the 1k fixture is granted tier 4.
+leftover alone is under one near-detail step, but the allowance buys the request: tier 4 is granted for two
+gems (35 to 33); the 1k fixture is granted tier 4 at no cost.
 
 **Is there GPU headroom? Measured, not assumed.** A steady 90 FPS on the headset is vsync-locked and proves
 nothing about spare GPU time. `RenderingServer.viewport_get_measured_render_time_gpu` (switched on with
@@ -1194,7 +1202,19 @@ therefore probes at start-up on its own viewport and chooses its signal:
 | 1k fixture | tier 3 | 3 | 80 | 37 / 47460 | 37 / 47042 | 0.66 / 0.75 | 0.293 / 0.295 |
 | 1k fixture | tier 4 | 4 | 80 | 37 / 47844 | 37 / 47426 | 0.66 / 0.76 | 0.294 / 0.295 |
 
-At production density the allocator grants tier 1 (the sky) only: 6 triangles are left under the 95 000 limit. Tier 4 there would cost 584 triangles, about two of its 35 gem nodes (one near-detail step is 288 triangles), which is the trade a later change can take by giving the extras an allowance ahead of the graph's near detail (it would break the "extras never change the other caps" property). The allocator-calls column above was taken before the scene counted the volume frames' calls, so at tiers 0–1 it is two calls short of the measured count and at tier 2 up the extras layer carried the frames' calls. Since the hook (`GraphScene._tick_frame_budget` adds each volume's `overhead_draw_calls()`; `extras_cost` tier 2 charges none; the benchmark passes `GRAPH_DRAW_CALLS + _other_dc + frames`) every tier counts the frames once, and the allocator's call count equals the scene's by construction at tiers 0–2; those cells are not re-measured here. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
+The table above is the allocator **before** the allowance, which granted tier 1 (the sky) only at production density: 6 triangles were left under the 95 000 limit. With the allowance (owner decision of 2026-10-31) the allocator, fed the benchmark's production inputs (13 164 nodes, 20 000 edges, 32 hulls, `other_tris` 2 182 and 24 other calls as the benchmark measures them, 6 000 cloud rows, a 13-row route) with three volume frames (the benchmark builds two unless `XR_BENCH_CANDY_FRAMES=3`; `cargo test --lib frame_budget`, `production_shape_grants_tier_four_for_at_most_two_gems`), returns:
+
+| Requested tier | Granted | Allowance (triangles) | Gem cap (was) | Cylinder cap (was) | Allocator calls / triangles |
+|---|---|---|---|---|---|
+| 0 | 0 | 0 | 35 (35) | 7 (7) | 37 / 94 994 |
+| 1 | 1 | 0 | 35 (35) | 7 (7) | 37 / 94 994 |
+| 2 | 2 (was 1) | 72 | 35 (35) | 4 (7) | 37 / 94 976 |
+| 3 | 3 (was 1) | 200 | 35 (35) | 0 (7) | 38 / 94 984 |
+| 4 | 4 (was 1) | 584 | 33 (35) | 6 (7) | 38 / 94 972 |
+
+Tiers 2 and 3 are paid for in cylinder edges (the gem cap is unchanged); only tier 4 costs gems. The calls column includes the three frames' calls (the scene counts them) and, from tier 3, the motes' call; it is higher than the measured table above because that table has two frames and predates the frame-call hook.
+
+These allocator rows are **not** re-measured in the renderer; the measured columns above still describe the earlier grant. The allocator-calls column above was taken before the scene counted the volume frames' calls, so at tiers 0–1 it is two calls short of the measured count and at tier 2 up the extras layer carried the frames' calls. Since the hook (`GraphScene._tick_frame_budget` adds each volume's `overhead_draw_calls()`; `extras_cost` tier 2 charges none; the benchmark passes `GRAPH_DRAW_CALLS + _other_dc + frames`) every tier counts the frames once, and the allocator's call count equals the scene's by construction at tiers 0–2; those cells are not re-measured here. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
 
 **Governor.** A window of one second; its p95 decides. Above the drop limit (GPU 8 ms, the PRD-008 §6
 figure; frame mode 1.15 × the refresh interval): step down one tier at once and double the climb hold-off
