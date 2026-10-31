@@ -897,6 +897,9 @@ func test_room_loss_during_the_enter_dim_still_ends_in_the_dark() -> void:
 	assert_true(p.fade_alpha() < 0.999 and p.is_transitioning(), "part-way into the dim")
 	var before := _world_state(arr)
 	_offline[&"ontology"] = true
+	_step(p, arr)
+	assert_true(p.is_transitioning(), "the loss rides the dim already running, it does not end it")
+	assert_false(p.is_entered())
 	assert_true(_alpha_at_first_change(p, arr, before) >= 0.999 or _world_state(arr) == before)
 	_settle(p, arr, 0.6)
 	assert_false(p.is_entered())
@@ -1075,6 +1078,42 @@ func test_scene_grip_is_refused_during_the_leave_dim() -> void:
 	assert_eq(scene._box_grab_vid, &"", "no grab while the ring is being restored")
 	assert_eq(q.transform, before)
 	ctrl.queue_free()
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_scene_walkthrough_enter_passes_the_origin_floor() -> void:
+	var scene := await _make_scene()
+	scene._portals.offline_check = func(_id: StringName) -> bool: return false
+	scene._shim_pending_start = false
+	var origin := scene.get_node_or_null("XROrigin3D") as XROrigin3D
+	var cam := scene.get_node_or_null("XROrigin3D/XRCamera3D") as XRCamera3D
+	if origin == null or cam == null:
+		pending("the scene has no XR rig headless")
+		scene.queue_free()
+		return
+	cam.current = true
+	if scene._find_xr_camera() != cam or scene._find_xr_origin() != origin:
+		pending("_find_xr_camera cannot see the rig headless: _tick_portals wiring is not drivable here")
+		scene.queue_free()
+		return
+	origin.position.y = 5.0
+	cam.position = Vector3(0.0, 1.6, 0.0)
+	scene._on_hud_control("volume_enter:knowledge")
+	_scene_settle(scene)
+	scene._portals.walkthrough_enabled = true
+	scene._tick_portals(DT)
+	assert_true(scene._portals.is_walkthrough_armed(), "armed with the head clear of every portal")
+	var target: StringName = scene._portals.portal_ids()[0]
+	cam.global_position = scene._volumes[target].global_position
+	var guard := 0
+	while scene._portals.entered_id() != target and guard < 120:
+		scene._tick_portals(DT)
+		guard += 1
+	assert_eq(scene._portals.entered_id(), target, "the walk-through swapped into the portal")
+	_scene_settle(scene)
+	var room: Node3D = scene._volumes[target]
+	assert_almost_eq(room.global_position.y - room.bounds.y * 0.5, 5.0, 1.0e-3, "room floor on the origin's floor, not world 0")
 	scene.queue_free()
 	await get_tree().process_frame
 

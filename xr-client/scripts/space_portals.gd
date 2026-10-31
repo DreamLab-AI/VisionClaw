@@ -58,8 +58,9 @@ const FADE_DISTANCE := 0.2
 ## Gap between the box face and its membrane quad, metres.
 const MEMBRANE_LIFT := 0.003
 ## Most portals the ring holds (the MultiMesh capacity). `portal_layout` spreads
-## n portals over min(PORTAL_STEP_DEG, 360/n) degrees, which keeps neighbouring
-## portal boxes apart for any box up to the 4 m emulated clamp.
+## n portals min(PORTAL_STEP_DEG, 360/n) degrees apart, which keeps every pair of
+## portal boxes apart for up to MAX_PORTALS portals of any size up to the 4 m
+## emulated clamp (tested). Past MAX_PORTALS the spacing is not guaranteed.
 const MAX_PORTALS := 8
 ## Share of the near-cap split the non-entered volumes keep (stream XE hook).
 const OTHER_WEIGHT := 0.15
