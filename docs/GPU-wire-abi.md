@@ -295,6 +295,11 @@ One line per ADR from the Phase 2 remediation of the Phase 1 diagram findings (V
 - **ADR-2056** — One span-parsed `.version` rewrite. The runtime PTX downgrade delegates to
   `ptx_policy::rewrite_ptx_version` instead of carrying its own substring implementation; it
   retains only the runtime driver-ISA probe, which the build-time constant cannot serve.
+- **ADR-2030** (2026-10-31) — Runtime PTX identity. `build.rs` bakes a per-module content tag of the PTX it
+  wrote; `ptx_loader` verifies the baked artefact against it before loading and fails loud on a mismatch
+  (`verify_build_identity`). Detects staleness or alteration, not forgery.
+- **ADR-2029** (2026-10-31) — GPU-tick evidence: with all other forces zero, constraint residency (and only
+  residency) moves positions; clearing constraints restores the baseline.
 - **ADR-2059** — Removed the seven analytics feature flags that gated nothing; kept
   `ontology_validation` (a real gate) and `sssp_integration` (documented as display-only).
 - **ADR-2060** — Corrected this document's citations and marked resolved divergence bullets

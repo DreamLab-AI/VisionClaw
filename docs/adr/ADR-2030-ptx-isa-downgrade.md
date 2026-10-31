@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 779f67397640e4f65a093778b18c299de9b6339d
-verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs]
+verified_commit: 4522a94dd8e8f02c143bbecbcffced6bd362e49c
+verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs, crates/visionclaw-gpu/src/ptx_loader.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
 repo: visionclaw
@@ -216,3 +216,26 @@ rejected by `validate_ptx` (`:252`). Measured: with plain `nvcc`, only `NVCC_CCB
 wrapper on `PATH`, all eight modules report `provenance=compiled` and none a fallback, in the agentbox container
 that previously compiled none.
 
+## Close-out 2026-10-31
+
+**Gap closed:** a runtime PTX identity check. `build.rs` now also emits `<MODULE>_PTX_TAG`
+(`cargo:rustc-env`), the `ptx_policy::content_tag` of the exact bytes it left on disk after the ISA rewrite (the
+same value the build manifest records as `rewritten=`). `ptx_loader` exposes `PTXModule::expected_content_tag()`,
+`verify_build_identity(module, path, content, expected)` and `PtxIdentityMismatch`, and
+`load_ptx_module_sync_raw` runs `check_baked_artefact` first: if the build's baked artefact file is present and
+its bytes hash differently, the load returns an `Err` naming module, path, expected and actual tags, and does
+**not** fall through to another source. A missing baked file is not an error (images ship without the build
+tree), and a module with no baked tag (`dynamic_grid`, no longer compiled) is not checked.
+
+Honest limits: the tag is the existing FNV-1a `content_tag`, chosen so the runtime value equals the manifest
+value. It detects a stale or altered artefact; it is not a defence against deliberate forgery. The check covers
+the baked build output only; PTX from the source-tree copies or the runtime nvcc fallback is a different
+artefact by definition and is still validated only structurally.
+
+**Commands run.** `cargo test -p visionclaw-gpu --lib` → 70 passed, 0 failed (includes five new tests:
+match passes; altered bytes fail naming both tags; a post-build ISA edit fails; no tag means no check; and
+`build_tag_matches_the_baked_file_for_every_module`, an end-to-end check of this build's own eight artefacts).
+`cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean; `rustfmt --check` clean.
+
+**Status stays `partial`.** Still outstanding from the acceptance condition: exercising representative kernels
+on the intended (older-ISA) driver with rollback, and the loader's modification-time scan for non-baked paths.

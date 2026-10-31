@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 4522a94dd8e8f02c143bbecbcffced6bd362e49c
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -202,3 +202,29 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed changes since `31bc3d3a1`: `src/utils/unified_gpu_compute/execution.rs` (grid cell floor and cell-bounds launch fixes, plus a new optional semantic-force pass `enable_semantic` / `set_semantic_config`, applied to the force buffers before integration when `semantic_active`) and `src/models/simulation_params.rs` (see ADR-2028). `force_channels.rs` is unchanged. **Holds.** The flag authority is as decided: `execute_physics_step_with_bypass` (`execution.rs:1056`) calls `force_channels::derive_dispatch_feature_flags` (`:1069`, defined `src/models/force_channels.rs:488-508`; `ENABLE_CONSTRAINTS` iff `num_constraints > 0` `:504`), calls `params.to_sim_params()` (`:1082`) and overwrites the word (`:1083`). `ForceChannel::Constraints` is still the only read-only channel (`is_read_only` `force_channels.rs:212`, `apply` early return `:185-190`). Note, not a conflict: the semantic forces are a separate module outside the ten-channel registry and outside `feature_flags`; they derive no flag bit, so there is still no second flag-deriving authority. They do mean "ten force terms" is now the flat-struct count, not the total number of force contributions per step.
+
+## Close-out 2026-10-31
+
+**Gap closed:** the "GPU tick observing `ENABLE_CONSTRAINTS` effect on positions". New module
+`adr_2029_constraint_gpu_tests` in `src/utils/unified_gpu_compute/execution.rs` steps the real kernel through
+`execute_physics_step_with_bypass` with every other force zeroed (repulsion, springs, centring, gravity, jitter),
+so only the constraint loop can move a node. "On" means constraints are resident, because the bit is
+residency-owned, never a setting:
+
+- `resident_constraints_move_positions_and_no_constraints_do_not` — 64 nodes, a DISTANCE constraint between
+  nodes 0 and 1 (start gap 400, target 10). Without constraints the gap stays 400 (to 1e-3) over 30 frames; with
+  one resident the gap closes, all positions stay finite, the constrained nodes differ from the baseline and every
+  other node is bit-identical to it.
+- `removing_the_constraints_turns_the_effect_off_again` — constraint uploaded then cleared before stepping gives
+  positions identical to the never-constrained baseline (the bit tracks residency in both directions).
+- `a_settings_change_cannot_switch_the_constraint_effect_on` — raising `constraint_max_force_per_node` with
+  nothing resident moves nothing.
+
+**Commands run.** GPU present (`nvidia-smi -L`: RTX A6000, 2 x RTX 6000 Ada); the tests did not skip.
+`cargo test --lib adr_2029_constraint_gpu -- --nocapture` → 3 passed, 0 failed, no `SKIPPED` line (about 15 s).
+`cargo test --lib adr_2029` → 8 passed (the earlier host-side `adr_2029_dispatch_authority` set, unchanged).
+`rustfmt --check` clean on the changed files; `cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean.
+
+**Status stays `partial`.** The array-backed step 2 is deliberately not built (out of scope here). The test uses
+a DISTANCE constraint only; SEPARATION/POSITION/ALIGNMENT kinds and the production 18,933-constraint residency
+are not exercised, and the scenario runs the main force pass, not the bad-frame fallback pass.
