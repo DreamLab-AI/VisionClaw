@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4522a94dd8e8f02c143bbecbcffced6bd362e49c
+verified_commit: ae0aed893f34e17b89db0562f0770f4ad677bf25
 verified_paths: [crates/visionclaw-gpu/build.rs, crates/visionclaw-gpu/src/ptx_policy.rs, crates/visionclaw-gpu/src/ptx_loader.rs]
 owner: jjohare
 review_trigger: host driver gains support for a newer PTX ISA, or nvcc changes its .version emission
@@ -229,13 +229,23 @@ tree), and a module with no baked tag (`dynamic_grid`, no longer compiled) is no
 
 Honest limits: the tag is the existing FNV-1a `content_tag`, chosen so the runtime value equals the manifest
 value. It detects a stale or altered artefact; it is not a defence against deliberate forgery. The check covers
-the baked build output only; PTX from the source-tree copies or the runtime nvcc fallback is a different
-artefact by definition and is still validated only structurally.
+the baked build output only. These loads **bypass** it: PTX read from the source-tree copies
+(`src/ptx`, `/app/...`) or produced by the runtime nvcc fallback (different artefacts by definition, validated only
+structurally), `Module::from_ptx` in `gpu_diagnostics.rs` (which goes through `load_ptx_sync`, so it is checked),
+and `src/adapters/gpu_semantic_analyzer.rs`, which `include_str!`s the gitignored `src/utils/ptx/*.ptx` copies at
+compile time and never touches `ptx_loader`. `crate::utils::ptx` is a re-export of `visionclaw_gpu::ptx_loader`,
+not a second loader.
 
-**Commands run.** `cargo test -p visionclaw-gpu --lib` → 70 passed, 0 failed (includes five new tests:
+**Failure behaviour (new hard-fail on the GPU-init path).** A mismatch makes `load_ptx_module_sync` return `Err`.
+`ForceComputeActor` turns an `Err` for the main module into `GPUInitFailed` (logged, reported; no panic or process
+exit) and treats the clustering and APSP modules as optional (`warn!`, `None`); `GpuResourceActor` propagates the
+main-module error as its init error. The backend therefore starts without GPU physics rather than crashing; the
+risk is a graph that silently runs without GPU physics if the baked artefact is altered after the build.
+
+**Commands run.** `cargo test -p visionclaw-gpu --lib` → 70 passed, 0 failed (also run before the commit, after rustfmt) (includes five new tests:
 match passes; altered bytes fail naming both tags; a post-build ISA edit fails; no tag means no check; and
 `build_tag_matches_the_baked_file_for_every_module`, an end-to-end check of this build's own eight artefacts).
-`cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean; `rustfmt --check` clean.
+`cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean (no diagnostics); `rustfmt --check` clean on `ptx_loader.rs` and `build.rs` (`cargo fmt --all --check` reports 280 pre-existing diffs elsewhere, none in these files). `verified_commit` is the last code commit; a docs-only commit follows it.
 
 **Status stays `partial`.** Still outstanding from the acceptance condition: exercising representative kernels
 on the intended (older-ISA) driver with rollback, and the loader's modification-time scan for non-baked paths.

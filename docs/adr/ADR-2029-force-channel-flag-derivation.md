@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 4522a94dd8e8f02c143bbecbcffced6bd362e49c
+verified_commit: ae0aed893f34e17b89db0562f0770f4ad677bf25
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -205,26 +205,34 @@ Governed changes since `31bc3d3a1`: `src/utils/unified_gpu_compute/execution.rs`
 
 ## Close-out 2026-10-31
 
-**Gap closed:** the "GPU tick observing `ENABLE_CONSTRAINTS` effect on positions". New module
-`adr_2029_constraint_gpu_tests` in `src/utils/unified_gpu_compute/execution.rs` steps the real kernel through
-`execute_physics_step_with_bypass` with every other force zeroed (repulsion, springs, centring, gravity, jitter),
-so only the constraint loop can move a node. "On" means constraints are resident, because the bit is
-residency-owned, never a setting:
+**Gap closed:** the "GPU tick observing `ENABLE_CONSTRAINTS` effect on positions". Module
+`adr_2029_constraint_gpu_tests` in `src/utils/unified_gpu_compute/execution.rs` steps the real kernel with
+repulsion, springs, centring, gravity and jitter all zero, so only the constraint loop can move a node. The kernel
+loops `for c < num_constraints`, so with nothing resident the bit is moot; the tests therefore keep the **same
+resident constraint** and change only `feature_flags`, which `execute()` uploads as given (it does not re-derive):
 
-- `resident_constraints_move_positions_and_no_constraints_do_not` — 64 nodes, a DISTANCE constraint between
-  nodes 0 and 1 (start gap 400, target 10). Without constraints the gap stays 400 (to 1e-3) over 30 frames; with
-  one resident the gap closes, all positions stay finite, the constrained nodes differ from the baseline and every
-  other node is bit-identical to it.
-- `removing_the_constraints_turns_the_effect_off_again` — constraint uploaded then cleared before stepping gives
-  positions identical to the never-constrained baseline (the bit tracks residency in both directions).
-- `a_settings_change_cannot_switch_the_constraint_effect_on` — raising `constraint_max_force_per_node` with
-  nothing resident moves nothing.
+- `bit_4_alone_decides_whether_a_resident_constraint_moves_positions` — 64 nodes, a DISTANCE constraint between
+  nodes 0 and 1 (start gap 400, target 10), `execute` called directly for 30 frames. Bit 4 clear: gap stays 400
+  (1e-3). Bit 4 set: the gap closes, positions finite, constrained nodes differ and every other node is
+  bit-identical.
+- `the_physics_step_authority_sets_the_bit_the_converter_leaves_clear` — the converter's word has bit 4 clear
+  (asserted); `execute_physics_step_with_bypass` on the same resident constraint produces positions bit-identical to
+  the explicit bit-set run, so the authority's overwrite is what turns the effect on.
+- `removing_residency_through_the_authority_restores_the_unconstrained_result` — constraints uploaded then cleared
+  give positions identical to a never-constrained engine (residency → bit, in the clearing direction).
 
-**Commands run.** GPU present (`nvidia-smi -L`: RTX A6000, 2 x RTX 6000 Ada); the tests did not skip.
-`cargo test --lib adr_2029_constraint_gpu -- --nocapture` → 3 passed, 0 failed, no `SKIPPED` line (about 15 s).
-`cargo test --lib adr_2029` → 8 passed (the earlier host-side `adr_2029_dispatch_authority` set, unchanged).
-`rustfmt --check` clean on the changed files; `cargo clippy -p visionclaw-gpu --lib --tests -- -D warnings` clean.
+An earlier draft of these tests compared "constraints resident" against "none resident"; that shows residency,
+not the flag, and a "settings change cannot switch it on" test that could not fail. Both were removed.
 
-**Status stays `partial`.** The array-backed step 2 is deliberately not built (out of scope here). The test uses
-a DISTANCE constraint only; SEPARATION/POSITION/ALIGNMENT kinds and the production 18,933-constraint residency
-are not exercised, and the scenario runs the main force pass, not the bad-frame fallback pass.
+**Commands run** (worktree `adr-sprint/w2`, shared target dir). GPU present (`nvidia-smi -L`: RTX A6000 and two
+RTX 6000 Ada); no test skipped. `cargo test --lib adr_2029_constraint_gpu -- --nocapture` → 3 passed, 0 failed,
+no `SKIPPED` line (about 17 s). `cargo test --lib adr_2029` earlier in the session → 8 passed (the host-side
+`adr_2029_dispatch_authority` set, unchanged). `cargo clippy -p visionclaw-server --lib --tests`: the crate has
+45 pre-existing warning/error lines; none is in the new module (the one `execution.rs` hit, at line 1986, is in
+older test code). `cargo fmt --all --check` reports 280 pre-existing diffs repo-wide, none in the files this change
+touches.
+
+**Status stays `partial`.** The array-backed step 2 is deliberately not built (out of scope). The scenario uses a
+DISTANCE constraint on the main force pass only; SEPARATION/POSITION/ALIGNMENT kinds, the bad-frame fallback pass
+and the production 18,933-constraint residency are not exercised. `verified_commit` is the last code commit; a
+docs-only commit follows it.
