@@ -130,6 +130,12 @@ orphan dir `graph-cognition-extract` never was a member and has been removed.
 `xr-client/rust` (Godot gdext, Quest APK cdylib) and `agentbox/crates/headroom-napi`
 are workspace-**excluded** so a server build does not compile them.
 
+**Layer direction is machine-checked** (ADR-2005, 2026-10-31):
+`crates/visionclaw-integration-tests/tests/layer_direction.rs` reads
+`cargo metadata` and fails CI (`rust-cpu` job) on any workspace edge outside its
+allow-list, on any dependency on `visionclaw-server`, and on a member with no
+declared layer.
+
 **Actor extraction is unfinished**: `src/actors/*.rs` holds **25** actor
 source files while `crates/visionclaw-actors/src` holds **11** counted
 recursively (4 at the top level — `lib.rs`, `supervisor.rs`, `voice_commands.rs`,

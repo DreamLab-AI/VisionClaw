@@ -2237,7 +2237,7 @@ fn domain_root_node(slug: &str, label: &str) -> visionclaw_domain::models::node:
     root.group = Some(slug.to_string());
     root.size = Some(3.0);
     root.weight = Some(1.0);
-    root.owl_class_iri = Some(format!("urn:ngm:domain:{}", slug));
+    root.owl_class_iri = Some(crate::uri::ngm::domain_iri(slug));
     root.metadata
         .insert("type".to_string(), "domain_root".to_string());
     root
@@ -2588,7 +2588,7 @@ mod domain_root_plan_tests {
     fn loaded(source: u32, target: u32, label: &str) -> Edge {
         let bare = format!("domain_{source}_{target}");
         Edge {
-            id: format!("urn:ngm:edge:{source}:{target}:{bare}"),
+            id: crate::uri::ngm::edge_iri(source, target, &bare),
             source,
             target,
             weight: 1.5,
@@ -2604,10 +2604,31 @@ mod domain_root_plan_tests {
         g.nodes.extend(plan.roots_to_write.iter().cloned());
         g.edges.extend(plan.edges_to_add.iter().map(|e| {
             let mut e = e.clone();
-            e.id = format!("urn:ngm:edge:{}:{}:{}", e.source, e.target, e.id);
+            e.id = crate::uri::ngm::edge_iri(e.source, e.target, &e.id);
             e
         }));
         g
+    }
+
+    /// ADR-2021: minting goes through `uri::ngm`, and the persisted bytes are
+    /// exactly what the pre-typed `format!` sites wrote.
+    #[test]
+    fn domain_root_and_edge_iris_are_byte_identical_to_the_legacy_literals() {
+        let root = domain_root_node(SLUG, "Infrastructure");
+        assert_eq!(
+            root.owl_class_iri.as_deref(),
+            Some(format!("urn:ngm:domain:{}", SLUG).as_str())
+        );
+        assert_eq!(
+            root.owl_class_iri.as_deref(),
+            Some("urn:ngm:domain:infrastructure")
+        );
+        let e = loaded(10, 11, "has-part");
+        assert_eq!(e.id, "urn:ngm:edge:10:11:domain_10_11");
+        assert_eq!(
+            crate::uri::ngm::parse_edge_iri(&e.id).map(|r| (r.source, r.target, r.edge_id)),
+            Some((10, 11, "domain_10_11".to_string()))
+        );
     }
 
     fn assert_invariant(g: &GraphData, members: &[u32]) {
