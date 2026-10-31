@@ -3,11 +3,13 @@ id: ADR-2140
 title: Physics forces have one stored definition, applied as stored — no scale factors, caps or shadow state
 date: 2026-10-13
 decision_status: accepted
-implementation_status: partial
+implementation_status: complete
 activation_status: staged
+evidence_class: source+test
+acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; the client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: db3ab82fa90fd2db83739d3148379ccc70a17da6
+verified_commit: 347f0340782c655ce191198e9941fb9fd368ab4e
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -40,7 +42,7 @@ The host writes the device config as flat 32-bit word images. `semantic_forces.c
 ## Not yet done (recorded, not hidden)
 - ~~The layout MODE and its bias priming (`fill_mode_defaults`) still live in the compute actor; the store holds a different vocabulary (`qualityGates.layoutMode`).~~ Closed 2026-10-31 (item 1; see the second Close-out).
 - ~~`POST /sssp/toggle` patches the persisted parameters but does not write the toggle back to the store.~~ Closed 2026-10-31 (see Close-out).
-- `GET /analytics/sssp/params` (`sssp_handlers.rs`) still hard-codes `useSsspDistances:false, ssspAlpha:0.5`, and `POST /analytics/sssp/params` is a no-op answering `success:true`. Both contradict `/sssp/status` and the store (default `true` / `1.5`). They predate this change and the client calls none of the `/sssp/*` endpoints; the fix is to read the store in the GET and route the POST through `apply_physics_patch`, or delete both.
+- ~~`GET/POST /analytics/sssp/params` answered from hard-coded values.~~ Closed 2026-10-31: both deleted (see the third Close-out). Nothing remains here.
 
 ## Verification
 - `the_stored_settings_document_is_what_the_device_holds` (GPU): JSON as stored → actor parameters → device constant memory, read back through the device's own struct view.
@@ -133,3 +135,15 @@ Re-stamped to `b06d44613` (2026-10-31) after the review follow-ups. Re-run: `git
 - Client: `vitest run` → 1460 tests across 139 files pass after the registry test was updated and the round trip pinned (`physicsPatch.test.ts`: the registry path is a flat physics patch and the server document reaches the same path on read) (the frozen fixture is untouched; the old path joins `RETIRED_PATHS`, the new one is asserted independently); `tsc --noEmit` exits 0.
 
 Re-stamped to `db3ab82fa` (2026-10-31; feature at `58b05852d`). Re-run: `git diff --stat 75b72416b db3ab82fa -- src/handlers/layout_handler.rs src/actors/gpu/force_compute_actor.rs src/settings/api/settings_routes.rs src/adapters/sqlite_settings_repository.rs crates/visionclaw-domain/src/models/simulation_params.rs crates/visionclaw-domain/src/types/layout.rs docs/reference/physics-parameters.md`. `cargo build` (shared target) finished clean; `cargo clippy --lib --tests -p visionclaw-domain -p visionclaw-server` exits 0 with no warning in the touched code.
+
+## Close-out 2026-10-31 — `/analytics/sssp/params` deleted; record complete
+
+**Callers, first.** `git grep -i 'sssp/params\|sssp_params\|SsspParams'` over `client/`, `xr-client/`, `scripts/`, `tests/`, `test/`, `sdk/`, `codescape/` and `src/` finds none outside the handler, its route line and two reference docs. The `GET` handler was never routed at all (only `POST /sssp/params` was), and the `POST` ignored its body and echoed it back with `success:true`. So option (b): delete.
+
+**Removed.** `update_sssp_params` and `get_sssp_params` (`sssp_handlers.rs`), the route and the re-exports (`analytics/mod.rs`). No second read or write path remains: the stored document is read by `GET /analytics/sssp/status` (the device conversion) and written by `POST /analytics/sssp/toggle` (`apply_physics_patch`, rate-limited). `physics-parameters.md` and `rest-api.md` updated.
+
+**Test, fail first.** `sssp_params_removed_tests::the_sssp_params_path_is_not_routed` (`analytics/mod.rs`) sends an authenticated-looking `POST` and a `GET` to `/analytics/sssp/params` and wants 404. On the code before the delete it failed (`left: 401, right: 404`: the POST resolved, to the handler's own refusal); after, it passes. `the_probe_reaches_a_route_that_exists` runs the same probe at `/analytics/sssp/compute` and wants anything but 404, so a 404 above means "no route" rather than "broken probe". The `GET` half passed before the delete (never routed) and is kept only to pin that.
+
+**Verified (local, binary copied out of the shared target and `--list` checked, 1738 listed).** `cargo test --lib` → 1729 passed, 0 failed, 9 ignored (W12's 1727 + 2). `cargo test -p visionclaw-domain` → 317 passed, 1 ignored. No client file changed. `implementation_status` is **complete** because no "Not yet done" bullet is left; `activation_status` stays `staged` (nothing here is deployed).
+
+Re-stamped to `347f03407` (2026-10-31). Re-run: `git diff --stat 1b8335c4c 347f03407 -- src/handlers/api_handler/analytics docs/reference/physics-parameters.md docs/reference/rest-api.md` → `mod.rs | 66`, `sssp_handlers.rs | 48 +---`, `physics-parameters.md | 5`, `rest-api.md | 2`.

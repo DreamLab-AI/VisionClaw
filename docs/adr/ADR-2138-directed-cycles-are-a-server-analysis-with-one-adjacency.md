@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: db3ab82fa90fd2db83739d3148379ccc70a17da6
+verified_commit: 347f0340782c655ce191198e9941fb9fd368ab4e
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -48,7 +48,7 @@ Verified at `772039bd172027af034d64befacca1ebcf0bbc04`.
 
 **Each decision against the code.**
 1. `src/layout/scc.rs` exists. The GPU `compute_dag_ranks` (`src/actors/gpu/force_compute_actor.rs:438`) is unchanged: `git show 4306c65e9 --stat` does not list that file, and the commit names the function only in this record's text.
-2. `GET /api/analytics/cycles` is routed at `src/handlers/api_handler/analytics/mod.rs:255` and handled in
+2. `GET /api/analytics/cycles` is routed at `src/handlers/api_handler/analytics/mod.rs:258` and handled in
    `cycles_handlers.rs`. On the running server (provenance below) it answered
    `{"nodeCount":9688,"edgeCount":10958,"edgeFilter":"subsumption","cyclicNodeIds":[],"components":[]}`.
 3. The desktop hook is `client/src/features/graph/hooks/useCyclicNodeIds.ts`, used by `GemNodes.tsx`. The XR overlay
@@ -83,3 +83,5 @@ Re-stamped to `e49db1836` (2026-10-31, ADR-2166, spatial volumes can be entered)
 **Governed change:** ADR-2140 item 1 changes the layout-mode handling this record's decision 4 describes. The whitelist is now the shared `QUALITY_GATE_LAYOUT_MODES` (seven strings) for the legacy quality-gate field, `physics.layoutMode` accepts either vocabulary and refuses an unknown value, and `layoutApi.ts` posts the engine names verbatim (the quality-gate remap is deleted). Decision 4 still holds: `spectral` and `clustered` are accepted, plus the two new modes `dagLeftRight` and `typeClustering`; `LIVE_LAYOUT_MODES` still withholds `clustered`. The cycle routes and the SCC ranking are untouched. **Decision holds**; the `settings_routes.rs:413-414` and `layoutApi.ts:58/:76` citations have moved. Re-run: `git diff --stat 75b72416b 93302275e -- client/src/api/layoutApi.ts src/settings/api/settings_routes.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
 
 Re-checked at `db3ab82fa`: `settings_routes.rs` also gained `reset_document` (a layout reset keeps the active mode) and `stored_physics`; neither touches the cycle routes or the layout-mode whitelist decision 4 describes. Re-run: `git diff --stat 93302275e db3ab82fa -- src/settings/api/settings_routes.rs`.
+
+Re-stamped to `347f03407` (2026-10-31, ADR-2140 closes: the `/analytics/sssp/params` routes are deleted). The claim that moved is decision 2's route line, now `analytics/mod.rs:258` (it read `:255`; three lines left above it). Re-run: `git diff --stat 1b8335c4c 347f03407 -- src/handlers/api_handler/analytics/mod.rs` → `66 +++-`, and `grep -n 'cycles_handlers::get_cycles' src/handlers/api_handler/analytics/mod.rs` → `258`. Nothing else this record cites changed.
