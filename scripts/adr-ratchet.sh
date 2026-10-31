@@ -22,12 +22,13 @@
 # which exempts exactly the record whose number it names, and is printed so the
 # claim stays reviewable.
 #
-# Second rule, the evidence gate (ADR-2007): over the same range, any record
+# Second rule, the evidence gate (VisionFlow ADR-2007): over the same range, any record
 # whose `implementation_status` becomes `complete`, or whose `activation_status`
 # becomes `live`, must carry a non-empty `evidence_class` and
 # `acceptance_boundary` at <head-rev>. The rule governs the closing EVENT, so
-# it needs no backfill and catches a pre-existing record being closed; the date
-# gate in adr-index-gen.cjs stays as a backstop for newly dated records. It is
+# it needs no backfill and catches a pre-existing record being closed; adr-index-gen.js
+# validates the evidence_class enum wherever the field is present (it has no date cut-over
+# requirement here). It is
 # not tied to ADR_RATCHET_UNTIL: the backlog rule may end, this one does not.
 #
 # Usage: scripts/adr-ratchet.sh <adr-dir> <base-rev> [<head-rev>]
@@ -106,7 +107,7 @@ for f in "${closed[@]}"; do echo "  ✓ $f ($(status_at "$base" "$f") → $(stat
 echo "adr-ratchet: evidence gate — ${#closing[@]} record(s) became complete/live, ${#unevidenced[@]} without evidence_class/acceptance_boundary"
 for f in "${closing[@]}"; do echo "  ⇒ $f (closing transition)"; done
 if (( ${#unevidenced[@]} )); then
-  for f in "${unevidenced[@]}"; do echo "::error file=$f::adr-ratchet: $f became implementation_status complete or activation_status live without evidence_class and acceptance_boundary (ADR-2007)"; done
+  for f in "${unevidenced[@]}"; do echo "::error file=$f::adr-ratchet: $f became implementation_status complete or activation_status live without evidence_class and acceptance_boundary (VisionFlow ADR-2007)"; done
   echo "ADR-RATCHET-FAIL"
   exit 1
 fi

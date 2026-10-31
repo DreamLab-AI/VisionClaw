@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
       - name: Validate ADR frontmatter, supersession reciprocity, verified_commit staleness
         run: node scripts/adr-index-gen.js docs/adr --check
-      - name: adr-ratchet evidence gate self-test (ADR-2007: closing transitions need evidence_class and acceptance_boundary)
+      - name: adr-ratchet evidence gate self-test (VisionFlow ADR-2007: closing transitions need evidence_class and acceptance_boundary)
         run: bash scripts/tests/adr-ratchet-evidence.test.sh
 
       - name: adr-ratchet (planning cycle 2026-09-21 — a new proposal must close a proposed one)

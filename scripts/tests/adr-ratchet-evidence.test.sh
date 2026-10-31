@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADR-2007 (ported from VisionFlow): adr-ratchet.sh gates the closing TRANSITION (implementation_status -> complete,
+# VisionFlow ADR-2007 (ported): adr-ratchet.sh gates the closing TRANSITION (implementation_status -> complete,
 # activation_status -> live) on evidence_class + acceptance_boundary, however old the record.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -28,7 +28,7 @@ const REQUIRED_FIELDS = [
   'owner', 'review_trigger', 'repo',
 ];
 
-// ADR-2007: evidence_class values (joined by '+'); acceptance_boundary is free text.
+// VisionFlow ADR-2007: evidence_class values (joined by '+'); acceptance_boundary is free text.
 const EVIDENCE_CLASSES = ['source', 'test', 'ci', 'deployment', 'runtime'];
 
 const ENUMS = {
@@ -133,7 +133,7 @@ function main() {
       }
     }
     if (!isTemplate && 'evidence_class' in fm && fm.evidence_class !== '') {
-      // ADR-2007: evidence_class is one or more of EVIDENCE_CLASSES joined by '+'.
+      // VisionFlow ADR-2007: evidence_class is one or more of EVIDENCE_CLASSES joined by '+'.
       const classes = String(fm.evidence_class).split('+').map(c => c.trim());
       const bad = classes.filter(c => !EVIDENCE_CLASSES.includes(c));
       if (bad.length) {

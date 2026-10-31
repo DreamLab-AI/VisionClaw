@@ -12,7 +12,7 @@ verified_paths: []               # optional: repo-relative paths the verificatio
 owner:                           # accountable person/handle
 review_trigger:                  # the event/date that forces a re-review of this ADR
 repo: visionclaw                 # visionclaw | agentbox
-evidence_class:                  # required when implementation_status becomes complete or activation_status becomes live (adr-ratchet, ADR-2007): source | test | ci | deployment | runtime (join with +)
+evidence_class:                  # required when implementation_status becomes complete or activation_status becomes live (adr-ratchet, VisionFlow ADR-2007): source | test | ci | deployment | runtime (join with +)
 acceptance_boundary:             # required with evidence_class: what the evidence does and does not establish
 ---
 
