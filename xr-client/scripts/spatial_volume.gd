@@ -71,6 +71,9 @@ var undo_yaw_deg := 0.0:
 		_refit_now = true
 
 var focused := false
+## True while this volume is the entered room (ADR-2166): frame and handles are
+## hidden and the box is not user-movable or resizable. Set by SpacePortals.
+var portal_room := false
 var selected_conn: StringName = &""
 var selected_node := -1
 ## True while a manual transform holds authority: tick neither refits nor
@@ -363,7 +366,7 @@ static func corner_sign(handle: int) -> Vector3:
 ## Addition to the contract: the corner handle within `radius` metres of world
 ## point `p`, or -1. The scene picks by distance, not physics.
 func handle_at(p: Vector3, radius: float) -> int:
-	if is_closed or not visible_state or not interactable or bounds_mode != BoundsMode.BOUNDED:
+	if is_closed or not visible_state or not interactable or portal_room or bounds_mode != BoundsMode.BOUNDED:
 		return -1
 	var local := _self_world().affine_inverse() * p
 	var best := -1
@@ -380,7 +383,7 @@ func handle_at(p: Vector3, radius: float) -> int:
 ## stays put relative to the volume origin: the box grows symmetrically by
 ## twice the hand's travel along each axis.
 func begin_resize(handle: int, ctrl: Node3D) -> void:
-	if is_closed or not interactable or bounds_mode != BoundsMode.BOUNDED \
+	if is_closed or not interactable or portal_room or bounds_mode != BoundsMode.BOUNDED \
 			or handle < 0 or handle > 7 or ctrl == null:
 		return
 	_resize_handle = handle
@@ -410,6 +413,32 @@ func _node_world(n: Node3D) -> Transform3D:
 
 
 # --- focus and selection -----------------------------------------------------
+
+## Marks (or unmarks) this volume as the entered room.
+func set_portal_room(on: bool) -> void:
+	if on == portal_room:
+		return
+	portal_room = on
+	if on:
+		end_resize()
+	_on_state_changed()
+
+
+## Jumps the drawn Content transform to its fit target at once (no ease), so a
+## bounds change made while the view is dark does not grow in afterwards.
+func snap_fit() -> void:
+	_ensure_built()
+	if _source != null:
+		fit_into(_source.content_aabb())
+	elif _has_target:
+		fit_into(_fit_aabb)
+	if not _has_target:
+		return
+	_cur_scale = _target_scale
+	_cur_centre = _target_centre
+	_has_current = true
+	content.transform = _content_xform(_cur_scale, _cur_centre)
+
 
 func set_focused(f: bool) -> void:
 	if f == focused:

@@ -223,6 +223,7 @@ var _front_button: Button = null
 # connection status line by set_selection_info.
 var _selection_line: String = ""
 var _focused_volume: StringName = &"knowledge"
+var _enter_button: Button = null        # Enter / Leave the focused volume's space (ADR-2166)
 var _volume_states: Dictionary = {}
 # Cross-volume link layer (ADR-2164): toggle face and the debug-strip counts.
 var _links_button: Button = null
@@ -1302,6 +1303,18 @@ func _build_session_page() -> VBoxContainer:
 	_front_button.pressed.connect(func() -> void:
 		emit_signal("control_pressed", "volume_front:%s" % _focused_volume))
 	conn_row.add_child(_front_button)
+	# "Enter" / "Leave" (ADR-2166): step into the focused volume's space (the
+	# others become portals), or back out to the ring.
+	_enter_button = _press_fire(Button.new()) as Button
+	_enter_button.name = "EnterButton"
+	_enter_button.text = "Enter"
+	_enter_button.custom_minimum_size = Vector2(0, BTN_H)
+	_enter_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_enter_button.set_meta(HINT_META, "Enter the focused volume's space; the others become portals. Leave returns to the ring")
+	_enter_button.pressed.connect(func() -> void:
+		var st: Dictionary = _volume_states.get(_focused_volume, {})
+		emit_signal("control_pressed", "volume_leave" if bool(st.get("entered", false)) else "volume_enter:%s" % _focused_volume))
+	conn_row.add_child(_enter_button)
 	page.add_child(conn_row)
 	# The volume toggles share the row so the Session page keeps its height.
 	var vol_row := conn_row
@@ -1669,6 +1682,8 @@ func set_volume_state(focused: StringName, states: Dictionary) -> void:
 	var fname: String = str(fst.get("name", String(focused).capitalize()))
 	if _focus_button != null:
 		_focus_button.text = "Focus: %s" % fname
+	if _enter_button != null:
+		_enter_button.text = "Leave" if bool(fst.get("entered", false)) else "Enter"
 	_backend_line = "focus %s" % fname
 	_update_conn_status_label()
 

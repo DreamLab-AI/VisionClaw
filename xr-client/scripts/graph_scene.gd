@@ -9,6 +9,7 @@ const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
 const LinkLayerScript := preload("res://scripts/link_layer.gd")
 const BridgeLinkSource := preload("res://scripts/bridge_link_source.gd")
 const XrPrefs := preload("res://scripts/xr_prefs.gd")
+const SpacePortalsScript := preload("res://scripts/space_portals.gd")
 const VolumePicker := preload("res://scripts/volume_picker.gd")
 const FramePicker := preload("res://scripts/frame_picker.gd")
 const LinkPicker := preload("res://scripts/link_picker.gd")
@@ -106,6 +107,7 @@ var _sources: Dictionary = {}          # volume_id → ConnectionVolumeSource
 var _offline_labels: Dictionary = {}   # volume_id → Label3D
 var _focused_volume: StringName = &"knowledge"
 var _shim: Node = null
+var _portals: Node3D = null            # SpacePortals (ADR-2166): enter a volume, the rest become portals
 var _shim_pending_start: bool = false
 # One status line every VOLUME_LOG_SEC: per volume shown/online, drawn nodes
 # and edges, and the fit scale, so a live run's log shows what each volume does.
@@ -564,6 +566,10 @@ func _update_box_grip(delta: float) -> void:
 func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 	if ctrl == null or hit.is_empty() or _arrangement == null:
 		return
+	# While a space is entered the portal ring is laid out by SpacePortals; boxes
+	# are not moved or resized until the user leaves.
+	if _portals != null and _portals.is_entered():
+		return
 	var vid := StringName(hit["volume"])
 	var v: Node3D = _volumes.get(vid, null)
 	if v == null or not v.visible_state:
@@ -622,6 +628,8 @@ func _end_box_grip() -> void:
 ## slot at its default size.
 func reset_volume_layout() -> void:
 	_end_box_grip()
+	if _portals != null:
+		_portals.force_leave()
 	if _arrangement != null:
 		_arrangement.reset_default(true)
 
@@ -1324,6 +1332,65 @@ func _build_volumes() -> void:
 			mmi.multimesh.instance_count = 0
 			mmi.visible = false
 	_update_offline_labels()
+	_build_portals()
+
+
+# ADR-2166: the opt-in "entered" state over the ring. Native container arm,
+# offline and reduced-motion state are read live through callables.
+func _build_portals() -> void:
+	_portals = SpacePortalsScript.new()
+	_portals.name = "SpacePortals"
+	_portals.bind(_arrangement)
+	_portals.native_check = _native_arm_owns_layout
+	_portals.offline_check = _volume_offline
+	_portals.reduced_motion = _reduced_motion
+	_portals.walkthrough_enabled = XrPrefs.portal_walkthrough()
+	_portals.entered_changed.connect(_on_portal_entered_changed)
+	_portals.attach_fade(_find_xr_camera())
+
+
+# True while the native container owns the arrangement fit, or it has been
+# chosen and not yet started: Enter is refused in both.
+func _native_arm_owns_layout() -> bool:
+	return _shim_pending_start or (_shim != null and _shim.is_native())
+
+
+func _volume_offline(vid: StringName) -> bool:
+	var conn: Node = _conn_for_volume(vid)
+	return conn == null or not conn.is_connected_now()
+
+
+# Budget hook (stream XE): favour the entered space in the near-cap split. The
+# method is guarded so this works before and after FrameBudgetPass has it.
+func _on_portal_entered_changed(_entered_id: StringName) -> void:
+	if _budget != null and _budget.has_method("set_volume_weights"):
+		_budget.set_volume_weights(_portals.budget_weights())
+	_sync_hud_backend()
+
+
+## Enters volume `vid` (or swaps to it). False and no change when refused.
+func enter_volume_space(vid: StringName) -> bool:
+	if _portals == null:
+		return false
+	_end_box_grip()
+	_portals.walkthrough_enabled = XrPrefs.portal_walkthrough()
+	var cam: XRCamera3D = _find_xr_camera()
+	var pos := Vector3.ZERO if cam == null else cam.global_position
+	var heading := Vector3(0.0, 0.0, -1.0) if cam == null else -cam.global_transform.basis.z
+	return _portals.enter(vid, pos, heading)
+
+
+func leave_volume_space() -> bool:
+	return _portals != null and _portals.leave()
+
+
+func _tick_portals(delta: float) -> void:
+	if _portals == null:
+		return
+	_portals.tick(delta)
+	var cam: XRCamera3D = _find_xr_camera()
+	if cam != null and _portals.walkthrough_enabled:
+		_portals.update_walkthrough(cam.global_position, -cam.global_transform.basis.z, delta)
 
 
 func _update_offline_labels() -> void:
@@ -1343,6 +1410,7 @@ func _volume_states() -> Dictionary:
 			"shown": v != null and bool(v.visible_state),
 			"online": conn != null and conn.is_connected_now(),
 			"name": str(VOLUME_BINDINGS[vid]["name"]),
+			"entered": _portals != null and _portals.entered_id() == vid,
 		}
 	return out
 
@@ -1735,6 +1803,10 @@ func _on_volume_action(action: String) -> void:
 			_focused_volume = fid
 			for id: StringName in _volumes:
 				_volumes[id].set_focused(id == fid)
+	elif action.begins_with("volume_enter:"):
+		enter_volume_space(StringName(action.substr(13)))
+	elif action == "volume_leave":
+		leave_volume_space()
 	elif action.begins_with("volume_front:"):
 		# Feature 5: the box eases to the 0° slot; the one there takes its slot.
 		var front := StringName(action.substr(13))
@@ -2476,6 +2548,7 @@ func _physics_process(delta: float) -> void:
 	# Bring-to-front eases (feature 5) land before the volumes tick.
 	if _arrangement != null:
 		_arrangement.tick(delta)
+		_tick_portals(delta)
 	# Rust owns the hunt now: one call eases all render positions toward their
 	# targets and pins the grabbed node to the wand — replaces the old GDScript
 	# per-node lerp over a 13k Dictionary.
@@ -3530,6 +3603,8 @@ func _refresh_reduced_motion() -> void:
 		var state: Dictionary = comfort.call("get_visual_comfort")
 		_reduced_motion = bool(state.get("reduced_motion", true))
 	_choreo.reduced_motion = _reduced_motion
+	if _portals != null:
+		_portals.reduced_motion = _reduced_motion
 	if _memory_cloud != null:
 		_memory_cloud.reduced_motion = _reduced_motion
 	if _effects != null:
