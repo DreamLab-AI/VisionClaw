@@ -23,8 +23,12 @@ extends Node3D
 ##
 ## Transitions. Reduced motion on (the comfort default) is a dim, an instant
 ## snap while the view is dark, and the dim back: nothing around the user moves
-## or scales while visible. Reduced motion off eases the boxes over EASE_SEC
-## through `VolumeArrangement.ease_volume_to`. An arrangement that carries a
+## or scales while visible. That covers a portal appearing, disappearing or
+## resizing while entered, and the room going away. Reduced motion off eases
+## the boxes over EASE_SEC through `VolumeArrangement.ease_volume_to` when
+## entering from the ring and when the portal ring is re-laid. Leaving and
+## swapping always take the dim path, in either setting: both shrink a room's
+## content, and E7 forbids an eased shrink. An arrangement that carries a
 ## two-hand transform cannot ease without jumping, so it takes the dim path too.
 
 const VolumeArrangement := preload("res://scripts/volume_arrangement.gd")
@@ -53,6 +57,9 @@ const EASE_SEC := 0.5
 const FADE_DISTANCE := 0.2
 ## Gap between the box face and its membrane quad, metres.
 const MEMBRANE_LIFT := 0.003
+## Most portals the ring holds (the MultiMesh capacity). `portal_layout` spreads
+## n portals over min(PORTAL_STEP_DEG, 360/n) degrees, which keeps neighbouring
+## portal boxes apart for any box up to the 4 m emulated clamp.
 const MAX_PORTALS := 8
 ## Share of the near-cap split the non-entered volumes keep (stream XE hook).
 const OTHER_WEIGHT := 0.15
@@ -124,7 +131,7 @@ static func ring_radius(room: Vector3, portal_bounds: Array) -> float:
 
 ## Portal transforms, in the order of `portal_bounds`, in the frame `user` is
 ## given in. Portals sit on a ring about `user` (XZ), spread PORTAL_STEP_DEG
-## apart and centred on `heading`, at height `eye_y`, each turned so its +Z
+## apart (closer for 8 or more, so the ring never wraps onto itself) and centred on `heading`, at height `eye_y`, each turned so its +Z
 ## face looks back at the user.
 static func portal_layout(user: Vector3, heading: Vector3, room: Vector3,
 		portal_bounds: Array, eye_y: float) -> Array[Transform3D]:
@@ -133,8 +140,10 @@ static func portal_layout(user: Vector3, heading: Vector3, room: Vector3,
 	fwd = Vector3(0.0, 0.0, -1.0) if fwd.length() < 1.0e-6 else fwd.normalized()
 	var r := ring_radius(room, portal_bounds)
 	var n := portal_bounds.size()
+	# 50 degrees apart wraps past a full turn from 8 portals on: shrink the step.
+	var step := minf(PORTAL_STEP_DEG, 360.0 / float(maxi(n, 1)))
 	for i: int in n:
-		var a := deg_to_rad((float(i) - 0.5 * float(n - 1)) * PORTAL_STEP_DEG)
+		var a := deg_to_rad((float(i) - 0.5 * float(n - 1)) * step)
 		var dir := Basis(Vector3.UP, a) * fwd
 		var pos := Vector3(user.x, eye_y, user.z) + dir * r
 		out.append(Transform3D(Basis.looking_at(dir, Vector3.UP), pos))
@@ -308,7 +317,9 @@ func enter(id: StringName, user_world: Vector3, heading_world: Vector3 = Vector3
 	_dwell = 0.0
 	_dwell_id = &""
 	arrangement.layout_locked = true
-	var instant := reduced_motion or not arrangement.transform.is_equal_approx(Transform3D.IDENTITY)
+	# A swap shrinks the outgoing room's content, and E7 forbids an eased shrink.
+	var instant := reduced_motion or old != &"" \
+			or not arrangement.transform.is_equal_approx(Transform3D.IDENTITY)
 	var apply := func(duration: float) -> void:
 		_apply_layout(old, duration, duration <= 0.0)
 	if instant:
@@ -320,23 +331,38 @@ func enter(id: StringName, user_world: Vector3, heading_world: Vector3 = Vector3
 
 
 ## Leaves the entered space: the ring comes back exactly as it was before the
-## first enter. False when nothing is entered or a transition is in flight.
+## first enter. Always through the dim, because the room's content shrinks and
+## E7 forbids an eased shrink. False when nothing is entered or a transition is
+## in flight.
 func leave() -> bool:
 	if _entered == &"" or _phase != Phase.IDLE:
 		return false
-	var instant := reduced_motion or not arrangement.transform.is_equal_approx(_snap["arr_xf"])
-	_entered = &""
-	_dwell = 0.0
-	if instant:
-		_begin_dim(_apply_leave.bind(0.0))
-	else:
-		_apply_leave(EASE_SEC)
-	entered_changed.emit(_entered)
+	_end_space_through_dim()
 	return true
 
 
-## Leaves at once with no transition (the room was hidden, closed or went
-## offline). Safe at any time.
+## Ends the space through the dim from any state, including part-way through a
+## dim: the restore lands in full dark and the opacity carries on from where it
+## is, so nothing around the user moves or scales while visible.
+func _end_space_through_dim() -> void:
+	_entered = &""
+	_dwell = 0.0
+	match _phase:
+		Phase.IDLE:
+			_begin_dim(_apply_leave)
+		Phase.DIM_OUT:
+			# The dim already running goes dark first; swap what lands there.
+			_pending = _apply_leave
+		Phase.DIM_IN:
+			# Go dark again from the current opacity (the smoothstep is symmetric).
+			_pending = _apply_leave
+			_phase = Phase.DIM_OUT
+			_phase_t = FADE_SEC - _phase_t
+	entered_changed.emit(_entered)
+
+
+## Leaves at once with no transition. Only for Reset Layout, which rebuilds the
+## ring anyway; a room that goes away ends through the dim instead.
 func force_leave() -> void:
 	if _entered == &"" and not arrangement_locked():
 		return
@@ -344,7 +370,7 @@ func force_leave() -> void:
 	_pending = Callable()
 	_set_fade(0.0)
 	_entered = &""
-	_apply_leave(0.0)
+	_apply_leave()
 	entered_changed.emit(_entered)
 
 
@@ -410,6 +436,17 @@ func _apply_layout(old: StringName, duration: float, snap_content: bool) -> void
 	_update_membranes()
 
 
+# The dim's landing for a portal that appeared, went or resized: re-lay the ring
+# and take the signature then, so a second change made during the dim is seen
+# afterwards.
+func _relayout_portals() -> void:
+	if _entered == &"" or arrangement == null:
+		return
+	_layout_portals(0.0)
+	_signature = _make_signature()
+	_update_membranes()
+
+
 func _layout_portals(duration: float) -> void:
 	var ids := portal_ids()
 	var sizes: Array = []
@@ -429,17 +466,17 @@ func _restore_bounds(v: Node3D) -> void:
 			v.set_runtime_bounds(b, m)
 
 
-func _apply_leave(duration: float) -> void:
+# Puts the ring back at once; only ever called in full dark (or by force_leave).
+func _apply_leave() -> void:
 	if arrangement == null or _snap.is_empty():
 		return
 	for v: Node3D in arrangement.volumes():
 		v.set_portal_room(false)
-	arrangement.restore(_snap, duration)
+	arrangement.restore(_snap, 0.0)
 	arrangement.layout_locked = false
-	if duration <= 0.0:
-		for v: Node3D in arrangement.volumes():
-			if not v.is_closed and v.visible_state:
-				v.snap_fit()
+	for v: Node3D in arrangement.volumes():
+		if not v.is_closed and v.visible_state:
+			v.snap_fit()
 	_snap = {}
 	_signature = []
 	_update_membranes()
@@ -507,13 +544,16 @@ func tick(delta: float) -> void:
 	var room: Node3D = arrangement.volume(_entered)
 	if room == null or room.is_closed or not room.visible_state \
 			or (offline_check.is_valid() and bool(offline_check.call(_entered))):
-		force_leave()
+		_end_space_through_dim()
 		return
 	if _phase == Phase.IDLE:
 		var sig := _make_signature()
 		if sig != _signature:
-			_layout_portals(0.0)
-			_signature = sig
+			if reduced_motion:
+				_begin_dim(_relayout_portals)
+			else:
+				_layout_portals(EASE_SEC)
+				_signature = sig
 	_update_membranes()
 
 
@@ -561,8 +601,10 @@ static func distance_to_box(v: Node3D, p: Vector3) -> float:
 ## Call every frame with the head pose (world). With walk-through on and a space
 ## entered, the head inside a portal's box for DWELL_SEC enters it. After any
 ## enter the walk-through re-arms only once the head has been REARM_DISTANCE
-## outside every portal. Returns the id entered this call, or &"".
-func update_walkthrough(head_world: Vector3, heading_world: Vector3, delta: float) -> StringName:
+## outside every portal. `floor_world_y` is the floor (the XR origin's height),
+## as for `enter`. Returns the id entered this call, or &"".
+func update_walkthrough(head_world: Vector3, heading_world: Vector3, delta: float,
+		floor_world_y := 0.0) -> StringName:
 	if not walkthrough_enabled or _entered == &"" or _phase != Phase.IDLE:
 		_dwell = 0.0
 		_dwell_id = &""
@@ -596,7 +638,7 @@ func update_walkthrough(head_world: Vector3, heading_world: Vector3, delta: floa
 		return &""
 	_dwell = 0.0
 	_dwell_id = &""
-	return inside if enter(inside, head_world, heading_world) else &""
+	return inside if enter(inside, head_world, heading_world, floor_world_y) else &""
 
 
 func is_walkthrough_armed() -> bool:

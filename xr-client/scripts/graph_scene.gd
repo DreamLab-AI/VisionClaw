@@ -567,8 +567,10 @@ func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 	if ctrl == null or hit.is_empty() or _arrangement == null:
 		return
 	# While a space is entered the portal ring is laid out by SpacePortals; boxes
-	# are not moved or resized until the user leaves.
-	if _portals != null and _portals.is_entered():
+	# are not moved or resized until the user leaves, and that includes the dim
+	# back, when the space is already marked left but the ring is not yet restored.
+	if _portals != null and (_portals.is_entered() or _portals.arrangement_locked() \
+			or _portals.is_transitioning()):
 		return
 	var vid := StringName(hit["volume"])
 	var v: Node3D = _volumes.get(vid, null)
@@ -1401,7 +1403,10 @@ func _tick_portals(delta: float) -> void:
 	_portals.tick(delta)
 	var cam: XRCamera3D = _find_xr_camera()
 	if cam != null and _portals.walkthrough_enabled:
-		_portals.update_walkthrough(cam.global_position, -cam.global_transform.basis.z, delta)
+		# The same floor as a HUD Enter: the XR origin's height, not world zero.
+		var origin: XROrigin3D = _find_xr_origin()
+		var floor_y := 0.0 if origin == null else origin.global_position.y
+		_portals.update_walkthrough(cam.global_position, -cam.global_transform.basis.z, delta, floor_y)
 
 
 func _update_offline_labels() -> void:
