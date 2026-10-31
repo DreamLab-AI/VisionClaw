@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: inactive
 supersedes: []
 superseded_by: []
-verified_commit: 2c8e39d837b79b9c52b033f12da664fa6157c812
+verified_commit: 1c1ac674bc5e819924d4ac57b5130d7887f5af46
 verified_paths: [codescape, docs/PROTOCOL-registry.md]
 owner: jjohare
 review_trigger: a graphicle rev bump; any change to the V3 record, the V5 envelope or 0x23; Codescape gaining a compose service, a published port or a new egress target; a proposal to merge the workspace into the root
@@ -378,3 +378,24 @@ Re-verified 2026-10-30 at 17e3cdda0: `docs/PROTOCOL-registry.md` gained the prop
 Re-verified 2026-10-30 at 91fd83ced: `docs/PROTOCOL-registry.md` gained the `ontology_refs` bullet under the Codescape producer (ADR-2164 D3): an optional string key in the existing `initialGraphLoad` node `metadata` object, so no tag byte, no flag bit and no new wire format (Decision item 4 holds). The Codescape side is codescape `e3b76f6` (`codescape-ingest/src/annotations.rs`, a side table inside `Published`, `GET /api/graph/ontology-refs`), which adds no dependency: `Cargo.lock` and `crates/codescape-server/tests/isolation.rs` are unchanged, and the isolation suite passes (8 tests). Codescape still checks an IRI's shape only and never reads the KG, and the join happens in the XR client, so I1 and I10 hold with no new egress. The `codescape` submodule pin is still `c742770ce` at this commit; the pin bump to `e3b76f6` touches a governed path and needs its own re-verify. The claim holds.
 
 Re-verified 2026-10-30 at 2c8e39d83: the `codescape` submodule pin moves c742770 → e3b76f63e (ADR-2164: `codescape-ingest` reads `@ontology <iri>` annotations and `codescape-server` carries them in XR node metadata). The isolation rule holds: no root↔codescape crate or path dependency, `codescape-server/tests/isolation.rs` passes 8/8, Codescape `Cargo.lock` unchanged.
+
+## Close-out 2026-10-31
+
+The park trigger "P2 gate output committed" is met in the Codescape repository (ADR-0001 follow-on), on branch `adr-sprint/w5`, commit `0438f96e3` (source `0256a85`, formatting fix `865bb26`). The gates ran at Codescape `0256a85`/`865bb26`, two doc/ignore-only commits after the `e3b76f6` pinned by the gitlink at `verified_commit`; the P1 client gate and the P2 runs were at `865bb26`. The raw output, each with a header (date, host, rustc, source sha, lock sha256) and an `exit=` per command, is under `docs/evidence/{P0,P1,P2}/` there, indexed in `docs/evidence/README.md`:
+
+| Gate | Command | Result |
+|---|---|---|
+| P0 | `cargo test --locked -p codescape-model`; `-p codescape-server --test isolation` | 22 + 2 passed; isolation 8 passed (negative control, I1a, I10, I11); no graphicle in model or collab tree |
+| P1 Rust | `cargo fmt --all --check` | **exit=1** at `0256a85` (`voice/jev.rs`), kept as evidence; fixed in `865bb26`, re-run exit=0 |
+| P1 Rust | `cargo clippy --workspace --all-targets --locked -- -D warnings`; `cargo test --workspace --locked`; `RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --no-deps --locked` (command line recorded in the evidence, re-run at `0438f96`) | exit=0; 0 failed, 6 ignored (CUDA device tests) |
+| P1 client | `vitest run`; `vite build` | 86 passed (8 files, including the I9 isolation test); build exit=0 |
+| P2 | `CODESCAPE_GPU_TESTS=1 cargo test -p codescape-layout --features cuda -- --ignored gpu_conforms_to_cpu_oracle` (A2.1) | passed on an RTX 6000 Ada: GPU vs CPU k-NN overlap symbols 0.868 (floor 0.734 − 0.1), files 1.000 (floor 0.9) |
+| P2 | PTX refusal tests, egress unit tests | 15 and 4 passed (stale 172 B layout, fallback provenance, tag mismatch, arity drift refused) |
+
+`CARGO_TARGET_DIR` was the existing Codescape target, never the root `target/`. The P2 run used the 2026-10-17 `visionclaw-gpu` PTX (compiled, tag-matched), not the PTX the running service loads.
+
+**Status unchanged: `implementation_status: partial`, `activation_status: inactive`.** The decision is not wholly true. These remain open:
+- P2: no network-level egress test (A2.2, I8a stays rejected), the `docker inspect` no-`/vault` check is host-side, edit-to-visible ≤ 1 s is unmeasured, and the 100k step (≤ 5 ms) and cold-settle (≤ 10 s) targets were missed in A1.4 and not re-measured.
+- P3 (partly), P5 and P6 (TLS/NIP-98 on every route, published `:4100`) are not shown done.
+
+Activation is not promoted: this is a desk run in the container, not a receipt of the published deployment. The Codescape repository's own ADR-0001 records its activation separately. The submodule gitlink is deliberately not moved here; it should go to the Codescape commit above at merge time.
