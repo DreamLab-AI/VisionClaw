@@ -10,6 +10,7 @@ on:
       - 'AGENTS.md'
       - 'scripts/adr-index-gen.js'
       - 'scripts/adr-ratchet.sh'
+      - 'scripts/tests/adr-ratchet-evidence.test.sh'
       - '.github/workflows/docs-ci.yml'
   pull_request:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - 'AGENTS.md'
       - 'scripts/adr-index-gen.js'
       - 'scripts/adr-ratchet.sh'
+      - 'scripts/tests/adr-ratchet-evidence.test.sh'
 
 jobs:
   validate-adr-ledger:
@@ -32,6 +34,9 @@ jobs:
           fetch-depth: 0
       - name: Validate ADR frontmatter, supersession reciprocity, verified_commit staleness
         run: node scripts/adr-index-gen.js docs/adr --check
+      - name: adr-ratchet evidence gate self-test (ADR-2007: closing transitions need evidence_class and acceptance_boundary)
+        run: bash scripts/tests/adr-ratchet-evidence.test.sh
+
       - name: adr-ratchet (planning cycle 2026-09-21 — a new proposal must close a proposed one)
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

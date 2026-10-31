@@ -22,6 +22,14 @@
 # which exempts exactly the record whose number it names, and is printed so the
 # claim stays reviewable.
 #
+# Second rule, the evidence gate (ADR-2007): over the same range, any record
+# whose `implementation_status` becomes `complete`, or whose `activation_status`
+# becomes `live`, must carry a non-empty `evidence_class` and
+# `acceptance_boundary` at <head-rev>. The rule governs the closing EVENT, so
+# it needs no backfill and catches a pre-existing record being closed; the date
+# gate in adr-index-gen.cjs stays as a backstop for newly dated records. It is
+# not tied to ADR_RATCHET_UNTIL: the backlog rule may end, this one does not.
+#
 # Usage: scripts/adr-ratchet.sh <adr-dir> <base-rev> [<head-rev>]
 #   <base-rev> of all zeros (a new branch's push) or an unknown rev: skipped.
 #   ADR_RATCHET_UNTIL=YYYY-MM-DD  the rule's end date; after it the script
@@ -40,11 +48,13 @@ if [[ "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
   exit 0
 fi
 
-# decision_status from the first frontmatter block of <rev>:<path>.
-status_at() {
+# A frontmatter field from the first frontmatter block of <rev>:<path>.
+# Usage: field_at <rev> <path> <key>   (empty when absent)
+field_at() {
   git show "$1:$2" 2>/dev/null \
-    | awk 'NR==1 && $0!="---"{exit} /^---$/{n++; if(n==2) exit; next} n==1 && /^decision_status:/{sub(/^decision_status:[ \t]*/,""); gsub(/["'"'"' \t\r]/,""); print; exit}'
+    | awk -v key="$3" 'NR==1 && $0!="---"{exit} /^---$/{n++; if(n==2) exit; next} n==1 && index($0,key":")==1{sub("^"key":[ \t]*",""); gsub(/["'"'"'\r]/,""); sub(/[ \t]+$/,""); print; exit}'
 }
+status_at() { field_at "$1" "$2" decision_status | tr -d ' \t'; }
 
 is_adr() { [[ "$(basename "$1")" =~ ^ADR-[0-9]+.*\.md$ ]]; }
 
@@ -65,18 +75,46 @@ while IFS=$'\t' read -r kind path; do
   esac
 done < <(git diff --no-renames --name-status "$base" "$head" -- "$dir")
 
+# Evidence gate: closing transitions need evidence_class and acceptance_boundary.
+closing=() unevidenced=()
+while IFS=$'\t' read -r kind path; do
+  is_adr "$path" || continue
+  [[ "$kind" == A || "$kind" == M ]] || continue
+  impl_now="$(field_at "$head" "$path" implementation_status | tr -d ' \t')"
+  act_now="$(field_at "$head" "$path" activation_status | tr -d ' \t')"
+  impl_was=""; act_was=""
+  if [[ "$kind" == M ]]; then
+    impl_was="$(field_at "$base" "$path" implementation_status | tr -d ' \t')"
+    act_was="$(field_at "$base" "$path" activation_status | tr -d ' \t')"
+  fi
+  if [[ ( "$impl_now" == complete && "$impl_was" != complete ) || ( "$act_now" == live && "$act_was" != live ) ]]; then
+    closing+=("$path")
+    if [[ -z "$(field_at "$head" "$path" evidence_class)" || -z "$(field_at "$head" "$path" acceptance_boundary)" ]]; then
+      unevidenced+=("$path")
+    fi
+  fi
+done < <(git diff --no-renames --name-status "$base" "$head" -- "$dir")
+
 echo "adr-ratchet: $base..$head in $dir — added undecided ${#added[@]}, closed from proposed ${#closed[@]}, exempt ${#exempt[@]}, added decided ${#decided[@]}"
 for f in "${added[@]}"; do echo "  + $f ($(status_at "$head" "$f"))"; done
 for f in "${decided[@]}"; do echo "  · $f ($(status_at "$head" "$f") on arrival: not backlog)"; done
 for f in "${exempt[@]}"; do echo "  = $f (ADR-Ratchet trailer: documents cycle work)"; done
 for f in "${closed[@]}"; do echo "  ✓ $f ($(status_at "$base" "$f") → $(status_at "$head" "$f"))"; done
 
+echo "adr-ratchet: evidence gate — ${#closing[@]} record(s) became complete/live, ${#unevidenced[@]} without evidence_class/acceptance_boundary"
+for f in "${closing[@]}"; do echo "  ⇒ $f (closing transition)"; done
+if (( ${#unevidenced[@]} )); then
+  for f in "${unevidenced[@]}"; do echo "::error file=$f::adr-ratchet: $f became implementation_status complete or activation_status live without evidence_class and acceptance_boundary (ADR-2007)"; done
+  echo "ADR-RATCHET-FAIL"
+  exit 1
+fi
+
 if (( ${#added[@]} <= ${#closed[@]} )); then
   echo "ADR-RATCHET-OK"
   exit 0
 fi
 if [[ -n "$until" && "$(date -u +%F)" > "$until" ]]; then
-  echo "adr-ratchet: rule ended $until — reported, not enforced"
+  echo "adr-ratchet: backlog rule ended $until — reported, not enforced"
   echo "ADR-RATCHET-OK"
   exit 0
 fi

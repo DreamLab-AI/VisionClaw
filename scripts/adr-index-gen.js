@@ -28,6 +28,9 @@ const REQUIRED_FIELDS = [
   'owner', 'review_trigger', 'repo',
 ];
 
+// ADR-2007: evidence_class values (joined by '+'); acceptance_boundary is free text.
+const EVIDENCE_CLASSES = ['source', 'test', 'ci', 'deployment', 'runtime'];
+
 const ENUMS = {
   decision_status: ['proposed', 'accepted', 'rejected', 'superseded'],
   implementation_status: ['none', 'partial', 'complete'],
@@ -127,6 +130,14 @@ function main() {
         if (field in fm && fm[field] !== '' && !allowed.includes(fm[field])) {
           fail(`${rel}: '${field}' = '${fm[field]}' not in {${allowed.join(', ')}}`); errors++;
         }
+      }
+    }
+    if (!isTemplate && 'evidence_class' in fm && fm.evidence_class !== '') {
+      // ADR-2007: evidence_class is one or more of EVIDENCE_CLASSES joined by '+'.
+      const classes = String(fm.evidence_class).split('+').map(c => c.trim());
+      const bad = classes.filter(c => !EVIDENCE_CLASSES.includes(c));
+      if (bad.length) {
+        fail(`${rel}: 'evidence_class' = '${fm.evidence_class}' has '${bad.join(', ')}' not in {${EVIDENCE_CLASSES.join(', ')}} (join several with '+')`); errors++;
       }
     }
     for (const lf of ['supersedes', 'superseded_by']) {
