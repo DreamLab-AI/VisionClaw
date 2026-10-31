@@ -831,6 +831,272 @@ func test_scene_grip_is_refused_while_entered() -> void:
 	await get_tree().process_frame
 
 
+# --- R10 follow-ups (F2-F7) ----------------------------------------------------
+
+# One frame of everything the scene ticks, in the scene's order.
+func _step(p: Node3D, arr: Node3D) -> void:
+	arr.tick(DT)
+	p.tick(DT)
+	for id: StringName in IDS:
+		arr.volume(id).tick(DT)
+
+
+# Steps until `_world_state` first differs from `before`; returns the dim's
+# opacity on that frame, or -1.0 when the world never changed.
+func _alpha_at_first_change(p: Node3D, arr: Node3D, before: Array, frames := 120) -> float:
+	for i: int in frames:
+		_step(p, arr)
+		if _world_state(arr) != before:
+			return p.fade_alpha()
+	return -1.0
+
+
+func _dimmed_scene(reduced: bool) -> Dictionary:
+	var s := _scene()
+	var cam := Node3D.new()
+	add_child_autofree(cam)
+	s["p"].attach_fade(cam)
+	s["p"].reduced_motion = reduced
+	return s
+
+
+func test_room_loss_ends_the_space_through_the_dim() -> void:
+	for reduced: bool in [true, false]:
+		for cause: String in ["offline", "hidden", "closed"]:
+			var s := _dimmed_scene(reduced)
+			var arr: Node3D = s["arr"]
+			var p: Node3D = s["p"]
+			_enter(p, &"ontology")
+			_settle(p, arr, 1.5)
+			assert_false(p.is_transitioning())
+			match cause:
+				"offline":
+					_offline[&"ontology"] = true
+				"hidden":
+					arr.volume(&"ontology").request_visible(false)
+				"closed":
+					arr.volume(&"ontology").close()
+			var before := _world_state(arr)
+			var a := _alpha_at_first_change(p, arr, before)
+			var why := "room %s, reduced_motion=%s" % [cause, reduced]
+			assert_true(a >= 0.999, "the world changes only in full dark (alpha %.3f): %s" % [a, why])
+			assert_false(p.is_entered(), why)
+			_settle(p, arr, 0.5)
+			assert_false(arr.layout_locked, why)
+			assert_false(p.is_transitioning(), why)
+
+
+func test_room_loss_during_the_enter_dim_still_ends_in_the_dark() -> void:
+	var s := _dimmed_scene(true)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	var start: Dictionary = arr.snapshot()
+	_enter(p, &"ontology")
+	for i: int in 4:
+		_step(p, arr)
+	assert_true(p.fade_alpha() < 0.999 and p.is_transitioning(), "part-way into the dim")
+	var before := _world_state(arr)
+	_offline[&"ontology"] = true
+	assert_true(_alpha_at_first_change(p, arr, before) >= 0.999 or _world_state(arr) == before)
+	_settle(p, arr, 0.6)
+	assert_false(p.is_entered())
+	assert_false(arr.layout_locked)
+	assert_eq(arr.snapshot()["xf"], start["xf"], "the ring is back exactly")
+
+
+func test_room_loss_during_the_dim_back_restarts_from_the_current_alpha() -> void:
+	var s := _dimmed_scene(true)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"ontology")
+	var guard := 0
+	while p.fade_alpha() < 0.999 and guard < 100:
+		_step(p, arr)
+		guard += 1
+	_step(p, arr)
+	_step(p, arr)
+	assert_true(p.fade_alpha() < 0.999 and p.fade_alpha() > 0.0, "coming back from dark")
+	var a0: float = p.fade_alpha()
+	var before := _world_state(arr)
+	_offline[&"ontology"] = true
+	_step(p, arr)
+	assert_true(p.fade_alpha() >= a0 - 0.2, "the dim does not drop to clear: %.3f -> %.3f" % [a0, p.fade_alpha()])
+	assert_true(_alpha_at_first_change(p, arr, before) >= 0.999 or _world_state(arr) == before)
+	_settle(p, arr, 0.6)
+	assert_false(p.is_entered())
+
+
+func test_hiding_or_showing_a_portal_relayouts_through_the_dim() -> void:
+	var s := _dimmed_scene(true)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"ontology")
+	_settle(p, arr, 1.0)
+	arr.volume(&"knowledge").request_visible(false)
+	var a := _alpha_at_first_change(p, arr, _world_state(arr))
+	assert_true(a >= 0.999, "hiding a portal re-lays the ring only in the dark (alpha %.3f)" % a)
+	_settle(p, arr, 0.5)
+	assert_eq(p.portal_ids(), [&"codescape"] as Array[StringName])
+	var one: Transform3D = arr.volume(&"codescape").transform
+	arr.volume(&"knowledge").request_visible(true)
+	a = _alpha_at_first_change(p, arr, _world_state(arr))
+	assert_true(a >= 0.999, "showing one re-lays the ring only in the dark (alpha %.3f)" % a)
+	_settle(p, arr, 0.5)
+	assert_eq(p.portal_ids().size(), 2)
+	assert_false(arr.volume(&"codescape").transform.is_equal_approx(one), "the ring was re-laid")
+	var room: Node3D = arr.volume(&"ontology")
+	for pid: StringName in p.portal_ids():
+		var q: Node3D = arr.volume(pid)
+		assert_false(p.boxes_intersect(room.transform, room.bounds, q.transform, q.bounds), "%s clear of the room" % pid)
+
+
+func test_a_second_portal_change_during_the_relayout_dim_is_not_lost() -> void:
+	var s := _dimmed_scene(true)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"ontology")
+	_settle(p, arr, 1.0)
+	arr.volume(&"knowledge").request_visible(false)
+	for i: int in 3:
+		_step(p, arr)
+	arr.volume(&"codescape").request_visible(false)
+	_settle(p, arr, 1.0)
+	assert_eq(p.portal_ids().size(), 0)
+	assert_false(p.membranes.visible)
+
+
+func test_eased_relayout_when_motion_is_allowed() -> void:
+	var s := _dimmed_scene(false)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"ontology")
+	_settle(p, arr, 1.0)
+	var q: Node3D = arr.volume(&"codescape")
+	var from := q.transform.origin
+	arr.volume(&"knowledge").request_visible(false)
+	_step(p, arr)
+	_step(p, arr)
+	var early := (q.transform.origin - from).length()
+	assert_false(p.is_transitioning(), "no dim when motion is allowed")
+	assert_true(arr.is_easing(&"codescape"), "the portal eases")
+	_settle(p, arr, 1.0)
+	var total := (q.transform.origin - from).length()
+	assert_true(total > 0.5, "it did move (%.3f m)" % total)
+	assert_true(early < 0.25 * total, "and not in one frame (%.3f of %.3f m)" % [early, total])
+
+
+func test_leave_and_swap_always_go_through_the_dim_even_with_motion_allowed() -> void:
+	# E7 forbids an eased shrink, and leaving/swapping shrinks a room's content.
+	var s := _dimmed_scene(false)
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"knowledge")
+	_settle(p, arr, 1.5)
+	var entered := _world_state(arr)
+	assert_true(_enter(p, &"ontology", Vector3(-1.0, 1.6, 3.0)))
+	assert_true(p.is_transitioning(), "a swap dims")
+	assert_false(arr.is_easing(), "no ease machinery")
+	var a := _alpha_at_first_change(p, arr, entered)
+	assert_true(a >= 0.999, "the swap lands in full dark (alpha %.3f)" % a)
+	_settle(p, arr, 1.0)
+	entered = _world_state(arr)
+	assert_true(p.leave())
+	assert_true(p.is_transitioning(), "leaving dims")
+	assert_false(arr.is_easing())
+	a = _alpha_at_first_change(p, arr, entered)
+	assert_true(a >= 0.999, "leaving lands in full dark (alpha %.3f)" % a)
+	_settle(p, arr, 1.0)
+	assert_false(arr.layout_locked)
+	assert_false(p.is_transitioning())
+
+
+func test_mid_front_ease_enter_and_leave_restore_the_new_slots() -> void:
+	var s := _scene()
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	arr.bring_to_front(&"knowledge")
+	for i: int in 5:
+		arr.tick(DT)
+	assert_true(arr.is_easing(), "the Front ease is running")
+	_enter(p, &"ontology")
+	_settle(p, arr)
+	assert_true(p.leave())
+	_settle(p, arr)
+	for id: StringName in IDS:
+		assert_true(arr.volume(id).transform.is_equal_approx(VolumeArrangement.ring_transform(arr.slot_yaw(id))),
+			"%s lands on its new slot, not where the ease had got to" % id)
+
+
+func test_walkthrough_enter_uses_the_floor() -> void:
+	var s := _scene()
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	var args: Array = []
+	for m: Dictionary in p.get_script().get_script_method_list():
+		if m["name"] == "update_walkthrough":
+			args = m["args"]
+	assert_eq(args.size(), 4, "update_walkthrough takes the floor height")
+	if args.size() < 4:
+		return
+	p.walkthrough_enabled = true
+	var head := Vector3(0.0, 6.6, 0.0)
+	var fwd := Vector3(0.0, 0.0, -1.0)
+	assert_true(p.enter(&"knowledge", head, fwd, 5.0))
+	_settle(p, arr)
+	p.update_walkthrough(head, fwd, DT, 5.0)
+	var inside: Vector3 = arr.volume(p.portal_ids()[0]).global_position
+	var got := &""
+	for i: int in 60:
+		got = p.update_walkthrough(inside, fwd, DT, 5.0)
+		if got != &"":
+			break
+	assert_ne(got, &"", "the walk-through entered a portal")
+	_settle(p, arr)
+	var room: Node3D = arr.volume(got)
+	assert_almost_eq(room.position.y - room.bounds.y * 0.5, 5.0, 1.0e-3, "room floor on the origin's floor, not world 0")
+	for pid: StringName in p.portal_ids():
+		assert_almost_eq(arr.volume(pid).position.y, 5.0 + 1.6, 1.0e-3, "portals at eye height above that floor")
+
+
+func test_scene_grip_is_refused_during_the_leave_dim() -> void:
+	var scene := await _make_scene()
+	scene._portals.offline_check = func(_id: StringName) -> bool: return false
+	scene._shim_pending_start = false
+	scene._on_hud_control("volume_enter:knowledge")
+	_scene_settle(scene)
+	scene._on_hud_control("volume_leave")
+	assert_false(scene._portals.is_entered(), "already marked as left")
+	assert_true(scene._portals.arrangement_locked() or scene._portals.is_transitioning(), "but the ring is not back yet")
+	var ctrl := Node3D.new()
+	scene.add_child(ctrl)
+	var q: Node3D = scene._volumes[&"ontology"]
+	var before := q.transform
+	scene.begin_box_grip(ctrl, {"volume": &"ontology", "part": "frame", "handle": -1, "distance": 1.0, "world_pos": q.global_position})
+	assert_eq(scene._box_grab_vid, &"", "no grab while the ring is being restored")
+	assert_eq(q.transform, before)
+	ctrl.queue_free()
+	scene.queue_free()
+	await get_tree().process_frame
+
+
+func test_portals_never_meet_each_other_at_the_maximum_count() -> void:
+	var P = _portals_script()
+	var heading := Vector3(0.0, 0.0, -1.0)
+	for edge: float in [1.0, 2.5, 4.0]:
+		var n: int = P.MAX_PORTALS
+		var sizes: Array = []
+		for i: int in n:
+			sizes.append(Vector3(edge, edge, edge))
+		var room_xf: Transform3D = P.room_transform(Vector3.ZERO, heading, P.ROOM_BOUNDS)
+		var xfs: Array[Transform3D] = P.portal_layout(Vector3.ZERO, heading, P.ROOM_BOUNDS, sizes, 1.6)
+		assert_eq(xfs.size(), n)
+		for i: int in n:
+			assert_false(P.boxes_intersect(room_xf, P.ROOM_BOUNDS, xfs[i], sizes[i]), "portal %d clear of the room (%.1f m boxes)" % [i, edge])
+			for j: int in range(i + 1, n):
+				assert_false(P.boxes_intersect(xfs[i], sizes[i], xfs[j], sizes[j]),
+					"portals %d and %d clear of each other (%.1f m boxes, %d portals)" % [i, j, edge, n])
+
+
 class FakeBudget extends RefCounted:
 	var seen: Array = []
 	func set_volume_weights(w: Dictionary) -> void:
