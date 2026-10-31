@@ -49,10 +49,12 @@ if [[ "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
 fi
 
 # A frontmatter field from the first frontmatter block of <rev>:<path>.
+# awk drains its input rather than exiting early: an early exit closes the pipe and, under
+# pipefail, a record larger than the pipe buffer then fails the command with SIGPIPE (141).
 # Usage: field_at <rev> <path> <key>   (empty when absent)
 field_at() {
   git show "$1:$2" 2>/dev/null \
-    | awk -v key="$3" 'NR==1 && $0!="---"{exit} /^---$/{n++; if(n==2) exit; next} n==1 && index($0,key":")==1{sub("^"key":[ \t]*",""); gsub(/["'"'"'\r]/,""); sub(/[ \t]+$/,""); print; exit}'
+    | awk -v key="$3" 'done{next} NR==1 && $0!="---"{done=1; next} /^---$/{n++; if(n==2) done=1; next} n==1 && index($0,key":")==1{sub("^"key":[ \t]*",""); gsub(/["'"'"'\r]/,""); sub(/[ \t]+$/,""); print; done=1}'
 }
 status_at() { field_at "$1" "$2" decision_status | tr -d ' \t'; }
 

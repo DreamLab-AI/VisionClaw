@@ -54,4 +54,12 @@ git reset -q --hard "$base"
 rec complete live "";                                                                          step c6; base2="$(git rev-parse HEAD)"
 rec complete live $'owner2: later edit';                                                       step c7
 base="$base2" expect "record already complete and live is not a transition" 0
+# A record longer than the pipe buffer: awk stops reading at the end of the frontmatter, so a
+# bare `git show | awk` dies of SIGPIPE under pipefail (exit 141) on a big file.
+rec partial inactive "";                                                                       step c8; base3="$(git rev-parse HEAD)"
+rec complete inactive $'evidence_class: source\nacceptance_boundary: local only'; yes 'padding line to push the record past the 64 KiB pipe buffer' | head -2000 >> adr/ADR-9001-x.md; step c9
+base="$base3" expect "large record closed with both fields passes (no SIGPIPE)" 0
+git reset -q --hard "$base3"
+rec complete inactive ""; yes 'padding line to push the record past the 64 KiB pipe buffer' | head -2000 >> adr/ADR-9001-x.md; step c10
+base="$base3" expect "large record closed without fields fails (no SIGPIPE)" 1
 exit $fails
