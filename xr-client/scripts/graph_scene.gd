@@ -3060,6 +3060,10 @@ func _tick_frame_budget(delta: float) -> void:
 			if c > 0:
 				calls += 1
 		var v: Node3D = _volumes.get(vid, null)
+		# The volume's own frame (and handle markers) are draw calls outside the
+		# node and edge instances; the extras' tier 2 ribbons reuse that call.
+		if v != null and v.has_method("overhead_draw_calls"):
+			calls += int(v.overhead_draw_calls())
 		volumes[vid] = src.demand() if v != null and v.visible_state else {"nodes": 0, "edges": 0}
 	var layers := sum.duplicate()
 	layers["hulls"] = _parity.hull_count if _parity != null else 0

@@ -8,8 +8,8 @@ extends Node3D
 ##   0  off
 ##   1  static observatory sky (a sky shader on a copy of the Environment):
 ##      0 triangles, 0 draw calls; per-pixel work on background pixels only
-##   2  ribbon volume frames (emulated_volume.gd): 24 triangles a frame, one
-##      draw call a frame, replacing the 1 px lines
+##   2  ribbon volume frames (emulated_volume.gd): 24 triangles a frame, in the
+##      frame's own draw call (the scene counts it), replacing the 1 px lines
 ##   3  128 ambient motes: one MultiMesh, 128 triangles, 1 draw call
 ##   4  512 ambient motes: the same MultiMesh and call, 512 triangles
 ##
@@ -56,6 +56,11 @@ const MOTE_SEED: int = 20261031
 const PROBE_FRAMES: int = 120
 ## How often the demand is renewed and the grant applied.
 const APPLY_SEC: float = 0.25
+## In GPU mode, this many consecutive zero readings (about 2 s at 90 Hz) mean the
+## timer has stopped reporting: the controller falls back to frame time.
+const GPU_ZERO_FALLBACK_FRAMES: int = 180
+## The fall-back ceiling: frame time can only vouch for the ribbons.
+const FRAME_FALLBACK_MAX_TIER: int = 2
 
 signal tier_applied(tier: int)
 
@@ -77,21 +82,29 @@ var _forced_tier: int = -1
 var _governor: Governor
 var _probe_frames: int = 0
 var _probe_nonzero: int = 0
+var _gpu_zero_run: int = 0
 var _apply_accum: float = APPLY_SEC
 var _measuring: bool = false
 var _viewport_rid: RID
 var _last_wanted: int = -1
 var _spec: Dictionary = {}
+## One allocator-table object for cost lookups (RefCounted; made once in _ready).
+var _fb: Object = null
 
 
 ## The tier governor: pure arithmetic over a stream of load samples, so it is
 ## tested with synthetic series. Samples are GPU ms ("gpu") or frame ms
 ## ("frame"). Once a window of `window_sec` has filled, its p95 decides:
-##   * above `down_ms`: step down at once, and double the climb hold-off
-##     (up to BACKOFF_MAX), so a tier that does not fit is not retried quickly;
+##   * above `down_ms`: step down at once (never below `min_tier`), and double
+##     the climb hold-off (up to BACKOFF_MAX), so a tier that does not fit is
+##     not retried quickly;
 ##   * below `up_ms` for `up_hold_sec x backoff` of consecutive windows: step up
 ##     one tier;
 ##   * in between: hold, and restart the climb count.
+## The floor is TIER_SKY: the sky shader replaces the ProceduralSky draw, so it
+## costs no pass, no triangle and no call, and dropping it would free nothing
+## but would swap the whole background in both eyes in one frame. Only low cost
+## (`wanted_tier`) and XR_EYE_CANDY=0 take the sky away.
 ## The hold must exceed the pass's OTHER_PEAK_SEC (2 s) so a new tier's
 ## triangles have settled in the budget before the next step is judged.
 class Governor:
@@ -102,6 +115,8 @@ class Governor:
 	const BACKOFF_DECAY_SEC: float = 60.0
 
 	var tier: int = 1
+	## The lowest tier the governor will request (the free sky).
+	var min_tier: int = 1
 	var max_tier: int = 4
 	var down_ms: float = 8.0
 	var up_ms: float = 5.5
@@ -161,7 +176,7 @@ class Governor:
 			_calm = 0.0
 			_since_down = 0.0
 			backoff = minf(backoff * 2.0, BACKOFF_MAX)
-			if tier > 0:
+			if tier > min_tier:
 				tier -= 1
 				steps["down"] = int(steps["down"]) + 1
 				return true
@@ -183,6 +198,7 @@ class Governor:
 
 func _ready() -> void:
 	name = "EyeCandy"
+	_fb = ClassDB.instantiate("FrameBudget") if ClassDB.class_exists("FrameBudget") else null
 	_spec = _read_spec()
 	var forced := OS.get_environment("XR_EYE_CANDY").to_lower().strip_edges()
 	if forced in ["off", "false"]:
@@ -270,19 +286,24 @@ func applied_cost() -> Vector2i:
 
 
 func cost_of(tier: int, frames: int) -> Vector2i:
-	var fb: Object = _frame_budget_object()
-	if fb != null:
-		var c: PackedInt32Array = fb.extras_cost(tier, frames)
+	if _fb != null:
+		var c: PackedInt32Array = _fb.extras_cost(tier, frames)
 		return Vector2i(int(c[0]), int(c[1]))
-	# Library absent (previews): the same table, locally.
+	return fallback_cost(tier, frames)
+
+
+## Library absent (previews): the allocator's table, locally. Ribbons replace
+## the 1 px lines in the frame's own call, which the scene counts, so tier 2 adds
+## triangles and no call; the motes are one MultiMesh and one call.
+static func fallback_cost(tier: int, frames: int) -> Vector2i:
 	var tris: int = 0
 	var calls: int = 0
-	var f: int = mini(frames, 8)
-	if tier >= TIER_FRAMES:
+	var t: int = clampi(tier, 0, MAX_TIER)
+	var f: int = clampi(frames, 0, 8)
+	if t >= TIER_FRAMES:
 		tris += f * FRAME_RIBBON_TRIS
-		calls += f
-	if tier >= TIER_MOTES_LOW:
-		tris += MOTES_HIGH if tier >= TIER_MOTES_HIGH else MOTES_LOW
+	if t >= TIER_MOTES_LOW:
+		tris += MOTES_HIGH if t >= TIER_MOTES_HIGH else MOTES_LOW
 		calls += 1
 	return Vector2i(tris, calls)
 
@@ -315,17 +336,41 @@ func _probe_or_feed(delta: float) -> void:
 		if _viewport_rid.is_valid() and RenderingServer.viewport_get_measured_render_time_gpu(_viewport_rid) > 0.0:
 			_probe_nonzero += 1
 		if _probe_frames >= PROBE_FRAMES:
-			signal_mode = "gpu" if _probe_nonzero > 0 else "frame"
-			_governor = Governor.gpu_mode() if signal_mode == "gpu" else Governor.frame_mode(_frame_budget_ms())
-			_governor.tier = mini(_governor.tier, TIER_SKY)
+			_finish_probe()
 		return
-	var sample: float = delta * 1000.0
 	if signal_mode == "gpu":
-		sample = RenderingServer.viewport_get_measured_render_time_gpu(_viewport_rid)
-		if sample <= 0.0:
-			return # a late or missing result is not evidence of an idle GPU
+		_feed_gpu(RenderingServer.viewport_get_measured_render_time_gpu(_viewport_rid), delta)
+	elif _forced_tier < 0:
+		_governor.feed(delta * 1000.0, delta)
+
+
+## Decide the signal once the probe has watched PROBE_FRAMES frames. GPU time is
+## trusted only if most of them read nonzero: one stray reading is not a timer.
+func _finish_probe() -> void:
+	signal_mode = "gpu" if _probe_nonzero * 2 > _probe_frames else "frame"
+	_governor = Governor.gpu_mode() if signal_mode == "gpu" else Governor.frame_mode(_frame_budget_ms())
+	_governor.tier = mini(_governor.tier, TIER_SKY)
+	_gpu_zero_run = 0
+
+
+## One GPU-time reading in GPU mode. A zero is a late or missing result, never
+## evidence of an idle GPU, so it is not fed. But a timer that stays at zero
+## (it never reported on the XR viewport, or it died after a climb) would leave
+## the tier unmanaged: after GPU_ZERO_FALLBACK_FRAMES in a row, switch to frame
+## time and cap the tier at the ribbons.
+func _feed_gpu(sample_ms: float, delta: float) -> void:
+	if sample_ms <= 0.0:
+		_gpu_zero_run += 1
+		if _gpu_zero_run > GPU_ZERO_FALLBACK_FRAMES:
+			var held: int = _governor.tier
+			signal_mode = "frame"
+			_governor = Governor.frame_mode(_frame_budget_ms())
+			_governor.tier = clampi(held, _governor.min_tier, FRAME_FALLBACK_MAX_TIER)
+			_gpu_zero_run = 0
+		return
+	_gpu_zero_run = 0
 	if _forced_tier < 0:
-		_governor.feed(sample, delta)
+		_governor.feed(sample_ms, delta)
 
 
 func _set_measuring(on: bool) -> void:
@@ -338,6 +383,7 @@ func _set_measuring(on: bool) -> void:
 			signal_mode = "pending"
 			_probe_frames = 0
 			_probe_nonzero = 0
+			_gpu_zero_run = 0
 
 
 func _frame_budget_ms() -> float:
@@ -394,16 +440,9 @@ func _mote_count(high: bool) -> int:
 
 
 func _read_spec() -> Dictionary:
-	var fb: Object = _frame_budget_object()
-	if fb != null and fb.has_method("extras_spec"):
-		return fb.extras_spec()
+	if _fb != null and _fb.has_method("extras_spec"):
+		return _fb.extras_spec()
 	return {"motes_low": MOTES_LOW, "motes_high": MOTES_HIGH, "frame_tris": FRAME_RIBBON_TRIS, "mote_tris": 1}
-
-
-func _frame_budget_object() -> Object:
-	if ClassDB.class_exists("FrameBudget"):
-		return ClassDB.instantiate("FrameBudget")
-	return null
 
 
 func _budget_pass() -> Object:

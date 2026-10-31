@@ -565,7 +565,11 @@ func _apply_frame_budget() -> void:
 	var caps: Dictionary
 	if candy_tier >= 0:
 		caps = FrameBudget.new().allocate_with_extras(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,
-			GRAPH_DRAW_CALLS + _other_dc, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots,
+			# the scene counts each volume frame's call (overhead_draw_calls), as
+			# GraphScene._tick_frame_budget does; the frames were added after the
+			# calibration, so _other_dc does not hold them. No volume is focused here,
+			# so there is no handle-marker call.
+			GRAPH_DRAW_CALLS + _other_dc + _candy_frames_made, int(demand["cloud_rows"]), int(demand["route_rows"]), int(demand["route_sidecar"]), ring_slots,
 			candy_tier, _candy_frames_made)
 	else:
 		caps = FrameBudget.new().allocate(nodes, edges, hulls, int(_hull_report.get("triangles", 0)), 0, _other_tris,

@@ -149,7 +149,7 @@ pub struct ExtrasDemand {
 /// |------|------|-----------|------------|
 /// | 0 | nothing | 0 | 0 |
 /// | 1 | static gradient sky with fixed stars, on the Environment | 0 | 0 |
-/// | 2 | ribbon volume frames | 24 a frame | 1 a frame |
+/// | 2 | ribbon volume frames | 24 a frame | 0 (the frame's own call is counted by the scene) |
 /// | 3 | 128 ambient motes | 128 | 1 |
 /// | 4 | 512 ambient motes | 512 | 1 (the same call) |
 ///
@@ -162,8 +162,9 @@ pub fn extras_cost(tier: usize, frames: usize) -> (usize, usize) {
     let mut tris = 0;
     let mut calls = 0;
     if tier >= 2 {
+        // The ribbons replace the 1 px lines in the same draw call, and the
+        // scene counts that call (`overhead_draw_calls`), so tier 2 adds none.
         tris += frames * FRAME_RIBBON_TRIS;
-        calls += frames;
     }
     if tier >= 3 {
         let motes = if tier >= 4 { MOTES_HIGH } else { MOTES_LOW };
@@ -1280,9 +1281,9 @@ mod tests {
     fn extras_tiers_cost_what_the_constants_say() {
         assert_eq!(extras_cost(0, 3), (0, 0));
         assert_eq!(extras_cost(1, 3), (0, 0), "the sky is the Environment's: no triangle, no call");
-        assert_eq!(extras_cost(2, 3), (3 * FRAME_RIBBON_TRIS, 3), "one call and 12 quads a frame");
-        assert_eq!(extras_cost(3, 3), (3 * FRAME_RIBBON_TRIS + MOTES_LOW * MOTE_TRIS, 4));
-        assert_eq!(extras_cost(4, 3), (3 * FRAME_RIBBON_TRIS + MOTES_HIGH * MOTE_TRIS, 4));
+        assert_eq!(extras_cost(2, 3), (3 * FRAME_RIBBON_TRIS, 0), "the ribbons replace the lines in the frame's own call, which the scene counts");
+        assert_eq!(extras_cost(3, 3), (3 * FRAME_RIBBON_TRIS + MOTES_LOW * MOTE_TRIS, 1));
+        assert_eq!(extras_cost(4, 3), (3 * FRAME_RIBBON_TRIS + MOTES_HIGH * MOTE_TRIS, 1));
         assert_eq!(extras_cost(9, 3), extras_cost(EXTRAS_MAX_TIER, 3), "tier clamps");
         assert_eq!(
             extras_cost(4, 99),
@@ -1378,15 +1379,18 @@ mod tests {
         assert_eq!(c.draw_calls, 48 + c.extras_draw_calls);
         assert!(c.draw_calls <= DRAW_CALL_LIMIT && !c.over_budget);
         assert_eq!(c.extras_tier, 2, "no frames: tiers 1 and 2 cost nothing; motes need 1 call");
-        // And with three frames the ribbons' calls do not fit either.
+        // Three frames: their calls are the scene's, already inside `draw_calls`
+        // (44 includes them), so tier 2 adds none and is granted; the motes'
+        // call would still be the 49th.
         let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
         let c = allocate_with_extras(&g, &full_memory(), &x);
-        assert_eq!(c.extras_tier, 1);
+        assert_eq!(c.extras_tier, 2, "the ribbons replace the lines: no call of their own");
+        assert_eq!(c.extras_draw_calls, 0);
         assert_eq!(c.draw_calls, 48);
-        // At the limit already: nothing paid for, the layer reports no overrun it caused.
+        // At the limit already: nothing paid for in calls; the layer reports no overrun it caused.
         let g = GraphDemand { draw_calls: 48, ..g };
         let c = allocate_with_extras(&g, &MemoryDemand::default(), &x);
-        assert_eq!((c.extras_tier, c.extras_draw_calls, c.draw_calls), (1, 0, 48));
+        assert_eq!((c.extras_tier, c.extras_draw_calls, c.draw_calls), (2, 0, 48));
         assert!(!c.over_budget);
     }
 

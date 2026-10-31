@@ -316,6 +316,27 @@ func test_drawn_extras_are_not_charged_twice() -> void:
 	assert_eq(int(q.last_report["other_tris"]), 2000 + drawn, "and counts it when nobody reports it")
 
 
+func test_the_extras_demand_is_clamped_to_the_allocators_top_tier() -> void:
+	var spec: Dictionary = FrameBudget.new().extras_spec()
+	var p = FrameBudgetPass.new()
+	p.set_extras_demand(99, 2)
+	assert_eq(int(p.extras_demand["tier"]), int(spec["max_tier"]))
+	p.set_extras_demand(-3, -1)
+	assert_eq(p.extras_demand, {"tier": 0, "frames": 0})
+
+
+func test_the_pass_keeps_no_unread_extras_call_state() -> void:
+	var p = FrameBudgetPass.new()
+	assert_false("_extras_calls" in p, "the extras' calls are already in caps.draw_calls")
+	p.set_extras_applied(10, 5)
+	assert_eq(p._extras_tris, 10)
+
+
+func test_one_is_the_neutral_portal_weight() -> void:
+	var src: String = FileAccess.get_file_as_string("res://scripts/frame_budget_pass.gd")
+	assert_true(src.contains("1.0 is the neutral weight; all-1.0 is exactly `{}`"))
+
+
 func test_extras_constants_match_the_allocator() -> void:
 	var spec: Dictionary = FrameBudget.new().extras_spec()
 	var EyeCandy = load("res://scripts/eye_candy.gd")

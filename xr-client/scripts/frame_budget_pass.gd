@@ -41,6 +41,8 @@ const NodeLod := preload("res://scripts/node_lod.gd")
 const BUDGET_SEC: float = 0.25
 const DEFAULT_MAX_HULLS: int = 32
 const OTHER_PEAK_SEC: float = 2.0
+## Highest extras tier; mirrors rust/src/frame_budget.rs EXTRAS_MAX_TIER (checked in test_frame_budget_pass.gd).
+const EXTRAS_MAX_TIER: int = 4
 ## Burst pool slots reserved while memory_flash bursts are on and the cloud is
 ## hidden (memory_bursts.gd POOL_SIZE; with the cloud shown bursts restyle rows).
 const BURST_POOL: int = 64
@@ -69,7 +71,6 @@ var _bucket_max: int = 0                 # peak other_tris since the last pass
 var _peaks: Array[int] = []              # per-pass peaks over OTHER_PEAK_SEC
 var _last_volumes: Dictionary = {}       # the volumes of the last tick, for an immediate re-split
 var _extras_tris: int = 0                # triangles the extras drew last frame (reported by the controller)
-var _extras_calls: int = 0
 
 
 ## Call every frame. `layers`: instance counts drawn last frame — gems, faded,
@@ -141,8 +142,8 @@ func tick(delta: float, client: RefCounted, layers: Dictionary, memory: Object, 
 ## space). `weights`: volume_id → float ≥ 0; the share of the proportional step
 ## is drawn × weight. A volume missing from the dictionary weighs 1.0; NaN,
 ## negative and non-numeric values weigh 0, which still keeps the GEM_MIN floor.
-## An empty dictionary, or weights all equal, gives exactly the unweighted
-## split. Takes effect on the last seen volumes at once.
+## 1.0 is the neutral weight; all-1.0 is exactly `{}`. An empty dictionary, or
+## weights all equal, gives exactly the unweighted split. Takes effect on the last seen volumes at once.
 func set_volume_weights(weights: Dictionary) -> void:
 	var clean: Dictionary = {}
 	for id: Variant in weights:
@@ -160,13 +161,15 @@ func set_volume_weights(weights: Dictionary) -> void:
 
 ## The visual extras' request for the next pass (see the file header).
 func set_extras_demand(tier: int, frames: int) -> void:
-	extras_demand = {"tier": clampi(tier, 0, 8), "frames": maxi(0, frames)}
+	extras_demand = {"tier": clampi(tier, 0, EXTRAS_MAX_TIER), "frames": maxi(0, frames)}
 
 
 ## What the extras drew last frame, so the measured total is not charged twice.
-func set_extras_applied(tris: int, draw_calls: int) -> void:
+func set_extras_applied(tris: int, _draw_calls: int) -> void:
+	# `draw_calls` is informational: the scene already counts every call the extras
+	# make (the frames' via overhead_draw_calls, the motes' as the extras' own,
+	# which the allocator prices), so none is taken out of `caps.draw_calls`.
 	_extras_tris = maxi(0, tris)
-	_extras_calls = maxi(0, draw_calls)
 
 
 ## Share the current near caps between `volumes` (volume_id → {"nodes",

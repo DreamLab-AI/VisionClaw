@@ -1141,7 +1141,7 @@ when the graph has spent every spare triangle:
 |------|------|-----------|------------|-----------|
 | 0 | nothing | 0 | 0 | none |
 | 1 | static observatory sky (`eye_candy_sky.gdshader`, a sky shader on a copy of the Environment: same colours, a faint horizon glow, about 2 000 fixed stars) | 0 | 0 | background pixels only, no overdraw |
-| 2 | ribbon volume frames (`frame_ribbon.gdshader`; `emulated_volume.gd`): 12 camera-facing edge quads of constant angular width (0.15°) with a soft falloff, replacing the 1 px lines | 24 a frame | 1 a frame (the frame's existing call) | alpha-blended, about 2–4 px wide |
+| 2 | ribbon volume frames (`frame_ribbon.gdshader`; `emulated_volume.gd`): 12 camera-facing edge quads of constant angular width (0.15°) with a soft falloff, replacing the 1 px lines | 24 a frame | 0 (the frame's own call is counted by the scene, `overhead_draw_calls`) | alpha-blended, about 2–4 px wide |
 | 3 | 128 ambient motes (`ambient_mote.gdshader`): one MultiMesh of single-triangle sprites, positioned once, animated only in the vertex shader | 128 | 1 | additive, ≈ 22 mm sprites |
 | 4 | 512 motes (the same MultiMesh and call) | 512 | 1 | as tier 3 |
 
@@ -1150,7 +1150,8 @@ procedural sky, and the shader replaces that draw, so what it adds is the star h
 no new pass, no overdraw and no triangle. (The nodes already have rim shading, `gem.tres` and
 `node_impostor.gdshader`; it was not touched.) The costs are `FrameBudget.extras_cost(tier, frames)`; GUT
 checks the built meshes against them. At tier 4
-with three volumes the extras are 584 triangles and 4 draw calls.
+with three volumes the extras are 584 triangles and 1 draw call (the motes'); the three frames' calls
+are the scene's, with lines or ribbons.
 
 **The layer.** `allocate_with_extras` prices the extras **last**, after the graph's cylinder edges, so
 graph, cloud, route and burst caps are exactly `allocate`'s whatever the extras ask for (a Rust property
@@ -1193,13 +1194,17 @@ therefore probes at start-up on its own viewport and chooses its signal:
 | 1k fixture | tier 3 | 3 | 80 | 37 / 47460 | 37 / 47042 | 0.66 / 0.75 | 0.293 / 0.295 |
 | 1k fixture | tier 4 | 4 | 80 | 37 / 47844 | 37 / 47426 | 0.66 / 0.76 | 0.294 / 0.295 |
 
-At production density the allocator grants tier 1 (the sky) only: 6 triangles are left under the 95 000 limit. Tier 4 there would cost 584 triangles, about two of its 35 gem nodes (one near-detail step is 288 triangles), which is the trade a later change can take by giving the extras an allowance ahead of the graph's near detail (it would break the "extras never change the other caps" property). The allocator's and the measured counts agree from tier 2 up; at tiers 0–1 the allocator is two calls short of the measured count, because it has never counted the line frames' calls (`overhead_draw_calls` is not read by the budget pass) and the extras layer starts counting them at tier 2. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
+At production density the allocator grants tier 1 (the sky) only: 6 triangles are left under the 95 000 limit. Tier 4 there would cost 584 triangles, about two of its 35 gem nodes (one near-detail step is 288 triangles), which is the trade a later change can take by giving the extras an allowance ahead of the graph's near detail (it would break the "extras never change the other caps" property). The allocator-calls column above was taken before the scene counted the volume frames' calls, so at tiers 0–1 it is two calls short of the measured count and at tier 2 up the extras layer carried the frames' calls. Since the hook (`GraphScene._tick_frame_budget` adds each volume's `overhead_draw_calls()`; `extras_cost` tier 2 charges none; the benchmark passes `GRAPH_DRAW_CALLS + _other_dc + frames`) every tier counts the frames once, and the allocator's call count equals the scene's by construction at tiers 0–2; those cells are not re-measured here. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
 
 **Governor.** A window of one second; its p95 decides. Above the drop limit (GPU 8 ms, the PRD-008 §6
 figure; frame mode 1.15 × the refresh interval): step down one tier at once and double the climb hold-off
 (up to ×8). Below the climb limit (5.5 ms; 1.03 ×) for 8 s × hold-off (20 s in frame mode) of consecutive
 windows: step up one tier. In between: hold. The hold outlasts the pass's 2 s peak hold so a new tier has
-settled in the budget before the next step is judged. `XR_EYE_CANDY=auto|off|0..4` pins the request.
+settled in the budget before the next step is judged. The governor never requests below tier 1: the sky replaces
+the ProceduralSky draw and costs no pass, triangle or call, so dropping it would free nothing and swap the whole
+background in both eyes in one frame. Only low cost and `XR_EYE_CANDY=0` take it away. GPU time is trusted only
+if most of the 120 probe frames read nonzero; in GPU mode, about 2 s (more than 180 frames) of consecutive zero
+readings switch the controller to frame time with the tier capped at 2. `XR_EYE_CANDY=auto|off|0..4` pins the request.
 
 **Comfort.** Reduced motion is on by default and the extras are designed to look right with it on: the sky
 is static (no `TIME`), the ribbons are static, the motes hold still (no drift, no twinkle; `motion = 0`).
@@ -1212,13 +1217,16 @@ materials are.
 volume (existing and later) by `EmulatedVolume.set_ribbon_frames(tree, on)`. A frame is hidden while the
 volume is hidden, immersive, a portal room (`portal_room`, ADR-2166) or `set_frame_hidden(true)` (a hook that
 holds whatever the volume's other state). Focus keeps its colour state.
-"One draw call" is per frame: each volume owns its frame, as before.
+"One draw call" is per frame: each volume owns its frame, as before, and the scene counts it
+(`GraphScene._tick_frame_budget` adds `overhead_draw_calls()` for every volume, tier 0 included).
 
 **Portal weights.** `FrameBudgetPass.set_volume_weights({volume_id: weight})` (called by `graph_scene.gd` on enter and leave,
 ADR-2166: entered 1.0, the others 0.15; all 1.0 on leave) makes the near-cap split
 `drawn × weight` instead of `drawn`; the `GEM_MIN` floor holds for every visible volume, a missing id weighs
 1.0, NaN and negatives weigh 0, and empty or all-equal weights give exactly the unweighted split
-(`split_near_caps_weighted`).
+(`split_near_caps_weighted`). 1.0 is the neutral weight; all-1.0 is exactly `{}`. At production density the
+floors are dealt before any weighting (35 gems, 7 cylinders), so the weights are mostly inert there; that is an
+open owner decision (ADR-2167).
 
 **Unverified.** Stereo (both eyes), the headset and fill rate in both eyes; the sky shader's behaviour under
 multiview; whether the GPU timer exists on the XR viewport. The numbers above are mono desktop.

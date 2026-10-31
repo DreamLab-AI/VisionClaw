@@ -9,6 +9,7 @@ const EyeCandy := preload("res://scripts/eye_candy.gd")
 const EmulatedVolume := preload("res://scripts/emulated_volume.gd")
 const VolumeScene := preload("res://scenes/EmulatedVolume.tscn")
 const Environment_ := preload("res://scripts/spatial_environment.gd")
+const GraphScene := preload("res://scripts/graph_scene.gd")
 
 
 class FakePass:
@@ -20,6 +21,21 @@ class FakePass:
 		demand.append([tier, frames])
 	func set_extras_applied(tris: int, calls: int) -> void:
 		applied.append([tris, calls])
+
+
+class FakeBudget:
+	extends RefCounted
+	var layers: Dictionary = {}
+	func tick(_delta: float, _client: RefCounted, l: Dictionary, _memory: Object, _measured: int, _bursts: bool = false, _volumes: Dictionary = {}) -> bool:
+		layers = l
+		return false
+
+
+class FakeSource:
+	extends RefCounted
+	var counts: Dictionary = {}
+	func demand() -> Dictionary:
+		return {"nodes": 0, "edges": 0}
 
 
 class FakeScene:
@@ -89,9 +105,29 @@ func test_governor_steps_down_at_once_on_a_loaded_window() -> void:
 	assert_eq(g.tier, 2, "p95 over the limit: one window is enough")
 	assert_eq(g.backoff, 2.0, "and the next climb waits twice as long")
 	_run(g, func(_s): return 9.5, 5)
-	assert_eq(g.tier, 0, "keeps stepping while it stays over")
+	assert_eq(g.tier, 1, "keeps stepping while it stays over, down to the free sky")
 	_run(g, func(_s): return 9.5, 3)
-	assert_eq(g.tier, 0, "never below 0")
+	assert_eq(g.tier, 1, "and no further")
+
+
+func test_a_loaded_governor_never_goes_below_the_sky() -> void:
+	# The sky replaces the ProceduralSky draw: it costs nothing, so dropping it
+	# frees nothing and swaps the whole background in one frame.
+	for g in [EyeCandy.Governor.gpu_mode(), EyeCandy.Governor.frame_mode(1000.0 / 90.0)]:
+		assert_eq(g.min_tier, EyeCandy.TIER_SKY)
+		g.tier = g.max_tier
+		_run(g, func(_s): return 40.0, 30)
+		assert_eq(g.tier, EyeCandy.TIER_SKY, "heavily loaded for 30 s")
+		assert_gt(int(g.steps["down"]), 0)
+		var downs: int = int(g.steps["down"])
+		_run(g, func(_s): return 40.0, 10)
+		assert_eq(int(g.steps["down"]), downs, "no step is reported below the floor")
+		assert_eq(g.tier, EyeCandy.TIER_SKY)
+	# Low cost still takes the sky away: that is the controller's, not the governor's.
+	var scene := _scene_with_env()
+	var c := _candy(scene)
+	c.set_comfort(true, true)
+	assert_eq(c.wanted_tier(), 0)
 
 
 func test_governor_does_not_flap_inside_the_hysteresis_band() -> void:
@@ -137,24 +173,147 @@ func test_frame_time_mode_is_conservative_and_capped() -> void:
 # ── tiers, cost and comfort ──
 
 func test_tiers_draw_what_the_allocator_table_says() -> void:
+	# Against the BUILT scene, not against the table itself: two real volume
+	# frames, the real mote MultiMesh, the real sky. applied_cost() reads the
+	# table, so it is not the oracle here.
 	assert_true(ClassDB.class_exists("FrameBudget"), "gdext loaded")
 	var scene := _scene_with_env()
+	var vols: Array[Node3D] = []
+	for i: int in 2:
+		var v: Node3D = VolumeScene.instantiate()
+		v.volume_id = StringName("cost%d" % i)
+		scene.add_child(v)
+		vols.append(v)
 	var c := _candy(scene)
 	c.set_comfort(true, false)
+	assert_eq(c._visible_frames(), 2)
 	var fb: Object = FrameBudget.new()
+	var motes: MultiMeshInstance3D = c.get_node("AmbientMotes")
+	var mote_tris: int = motes.multimesh.mesh.surface_get_array_len(0) / 3
+	var line_calls: int = 0
+	for v: Node3D in vols:
+		line_calls += v.overhead_draw_calls()
+	assert_eq(line_calls, 2, "each frame is one draw call as lines")
 	for tier: int in 5:
 		c.apply_tier(tier)
 		assert_eq(c.applied_tier, tier)
-		var want: PackedInt32Array = fb.extras_cost(tier, 0)
-		var got: Vector2i = c.applied_cost()
-		assert_eq(got, Vector2i(want[0], want[1]), "cost of tier %d with no frames" % tier)
-		var motes: MultiMeshInstance3D = c.get_node("AmbientMotes")
+		var built_tris: int = motes.multimesh.visible_instance_count * mote_tris if motes.visible else 0
+		var frame_calls: int = 0
+		for v: Node3D in vols:
+			if v.frame.visible:
+				built_tris += v.frame_triangles()
+				frame_calls += 1
+		# the extras' own calls: the motes' MultiMesh. The frames' calls are the
+		# scene's (overhead_draw_calls), the same with lines or ribbons.
+		var built_calls: int = 1 if motes.visible else 0
+		assert_eq(frame_calls, 2, "tier %d: the frames are still one call each" % tier)
+		var want: PackedInt32Array = fb.extras_cost(tier, 2)
+		assert_eq(Vector2i(built_tris, built_calls), Vector2i(want[0], want[1]), "built scene against the table at tier %d" % tier)
+		assert_eq(c.applied_cost(), Vector2i(want[0], want[1]))
 		var n: int = 0 if tier < 3 else (512 if tier == 4 else 128)
 		assert_eq(motes.visible, n > 0)
 		assert_eq(motes.multimesh.visible_instance_count, n, "motes at tier %d" % tier)
 		assert_eq(EmulatedVolume.ribbon_frames, tier >= 2)
 		var env: Environment = scene.get_node("WorldEnvironment").environment
 		assert_eq(env.sky == c._candy_sky, tier >= 1, "sky at tier %d" % tier)
+		var total_overhead: int = 0
+		for v: Node3D in vols:
+			total_overhead += v.overhead_draw_calls()
+		assert_eq(total_overhead, line_calls, "ribbons add no draw call over the lines")
+
+
+func test_the_fallback_table_equals_the_allocators() -> void:
+	assert_true(ClassDB.class_exists("FrameBudget"), "gdext loaded")
+	var fb: Object = FrameBudget.new()
+	for tier: int in 5:
+		for frames: int in 10:
+			var want: PackedInt32Array = fb.extras_cost(tier, frames)
+			assert_eq(EyeCandy.fallback_cost(tier, frames), Vector2i(want[0], want[1]), "tier %d, %d frames" % [tier, frames])
+	# And the instance without the library takes that branch.
+	var c: Node3D = autofree(EyeCandy.new())
+	c._fb = null
+	assert_eq(c.cost_of(2, 3), EyeCandy.fallback_cost(2, 3))
+
+
+func test_the_cost_table_object_is_made_once() -> void:
+	var scene := _scene_with_env()
+	var c := _candy(scene)
+	var fb: Object = c._fb
+	assert_not_null(fb)
+	c.apply_tier(3)
+	c.applied_cost()
+	c.cost_of(4, 2)
+	assert_same(c._fb, fb, "one FrameBudget for every lookup")
+
+
+func test_the_probe_picks_gpu_time_only_on_a_majority_of_nonzero_readings() -> void:
+	var c: Node3D = autofree(EyeCandy.new())
+	c._probe_frames = EyeCandy.PROBE_FRAMES
+	c._probe_nonzero = 1
+	c._finish_probe()
+	assert_eq(c.signal_mode, "frame", "one stray reading in 120 is not a timer")
+	c._probe_nonzero = EyeCandy.PROBE_FRAMES / 2
+	c._finish_probe()
+	assert_eq(c.signal_mode, "frame", "exactly half is not a majority")
+	c._probe_nonzero = EyeCandy.PROBE_FRAMES / 2 + 1
+	c._finish_probe()
+	assert_eq(c.signal_mode, "gpu")
+	assert_eq(c._governor.max_tier, 4)
+	assert_lte(c._governor.tier, EyeCandy.TIER_SKY)
+
+
+func test_a_gpu_timer_that_goes_quiet_falls_back_to_frame_time() -> void:
+	var c: Node3D = autofree(EyeCandy.new())
+	c.signal_mode = "gpu"
+	c._governor = EyeCandy.Governor.gpu_mode()
+	c._governor.tier = 4
+	for i: int in EyeCandy.GPU_ZERO_FALLBACK_FRAMES:
+		c._feed_gpu(0.0, 1.0 / 90.0)
+	assert_eq(c.signal_mode, "gpu", "not yet: 180 zeros in a row")
+	assert_eq(c._governor.tier, 4, "and a zero is never fed as an idle GPU")
+	assert_eq(int(c._governor.steps["up"]) + int(c._governor.steps["down"]), 0)
+	c._feed_gpu(0.0, 1.0 / 90.0)
+	assert_eq(c.signal_mode, "frame", "the 181st zero: the timer has stopped reporting")
+	assert_eq(c._governor.max_tier, 2, "frame time vouches for the ribbons at most")
+	assert_eq(c._governor.tier, 2, "tier 4 is cut to 2")
+	# A reading in between resets the run.
+	var d: Node3D = autofree(EyeCandy.new())
+	d.signal_mode = "gpu"
+	d._governor = EyeCandy.Governor.gpu_mode()
+	d._governor.tier = 3
+	for round: int in 3:
+		for i: int in 150:
+			d._feed_gpu(0.0, 1.0 / 90.0)
+		d._feed_gpu(4.0, 1.0 / 90.0)
+	assert_eq(d.signal_mode, "gpu", "a live reading restarts the count")
+	assert_eq(d._governor.tier, 3)
+
+
+func test_the_scene_counts_the_volume_frames_draw_calls_at_tier_0() -> void:
+	# Before the hook, _tick_frame_budget summed nodes, edges, agents, links and
+	# hulls only; the frames' calls were in the measured total but not in
+	# layers.draw_calls, at tiers 0 and 1.
+	var gs: Node3D = autofree(GraphScene.new())
+	var budget := FakeBudget.new()
+	gs._budget = budget
+	gs._binary_client = RefCounted.new()
+	var vols: Array[Node3D] = []
+	for i: int in 3:
+		var v: Node3D = VolumeScene.instantiate()
+		v.volume_id = StringName("tick%d" % i)
+		add_child_autofree(v)
+		vols.append(v)
+		gs._volumes[v.volume_id] = v
+		gs._sources[v.volume_id] = FakeSource.new()
+	assert_false(EmulatedVolume.ribbon_frames, "tier 0: line frames")
+	gs._tick_frame_budget(0.016)
+	assert_eq(int(budget.layers["draw_calls"]), 3, "three frames, three calls, at tier 0")
+	EmulatedVolume.set_ribbon_frames(get_tree(), true)
+	gs._tick_frame_budget(0.016)
+	assert_eq(int(budget.layers["draw_calls"]), 3, "ribbons reuse the same call: the extras add none")
+	vols[0].visible = false
+	gs._tick_frame_budget(0.016)
+	assert_eq(int(budget.layers["draw_calls"]), 2, "a hidden volume's frame is not drawn")
 
 
 func test_the_mote_mesh_costs_what_the_table_charges() -> void:
