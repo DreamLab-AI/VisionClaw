@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 17e3cdda0c51ad84d942c469c77814d915753313
-verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src]
+verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
 repo: visionclaw
@@ -310,3 +310,13 @@ Governed change since 2107637d6: `Cargo.toml` solid-pod-rs crates 0.5.0-alpha.13
 Re-verified 2026-10-30 at c75004696: `Cargo.toml` adds the member `crates/visionclaw-jev`, so the workspace is now **seventeen** members (`Cargo.toml:2-20`); `exclude` moved to `Cargo.toml:24` and is unchanged in content. The new crate depends on external crates only (serde, serde_json, async-trait, log, futures-util, tokio, reqwest; `crates/visionclaw-jev/Cargo.toml:12-19`), so no layer edge is added and nothing depends on `visionclaw-server` from it. The earlier note that no workspace member changed is superseded by this count; `docs/BASELINE-architecture.md` census updated in the same change. The decision and `partial` status hold.
 
 Re-verified 2026-10-30 at 17e3cdda0: `Cargo.toml` changed only in `[profile.dev-runtime]` (ADR-2156); workspace members and crate split unchanged, claim holds.
+
+## Close-out 2026-10-31
+
+**Closed: the machine check of dependency direction.** `crates/visionclaw-integration-tests/tests/layer_direction.rs` runs `cargo metadata --no-deps --offline` over the workspace and fails on (1) any workspace-internal edge (normal, build or dev) outside a per-crate allow-list, (2) any member depending on `visionclaw-server`, and (3) any member absent from the allow-list, so a new crate must declare its layer in the same change. The allow-list is the graph recorded in the 2026-10-19 amendment: `adapters`, `ontology` and `actors` on `domain`; `protocol` on `domain` and `wire`; `gpu` on `domain` and `analytics-oracle`; `vault` on `vault-core` and `jev`; everything else a leaf. A second test feeds the checker a synthetic upward edge, a root import and an unclassified member and asserts each is flagged. CI: the `rust-cpu` job's hermetic integration step now runs `--test layer_direction` (`.github/workflows/ci.yml`). `docs/BASELINE-architecture.md` ("Crate layout") records it.
+
+**Commands run:** `cargo test -p visionclaw-integration-tests --test layer_direction` → 2 passed, 0 failed.
+
+**Duplicated `protected_settings_actor.rs` / `voice_commands.rs`: not deleted.** Neither copy is dead. The root copies (148 and 276 lines) are the live ones (`crate::actors::protected_settings_actor` in `src/app_state.rs`; `crate::actors::voice_commands` in `speech_service`, `voice_tag_manager`, `speech_voice_integration`). The crate copies (349 and 422 lines) have no consumer outside the crate, but they are larger, different implementations with their own tests, not forwarding shims. Choosing which wins is the extraction decision itself, so it stays open.
+
+**Remains (status stays `partial`):** the actor move (`src/actors` 25 top-level files against 4 in the crate), reconciling the two diverged copies above, and incremental-build timing. The dependency direction is now enforced; module ownership is not.

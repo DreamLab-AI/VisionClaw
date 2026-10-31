@@ -7,7 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: e0f8cd896
+verified_commit: 8775359e37a394d1558bb8b5317d37a92973288e
+verified_paths: [src/uri/mod.rs, crates/visionclaw-domain/src/uri.rs, src/services/github_sync_service.rs]
 owner: jjohare
 review_trigger: any new persisted identifier namespace, or a decision to rewrite/retire the legacy urn:ngm:* scheme
 repo: visionclaw
@@ -107,3 +108,13 @@ were inventoried but not migrated (`decision_service`, `github_sync_service`,
 `nostr_identity_verifier` each mint directly). Challenge freshness/reuse/audience
 policy, old/new lookup and duplicate joins, and rollback before retiring legacy
 data are untouched. No live proof or persistence test ran.
+
+## Close-out 2026-10-31
+
+**Closed: the `github_sync_service` mint sites.** The domain-root node's `owl_class_iri` was `format!("urn:ngm:domain:{}", slug)`. It now calls `uri::ngm::domain_iri`, a new typed constructor (with `parse_domain_iri` and `DOMAIN_PREFIX`) defined beside `class_iri` in `crates/visionclaw-domain/src/uri.rs` and re-exported from `src/uri/mod.rs`, mirroring the ADR-2095 shape. The two `urn:ngm:edge:` `format!`s were in the module's test fixtures; they now use the existing `uri::ngm::edge_iri`. No production edge minting remained in that file (the adapter already used `edge_iri`). No `urn:ngm:*` literal is formatted by hand in `github_sync_service.rs` any more; the remaining occurrences are doc comments and fixture frontmatter text.
+
+**Wire output is byte-identical.** `domain_iri_reproduces_the_pre_typed_literal` (domain crate) compares the constructor with the old `format!` for several slugs, including an empty and a colon-bearing one. `domain_root_and_edge_iris_are_byte_identical_to_the_legacy_literals` (service) pins `urn:ngm:domain:infrastructure` and `urn:ngm:edge:10:11:domain_10_11` and round-trips the edge through `parse_edge_iri`.
+
+**Commands run:** `cargo test -p visionclaw-domain` → 302 passed, 0 failed, 1 ignored; `cargo test --lib -- domain_root_and_edge_iris github_sync_service:: uri::` → 64 passed, 0 failed; `cargo check --lib --no-default-features --features solid-pod-embed` clean. The lib tests were built with default features, since the `--no-default-features` test build does not compile (an ungated test in `physics_handler.rs` imports the gpu-gated `actix_physics_adapter`; unrelated to this change).
+
+**Remains (status stays `partial`):** `decision_service` and `nostr_identity_verifier` still mint directly; challenge freshness/audience policy, old/new lookup joins and rollback before any legacy retirement are untouched; no live or persistence proof ran. The `urn:ngm:*` scheme is not retired.
