@@ -193,7 +193,7 @@ func test_bring_to_front_is_refused_while_entered() -> void:
 	var p: Node3D = s["p"]
 	_enter(p, &"knowledge")
 	_settle(p, arr)
-	var before := arr.volume(&"ontology").transform
+	var before: Transform3D = arr.volume(&"ontology").transform
 	assert_false(arr.bring_to_front(&"ontology"), "the ring is not the layout while entered")
 	assert_eq(arr.volume(&"ontology").transform, before)
 	assert_false(arr.is_easing())
