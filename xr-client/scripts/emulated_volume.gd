@@ -6,7 +6,10 @@ extends "res://scripts/spatial_volume.gd"
 ## The emulated spatial volume (ADR-2158 D2): every graph volume, on every
 ## runtime. It adds to the contract:
 ##   * Frame: a 12-edge wire box, unshaded, one draw call, scaled to `bounds`;
-##     hidden when the volume is hidden or immersive.
+##     hidden when the volume is hidden or immersive. With `ribbon_frames` on
+##     (EyeCandy tier 2) the same one call draws 12 camera-facing edge ribbons
+##     (24 triangles) instead of 1 px lines; low cost and tier 0 keep the lines.
+##     `set_frame_hidden(true)` hides it whatever else holds (a portal entered).
 ##   * Handles: 8 corner grab points (Area3D + CollisionShape3D on
 ##     HANDLE_LAYER, never monitoring) plus one MultiMesh of markers, drawn
 ##     only while the volume is focused, interactable and bounded (one draw
@@ -24,9 +27,15 @@ const FRAME_COLOUR := Color(0.55, 0.8, 1.0)
 const FRAME_FOCUS_COLOUR := Color(1.0, 0.85, 0.35)
 const HANDLE_COLOUR := Color(1.0, 0.85, 0.35)
 
+## Frame style, for every volume: ribbons when true. Set with
+## `set_ribbon_frames`, which also restyles the volumes that already exist.
+static var ribbon_frames: bool = false
 static var _frame_mesh: ArrayMesh
 static var _frame_material: StandardMaterial3D
 static var _focus_material: StandardMaterial3D
+static var _ribbon_mesh: ArrayMesh
+static var _ribbon_material: ShaderMaterial
+static var _ribbon_focus_material: ShaderMaterial
 static var _handle_shape: SphereShape3D
 static var _handle_mesh: SphereMesh
 
@@ -34,6 +43,7 @@ var frame: MeshInstance3D
 var handles: Node3D
 var _handle_areas: Array[Area3D] = []
 var _handle_marks: MultiMeshInstance3D
+var _frame_hidden := false
 
 
 ## Clamps each axis to [MIN_BOUNDS, MAX_BOUNDS].
@@ -46,8 +56,8 @@ func _on_state_changed() -> void:
 		return
 	frame.scale = bounds
 	var bounded := bounds_mode == BoundsMode.BOUNDED
-	frame.visible = visible_state and bounded
-	frame.material_override = _focus_material if focused else _frame_material
+	frame.visible = visible_state and bounded and not _frame_hidden
+	frame.material_override = _frame_material_for(focused)
 	var live := visible_state and interactable and bounded and not is_closed
 	for i: int in _handle_areas.size():
 		var area: Area3D = _handle_areas[i]
@@ -66,8 +76,10 @@ func _build_extra() -> void:
 		frame = MeshInstance3D.new()
 		frame.name = "Frame"
 		add_child(frame)
-	frame.mesh = _frame_mesh
+	frame.mesh = _ribbon_mesh if ribbon_frames else _frame_mesh
+	frame.extra_cull_margin = 0.05 # the ribbons overhang the unit box
 	frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_to_group(&"xr_volume_frames")
 	handles = get_node_or_null("Handles") as Node3D
 	if handles == null:
 		handles = Node3D.new()
@@ -102,6 +114,48 @@ func _build_extra() -> void:
 	_on_state_changed()
 
 
+## Hide or show the frame whatever the volume's state (a portal volume entered
+## hides its own frame). The frame shows again when it is cleared and the volume
+## is still visible and bounded.
+func set_frame_hidden(hidden: bool) -> void:
+	if _frame_hidden == hidden:
+		return
+	_frame_hidden = hidden
+	_on_state_changed()
+
+
+func is_frame_hidden() -> bool:
+	return _frame_hidden
+
+
+## Triangles the frame draws now: 24 as ribbons, 0 as lines.
+func frame_triangles() -> int:
+	return 24 if ribbon_frames else 0
+
+
+## Switch every volume, existing and future, between line and ribbon frames.
+## `tree` is any SceneTree; the volumes join the "xr_volume_frames" group.
+static func set_ribbon_frames(tree: SceneTree, on: bool) -> void:
+	ribbon_frames = on
+	if tree != null:
+		tree.call_group(&"xr_volume_frames", &"restyle_frame")
+
+
+## Re-read `ribbon_frames`: mesh and material for the current focus state.
+func restyle_frame() -> void:
+	if frame == null:
+		return
+	_ensure_shared()
+	frame.mesh = _ribbon_mesh if ribbon_frames else _frame_mesh
+	frame.material_override = _frame_material_for(focused)
+
+
+func _frame_material_for(is_focused: bool) -> Material:
+	if ribbon_frames:
+		return _ribbon_focus_material if is_focused else _ribbon_material
+	return _focus_material if is_focused else _frame_material
+
+
 ## Draw calls this volume adds outside its content: the frame, plus the
 ## handle markers while they show.
 func overhead_draw_calls() -> int:
@@ -130,6 +184,9 @@ static func _ensure_shared() -> void:
 	_frame_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
 	_frame_material = _unshaded(FRAME_COLOUR)
 	_focus_material = _unshaded(FRAME_FOCUS_COLOUR)
+	_ribbon_mesh = _build_ribbon_mesh()
+	_ribbon_material = _ribbon(FRAME_COLOUR)
+	_ribbon_focus_material = _ribbon(FRAME_FOCUS_COLOUR)
 	_handle_shape = SphereShape3D.new()
 	_handle_shape.radius = HANDLE_RADIUS
 	_handle_mesh = SphereMesh.new()
@@ -138,6 +195,47 @@ static func _ensure_shared() -> void:
 	_handle_mesh.radial_segments = 8
 	_handle_mesh.rings = 4
 	_handle_mesh.material = _unshaded(HANDLE_COLOUR)
+
+
+## The 12 edges as quads: four vertices an edge (both ends, both sides), 24
+## triangles, one surface. Layout is documented in frame_ribbon.gdshader.
+static func _build_ribbon_mesh() -> ArrayMesh:
+	var v := PackedVector3Array()
+	var col := PackedColorArray()
+	var uv := PackedVector2Array()
+	var idx := PackedInt32Array()
+	var c: Array[Vector3] = []
+	for i: int in 8:
+		c.append(corner_sign(i) * 0.5)
+	for i: int in 8:
+		for bit: int in [1, 2, 4]:
+			if (i & bit) != 0:
+				continue
+			var axis: float = 0.0 if bit == 1 else (0.5 if bit == 2 else 1.0)
+			var base := v.size()
+			for end: Vector3 in [c[i], c[i | bit]]:
+				for side: float in [0.0, 1.0]:
+					v.append(end)
+					col.append(Color(axis, 0.0, 0.0, 1.0))
+					uv.append(Vector2(side, 0.0))
+			# vertices: 0 = start/left, 1 = start/right, 2 = end/left, 3 = end/right
+			idx.append_array(PackedInt32Array([base, base + 1, base + 2, base + 1, base + 3, base + 2]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = v
+	arrays[Mesh.ARRAY_COLOR] = col
+	arrays[Mesh.ARRAY_TEX_UV] = uv
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return m
+
+
+static func _ribbon(col: Color) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://materials/frame_ribbon.gdshader")
+	m.set_shader_parameter("frame_color", Color(col.r, col.g, col.b, 0.9))
+	return m
 
 
 static func _unshaded(col: Color) -> StandardMaterial3D:

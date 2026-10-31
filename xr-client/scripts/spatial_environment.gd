@@ -21,6 +21,9 @@ var _node_meshes: Array[MultiMeshInstance3D] = []
 var _edge_material: ShaderMaterial
 var _halo_mesh: MultiMeshInstance3D      # NodesHaloMulti (camera-facing halo quads)
 var _halo_material: ShaderMaterial
+var _eye_candy: Node3D                   # EyeCandy: the budgeted visual extras (eye_candy.gd)
+
+const EyeCandy := preload("res://scripts/eye_candy.gd")
 
 func _ready() -> void:
     add_to_group("xr_visual_environment")
@@ -64,6 +67,11 @@ func _ready() -> void:
     _focus.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     _focus.visible = false
     add_child(_focus)
+    # The visual extras (sky, ribbon frames, motes) live under this node, so the
+    # scene needs no extra wiring; set_visual_comfort below reaches them.
+    _eye_candy = EyeCandy.new()
+    add_child(_eye_candy)
+    _eye_candy.setup(_scene)
     var motion_value := OS.get_environment("XR_REDUCED_MOTION").to_lower().strip_edges()
     var reduced: bool = motion_value not in ["0", "false", "off"]
     set_visual_comfort(reduced, OS.get_environment("XR_VISUAL_QUALITY").to_lower() == "low")
@@ -136,12 +144,20 @@ func set_visual_comfort(reduced_motion: bool, low_cost: bool) -> void:
     if _edge_material != null:
         _edge_material.set_shader_parameter("pulse_energy", 0.0 if reduced_motion or low_cost else 0.20)
         _edge_material.set_shader_parameter("base_alpha", 0.09 if low_cost else 0.16)
+    # Every extra follows the same two switches: low cost turns them all off,
+    # reduced motion keeps the motes still.
+    if _eye_candy != null:
+        _eye_candy.set_comfort(reduced_motion, low_cost)
     visual_comfort_changed.emit(reduced_motion, low_cost)
     var hud: Node = _scene.get_node_or_null("XROrigin3D/XRCamera3D/HUD")
     if hud == null:
         hud = _scene.get_node_or_null("XROrigin3D/HUD")
     if hud != null and hud.has_method("set_visual_comfort"):
         hud.call("set_visual_comfort", reduced_motion, low_cost)
+
+## The visual-extras controller (tier, grant and cost introspection).
+func get_eye_candy() -> Node3D:
+    return _eye_candy
 
 func get_visual_comfort() -> Dictionary:
     return {"reduced_motion": _reduced_motion, "low_cost": _low_cost}
