@@ -38,6 +38,9 @@ const PORTAL_MARGIN := 0.3
 const PORTAL_STEP_DEG := 50.0
 ## Portal centre height when the caller gives no eye height, metres.
 const DEFAULT_EYE_HEIGHT := VolumeArrangement.RING_HEIGHT
+## Eye height above the floor is clamped to this range, metres.
+const EYE_MIN := 0.8
+const EYE_MAX := 2.2
 ## Walk-through: head inside a portal box this long enters it.
 const DWELL_SEC := 0.25
 ## Walk-through re-arms after the head has been this far outside every portal.
@@ -283,17 +286,21 @@ func can_enter(id: StringName) -> bool:
 
 ## Enters volume `id`, or swaps to it when another is entered (the current room
 ## becomes a portal). `user_world` is the head position and `heading_world` the
-## way it faces, both in world space. Returns false and changes nothing when the
+## way it faces, both in world space; `floor_world_y` is the floor (the XR
+## origin's height), where the room's box bottom sits. Returns false and changes nothing when the
 ## request is refused (see `can_enter`).
-func enter(id: StringName, user_world: Vector3, heading_world: Vector3 = Vector3(0.0, 0.0, -1.0)) -> bool:
+func enter(id: StringName, user_world: Vector3, heading_world: Vector3 = Vector3(0.0, 0.0, -1.0),
+		floor_world_y := 0.0) -> bool:
 	if not can_enter(id):
 		return false
 	var first := _entered == &""
 	if first:
 		_snap = arrangement.snapshot()
 	var inv := _parent_inverse()
-	_user = Vector3((inv * user_world).x, 0.0, (inv * user_world).z)
-	_eye_y = clampf((inv * user_world).y, 0.8, 2.2)
+	var head_local := inv * user_world
+	var floor_local := (inv * Vector3(user_world.x, floor_world_y, user_world.z)).y
+	_user = Vector3(head_local.x, floor_local, head_local.z)
+	_eye_y = floor_local + clampf(head_local.y - floor_local, EYE_MIN, EYE_MAX)
 	_heading = inv.basis * heading_world
 	var old := _entered
 	_entered = id
@@ -493,16 +500,20 @@ func tick(delta: float) -> void:
 				_phase_t = 0.0
 			_set_fade(fade_alpha())
 	if _entered == &"":
-		_update_membranes()
+		# The ring is the default: nothing to do once the membranes are hidden.
+		if membranes != null and membranes.visible:
+			_update_membranes()
 		return
 	var room: Node3D = arrangement.volume(_entered)
 	if room == null or room.is_closed or not room.visible_state \
 			or (offline_check.is_valid() and bool(offline_check.call(_entered))):
 		force_leave()
 		return
-	if _phase == Phase.IDLE and _make_signature() != _signature:
-		_layout_portals(0.0)
-		_signature = _make_signature()
+	if _phase == Phase.IDLE:
+		var sig := _make_signature()
+		if sig != _signature:
+			_layout_portals(0.0)
+			_signature = sig
 	_update_membranes()
 
 

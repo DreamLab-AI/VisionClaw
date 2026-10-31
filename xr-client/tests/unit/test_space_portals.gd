@@ -6,7 +6,9 @@ const VolumeArrangement := preload("res://scripts/volume_arrangement.gd")
 const SpatialVolume := preload("res://scripts/spatial_volume.gd")
 const VolumeScene := preload("res://scenes/EmulatedVolume.tscn")
 const FixtureContentSource := preload("res://tests/fixtures/fixture_content_source.gd")
-const XrPrefs := preload("res://scripts/xr_prefs.gd")
+const PREFS_PATH := "res://scripts/xr_prefs.gd"
+const FramePicker := preload("res://scripts/frame_picker.gd")
+const BackendCaps := preload("res://scripts/backend_caps.gd")
 const PORTALS_PATH := "res://scripts/space_portals.gd"
 const SHADER_PATH := "res://materials/portal_membrane.gdshader"
 
@@ -279,6 +281,37 @@ func test_arrangement_scale_does_not_shrink_the_room() -> void:
 	assert_true((room.global_transform.basis.get_scale() * room.bounds).is_equal_approx(p.ROOM_BOUNDS), "6 m of world")
 
 
+func test_floor_is_the_origin_height_not_zero() -> void:
+	var s := _scene()
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	assert_true(p.enter(&"knowledge", Vector3(0.0, 2.1, 0.0), Vector3(0.0, 0.0, -1.0), 0.5))
+	_settle(p, arr)
+	var room: Node3D = arr.volume(&"knowledge")
+	assert_almost_eq(room.position.y - room.bounds.y * 0.5, 0.5, 1.0e-4, "box bottom on the origin's floor")
+	for pid: StringName in p.portal_ids():
+		assert_almost_eq(arr.volume(pid).position.y, 0.5 + 1.6, 1.0e-4, "eye height measured from that floor")
+
+
+func test_rays_from_inside_the_room_pick_portals_not_the_room() -> void:
+	var s := _scene()
+	var arr: Node3D = s["arr"]
+	var p: Node3D = s["p"]
+	_enter(p, &"knowledge", Vector3(0.0, 1.6, 0.0))
+	_settle(p, arr)
+	var vols := {}
+	for id: StringName in IDS:
+		vols[id] = arr.volume(id)
+	var portal: Node3D = arr.volume(p.portal_ids()[0])
+	var origin := Vector3(0.0, 1.5, 0.0)
+	var dir := (portal.global_position - origin).normalized()
+	var hit: Dictionary = FramePicker.pick(origin, dir, vols, 0.04)
+	assert_false(hit.is_empty(), "the portal is hit")
+	assert_eq(hit["volume"], p.portal_ids()[0], "pointing at a portal focuses the portal, not the room")
+	var away: Dictionary = FramePicker.pick(origin, Vector3.UP, vols, 0.04)
+	assert_true(away.is_empty(), "empty space picks nothing: grip falls through to two-hand")
+
+
 # --- E7 for the room -----------------------------------------------------------
 
 func test_e7_holds_for_the_room() -> void:
@@ -391,13 +424,14 @@ func test_walkthrough_is_off_by_default_and_pref_round_trips() -> void:
 	assert_false(s["p"].walkthrough_enabled)
 	var tmp := "user://xr_prefs.portal_test.cfg"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
-	XrPrefs.path_override = tmp
-	assert_false(XrPrefs.portal_walkthrough(), "default off")
-	XrPrefs.set_portal_walkthrough(true)
-	assert_true(XrPrefs.portal_walkthrough())
-	XrPrefs.set_portal_walkthrough(false)
-	assert_false(XrPrefs.portal_walkthrough())
-	XrPrefs.path_override = ""
+	var prefs = load(PREFS_PATH)
+	prefs.path_override = tmp
+	assert_false(prefs.portal_walkthrough(), "default off")
+	prefs.set_portal_walkthrough(true)
+	assert_true(prefs.portal_walkthrough())
+	prefs.set_portal_walkthrough(false)
+	assert_false(prefs.portal_walkthrough())
+	prefs.path_override = ""
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
 
 
@@ -701,6 +735,7 @@ func _scene_settle(scene: Node3D, seconds := 0.6) -> void:
 func test_scene_enter_leave_actions_and_budget_hook() -> void:
 	var scene := await _make_scene()
 	assert_not_null(scene._portals, "GraphScene builds SpacePortals")
+	assert_not_null(scene._portals.fade_quad, "the dim quad exists (reduced motion dims, not just snaps)")
 	# Headless has no connections up: lift the offline refusal for this test.
 	scene._portals.offline_check = func(_id: StringName) -> bool: return false
 	scene._shim_pending_start = false
@@ -769,6 +804,8 @@ func test_codescape_drag_is_still_refused_while_entered() -> void:
 	assert_eq(scene._portals.entered_id(), &"codescape")
 	assert_true(scene.claim_blocks_drag("node", &"codescape", scene.OVERLAY_VOLUME), "the press is claimed: no Rust drag")
 	assert_eq(scene.OVERLAY_VOLUME, &"knowledge", "overlay volume unchanged")
+	assert_false(BackendCaps.supports(BackendCaps.for_mode(&"codescape"), BackendCaps.DRAG), "Codescape does not serve DRAG")
+	assert_false(scene._cs_conn.gate(BackendCaps.DRAG, "drag a node", true), "the gate itself refuses")
 	assert_false(scene._cs_conn.send_drag_start(7, Vector3.ZERO), "the connection refuses nodeDragStart")
 	assert_false(scene._cs_conn.send_drag_update(7, Vector3.ZERO))
 	assert_false(scene._cs_conn.send_drag_end(7))

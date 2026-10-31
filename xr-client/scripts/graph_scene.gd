@@ -1377,7 +1377,10 @@ func enter_volume_space(vid: StringName) -> bool:
 	var cam: XRCamera3D = _find_xr_camera()
 	var pos := Vector3.ZERO if cam == null else cam.global_position
 	var heading := Vector3(0.0, 0.0, -1.0) if cam == null else -cam.global_transform.basis.z
-	return _portals.enter(vid, pos, heading)
+	# The floor is the XR origin's height (locomotion can fly it off zero).
+	var origin: XROrigin3D = _find_xr_origin()
+	var floor_y := 0.0 if origin == null else origin.global_position.y
+	return _portals.enter(vid, pos, heading, floor_y)
 
 
 func leave_volume_space() -> bool:
