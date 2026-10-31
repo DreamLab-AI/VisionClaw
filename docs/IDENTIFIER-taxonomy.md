@@ -290,3 +290,11 @@ ADR-2024's release overflow warning belongs to the typed flag setters. **Resolve
   mints are gone — `src/actors/elevation_actor.rs:329,514` and
   `crates/visionclaw-adapters/src/oxigraph_ontology_repository.rs:174,1598,1619`. Emitted strings
   are unchanged. Raised by diagram note VC-23.9.
+- **ADR-2021 (2026-10-31)** — the corpus sync's domain-root IRI is minted through
+  `uri::ngm::domain_iri` (`crates/visionclaw-domain/src/uri.rs`, re-exported at `src/uri/mod.rs`),
+  and `github_sync_service` no longer formats `urn:ngm:*` by hand: the domain-root
+  `owl_class_iri` uses `domain_iri` and its edge fixtures use `uri::ngm::edge_iri`. Emitted strings
+  are byte-identical (pinned by tests in both files). The graph adapter's private
+  `node_iri`/`edge_iri` (`src/adapters/oxigraph_graph_repository.rs:87,96`) now delegate to
+  `uri::ngm`, also byte-identical and pinned. `decision_service` and `nostr_identity_verifier`
+  still mint directly.

@@ -51,6 +51,32 @@ pub mod ngm {
     pub fn is_class_iri(s: &str) -> bool {
         parse_class_iri(s).is_some()
     }
+
+    /// `urn:ngm:domain:<slug>` — the legacy IRI of a domain-root node's
+    /// `owl_class_iri` (ADR-2021: the corpus sync's domain roots).
+    pub const DOMAIN_PREFIX: &str = "urn:ngm:domain:";
+
+    /// Mint the legacy domain IRI from an already-slugified domain name.
+    ///
+    /// Infallible and non-rewriting, like [`class_iri`]: the persisted form
+    /// is frozen, so the bytes are exactly `urn:ngm:domain:<slug>`.
+    pub fn domain_iri(slug: &str) -> String {
+        format!("{DOMAIN_PREFIX}{slug}")
+    }
+
+    /// Parse a legacy domain IRI back into its slug; the empty slug is
+    /// rejected. Paired with [`domain_iri`].
+    pub fn parse_domain_iri(iri: &str) -> Option<&str> {
+        match iri.strip_prefix(DOMAIN_PREFIX) {
+            Some(slug) if !slug.is_empty() => Some(slug),
+            _ => None,
+        }
+    }
+
+    /// Is `s` a legacy domain IRI?
+    pub fn is_domain_iri(s: &str) -> bool {
+        parse_domain_iri(s).is_some()
+    }
 }
 
 #[cfg(test)]
@@ -103,5 +129,37 @@ mod tests {
     #[test]
     fn parse_class_iri_treats_the_tail_as_opaque() {
         assert_eq!(ngm::parse_class_iri("urn:ngm:class:a:b"), Some("a:b"));
+    }
+
+    /// Frozen wire form of a domain-root `owl_class_iri` (ADR-2021): the typed
+    /// mint must reproduce the pre-typed `format!("urn:ngm:domain:{}", slug)`.
+    #[test]
+    fn domain_iri_reproduces_the_pre_typed_literal() {
+        for slug in [
+            "infrastructure",
+            "knowledge",
+            "built-environment",
+            "a:b",
+            "",
+        ] {
+            assert_eq!(ngm::domain_iri(slug), format!("urn:ngm:domain:{}", slug));
+        }
+        assert_eq!(
+            ngm::domain_iri("infrastructure"),
+            "urn:ngm:domain:infrastructure"
+        );
+    }
+
+    #[test]
+    fn domain_iri_round_trips_and_rejects_foreign_input() {
+        for slug in ["infrastructure", "a-b", "0"] {
+            assert_eq!(ngm::parse_domain_iri(&ngm::domain_iri(slug)), Some(slug));
+        }
+        assert_eq!(ngm::parse_domain_iri("urn:ngm:domain:"), None);
+        assert_eq!(ngm::parse_domain_iri("urn:ngm:class:camera"), None);
+        assert_eq!(ngm::parse_domain_iri(""), None);
+        assert!(ngm::is_domain_iri("urn:ngm:domain:infrastructure"));
+        assert!(!ngm::is_domain_iri("urn:ngm:domain:"));
+        assert!(!ngm::is_domain_iri("urn:ngm:class:camera"));
     }
 }

@@ -85,7 +85,7 @@ fn graph_for_node_id(id: u32) -> &'static str {
 /// included) so the IRI round-trips losslessly to `NodeId`.
 #[inline]
 fn node_iri(id: u32) -> String {
-    format!("urn:ngm:node:{}", id)
+    crate::uri::ngm::node_iri(id)
 }
 
 /// Mint the canonical edge IRI. The predicate-hash component is the
@@ -94,7 +94,7 @@ fn node_iri(id: u32) -> String {
 /// chose). Distinct from the node IRI scheme on purpose.
 #[inline]
 fn edge_iri(edge: &Edge) -> String {
-    format!("urn:ngm:edge:{}:{}:{}", edge.source, edge.target, edge.id)
+    crate::uri::ngm::edge_iri(edge.source, edge.target, &edge.id)
 }
 
 /// Escape a string literal for embedding in a SPARQL literal. Backslash
@@ -1625,6 +1625,15 @@ mod upsert_tests {
 
     fn repo() -> OxigraphGraphRepository {
         OxigraphGraphRepository::from_store(Arc::new(Store::new().expect("in-memory store")))
+    }
+
+    /// The adapter's private minters delegate to `uri::ngm` (ADR-2021); the
+    /// persisted bytes must not move.
+    #[test]
+    fn node_and_edge_iris_are_byte_identical_to_the_legacy_literals() {
+        assert_eq!(node_iri(42), "urn:ngm:node:42");
+        let edge = Edge::new(10, 11, 1.0);
+        assert_eq!(edge_iri(&edge), "urn:ngm:edge:10:11:10-11");
     }
 
     /// Re-adding a node must REPLACE its triples, not accumulate conflicting
