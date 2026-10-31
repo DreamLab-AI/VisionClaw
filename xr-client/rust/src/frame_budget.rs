@@ -1395,6 +1395,10 @@ mod tests {
                         b.graph.gem_nodes
                     );
                     assert_eq!(a.extras_tier, 0, "plain allocate grants no extras");
+                    if tier <= 1 {
+                        assert_eq!(b.extras_allowance, 0, "tiers 0 and 1 reserve nothing: {nodes}");
+                        assert_eq!(b.graph, a.graph, "and cost the graph nothing: {nodes}");
+                    }
                     assert!(b.over_budget == a.over_budget);
                     assert!(b.draw_calls == a.draw_calls + b.extras_draw_calls);
                     assert!(b.over_budget || b.tris_total <= TRI_LIMIT, "{nodes} tier {tier}");
@@ -1414,13 +1418,14 @@ mod tests {
         assert!(granted_somewhere, "the sweep must reach a granted tier 4");
     }
 
-    /// The benchmark's production shape (`m_461_prod_*` JSON, 13 164 nodes): the
-    /// measured `other_tris` 2 182 and 24 other draw calls, 6 000 cloud rows,
+    /// The benchmark's production inputs (`m_461_prod_*` JSON, 13 164 nodes): the
+    /// measured `other_tris` 2 182 and 24 other draw calls, three volume frames'
+    /// calls (`XR_BENCH_CANDY_FRAMES=3`; the benchmark defaults to two), 6 000 cloud rows,
     /// a 13-row route with 5 sidecar marks.
     fn benchmark_production() -> (GraphDemand, MemoryDemand) {
         let g = GraphDemand {
             other_tris: 2_182,
-            draw_calls: 6 + 24,
+            draw_calls: 6 + 24 + 3, // graph + other + three volume frames
             ..production()
         };
         let m = MemoryDemand {
@@ -1510,7 +1515,7 @@ mod tests {
     }
 
     #[test]
-    fn extras_take_only_what_the_graph_left_over() {
+    fn extras_are_granted_in_full_where_the_budget_allows_and_hold_back_their_cost() {
         // A small graph leaves most of the budget: every tier is granted.
         let small = GraphDemand {
             nodes: 1_000,

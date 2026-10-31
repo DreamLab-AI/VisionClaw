@@ -240,6 +240,11 @@ func set_comfort(reduced_motion: bool, low_cost: bool) -> void:
 	_set_measuring(not low_cost)
 	if low_cost:
 		apply_tier(0)
+		# The allocator now holds back an allowance for the requested tier, so a
+		# stale request would cost the graph gems until the next pass tick: withdraw it.
+		var pass_obj: Object = _budget_pass()
+		if pass_obj != null:
+			pass_obj.set_extras_demand(0, 0)
 	else:
 		apply_tier(applied_tier)
 
