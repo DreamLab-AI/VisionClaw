@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 685bc974ce4b4f813ffa247be0f866ebe27328bd
+verified_commit: 2a8b795dccb3594fddb2a051195bee480231530c
 verified_paths: [src/bin/generate_types.rs, crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -78,3 +78,7 @@ None of these changes touches the decision this record makes. Every deletion had
 **Status stays `partial`.** Decision 4 now holds. The other half of the gap is out of scope and recorded: "ADR-2125 disjointness producing the first `entailed_false`" depends on corpus vocabulary declaring `owl:disjointWith`; until then `entailed_false` is reachable only in fixtures. The host run of `cargo test --test ontology_agent_integration_test` recorded above is also still owed (`visionclaw-gpu` PTX validation blocks it in-container).
 
 **Re-verification 2026-10-31:** review fixes applied; re-run `git diff 1c1ac674b..685bc974ce4b4f813ffa247be0f866ebe27328bd -- src/bin/generate_types.rs`.
+
+## Re-verification — 2026-10-31 (`2a8b795dc`)
+
+Re-verified at the W3/W4 integration merge. The only governed-path delta since `685bc974c` is one line in the settings emitter of `src/bin/generate_types.rs`, `sssp_enabled: boolean;` (ADR-2140, `PhysicsSettings.sssp_enabled`). It does not touch the ontology-agent emitter, its variant tables or its parity tests, so this record's claims and status axes are unchanged. Re-run: `git diff 685bc974c..2a8b795dc -- src/bin/generate_types.rs` (1 file changed, 1 insertion).
