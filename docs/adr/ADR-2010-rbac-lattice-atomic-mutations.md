@@ -7,8 +7,8 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 3b3ee7779f37c5cc9a7ec30b7928428e78e8f87a
-verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs]
+verified_commit: 685bc974ce4b4f813ffa247be0f866ebe27328bd
+verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs, src/handlers/admin_rbac_handler.rs, tests/rbac_concurrent_mutation_http_test.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
 repo: visionclaw
@@ -188,3 +188,24 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 - `src/services/role_store.rs`: since the recorded commit: `map(canonicalise_pubkey)` and the removal of the never-constructed `TxOutcome::NoOp` variant (both lint-only).
 
 None of these changes touches the decision this record makes. Every deletion had no caller in any build (debug, release, `--features redis`). `cargo clippy --workspace --all-targets -- -D warnings` is clean in debug and release; `cargo test --workspace --tests` on the merged tree: 3242 passed, 0 failed, 83 ignored. **Still holds.**
+
+## Close-out 2026-10-31 — HTTP-level concurrent role-mutation test
+
+**Gap verified at `1c1ac674b`:** the 2026-09-05 acceptance progress records "No HTTP request or real race ran"; `grep -rln "admin/rbac" tests/` found only `adr142_rbac_gate.rs` (unauthenticated rejection) and the single-request stacking test. No test issued a role mutation over HTTP. The gap was real.
+
+**Test added:** `tests/rbac_concurrent_mutation_http_test.rs`. It mounts `admin_rbac_handler::configure_routes` under `/api` behind the real `RbacGate`, over a SQLite `RoleStore` installed as the process-global store, with genuine NIP-98 signatures (each request has a unique query string because event ids are single-use). Requests are fired together with `join_all`, with a swept number of scheduler yields per request so that admission interleaves against whole mutation closures in every order. The caller re-read, checks and write inside one mutation run to completion on the single `tokio_rusqlite` connection thread and cannot interleave with anything. Four invariants, one test function (the global store is a `OnceCell`; the last-Owner scenario needs the Owner population to itself):
+
+1. *Privilege ceiling.* 50 concurrent requests: an Admin assigning `owner`/`admin` gets 403 every time, `editor`/`viewer` 200; Editor and Viewer callers get 403 for everything; an Admin cannot demote or remove a peer Admin. No row above Editor was written by the Admin, none by an Editor or Viewer.
+2. *No lost update.* Two Admins write different roles to one target, 16 interleavings: both 200, and the surviving row is one writer's role paired with that writer's `assigned_by`, never a mixture. Both writers win in some interleavings. This is an authorisation check (both Admins are admitted), not an atomicity proof: closure atomicity plus a single `INSERT … ON CONFLICT` prevents a torn row.
+3. *Caller freshness.* An Owner demotes an Admin while that Admin grants `editor`, 36 interleavings. Outcomes observed over 32 runs (the sweep races the connection's background thread, so counts vary): admin-first (grant applied) 8–15, demoted mid-transaction (409 `CallerAuthorityChanged`, grant absent) 12–26, demoted before admission (403, grant absent) 1–11. The sweep asserts that admin-first and 409 both occur, so it cannot go vacuous (that guard is what detects loss of the in-mutation caller re-read), and that a refused caller left no row. The 403 case is a separate deterministic round: the demotion is awaited before the grant is sent, and the test asserts 403 and no row.
+4. *Last-Owner guard.* Mutual demotion, mutual removal and double self-demotion between two Owners, 6 lags each (18 rounds): exactly one request succeeds and exactly one Owner remains, every time.
+
+**Result:** no defect found; production code is unchanged. The ADR-2010 caller-freshness fix of 2026-09-05 holds under real HTTP interleaving.
+
+**Limit, stated plainly:** the actix test runtime is single-threaded and the SQLite connection serialises transactions on its own thread, so this sweeps *orderings* rather than exercising OS-thread parallelism, and the orderings reached are timing-dependent. In-process atomicity comes from the single `tokio_rusqlite` connection thread, not from SQLite locking. The test proves that the checks and the write share one closure (moving the last-Owner count into a separate `call` fails it), but it cannot detect removal of `BEGIN`/`COMMIT`; that matters only with multiple connections or processes, which is uncovered.
+
+**Status stays `partial`.** Still open from the 2026-09-04 acceptance condition: immutable or recoverable audit outcomes, response-loss retries (a retried `PUT` is idempotent; a retried `DELETE` reports `had_explicit_role=false`, untested), whoami, missing identity services and report-mode lifecycle through real routes.
+
+**Commands:** `cargo test --test rbac_concurrent_mutation_http_test` (1 test, passes); regression `cargo test --test adr142_rbac_gate --test rbac_gate_require_auth_stacking_test`.
+
+**Re-verification 2026-10-31:** review fixes applied; re-run `git diff 1c1ac674b..685bc974ce4b4f813ffa247be0f866ebe27328bd -- tests/rbac_concurrent_mutation_http_test.rs`.
