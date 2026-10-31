@@ -3992,10 +3992,12 @@ mod stored_layout_mode_tests {
     async fn the_actor_fills_no_default_of_its_own() {
         // A bare update in Radial mode with zero biases stays zero: resolution is the
         // conversion's job, and this update did not come from it.
-        let mut raw = SimulationParams::default();
-        raw.layout_mode = LayoutMode::Radial;
-        raw.dag_bias_k = 0.0;
-        raw.dag_level_distance = 0.0;
+        let raw = SimulationParams {
+            layout_mode: LayoutMode::Radial,
+            dag_bias_k: 0.0,
+            dag_level_distance: 0.0,
+            ..Default::default()
+        };
         let held = held_after(raw).await;
         assert_eq!((held.dag_bias_k, held.dag_level_distance), (0.0, 0.0));
     }
