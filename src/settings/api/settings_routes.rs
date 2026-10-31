@@ -94,6 +94,7 @@ fn normalize_physics_keys(
             "auto_balance" => "autoBalance",
             "cluster_strength" => "clusterStrength",
             "sssp_alpha" => "ssspAlpha",
+            "sssp_enabled" => "ssspEnabled",
             "stream_chunk_nodes" => "streamChunkNodes",
             "stream_move_threshold" => "streamMoveThreshold",
             "stream_ack_timeout_ms" => "streamAckTimeoutMs",
@@ -509,6 +510,26 @@ pub async fn get_physics_settings(
     }
 }
 
+/// Why [`apply_physics_patch`] refused or failed.
+#[derive(Debug)]
+pub(crate) enum PhysicsPatchError {
+    /// The patch did not merge or did not validate (HTTP 400).
+    BadRequest(String),
+    /// The store or an actor failed (HTTP 500).
+    Internal(String),
+}
+
+impl PhysicsPatchError {
+    fn into_response(self) -> HttpResponse {
+        match self {
+            Self::BadRequest(error) => HttpResponse::BadRequest().json(ErrorResponse { error }),
+            Self::Internal(error) => {
+                HttpResponse::InternalServerError().json(ErrorResponse { error })
+            }
+        }
+    }
+}
+
 /// PUT /api/settings/physics
 /// Validates input before applying (QE Fix #2 + #5).
 /// Accepts partial JSON updates -- missing fields retain current values from the actor.
@@ -519,9 +540,32 @@ pub async fn update_physics_settings(
     auth: AuthenticatedUser,
     settings_repo: web::Data<Arc<SqliteSettingsRepository>>,
 ) -> impl Responder {
+    match apply_physics_patch(
+        &state,
+        settings_repo.get_ref(),
+        body.into_inner(),
+        &auth.pubkey,
+    )
+    .await
+    {
+        Ok(physics) => HttpResponse::Ok().json(&physics),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The one physics write path (ADR-2140 decision 3): deep-merge `patch` onto the stored
+/// document, validate it with the central validators, write the store, push the result to the
+/// GPU actors, persist to SQLite and tell other sessions. `PUT /api/settings/physics` and every
+/// other control that changes a physics value (for example `POST /sssp/toggle`) go through it.
+pub(crate) async fn apply_physics_patch(
+    state: &web::Data<AppState>,
+    settings_repo: &Arc<SqliteSettingsRepository>,
+    patch: serde_json::Value,
+    updated_by: &str,
+) -> Result<PhysicsSettings, PhysicsPatchError> {
     debug!(
         "User {} updating physics settings — request body: {:?}",
-        auth.pubkey, body
+        updated_by, patch
     );
 
     // Single GetSettings call -- fetch full settings snapshot once to avoid TOCTOU race
@@ -529,15 +573,17 @@ pub async fn update_physics_settings(
         Ok(Ok(settings)) => settings,
         Ok(Err(e)) => {
             error!("Failed to fetch current settings: {}", e);
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to fetch current settings: {}", e),
-            });
+            return Err(PhysicsPatchError::Internal(format!(
+                "Failed to fetch current settings: {}",
+                e
+            )));
         }
         Err(e) => {
             error!("Actor mailbox error: {}", e);
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Actor communication error: {}", e),
-            });
+            return Err(PhysicsPatchError::Internal(format!(
+                "Actor communication error: {}",
+                e
+            )));
         }
     };
 
@@ -545,32 +591,35 @@ pub async fn update_physics_settings(
     let current_physics = &full_settings.visualisation.graphs.knowledge.physics;
     let current_json = serde_json::to_value(current_physics).unwrap_or_default();
 
-    let new_physics = match merge_physics_patch(current_json, body.into_inner()) {
+    let new_physics = match merge_physics_patch(current_json, patch) {
         Ok(Some(merged)) => merged,
         Ok(None) => full_settings.visualisation.graphs.knowledge.physics.clone(),
         Err(e) => {
             warn!("Physics settings merge failed: {}", e);
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: format!("Invalid settings value: {}", e),
-            });
+            return Err(PhysicsPatchError::BadRequest(format!(
+                "Invalid settings value: {}",
+                e
+            )));
         }
     };
 
     // Validate before applying
     if let Err(validation_err) = validate_physics_settings(&new_physics) {
         warn!("Physics settings validation failed: {}", validation_err);
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: format!("Validation failed: {}", validation_err),
-        });
+        return Err(PhysicsPatchError::BadRequest(format!(
+            "Validation failed: {}",
+            validation_err
+        )));
     }
 
     // The GPU actor validates again with stricter rules; reject here, before anything is
     // persisted, instead of answering 200 for values the GPU will refuse.
     if let Err(e) = validate_for_gpu(&new_physics) {
         warn!("Physics settings rejected by GPU validation: {}", e);
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: format!("Validation failed: {}", e),
-        });
+        return Err(PhysicsPatchError::BadRequest(format!(
+            "Validation failed: {}",
+            e
+        )));
     }
 
     // Apply merged physics to the same snapshot and write back atomically
@@ -583,7 +632,7 @@ pub async fn update_physics_settings(
         .await
     {
         Ok(Ok(())) => {
-            info!("Physics settings updated successfully by {}", auth.pubkey);
+            info!("Physics settings updated successfully by {}", updated_by);
 
             // Propagate physics changes to GPU actors so layout actually responds
             let sim_params: crate::models::simulation_params::SimulationParams =
@@ -686,21 +735,23 @@ pub async fn update_physics_settings(
             // ADR-2047: tell the other sessions. Physics is the category most
             // visible to a second viewer — the layout visibly moves — and was
             // the one that never announced itself.
-            broadcast_settings_change(&state, "physics", &auth.pubkey);
+            broadcast_settings_change(state, "physics", &updated_by);
 
-            HttpResponse::Ok().json(&new_physics)
+            Ok(new_physics)
         }
         Ok(Err(e)) => {
             error!("Failed to update physics settings: {}", e);
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to update physics settings: {}", e),
-            })
+            Err(PhysicsPatchError::Internal(format!(
+                "Failed to update physics settings: {}",
+                e
+            )))
         }
         Err(e) => {
             error!("Actor mailbox error: {}", e);
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Actor communication error: {}", e),
-            })
+            Err(PhysicsPatchError::Internal(format!(
+                "Actor communication error: {}",
+                e
+            )))
         }
     }
 }

@@ -77,6 +77,10 @@ fn default_sssp_alpha() -> f32 {
     1.5
 }
 
+fn default_sssp_enabled() -> bool {
+    true
+}
+
 fn default_constraint_ramp_frames() -> u32 {
     60
 }
@@ -338,6 +342,13 @@ pub struct PhysicsSettings {
     #[serde(default = "default_sssp_alpha", alias = "sssp_alpha")]
     pub sssp_alpha: f32,
 
+    /// Whether the SSSP-derived spring rest-length adjustment is on. Stored here (ADR-2140
+    /// decision 1) so `POST /sssp/toggle` writes the one definition instead of patching the
+    /// live parameters. Defaults on, which is what every document stored before this field
+    /// existed behaved as.
+    #[serde(default = "default_sssp_enabled", alias = "sssp_enabled")]
+    pub sssp_enabled: bool,
+
     #[serde(
         alias = "constraint_ramp_frames",
         default = "default_constraint_ramp_frames"
@@ -529,6 +540,7 @@ impl Default for PhysicsSettings {
 
             max_repulsion_dist: 400.0,
             sssp_alpha: default_sssp_alpha(),
+            sssp_enabled: default_sssp_enabled(),
 
             constraint_ramp_frames: default_constraint_ramp_frames(),
             constraint_max_force_per_node: default_constraint_max_force_per_node(),
@@ -797,9 +809,24 @@ mod tests {
     }
 
     #[test]
+    fn a_document_stored_before_sssp_enabled_existed_loads_enabled() {
+        let mut stored = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("ssspEnabled");
+        let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
+        assert!(loaded.sssp_enabled, "old documents behaved as SSSP on");
+        let mut snake = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        let map = snake.as_object_mut().unwrap();
+        map.remove("ssspEnabled");
+        map.insert("sssp_enabled".into(), serde_json::json!(false));
+        let loaded: PhysicsSettings = serde_json::from_value(snake).unwrap();
+        assert!(!loaded.sssp_enabled, "the snake_case alias is honoured");
+    }
+
+    #[test]
     fn test_physics_settings_camelcase_sssp_alpha() {
         let ps = PhysicsSettings {
             sssp_alpha: 3.0,
+            sssp_enabled: false,
             ..Default::default()
         };
         let stored = serde_json::to_value(&ps).unwrap();

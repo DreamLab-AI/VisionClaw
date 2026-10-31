@@ -168,7 +168,7 @@ impl SimParams {
             warmup_iterations: self.warmup_iterations,
             cooling_rate: self.cooling_rate,
             rest_length: self.rest_length,
-            use_sssp_distances: true,
+            use_sssp_distances: self.feature_flags & FeatureFlags::ENABLE_SSSP_SPRING_ADJUST != 0,
             sssp_alpha: Some(self.sssp_alpha),
             constraint_ramp_frames: self.constraint_ramp_frames,
             constraint_max_force_per_node: self.constraint_max_force_per_node,
@@ -871,8 +871,10 @@ impl From<&PhysicsSettings> for SimParams {
         if physics.center_gravity_k > 0.0 {
             feature_flags |= FeatureFlags::ENABLE_CENTERING;
         }
-        // Enable SSSP spring adjustment for ontology-aware edge rest lengths.
-        feature_flags |= FeatureFlags::ENABLE_SSSP_SPRING_ADJUST;
+        // SSSP spring adjustment for ontology-aware edge rest lengths: as stored.
+        if physics.sssp_enabled {
+            feature_flags |= FeatureFlags::ENABLE_SSSP_SPRING_ADJUST;
+        }
 
         SimParams {
             dt: physics.dt,

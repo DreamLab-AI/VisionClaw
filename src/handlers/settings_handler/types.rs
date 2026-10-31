@@ -354,6 +354,7 @@ pub struct PhysicsSettingsDTO {
     pub cooling_rate: f32,
     pub max_repulsion_dist: f32,
     pub sssp_alpha: f32,
+    pub sssp_enabled: bool,
     pub clustering_algorithm: String,
     pub cluster_count: u32,
     pub clustering_resolution: f32,

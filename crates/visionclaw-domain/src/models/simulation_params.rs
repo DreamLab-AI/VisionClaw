@@ -464,7 +464,7 @@ impl From<&PhysicsSettings> for SimulationParams {
             warmup_iterations: physics.warmup_iterations,
             cooling_rate: physics.cooling_rate,
             rest_length: physics.rest_length,
-            use_sssp_distances: true,
+            use_sssp_distances: physics.sssp_enabled,
             sssp_alpha: Some(physics.sssp_alpha),
             constraint_ramp_frames: physics.constraint_ramp_frames,
             constraint_max_force_per_node: physics.constraint_max_force_per_node,
