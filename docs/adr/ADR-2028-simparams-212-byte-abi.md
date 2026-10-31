@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 25cac8851277284c80cd28f169fe267902d73c27
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -187,3 +187,7 @@ At f6a502e47, the `chore/clippy-sweep` branch (194ea20f0..f6a502e47) changes the
 ## Re-checked at b4a175412 (2026-10-19)
 
 Governed change since `31bc3d3a1`: `src/models/simulation_params.rs` (+4, reverse conversion fills the new `semantic` settings field with its default; no `SimParams` field) and `visionclaw_unified.cu` (+`#include <thrust/sequence.h>` and a `thrust_sort_key_value` fix, `stable_sort_by_key` over an identity sequence; the `SimParams` declaration is untouched). **Holds.** Fresh anchors: `#[derive(Pod, Zeroable)]` `src/models/simulation_params.rs:27`; `unsafe impl DeviceRepr`/`DeviceCopy` `:118-119`; `const _: () = assert!(size_of::<SimParams>() == 212)` `:231`; `SIMPARAMS_SIZE` `:299`, `SIMPARAMS_MANIFEST` (53 fields) `:330`; CUDA `struct SimParams` `visionclaw_unified.cu:22`, `static_assert(sizeof(SimParams) == 212)` `:118` (both one line lower since the new include). The ontology-derived semantic forces added to `execution.rs` use a separate device module and constant memory, not a `SimParams` field.
+
+## Re-verification — 2026-10-31
+
+`PhysicsSettings` gained `sssp_enabled`, read by the `SimParams` and `SimulationParams` conversions (ADR-2140, `25cac8851`). `SimParams` (the 212-byte image) gained no field; the SSSP bit was already part of `feature_flags`, and only whether it is set now follows the stored toggle. The size and offsets are unchanged.

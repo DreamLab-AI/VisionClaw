@@ -163,6 +163,7 @@ by separation and flatten.
 | `boundsSize` | f32 | **400.0** | Soft world-cube half-extent (`SimParams.viewport_bounds` when `enableBounds` is on). Forces ramp up near the wall |
 | `enableBounds` | bool | **on** | When off, `viewport_bounds` is fed to the kernel as 0 (unbounded) |
 | `gridCellSize` | f32 | **50.0** | Spatial-hash cell size for the neighbour grid used by repulsion. Tune near `restLength` |
+| `ssspEnabled` | bool | **on** | Whether the SSSP rest-length adjustment is on (`ENABLE_SSSP_SPRING_ADJUST`). Stored in `physics.*` (ADR-2140); `POST /sssp/toggle` is a physics patch (`ssspEnabled`, optional `ssspAlpha`) through the one write path, `apply_physics_patch`, shared with `PUT /api/settings/physics`. Documents stored before the field existed load as on |
 | `ssspAlpha` | f32 | **1.5** | Weight of single-source-shortest-path graph distance in the SSSP-adjusted rest length (`ENABLE_SSSP_SPRING_ADJUST`). Makes spring rest length ontology-aware: topologically distant nodes rest farther apart |
 
 ---
@@ -247,7 +248,9 @@ table), so a layout the compiler does not give fails the build.
 
 Not part of the stored definition (recorded in ADR-2140, "Not yet done"): the layout *mode* and its
 bias priming (`fill_mode_defaults`, `force_compute_actor.rs`) still live in the compute actor, and
-`POST /sssp/toggle` patches the live parameters without writing the toggle back to the store.
+the quality-gate and DAG-mode overrides (`settings_routes.rs` quality-gate propagation,
+`settings_handler/physics.rs`) still force `useSsspDistances` and floor `ssspAlpha` at 0.5 in DAG modes.
+`POST /sssp/toggle` now writes the store (closed 2026-10-31).
 Per-node derived values (degree-weighted gravity, class mass, per-domain repulsion charge in
 `src/actors/gpu/domain_charge.rs`) are computed from the graph on upload, not stored settings.
 
