@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8e92c5d5c552164a9190424ef0cf637edc455455
+verified_commit: 3fffb8a20bd767e0ca033dfb58436516de913889
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -36,4 +36,4 @@ The extras cost graph LOD only in the triangles they draw (584 at tier 4 with th
 
 ## Verification
 
-GPU timer: `perf/gpu_time_probe.gd` on the HP, windowed, XR off, Godot 4.6.1 and 4.8-beta2: nonzero and load-following (0.019 → 0.43 ms). Allocator: 25 `frame_budget` Rust tests, 10 of them new (`cargo test --lib frame_budget`). Scene: GUT 441 passing on 4.6.1 and 4.8-beta2 with `gut_guard` 47/47. Benchmark (`XR_BENCH_CANDY`): see `docs/XR-client.md` "Visual extras and the budget layer" and the implementer's report; 13 164 nodes stays at or under 48 calls and 100k triangles at every tier. Mono desktop only.
+GPU timer: `perf/gpu_time_probe.gd` on the HP, windowed, XR off, Godot 4.6.1 and 4.8-beta2: nonzero and load-following (0.019 → 0.43 ms). Allocator: 25 `frame_budget` Rust tests, 10 of them new (`cargo test --lib frame_budget`). Scene: GUT on the merged tree, 4.6.1 and 4.8-beta2 each 490 of 493 passing (3 pending, pre-existing), `gut_guard` 48/48. Benchmark (`XR_BENCH_CANDY`): see `docs/XR-client.md` "Visual extras and the budget layer" and the implementer's report; 13 164 nodes stays at or under 48 calls and 100k triangles at every tier. Mono desktop only.

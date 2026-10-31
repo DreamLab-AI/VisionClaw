@@ -1145,7 +1145,11 @@ when the graph has spent every spare triangle:
 | 3 | 128 ambient motes (`ambient_mote.gdshader`): one MultiMesh of single-triangle sprites, positioned once, animated only in the vertex shader | 128 | 1 | additive, ≈ 22 mm sprites |
 | 4 | 512 motes (the same MultiMesh and call) | 512 | 1 | as tier 3 |
 
-The costs are `FrameBudget.extras_cost(tier, frames)`; GUT checks the built meshes against them. At tier 4
+The sky ranks first although it touches the most pixels: the scene already draws a full-background
+procedural sky, and the shader replaces that draw, so what it adds is the star hash and glow arithmetic, with
+no new pass, no overdraw and no triangle. (The nodes already have rim shading, `gem.tres` and
+`node_impostor.gdshader`; it was not touched.) The costs are `FrameBudget.extras_cost(tier, frames)`; GUT
+checks the built meshes against them. At tier 4
 with three volumes the extras are 584 triangles and 4 draw calls.
 
 **The layer.** `allocate_with_extras` prices the extras **last**, after the graph's cylinder edges, so
@@ -1176,13 +1180,13 @@ therefore probes at start-up on its own viewport and chooses its signal:
 
 | Graph | Extras | Granted | Gem cap | Allocator calls / triangles | Measured calls / triangles (max) | Frame p50 / p99 ms | GPU p50 / p99 ms |
 |---|---|---|---|---|---|---|---|
-| 13 164 nodes | no layer | 0 | 35 | 34 / 94994 | 34 / 94574 | 2.24 / 2.47 | 0.000 / 0.000 |
+| 13 164 nodes | no layer | 0 | 35 | 34 / 94994 | 34 / 94574 | 2.24 / 2.47 | n/a (timer off) |
 | 13 164 nodes | tier 0 | 0 | 35 | 34 / 94994 | 36 / 94598 | 2.25 / 2.55 | 0.997 / 1.040 |
 | 13 164 nodes | tier 1 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.26 / 2.57 | 0.992 / 1.016 |
 | 13 164 nodes | tier 2 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.22 / 2.47 | 0.993 / 1.032 |
 | 13 164 nodes | tier 3 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.24 / 2.62 | 0.993 / 1.017 |
 | 13 164 nodes | tier 4 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.24 / 2.47 | 0.993 / 1.017 |
-| 1k fixture | no layer | 0 | 80 | 34 / 47284 | 34 / 46866 | 0.65 / 0.72 | 0.000 / 0.000 |
+| 1k fixture | no layer | 0 | 80 | 34 / 47284 | 34 / 46866 | 0.65 / 0.72 | n/a (timer off) |
 | 1k fixture | tier 0 | 0 | 80 | 34 / 47284 | 36 / 46890 | 0.67 / 0.77 | 0.296 / 0.299 |
 | 1k fixture | tier 1 | 1 | 80 | 34 / 47284 | 36 / 46890 | 0.66 / 0.74 | 0.292 / 0.294 |
 | 1k fixture | tier 2 | 2 | 80 | 36 / 47332 | 36 / 46914 | 0.66 / 0.73 | 0.291 / 0.293 |
