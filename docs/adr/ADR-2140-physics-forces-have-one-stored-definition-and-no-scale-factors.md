@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 25cac8851277284c80cd28f169fe267902d73c27
+verified_commit: e37d6f96b275483be36f0b2e285f71d4b34e836a
 verified_paths: [src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -87,7 +87,9 @@ The rule therefore reads: *stored force parameters are applied as stored; derive
 Needed: the per-mode stored-value ruling, a `physics.layoutMode: LayoutMode` field with an explicit migration from the quality-gate strings, `POST /api/layout/mode` through `apply_physics_patch`, the actor's preserve-override and `fill_mode_defaults` removed, the two override blocks removed, and the client control re-pointed, with a GPU receipt.
 
 **Commands (worktree `adr-sprint/w3`, `CARGO_TARGET_DIR=/home/devuser/workspace/project/target`):**
-- `cargo test --lib sssp` → 6 passed, 0 failed.
+- `cargo test --lib` (full) → 1695 passed, 0 failed, 9 ignored; `cargo test --lib adr_20` → 43 passed.
+- `cargo test --lib sssp` → 6 passed, 0 failed. The idempotency gate compares the whole GPU image, so a stored toggle is not swallowed (`a_stored_sssp_toggle_is_not_swallowed_as_no_change`).
 - `cargo test -p visionclaw-domain` → 302 passed, 0 failed, 1 ignored (plus 5 passed in a second binary).
 - `cargo test --lib -- settings_routes simulation_params settings_handler physics` → 110 passed, 0 failed.
+- `cargo clippy --lib -p visionclaw-server`: no warning in the touched code after the fix (baseline warnings elsewhere are unchanged).
 - `cargo run --bin generate_types` → completes; no tracked client file changed.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 25cac8851277284c80cd28f169fe267902d73c27
+verified_commit: e37d6f96b275483be36f0b2e285f71d4b34e836a
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -205,4 +205,4 @@ Governed changes since `31bc3d3a1`: `src/utils/unified_gpu_compute/execution.rs`
 
 ## Re-verification — 2026-10-31
 
-ADR-2140 (`25cac8851`) makes the settings half of the OR a stored value: `From<&PhysicsSettings>` now sets `use_sssp_distances` from `physics.ssspEnabled` (default on) instead of always on, and `derive_dispatch_feature_flags` is unchanged (`force_channels.rs:499`, `use_sssp_distances || sssp_spring_adjust_enabled`). The runtime toggle is still a separate input that defaults off. `cargo test --lib sssp` passes, including `the_runtime_sssp_toggle_changes_the_word_without_a_settings_change`.
+ADR-2140 (`25cac8851`) makes the settings half of the OR a stored value: `From<&PhysicsSettings>` now sets `use_sssp_distances` from `physics.ssspEnabled` (default on) instead of always on, and `derive_dispatch_feature_flags` is unchanged (`force_channels.rs:499`, `use_sssp_distances || sssp_spring_adjust_enabled`). The runtime toggle is still a separate input that defaults off. `cargo test --lib adr_20` → 43 passed, 0 failed, and `cargo test --lib sssp` passes, including `the_runtime_sssp_toggle_changes_the_word_without_a_settings_change`.
