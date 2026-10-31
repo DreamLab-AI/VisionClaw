@@ -1123,3 +1123,110 @@ duplicate) frame is not acknowledged. The encoder is pinned to the shared wire f
 golden frame also asserted by the server and the web client. Because chunks are partial, the HUD
 "nodes drawn of known" figure counts every node ever received, and the first sequenced frame after a
 reconnect re-baselines the freshness gate.
+
+## Visual extras and the budget layer (2026-10-31)
+
+The headset's spare GPU is spent on a small set of **visual extras**, behind one controller
+(`scripts/eye_candy.gd`, a child of `SpatialEnvironment`, so the scene needs no extra wiring) and one
+budget layer (`rust/src/frame_budget.rs`, `allocate_with_extras`; ADR-2167). They change nothing in
+Invariants 1 and 2: `gl_compatibility`, no glow, bloom or post-process, no MSAA in XR, no
+`SCREEN_TEXTURE`, depth-texture read or `SubViewport` (`test_eye_candy.gd` greps the three new shaders and
+the controller for these names).
+
+**Tiers and cost.** Triangles are not free (every one the extras draw is one the graph's LOD does not get),
+draw calls and per-pixel work are. The tiers are ordered by triangle cost, so that something still shows
+when the graph has spent every spare triangle:
+
+| Tier | Adds | Triangles | Draw calls | Per-pixel |
+|------|------|-----------|------------|-----------|
+| 0 | nothing | 0 | 0 | none |
+| 1 | static observatory sky (`eye_candy_sky.gdshader`, a sky shader on a copy of the Environment: same colours, a faint horizon glow, about 2 000 fixed stars) | 0 | 0 | background pixels only, no overdraw |
+| 2 | ribbon volume frames (`frame_ribbon.gdshader`; `emulated_volume.gd`): 12 camera-facing edge quads of constant angular width (0.15°) with a soft falloff, replacing the 1 px lines | 24 a frame | 0 (the frame's own call is counted by the scene, `overhead_draw_calls`) | alpha-blended, about 2–4 px wide |
+| 3 | 128 ambient motes (`ambient_mote.gdshader`): one MultiMesh of single-triangle sprites, positioned once, animated only in the vertex shader | 128 | 1 | additive, ≈ 22 mm sprites |
+| 4 | 512 motes (the same MultiMesh and call) | 512 | 1 | as tier 3 |
+
+The sky ranks first although it touches the most pixels: the scene already draws a full-background
+procedural sky, and the shader replaces that draw, so what it adds is the star hash and glow arithmetic, with
+no new pass, no overdraw and no triangle. (The nodes already have rim shading, `gem.tres` and
+`node_impostor.gdshader`; it was not touched.) The costs are `FrameBudget.extras_cost(tier, frames)`; GUT
+checks the built meshes against them. At tier 4
+with three volumes the extras are 584 triangles and 1 draw call (the motes'); the three frames' calls
+are the scene's, with lines or ribbons.
+
+**The layer.** `allocate_with_extras` prices the extras **last**, after the graph's cylinder edges, so
+graph, cloud, route and burst caps are exactly `allocate`'s whatever the extras ask for (a Rust property
+test). The granted tier is the highest at or below the request whose triangles fit in what the other
+layers left and whose draw calls keep the frame at or under 48; when the minimums alone overrun the budget
+only the zero-cost sky remains, so the extras drop before graph detail does. `FrameBudgetPass` carries the
+request (`set_extras_demand`) and reads back `caps["extras_tier"]`; the controller draws only the grant and
+reports what it drew (`set_extras_applied`), which the pass subtracts from the measured `other_tris`, or the
+extras would be charged twice and revoked two seconds later. At production density (13 164 nodes) the
+leftover is under one near-detail step, so the grant there is tier 1 (the sky); the 1k fixture is granted tier 4.
+
+**Is there GPU headroom? Measured, not assumed.** A steady 90 FPS on the headset is vsync-locked and proves
+nothing about spare GPU time. `RenderingServer.viewport_get_measured_render_time_gpu` (switched on with
+`viewport_set_measure_render_time`) **returns nonzero under `gl_compatibility`** on the HP (Quadro RTX 6000,
+NVIDIA 580.178.04), Godot 4.6.1 and 4.8-beta2, windowed with XR off (`perf/gpu_time_probe.gd`): 0.016–0.019 ms
+for an idle scene, 0.42–0.44 ms with 40 full-screen blended quads, so it follows load. A `--headless` run
+returns 0 whatever the driver supports (dummy rasteriser), and the existing benchmark's `gpu_ms_p*` are
+frame-time aliases, not GPU time; the benchmark now reports `render_gpu_ms`. **Not established:** that the
+timer reads nonzero for the XR viewport on the headset (stereo, multiview, SteamVR). The controller
+therefore probes at start-up on its own viewport and chooses its signal:
+
+- *GPU timer works* (`signal_mode = "gpu"`): the governor steps on measured GPU ms.
+- *It reads zero* (`"frame"`): a conservative static ceiling of tier 2 that steps on frame-time p95 (a
+  missed frame is the only evidence).
+
+**Benchmark** (`perf/run_benchmark.gd`, `XR_BENCH_CANDY=<tier>`, 20 s, windowed 960×720, **mono desktop on the HP, not stereo**; Godot 4.6.1, mean of two runs; 4.8-beta2 agrees to within noise at tiers 0 and 4: same calls and triangles, GPU p50 0.993 → 0.988 ms at 13 164 nodes and 0.296 → 0.293 ms at the 1k fixture). "No layer" is the benchmark as it was; tier 0 is the same scene with the two volume frames and a WorldEnvironment added and every extra off, which is the baseline for the tiers. The HP's GPUs carry other workloads (20–23 GB resident), and the two runs of a configuration differ by up to 0.012 ms GPU p50 at 13 164 nodes (0.002 ms at the 1k fixture); the extras' cost is below that noise at this resolution. Every row asserts at most 48 draw calls and 100 000 triangles measured, and passes.
+
+| Graph | Extras | Granted | Gem cap | Allocator calls / triangles | Measured calls / triangles (max) | Frame p50 / p99 ms | GPU p50 / p99 ms |
+|---|---|---|---|---|---|---|---|
+| 13 164 nodes | no layer | 0 | 35 | 34 / 94994 | 34 / 94574 | 2.24 / 2.47 | n/a (timer off) |
+| 13 164 nodes | tier 0 | 0 | 35 | 34 / 94994 | 36 / 94598 | 2.25 / 2.55 | 0.997 / 1.040 |
+| 13 164 nodes | tier 1 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.26 / 2.57 | 0.992 / 1.016 |
+| 13 164 nodes | tier 2 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.22 / 2.47 | 0.993 / 1.032 |
+| 13 164 nodes | tier 3 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.24 / 2.62 | 0.993 / 1.017 |
+| 13 164 nodes | tier 4 | 1 | 35 | 34 / 94994 | 36 / 94598 | 2.24 / 2.47 | 0.993 / 1.017 |
+| 1k fixture | no layer | 0 | 80 | 34 / 47284 | 34 / 46866 | 0.65 / 0.72 | n/a (timer off) |
+| 1k fixture | tier 0 | 0 | 80 | 34 / 47284 | 36 / 46890 | 0.67 / 0.77 | 0.296 / 0.299 |
+| 1k fixture | tier 1 | 1 | 80 | 34 / 47284 | 36 / 46890 | 0.66 / 0.74 | 0.292 / 0.294 |
+| 1k fixture | tier 2 | 2 | 80 | 36 / 47332 | 36 / 46914 | 0.66 / 0.73 | 0.291 / 0.293 |
+| 1k fixture | tier 3 | 3 | 80 | 37 / 47460 | 37 / 47042 | 0.66 / 0.75 | 0.293 / 0.295 |
+| 1k fixture | tier 4 | 4 | 80 | 37 / 47844 | 37 / 47426 | 0.66 / 0.76 | 0.294 / 0.295 |
+
+At production density the allocator grants tier 1 (the sky) only: 6 triangles are left under the 95 000 limit. Tier 4 there would cost 584 triangles, about two of its 35 gem nodes (one near-detail step is 288 triangles), which is the trade a later change can take by giving the extras an allowance ahead of the graph's near detail (it would break the "extras never change the other caps" property). The allocator-calls column above was taken before the scene counted the volume frames' calls, so at tiers 0–1 it is two calls short of the measured count and at tier 2 up the extras layer carried the frames' calls. Since the hook (`GraphScene._tick_frame_budget` adds each volume's `overhead_draw_calls()`; `extras_cost` tier 2 charges none; the benchmark passes `GRAPH_DRAW_CALLS + _other_dc + frames`) every tier counts the frames once, and the allocator's call count equals the scene's by construction at tiers 0–2; those cells are not re-measured here. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
+
+**Governor.** A window of one second; its p95 decides. Above the drop limit (GPU 8 ms, the PRD-008 §6
+figure; frame mode 1.15 × the refresh interval): step down one tier at once and double the climb hold-off
+(up to ×8). Below the climb limit (5.5 ms; 1.03 ×) for 8 s × hold-off (20 s in frame mode) of consecutive
+windows: step up one tier. In between: hold. The hold outlasts the pass's 2 s peak hold so a new tier has
+settled in the budget before the next step is judged. The governor never requests below tier 1: the sky replaces
+the ProceduralSky draw and costs no pass, triangle or call, so dropping it would free nothing and swap the whole
+background in both eyes in one frame. Only low cost and `XR_EYE_CANDY=0` take it away. GPU time is trusted only
+if most of the 120 probe frames read nonzero; in GPU mode, about 2 s (more than 180 frames) of consecutive zero
+readings switch the controller to frame time with the tier capped at 2. `XR_EYE_CANDY=auto|off|0..4` pins the request.
+
+**Comfort.** Reduced motion is on by default and the extras are designed to look right with it on: the sky
+is static (no `TIME`), the ribbons are static, the motes hold still (no drift, no twinkle; `motion = 0`).
+With reduced motion off the motes drift a few centimetres and twinkle. `XR_VISUAL_QUALITY=low`
+(`set_visual_comfort(_, true)`) turns every extra off: tier 0, line frames, the scene's own sky, the GPU
+timer off; nothing re-enables them while it holds. The Environment is copied on write, as the node
+materials are.
+
+**Volume frames.** `emulated_volume.gd` keeps its line frame and gains the ribbon frame, switched for every
+volume (existing and later) by `EmulatedVolume.set_ribbon_frames(tree, on)`. A frame is hidden while the
+volume is hidden, immersive, a portal room (`portal_room`, ADR-2166) or `set_frame_hidden(true)` (a hook that
+holds whatever the volume's other state). Focus keeps its colour state.
+"One draw call" is per frame: each volume owns its frame, as before, and the scene counts it
+(`GraphScene._tick_frame_budget` adds `overhead_draw_calls()` for every volume, tier 0 included).
+
+**Portal weights.** `FrameBudgetPass.set_volume_weights({volume_id: weight})` (called by `graph_scene.gd` on enter and leave,
+ADR-2166: entered 1.0, the others 0.15; all 1.0 on leave) makes the near-cap split
+`drawn × weight` instead of `drawn`; the `GEM_MIN` floor holds for every visible volume, a missing id weighs
+1.0, NaN and negatives weigh 0, and empty or all-equal weights give exactly the unweighted split
+(`split_near_caps_weighted`). 1.0 is the neutral weight; all-1.0 is exactly `{}`. At production density the
+floors are dealt before any weighting (35 gems, 7 cylinders), so the weights are mostly inert there; that is an
+open owner decision (ADR-2167).
+
+**Unverified.** Stereo (both eyes), the headset and fill rate in both eyes; the sky shader's behaviour under
+multiview; whether the GPU timer exists on the XR viewport. The numbers above are mono desktop.

@@ -22,6 +22,13 @@
 //! Both passes work inside [`TRI_LIMIT`] / [`DRAW_CALL_LIMIT`]: 5 % of each
 //! budget is held back for frame-to-frame variance.
 //!
+//! The visual extras (`eye_candy.gd`: sky, ribbon volume frames, ambient motes)
+//! are a third, last claim ([`allocate_with_extras`]). They are priced after the
+//! graph's near detail, so they can never move the graph, cloud, route or burst
+//! caps, only buy what is left, and they drop first when the minimums overrun.
+//! Their triangles are not free: what the graph left over is what they spend,
+//! and their draw calls are checked against every other layer's final count.
+//!
 //! Near-tier costs are charged as the increment over the far tier that the
 //! node or edge would otherwise use. If the minimums alone exceed the budget
 //! the minimums are still returned, with `over_budget` set, so the benchmark
@@ -68,6 +75,19 @@ pub const CLOUD_DRAW_CALLS: usize = 1;
 /// Draw calls a shown route adds (tube surface, bead discs, rings).
 pub const ROUTE_DRAW_CALLS: usize = 3;
 
+/// Highest extras tier (see [`extras_cost`]).
+pub const EXTRAS_MAX_TIER: usize = 4;
+/// Volume frames the extras layer prices; more are charged as this many.
+pub const EXTRAS_MAX_FRAMES: usize = 8;
+/// A ribbon frame: 12 edges, one quad (2 triangles) each, one draw call per
+/// volume (`emulated_volume.gd`). A GUT test checks it against the built mesh.
+pub const FRAME_RIBBON_TRIS: usize = 12 * 2;
+/// Ambient motes at tier 3 and tier 4: one MultiMesh, one triangle per mote,
+/// one draw call (`eye_candy.gd`). A GUT test checks them against the node.
+pub const MOTES_LOW: usize = 128;
+pub const MOTES_HIGH: usize = 512;
+pub const MOTE_TRIS: usize = 1;
+
 const GEM_STEP: usize = GEM_TRIS_PER_NODE - IMPOSTOR_TRIS_PER_NODE;
 const CYLINDER_STEP: usize = CYLINDER_TRIS_PER_EDGE - RIBBON_TRIS_PER_EDGE;
 
@@ -112,6 +132,48 @@ pub struct MemoryDemand {
     pub burst_slots: usize,
 }
 
+/// What the visual extras (`eye_candy.gd`) want drawn this frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExtrasDemand {
+    /// Requested tier, 0 = off (see [`extras_cost`]).
+    pub tier: usize,
+    /// Volume frames that would draw ribbons.
+    pub frames: usize,
+}
+
+/// Triangles and draw calls the extras cost at `tier` with `frames` volume
+/// frames. Tiers add to each other, ordered by triangle cost so that something
+/// still shows when the graph has used every spare triangle:
+///
+/// | tier | adds | triangles | draw calls |
+/// |------|------|-----------|------------|
+/// | 0 | nothing | 0 | 0 |
+/// | 1 | static gradient sky with fixed stars, on the Environment | 0 | 0 |
+/// | 2 | ribbon volume frames | 24 a frame | 0 (the frame's own call is counted by the scene) |
+/// | 3 | 128 ambient motes | 128 | 1 |
+/// | 4 | 512 ambient motes | 512 | 1 (the same call) |
+///
+/// The sky has no geometry (it is the scene's background), so it costs
+/// per-pixel work only. Tiers above [`EXTRAS_MAX_TIER`] and frames above
+/// [`EXTRAS_MAX_FRAMES`] clamp.
+pub fn extras_cost(tier: usize, frames: usize) -> (usize, usize) {
+    let tier = tier.min(EXTRAS_MAX_TIER);
+    let frames = frames.min(EXTRAS_MAX_FRAMES);
+    let mut tris = 0;
+    let mut calls = 0;
+    if tier >= 2 {
+        // The ribbons replace the 1 px lines in the same draw call, and the
+        // scene counts that call (`overhead_draw_calls`), so tier 2 adds none.
+        tris += frames * FRAME_RIBBON_TRIS;
+    }
+    if tier >= 3 {
+        let motes = if tier >= 4 { MOTES_HIGH } else { MOTES_LOW };
+        tris += motes * MOTE_TRIS;
+        calls += 1;
+    }
+    (tris, calls)
+}
+
 /// Caps for the graph's near tiers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GraphCaps {
@@ -138,14 +200,35 @@ pub struct FrameCaps {
     /// Triangles all layers spend at these caps (worst case for the graph's
     /// near tiers: every cap filled).
     pub tris_total: usize,
-    /// Draw calls all layers spend.
+    /// Draw calls all layers spend (extras included).
     pub draw_calls: usize,
+    /// Extras tier granted (0 when none was asked for or nothing fitted).
+    pub extras_tier: usize,
+    /// Triangles the granted extras spend (counted in `tris_total`).
+    pub extras_tris: usize,
+    /// Draw calls the granted extras spend (counted in `draw_calls`).
+    pub extras_draw_calls: usize,
     /// The minimums alone exceed a budget.
     pub over_budget: bool,
 }
 
-/// Divide the frame budget between the layers (see the module docs).
+/// Divide the frame budget between the layers (see the module docs), with no
+/// visual extras: [`allocate_with_extras`] asking for tier 0.
 pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
+    allocate_with_extras(g, m, &ExtrasDemand::default())
+}
+
+/// [`allocate`] plus the visual-extras layer, which is the **last** claim on
+/// the frame: it is priced after the graph's cylinder edges, so the graph,
+/// cloud, route and burst caps are exactly those of [`allocate`] whatever the
+/// extras ask for (tested). The granted tier is the highest at or below
+/// `x.tier` whose triangles fit in what the other layers left and whose draw
+/// calls keep the frame at or under [`DRAW_CALL_LIMIT`]; when the minimums
+/// alone overrun the budget nothing is left and only the zero-cost tiers
+/// remain, so the extras drop before any graph detail does. Draw calls are
+/// checked against every other layer's final count, with the burst pool at its
+/// granted size.
+pub fn allocate_with_extras(g: &GraphDemand, m: &MemoryDemand, x: &ExtrasDemand) -> FrameCaps {
     let faded = g.faded.min(g.nodes);
     let far = g.other_tris
         + g.nodes * IMPOSTOR_TRIS_PER_NODE
@@ -205,13 +288,8 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
     let cylinder_edges = g.edges.min(DEFAULT_NEAR_EDGE_CAP).min(rem / CYLINDER_STEP);
     rem -= cylinder_edges * CYLINDER_STEP;
 
-    let spent = TRI_LIMIT.saturating_sub(rem);
-    let tris_total = if over_tris {
-        minimums + hull_cost
-    } else {
-        spent
-    };
-    let draw_calls = g.draw_calls
+    // visual extras: whatever is left, highest affordable tier
+    let base_calls = g.draw_calls
         + if cloud_sprites > 0 {
             CLOUD_DRAW_CALLS
         } else {
@@ -223,6 +301,24 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
             0
         }
         + if burst_slots > 0 { BURST_DRAW_CALLS } else { 0 };
+    let mut extras_tier = 0;
+    let (mut extras_tris, mut extras_draw_calls) = (0, 0);
+    for t in (1..=x.tier.min(EXTRAS_MAX_TIER)).rev() {
+        let (tris, calls) = extras_cost(t, x.frames);
+        if tris <= rem && base_calls + calls <= DRAW_CALL_LIMIT.max(base_calls) {
+            extras_tier = t;
+            (extras_tris, extras_draw_calls) = (tris, calls);
+            break;
+        }
+    }
+    rem -= extras_tris;
+    let spent = TRI_LIMIT.saturating_sub(rem);
+    let tris_total = if over_tris {
+        minimums + hull_cost + extras_tris
+    } else {
+        spent
+    };
+    let draw_calls = base_calls + extras_draw_calls;
 
     FrameCaps {
         graph: GraphCaps {
@@ -236,7 +332,10 @@ pub fn allocate(g: &GraphDemand, m: &MemoryDemand) -> FrameCaps {
         burst_slots,
         tris_total,
         draw_calls,
-        over_budget: over_tris || draw_calls > DRAW_CALL_LIMIT,
+        extras_tier,
+        extras_tris,
+        extras_draw_calls,
+        over_budget: over_tris || base_calls > DRAW_CALL_LIMIT,
     }
 }
 
@@ -326,10 +425,130 @@ pub fn split_near_caps(total: usize, demands: &[usize], floor: usize) -> Vec<usi
     out
 }
 
+/// Weight clamp: NaN and negatives are 0, infinities and huge values are capped so
+/// products stay finite.
+fn clean_weight(w: f64) -> f64 {
+    if w.is_nan() || w <= 0.0 {
+        0.0
+    } else {
+        w.min(1e12)
+    }
+}
+
+/// [`split_near_caps`] with a weight per volume (ADR-2159 D4, portals): the
+/// proportional step shares in proportion to *unmet demand x weight*, that is
+/// drawn x weight at the start, instead of unmet demand alone.
+///
+/// * `weights[i]` is volume *i*'s weight; a missing entry is 1.0, and NaN or a
+///   negative is 0.
+/// * **Identity.** An empty `weights`, or weights equal across every volume that
+///   has demand, take the unweighted path unchanged: the result is exactly
+///   [`split_near_caps`]'s (tested). A hidden volume's weight never counts.
+/// * **Floor.** Every volume still gets `min(demand, floor)` first, weight or no
+///   weight, exactly as the unweighted split does (and when the cap cannot cover
+///   the floors, the unweighted round-robin deals it).
+/// * A zero weight asks for the floor only. When nobody with weight has unmet
+///   demand left, the remaining cap goes to the zero-weight volumes unweighted,
+///   so `sum(out) == min(total, sum(demands))` still holds.
+pub fn split_near_caps_weighted(
+    total: usize,
+    demands: &[usize],
+    weights: &[f64],
+    floor: usize,
+) -> Vec<usize> {
+    let w: Vec<f64> = (0..demands.len())
+        .map(|i| clean_weight(weights.get(i).copied().unwrap_or(1.0)))
+        .collect();
+    let mut live = demands.iter().zip(&w).filter(|(d, _)| **d > 0).map(|(_, w)| *w);
+    let equal = match live.next() {
+        None => true,
+        Some(first) => live.all(|x| x == first),
+    };
+    let want: usize = demands.iter().sum();
+    let left0 = total.min(want);
+    let floors: Vec<usize> = demands.iter().map(|&d| d.min(floor)).collect();
+    if equal || floors.iter().sum::<usize>() > left0 {
+        return split_near_caps(total, demands, floor);
+    }
+    let mut out = floors.clone();
+    let mut left = left0 - floors.iter().sum::<usize>();
+    while left > 0 {
+        let unmet: Vec<usize> = demands.iter().zip(&out).map(|(&d, &o)| d - o).collect();
+        let unmet_sum: usize = unmet.iter().sum();
+        if unmet_sum == 0 {
+            break;
+        }
+        let mut a: Vec<f64> = unmet.iter().zip(&w).map(|(&u, &w)| u as f64 * w).collect();
+        let mut a_sum: f64 = a.iter().sum();
+        if a_sum <= 0.0 {
+            // only zero-weight volumes still want cap: share it unweighted
+            a = unmet.iter().map(|&u| u as f64).collect();
+            a_sum = unmet_sum as f64;
+        }
+        let pool = left.min(unmet_sum);
+        let mut shares = vec![0usize; out.len()];
+        let mut fracs: Vec<(f64, usize)> = Vec::with_capacity(out.len());
+        for i in 0..out.len() {
+            let exact = pool as f64 * a[i] / a_sum;
+            let share = (exact.floor() as usize).min(unmet[i]);
+            shares[i] = share;
+            fracs.push((exact - exact.floor(), i));
+        }
+        let mut given: usize = shares.iter().sum();
+        // floating-point guard: never hand out more than the pool
+        while given > pool {
+            let i = (0..shares.len()).max_by_key(|&i| shares[i]).unwrap_or(0);
+            shares[i] -= 1;
+            given -= 1;
+        }
+        // largest remainder first; ties to the lower index
+        fracs.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal).then(x.1.cmp(&y.1)));
+        let mut extra = pool - given;
+        for &(_, i) in &fracs {
+            if extra == 0 {
+                break;
+            }
+            if a[i] > 0.0 && shares[i] < unmet[i] {
+                shares[i] += 1;
+                extra -= 1;
+            }
+        }
+        let round: usize = shares.iter().sum();
+        for i in 0..out.len() {
+            out[i] += shares[i];
+        }
+        left -= round;
+        if round == 0 {
+            break;
+        }
+    }
+    out
+}
+
 // ── Godot adapter ──
 
 #[cfg(not(test))]
 use godot::prelude::*;
+
+/// A [`FrameCaps`] as the dictionary GDScript reads.
+#[cfg(not(test))]
+fn caps_dictionary(c: &FrameCaps) -> Dictionary {
+    let mut d = Dictionary::new();
+    d.set("gem_nodes", c.graph.gem_nodes as i64);
+    d.set("cylinder_edges", c.graph.cylinder_edges as i64);
+    d.set("max_hulls", c.graph.max_hulls as i64);
+    d.set("cloud_sprites", c.cloud_sprites as i64);
+    d.set("route_tris", c.route_tris as i64);
+    d.set("route_ring_cap", c.route_ring_cap as i64);
+    d.set("burst_slots", c.burst_slots as i64);
+    d.set("tris_total", c.tris_total as i64);
+    d.set("draw_calls", c.draw_calls as i64);
+    d.set("extras_tier", c.extras_tier as i64);
+    d.set("extras_tris", c.extras_tris as i64);
+    d.set("extras_draw_calls", c.extras_draw_calls as i64);
+    d.set("over_budget", c.over_budget);
+    d
+}
 
 /// Godot face of [`allocate`]: `FrameBudget.new().allocate(...)`.
 #[cfg(not(test))]
@@ -387,25 +606,81 @@ impl FrameBudget {
             rows: u(route_rows),
             sidecar: u(route_sidecar),
         });
-        let c = allocate(
-            &g,
-            &MemoryDemand {
-                cloud_rows: u(cloud_rows),
-                route,
-                burst_slots: u(burst_slots),
-            },
-        );
+        let m = MemoryDemand {
+            cloud_rows: u(cloud_rows),
+            route,
+            burst_slots: u(burst_slots),
+        };
+        caps_dictionary(&allocate(&g, &m))
+    }
+
+    /// [`allocate`] plus the visual-extras layer: the same eleven arguments, then
+    /// the requested `extras_tier` (0 = off) and the volume `extras_frames` that
+    /// would draw ribbons. The result adds `extras_tier`, `extras_tris` and
+    /// `extras_draw_calls`; every other key equals `allocate`'s.
+    #[func]
+    #[allow(clippy::too_many_arguments)]
+    fn allocate_with_extras(
+        &self,
+        nodes: i64,
+        edges: i64,
+        hulls: i64,
+        hull_tris: i64,
+        faded: i64,
+        other_tris: i64,
+        graph_draw_calls: i64,
+        cloud_rows: i64,
+        route_rows: i64,
+        route_sidecar: i64,
+        burst_slots: i64,
+        extras_tier: i64,
+        extras_frames: i64,
+    ) -> Dictionary {
+        let u = |v: i64| v.max(0) as usize;
+        let g = GraphDemand {
+            nodes: u(nodes),
+            edges: u(edges),
+            hulls: u(hulls),
+            hull_tris: u(hull_tris),
+            faded: u(faded),
+            draw_calls: u(graph_draw_calls),
+            other_tris: u(other_tris),
+        };
+        let route = (route_rows >= 2).then(|| RouteShape {
+            rows: u(route_rows),
+            sidecar: u(route_sidecar),
+        });
+        let m = MemoryDemand {
+            cloud_rows: u(cloud_rows),
+            route,
+            burst_slots: u(burst_slots),
+        };
+        let x = ExtrasDemand {
+            tier: u(extras_tier),
+            frames: u(extras_frames),
+        };
+        caps_dictionary(&allocate_with_extras(&g, &m, &x))
+    }
+
+    /// [triangles, draw calls] of extras `tier` with `frames` volume frames
+    /// ([`extras_cost`]).
+    #[func]
+    fn extras_cost(&self, tier: i64, frames: i64) -> PackedInt32Array {
+        let (t, c) = extras_cost(tier.max(0) as usize, frames.max(0) as usize);
+        PackedInt32Array::from(&[t as i32, c as i32][..])
+    }
+
+    /// The extras layer's constants: max_tier, max_frames, frame_tris, motes_low,
+    /// motes_high, mote_tris.
+    #[func]
+    fn extras_spec(&self) -> Dictionary {
         let mut d = Dictionary::new();
-        d.set("gem_nodes", c.graph.gem_nodes as i64);
-        d.set("cylinder_edges", c.graph.cylinder_edges as i64);
-        d.set("max_hulls", c.graph.max_hulls as i64);
-        d.set("cloud_sprites", c.cloud_sprites as i64);
-        d.set("route_tris", c.route_tris as i64);
-        d.set("route_ring_cap", c.route_ring_cap as i64);
-        d.set("burst_slots", c.burst_slots as i64);
-        d.set("tris_total", c.tris_total as i64);
-        d.set("draw_calls", c.draw_calls as i64);
-        d.set("over_budget", c.over_budget);
+        d.set("max_tier", EXTRAS_MAX_TIER as i64);
+        d.set("max_frames", EXTRAS_MAX_FRAMES as i64);
+        d.set("frame_tris", FRAME_RIBBON_TRIS as i64);
+        d.set("motes_low", MOTES_LOW as i64);
+        d.set("motes_high", MOTES_HIGH as i64);
+        d.set("mote_tris", MOTE_TRIS as i64);
         d
     }
 
@@ -424,6 +699,26 @@ impl FrameBudget {
             .into_iter()
             .map(|v| v as i64)
             .collect();
+        PackedInt64Array::from(out.as_slice())
+    }
+
+    /// [`split_near_caps_weighted`]: as `split_near_caps`, with a weight per volume
+    /// (a missing entry is 1.0). Empty or all-equal weights give exactly
+    /// `split_near_caps`'s answer.
+    #[func]
+    fn split_near_caps_weighted(
+        &self,
+        total: i64,
+        demands: PackedInt64Array,
+        weights: PackedFloat64Array,
+        floor: i64,
+    ) -> PackedInt64Array {
+        let d: Vec<usize> = demands.as_slice().iter().map(|&v| v.max(0) as usize).collect();
+        let out: Vec<i64> =
+            split_near_caps_weighted(total.max(0) as usize, &d, weights.as_slice(), floor.max(0) as usize)
+                .into_iter()
+                .map(|v| v as i64)
+                .collect();
         PackedInt64Array::from(out.as_slice())
     }
 
@@ -863,5 +1158,259 @@ mod tests {
         );
         assert_eq!(c.graph.gem_nodes, GEM_MIN);
         assert_eq!(cost(&g, &m, &c), c.tris_total);
+    }
+
+    // ── weighted volume split ──
+
+    fn check_weighted(total: usize, demands: &[usize], weights: &[f64], floor: usize) -> Vec<usize> {
+        let out = split_near_caps_weighted(total, demands, weights, floor);
+        assert_eq!(out.len(), demands.len());
+        let sum: usize = out.iter().sum();
+        assert!(sum <= total, "{out:?} exceeds {total} ({weights:?})");
+        for (o, d) in out.iter().zip(demands) {
+            assert!(o <= d, "{out:?} exceeds demand {demands:?}");
+        }
+        assert_eq!(
+            sum,
+            total.min(demands.iter().sum()),
+            "{out:?} leaves cap unused ({demands:?} {weights:?})"
+        );
+        let floors: usize = demands.iter().map(|&d| d.min(floor)).sum();
+        if floors <= total {
+            for (o, d) in out.iter().zip(demands) {
+                assert!(*o >= (*d).min(floor), "{out:?} drops a floor ({demands:?} {weights:?})");
+            }
+        }
+        out
+    }
+
+    const SHAPES: [&[usize]; 6] = [
+        &[1, 1, 1],
+        &[0, 0, 0],
+        &[3, 50, 7],
+        &[13_164, 0, 900],
+        &[17, 17],
+        &[1, 2, 3, 4],
+    ];
+
+    #[test]
+    fn weighted_split_with_no_or_equal_weights_is_the_unweighted_split() {
+        for total in [0usize, 1, 2, 15, 16, 47, 80, 96, 500] {
+            for d in SHAPES {
+                for floor in [0usize, 1, GEM_MIN] {
+                    let plain = split_near_caps(total, d, floor);
+                    assert_eq!(split_near_caps_weighted(total, d, &[], floor), plain, "empty");
+                    for w in [1.0f64, 2.5, 0.0, 1e-9] {
+                        let ws = vec![w; d.len()];
+                        assert_eq!(
+                            split_near_caps_weighted(total, d, &ws, floor),
+                            plain,
+                            "all {w}: {total} {d:?} {floor}"
+                        );
+                    }
+                }
+            }
+        }
+        // A hidden volume's weight is irrelevant: only volumes with demand count.
+        assert_eq!(
+            split_near_caps_weighted(80, &[6_000, 2_000, 0], &[2.0, 2.0, 9.0], GEM_MIN),
+            split_near_caps(80, &[6_000, 2_000, 0], GEM_MIN)
+        );
+    }
+
+    #[test]
+    fn weighted_split_shares_by_drawn_times_weight() {
+        // Same drawn count, weights 3:1: floors 16 + 16, the other 48 split 3:1.
+        let out = check_weighted(80, &[6_000, 6_000], &[3.0, 1.0], GEM_MIN);
+        assert_eq!(out, vec![52, 28]);
+        // The weight multiplies the drawn count, so a smaller heavy volume can win.
+        let out = check_weighted(80, &[1_000, 3_000], &[4.0, 1.0], GEM_MIN);
+        let plain = split_near_caps(80, &[1_000, 3_000], GEM_MIN);
+        assert!(plain[0] < plain[1], "unweighted favours the bigger drawn count: {plain:?}");
+        assert!(out[0] > out[1], "weight 4 beats 3x the drawn count: {out:?}");
+        assert_eq!(out, vec![43, 37]);
+        // A missing id counts as 1.0.
+        let out = check_weighted(80, &[6_000, 6_000], &[3.0], GEM_MIN);
+        assert_eq!(out, vec![52, 28]);
+    }
+
+    #[test]
+    fn weighted_split_keeps_the_floor_for_a_zero_weight_volume() {
+        let out = check_weighted(80, &[6_000, 6_000], &[0.0, 1.0], GEM_MIN);
+        assert_eq!(out, vec![GEM_MIN, 80 - GEM_MIN], "zero weight is floor only");
+        // Nobody else wants the rest: the zero-weight volume takes it rather
+        // than leaving cap unused.
+        let out = check_weighted(80, &[100, 20], &[0.0, 1.0], GEM_MIN);
+        assert_eq!(out, vec![60, 20]);
+    }
+
+    #[test]
+    fn weighted_split_sanitises_bad_weights() {
+        let w = [f64::NAN, -3.0, f64::INFINITY, 1.0];
+        let out = check_weighted(200, &[500, 500, 500, 500], &w, GEM_MIN);
+        assert_eq!(out.iter().sum::<usize>(), 200);
+        // NaN and negative are zero weight: floor only while others want more.
+        assert_eq!((out[0], out[1]), (GEM_MIN, GEM_MIN));
+    }
+
+    #[test]
+    fn weighted_split_holds_its_invariants_over_a_sweep() {
+        let weight_sets: [&[f64]; 6] = [
+            &[1.0, 2.0, 3.0, 4.0],
+            &[0.0, 5.0, 0.0, 0.5],
+            &[0.25, 0.25, 8.0],
+            &[f64::NAN, 1.0, -1.0],
+            &[1e9, 1.0],
+            &[7.0],
+        ];
+        for total in [0usize, 1, 2, 15, 16, 47, 80, 96, 500] {
+            for d in SHAPES {
+                for w in weight_sets {
+                    for floor in [0usize, 1, GEM_MIN] {
+                        check_weighted(total, d, w, floor);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── extras layer ──
+
+    /// Every extras tier's cost, recounted from the constants.
+    #[test]
+    fn extras_tiers_cost_what_the_constants_say() {
+        assert_eq!(extras_cost(0, 3), (0, 0));
+        assert_eq!(extras_cost(1, 3), (0, 0), "the sky is the Environment's: no triangle, no call");
+        assert_eq!(extras_cost(2, 3), (3 * FRAME_RIBBON_TRIS, 0), "the ribbons replace the lines in the frame's own call, which the scene counts");
+        assert_eq!(extras_cost(3, 3), (3 * FRAME_RIBBON_TRIS + MOTES_LOW * MOTE_TRIS, 1));
+        assert_eq!(extras_cost(4, 3), (3 * FRAME_RIBBON_TRIS + MOTES_HIGH * MOTE_TRIS, 1));
+        assert_eq!(extras_cost(9, 3), extras_cost(EXTRAS_MAX_TIER, 3), "tier clamps");
+        assert_eq!(
+            extras_cost(4, 99),
+            extras_cost(4, EXTRAS_MAX_FRAMES),
+            "frames clamp"
+        );
+        let mut prev = (0, 0);
+        for t in 0..=EXTRAS_MAX_TIER {
+            let c = extras_cost(t, 2);
+            assert!(c.0 >= prev.0 && c.1 >= prev.1, "tiers only add cost");
+            prev = c;
+        }
+    }
+
+    #[test]
+    fn extras_never_change_the_other_layers() {
+        // The key property: whatever the demand, the graph, cloud, route and
+        // burst caps with extras equal the plain allocator's.
+        let m = full_memory();
+        for nodes in (500..40_000).step_by(1_250) {
+            for tier in 0..=EXTRAS_MAX_TIER {
+                let g = GraphDemand {
+                    nodes,
+                    edges: nodes * 3 / 2,
+                    hulls: 32,
+                    hull_tris: 2_938,
+                    faded: 0,
+                    draw_calls: 6,
+                    other_tris: 0,
+                };
+                let x = ExtrasDemand { tier, frames: 3 };
+                for mem in [&m, &MemoryDemand::default()] {
+                    let (a, b) = (allocate(&g, mem), allocate_with_extras(&g, mem, &x));
+                    assert_eq!(
+                        (a.graph, a.cloud_sprites, a.route_tris, a.route_ring_cap, a.burst_slots),
+                        (b.graph, b.cloud_sprites, b.route_tris, b.route_ring_cap, b.burst_slots),
+                        "{nodes} tier {tier}"
+                    );
+                    assert_eq!(a.extras_tier, 0, "plain allocate grants no extras");
+                    assert_eq!(b.tris_total, a.tris_total + b.extras_tris, "{nodes} tier {tier}");
+                    assert_eq!(b.draw_calls, a.draw_calls + b.extras_draw_calls);
+                    assert_eq!(b.over_budget, a.over_budget);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn extras_take_only_what_the_graph_left_over() {
+        // A small graph leaves most of the budget: every tier is granted.
+        let small = GraphDemand {
+            nodes: 1_000,
+            edges: 1_500,
+            hulls: 12,
+            hull_tris: 1_100,
+            faded: 0,
+            draw_calls: 6,
+            other_tris: 0,
+        };
+        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let c = allocate_with_extras(&small, &MemoryDemand::default(), &x);
+        let want = extras_cost(EXTRAS_MAX_TIER, 3);
+        assert_eq!(c.extras_tier, EXTRAS_MAX_TIER);
+        assert_eq!((c.extras_tris, c.extras_draw_calls), want);
+        assert_eq!(c.draw_calls, 6 + want.1);
+        assert!(!c.over_budget && c.tris_total <= TRI_LIMIT);
+
+        // The production graph spends every triangle on near detail: what is
+        // left cannot buy the motes, and the tier steps down instead.
+        let c = allocate_with_extras(&production(), &full_memory(), &x);
+        let left = TRI_LIMIT - (c.tris_total - c.extras_tris);
+        assert!(c.extras_tris <= left, "{} of {left}", c.extras_tris);
+        let next = extras_cost(c.extras_tier + 1, 3);
+        assert!(next.0 > left || c.draw_calls + (next.1 - c.extras_draw_calls) > DRAW_CALL_LIMIT);
+        assert!(c.extras_tier >= 1, "the sky is free: it always shows");
+        assert!(c.tris_total <= TRI_LIMIT && !c.over_budget);
+    }
+
+    #[test]
+    fn extras_are_held_by_the_draw_call_limit() {
+        // 44 graph calls + 4 memory calls = 48 of 48: the motes' call would be 49.
+        let g = GraphDemand {
+            nodes: 1_000,
+            edges: 1_000,
+            hulls: 0,
+            hull_tris: 0,
+            faded: 0,
+            draw_calls: 44,
+            other_tris: 0,
+        };
+        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 0 };
+        let c = allocate_with_extras(&g, &full_memory(), &x);
+        assert_eq!(c.draw_calls, 48 + c.extras_draw_calls);
+        assert!(c.draw_calls <= DRAW_CALL_LIMIT && !c.over_budget);
+        assert_eq!(c.extras_tier, 2, "no frames: tiers 1 and 2 cost nothing; motes need 1 call");
+        // Three frames: their calls are the scene's, already inside `draw_calls`
+        // (44 includes them), so tier 2 adds none and is granted; the motes'
+        // call would still be the 49th.
+        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let c = allocate_with_extras(&g, &full_memory(), &x);
+        assert_eq!(c.extras_tier, 2, "the ribbons replace the lines: no call of their own");
+        assert_eq!(c.extras_draw_calls, 0);
+        assert_eq!(c.draw_calls, 48);
+        // At the limit already: nothing paid for in calls; the layer reports no overrun it caused.
+        let g = GraphDemand { draw_calls: 48, ..g };
+        let c = allocate_with_extras(&g, &MemoryDemand::default(), &x);
+        assert_eq!((c.extras_tier, c.extras_draw_calls, c.draw_calls), (2, 0, 48));
+        assert!(!c.over_budget);
+    }
+
+    #[test]
+    fn extras_drop_first_when_the_minimums_alone_overrun() {
+        let g = GraphDemand {
+            nodes: 60_000,
+            edges: 0,
+            hulls: 32,
+            hull_tris: 2_938,
+            faded: 0,
+            draw_calls: 6,
+            other_tris: 0,
+        };
+        let x = ExtrasDemand { tier: EXTRAS_MAX_TIER, frames: 3 };
+        let plain = allocate(&g, &full_memory());
+        let c = allocate_with_extras(&g, &full_memory(), &x);
+        assert!(c.over_budget);
+        assert_eq!((c.extras_tris, c.extras_draw_calls), (0, 0), "no triangle bought");
+        assert_eq!(c.tris_total, plain.tris_total, "the minimums are what is reported");
+        assert_eq!(c.graph, plain.graph);
     }
 }
