@@ -1,6 +1,6 @@
 ---
 id: ADR-2167
-title: The headset's visual extras are the allocator's last budgeted layer, tiered by measured GPU time
+title: The headset's visual extras hold a bounded allowance in the allocator, tiered by measured GPU time
 date: 2026-10-31
 decision_status: proposed
 implementation_status: partial
@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: mono desktop and headless on HP (Godot 4.6.1 and 4.8-beta2); not stereo, headset or both-eye fill rate
 supersedes: []
 superseded_by: []
-verified_commit: 3f22dc33906eaae155ef88d129eba16c538fa855
+verified_commit: 6f5e7ad481fef9e7b4e527bf8d1e7107d866d9ec
 verified_paths: [xr-client/rust/src/frame_budget.rs, xr-client/scripts/frame_budget_pass.gd, xr-client/scripts/eye_candy.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/spatial_environment.gd, xr-client/perf/benchmark.gd, xr-client/perf/gpu_time_probe.gd]
 owner: jjohare
 review_trigger: A headset session that measures both eyes, or any change to the renderer, the frame budget or the comfort switches.
@@ -18,7 +18,7 @@ domain: BASELINE-architecture
 lineage: Extends ADR-2107 (shared visual language, reversible comfort) and the frame-budget allocator of docs/XR-client.md; renderer rule unchanged from ADR-2032.
 ---
 
-# ADR-2167 — The headset's visual extras are the allocator's last budgeted layer, tiered by measured GPU time
+# ADR-2167 — The headset's visual extras hold a bounded allowance in the allocator, tiered by measured GPU time
 
 ## Context
 
@@ -34,11 +34,11 @@ The operator asked for the headset's visual polish to use whatever GPU budget re
 
 ## Consequences
 
-The extras cost graph LOD only in the triangles they draw (72 at tier 2, 200 at tier 3, 584 at tier 4 with three volumes), and none at all at tiers 0–1. Before the allowance the leftover at production density was under one near-detail step, so only the sky showed (measured: tier 1 at 13 164 nodes, tier 4 on the 1k fixture). With it, the allocator at the benchmark's production shape (13 164 nodes, `other_tris` 2 182, 6 000 cloud rows, a 13-row route) grants the requested tier: gems 35, 35, 35, 35, 33 and cylinders 7, 7, 4, 0, 6 for tiers 0–4, so tier 4 costs two gems (the allocator's output, not re-measured in the renderer). The cylinder cap is the remainder of the gem step and may move either way. The sky is the one extra that costs pixels rather than geometry. Volume frames are one call each, not one for all volumes. The frames' calls were never counted before the review fixes (`overhead_draw_calls` was read by no production code); the scene now counts them at every tier, and tier 2 adds none. At tiers 0–1 that makes the counted calls match the renderer's (two more than before on the benchmark's two frames). Stereo behaviour of the sky shader, the existence of the GPU timer on the XR viewport and fill rate in both eyes are unverified until a headset session.
+The extras cost graph LOD only in the triangles they draw (72 at tier 2, 200 at tier 3, 584 at tier 4 with three volumes), and none at all at tiers 0–1. Before the allowance the leftover at production density was under one near-detail step, so only the sky showed (measured: tier 1 at 13 164 nodes, tier 4 on the 1k fixture). With it, the allocator at the benchmark's production shape (13 164 nodes, `other_tris` 2 182, 6 000 cloud rows, a 13-row route) grants the requested tier: gems 35, 35, 35, 35, 33 and cylinders 7, 7, 4, 0, 6 for tiers 0–4, so tier 4 costs two gems (the allocator's output with three volume frames, not re-measured in the renderer). Tiers 2 and 3 are paid for in cylinder edges (7 down to 4 and to 0) with the gem cap unchanged; the cylinder cap takes what is left after the gem step and can move either way. The sky is the one extra that costs pixels rather than geometry. Volume frames are one call each, not one for all volumes. The frames' calls were never counted before the review fixes (`overhead_draw_calls` was read by no production code); the scene now counts them at every tier, and tier 2 adds none. At tiers 0–1 that makes the counted calls match the renderer's (two more than before on the benchmark's two frames). Stereo behaviour of the sky shader, the existence of the GPU timer on the XR viewport and fill rate in both eyes are unverified until a headset session.
 
 ## Verification
 
-GPU timer: `perf/gpu_time_probe.gd` on the HP, windowed, XR off, Godot 4.6.1 and 4.8-beta2: nonzero and load-following (0.019 → 0.43 ms). Allocator: 28 `frame_budget` Rust tests (`cargo test --lib frame_budget`), including the allowance's bound swept over 32 node counts, the production-shape grant, the call-guard return and the zero-under-pressure cases. Scene: GUT on the review-fix commit, 4.6.1 and 4.8-beta2 each 499 of 502 passing (3 pending, pre-existing), 0 failing, `gut_guard` 48/48. Benchmark (`XR_BENCH_CANDY`): see `docs/XR-client.md` "Visual extras and the budget layer" and the implementer's report; 13 164 nodes stays at or under 48 calls and 100k triangles at every tier. Mono desktop only.
+GPU timer: `perf/gpu_time_probe.gd` on the HP, windowed, XR off, Godot 4.6.1 and 4.8-beta2: nonzero and load-following (0.019 → 0.43 ms). Allocator: 28 `frame_budget` Rust tests (`cargo test --lib frame_budget`), including the allowance's bound swept over 32 node counts, the production-shape grant, the call-guard return and the zero-under-pressure cases. The pass-level GUT test `test_extras_cost_the_graph_only_their_allowance` and `test_low_cost_withdraws_the_request_at_once_so_no_allowance_is_held` (low cost sets the demand to 0 in `set_comfort`, not at the next pass tick, so a stale request holds nothing back) are new. GUT on `6f5e7ad48`, 4.6.1 and 4.8-beta2: 503 tests, 500 passing, 0 failing, 3 pending, `gut_guard` 48/48. Scene: GUT on the review-fix commit, 4.6.1 and 4.8-beta2 each 499 of 502 passing (3 pending, pre-existing), 0 failing, `gut_guard` 48/48. Benchmark (`XR_BENCH_CANDY`): see `docs/XR-client.md` "Visual extras and the budget layer" and the implementer's report; 13 164 nodes stays at or under 48 calls and 100k triangles at every tier. Mono desktop only.
 
 ## Review follow-up (R11, 2026-10-31)
 
@@ -48,6 +48,6 @@ Re-stamped to `a4c07caed`. Re-run: `git diff --stat 3fffb8a20bd767e0ca033dfb5843
 
 ## Amendment: bounded extras allowance (owner decision, 2026-10-31)
 
-The owner approved reserving up to tier 4 (ribbons plus 512 motes) ahead of the graph's near detail, so the extras show at production density, and left the portal weighting alone (R11 F5). Decision 1 is rewritten above; the rest of the record stands. `FrameCaps` gains `extras_allowance` (also in the GDScript caps dictionary and the pass's defaults), the triangles held back; it is 0 under pressure. The benchmark calls the Rust allocator itself, so its allocator-against-measured parity needs no change; the renderer columns of `docs/XR-client.md` are not re-measured and say so.
+The owner approved reserving up to tier 4 (ribbons plus 512 motes) ahead of the graph's near detail, so the extras show at production density, and left the portal weighting alone (R11 F5). Decision 1 is rewritten above; the rest of the record stands. `FrameCaps` gains `extras_allowance` (also in the GDScript caps dictionary and the pass's defaults), the triangles held back; it is 0 under pressure. The benchmark calls `allocate_with_extras` itself and calibrates `other_tris` before any extra is applied (2 182 at tier 0 and at tier 4 in the XE run), so the allowance is not charged twice and its allocator-against-measured parity needs no change; the renderer columns of `docs/XR-client.md` are not re-measured and say so.
 
-Re-stamped to `3f22dc339` (2026-10-31, this amendment; previous stamp `a4c07caed`). Re-run: `git diff --stat a4c07caed3f05bc170a0096fdde878ceebbd19c1 3f22dc33906eaae155ef88d129eba16c538fa855 -- xr-client/rust/src/frame_budget.rs xr-client/scripts/frame_budget_pass.gd xr-client/scripts/eye_candy.gd xr-client/scripts/emulated_volume.gd xr-client/scripts/spatial_environment.gd xr-client/perf/benchmark.gd xr-client/perf/gpu_time_probe.gd` gives `eye_candy.gd | 6`, `frame_budget.rs | 264`, `frame_budget_pass.gd | 10` (231 insertions, 49 deletions) and nothing else. `evidence_class` and `acceptance_boundary` are unchanged: mono desktop and headless only.
+Re-stamped to `6f5e7ad48` (2026-10-31, this amendment; previous stamp `a4c07caed`). Re-run: `git diff --stat a4c07caed3f05bc170a0096fdde878ceebbd19c1 6f5e7ad481fef9e7b4e527bf8d1e7107d866d9ec -- xr-client/rust/src/frame_budget.rs xr-client/scripts/frame_budget_pass.gd xr-client/scripts/eye_candy.gd xr-client/scripts/emulated_volume.gd xr-client/scripts/spatial_environment.gd xr-client/perf/benchmark.gd xr-client/perf/gpu_time_probe.gd` gives `eye_candy.gd | 11`, `frame_budget.rs | 271`, `frame_budget_pass.gd | 10` (242 insertions, 50 deletions) and nothing else. `evidence_class` and `acceptance_boundary` are unchanged: mono desktop and headless only.

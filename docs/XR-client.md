@@ -1202,15 +1202,17 @@ therefore probes at start-up on its own viewport and chooses its signal:
 | 1k fixture | tier 3 | 3 | 80 | 37 / 47460 | 37 / 47042 | 0.66 / 0.75 | 0.293 / 0.295 |
 | 1k fixture | tier 4 | 4 | 80 | 37 / 47844 | 37 / 47426 | 0.66 / 0.76 | 0.294 / 0.295 |
 
-The table above is the allocator **before** the allowance, which granted tier 1 (the sky) only at production density: 6 triangles were left under the 95 000 limit. With the allowance (owner decision of 2026-10-31) the allocator, for the same benchmark shape (13 164 nodes, 20 000 edges, 32 hulls, 3 frames, `other_tris` 2 182, 24 other calls, 6 000 cloud rows, a 13-row route; `cargo test --lib frame_budget`, `production_shape_grants_tier_four_for_at_most_two_gems`), returns:
+The table above is the allocator **before** the allowance, which granted tier 1 (the sky) only at production density: 6 triangles were left under the 95 000 limit. With the allowance (owner decision of 2026-10-31) the allocator, fed the benchmark's production inputs (13 164 nodes, 20 000 edges, 32 hulls, `other_tris` 2 182 and 24 other calls as the benchmark measures them, 6 000 cloud rows, a 13-row route) with three volume frames (the benchmark builds two unless `XR_BENCH_CANDY_FRAMES=3`; `cargo test --lib frame_budget`, `production_shape_grants_tier_four_for_at_most_two_gems`), returns:
 
 | Requested tier | Granted | Allowance (triangles) | Gem cap (was) | Cylinder cap (was) | Allocator calls / triangles |
 |---|---|---|---|---|---|
-| 0 | 0 | 0 | 35 (35) | 7 (7) | 34 / 94 994 |
-| 1 | 1 | 0 | 35 (35) | 7 (7) | 34 / 94 994 |
-| 2 | 2 (was 1) | 72 | 35 (35) | 4 (7) | 34 / 94 976 |
-| 3 | 3 (was 1) | 200 | 35 (35) | 0 (7) | 35 / 94 984 |
-| 4 | 4 (was 1) | 584 | 33 (35) | 6 (7) | 35 / 94 972 |
+| 0 | 0 | 0 | 35 (35) | 7 (7) | 37 / 94 994 |
+| 1 | 1 | 0 | 35 (35) | 7 (7) | 37 / 94 994 |
+| 2 | 2 (was 1) | 72 | 35 (35) | 4 (7) | 37 / 94 976 |
+| 3 | 3 (was 1) | 200 | 35 (35) | 0 (7) | 38 / 94 984 |
+| 4 | 4 (was 1) | 584 | 33 (35) | 6 (7) | 38 / 94 972 |
+
+Tiers 2 and 3 are paid for in cylinder edges (the gem cap is unchanged); only tier 4 costs gems. The calls column includes the three frames' calls (the scene counts them) and, from tier 3, the motes' call; it is higher than the measured table above because that table has two frames and predates the frame-call hook.
 
 These allocator rows are **not** re-measured in the renderer; the measured columns above still describe the earlier grant. The allocator-calls column above was taken before the scene counted the volume frames' calls, so at tiers 0–1 it is two calls short of the measured count and at tier 2 up the extras layer carried the frames' calls. Since the hook (`GraphScene._tick_frame_budget` adds each volume's `overhead_draw_calls()`; `extras_cost` tier 2 charges none; the benchmark passes `GRAPH_DRAW_CALLS + _other_dc + frames`) every tier counts the frames once, and the allocator's call count equals the scene's by construction at tiers 0–2; those cells are not re-measured here. The numbers do not cover fill rate in an HMD: two eyes of roughly 2 000 × 2 200 px are about 13 times the pixels of this run.
 
