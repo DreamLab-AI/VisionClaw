@@ -92,6 +92,18 @@ mod sssp_patch_tests {
     }
 
     #[test]
+    fn a_stored_toggle_changes_the_gpu_image_the_actor_gate_compares() {
+        // `ForceComputeActor::UpdateSimulationParams` skips an update whose GPU image
+        // (`SimParams` bytes) equals the current one, so a toggle must change those bytes.
+        use crate::models::simulation_params::SimParams;
+        let image = |enabled: bool| {
+            let live: SimulationParams = (&apply(enabled, None)).into();
+            bytemuck::bytes_of(&SimParams::from(&live)).to_vec()
+        };
+        assert_ne!(image(true), image(false));
+    }
+
+    #[test]
     fn an_out_of_range_alpha_is_refused_by_the_central_validator() {
         let bad = apply(true, Some(9.0));
         assert!(crate::settings::api::settings_routes::validate_physics_settings(&bad).is_err());
