@@ -152,7 +152,7 @@ func set_volume_weights(weights: Dictionary) -> void:
 			f = float(w)
 			if is_nan(f) or f < 0.0:
 				f = 0.0
-		clean[id] = f
+		clean[StringName(str(id))] = f   # volume ids are StringNames; a String key still matches
 	volume_weights = clean
 	if not _last_volumes.is_empty():
 		volume_caps = split_for_volumes(_last_volumes)
@@ -198,7 +198,7 @@ func split_for_volumes(volumes: Dictionary) -> Dictionary:
 	else:
 		var w := PackedFloat64Array()
 		for id: Variant in ids:
-			w.append(float(volume_weights.get(id, 1.0)))
+			w.append(float(volume_weights.get(StringName(str(id)), 1.0)))
 		gems = _fb.split_near_caps_weighted(int(caps["gem_nodes"]), node_d, w, floor_n)
 		cyls = _fb.split_near_caps_weighted(int(caps["cylinder_edges"]), edge_d, w, floor_n)
 	for i: int in ids.size():

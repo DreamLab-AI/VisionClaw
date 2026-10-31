@@ -242,6 +242,24 @@ func test_bad_weights_are_zero_and_missing_ids_are_one() -> void:
 	assert_not_null(client)
 
 
+# The shape stream XP's graph_scene hands over (space_portals.gd budget_weights):
+# every volume id (a StringName) to 1.0 for the entered space and OTHER_WEIGHT
+# (0.15) for the rest, including a volume that is hidden this frame.
+func test_the_portal_stream_weight_shape_weights_the_split() -> void:
+	var v := _three_volumes()
+	var plain := _split_with(null, v)
+	var entered := {&"knowledge": 1.0, &"ontology": 0.15, &"codescape": 0.15}
+	var w := _split_with(entered, v)
+	assert_gt(int(w[&"knowledge"]["gem_nodes"]), int(w[&"ontology"]["gem_nodes"]), "the entered space gets more")
+	assert_ne(w, plain, "the pass really weighted (not a silent miss on the keys)")
+	assert_eq(int(w[&"codescape"]["gem_nodes"]), 0, "hidden stays 0 whatever its weight")
+	assert_gte(int(w[&"ontology"]["gem_nodes"]), 16, "the floor holds for the portals")
+	# String keys (a caller that stringified the ids) land on the same volumes.
+	assert_eq(_split_with({"knowledge": 1.0, "ontology": 0.15, "codescape": 0.15}, v), w, "String keys")
+	# Leaving the space: all 1.0 is the plain split again.
+	assert_eq(_split_with({&"knowledge": 1.0, &"ontology": 1.0, &"codescape": 1.0}, v), plain)
+
+
 func test_new_weights_apply_to_the_last_seen_volumes_at_once() -> void:
 	var client := _client()
 	var p = FrameBudgetPass.new()
