@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: b4b39976065fe958a1a33ebda5c090dc2b770a54
+verified_commit: a4c07caed3f05bc170a0096fdde878ceebbd19c1
 verified_paths: [xr-client/scripts/agent_choreography.gd, xr-client/scripts/agent_effects.gd, xr-client/scripts/agent_role.gd, xr-client/scripts/graph_scene.gd, xr-client/scenes/GraphScene.tscn, xr-client/rust/src/render_store.rs, xr-client/rust/src/binary_protocol.rs]
 owner: jjohare
 review_trigger: a DID↔wire-id bridge lands (ADR-140 §5), or a second embodiment consumer (Quest build) ships
@@ -172,3 +172,5 @@ Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` 3b8babe89 plus `xr/ux
 **Open items, not breaches.** (1) `build_beam_buffer` requires the target in the active slot's `drawn` set, and `_pack_volumes` packs the knowledge overlay (mask `0b0001`) last (`:960-971`). A beam whose target is an ontology node is therefore not drawn. (2) Travel targets go through `_server_to_world` in the knowledge volume's frame (`:2931`), so an agent working on an ontology node travels to where that node would sit in the knowledge volume, not where the ontology volume draws it. Neither changes who writes the pose. The decision holds.
 
 Re-stamped to `b4b399760` (2026-10-31, ADR-2166 and its review follow-up; first stamped at `e49db1836`). Re-run: `git diff --stat 2a763c423cff1fc63e0db2813a64a8a29562e118 b4b39976065fe958a1a33ebda5c090dc2b770a54 -- xr-client/scripts/agent_choreography.gd xr-client/scripts/agent_effects.gd xr-client/scripts/agent_role.gd xr-client/scripts/graph_scene.gd xr-client/scenes/GraphScene.tscn xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs` gives only `xr-client/scripts/graph_scene.gd | 91 +++`. The additions are the `SpacePortals` wiring and the entered-space actions. None writes an agent pose, touches the agent registry, or changes `_update_selection`, and the Rust files are unchanged. Agent bodies are still driven only by the VisionClaw connection. **Decision unaffected.**
+
+Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped at `b4b399760`). Re-run: `git diff --stat b4b39976065fe958a1a33ebda5c090dc2b770a54 a4c07caed3f05bc170a0096fdde878ceebbd19c1 -- xr-client/scripts/agent_choreography.gd xr-client/scripts/agent_effects.gd xr-client/scripts/agent_role.gd xr-client/scripts/graph_scene.gd xr-client/scenes/GraphScene.tscn xr-client/rust/src/render_store.rs xr-client/rust/src/binary_protocol.rs` gives only `xr-client/scripts/graph_scene.gd | 4 ++++`. The four lines are in `_tick_frame_budget`: for every volume the scene now adds `v.overhead_draw_calls()` (the volume frame's own call and the handle markers') to the draw calls it hands the frame-budget pass, so the volume frames are counted at every extras tier. It writes no agent pose and touches neither the agent registry nor `_update_selection`. The decision holds.
