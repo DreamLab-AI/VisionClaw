@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []                   # legacy ADR-142/ADR-094 distilled — not in this tree; see lineage
 superseded_by: []
-verified_commit: 1c1ac674bc5e819924d4ac57b5130d7887f5af46
+verified_commit: 685bc974ce4b4f813ffa247be0f866ebe27328bd
 verified_paths: [src/models/rbac.rs, src/services/role_store.rs, src/utils/auth.rs, src/handlers/admin_rbac_handler.rs, tests/rbac_concurrent_mutation_http_test.rs]
 owner: jjohare
 review_trigger: adoption of a multi-user-locked deployment, or any change to default_authenticated() or the last-Owner guard
@@ -207,3 +207,5 @@ None of these changes touches the decision this record makes. Every deletion had
 **Status stays `partial`.** Still open from the 2026-09-04 acceptance condition: immutable or recoverable audit outcomes, response-loss retries (a retried `PUT` is idempotent; a retried `DELETE` reports `had_explicit_role=false`, untested), whoami, missing identity services and report-mode lifecycle through real routes.
 
 **Commands:** `cargo test --test rbac_concurrent_mutation_http_test` (1 test, passes); regression `cargo test --test adr142_rbac_gate --test rbac_gate_require_auth_stacking_test`.
+
+**Re-verification 2026-10-31:** review fixes applied; re-run `git diff 1c1ac674b..685bc974ce4b4f813ffa247be0f866ebe27328bd -- tests/rbac_concurrent_mutation_http_test.rs`.
