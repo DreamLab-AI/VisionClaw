@@ -3,15 +3,19 @@
 //! Drives `PUT`/`DELETE /api/admin/rbac/users/{pubkey}/role` through the real
 //! stack (`RbacGate` → `verify_admin` → handler → `RoleStore` on a SQLite
 //! connection) with genuine NIP-98 signatures, firing requests concurrently
-//! (`join_all` on one runtime, so admission, caller-role resolution and the
-//! mutation transaction of different requests interleave at their await
-//! points). It asserts the invariants the ADR states:
+//! (`join_all` on one runtime, so *admission* of one request interleaves
+//! against the whole mutation closures of others; the caller re-read, checks
+//! and write inside one mutation run to completion on the single
+//! `tokio_rusqlite` connection thread and cannot interleave with anything).
+//! It asserts the invariants the ADR states:
 //!
 //! 1. **Privilege ceiling** — an Admin can never mint or touch an Admin/Owner,
 //!    however many such requests race; Editors and Viewers can assign nothing.
 //! 2. **No lost update** — two Admins writing different roles to one target
 //!    leave exactly one of the two writes, with `assigned_by` agreeing with the
-//!    role (a torn row would pair one writer's role with the other's name).
+//!    role. In this architecture that is an authorisation check (both Admins
+//!    are admitted); closure atomicity, not the SQL transaction, prevents a
+//!    torn row, and this test cannot detect removal of `BEGIN`/`COMMIT`.
 //! 3. **Caller freshness** — a caller demoted concurrently with its own
 //!    mutation yields only a serialisable outcome: the mutation fully applied
 //!    (caller first) or fully refused (demotion first), never a mutation made
@@ -325,18 +329,36 @@ async fn concurrent_role_mutations_over_http_keep_the_lattice_invariants() {
         }
     }
     println!("caller-freshness rounds: {outcomes:?}");
-    // Guard against a vacuous sweep: every serialisable outcome, including the
-    // mid-transaction `CallerAuthorityChanged` 409, must actually occur.
-    for key in [
-        "admin-first",
-        "demoted-mid-transaction-409",
-        "demoted-before-admission-403",
-    ] {
+    // This guard IS the caller-freshness regression detector: if
+    // `effective_mutation_authority` stopped re-reading the caller inside the
+    // mutation, the 409 bucket would empty and only this assertion would fail
+    // (the final state cannot reveal the order). Do not "de-flake" it away.
+    // The 403 bucket is timing-dependent and is covered deterministically below.
+    for key in ["admin-first", "demoted-mid-transaction-409"] {
         assert!(
             outcomes.contains_key(key),
             "outcome {key} never exercised: {outcomes:?}"
         );
     }
+
+    // Deterministic 403: the demotion is awaited to completion before the
+    // grant is sent, so admission must refuse it and no row may be written.
+    let (a, t) = (Keys::generate(), Keys::generate());
+    seed(&store, &a, UserRole::Admin).await;
+    let demote = put(&root, &hex(&a), "viewer");
+    let demoted = test::call_service(&app, request!(&demote)).await.status();
+    assert_eq!(demoted, StatusCode::OK, "the Owner's demotion applies");
+    let grant = put(&a, &hex(&t), "editor");
+    let refused = test::call_service(&app, request!(&grant)).await.status();
+    assert_eq!(
+        refused,
+        StatusCode::FORBIDDEN,
+        "a caller demoted before admission must be refused"
+    );
+    assert!(
+        !roles(&store).await.contains_key(&hex(&t)),
+        "a refused caller wrote a row"
+    );
 
     // ---- 4. Last-Owner guard -------------------------------------------------
     seed(&store, &root, UserRole::Admin).await; // leave the Owner population to this scenario

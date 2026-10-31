@@ -566,9 +566,10 @@ export default AppFullSettings;
     .to_string()
 }
 
-/// Variants of the ontology-agent enums, in declaration order. The exhaustive
-/// `match` in each `*_wire` function makes adding a variant a compile error
-/// here, so the emitted unions cannot silently lag the Rust enums.
+/// Variants of the ontology-agent enums, in declaration order. Keep these in
+/// step with the enums by hand: `exhaustive` below forces an edit when a
+/// variant is added, but cannot force the array entry (stable Rust has no
+/// variant enumeration and `strum` is not a dependency), so review catches it.
 const FACT_BASES: [FactBasis; 3] = [
     FactBasis::Asserted,
     FactBasis::Inferred,
