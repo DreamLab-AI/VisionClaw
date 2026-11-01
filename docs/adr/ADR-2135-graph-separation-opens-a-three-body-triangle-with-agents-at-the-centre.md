@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2107637d662ac70f38418c08e3892b77d5358c4e
+verified_commit: 46c77c465195612c908026139731c3cef75ddefb
 verified_paths: [xr-client/rust/src/memory_route.rs, crates/visionclaw-tri-layout/src, crates/visionclaw-tri-layout/fixtures, src/actors/gpu/display_projection.rs, src/handlers/memory_flash_handler.rs, client/src/features/graph/triLayout.ts, client/src/features/graph/agentDrift.ts, client/src/features/bots/agentDriftFeed.ts, client/src/features/graph/utils/agentNudge.ts, client/src/features/visualisation/memoryCloud/cloudFrame.ts, client/src/features/graph/utils/sceneFitBounds.ts, client/src/features/visualisation/memoryCloud/cloudSprites.ts, xr-client/rust/src/cloud_frame.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the operator seeing the triangle live on a backend built from main. Review: a change of the default camera direction; a fourth body joining the separated layout; agent nodes leaving the GPU graph; the XR work-layer pose rules (ADR-2109) changing; the live graph's p99 radius passing LIVE_GRAPH_RADIUS (152)"
@@ -255,3 +255,7 @@ The walk fix (470dd26ae) changed `xr-client/rust/src/memory_route.rs`. It adds a
 - **XR:** the scene still chooses only the rest slot (`graph_scene.gd:2665-2690`, `_choreo.set_rim_slot`); the desktop fit is `unoccludedRect` (`sceneFitBounds.ts:127`) and `fitPose` (`:190`); `namespaceOptions` is `cloudData.ts:214`; the line factors are `memory_route.rs:74-86`.
 
 **Defect noted, outside the ADR's claims.** `src/actors/gpu/display_projection.rs:349-350` carries a doubled `#[test]` on `the_triangle_is_always_on_once_populations_are_known` (introduced together with `unproject_point`'s tests); one of the two attributes should go. Not re-run: no build was permitted, so whether this compiles was not tested.
+
+## Re-verification — 2026-10-31 (`46c77c465`)
+
+Re-verified 2026-11-01 at `46c77c465` (three.js 0.183 → 0.187.0, owner-approved): the only change to a governed path is a type-only cast in `cloudSprites.ts`, which passes `instancedBufferAttribute(colAttr)` as `TslNode<'vec3'>` to satisfy 0.187's stricter TSL typings. The runtime node graph is unchanged and nothing this record decides is affected. Evidence: `git diff 46c77c465^..46c77c465 -- '*cloudSprites.ts'` (2 lines). R17 review: tsc 0, vitest 140/1462, vite build OK.
