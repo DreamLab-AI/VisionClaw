@@ -9,7 +9,7 @@ evidence_class: source+test
 acceptance_boundary: local runs only, not deployed to any running server or headset. The GPU receipt (adr_2140_layout_mode_gpu_tests) drives merge_physics_patch, not the HTTP handler, because apply_physics_patch needs a live AppState; no test builds an AppState, so the quality-gate handler's decision is tested as a pure function (layout_mode_to_forward) and reset_layout's as reset_document_for, not through the HTTP handlers. The boot path is tested at the repository load (load_all_settings against a store holding only the physics row, and one with frozen leaves) which is what the settings actor calls at startup; OptimizedSettingsActor and AppState::new are not booted. The client round trip is pinned by unit tests, not a browser against a live backend; the removed sssp/params routes are shown absent by a routing test, not by a deployed 404.
 supersedes: []
 superseded_by: []
-verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
+verified_commit: aba13edc5eeaa1f325d6560113375a1a5e8300c8
 verified_paths: [src/handlers/layout_handler.rs, src/actors/gpu/force_compute_actor.rs, src/actors/gpu/physics_restore.rs, crates/visionclaw-domain/src/types/layout.rs, src/utils/unified_gpu_compute/execution.rs, src/adapters/sqlite_settings_repository.rs, src/handlers/api_handler/analytics/sssp_handlers.rs, src/settings/api/settings_routes.rs, crates/visionclaw-domain/src/types/physics_config.rs, src/models/simulation_params.rs, crates/visionclaw-domain/src/models/simulation_params.rs, docs/reference/physics-parameters.md]
 owner: jjohare
 review_trigger: any new force, any new place that holds a physics value, any multiplier or clamp between the settings store and the GPU
@@ -175,4 +175,4 @@ Not reachable on the live store (one full `physics` row, written whole by `AppSt
 
 ## Amended by ADR-2169 (2026-11-01)
 
-Item 2 ("applied exactly as stored") does not apply while a node is held or settling after a release: ADR-2169 floors `global_speed` at 2.0 for that span (and lowers Verlet-mode `damping` to at most 0.6). `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `37d1226b1` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
+Item 2 ("applied exactly as stored") does not apply while a node is held or settling after a release: ADR-2169 floors `global_speed` at 2.0 for that span (and lowers Verlet-mode `damping` to at most 0.6). `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
