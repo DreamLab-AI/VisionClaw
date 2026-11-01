@@ -123,7 +123,7 @@ pub struct ForceComputeActor {
     holds: HoldRegistry,
 
     /// End of the post-release settle window. While it is in the future (and nothing is held)
-    /// the GPU steps every tick and the integrator is damped harder (see `step_overrides`).
+    /// the GPU steps every tick at the held-node speed floor (see `step_overrides`).
     release_settle_until: Option<Instant>,
 
     /// One-shot velocity kick for the next step (consumed when applied). Replaces the old
@@ -4292,10 +4292,10 @@ mod hold_physics_tests {
             1.0,
         );
         assert!(during.bypass_stability);
-        assert_eq!(during.damping, RELEASE_SETTLE_DAMPING);
+        assert_eq!(during.damping, 0.9, "damping is always the stored value (owner, 2026-11-01)");
         assert_eq!(
-            during.global_speed, 0.4,
-            "the settle window runs at the stored speed (R16 S1)"
+            during.global_speed, HOLD_GLOBAL_SPEED,
+            "the settle window keeps the speed floor (owner, 2026-11-01)"
         );
         assert_eq!(
             during.reheat, 0.0,
@@ -4434,14 +4434,9 @@ mod stored_layout_mode_tests {
     }
 }
 
-/// After the last release the graph is stepped every tick and damped harder for this long, so it
+/// After the last release the graph is stepped every tick at the speed floor for this long, so it
 /// is visibly at rest about two seconds after the hand lets go.
 const RELEASE_SETTLE_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
-
-/// The integrator multiplies velocity by `damping` each step, so a smaller value damps harder.
-/// During the settle window the effective damping is the smaller of the configured value and
-/// this one: 0.6 leaves under 1 % of a velocity after ten steps.
-const RELEASE_SETTLE_DAMPING: f32 = 0.6;
 
 /// A hold not written for this long is released by the actor itself. Longer than the socket's
 /// own 2 s drag timeout, so that normally fires first.
@@ -4454,8 +4449,9 @@ const HOLD_EXPIRY: std::time::Duration = std::time::Duration::from_secs(5);
 /// neighbours of a held node faster. `damping`, `max_force` and `max_velocity` change nothing
 /// there. Over 120 steps a neighbour of a node held 300 units out moves 4.5 units at the stored
 /// 0.4, 19 at 2.0 and 55 at 8.0. 2.0 is five times the stored value and the response is about
-/// four times higher; it applies only while something is held. Not in the settle window: R16
-/// measured ~22x residual motion there and a step back to the stored speed when it closed.
+/// four times higher. It applies while something is held and through the settle window (owner,
+/// 2026-11-01, keeping the original span despite R16's ring-graph measurement of more residual
+/// motion in the window).
 const HOLD_GLOBAL_SPEED: f32 = 2.0;
 
 /// One-shot velocity kick (a random vector of magnitude up to `2 * RELEASE_IMPULSE` per node)
@@ -4481,8 +4477,8 @@ pub(crate) struct StepOverrides {
 ///
 /// * While any node is held, by any client, the GPU steps every tick and the settings reheat is
 ///   withheld: random per-step noise would fight the hand.
-/// * For `RELEASE_SETTLE_WINDOW` after the last release the GPU still steps every tick and the
-///   integrator damps harder.
+/// * For `RELEASE_SETTLE_WINDOW` after the last release the GPU still steps every tick at the
+///   same speed floor. Damping is always the stored value (owner, 2026-11-01).
 /// * Otherwise the settings warmup and reheat apply as they always did.
 pub(crate) fn step_overrides(
     warmup_remaining: u32,
@@ -4496,16 +4492,12 @@ pub(crate) fn step_overrides(
     let settling = !any_held && settle_until.is_some_and(|t| now < t);
     StepOverrides {
         bypass_stability: warmup_remaining > 0 || any_held || settling,
-        global_speed: if any_held {
+        global_speed: if any_held || settling {
             base_global_speed.max(HOLD_GLOBAL_SPEED)
         } else {
             base_global_speed
         },
-        damping: if settling {
-            base_damping.min(RELEASE_SETTLE_DAMPING)
-        } else {
-            base_damping
-        },
+        damping: base_damping,
         reheat: if any_held || settling { 0.0 } else { reheat },
     }
 }

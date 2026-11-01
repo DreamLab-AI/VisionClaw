@@ -175,7 +175,7 @@ Not reachable on the live store (one full `physics` row, written whole by `AppSt
 
 ## Amended by ADR-2169 (2026-11-01)
 
-Item 2 ("applied exactly as stored") does not apply while a node is held: ADR-2169 floors `global_speed` at 2.0 for that span (owner-accepted 2026-11-01), and lowers Verlet-mode `damping` to at most 0.6 while held or settling. The 2 s settle window after a release runs at the stored speed. `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
+Item 2 ("applied exactly as stored") does not apply while a node is held or for the 2 s settle window after a release: ADR-2169 floors `global_speed` at 2.0 for that span (owner-accepted 2026-11-01). `damping` is never overridden; the owner dropped the settle-window damping cap on 2026-11-01. `get_layout_status` now reports the GPU actor's iterations, settled flag and kinetic energy. Re-verified at `aba13edc5` for the paths ADR-2169 changed (`force_compute_actor.rs`, `layout_handler.rs`, `execution.rs`) only.
 
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
