@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
 verified_paths: [Cargo.toml, src/app_state.rs]
 owner: jjohare
 review_trigger: a scale requirement that exceeds a single-node embedded store, or any proposal to reintroduce a networked graph database
@@ -265,3 +265,11 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Scoped patch re-verification — 2026-11-01
+
+Only the Ontomark compiler minimum and registry lock move from 0.6.2 to 0.6.3
+in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf8`.
+The manifest feature graph and consumer implementation are unchanged. Registry
+vault/core tests, strict Clippy, the actual local-module tests and the server
+library compile check pass; prior runtime and activation limits remain.

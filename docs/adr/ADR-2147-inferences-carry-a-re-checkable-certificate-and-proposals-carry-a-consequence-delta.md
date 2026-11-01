@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
 verified_paths: [crates/vault/Cargo.toml, crates/vault-core/Cargo.toml, crates/vault/src/certificate.rs, crates/vault/src/propose.rs, crates/vault/src/main.rs, crates/vault-core/src/proposal.rs, crates/vault/tests/certificate_oo_cert.rs, crates/visionclaw-ontology/shapes/ontology-class.shacl.ttl, crates/visionclaw-ontology/src/services/jsonld_validator/shacl.rs]
 owner: jjohare
 review_trigger: "Activation (staged → live): the `vault certify` step of ontology-publish.yml exiting 0 on a published generation. Review: the emitter putting a restriction or an equivalence on the subclass side of rdfs:subClassOf (Whelk parity would no longer be structural), a new release of the oo-cert checker changing the oo-cert/1 grammar, or `vault certify` exiting 1 on a published generation"
@@ -55,3 +55,11 @@ All governed paths were byte-identical between the previous verification pin and
 the pre-change baseline `5e1bd90a4`. The reviewed delta is the shared-layout change
 through `974daf5d22d2d0ea709140777eae58d60ddb2c36`. Existing activation and acceptance limits
 remain in force; this stamp does not repeat historical runtime measurements.
+
+## Scoped patch re-verification — 2026-11-01
+
+Only the Ontomark compiler minimum and registry lock move from 0.6.2 to 0.6.3
+in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf8`.
+The manifest feature graph and consumer implementation are unchanged. Registry
+vault/core tests, strict Clippy, the actual local-module tests and the server
+library compile check pass; prior runtime and activation limits remain.

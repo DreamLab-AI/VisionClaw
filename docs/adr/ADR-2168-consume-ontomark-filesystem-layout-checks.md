@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 974daf5d22d2d0ea709140777eae58d60ddb2c36
+verified_commit: efbd7f6f080df06ecb580254bddabcee59d4fbf8
 verified_paths: [Cargo.toml, Cargo.lock, crates/vault/Cargo.toml, crates/vault/src/main.rs, crates/vault/tests/shared_layout.rs, src/services/corpus_source/local.rs]
 owner: jjohare
 review_trigger: a layout or discovery change, Ontomark dependency upgrade, or producer cutover
@@ -62,3 +62,11 @@ checks. The implementation receipt distinguishes CPU tests from full server/GPU
 acceptance; source completion never implies runtime activation.
 
 Verification receipt: [shared layout consumption](../evidence/2026-11-01-shared-layout-consumption.md).
+
+## Scoped patch re-verification — 2026-11-01
+
+Only the Ontomark compiler minimum and registry lock move from 0.6.2 to 0.6.3
+in this record's governed paths through `efbd7f6f080df06ecb580254bddabcee59d4fbf8`.
+The manifest feature graph and consumer implementation are unchanged. Registry
+vault/core tests, strict Clippy, the actual local-module tests and the server
+library compile check pass; prior runtime and activation limits remain.
