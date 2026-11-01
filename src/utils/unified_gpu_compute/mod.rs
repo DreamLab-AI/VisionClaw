@@ -134,6 +134,7 @@ mod clustering;
 mod community;
 mod construction;
 mod execution;
+mod hold_overlay;
 mod leiden;
 mod memory;
 mod metrics;

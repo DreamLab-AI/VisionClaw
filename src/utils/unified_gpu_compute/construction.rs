@@ -84,6 +84,11 @@ pub struct UnifiedGPUCompute {
     pub edge_row_offsets: DeviceBuffer<i32>,
     pub edge_col_indices: DeviceBuffer<i32>,
     pub edge_weights: DeviceBuffer<f32>,
+    /// ADR-2169 amendment (spring mode while held): per-CSR-edge length captured when the
+    /// first hold begins. Only read while `hold_overlay_active`; sized to `allocated_edges`.
+    pub(crate) edge_rest_snapshot: DeviceBuffer<f32>,
+    /// Elastic-overlay state: active flag, snapshot validity, snapshot count.
+    pub(crate) hold_overlay: super::hold_overlay::HoldOverlay,
 
     pub(crate) force_x: DeviceBuffer<f32>,
     pub(crate) force_y: DeviceBuffer<f32>,
@@ -357,6 +362,7 @@ impl UnifiedGPUCompute {
         let edge_row_offsets = DeviceBuffer::zeroed(num_nodes + 1)?;
         let edge_col_indices = DeviceBuffer::zeroed(num_edges)?;
         let edge_weights = DeviceBuffer::zeroed(num_edges)?;
+        let edge_rest_snapshot = DeviceBuffer::zeroed(num_edges)?;
         let force_x = DeviceBuffer::zeroed(num_nodes)?;
         let force_y = DeviceBuffer::zeroed(num_nodes)?;
         let force_z = DeviceBuffer::zeroed(num_nodes)?;
@@ -461,6 +467,8 @@ impl UnifiedGPUCompute {
             edge_row_offsets,
             edge_col_indices,
             edge_weights,
+            edge_rest_snapshot,
+            hold_overlay: Default::default(),
             force_x,
             force_y,
             force_z,

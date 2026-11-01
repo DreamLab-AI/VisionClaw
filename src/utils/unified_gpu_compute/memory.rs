@@ -261,6 +261,8 @@ impl UnifiedGPUCompute {
         }
 
         self.num_edges = col_indices.len();
+        // The CSR changed, so any captured rest lengths no longer line up with its slots.
+        self.hold_overlay.invalidate();
         Ok(())
     }
 
@@ -490,6 +492,10 @@ impl UnifiedGPUCompute {
         self.edge_row_offsets = DeviceBuffer::zeroed(actual_new_nodes + 1)?;
         self.edge_col_indices = DeviceBuffer::zeroed(actual_new_edges)?;
         self.edge_weights = DeviceBuffer::zeroed(actual_new_edges)?;
+        // The overlay's rest lengths are per CSR slot; a resize invalidates them (and the
+        // buffer must track allocated_edges or the force pass would read out of bounds).
+        self.edge_rest_snapshot = DeviceBuffer::zeroed(actual_new_edges)?;
+        self.hold_overlay.invalidate();
         self.force_x = DeviceBuffer::zeroed(actual_new_nodes)?;
         self.force_y = DeviceBuffer::zeroed(actual_new_nodes)?;
         self.force_z = DeviceBuffer::zeroed(actual_new_nodes)?;

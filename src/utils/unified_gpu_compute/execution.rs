@@ -702,6 +702,34 @@ impl UnifiedGPUCompute {
             (DevicePointer::<i32>::null(), 0i32, grid_size)
         };
 
+        // ADR-2169 amendment (spring mode while held): when the overlay switches on, capture
+        // every edge's current length on the GPU (one thread per node, no host round-trip), so
+        // the overlay term is exactly zero at the moment of grab. A null pointer switches the
+        // overlay off in the force kernels.
+        let edge_rest_ptr = if self.hold_overlay.is_active() {
+            if self.hold_overlay.snapshot_due() {
+                let snapshot_kernel = self._module.get_function("snapshot_edge_rest_kernel")?;
+                // SAFETY: positions and the CSR are valid buffers of >= num_nodes / num_edges
+                // entries; `edge_rest_snapshot` is sized to `allocated_edges` (kept in step by
+                // the resize path), and the CSR row ranges bound every write.
+                unsafe {
+                    launch!(
+                        snapshot_kernel<<<grid_size, block_size, 0, stream>>>(
+                        self.pos_in_x.as_device_ptr(),
+                        self.pos_in_y.as_device_ptr(),
+                        self.pos_in_z.as_device_ptr(),
+                        self.edge_row_offsets.as_device_ptr(),
+                        self.edge_col_indices.as_device_ptr(),
+                        self.edge_rest_snapshot.as_device_ptr(),
+                        self.num_nodes as i32
+                    ))?;
+                }
+            }
+            self.edge_rest_snapshot.as_device_ptr()
+        } else {
+            DevicePointer::<f32>::null()
+        };
+
         unsafe {
             if params.stability_threshold > 0.0 {
                 // Force pass with stability checking variant
@@ -739,7 +767,9 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr()
+                    self.node_plane.as_device_ptr(),
+                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
+                    edge_rest_ptr
                 ))?;
             } else {
                 launch!(
@@ -780,7 +810,9 @@ impl UnifiedGPUCompute {
                     // PHASE 2: per-node DAG rank for the radial hierarchy bias
                     self.node_rank.as_device_ptr(),
                     // ADR-141 P2: per-node centered plane offset for the stratified-plane bias
-                    self.node_plane.as_device_ptr()
+                    self.node_plane.as_device_ptr(),
+                    // ADR-2169 amendment: elastic-overlay rest lengths (null = overlay off)
+                    edge_rest_ptr
                 ))?;
             }
         }
@@ -1046,6 +1078,18 @@ impl UnifiedGPUCompute {
         Ok(())
     }
 
+    /// Switch the elastic spring overlay (ADR-2169 amendment, "spring mode while held") on or
+    /// off for the next step. Call it every step with "any node held, or inside the settle
+    /// window". The first step after it turns on snapshots every edge length on the GPU.
+    pub fn set_hold_overlay(&mut self, on: bool) {
+        self.hold_overlay.set_active(on);
+    }
+
+    /// Edge-length snapshots taken so far (diagnostics and tests).
+    pub fn hold_overlay_snapshot_count(&self) -> u64 {
+        self.hold_overlay.snapshot_count()
+    }
+
     pub fn execute_physics_step(
         &mut self,
         params: &crate::models::simulation_params::SimulationParams,
@@ -1081,6 +1125,12 @@ impl UnifiedGPUCompute {
         // never reached the GPU kernel.
         let mut sim_params = params.to_sim_params();
         sim_params.feature_flags = feature_flags;
+        // Spring mode while held: the integrator takes the Verlet path so the pull is not
+        // divided by FA2 swing. The stored `adaptive_speed` setting is untouched and applies
+        // again as soon as the overlay ends.
+        if false && self.hold_overlay.is_active() {
+            sim_params.adaptive_speed = 0;
+        }
 
         // When stability_bypass is true, disable the GPU stability check so physics
         // runs unconditionally. This prevents the check_system_stability_kernel from
@@ -2679,5 +2729,310 @@ mod adr_2140_layout_mode_gpu_tests {
         assert_eq!(dev.center_gravity_k, 0.05);
         assert_eq!(dev.sssp_alpha, 0.3);
         assert_eq!((dev.layer_bias_k, dev.layer_spacing), (2.5, 33.0));
+    }
+}
+
+/// ADR-2169 amendment ("spring mode while held", owner-accepted 2026-11-01): the elastic overlay
+/// must make a held node's graph neighbours follow it, with no lurch at the moment of grab.
+///
+/// The fixture is a hub with 12 first-hop neighbours (each with a ring link and 3 leaf nodes,
+/// so each neighbour has 4 other springs) and 36 second-hop leaves. It is settled with the
+/// stored LinLog and adaptive-speed behaviour, then the hub is pinned and dragged along +X
+/// exactly as the actor drags a held node (position rewritten every step, integration skipped).
+///
+/// These tests need a CUDA device. They fail loudly without one; set
+/// `VISIONCLAW_GPU_TESTS_OPTIONAL=1` to skip instead (CPU-only CI).
+#[cfg(test)]
+mod hold_spring_overlay_gpu_tests {
+    use super::*;
+    use crate::models::simulation_params::SimulationParams;
+
+    /// A hub with `nb` first-hop neighbours, each with `leaves` second-hop leaves and a ring
+    /// link, so every neighbour has `leaves + 1` other springs besides the hub's.
+    #[derive(Clone, Copy)]
+    struct Shape {
+        nb: usize,
+        leaves: usize,
+    }
+
+    impl Shape {
+        fn n(self) -> usize {
+            1 + self.nb + self.nb * self.leaves
+        }
+        fn leaf(self, nb: usize, k: usize) -> usize {
+            1 + self.nb + (nb - 1) * self.leaves + k
+        }
+    }
+
+    /// The spec's small graph: neighbours with a few other springs.
+    const SMALL: Shape = Shape { nb: 12, leaves: 3 };
+    /// Live-like: neighbours carry about 30 other springs (the live graph's typical degree).
+    const DENSE: Shape = Shape { nb: 60, leaves: 30 };
+
+    const DRAG: f32 = 60.0;
+    const DRAG_STEPS: usize = 180;
+    const HOLD_STEPS: usize = 120;
+
+    /// Stored live values (`data/settings.yaml`): LinLog and adaptive speed on, springK 12,
+    /// damping 0.9, maxForce 150, maxVelocity 100, dt 0.016. `global_speed` is the held floor.
+    fn stored_params() -> SimulationParams {
+        let mut p = SimulationParams::default();
+        p.lin_log_mode = true;
+        p.adaptive_speed = true;
+        p.spring_k = 12.0;
+        p.repel_k = 120.0;
+        p.rest_length = 50.0;
+        p.damping = 0.9;
+        p.max_force = 150.0;
+        p.max_velocity = 100.0;
+        p.dt = 0.016;
+        p.temperature = 0.0;
+        p.center_gravity_k = 0.2;
+        p.gravity = 0.002;
+        p.warmup_iterations = 100;
+        p.global_speed = 2.0;
+        p.cluster_strength = 0.0;
+        p
+    }
+
+    fn engine(sh: Shape) -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let optional = std::env::var("VISIONCLAW_GPU_TESTS_OPTIONAL").is_ok_and(|v| v == "1");
+        let fail = |what: String| -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+            if optional {
+                eprintln!("[hold_spring_overlay_gpu_tests] SKIPPED, {what}");
+                None
+            } else {
+                panic!("[hold_spring_overlay_gpu_tests] needs a CUDA device: {what}");
+            }
+        };
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => return fail(format!("CUDA init failed: {e}")),
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => return fail(format!("no PTX: {e}")),
+        };
+        let mut g = match UnifiedGPUCompute::new(sh.n(), sh.n() * 8, &ptx) {
+            Ok(g) => g,
+            Err(e) => return fail(format!("no CUDA device: {e}")),
+        };
+
+        // Directed edge list, both directions (CSR rows list every neighbour).
+        let (nbn, leaves, n) = (sh.nb, sh.leaves, sh.n());
+        let mut adj: Vec<Vec<i32>> = vec![Vec::new(); n];
+        let mut link = |a: usize, b: usize| {
+            adj[a].push(b as i32);
+            adj[b].push(a as i32);
+        };
+        for nb in 1..=nbn {
+            link(0, nb);
+            link(nb, if nb == nbn { 1 } else { nb + 1 });
+            for k in 0..leaves {
+                link(nb, sh.leaf(nb, k));
+            }
+        }
+        let mut offsets = vec![0i32];
+        let (mut cols, mut w) = (Vec::new(), Vec::new());
+        for row in &adj {
+            cols.extend_from_slice(row);
+            w.extend(std::iter::repeat_n(1.0f32, row.len()));
+            offsets.push(cols.len() as i32);
+        }
+
+        // Fibonacci-sphere directions: neighbours at the rest length, leaves twice as far.
+        let (mut x, mut y, mut z) = (vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+        let mut lcg = 12345u32;
+        let mut jitter = move || {
+            lcg = lcg.wrapping_mul(1664525).wrapping_add(1013904223);
+            (lcg >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+        };
+        let golden = std::f32::consts::PI * (3.0 - 5.0f32.sqrt());
+        for nb in 1..=nbn {
+            let t = (nb as f32 - 0.5) / nbn as f32;
+            let zz = 1.0 - 2.0 * t;
+            let r = (1.0 - zz * zz).max(0.0).sqrt();
+            let th = golden * nb as f32;
+            let d = (r * th.cos(), r * th.sin(), zz);
+            x[nb] = d.0 * 50.0;
+            y[nb] = d.1 * 50.0;
+            z[nb] = d.2 * 50.0;
+            for k in 0..leaves {
+                let i = sh.leaf(nb, k);
+                x[i] = d.0 * 100.0 + jitter() * 30.0;
+                y[i] = d.1 * 100.0 + jitter() * 30.0;
+                z[i] = d.2 * 100.0 + jitter() * 30.0;
+            }
+        }
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        g.upload_edges_csr(&offsets, &cols, &w).expect("upload edges");
+        Some((ctx, g))
+    }
+
+    fn step(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        g.execute_physics_step_with_bypass(p, true).expect("step");
+    }
+
+    fn pos(g: &mut UnifiedGPUCompute) -> Vec<[f32; 3]> {
+        let (x, y, z) = g.get_node_positions().expect("positions");
+        (0..x.len()).map(|i| [x[i], y[i], z[i]]).collect()
+    }
+
+    /// Settle with the stored behaviour (no hold) until it is quiet and past warmup.
+    fn settle(g: &mut UnifiedGPUCompute, p: &SimulationParams) {
+        for _ in 0..800 {
+            step(g, p);
+        }
+    }
+
+    fn pin_hub(g: &mut UnifiedGPUCompute, n: usize) {
+        let mut mask = vec![0i32; n];
+        mask[0] = 1;
+        g.upload_pinned_mask(&mask).expect("pin hub");
+    }
+
+    fn set_hub(g: &mut UnifiedGPUCompute, to: [f32; 3]) {
+        let (mut x, mut y, mut z) = g.get_node_positions().expect("positions");
+        x[0] = to[0];
+        y[0] = to[1];
+        z[0] = to[2];
+        g.upload_positions(&x, &y, &z).expect("move hub");
+    }
+
+    /// Numbers from one run of the drag.
+    #[derive(Debug)]
+    struct Drag {
+        /// Largest displacement of any node over the first `GRAB_STEPS` steps of a zero drag.
+        grab_lurch: f32,
+        /// Mean +X displacement of the first-hop neighbours, as a fraction of `DRAG`, at the end
+        /// of the drag ramp.
+        hop1: f32,
+        hop2: f32,
+        /// The same two, after the extra still-hold steps.
+        hop1_held: f32,
+        #[allow(dead_code)]
+        hop2_held: f32,
+    }
+
+    const GRAB_STEPS: usize = 10;
+
+    fn run(sh: Shape, overlay: bool) -> Option<Drag> {
+        let (_ctx, mut g) = engine(sh)?;
+        let (n, nbn) = (sh.n(), sh.nb);
+        let mut p = stored_params();
+        settle(&mut g, &p);
+        let before = pos(&mut g);
+        pin_hub(&mut g, n);
+        // The actor's held step: speed floor 2.0 (already in `p.global_speed`), overlay per flag.
+        p.global_speed = 2.0;
+        g.set_hold_overlay(overlay);
+
+        for _ in 0..GRAB_STEPS {
+            step(&mut g, &p);
+        }
+        let after_grab = pos(&mut g);
+        let grab_lurch = (0..n)
+            .map(|i| {
+                (0..3)
+                    .map(|a| (after_grab[i][a] - before[i][a]).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .fold(0.0, f32::max);
+
+        let follow = |g: &mut UnifiedGPUCompute| {
+            let now = pos(g);
+            let mean = |range: std::ops::Range<usize>| {
+                range.clone().map(|i| now[i][0] - before[i][0]).sum::<f32>() / range.len() as f32
+            };
+            let h1 = mean(1..1 + nbn) / DRAG;
+            let h2 = mean(1 + nbn..n) / DRAG;
+            (h1, h2)
+        };
+
+        let origin = before[0];
+        for s in 1..=DRAG_STEPS {
+            set_hub(&mut g, [origin[0] + DRAG * s as f32 / DRAG_STEPS as f32, origin[1], origin[2]]);
+            step(&mut g, &p);
+        }
+        let (hop1, hop2) = follow(&mut g);
+        for _ in 0..HOLD_STEPS {
+            set_hub(&mut g, [origin[0] + DRAG, origin[1], origin[2]]);
+            step(&mut g, &p);
+        }
+        let (hop1_held, hop2_held) = follow(&mut g);
+        let d = Drag { grab_lurch, hop1, hop2, hop1_held, hop2_held };
+        eprintln!(
+            "[hold_spring_overlay] nb={} leaves={} overlay={overlay} {d:?} snapshots={}",
+            sh.nb,
+            sh.leaves,
+            g.hold_overlay_snapshot_count()
+        );
+        Some(d)
+    }
+
+    #[test]
+    fn stored_linlog_and_adaptive_speed_barely_move_neighbours() {
+        // Overlay off is today's behaviour. The dense fixture is the live-like one: neighbours
+        // with about 30 other springs follow the hub by a few percent at most.
+        let Some(d) = run(DENSE, false) else { return };
+        assert!(
+            d.hop1_held < 0.05,
+            "today's behaviour, dense graph: first-hop neighbours follow < 5 % of the drag, got {:.4}",
+            d.hop1_held
+        );
+        // The 12-neighbour hub pulls harder per neighbour than the live 904-neighbour hub, so
+        // its LinLog baseline is higher (measured 0.12) but still well under the overlay's.
+        let Some(d) = run(SMALL, false) else { return };
+        assert!(
+            d.hop1_held < 0.15,
+            "today's behaviour, small graph: got {:.4}",
+            d.hop1_held
+        );
+    }
+
+    fn assert_overlay_follows(sh: Shape, min_hop1: f32) {
+        let Some(base) = run(sh, false) else { return };
+        let Some(d) = run(sh, true) else { return };
+        assert!(
+            d.hop1 >= min_hop1,
+            "overlay on: first-hop neighbours follow >= {min_hop1} of the drag by the end of the \
+             ramp, got {:.4} (off: {:.4})",
+            d.hop1,
+            base.hop1
+        );
+        assert!(
+            d.hop1_held > 2.0 * base.hop1_held,
+            "overlay on must clearly beat the stored behaviour: {:.4} vs {:.4}",
+            d.hop1_held,
+            base.hop1_held
+        );
+        assert!(
+            d.hop2 > 0.0 && d.hop2 < d.hop1 && d.hop2_held < d.hop1_held,
+            "second hop follows less than first, more than zero: hop1 {:.4}/{:.4}, hop2 {:.4}/{:.4}",
+            d.hop1,
+            d.hop1_held,
+            d.hop2,
+            d.hop2_held
+        );
+        assert!(
+            d.grab_lurch <= base.grab_lurch.max(0.5),
+            "no lurch at the moment of grab: the overlay moved a node {:.4} in {GRAB_STEPS} steps \
+             (off: {:.4})",
+            d.grab_lurch,
+            base.grab_lurch
+        );
+    }
+
+    #[test]
+    fn the_overlay_makes_neighbours_follow_hop_by_hop_without_a_lurch() {
+        assert_overlay_follows(SMALL, 0.30);
+    }
+
+    #[test]
+    fn the_overlay_on_a_live_like_dense_graph() {
+        // Each neighbour has about 32 springs, as the live graph's do. A linear spring network
+        // gives roughly 1/(1+k) of the drag at equilibrium, so the bar here is lower.
+        assert_overlay_follows(DENSE, 0.03);
     }
 }
