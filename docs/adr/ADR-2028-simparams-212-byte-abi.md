@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
+verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
 verified_paths: [src/models/simulation_params.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu]
 owner: jjohare
 review_trigger: any new SimParams field, or a driver/toolkit change altering the 212-byte size
@@ -197,3 +197,7 @@ Re-stamped to `b06d44613` (2026-10-31, ADR-2140 review follow-ups). Re-run: `git
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** `From<&PhysicsSettings> for SimParams` now delegates to `SimParams::from(&SimulationParams::from(..))` (ADR-2140 item 1); the `SimParams` struct, its field order, the `== 212` assertion and `SIMPARAMS_MANIFEST` are untouched, and `layout_mode` stays one `u32` (the two new modes take values 6 and 7). **Decision holds.** The ABI manifest tests pass in `cargo test --lib` (1721 passed). Re-run: `git diff --stat 75b72416b 93302275e -- src/models/simulation_params.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** the `.cu` file gains `snapshot_edge_rest_kernel` and a trailing nullable `edge_rest_snapshot` parameter on the two force kernels. `SimParams` (212 bytes), its field offsets and the feature word are untouched; the ABI digest tests pass in the full `cargo test --lib` run. Re-stamped from `93302275e` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu` → `1 file changed, 56 insertions(+), 2 deletions(-)`.

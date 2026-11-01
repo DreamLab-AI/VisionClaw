@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2f8a74118cee7a2b3ab7f600f850bc1fe8b10722
+verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
 verified_paths: [crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu, crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs, docs/GPU-wire-abi.md]
 owner: jjohare
 review_trigger: Before any claim that Louvain, PageRank or DBSCAN output is trustworthy, or before a release that surfaces community/centrality/cluster values to users; activates when a rebuilt running backend serves Louvain/PageRank/DBSCAN output that is checked against the CPU oracle
@@ -269,3 +269,7 @@ edit. **Still holds.**
 ## Re-verification — 2026-10-31 (`2f8a74118`)
 
 Governed-path delta since `f68ad414f`: `docs/GPU-wire-abi.md` wording only. The build-fallback sentence now says both a failure to launch `nvcc` and a non-zero exit reach the pre-compiled fallback (`ptx_policy::NvccOutcome::needs_fallback`), replacing stale `build.rs` line citations, and the ADR-2030 runtime-identity paragraph now states the check is inert in the runtime images. Nothing this record decides is changed; status axes unchanged. Re-run: `git diff f68ad414f..2f8a74118 -- docs/GPU-wire-abi.md`.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `GPU-wire-abi.md` gains documentation of the overlay kernel parameter; no analytics kernel or oracle changes. Re-stamped from `2f8a74118` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- docs/GPU-wire-abi.md` → `1 file changed, 12 insertions(+), 1 deletion(-)`.

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 37d1226b10c36c44ba854a3fccfe8dff3785aec5
+verified_commit: d6bdbc67c0a4a605047407cbed8b032162c8b770
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -248,3 +248,7 @@ Re-stamped to `b06d44613` after merging W2's close-out (2026-10-31). The `From<&
 ## Re-stamp — 2026-10-31 (ADR-2140 item 1)
 
 **Governed change:** `execution.rs` gains only a test module (`adr_2140_layout_mode_gpu_tests`, the GPU receipt) and `simulation_params.rs` routes the direct `PhysicsSettings` conversion through the resolver. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is still derived there from the (now mode-resolved) scalars and the settings flag, and a stored `ssspEnabled=false` clears the bit in every mode (the receipt reads `c_params` back). **Decision holds.** Re-run: `git diff --stat 75b72416b 93302275e -- src/models/simulation_params.rs src/utils/unified_gpu_compute/execution.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.
+
+## Re-stamp — 2026-11-01 (ADR-2169 item 9, `phys/hold-springs`)
+
+**Governed change:** `execution.rs` gains the overlay pointer, the held-only gain (applied to `spring_k` and `max_force` after the feature word is derived) and GPU tests. `derive_dispatch_feature_flags` and `force_channels.rs` are unchanged, so the final feature word is as before; the force-flag tests pass. Re-stamped from `37d1226b1` to `d6bdbc67c`. Re-run: `git diff --stat 531df5ef7 d6bdbc67c -- src/utils/unified_gpu_compute/execution.rs` → `1 file changed, 742 insertions(+), 2 deletions(-)`.
