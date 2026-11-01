@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 347f0340782c655ce191198e9941fb9fd368ab4e
+verified_commit: a71b2608dc905e970c69a5383eeb6880654aa4d6
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -85,3 +85,5 @@ Re-stamped to `e49db1836` (2026-10-31, ADR-2166, spatial volumes can be entered)
 Re-checked at `db3ab82fa`: `settings_routes.rs` also gained `reset_document` (a layout reset keeps the active mode) and `stored_physics`; neither touches the cycle routes or the layout-mode whitelist decision 4 describes. Re-run: `git diff --stat 93302275e db3ab82fa -- src/settings/api/settings_routes.rs`.
 
 Re-stamped to `347f03407` (2026-10-31, ADR-2140 closes: the `/analytics/sssp/params` routes are deleted). The claim that moved is decision 2's route line, now `analytics/mod.rs:258`. The `:255` citation was already stale at `1b8335c4c` (the route was at `:261` there); this change moved it up to `:258` and the citation now matches. Re-run: `git show 1b8335c4c:src/handlers/api_handler/analytics/mod.rs | grep -n get_cycles` → `261`, and `grep -n 'cycles_handlers::get_cycles' src/handlers/api_handler/analytics/mod.rs` → `258`. Nothing else this record cites changed.
+
+Re-stamped to `a71b2608dc905e970c69a5383eeb6880654aa4d6` (2026-11-01, ADR-2140 second review). `settings_routes.rs` gained `layout_mode_to_forward` (a quality-gate PUT forwards a `layoutMode` only when it differs from the stored echo), `reset_document_for`, and a `stored_physics()` that reads the stored `physics` row first. The whitelist decision 4 describes (`validate_quality_gate_settings`, `LIVE_LAYOUT_MODES`) and the cycle routes are untouched. **Decision holds.** Re-run: `git diff --stat 347f03407 a71b2608d -- src/settings/api/settings_routes.rs client/src/api/layoutApi.ts src/layout/scc.rs src/handlers/api_handler/analytics/cycles_handlers.rs` → only `settings_routes.rs | 197`; and `git diff 347f03407 a71b2608d -- src/settings/api/settings_routes.rs | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 1, an unchanged context line (a comment); no added or removed line names either (`... | grep -E '^[+-]' | grep -c 'LIVE_LAYOUT_MODES\|validate_quality_gate_settings'` → 0).

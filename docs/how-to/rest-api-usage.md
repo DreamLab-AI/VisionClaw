@@ -404,13 +404,17 @@ query builder issues on every pattern change. See
 
 ### 3j. Switch the layout mode
 
-`POST /api/layout/mode` selects the global layout. GPU modes
-(`forceDirected`, `hierarchical`, `radial`, `clustered`) return an empty
-`positions` array — positions stream over the WebSocket — while CPU modes
+`POST /api/layout/mode` selects the global layout and stores it as
+`physics.layoutMode` (ADR-2140). It needs an authenticated user: send the NIP-98
+`Authorization` header from section 2 (`$AUTH` below), or the session `Bearer`
+token; an anonymous request gets a 401. GPU modes (`forceDirected`,
+`hierarchical`, `radial`, `dagLeftRight`, `typeClustering`, `clustered`) return an
+empty `positions` array — positions stream over the WebSocket — while CPU modes
 (`spectral`, `temporal`) return computed positions inline:
 
 ```bash
 curl -s -X POST http://localhost:4000/api/layout/mode \
+  -H "Authorization: $AUTH" \
   -H 'Content-Type: application/json' \
   -d '{ "mode": "hierarchical", "transitionMs": 500 }' | jq .
 # { "success": true, "mode": "hierarchical", "transitionMs": 500, "positions": [] }
