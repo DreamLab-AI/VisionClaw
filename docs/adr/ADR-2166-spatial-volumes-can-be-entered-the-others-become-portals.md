@@ -8,7 +8,7 @@ activation_status: inactive
 supersedes: []
 superseded_by: []
 amends: [ADR-2158]
-verified_commit: a4c07caed3f05bc170a0096fdde878ceebbd19c1
+verified_commit: 42befe3d273face354cf7f10c13a9057a47db3d2
 verified_paths: [xr-client/scripts/space_portals.gd, xr-client/scripts/spatial_volume.gd, xr-client/scripts/emulated_volume.gd, xr-client/scripts/volume_arrangement.gd, xr-client/scripts/graph_scene.gd, xr-client/scripts/hud.gd, xr-client/scripts/xr_prefs.gd, xr-client/materials/portal_membrane.gdshader]
 owner: jjohare
 review_trigger: the first headset session with Enter used (stereo membranes, 90 Hz with an entered 6 m room, comfort of the dim); or XE merging FrameBudgetPass.set_volume_weights
@@ -57,3 +57,4 @@ Re-stamped to `a4c07caed` (2026-10-31, ADR-2167 review fixes R11; first stamped 
 
 Note (2026-10-31, owner decision on ADR-2167 R11 F5): the portal weighting is left as it is. The `GEM_MIN` floor and the `drawn x weight` split are unchanged, so at production density (gem cap 35) the weights remain nearly inert, and the line in Consequences that XE's weights keep the portals from taking budget holds at the 1k fixture only. The extras allowance (ADR-2167, amended) takes at most two gems at production density and does not touch the split. No code in this record's `verified_paths` changed, so `verified_commit` stays.
 
+Re-verified 2026-11-01 at `42befe3d2` (xr/grab-client, ADR-2168). Changes since `a4c07caed`: `graph_scene.gd` now lets a node be grabbed in the entered volume and in the ring, never in a portal, releases held nodes when a space is entered, swapped or left, and refuses a grab during a transition (ADR-2168, which amends this record); `hud.gd` has a two-line edge-key edit. Enter, Leave, the ring, the membranes and the transitions are unchanged. The decision holds; its line 8 (E9) still holds for Codescape.

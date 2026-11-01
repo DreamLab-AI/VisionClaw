@@ -40,7 +40,7 @@ The [historical closeout routing note](../adr-history-closeout.md) points each f
 
 The [estate status/evidence contract](../../../VisionFlow/docs/architecture/adr-status-contract.md) defines the independent decision, implementation and activation axes and distinguishes lineage from supersession (2026-09-07).
 
-_140 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
+_141 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 
 | ID | Title | Domain | Date | Decision | Impl | Activation | Supersedes | Superseded by | Owner | Repo |
 |----|-------|--------|------|----------|------|------------|------------|---------------|-------|------|
@@ -168,7 +168,7 @@ _140 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2137](ADR-2137-consume-shared-ontology-workspace.md) | Consume shared ontology semantics through explicit native adapters | — | 2026-10-11 | proposed | none | inactive | — | — | jjohare | visionclaw |
 | [ADR-2138](ADR-2138-directed-cycles-are-a-server-analysis-with-one-adjacency.md) | Directed cycles are one server analysis that every client consumes | — | 2026-10-13 | proposed | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2139](ADR-2139-position-frames-are-full-snapshots-of-the-entitled-set.md) | Position frames are full snapshots of the entitled set — never deltas, never partial | — | 2026-10-13 | accepted | complete | staged | — | ADR-2141 | jjohare | visionclaw |
-| [ADR-2140](ADR-2140-physics-forces-have-one-stored-definition-and-no-scale-factors.md) | Physics forces have one stored definition, applied as stored — no scale factors, caps or shadow state | — | 2026-10-13 | accepted | partial | staged | — | — | jjohare | visionclaw |
+| [ADR-2140](ADR-2140-physics-forces-have-one-stored-definition-and-no-scale-factors.md) | Physics forces have one stored definition, applied as stored — no scale factors, caps or shadow state | — | 2026-10-13 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2141](ADR-2141-positions-are-streamed-per-client-until-acknowledged.md) | Positions are streamed to each client in chunks until it has acknowledged them | — | 2026-10-13 | accepted | complete | staged | ADR-2139 | — | jjohare | visionclaw |
 | [ADR-2142](ADR-2142-the-agents-demo-is-one-server-producer-both-clients-control.md) | The agents demo is one server-side producer that both clients control and both see | — | 2026-10-14 | accepted | complete | staged | — | — | jjohare | visionclaw |
 | [ADR-2143](ADR-2143-codescape-section-separate-workspace-and-port.md) | Codescape is a separate section with its own Cargo workspace, its own port and a tested isolation boundary | BASELINE-architecture | 2026-10-17 | accepted | partial | inactive | — | — | jjohare | visionclaw |
@@ -184,3 +184,4 @@ _140 record(s). Regenerate with_ `node scripts/adr-index-gen.js docs/adr`.
 | [ADR-2165](ADR-2165-the-xr-client-targets-godot-4-8-beta.md) | The XR client targets Godot 4.8 (beta), with 4.6.1-stable as rollback until the headset re-test passes | XR-client | 2026-10-30 | accepted | partial | staged | — | — | jjohare | visionclaw |
 | [ADR-2166](ADR-2166-spatial-volumes-can-be-entered-the-others-become-portals.md) | Spatial volumes can be entered; the others become portals | XR-client | 2026-10-31 | accepted | partial | inactive | — | — | jjohare | visionclaw |
 | [ADR-2167](ADR-2167-the-headsets-visual-extras-are-the-allocators-last-budgeted-layer.md) | The headset's visual extras hold a bounded allowance in the allocator, tiered by measured GPU time | BASELINE-architecture | 2026-10-31 | proposed | partial | staged | — | — | jjohare | visionclaw |
+| [ADR-2168](ADR-2168-a-node-is-grabbed-with-either-hand-in-any-visionclaw-volume.md) | A node is grabbed with either hand, up to two at once, in any VisionClaw volume | XR-client | 2026-11-01 | accepted | partial | inactive | — | — | jjohare | visionclaw |
