@@ -285,6 +285,6 @@ Re-verified 2026-10-30 at b1835a4d0. The only change since feb3c81a3 is two rese
 
 Re-verified 2026-10-30 at 2a763c423 (merge of `xr/ux-pick` plus `xr/ux-wire`, spatial-volume UX). `binary_protocol.rs` gains only the two per-slot render readers (`:2082-2105`). No tag byte, dispatch arm or registry entry changed. xr-client lib tests 461/0 on the HP.
 
-Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2168), a per-frame render-position pin. No tag byte, registry or dispatch changed. The decision holds.
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The only change to `binary_protocol.rs` since `2a763c423` is one additive `#[func]`, `hunt_grabs` (ADR-2172), a per-frame render-position pin. No tag byte, registry or dispatch changed. The decision holds.
 
-Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2168 review fixes). The only change to `binary_protocol.rs` since `484d9392f` is the held-node exclusion of the volume refit (`full_aabb_of` / `render_aabb_ids` take a set of ids). No tag byte, registry entry or dispatch path changed. The decision holds.
+Re-verified 2026-11-01 at `232130a64` (xr/grab-client, ADR-2172 review fixes). The only change to `binary_protocol.rs` since `484d9392f` is the held-node exclusion of the volume refit (`full_aabb_of` / `render_aabb_ids` take a set of ids). No tag byte, registry entry or dispatch path changed. The decision holds.

@@ -46,7 +46,7 @@ var conn: Node = null
 var mask: int = 0
 ## Nodes excluded from content_aabb while grabbed (E7: a dragged outlier must
 ## not refit the volume under the hand). A set, because each hand may hold one
-## (ADR-2168); the scene writes it from the held ids of this volume. Empty = none.
+## (ADR-2172); the scene writes it from the held ids of this volume. Empty = none.
 var grabbed_ids: PackedInt32Array = PackedInt32Array()
 ## Mounted container and its MultiMeshInstance3Ds by role; empty when unmounted.
 var root: Node3D = null

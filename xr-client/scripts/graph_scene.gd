@@ -418,7 +418,7 @@ func apply_trigger(kind: String, node: Dictionary, link: Dictionary, frame: Dict
 			var ends: Array = [link.get("from", {}), link.get("to", {})]
 			select_volume_node(StringName(far["volume"]), StringName(far["conn"]), int(far["node_id"]), ends)
 			# Never while a node is in hand: the ease moves the held node's volume under
-			# it and the node slides across server space (ADR-2168 F8).
+			# it and the node slides across server space (ADR-2172 F8).
 			if _arrangement != null and _any_grab_id() == -1:
 				_arrangement.bring_to_front(StringName(far["volume"]))
 		"frame":
@@ -638,7 +638,7 @@ func begin_box_grip(ctrl: Node3D, hit: Dictionary) -> void:
 	var v: Node3D = _volumes.get(vid, null)
 	if v == null or not v.visible_state:
 		return
-	# A box that holds a node does not move or resize under it (ADR-2168 F8).
+	# A box that holds a node does not move or resize under it (ADR-2172 F8).
 	if not _held_ids(vid).is_empty():
 		return
 	_focus_volume(vid)
@@ -854,7 +854,7 @@ var _grab_eval_vol: StringName = &""
 # The merged candidate array being evaluated is one run per volume: run k covers
 # [end of run k-1, _grab_eval_ends[k]) and belongs to _grab_eval_vols[k]. A node's
 # volume is resolved from its index afterwards (_grab_volume_of), so the merge itself
-# writes no per-node map (ADR-2168 F2).
+# writes no per-node map (ADR-2172 F2).
 var _grab_eval_ids: PackedInt32Array = PackedInt32Array()
 var _grab_eval_vols: Array[StringName] = []
 var _grab_eval_ends: PackedInt32Array = PackedInt32Array()
@@ -899,7 +899,7 @@ var _last_targeted_vol: StringName = &""   # volume the ray last targeted a node
 # Double-click (node-open) detection: two grabs of the same node within the window.
 const DOUBLE_CLICK_SEC: float = 0.45
 # Per hand (indexed like _grab_id): interleaved presses of the two hands must not
-# defeat each other's double-click, and handing a node over is not one (ADR-2168 F6).
+# defeat each other's double-click, and handing a node over is not one (ADR-2172 F6).
 var _dc_last_id: Array[int] = [-1, -1]
 var _dc_last_time: Array[float] = [0.0, 0.0]
 
@@ -3288,7 +3288,7 @@ func _entered_volume() -> StringName:
 # entry from the ring eases the boxes over EASE_SEC with no dim, a bring-to-front
 # eases two) scales or moves a Content transform under the hand: no grab starts
 # through either, because the grab depth is measured at the old transform and each
-# drive would slide the node across server space (ADR-2168 F4).
+# drive would slide the node across server space (ADR-2172 F4).
 func _grab_locked() -> bool:
 	if _portals != null and _portals.is_transitioning():
 		return true
@@ -3327,7 +3327,7 @@ func _grab_candidate_volumes(hand: int) -> Array[StringName]:
 # candidates, so nothing here loops over nodes in script: the transform is one native
 # `Transform3D * PackedVector3Array`, a held id is found and removed natively, and the
 # runs are appended whole. The volume of each run is kept as an end offset for
-# _grab_volume_of (no per-node map). ADR-2168 F2: 8 ms -> ~0.2 ms per hand at 13k.
+# _grab_volume_of (no per-node map). ADR-2172 F2: 8 ms -> ~0.2 ms per hand at 13k.
 func _merge_grab_candidates(vols: Array[StringName], held_a: int, held_b: int) -> Array:
 	var ids := PackedInt32Array()
 	var world := PackedVector3Array()

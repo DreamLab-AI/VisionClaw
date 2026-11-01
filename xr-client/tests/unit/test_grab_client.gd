@@ -399,7 +399,7 @@ func test_breathe_scales_brightness_with_the_alpha_swell_and_is_not_motion_gated
 
 
 # ================================================================================
-# ADR-2168 review fixes (R15 → F13). Each test drives the scene through instance
+# ADR-2172 review fixes (R15 → F13). Each test drives the scene through instance
 # members only, so a missing new member fails an assertion, never a file-level
 # parse error that GUT would skip silently.
 # ================================================================================

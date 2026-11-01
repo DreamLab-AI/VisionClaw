@@ -107,7 +107,7 @@ func test_visionclaw_drag_reaches_its_client_and_records_no_pin() -> void:
 	assert_true(vc.send_drag_update(3, Vector3(2, 2, 3)))
 	assert_true(vc.send_drag_end(3))
 	assert_eq(fake.names(), ["send_drag_start", "send_drag_update", "send_drag_end"])
-	assert_eq(vc.pinned_ids(), [], "ADR-2168 F3: a drag end records no pin; the server releases the node, nothing is left to unpin")
+	assert_eq(vc.pinned_ids(), [], "ADR-2172 F3: a drag end records no pin; the server releases the node, nothing is left to unpin")
 
 
 func test_refused_fires_with_label_and_quiet_suppresses_it() -> void:

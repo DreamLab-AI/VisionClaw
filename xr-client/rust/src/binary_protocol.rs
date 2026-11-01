@@ -541,7 +541,7 @@ pub fn edges_for_class_mask(
 
 /// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
 /// positions of `ids`, skipping every id in `exclude` (the grabbed nodes: up to one per hand, so
-/// a set, ADR-2168), ids `position_of` does not know, and non-finite positions. `None` when
+/// a set, ADR-2172), ids `position_of` does not know, and non-finite positions. `None` when
 /// nothing qualifies. Unlike `render_aabb`, nothing is trimmed: a volume's fit must contain every
 /// node it draws (ADR-2158 E7).
 pub fn full_aabb_of(
@@ -3183,7 +3183,7 @@ mod tests {
         assert_eq!(full_aabb_of(&[9, 1], &[], nan), Some([0.0; 6]));
     }
 
-    /// ADR-2168 F1: both hands can hold a node in one volume, so the refit excludes a SET.
+    /// ADR-2172 F1: both hands can hold a node in one volume, so the refit excludes a SET.
     /// With only one id excluded the other held node still drags the box (and the scale) out.
     #[test]
     fn render_aabb_ids_excludes_every_held_node() {

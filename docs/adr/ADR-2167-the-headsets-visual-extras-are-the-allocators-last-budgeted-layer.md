@@ -56,4 +56,4 @@ Re-stamped to `6f5e7ad48` (2026-10-31, this amendment; previous stamp `a4c07caed
 
 The only governed-path change since 6f5e7ad48 is the test module of `xr-client/rust/src/frame_budget.rs` (R12 F3: two pressure sweep tests). Allocator code is unchanged. `cargo test --lib frame_budget` in `xr-client/rust`: 30 passed; removing the route or burst pressure term fails exactly the matching new test. Evidence: `git diff 6f5e7ad48..ca35fd9db -- xr-client/rust/src/frame_budget.rs`.
 
-Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2168). The only change to `spatial_environment.gd` since `ca35fd9db` is the focus marker following the first held node in that node's volume frame (ADR-2168). The extras allocator, its budget and its tiers are untouched. The decision holds.
+Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). The only change to `spatial_environment.gd` since `ca35fd9db` is the focus marker following the first held node in that node's volume frame (ADR-2172). The extras allocator, its budget and its tiers are untouched. The decision holds.

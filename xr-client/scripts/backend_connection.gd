@@ -47,7 +47,7 @@ var _open: bool = false
 var _reconnect_attempts: int = 0
 var _reconnect_timer: float = -1.0
 ## Node ids this connection pinned explicitly on its server (A6 hygiene: released on
-## close). Nothing writes it until a client-side Pin sender exists (ADR-2168 F5):
+## close). Nothing writes it until a client-side Pin sender exists (ADR-2172 F5):
 ## a drag end no longer records a pin.
 var _pinned: Dictionary = {}
 var _http: Array[HTTPRequest] = []
@@ -270,7 +270,7 @@ func send_drag_end(id: int) -> bool:
 	if client == null or not client.has_method("send_drag_end"):
 		return false
 	client.send_drag_end(id)
-	# ADR-2168 F3: a drag end records nothing. The server releases the node into the
+	# ADR-2172 F3: a drag end records nothing. The server releases the node into the
 	# simulation (it does not pin it), so there is no pin for close() to undo; a
 	# recorded id made every teardown send a nodeUnpin (and a reheat) per node ever dragged.
 	return true

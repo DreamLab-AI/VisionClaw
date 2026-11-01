@@ -1,5 +1,5 @@
 ---
-id: ADR-2168
+id: ADR-2172
 title: A node is grabbed with either hand, up to two at once, in any VisionClaw volume
 date: 2026-11-01
 decision_status: accepted
@@ -20,7 +20,7 @@ evidence_class: source+test
 acceptance_boundary: the gate, the per-hand state, the routing and transform arithmetic, the portal refusal, the release-without-pin rule and the breathe parameters are covered by headless GUT (Godot 4.6.1 and 4.8-beta2) and a Rust unit test; whether a grab feels right in the headset (ray reach, depth, two wands), whether it holds inside a scaled room at 90 Hz, how the server settles two simultaneously pinned nodes, and whether the 36 s breathe at depth 0.8 reads well on the VIVE are not established
 ---
 
-# ADR-2168 — A node is grabbed with either hand, up to two at once, in any VisionClaw volume
+# ADR-2172 — A node is grabbed with either hand, up to two at once, in any VisionClaw volume
 
 ## Context
 - Owner finding, 2026-11-01: in the Ontology room a trigger on a node turns the wands green and shows its label, but nothing is grabbed. Node grab is a key feature of the platform.

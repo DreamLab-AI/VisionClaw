@@ -92,7 +92,7 @@ func _process(_delta: float) -> void:
     var client: RefCounted = _scene.get("_binary_client") as RefCounted
     var graph_root: Node3D = _scene.get_node_or_null("GraphRoot")
     var camera := get_viewport().get_camera_3d()
-    # Either hand may hold a node (ADR-2168); the marker follows the first held one,
+    # Either hand may hold a node (ADR-2172); the marker follows the first held one,
     # in that node's own volume frame.
     var grabbed: int = int(_scene.call("_any_grab_id")) if _scene.has_method("_any_grab_id") else -1
     var active_id: int = grabbed if grabbed >= 0 else _target_id
