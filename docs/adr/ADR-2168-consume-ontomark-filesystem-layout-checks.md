@@ -30,7 +30,7 @@ adoption must preserve the producer migration's existing parity boundary.
 ## Decision
 
 - `vault/shared-layout` and server `shared-corpus-layout` are default features.
-  Each enables the registry dependency `ontomark-compile >=0.6.2,<0.7`, without
+  Each enables the registry dependency `ontomark-compile >=0.6.3,<0.7`, without
   its default reasoner feature. No cross-repository path dependency ships.
 - `vault` shares canonical ancestor discovery and validates its estate layout,
   while retaining `vault-core` vocabulary parsing and the existing producer.

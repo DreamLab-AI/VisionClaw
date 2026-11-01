@@ -4052,9 +4052,9 @@ checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
 name = "ontomark-compile"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dacb0cbcd55ffa07d47462c4b5e06fba311eb6f98f3d40a2f2717c287abb841"
+checksum = "72cf2bc78aebf9430941cc5525900383b325b79be7eb67ca0a4283185631ffbc"
 dependencies = [
  "anyhow",
  "hex",

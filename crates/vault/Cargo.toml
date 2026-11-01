@@ -25,7 +25,7 @@ shared-layout = ["dep:ontomark-compile"]
 jev = ["dep:visionclaw-jev", "dep:tokio"]
 
 [dependencies]
-ontomark-compile = { version = "0.6.2", default-features = false, optional = true }
+ontomark-compile = { version = "0.6.3", default-features = false, optional = true }
 visionclaw-jev = { path = "../visionclaw-jev", optional = true }
 tokio = { version = "1.47.1", features = ["rt", "time"], optional = true }
 # RDFS derivation certificates in the oo-cert/1 format (ADR-2147).

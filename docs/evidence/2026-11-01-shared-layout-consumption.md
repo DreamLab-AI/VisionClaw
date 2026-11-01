@@ -1,9 +1,9 @@
 # Shared layout crate consumption — 2026-11-01
 
 The default `vault/shared-layout` and server `shared-corpus-layout` features
-consume registry `ontomark-compile 0.6.2`, with default features disabled.
+consume registry `ontomark-compile 0.6.3`, with default features disabled.
 Cargo.lock records registry checksum
-`2dacb0cbcd55ffa07d47462c4b5e06fba311eb6f98f3d40a2f2717c287abb841`.
+`72cf2bc78aebf9430941cc5525900383b325b79be7eb67ca0a4283185631ffbc`.
 The temporary development Cargo patch is absent from shipped manifests and lock.
 
 | Gate | Result |
@@ -37,3 +37,15 @@ No deployment, producer retirement, full corpus parity or confidentiality claim
 is made. Full arbitrary required-key enforcement remains a separate owner policy
 migration. Temporary harnesses and generated build inputs are audit scratch,
 not committed dependencies or production assets.
+
+## Journal-boundary patch adoption
+
+The minimum registry version and lock now consume 0.6.3, published from Ontomark
+`4b9d15df48056971321a62b8c4e905f4536c74db`. That patch guards separate journal
+walks, repair scopes, migration bookkeeping and redirected migration targets.
+The shared root API consumed here is unchanged. The full vault/core tests
+(546 passed, 5 ignored), feature-off vault tests (388 passed, 5 ignored),
+strict vault Clippy, 13 actual-local-module tests, module Clippy and the default
+server library compile check all passed again against registry 0.6.3.
+The consumer's existing producer does not call Ontomark migration/repair APIs;
+this dependency update does not transfer those features or retire that producer.
