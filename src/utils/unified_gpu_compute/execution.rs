@@ -9,6 +9,68 @@ use cust::launch;
 use cust::memory::{CopyDestination, DeviceBuffer, DevicePointer};
 use log::{debug, info, warn};
 
+/// Stage names for the opt-in per-stage profiler (see [`set_stage_profile`]).
+pub const STAGE_NAMES: [&str; 10] = [
+    "stability gate (ke+check+readback)",
+    "aabb reduce + readback",
+    "build_grid kernel",
+    "thrust sort",
+    "cell bounds (zero+kernel)",
+    "force pass",
+    "cohesion (centroids+kernel+louvain refresh)",
+    "degree gravity (+connected_extent sync)",
+    "semantic forces",
+    "integrate + completion wait",
+];
+
+static STAGE_PROFILE_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static STAGE_US: [std::sync::atomic::AtomicU64; 10] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 10];
+static STAGE_LAST_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn stage_epoch() -> std::time::Instant {
+    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *EPOCH.get_or_init(std::time::Instant::now)
+}
+
+/// Turn the per-stage profiler on or off. Off by default: when on, `execute()` synchronises the
+/// stream at every stage boundary so each stage's wall time is attributable, which serialises work
+/// the GPU would otherwise overlap. Diagnostic use only.
+pub fn set_stage_profile(on: bool) {
+    STAGE_PROFILE_ON.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drain the per-stage accumulators (microseconds since the last drain).
+pub fn take_stage_profile_us() -> [u64; 10] {
+    let mut out = [0u64; 10];
+    for (o, a) in out.iter_mut().zip(STAGE_US.iter()) {
+        *o = a.swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    out
+}
+
+/// Close stage `idx` at this point: wait for the stream, charge the time since the previous mark.
+#[inline]
+fn stage_mark(stream: &cust::stream::Stream, idx: usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !STAGE_PROFILE_ON.load(Relaxed) {
+        return;
+    }
+    let _ = stream.synchronize();
+    let now = stage_epoch().elapsed().as_micros() as u64;
+    let last = STAGE_LAST_US.swap(now, Relaxed);
+    STAGE_US[idx].fetch_add(now.saturating_sub(last), Relaxed);
+}
+
+/// Open the profiled step: stage 0 starts here.
+#[inline]
+fn stage_begin() {
+    use std::sync::atomic::Ordering::Relaxed;
+    if STAGE_PROFILE_ON.load(Relaxed) {
+        STAGE_LAST_US.store(stage_epoch().elapsed().as_micros() as u64, Relaxed);
+    }
+}
+
 /// Fraction of `viewport_bounds` at which the degree-0 peripheral shell sits.
 ///
 /// `0.8` is exactly where `integrate_pass_kernel`'s soft boundary begins its
@@ -174,6 +236,7 @@ impl UnifiedGPUCompute {
         let _thread_context =
             Context::new(self.device).map_err(|e| anyhow!("Failed to set CUDA context: {}", e))?;
 
+        stage_begin();
         params.iteration = self.iteration;
         let block_size = Self::kernel_block_size();
         let grid_size = (self.num_nodes as u32).div_ceil(block_size);
@@ -300,6 +363,8 @@ impl UnifiedGPUCompute {
             }
         }
 
+        stage_mark(&self.stream, 0);
+
         crate::utils::gpu_diagnostics::validate_kernel_launch(
             "unified_gpu_execute",
             grid_size,
@@ -337,6 +402,7 @@ impl UnifiedGPUCompute {
             &mut block_results,
             "aabb_block_results read",
         )?;
+        stage_mark(&self.stream, 1);
 
         let mut aabb = Aabb {
             min: [f32::MAX; 3],
@@ -578,6 +644,8 @@ impl UnifiedGPUCompute {
             ))?;
         }
 
+        stage_mark(&self.stream, 2);
+
         // Persistent grid-sort output buffers (allocated once in new()/resize_buffers,
         // reused every frame). `sort_keys_out` receives the sorted cell keys;
         // `sort_values_out` receives the sorted node indices and is ping-ponged with
@@ -613,6 +681,7 @@ impl UnifiedGPUCompute {
         // Sorted node indices now live in sort_values_out; swap them into
         // sorted_node_indices for downstream kernels (ping-pong, no allocation).
         std::mem::swap(&mut self.sorted_node_indices, &mut self.sort_values_out);
+        stage_mark(&self.stream, 3);
 
         if self.cell_start.len() != self.zero_buffer.len() {
             return Err(anyhow!(
@@ -648,6 +717,8 @@ impl UnifiedGPUCompute {
                 num_grid_cells as i32
             ))?;
         }
+
+        stage_mark(&self.stream, 4);
 
         let force_kernel_name = if params.stability_threshold > 0.0 {
             "force_pass_with_stability_kernel"
@@ -788,6 +859,8 @@ impl UnifiedGPUCompute {
         // Cluster cohesion: gentle attraction toward cluster centroids.
         // cluster_strength IS the raw kernel coefficient — no magic scale; clamp
         // to the valid contract range [0, 0.02]. The slider has full authority.
+        stage_mark(&self.stream, 5);
+
         let cohesion_strength = params.cluster_strength.clamp(0.0, 0.02);
         if cohesion_strength > 0.0001 {
             // Community-driven cohesion (Leiden default / Louvain). Communities are
@@ -869,6 +942,8 @@ impl UnifiedGPUCompute {
         // Degree-weighted gravity correction: replaces uniform centering with
         // degree-aware gravity for connected nodes and peripheral shell force
         // for isolated nodes. Only runs when degree weights have been uploaded.
+        stage_mark(&self.stream, 6);
+
         if self.degree_weights_available && params.center_gravity_k > 0.0 {
             if let Ok(dw_gravity_kernel) =
                 self._module.get_function("degree_weighted_gravity_kernel")
@@ -916,6 +991,8 @@ impl UnifiedGPUCompute {
         // Semantic forces: add the ontology-derived forces to the live force buffers before
         // integration, exactly as configured in the central settings store. Present only after
         // `enable_semantic`; `semantic_active` is false when every force is switched off.
+        stage_mark(&self.stream, 7);
+
         if self.semantic_active {
             if let Some(sem) = &self.semantic {
                 if sem.num_nodes() == self.num_nodes {
@@ -939,6 +1016,8 @@ impl UnifiedGPUCompute {
                 }
             }
         }
+
+        stage_mark(&self.stream, 8);
 
         let integrate_pass_kernel = self._module.get_function(self.integrate_pass_kernel_name)?;
         let stream = &self.stream;
@@ -981,6 +1060,8 @@ impl UnifiedGPUCompute {
                 self.pinned_mask.as_device_ptr()
             ))?;
         }
+
+        stage_mark(&self.stream, 9);
 
         let completion_event = cust::event::Event::new(cust::event::EventFlags::DEFAULT)?;
         completion_event.record(&self.stream)?;
@@ -2477,6 +2558,117 @@ mod adr_2029_constraint_gpu_tests {
                 .expect("step");
         }
         assert_eq!(positions(&mut cleared), baseline);
+    }
+
+    /// A mixed constraint set over most of the 64 nodes: hubs in several constraints, a node in two
+    /// slots of one constraint, a padded slot beyond `count`, and all of DISTANCE, SEPARATION and
+    /// ALIGNMENT, so every branch of the per-node loop is exercised.
+    fn mixed_constraints() -> Vec<ConstraintData> {
+        let mut out = Vec::new();
+        for i in 0..N as i32 {
+            let j = (i * 7 + 3) % N as i32;
+            let k = (i * 13 + 5) % N as i32;
+            out.push(ConstraintData {
+                kind: 0,
+                count: 2,
+                node_idx: [i, j, -1, -1],
+                params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 6,
+                count: 2,
+                node_idx: [i, k, -1, -1],
+                params: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+            out.push(ConstraintData {
+                kind: 7,
+                count: 2,
+                node_idx: [j, k, -1, -1],
+                params: [(i % 3) as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                weight: 0.5,
+                activation_frame: 0,
+            });
+        }
+        // Node 4 in two slots of one constraint; node 9 only in a padded slot (count 1).
+        out.push(ConstraintData {
+            kind: 0,
+            count: 3,
+            node_idx: [4, 4, 11, -1],
+            params: [TARGET_GAP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out.push(ConstraintData {
+            kind: 1,
+            count: 1,
+            node_idx: [20, 9, -1, -1],
+            params: [10.0, 10.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            activation_frame: 0,
+        });
+        out
+    }
+
+    /// The per-node constraint index is an optimisation: the full forces, with the index bound and
+    /// with it unbound (the kernel scans every constraint), must agree bit for bit, under both the
+    /// stability-gated kernel and the plain one.
+    #[test]
+    fn the_constraint_index_changes_no_bit_of_the_result() {
+        for stability in [true, false] {
+            let Some((_c1, mut indexed)) = engine() else {
+                return;
+            };
+            let Some((_c2, mut scanned)) = engine() else {
+                return;
+            };
+            let Some((_c3, mut none)) = engine() else {
+                return;
+            };
+            indexed.upload_constraints(&mixed_constraints()).expect("constraints");
+            scanned.upload_constraints(&mixed_constraints()).expect("constraints");
+            scanned.bind_constraint_index_pointers(0, 0); // force the legacy full scan
+
+            // Not vacuous: read the two device globals back. Bound on one engine, null on the other.
+            let bound = |g: &UnifiedGPUCompute| -> [u64; 2] {
+                let mut out = [0u64; 2];
+                for (slot, name) in [c"g_constraint_node_offsets", c"g_constraint_node_ids"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let sym = g._module.get_global::<u64>(name).expect("index symbol in PTX");
+                    sym.copy_to(&mut out[slot]).expect("read global");
+                }
+                out
+            };
+            let b = bound(&indexed);
+            assert!(b[0] != 0 && b[1] != 0, "the index is bound on the indexed engine");
+            assert_eq!(bound(&scanned), [0, 0], "and unbound on the scanning one");
+
+            let settings = SimulationParams {
+                constraint_ramp_frames: 0,
+                ..Default::default()
+            };
+            for _ in 0..FRAMES {
+                for g in [&mut indexed, &mut scanned, &mut none] {
+                    g.execute_physics_step_with_bypass(&settings, !stability)
+                        .expect("step");
+                }
+            }
+            let (a, b, c) = (
+                positions(&mut indexed),
+                positions(&mut scanned),
+                positions(&mut none),
+            );
+            assert_eq!(a, b, "index vs scan (stability gate {stability})");
+            if !stability {
+                // With the gate on, rest at the start may legitimately skip the step.
+                assert_ne!(a, c, "the constraints must have moved something");
+            }
+        }
     }
 }
 

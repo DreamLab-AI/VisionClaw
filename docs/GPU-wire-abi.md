@@ -1,10 +1,11 @@
 ---
 title: GPU & Wire ABI
 doc_id: VC-GPU-ABI
-version: 0.1.6
+version: 0.1.7
 status: draft-for-ratification
 verified_commit: 
 changelog:
+  - "0.1.7 (2026-11-01): ADR-2173 per-node constraint index — two __device__ pointer globals bound from the host; kernel arities and c_params unchanged"
   - "0.1.6 (2026-10-31): ADR-2030 runtime PTX identity (build-baked content tag verified at load, fail loud); ADR-2029 GPU-tick evidence that bit 4 alone gates the constraint loop and the physics-step authority sets it"
   - "0.1.5 (2026-09-06): Remediation — 2026-09-05 section: Wave 3 ADRs (2094–2101, 2061, 2071, 2085; proposed 2102–2105) and the ledger/diagram re-verification landed in 2cf222406 — re-verified at "
   - "0.1.4: 2026-09-05 ADR-2061 landed — the analytics kernel trust status is now a measured test result (crates/visionclaw-gpu/tests/analytics_oracle_conformance.rs) rather than an assertion: PageRank, DBSCAN and Louvain TRUSTED; LOF recorded BROKEN at max |delta| 0.702 against a 1e-3 bar"
@@ -21,6 +22,8 @@ sources:
   - crates/visionclaw-gpu/src/cuda_sources/gpu_clustering_kernels.cu
   - crates/visionclaw-analytics-oracle/src/lib.rs
   - src/utils/unified_gpu_compute/execution.rs
+  - src/utils/unified_gpu_compute/constraint_index.rs
+  - src/utils/unified_gpu_compute/memory.rs
   - src/handlers/layout_handler.rs
   - src/actors/gpu/force_compute_actor.rs
 date: 2026-08-31
@@ -109,6 +112,15 @@ ClusterCohesion, Constraints, DagRadialBias, Annealing, Boundary.
   is a no-op for it (`:191-193`) because its flag is residency-owned and rebuilt every
   step, and zeroing its ramp cap would silently change force semantics. This is
   enforced by test (`constraints_apply_is_a_noop`, `:380`).
+
+### Per-node constraint index (device globals, ADR-2173)
+
+Both force kernels iterate a node's own constraints instead of scanning all of them. The host
+builds the CSR (`src/utils/unified_gpu_compute/constraint_index.rs`) on every constraint upload
+and node-capacity change and writes its two device pointers into the `__device__` globals
+`g_constraint_node_offsets` and `g_constraint_node_ids` (`memory.rs`, `rebind_constraint_index`).
+They are globals, not kernel parameters, so the kernel arities and `c_params` do not move.
+Null in either means unbound and the kernels scan every constraint (identical results).
 
 ### Layout params — DAG-rank / radial
 
@@ -270,6 +282,10 @@ race-free single launch. A three-pass implementation remains a performance optio
    recorded tag must not load (ADR-2030).
 6. Field order and `repr(C)` prefix are the wire contract for existing clients — do not
    reorder.
+7. The force kernels' arities (`force_pass_kernel` 30, ADR-2143 I7) and `c_params` do not
+   change for the constraint index: it travels in the `g_constraint_node_*` globals. A node's
+   constraint list is ascending and holds each constraint once, so accumulation order, and the
+   result, equals the full scan's (ADR-2173).
 
 ## Change process
 

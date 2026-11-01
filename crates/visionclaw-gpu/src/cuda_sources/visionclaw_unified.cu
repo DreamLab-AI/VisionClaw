@@ -144,6 +144,14 @@ struct ConstraintData {
     int activation_frame;       // Frame when this constraint was activated (for progressive activation)
 };
 
+// Per-node constraint index (CSR), bound from the host (constraint_index.rs). A node's constraints
+// are g_constraint_node_ids[g_constraint_node_offsets[n] .. g_constraint_node_offsets[n + 1]],
+// ascending, so accumulation order matches the full scan. Device globals rather than kernel
+// parameters keep the kernel arities unchanged. Either pointer null = unbound: scan every
+// constraint (the pre-index behaviour).
+__device__ const int* g_constraint_node_offsets = nullptr;
+__device__ const int* g_constraint_node_ids = nullptr;
+
 // Constraint kinds enum — LIVE-KERNEL numbering. The OWL→constraint mapper
 // (ADR-098 D1) emits these integers DIRECTLY; it does NOT route through the
 // divergent domain `ConstraintKind` enum (verified-topology break #3). The old
@@ -612,7 +620,13 @@ __global__ void force_pass_kernel(
     // Constraint force accumulation
     float total_constraint_force_magnitude = 0.0f;
     if (c_params.feature_flags & FeatureFlags::ENABLE_CONSTRAINTS) {
-        for (int c = 0; c < num_constraints; c++) {
+        const int* cn_off = g_constraint_node_offsets;
+        const int* cn_ids = g_constraint_node_ids;
+        const bool cn_indexed = (cn_off != nullptr) && (cn_ids != nullptr);
+        const int cn_begin = cn_indexed ? cn_off[idx] : 0;
+        const int cn_end = cn_indexed ? cn_off[idx + 1] : num_constraints;
+        for (int cn_k = cn_begin; cn_k < cn_end; cn_k++) {
+            const int c = cn_indexed ? cn_ids[cn_k] : cn_k;
             const ConstraintData& constraint = constraints[c];
             
             // Check if this node is involved in this constraint
@@ -2412,7 +2426,13 @@ __global__ void force_pass_with_stability_kernel(
     // main-pass `total_constraint_force_magnitude`.
     float total_constraint_force_magnitude = 0.0f;
     if ((c_params.feature_flags & FeatureFlags::ENABLE_CONSTRAINTS) && constraints != nullptr) {
-        for (int c = 0; c < num_constraints; c++) {
+        const int* cn_off = g_constraint_node_offsets;
+        const int* cn_ids = g_constraint_node_ids;
+        const bool cn_indexed = (cn_off != nullptr) && (cn_ids != nullptr);
+        const int cn_begin = cn_indexed ? cn_off[idx] : 0;
+        const int cn_end = cn_indexed ? cn_off[idx + 1] : num_constraints;
+        for (int cn_k = cn_begin; cn_k < cn_end; cn_k++) {
+            const int c = cn_indexed ? cn_ids[cn_k] : cn_k;
             const ConstraintData& constraint = constraints[c];
 
             // Check if this node is involved

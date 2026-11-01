@@ -131,6 +131,7 @@
 // Submodules
 mod async_transfer;
 mod clustering;
+mod constraint_index;
 mod community;
 mod construction;
 mod execution;
@@ -149,6 +150,7 @@ pub use types::{
 
 // Re-export the main struct from construction
 pub use construction::UnifiedGPUCompute;
+pub use execution::{set_stage_profile, take_stage_profile_us, STAGE_NAMES};
 
 // ADR-098 D3: the specialized `ontology_constraints.cu` dispatch path (and its
 // GpuOntologyNode / GpuOntologyConstraint / CONSTRAINT_* types) is retired.

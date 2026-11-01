@@ -1,0 +1,41 @@
+---
+id: ADR-2173
+title: The force pass reads a per-node constraint index, not every constraint
+date: 2026-11-01
+decision_status: accepted
+implementation_status: complete
+activation_status: staged
+supersedes: []
+superseded_by: []
+verified_commit:
+verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, tests/tick_rate_bench.rs]
+owner: jjohare
+review_trigger: the constraint count or node count grows 10x, or a kernel signature changes
+repo: visionclaw
+evidence_class: test
+acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6000 Ada (GPU 1); establishes bit-identical positions and a 3.0x faster step there. It does not establish the live RTX A6000 rate, which is measured only after redeploy.
+---
+
+# ADR-2173 — The force pass reads a per-node constraint index, not every constraint
+
+## Context
+- The live dev backend stepped physics at 8 to 12 Hz. Its own step-timing log put 84 of 95 ms in `execute`; readback was 0.3 ms and the tick interval is 16 ms (0 while a node is held).
+- `force_pass_kernel` and `force_pass_with_stability_kernel` found a node's constraints by having every thread scan all `num_constraints` and test membership: 9,688 nodes x 96,742 constraints, about 0.94 billion checks per tick.
+- On a synthetic graph of the live shape (9,688 nodes, 147,048 edges, 96,742 constraints) that scan is 19 of 29 ms per step; without constraints the step is 10 ms.
+- Codescape consumes this PTX and refuses it unless the kernel arities match (ADR-2143 I7: `force_pass_kernel` is 30).
+
+## Decision
+- The host builds a CSR from node to constraint ids (`constraint_index.rs`) on every `set_constraints`, `clear_constraints` and node-capacity `resize_buffers`. A node lists a constraint exactly when the old test matched (`node_idx[k] == n`, `k < min(count, 4)`), once per constraint, ascending, which is the old accumulation order.
+- Both force kernels loop over the node's own list. The loop body is untouched.
+- The two index pointers reach the kernels as `__device__` globals (`g_constraint_node_offsets`, `g_constraint_node_ids`), written with `get_global`, as `c_params` is. No kernel signature and no `c_params` field changes, so the I7 arity guard still holds.
+- Either global null means unbound: the kernel scans every constraint, as before. Every failure path (upload error, PTX without the symbol) unbinds and logs; physics stays correct and only slower.
+
+## Consequences
+- Output is bit-identical: positions after 60 steps match the pre-change run in 29,064 of 29,064 floats, and a GPU test compares indexed against unbound full forces under both kernels.
+- Held step 29.0 to 9.77 ms and idle 27.9 to 9.16 ms on the synthetic live shape (about 3.0x; repeats within 1%).
+- A host copy of the constraints (6 MB at 96,742) is kept to rebuild the index on a node-capacity change, and the index is rebuilt on every constraint upload (host cost only).
+- The remaining 9.5 ms is repulsion (7 to 9 ms) and springs (about 2.4 ms). Reducing it bit-exactly means a cell-ordered position gather in `force_pass_kernel`; that is a separate decision.
+
+## Verification
+- `cargo test --lib constraint_index` (host equivalence to the old scan) and `adr_2029_constraint_gpu_tests::the_constraint_index_changes_no_bit_of_the_result` (device globals read back as bound/unbound, results equal).
+- `tests/tick_rate_bench.rs`, run with `--ignored` on a spare GPU: `TICK_GOLDEN_OUT` / `TICK_GOLDEN_CMP` for bit comparison, `TICK_MIN_HZ` to assert a floor.
