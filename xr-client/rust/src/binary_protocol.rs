@@ -3162,27 +3162,43 @@ mod tests {
         let (_, map) = fixture_class_store();
         let pos = |id: u32| map.get(&id).map(|e| e.1);
         assert_eq!(
-            full_aabb_of(&[1, 2], None, pos),
+            full_aabb_of(&[1, 2], &[], pos),
             Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
         );
         // Full extent: the far outlier is inside, not trimmed as a percentile box would.
         assert_eq!(
-            full_aabb_of(&[1, 2, 3], None, pos),
+            full_aabb_of(&[1, 2, 3], &[], pos),
             Some([0.0, -2.0, 0.0, 10.0, 10.0, 10.0])
         );
         // The grabbed node is excluded.
         assert_eq!(
-            full_aabb_of(&[1, 2, 3], Some(3), pos),
+            full_aabb_of(&[1, 2, 3], &[3], pos),
             Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0])
         );
         // Unknown and negative ids are skipped; nothing left ⇒ None.
-        assert_eq!(full_aabb_of(&[2, 77, -4], None, pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
-        assert_eq!(full_aabb_of(&[77], None, pos), None);
-        assert_eq!(full_aabb_of(&[], None, pos), None);
-        assert_eq!(full_aabb_of(&[3], Some(3), pos), None);
+        assert_eq!(full_aabb_of(&[2, 77, -4], &[], pos), Some([4.0, -2.0, 1.0, 4.0, -2.0, 1.0]));
+        assert_eq!(full_aabb_of(&[77], &[], pos), None);
+        assert_eq!(full_aabb_of(&[], &[], pos), None);
+        assert_eq!(full_aabb_of(&[3], &[3], pos), None);
         // A non-finite position never poisons the box.
         let nan = |id: u32| (id == 9).then_some([f32::NAN, 0.0, 0.0]).or_else(|| pos(id));
-        assert_eq!(full_aabb_of(&[9, 1], None, nan), Some([0.0; 6]));
+        assert_eq!(full_aabb_of(&[9, 1], &[], nan), Some([0.0; 6]));
+    }
+
+    /// ADR-2168 F1: both hands can hold a node in one volume, so the refit excludes a SET.
+    /// With only one id excluded the other held node still drags the box (and the scale) out.
+    #[test]
+    fn render_aabb_ids_excludes_every_held_node() {
+        let (_, map) = fixture_class_store();
+        let pos = |id: u32| map.get(&id).map(|e| e.1);
+        // Node 3 is the far outlier (10,10,10); nodes 1 and 2 are the unheld cluster.
+        let rest = Some([0.0, -2.0, 0.0, 4.0, 0.0, 1.0]);
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[3, 2], pos), full_aabb_of(&[1], &[], pos), "two held ids both leave the fit");
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[3], pos), rest, "one held id");
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[2, 3], pos), full_aabb_of(&[1], &[], pos), "order does not matter");
+        assert_eq!(full_aabb_of(&[2, 3], &[3, 2], pos), None, "everything held ⇒ nothing to fit");
+        // Negative or unknown exclusions are harmless.
+        assert_eq!(full_aabb_of(&[1, 2, 3], &[-1, 77, 3], pos), rest);
     }
 
     #[test]

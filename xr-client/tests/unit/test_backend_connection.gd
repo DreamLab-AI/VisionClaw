@@ -100,14 +100,14 @@ func test_codescape_drag_returns_false_and_sends_nothing() -> void:
 	assert_eq(cs.pinned_ids(), [], "a refused drag pins nothing")
 
 
-func test_visionclaw_drag_reaches_its_client_and_records_the_pin() -> void:
+func test_visionclaw_drag_reaches_its_client_and_records_no_pin() -> void:
 	var fake := FakeClient.new()
 	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
 	assert_true(vc.send_drag_start(3, Vector3(1, 2, 3)))
 	assert_true(vc.send_drag_update(3, Vector3(2, 2, 3)))
 	assert_true(vc.send_drag_end(3))
 	assert_eq(fake.names(), ["send_drag_start", "send_drag_update", "send_drag_end"])
-	assert_eq(vc.pinned_ids(), [3])
+	assert_eq(vc.pinned_ids(), [], "ADR-2168 F3: a drag end records no pin; the server releases the node, nothing is left to unpin")
 
 
 func test_refused_fires_with_label_and_quiet_suppresses_it() -> void:
@@ -139,7 +139,7 @@ func test_close_cancels_requests_releases_pins_and_bumps_generation() -> void:
 	fake.calls.clear()
 	vc.close()
 	assert_eq(req.get_http_client_status(), HTTPClient.STATUS_DISCONNECTED, "request cancelled")
-	assert_eq(fake.names(), ["send_node_unpin", "close"], "pins released while the socket is still open, then closed")
+	assert_eq(fake.names(), ["close"], "a drag end left no pin, so close sends no nodeUnpin (and no reheat)")
 	assert_eq(vc.pinned_ids(), [], "pin set cleared")
 	assert_eq(vc.generation, gen_before + 1, "generation bumped")
 	assert_signal_emitted_with_parameters(vc, "generation_changed", [&"visionclaw", gen_before + 1])
