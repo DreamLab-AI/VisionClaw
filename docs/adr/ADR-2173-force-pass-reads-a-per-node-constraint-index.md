@@ -34,8 +34,11 @@ acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6
 - Output is bit-identical: positions after 60 steps match the pre-change run in 29,064 of 29,064 floats, and a GPU test compares indexed against unbound full forces under both kernels.
 - Held step 29.0 to 9.77 ms and idle 27.9 to 9.16 ms on the synthetic live shape (about 3.0x; repeats within 1%).
 - A host copy of the constraints (6 MB at 96,742) is kept to rebuild the index on a node-capacity change, and the index is rebuilt on every constraint upload (host cost only).
+- **Cost now follows the longest per-node list.** A node's thread walks its own list serially and the step ends when the slowest warp does. On the synthetic set (longest list 3,539, p99 327) the step is flat at about 9.8 ms up to a longest list of about 14k; then 12.1 ms at 18.5k, 15.4 ms at 23.5k, 40.3 ms at 33.5k and 66.9 ms at 63.5k (GPU 1, `TICK_HUB`). The live maximum is not known; every upload logs `constraint index: ... longest node list N (p99 M)`. A top-level class with tens of thousands of children would need a hub-splitting follow-up.
 - The remaining 9.5 ms is repulsion (7 to 9 ms) and springs (about 2.4 ms). Reducing it bit-exactly means a cell-ordered position gather in `force_pass_kernel`; that is a separate decision.
 
 ## Verification
+- Built `visionclaw_unified.ptx`: `force_pass_kernel` has 30 `.param` entries (the I7 arity), and `.global .align 8 .u64 g_constraint_node_offsets` / `g_constraint_node_ids` are present.
+- `cargo test --lib` at the stamped commit: 1774 passed, 0 failed, exit 0.
 - `cargo test --lib constraint_index` (host equivalence to the old scan) and `adr_2029_constraint_gpu_tests::the_constraint_index_changes_no_bit_of_the_result` (device globals read back as bound/unbound, results equal).
 - `tests/tick_rate_bench.rs`, run with `--ignored` on a spare GPU: `TICK_GOLDEN_OUT` / `TICK_GOLDEN_CMP` for bit comparison, `TICK_MIN_HZ` to assert a floor.

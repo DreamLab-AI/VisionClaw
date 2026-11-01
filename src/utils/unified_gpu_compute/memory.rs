@@ -655,6 +655,15 @@ impl UnifiedGPUCompute {
             &self.constraints_host,
             self.allocated_nodes,
         );
+        let (entries, longest, p99) = index.list_stats();
+        info!(
+            "constraint index: {} constraints -> {} entries over {} node slots; longest node list {} (p99 {})",
+            self.constraints_host.len(),
+            entries,
+            self.allocated_nodes,
+            longest,
+            p99
+        );
         let uploaded = DeviceBuffer::from_slice(&index.offsets)
             .and_then(|offsets| DeviceBuffer::from_slice(&index.ids).map(|ids| (offsets, ids)));
         match uploaded {
@@ -691,8 +700,9 @@ impl UnifiedGPUCompute {
                     }
                 }
                 Err(e) => {
-                    // A PTX without the symbol predates the index: it scans, which is correct.
-                    debug!("PTX has no {:?} ({}); constraint index not in use", name, e);
+                    // A PTX without the symbol predates the index: it scans, which is correct but
+                    // slow, so say so where an operator will see it.
+                    warn!("PTX has no {:?} ({}); constraint index not in use, force pass scans every constraint", name, e);
                 }
             }
         }

@@ -112,6 +112,43 @@ fn synthetic_constraints(rng: &mut Rng, n: usize) -> Vec<ConstraintData> {
         .collect()
 }
 
+/// `TICK_HUB=n` appends n DISTANCE constraints to node 0, a class node with n children. With the
+/// per-node index a node's thread walks its own list serially, so the longest list bounds the step.
+fn with_hub(mut v: Vec<ConstraintData>) -> Vec<ConstraintData> {
+    let hub: usize = std::env::var("TICK_HUB").ok().and_then(|x| x.parse().ok()).unwrap_or(0);
+    let mut rng = Rng(99);
+    for _ in 0..hub {
+        let b = 1 + (rng.next() as usize % (CONSTRAINT_NODE_POOL - 1)) as i32;
+        v.push(ConstraintData {
+            kind: 0,
+            count: 2,
+            node_idx: [0, b, -1, -1],
+            params: [30.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            weight: 0.5,
+            ..ConstraintData::default()
+        });
+    }
+    v
+}
+
+/// `(longest per-node list, its node, p99 list length)` over nodes with at least one entry.
+fn list_stats(v: &[ConstraintData]) -> (usize, usize, usize) {
+    let mut per = vec![0usize; NODES];
+    for c in v {
+        let mut seen = [-1i32; 4];
+        for (k, &n) in c.node_idx.iter().take(c.count.clamp(0, 4) as usize).enumerate() {
+            if n >= 0 && (n as usize) < NODES && !seen[..k].contains(&n) {
+                seen[k] = n;
+                per[n as usize] += 1;
+            }
+        }
+    }
+    let (node, &max) = per.iter().enumerate().max_by_key(|(_, &l)| l).unwrap();
+    let mut lens: Vec<usize> = per.into_iter().filter(|&l| l > 0).collect();
+    lens.sort_unstable();
+    (max, node, lens[(lens.len() - 1) * 99 / 100])
+}
+
 fn build() -> UnifiedGPUCompute {
     cust::init(cust::CudaFlags::empty()).expect("CUDA driver init");
     let ptx = visionclaw_server::utils::ptx::load_ptx_sync().expect("unified PTX");
@@ -210,7 +247,7 @@ fn golden(constraints: usize) -> Vec<f32> {
     let mut p = live_params();
     p.cluster_strength = 0.0;
     if constraints > 0 {
-        gpu.set_constraints(synthetic_constraints(&mut Rng(7), constraints)).unwrap();
+        gpu.set_constraints(with_hub(synthetic_constraints(&mut Rng(7), constraints))).unwrap();
     }
     run(&mut gpu, &p, true, 60);
     let (x, y, z) = gpu.get_node_positions().unwrap();
@@ -261,9 +298,11 @@ fn physics_tick_rate_on_live_shape_graph() {
 
     let (mut held, mut idle) = (h0, i0);
     if n_constraints > 0 {
-        gpu.set_constraints(synthetic_constraints(&mut Rng(7), n_constraints)).unwrap();
+        let cs = with_hub(synthetic_constraints(&mut Rng(7), n_constraints));
+        let (longest, node, p99) = list_stats(&cs);
+        gpu.set_constraints(cs).unwrap();
         run(&mut gpu, &p, true, 100);
-        println!("-- WITH {n_constraints} constraints");
+        println!("-- WITH {n_constraints} constraints (+TICK_HUB): longest node list {longest} (node {node}), p99 {p99}");
         held = rep(&mut gpu, &p, true, "HELD (stability bypass)");
         idle = rep(&mut gpu, &p, false, "IDLE (stability gate)");
     }

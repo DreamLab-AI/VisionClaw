@@ -25,6 +25,25 @@ pub(crate) struct ConstraintIndex {
     pub ids: Vec<i32>,
 }
 
+impl ConstraintIndex {
+    /// `(entries, longest list, 99th-percentile list)` over nodes that have at least one entry.
+    ///
+    /// A node's thread now walks its own list serially, so the step ends when the longest list's
+    /// warp does; this is the number that bounds the per-tick cost, and the one to log on upload.
+    pub(crate) fn list_stats(&self) -> (usize, usize, usize) {
+        let mut lens: Vec<usize> = self
+            .offsets
+            .windows(2)
+            .map(|w| (w[1] - w[0]) as usize)
+            .filter(|&l| l > 0)
+            .collect();
+        lens.sort_unstable();
+        let max = lens.last().copied().unwrap_or(0);
+        let p99 = lens.get(lens.len().saturating_sub(1) * 99 / 100).copied().unwrap_or(0);
+        (self.ids.len(), max, p99)
+    }
+}
+
 /// The distinct in-range nodes constraint `c` touches, as the kernel's membership test sees them.
 fn involved_nodes(c: &ConstraintData, num_slots: usize) -> ([i32; MAX_SLOTS], usize) {
     let mut seen = [0i32; MAX_SLOTS];
@@ -152,6 +171,19 @@ mod tests {
         assert!(list(&ix, 2).is_empty());
         assert_eq!(list(&ix, 3), &[1]);
         assert_eq!(*ix.offsets.last().unwrap(), 2);
+    }
+
+    #[test]
+    fn list_stats_report_the_hub_and_the_percentile() {
+        // Node 0 is a hub in 200 constraints; nodes 1..=100 each take part in exactly 2.
+        let mut cs: Vec<ConstraintData> = (1..=200).map(|i| pair(0, 0, (i % 100) + 1)).collect();
+        cs.truncate(200);
+        let ix = build_constraint_index(&cs, 128);
+        let (entries, max, p99) = ix.list_stats();
+        assert_eq!(entries, 400);
+        assert_eq!(max, 200);
+        assert_eq!(p99, 2, "one hub in 101 listed nodes sits above the 99th percentile");
+        assert_eq!(build_constraint_index(&[], 4).list_stats(), (0, 0, 0));
     }
 
     #[test]
