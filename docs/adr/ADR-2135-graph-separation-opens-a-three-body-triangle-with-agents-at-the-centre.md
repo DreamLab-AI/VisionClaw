@@ -70,12 +70,21 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   shown offset follows it through a first-order lag (τ 1.5 s): no overshoot or oscillation,
   and a calm glide home when idle. Drift is stored as vertex coefficients, so slider moves
   carry agents with the triangle. Agents spawn at the centroid. On the desktop the offset is
-  added to the agent's position in `GemNodes`. In XR it moves the slot a work agent rests at
+  added to the agent's position once a frame by `DrawnPositions.applyAgents` (the one drawn-positions
+  array every desktop consumer reads; 2026-11-01). In XR it moves the slot a work agent rests at
   (centroid plus drift, on an 0.18 m ring), and a new avatar materialises at the centroid.
   The choreography stays the only pose writer (Invariant 8).
 - **Desktop nudge.** In the separated layout a done or idle agent's client-side nudge offset
   relaxes back to its server position instead of drifting outward (`agentNudge.ts`). Working
   agents still converge on their target node, so they visit the graph they act on.
+  **A finished agent does not drift (2026-11-01, owner decision).** The merged layout's outward
+  drift for done agents (0.005 a frame, unbounded) is deleted, with its `separated` and graph-centre
+  inputs, not capped: the layout has been always separated, so that branch never ran, and kept as a
+  branch it could keep a finished agent moving and defeat the edge skip gate. What a done agent does
+  is the relax above: a monotone glide home that ends bit-identical once the offset falls below the
+  float resolution of the position (a few hundred frames), after which its drawn position is constant
+  and the gate skips. If "stop" was meant to freeze it where it stands, the change is one line
+  (`state === 'done'` returns before the relax).
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
   where and as large as `cloudPlacement` puts it (only while it is on and loaded). At separation
