@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
+verified_commit: 1ec762f39dc12ce8e29dce4c19c056a6e871d266
 verified_paths: [src/models/force_channels.rs, src/utils/unified_gpu_compute/execution.rs, src/models/simulation_params.rs]
 owner: jjohare
 review_trigger: array-backed force-term refactor (deferred step 2), or any new host→GPU conversion path
@@ -261,3 +261,7 @@ Re-verified at `d5c46cdd8`: `execute_physics_step` is still the single flag auth
 ## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
 
 `derive_dispatch_feature_flags` is still the single flag authority (call at `execution.rs:1141`) and `Constraints` is still read-only. The `execution.rs` changes are the stage marks, the overlay-pointer binding (`bind_edge_rest`), the held-only gain applied after the word is derived, and tests. The four existing `adr_2029_constraint_gpu_tests` pass on a real device, now beside the oracle-index equality test (both kernels, nodes in motion), `an_unbound_index_means_no_constraints` and two pointer-state tests. A resident constraint with an unbound index now acts as no constraints, which does not change the flag derivation. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/models/force_channels.rs src/utils/unified_gpu_compute/execution.rs src/models/simulation_params.rs` → `1 file changed, 1445 insertions(+), 47 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (comment-only follow-up, `1ec762f39`)
+
+Comment-only change since `8f796ad86` (the commit the tests and measurements in the previous stamp ran at): `git diff 8f796ad86 1ec762f39 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs` is 3 comment lines in the `.cu` file and 1 doc-comment line in `execution.rs`, no code token. The `.cu` still compiles with `nvcc -ptx`, and its PTX still has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` at 29, `c_params[212]` and no `blend_semantic_physics_forces`. Re-run: `git diff --stat 531df5ef7 1ec762f39 -- src/models/force_channels.rs src/utils/unified_gpu_compute/execution.rs src/models/simulation_params.rs` → `1 file changed, 1446 insertions(+), 48 deletions(-)`.

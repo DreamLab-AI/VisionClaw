@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 8f796ad8645a6dca5303150273b36de677e1ab70
+verified_commit: 1ec762f39dc12ce8e29dce4c19c056a6e871d266
 relates: [ADR-2169]
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
@@ -52,3 +52,7 @@ ADR-2169 recorded the live step at 9 to 10 Hz with 84 to 94 ms in the force kern
 ## Re-stamp — 2026-11-01 (integration of `phys/tick-rate` and `phys/hold-springs`, `8f796ad86`)
 
 Re-verified after the integration with `phys/hold-springs` and the removal of the unindexed walk: the PTX has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` at 29, `c_params[212]`, `g_constraint_index`, and no `blend_semantic_physics_forces`. `cargo test --lib`: 1791 passed, 0 failed, 11 ignored (exit 0). The live-shape timing test (GPU 1): held 9.80 ms, idle 9.18 ms (a second run: idle 9.20 ms), longest list 3,539, p99 327, unchanged from the stamped numbers. Re-run: `git diff --stat 531df5ef7 8f796ad86 -- src/utils/unified_gpu_compute/constraint_index.rs src/utils/unified_gpu_compute/memory.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs src/actors/gpu/force_compute_actor.rs` → `5 files changed, 2071 insertions(+), 187 deletions(-)`.
+
+## Re-stamp — 2026-11-01 (comment-only follow-up, `1ec762f39`)
+
+Comment-only change since `8f796ad86` (the commit the tests and measurements in the previous stamp ran at): `git diff 8f796ad86 1ec762f39 -- crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs` is 3 comment lines in the `.cu` file and 1 doc-comment line in `execution.rs`, no code token. The `.cu` still compiles with `nvcc -ptx`, and its PTX still has `force_pass_kernel` at 30 parameters, `force_pass_with_stability_kernel` at 29, `c_params[212]` and no `blend_semantic_physics_forces`. Re-run: `git diff --stat 531df5ef7 1ec762f39 -- src/utils/unified_gpu_compute/constraint_index.rs src/utils/unified_gpu_compute/memory.rs crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu src/utils/unified_gpu_compute/execution.rs src/actors/gpu/force_compute_actor.rs` → `5 files changed, 2073 insertions(+), 188 deletions(-)`.
