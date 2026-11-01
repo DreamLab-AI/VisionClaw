@@ -224,6 +224,50 @@ func test_the_edge_is_measured_from_the_live_centre() -> void:
 	assert_almost_eq((p - (CENTRE + shift)).length(), EDGE, 1.0e-4, "still on the edge of the moved volume")
 
 
+func test_the_run_never_enters_the_head_exclusion_sphere() -> void:
+	# The old park routed around the head and kept its rest point 1 m off it; the run
+	# must too. Put the head on the agent's outward ray, 1.6 m from the centre: the
+	# edge (0.9) would leave the agent 0.7 m from the head, inside HEAD_EXCLUSION.
+	var c: RefCounted = _working()
+	var dir: Vector3 = ((c.pose("a")["pos"] as Vector3) - CENTRE).normalized()
+	var head: Vector3 = CENTRE + dir * 1.6
+	c.set_head(head)
+	c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)
+	var closest: float = 10.0
+	for i: int in int(40.0 * 90.0):
+		c.tick(1.0 / 90.0)
+		closest = minf(closest, (c.pose("a")["pos"] as Vector3).distance_to(head))
+	assert_gte(closest, Choreo.HEAD_EXCLUSION - 1.0e-4, "never closer than the exclusion radius to the head (%.4f)" % closest)
+	var held: Vector3 = c.pose("a")["pos"]
+	assert_lt(_radius(c), EDGE - 0.1, "it stopped short of the edge, at the exclusion sphere (%.3f)" % _radius(c))
+	# The stop is frozen when the run begins: turning or moving the head later moves nothing.
+	c.set_head(head + Vector3(0.3, 0.0, 0.2))
+	_run(c, 2.0)
+	assert_eq(c.pose("a")["pos"], held, "bit-constant while held, whatever the head does")
+
+
+func test_a_head_off_the_outward_ray_leaves_the_run_alone() -> void:
+	var c: RefCounted = _working()
+	var dir: Vector3 = ((c.pose("a")["pos"] as Vector3) - CENTRE).normalized()
+	c.set_head(CENTRE - dir * 1.6)   # behind the centre, on the far side
+	c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)
+	_run(c, 35.0)
+	assert_almost_eq(_radius(c), EDGE, 1.0e-4, "the edge is the stop when the head is not in the way")
+
+
+func test_the_clock_does_not_run_while_the_edge_is_unknown() -> void:
+	# The desktop returns before it starts the clock when it has no edge.
+	var c: RefCounted = _working(false, 0.0)
+	var r0: float = _radius(c)
+	c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)
+	_run(c, 20.0)
+	c.set_scene_edge(EDGE)
+	c.tick(1.0 / 90.0)
+	assert_lt(_radius(c), r0 + 0.01, "an edge that appears late starts the run from where it is, no jump")
+	_run(c, Choreo.EDGE_SECONDS + 0.5)
+	assert_almost_eq(_radius(c), EDGE, 1.0e-4, "and it takes the full 30 s from then")
+
+
 func test_without_a_known_edge_a_done_agent_holds_still() -> void:
 	var c: RefCounted = _working(false, 0.0)
 	var held: Vector3 = c.pose("a")["pos"]

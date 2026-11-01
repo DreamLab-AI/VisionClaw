@@ -89,7 +89,7 @@ func add_agent(id: String, spawn_pos: Vector3, delay: float, rim_slot: Vector3) 
 		"status": ST_IDLE, "has_target": false, "target_id": -1, "target_world": spawn_pos,
 		"slot": spawn_pos, "rim": rim_slot, "seed": seed_f, "idx": _next_idx,
 		"hover_t": 0.0, "lift": 0.0, "lateral": Vector3.ZERO, "rm_jumped": false,
-		"working_target": -1, "run_dir": Vector3.RIGHT, "run_r0": 0.0, "run_ok": false,
+		"working_target": -1, "run_dir": Vector3.RIGHT, "run_r0": 0.0, "run_ok": false, "run_head_limit": INF,
 	}
 	_next_idx += 1
 
@@ -289,8 +289,10 @@ func _begin_edge_run(id: String, a: Dictionary) -> void:
 	var r0: float = from.length()
 	a["run_ok"] = r0 > 0.0   # exactly at the centre there is no outward direction: hold
 	a["run_r0"] = r0
+	a["run_head_limit"] = INF
 	if r0 > 0.0:
 		a["run_dir"] = from / r0
+		a["run_head_limit"] = _head_limit(from / r0, r0)
 	_alpha_goal(a, ALPHA_FADED, FADE_SEC)
 	_enter(a, PH_EDGE)
 	_emit(id, a, "complete")
@@ -298,8 +300,9 @@ func _begin_edge_run(id: String, a: Dictionary) -> void:
 
 ## Radius r0 + (edge - r0) * easeOutCubic(t / EDGE_SECONDS), straight along the
 ## outward direction: no lift, no head bulge, and the same under reduced motion
-## (it is slow and never a dart). An agent that began beyond the edge, or whose
-## edge shrank, is put straight onto it, never further out.
+## (it is slow and never a dart). It stops at the edge or, if the user's head is in
+## the way, at the head-exclusion sphere (`_head_limit`), whichever is nearer. An agent
+## that began beyond the stop, or whose edge shrank, is put straight onto it, never further out.
 func _advance_edge_run(id: String, a: Dictionary) -> void:
 	if int(a["status"]) != ST_DONE:
 		# Named again during the run (or its record lapsed): the run is over.
@@ -309,13 +312,31 @@ func _advance_edge_run(id: String, a: Dictionary) -> void:
 			_begin_rest(a)
 		return
 	if _edge <= 0.0 or not bool(a["run_ok"]):
+		a["t"] = 0.0   # the clock starts when there is an edge to run to (the desktop returns first, too)
 		return
 	var r0: float = a["run_r0"]
+	var stop: float = minf(_edge, float(a["run_head_limit"]))
 	var u: float = clampf(float(a["t"]) / EDGE_SECONDS, 0.0, 1.0)
-	var r: float = _edge
-	if u < 1.0 and r0 < _edge:
-		r = r0 + (_edge - r0) * ease_out_cubic(u)
+	var r: float = stop
+	if u < 1.0 and r0 < stop:
+		r = r0 + (stop - r0) * ease_out_cubic(u)
 	a["pos"] = _centre + (a["run_dir"] as Vector3) * r
+
+
+## Where the outward ray first enters the head-exclusion sphere, as a distance from the
+## centre, or INF when it never does ahead of the agent. Taken once when the run begins
+## and frozen, like a work slot, so turning the head moves nothing and the hold stays
+## bit-constant. The old park respected HEAD_EXCLUSION; so does the run, which stops
+## at the sphere's surface instead of passing through the user's head. An agent that
+## begins inside the sphere or past it is left alone (nothing ahead of it to protect).
+func _head_limit(dir: Vector3, r0: float) -> float:
+	var oc: Vector3 = _centre - _head
+	var b: float = oc.dot(dir)
+	var disc: float = b * b - (oc.length_squared() - HEAD_EXCLUSION * HEAD_EXCLUSION)
+	if disc < 0.0:
+		return INF
+	var entry: float = -b - sqrt(disc)
+	return entry if entry > r0 else INF
 
 
 ## No work on record (not done): the agent goes back to its rest slot.
