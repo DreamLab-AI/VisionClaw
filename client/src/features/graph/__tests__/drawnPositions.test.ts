@@ -16,6 +16,7 @@ import {
 } from '../hooks/edgeBufferPlan'
 import { resolveNodeWorldPosition } from '../../visualisation/cameraFocus'
 import { separatedFrame } from '../triLayout'
+import { AgentDriftFeed } from '../../bots/agentDriftFeed'
 import { AGENT_NUDGE_SPEED } from '../utils/agentNudge'
 import type { AgentWorkInfo } from '../../bots/agentWorkTargets'
 
@@ -206,9 +207,65 @@ describe('a finished agent stops moving (owner decision)', () => {
       if (gate.shouldSkip(state)) { if (settledAt >= 0) skippedAfterSettle++ } else gate.commit(state)
     }
     expect(settledAt).toBeGreaterThan(0)
-    expect(settledAt).toBeLessThan(1500) // a few hundred frames, not forever
+    expect(settledAt).toBeLessThan(600) // ~7 s at 60 fps once the offset snaps (AGENT_RELAX_SNAP), not a minute
     expect(at(dp.positions, 3).toArray()).toEqual(at(sab, 3).toArray())
     expect(skippedAfterSettle).toBeGreaterThan(1000)
+  })
+})
+
+/**
+ * The settle tail in the PRODUCTION configuration: the real drift feed (credit halves every 6 s, the
+ * shown offset follows through a 1.5 s lag), time injected at 60 fps, and an agent at the origin,
+ * where a float32 coordinate has the finest resolution and a geometric tail lasts longest.
+ */
+function settleFrames(agentAt: number[], withFeed: boolean, maxFrames: number): number {
+  const sab = new Float32Array([0, 0, 0, ...agentAt, 40, 25, -10])
+  const agents: AgentSlot[] = [{ id: 'A', index: 1 }]
+  const nodeIdToIndex = new Map([['T', 2]])
+  let now = 100
+  const feed = new AgentDriftFeed({
+    lookupNode: () => ({ metadata: { type: 'page' } }),
+    agentKeys: () => ['A'],
+    nowS: () => now,
+  })
+  if (withFeed) feed.ingestBeams([{ id: 1, sourceAgentId: 'A' as unknown as number, targetNodeId: 'T' as unknown as number }])
+  const dp = new DrawnPositions()
+  let state: 'working' | 'done' = 'working'
+  const run = (): Float32Array => {
+    now += 1 / 60
+    dp.copy(sab)
+    dp.applyAgents(pass({ sab, agents, nodeIdToIndex, drift: withFeed ? feed : null, getWork: () => work(state, 'T') }))
+    return Float32Array.from(dp.positions.subarray(3, 6))
+  }
+  for (let f = 0; f < 120; f++) run()
+  state = 'done'
+  let last = run()
+  let stableSince = 0
+  for (let f = 1; f < maxFrames; f++) {
+    const cur = run()
+    const same = cur[0] === last[0] && cur[1] === last[1] && cur[2] === last[2]
+    if (!same) stableSince = 0
+    else if (stableSince === 0) stableSince = f
+    last = cur
+  }
+  return stableSince
+}
+
+describe('how long a finished agent keeps moving (measured, production configuration)', () => {
+  it('the nudge tail ends in about 7 s even at the origin, where float32 is finest', () => {
+    for (const at of [[5, 30, 0], [0, 0, 0]]) {
+      const n = settleFrames(at, false, 3000)
+      expect(n).toBeGreaterThan(0)
+      expect(n).toBeLessThan(600)
+    }
+  })
+
+  it('with the real drift feed the agent holds still after the credit has decayed (about 58 s at 60 fps)', () => {
+    for (const at of [[5, 30, 0], [0, 0, 0]]) {
+      const n = settleFrames(at, true, 8000)
+      expect(n).toBeGreaterThan(0) // it does settle
+      expect(n).toBeLessThan(5000) // measured 3468 frames: DriftField credit halves every 6 s
+    }
   })
 })
 

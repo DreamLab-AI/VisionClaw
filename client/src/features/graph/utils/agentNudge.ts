@@ -9,8 +9,8 @@
  *   knowledge / ontology / memory triangle plus the server's activity drift
  *   (ADR-2135), which itself returns home as the agent's activity decays. A
  *   first-order lerp, so the return never overshoots or oscillates, and it
- *   reaches a fixed point (the float offset underflows to zero), after which
- *   the agent's drawn position no longer changes.
+ *   reaches a fixed point (snapping to zero under `AGENT_RELAX_SNAP`), after
+ *   which the agent's drawn position no longer changes.
  *
  * There is no outward drift for a finished agent. The merged layout had one
  * (fade to the edge, 0.005 a frame without end); the layout has been always
@@ -24,6 +24,12 @@ export type Vec3 = readonly [number, number, number];
 export const AGENT_NUDGE_SPEED = 0.03;
 /** per-frame relaxation of the offset for an agent that is not working */
 export const AGENT_RELAX_SPEED = 0.03;
+/**
+ * Below this magnitude (world units, far under a pixel) a relaxing offset snaps to zero. Without
+ * it a geometric `* 0.97` keeps changing the float32 drawn position until the offset underflows
+ * (about 3 400 frames, nearly a minute), and the edge skip gate cannot skip until then.
+ */
+export const AGENT_RELAX_SNAP = 1e-4;
 
 /**
  * Advance the offset at `off[o3 .. o3+2]` by one frame. `base` is the agent's
@@ -43,4 +49,10 @@ export function stepAgentOffset(
     return;
   }
   for (let k = 0; k < 3; k++) off[o3 + k] *= 1 - AGENT_RELAX_SPEED;
+  const m2 = off[o3] * off[o3] + off[o3 + 1] * off[o3 + 1] + off[o3 + 2] * off[o3 + 2];
+  if (m2 < AGENT_RELAX_SNAP * AGENT_RELAX_SNAP) {
+    off[o3] = 0;
+    off[o3 + 1] = 0;
+    off[o3 + 2] = 0;
+  }
 }

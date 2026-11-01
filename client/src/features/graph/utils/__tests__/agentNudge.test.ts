@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stepAgentOffset, AGENT_NUDGE_SPEED, AGENT_RELAX_SPEED } from '../agentNudge';
+import { stepAgentOffset, AGENT_NUDGE_SPEED, AGENT_RELAX_SPEED, AGENT_RELAX_SNAP } from '../agentNudge';
 
 const base: [number, number, number] = [10, 0, 0];
 
@@ -31,6 +31,15 @@ describe('stepAgentOffset (desktop agent momentum nudge)', () => {
     const one = new Float32Array([50, 0, 0]);
     stepAgentOffset(one, 0, base, null, 'done');
     expect(one[0]).toBeCloseTo(50 * (1 - AGENT_RELAX_SPEED));
+  });
+
+  it('a relaxing offset snaps to exactly zero below AGENT_RELAX_SNAP, so the tail ends', () => {
+    const off = new Float32Array([AGENT_RELAX_SNAP * 0.9, 0, 0]);
+    stepAgentOffset(off, 0, base, null, 'done');
+    expect(Array.from(off)).toEqual([0, 0, 0]);
+    const above = new Float32Array([AGENT_RELAX_SNAP * 2, 0, 0]);
+    stepAgentOffset(above, 0, base, null, 'done');
+    expect(above[0]).toBeGreaterThan(0);
   });
 
   it('an agent with no work entry relaxes too', () => {

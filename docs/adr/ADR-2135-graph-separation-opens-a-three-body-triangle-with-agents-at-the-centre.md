@@ -81,9 +81,12 @@ back lets ~56k knowledge↔ontology cross-links (rest length ~30) pull the popul
   drift for done agents (0.005 a frame, unbounded) is deleted, with its `separated` and graph-centre
   inputs, not capped: the layout has been always separated, so that branch never ran, and kept as a
   branch it could keep a finished agent moving and defeat the edge skip gate. What a done agent does
-  is the relax above: a monotone glide home that ends bit-identical once the offset falls below the
-  float resolution of the position (a few hundred frames), after which its drawn position is constant
-  and the gate skips. If "stop" was meant to freeze it where it stands, the change is one line
+  is the relax above: a monotone glide home, snapping to zero under `AGENT_RELAX_SNAP` (1e-4 units;
+  without the snap a float32 position keeps changing for about 3 400 frames), so the nudge tail ends
+  in about 420 frames (7 s at 60 fps). The activity drift (`DriftField`, credit halving every 6 s) is
+  the shared rule and keeps its own tail: measured with the real feed, a finished agent's drawn
+  position is bit-identical about 3 470 frames (58 s) after the last action credited it, and the
+  edge gate cannot skip until then. After that it is constant and the gate skips. If "stop" was meant to freeze it where it stands, the change is one line
   (`state === 'done'` returns before the relax).
 - **Camera.** On the desktop the auto-fit frames the sphere enclosing all three bodies whenever
   separation is above 0: each graph is one graph's folded extent at its vertex, and the cloud is
