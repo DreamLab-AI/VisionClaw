@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 03ddc61e1970411e149905d2af9f41c4f27cdc0f
+verified_commit: 0df96bc52459cd19b08683a96912e85c45c08f41
 verified_paths: [src/layout/scc.rs, src/handlers/api_handler/analytics/cycles_handlers.rs, src/settings/api/settings_routes.rs, client/src/api/layoutApi.ts, client/src/features/graph/hooks/useCyclicNodeIds.ts, xr-client/rust/src/render_store.rs, xr-client/scripts/hud.gd]
 owner: jjohare
 review_trigger: "Activation (staged → live): the XR Shapes tab first run on a headset against a live graph. Review: before any cycle datum is added to the 52-byte position frame"
@@ -95,3 +95,7 @@ Re-verified 2026-11-01 at `ecd78b6cb`: the only change to the governed path is `
 Re-verified 2026-11-01 at `484d9392f` (xr/grab-client, ADR-2172). Changes since `a71b2608d`: `render_store.rs` gains `hunt_grabs` (ADR-2172) and `hud.gd` has a two-line edge-key edit (colour and text). Neither touches the cycle analysis or its single adjacency. The decision holds.
 
 Re-verified 2026-11-01 at `03ddc61e1` (viz/edge-tracking). `xr-client/rust/src/render_store.rs` gains seven edge/node coincidence tests, appended after the last test so no cited line moves, and `render_store_pack.rs` and `tests/node_lod.rs` re-transform the far-tier ribbons every frame instead of half per frame. Nothing this record decides changed. Evidence: `git diff 531df5ef7..838e06c13 -- xr-client/rust/src/render_store.rs xr-client/rust/src/render_store_pack.rs`; xr-client `cargo test` passes (486 library tests).
+
+## Re-verification — 2026-11-01 (`0df96bc52`)
+
+`render_store.rs` loses the dead `edge_frame` counter (field, `PackSlot` field, swap, increment; never read). The cycle analysis and layout-mode claims are untouched; `cargo test` (xr-client/rust): 610 passed, 0 failed.
