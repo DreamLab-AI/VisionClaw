@@ -2271,3 +2271,205 @@ mod adr_2029_constraint_gpu_tests {
         assert_eq!(positions(&mut cleared), baseline);
     }
 }
+
+/// ADR-2140 item 1, the GPU receipt: set a layout mode through the physics patch path, then read
+/// back what the DEVICE holds (`c_params`, the `__constant__ SimParams` in device memory). Follows
+/// the pattern of `the_stored_settings_document_is_what_the_device_holds` in `semantic.rs`.
+///
+/// The chain is the one `POST /api/layout/mode` runs: a patch is merged onto the stored document
+/// (`merge_physics_patch`, the first step of `apply_physics_patch`), validated for the GPU
+/// (`validate_for_gpu`), converted once by `From<&PhysicsSettings>`, and uploaded by the physics
+/// step. Nothing in between substitutes a value. Without CUDA these tests print `SKIPPED`.
+#[cfg(test)]
+mod adr_2140_layout_mode_gpu_tests {
+    use super::*;
+    use crate::models::simulation_params::FeatureFlags;
+    use crate::settings::api::settings_routes::{merge_physics_patch, validate_for_gpu};
+    use visionclaw_domain::types::layout::LayoutMode;
+    use visionclaw_domain::types::PhysicsSettings;
+
+    const N: usize = 64;
+
+    fn engine() -> Option<(cust::context::Context, UnifiedGPUCompute)> {
+        let ctx = match cust::quick_init() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[adr_2140_layout_mode_gpu_tests] SKIPPED, CUDA init failed: {e}");
+                return None;
+            }
+        };
+        let ptx = match crate::utils::ptx::load_ptx_sync() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[adr_2140_layout_mode_gpu_tests] SKIPPED, no PTX: {e}");
+                return None;
+            }
+        };
+        let mut g = match UnifiedGPUCompute::new(N, N * 2, &ptx) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[adr_2140_layout_mode_gpu_tests] SKIPPED, no CUDA device: {e}");
+                return None;
+            }
+        };
+        let (mut x, mut y, z) = (vec![0f32; N], vec![0f32; N], vec![0f32; N]);
+        for i in 0..N {
+            x[i] = (i % 8) as f32 * 300.0 - 1000.0;
+            y[i] = ((i / 8) % 8) as f32 * 300.0 - 1000.0;
+        }
+        g.upload_positions(&x, &y, &z).expect("upload positions");
+        let offsets: Vec<i32> = (0..=N as i32).collect();
+        let cols: Vec<i32> = (0..N as i32).map(|i| (i + 1) % N as i32).collect();
+        g.upload_edges_csr(&offsets, &cols, &vec![1.0; N])
+            .expect("upload edges");
+        Some((ctx, g))
+    }
+
+    /// The device's own copy of `SimParams`, read back from `c_params`.
+    fn device_params(g: &UnifiedGPUCompute) -> SimParams {
+        let symbol = g
+            ._module
+            .get_global::<SimParams>(c"c_params")
+            .expect("c_params symbol");
+        let mut out = <SimParams as bytemuck::Zeroable>::zeroed();
+        symbol.copy_to(&mut out).expect("read c_params back");
+        out
+    }
+
+    /// A stored document with every mode-defaulted number at 0 ("unset") and the SSSP toggle off,
+    /// then patched the way the endpoint patches it, and pushed through to the device.
+    fn set_mode_and_read_back(
+        g: &mut UnifiedGPUCompute,
+        stored: serde_json::Value,
+        mode_name: &str,
+    ) -> (PhysicsSettings, SimParams) {
+        let merged = merge_physics_patch(stored, serde_json::json!({ "layoutMode": mode_name }))
+            .expect("the patch merges")
+            .expect("both sides are objects");
+        let sim = validate_for_gpu(&merged).expect("the GPU accepts it");
+        g.execute_physics_step_with_bypass(&sim, false)
+            .expect("physics step");
+        (merged, device_params(g))
+    }
+
+    fn zeroed_store(sssp_enabled: bool) -> serde_json::Value {
+        let mut doc = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        for k in [
+            "dagBiasK",
+            "dagLevelDistance",
+            "layerBiasK",
+            "layerSpacing",
+            "centerGravityK",
+            "ssspAlpha",
+            "clusterStrength",
+        ] {
+            doc[k] = serde_json::json!(0.0);
+        }
+        doc["ssspEnabled"] = serde_json::json!(sssp_enabled);
+        doc
+    }
+
+    fn has(flags: u32, bit: u32) -> bool {
+        flags & bit != 0
+    }
+
+    #[test]
+    fn the_mode_set_through_the_patch_path_is_what_the_device_holds() {
+        let Some((_ctx, mut g)) = engine() else {
+            return;
+        };
+        // (quality-gate string sent by an old client, mode on the device)
+        let cases = [
+            ("dag-topdown", LayoutMode::Hierarchical),
+            ("dag-leftright", LayoutMode::DagLeftRight),
+            ("dag-radial", LayoutMode::Radial),
+            ("type-clustering", LayoutMode::TypeClustering),
+            ("force-directed", LayoutMode::ForceDirected),
+            ("spectral", LayoutMode::Spectral),
+            ("clustered", LayoutMode::Clustered),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (name, mode) in cases {
+            let (stored, dev) = set_mode_and_read_back(&mut g, zeroed_store(false), name);
+            assert_eq!(stored.layout_mode, mode, "{name}: stored");
+            assert_eq!(dev.layout_mode, mode.as_gpu_u32(), "{name}: device");
+            assert!(seen.insert(dev.layout_mode), "{name}: its own discriminant");
+            // The stored toggle is obeyed in every mode: false stored, bit clear on the device.
+            assert!(
+                !has(dev.feature_flags, FeatureFlags::ENABLE_SSSP_SPRING_ADJUST),
+                "{name}: ssspEnabled=false stored, SSSP must not run"
+            );
+            // What /sssp/status reports is the same conversion's value.
+            let status = crate::models::simulation_params::SimulationParams::from(&stored);
+            assert_eq!(
+                status.use_sssp_distances,
+                has(dev.feature_flags, FeatureFlags::ENABLE_SSSP_SPRING_ADJUST),
+                "{name}: status == device"
+            );
+        }
+        assert_eq!(seen.len(), 7);
+    }
+
+    #[test]
+    fn a_stored_zero_is_the_mode_default_on_the_device_and_the_store_keeps_the_zero() {
+        let Some((_ctx, mut g)) = engine() else {
+            return;
+        };
+        let (stored, dev) = set_mode_and_read_back(&mut g, zeroed_store(true), "dag-radial");
+        assert_eq!(
+            (stored.dag_bias_k, stored.dag_level_distance),
+            (0.0, 0.0),
+            "0 stays unset"
+        );
+        assert_eq!((dev.dag_bias_k, dev.dag_level_distance), (1.0, 60.0));
+        assert_eq!(dev.center_gravity_k, 0.1);
+        assert_eq!(dev.sssp_alpha, 0.5);
+        assert!(has(dev.feature_flags, FeatureFlags::ENABLE_CENTERING));
+        assert!(has(
+            dev.feature_flags,
+            FeatureFlags::ENABLE_SSSP_SPRING_ADJUST
+        ));
+
+        for name in ["dag-topdown", "dag-leftright"] {
+            let (_, dev) = set_mode_and_read_back(&mut g, zeroed_store(true), name);
+            assert_eq!((dev.layer_bias_k, dev.layer_spacing), (1.0, 60.0), "{name}");
+            assert_eq!(
+                (dev.dag_bias_k, dev.dag_level_distance),
+                (0.0, 0.0),
+                "{name}: no radial shell, nothing filled"
+            );
+        }
+
+        let (_, dev) = set_mode_and_read_back(&mut g, zeroed_store(true), "type-clustering");
+        assert_eq!(dev.cluster_strength, 0.01);
+
+        // Back to force-directed: nothing from the previous mode is left on the device.
+        let (_, dev) = set_mode_and_read_back(&mut g, zeroed_store(true), "force-directed");
+        assert_eq!(
+            (
+                dev.dag_bias_k,
+                dev.layer_bias_k,
+                dev.cluster_strength,
+                dev.center_gravity_k
+            ),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+        assert!(!has(dev.feature_flags, FeatureFlags::ENABLE_CENTERING));
+    }
+
+    #[test]
+    fn a_stored_positive_number_reaches_the_device_unchanged_even_below_the_old_floor() {
+        let Some((_ctx, mut g)) = engine() else {
+            return;
+        };
+        let mut doc = zeroed_store(true);
+        doc["centerGravityK"] = serde_json::json!(0.05);
+        doc["ssspAlpha"] = serde_json::json!(0.3);
+        doc["layerBiasK"] = serde_json::json!(2.5);
+        doc["layerSpacing"] = serde_json::json!(33.0);
+        let (_, dev) = set_mode_and_read_back(&mut g, doc, "dag-leftright");
+        assert_eq!(dev.center_gravity_k, 0.05);
+        assert_eq!(dev.sssp_alpha, 0.3);
+        assert_eq!((dev.layer_bias_k, dev.layer_spacing), (2.5, 33.0));
+    }
+}

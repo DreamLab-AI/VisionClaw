@@ -79,6 +79,10 @@ const NETWORK_PATHS: string[] = [
 /** Client tweening paths that post-date the baseline: the chase time replaced `lerpBase`. */
 const TWEENING_PATHS: string[] = ['visualisation.graphs.knowledge.tweening.responseMs'];
 
+/** The layout mode moved from `qualityGates.layoutMode` into the stored physics document
+ *  (ADR-2140 item 1); the old path is retired below and this one post-dates the baseline. */
+const LAYOUT_MODE_PATHS: string[] = ['visualisation.graphs.knowledge.physics.layoutMode'];
+
 /**
  * Frozen legacy paths deliberately retired from the registry. Graph Separation
  * (`graphSeparationX`) went with ADR-2135's 2026-10-08 amendment: the three
@@ -95,6 +99,7 @@ const RETIRED_PATHS: string[] = [
   'visualisation.graphs.knowledge.tweening.lerpBase',   // replaced by tweening.responseMs (a time constant, lower = faster)
   // Moved into the physics `semantic` group (one stored definition, applied unscaled by the
   // GPU); the quality-gate copies and their REST propagation were removed (ADR-2140).
+  'qualityGates.layoutMode',            // now physics.layoutMode (ADR-2140 item 1)
   'qualityGates.semanticForces',
   'qualityGates.dagLevelAttraction',
   'qualityGates.dagSiblingRepulsion',
@@ -104,7 +109,8 @@ const RETIRED_PATHS: string[] = [
 
 const TOTAL_FIELDS =
   168 - RETIRED_PATHS.length + EXPECTED_GROUP_COUNTS.agents + EXPECTED_GROUP_COUNTS.decisions + EXPECTED_GROUP_COUNTS.provenance
-  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length;
+  + WAVE1_LAYOUT_PATHS.length + MEMORY_EXPLORER_PATHS.length + NETWORK_PATHS.length + SEMANTIC_PATHS.length + TWEENING_PATHS.length
+  + LAYOUT_MODE_PATHS.length;
 
 /**
  * Frozen client-only paths introduced by the W-G phase-1 Decisions/Provenance
@@ -224,12 +230,13 @@ describe('control-center settings registry', () => {
     const networkSet = new Set(NETWORK_PATHS);
     const semanticSet = new Set(SEMANTIC_PATHS);
     const tweeningSet = new Set(TWEENING_PATHS);
+    const layoutModeSet = new Set(LAYOUT_MODE_PATHS);
     // Compare only the pre-existing (migrated) groups against the frozen baseline;
     // the Agents group (c2), the W-G groups (c3) and the Wave-1 layout paths (c4)
     // post-date WP5 and are asserted independently.
     const migratedPaths = ALL_PATHS.filter(
       (p) =>
-        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p),
+        !agentSet.has(p) && !wgSet.has(p) && !wave1Set.has(p) && !memorySet.has(p) && !networkSet.has(p) && !semanticSet.has(p) && !tweeningSet.has(p) && !layoutModeSet.has(p),
     );
     const migratedSet = new Set(migratedPaths);
 
@@ -244,6 +251,15 @@ describe('control-center settings registry', () => {
     expect(migratedSet.size).toBe(legacySet.size);
     // no duplicate paths within the whole registry
     expect(ALL_PATHS.length).toBe(new Set(ALL_PATHS).size);
+  });
+
+  it('(c1) the layout mode is the stored physics field, not a quality gate (ADR-2140)', () => {
+    expect(ALL_PATHS).toContain('visualisation.graphs.knowledge.physics.layoutMode');
+    expect(ALL_PATHS).not.toContain('qualityGates.layoutMode');
+    const field = REGISTRY.flatMap((g) => g.fields).find((f) => f.key === 'layoutMode')!;
+    expect(field.options).toEqual([
+      'forceDirected', 'hierarchical', 'radial', 'dagLeftRight', 'typeClustering', 'spectral', 'clustered',
+    ]);
   });
 
   it('(c2) the Agents group exposes exactly its declared new paths, disjoint from legacy', () => {

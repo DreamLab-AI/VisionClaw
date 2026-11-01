@@ -120,6 +120,9 @@ export interface PhysicsSettings {
   useSsspDistances?: boolean;
   ssspAlpha?: number;
 
+  /** Stored layout mode, the server's `LayoutMode` serde name (ADR-2140). */
+  layoutMode?: 'forceDirected' | 'hierarchical' | 'radial' | 'spectral' | 'temporal' | 'clustered' | 'dagLeftRight' | 'typeClustering';
+
   // ForceAtlas2 integration parameters (transparent, no hidden multipliers)
   globalSpeed?: number;
   scalingRatio?: number;
@@ -734,6 +737,7 @@ export interface PerformanceSettings {
 export interface QualityGatesSettings {
   gpuAcceleration: boolean;
   ontologyPhysics: boolean;
+  /** @deprecated Read-only echo of `physics.layoutMode` in the legacy vocabulary; write the physics field. */
   layoutMode: 'force-directed' | 'dag-topdown' | 'dag-radial' | 'dag-leftright' | 'type-clustering' | 'spectral' | 'clustered';
   showClusters: boolean;
   showAnomalies: boolean;

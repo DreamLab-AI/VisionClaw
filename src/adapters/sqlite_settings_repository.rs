@@ -694,7 +694,18 @@ impl SettingsRepository for SqliteSettingsRepository {
             .map(|(k, (_is_user, v))| (k, v))
             .collect();
         let root = unflatten_pairs(pairs);
-        let settings: AppFullSettings = serde_json::from_value(root).map_err(map_json_err)?;
+        let mut settings: AppFullSettings = serde_json::from_value(root).map_err(map_json_err)?;
+        // The rows are read by key, not from the unflattened tree: a legacy `physics.*` leaf
+        // would otherwise be merged into the `physics` document itself.
+        let physics_row = match self.get_setting("physics").await {
+            Ok(Some(SettingValue::Json(json))) => Some(json),
+            _ => None,
+        };
+        let quality_gates = match self.get_setting("quality_gates").await {
+            Ok(Some(SettingValue::Json(json))) => Some(json),
+            _ => None,
+        };
+        seed_physics_from_blob(physics_row, quality_gates.as_ref(), &mut settings);
         Ok(Some(settings))
     }
 
@@ -1027,6 +1038,30 @@ fn stage_row_entry(entry: &serde_json::Value) -> RepoResult<(String, Option<Stri
     Ok((value_json, None))
 }
 
+/// ADR-2140 decision 1: the stored `physics` document is the single source of truth, so it is
+/// the settings actor's snapshot. The live store holds only that row (the flattened
+/// `visualisation.graphs.knowledge.physics.*` leaves are frozen or absent, because
+/// `UpdateSettings` persists nothing and `save_all_settings` has no live caller). The row
+/// replaces the snapshot's physics wholesale, with its layout mode migrated from the legacy
+/// `quality_gates.layoutMode` string when it predates the field, so the merge base of
+/// `apply_physics_patch` is the store and a frozen leaf can never win over it. A row that does
+/// not load as physics is logged and leaves the snapshot as it was, so the load never fails
+/// because of it.
+fn seed_physics_from_blob(
+    row: Option<serde_json::Value>,
+    quality_gates: Option<&serde_json::Value>,
+    settings: &mut crate::config::AppFullSettings,
+) {
+    let Some(mut blob) = row.filter(|p| p.is_object()) else {
+        return;
+    };
+    crate::actors::gpu::physics_restore::migrate_layout_mode(&mut blob, quality_gates);
+    match serde_json::from_value::<crate::config::PhysicsSettings>(blob) {
+        Ok(physics) => settings.visualisation.graphs.knowledge.physics = physics,
+        Err(e) => log::warn!("stored physics document is unusable as the settings snapshot ({e})"),
+    }
+}
+
 #[cfg(test)]
 mod user_filter_persistence_tests {
     //! Round-trip coverage for the per-user filter/settings persistence path
@@ -1110,6 +1145,105 @@ mod user_filter_persistence_tests {
         assert!(
             bob_view.is_none(),
             "Bob must not observe Alice's per-user filter"
+        );
+    }
+}
+
+#[cfg(test)]
+mod layout_mode_snapshot_tests {
+    //! ADR-2140 decision 1: the `physics` row seeds the settings actor's snapshot.
+    use super::seed_physics_from_blob;
+    use crate::config::{AppFullSettings, PhysicsSettings};
+    use serde_json::json;
+    use visionclaw_domain::types::layout::LayoutMode;
+
+    fn document(mode: &str, repel_k: f64) -> serde_json::Value {
+        let mut doc = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        doc["layoutMode"] = json!(mode);
+        doc["repelK"] = json!(repel_k);
+        doc
+    }
+
+    fn defaults() -> AppFullSettings {
+        AppFullSettings::new().expect("default settings")
+    }
+
+    #[test]
+    fn the_row_replaces_the_snapshot_physics() {
+        let mut s = defaults();
+        seed_physics_from_blob(Some(document("radial", 321.0)), None, &mut s);
+        let p = &s.visualisation.graphs.knowledge.physics;
+        assert_eq!((p.layout_mode, p.repel_k), (LayoutMode::Radial, 321.0));
+    }
+
+    #[test]
+    fn the_legacy_quality_gate_string_migrates_a_row_that_predates_the_field() {
+        let mut row = document("radial", 5.0);
+        row.as_object_mut().unwrap().remove("layoutMode");
+        let mut s = defaults();
+        let gates = json!({ "layoutMode": "dag-topdown" });
+        seed_physics_from_blob(Some(row), Some(&gates), &mut s);
+        assert_eq!(
+            s.visualisation.graphs.knowledge.physics.layout_mode,
+            LayoutMode::Hierarchical
+        );
+    }
+
+    #[test]
+    fn an_unusable_or_absent_row_leaves_the_snapshot_alone() {
+        let mut s = defaults();
+        seed_physics_from_blob(Some(json!({ "repelK": "not a number" })), None, &mut s);
+        seed_physics_from_blob(Some(json!("not an object")), None, &mut s);
+        seed_physics_from_blob(None, None, &mut s);
+        assert_eq!(
+            s.visualisation.graphs.knowledge.physics.repel_k,
+            PhysicsSettings::default().repel_k
+        );
+    }
+
+    /// The real load path against a store shaped like the live one: the `physics` row and
+    /// nothing else (R13 F2). The actor loads this at startup.
+    #[tokio::test]
+    async fn the_actor_load_of_a_blob_only_store_sees_the_blob() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        repo.set_setting(
+            "physics",
+            SettingValue::Json(document("radial", 321.0)),
+            Some("test"),
+        )
+        .await
+        .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        let p = loaded.visualisation.graphs.knowledge.physics;
+        assert_eq!((p.layout_mode, p.repel_k), (LayoutMode::Radial, 321.0));
+    }
+
+    /// A store that also holds frozen leaves (an older install): the row still wins.
+    #[tokio::test]
+    async fn a_frozen_leaf_never_wins_over_the_row() {
+        use super::{SettingValue, SettingsRepository, SqliteSettingsRepository};
+        let repo = SqliteSettingsRepository::open(std::path::Path::new(":memory:"))
+            .await
+            .expect("open in-memory repo");
+        let mut frozen = defaults();
+        frozen.visualisation.graphs.knowledge.physics.layout_mode = LayoutMode::Radial;
+        frozen.visualisation.graphs.knowledge.physics.repel_k = 1.0;
+        repo.save_all_settings(&frozen).await.expect("save leaves");
+        repo.set_setting(
+            "physics",
+            SettingValue::Json(document("hierarchical", 321.0)),
+            Some("test"),
+        )
+        .await
+        .unwrap();
+        let loaded = repo.load_all_settings().await.unwrap().unwrap();
+        let p = loaded.visualisation.graphs.knowledge.physics;
+        assert_eq!(
+            (p.layout_mode, p.repel_k),
+            (LayoutMode::Hierarchical, 321.0)
         );
     }
 }

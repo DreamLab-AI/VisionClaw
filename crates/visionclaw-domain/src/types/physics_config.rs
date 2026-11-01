@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use validator::Validate;
 
+use super::layout::LayoutMode;
 use super::semantic_config::SemanticForces;
 
 /// Canonical maximum velocity (from `src/config/mod.rs`).
@@ -71,6 +72,26 @@ fn default_global_speed() -> f32 {
 
 fn default_spring_pop_scale() -> f32 {
     1.0
+}
+
+/// Load-side reading of `layoutMode` (ADR-2140): a value that is not a known mode is logged and
+/// replaced by the default, so one bad field never costs the whole stored physics document. The
+/// write side is strict: `merge_physics_patch` refuses an unknown mode with a 400 before this
+/// runs. Both vocabularies are read, the serde name and the quality-gate strings.
+fn lenient_layout_mode<'de, D>(d: D) -> Result<LayoutMode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(d)?;
+    match raw.as_str().and_then(LayoutMode::parse) {
+        Some(mode) => Ok(mode),
+        None => {
+            log::warn!(
+                "stored physics.layoutMode {raw} is not a known layout mode; using forceDirected"
+            );
+            Ok(LayoutMode::default())
+        }
+    }
 }
 
 fn default_sssp_alpha() -> f32 {
@@ -349,6 +370,20 @@ pub struct PhysicsSettings {
     #[serde(default = "default_sssp_enabled", alias = "sssp_enabled")]
     pub sssp_enabled: bool,
 
+    /// The active layout mode (ADR-2140 item 1). The one definition: `POST /api/layout/mode`
+    /// and `PUT /api/settings/physics` write it, `From<&PhysicsSettings> for SimulationParams`
+    /// is the only place it reaches the device. Documents stored before the field existed load
+    /// as `forceDirected`, which is what the device ran after a restart. Stored `0` in
+    /// `dagBiasK`, `dagLevelDistance`, `layerBiasK`, `layerSpacing`, `centerGravityK`,
+    /// `ssspAlpha` and `clusterStrength` means "the active mode's default" and is resolved at
+    /// that conversion, never written back.
+    #[serde(
+        default,
+        alias = "layout_mode",
+        deserialize_with = "lenient_layout_mode"
+    )]
+    pub layout_mode: LayoutMode,
+
     #[serde(
         alias = "constraint_ramp_frames",
         default = "default_constraint_ramp_frames"
@@ -541,6 +576,7 @@ impl Default for PhysicsSettings {
             max_repulsion_dist: 400.0,
             sssp_alpha: default_sssp_alpha(),
             sssp_enabled: default_sssp_enabled(),
+            layout_mode: LayoutMode::default(),
 
             constraint_ramp_frames: default_constraint_ramp_frames(),
             constraint_max_force_per_node: default_constraint_max_force_per_node(),
@@ -820,6 +856,42 @@ mod tests {
         map.insert("sssp_enabled".into(), serde_json::json!(false));
         let loaded: PhysicsSettings = serde_json::from_value(snake).unwrap();
         assert!(!loaded.sssp_enabled, "the snake_case alias is honoured");
+    }
+
+    #[test]
+    fn a_document_stored_before_layout_mode_existed_loads_force_directed() {
+        use crate::types::layout::LayoutMode;
+        let mut stored = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("layoutMode");
+        let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(loaded.layout_mode, LayoutMode::ForceDirected);
+    }
+
+    #[test]
+    fn a_stored_layout_mode_round_trips_under_its_camel_case_name() {
+        use crate::types::layout::LayoutMode;
+        let ps = PhysicsSettings {
+            layout_mode: LayoutMode::DagLeftRight,
+            ..Default::default()
+        };
+        let stored = serde_json::to_value(&ps).unwrap();
+        assert_eq!(stored["layoutMode"], "dagLeftRight");
+        let loaded: PhysicsSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(loaded.layout_mode, LayoutMode::DagLeftRight);
+    }
+
+    #[test]
+    fn an_unknown_stored_layout_mode_loads_the_default_and_does_not_drop_the_document() {
+        use crate::types::layout::LayoutMode;
+        let mut stored = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        stored["layoutMode"] = serde_json::json!("spiral-galaxy");
+        stored["repelK"] = serde_json::json!(321.0);
+        let loaded: PhysicsSettings = serde_json::from_value(stored).expect("never a load failure");
+        assert_eq!(loaded.layout_mode, LayoutMode::ForceDirected);
+        assert_eq!(loaded.repel_k, 321.0, "the rest of the document survives");
+        let mut not_a_string = serde_json::to_value(PhysicsSettings::default()).unwrap();
+        not_a_string["layoutMode"] = serde_json::json!(7);
+        assert!(serde_json::from_value::<PhysicsSettings>(not_a_string).is_ok());
     }
 
     #[test]

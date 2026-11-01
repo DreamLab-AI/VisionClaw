@@ -92,7 +92,6 @@ pub use physics_messages::{
     SetAppGpuComputeAddr,
     SetComputeMode,
     SetForceComputeAddr,
-    SetLayoutMode,
     SetPhysicsOrchestratorAddr,
     SetPhysicsSettingsSource,
     SetPhysicsSettled,

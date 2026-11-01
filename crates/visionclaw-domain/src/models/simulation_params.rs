@@ -12,6 +12,27 @@ use serde::{Deserialize, Serialize};
 use crate::types::layout::LayoutMode;
 use crate::types::physics_config::{AutoBalanceConfig, AutoPauseConfig, PhysicsSettings};
 
+/// Default radial-shell strength used when the active mode is `radial` and the stored
+/// `dagBiasK` is 0 or less (ADR-2140: a stored 0 means "the mode's default").
+pub const RADIAL_DEFAULT_DAG_BIAS_K: f32 = 1.0;
+/// Default radial-shell spacing for `radial` when the stored `dagLevelDistance` is 0 or less.
+pub const RADIAL_DEFAULT_DAG_LEVEL_DISTANCE: f32 = 60.0;
+/// Default layer-spring strength for `hierarchical` and `dagLeftRight` when the stored
+/// `layerBiasK` is 0 or less.
+pub const HIERARCHICAL_DEFAULT_LAYER_BIAS_K: f32 = 1.0;
+/// Default layer spacing for `hierarchical` and `dagLeftRight` when the stored `layerSpacing`
+/// is 0 or less.
+pub const HIERARCHICAL_DEFAULT_LAYER_SPACING: f32 = 60.0;
+/// Centre gravity the DAG modes (`hierarchical`, `radial`, `dagLeftRight`) use when the stored
+/// `centerGravityK` is 0 or less. It was the floor the quality-gate overlay applied.
+pub const DAG_DEFAULT_CENTER_GRAVITY_K: f32 = 0.1;
+/// SSSP strength the DAG modes use when the stored `ssspAlpha` is 0 or less (it was the
+/// overlay's floor).
+pub const DAG_DEFAULT_SSSP_ALPHA: f32 = 0.5;
+/// Cluster strength `typeClustering` uses when the stored `clusterStrength` is 0 or less (it
+/// was the overlay's floor).
+pub const TYPE_CLUSTERING_DEFAULT_CLUSTER_STRENGTH: f32 = 0.01;
+
 fn default_lin_log_mode() -> bool {
     true
 }
@@ -428,6 +449,57 @@ impl SimulationParams {
 // safe to live in the domain crate.
 impl From<&PhysicsSettings> for SimulationParams {
     fn from(physics: &PhysicsSettings) -> Self {
+        let mut params = Self::from_stored(physics);
+        params.resolve_mode_defaults();
+        params
+    }
+}
+
+impl SimulationParams {
+    /// ADR-2140: the one place a stored `0` becomes the active layout mode's default. The
+    /// store keeps the `0` ("unset"); only the device value changes, and only when the stored
+    /// number is 0 or less. Booleans are never touched: a stored `ssspEnabled` is obeyed in every
+    /// mode, and no mode clears a term it does not own.
+    ///
+    /// | mode | stored `<= 0` becomes |
+    /// |---|---|
+    /// | `radial` | `dagBiasK` 1, `dagLevelDistance` 60 |
+    /// | `hierarchical`, `dagLeftRight` | `layerBiasK` 1, `layerSpacing` 60 |
+    /// | those three and `radial` (the DAG modes) | `centerGravityK` 0.1, `ssspAlpha` 0.5 |
+    /// | `typeClustering` | `clusterStrength` 0.01 |
+    pub fn resolve_mode_defaults(&mut self) {
+        let mode = self.layout_mode;
+        if mode == LayoutMode::Radial {
+            if self.dag_bias_k <= 0.0 {
+                self.dag_bias_k = RADIAL_DEFAULT_DAG_BIAS_K;
+            }
+            if self.dag_level_distance <= 0.0 {
+                self.dag_level_distance = RADIAL_DEFAULT_DAG_LEVEL_DISTANCE;
+            }
+        }
+        if matches!(mode, LayoutMode::Hierarchical | LayoutMode::DagLeftRight) {
+            if self.layer_bias_k <= 0.0 {
+                self.layer_bias_k = HIERARCHICAL_DEFAULT_LAYER_BIAS_K;
+            }
+            if self.layer_spacing <= 0.0 {
+                self.layer_spacing = HIERARCHICAL_DEFAULT_LAYER_SPACING;
+            }
+        }
+        if mode.is_dag() {
+            if self.center_gravity_k <= 0.0 {
+                self.center_gravity_k = DAG_DEFAULT_CENTER_GRAVITY_K;
+            }
+            if self.sssp_alpha.unwrap_or(0.0) <= 0.0 {
+                self.sssp_alpha = Some(DAG_DEFAULT_SSSP_ALPHA);
+            }
+        }
+        if mode == LayoutMode::TypeClustering && self.cluster_strength <= 0.0 {
+            self.cluster_strength = TYPE_CLUSTERING_DEFAULT_CLUSTER_STRENGTH;
+        }
+    }
+
+    /// Field-for-field copy of the stored document, before mode defaults.
+    fn from_stored(physics: &PhysicsSettings) -> Self {
         Self {
             enabled: physics.enabled,
             auto_balance: physics.auto_balance,
@@ -476,7 +548,7 @@ impl From<&PhysicsSettings> for SimulationParams {
             settle_mode: SettleMode::default(),
             axis_compression_z: physics.axis_compression_z,
             enable_dual_disc_layout: physics.enable_dual_disc_layout,
-            layout_mode: LayoutMode::default(),
+            layout_mode: physics.layout_mode,
             semantic: physics.semantic.clone(),
             lin_log_mode: physics.lin_log_mode,
             scaling_ratio: physics.scaling_ratio,
@@ -494,6 +566,149 @@ impl From<&PhysicsSettings> for SimulationParams {
             // Actor-authoritative (SetRadialLayout); PhysicsSettings has no source.
             radial_center: default_radial_center(),
         }
+    }
+}
+
+#[cfg(test)]
+mod layout_mode_resolution_tests {
+    //! ADR-2140 item 1: the stored layout mode and its stored numbers become device
+    //! parameters in `From<&PhysicsSettings>`, and nowhere else.
+    use super::*;
+    use crate::types::PhysicsSettings;
+
+    fn stored(mode: LayoutMode) -> PhysicsSettings {
+        PhysicsSettings {
+            layout_mode: mode,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_stored_mode_is_the_device_mode() {
+        for mode in [
+            LayoutMode::ForceDirected,
+            LayoutMode::Hierarchical,
+            LayoutMode::Radial,
+            LayoutMode::Spectral,
+            LayoutMode::Temporal,
+            LayoutMode::Clustered,
+            LayoutMode::DagLeftRight,
+            LayoutMode::TypeClustering,
+        ] {
+            assert_eq!(SimulationParams::from(&stored(mode)).layout_mode, mode);
+        }
+    }
+
+    #[test]
+    fn a_stored_zero_means_the_mode_default_for_the_four_bias_numbers() {
+        let radial = SimulationParams::from(&stored(LayoutMode::Radial));
+        assert_eq!(radial.dag_bias_k, RADIAL_DEFAULT_DAG_BIAS_K);
+        assert_eq!(radial.dag_level_distance, RADIAL_DEFAULT_DAG_LEVEL_DISTANCE);
+        for mode in [LayoutMode::Hierarchical, LayoutMode::DagLeftRight] {
+            let p = SimulationParams::from(&stored(mode));
+            assert_eq!(
+                p.layer_bias_k, HIERARCHICAL_DEFAULT_LAYER_BIAS_K,
+                "{mode:?}"
+            );
+            assert_eq!(
+                p.layer_spacing, HIERARCHICAL_DEFAULT_LAYER_SPACING,
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_positive_number_is_never_replaced() {
+        let mut s = stored(LayoutMode::Radial);
+        s.dag_bias_k = 3.5;
+        s.dag_level_distance = 12.0;
+        let p = SimulationParams::from(&s);
+        assert_eq!((p.dag_bias_k, p.dag_level_distance), (3.5, 12.0));
+    }
+
+    #[test]
+    fn the_other_modes_resolve_nothing_and_clear_nothing() {
+        let mut s = stored(LayoutMode::ForceDirected);
+        s.dag_bias_k = 0.0;
+        s.layer_bias_k = 0.0;
+        let p = SimulationParams::from(&s);
+        assert_eq!((p.dag_bias_k, p.layer_bias_k), (0.0, 0.0));
+        // The opposing term is left as stored: Radial does not zero a stored layer bias.
+        let mut r = stored(LayoutMode::Radial);
+        r.layer_bias_k = 2.0;
+        assert_eq!(SimulationParams::from(&r).layer_bias_k, 2.0);
+    }
+
+    #[test]
+    fn dag_modes_default_centre_gravity_and_sssp_strength_only_when_stored_zero() {
+        for mode in [
+            LayoutMode::Hierarchical,
+            LayoutMode::Radial,
+            LayoutMode::DagLeftRight,
+        ] {
+            let mut s = stored(mode);
+            s.center_gravity_k = 0.0;
+            s.sssp_alpha = 0.0;
+            let p = SimulationParams::from(&s);
+            assert_eq!(p.center_gravity_k, DAG_DEFAULT_CENTER_GRAVITY_K, "{mode:?}");
+            assert_eq!(p.sssp_alpha, Some(DAG_DEFAULT_SSSP_ALPHA), "{mode:?}");
+            // A stored positive value is obeyed even below the old floor.
+            s.center_gravity_k = 0.05;
+            s.sssp_alpha = 0.3;
+            let p = SimulationParams::from(&s);
+            assert_eq!(
+                (p.center_gravity_k, p.sssp_alpha),
+                (0.05, Some(0.3)),
+                "{mode:?}"
+            );
+        }
+        let fd = SimulationParams::from(&{
+            let mut s = stored(LayoutMode::ForceDirected);
+            s.center_gravity_k = 0.0;
+            s
+        });
+        assert_eq!(
+            fd.center_gravity_k, 0.0,
+            "force-directed has no DAG default"
+        );
+    }
+
+    #[test]
+    fn a_stored_sssp_toggle_is_obeyed_in_every_dag_mode() {
+        for mode in [
+            LayoutMode::Hierarchical,
+            LayoutMode::Radial,
+            LayoutMode::DagLeftRight,
+        ] {
+            let mut s = stored(mode);
+            s.sssp_enabled = false;
+            assert!(!SimulationParams::from(&s).use_sssp_distances, "{mode:?}");
+            s.sssp_enabled = true;
+            assert!(SimulationParams::from(&s).use_sssp_distances, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn type_clustering_defaults_cluster_strength_only_when_stored_zero() {
+        let mut s = stored(LayoutMode::TypeClustering);
+        s.cluster_strength = 0.0;
+        assert_eq!(
+            SimulationParams::from(&s).cluster_strength,
+            TYPE_CLUSTERING_DEFAULT_CLUSTER_STRENGTH
+        );
+        s.cluster_strength = 0.015;
+        assert_eq!(SimulationParams::from(&s).cluster_strength, 0.015);
+        assert_eq!(
+            SimulationParams::from(&stored(LayoutMode::ForceDirected)).cluster_strength,
+            0.0
+        );
+    }
+
+    #[test]
+    fn the_stored_document_is_unchanged_by_resolution() {
+        let s = stored(LayoutMode::Radial);
+        let _ = SimulationParams::from(&s);
+        assert_eq!(s.dag_bias_k, 0.0, "0 stays unset in the store");
     }
 }
 

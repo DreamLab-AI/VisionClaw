@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: 772039bd172027af034d64befacca1ebcf0bbc04
+verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
 verified_paths: [crates/visionclaw-memory-cloud/src, src/services/memory_cloud_service.rs, src/handlers/memory_cloud_handler.rs, src/utils/auth.rs, tests/memory_cloud_live_test.rs, docker-compose.unified.yml, src/middleware/rate_limit.rs, tests/memory_cloud_auth_test.rs, client/src/features/visualisation/memoryCloud/api.ts, client/src/features/visualisation/memoryCloud/MemoryExplorerPanel.tsx, client/src/features/graph/components/GraphCanvas.tsx]
 owner: jjohare
 review_trigger: "a change of embedding model or dimension; an HNSW rebuild of idx_memory_embedding_hnsw; any request to expose personal-context; the System One rerank egress (ADR-2148) being widened"
@@ -237,3 +237,7 @@ Re-verified 2026-10-30 at c75004696: `crates/visionclaw-memory-cloud/src/wire.rs
   `ontology-corpus` 8,146 total, 2,525 sampled.
 - That call was anonymous, and it was admitted only because of the dev-mode admission (Amendment 2026-10-07).
   It is not evidence for decision 5's power-user gate, which stays covered by `tests/memory_cloud_auth_test.rs`.
+
+## Re-stamp — 2026-10-31 (ADR-2140 item 1)
+
+**Governed change:** `GraphCanvas.tsx` now reads the layout-mode indicator from `physics.layoutMode` and labels the two new modes (ADR-2140 item 1). The `MemoryExplorerPanel` mount this record cites is untouched. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- client/src/features/graph/components/GraphCanvas.tsx`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.

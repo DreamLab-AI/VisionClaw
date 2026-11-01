@@ -555,16 +555,18 @@ Errors: `400 {"error": ...}` for an empty pattern or empty variable name;
 ## Layout Endpoints
 
 Configured in `src/handlers/layout_handler.rs` (`web::scope("/layout")`
-mounted under `/api` at `src/main.rs:1038`). The layout scope carries **no auth
-wrap and no rate limit** — both routes are public compute calls that hand work to
-the GPU layout actor. They implement the ADR-141 layout programme (Sugiyama
+mounted under `/api` at `src/main.rs:1038`). `POST /api/layout/mode` requires an
+authenticated user and is limited to 60 requests a minute, because it is a physics write
+(ADR-2140); the other routes in the scope are unauthenticated reads. They implement the ADR-141 layout programme (Sugiyama
 layers, stratified/spherical modes, ego-radial RadialModes). Both take an untyped
 JSON body and answer with an ad-hoc `{"success": ...}` envelope.
 
 ### POST /api/layout/mode
 
-Switch the active graph layout algorithm. Handler `set_layout_mode`
-(`layout_handler.rs:15`).
+Switch the active graph layout algorithm. Handler `set_layout_mode` (`layout_handler.rs`).
+The mode is the stored `physics.layoutMode`: the handler applies `{"layoutMode": <mode>}` through
+`apply_physics_patch` (deep merge, central validators, store, GPU actors, SQLite, broadcast) unless that
+mode is already stored, in which case nothing is written. An unknown mode is a `400`.
 
 **Request body**:
 
@@ -574,10 +576,10 @@ Switch the active graph layout algorithm. Handler `set_layout_mode`
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `mode` | string | `"forceDirected"` | `LayoutMode` (`layout.rs:9-22`): `forceDirected`, `hierarchical`, `radial`, `spectral`, `temporal`, `clustered`. Unknown values fall back to `forceDirected` |
+| `mode` | string | `"forceDirected"` | `LayoutMode` (`layout.rs`): `forceDirected`, `hierarchical`, `radial`, `spectral`, `temporal`, `clustered`, `dagLeftRight`, `typeClustering`. The seven quality-gate names (`dag-topdown`, `dag-leftright`, ...) are accepted too. Unknown values are refused with `400` |
 | `transitionMs` | integer | 500 | Animation duration for the client transition |
 
-**Response** — GPU-resident modes (`forceDirected`, `radial`, `clustered`) run on
+**Response** — GPU-resident modes (`forceDirected`, `hierarchical`, `radial`, `clustered`, `dagLeftRight`, `typeClustering`) run on
 the GPU actor and return an empty `positions` array (the client reads new
 positions off the binary position stream):
 
@@ -911,7 +913,7 @@ The endpoints below are the full, grep-verified `/api/analytics/*` surface. Seve
 | POST | `/api/analytics/community/detect` | Yes | Run Louvain community detection |
 | POST | `/api/analytics/anomaly/detect` | Yes | Run GPU LOF/Z-score structural anomaly detection |
 | POST | `/api/analytics/anomaly/toggle` | Yes | Toggle agent-health anomaly heuristic |
-| POST | `/api/analytics/sssp/params` \| `/compute` \| `/toggle` | Yes | SSSP parameter/compute/toggle |
+| POST | `/api/analytics/sssp/compute` \| `/toggle` | Yes | SSSP compute / toggle (the toggle writes the stored physics document; read it back with `GET /api/analytics/sssp/status`) |
 | POST | `/api/analytics/stress-majorization/trigger` \| `/reset-safety` \| `/params` \| `/configure` | Yes | Stress-majorization layout control |
 | POST | `/api/analytics/feature-flags` | Yes | Update feature flags |
 | POST | `/api/analytics/pagerank/compute` | Yes | Run PageRank |

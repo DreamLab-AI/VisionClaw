@@ -1,5 +1,5 @@
 use actix_web::{web, HttpResponse, Result};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 
 use crate::AppState;
 use crate::{error_json, ok_json};
@@ -180,60 +180,25 @@ pub(crate) async fn stored_sssp_enabled(app_state: &AppState) -> bool {
 }
 
 pub async fn get_sssp_status(app_state: web::Data<AppState>) -> Result<HttpResponse> {
-    // Read the store, not the display flag: the stored physics document is the one definition.
-    let enabled = stored_sssp_enabled(&app_state).await;
+    // The stored physics document is the one definition, and the device holds that document
+    // resolved by `From<&PhysicsSettings> for SimulationParams` (ADR-2140): report that, so a
+    // stored `ssspAlpha` of 0 in a DAG mode reads as the 0.5 the device runs, not as 0.
+    let stored = crate::settings::api::settings_routes::stored_physics(&app_state).await;
+    let (enabled, alpha, layout_mode) = match &stored {
+        Some(p) => {
+            let device = crate::models::simulation_params::SimulationParams::from(p);
+            (device.use_sssp_distances, device.sssp_alpha, p.layout_mode)
+        }
+        None => (true, None, Default::default()),
+    };
 
     ok_json!(serde_json::json!({
         "success": true,
         "enabled": enabled,
+        "alpha": alpha,
+        "layoutMode": layout_mode,
         "description": "Single-Source Shortest Path spring adjustment for improved edge length uniformity",
         "feature_flag": "FeatureFlags::ENABLE_SSSP_SPRING_ADJUST"
-    }))
-}
-
-pub async fn update_sssp_params(
-    _auth: crate::settings::auth_extractor::AuthenticatedUser,
-    _app_state: web::Data<AppState>,
-    request: web::Json<serde_json::Value>,
-) -> Result<HttpResponse, actix_web::Error> {
-    info!("Updating SSSP parameters");
-
-    let use_sssp = request
-        .get("useSsspDistances")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let sssp_alpha = request
-        .get("ssspAlpha")
-        .and_then(|v| v.as_f64())
-        .map(|v| v as f32);
-
-    info!(
-        "SSSP parameters update requested: enabled={}, alpha={:?}",
-        use_sssp, sssp_alpha
-    );
-
-    ok_json!(serde_json::json!({
-        "success": true,
-        "params": {
-            "useSsspDistances": use_sssp,
-            "ssspAlpha": sssp_alpha,
-        },
-        "note": "SSSP parameters are managed in GPU kernel simulation"
-    }))
-}
-
-pub async fn get_sssp_params(
-    _app_state: web::Data<AppState>,
-) -> Result<HttpResponse, actix_web::Error> {
-    debug!("Retrieving SSSP parameters");
-
-    ok_json!(serde_json::json!({
-        "success": true,
-        "params": {
-            "useSsspDistances": false,
-            "ssspAlpha": 0.5,
-        },
-        "note": "SSSP parameters are managed in GPU kernel simulation"
     }))
 }
 

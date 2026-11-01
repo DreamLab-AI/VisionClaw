@@ -438,15 +438,17 @@ function parseCommandToActions(cmd: string): SettingsAction[] {
 
   // "layout force directed" / "layout DAG" / "layout radial"
   if (lower.includes('layout') && (lower.includes('dag') || lower.includes('radial') || lower.includes('hierarchy') || lower.includes('tree'))) {
-    const mode = lower.includes('radial') ? 'dag-radial' : lower.includes('left') ? 'dag-leftright' : 'dag-topdown';
+    const mode = lower.includes('radial') ? 'radial' : lower.includes('left') ? 'dagLeftRight' : 'hierarchical';
     actions.push({
       description: `Switching to ${mode} layout`,
       localAction: () => {
         const ss = useSettingsStore.getState();
         ss?.updateSettings?.((draft: any) => {
           if (!draft.qualityGates) draft.qualityGates = {};
-          draft.qualityGates.layoutMode = mode;
           draft.qualityGates.semanticForces = true;
+          // The layout mode is the stored physics.layoutMode (ADR-2140).
+          const physics = draft?.visualisation?.graphs?.knowledge?.physics;
+          if (physics) physics.layoutMode = mode;
         });
       },
     });

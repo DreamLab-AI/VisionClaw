@@ -164,6 +164,7 @@ by separation and flatten.
 | `enableBounds` | bool | **on** | When off, `viewport_bounds` is fed to the kernel as 0 (unbounded) |
 | `gridCellSize` | f32 | **50.0** | Spatial-hash cell size for the neighbour grid used by repulsion. Tune near `restLength` |
 | `ssspEnabled` | bool | **on** | Whether the SSSP rest-length adjustment is on (`ENABLE_SSSP_SPRING_ADJUST`). Stored in `physics.*` (ADR-2140); `POST /sssp/toggle` is a physics patch (`ssspEnabled`, optional `ssspAlpha`) through the one write path, `apply_physics_patch`, shared with `PUT /api/settings/physics`. Documents stored before the field existed load as on |
+| `layoutMode` | enum | **`forceDirected`** | The active layout mode (see "Layout mode (ADR-2140)"). Stored in `physics.*`; `POST /api/layout/mode` is a physics patch through `apply_physics_patch` |
 | `ssspAlpha` | f32 | **1.5** | Weight of single-source-shortest-path graph distance in the SSSP-adjusted rest length (`ENABLE_SSSP_SPRING_ADJUST`). Makes spring rest length ontology-aware: topologically distant nodes rest farther apart |
 
 ---
@@ -246,12 +247,50 @@ test pins every slider range to the validator's accepted range. The device struc
 by `static_assert`s in `semantic_forces.cu` (140-byte `SemanticConfig`, 4108-byte relationship
 table), so a layout the compiler does not give fails the build.
 
-Not part of the stored definition (recorded in ADR-2140, "Not yet done"): the layout *mode* and its
-bias priming (`fill_mode_defaults`, `force_compute_actor.rs`) still live in the compute actor, and
-the quality-gate propagation (`settings_routes.rs:1224-1226`) still forces `useSsspDistances` and floors
-`ssspAlpha` at 0.5 on the *device* copy in DAG modes without writing the store, so there the device can run
-SSSP on while the store and `/sssp/status` say off. `settings_handler/physics.rs:102` is unreachable dead code.
-`POST /sssp/toggle` now writes the store (closed 2026-10-31).
+## Layout mode (ADR-2140)
+
+The layout mode is one stored field, `physics.layoutMode` (`LayoutMode`, serde name in camelCase),
+and `POST /api/layout/mode` writes it through `apply_physics_patch`, the same path as
+`PUT /api/settings/physics`. A document stored before the field existed loads as `forceDirected`;
+at boot it takes the mode from the legacy `qualityGates.layoutMode` string instead, when one is
+stored (`migrate_layout_mode`, `physics_restore.rs`). An unknown value is a 400 on write and a logged
+default on load, never a panic. Every one of the seven legacy strings has a mode of its own:
+
+| `qualityGates.layoutMode` | `physics.layoutMode` | GPU `layout_mode` | What the device runs |
+|---|---|---|---|
+| `force-directed` | `forceDirected` | 0 | the force-directed baseline, nothing mode-specific |
+| `dag-topdown` | `hierarchical` | 1 | Sugiyama layer spring (`layerBiasK`, `layerSpacing`) |
+| `dag-radial` | `radial` | 2 | `dag_radial_bias` shells (`dagBiasK`, `dagLevelDistance`) |
+| `spectral` | `spectral` | 3 | CPU one-shot placement (Laplacian eigenvectors); the device keeps the baseline |
+| *(none)* | `temporal` | 4 | CPU one-shot placement (Z = timestamp); the device keeps the baseline |
+| `clustered` | `clustered` | 5 | the baseline plus the stored `clusterStrength` knob |
+| `dag-leftright` | `dagLeftRight` | 6 | the same as `hierarchical`; there is no orientation code |
+| `type-clustering` | `typeClustering` | 7 | the baseline with `clusterStrength` defaulted to 0.01 |
+
+`spectral` and `temporal` are placed once by the layout handler (`compute_layout`); the stored field
+records that mode, and no GPU term depends on it, so the store and the device cannot disagree.
+
+**A stored 0 means "the active mode's default"** (owner ruling, 2026-10-31). It is resolved in one place,
+`SimulationParams::resolve_mode_defaults`, called by `From<&PhysicsSettings>` (the `SimParams` conversion
+goes through it), and is never written back to the store. Only a value of 0 or less is replaced; any
+positive stored number is applied as stored.
+
+| Mode | `<= 0` becomes |
+|---|---|
+| `radial` | `dagBiasK` 1.0, `dagLevelDistance` 60 |
+| `hierarchical`, `dagLeftRight` | `layerBiasK` 1.0, `layerSpacing` 60 |
+| `hierarchical`, `radial`, `dagLeftRight` | `centerGravityK` 0.1, `ssspAlpha` 0.5 |
+| `typeClustering` | `clusterStrength` 0.01 |
+
+Booleans are not covered by this rule and are never forced: `ssspEnabled` is applied as stored in every
+mode, so a DAG layout with `ssspEnabled=false` does not run SSSP, and no mode clears a bias term it does not
+own. The three numeric floors the old overlay applied (`max(0.1)`, `max(0.5)`, `max(0.01)`) are now these
+stored-0 defaults, so a stored positive value below the old floor (for example `ssspAlpha` 0.3) is obeyed.
+`GET /analytics/sssp/status` reports `enabled` and `alpha` from the same conversion, so it reports what the
+device holds. The actor neither preserves a mode of its own nor fills defaults; `SetLayoutMode` is removed.
+
+`POST /sssp/toggle` writes the store (closed 2026-10-31), and `/analytics/sssp/status` reads it. The
+`GET/POST /analytics/sssp/params` pair, which answered from hard-coded values, was deleted (nothing called it).
 Per-node derived values (degree-weighted gravity, class mass, per-domain repulsion charge in
 `src/actors/gpu/domain_charge.rs`) are computed from the graph on upload, not stored settings.
 

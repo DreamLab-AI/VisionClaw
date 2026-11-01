@@ -716,11 +716,23 @@ impl AppState {
             };
 
             let resolved = match sqlite_settings_repository.get_setting("physics").await {
-                Ok(Some(SettingValue::Json(json))) => {
+                Ok(Some(SettingValue::Json(mut json))) => {
+                    // ADR-2140: a document stored before `layoutMode` existed takes the mode
+                    // from the legacy quality-gate string.
+                    let gates = crate::actors::gpu::physics_restore::load_quality_gates_json(
+                        sqlite_settings_repository.as_ref(),
+                    )
+                    .await;
+                    let migrated = crate::actors::gpu::physics_restore::migrate_layout_mode(
+                        &mut json,
+                        gates.as_ref(),
+                    );
                     match serde_json::from_value::<crate::config::PhysicsSettings>(json) {
                         Ok(persisted) => {
                             info!("[AppState::new] Loaded persisted physics from SQLite (axis_compression_z={}, enable_dual_disc_layout={}, adaptive_speed={})", persisted.axis_compression_z, persisted.enable_dual_disc_layout, persisted.adaptive_speed);
-                            (persisted, false)
+                            // A migrated document is written back once, so every reader of
+                            // the stored row sees the same layout mode as the device.
+                            (persisted, migrated.is_some())
                         }
                         Err(e) => (
                             seed_canonical(&format!(
@@ -753,7 +765,7 @@ impl AppState {
                             .set_setting(
                                 "physics",
                                 SettingValue::Json(physics_json),
-                                Some("Physics simulation settings (canonical default, boot seed)"),
+                                Some("Physics simulation settings (boot seed, or layoutMode migration)"),
                             )
                             .await
                         {

@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: 2a8b795dccb3594fddb2a051195bee480231530c
+verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
 verified_paths: [src/bin/generate_types.rs, crates/visionclaw-ontology/src/open_world.rs, crates/visionclaw-ontology/src/lib.rs, crates/visionclaw-ontology/src/types/ontology_tools.rs, src/services/ontology_query_service.rs, src/handlers/ontology_agent_handler.rs, tests/ontology_agent_integration_test.rs]
 owner: jjohare
 review_trigger: the first entailed-false result (ADR-2125 disjointness landing); a change to the ontology-agent response types; an agent decision traced to an empty ontology result
@@ -82,3 +82,7 @@ None of these changes touches the decision this record makes. Every deletion had
 ## Re-verification — 2026-10-31 (`2a8b795dc`)
 
 Re-verified at the W3/W4 integration merge. The only governed-path delta since `685bc974c` is one line in the settings emitter of `src/bin/generate_types.rs`, `sssp_enabled: boolean;` (ADR-2140, `PhysicsSettings.sssp_enabled`). It does not touch the ontology-agent emitter, its variant tables or its parity tests, so this record's claims and status axes are unchanged. Re-run: `git diff 685bc974c..2a8b795dc -- src/bin/generate_types.rs` (1 file changed, 1 insertion).
+
+## Re-stamp — 2026-10-31 (ADR-2140 item 1)
+
+**Governed change:** `generate_types.rs` gains one `layout_mode` line in the hand-written settings interface (ADR-2140 item 1). It still emits only the settings interfaces and the ontology-agent types it emitted; nothing this record decides changed. **Decision unaffected.** Re-run: `git diff --stat 75b72416b 93302275e -- src/bin/generate_types.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.

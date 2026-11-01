@@ -305,8 +305,11 @@ const GraphManager: React.FC<GraphManagerProps> = ({ onDragStateChange }) => {
   useEffect(() => { void physicsFingerprint }, [physicsFingerprint])
 
   // layoutMode → layoutApi.setMode
+  // The stored mode is physics.layoutMode (ADR-2140). The POST writes through the server's one
+  // physics write path and writes nothing when the mode is already stored, so repeating it on
+  // mount is safe; it is still needed to receive the one-shot positions of spectral/temporal.
   const layoutMode = useSettingsStore(s =>
-    (s.settings as unknown as Record<string, Record<string, unknown>>)?.qualityGates?.layoutMode as string | undefined
+    s.settings?.visualisation?.graphs?.knowledge?.physics?.layoutMode as string | undefined
   )
   const prevLayoutModeRef = useRef<string | undefined>(undefined)
   useEffect(() => {

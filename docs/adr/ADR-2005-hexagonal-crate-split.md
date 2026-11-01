@@ -7,7 +7,7 @@ implementation_status: partial
 activation_status: live
 supersedes: []
 superseded_by: []
-verified_commit: db37a331370b967dba0b8ce3ed6bedeb92e576c2
+verified_commit: 93302275ecab90dfa73284405d331d56a3cd9840
 verified_paths: [Cargo.toml, src/actors, crates/visionclaw-actors/src, crates/visionclaw-integration-tests/tests/layer_direction.rs, .github/workflows/ci.yml]
 owner: jjohare
 review_trigger: completion of the actor extraction into crates/visionclaw-actors, or a new subsystem that does not map to an existing crate layer
@@ -322,3 +322,7 @@ Re-verified 2026-10-31 at db37a3313: governed change since 8775359e3 is `layer_d
 **Duplicated `protected_settings_actor.rs` / `voice_commands.rs`: not deleted.** Neither copy is dead. The root copies (148 and 276 lines) are the live ones (`crate::actors::protected_settings_actor` in `src/app_state.rs`; `crate::actors::voice_commands` in `speech_service`, `voice_tag_manager`, `speech_voice_integration`). The crate copies (349 and 422 lines) have no consumer outside the crate, but they are larger, different implementations with their own tests, not forwarding shims. Choosing which wins is the extraction decision itself, so it stays open.
 
 **Remains (status stays `partial`):** the actor move (`src/actors` 25 top-level files against 4 in the crate), reconciling the two diverged copies above, and incremental-build timing. The dependency direction is now enforced; module ownership is not.
+
+## Re-stamp — 2026-10-31 (ADR-2140 item 1)
+
+**Governed change:** ADR-2140 item 1 removes the `SetLayoutMode` message and handler and the actor's mode override, and adds `migrate_layout_mode` to `physics_restore.rs`. All of it is actor-layer code in the root crate, which already held these modules; `Cargo.toml` and `crates/visionclaw-actors/src` are unchanged (`git diff --stat` over them is empty), no crate was added and nothing crossed a boundary. **Decision holds.** Line citations in this record that name `force_compute_actor.rs` have moved; the functions they name are unchanged. Re-run: `git diff --stat 75b72416b 93302275e -- src/actors/gpu/force_compute_actor.rs src/actors/gpu/physics_restore.rs src/actors/messages/mod.rs src/actors/messages/physics_messages.rs`. Checked by reading that diff against this record's claims; server `cargo test --lib` 1721 passed, 0 failed, 9 ignored, `cargo test -p visionclaw-domain` 317 passed at `93302275e`.

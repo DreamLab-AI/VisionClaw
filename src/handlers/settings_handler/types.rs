@@ -361,6 +361,9 @@ pub struct PhysicsSettingsDTO {
     pub sssp_alpha: f32,
     #[serde(default = "default_sssp_enabled")]
     pub sssp_enabled: bool,
+    /// The stored `physics.layoutMode` (ADR-2140).
+    #[serde(default)]
+    pub layout_mode: visionclaw_domain::types::layout::LayoutMode,
     pub clustering_algorithm: String,
     pub cluster_count: u32,
     pub clustering_resolution: f32,

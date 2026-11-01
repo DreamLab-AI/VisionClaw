@@ -687,13 +687,13 @@
     },
     {
       "key": "layoutMode",
-      "path": "qualityGates.layoutMode",
-      "testid": "setting-qualityGates.layoutMode",
+      "path": "visualisation.graphs.knowledge.physics.layoutMode",
+      "testid": "setting-visualisation.graphs.knowledge.physics.layoutMode",
       "control": "select",
       "group": "motion",
       "label": "Layout Mode",
       "clientOnly": false,
-      "server": "qualityGates",
+      "server": "physics",
       "subgroup": "Layout"
     },
     {
