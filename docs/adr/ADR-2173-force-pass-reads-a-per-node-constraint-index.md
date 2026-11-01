@@ -7,7 +7,7 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit:
+verified_commit: d184e89fbda250a6682b774b48a5c1f25b275e4a
 verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, tests/tick_rate_bench.rs]
 owner: jjohare
 review_trigger: the constraint count or node count grows 10x, or a kernel signature changes
