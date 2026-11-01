@@ -9,7 +9,7 @@ supersedes: []
 superseded_by: []
 amends: [ADR-2140]
 relates: [ADR-2141, ADR-2172]
-verified_commit: f1fa1862c00ad627af8f45249d51b94c3a1c238f
+verified_commit: d5c46cdd86cda5cf376fb95ee0901158be0f97e2
 verified_paths: [src/actors/gpu/hold_registry.rs, src/actors/gpu/force_compute_actor.rs, src/actors/physics_orchestrator_actor.rs, src/handlers/socket_flow_handler/position_updates.rs, src/handlers/socket_flow_handler/types.rs, src/handlers/layout_handler.rs, scripts/drag-physics-acceptance.mjs]
 owner: jjohare
 review_trigger: the first headset session after the server carrying this change is deployed (does the graph answer the hand, does it rest about two seconds after release), or any change to the FA2 integrator or the stored `globalSpeed`.
@@ -40,7 +40,7 @@ acceptance_boundary: registry, actor, orchestrator and handler rules are covered
 ## Consequences
 - A client that relied on the drag-end pin must send `nodePin`. The XR client's own pin set (`fx/fy/fz`) is a client follow-up (ADR-2172 stops recording drag releases as pins).
 - Time to rest after a release is bounded by the FA2 integrator, not by damping. At `globalSpeed` 2.0 the neighbourhood moves about four times faster, but the ring measurements show almost no decay of residual energy within 40 steps at any `globalSpeed`, so **rest within about 2 s of a release is not established**; the live graph has to be measured (`scripts/drag-physics-acceptance.mjs`).
-- The tick rate stays at the GPU-bound 9–10 Hz on the live graph; nothing here raises it. Per-client delivery is ack-paced (ADR-2141) and was not measured.
+- The tick rate stays at the GPU-bound 9–10 Hz on the live graph; nothing here raises it. ADR-2173 later found and removed the dominant cost (the force kernels scanned every ontology constraint per node); on a graph of the live shape the step falls from 29 to 9.8 ms, to be confirmed on the live card after redeploy. Per-client delivery is ack-paced (ADR-2141) and was not measured.
 - Known gap: the orchestrator tracks held nodes by node id only, and a release is forwarded to it even when the physics actor ignored it (another connection owns the node). Two connections holding one node can therefore make the orchestrator think nothing is held; the live effect is nil today (`pauseOnEquilibrium` is false, the interval change is a no-op).
 - Why the live settings PUTs (about every 3 s, `dev-mode-local-admin`) register as changes while the visible fields are equal is not established; the gate returns "unchanged" for the live document in a unit test, so a hidden field differs between PUTs.
 
@@ -50,3 +50,6 @@ acceptance_boundary: registry, actor, orchestrator and handler rules are covered
 ## Re-verification — 2026-10-31 (`f1fa1862c`)
 
 Re-verified 2026-11-01 after merging xr/grab-server (ADR-2169), xr/grab-client (ADR-2172), client/three-0187 and docs/splat-adr, each Opus-reviewed (R15/R16/R17). The governed-path changes are those merges: drag holds and release in the GPU actor and socket handler, the held-only global_speed floor, two-hand grab and the edge breathe in the XR client, and the ADR 2168->2172 comment renames. This record's own claims are unchanged. Evidence on the merged tree: `cargo test --lib` 1768 passed, 0 failed (GPU 1); vitest 142 files / 1468 (installed three 0.183; the 0.187 run is on client/three-0187); XR GUT 522 passing on 4.6.1 and 4.8 at the grab-client head. Re-run: `git diff 2257ee7fa..f1fa1862c -- <governed path>`.
+
+## Re-verification — 2026-11-01 (`d5c46cdd8`)
+Governed-path change since `f1fa1862c`: `d6c091f0f` (speed floor through the settle window, settle damping cap dropped), already reflected in items 5 and 6, plus ADR-2173's `StepTiming` kernel sub-phases (logging only, no behaviour). Re-read against the code: `HOLD_GLOBAL_SPEED = 2.0` and `base_global_speed.max(HOLD_GLOBAL_SPEED)` in `force_compute_actor.rs`, no settle-window damping cap constant, `begin_release_settle` unchanged; `cargo test --lib hold` 39 passed. Claims unchanged.

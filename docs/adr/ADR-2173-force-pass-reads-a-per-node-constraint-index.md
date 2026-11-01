@@ -7,8 +7,9 @@ implementation_status: complete
 activation_status: staged
 supersedes: []
 superseded_by: []
-verified_commit: ffb38972abf172c2f974ee854b97750915b3ac61
-verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, tests/tick_rate_bench.rs]
+verified_commit: d5c46cdd86cda5cf376fb95ee0901158be0f97e2
+relates: [ADR-2169]
+verified_paths: [src/utils/unified_gpu_compute/constraint_index.rs, src/utils/unified_gpu_compute/memory.rs, crates/visionclaw-gpu/src/cuda_sources/visionclaw_unified.cu, src/utils/unified_gpu_compute/execution.rs, src/actors/gpu/force_compute_actor.rs]
 owner: jjohare
 review_trigger: the constraint count or node count grows 10x, or a kernel signature changes
 repo: visionclaw
@@ -41,4 +42,8 @@ acceptance_boundary: Measured on a synthetic graph of the live shape on an RTX 6
 - Built `visionclaw_unified.ptx`: `force_pass_kernel` has 30 `.param` entries (the I7 arity), and `.global .align 8 .u64 g_constraint_node_offsets` / `g_constraint_node_ids` are present.
 - `cargo test --lib` at the stamped commit: 1774 passed, 0 failed, exit 0.
 - `cargo test --lib constraint_index` (host equivalence to the old scan) and `adr_2029_constraint_gpu_tests::the_constraint_index_changes_no_bit_of_the_result` (device globals read back as bound/unbound, results equal).
-- `tests/tick_rate_bench.rs`, run with `--ignored` on a spare GPU: `TICK_GOLDEN_OUT` / `TICK_GOLDEN_CMP` for bit comparison, `TICK_MIN_HZ` to assert a floor.
+- `execution.rs` `step_stage_timings_at_the_live_graph_size` (`--ignored --nocapture`, spare GPU): the live-shape graph (9,688 nodes, 147,048 edges, 96,742 constraints), held and idle ms per step, readback, and the per-stage breakdown. `TICK_HUB=n` adds n constraints on node 0, `TICK_CONSTRAINTS=0` removes them, `TICK_MIN_HZ` asserts a floor. The stage breakdown is `StepTiming`'s kernel sub-phases (`VISIONCLAW_STEP_STAGES=1` adds it to the live "step timing" log line); there is no second profiler.
+- Re-run after folding the profiler into `StepTiming`: held 9.76 ms, idle 9.18 to 9.35 ms with constraints, identical to the standalone bench it replaced (9.20 idle) on the same GPU.
+
+## Relation to ADR-2169
+ADR-2169 recorded the live step at 9 to 10 Hz with 84 to 94 ms in the force kernel and left the cause "not investigated further". This record is that investigation: the cost was every thread scanning every ontology constraint (about 0.94 billion involvement checks per step), not the node count or the card sharing. ADR-2169's step-rate question is answered by this record; the per-client stream rate stays ack-paced (ADR-2141) and is not changed here.
