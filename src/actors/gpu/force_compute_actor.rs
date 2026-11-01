@@ -1895,6 +1895,23 @@ impl Handler<ComputeForces> for ForceComputeActor {
         }
 
         // Capture values needed for async block
+        // Backstop: a hold nobody has written for HOLD_EXPIRY is released, so a release that was
+        // lost or overtaken its hold cannot leave the graph bypassing the stability skip, without
+        // reheat and at the raised speed for ever.
+        let expired: Vec<Release> = self
+            .holds
+            .expire(Instant::now(), HOLD_EXPIRY)
+            .into_iter()
+            .map(|(_, r)| r)
+            .collect();
+        if !expired.is_empty() {
+            warn!(
+                "ForceComputeActor: {} hold(s) expired after {:?} without an update; released",
+                expired.len(),
+                HOLD_EXPIRY
+            );
+            self.after_release(&expired);
+        }
         let overrides = step_overrides(
             self.stability_warmup_remaining,
             self.holds.any_held(),
@@ -2637,7 +2654,10 @@ impl Handler<UpdateSimulationParams> for ForceComputeActor {
             return Ok(());
         }
 
-        info!("ForceComputeActor: UpdateSimulationParams received — params CHANGED");
+        info!(
+            "ForceComputeActor: UpdateSimulationParams received — params CHANGED (fields: {:?})",
+            changed_gpu_fields(&self.simulation_params, &msg.params)
+        );
         debug!(
             "  New params - spring_k: {:.3}, repel_k: {:.3}, damping: {:.3}, center_gravity_k: {:.3}, cluster: {:.3}, align: {:.3}",
             msg.params.spring_k, msg.params.repel_k, msg.params.damping,
@@ -2987,7 +3007,7 @@ impl Handler<HoldNodes> for ForceComputeActor {
     fn handle(&mut self, msg: HoldNodes, _ctx: &mut Self::Context) -> Self::Result {
         let mut changed = false;
         for (id, p) in &msg.holds {
-            changed |= self.holds.hold(msg.holder, *id, *p);
+            changed |= self.holds.hold(msg.holder, *id, *p, Instant::now());
         }
         if changed {
             self.pinned_mask_dirty = true;
@@ -4420,6 +4440,10 @@ const RELEASE_SETTLE_WINDOW: std::time::Duration = std::time::Duration::from_sec
 /// this one: 0.6 leaves under 1 % of a velocity after ten steps.
 const RELEASE_SETTLE_DAMPING: f32 = 0.6;
 
+/// A hold not written for this long is released by the actor itself. Longer than the socket's
+/// own 2 s drag timeout, so that normally fires first.
+const HOLD_EXPIRY: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Floor for `global_speed` while any node is held and through the settle window.
 ///
 /// Measured on the GPU (`held_node_response_by_parameter`, live FA2 integrator): the integrator
@@ -4479,6 +4503,44 @@ pub(crate) fn step_overrides(
             base_damping
         },
         reheat: if any_held || settling { 0.0 } else { reheat },
+    }
+}
+
+/// Names of the fields that make two parameter sets differ, for the "params CHANGED" log. A
+/// repeated settings write that the gate keeps calling a change shows here which field it is.
+fn changed_gpu_fields(cur: &SimulationParams, new: &SimulationParams) -> Vec<&'static str> {
+    let (a, b) = (SimParams::from(cur), SimParams::from(new));
+    let (ab, bb) = (bytemuck::bytes_of(&a), bytemuck::bytes_of(&b));
+    let mut out: Vec<&'static str> = crate::models::simulation_params::simparams_actual_layout()
+        .iter()
+        .filter(|f| ab[f.offset..f.offset + 4] != bb[f.offset..f.offset + 4])
+        .map(|f| f.name)
+        .collect();
+    if cur.semantic != new.semantic {
+        out.push("semantic");
+    }
+    if out.is_empty() {
+        out.push("(a host-side field outside the GPU image)");
+    }
+    out
+}
+
+#[cfg(test)]
+mod changed_fields_tests {
+    use super::*;
+
+    #[test]
+    fn the_log_names_the_field_that_differs() {
+        let cur = SimulationParams::default();
+        let mut new = cur.clone();
+        new.damping = 0.5;
+        new.rest_length += 3.0;
+        let names = changed_gpu_fields(&cur, &new);
+        assert!(
+            names.contains(&"damping") && names.contains(&"rest_length"),
+            "{names:?}"
+        );
+        assert_eq!(names.len(), 2, "{names:?}");
     }
 }
 

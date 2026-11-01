@@ -25,15 +25,21 @@
 //   --drag-ms MS             how long the drag lasts (default 1500)
 //   --rate HZ                drag update rate (default 60)
 //   --move-eps U             a node "moved" past this many units (default 0.05)
-//   --rest-eps U             "at rest" = no node moved more than this between frames (default 0.05)
+//   --rest-eps U             a frame counts as motion if any node moved more than this (default 0.05)
+//   --quiet-ms MS            no motion frames for this long = at rest (default 500)
 //   --max-settle-ms MS       settle budget for the PASS verdict (default 2000)
 //   --max-neighbour-ms MS    neighbour-response budget for the PASS verdict (default 500)
 //   --observe-ms MS          how long to watch after release (default 6000)
 //   --ws-module PATH         path to the `ws` package (default: client/node_modules/ws)
 //
-// Frames: V3 `[0x03](52-byte record)*` or V5 `[0x05][u64 seq](52-byte record)*`; the record starts
-// `[u32 wire_id][f32 x][f32 y][f32 z]`, the node id is `wire_id & 0x03FFFFFF`
-// (crates/visionclaw-wire).
+// The stream is paced per client (ADR-2141): the server sends a V5 chunk
+// `[0x05][u64 seq](52-byte record)*` and sends the next only after the client acknowledges it with
+// `[0x34][u64 seq][u32 nodes][u64 timestamp_ms]` (21 bytes), or after the ack timeout (500 ms). A
+// chunk carries only nodes that moved past the stream threshold (default 0.05) since the client
+// last held them, so a graph at rest sends NOTHING. This script therefore acknowledges every V5
+// chunk, reads "rest" as a quiet stream (`--quiet-ms`, default 500) and treats any record for a
+// node as that node having moved. The record starts `[u32 wire_id][f32 x][f32 y][f32 z]`; the node
+// id is `wire_id & 0x03FFFFFF` (crates/visionclaw-wire).
 //
 // Exit code 0 = every check passed, 1 = a check failed, 2 = could not run.
 
@@ -63,6 +69,7 @@ const opt = {
   rate: Number(args.rate ?? 60),
   moveEps: Number(args['move-eps'] ?? 0.05),
   restEps: Number(args['rest-eps'] ?? 0.05),
+  quietMs: Number(args['quiet-ms'] ?? 500),
   maxSettleMs: Number(args['max-settle-ms'] ?? 2000),
   maxNeighbourMs: Number(args['max-neighbour-ms'] ?? 500),
   observeMs: Number(args['observe-ms'] ?? 6000),
@@ -82,13 +89,16 @@ const RECORD = 52;
 const now = () => performance.now();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Decode a binary position frame into [{id,x,y,z}], or null for any other frame. */
+/** Decode a binary position frame into {seq, nodes:[{id,x,y,z}]} (seq null for V3), or null. */
 function decodeFrame(buf) {
   if (!buf || buf.length < 1) return null;
   let off;
+  let seq = null;
   if (buf[0] === 0x03) off = 1;
-  else if (buf[0] === 0x05) off = 9;
-  else return null;
+  else if (buf[0] === 0x05 && buf.length >= 9) {
+    off = 9;
+    seq = buf.readBigUInt64LE(1);
+  } else return null;
   const body = buf.length - off;
   if (body <= 0 || body % RECORD !== 0) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -101,7 +111,7 @@ function decodeFrame(buf) {
       z: dv.getFloat32(p + 12, true),
     });
   }
-  return nodes;
+  return { seq, nodes };
 }
 
 /** One connection: latest positions, a timestamped frame log, JSON control messages. */
@@ -130,10 +140,21 @@ class Client {
     const deadline = now() + 8000;
     while (!this.authed && now() < deadline) await sleep(25);
     if (!this.authed) throw new Error(`${this.name}: no authenticate_success within 8 s`);
+    this.send({ type: 'requestInitialData' });
   }
 
   send(obj) {
     this.ws.send(JSON.stringify(obj));
+  }
+
+  /** Acknowledge a V5 chunk so the server sends the next one without waiting out its timeout. */
+  ack(seq, nodes) {
+    const f = Buffer.alloc(21);
+    f[0] = 0x34;
+    f.writeBigUInt64LE(seq, 1);
+    f.writeUInt32LE(nodes, 9);
+    f.writeBigUInt64LE(BigInt(Date.now()), 13);
+    this.ws.send(f);
   }
 
   onText(s) {
@@ -149,9 +170,11 @@ class Client {
   }
 
   onBinary(buf) {
-    const nodes = decodeFrame(buf);
-    if (!nodes) return;
+    const frame = decodeFrame(buf);
+    if (!frame) return;
+    const { seq, nodes } = frame;
     const t = now();
+    if (seq !== null) this.ack(seq, nodes.length);
     const moved = new Map();
     for (const n of nodes) {
       const prev = this.pos.get(n.id);
@@ -191,24 +214,21 @@ function firstMove(client, ids, t0, eps) {
   return null;
 }
 
-/** Time of the first frame after `t0` that is followed by `needed` consecutive at-rest frames. */
-function restTime(client, t0, eps, needed = 5) {
-  let run = 0;
-  let start = null;
+/**
+ * Time of the last frame at or after `t0` that carried motion (a node past `eps`), provided the
+ * stream has then been quiet for `quietMs` up to `tEnd`; null when it was still moving at the end
+ * or never moved. A graph at rest sends no frames, so rest is silence, not small frames.
+ */
+function lastMotion(client, t0, tEnd, eps, quietMs) {
+  let last = null;
   for (const f of client.log) {
     if (f.t < t0) continue;
     let max = 0;
     for (const d of f.moved.values()) if (d > max) max = d;
-    if (max <= eps) {
-      if (run === 0) start = f.t;
-      run++;
-      if (run >= needed) return start;
-    } else {
-      run = 0;
-      start = null;
-    }
+    if (max > eps) last = f.t;
   }
-  return null;
+  if (last === null) return t0; // nothing moved after t0: already at rest
+  return tEnd - last >= quietMs ? last : null;
 }
 
 const results = [];
@@ -225,10 +245,18 @@ try {
   await A.open();
   await B.open();
   console.log('both connections authenticated; waiting for position frames');
-  const warm = now() + 15000;
-  while ((A.frames < 3 || B.frames < 3) && now() < warm) await sleep(50);
-  if (A.frames < 3 || B.frames < 3) throw new Error('no position frames received in 15 s');
-  await sleep(1000);
+  const warm = now() + 20000;
+  while ((A.frames < 1 || B.frames < 1) && now() < warm) await sleep(50);
+  if (A.frames < 1 || B.frames < 1) throw new Error('no position frames received in 20 s');
+  // The first load is chunked and acknowledged chunk by chunk; wait for it to go quiet.
+  let lastCount = -1;
+  for (const quietSince = { t: now() }; now() < warm; await sleep(100)) {
+    const c = A.frames + B.frames;
+    if (c !== lastCount) {
+      lastCount = c;
+      quietSince.t = now();
+    } else if (now() - quietSince.t > 1500) break;
+  }
 
   // Choose the nodes and their neighbours.
   const ids = [...A.pos.keys()];
@@ -322,8 +350,9 @@ try {
     })(),
   };
 
-  const restB = restTime(B, tRelease, opt.restEps);
+  const restB = lastMotion(B, tRelease, tEnd, opt.restEps, opt.quietMs);
   report.settleMs = restB == null ? null : Math.round(restB - tRelease);
+  report.framesAfterRelease = B.log.filter((f) => f.t >= tRelease).length;
 
   // Did the released node rejoin the simulation? A pinned node never moves after release; a free
   // one is pulled by its springs, so it travels from the drop point.

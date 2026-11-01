@@ -508,15 +508,17 @@ impl Actor for SocketFlowServer {
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         // Clean up orphaned drags: unpin any nodes this client was still dragging
         // when the WebSocket connection dropped (missed dragEnd messages).
-        if !self.dragged_nodes.is_empty() {
-            let node_ids: Vec<u32> = self.dragged_nodes.drain().collect();
-            let count = node_ids.len();
-            super::position_updates::release_holds(&self.app_state, self.hold_id, node_ids, true);
+        // Always release by holder, not by the list this connection believes it still holds: a
+        // hold update can reach the physics actor after the release that was meant to end it, and
+        // `dragged_nodes` is already empty by then.
+        let node_ids: Vec<u32> = self.dragged_nodes.drain().collect();
+        if !node_ids.is_empty() {
             warn!(
                 "[Drag] Client disconnected with {} nodes still dragged, sending release",
-                count
+                node_ids.len()
             );
         }
+        super::position_updates::release_holds(&self.app_state, self.hold_id, node_ids, true);
         self.drag_pending.clear();
         self.drag_last_update.clear();
 
