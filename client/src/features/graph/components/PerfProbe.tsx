@@ -281,7 +281,8 @@ class PerfController {
       const ext = tmp?.getExtension('WEBGL_debug_renderer_info');
       if (tmp && ext) out.webglUnmasked = tmp.getParameter(ext.UNMASKED_RENDERER_WEBGL);
     } catch { /* ignore */ }
-    out.hasWebGPU = !!navigator.gpu;
+    // @types/three 0.187 no longer pulls in @webgpu/types, so `gpu` is absent from Navigator.
+    out.hasWebGPU = !!(navigator as Navigator & { gpu?: unknown }).gpu;
     return out;
   }
 

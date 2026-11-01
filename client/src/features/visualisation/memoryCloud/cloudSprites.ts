@@ -19,6 +19,7 @@
  * On both paths the `<points>` object stays mounted for hover picking.
  */
 
+import type { Node as TslNode } from 'three/webgpu';
 import type * as THREE from 'three';
 
 export interface CloudSprites {
@@ -62,7 +63,7 @@ export async function createCloudSprites(
     sizeAttenuation: true,
   });
   material.positionNode = T.instancedBufferAttribute(posAttr);
-  material.colorNode = T.vec4(T.instancedBufferAttribute(colAttr), 1);
+  material.colorNode = T.vec4(T.instancedBufferAttribute(colAttr) as unknown as TslNode<'vec3'>, 1);
   const r = T.uv().sub(0.5).length().mul(2);
   material.opacityNode = T.float(T.materialOpacity).mul(T.float(1).sub(T.smoothstep(DISC_INNER, 1, r)));
 
