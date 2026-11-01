@@ -110,6 +110,18 @@ static func fit_scale(bounds: Vector3, content_extent: Vector3) -> float:
 	return 1.0 if s == INF else s
 
 
+## The scene edge a finished agent runs out to (ADR-2135, ADR-2109): the sphere
+## about the volume's origin that encloses its box, so half the box diagonal, in
+## world metres (`world_scale` is the volume's global scale, which carries the
+## arrangement scale). The fit puts the content's centre on the origin and inside
+## the box, so this sphere encloses the scene. It is the existing `bounds`, not a
+## constant of its own. 0.0 when the bounds or the scale are not usable.
+static func edge_radius(box: Vector3, world_scale: float) -> float:
+	if not (is_finite(box.x) and is_finite(box.y) and is_finite(box.z)) or not is_finite(world_scale) or world_scale <= 0.0:
+		return 0.0
+	return 0.5 * box.length() * world_scale
+
+
 ## The undo-yaw basis R.
 func yaw_basis() -> Basis:
 	return Basis(Vector3.UP, deg_to_rad(undo_yaw_deg))

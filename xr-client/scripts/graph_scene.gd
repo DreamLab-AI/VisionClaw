@@ -4,6 +4,7 @@ const BackendCaps := preload("res://scripts/backend_caps.gd")
 const BackendConnection := preload("res://scripts/backend_connection.gd")
 const ConnectionVolumeSource := preload("res://scripts/connection_volume_source.gd")
 const VolumeArrangementScript := preload("res://scripts/volume_arrangement.gd")
+const SpatialVolume := preload("res://scripts/spatial_volume.gd")
 const EmulatedVolumeScene := preload("res://scenes/EmulatedVolume.tscn")
 const NativeContainerShim := preload("res://scripts/native_container_shim.gd")
 const LinkLayerScript := preload("res://scripts/link_layer.gd")
@@ -3776,6 +3777,20 @@ func _graph_centre_world() -> Vector3:
 	return v.global_position if v != null and v.is_inside_tree() else GRAPH_ANCHOR
 
 
+## The overlay volume's box (metres, its own frame) and its global scale: the scene
+## edge a finished agent runs out to is half the box diagonal in world metres
+## (SpatialVolume.edge_radius). Zeros when the volume is not in the tree, which the
+## choreography reads as "edge unknown".
+func _overlay_box() -> Vector3:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	return v.bounds if v != null and v.is_inside_tree() else Vector3.ZERO
+
+
+func _overlay_world_scale() -> float:
+	var v: Node3D = _volumes.get(OVERLAY_VOLUME, null)
+	return v.global_transform.basis.get_scale().x if v != null and v.is_inside_tree() else 0.0
+
+
 # ~4 Hz: mirror the registry into embodiments. New ids materialise at a rim
 # slot, vanished ids (retired demo agents, or a cleared store) despawn, and
 # every embodied agent's registry view is handed to the choreography.
@@ -3816,7 +3831,7 @@ func _reconcile_embodiment() -> void:
 # ontology / memory triangle. Each work agent's rest slot is the centroid (server
 # origin) plus its activity drift, which leans it towards the graphs it has been
 # working on and decays home when it is idle. The choreography stays the only
-# pose writer (Invariant 8): this only moves the slot it parks at.
+# pose writer (Invariant 8): this only moves the rest slot it relaxes onto.
 func _apply_drift_rest_slots() -> void:
 	if _choreo == null or _binary_client == null or not _binary_client.has_method("agent_drift_offset"):
 		return
@@ -3936,6 +3951,7 @@ func _update_agents(delta: float) -> void:
 	_ensure_effects()
 	_choreo.set_head(cam_pos)
 	_choreo.set_graph_centre(_graph_centre_world())
+	_choreo.set_scene_edge(SpatialVolume.edge_radius(_overlay_box(), _overlay_world_scale()))
 	_choreo.tick(delta)
 	if _effects != null:
 		_effects.set_head(cam_pos)

@@ -4,7 +4,8 @@ extends "res://addons/gut/test.gd"
 # (scripts/agent_choreography.gd). Pure GDScript: no scene, no gdext. These pin
 # the behaviours the headset review demanded — agents materialise in place, only
 # the choreography moves them, routes avoid the head, completion is explicit,
-# and a parked agent stays put (and faded) until it is re-tasked.
+# and a finished agent eases out to the scene edge in 30 s and holds there until
+# it is re-tasked (ADR-2135 / ADR-2109: one done rule on both clients).
 
 const Choreo := preload("res://scripts/agent_choreography.gd")
 
@@ -65,7 +66,7 @@ func test_head_pose_changes_never_move_a_working_agent() -> void:
 	assert_lt(before.distance_to(after), 0.03, "only the 1 cm hover moves it (%.3f)" % before.distance_to(after))
 
 
-func test_explicit_done_completes_parks_to_rim_fades_and_stays_selectable_state() -> void:
+func test_explicit_done_starts_the_edge_run_at_once_and_stays_selectable_state() -> void:
 	var c: RefCounted = _make()
 	c.add_agent("a", RIM, 0.0, RIM)
 	c.update_registry("a", Choreo.ST_WORKING, true, 42, TARGET)
@@ -73,21 +74,15 @@ func test_explicit_done_completes_parks_to_rim_fades_and_stays_selectable_state(
 	c.take_events()
 	c.update_registry("a", Choreo.ST_DONE, true, 42, TARGET)
 	c.tick(0.01)
-	assert_eq(c.pose("a")["phase"], Choreo.PH_COMPLETE, "done → complete immediately, no idle timeout")
+	assert_eq(c.pose("a")["phase"], Choreo.PH_EDGE, "done starts the edge run immediately, no idle timeout")
 	var evs: Array = c.take_events()
 	assert_eq(evs.size(), 1, "one completion event")
 	assert_eq(evs[0]["type"], "complete")
-	_run(c, Choreo.COMPLETE_SEC + 0.1)
-	assert_eq(c.pose("a")["phase"], Choreo.PH_PARK, "parks after the completion beat")
-	_run(c, Choreo.PARK_MAX_SEC + 0.5)
+	assert_true(bool(c.pose("a")["done"]), "pose reports done")
+	_run(c, Choreo.EDGE_SECONDS + 1.0)
 	var p: Dictionary = c.pose("a")
-	assert_eq(p["phase"], Choreo.PH_REST, "rests at the rim")
-	assert_lt((p["pos"] as Vector3).distance_to(RIM), 0.05, "parked at its rim slot")
-	assert_almost_eq(float(p["alpha"]), Choreo.ALPHA_PARKED, 0.01, "faded to 0.3, still present")
-	assert_true(bool(p["done"]), "pose reports done")
-	# Resting: nothing moves it until it is re-tasked.
-	_run(c, 5.0)
-	assert_eq(c.pose("a")["pos"], p["pos"], "rest holds position")
+	assert_eq(p["phase"], Choreo.PH_EDGE, "the run holds at the edge until the agent is named again")
+	assert_almost_eq(float(p["alpha"]), Choreo.ALPHA_FADED, 0.01, "faded, still present")
 	c.update_registry("a", Choreo.ST_WORKING, true, 7, Vector3(0.4, 1.4, -1.9))
 	c.tick(0.01)
 	assert_eq(c.pose("a")["phase"], Choreo.PH_TRAVEL, "re-tasked agent brightens and travels from where it is")
@@ -106,17 +101,25 @@ func test_new_target_while_working_starts_a_new_trip_from_the_current_slot() -> 
 	assert_lt((p["pos"] as Vector3).distance_to(slot), 0.05, "departs from the current slot, never snaps")
 
 
-func test_expired_evidence_parks_without_a_completion_burst() -> void:
+func test_expired_evidence_returns_to_the_rest_slot_without_a_completion_burst() -> void:
 	var c: RefCounted = _make()
 	c.add_agent("a", RIM, 0.0, RIM)
 	c.update_registry("a", Choreo.ST_WORKING, true, 42, TARGET)
 	_run(c, 10.0)
 	c.take_events()
+	var slot: Vector3 = Vector3(0.1, 1.3, -1.5)
+	c.set_rim_slot("a", slot)
 	c.update_registry("a", Choreo.ST_IDLE, false, -1, Vector3.ZERO)
 	c.tick(0.01)
-	assert_eq(c.pose("a")["phase"], Choreo.PH_PARK, "stale agent drifts to the rim")
+	assert_eq(c.pose("a")["phase"], Choreo.PH_REST, "an agent with no work on record goes to rest, not to the edge")
 	for ev: Dictionary in c.take_events():
 		assert_ne(ev["type"], "complete", "no completion burst for an expiry")
+	_run(c, 20.0)
+	assert_lt((c.pose("a")["pos"] as Vector3).distance_to(slot), 0.005, "relaxed onto its rest slot")
+	slot = Vector3(0.2, 1.3, -1.4)
+	c.set_rim_slot("a", slot)
+	_run(c, 20.0)
+	assert_lt((c.pose("a")["pos"] as Vector3).distance_to(slot), 0.005, "follows the rest slot when the drift moves it")
 
 
 func test_routes_and_slots_keep_one_metre_from_the_head() -> void:

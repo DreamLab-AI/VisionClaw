@@ -13,6 +13,9 @@
  *   never passes the edge (an agent beyond the edge is put back onto it) and, once on it, no
  *   longer changes: the drawn position is constant and the edge skip gate can skip. Going back
  *   to work, or having no work on record, restarts the clock for its next finish.
+ *   The headset runs the same rule in `xr-client/scripts/agent_choreography.gd` (`EDGE_SECONDS`, `ease_out_cubic`,
+ *   its edge the overlay volume's box); ADR-2135 names the one definition, and `test_agent_edge_run.gd` fails
+ *   if `AGENT_EDGE_SECONDS` here and `EDGE_SECONDS` there differ.
  * - **No work on record**: the offset relaxes to zero, handing the agent back
  *   to its server position (ADR-2135), snapping to zero under
  *   `AGENT_RELAX_SNAP`.
