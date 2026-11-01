@@ -540,25 +540,23 @@ pub fn edges_for_class_mask(
 }
 
 /// Full-extent (0th to 100th percentile) AABB `[minx, miny, minz, maxx, maxy, maxz]` over the
-/// positions of `ids`, skipping `exclude` (the grabbed node), ids `position_of` does not know,
-/// and non-finite positions. `None` when nothing qualifies. Unlike `render_aabb`, nothing is
-/// trimmed: a volume's fit must contain every node it draws (ADR-2158 E7).
+/// positions of `ids`, skipping every id in `exclude` (the grabbed nodes: up to one per hand, so
+/// a set, ADR-2168), ids `position_of` does not know, and non-finite positions. `None` when
+/// nothing qualifies. Unlike `render_aabb`, nothing is trimmed: a volume's fit must contain every
+/// node it draws (ADR-2158 E7).
 pub fn full_aabb_of(
     ids: &[i32],
-    exclude: Option<u32>,
+    exclude: &[i32],
     position_of: impl Fn(u32) -> Option<[f32; 3]>,
 ) -> Option<[f32; 6]> {
     let mut lo = [f32::INFINITY; 3];
     let mut hi = [f32::NEG_INFINITY; 3];
     let mut any = false;
     for &raw in ids {
-        if raw < 0 {
+        if raw < 0 || exclude.contains(&raw) {
             continue;
         }
         let id = raw as u32;
-        if Some(id) == exclude {
-            continue;
-        }
         let Some(p) = position_of(id) else { continue };
         if !p.iter().all(|c| c.is_finite()) {
             continue;
@@ -2278,16 +2276,16 @@ impl BinaryProtocolClient {
     }
 
     /// Full-extent AABB `[minx,miny,minz,maxx,maxy,maxz]` (server space) over `ids`, skipping
-    /// `exclude_id` (< 0 = none) and ids not in the store. Empty array when none qualify.
+    /// every id in `exclude` (the nodes held by a hand; empty = none) and ids not in the store.
+    /// Empty array when none qualify.
     #[func]
-    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude_id: i64) -> PackedFloat32Array {
-        let excl = (exclude_id >= 0).then_some(exclude_id as u32);
+    fn render_aabb_ids(&self, ids: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array {
         let known = |id: u32| {
             self.node_class
                 .contains_key(&id)
                 .then(|| self.store.position_of(id))
         };
-        match full_aabb_of(ids.as_slice(), excl, known) {
+        match full_aabb_of(ids.as_slice(), exclude.as_slice(), known) {
             Some(bb) => PackedFloat32Array::from(bb.as_slice()),
             None => PackedFloat32Array::new(),
         }

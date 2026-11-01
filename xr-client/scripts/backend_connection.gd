@@ -218,12 +218,12 @@ func class_of(id: int) -> int:
 	return -1
 
 
-## Full-extent AABB of `ids` in graph units, excluding `exclude_id` (< 0 = none).
-## An empty AABB when none of the ids is known.
-func render_aabb_for_ids(ids: PackedInt32Array, exclude_id: int) -> AABB:
+## Full-extent AABB of `ids` in graph units, excluding every id in `exclude` (the
+## nodes a hand holds; empty = none). An empty AABB when none of the ids is known.
+func render_aabb_for_ids(ids: PackedInt32Array, exclude: PackedInt32Array = PackedInt32Array()) -> AABB:
 	if client == null or not client.has_method("render_aabb_ids"):
 		return AABB()
-	return aabb_from_flat(client.render_aabb_ids(ids, exclude_id))
+	return aabb_from_flat(client.render_aabb_ids(ids, exclude))
 
 
 ## Pure: `[minx, miny, minz, maxx, maxy, maxz]` → AABB; empty AABB otherwise.

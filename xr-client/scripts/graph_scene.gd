@@ -186,6 +186,17 @@ func _held_ids(only_vol: StringName = &"") -> Array[int]:
 	return out
 
 
+# Writes volume `vid`'s refit exclusion set from the nodes held in it (E7): a node the
+# hand drags is pinned to the hand, so letting it into the fit chases the hand outward
+# (the box refits around the held node, the hand maps to a farther server point, the
+# node moves, and so on). Called wherever a grab begins or ends.
+func _sync_grab_exclusion(vid: StringName) -> void:
+	var src = _sources.get(vid, null)
+	if src == null or not ("grabbed_ids" in src):
+		return
+	src.grabbed_ids = PackedInt32Array(_held_ids(vid))
+
+
 ## The world frame (graph units → world) that places node `node_id` for overlays
 ## such as the focus marker: the Content transform of the volume holding it, or
 ## of the volume the ray last targeted it in, else GraphRoot's (knowledge).
@@ -3336,6 +3347,7 @@ func _begin_grab(hand: int, vid: StringName, node_id: int, hand_pos: Vector3) ->
 		return false
 	_grab_id[hand] = node_id
 	_grab_vol[hand] = vid
+	_sync_grab_exclusion(vid)
 	print("GraphScene DEBUG: node_grabbed hand=%d volume=%s id=%d" % [hand, vid, node_id])
 	# The held node is the selection (UX feature 2): the Rust tube may catch a
 	# node the volume picker's cone missed, or a different one.
@@ -3379,7 +3391,8 @@ func _end_grab(hand: int, pulse: bool = true) -> void:
 	var node_id: int = _grab_id[hand]
 	if node_id == -1:
 		return
-	var conn: Node = _conn_for_volume(_grab_vol[hand])
+	var vid: StringName = _grab_vol[hand]
+	var conn: Node = _conn_for_volume(vid)
 	if conn != null:
 		conn.send_drag_end(node_id)
 	if pulse:
@@ -3388,6 +3401,9 @@ func _end_grab(hand: int, pulse: bool = true) -> void:
 	_grab_vol[hand] = &""
 	_grab_dist[hand] = 1.0
 	_grab_target[hand] = Vector3.ZERO
+	# After the state is cleared, so the other hand's node (if it is in the same
+	# volume) stays excluded and this one rejoins the fit.
+	_sync_grab_exclusion(vid)
 
 
 func _controller_trigger(controller: XRController3D) -> float:

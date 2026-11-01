@@ -25,11 +25,11 @@ class FakeClassClient:
 				out.append(id)
 		return out
 
-	func render_aabb_ids(ids: PackedInt32Array, exclude: int) -> PackedFloat32Array:
+	func render_aabb_ids(ids: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array:
 		var box := AABB()
 		var first := true
 		for id: int in ids:
-			if id == exclude or not nodes.has(id):
+			if exclude.has(id) or not nodes.has(id):
 				continue
 			var p: Vector3 = nodes[id][1]
 			if first:
@@ -118,10 +118,14 @@ func test_aabb_is_full_extent_and_excludes_the_grabbed_node() -> void:
 	var box: AABB = know.content_aabb()
 	assert_eq(box.position, Vector3(-3, -2, -1), "every knowledge node, no percentile trim")
 	assert_eq(box.end, Vector3(4, 6, 1))
-	know.grabbed_id = 6
+	know.grabbed_ids = PackedInt32Array([6])
 	box = know.content_aabb()
 	assert_eq(box.position, Vector3(0, -2, 0), "the grabbed node does not refit the volume")
 	assert_eq(box.end, Vector3(4, 0, 1))
+	know.grabbed_ids = PackedInt32Array([6, 2])
+	box = know.content_aabb()
+	assert_eq(box.position, Vector3(0, 0, 0), "two held nodes (one per hand) both leave the fit: only node 1 remains")
+	assert_eq(box.size, Vector3.ZERO)
 	var empty := ConnectionVolumeSource.new(_conn, 0b0100 << 4)
 	assert_eq(empty.content_aabb(), AABB(), "no ids ⇒ empty AABB")
 

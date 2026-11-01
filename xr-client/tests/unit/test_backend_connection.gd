@@ -41,7 +41,7 @@ class FakeClient:
 		calls.append(["node_ids_for_mask", mask])
 		return ids
 
-	func render_aabb_ids(i: PackedInt32Array, exclude: int) -> PackedFloat32Array:
+	func render_aabb_ids(i: PackedInt32Array, exclude: PackedInt32Array) -> PackedFloat32Array:
 		calls.append(["render_aabb_ids", i, exclude])
 		return aabb
 
@@ -244,8 +244,8 @@ func test_aabb_and_ids_wrap_the_client() -> void:
 	fake.aabb = PackedFloat32Array([-1, -2, -3, 1, 2, 3])
 	var vc: Node = _conn(&"visionclaw", "visionclaw", fake)
 	assert_eq(vc.node_ids_for_mask(0b0001), PackedInt32Array([1, 2]))
-	var box: AABB = vc.render_aabb_for_ids(PackedInt32Array([1, 2]), -1)
+	var box: AABB = vc.render_aabb_for_ids(PackedInt32Array([1, 2]), PackedInt32Array())
 	assert_eq(box.position, Vector3(-1, -2, -3))
 	assert_eq(box.size, Vector3(2, 4, 6))
 	fake.aabb = PackedFloat32Array()
-	assert_eq(vc.render_aabb_for_ids(PackedInt32Array([9]), -1), AABB(), "empty when none known")
+	assert_eq(vc.render_aabb_for_ids(PackedInt32Array([9]), PackedInt32Array()), AABB(), "empty when none known")
