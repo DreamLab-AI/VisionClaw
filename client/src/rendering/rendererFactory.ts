@@ -103,6 +103,18 @@ export function setForceWebGLOverride(force: boolean) {
   }
 }
 
+/**
+ * True only for three's real WebGPU backend. Reads the backend's own
+ * `isWebGPUBackend` / `isWebGLBackend` flags, never `constructor.name`:
+ * production minification renames the class, so a name comparison never
+ * matched and a failed adapter silently ran WebGPURenderer on its WebGL2
+ * fallback backend (ML review, 2026-11-01).
+ */
+export function backendIsWebGPU(backend: unknown): boolean {
+  const b = backend as { isWebGPUBackend?: boolean; isWebGLBackend?: boolean } | null | undefined;
+  return b?.isWebGPUBackend === true && b?.isWebGLBackend !== true;
+}
+
 export async function createGemRenderer(defaultProps: Record<string, unknown>) {
   const canvas = defaultProps.canvas as HTMLCanvasElement;
   const maxDPR = getMaxPixelRatio();
@@ -140,8 +152,7 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
       // Gate 2: verify the backend is actually WebGPU, not the internal WebGL2 fallback.
       // Three.js r182 and earlier silently fell back to WebGLBackend when the GPU
       // adapter request failed. r183+ still has this fallback path, so the check remains.
-      const backendName = renderer.backend?.constructor?.name ?? '';
-      if (backendName === 'WebGLBackend') {
+      if (!backendIsWebGPU(renderer.backend)) {
         logger.warn('[GemRenderer] WebGPURenderer fell back to WebGLBackend — using clean WebGLRenderer instead');
         renderer.dispose();
         throw new Error('WebGPU backend unavailable (got WebGLBackend)');
@@ -217,13 +228,12 @@ export async function createGemRenderer(defaultProps: Record<string, unknown>) {
         nodeBasedBloom: true,
         gpuAdapterName: adapterInfo.description
           || adapterInfo.device
-          || backendName
           || 'WebGPU',
         maxTextureSize: 16384,  // WebGPU minimum guaranteed
         pixelRatio: Math.min(window.devicePixelRatio, maxDPR),
       };
 
-      logger.info('[GemRenderer] WebGPU renderer initialized (backend:', backendName + ')');
+      logger.info('[GemRenderer] WebGPU renderer initialized (backend: WebGPUBackend)');
       return renderer;
     } catch (err) {
       logger.warn('[GemRenderer] WebGPU unavailable, falling back to WebGL:', err);
